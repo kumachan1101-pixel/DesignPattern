@@ -113,33 +113,67 @@ classDiagram
 
 ---
 
-### 現状のコードと設計者の脳内の声
+### 現状のコードと責任チェック
 
 > **コード執筆ルール**：専門知識（通信・ファイルI/O・特定フレームワーク）を排除し、純粋な分岐と関数呼び出しだけで構成する。読者が「構造のマズさ」にだけ集中できるようにする。
 
+【起点コード】
+
 ```cpp
-// ❌ 問題のあるコード例
-void processOrder(Order& order) {
-    // 💭 「これは本来の仕事。自然だ。」
+// 各サービスは実体のある実装で示す（宣言だけにしない）
+class EmailSender {
+public:
+    void sendEmail(const std::string& address, const std::string& body) {
+        // メール送信処理（テキスト本文をaddressへ送る）
+    }
+    // このクラスが知っていること：メール送信の手順
+};
+
+class SmsSender {
+public:
+    void sendSms(const std::string& phone, const std::string& text) {
+        // SMS送信処理
+    }
+    // このクラスが知っていること：SMS送信の手順
+};
+
+void processOrder(Order& order,
+                  EmailSender& email,
+                  SmsSender& sms) {
     validateOrder(order);
 
-    // 💭 「ん？ なぜ注文処理が、通知の"やり方"まで知っているんだ？」
     if (order.notifyType == "EMAIL") {
-        sendEmail(order.userEmail, "注文を受け付けました");
+        email.sendEmail(order.userEmail, "注文を受け付けました");
     } else if (order.notifyType == "SMS") {
-        sendSms(order.userPhone, "注文を受け付けました");
+        sms.sendSms(order.userPhone, "注文を受け付けました"); // ← 知らなくていい
     }
-    // 💭 「新しい通知方法が増えるたびに、この"注文処理"を触るのか？」
 
-    // 💭 「本来の仕事に戻った。さっきのブロックだけが浮いている。」
     saveOrder(order);
+}
+
+int main() {
+    Order order;
+    EmailSender email;
+    SmsSender sms;
+    processOrder(order, email, sms);
+    // 出力：注文処理完了
+    return 0;
 }
 ```
 
-**【脳内の声の整理：違和感の正体】**
-`processOrder` は「注文を処理する」関数のはずです。
-しかし今、「通知をどのように送るか」という別の関心事を知ってしまっています。
-**「【本来の責任】」と「【知らなくていい他人の都合・手段】」** という2種類の知識が同居しています。
+このコードは正しく動く。問題は構造にある。
+
+**責任チェック表**（processOrder が持っている知識を洗い出す）
+
+| processOrder の各行 | 持っている知識 | 責任内か |
+|---|---|---|
+| validateOrder(order) | 注文のバリデーション | ✅ 責任内 |
+| if (order.notifyType == "EMAIL") | 通知手段の種類 | ❌ **誰の責任？**→ 通知サービスの責任 |
+| email.sendEmail(...) | メール送信の呼び出し方 | ❌ **誰の責任？**→ EmailSenderの責任 |
+| sms.sendSms(...) | SMS送信の呼び出し方 | ❌ **誰の責任？**→ SmsSenderの責任 |
+| saveOrder(order) | 注文の保存 | ✅ 責任内 |
+
+`processOrder` は「注文を処理する」という1つの責任を持つはずです。しかし責任チェック表を見ると、「通知手段の種類」という別の責任が混在しています。**「【本来の責任】」と「【知らなくていい他人の都合・手段】」** が同居しています。
 
 ---
 
@@ -364,22 +398,77 @@ flowchart TD
 
 > **設計者の目線**：構造を変えたことで、ステップ1の「脳内の声」がどう消えたかを確認する。
 
-### 解決後のコード
+### 解決後のコード（全体）
+
+インターフェース・実装クラス・統括クラス・BatchApplication・main()の全体を示す。
 
 ```cpp
-// ✅ 解決後：中核は「何をするか（What）」だけが残った
-void processOrder(Order& order, INotifier& notifier) {
-    //                          ↑ 契約だけを知る。Email か SMS かは知らない。
+// インターフェース（変動するもの全てに定義）
+class INotifier {
+public:
+    virtual ~INotifier() = default;
+    virtual void notify(const std::string& message) = 0;
+};
 
-    validateOrder(order);
+// 実装クラス（具体的な手段を引き受ける）
+class EmailNotifier : public INotifier {
+public:
+    void notify(const std::string& message) override {
+        // メール送信処理
+    }
+};
 
-    // 💭 「よし。『通知してくれ』と契約に頼むだけになった。
-    //      Email か SMS かを知る必要はもうない。」
-    notifier.notify("注文を受け付けました: " + order.id);
+class SmsNotifier : public INotifier {
+public:
+    void notify(const std::string& message) override {
+        // SMS送信処理
+    }
+};
 
-    saveOrder(order);
+// 統括クラスはインターフェースだけを知る
+class OrderProcessor {
+public:
+    explicit OrderProcessor(INotifier* notifier) : notifier_(notifier) {}
+
+    void processOrder(Order& order) {
+        validateOrder(order);
+        notifier_->notify("注文を受け付けました: " + order.id);
+        saveOrder(order);
+    }
+
+private:
+    INotifier* notifier_;
+};
+
+// BatchApplication：全ての具体クラスを組み立てる唯一の場所
+class BatchApplication {
+public:
+    void run() {
+        EmailNotifier  notifier;
+        OrderProcessor processor(&notifier);
+        Order order;
+        processor.processOrder(order);
+    }
+};
+
+// main()はBatchApplicationをキックするだけ
+int main() {
+    BatchApplication app;
+    app.run();
+    return 0;
 }
 ```
+
+**最終責任チェック表**
+
+| クラス | 責任 | 変わる理由 |
+|---|---|---|
+| main() | プログラムを起動する | 起動方法が変わるとき |
+| BatchApplication | 依存を組み立て、処理を起動する | 使うクラスの組み合わせが変わるとき |
+| OrderProcessor | 注文処理のフローを完了させる | 業務フローが変わるとき |
+| INotifier | 通知の契約を定義する | 通知の責任範囲が変わるとき |
+| EmailNotifier | メールで通知する | メール仕様・APIが変わるとき |
+| SmsNotifier | SMSで通知する | SMS仕様・APIが変わるとき |
 
 ### 変更影響の比較（改善後）
 
