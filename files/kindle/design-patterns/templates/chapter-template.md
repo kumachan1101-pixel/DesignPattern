@@ -120,18 +120,18 @@ classDiagram
 ```cpp
 // ❌ 問題のあるコード例
 void processOrder(Order& order) {
-    // 🧠 「これは本来の仕事。自然だ。」
+    // 💭 「これは本来の仕事。自然だ。」
     validateOrder(order);
 
-    // 🧠 「ん？ なぜ注文処理が、通知の"やり方"まで知っているんだ？」
+    // 💭 「ん？ なぜ注文処理が、通知の"やり方"まで知っているんだ？」
     if (order.notifyType == "EMAIL") {
         sendEmail(order.userEmail, "注文を受け付けました");
     } else if (order.notifyType == "SMS") {
         sendSms(order.userPhone, "注文を受け付けました");
     }
-    // 🧠 「新しい通知方法が増えるたびに、この"注文処理"を触るのか？」
+    // 💭 「新しい通知方法が増えるたびに、この"注文処理"を触るのか？」
 
-    // 🧠 「本来の仕事に戻った。さっきのブロックだけが浮いている。」
+    // 💭 「本来の仕事に戻った。さっきのブロックだけが浮いている。」
     saveOrder(order);
 }
 ```
@@ -373,7 +373,7 @@ void processOrder(Order& order, INotifier& notifier) {
 
     validateOrder(order);
 
-    // 🧠 「よし。『通知してくれ』と契約に頼むだけになった。
+    // 💭 「よし。『通知してくれ』と契約に頼むだけになった。
     //      Email か SMS かを知る必要はもうない。」
     notifier.notify("注文を受け付けました: " + order.id);
 
