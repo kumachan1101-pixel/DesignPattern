@@ -15,18 +15,21 @@
 コードを読む前に、本章で使う問いをセットアップします。
 このレンズなしに読んでも、コードは「動いている処理の羅列」にしか見えません。
 
-**【本章の問い（1つだけ選ぶ）】**
-> 「このコードの中で、**「【〇〇】」と「【△△】」** が同じ関数（クラス）に混在していないか？」
+**【全パターン共通の問い】**
 
-*執筆ヒント（パターンごとに入れ替える）*
+> 「このコードの中に、**『変わる理由』が異なる2つのものが、同じ場所に混在していないか？」**
 
-| パターン | 問いの例 |
+この問いは、すべての設計パターンで使える。StrategyでもObserverでもFacadeでも、解こうとしている問題の本質はこれ1つだ。パターンの名前が違うのは「何と何が混在しているか」の具体的な組み合わせが違うだけで、構造的な問いは変わらない。
+
+*各パターンにおける「2つのもの」の具体例*
+
+| パターン | 混在している「変わる理由の異なる2つのもの」 |
 |---|---|
-| Strategy | 「『何をするか（業務）』と『どうやるか（手段）』が混在していないか？」 |
-| Observer | 「『自分の仕事』と『他人に通知する仕事』が混在していないか？」 |
-| Facade | 「『コアのやりたいこと』と『外部の泥臭い都合』が混在していないか？」 |
-| Factory | 「『何を使うか』という依存と、『どう作るか』という生成知識が混在していないか？」 |
-| State | 「『処理の本体』と『今どの状態か』の確認が混在していないか？」 |
+| Strategy | 「業務の流れ（変わらない）」× 「処理の手段・アルゴリズム（変わる）」 |
+| Observer | 「自分の状態管理（変わらない）」× 「誰にどう通知するか（変わる）」 |
+| Facade | 「呼び出し元の要求（変わらない）」× 「外部サービスの都合・手順（変わる）」 |
+| Factory | 「何を使うか（変わらない）」× 「どのクラスをどう生成するか（変わる）」 |
+| State | 「操作のインターフェース（変わらない）」× 「状態ごとの振る舞い（変わる）」 |
 
 ---
 
@@ -65,6 +68,32 @@ graph TD
 ```
 
 *→ 「外部の都合」がシステムのあちこちに侵食している。これが問題の全体像。*
+
+---
+
+### 変更前のクラス図（構造の問題を可視化）
+
+```mermaid
+classDiagram
+    class processOrder {
+        +execute(order)
+    }
+    class EmailSender {
+        +sendEmail(address, message)
+    }
+    class SmsSender {
+        +sendSms(phone, message)
+    }
+    class PushSender {
+        +sendPush(token, message)
+    }
+
+    processOrder --> EmailSender : if EMAIL
+    processOrder --> SmsSender  : if SMS
+    processOrder --> PushSender : if PUSH ← 追加のたびに変更
+```
+
+**問題の構造**：`processOrder` が具体的な送信手段を全部知っている。手段が1つ増えるたびに `processOrder` を変更しなければならない。「変わる理由の異なるもの」が1つのクラスに同居している。
 
 ---
 
@@ -216,7 +245,23 @@ private:
 };
 ```
 
-### クラス図（改善後の構造）
+### クラス図：変更前 vs 変更後（構造の対比）
+
+```mermaid
+classDiagram
+    class processOrder_before["processOrder（変更前）"] {
+        +execute(order)
+    }
+    class EmailSender { +sendEmail() }
+    class SmsSender   { +sendSms() }
+    class PushSender  { +sendPush() }
+
+    processOrder_before --> EmailSender : 直接依存
+    processOrder_before --> SmsSender   : 直接依存
+    processOrder_before --> PushSender  : 直接依存
+
+    note for processOrder_before "手段が増えるたびに\nここを変更しなければならない"
+```
 
 ```mermaid
 classDiagram
@@ -250,8 +295,11 @@ classDiagram
     INotifier <|.. PushNotifier : 将来の追加もここだけ
 ```
 
-**ポイント**：`processOrder` と `INotifier` の間の矢印が1本だけ。
-`EmailNotifier` や `SmsNotifier` の存在は `processOrder` から完全に見えない。
+**変更前との対比**：
+- 変更前：`processOrder` → `EmailSender` / `SmsSender` / `PushSender`（具体的な手段を全部知っている）
+- 変更後：`processOrder` → `INotifier`（契約だけを知る。具体的な手段は見えない）
+
+矢印の数が「3本→1本」に減った。これが設計の変化の核心。
 
 ---
 
