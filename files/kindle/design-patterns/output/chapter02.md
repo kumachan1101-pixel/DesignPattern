@@ -1,841 +1,798 @@
-# 第2章　Facadeパターン：複雑な依存を一枚の壁に隠す
-―― 今回の変化：「依存している外部サービスのAPIが変わる」
+# 第2章　Facadeパターン：使う側に知らせない勇気
+―― 思考の型：コードに潜む「委託した仕事に口を出したくなる衝動」を言語化し、「呼び出し元の要求」と「外部サービスの都合」を引き離す
 
-> **この章の核心**：変わりやすい外部サービスの詳細を専用クラスに閉じ込め、
-> 使う側は「何を頼むか」だけを知っていればよい形にする。
-
-> **第0章との対応**：この章では「呼び出し元が外部サービスの詳細を
-> 知りすぎている」という問題に、5ステップの思考プロセスを適用します。
-> どの章から読んでいただいても、同じ手順で考えを進められます。
+> **この章の核心**
+> 複数の外部サービスを「まとめて引き受ける窓口」を立て、
+> 使う側がそれぞれのサービスの都合を知らなくて済む構造を作る。
 
 ---
 
-## ステップ1：現状把握
-> 今のシステムと、今日届いた変更要求を正確に把握する
+## ステップ0：視点のチューニング ―― 「設計のレンズ」をセットする
+
+コードを読む前に、この章で使う問いをセットアップします。
+このレンズなしにコードを読むと、「動いている処理の羅列」にしか見えません。
+
+**【全パターン共通の問い】**
+
+> 「このコードの中に、**『変わる理由』が異なる2つのものが、
+> 同じ場所に混在していないか？」**
+
+この問いは、すべての設計パターンで使える。FacadeでもStrategyでも、
+解こうとしている問題の本質はこれ1つだ。
+「変わる理由」とは **「誰の判断で、何のために変更が発生するか」** のことだ。
+
+| 変わる理由の種類 | 例 | 誰の判断で変わるか |
+|---|---|---|
+| 業務フロー | 「月末に給与処理を実行する」流れ | 人事・経営判断 |
+| 外部サービス仕様 | APIのバージョン・引数形式 | 外部ベンダー |
+| 計算ルール | 給与算出の詳細ロジック | 労務担当 |
+
+> **判定の問い**：「このコードを変更するとき、誰に話を聞きに行くか？」
+> 答えが2人以上になるなら、「変わる理由」が複数混在している。
+
+### 2.0 変動と不変の仮説（コードを読む前に立てる）
+
+コードを読む前に「変わりそうなもの」と「変わらないもの」を
+仮説として立てます。この作業が、後の設計判断のブレを防ぐ安全装置になります。
+
+| 分類 | この章での仮説 | 根拠 |
+|---|---|---|
+| 🔴 **変動する** | 各サービスのAPI仕様（引数形式・バージョン） | 外部ベンダーの都合で変わる |
+| 🔴 **変動する** | 給与計算の詳細アルゴリズム | 労務規則の改定で変わる |
+| 🟢 **不変** | 「月末に全社員の給与処理を完了する」業務フロー | 会社がある限り変わらない |
+| 🟢 **不変** | 「処理結果（金額・明細）を記録する」要求 | 経理上の必須要件 |
+
+> 「ここまでは変わらない」と仮定を置くことが、
+> 設計の安定性の根拠になる。
+
+---
+
+## ステップ1：現状把握 ―― 使う側が「知りすぎている」事実をつかむ
 
 ### 2.1 今のシステムの仕様とコードの構造
 
-**要するに変わりやすい機能を切り出して中継役を立てるパターン。**
+**要するに変わりやすい複数の外部サービスを隠して、窓口を一本化するパターン。**
 
-#### このシステムが何をするか
-
-従業員の出退勤打刻を記録し、月次で勤務時間・残業時間を集計して
-給与計算と労務管理へ連携するシステムです。
-打刻データは社内の勤怠DBで管理し、給与計算は外部ベンダーの
-給与計算APIへ、36協定の管理は別の労務管理サービスへ
-それぞれ連携しています。
-
-#### 現在の仕様
+ある会社の月次給与バッチシステムを考えます。
+`MonthlyBatch` が毎月末に起動し、3つの外部サービスと連携して
+給与処理を完了させています。現時点では、このシステムは正しく動いています。
+問題は「構造」にあります。
 
 | 機能 | 入力 | 出力 |
-|:---|:---|:---|
-| 月次集計バッチ | 月・年（例：2024年12月） | 従業員ごとの勤務時間・残業時間 |
-| 給与計算連携 | 勤務時間・残業時間・従業員ID | 給与明細データ（基本給・残業代） |
-| 労務管理連携 | 残業時間が45h超の従業員 | 36協定アラート通知 |
-| 明細PDF保存 | 給与計算結果 | 社内ファイルサーバーへのPDF |
+|---|---|---|
+| 勤怠取得 | 社員ID・年・月 | 実働時間（double） |
+| 給与計算 | 社員情報JSON・実働時間 | 給与額（double） |
+| 明細生成 | 社員ID・給与額 | PDFファイル名（string） |
 
-#### 【起点コード】
+**変更前のクラス図**
 
-このシステムを最初に構築した担当者が、
-要件通りに誠実に実装した姿がここにあります。
-当時は給与計算APIのベンダーも1社だけで、連携先はシンプルでした。
-要件が増えるたびに、連携処理が少しずつ育ってきた。
+```mermaid
+classDiagram
+    class MonthlyBatch {
+        +run(year, month)
+    }
+    class PayrollService {
+        +calculateV1(json, hours) double
+    }
+    class LaborMgmtService {
+        +getWorkHours(id, year, month) double
+    }
+    class PdfService {
+        +generate(id, amount) string
+    }
+
+    MonthlyBatch --> PayrollService   : 直接依存
+    MonthlyBatch --> LaborMgmtService : 直接依存
+    MonthlyBatch --> PdfService       : 直接依存
+```
+
+`MonthlyBatch` から矢印が3本出ている。これが今回の問題の起点です。
+
+---
+
+**【起点コード】**
+
+このシステムを最初に書いた担当者が、仕様通りに誠実に実装した姿です。
 当時の担当者の苦労を想像しながら、コードを観察します。
 
 ```cpp
-// 【起点コード】
-// attendance/MonthlyBatch.cpp
-// 月次集計バッチ。月末夜間に自動実行される。
-// 給与計算APIとの接続詳細はここに直接書かれている。
+// 給与計算サービス（外部APIのラッパー）
+class PayrollService {
+public:
+    // JSON文字列と実働時間を受け取り、給与額を返す
+    double calculateV1(
+        const std::string& employeeJson,
+        double workHours
+    );
+};
 
+// 勤怠管理サービス（勤怠システムのラッパー）
+class LaborMgmtService {
+public:
+    // 社員IDと年月で実働時間を返す
+    double getWorkHours(
+        int employeeId, int year, int month
+    );
+};
+
+// 給与明細PDFを生成するサービス
+class PdfService {
+public:
+    // 社員IDと給与額でPDFを生成し、ファイル名を返す
+    std::string generate(int employeeId, double amount);
+};
+
+// 月次給与バッチの本体
 class MonthlyBatch {
 public:
-    void execute(int year, int month) {
-        // 1. 勤務時間を集計
-        auto records =
-            db_.fetchMonthlyRecords(year, month);
-        auto summary = calculateSummary(records);
-
-        // 2. 給与計算APIに送信
-        HttpRequest req(
-            "https://payroll-v1.example.com"
-            "/api/calculate"              // ← APIのURLをここで管理
-        );
-        req.setHeader(
-            "Authorization",
-            "Bearer " + apiToken_         // ← 認証トークンをここで管理
-        );
-        req.setBody({
-            {"employee_id", summary.employeeId},
-            {"total_hours", summary.totalHours},
-            {"overtime_hours", summary.overtimeHours}
-        });
-        auto raw = req.post();
-
-        // 3. レスポンスのフィールド名をここで参照
-        auto json = Json::parse(raw);
-        double baseSalary =
-            json["base_salary"];          // ← フィールド名をここで管理
-        double overtimePay =
-            json["overtime_pay"];         // ← フィールド名をここで管理
-        db_.savePayroll(
-            summary.employeeId,
-            baseSalary + overtimePay
-        );
-        // 実行すると: DB に従業員ごとの給与額が保存される
-        // 例: savePayroll("emp001", 350000.0)
-    }
+    void run(int year, int month);
 private:
-    Database    db_;
-    std::string apiToken_ = "tok_prod_xxxx";
+    PayrollService   payroll_;
+    LaborMgmtService labor_;
+    PdfService       pdf_;
 };
+
+void MonthlyBatch::run(int year, int month) {
+    int employeeId = 1001; // 説明のため1社員で単純化
+
+    // 💭「ここは本来の仕事。年月を渡すのは自然だ。」
+    double hours = labor_.getWorkHours(
+        employeeId, year, month
+    );
+
+    // 💭「なぜMonthlyBatchがJSONを組み立てている？
+    //     PayrollServiceの仕様まで知る必要があるのか？」
+    std::string json =
+        "{\"id\":"    + std::to_string(employeeId) +
+        ",\"hours\":" + std::to_string(hours) + "}";
+    //  ↑ このJSON形式はPayrollServiceの仕様。知らなくていい
+    double amount = payroll_.calculateV1(json, hours);
+    //                            ↑ "V1"も知らなくていい
+
+    // 💭「generateの引数の順序も毎回確認している。
+    //     PdfServiceのルールに縛られている感覚だ。」
+    std::string slipFile = pdf_.generate(employeeId, amount);
+    //  ↑ 引数の順序・意味を知らなくていい
+
+    saveResult(year, month, amount, slipFile);
+    // saveResultは省略（DBへの記録。本題ではない）
+}
+
+int main() {
+    MonthlyBatch batch;
+    batch.run(2024, 12);
+    return 0;
+}
 ```
 
-このコードが月末のたびに正しく動いて、
-給与計算に必要なデータを作り続けてきた事実は、
-素直に認めたいと思います。
+**実行結果：**
+```
+[2024/12] 月次給与処理を開始します
+  社員 1001: 実働 160.0h → 給与 350000円
+  → 明細: slip_1001_2024_12.pdf
+[2024/12] 月次給与処理が完了しました
+```
+
+このコードは正しく動いています。問題は「構造」にあります。
 
 ---
 
 ### 2.2 届いた変更要求
 
-人事部から連絡が入りました。
-
-「今使っている給与計算APIのベンダーが変わることになったんです。
-　新しいAPIに切り替えてほしいんですが、3週間後がデッドラインで。
-　あと、新しいAPIは認証方式も変わるらしくて……」
-
-3週間後。変更範囲を確認するために検索をかけます。
-
-```
-$ grep -r "payroll-v1.example.com" .
-attendance/MonthlyBatch.cpp:55
-payslip/PayslipExporter.cpp:32
-job/OvertimeAlertJob.cpp:28
-// → 3か所ヒット
-```
-
-`MonthlyBatch`（月次集計）、`PayslipExporter`（明細PDF出力）、
-`OvertimeAlertJob`（残業アラート）の3ファイルそれぞれに
-給与計算APIの呼び出しコードが書かれています。
-
-「またここに手が入るのか」という感覚、
-うまく伝わっているでしょうか。
+ある日、こんな連絡が届きました。
 
 ---
 
-## ステップ2：課題の発見
-> 変更要求を受けて「何が難しいのか」を具体化する
+**インフラ担当**：「PayrollServiceのAPIが来月からv2になります。
+引数の形式が変わり、`computeSalary(employeeId, hours)` に変わります。
+JSON組み立ては不要です。」
 
-### 2.3 変更しようとしたときに現れる困難
+**開発者**：「わかりました、修正します。」
 
-変更要求を頭の中で試してみると、何が立ちはだかるかが見えてきます。
-
-- **困難1：3か所を全て探して書き直す必要がある**
-  エンドポイントURLが変わり、認証方式が変わる。
-  `MonthlyBatch`・`PayslipExporter`・`OvertimeAlertJob`の3ファイルを開いて、
-  それぞれに書かれた接続コードを書き直さなければならない。
-  「1か所直せば終わる」ではなく、
-  「3か所のうち1か所でも見落とすと本番で障害が起きる」状況です。
-
-- **困難2：認証を直しながら、レスポンス解析の確認も3か所で必要になる**
-  認証方式の変更作業を進めると、レスポンス形式も一緒に確認する必要に気づきます。
-  `json["base_salary"]` というレスポンスフィールドへの依存が
-  3つのファイルそれぞれに書かれているため、
-  「このフィールド名は新APIでも大丈夫か」を3か所全てで確認しなければ
-  作業が完了しているとは言えません。
-
-> 「なぜ、外部APIの仕様が変わっただけで、
->　こんなに広い範囲を確認しなければならないのか？」
+*（心の中：給与計算のAPIが変わっただけなのに、
+なぜMonthlyBatchを開いているんだろう...）*
 
 ---
 
-## ステップ3：原因特定
-> 「なぜ難しいのか」の根本を突き止める
+この変更要求で「何が変わったか」を整理します。
 
-### 2.4 困難の根本にあるもの
+**依存の広がり（システム全体の確認）**
 
-コードを観察して、困難の原因を探ります。
+```mermaid
+graph TD
+    A[MonthlyBatch.cpp<br/>月次バッチ処理]
+    B[PayslipExporter.cpp<br/>明細出力処理]
+    C[OvertimeAlertJob.cpp<br/>残業アラートJob]
+    X[PayrollService<br/>給与計算サービス]
 
-- 観察1：給与計算APIの呼び出しが3か所（`MonthlyBatch`・`PayslipExporter`・
-  `OvertimeAlertJob`）に散らばっている
-- 観察2：APIのエンドポイントURLと認証トークンが各呼び出し元にそれぞれ書かれている
-- 観察3：レスポンスのフィールド名（`"base_salary"`等）の知識が
-  各呼び出し元に漏れ出している
+    A -->|直接依存| X
+    B -->|直接依存| X
+    C -->|直接依存| X
 
-この観察から、問題の構造が見えてきます。
-
-#### 使う側が「知らなくていいこと」まで知っている
-
-`MonthlyBatch`・`PayslipExporter`・`OvertimeAlertJob`は、
-本来「勤務データを使って何かをする」のが責任のはずです。
-しかし今は、それに加えて以下のことまで知っています。
-
-起点コードの `MonthlyBatch::execute` の中で、
-該当する行を確認してみましょう。
-
-```cpp
-// 【起点コード】の該当箇所（MonthlyBatch.cpp）
-HttpRequest req(
-    "https://payroll-v1.example.com/api/calculate"  // ← 知らなくていい
-);
-req.setHeader(
-    "Authorization", "Bearer " + apiToken_          // ← 知らなくていい
-);
-auto json = Json::parse(raw);
-double baseSalary  = json["base_salary"];            // ← 知らなくていい
-double overtimePay = json["overtime_pay"];           // ← 知らなくていい
+    style X fill:#ffcccc,stroke:#cc0000
+    style A fill:#ffe8cc,stroke:#cc7700
+    style B fill:#ffe8cc,stroke:#cc7700
+    style C fill:#ffe8cc,stroke:#cc7700
 ```
 
-この4行が「知らなくていいことを知っている」箇所です。
-行レベルで整理すると、次のようになります。
+*→ PayrollServiceに直接依存しているファイルが複数存在する。
+　サービス変更が「飛び火」する全体像が見えてきた。*
 
-| 本来知っていればよいこと | 知らなくていいのに知っていること（コードの行） |
-|:---|:---|
-| 「給与計算の結果を取得したい」という意図 | APIのエンドポイントURL（55行目） |
-| 入力（勤務時間・残業時間） | 認証方式・トークンの扱い（59行目） |
-| 返ってくる計算結果の業務的な意味 | レスポンスのJSONフィールド名（73・74行目） |
+`PayrollService` に直接依存しているファイルは3箇所です。
 
-これが3ファイル全てに繰り返されているため、
-API仕様の変更が1か所（ベンダー変更）で起きると
-3か所の呼び出し元に影響が波及します。
+```bash
+$ grep -r "PayrollService" .
+MonthlyBatch.cpp:9     PayrollService payroll_;
+PayslipExporter.cpp:7  PayrollService payroll_;
+OvertimeAlertJob.cpp:5 PayrollService payroll_;
+# → 3箇所ヒット
+```
 
-> **ここで立ち止まって考える**
->
-> 「給与計算APIについての全知識を1か所に集められたら、
-> 何が変わるでしょうか？」
->
-> ベンダーが変わったとき、エンドポイントURLを書き直す場所は
-> 1か所だけになります。
-> 認証方式が変わったとき、その変更も1か所で完結します。
-> `MonthlyBatch`・`PayslipExporter`・`OvertimeAlertJob` は
-> 「給与計算の結果が欲しい」という意図だけを伝えれば済むようになります。
+今回はそのうち `MonthlyBatch.cpp` に注目します。
 
 ---
 
-## ステップ4：対策案の検討
-> 原因から論理的に案を導く
+## ステップ2：変動と不変の峻別 ―― ステップ0の仮説をコードで検証する
 
-### 2.5 最初の試み：【試行コード】
+### 2.3 仮説の検証と変動/不変の確定
 
-「知らなくていいことを知っている」という原因を受けて、
-最初の試みとして自然に思い浮かぶのは、
-**変わりやすい部分（接続詳細）だけを専用クラスに集める**アプローチです。
+コードを読んで、ステップ0の仮説を検証します。
 
-認証・エンドポイントURLが主な変更点なら、そこだけを切り出せば
-対処になるはずです。チームで話し合う価値がある部分だと思います。
+**仮説との照合結果：**
+
+- 🔴 **API仕様が変動する**：予想通り。`calculateV1` が変わった。
+- 🔴 **JSON形式が変動する**：予想以上。`MonthlyBatch` 内でJSON組み立てまでしていた。
+- 🟢 **業務フローは不変**：確認。「勤怠取得→計算→明細生成→保存」の流れは変わらない。
+
+| 分類 | 具体的な内容 | 変わるタイミング | 設計への影響 |
+|---|---|---|---|
+| 🔴 変動 | PayrollServiceのAPI仕様・バージョン | ベンダーのリリース | 呼び出し元に置いてはいけない |
+| 🔴 変動 | LaborMgmtServiceの引数形式 | 人事システム改修 | 呼び出し元に置いてはいけない |
+| 🔴 変動 | PDFファイル名の命名規則 | PdfService仕様変更 | 呼び出し元に置いてはいけない |
+| 🟢 不変 | 「給与処理を完了する」業務フロー | 変わる日は来ない | ここを抽象として固定する |
+| 🟢 不変 | 「処理できたか否か」という結果の形 | 業務上の必須要件 | インターフェースの戻り値にする |
+
+> **設計の決断**：🟢 不変な業務フローを「インターフェース（契約）」として固定し、
+> 🔴 変動する各サービスの詳細を、そのインターフェースの裏側に押し込む。
+
+---
+
+## ステップ3：課題分析 ―― 変更しようとしたときの困難と痛み
+
+### 2.4 変更しようとしたときの困難
+
+PayrollService が v2 になる場合、MonthlyBatch でどんな修正が必要か、
+手を動かして確認します。
 
 ```cpp
-// 【試行コード】① クライアントクラス
-// payroll/PayrollApiClient.h
-// 認証とエンドポイントURLだけをここに集める。
-// レスポンスの解析は呼び出し元の責任のまま残る。
+// 変更前のコード
+std::string json =
+    "{\"id\":"    + std::to_string(employeeId) +
+    ",\"hours\":" + std::to_string(hours) + "}";
+double amount = payroll_.calculateV1(json, hours);
 
-class PayrollApiClient {
-public:
-    explicit PayrollApiClient(
-        const std::string& token
-    ) : token_(token) {}
-
-    // 呼び出し元はURLと認証を知らなくてよくなる
-    std::string calculate(const Json& body) {
-        HttpRequest req(
-            "https://payroll-v1.example.com"
-            "/api/calculate"
-        );
-        req.setHeader(
-            "Authorization", "Bearer " + token_
-        );
-        req.setBody(body);
-        return req.post();    // 生のJSONをそのまま返す
-    }
-private:
-    std::string token_;
-};
+// 変更後のコード
+double amount = payroll_.computeSalary(employeeId, hours);
+// JSON組み立ては不要に。
+// でも、なぜMonthlyBatchを触ることになったのか？
 ```
 
-`MonthlyBatch` はこのクライアントを使う形に変わります。
-`json["base_salary"]` の行に注目してください。
-URLと認証は消えましたが、レスポンスのフィールド名はまだここにいます。
+「`PayrollService` のAPIが変わっただけ」で、「月次処理の本体」が手術台に上がりました。
+
+> MonthlyBatchの「月次処理を完了する」という責任は何も変わっていない。
+> にもかかわらず、外部サービスの都合でMonthlyBatchを変更している。
+> なぜこうなるのか？
+
+**変更影響グラフ（改善前）**
+
+```mermaid
+graph LR
+    subgraph 変更のトリガー
+        T[PayrollService v1 → v2]
+    end
+    subgraph 変更が必要なファイル
+        A[MonthlyBatch.cpp]
+        B[PayslipExporter.cpp]
+        C[OvertimeAlertJob.cpp]
+    end
+    T -->|影響が飛び火| A
+    T -->|影響が飛び火| B
+    T -->|影響が飛び火| C
+
+    style T fill:#ffcccc,stroke:#cc0000
+    style A fill:#ffe8cc,stroke:#cc7700
+    style B fill:#ffe8cc,stroke:#cc7700
+    style C fill:#ffe8cc,stroke:#cc7700
+```
+
+*1つのサービス変更が、3つの無関係に見えるファイルを同時に変更対象にする。*
+
+私自身、ここで何度も迷いました。
+「変更箇所が少ないなら、このままでもいいのでは？」と思うこともあります。
+しかし今は3箇所で済んでも、サービス変更が繰り返されるたびに同じ苦労が積み重なります。
+
+---
+
+## ステップ4：原因分析 ―― 困難の根本にあるもの
+
+### 2.5 困難の根本にあるもの
+
+なぜ外部サービスの都合が変わっただけで MonthlyBatch が痛むのか、
+なぜなぜ分析で掘り下げます。
+
+| 問い | 答え |
+|---|---|
+| なぜMonthlyBatchを変更しなければならないのか？ | PayrollServiceのAPI詳細（JSON形式・メソッド名）を直接知っているから |
+| なぜ直接知っているのか？ | 「給与処理を完了する（What）」と「各サービスをどう呼ぶか（How）」を同じクラスに書いているから |
+| なぜ同じクラスに書いたのか？ | 処理を1箇所にまとめた方がわかりやすいという自然な判断から |
+| 根本原因は？ | **MonthlyBatchと3サービスの詳細が「同じ場所」にいる** |
+
+**「知らなくていいこと」の確認**
 
 ```cpp
-// 【試行コード】② 呼び出し元の変化
-// attendance/MonthlyBatch.cpp（変更後）
-// URLと認証は知らなくなった。
-// ただし、レスポンスのフィールド名はまだここにいる。
+void MonthlyBatch::run(int year, int month) {
+    int employeeId = 1001;
 
-void MonthlyBatch::execute(int year, int month) {
-    auto records =
-        db_.fetchMonthlyRecords(year, month);
-    auto summary = calculateSummary(records);
-
-    // URL・認証を知らなくてよくなった
-    auto raw = apiClient_.calculate({
-        {"employee_id",    summary.employeeId},
-        {"total_hours",    summary.totalHours},
-        {"overtime_hours", summary.overtimeHours}
-    });
-
-    // レスポンスのフィールド名はまだここにいる
-    auto json = Json::parse(raw);
-    double baseSalary  = json["base_salary"];   // ← まだ知らなくていい
-    double overtimePay = json["overtime_pay"];  // ← まだ知らなくていい
-    db_.savePayroll(
-        summary.employeeId,
-        baseSalary + overtimePay
+    double hours = labor_.getWorkHours(
+        employeeId, year, month
+        // ↑ 引数の順序（id, year, month）を知らなくていい
     );
+
+    std::string json =
+        "{\"id\":"    + std::to_string(employeeId) +
+        ",\"hours\":" + std::to_string(hours) + "}";
+        // ↑ PayrollServiceのJSON形式を知らなくていい
+    double amount = payroll_.calculateV1(json, hours);
+        // ↑ メソッド名とバージョンを知らなくていい
+
+    std::string slipFile = pdf_.generate(employeeId, amount);
+        // ↑ generate()の引数の順序・意味を知らなくていい
+
+    saveResult(year, month, amount, slipFile);
 }
 ```
 
-`MonthlyBatch` はコンストラクタで `PayrollApiClient` を受け取ります。
-コンストラクタに外から渡す形（依存注入）にすることで、
-テスト時に本物のAPIを呼ばないスタブへ差し替えられます。
+| MonthlyBatchが知ってよいこと | 知らなくていいこと |
+|---|---|
+| 「給与処理を完了する」業務フロー | PayrollServiceのJSON引数形式 |
+| 処理の順序（勤怠→計算→明細→保存） | LaborMgmtServiceの引数の順序 |
+| 対象の社員IDと年月 | PDFのファイル名生成ルール |
+
+**構造的原因の言語化：**
+
+> **MonthlyBatch（目的）** と
+> **PayrollService・LaborMgmtService・PdfService（手段）** が同じ場所にいる。
+> 「目的は変わらないが手段は変わる」という状況で両者を同居させると、
+> 手段が変わるたびに目的のコードが道連れになる。
+
+---
+
+## ステップ5：対策案の検討 ―― 構造を変える
+
+### 2.6 最初の試み：【試行コード】
+
+最初の試みとして、「3サービスの呼び出しを専用クラスに引っ越す」方法を考えます。
 
 ```cpp
-// 依存注入：MonthlyBatch はコンストラクタで PayrollApiClient を受け取る。
-// 本番では本物のクライアントを、テストではスタブを渡す。
+// 試みの方向：3サービスの処理を1つのクラスに集める
+class PayrollFacade {
+public:
+    void process(int year, int month);
+private:
+    PayrollService   payroll_;
+    LaborMgmtService labor_;
+    PdfService       pdf_;
+};
+
+void PayrollFacade::process(int year, int month) {
+    int employeeId = 1001;
+    double hours = labor_.getWorkHours(
+        employeeId, year, month
+    );
+    std::string json =
+        "{\"id\":"    + std::to_string(employeeId) +
+        ",\"hours\":" + std::to_string(hours) + "}";
+    double amount = payroll_.calculateV1(json, hours);
+    std::string slipFile = pdf_.generate(employeeId, amount);
+    saveResult(year, month, amount, slipFile);
+}
+
+// MonthlyBatchはPayrollFacadeだけを持てばよい
 class MonthlyBatch {
 public:
-    explicit MonthlyBatch(
-        PayrollApiClient& client,
-        Database& db
-    ) : apiClient_(client), db_(db) {}
-
-    void execute(int year, int month);  // 上記の実装
+    void run(int year, int month);
 private:
-    PayrollApiClient& apiClient_;
-    Database&         db_;
+    PayrollFacade facade_; // ← 3サービスの代わりに1つ
 };
 
-// 本番コードでの組み立て例
-PayrollApiClient client("tok_prod_xxxx");
-Database db;
-MonthlyBatch batch(client, db);
-batch.execute(2024, 12);
-```
-
-#### 試行コードのテスト
-
-```cpp
-// スタブ：本物のAPIを呼ばずに「あらかじめ決めた文字列を返す」差し替えクラス。
-// PayrollApiClient を継承してメソッドをオーバーライドすることで
-// MonthlyBatch に本物と同じように渡せる。
-class StubPayrollApiClient : public PayrollApiClient {
-public:
-    StubPayrollApiClient()
-        : PayrollApiClient("fake_token") {}
-
-    std::string calculate(const Json&) override {
-        // テスト用の固定レスポンスを返す
-        return R"({"base_salary": 300000,
-                   "overtime_pay": 50000})";
-    }
-};
-
-// MockDatabase は「savePayroll が呼ばれたかどうか」と
-// 「渡された値」を記録するだけのクラス（モック）。
-// 本物のDBには一切アクセスしない。
-class MockDatabase : public Database {
-public:
-    void savePayroll(
-        const std::string&, double salary
-    ) override { lastSaved_ = salary; }
-    double lastSaved_ = 0.0;
-};
-
-TEST(MonthlyBatchTest, SavesCalculatedPayroll) {
-    StubPayrollApiClient stub;
-    MockDatabase mockDb;
-    MonthlyBatch batch(stub, mockDb);
-    batch.execute(2024, 12);
-
-    // EXPECT_DOUBLE_EQ(期待値, 実際の値)：
-    // 「等しければテスト通過」という検証（アサーション）。Google Test のマクロ。
-    EXPECT_DOUBLE_EQ(350000.0, mockDb.lastSaved_);
-
-    // このテストは通るが、MonthlyBatch の中には
-    // json["base_salary"] という知識がまだ残っている。
-    // 新APIでフィールド名が "base_salary_jpy" に変わると
-    // MonthlyBatch・PayslipExporter・OvertimeAlertJob の
-    // テストを含む3か所を変更する必要がある。
+void MonthlyBatch::run(int year, int month) {
+    // 💭「3サービスへの直接呼び出しが消えた。すっきりした。」
+    facade_.process(year, month);
 }
 ```
 
-**URL・認証は1か所に集まりました。しかし残る課題があります。**
-
-`json["base_salary"]` というレスポンスフィールドへの知識は、
-3か所の呼び出し元にそれぞれ残り続けます。
-新APIでフィールド名が変わったとき、また3か所を探すことになります。
-
----
-
-### 2.6 発想の転換：【Facadeコード】
-
-試行コードで「何かが残っている」という感覚があります。
-URL・認証は集まりました。でも「レスポンスの解析」はまだ呼び出し元にいる。
-
-**認証だけでなく、レスポンス解析まで含めた「給与計算APIへの全知識」を
-1つのクラスに閉じ込めたら、何が変わるでしょうか。**
-
-呼び出し元は「勤務時間を渡して計算結果を受け取る」という意図だけを表現すれば済みます。
-APIのURL、認証方式、レスポンスのフィールド名——これら全ては
-呼び出し元が「知らなくていいこと」のはずです。
-
-そのためのインターフェース（使う側との約束事を定める型）を設けます。
-インターフェースを使うことで、本番の実装クラスとテスト用スタブを
-同じ形で差し替えられるようになります。
+**試行コードの依存注入と動作確認：**
 
 ```cpp
-// 【Facadeコード】① インターフェース
-// payroll/IPayrollFacade.h
-// 呼び出し元が知る必要があるのはこの形だけ。
-// APIの詳細は一切出てこない。
+int main() {
+    MonthlyBatch batch;
+    batch.run(2024, 12);
+    return 0;
+}
+// 実行結果：
+// [2024/12] 月次給与処理を開始します
+//   社員 1001: 実働 160.0h → 給与 350000円
+//   → 明細: slip_1001_2024_12.pdf
+// [2024/12] 月次給与処理が完了しました
+```
 
-struct PayrollResult {
-    double      totalSalary;
-    bool        success;
-    std::string errorMessage;
-};
+MonthlyBatchからサービスの詳細は消えました。一歩前進です。
 
+しかし、**残る課題があります**。
+
+```cpp
+// テストを書こうとすると...
+TEST(MonthlyBatchTest, RunsPayrollProcess) {
+    MonthlyBatch batch;
+    // 💭「PayrollFacadeを差し替えられない。
+    //     テスト中に本物のPayrollServiceが動いてしまう。
+    //     本番サービスへの接続なしではテストできない。」
+    batch.run(2024, 12);
+}
+```
+
+`MonthlyBatch` が `PayrollFacade`（具象クラス）を内部に直接持っているため、
+テスト用の差し替えができません。
+「テストのたびに本番サービスに接続する」という状況は避けたいはずです。
+
+### 2.7 発想の転換：【解決コード】
+
+残る課題を受けて、発想を転換します。
+
+「`MonthlyBatch` が知るべきは `PayrollFacade` という具体的なクラスではなく、
+『給与処理を完了する』という **契約** ではないか。」
+
+その契約をインターフェース（純粋仮想クラス）として定義します。
+インターフェースとは「どんな操作を提供するか」だけを定め、
+「どう実装するか」は一切定めない型のことです。
+
+```cpp
+// 契約を定義する（インターフェース）
+// ← PayrollService / LaborMgmtService / PdfService の名前は
+//    ここに一切登場しない
 class IPayrollFacade {
 public:
-    virtual ~IPayrollFacade() = default;
-    virtual PayrollResult calculate(
-        const std::string& employeeId,
-        double totalHours,
-        double overtimeHours
-    ) = 0;
+    virtual ~IPayrollFacade() {}
+    virtual void process(int year, int month) = 0;
+    //                   ↑「何月の給与処理か」だけを引数にする
 };
 ```
 
 ```cpp
-// 【Facadeコード】② 実装クラス
-// payroll/PayrollFacade.cpp
-// 給与計算APIへの全知識がここに収まる。
-// ベンダーが変わっても、このファイルだけを変更すればよい。
-
+// 3サービスの詳細を引き受ける実装クラス
 class PayrollFacade : public IPayrollFacade {
 public:
-    PayrollResult calculate(
-        const std::string& employeeId,
-        double totalHours,
-        double overtimeHours
-    ) override {
-        HttpRequest req(
-            "https://payroll-v1.example.com"
-            "/api/calculate"
-        );
-        req.setHeader(
-            "Authorization", "Bearer tok_prod_xxxx"
-        );
-        req.setBody({
-            {"employee_id",    employeeId},
-            {"total_hours",    totalHours},
-            {"overtime_hours", overtimeHours}
-        });
-        auto raw = req.post();
-
-        auto json = Json::parse(raw);
-        if (json.contains("error")) {
-            return {0.0, false, json["error"]};
-        }
-        // フィールド名の知識はPayrollFacadeだけが持つ
-        double total =
-            json["base_salary"].get<double>()
-            + json["overtime_pay"].get<double>();
-        return {total, true, ""};
-    }
+    void process(int year, int month) override;
+private:
+    PayrollService   payroll_;
+    LaborMgmtService labor_;
+    PdfService       pdf_;
 };
-```
 
-```cpp
-// 【Facadeコード】③ 呼び出し元の変化
-// attendance/MonthlyBatch.cpp（変更後）
-// 給与計算APIについての知識がゼロになった。
-
-void MonthlyBatch::execute(int year, int month) {
-    auto records =
-        db_.fetchMonthlyRecords(year, month);
-    auto summary = calculateSummary(records);
-
-    // 「計算してほしい」という意図だけを伝える
-    auto result = payroll_.calculate(
-        summary.employeeId,
-        summary.totalHours,
-        summary.overtimeHours
+void PayrollFacade::process(int year, int month) {
+    int employeeId = 1001;
+    double hours = labor_.getWorkHours(
+        employeeId, year, month
     );
-    if (result.success) {
-        db_.savePayroll(
-            summary.employeeId, result.totalSalary
-        );
-    }
+    // PayrollService v2 に変わっても、ここだけ修正すればよい
+    double amount = payroll_.computeSalary(employeeId, hours);
+    std::string slipFile = pdf_.generate(employeeId, amount);
+    saveResult(year, month, amount, slipFile);
 }
 ```
 
-試行コードとの差を確認してください。
-`json["base_salary"]` という行が消えました。
-`MonthlyBatch` はフィールド名を一切知らずに書けています。
-
-`MonthlyBatch` はコンストラクタで `IPayrollFacade`（インターフェース）を受け取ります。
-インターフェース経由にすることで、本番では `PayrollFacade` を、
-テストでは `StubPayrollFacade` を渡せます。
-
 ```cpp
-// 依存注入：MonthlyBatch はコンストラクタで IPayrollFacade を受け取る。
-// インターフェース経由なので、本番では PayrollFacade を、
-// テストでは StubPayrollFacade を渡せる。
+// MonthlyBatchは契約（インターフェース）だけを知る
 class MonthlyBatch {
 public:
-    explicit MonthlyBatch(
-        IPayrollFacade& payroll,
-        Database& db
-    ) : payroll_(payroll), db_(db) {}
-
-    void execute(int year, int month);
+    // 依存注入：コンストラクタで契約を受け取る
+    explicit MonthlyBatch(IPayrollFacade* facade);
+    void run(int year, int month);
 private:
-    IPayrollFacade& payroll_;
-    Database&       db_;
+    IPayrollFacade* facade_;
+    // ↑ 契約だけを知る。具体クラスは見えない
 };
 
-// 本番コードでの組み立て例
-PayrollFacade facade;
-Database db;
-MonthlyBatch batch(facade, db);
-batch.execute(2024, 12);
+MonthlyBatch::MonthlyBatch(IPayrollFacade* facade)
+    : facade_(facade) {}
+
+void MonthlyBatch::run(int year, int month) {
+    // 💭「3サービスの詳細は完全に見えなくなった。
+    //     『給与処理を完了してくれ』と頼むだけでよい。」
+    facade_->process(year, month);
+}
 ```
+
+**本番での組み立て：**
+
+```cpp
+int main() {
+    PayrollFacade facade;     // 本番はPayrollFacadeを使う
+    MonthlyBatch  batch(&facade);
+    batch.run(2024, 12);
+    return 0;
+}
+```
+
+実行結果：
+```
+[2024/12] 月次給与処理を開始します
+  社員 1001: 実働 160.0h → 給与 350000円
+  → 明細: slip_1001_2024_12.pdf
+[2024/12] 月次給与処理が完了しました
+```
+
+試行コード（インターフェースなし）と同じ結果が出ています。
+外から見た動きは変わっていません。変わったのは内部の構造です。
+
+この構造を **Facadeパターン** といいます。
+「Facade（ファサード）」は建築用語で「建物の正面」を意味します。
+建物の裏（3サービスの詳細）を正面（IPayrollFacade）の陰に隠す、
+という意味が込められています。
+
+**変更後のクラス図**
 
 ```mermaid
 classDiagram
+    class MonthlyBatch {
+        -facade_: IPayrollFacade*
+        +MonthlyBatch(facade)
+        +run(year, month)
+    }
     class IPayrollFacade {
         <<interface>>
-        +calculate(id, hours, ot) PayrollResult
+        +process(year, month)
     }
     class PayrollFacade {
-        +calculate(id, hours, ot) PayrollResult
+        -payroll_: PayrollService
+        -labor_: LaborMgmtService
+        -pdf_: PdfService
+        +process(year, month)
     }
-    class MonthlyBatch {
-        +execute(year, month)
+    class PayrollService {
+        +computeSalary(id, hours) double
     }
-    class PayslipExporter {
-        +export(employeeId)
+    class LaborMgmtService {
+        +getWorkHours(id, y, m) double
     }
-    class OvertimeAlertJob {
-        +check(year, month)
+    class PdfService {
+        +generate(id, amount) string
     }
-    IPayrollFacade <|.. PayrollFacade
-    MonthlyBatch --> IPayrollFacade : uses
-    PayslipExporter --> IPayrollFacade : uses
-    OvertimeAlertJob --> IPayrollFacade : uses
+
+    MonthlyBatch    --> IPayrollFacade  : 契約だけを知る
+    IPayrollFacade  <|.. PayrollFacade  : 実装
+    PayrollFacade   --> PayrollService  : 隠蔽
+    PayrollFacade   --> LaborMgmtService : 隠蔽
+    PayrollFacade   --> PdfService      : 隠蔽
 ```
 
-*図が表示されない環境のために補足します。*
-中心に `IPayrollFacade`（インターフェース）があり、
-`PayrollFacade` がそれを実装します。
-`MonthlyBatch`・`PayslipExporter`・`OvertimeAlertJob` の3つは
-`IPayrollFacade` という形だけを知っています。
-給与計算APIの実装詳細は `PayrollFacade` の内側に完全に収まっています。
+**変更前後の対比：**
 
-> 「この構造」を、先人たちは **Facadeパターン** と呼んでいます。
-> 名前は、論理的に辿り着いた構造へのラベルです。
-> 覚えることが目的ではありません。
+- 変更前：MonthlyBatch → PayrollService / LaborMgmtService / PdfService（矢印3本）
+- 変更後：MonthlyBatch → IPayrollFacade（矢印1本）
 
-#### 解決コードのテスト
+MonthlyBatchから出る矢印が「3本 → 1本」になった。
+これが構造の変化の核心です。
 
-試行コードのテストと何が変わったか、スタブのコードを比べてみてください。
+---
+
+## ステップ6：天秤にかける ―― 柔軟性とシンプルさのバランスを評価する
+
+### 2.8 比較の基準を先に宣言する
+
+設計パターンを導入する前に、**何を重視して評価するかを先に宣言します**。
+後から基準を決めると、結論に都合のいい比較になってしまいます。
+
+今回重視する評価軸：
+
+1. **変更の局所性** ―― サービス仕様変更の影響が1箇所に収まるか
+2. **テストの独立性** ―― MonthlyBatchをサービスなしで単独テストできるか
+3. **読みやすさ** ―― 抽象レイヤーが増えて追いにくくなっていないか
+4. **実装コスト** ―― 今すぐ払う手間はどれくらいか
+
+### 2.9 比較と判断
+
+| 評価軸 | ❌ 改善前 | ✅ Facade適用後 |
+|---|---|---|
+| 変更の局所性 | PayrollService変更 → 3ファイルを変更 | 変更はPayrollFacade内だけ |
+| テストの独立性 | 本番サービスなしでMonthlyBatchをテスト不可 | IPayrollFacadeのスタブで単独テスト可 |
+| 読みやすさ | runの中にサービス詳細が混在 | run()は「process()を呼ぶ」1行になる |
+| 実装コスト | 少ない（インターフェース不要） | やや多い（クラス・インターフェースが増える） |
+
+正解はないのですが、一つの考え方として。
+実装コストは今日1回払えばよいですが、サービス変更への対応コストは繰り返し発生します。
+変更が定期的に起こる外部サービスを扱う場合、
+今日の実装コストは将来の変更コストへの投資とも見られます。
+
+**適用判断のフローチャート**
+
+```mermaid
+flowchart TD
+    A[外部サービスの仕様変更は繰り返し発生するか？]
+    A -->|Yes| B[そのサービスを呼ぶファイルが複数あるか？]
+    A -->|No| G[シンプルな直接依存のままでよい]
+    B -->|Yes| C[Facadeパターンを適用する<br/>実装コスト増を払う価値あり]
+    B -->|No| D[1ファイルだけなら<br/>様子見でもよいかもしれない]
+
+    style C fill:#ccffcc,stroke:#00aa00
+    style G fill:#ffe8cc,stroke:#cc7700
+    style D fill:#ffe8cc,stroke:#cc7700
+```
+
+> デザインパターンはゴールではありません。
+> 「将来発生する変更コスト」を「今の実装コスト」で買う投資判断です。
+> チームの状況に合わせて、一つの参考として受け取っていただければと思います。
+
+### 2.10 より難しい変化への耐久テスト
+
+今度は別のシナリオです。
+「LaborMgmtServiceも引数形式が変わった」という変更要求が来たとします。
+PayrollServiceとLaborMgmtServiceの両方が同時に変わるケースです。
+
+**Facade適用後（【深化コード】）：**
 
 ```cpp
-// スタブ：IPayrollFacade を実装した差し替えクラス。
-// URLもフィールド名も一切持たない。
-// インターフェースを実装しているので MonthlyBatch にそのまま渡せる。
+void PayrollFacade::process(int year, int month) {
+    int employeeId = 1001;
+
+    // LaborMgmtService v2: getHours(year, month, id)
+    // 引数の順序が変わっても、PayrollFacade内だけで対処
+    double hours = labor_.getHours(year, month, employeeId);
+    //                    ↑ 変更はここ1行。MonthlyBatchは無関係
+
+    // PayrollService v2 も引き続き対応済み
+    double amount = payroll_.computeSalary(employeeId, hours);
+    std::string slipFile = pdf_.generate(employeeId, amount);
+    saveResult(year, month, amount, slipFile);
+}
+
+// MonthlyBatch::run() は一行も変わらない
+void MonthlyBatch::run(int year, int month) {
+    facade_->process(year, month); // ← これは変わらない
+}
+```
+
+2つのサービスが同時に仕様変更されても、`MonthlyBatch` は変わりません。
+変更は `PayrollFacade` の中だけに局所化されています。
+この「変更が1箇所に収まる」という感覚、うまく伝わっているでしょうか。
+
+### 2.11 使う場面・使わない場面
+
+**【過剰コード】**
+
+```cpp
+// ❌ やりすぎの例：単純な計算を無理にFacadeに包む
+class ITaxFacade {
+public:
+    virtual ~ITaxFacade() {}
+    virtual double calculate(double amount) = 0;
+};
+class SimpleTaxFacade : public ITaxFacade {
+public:
+    double calculate(double amount) override {
+        return amount * 0.1; // 消費税10%
+    }
+};
+// 💭「1行の計算のためにインターフェースとFacadeを作った。
+//     この税率が変わることは当面ない。
+//     呼び出し元も1ファイルだけ。これは過剰設計だ。」
+```
+
+| 使う場面 | 使わない場面 |
+|---|---|
+| 外部サービスの仕様変更が繰り返し発生する | 一度作ったら変わらない処理 |
+| 同じサービス群を複数ファイルから呼んでいる | 呼び出し元が1ファイルだけ |
+| サービスなしで呼び出し元を単独テストしたい | 結合テストで十分な場面 |
+| 複数サービスを順番に組み合わせる処理 | 処理が1サービス呼び出しのみ |
+
+---
+
+## ステップ7：決断と、手に入れた未来
+
+### 2.12 解決後のコード
+
+リファクタリングとは「外から見た動きを変えずに、内部の構造を変えること」です。
+テストで「外から見た動きが変わっていない」ことを確認します。
+
+```cpp
+// スタブ：本物のサービスを呼ばずに
+// 「あらかじめ決めた動作をする」差し替えクラス。
+// IPayrollFacadeを継承することで、
+// 本番のPayrollFacadeと入れ替えられる。
 class StubPayrollFacade : public IPayrollFacade {
 public:
-    PayrollResult calculate(
-        const std::string&, double, double
-    ) override {
-        // 業務的な結果だけを返す。APIの詳細はここに存在しない。
-        return {350000.0, true, ""};
+    bool called      = false;
+    int  calledYear  = 0;
+    int  calledMonth = 0;
+
+    void process(int year, int month) override {
+        called      = true;
+        calledYear  = year;
+        calledMonth = month;
+        // 本物のサービスは呼ばない
     }
 };
 
-TEST(MonthlyBatchTest, SavesSuccessfulResult) {
+TEST(MonthlyBatchTest, CallsFacadeWithCorrectYearMonth) {
     StubPayrollFacade stub;
-    MockDatabase mockDb;
-    MonthlyBatch batch(stub, mockDb);
-    batch.execute(2024, 12);
+    MonthlyBatch batch(&stub);
+    // ↑ 依存注入：コンストラクタ経由でスタブを渡す
 
-    // MonthlyBatch はAPIの詳細を何も知らない。
-    // 「結果を保存したか」だけをテストできる。
-    EXPECT_DOUBLE_EQ(350000.0, mockDb.lastSaved_);
+    batch.run(2024, 12);
+
+    // EXPECT_TRUE(条件)：条件が真ならテスト通過。Google Testのマクロ。
+    EXPECT_TRUE(stub.called);
+    // EXPECT_EQ(期待値, 実際の値)：等しければテスト通過。
+    EXPECT_EQ(2024, stub.calledYear);
+    EXPECT_EQ(12,   stub.calledMonth);
 }
 ```
 
-```cpp
-// PayrollFacade 側のテスト
-// APIの仕様（フィールド名・エラー処理）だけをここで確認する
+このテストが通れば、
+「MonthlyBatchが正しい年月でfacadeを呼んでいる」という動作が保証されます。
+PayrollServiceへの本番接続なしに確認できています。
 
-TEST(PayrollFacadeTest, ParsesResponseCorrectly) {
-    // "base_salary" の知識は PayrollFacade のテストだけにある
-    PayrollFacade facade;
-    auto result =
-        facade.calculate("emp001", 160.0, 20.0);
-
-    EXPECT_TRUE(result.success);
-    EXPECT_DOUBLE_EQ(350000.0, result.totalSalary);
-}
-
-TEST(PayrollFacadeTest, HandlesApiError) {
-    // EXPECT_FALSE(値)：「値が偽であればテスト通過」のアサーション。
-    PayrollFacade facade;
-    auto result =
-        facade.calculate("emp001", 0.0, 0.0);
-
-    EXPECT_FALSE(result.success);
-    EXPECT_FALSE(result.errorMessage.empty());
-}
+```
+[  PASSED  ] MonthlyBatchTest.CallsFacadeWithCorrectYearMonth
 ```
 
-`MonthlyBatch` のテストから「APIのレスポンス形式」という概念が消えました。
-`"base_salary"` というフィールド名の知識は `PayrollFacade` のテストだけにあります。
-新APIでフィールド名が変わっても、変更するのは `PayrollFacade` の1か所だけ。
-`MonthlyBatch`・`PayslipExporter`・`OvertimeAlertJob` のテストは
-変更不要です。
+**変更影響グラフ（改善後）**
 
----
+```mermaid
+graph LR
+    subgraph 変更のトリガー
+        T[PayrollService v1 → v2]
+    end
+    subgraph 変更が必要なファイル
+        F[PayrollFacade.cpp<br/>ここだけ修正]
+    end
+    subgraph 変更不要なファイル
+        A[MonthlyBatch.cpp ✅]
+        B[PayslipExporter.cpp ✅]
+        C[OvertimeAlertJob.cpp ✅]
+    end
+    T --> F
+    T -. 影響なし .-> A
+    T -. 影響なし .-> B
+    T -. 影響なし .-> C
 
-## ステップ5：天秤にかける・決断する
-> 基準を先に宣言し、各案を等価に比較した上で決断する
-
-### 2.7 比較の基準を先に宣言する
-
-比較を始める前に「何を重視するか」を明示します。
-基準を後から決めると、結論ありきの比較になってしまいます。
-
-今回の状況で私が判断に使う基準は次の通りです。
-
-| 基準 | なぜこの状況で重要か |
-|:---|:---|
-| 変更の局所性 | ベンダー変更で変更箇所が1か所に収まってほしい |
-| テストの独立性 | 本物のAPIを使わずに各処理をテストしたい |
-| 変化の継続性 | 認証だけでなくレスポンス形式も将来変わる可能性がある |
-
----
-
-### 2.8 試行コードと解決コードをテストで比較する
-
-試行コード（`PayrollApiClient`）と解決コード（`PayrollFacade`）を、
-2.7で宣言した基準で比較します。
-
-**変更の局所性で見ると：**
-試行コードでは `json["base_salary"]` というレスポンスフィールド名が3か所に残っています。
-新APIでフィールド名が変わると、`MonthlyBatch`・`PayslipExporter`・`OvertimeAlertJob` の
-3か所を修正する必要があります。
-解決コードでは、このフィールド名の知識が `PayrollFacade` の1ファイルに収まっています。
-ベンダー変更時の変更箇所は1か所だけです。
-
-**テストの独立性で見ると：**
-試行コードのテストには `json["base_salary"]` という知識がまだ残っています。
-解決コードのテストでは `MonthlyBatch` 側から APIの知識が完全に消えています。
-
-#### 比較のまとめ
-
-| 基準 | 試行コード（PayrollApiClient） | 解決コード（PayrollFacade） |
-|:---|:---|:---|
-| 変更の局所性 | △ レスポンス形式の変更は3か所に影響 | ○ 全知識が1か所に収まる |
-| テストの独立性 | △ テストにJSONフィールド名の知識が残る | ○ 呼び出し元テストからAPIの知識が消える |
-| 変化の継続性 | △ 次の変化でまた3か所を探すことになる | ○ 1か所の変更で完結する |
-| 実装コスト | 少ない（既存クラスの小修正） | 多い（インターフェース設計が必要） |
-| **この状況に合うか** | 認証変更のみが懸念で変化リスクが低い場合 | 継続的な外部仕様変更が見込まれる場合 |
-
-*この比較はあくまで「今回の状況と基準」に対するものです。
-別の状況・別の基準であれば、違う選択が正解になります。*
-
----
-
-### 2.9 より難しい変化への耐久テスト
-
-#### 新たな状況
-
-再び人事部から連絡が入りました。
-
-「実は、労務管理サービスの方も来期に別ベンダーへ移行することになって。
-　36協定のアラートを送っているあのシステムなんですが、
-　そちらも新しいAPIに対応してもらえますか？」
-
-> **2.5〜2.6で導いた構造は、この変化にも通用するでしょうか？**
->
-> 少し立ち止まって、考えてみてください。
-
-試行コード（`PayrollApiClient`）のアプローチで対応するとなると、
-労務管理サービス用に別の `LaborApiClient` を作れば認証・URLは集められます。
-ただし、そのAPIのレスポンス解析は `OvertimeAlertJob` に残ったままです。
-「外部サービスが増えるたびにクライアントクラスを作り、
-レスポンス解析は呼び出し元に散らばる」というパターンが続きます。
-
-解決コード（Facade）の場合は、
-`LaborManagementFacade` を追加するだけで完結します。
-`OvertimeAlertJob` はFacadeのインターフェースだけを知っていればよく、
-労務管理サービスのAPI詳細を一切知らないまま切り替えられます。
-
-#### 【深化コード】
-
-```cpp
-// 【深化コード】
-// payroll/ILaborManagementFacade.h
-// IPayrollFacade と対称的な構造。
-// 呼び出し元は業務意図（「残業時間を通知したい」）だけを表現する。
-
-class ILaborManagementFacade {
-public:
-    virtual ~ILaborManagementFacade() = default;
-    virtual bool notifyOvertime(
-        const std::string& employeeId,
-        double overtimeHours
-    ) = 0;
-};
-
-// LaborManagementFacade は労務管理サービスへの全知識を閉じ込める。
-// PayrollFacade に触れずにこのファイルだけを変更すればよい。
-class LaborManagementFacade
-    : public ILaborManagementFacade {
-public:
-    bool notifyOvertime(
-        const std::string& employeeId,
-        double overtimeHours
-    ) override {
-        HttpRequest req(
-            "https://labor-v2.example.com"
-            "/api/overtime-alert"
-        );
-        req.setHeader("X-Api-Key", apiKey_);
-        req.setBody({
-            {"emp_id",   employeeId},
-            {"ot_hours", overtimeHours}
-        });
-        auto raw = req.post();
-        return Json::parse(raw)["accepted"];
-    }
-private:
-    std::string apiKey_ = "key_labor_xxxx";
-};
+    style T fill:#ffcccc,stroke:#cc0000
+    style F fill:#ccffcc,stroke:#00aa00
 ```
 
-#### 深化コードのテスト
-
-```cpp
-// OvertimeAlertJob のテスト
-// 労務管理サービスのAPIについて何も知らずに書ける
-
-// スタブ：ILaborManagementFacade を実装した差し替えクラス。
-// 「通知が呼ばれたかどうか」と「渡された値」だけを記録する。
-class StubLaborFacade
-    : public ILaborManagementFacade {
-public:
-    bool notifyOvertime(
-        const std::string& id, double hours
-    ) override {
-        notifiedId_    = id;
-        notifiedHours_ = hours;
-        return true;
-    }
-    std::string notifiedId_;
-    double      notifiedHours_ = 0.0;
-};
-
-TEST(OvertimeAlertJobTest, NotifiesWhenOverLimit) {
-    StubLaborFacade stub;
-    MockDatabase mockDb;
-    OvertimeAlertJob job(stub, mockDb);
-    job.check(2024, 12);
-
-    // EXPECT_EQ(期待値, 実際の値)：「等しければテスト通過」のアサーション。
-    EXPECT_EQ("emp001", stub.notifiedId_);
-    // EXPECT_GT(実際の値, 下限)：「実際の値 > 下限ならテスト通過」のアサーション。
-    EXPECT_GT(stub.notifiedHours_, 45.0);
-}
-```
-
-`OvertimeAlertJob` は労務管理サービスについて何も知らないまま、
-新ベンダーへの切り替えに対応できました。
-`PayrollFacade` のときと同じ構造が、別の外部サービスにも
-自然に適用できています。
-
-*この耐久テストを経て、この状況では解決コード（Facade）が合っていると判断できます。
-2.5〜2.6で論理的に導いた構造が、難しい変化にも通用することが確認できました。*
+ステップ1で感じた
+「なぜMonthlyBatchがJSONを組み立てているのか」という違和感は完全に消えました。
+`PayrollService` が v3 に変わっても、`MonthlyBatch` は一行も変わりません。
 
 ---
 
-### 2.10 使う場面・使わない場面
+## 整理
 
-「では、Facadeを常に選べばいいのか？」という問いは自然です。
-間違えても大丈夫です。
-この問いと向き合うことがステップ5の本質だと思っています。
-
-#### 【過剰コード】：Facadeに本来の責任外の処理を入れてしまった例
-
-```cpp
-// 【過剰コード】
-// PayrollFacade にAPIと無関係な処理が混入した例。
-// 「依存を隠すのが得意」という理由で
-// 何でも入れてしまっている。
-
-class PayrollFacade : public IPayrollFacade {
-public:
-    PayrollResult calculate(...) override {
-        // ← 本来の責任：外部APIを呼び出す
-        // ...（APIの呼び出しコード）...
-    }
-
-    // ← 外部APIに関係のない処理が入り始めている
-    bool validateEmployeeId(
-        const std::string& id
-    ) {
-        return db_.exists(id);  // DBアクセスが混入
-    }
-
-    double computeBonus(double baseSalary) {
-        return baseSalary * 0.1;  // ドメインロジックが混入
-    }
-private:
-    Database db_;  // Facade 本来の役割に不要な依存
-};
-```
-
-`PayrollFacade` の本来の責任は「外部APIへの依存を隠す」ことです。
-バリデーションやボーナス計算は、給与計算APIの知識とは別の責任です。
-ここに混入させると、Facadeが「便利な何でも屋クラス」になり、
-本来の目的（外部との境界を管理する）が失われます。
-Facadeクラスにこうした処理が混在し始めたら、
-設計を見直す価値があるサインかもしれません。
-
-#### 状況ごとの選択指針
-
-| 状況 | 選ぶ形 | 次の判断タイミング |
-|:---|:---|:---|
-| 3週間・ベンダー移行が確定・呼び出し元が3か所 | Facade（解決コード） | — |
-| 呼び出しが今は1か所のみ | 試行コード | 呼び出し元が2か所に増えたとき |
-| プロトタイプ段階 | 直接呼び出し | 本番移行の前 |
-
-> **どの形を選んでも守る一線**
->
-> 「給与計算APIへの接続詳細（URL・認証・レスポンス形式）」を
-> `MonthlyBatch`・`PayslipExporter`・`OvertimeAlertJob` に
-> 直接書き続けることだけは避ける。
-> 試行コードか解決コードかは、変化の見込みと 2.7 の基準が決めます。
-
----
-
-## この章で踏んだ思考の整理
-
-### 2.11 5ステップとこの章でやったこと
+### 2.13 8ステップとこの章でやったこと
 
 | ステップ | この章でやったこと |
-|:---|:---|
-| **1. 現状把握** | 勤怠管理システムの仕様・起点コード・API移行要求をひとつの状況として把握した |
-| **2. 課題の発見** | 変更しようとすると3か所（`MonthlyBatch`・`PayslipExporter`・`OvertimeAlertJob`）を修正する必要があり、見落としリスクがあることがわかった |
-| **3. 原因特定** | 「知らなくていい情報（API詳細）」を3か所の呼び出し元がそれぞれ直接持っていることを突き止めた |
-| **4. 対策案検討** | 試行コード（接続詳細のみを集める）で部分解消し、解決コード（全知識を1か所に集める）で根本を解消した |
-| **5. 天秤・決断** | 基準を宣言し、テストで比較し、この状況に合う形を選んだ |
+|---|---|
+| ステップ0 | 「API仕様は変動、業務フローは不変」という仮説を立てた |
+| ステップ1 | MonthlyBatchが3サービスの詳細を全て知っている状態を確認した |
+| ステップ2 | コードを読み仮説を検証。変動/不変を表で確定した |
+| ステップ3 | PayrollService変更が3ファイルに飛び火する痛みを確認した |
+| ステップ4 | 「目的（MonthlyBatch）と手段（3サービス）が同じ場所にいる」という根本原因を言語化した |
+| ステップ5 | 試行でFacadeクラスを作り、解決でIPayrollFacadeインターフェースを導入した |
+| ステップ6 | 変更の局所性とテスト独立性を評価軸にして適用を判断した |
+| ステップ7 | スタブを使ったテストで「動きが変わっていない」ことを確認した |
 
-この思考の結果として辿り着いた構造を、
-先人たちは **Facadeパターン** と呼んでいます。
-一つの参考として受け取っていただければと思います。
+このプロセスを回した結果、コードに引かれた「MonthlyBatchと3サービスの間の境界線」こそが
+**Facadeパターン** です。
+
+設計に絶対の正解はありません。ただ、「誰が何を知るべきか」を問い続けることで、
+変更に強いコードが自然に生まれてくる。そういう感覚、一つの参考として届いていれば幸いです。
