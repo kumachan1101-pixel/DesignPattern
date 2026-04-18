@@ -329,11 +329,11 @@ OvertimeAlertJob.cpp:15 payroll_.calculateV1(json, hours);
 > **インフラ担当**：「はい、次の四半期でv2への移行を予定しています。
 > 今のJSON形式の引数はなくなり、`calcSalary(employeeId, hours)` のシンプルな形になります。」
 >
-> **開発者**：「LaborMgmtServiceの引数形式はどうでしょう？
-> 社員IDがintのままとは限りませんか？」
+> **開発者**：「LaborMgmtServiceの引数形式について確認させてください。
+> 社員IDの型（int）は今後変更になる可能性はありますか？」
 >
-> **人事システム担当**：「海外拠点を統合する計画があるので、
-> IDが文字列型に変わる可能性はあります。まだ確定していませんが。」
+> **人事システム担当**：「現時点ではintのままですが、将来的に文字列IDに変わる
+> 外部システムとの統合の可能性があります。まだ確定していませんが。」
 >
 > **開発者**：「給与明細の出力はPDFですが、将来フォーマットが変わる可能性はありますか？」
 >
@@ -341,6 +341,15 @@ OvertimeAlertJob.cpp:15 payroll_.calculateV1(json, hours);
 > 確定ではないですが、対応できれば嬉しいです。」
 
 ---
+
+この「社員IDの型変更リスク」には、一つ注意が必要です。
+社員IDは `ILaborMgmtService`・`IPayrollService`・`IPaySlipOutputService` の
+3つのインターフェースに共通して使われています。
+もし `int` から `string` に変わった場合、
+**3つのインターフェース全てのシグネチャが変わります**。
+Facadeパターンの変更耐性は「具体クラスの差し替え」には有効ですが、
+「インターフェース自体のシグネチャ変更」は防げません。
+型変更リスクへの対処の選択肢は、2.10（耐久テスト）で改めて示します。
 
 チームで話し合う価値がある部分だと思います。
 このヒアリングがあって初めて、変動/不変テーブルに根拠が生まれます。
@@ -893,6 +902,94 @@ void BatchApplication::run(int year, int month) {
 `BatchApplication` の1行差し替えだけです。
 「責任が明確な設計」だから変更が局所化されています——
 この感覚、うまく伝わっているでしょうか。
+
+---
+
+**次の変化：明細をExcelファイルでGitHubに登録する要求**
+
+2.3のヒアリングで「来年度からExcel出力の要望が上がっています」という言葉がありました。
+その変化が実際に来たとします。
+
+> 「給与明細をPDFではなく、Excelファイルとして社内GitHubリポジトリに登録してほしい。」
+
+この要求に応えるには、`ExcelGitHubServiceImpl` という新しい実装クラスを追加します。
+
+```cpp
+// ExcelGitHubServiceImpl
+// 責任：給与明細をExcelファイルとしてGitHubに登録する
+class ExcelGitHubServiceImpl : public IPaySlipOutputService {
+public:
+    std::string output(
+        int employeeId, double amount) override {
+        // Excelファイルを生成し、GitHubリポジトリに登録する
+        std::string fileName = "slip_"
+            + std::to_string(employeeId)
+            + "_" + std::to_string((int)amount)
+            + ".xlsx";
+        // pushToGitHub(fileName); // GitHubへの登録処理
+        return fileName;
+    }
+};
+```
+
+BatchApplicationでの差し替えは、たった1行だけです。
+
+```cpp
+void BatchApplication::run(int year, int month) {
+    PayrollServiceImpl     payroll;
+    LaborMgmtServiceImpl   labor;
+    ExcelGitHubServiceImpl pdf;   // ← ここだけ変わる
+    PayrollFacade facade(&payroll, &labor, &pdf);
+    MonthlyBatch  batch(&facade);
+    batch.run(year, month);
+}
+```
+
+インターフェース名 `IPaySlipOutputService` は変わりません。
+「給与明細を出力する」という責任の名前は、PDFでもExcelでもGitHubでも同じです。
+2.3で決めた「ビジネス責任で命名する」原則が、ここで実証されました。
+
+---
+
+**型変更リスクへの対処：社員IDがstring型に変わった場合**
+
+ここで、2.3のヒアリングで挙がったもう一つのリスクを確認します。
+「社員IDが将来的にstring型に変わるかもしれない」——この変化が実際に来たとします。
+
+現在の3つのインターフェースは、どれも `int employeeId` を引数に持っています。
+
+```cpp
+class IPayrollService {
+    virtual double calcSalary(
+        int employeeId, double workHours) = 0;
+    //  ↑ int
+};
+class ILaborMgmtService {
+    virtual double getWorkHours(
+        int employeeId, int year, int month) = 0;
+    //  ↑ int
+};
+class IPaySlipOutputService {
+    virtual std::string output(
+        int employeeId, double amount) = 0;
+    //  ↑ int
+};
+```
+
+`int` が `string` に変われば、**3つのインターフェース全てのシグネチャが変わります**。
+Facadeパターンは「具体クラスの差し替えを1行に局所化する」変更耐性を持っています。
+しかし「インターフェース自体が変わる」状況は、Facadeでは防げません。
+
+この型変更リスクへの対処には、チームで検討できる選択肢があります。
+
+| 選択肢 | 内容 | メリット | デメリット |
+|---|---|---|---|
+| 型を合意・固定 | `int` のまま使い続けることを関係者と合意する | 変更なし・シンプル | 変更時に全インターフェースが変わる |
+| `EmployeeId` 型を定義 | `int` を独自型でラップする | 変更が型定義1箇所に絞られる | 型定義が増える |
+| `void*` / 不完全型 | 型の知識をインターフェースに持たせない | 最大の変更耐性 | 型安全を失う |
+
+どれが正解かはチームで決める話です。設計に絶対の正解はありません。
+「今どのリスクを優先して対処するか」をチームで合意することが、設計の一歩だと私は感じています。
 
 ### 2.11 使う場面・使わない場面
 
