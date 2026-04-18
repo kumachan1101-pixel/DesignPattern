@@ -19,9 +19,10 @@ GoFデザインパターンの「名前を覚える」ではなく、
 エージェントは作業開始前に以下を必ずこの順番で読むこと：
 
 1. `../../shared/skills/author-voice.md` — 著者の人格（最重要）
-2. `../../shared/personas/reader-profiles.md` — 読者ペルソナ
-3. `../../shared/skills/markdown-checker.md` — 品質チェック基準
-4. このCLAUDE.md の残りのルール
+2. `design-philosophy.md` — 設計思想カタログ（読者の全疑問への回答定義）
+3. `../../shared/personas/reader-profiles.md` — 読者ペルソナ
+4. `../../shared/skills/markdown-checker.md` — 品質チェック基準
+5. このCLAUDE.md の残りのルール
 
 ---
 
@@ -499,6 +500,7 @@ EXPECT_DOUBLE_EQ(350000.0, mockDb.lastSaved());
 ```
 design-patterns/
 ├── CLAUDE.md                    ← このファイル
+├── design-philosophy.md         ← 設計思想カタログ（全設計問いの唯一の正。新しい問いはここに追加）
 ├── toc.md
 ├── agents/
 │   ├── orchestrator.md
