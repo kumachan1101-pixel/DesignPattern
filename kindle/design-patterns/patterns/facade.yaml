@@ -1,0 +1,61 @@
+# patterns/facade.yaml
+# Facadeパターンの定義ファイル
+# chapter-agentがこのファイルを読んで章の素材として使う
+
+pattern:
+  name: Facade
+  chapter: 2
+  subtitle: "使う側に知らせない勇気"
+  tagline: "複数の具体クラスへの依存を一本化し、変更の飛び火を防ぐ"
+  change_type: "使う側が知らなくていいことまで知っている（依存の過多）"
+
+scenario:
+  domain: "月次給与バッチシステム"
+  system_overview: |
+    毎月末に全社員の給与処理を完了させる月次バッチシステム。
+    MonthlyBatch クラスが起動し、3つの外部サービスと連携して処理を完了させる。
+    - LaborMgmtService：勤怠時間を集計する
+    - PayrollService：給与額を計算する（JSON形式でAPIを受け付ける）
+    - PdfService：給与明細PDFを生成する
+  current_spec:
+    - "MonthlyBatch が毎月末に run(year, month) を呼び出す"
+    - "LaborMgmtService.getWorkHours(id, year, month) で実働時間を取得する"
+    - "PayrollService.calculateV1(json, hours) で給与額を計算する（JSON形式の引数）"
+    - "PdfService.generate(id, amount) で明細PDFを生成する"
+    - "計算結果を保存して処理完了とする"
+  situation:
+    who: "インフラ担当から"
+    what: "PayrollServiceがv2になります。引数形式が calcSalary(employeeId, hours) に変わります。JSONは不要です"
+    deadline: "次の四半期"
+
+observations:
+  - "MonthlyBatchが PayrollServiceのAPI形式（JSONの組み立て方）を知っている"
+  - "PayrollServiceのAPIバージョン名（calculateV1）まで呼び出し元のコードに出現している"
+  - "PayrollServiceのAPI形式という『PayrollServiceの責任』がMonthlyBatchの中に染み出している"
+  - "同じ染み出しが MonthlyBatch・PayslipExporter・OvertimeAlertJob の3ファイルに存在する"
+
+trial_approach: "PayrollServiceのAPI呼び出しをラッパーメソッドで包んでMonthlyBatchから隠す"
+trial_limits:
+  - "MonthlyBatchが依然としてPayrollServiceの具体クラスを直接知っている"
+  - "別のクラス（PayslipExporter等）でも同じ問題が残る"
+
+advanced_scenario:
+  what: "将来、社員IDの型をintからstringに変えたい（外部システム統合の可能性）"
+  extension: |
+    社員IDが変わると ILaborMgmtService・IPayrollService・IPaySlipOutputService の
+    3つのインターフェース全てのシグネチャが変わる。
+    こういう状況では「型をどう扱うかをチームで先に合意する」という問いを立てる。
+    選択肢：①現状int固定で合意する ②独自型（EmployeeId）で表現する ③void*で汎用化する
+  difficulty_type: "パターンB：インターフェースのシグネチャ自体が変わるリスク"
+
+threshold:
+  use_when:
+    - "複数の具体クラスへの依存が呼び出し元コードに染み出している"
+    - "外部サービスやAPIのバージョン変更が定期的に発生する"
+    - "同じ具体クラスへの依存が複数の呼び出し元に重複している"
+  skip_when:
+    - "外部サービスが1つだけで、変更頻度が低い"
+    - "呼び出し元が1箇所しかなく、将来的に増える見込みがない"
+
+next_chapter:
+  preview: "次章では「状態によって振る舞いが変わる」という別の種類の変化を扱います"
