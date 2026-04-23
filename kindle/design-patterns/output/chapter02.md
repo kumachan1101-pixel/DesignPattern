@@ -66,7 +66,7 @@ classDiagram
 
 **各クラスの責任と実装**
 
-設計を読むときは、まず「このクラスの責任は何か」を確認します。
+設計を読むときは、最初に「このクラスの責任は何か」を確認します。
 実装の中身を見ることで、責任の範囲が具体的に把握できます。
 
 ```cpp
@@ -575,6 +575,7 @@ TEST(MonthlyBatchTest, CallsFacade) {
     StubPayrollFacade stub;
     MonthlyBatch batch(&stub);
     batch.run(2024, 12);
+    // EXPECT_TRUE(条件)：条件が真ならテスト通過という検証
     EXPECT_TRUE(stub.called);
 }
 ```
@@ -1214,9 +1215,8 @@ TEST(MonthlyBatchTest, CallsFacadeWithCorrectYearMonth) {
 
     batch.run(2024, 12);
 
-    // EXPECT_TRUE(条件)：条件が真ならテスト通過。Google Testのマクロ。
     EXPECT_TRUE(stub.called);
-    // EXPECT_EQ(期待値, 実際の値)：等しければテスト通過。
+    // EXPECT_EQ(期待値, 実際の値)：等しければテスト通過という検証
     EXPECT_EQ(2024, stub.calledYear);
     EXPECT_EQ(12,   stub.calledMonth);
 }

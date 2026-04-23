@@ -98,6 +98,7 @@
   "output": "output/chapter02.md",
   "self_check": {
     "step0_to_7_headings": true,
+    "system_overview_before_universal_question": true,
     "universal_question_used": true,
     "before_class_diagram": true,
     "after_class_diagram": true,
