@@ -764,88 +764,6 @@ int main() {
 
 ---
 
-## 振り返り：第0章の3つの哲学はどう適用されたか
-
-改めて、ここまで導き出してきた「最終的な設計（図やコード）」を、第0章でお話しした「3つの哲学」と照らし合わせてみましょう。一通り設計のプロセスを体験した今なら、あの哲学が「コードのどの部分に現れているか」が実感として結びつくはずです。
-
-### 哲学1「変わるものをカプセル化せよ」の現れ
-
-**具体化された場所：** MonthlyBatch から追い出された「PayrollService等の各APIの仕様や呼び方」の知識
-
-「給与支払いの全体の流れを統括する」という不変の業務の中に散らばっていた、外部要因で変わりやすい「APIのバージョンや引数の形式」を徹底的に追い出しました。
-これらが `PayrollFacade` や更にその背後の各ServiceInterfaceに分離（カプセル化）されたことで、「外部サービスの都合が変わっただけで、システムの中核が道連れになる」という負の連鎖を断ち切ることができました。
-
-### 哲学2「インターフェースに対してプログラムせよ」の現れ
-
-**具体化された場所：** MonthlyBatch が `IPayrollFacade` のみを知り、PayrollFacade が `IPayrollService` などのみを知っている依存関係
-
-`MonthlyBatch` は本物の `PayrollFacade` ではなく、単なる契約である `IPayrollFacade` にのみ依存するようにしました。同じように `PayrollFacade` の先もインターフェースで繋ぎました。
-これにより、相手のAPI仕様がどれほど変わろうとも、その影響はインターフェースの裏側にある具体クラスの中に封じ込められ、「呼び出し側は一切知らなくてよい」という状態が完成しました。
-この「知らなくていいという契約」こそがインターフェースに対してプログラムすることの本質です。
-
-**変更後のクラス図**
-
-```mermaid
-classDiagram
-    class BatchApplication {
-        +run(year, month)
-    }
-    class MonthlyBatch {
-        -facade_: IPayrollFacade*
-        +MonthlyBatch(facade)
-        +run(year, month)
-    }
-    class IPayrollFacade {
-        <<interface>>
-        +process(year, month)
-    }
-    class PayrollFacade {
-        -payroll_: IPayrollService*
-        -labor_: ILaborMgmtService*
-        -pdf_: IPaySlipOutputService*
-        +process(year, month)
-    }
-    class IPayrollService {
-        <<interface>>
-        +calcSalary(id, hours) double
-    }
-    class ILaborMgmtService {
-        <<interface>>
-        +getWorkHours(id, y, m) double
-    }
-    class IPaySlipOutputService {
-        <<interface>>
-        +output(id, amount) string
-    }
-    class PayrollServiceImpl {
-        +calcSalary(id, hours) double
-    }
-    class LaborMgmtServiceImpl {
-        +getWorkHours(id, y, m) double
-    }
-    class PdfServiceImpl {
-        +output(id, amount) string
-    }
-
-    BatchApplication  --> MonthlyBatch          : 組み立て・起動
-    BatchApplication  --> PayrollFacade          : 組み立て
-    MonthlyBatch      --> IPayrollFacade         : 契約だけを知る
-    IPayrollFacade    <|.. PayrollFacade         : 実装
-    PayrollFacade     --> IPayrollService        : 契約だけを知る
-    PayrollFacade     --> ILaborMgmtService      : 契約だけを知る
-    PayrollFacade     --> IPaySlipOutputService  : 契約だけを知る
-    IPayrollService   <|.. PayrollServiceImpl
-    ILaborMgmtService <|.. LaborMgmtServiceImpl
-    IPaySlipOutputService <|.. PdfServiceImpl
-```
-
-変更前と変更後を見比べてみてください。
-`MonthlyBatch` から出ていた矢印が3本→1本に減り、
-`PayrollFacade` は具体クラスへの矢印がゼロになりました。
-矢印の数の変化が、責任の整理の成果を物語っています。
-
----
-
 ## ステップ6：天秤にかける ―― バランスの評価と耐久テスト
 
 ### 比較の基準を先に宣言する
@@ -1314,5 +1232,31 @@ graph LR
 このプロセスを回した結果にたどり着いた構造こそが **Facadeパターン** です。
 
 設計に絶対の正解はありません。ただ「各クラスの責任は何か」「変わる理由は1つか」を問い続けることが、変更に強いコードへの入り口になります。
+
+---
+
+## 振り返り：第0章の3つの哲学はどう適用されたか
+
+改めて、ここまで導き出してきた「最終的な設計」を、第0章でお話しした「3つの哲学」と照らし合わせてみましょう。
+
+### 哲学1「変わるものをカプセル化せよ」の現れ
+
+**具体化された場所：** `MonthlyBatch` から追い出された「各APIの仕様や呼び方」の知識
+
+外部サービスの都合で変わりやすい「APIのバージョンや引数の形式」を、`PayrollFacade` と各インターフェースの裏側に分離（カプセル化）しました。「外部サービスの都合が変わっただけで、システムの中核が道連れになる」という負の連鎖を断ち切った部分です。
+
+### 哲学2「実装ではなくインターフェースに対してプログラムせよ」の現れ
+
+**具体化された場所：** `MonthlyBatch` が `IPayrollFacade` のみを知り、`PayrollFacade` が各インターフェースのみを知っている依存関係
+
+`MonthlyBatch` は具体クラスではなく契約（`IPayrollFacade`）にのみ依存します。相手のAPI仕様がどれほど変わろうとも、影響はインターフェースの裏側に封じ込められます。矢印の数の変化（3本→1本）が責任の整理の成果を物語っています。
+
+### 哲学3「継承よりコンポジションを優先せよ」の現れ
+
+**具体化された場所：** `PayrollFacade` が3つのサービスインターフェースを「部品として持つ（`payroll_`・`labor_`・`pdf_`）」構造
+
+もし `PayrollFacade` が各サービスを継承して実装していたら、サービスの変更が `PayrollFacade` に直接波及します。「部品として持つ」ことで、差し替えは外からの注入だけで済み、`PayrollFacade` 自身には一切触れません。
+
+---
 
 第3章では、「状態によって振る舞いが変わる」という別の種類の変化に向き合います。
