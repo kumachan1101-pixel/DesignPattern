@@ -1,0 +1,59 @@
+# patterns/factory-method.yaml
+# Factory Methodパターンの定義ファイル
+# chapter-agentがこのファイルを読んで章の素材として使う
+
+pattern:
+  name: FactoryMethod
+  chapter: 8
+  subtitle: "何を作るかを、使う側に決めさせない"
+  tagline: "オブジェクトの生成を分離し、『作る判断』と『使う処理』を分ける"
+  change_type: "「作るオブジェクト」が変わる"
+
+scenario:
+  domain: "帳票出力システム"
+  system_overview: |
+    業務システムの帳票を出力するモジュール。
+    帳票の種類（請求書・納品書・領収書）に応じて異なる帳票オブジェクトを生成し、
+    出力処理を実行する。
+    現状は ReportService クラスが帳票の種類を判断してオブジェクトを生成している。
+  current_spec:
+    - "帳票種別：Invoice（請求書）、DeliveryNote（納品書）、Receipt（領収書）"
+    - "ReportService::generate(type, data)：typeに応じてif/elseでオブジェクトを生成する"
+    - "生成したオブジェクトの render() を呼び出してPDF出力する"
+    - "帳票の種類判断・生成・出力が1つのメソッドに集約されている"
+  situation:
+    who: "営業部門から"
+    what: "見積書（Estimate）という新しい帳票種別を追加してほしい"
+    deadline: "月末"
+
+observations:
+  - "新しい帳票種別を追加するたびに ReportService::generate() の if/else を開いて変更する"
+  - "「どの帳票を作るか」という生成の判断と、「作った帳票をどう出力するか」という利用処理が同じ場所にある"
+  - "テスト時に特定の帳票クラスだけを渡す方法がなく、常に type 判断ロジックを通る"
+  - "将来 Excel出力・HTML出力など出力形式が増えると、生成と形式判断が交差して複雑になる"
+
+trial_approach: "帳票生成部分をcreateReport(type)という別メソッドに切り出す"
+trial_limits:
+  - "切り出しただけで帳票種別の判断が生きており、新種別追加にはcreateReport()の変更が必要"
+  - "ReportServiceが依然として全具体クラス（Invoice・DeliveryNote・Receipt）を知っている"
+
+advanced_scenario:
+  what: "帳票のテンプレートを顧客ごとにカスタマイズしたい（顧客Aはロゴ有、顧客Bはシンプル版）"
+  extension: |
+    Factory Methodパターンでは、CustomerAReportFactory・CustomerBReportFactory という
+    顧客別ファクトリを追加するだけで対応できる。
+    既存の ReportService（利用側）には一切触れない。
+    「生成の判断をサブクラスに委ねる」という構造が、顧客別カスタマイズを可能にする。
+  difficulty_type: "パターンD：生成ルールが複数軸（種別×顧客）で変わる"
+
+threshold:
+  use_when:
+    - "作るオブジェクトの種類が今後も増える見込みがある"
+    - "オブジェクトの生成ロジックと利用ロジックを独立してテストしたい"
+    - "生成するオブジェクトの種類が設定・環境・顧客ごとに変わる"
+  skip_when:
+    - "生成するオブジェクトが1種類で今後も変わらない"
+    - "生成ロジックが1行で済む（new Invoice() だけなど）"
+
+next_chapter:
+  preview: "エピローグ：8つのパターンを通じて、設計の考え方の全体像を振り返ります"

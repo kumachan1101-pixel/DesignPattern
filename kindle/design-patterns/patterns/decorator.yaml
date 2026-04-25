@@ -1,0 +1,59 @@
+# patterns/decorator.yaml
+# Decoratorパターンの定義ファイル
+# chapter-agentがこのファイルを読んで章の素材として使う
+
+pattern:
+  name: Decorator
+  chapter: 6
+  subtitle: "クラスを爆発させずに、機能を積み重ねる"
+  tagline: "継承を使わず、機能の組み合わせをオブジェクトの包み込みで表現する"
+  change_type: "「機能の組み合わせ」が変わる"
+
+scenario:
+  domain: "アプリケーションログ出力・通知機能"
+  system_overview: |
+    サービスの処理結果をログに記録するシステム。
+    基本のログ出力（コンソール）に加え、ファイル保存・メール通知・Slack通知などを
+    組み合わせて使いたいという要望がある。
+    現状は Logger クラスを継承してそれぞれの機能を持つサブクラスを作っている。
+  current_spec:
+    - "ConsoleLogger：コンソールにログを出力する"
+    - "FileLogger：ファイルにログを書き込む"
+    - "EmailNotifyLogger：エラー時にメール通知する"
+    - "FileAndEmailLogger：FileLoggerの機能＋EmailNotifyLoggerの機能（継承で合成）"
+    - "それぞれのクラスは Logger を継承して write(message) をオーバーライドしている"
+  situation:
+    who: "インフラ担当から"
+    what: "Slackへのエラー通知も追加したい。さらにファイル＋メール＋Slackの組み合わせも必要"
+    deadline: "今週中"
+
+observations:
+  - "FileLogger・EmailLogger・FileAndEmailLogger と、組み合わせの数だけクラスが増えている"
+  - "Slackを追加すると、FileSlack・EmailSlack・FileEmailSlack... とさらに爆発する"
+  - "N種類の機能があると 2^N 通りの組み合わせクラスが必要になる（クラス爆発）"
+  - "各組み合わせクラスは同じ処理を重複して持っており、1か所のバグが複数クラスに波及する"
+
+trial_approach: "LoggerManagerクラスに複数のLoggerをリストで持たせ、まとめて呼び出す"
+trial_limits:
+  - "LoggerManagerはLoggerのインターフェースを実装していないため、差し替えができない"
+  - "ログに前処理・後処理（タイムスタンプ付加など）を追加したい場合に対応できない"
+
+advanced_scenario:
+  what: "全ログに自動でタイムスタンプと処理IDを付けたい（全組み合わせに共通で）"
+  extension: |
+    Decoratorパターンでは、TimestampDecorator と TraceIdDecorator を追加するだけ。
+    既存のLoggerクラスに触れず、すべての組み合わせに一括で適用できる。
+    「包み込む」という構造が、横断的な機能追加を可能にする。
+  difficulty_type: "パターンA：全組み合わせに横断的な機能を追加したい"
+
+threshold:
+  use_when:
+    - "機能の組み合わせが多様で、組み合わせの数が今後も変わる"
+    - "継承で組み合わせを表現するとクラスが爆発しそうな場面"
+    - "実行時に動的に機能を組み合わせたい"
+  skip_when:
+    - "機能の組み合わせが固定で2〜3パターンしかない"
+    - "機能の追加が実行時でなくコンパイル時に決まる"
+
+next_chapter:
+  preview: "次章では「通知を受け取る相手が変わる」という別の変化を扱います"

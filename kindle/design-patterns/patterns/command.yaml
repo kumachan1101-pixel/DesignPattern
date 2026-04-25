@@ -1,0 +1,59 @@
+# patterns/command.yaml
+# Commandパターンの定義ファイル
+# chapter-agentがこのファイルを読んで章の素材として使う
+
+pattern:
+  name: Command
+  chapter: 5
+  subtitle: "操作をオブジェクトにして、操作の主導権を取り戻す"
+  tagline: "実行する操作をオブジェクトとして表現し、取り消し・再実行・記録を可能にする"
+  change_type: "「実行する操作」が変わる"
+
+scenario:
+  domain: "シンプルなテキストエディタ"
+  system_overview: |
+    テキストを入力・削除・置換する簡易エディタ。
+    ユーザーが操作するたびに TextEditor クラスがテキストを直接書き換える。
+    「元に戻す（Ctrl+Z）」機能の追加が求められた。
+  current_spec:
+    - "TextEditor::insertText(pos, text)：指定位置にテキストを挿入する"
+    - "TextEditor::deleteText(pos, length)：指定位置から文字列を削除する"
+    - "TextEditor::replaceText(pos, length, newText)：指定範囲を置換する"
+    - "各操作はすぐにバッファに反映される"
+    - "操作の履歴は保持していない"
+  situation:
+    who: "プロダクトマネージャーから"
+    what: "undo/redo（元に戻す・やり直し）機能を追加してほしい。ショートカットキーで使えるようにする"
+    deadline: "2週間後のv2リリース"
+
+observations:
+  - "「何をしたか」という情報がTextEditorクラスのどこにも残っていない"
+  - "undoを実装するには、各操作が『何をどのように実行したか』を記録しておく必要がある"
+  - "insertText・deleteText・replaceText は実行するだけで、取り消しに必要な逆操作の情報を持っていない"
+  - "操作の種類が増えるたびにundo処理の分岐が増え、管理が難しくなることが予測できる"
+
+trial_approach: "undoスタックにoperationType（enum）と操作前のバッファ全体をコピーして保存する"
+trial_limits:
+  - "バッファ全体のコピーはメモリ効率が悪く、大きなドキュメントでは現実的でない"
+  - "操作の種類が増えるたびにenum分岐とundo処理の両方を追加する必要がある"
+  - "redoを追加しようとすると複雑なスタック管理が必要になる"
+
+advanced_scenario:
+  what: "複数の操作をひとまとめにして一度のundoで戻したい（マクロ操作・バッチ編集）"
+  extension: |
+    Commandパターンでは、複数のCommandオブジェクトをリストで持つ
+    MacroCommand（コンポジット）として実装できる。
+    「操作をオブジェクトとして持つ」ことで、操作の組み合わせが自然に表現できる。
+  difficulty_type: "パターンA：操作の組み合わせが必要になった"
+
+threshold:
+  use_when:
+    - "undo/redoが必要"
+    - "操作の実行をキューに入れたり遅延実行したりする必要がある"
+    - "操作の種類が今後も増える見込みがある"
+  skip_when:
+    - "操作が取り消せなくていい（書き込み専用ログなど）"
+    - "操作が1〜2種類で今後も増えない"
+
+next_chapter:
+  preview: "次章では「機能の組み合わせが変わる」という、また別の種類の変化を扱います"

@@ -1,0 +1,59 @@
+# patterns/observer.yaml
+# Observerパターンの定義ファイル
+# chapter-agentがこのファイルを読んで章の素材として使う
+
+pattern:
+  name: Observer
+  chapter: 7
+  subtitle: "通知する側が、受け取る相手を知らなくていい"
+  tagline: "通知の送り元と受け取り先を分離し、受け手の増減をコードレスにする"
+  change_type: "「通知を受け取る相手」が変わる"
+
+scenario:
+  domain: "ECサイトの在庫更新通知システム"
+  system_overview: |
+    商品在庫が更新されたとき、複数の受け取り先に通知するシステム。
+    現状は InventoryManager クラスが在庫を更新するたびに、
+    通知先クラスを直接呼び出している。
+    通知先は「管理画面UI更新」「メール送信」「ログ記録」の3か所。
+  current_spec:
+    - "InventoryManager::updateStock(itemId, quantity)：在庫数を更新する"
+    - "更新後に AdminUiUpdater::refresh() を呼び出す"
+    - "更新後に EmailNotifier::sendAlert() を呼び出す"
+    - "更新後に StockLogger::log() を呼び出す"
+    - "3つの呼び出しがすべて updateStock() の中に直接書かれている"
+  situation:
+    who: "マーケティングチームから"
+    what: "在庫が更新されたタイミングで、連携しているSlackチャンネルにも通知を流したい"
+    deadline: "来週月曜"
+
+observations:
+  - "InventoryManagerは在庫管理が責任のはずなのに、通知先の具体クラスを3つも知っている"
+  - "通知先が1つ増えるたびに InventoryManager のコードを開いて変更しなければならない"
+  - "InventoryManagerと通知先クラスの間に直接依存があるため、テスト時に全通知先が起動する"
+  - "通知先を増やすかどうかの判断（マーケ・インフラ・運用）と、在庫管理の責任が同じクラスに混在している"
+
+trial_approach: "通知先リストをInventoryManagerにstd::vectorで持たせ、ループで呼び出す"
+trial_limits:
+  - "通知先クラスごとにメソッド名が異なるため、共通インターフェースなしではループで呼べない"
+  - "InventoryManagerが依然として通知先の具体クラスを知っており、依存は解消されない"
+
+advanced_scenario:
+  what: "特定の通知先だけ「在庫が0になったとき限定」で通知したい（条件付き購読）"
+  extension: |
+    Observerパターンでは、IStockObserver に notify(itemId, quantity) を持たせ、
+    各Observerが自分で「通知を受けてどう処理するか」を判断できる。
+    InventoryManagerは全Observerに通知するだけで、条件判断はObserver側に委ねられる。
+  difficulty_type: "パターンA：通知先の条件が Observer ごとに異なる"
+
+threshold:
+  use_when:
+    - "あるイベントの通知先が複数あり、今後も変わる可能性がある"
+    - "通知する側が通知先の具体クラスを知っているため、通知先の追加に変更が必要"
+    - "通知先ごとに独立してテストしたい"
+  skip_when:
+    - "通知先が1か所だけで今後も増えない"
+    - "通知先が変わるたびに送り元も必ず変わるビジネスルール（密結合が正しい場合）"
+
+next_chapter:
+  preview: "次章では「作るオブジェクトの種類が変わる」という生成の問題を扱います"

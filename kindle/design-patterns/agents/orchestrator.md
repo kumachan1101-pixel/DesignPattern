@@ -38,26 +38,32 @@
 1. .claude/hooks/pre-chapter.sh を実行して前提確認
 2. chapter-agent を呼び出して章を生成
 3. .claude/hooks/post-chapter.sh を実行して品質チェック
-4. 以下の4エージェントを並列でレビュー実行：
-   ├── review-agent            （フォーマット・構造・著者の人格）
-   ├── logic-check-agent       （論理の流れ）
-   ├── readability-agent       （読みやすさ）
-   └── architecture-review-agent （設計の質・DIP・SRP・命名・型安定性）
-5. 全エージェントの結果を統合する：
+4. 以下のエージェントを並列でレビュー実行：
+   ├── review-agent              （フォーマット・構造・著者の人格）
+   ├── logic-check-agent         （論理の流れ）
+   ├── readability-agent         （テキストの読みやすさ）
+   ├── clarity-agent             （概念の伝わりやすさ・図表の充足）
+   ├── architecture-review-agent （設計の質・DIP・SRP・命名・型安定性）
+   └── design-expert-agent       （教えている設計手法の妥当性）
+5. 上記全エージェントの結果を統合した後、devils-advocate-agent を実行：
+   └── devils-advocate-agent     （反面教師・前提の妥当性・代案の提示）
+6. 全結果を統合する：
    - architecture-review-agent の error → 最優先で chapter-agent に修正依頼
+   - devils-advocate-agent の critical → 著者に提示して判断を仰ぐ
    - いずれかに error → chapter-agent に全問題を一度に伝えて再生成
    - warning のみ → 著者に提示して判断を仰ぐ
    - 全 ok → 完了
-6. 完了したら status を報告
+7. 完了したら status を報告
 ```
 
 ### フェーズ4：横断チェック
 
 全章が完成したら以下を実行する：
-1. `skills/consistency-checker.md` に従って全章を横断チェック
+1. consistency-agent に従って全章を横断チェック
 2. 用語・コードラベル・ステップ番号の一貫性を確認
-3. 章の独立性（他章への言及がないか）を確認
-4. 問題があれば該当章の chapter-agent に修正を依頼する
+3. 「原則」「技法1」「技法2」の参照が全章で統一されているか確認
+4. 章の独立性（他章への言及がないか）を確認
+5. 問題があれば該当章の chapter-agent に修正を依頼する
 
 ### フェーズ5：完了報告
 
