@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "output/chapter01.md",
+                "file": "output/chapter02.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "chapter01"
+              "title": "chapter02"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "output/chapter01.md",
+                "file": "output/chapter02.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "chapter01へのバックリンク"
+              "title": "chapter02へのバックリンク"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "output/chapter01.md",
+                "file": "output/chapter02.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "chapter01からのアウトゴーイングリンク"
+              "title": "chapter02からのアウトゴーイングリンク"
             }
           },
           {
@@ -156,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "output/chapter01.md",
+                "file": "output/chapter02.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "chapter01のアウトライン"
+              "title": "chapter02のアウトライン"
             }
           }
         ]
@@ -185,6 +185,12 @@
   },
   "active": "fe764402752b1bf4",
   "lastOpenFiles": [
+    "output/chapter01.md",
+    "output/chapter00.md",
+    "output/chapter02.md.tmp.5.1777082927350",
+    "output/chapter01.md.tmp.5.1777082921994",
+    "output/chapter09.md",
+    "output/chapter02.md",
     "patterns/factory-method.yaml",
     "patterns/observer.yaml",
     "patterns/decorator.yaml",
@@ -195,7 +201,6 @@
     "output/chapter02.md.tmp.5.1777075500184",
     "agents/consistency-agent.md",
     "agents/clarity-agent.md",
-    "agents/devils-advocate-agent.md",
-    "output/chapter00.md"
+    "agents/devils-advocate-agent.md"
   ]
 }
