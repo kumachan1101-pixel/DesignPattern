@@ -415,8 +415,50 @@ classDiagram
 ```
 
 機能が4つになれば組み合わせは指数的に増えます。
+1つ機能を追加するたびに、既存の全組み合わせ分だけクラスを追加しなければなりません。
 
-#### コンポジション（Decoratorパターン）はこう解決する
+#### コンポジションはこう解決する
+
+「コンポジション」とは、オブジェクトを部品として内部に持ち、その部品に処理を委譲することです。継承（親から引き継ぐ）ではなく、持つ（外から受け取る）ことで振る舞いを組み合わせます。
+
+まず問題を整理します。ログ機能を追加したいだけなのに、なぜこんなに難しいのでしょうか。
+
+**必要なものは2つだけです**
+
+① `LoggingDecorator` は、外から見て「通知クラスとして使える」必要がある
+
+```cpp
+// 呼び出し側は INotifier* として扱う
+INotifier* notifier = /* 何かを渡す */;
+notifier->notify("メッセージ");
+```
+
+`INotifier*` の場所に差し込めるためには、`LoggingDecorator` 自身が `INotifier` を実装していなければなりません。これが「インターフェースを実装する」理由です。
+
+② `LoggingDecorator` は、ログを書いた後に「本物の通知」を誰かに依頼する必要がある
+
+`LoggingDecorator` はログを取るだけで、実際の通知（メール送信など）はできません。本物の通知クラスに処理を渡す（委譲する）相手が必要です。その相手を「メンバー変数として持つ」必要があります。
+
+```cpp
+class LoggingDecorator : public INotifier {  // ① INotifier を実装（外から通知クラスとして使える）
+    INotifier* inner_;                        // ② 本物の通知クラスをメンバーとして持つ
+public:
+    explicit LoggingDecorator(INotifier* inner) : inner_(inner) {}
+
+    void notify(const std::string& msg) override {
+        log(msg);           // 自分の仕事（ログ）をする
+        inner_->notify(msg); // 本物に委譲（実際の通知はminner_がやる）
+    }
+};
+```
+
+「実装しているのになぜ持つのか」への答えは「実装は外から使われるため、持つのは内側に委譲するため」です。2つは別の目的を持っています。
+
+**コンポジション ≠ 「実装しながら持つ」**
+
+念のため確認しておきます。「コンポジション（has-a）」とは「オブジェクトを部品として持つ」という一般的な言葉です。`IBillingRule* rule_` を持つ `BillingCalculator` もコンポジションですし、`INotifier* inner_` を持つ `LoggingDecorator` もコンポジションです。「実装しながら持つ」という組み合わせは、この後説明する「包む」という特殊な用途で現れる形です。
+
+**クラス図の読み方**
 
 ```mermaid
 classDiagram
@@ -431,34 +473,24 @@ classDiagram
         -inner_: INotifier
         +notify()
     }
-    class ThrottlingDecorator {
-        -inner_: INotifier
-        +notify()
-    }
-    class RetryDecorator {
-        -inner_: INotifier
-        +notify()
-    }
 
     INotifier <|.. EmailNotifier
     INotifier <|.. LoggingDecorator
-    INotifier <|.. ThrottlingDecorator
-    INotifier <|.. RetryDecorator
-
     LoggingDecorator --> INotifier : 持つ（委譲）
-    ThrottlingDecorator --> INotifier : 持つ（委譲）
-    RetryDecorator --> INotifier : 持つ（委譲）
-
-    note for LoggingDecorator "IS-A（インターフェース実装）\nかつ HAS-A（内部に持つ）"
 ```
 
-*継承：組み合わせの数だけクラスが増える。*
-*コンポジション：部品を重ねるだけ。クラス数は機能の数だけ。*
+クラス図で使う矢印には2種類あります。
 
-#### コードで確かめる
+`点線 ＋ 白抜き三角（ ──▷ を点線にしたもの）` は「インターフェースを実装している」を意味します。`EmailNotifier` と `LoggingDecorator` はどちらも `INotifier` を実装しているので、`INotifier` に向かって点線の白抜き三角が伸びています。
+
+`実線矢印（──>）` は「メンバーとして持っている（参照している）」を意味します。`LoggingDecorator` は `INotifier* inner_` というメンバーを持っているので、`INotifier` に向かって実線矢印が伸びています。
+
+つまり `LoggingDecorator` から `INotifier` へは **2本の線** が出ています。点線三角は「私はINotifierとして振る舞える」、実線矢印は「私はINotifierを内部に持っている」という2つの異なる関係を表しています。
+
+**3機能をクラス追加なしで組み合わせる**
 
 ```cpp
-// インターフェース（純粋仮想クラス）
+// インターフェース
 class INotifier {
 public:
     virtual void notify(const std::string& msg) = 0;
@@ -468,52 +500,49 @@ public:
 // 具体クラス：メール送信
 class EmailNotifier : public INotifier {
 public:
-    void notify(const std::string& msg) override {
-        // メール送信
-    }
+    void notify(const std::string& msg) override { /* メール送信 */ }
 };
 
-// Decorator：IS-A INotifier（インターフェースを実装）
-//            かつ HAS-A INotifier（別の通知器を内部に持つ）
+// ログを追加する「包み紙」
 class LoggingDecorator : public INotifier {
-    INotifier* inner_; // どんな INotifier でも受け取れる
+    INotifier* inner_;
 public:
     explicit LoggingDecorator(INotifier* inner) : inner_(inner) {}
-
     void notify(const std::string& msg) override {
         log(msg);
-        inner_->notify(msg); // 持っている通知器に委譲
+        inner_->notify(msg);
     }
 };
 
+// リトライを追加する「包み紙」
 class RetryDecorator : public INotifier {
     INotifier* inner_;
 public:
     explicit RetryDecorator(INotifier* inner) : inner_(inner) {}
-
     void notify(const std::string& msg) override {
         for (int i = 0; i < 3; ++i) {
-            inner_->notify(msg); // リトライ
+            inner_->notify(msg);
         }
     }
 };
 ```
 
-組み合わせは「包む」だけで作れます。新しいクラスは不要です。
+組み合わせは外から「包む」だけです。新しいクラスは不要です。
 
 ```cpp
-// リトライ付き・ログ付きメール通知をクラス追加なしで作る
-EmailNotifier     email;
-RetryDecorator    retry(&email);
-LoggingDecorator  logging(&retry); // 外から包むだけ
+// リトライ付き・ログ付きメール通知
+EmailNotifier    email;
+RetryDecorator   retry(&email);   // emailを包む
+LoggingDecorator logging(&retry); // retryをさらに包む
 
 logging.notify("給与処理完了");
 // → ログ記録 → リトライ × 3 → メール送信
 ```
 
-`LoggingDecorator` は `INotifier` を実装している（is-a は成立）し、
-かつ別の `INotifier` を持っている（has-a）。
-この「is-a でありながら has-a でもある」構造がDecoratorパターンの核心です。
+この「包む」構造——「インターフェースを実装しながら、同じインターフェースを内部に持ち、処理を委譲する」——を **Decoratorパターン** と呼びます。「クラスを追加せず、包むことで機能を後付けする」パターンです。
+
+*継承：組み合わせの数だけクラスが増える。*
+*コンポジション：包むだけ。クラス数は機能の種類の数だけ。*
 
 #### この哲学を意識的に外すとき
 
