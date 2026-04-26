@@ -798,3 +798,174 @@ graph TD
 ---
 
 第1章から、この8ステップを1つの問題に対して適用していきます。
+
+---
+
+## 問題を発見した後の手札 ―― 分離手法の選び方
+
+8ステップでは「何と何が混在しているか」を発見します。
+しかし発見した後に「では、どうやって分離するか」という問いが残ります。
+
+分離には複数の手法があります。状況によって使い分けるもので、どれが絶対的な正解というわけではありません。
+各章を読み進める中で「ああ、今回はこの手法だったのか」と照らし合わせながら読んでいただければと思います。
+
+### 手札①：インターフェース抽出
+
+**使う状況：** 呼び出し元が「具体的な実装クラス」に直接依存していて、実装が変わるたびに呼び出し元まで変更が波及する。
+
+**何をするか：** 「何ができるか（契約）」をインターフェースとして切り出し、呼び出し元はそのインターフェースだけを知る形にする。
+
+```cpp
+// Before: 具体クラスに依存
+class OrderService {
+    EmailSender* sender_; // 実装クラスを直接知っている
+};
+
+// After: インターフェースに依存
+class INotifier { virtual void notify(string msg) = 0; };
+class OrderService {
+    INotifier* notifier_; // 契約だけを知る
+};
+```
+
+**繋がるパターン：** Strategy / Facade / State / Observer / Factory Method
+
+---
+
+### 手札②：値オブジェクト化
+
+**使う状況：** `int` や `string` などのプリミティブ型が複数のインターフェースをまたいで流れていて、その型が将来変わる可能性がある。
+
+**何をするか：** 型を独自の値オブジェクト（構造体）でくるむ。インターフェースのシグネチャは「値オブジェクト型」になるため、内部の型が変わっても呼び出し元のシグネチャは変わらない。
+
+```cpp
+// Before: int が複数の場所に流れている
+void calcSalary(int employeeId, double hours);
+void getWorkHours(int employeeId, int year, int month);
+// → int が string に変わると全シグネチャが変わる
+
+// After: 値オブジェクトでくるむ
+struct EmployeeId { int value; };
+void calcSalary(EmployeeId id, double hours);
+void getWorkHours(EmployeeId id, int year, int month);
+// → 型が変わっても EmployeeId::value の型だけを変えればよい
+```
+
+**繋がるパターン：** 全パターン共通（インターフェースを使う場面で常に検討対象になる）
+
+---
+
+### 手札③：コンポジション（has-a で持つ）
+
+**使う状況：** 継承で機能を拡張しようとすると、機能の組み合わせの数だけクラスが爆発する。または、親クラスの変更が子クラスに直接波及して変更耐性が低い。
+
+**何をするか：** 「is-a（〜は〜である）」の継承をやめ、「has-a（〜を部品として持つ）」のコンポジションに切り替える。部品をインターフェース経由で持つことで、部品を差し替えるだけで振る舞いを変えられる。
+
+```cpp
+// Before: 継承（機能の組み合わせでクラスが爆発）
+class LoggingEmailNotifier : public EmailNotifier { ... };
+class ThrottlingEmailNotifier : public EmailNotifier { ... };
+class LoggingThrottlingEmailNotifier : public EmailNotifier { ... };
+
+// After: コンポジション（部品を重ねる）
+class LoggingDecorator : public INotifier {
+    INotifier* inner_; // 部品として持つ
+};
+```
+
+**繋がるパターン：** Decorator / Strategy
+
+---
+
+### 手札④：ファサード集約
+
+**使う状況：** 呼び出し元が、複数のサービスの「API形式・バージョン・呼び出し順」といった詳細を直接知っていて、どれか1つが変わると呼び出し元まで変更が波及する。
+
+**何をするか：** 複数サービスの呼び出し詳細を「ファサード」クラスに集約し、呼び出し元にはファサードへの1本の依存だけを残す。ファサード自体もインターフェース経由で持てば、差し替えも可能になる。
+
+```cpp
+// Before: 呼び出し元が3サービスの詳細を直接知っている
+class MonthlyBatch {
+    PayrollService* payroll_;    // 具体クラスを直接知る
+    LaborMgmtService* labor_;
+    PdfService* pdf_;
+};
+
+// After: ファサードへの1本の依存だけ
+class MonthlyBatch {
+    IPayrollFacade* facade_;     // 契約1本だけを知る
+};
+```
+
+**繋がるパターン：** Facade
+
+---
+
+### 手札⑤：状態オブジェクト化
+
+**使う状況：** `if` 文や `switch` 文で「状態が何か」と「その状態のときに何をするか」が同じ場所に書かれていて、状態が増えるたびに条件分岐が膨らむ。
+
+**何をするか：** 各状態を独立したクラスにし、そのクラスが「この状態のときの振る舞い」を持つ。状態が増えても既存コードに触れず、新しい状態クラスを追加するだけで済む。
+
+```cpp
+// Before: 状態ごとの振る舞いがひとつの場所に混在
+void OrderService::confirm() {
+    if (state_ == CART)      { doCartToConfirm(); }
+    else if (state_ == PAID) { throw AlreadyPaid(); }
+    // 状態が増えるたびにここを開く
+}
+
+// After: 各状態が自分の振る舞いを持つ
+class IOrderState { virtual void confirm(OrderService*) = 0; };
+class CartState : public IOrderState {
+    void confirm(OrderService* ctx) override { /* カートの処理 */ }
+};
+```
+
+**繋がるパターン：** State
+
+---
+
+### 手札⑥：骨格・ステップ分離
+
+**使う状況：** 複数のクラス（またはメソッド）が「処理の流れ（骨格）」は同じで、「各ステップの実装」だけが異なるコードをそれぞれコピーして持っている。
+
+**何をするか：** 共通の骨格を親クラス（または共通メソッド）として1箇所に書き、変わる部分のみを派生クラスで実装する。骨格の変更は1箇所に集まり、ステップの追加は新しいクラスの追加で済む。
+
+```cpp
+// Before: 骨格とステップが混在したコードが2箇所にコピーされている
+class CsvReport { void generate() { /* 骨格+CSV固有実装 */ } };
+class PdfReport { void generate() { /* 骨格+PDF固有実装 */ } };
+
+// After: 骨格を親クラスに1本化
+class ReportBase {
+    void generate() {           // 骨格（変わらない）
+        fetchData();
+        format();               // ← サブクラスで実装
+        output();               // ← サブクラスで実装
+    }
+    virtual void format() = 0;
+    virtual void output() = 0;
+};
+```
+
+**繋がるパターン：** Template Method
+
+---
+
+### 手札を選ぶ問い
+
+発見した「混在」の種類に対して、どの手札を使うか判断するときの問いです。
+
+| 問い | 選ぶ手札 |
+|---|---|
+| 呼び出し元が具体クラスを直接知っているか？ | ① インターフェース抽出 |
+| プリミティブ型が複数箇所に流れていて、将来変わる可能性があるか？ | ② 値オブジェクト化 |
+| 機能の組み合わせでクラスが爆発しそうか？継承の連鎖が深くなっているか？ | ③ コンポジション |
+| 複数サービスの詳細を1つのクラスが直接知りすぎているか？ | ④ ファサード集約 |
+| 状態ごとの振る舞いが1箇所に集まっていて、状態が増えるたびに膨らむか？ | ⑤ 状態オブジェクト化 |
+| 同じ処理の骨格が複数箇所にコピーされているか？ | ⑥ 骨格・ステップ分離 |
+
+これらは「組み合わせて使う」ものです。たとえば①と②は、インターフェースを定義するとき常に一緒に検討します。①と③はStrategyとDecoratorの違いを生み出します。
+
+手札の数は問題より少なくて構いません。全部を使おうとする必要はなく、「今の問題に合う手札はどれか」という問いを立てることが大切です。
