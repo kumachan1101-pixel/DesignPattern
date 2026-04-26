@@ -347,18 +347,42 @@ public:
 
 機能を「is-a（〜は〜である）」ではなく「has-a（〜を部品として持つ）」で組み合わせる。
 
-#### なぜこの哲学が生まれたのか
+#### 「ログ付き通知クラスは通知クラスでは？」という疑問
 
-継承は「コードの再利用」として便利に見えます。
-でも、継承を重ねると「親クラスが変わると子クラスも変わる」という依存が積み重なります。
-さらに、「ログ付き通知クラス」「スロットリング付き通知クラス」
-「ログ付きスロットリング付き通知クラス」……と組み合わせが爆発します。
+継承の話でよく出てくる例として「ログ付き通知クラス（LoggingNotifier）」があります。
+「LoggingNotifier is-a Notifier」——これは正しい is-a 関係です。
 
-コンポジションは部品を差し替えるだけで振る舞いを変えられます。
-DecoratorやStrategyが「インターフェースを実装したオブジェクトを内部に持つ」
-という構造をしているのは、この哲学に従っているからです。
+**この is-a 自体は間違っていません。** 継承が問題になるのは別の2つの状況です。
 
-#### 継承だとなぜ組み合わせが爆発するか
+#### 問題①：具体クラスを継承すると実装に縛られる
+
+```cpp
+class Notifier { // 具体クラス
+public:
+    void notify(const std::string& msg) {
+        // メール送信の実装が直接書いてある
+    }
+};
+
+// LoggingNotifier は Notifier（具体クラス）を継承
+class LoggingNotifier : public Notifier {
+public:
+    void notify(const std::string& msg) override {
+        log(msg);
+        Notifier::notify(msg); // ← 親の「メール送信実装」に依存
+    }
+};
+```
+
+`Notifier` がメール送信からSlack送信に変わると、`LoggingNotifier` も影響を受けます。
+「ログを取る」責任と「どこに送るか」の責任が結びついてしまっています。
+
+**継承するなら具体クラスではなくインターフェース（純粋仮想クラス）から**、というのが哲学2との連携です。
+
+#### 問題②：振る舞いを組み合わせようとするとクラスが爆発する
+
+これが哲学3の本題です。「ログ付き」「リトライ付き」「スロットリング付き」の3機能を
+継承で組み合わせようとすると何が起きるか——
 
 ```mermaid
 classDiagram
@@ -387,8 +411,12 @@ classDiagram
     LoggingNotifier <|-- LoggingThrottlingNotifier
     LoggingNotifier <|-- LoggingRetryNotifier
 
-    note for LoggingThrottlingNotifier "機能の組み合わせごとに\nクラスが爆発する"
+    note for LoggingThrottlingNotifier "組み合わせの数だけ\nクラスが必要になる"
 ```
+
+機能が4つになれば組み合わせは指数的に増えます。
+
+#### コンポジション（Decoratorパターン）はこう解決する
 
 ```mermaid
 classDiagram
@@ -396,7 +424,7 @@ classDiagram
         <<interface>>
         +notify()
     }
-    class BaseNotifier {
+    class EmailNotifier {
         +notify()
     }
     class LoggingDecorator {
@@ -412,53 +440,85 @@ classDiagram
         +notify()
     }
 
-    INotifier <|.. BaseNotifier
+    INotifier <|.. EmailNotifier
     INotifier <|.. LoggingDecorator
     INotifier <|.. ThrottlingDecorator
     INotifier <|.. RetryDecorator
 
-    LoggingDecorator --> INotifier : 部品として持つ
-    ThrottlingDecorator --> INotifier : 部品として持つ
-    RetryDecorator --> INotifier : 部品として持つ
+    LoggingDecorator --> INotifier : 持つ（委譲）
+    ThrottlingDecorator --> INotifier : 持つ（委譲）
+    RetryDecorator --> INotifier : 持つ（委譲）
 
-    note for LoggingDecorator "部品を差し替え・重ねるだけ\nクラス数は機能の数だけ"
+    note for LoggingDecorator "IS-A（インターフェース実装）\nかつ HAS-A（内部に持つ）"
 ```
 
 *継承：組み合わせの数だけクラスが増える。*
-*コンポジション：部品を重ねるだけ。クラス数は増えない。*
+*コンポジション：部品を重ねるだけ。クラス数は機能の数だけ。*
 
 #### コードで確かめる
 
 ```cpp
-// NG：継承（is-a）で機能を拡張する
-//     LoggingNotifier は Notifier に依存している
-//     Notifier の実装が変わると LoggingNotifier も影響を受ける
-class LoggingNotifier : public Notifier {
-    void notify(std::string msg) override {
-        log(msg);
-        Notifier::notify(msg); // 親の実装に依存
+// インターフェース（純粋仮想クラス）
+class INotifier {
+public:
+    virtual void notify(const std::string& msg) = 0;
+    virtual ~INotifier() {}
+};
+
+// 具体クラス：メール送信
+class EmailNotifier : public INotifier {
+public:
+    void notify(const std::string& msg) override {
+        // メール送信
     }
 };
 
-// OK：コンポジション（has-a）で振る舞いを組み合わせる
-//     inner_ を差し替えるだけで、ログ付き通知の相手を自由に変えられる
-class LoggingNotifier {
-    IMessageSender* inner_; // インターフェースとして持つ
+// Decorator：IS-A INotifier（インターフェースを実装）
+//            かつ HAS-A INotifier（別の通知器を内部に持つ）
+class LoggingDecorator : public INotifier {
+    INotifier* inner_; // どんな INotifier でも受け取れる
 public:
-    explicit LoggingNotifier(IMessageSender* inner)
-        : inner_(inner) {}
+    explicit LoggingDecorator(INotifier* inner) : inner_(inner) {}
 
-    void notify(std::string msg) {
+    void notify(const std::string& msg) override {
         log(msg);
-        inner_->send(msg); // 差し替え可能
+        inner_->notify(msg); // 持っている通知器に委譲
+    }
+};
+
+class RetryDecorator : public INotifier {
+    INotifier* inner_;
+public:
+    explicit RetryDecorator(INotifier* inner) : inner_(inner) {}
+
+    void notify(const std::string& msg) override {
+        for (int i = 0; i < 3; ++i) {
+            inner_->notify(msg); // リトライ
+        }
     }
 };
 ```
 
+組み合わせは「包む」だけで作れます。新しいクラスは不要です。
+
+```cpp
+// リトライ付き・ログ付きメール通知をクラス追加なしで作る
+EmailNotifier     email;
+RetryDecorator    retry(&email);
+LoggingDecorator  logging(&retry); // 外から包むだけ
+
+logging.notify("給与処理完了");
+// → ログ記録 → リトライ × 3 → メール送信
+```
+
+`LoggingDecorator` は `INotifier` を実装している（is-a は成立）し、
+かつ別の `INotifier` を持っている（has-a）。
+この「is-a でありながら has-a でもある」構造がDecoratorパターンの核心です。
+
 #### この哲学を意識的に外すとき
 
-- **真の is-a 関係が成立する**場合。Dog is-a Animal、CheckingAccount is-a Account のような論理的な分類体系を表現するとき、継承は概念モデルを正直に示します。
-- **骨格を共有し、各ステップの実装だけを変えたい**場合。この本の第4章で扱う Template Method パターンは、継承を意図的に使います。「処理の流れを親クラスに固定し、各ステップをサブクラスで実装する」という構造で、この哲学の例外を正しく使っています。
+- **真の is-a 関係が成立し、組み合わせが不要**な場合。Dog is-a Animal、CheckingAccount is-a Account のような分類体系を表現するとき、継承は概念モデルを正直に示します。振る舞いを重ねる必要がなければ継承で十分です。
+- **骨格を共有し、各ステップの実装だけを変えたい**場合。Template Method パターンは継承を意図的に使います。「処理の流れを親クラスに固定し、各ステップをサブクラスで実装する」という構造で、この哲学の例外を正しく使っています。
 - **コンポジションが委譲コードを増やしすぎる**場合。has-a で持つと「そのメソッドを呼ぶだけのメソッド」が増え、コードが薄く長くなることがあります。継承なら1行のオーバーライドで済む場面では、継承の方が読みやすいことがあります。
 
 ---
