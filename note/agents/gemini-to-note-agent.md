@@ -54,34 +54,48 @@ Noteに下書き状態で投稿する。
 4. → **ステップ2**へ（通常通り）
 
 #### Share URLフロー
-1. `javascript_tool` でコンテンツを抽出してtextareaにセットする：
+
+⚠️ シェアページには「応答をコピー」ボタンが存在しない。代わりにDOMからマークダウン変換して取得する。
+
+1. `javascript_tool` でDOMをマークダウン変換し、textareaにセットする：
 
 ```javascript
+function nodeToMarkdown(node) {
+  if (node.nodeType === 3) return node.textContent;
+  if (node.nodeType !== 1) return '';
+  const tag = node.tagName.toLowerCase();
+  const children = Array.from(node.childNodes).map(nodeToMarkdown).join('');
+  switch(tag) {
+    case 'h1': return '\n# ' + children.trim() + '\n';
+    case 'h2': return '\n## ' + children.trim() + '\n';
+    case 'h3': return '\n### ' + children.trim() + '\n';
+    case 'h4': return '\n#### ' + children.trim() + '\n';
+    case 'p':  return '\n' + children.trim() + '\n';
+    case 'strong': case 'b': return '**' + children + '**';
+    case 'em': case 'i': return '*' + children + '*';
+    case 'code': return '`' + children + '`';
+    case 'pre': return '\n```\n' + children.trim() + '\n```\n';
+    case 'li': return '\n- ' + children.trim();
+    case 'ul': case 'ol': return children + '\n';
+    case 'br': return '\n';
+    case 'a': return children;
+    default: return children;
+  }
+}
 const msgEl = document.querySelector('message-content');
-const text = msgEl ? msgEl.innerText : '';
-const lines = text.split('\n');
+const md = nodeToMarkdown(msgEl).replace(/\n{3,}/g, '\n\n').trim();
+const lines = md.split('\n');
+const titleLine = lines[0]; // タイトルとして記録
+const withoutTitle = lines.slice(1).join('\n').trim();
 
-// タイトル行（先頭）を記録してから削除
-const titleLine = lines[0];
-const withoutTitle = lines.slice(1);
-
-// コードブロックラベル行を削除
-const labels = new Set([
-  'plaintext', 'javascript', 'typescript', 'python', 'bash', 'shell',
-  'json', 'xml', 'css', 'html', 'sql', 'cpp', 'c++', 'java', 'go',
-  'ruby', 'c#', 'php', 'kotlin', 'swift', 'rust', 'scala', 'yaml',
-  'markdown', 'diff', 'text', 'txt'
-]);
-const cleaned = withoutTitle.filter(line => !labels.has(line.trim().toLowerCase()));
-
-// 一時textareaを作成して選択状態にする
 const ta = document.createElement('textarea');
 ta.id = '__copy_area';
-ta.value = cleaned.join('\n');
+ta.value = withoutTitle;
 ta.style.cssText = 'position:fixed;top:10px;left:10px;width:400px;height:200px;z-index:99999;';
 document.body.appendChild(ta);
+ta.focus();
 ta.select();
-`title: ${titleLine} | lines: ${lines.length}→${cleaned.length}`;
+`title: ${titleLine} | ready`;
 ```
 
 2. タイトル（`titleLine`の値）を記録する
@@ -92,7 +106,7 @@ ta.select();
 document.getElementById('__copy_area')?.remove(); 'removed';
 ```
 
-5. → **ステップ2をスキップ**してステップ3へ（クリーニング済みのため）
+5. → **ステップ2をスキップ**してステップ3へ（変換・クリーニング済みのため）
 
 ---
 
