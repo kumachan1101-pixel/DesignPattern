@@ -93,21 +93,48 @@
 
 ---
 
+## ワークフロー一覧
+
+### ① テーマから記事を生成する（既存）
+
+```
+「〇〇についての記事を書いて」と伝える
+→ article-agent.md が実行される
+→ output/ に .md ファイルが生成される
+```
+
+### ② GeminiのURLからNoteに投稿する（新規）
+
+```
+「このGeminiのURLでお願い」と伝える
+→ gemini-to-note-agent.md が実行される
+→ ① 記事テキストを取得
+→ ② カバー画像を生成・ダウンロード
+→ ③ Noteに下書きとして投稿
+→ 完了通知
+```
+
+詳細は `agents/gemini-to-note-agent.md` を参照。
+
+---
+
 ## ファイル構成
 
 ```
 note/
-├── CLAUDE.md                  ← このファイル
+├── CLAUDE.md                      ← このファイル
 ├── .claude/hooks/
-│   └── post-article.sh        ← 記事生成後チェック
+│   └── post-article.sh            ← 記事生成後チェック
 ├── agents/
-│   ├── article-agent.md       ← 記事生成担当
-│   └── review-agent.md        ← レビュー担当
+│   ├── article-agent.md           ← ①テーマ→記事生成 担当
+│   ├── gemini-to-note-agent.md    ← ②GeminiURL→Note投稿 担当（新規）
+│   └── review-agent.md            ← レビュー担当
 ├── skills/
-│   └── article-writer.md      ← 記事執筆手順
+│   └── article-writer.md          ← 記事執筆手順
 ├── templates/
-│   └── article-template.md    ← 記事テンプレート
+│   └── article-template.md        ← 記事テンプレート
 └── output/
+    ├── images/                    ← 生成した画像の保存先（新規）
     ├── article-001.md
     └── ...
 ```
