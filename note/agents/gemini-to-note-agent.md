@@ -12,8 +12,9 @@ Noteに下書き状態で投稿する。
 
 ## 受け取る引数
 
-- `gemini_url` : GeminiのGemコンテンツURL
-  （例：https://gemini.google.com/gem/ab22a645b92d/64716de513a74bbc）
+- `gemini_url` : GeminiのURL（以下2種類に対応）
+  - Gem URL：`https://gemini.google.com/gem/ab22a645b92d/64716de513a74bbc`
+  - Share URL：`https://g.co/gemini/share/xxxxxxx` または `https://gemini.google.com/share/xxxxxxx`
 
 ---
 
@@ -41,42 +42,98 @@ Noteに下書き状態で投稿する。
 ### ステップ1：記事コンテンツをコピーする
 
 1. ブラウザで `gemini_url` に移動する（wait 3秒）
-2. ページを最下部までスクロールして応答末尾を表示する
-3. 応答ブロック下部の **📋アイコン（コピーボタン）** を `find` で取得してクリック
+2. URLが `gemini.google.com/share/` または `g.co/gemini/share/` の場合 → **Share URLフロー**へ
+   URLが `gemini.google.com/gem/` の場合 → **Gem URLフロー**へ
+
+#### Gem URLフロー
+1. ページを最下部までスクロールして応答末尾を表示する
+2. 応答ブロック下部の **📋アイコン（コピーボタン）** を `find` で取得してクリック
    - ✅ `find: "コピーボタン 応答をコピー"` → クリック
    - ❌ 「コピー」ボタン（ページ上部）はURL/タイトルをコピーするため使わない
-4. ページ上部のタイトルテキストを `find` で取得して記録する（タイトル入力・タグ決定に使う）
+3. ページ上部のタイトルテキストを `find` で取得して記録する
+4. → **ステップ2**へ（通常通り）
+
+#### Share URLフロー
+1. `javascript_tool` でコンテンツを抽出してtextareaにセットする：
+
+```javascript
+const msgEl = document.querySelector('message-content');
+const text = msgEl ? msgEl.innerText : '';
+const lines = text.split('\n');
+
+// タイトル行（先頭）を記録してから削除
+const titleLine = lines[0];
+const withoutTitle = lines.slice(1);
+
+// コードブロックラベル行を削除
+const labels = new Set([
+  'plaintext', 'javascript', 'typescript', 'python', 'bash', 'shell',
+  'json', 'xml', 'css', 'html', 'sql', 'cpp', 'c++', 'java', 'go',
+  'ruby', 'c#', 'php', 'kotlin', 'swift', 'rust', 'scala', 'yaml',
+  'markdown', 'diff', 'text', 'txt'
+]);
+const cleaned = withoutTitle.filter(line => !labels.has(line.trim().toLowerCase()));
+
+// 一時textareaを作成して選択状態にする
+const ta = document.createElement('textarea');
+ta.id = '__copy_area';
+ta.value = cleaned.join('\n');
+ta.style.cssText = 'position:fixed;top:10px;left:10px;width:400px;height:200px;z-index:99999;';
+document.body.appendChild(ta);
+ta.select();
+`title: ${titleLine} | lines: ${lines.length}→${cleaned.length}`;
+```
+
+2. タイトル（`titleLine`の値）を記録する
+3. `computer` ツールでtextareaをクリック → `Ctrl+A` → `Ctrl+C`
+4. textareaを削除する：
+
+```javascript
+document.getElementById('__copy_area')?.remove(); 'removed';
+```
+
+5. → **ステップ2をスキップ**してステップ3へ（クリーニング済みのため）
 
 ---
 
 ### ステップ2：クリップボードを事前クリーニングする
 
-コピー直後（Geminiページ上で）`javascript_tool` を実行してクリップボードを整形する。
-これにより、Noteへのペースト後にタイトルとコードラベルが残る問題を防ぐ。
+コピー直後（Geminiページ上で）クリップボードをクリーニングする。
+**Gem URLフローのみ実行。Share URLフローはステップ1で完了済みのためスキップ。**
+
+⚠️ `navigator.clipboard.writeText()` はユーザー操作なしではタイムアウトする。必ず以下の textarea方式を使うこと。
 
 ```javascript
-(async () => {
-  const text = await navigator.clipboard.readText();
-  const lines = text.split('\n');
+// 1. クリップボードから取得（readTextは権限エラーになることがある）
+//    → エラーなら後述のフォールバックへ
+const text = await navigator.clipboard.readText();
+const lines = text.split('\n');
+const withoutTitle = lines.slice(1);
+const labels = new Set([
+  'plaintext', 'javascript', 'typescript', 'python', 'bash', 'shell',
+  'json', 'xml', 'css', 'html', 'sql', 'cpp', 'c++', 'java', 'go',
+  'ruby', 'c#', 'php', 'kotlin', 'swift', 'rust', 'scala', 'yaml',
+  'markdown', 'diff', 'text', 'txt'
+]);
+const cleaned = withoutTitle.filter(line => !labels.has(line.trim().toLowerCase()));
 
-  // 先頭行（タイトル）を削除
-  const withoutTitle = lines.slice(1);
-
-  // コードブロックラベル行を削除
-  const labels = new Set([
-    'plaintext', 'javascript', 'typescript', 'python', 'bash', 'shell',
-    'json', 'xml', 'css', 'html', 'sql', 'cpp', 'c++', 'java', 'go',
-    'ruby', 'c#', 'php', 'kotlin', 'swift', 'rust', 'scala', 'yaml',
-    'markdown', 'diff', 'text', 'txt'
-  ]);
-  const cleaned = withoutTitle.filter(line => !labels.has(line.trim().toLowerCase()));
-
-  await navigator.clipboard.writeText(cleaned.join('\n'));
-  return `cleaned: ${lines.length} → ${cleaned.length} lines`;
-})();
+// 2. textarea方式で書き込み（clipboard.writeText は使わない）
+const ta = document.createElement('textarea');
+ta.id = '__copy_area2';
+ta.value = cleaned.join('\n');
+ta.style.cssText = 'position:fixed;top:10px;left:10px;width:400px;height:200px;z-index:99999;';
+document.body.appendChild(ta);
+ta.select();
+`ready: ${cleaned.length} lines`;
 ```
 
-> **もし clipboard API が権限エラーになった場合：**
+その後、`computer` ツールでtextareaをクリック → `Ctrl+A` → `Ctrl+C` → textareaを削除：
+
+```javascript
+document.getElementById('__copy_area2')?.remove(); 'removed';
+```
+
+> **もし clipboard.readText() が権限エラーになった場合：**
 > このステップをスキップして次へ進む。ペースト後にステップ6-Bのフォールバックで対処する。
 
 ---
@@ -186,7 +243,9 @@ screenshot 1枚で「下書きを保存しました」を確認
 
 | エラー | 対処 |
 |:---|:---|
+| Share URLで📋コピーボタンが見つからない | Share URLフロー（ステップ1のJS抽出）を使う |
 | clipboard API が権限エラー | ステップ2をスキップしてステップ6-Bを実行 |
+| clipboard.writeText() がタイムアウト | textarea方式（作成→クリック→Ctrl+C）を使う |
 | 「コピー」ボタンでURLがペーストされた | 応答ブロック下部の📋アイコンを使う |
 | NoteタブからGeminiに戻れない（Leave site?ダイアログ） | `tabs_create_mcp` で新規タブを開く |
 | 目次がプレーンテキストになった | `/` のみ入力してパレット表示を確認してから「目次」を選択 |
