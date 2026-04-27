@@ -33,6 +33,7 @@ Noteに下書き状態で投稿する。
 | 各ステップでスクリーンショット | 保存後の1枚のみ |
 | get_page_text / read_page | find で目的の要素だけ取得 |
 | ペースト後のDOM直接書き換え | ペースト前にクリップボードをクリーニング |
+| ProseMirrorのDOMを直接操作（querySelector→insertBefore等） | キーボード操作・クリックイベントのみ使う（直接DOM操作はProseMirrorの内部状態を破壊する） |
 | wait を長くとりすぎる | wait 3秒を基本、ペーストのみ wait 8秒 |
 
 ---
