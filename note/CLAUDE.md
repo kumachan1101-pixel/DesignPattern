@@ -116,6 +116,19 @@
 
 詳細は `agents/gemini-to-note-agent.md` を参照。
 
+### ③ Note記事をXで紹介投稿する
+
+```
+「この記事をポスト：{Note記事のURL}」と伝える
+→ note-to-x-agent.md が実行される
+→ ① Note記事を取得・要約
+→ ② X投稿文を生成（読者が得られることを200文字以内で）
+→ ③ Claude in Chrome でXに投稿
+→ 完了通知（投稿テキスト・文字数を報告）
+```
+
+詳細は `agents/note-to-x-agent.md` を参照。
+
 ---
 
 ## ファイル構成
@@ -127,7 +140,8 @@ note/
 │   └── post-article.sh            ← 記事生成後チェック
 ├── agents/
 │   ├── article-agent.md           ← ①テーマ→記事生成 担当
-│   ├── gemini-to-note-agent.md    ← ②GeminiURL→Note投稿 担当（新規）
+│   ├── gemini-to-note-agent.md    ← ②GeminiURL→Note投稿 担当
+│   ├── note-to-x-agent.md         ← ③Note記事→X紹介投稿 担当
 │   └── review-agent.md            ← レビュー担当
 ├── skills/
 │   └── article-writer.md          ← 記事執筆手順
