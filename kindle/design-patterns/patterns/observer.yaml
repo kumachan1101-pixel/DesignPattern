@@ -10,40 +10,41 @@ pattern:
   change_type: "「通知を受け取る相手」が変わる"
 
 scenario:
-  domain: "ECサイトの在庫更新通知システム"
+  domain: "製造ラインのIoTセンサー監視システム"
   system_overview: |
-    商品在庫が更新されたとき、複数の受け取り先に通知するシステム。
-    現状は InventoryManager クラスが在庫を更新するたびに、
+    工場の製造ラインに設置されたセンサーの計測値を監視するシステム。
+    センサー値が閾値を超えたとき、複数の受け取り先に通知するシステム。
+    現状は SensorMonitor クラスが異常を検知するたびに、
     通知先クラスを直接呼び出している。
-    通知先は「管理画面UI更新」「メール送信」「ログ記録」の3か所。
+    通知先は「管理画面アラート表示」「メール送信」「ログ記録」の3か所。
   current_spec:
-    - "InventoryManager::updateStock(itemId, quantity)：在庫数を更新する"
-    - "更新後に AdminUiUpdater::refresh() を呼び出す"
-    - "更新後に EmailNotifier::sendAlert() を呼び出す"
-    - "更新後に StockLogger::log() を呼び出す"
-    - "3つの呼び出しがすべて updateStock() の中に直接書かれている"
+    - "SensorMonitor::onThresholdExceeded(sensorId, value)：センサー値が閾値を超えた時に呼ばれる"
+    - "検知後に DashboardAlerter::showAlert() を呼び出す"
+    - "検知後に EmailNotifier::sendAlert() を呼び出す"
+    - "検知後に AuditLogger::log() を呼び出す"
+    - "3つの呼び出しがすべて onThresholdExceeded() の中に直接書かれている"
   situation:
-    who: "マーケティングチームから"
-    what: "在庫が更新されたタイミングで、連携しているSlackチャンネルにも通知を流したい"
-    deadline: "来週月曜"
+    who: "品質管理部門から"
+    what: "センサー異常が検知されたとき、工程管理システムにもリアルタイムで連携したい"
+    deadline: "来週月曜の稼働切り替えまでに"
 
 observations:
-  - "InventoryManagerは在庫管理が責任のはずなのに、通知先の具体クラスを3つも知っている"
-  - "通知先が1つ増えるたびに InventoryManager のコードを開いて変更しなければならない"
-  - "InventoryManagerと通知先クラスの間に直接依存があるため、テスト時に全通知先が起動する"
-  - "通知先を増やすかどうかの判断（マーケ・インフラ・運用）と、在庫管理の責任が同じクラスに混在している"
+  - "SensorMonitorはセンサー値の監視が責任のはずなのに、通知先の具体クラスを3つも知っている"
+  - "通知先が1つ増えるたびに SensorMonitor のコードを開いて変更しなければならない"
+  - "SensorMonitorと通知先クラスの間に直接依存があるため、テスト時に全通知先が起動する"
+  - "通知先を増やすかどうかの判断（品管・インフラ・運用）と、センサー監視の責任が同じクラスに混在している"
 
-trial_approach: "通知先リストをInventoryManagerにstd::vectorで持たせ、ループで呼び出す"
+trial_approach: "通知先リストをSensorMonitorにstd::vectorで持たせ、ループで呼び出す"
 trial_limits:
   - "通知先クラスごとにメソッド名が異なるため、共通インターフェースなしではループで呼べない"
-  - "InventoryManagerが依然として通知先の具体クラスを知っており、依存は解消されない"
+  - "SensorMonitorが依然として通知先の具体クラスを知っており、依存は解消されない"
 
 advanced_scenario:
-  what: "特定の通知先だけ「在庫が0になったとき限定」で通知したい（条件付き購読）"
+  what: "特定の通知先だけ「温度センサー限定」で通知したい（センサー種別に応じた条件付き購読）"
   extension: |
-    Observerパターンでは、IStockObserver に notify(itemId, quantity) を持たせ、
+    Observerパターンでは、ISensorObserver に notify(sensorId, value) を持たせ、
     各Observerが自分で「通知を受けてどう処理するか」を判断できる。
-    InventoryManagerは全Observerに通知するだけで、条件判断はObserver側に委ねられる。
+    SensorMonitorは全Observerに通知するだけで、条件判断はObserver側に委ねられる。
   difficulty_type: "パターンA：通知先の条件が Observer ごとに異なる"
 
 threshold:
