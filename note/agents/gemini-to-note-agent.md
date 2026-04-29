@@ -130,7 +130,9 @@ const labels = new Set([
   'ruby', 'c#', 'php', 'kotlin', 'swift', 'rust', 'scala', 'yaml',
   'markdown', 'diff', 'text', 'txt'
 ]);
-const cleaned = withoutTitle.filter(line => !labels.has(line.trim().toLowerCase()));
+const cleaned = withoutTitle
+  .filter(line => !labels.has(line.trim().toLowerCase()))
+  .map(line => /^```\S/.test(line.trim()) ? '```' : line); // ```C# → ``` に変換
 
 // 2. textarea方式で書き込み（clipboard.writeText は使わない）
 const ta = document.createElement('textarea');
