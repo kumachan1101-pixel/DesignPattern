@@ -43,13 +43,18 @@
 新しい設計の問いが見つかったときは `design-philosophy.md` に追加するだけでよい。
 
 重要な生成ルール（CLAUDE.mdより）：
+- 章の冒頭（この章の核心の直後・ステップ0の前）に `## この章を読むと得られること` を必ず書く
+  - 「〜できるようになる」形式で3〜4項目。パターン名を前面に出さない
+- この章のドメインが CLAUDE.md のドメイン割り当て表と一致しているか確認してから書き始める
 - 各サービスは宣言だけでなく実体のある実装で示す
-- ステップ2（〇.3）に関係者ヒアリングの会話シーンを入れる（変動/不変を確定する前）
+- ステップ2（X.3）に関係者ヒアリングの会話シーンを入れる（変動/不変を確定する前）
 - インターフェース名はビジネス責任で命名する（実装手段で付けない）
 - 試行は責任チェックが通るまで繰り返す（複数回可）
 - コードに `// 💭` は使わない。気づきは散文で説明する
 - 使ってよい文法：class / virtual / コンストラクタ / メソッド呼び出し / if / for / 生ポインタ
 - 使わない文法：lambda・スマートポインタ・templateメタプログラミング・C++17以降の機能
+- ステップ6に「使わない方が良い状況」「過剰コード例」「最小コスト代替案との比較」を必ず含める
+- ステップ7の変更シナリオ表で「変わるクラス・変わらないクラス」を明示する（影響範囲の可視化）
 
 ---
 
@@ -97,6 +102,10 @@
   "status": "complete",
   "output": "output/chapter02.md",
   "self_check": {
+    "reader_benefit_section_exists": true,
+    "reader_benefit_no_pattern_name_upfront": true,
+    "reader_benefit_3_to_4_items": true,
+    "domain_matches_assignment_table": true,
     "step0_to_7_headings": true,
     "system_overview_before_universal_question": true,
     "universal_question_used": true,
@@ -115,6 +124,9 @@
     "test_proves_same_behavior_in_step7": true,
     "final_responsibility_table": true,
     "change_scenario_table": true,
+    "impact_analysis_graph_in_step3": true,
+    "min_cost_alternative_in_step6": true,
+    "overdesign_example_in_step6": true,
     "core_sentence_after_section1": true,
     "no_forbidden_phrases": true,
     "no_next_chapter_preview": true,
