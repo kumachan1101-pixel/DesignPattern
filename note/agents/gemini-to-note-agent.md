@@ -6,14 +6,15 @@
 ## 役割
 
 指定されたGeminiのURLにある記事コンテンツをコピーし、
-Gemini GEMに画像生成を依頼して、Noteに下書き状態で投稿する。
+Noteに下書き状態で投稿する。
 
 ---
 
 ## 受け取る引数
 
-- `gemini_url` : GeminiのGemコンテンツURL
-  （例：https://gemini.google.com/gem/ab22a645b92d/64716de513a74bbc）
+- `gemini_url` : GeminiのURL（以下2種類に対応）
+  - Gem URL：`https://gemini.google.com/gem/ab22a645b92d/64716de513a74bbc`
+  - Share URL：`https://g.co/gemini/share/xxxxxxx` または `https://gemini.google.com/share/xxxxxxx`
 
 ---
 
@@ -21,20 +22,19 @@ Gemini GEMに画像生成を依頼して、Noteに下書き状態で投稿する
 
 | 設定項目 | 値 |
 |:---|:---|
-| 画像生成GEM URL | https://gemini.google.com/gem/a11de770c380 |
 | Note投稿URL | https://note.com/notes/new |
 
 ---
 
-## ⚠️ トークン節約の原則
+## ⚠️ 通信量節約の原則
 
 | ❌ 禁止 | ✅ やること |
 |:---|:---|
-| 各ステップでスクリーンショット | 確認必須箇所（ペースト後・保存後）の2枚のみ |
-| get_page_text / JavaScript本文取得 | Geminiの📋コピーボタン → Ctrl+V |
-| 毎回プロンプトを考える | タイトルをそのままGEMに貼ってEnter |
-| read_page で全要素取得 | find で目的の要素だけ取得 |
-| 迷ったらscreenshot | 操作前に座標が不明な場合のみ |
+| 各ステップでスクリーンショット | 保存後の1枚のみ |
+| get_page_text / read_page | find で目的の要素だけ取得 |
+| ペースト後のDOM直接書き換え | ペースト前にクリップボードをクリーニング |
+| ProseMirrorのDOMを直接操作（querySelector→insertBefore等） | キーボード操作・クリックイベントのみ使う（直接DOM操作はProseMirrorの内部状態を破壊する） |
+| wait を長くとりすぎる | wait 3秒を基本、ペーストのみ wait 8秒 |
 
 ---
 
@@ -42,132 +42,204 @@ Gemini GEMに画像生成を依頼して、Noteに下書き状態で投稿する
 
 ### ステップ1：記事コンテンツをコピーする
 
-1. ブラウザで `gemini_url` に移動する（ページ読み込みを wait 3秒で待つ）
-2. ページを最下部までスクロールして応答末尾を表示する
-3. 応答ブロック下部の **📋アイコン（コピーボタン）** を `find` で取得してクリック
+1. ブラウザで `gemini_url` に移動する（wait 3秒）
+2. URLが `gemini.google.com/share/` または `g.co/gemini/share/` の場合 → **Share URLフロー**へ
+   URLが `gemini.google.com/gem/` の場合 → **Gem URLフロー**へ
+
+#### Gem URLフロー
+1. ページを最下部までスクロールして応答末尾を表示する
+2. 応答ブロック下部の **📋アイコン（コピーボタン）** を `find` で取得してクリック
    - ✅ `find: "コピーボタン 応答をコピー"` → クリック
    - ❌ 「コピー」ボタン（ページ上部）はURL/タイトルをコピーするため使わない
-   - ❌ 手動テキスト選択は不要
-4. クリップボードに記事本文（Markdown書式つき）が入った状態を維持する
-5. ページ上部のタイトルテキストを確認して記録する（タグ決定に使う）
+3. ページ上部のタイトルテキストを `find` で取得して記録する
+4. → **ステップ2**へ（通常通り）
+
+#### Share URLフロー
+
+⚠️ シェアページには「応答をコピー」ボタンが存在しない。代わりにDOMからマークダウン変換して取得する。
+
+1. `javascript_tool` でDOMをマークダウン変換し、textareaにセットする：
+
+```javascript
+function nodeToMarkdown(node, parentTag) {
+  if (node.nodeType === 3) return node.textContent;
+  if (node.nodeType !== 1) return '';
+  // code-block-decoration（言語ラベルヘッダー）は無視
+  if (node.className && node.className.includes('code-block-decoration')) return '';
+  const tag = node.tagName.toLowerCase();
+  const children = Array.from(node.childNodes).map(n => nodeToMarkdown(n, tag)).join('');
+  switch(tag) {
+    case 'h1': return '\n# ' + children.trim() + '\n';
+    case 'h2': return '\n## ' + children.trim() + '\n';
+    case 'h3': return '\n### ' + children.trim() + '\n';
+    case 'h4': return '\n#### ' + children.trim() + '\n';
+    case 'p':  return '\n' + children.trim() + '\n';
+    case 'strong': case 'b': return '**' + children + '**';
+    case 'em': case 'i': return '*' + children + '*';
+    case 'code':
+      return parentTag === 'pre' ? children : '`' + children + '`';
+    case 'pre': {
+      // note.comがコードブロックの言語ラベルをUIに表示してしまうため、言語名は省く
+      return '\n```\n' + children.trim() + '\n```\n';
+    }
+    case 'li': return '\n- ' + children.trim();
+    case 'ul': case 'ol': return children + '\n';
+    case 'br': return '\n';
+    case 'a': return children;
+    default: return children;
+  }
+}
+const msgEl = document.querySelector('message-content');
+const md = nodeToMarkdown(msgEl).replace(/\n{3,}/g, '\n\n').trim();
+const lines = md.split('\n');
+const titleLine = lines[0]; // タイトルとして記録
+const withoutTitle = lines.slice(1).join('\n').trim();
+
+const ta = document.createElement('textarea');
+ta.id = '__copy_area';
+ta.value = withoutTitle;
+ta.style.cssText = 'position:fixed;top:10px;left:10px;width:400px;height:200px;z-index:99999;';
+document.body.appendChild(ta);
+ta.focus();
+ta.select();
+`title: ${titleLine} | ready`;
+```
+
+2. タイトル（`titleLine`の値）を記録する
+3. `computer` ツールでtextareaをクリック → `Ctrl+A` → `Ctrl+C`
+4. textareaを削除する：
+
+```javascript
+document.getElementById('__copy_area')?.remove(); 'removed';
+```
+
+5. → **ステップ2をスキップ**してステップ3へ（変換・クリーニング済みのため）
 
 ---
 
-### ステップ2：タグを決める（頭の中で完結）
+### ステップ2：クリップボードを事前クリーニングする
 
-記事タイトル・本文のキーワードから3〜5個選ぶ。追加アクション不要。
+コピー直後（Geminiページ上で）クリップボードをクリーニングする。
+**Gem URLフローのみ実行。Share URLフローはステップ1で完了済みのためスキップ。**
 
-候補：`ソフトウェア設計 / デザインパターン / プログラミング / エンジニア / AI`
+⚠️ `navigator.clipboard.writeText()` はユーザー操作なしではタイムアウトする。必ず以下の textarea方式を使うこと。
+
+```javascript
+// 1. クリップボードから取得（readTextは権限エラーになることがある）
+//    → エラーなら後述のフォールバックへ
+const text = await navigator.clipboard.readText();
+const lines = text.split('\n');
+const withoutTitle = lines.slice(1);
+const labels = new Set([
+  'plaintext', 'javascript', 'typescript', 'python', 'bash', 'shell',
+  'json', 'xml', 'css', 'html', 'sql', 'cpp', 'c++', 'java', 'go',
+  'ruby', 'c#', 'php', 'kotlin', 'swift', 'rust', 'scala', 'yaml',
+  'markdown', 'diff', 'text', 'txt'
+]);
+const cleaned = withoutTitle
+  .filter(line => !labels.has(line.trim().toLowerCase()))
+  .map(line => /^```\S/.test(line.trim()) ? '```' : line); // ```C# → ``` に変換
+
+// 2. textarea方式で書き込み（clipboard.writeText は使わない）
+const ta = document.createElement('textarea');
+ta.id = '__copy_area2';
+ta.value = cleaned.join('\n');
+ta.style.cssText = 'position:fixed;top:10px;left:10px;width:400px;height:200px;z-index:99999;';
+document.body.appendChild(ta);
+ta.select();
+`ready: ${cleaned.length} lines`;
+```
+
+その後、`computer` ツールでtextareaをクリック → `Ctrl+A` → `Ctrl+C` → textareaを削除：
+
+```javascript
+document.getElementById('__copy_area2')?.remove(); 'removed';
+```
+
+> **もし clipboard.readText() が権限エラーになった場合：**
+> このステップをスキップして次へ進む。ペースト後にステップ6-Bのフォールバックで対処する。
 
 ---
 
-### ステップ3：画像生成を依頼する
-
-1. `tabs_create_mcp` で新しいタブを作成する（Noteタブのダイアログを回避）
-2. `https://gemini.google.com/gem/a11de770c380` に移動（wait 3秒）
-3. 入力欄に **記事タイトルをそのままペーストしてEnterキーで送信**
-   - GEMが自動的に適切な表紙画像を生成する
-   - プロンプトを組み立てる必要はない
-4. 画像生成を待つ（wait 10秒）
-5. 画像生成完了を確認（screenshot 1枚）
-6. 画像の保存はユーザーに依頼する：
-   > 「画像が生成されました。`C:\Users\kumac\OneDrive\デスクトップ\Claude\files\note\output\images\` に名前をつけて保存してください」
-   - 保存完了を待ってから次のステップへ進む
-
----
-
-### ステップ4：Note新規記事を開く
+### ステップ3：Note新規記事を開く
 
 1. `tabs_create_mcp` で新しいタブを作成する
 2. `https://note.com/notes/new` に移動（wait 3秒）
 
 ---
 
-### ステップ5：タイトルを入力する
+### ステップ4：タイトルを入力する
 
 ```
 find: タイトル入力欄（プレースホルダー「記事タイトル」）
-form_input: 記事タイトルを入力
+form_input: ステップ1で記録したタイトルを入力
 ```
 
 ---
 
-### ステップ6：目次を挿入する
+### ステップ5：目次を挿入する
 
-1. 本文エリア（タイトル下、y≒360〜400付近）をクリックしてカーソルを置く
-   - ⚠️ タイトル欄と本文エリアを混同しない。カーソル（|）が出るまで確認
-2. `/` のみ入力してコマンドパレットが表示されるまで wait 1秒
-3. パレットから「目次」を `find` で取得してクリック（Enterでも可）
-   - ❌ `/目次` と一気に入力するとプレーンテキストになる
+1. 本文エリア（タイトル下）をクリックしてカーソルを置く（wait 1秒）
+2. `/` のみ入力して wait 1秒
+3. パレットから「目次」を `find` でクリック
+   - パレットが出ない場合：本文エリアをクリックし直して再試行
 
 ---
 
-### ステップ7：本文をペーストして後処理する
+### ステップ6-A：本文をペーストする（クリーニング済みの場合）
 
-#### 7-1. ペースト
+1. 目次コンポーネントの下の行をクリック
+2. `Ctrl+V` でペーストする（wait 8秒）
 
-1. 目次コンポーネントの下の行をクリックしてカーソルを移動
-2. `Ctrl+V` でペーストする（wait 3秒でレンダリング完了を待つ）
-3. screenshot 1枚で文字数と先頭を確認
+ステップ2が成功していれば、タイトル行・コードラベルはすでに除去されている。
+スクリーンショットは不要。そのまま次のステップへ進む。
 
-#### 7-2. 先頭のタイトル行を削除する
+---
 
-ペースト内容の**先頭行はGemini応答のタイトル**（Noteのタイトル欄に既に入力済み）。
-必ず削除する。
+### ステップ6-B：フォールバック（クリーニングがスキップされた場合のみ）
+
+ステップ2をスキップした場合のみ実行する。
+
+#### 先頭タイトル行の削除
 
 ```
-目次コンポーネントの直下の最初の行にカーソルを置く
-→ Home キーで行頭へ
-→ Shift+End で行末まで選択
-→ Delete または Backspace で削除
-→ 空行が残った場合はもう一度 Backspace
+Ctrl+Home でドキュメント先頭へ移動
+Shift+End で先頭行を選択
+Delete で削除
+空行が残った場合はさらに Backspace
 ```
 
-#### 7-3. コードブロックラベルを削除する
-
-Geminiのコードブロックには言語ラベル（「Plaintext」「JavaScript」等）が付く。
-ペースト後、これが本文中に残るので javascript_tool で一括削除する。
+#### コードラベル行の削除
 
 ```javascript
-// Note エディタ内の短いラベルテキストを削除
-const labels = ['Plaintext', 'JavaScript', 'TypeScript', 'Python',
-                 'Bash', 'Shell', 'JSON', 'XML', 'CSS', 'HTML', 'SQL', 'plaintext'];
+const labels = new Set([
+  'plaintext', 'javascript', 'typescript', 'python', 'bash', 'shell',
+  'json', 'xml', 'css', 'html', 'sql', 'cpp', 'c++', 'java', 'go',
+  'ruby', 'c#', 'php', 'kotlin', 'swift', 'rust', 'scala', 'yaml',
+  'markdown', 'diff', 'text', 'txt'
+]);
 document.querySelectorAll('.ProseMirror p').forEach(p => {
-  if (labels.includes(p.textContent.trim())) p.remove();
+  if (labels.has(p.textContent.trim().toLowerCase())) p.remove();
 });
 ```
 
-> ⚠️ ProseMirrorの内部状態と乖離する可能性があるため、実行後に下書き保存して
-> Noteに変更を反映させること。
+実行後、`Ctrl+S` で下書き保存してProseMirrorに変更を反映させる。
 
 ---
 
-### ステップ8：タグを入力する
+### ステップ7：タグを入力する
 
 ```
 「公開に進む」ボタンをクリック
-→ タグ入力欄に1タグ入力 → Enter（タグ数分繰り返す）
+→ タグ入力欄に1タグ入力 → Enter（3〜5タグ分繰り返す）
 → 「キャンセル」で編集画面に戻る
 ```
 
----
-
-### ステップ9：カバー画像をアップロードする（任意）
-
-ステップ3でユーザーが画像を保存済みの場合のみ実行。
-
-```
-find: サムネイル設定エリア（カメラアイコン、タイトル上部）
-left_click: カメラアイコン → 「画像をアップロード」
-find: file input要素
-file_upload: C:\Users\kumac\OneDrive\デスクトップ\Claude\files\note\output\images\{ファイル名}
-```
-
-画像が保存されていない場合はこのステップをスキップする。
+タグ候補：`ソフトウェア設計 / デザインパターン / プログラミング / エンジニア / AI`
 
 ---
 
-### ステップ10：下書き保存して完了報告する
+### ステップ8：下書き保存して完了報告する
 
 ```
 「下書き保存」ボタンをクリック
@@ -183,6 +255,7 @@ screenshot 1枚で「下書きを保存しました」を確認
   "title": "<記事タイトル>",
   "tags": ["タグ1", "タグ2", "タグ3"],
   "note_status": "draft",
+  "clipboard_cleaned": true,
   "status": "complete"
 }
 ```
@@ -193,9 +266,11 @@ screenshot 1枚で「下書きを保存しました」を確認
 
 | エラー | 対処 |
 |:---|:---|
-| 「コピー」ボタンでURLがペーストされた | 応答ブロック下部の📋アイコンを使う（「コピー」ボタンはページリンク用） |
-| NoteタブからGeminiに戻れない（Leave site?ダイアログ） | `tabs_create_mcp` で新規タブを開いてGemini URLに移動する |
-| 目次がプレーンテキストになった | `/` のみ入力してパレット表示を確認してから「目次」を選択する |
-| ペースト後にブラウザが固まる | wait 10秒待ってから操作再開。タブ名で保存状態を確認 |
+| Share URLで📋コピーボタンが見つからない | Share URLフロー（ステップ1のJS抽出）を使う |
+| clipboard API が権限エラー | ステップ2をスキップしてステップ6-Bを実行 |
+| clipboard.writeText() がタイムアウト | textarea方式（作成→クリック→Ctrl+C）を使う |
+| 「コピー」ボタンでURLがペーストされた | 応答ブロック下部の📋アイコンを使う |
+| NoteタブからGeminiに戻れない（Leave site?ダイアログ） | `tabs_create_mcp` で新規タブを開く |
+| 目次がプレーンテキストになった | `/` のみ入力してパレット表示を確認してから「目次」を選択 |
+| ペースト後にブラウザが固まる | wait 10秒待ってから操作再開 |
 | コードラベル削除後に本文が壊れた | Ctrl+Z でアンドゥして手動削除する |
-| タグ入力欄が見つからない | 「公開に進む」ボタンを先にクリックしてからfindを再実行 |
