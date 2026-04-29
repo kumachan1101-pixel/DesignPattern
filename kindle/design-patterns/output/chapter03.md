@@ -79,6 +79,8 @@ classDiagram
 
 ### 3.1 実装コードと責任チェック
 
+**要するに状態ごとの振る舞いをクラスとして切り出し、if文の増殖を止めるパターン。**
+
 ステップ0でクラスの責任は把握しました。
 ここでは実際の実装コードを読み、「責任通りに書かれているか」を確認します。
 
@@ -459,11 +461,258 @@ public:
 | 状態ごとに振る舞いが大きく異なる | 状態のオブジェクト化（State） | 状態クラスの凝集度が高まり読みやすくなるため |
 | 状態が2〜3個で、ただのフラグ | if/switch文 | クラスを作るコストが見合わないため |
 
+**適用判断のフローチャート：**
+
+```mermaid
+flowchart TD
+    Q1{"状態の数が\n4つ以上あるか？"}
+    Q2{"今後も状態が\n増える見込みがあるか？"}
+    Q3{"複数のメソッドが\n状態によって\n振る舞いを変えるか？"}
+    R1["if / switch文で十分"]
+    R2["Stateパターンを適用する"]
+    R3["様子見でよい"]
+
+    Q1 -->|No：2〜3個| R1
+    Q1 -->|Yes：4つ以上| Q2
+    Q2 -->|No：固定| R1
+    Q2 -->|Yes：増える| Q3
+    Q3 -->|No：1つのみ| R3
+    Q3 -->|Yes：複数| R2
+
+    style R2 fill:#ccffcc,stroke:#00aa00
+    style R1 fill:#ffe8cc,stroke:#cc7700
+    style R3 fill:#ffe8cc,stroke:#cc7700
+```
+
+*このフローは「今回の評価軸」に対するもの。別の状況・別の基準なら、違う判断になります。*
+
+設計に絶対の正解はありません。「状態がこれから増えるかどうか」をチームで確認することが、Stateパターン適用判断の出発点だと私は感じています。
+
 ---
 
 ## ステップ7：決断と、手に入れた未来
 
-### 3.10 変更シナリオ表と最終責任テーブル
+### 3.10 解決後のコード（全体）
+
+```cpp
+// ────────────────────────────────────────────────────────
+// インターフェース定義
+// ────────────────────────────────────────────────────────
+
+class IOrderState {
+public:
+    virtual void cancel()        = 0;
+    virtual void requestReturn() = 0;
+    virtual void sendReminder()  = 0;
+    virtual ~IOrderState() {}
+};
+
+// ────────────────────────────────────────────────────────
+// 各状態クラス（「自分の状態のときにどう振る舞うか」だけを持つ）
+// ────────────────────────────────────────────────────────
+
+class OrderReceivedState : public IOrderState {
+public:
+    void cancel() override {
+        std::cout << "注文をキャンセルしました。\n";
+    }
+    void requestReturn() override {
+        std::cout << "エラー：発送前は返品できません。\n";
+    }
+    void sendReminder() override {
+        std::cout << "入金の催促メールを送信しました。\n";
+    }
+};
+
+// 今回の変更要求で追加した状態——既存クラスへの変更は不要
+class WaitingForPaymentState : public IOrderState {
+public:
+    void cancel() override {
+        std::cout << "注文をキャンセルしました。\n";
+    }
+    void requestReturn() override {
+        std::cout << "エラー：発送前は返品できません。\n";
+    }
+    void sendReminder() override {
+        std::cout << "入金の催促メールを送信しました。\n";
+    }
+};
+
+class PaymentConfirmedState : public IOrderState {
+public:
+    void cancel() override {
+        std::cout << "注文をキャンセルしました。\n";
+    }
+    void requestReturn() override {
+        std::cout << "エラー：発送前は返品できません。\n";
+    }
+    void sendReminder() override {
+        // 入金済みのため催促は不要
+    }
+};
+
+class ShippedState : public IOrderState {
+public:
+    void cancel() override {
+        std::cout << "エラー：発送済み以降はキャンセルできません。\n";
+    }
+    void requestReturn() override {
+        std::cout << "返品申請を受け付けました。\n";
+    }
+    void sendReminder() override {
+        // 発送後は催促不要
+    }
+};
+
+class CompletedState : public IOrderState {
+public:
+    void cancel() override {
+        std::cout << "エラー：完了後はキャンセルできません。\n";
+    }
+    void requestReturn() override {
+        std::cout << "返品申請を受け付けました。\n";
+    }
+    void sendReminder() override {
+        // 完了後は催促不要
+    }
+};
+
+// ────────────────────────────────────────────────────────
+// コンテキスト：状態を保持し、操作を委譲する
+// ────────────────────────────────────────────────────────
+
+class OrderManager {
+public:
+    explicit OrderManager(IOrderState* initialState)
+        : state_(initialState) {}
+
+    void cancel()        { state_->cancel(); }
+    void requestReturn() { state_->requestReturn(); }
+    void sendReminder()  { state_->sendReminder(); }
+
+    void changeState(IOrderState* newState) {
+        state_ = newState;
+    }
+
+private:
+    IOrderState* state_;
+};
+
+// ────────────────────────────────────────────────────────
+// OrderApplication（Composition Root）
+// 「どの状態クラスを使うか」を組み立てる唯一の場所
+// ────────────────────────────────────────────────────────
+
+class OrderApplication {
+public:
+    void run() {
+        OrderReceivedState      receivedState;
+        WaitingForPaymentState  waitingState;
+        ShippedState            shippedState;
+
+        OrderManager order(&receivedState);
+        order.sendReminder();    // 注文受付：催促メール送信
+
+        order.changeState(&waitingState);
+        order.cancel();          // 入金待ち：キャンセル可
+
+        order.changeState(&shippedState);
+        order.requestReturn();   // 発送済み：返品申請可
+    }
+};
+
+// ────────────────────────────────────────────────────────
+// main() は OrderApplication をキックするだけ
+// ────────────────────────────────────────────────────────
+
+int main() {
+    OrderApplication app;
+    app.run();
+    return 0;
+}
+```
+
+**実行結果：**
+```
+入金の催促メールを送信しました。
+注文をキャンセルしました。
+返品申請を受け付けました。
+```
+
+---
+
+### テスト：状態委譲の動作を保証する
+
+```cpp
+// スタブ：本物の状態クラスを差し替えて「呼ばれたかどうか」を記録する。
+// IOrderStateを継承することで、OrderManagerに注入できる。
+class StubOrderState : public IOrderState {
+public:
+    bool cancelCalled_    = false;
+    bool returnCalled_    = false;
+    bool reminderCalled_  = false;
+
+    void cancel()        override { cancelCalled_   = true; }
+    void requestReturn() override { returnCalled_   = true; }
+    void sendReminder()  override { reminderCalled_ = true; }
+};
+
+// テスト1：cancel()が現在の状態クラスに委譲されているか
+void test_cancel_delegates_to_state() {
+    StubOrderState stub;
+    OrderManager order(&stub);
+    order.cancel();
+
+    // EXPECT_TRUE(値)：「値がtrueであればテスト通過」という検証（アサーション）。
+    EXPECT_TRUE(stub.cancelCalled_);
+    EXPECT_FALSE(stub.returnCalled_);
+    EXPECT_FALSE(stub.reminderCalled_);
+}
+
+// テスト2：changeState後は新しい状態クラスに委譲されるか
+void test_changeState_switches_delegate() {
+    StubOrderState stateA;
+    StubOrderState stateB;
+    OrderManager order(&stateA);
+
+    order.changeState(&stateB);
+    order.cancel();
+
+    EXPECT_FALSE(stateA.cancelCalled_); // 古い状態には届かない
+    EXPECT_TRUE(stateB.cancelCalled_);  // 新しい状態に委譲される
+}
+```
+
+`OrderManager` がif文で判断していれば、スタブへの差し替えはできません。
+インターフェースに委譲しているからこそ、状態クラスをまるごと差し替えてテストできます。
+
+---
+
+### 変更影響グラフ（改善後）
+
+```mermaid
+graph LR
+    T["「入金待ち」状態の追加"]
+    W["WaitingForPaymentState（新規追加のみ）"]
+    M["OrderManager：変更なし"]
+    R["OrderReceivedState：変更なし"]
+    S["ShippedState：変更なし"]
+
+    T --> W
+
+    style T fill:#ffcccc,stroke:#cc0000
+    style W fill:#ccffcc,stroke:#00aa00
+    style M fill:#e8e8e8,stroke:#888888
+    style R fill:#e8e8e8,stroke:#888888
+    style S fill:#e8e8e8,stroke:#888888
+```
+
+新しい状態を追加するとき、変更が及ぶのは「新しく作るクラス」だけです。
+ステップ3で確認した「3つのメソッドが同時に変わる痛み」が、完全に解消されています。
+
+---
+
+### 3.11 変更シナリオ表と最終責任テーブル
 
 **変更シナリオ表：何が変わったとき、どこが変わるか**
 
@@ -515,6 +764,16 @@ public:
 
 OrderManagerは「今の状態が『注文受付クラス』である」という実装を知りません。「状態の契約（`IOrderState`）」に対して操作を委譲しているだけなので、未知の新しい状態クラスが渡されても正常に動きます。
 
+### 哲学3「継承よりコンポジションを優先せよ」の現れ
+
+**具体化された場所：** `OrderManager` が `IOrderState` を「部品として持つ（`state_`）」構造
+
+もし `OrderManager` を継承して「注文受付中の管理クラス」「発送済みの管理クラス」と増やしていくと、状態の数だけクラスが爆発します。代わりに `IOrderState` という部品を差し替えるだけで、`OrderManager` 本体に一切触れずに振る舞いを切り替えられます。「状態を部品として持ち（`state_`）、差し替える」という構造が、コンポジションの実践です。
+
+---
+
+第3章で体験したプロセスを振り返ると、Stateパターンは「答えとして学ぶもの」ではなく、「状態ごとの分岐が複数のメソッドに散らばっているとき、自然にたどり着く構造」だとわかります。
+
 ---
 
 ## パターン解説：Stateパターン
@@ -548,7 +807,52 @@ classDiagram
 - **State（状態）**：各状態が共通で持つべきメソッドの契約を定義する。
 - **ConcreteState（具体的な状態）**：「この状態のときはどう振る舞うか」を実装する。
 
+### この章の実装との対応
+
+```mermaid
+classDiagram
+    class OrderManager {
+        -state_ : IOrderState
+        +cancel()
+        +requestReturn()
+        +sendReminder()
+    }
+    class IOrderState {
+        <<interface>>
+        +cancel()
+        +requestReturn()
+        +sendReminder()
+    }
+    class OrderReceivedState {
+        +cancel()
+        +requestReturn()
+        +sendReminder()
+    }
+    class WaitingForPaymentState {
+        +cancel()
+        +requestReturn()
+        +sendReminder()
+    }
+    class ShippedState {
+        +cancel()
+        +requestReturn()
+        +sendReminder()
+    }
+    OrderManager o--> IOrderState : 委譲
+    IOrderState <|.. OrderReceivedState
+    IOrderState <|.. WaitingForPaymentState
+    IOrderState <|.. ShippedState
+    note for OrderManager "どの状態クラスが渡されるかを知らない"
+```
+
+`OrderManager` が Context、`IOrderState` が State インターフェース、各状態クラス（`OrderReceivedState` など）が ConcreteState に対応します。`OrderManager` はどの状態クラスが渡されるかを知らず、`IOrderState` の契約だけに依存しています。
+
 ### どんな構造問題を解くか
 
-「もし今の状態がAなら処理1、Bなら処理2…」という分岐が、複数のメソッドにまたがって増殖してしまう問題を解きます。
-「メソッドの中に状態分岐を書く」のではなく、「状態の中にメソッドを書く」という発想の転換により、if文を多態性（ポリモーフィズム）に置き換えます。
+「もし今の状態がAなら処理1、Bなら処理2…」という分岐が、複数のメソッドにまたがって増殖してしまう問題を解きます。「メソッドの中に状態分岐を書く」のではなく、「状態の中にメソッドを書く」という発想の転換により、if文を多態性（ポリモーフィズム）に置き換えます。新しい状態が増えるとき、変わるのは「追加した状態クラス」だけで、`OrderManager` や既存の状態クラスは一切変わりません。
+
+### 使いどころと限界
+
+**使いどころ：**「現在の状態によって振る舞いが大きく変わる」とわかったときです。判断の基準は「誰の判断でこの状態は変わるか」「その状態が今後も増える見込みがあるか」です。営業企画が新しいステータスを追加したいと言い、サポートがルールを随時見直すなら、Stateとして分離を検討する時期です。
+
+**限界：**状態が2〜3個で固定されており、メソッドも少ない場合は使わないほうがよいです。状態クラスを複数作るコストが純粋なオーバーヘッドになります。また、「どの状態からどの状態に遷移できるか」というルールは Stateパターン自体には含まれません。遷移ルールが複雑な場合は、状態遷移テーブルや専用の遷移管理クラスを別途検討してください。一つの参考として受け取っていただければと思います。
