@@ -1075,11 +1075,49 @@ graph LR
 
 ---
 
-## パターン解説：Stateパターン
+## パターン解説：StrategyパターンとStateパターン
 
-Strategyパターンについては第1章のパターン解説を参照してください。ここではこの章のもう一方のパターンであるStateパターンを説明します。
+この章では2つのパターンが組み合わさっています。それぞれの骨格と、この章での使われ方を整理します。
 
-### パターンの骨格
+### Strategyパターンの骨格（この章での役割：割引ルールの切り替え）
+
+Strategyパターンは「処理の骨格」と「処理の中身（アルゴリズム）」を分離するパターンです。Contextは `Strategy` インターフェースだけを知り、どの実装クラスが渡されるかを知りません。実装の差し替えは外部（Composition Root）が担います。
+
+この章では `OrderService` が `IBillingRule` だけを知り、`CorporateRule` や `CampaignRule` を直接知りません。割引ルールの追加・変更は新しいクラスを作るだけで完結します。
+
+---
+
+### Stateパターンの骨格（この章での役割：注文状態の遷移管理）
+
+Stateパターンの特徴は、ContextがStateに委譲するだけでなく、State自身がContextの状態を遷移させる点にあります。
+
+```mermaid
+classDiagram
+    class Context {
+        -state : State
+        +request()
+        +changeState(s : State)
+    }
+    class State {
+        <<interface>>
+        +handle(ctx : Context)
+    }
+    class ConcreteStateA {
+        +handle(ctx : Context)
+    }
+    class ConcreteStateB {
+        +handle(ctx : Context)
+    }
+    Context o--> State : 現在の状態を持つ
+    State <|.. ConcreteStateA
+    State <|.. ConcreteStateB
+    ConcreteStateA ..> Context : ctx.changeState(new B)
+    ConcreteStateB ..> Context : ctx.changeState(new A)
+```
+
+**Context** は状態を「持つ」側です。`request()` を呼ばれたら現在のStateに委譲するだけで、状態の種類を知りません。**State** は「今の状態での振る舞い」の契約です。`handle()` の引数にContextを受け取り、必要なら状態遷移を行います。**ConcreteState** は特定の状態での振る舞いと、次の状態への遷移を実装します。
+
+### この章の実装との対応
 
 Stateパターンの特徴は、ContextがStateに委譲するだけでなく、State自身がContextの状態を遷移させる点にあります。
 
