@@ -341,102 +341,68 @@ graph LR
 
 ---
 
-## ステップ5：対策案の検討 ―― 「理想の契約」から逆算して構造を作る
+## ステップ5：対策案の検討 ―― 原因から手札を選ぶ
 
-### 3.6 試み①：switch文への統一（enumを活かして整理する）
+> **ステップ4で特定した真因：** ステータスごとの振る舞いが、メソッドごとに分断されている
 
-まず、if文をswitch文に統一することを考えます。
-`Status` を enum で持っているなら、switch文の方がコンパイラの警告（未処理のケース）を活用できるからです。
+### 3.6 手札の選定
+
+真因を改めて確認します。
+
+「予約受付中での振る舞い一式」が `cancel()`・`refund()`・`admit()` の3メソッドに散らばっている。
+これを解消するには「**ステータスを軸に振る舞いを集める**」必要があります。
+
+**却下した案：switch文への統一**
+
+if文の代わりにswitch文を使えば、コンパイラの警告（未処理ケースの検知）というメリットが得られます。
 
 ```cpp
-// 試み①：switch文でif文を置き換える
+// switch文でif文を置き換えた場合
 
 void cancel() {
     switch (status_) {
-        case Reserved:
-            status_ = Reserved; // キャンセル受付
-            break;
-        case AwaitingPayment:
-            status_ = Reserved; // キャンセル受付
-            break;
-        case Confirmed:
-        case Issued:
-        case Admitted:
-            // キャンセル不可
-            break;
+        case Reserved:    status_ = Reserved; break; // キャンセル受付
+        case AwaitingPayment: status_ = Reserved; break;
+        case Confirmed: case Issued: case Admitted: break; // キャンセル不可
     }
 }
-
 void refund() {
     switch (status_) {
-        case Confirmed:
-        case Issued:
-            status_ = Reserved; // 払い戻し申請受付
-            break;
-        case Reserved:
-        case AwaitingPayment:
-        case Admitted:
-            // 払い戻し不可
-            break;
+        case Confirmed: case Issued: status_ = Reserved; break; // 払い戻し受付
+        default: break; // 払い戻し不可
     }
 }
-
 void admit() {
     switch (status_) {
-        case Issued:
-            status_ = Admitted; // 入場確認完了
-            break;
-        case Reserved:
-        case AwaitingPayment:
-        case Confirmed:
-        case Admitted:
-            // 入場不可
-            break;
+        case Issued: status_ = Admitted; break; // 入場確認完了
+        default: break; // 入場不可
     }
 }
 ```
 
-switch文にすることで、コンパイラが「このステータスのケースが書かれていない」と警告してくれます。
-修正漏れを検知しやすくなるのはメリットです。
-
-**試み①の限界**
-
-「席変更受付中」を追加したとき、どう変わるかを確認します。
+「席変更受付中」を追加するとき：
 
 ```cpp
-// 席変更受付中を追加したとき
-
-enum Status {
-    Reserved, AwaitingPayment, Confirmed, Issued, Admitted,
-    SeatChanging // ← 新しいステータス
-};
-
-// cancel() を開く → SeatChangingのcaseを追加する
-// refund() を開く → SeatChangingのcaseを追加する
-// admit()  を開く → SeatChangingのcaseを追加する
-// 3メソッド全てを修正しなければならない
+// 追加が必要な箇所
+enum Status { ..., SeatChanging }; // enum に追加
+// cancel()  を開く → SeatChangingのcaseを追加
+// refund()  を開く → SeatChangingのcaseを追加
+// admit()   を開く → SeatChangingのcaseを追加
 ```
 
-コンパイラの警告でケース追加漏れは検知できます。
-しかし、**3つのメソッドを全て開いて修正する**という構造は変わりません。
+コンパイラ警告で追加漏れは検知できますが、**3メソッド全てを開いて修正する構造は変わりません。**
+「席変更受付中の振る舞い一式」は依然として3か所に分散しています。
+switch文は「if文の書き方を変えた」だけで、**真因（振る舞いのメソッド軸への分断）を解消していません。**
 
-ステータスが10個になれば switch のcaseが10行になり、「席変更受付中でのキャンセルはどう動くか」を調べるには `cancel()` のswitch文を読まなければなりません。「席変更受付中での振る舞い一式」は依然として3か所に分散しています。
+**採用する手札：手札①（インターフェース抽出）をステータスに適用する**
 
-**試み①の残る課題：「分散している問題の場所が変わっただけ」**
+真因に直接対処するには「ステータスをクラスとして定義し、そのクラスの中に cancel・refund・admit 全ての振る舞いをまとめる」しかありません。第0章の手札①（インターフェース抽出）を、アルゴリズムではなく「ステータス」という軸で使います。
 
-switch文への統一は if文の可読性は改善しましたが、「振る舞いがメソッド軸に分断されている」という根本問題は解消されていません。
-
-理想は「席変更受付中での振る舞い一式（cancel・refund・admitそれぞれでどう動くか）」が**1か所にまとまっている**ことです。
+「1つのステータスが持つべき振る舞いの契約」をインターフェースとして定義します。
 
 ---
 
-### 3.7 試み②：IReservationState インターフェースの導入（ステータスを軸に集める）
-
-発想を転換します。
-「メソッドごとにステータスを分岐する」のではなく、
-「**ステータスごとに全操作をまとめる**」という軸を変えます。
-
-まず、「1つのステータスが持つべき振る舞いの契約」をインターフェースとして定義します。
+### 3.7 手札①の適用：IReservationState インターフェースの導入
 
 ```cpp
 // ステータスの契約：どのステータスも cancel / refund / admit を知っている
@@ -653,29 +619,27 @@ public:
 
 ---
 
-### 3.9 各アプローチをテストで比較する
+### 3.9 各手札をテストで比較する
 
-**試み①（switch文）のテスト**
+**却下した案（switch文）のテスト**
 
 ```cpp
-// 試み①：switch文のテスト
-// 「席変更受付中でのキャンセル」を確認するには
-// ReservationManager ごとテストし、cancel() の中の switch を読む必要がある
+// switch文の場合：「席変更受付中でのキャンセル」を確認するには
+// ReservationManager ごとテストし、cancel() の中の switch 全体を確認する必要がある
 
 TEST(ReservationManagerTest, SeatChangingCannotCancel) {
     ReservationManager mgr;
-    // 席変更受付中にするために状態をセットアップ（内部enumを直接操作できないため複雑）
-    // cancel() の中のswitch文全体を確認しないと振る舞いが把握できない
-    mgr.cancel(); // キャンセルされないことを確認したいが、
-                  // 同時にReservedやConfirmedの動作も「誤って壊していないか」確認が必要
+    // 内部enum を直接操作できないため状態セットアップが複雑
+    // cancel() の switch 文全体を読まないと振る舞いが把握できない
+    // 同時に Reserved や Confirmed の動作も「壊していないか」確認が必要になる
+    mgr.cancel();
 }
 ```
 
-**試み②（IReservationState）のテスト**
+**採用した手札（IReservationState）のテスト**
 
 ```cpp
-// 試み②：状態クラスのテスト
-// 「席変更受付中でのキャンセル」は SeatChangingState だけをテストすれば確認できる
+// IReservationState の場合：SeatChangingState だけをテストすれば確認できる
 
 TEST(SeatChangingStateTest, CannotCancel) {
     SeatChangingState state;
@@ -698,7 +662,7 @@ TEST(IssuedStateTest, AdmitChangesToAdmitted) {
 
 **比較のまとめ**
 
-| 基準 | 試み①（switch文） | 試み②（IReservationState） |
+| 基準 | 却下した案（switch文） | 採用した手札（IReservationState） |
 |---|---|---|
 | 変更の局所性 | △ ステータス追加で全メソッドを修正 | ○ 新しいクラスを追加するだけ |
 | 振る舞いの追跡容易性 | △ メソッドのswitch文を読む必要がある | ○ 状態クラス1つを読めば分かる |
@@ -1055,7 +1019,7 @@ graph LR
 | ステップ2 | 運営企画へのヒアリングで「ステータスは今後も増える」「各ステータスのポリシーも変わる」という仮説を事実として確定した |
 | ステップ3 | 「席変更受付中」を追加しようとすると cancel / refund / admit の3メソッド全てを開き直す必要があることを確認した |
 | ステップ4 | 「変わる理由の異なる2つのもの（状態ごとの振る舞い・操作の骨格）が同じ場所にいる」という根本原因を言語化した |
-| ステップ5 | switch文への統一（試み①）で限界を確認し、IReservationState インターフェースで状態をクラスとして切り出した（試み②） |
+| ステップ5 | 真因から手札を選定した。switch文統一は真因を解消しないと判断し、手札①（インターフェース抽出）をステータス軸で適用して IReservationState を導入した |
 | ステップ6 | 変更の局所性・振る舞いの追跡容易性・既存コードへの影響という評価軸で試み②の価値を確認し、今回のケースでは採用する価値があると判断した |
 | ステップ7 | 全コードを示し、変更シナリオ別に「変わるクラス・変わらないクラス」で効果を確認した |
 
@@ -1199,14 +1163,4 @@ classDiagram
 
 「現在の状態に応じた振る舞い」と「操作を受け付ける骨格」が同じクラスにいる状態がStageパターンの出番です。
 
-状態が増えるたびに複数のメソッドを開き直す——この状態では「このステータスでのキャンセルは？」という問いへの答えが、コードの複数箇所に分散しています。Stateパターンは「状態」というクラスを定義し、1つの状態での全振る舞いをその中に集めます。結果として「このステータスでの振る舞い一式」が1クラスを読めば分かるようになります。
-
-### 使いどころと限界
-
-**使いどころ：**「複数のメソッドが現在の状態によって振る舞いを変え、今後も状態が増える見込みがある」とわかったときです。判断の基準は「1つの状態を追加したとき、何メソッドを修正するか」です。3メソッド以上修正が必要なら、Stateパターンとして分離を検討する時期です。
-
-**限界：**状態が2〜3個で固定されており、振る舞いの変化も単純な場合は使わないほうがよいです。インターフェースと追加クラスのコストが純粋なオーバーヘッドになります。状態クラスを増やすほど管理するファイルも増えるため、「1つのファイルを読めば全体が分かる」シンプルさが失われることも覚えておいてください。
-
----
-
-次章では「処理の一部のステップだけ」が変わるという別の変化を扱います。
+状態が増えるたびに複数のメソッドを開き直す——この状態では「このステータスでのキャンセルは？」という問いへの答えが、コードの複数箇所に分散しています。Stateパターンは「状態�
