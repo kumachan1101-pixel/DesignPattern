@@ -411,9 +411,13 @@ graph LR
 
 ## ステップ5：対策案の検討 ―― 2つの原因を順に解消する
 
+第0章の手札選択表を引くと：
+- 「任意の振る舞い（計算ロジック、ルールなど）が変わる」→ **インターフェース抽出**（第0章 手札）
+- 「オブジェクトの状態とそれに伴う振る舞いが変わる」→ **状態クラス化**（第0章 手札）
+
 原因が2つあるので、解消も2段階になります。
 
-### 試み①：割引ルールを切り出す（原因Aへの対処 ―― Strategy）
+### 9.5.1 手札の適用①：インターフェース抽出で割引ルールを切り出す（原因A）
 
 まず「割引ルールの詳細が OrderService に染み出している」問題を解消します。
 
@@ -462,7 +466,7 @@ public:
 ```
 
 ```cpp
-// OrderService（試み①後）
+// OrderService（インターフェース抽出適用後）
 class OrderService {
 public:
     OrderService(IBillingRule* rule)
@@ -486,7 +490,7 @@ int OrderService::calcAmount() {
 }
 ```
 
-**責任チェック（試み①後）**
+**責任チェック（インターフェース抽出適用後）**
 
 | コードの行 | 持っている知識 | OrderServiceの責任か |
 |---|---|---|
@@ -527,7 +531,7 @@ classDiagram
     IBillingRule <|.. CampaignRule
 ```
 
-### 試み②：状態ごとの振る舞いを切り出す（原因Cへの対処 ―― State）
+### 9.5.2 手札の適用②：状態クラス化で振る舞いを切り出す（原因C）
 
 次に「状態と振る舞いの対応関係が各メソッドに分散している」問題を解消します。
 
@@ -589,7 +593,7 @@ public:
 「今の状態オブジェクトに委ねる」だけです。
 
 ```cpp
-// OrderService（試み②後）
+// OrderService（状態クラス化適用後）
 class OrderService {
 public:
     OrderService(IBillingRule* rule, IOrderState* initialState)
@@ -614,7 +618,7 @@ private:
 };
 ```
 
-**責任チェック（試み②後）**
+**責任チェック（状態クラス化適用後）**
 
 | コードの行 | 持っている知識 | OrderServiceの責任か |
 |---|---|---|
