@@ -100,16 +100,30 @@ graph TD
 #include <string>
 
 class Document {
+    std::string text_;
+    int selStart_ = 0;
+    int selLen_   = 0;
 public:
-    void insert(int pos, const std::string& text) { std::cout << "Document: Inserted '" << text << "' at " << pos << "\n"; }
-    void remove(int pos, int length) { std::cout << "Document: Removed " << length << " chars at " << pos << "\n"; }
-    std::string getSelection() { return "selected_text"; }
+    void insert(int pos, const std::string& str) {
+        text_.insert(pos, str);
+        std::cout << "Document: \"" << text_ << "\"\n";
+    }
+    void remove(int pos, int len) {
+        text_.erase(pos, len);
+        std::cout << "Document: \"" << text_ << "\"\n";
+    }
+    void setSelection(int start, int len) { selStart_ = start; selLen_ = len; }
+    std::string getSelection() const { return text_.substr(selStart_, selLen_); }
 };
 
 class Clipboard {
+    std::string content_;
 public:
-    void set(const std::string& text) { std::cout << "Clipboard: Saved '" << text << "'\n"; }
-    std::string get() { return "pasted_text"; }
+    void set(const std::string& text) {
+        content_ = text;
+        std::cout << "Clipboard: \"" << content_ << "\"\n";
+    }
+    std::string get() const { return content_; }
 };
 
 class EditorController {
@@ -306,22 +320,34 @@ private:
     void doInsert(int pos, const std::string& input) {
         doc.insert(pos, input);
     }
+    void doCopy() {
+        std::string selected = doc.getSelection();
+        clipboard.set(selected);
+    }
+    void doPaste(int pos) {
+        std::string text = clipboard.get();
+        doc.insert(pos, text);
+    }
     void doCut(int pos) {
         std::string selected = doc.getSelection();
         clipboard.set(selected);
-        doc.remove(pos, selected.length());
+        doc.remove(pos, static_cast<int>(selected.length()));
     }
-    // ... COPY, PASTE などのメソッドも同様に続く
 
 public:
     void executeAction(const std::string& actionName, int cursorPosition, const std::string& input = "") {
         if (actionName == "INSERT") {
             doInsert(cursorPosition, input);
-        } 
+        }
+        else if (actionName == "COPY") {
+            doCopy();
+        }
+        else if (actionName == "PASTE") {
+            doPaste(cursorPosition);
+        }
         else if (actionName == "CUT") {
             doCut(cursorPosition);
         }
-        // ... 残りの if-else が続く
     }
 };
 ```
@@ -606,16 +632,30 @@ flowchart TD
 
 // --- 対象となるシステム（Receiver） ---
 class Document {
-    std::string text_ = "";
+    std::string text_;
+    int selStart_ = 0;
+    int selLen_   = 0;
 public:
     void insert(int pos, const std::string& str) {
         text_.insert(pos, str);
-        std::cout << "Doc: Inserted. Current: " << text_ << "\n";
+        std::cout << "Doc: \"" << text_ << "\"\n";
     }
     void remove(int pos, int len) {
         text_.erase(pos, len);
-        std::cout << "Doc: Removed. Current: " << text_ << "\n";
+        std::cout << "Doc: \"" << text_ << "\"\n";
     }
+    void setSelection(int start, int len) { selStart_ = start; selLen_ = len; }
+    std::string getSelection() const { return text_.substr(selStart_, selLen_); }
+};
+
+class Clipboard {
+    std::string content_;
+public:
+    void set(const std::string& text) {
+        content_ = text;
+        std::cout << "Clipboard: \"" << content_ << "\"\n";
+    }
+    std::string get() const { return content_; }
 };
 
 // --- 契約（Command） ---
@@ -633,8 +673,44 @@ class InsertCommand : public ICommand {
 public:
     InsertCommand(Document& doc, int pos, const std::string& text)
         : doc_(doc), pos_(pos), text_(text) {}
-
     void execute() override { doc_.insert(pos_, text_); }
+};
+
+class CopyCommand : public ICommand {
+    Document&  doc_;
+    Clipboard& clipboard_;
+public:
+    CopyCommand(Document& doc, Clipboard& clipboard)
+        : doc_(doc), clipboard_(clipboard) {}
+    void execute() override {
+        clipboard_.set(doc_.getSelection());
+    }
+};
+
+class PasteCommand : public ICommand {
+    Document&  doc_;
+    Clipboard& clipboard_;
+    int pos_;
+public:
+    PasteCommand(Document& doc, Clipboard& clipboard, int pos)
+        : doc_(doc), clipboard_(clipboard), pos_(pos) {}
+    void execute() override {
+        doc_.insert(pos_, clipboard_.get());
+    }
+};
+
+class CutCommand : public ICommand {
+    Document&  doc_;
+    Clipboard& clipboard_;
+    int pos_;
+public:
+    CutCommand(Document& doc, Clipboard& clipboard, int pos)
+        : doc_(doc), clipboard_(clipboard), pos_(pos) {}
+    void execute() override {
+        std::string selected = doc_.getSelection();
+        clipboard_.set(selected);
+        doc_.remove(pos_, static_cast<int>(selected.length()));
+    }
 };
 
 // --- コントローラー（Invoker） ---
@@ -651,17 +727,25 @@ public:
 class EditorApplication {
 public:
     void run() {
-        Document doc;
+        Document  doc;
+        Clipboard clipboard;
         EditorController controller;
 
-        // UI層からの入力を想定し、操作（コマンド）を組み立てて渡す
         std::cout << "--- User Input Simulated ---\n";
-        
-        auto cmd1 = std::make_shared<InsertCommand>(doc, 0, "Hello");
-        controller.executeAction(cmd1);
 
-        auto cmd2 = std::make_shared<InsertCommand>(doc, 5, " World");
-        controller.executeAction(cmd2);
+        // 「Hello」を挿入 → "Hello"
+        controller.executeAction(std::make_shared<InsertCommand>(doc, 0, "Hello"));
+
+        // 先頭3文字を選択してコピー → clipboard: "Hel"
+        doc.setSelection(0, 3);
+        controller.executeAction(std::make_shared<CopyCommand>(doc, clipboard));
+
+        // 末尾にペースト → "HelloHel"
+        controller.executeAction(std::make_shared<PasteCommand>(doc, clipboard, 5));
+
+        // 先頭2文字を選択してカット → clipboard: "He"、doc: "lloHel"
+        doc.setSelection(0, 2);
+        controller.executeAction(std::make_shared<CutCommand>(doc, clipboard, 0));
     }
 };
 
@@ -670,6 +754,16 @@ int main() {
     app.run();
     return 0;
 }
+```
+
+**実行結果：**
+```
+--- User Input Simulated ---
+Doc: "Hello"
+Clipboard: "Hel"
+Doc: "HelloHel"
+Clipboard: "He"
+Doc: "lloHel"
 ```
 
 ---
