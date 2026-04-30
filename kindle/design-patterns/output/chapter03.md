@@ -731,10 +731,14 @@ class IOrderState {         // これは過剰
     virtual void cancel() = 0;
 };
 class ProcessingState : public IOrderState {
-    void cancel() override { /* キャンセル可 */ }
+    void cancel() override {
+        std::cout << "[OK] 注文をキャンセルしました\n";
+    }
 };
 class CompletedState : public IOrderState {
-    void cancel() override { /* キャンセル不可 */ }
+    void cancel() override {
+        std::cout << "[NG] 完了済みの注文はキャンセルできません\n";
+    }
 };
 ```
 

@@ -800,7 +800,9 @@ public:
     }
 
 private:
-    void saveResult(int amount) { /* 結果を保存 */ }
+    void saveResult(int amount) {
+        std::cout << "[DB] 請求金額を保存: " << amount << " 円\n";
+    }
 };
 
 // ────────────────────────────────────────────────────────
