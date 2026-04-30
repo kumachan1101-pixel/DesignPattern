@@ -159,24 +159,63 @@ classDiagram
 //      calcAmount が変わっても、format が変わっても、
 //      この1つのクラスを変更しなければならない
 class ReportService {
+    double totalSales_; // 売上合計（コンストラクタで受け取る）
+public:
+    explicit ReportService(double sales) : totalSales_(sales) {}
     void generate() {
-        double value = calcAmount();      // 変わる理由1：計算ルール担当
-        std::string text = format(value); // 変わる理由2：出力形式担当
+        double value = calcAmount();      // 変わる理由1：計算ルール担当（営業チーム）
+        std::string text = format(value); // 変わる理由2：出力形式担当（経理チーム）
         writeToPdf(text);
+    }
+private:
+    double calcAmount() { return totalSales_ * 0.1; }           // 手数料10%：営業チームが決める
+    std::string format(double v) {                              // CSV形式：経理チームが決める
+        return "金額," + std::to_string(static_cast<int>(v));
+    }
+    void writeToPdf(const std::string& text) {
+        std::cout << "[PDF] " << text << "\n";
     }
 };
 
 // OK：変わる理由ごとに分離する
-//     計算が変わっても ReportFormatter は変わらない
-//     出力が変わっても Calculator は変わらない
-class Calculator     { virtual double calcAmount() = 0; };
-class ReportFormatter { virtual std::string format(double v) = 0; };
+//     calc_ が変わっても ReportFormatter は変わらない
+//     fmt_ が変わっても Calculator は変わらない
+class Calculator {
+public:
+    virtual double calcAmount() = 0;
+    virtual ~Calculator() {}
+};
+class ReportFormatter {
+public:
+    virtual std::string format(double v) = 0;
+    virtual ~ReportFormatter() {}
+};
+
+// 具体実装①：手数料10%（営業チームが管理）
+class CommissionCalc : public Calculator {
+    double totalSales_;
+public:
+    explicit CommissionCalc(double sales) : totalSales_(sales) {}
+    double calcAmount() override { return totalSales_ * 0.1; }
+};
+
+// 具体実装②：CSV形式（経理チームが管理）
+class CsvFormatter : public ReportFormatter {
+public:
+    std::string format(double v) override {
+        return "金額," + std::to_string(static_cast<int>(v));
+    }
+};
 
 class ReportService {
     Calculator*      calc_;
     ReportFormatter* fmt_;
 public:
-    void generate() { fmt_->format(calc_->calcAmount()); }
+    ReportService(Calculator* c, ReportFormatter* f) : calc_(c), fmt_(f) {}
+    void generate() {
+        std::string text = fmt_->format(calc_->calcAmount());
+        std::cout << "[PDF] " << text << "\n";
+    }
 };
 ```
 
@@ -383,19 +422,25 @@ public:
 
 ```cpp
 class EmailNotifier { // 具体クラス：メールを送る実装が入っている
+    std::string smtpHost_; // SMTPサーバーのアドレス（インスタンス状態として持つ）
+    int         port_;
 public:
+    EmailNotifier(const std::string& host, int port)
+        : smtpHost_(host), port_(port) {}
     virtual void notify(const std::string& msg) {
-        // SMTPサーバーに接続してメール送信...
+        std::cout << "[SMTP " << smtpHost_ << ":" << port_ << "] " << msg << "\n";
     }
 };
 
-// LoggingNotifier は EmailNotifier（具体クラス）を継承
+// LoggingEmailNotifier は EmailNotifier（具体クラス）を継承
 class LoggingEmailNotifier : public EmailNotifier {
 public:
+    LoggingEmailNotifier(const std::string& host, int port)
+        : EmailNotifier(host, port) {}
     void notify(const std::string& msg) override {
-        log(msg);
+        std::cout << "[LOG] " << msg << "\n";
         // 親のメソッドを呼ばなくても、このクラスは永遠に「メール通知クラス」
-        // EmailNotifier のメンバー変数もまるごと引き継いでいる
+        // EmailNotifier の smtpHost_ と port_ もまるごと引き継いでいる
     }
 };
 ```
@@ -470,13 +515,15 @@ notifier->notify("メッセージ");
 
 ```cpp
 class LoggingDecorator : public INotifier {  // ① INotifier を実装（外から通知クラスとして使える）
-    INotifier* inner_;                        // ② 本物の通知クラスをメンバーとして持つ
+    INotifier*    inner_;                    // ② 本物の通知クラスをメンバーとして持つ
+    std::ostream& log_;                      //    ログ出力先（コンストラクタで受け取る）
 public:
-    explicit LoggingDecorator(INotifier* inner) : inner_(inner) {}
+    LoggingDecorator(INotifier* inner, std::ostream& log)
+        : inner_(inner), log_(log) {}
 
     void notify(const std::string& msg) override {
-        log(msg);           // 自分の仕事（ログ）をする
-        inner_->notify(msg); // 本物に委譲（実際の通知はminner_がやる）
+        log_ << "[LOG] " << msg << "\n";  // 自分の仕事（ログ）をする
+        inner_->notify(msg);              // 本物に委譲（実際の通知は inner_ がやる）
     }
 };
 ```
@@ -526,31 +573,46 @@ public:
     virtual ~INotifier() {}
 };
 
-// 具体クラス：メール送信
+// 具体クラス：メール送信（smtpHost_ と port_ を内部状態として持つ）
 class EmailNotifier : public INotifier {
+    std::string smtpHost_;
+    int         port_;
 public:
-    void notify(const std::string& msg) override { /* メール送信 */ }
+    EmailNotifier(const std::string& host, int port)
+        : smtpHost_(host), port_(port) {}
+    void notify(const std::string& msg) override {
+        std::cout << "[Email → " << smtpHost_ << ":" << port_ << "] " << msg << "\n";
+    }
 };
 
-// ログを追加する「包み紙」
+// ログを追加する「包み紙」（log_ を内部状態として持つ）
 class LoggingDecorator : public INotifier {
-    INotifier* inner_;
+    INotifier*    inner_;
+    std::ostream& log_;
 public:
-    explicit LoggingDecorator(INotifier* inner) : inner_(inner) {}
+    LoggingDecorator(INotifier* inner, std::ostream& log)
+        : inner_(inner), log_(log) {}
     void notify(const std::string& msg) override {
-        log(msg);
+        log_ << "[LOG] " << msg << "\n";
         inner_->notify(msg);
     }
 };
 
-// リトライを追加する「包み紙」
+// リトライを追加する「包み紙」（maxRetries_ を内部状態として持つ）
 class RetryDecorator : public INotifier {
     INotifier* inner_;
+    int        maxRetries_;
 public:
-    explicit RetryDecorator(INotifier* inner) : inner_(inner) {}
+    RetryDecorator(INotifier* inner, int maxRetries)
+        : inner_(inner), maxRetries_(maxRetries) {}
     void notify(const std::string& msg) override {
-        for (int i = 0; i < 3; ++i) {
-            inner_->notify(msg);
+        for (int attempt = 1; attempt <= maxRetries_; ++attempt) {
+            try {
+                inner_->notify(msg);
+                return;          // 送信成功 → 即リターン
+            } catch (...) {
+                std::cerr << "[Retry] 試行 " << attempt << "/" << maxRetries_ << " 失敗\n";
+            }
         }
     }
 };
@@ -560,12 +622,13 @@ public:
 
 ```cpp
 // リトライ付き・ログ付きメール通知
-EmailNotifier    email;
-RetryDecorator   retry(&email);   // emailを包む
-LoggingDecorator logging(&retry); // retryをさらに包む
+EmailNotifier    email("smtp.example.com", 587);
+RetryDecorator   retry(&email, 3);             // email を包む（最大3回リトライ）
+LoggingDecorator logging(&retry, std::cout);   // retry をさらに包む
 
 logging.notify("給与処理完了");
-// → ログ記録 → リトライ × 3 → メール送信
+// → [LOG] 給与処理完了
+// → [Email → smtp.example.com:587] 給与処理完了（リトライは成功時0回）
 ```
 
 この「包む」構造——「インターフェースを実装しながら、同じインターフェースを内部に持ち、処理を委譲する」——を **Decoratorパターン** と呼びます。「クラスを追加せず、包むことで機能を後付けする」パターンです。
@@ -960,11 +1023,11 @@ graph TD
 | ステップ0 | クラス構成を把握→**仮説** | 誰の責任が何か。何が変わりやすそうか | 哲学1への準備 |
 | ステップ1 | 実装コードを**読みながら** | 各クラスの責任は実装通りか。責任外の行はどこか | 哲学1（責任の単一性） |
 | ステップ2 | コードの後・**ヒアリング** | 変わる理由を誰が決めるか（確定） | 哲学1（変化の特定） |
-| ステップ3 | 変更が来たとき、どこが痛いか | 哲学1違反の症状確認 |
-| ステップ4 | 痛みの原因は構造のどこか | 哲学1〜3のどれを違反しているか |
-| ステップ5 | 原因から手札を選び、適用する | 哲学1→哲学2→哲学3の順に適用 |
-| ステップ6 | 解決策は未来の変化に耐えるか | 哲学1・2が機能しているか検証 |
-| ステップ7 | 何を得て何を諦めたか | 全哲学の確認と言語化 |
+| ステップ3 | 変更要求を受け取ったとき | 変更が来たとき、どこが痛いか | 哲学1違反の症状確認 |
+| ステップ4 | 課題分析の後・**原因特定** | 痛みの原因は構造のどこか | 哲学1〜3のどれを違反しているか |
+| ステップ5 | 原因が確定した後・**手札選択** | 原因から手札を選び、適用する | 哲学1→哲学2→哲学3の順に適用 |
+| ステップ6 | 手札を適用した後・**耐久検証** | 解決策は未来の変化に耐えるか | 哲学1・2が機能しているか検証 |
+| ステップ7 | 解決策が確定した後・**決断** | 何を得て何を諦めたか | 全哲学の確認と言語化 |
 
 各章で同じ流れが繰り返されるとき、「今どこにいるか」がわかれば迷子になりません。
 ステップが変わっても、問いの根本にある哲学は変わりません。
@@ -1036,4 +1099,3 @@ graph TD
 問題の「原因」を見極め、網羅的なリストの中から「手札（対策）」を選ぶ。その手札を適用した結果の構造に、たまたま名前がついているなら、それをデザインパターンと呼べばいいのです。パターンに紐づくかどうかは「その次の話」に過ぎません。
 
 手札は網羅的かつ抽象的な「考え方」です。この考え方をマスターすれば、23のパターンを知らなくても、目の前の原因に対して適切な構造を自力で導き出せるようになります。以降の章では、この抽象的な手札を具体的なコードにどう適用し、その結果としてどんなパターンが浮かび上がるのかを追体験していきます。
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
