@@ -155,10 +155,12 @@ classDiagram
 
 #### コードで確かめる(C++)
 
-★以下コード、NGとOKでコードのブロック分けてください。あと、main関数からの実行にして、実行結果が分かるようにして
-★OKで各機能を呼ぶだけになったReportServiceは、各機能の担当都合で差し替えになるのでは？つまり変更理由が複数担当いるのではないのでしょうか。哲学２の話だとは思いますが、説明しておいた方が良いです。
+まずは、問題のある「NGコード」を見てみましょう。
 
 ```cpp
+#include <iostream>
+#include <string>
+
 // NG：計算ロジックと出力形式が同じクラスに混在
 //      calcAmount が変わっても、format が変わっても、
 //      この1つのクラスを変更しなければならない
@@ -181,9 +183,22 @@ private:
     }
 };
 
-// OK：変わる理由ごとに分離する
-//     calc_ が変わっても ReportFormatter は変わらない
-//     fmt_ が変わっても Calculator は変わらない
+int main() {
+    ReportService service(1000);
+    service.generate();
+    // 実行結果:
+    // [PDF] 金額,100
+    return 0;
+}
+```
+
+次に、変わる理由ごとにクラスを分離した「OKコード」です。
+
+```cpp
+#include <iostream>
+#include <string>
+
+// インターフェース（契約）
 class Calculator {
 public:
     virtual double calcAmount() = 0;
@@ -211,6 +226,7 @@ public:
     }
 };
 
+// OK：変わる理由ごとに分離した結果、ReportServiceは骨格だけになる
 class ReportService {
     Calculator*      calc_;
     ReportFormatter* fmt_;
@@ -221,17 +237,29 @@ public:
         std::cout << "[PDF] " << text << "\n";
     }
 };
+
+int main() {
+    CommissionCalc calc(1000);
+    CsvFormatter formatter;
+    ReportService service(&calc, &formatter);
+    service.generate();
+    // 実行結果:
+    // [PDF] 金額,100
+    return 0;
+}
 ```
+
+> [!INFO] ReportService の変更理由は複数あるのでは？
+> OKコードを見たとき、「各機能の担当都合で実装クラス（CommissionCalcなど）が差し替わるなら、ReportService 自体も直す必要があるのでは？」と疑問に思うかもしれません。
+> しかし、`ReportService` は `Calculator` や `ReportFormatter` という**インターフェース（契約）**しか知りません。そのため、営業チームが新しい計算ルールを追加しても、経理チームが新しいフォーマットを追加しても、`ReportService` のコード自体は1行も変わりません（main関数などの外側で差し替えるだけです）。
+> これこそが、次項で説明する「**哲学2：インターフェースに対してプログラムせよ**」の力です。
 
 **この哲学を使うための問い——この本を通じて使い回せる1つの問い：**
 
-★変更を決定する人は誰かの方がとても分かりやすい。変わる理由って抽象的で人によって解釈が異なると思っています。
-
-> 「このコードの中に、**『変わる理由』が異なる2つのものが、同じ場所に混在していないか？**」
+> **「このコードの中に、『変更を決定する人（決裁者）』が異なる2つのものが、同じ場所に混在していないか？」**
 
 パターンが違っても、問いはこれひとつです。
-「何と何が混在しているか」の組み合わせが違うだけで、
-本質的に問いかけていることは変わりません。
+「誰の決定で変わるか」が違うものが混在していないかを常に問いかけます。
 
 #### 哲学がどのように形になるか
 
