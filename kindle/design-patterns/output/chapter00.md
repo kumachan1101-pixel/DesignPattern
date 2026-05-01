@@ -342,8 +342,9 @@ graph LR
 *NGでは実装クラスが変わると Notifier も変わる。*
 *OKでは INotifier の裏側がどう変わっても Notifier はまったく変わらない。*
 
-★NGとOKのコードは分けて。これはルールにして。
 #### コードで確かめる（依存の方向）
+
+**NGコード**
 
 ```cpp
 // NG：具体クラスに直接依存している
@@ -353,7 +354,11 @@ class Notifier {
 public:
     void notify(std::string msg) { sender_->send(msg); }
 };
+```
 
+**OKコード**
+
+```cpp
 // OK：インターフェースに依存する
 //     IMessageSender の実装が Email→SMS→Push に変わっても
 //     Notifier は変わらない
@@ -387,30 +392,34 @@ public:
 
 型変更リスクに対処するコードの選択肢は3つあります：
 
-★以下も３つにコードブロックは分けてください。１つのコードブロックで複数の話題を取り上げないでください。
+**① 型を合意・固定する**
+シンプルですが、型が変われば全インターフェースのシグネチャが変わります。
 
 ```cpp
-// ① 型を合意・固定する
-//    シンプルだが、型が変われば全インターフェースのシグネチャが変わる
 class IUserService {
 public:
     virtual void process(int userId) = 0;
 };
+```
 
-// ② 独自型でくるむ
-//    インターフェースのシグネチャは変わらない
-//    型の変更は UserId の中だけに留まる
+**② 独自型でくるむ**
+インターフェースのシグネチャは変わりません。型の変更は `UserId` の中だけに留まります。
+
+```cpp
 struct UserId {
     std::string value;  // int → string に変わってもここだけ直す
 };
+
 class IUserService {
 public:
     virtual void process(UserId id) = 0;
 };
+```
 
-// ③ void* で型情報をインターフェースに持たせない
-//    インターフェースは絶対に変わらない
-//    代わりに型安全を失う
+**③ void* で型情報をインターフェースに持たせない**
+インターフェースは絶対に変わりませんが、代わりに型安全を失います。
+
+```cpp
 class IUserService {
 public:
     virtual void process(void* context) = 0;
