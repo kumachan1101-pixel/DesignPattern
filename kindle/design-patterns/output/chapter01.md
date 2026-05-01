@@ -326,24 +326,99 @@ graph TD
 
 ---
 
-## ステップ5：対策案の検討 ―― 原因から対策を逆算する
+## ステップ5：対策案の検討 ―― 方向性を決め、手段を順に試す
 
 ステップ4の結論を確認します。
 
 > **原因：割引ルールの詳細（変わる）と計算の骨格（変わらない）が、
-> 同じ `calculateTotalAmount` に同居している。
-> 割引ルールが「独立した単位」として存在していない。**
+> 同じ `calculateTotalAmount` に同居している。**
 
-原因が「独立した単位として存在していない」なら、対策の方向性は「クラスとして分離する」ことです。
-しかし、単にクラスを分ける（**クラス分割**の手札）だけでは不十分です。なぜなら、割引ルールは「法人」「夏セール」「初回購入」のように**複数のバリエーションが存在し、かつ今後も増え続ける**からです。
+### 1.5.1 方向性の特定
 
-単純なクラス分割では、計算の骨格側が「CorporateRuleクラス」「AutumnSaleRuleクラス」のすべてを直接知る必要があり、依存関係が断ち切れません。
-そこで第0章の手札選択表を引くと、「複数の任意の振る舞い（計算ロジック、ルールなど）が切り替わる」という原因に対しては **インターフェース抽出**（第0章 手札）が該当します。
-割引ルールのバリエーションを共通のインターフェースとして抽象化し、各ルールをその裏側に実装として隠すことで、初めて骨格とルールの分離が完了します。
+原因が「変わるものと変わらないものが同居している」なら、解消する方向性は自然に出てきます。
 
-### 1.6 対策：「割引ルール」をインターフェースとして独立させる
+**→ 「変わる割引ルール」を、「変わらない骨格」から切り出す・分ける。**
+
+「分ける」という方向性が決まりました。ここからは「どうやって分けるか」を考えます。
+分け方には複数の手段があります。順番に試してみましょう。
+
+---
+
+### 1.5.2 手段①：関数として切り出す
+
+最初に人が思いつく案は、「割引計算を別の関数に切り出す」ことです。
+
 ```cpp
-// 「割引ルール」をインターフェースとして定義する
+// 手段①：割引ルールを別関数として切り出す
+// BillingCalculator.cpp
+
+int calculateAutumnSaleAmount(int baseAmount) {
+    int amount = baseAmount * 85 / 100;
+    amount = static_cast<int>(amount * 1.1); // 消費税
+    return (amount > 0) ? amount : 0;
+}
+
+int calculateCorporateAmount(int baseAmount, bool isPremium, int qty, int years) {
+    int amount = baseAmount * 9 / 10;
+    if (isPremium && qty >= 100) amount -= 50000;
+    if (years > 1) amount -= 10000;
+    amount = static_cast<int>(amount * 1.1); // 消費税
+    return (amount > 0) ? amount : 0;
+}
+```
+
+割引ルールが関数として独立しました。呼び出し元はシンプルになります。
+
+```cpp
+// 呼び出し元
+int result = calculateCorporateAmount(100000, true, 150, 2);
+```
+
+**残る課題：**
+
+関数の切り出しは「分ける」という方向性は正しいですが、2つの課題が残ります。
+
+**課題1：「変わらない骨格」が各関数に複製される**
+消費税の適用（`* 1.1`）とゼロガード（`> 0 ? amount : 0`）が、
+すべての割引関数にコピーされています。
+「ルールが増えるたびに骨格のコピーが増える」という状態は解消されていません。
+
+**課題2：呼び出し元がすべてのルール関数を知っていなければならない**
+新しいルール（例：初回購入割引）が追加されると、
+呼び出し元は「どの関数を使うか」という判断を持ち続けます。
+
+```cpp
+// 呼び出し元に判断が残る
+if (orderType == "autumn_sale") {
+    result = calculateAutumnSaleAmount(base);
+} else if (orderType == "corporate") {
+    result = calculateCorporateAmount(base, isPremium, qty, years);
+}
+// ← 新しいルールが追加されるたびに、ここを開いて書き足すことになる
+```
+
+割引ルールを分けても、「どのルールを使うか」という判断が呼び出し元に残ってしまいます。
+これは「変わるルールの詳細を、変わらない骨格が知っている」という当初の問題と
+構造が変わっていません。
+
+---
+
+### 1.5.3 手段②：インターフェースで切り出す（発想の転換）
+
+手段①の2つの課題を振り返ります。
+
+- 骨格が各ルール関数にコピーされる → **骨格とルールを完全に分離できていない**
+- 呼び出し元がルールの名前を知っている → **ルールの存在を「知らなくていい構造」になっていない**
+
+この2つを同時に解消するために、発想を転換します。
+
+**骨格はそのまま残し、「ルールを差し込む口」だけを定義する。**
+
+割引ルールを「呼び出す関数」ではなく「渡すオブジェクト」として扱います。
+骨格側は「何が渡されるか」を知らなくていい——ただ「apply()を呼ぶだけ」です。
+
+```cpp
+// 「割引ルール」の契約だけを定義するインターフェース
 // billing/IBillingRule.h
 
 class IBillingRule {
@@ -356,7 +431,7 @@ public:
 ```cpp
 // 法人割引ルール
 // billing/CorporateRule.h
-// 法人向けの複雑な条件を1つの部品に閉じ込める。
+// 複雑な法人条件を1つの部品に閉じ込める
 
 class CorporateRule : public IBillingRule {
 public:
@@ -387,18 +462,21 @@ private:
 ```cpp
 // 秋セールルール
 // billing/AutumnSaleRule.h
-// CorporateRule にも calculateTotalAmount にも触れずに追加できる。
+// CorporateRule にも BillingCalculator にも触れずに追加できる
 
 class AutumnSaleRule : public IBillingRule {
 public:
     int apply(int baseAmount) {
-        return baseAmount * 85 / 100; // 15%引き（左から評価: baseAmount*85 を先に計算してから /100）
+        return baseAmount * 85 / 100;
     }
 };
 ```
 
+骨格側（`BillingCalculator`）は、「どんなルールが渡されるか」を知りません。
+ただ「apply()を呼ぶだけ」です。
+
 ```cpp
-// コンテキスト（計算の骨格）
+// 計算の骨格（コンテキスト）
 // billing/BillingCalculator.h
 
 class BillingCalculator {
@@ -406,7 +484,7 @@ public:
     explicit BillingCalculator(IBillingRule* rule) : rule_(rule) {}
 
     int calculate(int baseAmount) {
-        int amount = rule_->apply(baseAmount); // IBillingRule だけを知る
+        int amount = rule_->apply(baseAmount); // ← IBillingRule だけを知る
         amount = static_cast<int>(amount * 1.1);
         return (amount > 0) ? amount : 0;
     }
@@ -417,48 +495,20 @@ private:
 ```
 
 ```cpp
-// 実行例（main関数）
-// billing/main.cpp
-
-#include <iostream>
-
+// 実行例
 int main() {
-    // 割引ルールの生成（今回は法人ルールを選択）
     CorporateRule corporateRule(true, 150, 2);
-    
-    // 計算の骨格にルールを渡して実行
     BillingCalculator calc(&corporateRule);
     int result = calc.calculate(100000);
-    
-    // 期待結果：法人・プレミアム・大量・継続割引が適用され、消費税が加算される
-    std::cout << "Result: " << result << std::endl;
+    // result = (100000 * 0.9 - 50000 - 10000) * 1.1 = 33000
     return 0;
 }
 ```
 
-**インターフェース抽出** 適用後の責任チェック（BillingCalculator）
+**手段①の2つの課題が解消されました：**
 
-| BillingCalculator が持っている知識 | 誰の責任か |
-|---|---|
-| `rule_->apply(baseAmount)` を呼ぶ手順 | ✅ BillingCalculator の責任 |
-| 消費税率（10%）の適用 | ✅ 計算の骨格として自然（経理担当と合意済み） |
-| 法人割引率の詳細 | **見えない**（IBillingRule の裏側） |
-| 秋セール割引率の詳細 | **見えない**（IBillingRule の裏側） |
-
-`BillingCalculator` は `IBillingRule` という契約だけを知っています。
-割引ルールが増えても、`BillingCalculator` には触れません。
-
----
-
-**変更前後のクラス図**
-
-```mermaid
-classDiagram
-    class calculateTotalAmount_before["calculateTotalAmount（変更前）"] {
-        +execute(baseAmount, flags...) int
-    }
-    note for calculateTotalAmount_before "全ての割引ルールの\n知識がここに詰まっている"
-```
+- 骨格（消費税・ゼロガード）は `BillingCalculator` の中だけにある。各ルールにはコピーされない
+- 呼び出し元は `IBillingRule*` という口（インターフェース）しか知らない。ルールの名前を知らなくていい
 
 ```mermaid
 classDiagram
@@ -484,45 +534,23 @@ classDiagram
     note for BillingCalculator "ルールが何種類\n増えても変わらない"
 ```
 
-変更前：`calculateTotalAmount` が全ルールの詳細を知っていた。
-変更後：`BillingCalculator` は `IBillingRule` という1本の矢印しか持たない。
+このように、「変わるルール」を共通の契約（インターフェース）として切り出し、
+各ルールをその裏側に実装する手法を **Strategyパターン** と呼びます。
+
+**インターフェース抽出適用後の責任チェック（BillingCalculator）**
+
+| BillingCalculator が持っている知識 | 誰の責任か |
+|---|---|
+| `rule_->apply(baseAmount)` を呼ぶ手順 | ✅ BillingCalculator の責任 |
+| 消費税率（10%）の適用 | ✅ 計算の骨格として自然（経理担当と合意済み） |
+| 法人割引率の詳細 | **見えない**（IBillingRule の裏側） |
+| 秋セール割引率の詳細 | **見えない**（IBillingRule の裏側） |
 
 ---
 
-### 補足：他の手札が候補にならなかった理由
 
-ステップ5で手札を選ぶ際、他の手段も考えられます。なぜそれらを選ばなかったのでしょうか。
 
-**候補外の理由1：処理の共通化（関数の切り出し）**
-割引計算を別の関数（例：`calculateAutumnSaleAmount`）に切り出す手札です。
-
-```cpp
-int calculateAutumnSaleAmount(int baseAmount) {
-    int amount = baseAmount * 85 / 100;
-    amount = static_cast<int>(amount * 1.1); // 消費税 ← 骨格のコピー
-    return (amount > 0) ? amount : 0;
-}
-```
-
-しかし、これでは消費税を加算する骨格がコピーされてしまいます。ルールが増えるたびに骨格のコピーが増えるため、「変わらない骨格」を守れません。
-
-**候補外の理由2：振る舞いのデータ化（割引率を引数として渡す）**
-割引ルールを「15%」といったデータ（数値）に変換し、引数で渡す手札です。
-
-```cpp
-int calculateTotalAmount(int baseAmount, int discountPercent) { ... }
-
-// 秋セール（15%引き）＋ 法人（10%引き）が同時に適用される注文
-int result = calculateTotalAmount(100000, ???);  // 15? 10? 合算して25?
-```
-
-これでは、結局呼び出し元が「どの割引率を適用するか、どう合算するか」というルールの詳細を知らなければならず、判断の責任が移動しただけで構造は改善されません。
-
-したがって、今回の原因に最も適した根本治療は **インターフェース抽出** となります。
-
----
-
-## ステップ6：天秤にかける ―― 柔軟性とシンプルさのバランスを評価する
+## ステップ6：天秤にかける ―― 手段①と手段②を評価軸で比べる
 
 ### 1.8 評価軸の宣言
 
@@ -537,9 +565,9 @@ int result = calculateTotalAmount(100000, ???);  // 15? 10? 合算して25?
 
 ---
 
-### 1.9 各アプローチをテストで比較する
+### 1.6 手段①vs手段②の比較
 
-**引数渡しの案（手札なし）のテスト**
+**手段①（関数切り出し）のテスト**
 
 ```cpp
 // 引数渡しの案：法人ルールの確認
@@ -603,12 +631,15 @@ TEST(CorporateRuleTest, AppliesPremiumBulkDiscount) {
 
 **比較のまとめ**
 
-| 基準 | 引数渡しの案 | **インターフェース抽出**の適用（IBillingRule） |
+| 評価軸 | 手段①（関数切り出し） | 手段②（インターフェース抽出） |
 |---|---|---|
-| テストの独立性 | △ 計算器を介してしか確認できない | ○ ルール単体でテストできる |
-| 変更の局所性 | △ 呼び出し元にルール知識が散らばる | ○ 新クラスを追加するだけ |
-| チームの分担 | △ ルール定義が呼び出し元に混在 | ○ ルールごとにファイルが分かれる |
-| 実装コスト | 少ない（クラス定義不要） | 多い（インターフェース＋クラス必要） |
+| テストの独立性 | △ 骨格（消費税）が各関数に複製されるため、ルール単体でテストできない | ○ ルール単体でテストできる |
+| 変更の局所性 | △ 新ルール追加時に呼び出し元の分岐も開く必要がある | ○ 新クラスを追加するだけ |
+| チームの分担 | △ ルール定義が呼び出し元コードと混在 | ○ ルールごとにファイルが分かれる |
+| 実装コスト | 少ない（関数定義のみ） | 多い（インターフェース＋クラス必要） |
+
+今回の状況（ルールが複数あり今後も増える見込み・チームが別れている）では、
+**手段②（インターフェース抽出＝Strategyパターン）を採用します。**
 
 *この比較はあくまで「今回の状況と基準」に対するものです。
 別の状況・別の基準であれば、違う選択が正解になります。*
