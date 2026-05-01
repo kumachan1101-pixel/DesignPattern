@@ -620,73 +620,6 @@ public:
 
 ---
 
-### 3.8 評価軸の宣言
-
-比較を始める前に「何を重視するか」を明示します。
-
-| 評価軸 | なぜこの状況で重要か |
-|---|---|
-| 変更の局所性 | ステータスが追加されるたびに変更箇所を1か所に収めたい |
-| 振る舞いの追跡容易性 | 「席変更受付中でのキャンセルは？」をコードで即答できるようにしたい |
-| 既存コードへの影響 | 新しいステータス追加が既存ステータスの動作を壊さないようにしたい |
-
----
-
-### 3.9 各手札をテストで比較する
-
-**却下した案（switch文）のテスト**
-
-```cpp
-// switch文の場合：「席変更受付中でのキャンセル」を確認するには
-// ReservationManager ごとテストし、cancel() の中の switch 全体を確認する必要がある
-
-TEST(ReservationManagerTest, SeatChangingCannotCancel) {
-    ReservationManager mgr;
-    // 内部enum を直接操作できないため状態セットアップが複雑
-    // cancel() の switch 文全体を読まないと振る舞いが把握できない
-    // 同時に Reserved や Confirmed の動作も「壊していないか」確認が必要になる
-    mgr.cancel();
-}
-```
-
-**採用した手札（IReservationState）のテスト**
-
-```cpp
-// IReservationState の場合：SeatChangingState だけをテストすれば確認できる
-
-TEST(SeatChangingStateTest, CannotCancel) {
-    SeatChangingState state;
-    ReservationManager ctx;
-    state.cancel(ctx);
-    // 状態が変化していないことを確認
-    // IssuedState や ConfirmedState には一切触れない
-}
-
-TEST(IssuedStateTest, AdmitChangesToAdmitted) {
-    IssuedState state;
-    ReservationManager ctx;
-    state.admit(ctx);
-    // AdmittedState に遷移していることを確認
-}
-```
-
-各状態クラスが「自分のステータスでの振る舞いだけ」をテストしています。
-`IssuedState` を変えても `ConfirmedState` のテストには影響しません。
-
-**比較のまとめ**
-
-| 基準 | 却下した案（switch文） | 採用した手札（IReservationState） |
-|---|---|---|
-| 変更の局所性 | △ ステータス追加で全メソッドを修正 | ○ 新しいクラスを追加するだけ |
-| 振る舞いの追跡容易性 | △ メソッドのswitch文を読む必要がある | ○ 状態クラス1つを読めば分かる |
-| 既存コードへの影響 | △ 全メソッドのテストを再確認する | ○ 既存クラスに触れないため影響なし |
-| 実装コスト | 少ない（クラス定義不要） | 多い（インターフェース＋クラス必要） |
-
-*この比較はあくまで「今回の状況と基準」に対するものです。
-別の状況・別の基準であれば、違う選択が正解になります。*
-
----
-
 ## ステップ6：天秤にかける ―― 柔軟性とシンプルさのバランスを評価する
 
 ### 3.10 耐久テスト ―― ヒアリングで挙がった変化が来た
@@ -732,8 +665,10 @@ void startMaintenance(ReservationManager& mgr) {
 「では、ステータスがあれば常に状態クラスを使えばいいのか？」という問いは自然です。
 正解はないのですが、一つの考え方として——
 
+**【過剰コード】** 状態が2つで今後も変わらない場面
+
 ```cpp
-// 使いすぎた例：状態が2つで今後も変わらない場面
+// 過剰な設計の例：状態が2つで今後も変わらない場面
 
 // 注文の「処理中 / 完了」だけを管理するシステム
 // → キャンセル 1メソッドだけが状態で変わる
