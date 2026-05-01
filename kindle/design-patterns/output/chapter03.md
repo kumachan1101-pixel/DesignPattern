@@ -579,8 +579,8 @@ classDiagram
     note for IssuedState "admit()でAdmittedStateへ遷移する"
 ```
 
-**★ここで初めてパターン名を出します★**
 
+★最終決定した後、パターン名を出した方が、締まるのでは？
 この構造は **Stateパターン** と呼ばれています。
 GoFがこの構造を観察して付けたラベルです。
 「状態ごとの振る舞いをクラスとして切り出す」——今回のプロセスで自然にたどり着いた構造がそのままです。
@@ -608,7 +608,7 @@ public:
 「席変更受付中での振る舞い一式」が `SeatChangingState` という1か所にまとまっています。
 
 ---
-
+★以下の項目は他章でありますか？項目は一貫性を持たせてください。他の章に必要なら追加するし、不要ならここから削除。章のテンプレも修正して。削除して説明したいことがなくなってしまうという事は絶対に避けてください。
 ### 3.8 評価軸の宣言
 
 比較を始める前に「何を重視するか」を明示します。
@@ -731,10 +731,14 @@ class IOrderState {         // これは過剰
     virtual void cancel() = 0;
 };
 class ProcessingState : public IOrderState {
-    void cancel() override { /* キャンセル可 */ }
+    void cancel() override {
+        std::cout << "[OK] 注文をキャンセルしました\n";
+    }
 };
 class CompletedState : public IOrderState {
-    void cancel() override { /* キャンセル不可 */ }
+    void cancel() override {
+        std::cout << "[NG] 完了済みの注文はキャンセルできません\n";
+    }
 };
 ```
 

@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "output/chapter00.md",
+                "file": "output/chapter05.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "chapter00へのバックリンク"
+              "title": "chapter05へのバックリンク"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "output/chapter00.md",
+                "file": "output/chapter05.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "chapter00からのアウトゴーイングリンク"
+              "title": "chapter05からのアウトゴーイングリンク"
             }
           },
           {
@@ -156,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "output/chapter00.md",
+                "file": "output/chapter05.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "chapter00のアウトライン"
+              "title": "chapter05のアウトライン"
             }
           }
         ]
@@ -185,23 +185,27 @@
   },
   "active": "fe764402752b1bf4",
   "lastOpenFiles": [
-    "output/chapter00.md.tmp.5.1777325959456",
-    "output/chapter00.md.tmp.5.1777325951171",
-    "output/chapter00.md.tmp.5.1777325943066",
-    "output/chapter00.md.tmp.5.1777325910161",
-    "output/chapter01.md",
-    "output/chapter02.md.tmp.5.1777293708908",
-    "output/chapter02.md.tmp.5.1777293701192",
-    "output/chapter02.md.tmp.5.1777293697273",
-    "output/chapter02.md.tmp.5.1777293691926",
-    "output/chapter00.md.tmp.5.1777292549709",
-    "output/chapter00.md.tmp.5.1777292544853",
-    "output/chapter00.md.tmp.5.1777292534982",
-    "output/chapter00.md",
+    "output/chapter05.md",
+    "output/chapter09.md",
+    "output/chapter04.md",
+    "output/chapter03.md",
     "output/chapter02.md",
+    "output/chapter01.md",
+    "output/chapter00.md",
+    "toc.md",
+    "output/chapter05.md.tmp.5.1777544795030",
+    "output/chapter05.md.tmp.5.1777544777446",
+    "output/chapter05.md.tmp.5.1777544768894",
+    "output/chapter03.md.tmp.5.1777544515580",
+    "output/chapter00.md.tmp.5.1777544075955",
+    "output/chapter00.md.tmp.5.1777544059786",
+    "output/chapter00.md.tmp.5.1777544050765",
+    "output/chapter00.md.tmp.5.1777544040228",
+    "templates/chapter-template.md",
+    "output/chapter04.md.tmp.5.1777536326149",
+    "skills/chapter-writer.md.tmp.5.1777532836235",
     "output/reader-critic-report-v1.md",
     "skills/reader-critic.md",
-    "output/chapter09.md",
     "agents/consistency-agent.md",
     "agents/clarity-agent.md",
     "agents/devils-advocate-agent.md"
