@@ -25,9 +25,10 @@
 
 1. `../../shared/skills/author-voice.md` を読む（最重要・最初に読む）
 2. `CLAUDE.md` を読む（執筆品質ルール・コードルール・読者視点チェックを熟読する）
-3. **`design-philosophy.md` を読む**（設計思想カタログ。全テーマ・全問いを把握する）
-4. 指定された `pattern_file` を読む
-5. `templates/chapter-template.md` を読む（各節の生成指示の唯一の正）
+3. **`rules/step5-6-model.md` を読む**（ステップ5・6の3ケースモデル。ここを理解してから章を生成する）
+4. **`design-philosophy.md` を読む**（設計思想カタログ。全テーマ・全問いを把握する）
+5. 指定された `pattern_file` を読む
+6. `templates/chapter-template.md` を読む（各節の生成指示の唯一の正）
 
 ---
 
@@ -118,7 +119,7 @@
     "responsibility_check_table_in_step1": true,
     "stakeholder_interview_in_step2": true,
     "interface_named_by_business_not_implementation": true,
-    "trial_with_responsibility_check": true,
+    "step5_3case_model_compliant": true,
     "batch_application_assembles": true,
     "main_kicks_only": true,
     "test_proves_same_behavior_in_step7": true,
