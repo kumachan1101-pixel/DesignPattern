@@ -254,7 +254,7 @@ else if (actionName == "CUT") {
     std::string selected = doc.getSelection();
     clipboard.set(selected);
     // DELETEのコードをコピペ
-    doc.remove(cursorPosition, 1); // ← 本来はselected.length()分消すべきだが「1」のまま
+    doc.remove(cursorPosition, 1); // ← selected.length()分消すのが正しいが「1」のまま
 }
 ```
 
@@ -481,6 +481,8 @@ classDiagram
 
 ---
 
+## ステップ6：天秤にかける ―― 柔軟性とシンプルさのバランスを評価する
+
 ### 5.6 評価軸の宣言
 
 手段①と手段②を、今回の原因への対処力で比較します。比較の前に評価軸を明示します。
@@ -541,8 +543,6 @@ void testCommandPattern() {
 | 拡張性 | 操作追加のたびにコントローラー修正 | コントローラーは無傷（修正不要） |
 
 引数をなくし、操作をオブジェクトとしてカプセル化したことで、「いつ実行するか（コントローラー）」と「何を実行するか（コマンド）」が見事に分離されました。
-
-## ステップ6：天秤にかける ―― 柔軟性とシンプルさのバランスを評価する
 
 ### 5.8 耐久テスト ―― ヒアリングで挙がった変化が来た
 
