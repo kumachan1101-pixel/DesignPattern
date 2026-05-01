@@ -254,7 +254,7 @@ else if (actionName == "CUT") {
     std::string selected = doc.getSelection();
     clipboard.set(selected);
     // DELETEのコードをコピペ
-    doc.remove(cursorPosition, 1); // 💭 あ、ここ「1」のままだった...
+    doc.remove(cursorPosition, 1); // ← 本来はselected.length()分消すべきだが「1」のまま
 }
 ```
 
@@ -502,11 +502,11 @@ void testEditorController() {
 // インターフェースを使うことで、コントローラーは「コマンドを実行するだけ」のシンプルな存在になる
 class EditorControllerV2 {
 private:
-    std::vector<std::shared_ptr<ICommand>> history_; // 操作を「モノ」として保存できる！
+    std::vector<ICommand*> history_; // 操作を「モノ」として保存できる！
 
 public:
     // 引数は ICommand ひとつだけ。中身がINSERTかCUTかは知らなくていい
-    void executeAction(std::shared_ptr<ICommand> command) {
+    void executeAction(ICommand* command) {
         command->execute();
         history_.push_back(command); // 実行した事実を履歴に積む
     }
@@ -517,10 +517,10 @@ void testCommandPattern() {
     EditorControllerV2 editor;
     
     // 操作の組み立ては、実行する前に済ませておく
-    auto cmd = std::make_shared<InsertCommand>(doc, 0, "Hello");
+    InsertCommand cmd(doc, 0, "Hello"); // 操作をオブジェクトとして用意する
     
     // コントローラーは「実行して記録する」だけ
-    editor.executeAction(cmd);
+    editor.executeAction(&cmd);
 }
 ```
 
@@ -545,13 +545,13 @@ void testCommandPattern() {
 // 耐久テスト：Undoとリトライ処理の追加
 class EditorControllerV2 {
 private:
-    std::vector<std::shared_ptr<ICommand>> history_;
+    std::vector<ICommand*> history_;
 
 public:
     // 変化1：リトライ処理の追加
     // ネットワーク越しにドキュメントを保存するような操作でも、
     // コントローラーは「ただ3回やり直す」という制御だけを書けば済みます。
-    void executeWithRetry(std::shared_ptr<ICommand> command) {
+    void executeWithRetry(ICommand* command) {
         int retries = 3;
         while (retries > 0) {
             try {
@@ -570,7 +570,7 @@ public:
     // （※ICommandに virtual void undo() = 0; を追加した前提）
     void undoLastAction() {
         if (!history_.empty()) {
-            auto lastCmd = history_.back();
+            ICommand* lastCmd = history_.back();
             lastCmd->undo(); // ← 過去の自分がどうやって元に戻すか知っている
             history_.pop_back();
         }
@@ -715,9 +715,9 @@ public:
 
 // --- コントローラー（Invoker） ---
 class EditorController {
-    std::vector<std::shared_ptr<ICommand>> history_;
+    std::vector<ICommand*> history_;
 public:
-    void executeAction(std::shared_ptr<ICommand> command) {
+    void executeAction(ICommand* command) {
         command->execute();
         history_.push_back(command);
     }
@@ -734,18 +734,22 @@ public:
         std::cout << "--- User Input Simulated ---\n";
 
         // 「Hello」を挿入 → "Hello"
-        controller.executeAction(std::make_shared<InsertCommand>(doc, 0, "Hello"));
+        InsertCommand insert(doc, 0, "Hello");
+        controller.executeAction(&insert);
 
         // 先頭3文字を選択してコピー → clipboard: "Hel"
         doc.setSelection(0, 3);
-        controller.executeAction(std::make_shared<CopyCommand>(doc, clipboard));
+        CopyCommand copy(doc, clipboard);
+        controller.executeAction(&copy);
 
         // 末尾にペースト → "HelloHel"
-        controller.executeAction(std::make_shared<PasteCommand>(doc, clipboard, 5));
+        PasteCommand paste(doc, clipboard, 5);
+        controller.executeAction(&paste);
 
         // 先頭2文字を選択してカット → clipboard: "He"、doc: "lloHel"
         doc.setSelection(0, 2);
-        controller.executeAction(std::make_shared<CutCommand>(doc, clipboard, 0));
+        CutCommand cut(doc, clipboard, 0);
+        controller.executeAction(&cut);
     }
 };
 
@@ -837,7 +841,7 @@ graph LR
 
 **具体化された場所：** `EditorController` の `executeAction()` メソッド
 
-コントローラーの引数は `std::shared_ptr<ICommand>` というインターフェース型一つだけです。
+コントローラーの引数は `ICommand*` というインターフェース型一つだけです。
 「自分が今、文字を挿入しているのか、カットしているのか」という具体的な実装を一切知らず、ただ「契約（`execute()`）」に対してのみ命令を出しています。この無知さこそが、後からリトライ処理や履歴管理を安全に追加できた最大の理由です。
 
 ### 哲学3「継承よりコンポジションを優先せよ」の現れ
