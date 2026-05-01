@@ -449,99 +449,94 @@ public:
 
 機能を「is-a（〜は〜である）」ではなくコンポジション「has-a（〜を部品として持つ）」で組み合わせる。
 
-★ログ付き通知クラスって何？初めて聞いたんですけど。よく出る例なんですか？もっとわかりやすい例にして。例えば、通知クラスは、ログ通知、Eメール通知かSMS通知である、ならわかる。そういうことを言いたいと思うのですが。
-そもそも、複数の機能、ログ出力と通知が混ざっているから、おかしいという話だと思いませんか？複数の軸があるなら「振る舞い」を委譲に切り替えるということです。
-#### 「ログ付き通知クラスは通知クラスでは？」という疑問
+#### 継承による機能の追加がもたらす問題
 
-継承の話でよく出てくる例として「ログ付き通知クラス（LoggingNotifier）」があります。
-「LoggingNotifier is-a Notifier」——これは正しい is-a 関係です。
+継承は「is-a（〜は〜である）」の関係を表すと言われます。
+たとえば、システムに通知機能（`Notifier`）があり、その派生として「Eメール通知（`EmailNotifier`）」と「SMS通知（`SmsNotifier`）」があるとします。ここまでは自然な「is-a」関係です。
 
-**この is-a 自体は間違っていません。** 継承が問題になるのは別の2つの状況です。
+しかし、ここに別の軸の機能が追加されたらどうなるでしょうか。
+「送信に失敗したとき、リトライ（再実行）したい」という機能です。
 
-#### C++ に「インターフェース」はあるか　★唐突にこの話が来るのは不自然。コラムとかにして
-
-C++ には `interface` というキーワードはありません。C++ での「インターフェース」は、**純粋仮想関数（`= 0`）だけで構成された抽象クラス**のことを指します。
-
-```cpp
-// これが C++ の「インターフェース」（純粋仮想クラス）
-class INotifier {
-public:
-    virtual void notify(const std::string& msg) = 0; // 実装は持たない
-    virtual ~INotifier() {}
-};
-```
-
-「インターフェースを実装する」= この純粋仮想クラスを継承して全メソッドを実装すること。
-「具体クラスを継承する」= 実装を持つクラスから引き継ぐこと——問題になるのはこちらです。
+> [!INFO] コラム：C++ に「インターフェース」はあるか
+> C++ には `interface` というキーワードはありません。C++ での「インターフェース」は、**純粋仮想関数（`= 0`）だけで構成された抽象クラス**のことを指します。
+> ```cpp
+> class INotifier {
+> public:
+>     virtual void notify(const std::string& msg) = 0;
+>     virtual ~INotifier() {}
+> };
+> ```
+> 「インターフェースを実装する」= この純粋仮想クラスを継承して実装すること。
+> 「具体クラスを継承する」= 実装を持つクラスから引き継ぐこと。問題になるのは後者です。
 
 #### 問題①：具体クラスを継承すると「何者か」が固定される
 
 ```cpp
 class EmailNotifier { // 具体クラス：メールを送る実装が入っている
-    std::string smtpHost_; // SMTPサーバーのアドレス（インスタンス状態として持つ）
-    int         port_;
+    std::string smtpHost_;
 public:
-    EmailNotifier(const std::string& host, int port)
-        : smtpHost_(host), port_(port) {}
+    EmailNotifier(const std::string& host) : smtpHost_(host) {}
     virtual void notify(const std::string& msg) {
-        std::cout << "[SMTP " << smtpHost_ << ":" << port_ << "] " << msg << "\n";
+        std::cout << "[Email: " << smtpHost_ << "] " << msg << "\n";
     }
 };
 
-// LoggingEmailNotifier は EmailNotifier（具体クラス）を継承
-class LoggingEmailNotifier : public EmailNotifier {
+// リトライ付きメール通知クラス
+class RetryEmailNotifier : public EmailNotifier {
 public:
-    LoggingEmailNotifier(const std::string& host, int port)
-        : EmailNotifier(host, port) {}
+    RetryEmailNotifier(const std::string& host) : EmailNotifier(host) {}
     void notify(const std::string& msg) override {
-        std::cout << "[LOG] " << msg << "\n";
-        // 親のメソッドを呼ばなくても、このクラスは永遠に「メール通知クラス」
-        // EmailNotifier の smtpHost_ と port_ もまるごと引き継いでいる
+        for (int i = 0; i < 3; ++i) {
+            try {
+                EmailNotifier::notify(msg); // 親のメソッドを呼ぶ
+                return; // 成功したら終了
+            } catch (...) {
+                std::cout << "Retry " << i + 1 << "\n";
+            }
+        }
     }
 };
 ```
 
-「上書きすればいいのでは？」という疑問は正しい直感です。`notify()` をまるごと書き直せば、親の実装には依存しません。
+「親の実装を再利用できるから便利だ」と思うかもしれません。
+しかし、`RetryEmailNotifier` は `EmailNotifier` を継承した時点で、**永遠に「メールを送る通知クラス」として固定されます**。
 
-しかし問題は別のところにあります。`LoggingEmailNotifier` は `EmailNotifier` を継承した時点で、**永遠に「メールを送る通知クラス」として固定されます**。
+「SMS通知にもリトライ機能を追加してほしい」と言われたら、`RetrySmsNotifier` を作って同じリトライロジックを書かなければなりません。
 
-「ログを取りながらSlackにも送りたい」「ログを取りながらSMSにも送りたい」——このような要求が来たとき、また別の継承クラスを作るしかありません。これが問題②の組み合わせ爆発につながります。
-
-**継承するなら具体クラスではなく純粋仮想クラス（インターフェース）から**、というのが哲学2との連携です。インターフェースを実装する場合は「どう送るか」を知らずに「通知できる」という契約だけを結びます。
+**継承するなら具体クラスではなく純粋仮想クラス（インターフェース）から**、というのが哲学2との連携です。
 
 #### 問題②：振る舞いを組み合わせようとするとクラスが爆発する
 
-これが哲学3の本題です。「ログ付き」「リトライ付き」「スロットリング付き」の3機能を
-継承で組み合わせようとすると何が起きるか——
+これが哲学3の本題です。「リトライ機能」だけでなく「ログ出力機能」や「制限機能」も必要になった場合、継承で組み合わせようとすると何が起きるか——
 
 ```mermaid
 classDiagram
     class Notifier {
         +notify()
     }
-    class LoggingNotifier {
+    class EmailNotifier {
         +notify()
     }
-    class ThrottlingNotifier {
+    class SmsNotifier {
         +notify()
     }
-    class RetryNotifier {
+    class RetryEmailNotifier {
         +notify()
     }
-    class LoggingThrottlingNotifier {
+    class LoggingEmailNotifier {
         +notify()
     }
-    class LoggingRetryNotifier {
+    class RetryLoggingEmailNotifier {
         +notify()
     }
 
-    Notifier <|-- LoggingNotifier : 継承
-    Notifier <|-- ThrottlingNotifier : 継承
-    Notifier <|-- RetryNotifier : 継承
-    LoggingNotifier <|-- LoggingThrottlingNotifier
-    LoggingNotifier <|-- LoggingRetryNotifier
-
-    note for LoggingThrottlingNotifier "組み合わせの数だけ\nクラスが必要になる"
+    Notifier <|-- EmailNotifier : 継承
+    Notifier <|-- SmsNotifier : 継承
+    EmailNotifier <|-- RetryEmailNotifier : 継承
+    EmailNotifier <|-- LoggingEmailNotifier : 継承
+    RetryEmailNotifier <|-- RetryLoggingEmailNotifier
+    
+    note for RetryLoggingEmailNotifier "メールかSMSか × 追加機能の組み合わせの数だけ\nクラスが必要になる"
 ```
 
 機能が4つになれば組み合わせは指数的に増えます。
@@ -549,48 +544,60 @@ classDiagram
 
 #### コンポジションはこう解決する
 
-「コンポジション」とは、オブジェクトを部品として内部に持ち、その部品に処理を委譲することです。継承（親から引き継ぐ）ではなく、持つ（外から受け取る）ことで振る舞いを組み合わせます。
+「コンポジション」とは、オブジェクトを部品として内部に持ち、その部品に処理を委譲（依頼）することです。継承（親から引き継ぐ）ではなく、持つ（外から受け取る）ことで振る舞いを組み合わせます。
 
-まず問題を整理します。ログ機能を追加したいだけなのに、なぜこんなに難しいのでしょうか。
+まずは基本となる「持つ」だけの解決策を見てみましょう。
 
-**必要なものは2つだけです**
+**① 単純なコンポジション（持つだけ）**
 
-① `LoggingDecorator` は、外から見て「通知クラスとして使える」必要がある
-
-```cpp
-// 呼び出し側は INotifier* として扱う
-INotifier* notifier = /* 何かを渡す */;
-notifier->notify("メッセージ");
-```
-
-`INotifier*` の場所に差し込めるためには、`LoggingDecorator` 自身が `INotifier` を実装していなければなりません。これが「インターフェースを実装する」理由です。
-
-② `LoggingDecorator` は、ログを書いた後に「本物の通知」を誰かに依頼する必要がある
-
-`LoggingDecorator` はログを取るだけで、実際の通知（メール送信など）はできません。本物の通知クラスに処理を渡す（委譲する）相手が必要です。その相手を「メンバー変数として持つ」必要があります。
+一番シンプルな解決策は、リトライ処理専用の部品（`RetryExecutor`）を作り、それを `EmailNotifier` が「持つ」ことです。
 
 ```cpp
-class LoggingDecorator : public INotifier {  // ① INotifier を実装（外から通知クラスとして使える）
-    INotifier*    inner_;                    // ② 本物の通知クラスをメンバーとして持つ
-    std::ostream& log_;                      //    ログ出力先（コンストラクタで受け取る）
+class EmailNotifier : public INotifier {
+    RetryExecutor* retry_; // リトライ部品を持つ（コンポジション）
 public:
-    LoggingDecorator(INotifier* inner, std::ostream& log)
-        : inner_(inner), log_(log) {}
-
+    EmailNotifier(RetryExecutor* r) : retry_(r) {}
     void notify(const std::string& msg) override {
-        log_ << "[LOG] " << msg << "\n";  // 自分の仕事（ログ）をする
-        inner_->notify(msg);              // 本物に委譲（実際の通知は inner_ がやる）
+        // リトライ部品に実際の処理を依頼（委譲）する
+        retry_->execute([&]() {
+            std::cout << "[Email] " << msg << "\n";
+        });
     }
 };
 ```
 
-「実装しているのになぜ持つのか」への答えは「実装は外から使われるため、持つのは内側に委譲するため」です。2つは別の目的を持っています。
+これで「通知」と「リトライ」のロジックが分かれました。これがコンポジション（has-a）の基本です。インターフェースを実装せずに単に別のクラスを持つだけでも、設計の柔軟性は上がります。
+しかし、この方法では「EmailNotifier自身がリトライ部品を持つ必要がある」ため、機能の追加や入れ替えにはクラス（EmailNotifier）の修正が必要です。
 
-★以下の不等号はどういう意味？何を言いたい？持つというのは、誰が何を？確かに、メンバーに別クラスを持つというのが、has aだから、インターフェースを実装しなくてもよいのではないか、と思ってしまいます。複数の話をまとめてしようとしてる？分解して論理的に話を組みたてた方が分かりやすくないですか？いきなり応用編をやっている気がします。それとも、インターフェースを実装しその実態をメンバーに持つ、というのはセットとしないといけない考え方があるなら、そのように説明して。
+**② 応用編：包む（インターフェースを実装しながら、持つ）**
 
-**コンポジション ≠ 「実装しながら持つ」**
+もし、「既存のクラスに一切手を触れずに、後からリトライ機能やログ機能を追加したり外したりしたい」なら、もう一歩進んだ特殊なコンポジションの形を使います。
+それが、**インターフェースを実装しつつ、同じインターフェースを内側に持つ** という手法です。
 
-念のため確認しておきます。「コンポジション（has-a）」とは「オブジェクトを部品として持つ」という一般的な言葉です。`IBillingRule* rule_` を持つ `BillingCalculator` もコンポジションですし、`INotifier* inner_` を持つ `LoggingDecorator` もコンポジションです。「実装しながら持つ」という組み合わせは、この後説明する「包む」という特殊な用途で現れる形です。
+```cpp
+// リトライ機能を追加する「ラッパー（包む）」クラス
+class RetryDecorator : public INotifier {  // ① INotifier を実装（外から INotifier として使える）
+    INotifier* inner_;                     // ② 本物の通知クラスをメンバーとして持つ
+public:
+    RetryDecorator(INotifier* inner) : inner_(inner) {}
+
+    void notify(const std::string& msg) override {
+        // 自分の仕事（リトライ制御）をする
+        for (int i = 0; i < 3; ++i) {
+            try {
+                inner_->notify(msg); // 本物に委譲（実際の通知は inner_ がやる）
+                return;
+            } catch (...) {}
+        }
+    }
+};
+```
+
+「インターフェースを実装しているのになぜ、同じインターフェースを持つのか？」への答えは明確です。
+- **実装する理由**：外から `INotifier` として扱われるため（呼び出し元を変更しないため）
+- **持つ理由**：実際の処理を中身（`EmailNotifier`など）に委譲するため
+
+この「実装」と「持つ」をセットにすることで、外からマトリョーシカのように「包む」だけで機能を無数に組み合わせられるようになります。
 
 **クラス図の読み方**
 
