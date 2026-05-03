@@ -35,7 +35,12 @@
 
 この本を読むことで、デザインパターンという「結果」がどのような思考で生まれたのか、その本質を理解することができます。パターンの形を暗記して無理に適用するのではなく、目の前の状況に合わせて適切な考え方で対処する――いわば、**「自分なりの設計の型」** を身につけることができるようになります。
 
-★この本、一貫して、レゴブロックの例え話で、設計の話をしていきたいと思います。ルールなのかAgentに追加して
+> [!INFO] レゴブロックで考える設計
+> この本を通じて、ソフトウェア設計の考え方を**レゴブロック**に例えて説明します。
+>
+> レゴブロックを使って何かを作るとき、私たちは自然と「どのブロックをどこにつなぐか」を考えます。「このブロックが大きすぎる」「ここに壁が必要だ」「あそこの柱は取り外せるようにしたい」——こうした直感は、ソフトウェア設計の思考と全く同じです。
+>
+> 子どもがレゴで遊ぶように、**ブロックを分けたり・まとめたり・間に挟んだり・新しいパーツを作ったり**する4つの操作で、どんな設計の問題も解決できます。パターンの名前を覚える前に、まずその「手の動き」を理解してください。
 
 > [!INFO] 本書の前提と言語について
 > 本書では、すべてのサンプルコードを **C++** で記述しています。ただし、ここで学ぶ「思考の型」はC++に依存するものではありません。オブジェクト指向の概念を備えた言語であれば、どのような言語でも同じように活かせる知識となっています。
@@ -1210,7 +1215,8 @@ graph TD
 
 オブジェクト指向設計において、「変わるもの」を分離するための手法は多岐にわたりますが、すべてはこの「4つの基本対策」のどれかに集約されます。
 
-★以下４つの対策について、レゴブロックの画像でイメージが分かるようにしてほしい。画像生成はトークンを多く使うので、プロンプトを用意して。出来れば、ラベル別に画像が欲しい。
+> [!IMAGE PROMPT] **「1. 分ける（整理する）」のレゴブロック画像プロンプト**
+> Lego bricks illustration for software design concept "Separate". Show two groups of colorful Lego bricks that were mixed together in one messy pile, now cleanly split into two separate organized stacks side by side. Label the left stack "Role A" and right stack "Role B". Use simple flat design, white background, bright primary colors. Style: educational infographic, child-friendly.
 
 #### 1. 整理する（はずす ➔ 位置を変えて ➔ くっつける）
 
@@ -1223,6 +1229,9 @@ graph TD
 |外部システムのAPI仕様や呼び出し順序|窓口の集約（複雑性の隠蔽）|窓口集約|
 |全体と部分（ツリー構造など）の扱い|階層構造の同一視|階層構造の同一視|
 
+> [!IMAGE PROMPT] **「2. まとめる（追加する）」のレゴブロック画像プロンプト**
+> Lego bricks illustration for software design concept "Aggregate". Show scattered small Lego bricks being gathered and snapped together into one larger unified block with a single connection point on top. Label the unified block "Single Window". Use simple flat design, white background, bright primary colors. Style: educational infographic, child-friendly.
+
 #### 2. 追加する（足す ➔ くっつける）
 
 今まで曖昧だった概念を「新しい専用ブロック」として定義し、システムに組み込むことで「役割の不足」を解決します。
@@ -1233,6 +1242,9 @@ graph TD
 |要求の発生と実行のタイミングのズレ|振る舞いのデータ化（処理のオブジェクト化）|振る舞いのデータ化|
 |オブジェクトの状態とそれに伴う振る舞い|状態のオブジェクト化|状態クラス化|
 |オブジェクトの内部状態の保存と復元|スナップショットの作成|スナップショット|
+
+> [!IMAGE PROMPT] **「3. 間に挟む（置換する）」のレゴブロック画像プロンプト**
+> Lego bricks illustration for software design concept "Insert a layer". Show two Lego bricks that were directly connected, now separated with a thin flat connector piece inserted between them. The connector piece acts as a buffer/interface. Label: left brick "Caller", connector "Interface", right brick "Implementation". Use simple flat design, white background, bright primary colors. Style: educational infographic, child-friendly.
 
 #### 3. 置換する（はずす ➔ 足す ➔ くっつける）
 
@@ -1245,6 +1257,9 @@ graph TD
 |オブジェクト間の多対多の複雑なやり取り|通信の調停（仲介者の導入）|仲介者の導入|
 |通知先や処理の依存方向|依存の逆転（イベント駆動への転換）|依存の逆転|
 |オブジェクトへのアクセス制御や遅延評価|代理人の導入|代理人の導入|
+
+> [!IMAGE PROMPT] **「4. モノ化する（追加する）」のレゴブロック画像プロンプト**
+> Lego bricks illustration for software design concept "Objectify/Encapsulate". Show an abstract action (represented by an arrow or gesture) being enclosed inside a Lego brick container, turning it into a tangible object that can be held, stored, or passed around. Label: outside "Action", inside brick "Object (Command)". Use simple flat design, white background, bright primary colors. Style: educational infographic, child-friendly.
 
 #### 4. 削除する（はずす）
 
