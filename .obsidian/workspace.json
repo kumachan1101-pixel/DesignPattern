@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "kindle/design-patterns/output/chapter00.md",
+                "file": "kindle/design-patterns/output/chapter01.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "chapter00"
+              "title": "chapter01"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "kindle/design-patterns/output/chapter00.md",
+                "file": "kindle/design-patterns/output/chapter01.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "chapter00へのバックリンク"
+              "title": "chapter01へのバックリンク"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "kindle/design-patterns/output/chapter00.md",
+                "file": "kindle/design-patterns/output/chapter01.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "chapter00からのアウトゴーイングリンク"
+              "title": "chapter01からのアウトゴーイングリンク"
             }
           },
           {
@@ -156,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "kindle/design-patterns/output/chapter00.md",
+                "file": "kindle/design-patterns/output/chapter01.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "chapter00のアウトライン"
+              "title": "chapter01のアウトライン"
             }
           }
         ]
@@ -184,5 +184,10 @@
     }
   },
   "active": "8ed17ba54f094ece",
-  "lastOpenFiles": []
+  "lastOpenFiles": [
+    "kindle/design-patterns/output/chapter02.md",
+    "kindle/design-patterns/output/chapter00.md",
+    "kindle/design-patterns/output/chapter01.md",
+    "kindle/design-patterns/output/chapter03.md"
+  ]
 }
