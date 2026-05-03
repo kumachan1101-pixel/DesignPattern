@@ -362,7 +362,6 @@ public:
 ```
 
 **OKコード**
-★以下は、具体の依存注入のコードがないと、上記のNGコードとの差分が分かりません。
 
 ```cpp
 // OK：インターフェースに依存する
@@ -374,11 +373,41 @@ public:
     virtual ~IMessageSender() {}
 };
 
+// 具体的な実装①：メール送信
+class EmailSender : public IMessageSender {
+public:
+    void send(std::string msg) override {
+        std::cout << "[EMAIL] " << msg << std::endl;
+    }
+};
+
+// 具体的な実装②：SMS送信（後から追加しても Notifier は変わらない）
+class SmsSender : public IMessageSender {
+public:
+    void send(std::string msg) override {
+        std::cout << "[SMS] " << msg << std::endl;
+    }
+};
+
 class Notifier {
     IMessageSender* sender_; // 契約（インターフェース）だけを知っている
 public:
+    // コンストラクタ注入：使う実装を外から渡す（依存注入）
+    explicit Notifier(IMessageSender* sender) : sender_(sender) {}
     void notify(std::string msg) { sender_->send(msg); }
 };
+
+// 組み立ては呼び出し元（main()相当）だけが知っている
+int main() {
+    EmailSender email;
+    Notifier notifier(&email);   // Email版で使う
+    notifier.notify("注文完了");
+
+    SmsSender sms;
+    Notifier notifier2(&sms);    // SMS版に差し替えても Notifier は変わらない
+    notifier2.notify("注文完了");
+    return 0;
+}
 ```
 
 #### インターフェースを設計するとき「引数の型」をどう決めるか
