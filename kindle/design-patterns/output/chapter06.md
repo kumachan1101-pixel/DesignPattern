@@ -133,11 +133,11 @@ _→ 「組み合わせ」の数だけ、それを表現するための新しい
 
 
 ```mermaid
-graph TD
-    Logger["Logger (基底クラス)"]
-    FileLogger["FileLogger"]
-    EmailLogger["EmailNotifyLogger"]
-    FileAndEmailLogger["FileAndEmailLogger (複合クラス)"]
+classDiagram
+    class Logger["Logger (基底クラス)"]
+    class FileLogger
+    class EmailLogger["EmailNotifyLogger"]
+    class FileAndEmailLogger["FileAndEmailLogger (複合クラス)"]
     
     Logger <|-- FileLogger
     Logger <|-- EmailLogger
