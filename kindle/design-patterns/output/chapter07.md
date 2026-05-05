@@ -342,6 +342,8 @@ int main() {
 
 まず、新しい通知先である `ProcessManagerAlerter` クラスのポインタを `SensorMonitor` のメンバ変数として追加します。コンストラクタの引数も一つ増やさなければなりません。そして、異常を検知したときの処理は以下のようになっていくはずです。
 
+★特定のセンサーだけの判定は、通知先で判定するという案もあるのでは？ただ、通知先は、センサーIDは意識せず記録するだけを目的とするなら、通知元で判断すべき。その点の責任分担に触れてください。
+
 ```cpp
     void onThresholdExceeded(const std::string& sensorId, double value) {
         dashboard->showAlert(sensorId, value);
@@ -540,6 +542,7 @@ private:
 
 では、この「標準ジョイント」をコードで表現してみましょう。
 
+★ログの通知のコードが以下にありません。
 
 ```cpp
 // 手段②：共通インターフェースによる規格化
