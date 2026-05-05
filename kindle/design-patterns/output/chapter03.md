@@ -7,6 +7,11 @@
 > 全メソッドに分散しているからだ。
 > 状態ごとの振る舞いを1か所に集めると、状態が増えても既存コードに触れなくなる。
 
+> [!INFO] レゴブロックで考える：Stateパターン
+> この章のパターンは、レゴブロックの**「分ける」**操作に対応しています。
+> 「状態ごとに振る舞いが変わる」ブロックを、状態別に分離します。1つのブロックに色々な状態を詰め込むのではなく、状態ごとに専用のブロックを作るイメージです。
+> コードでも同じように、状態によって変わる振る舞いを、状態クラスとして分離し、文脈（Context）が委譲する構造を作ります。
+
 ---
 
 ## この章を読むと得られること
@@ -18,10 +23,7 @@
 
 ---
 
-> [!INFO] レゴブロックで考える：Stateパターン
-> この章のパターンは、レゴブロックの**「分ける」**操作に対応しています。
-> 「状態ごとに振る舞いが変わる」ブロックを、状態別に分離します。1つのブロックに色々な状態を詰め込むのではなく、状態ごとに専用のブロックを作るイメージです。
-> コードでも同じように、状態によって変わる振る舞いを、状態クラスとして分離し、文脈（Context）が委譲する構造を作ります。
+
 
 ## ステップ0：システムを把握し、仮説を立てる ―― クラス構成を見てから「変わりそうな場所」を予測する
 
@@ -327,116 +329,190 @@ graph LR
 
 ---
 
-## ステップ4：原因分析 ―― 困難の根本にある設計の問題を言語化する
+### ステップ4：原因分析 ―― 困難の根本にある設計の問題を言語化する
 
-| 観察 | 原因の方向 |
+ステップ3で確認したように、「席変更受付中」という新しいステータスを追加しようとしただけで、変更箇所が複数のメソッドに飛び火してしまいました。
+
+仕様が複雑だから仕方がない、と諦める前に、今のコードの「構造」そのものに目を向けてみます。なぜ、このような飛び火が起きるのでしょうか。
+
+|**観察**|**原因の方向**|
 |---|---|
-| ステータスが1つ増えると3メソッド全てを修正する | 1つのステータスの振る舞いが3か所に分散している |
-| `cancel()` を修正すると `refund()` も確認が必要 | 状態ごとの責任の境界がメソッドではなくステータスにある |
-| 「席変更受付中でのキャンセルは？」という問いに即答できない | ステータスと振る舞いの対応が開発者の頭の中にしかない |
+|ステータスが1つ増えると、`cancel()`, `refund()`, `admit()` の3メソッド全てを修正する必要がある|1つのステータスの振る舞いが、3か所のメソッドに分断されて散らばっている|
+|`cancel()` だけを修正したつもりでも、`refund()` や `admit()` の既存動作に影響がないか不安になる|状態ごとの「責任の境界」がメソッドの中に埋もれており、コード上で隔離されていない|
+|「席変更受付中でのキャンセル条件は？」と聞かれても、即答できずコードを読み解く必要がある|ステータスと振る舞いの対応関係が、コード上の一箇所ではなく、開発者の頭の中にしかない|
 
-#### 変わるものと変わらないものが同じ場所にいる
+ここで少し、現場での等身大の苦労を思い出させてください。
 
-| 変わり続けるもの | 変わってほしくないもの |
+かつて保守していたシステムでも、このように一つの状態に関する処理が複数のメソッドに散らばっている構造がありました。ある日、特定のステータスに関する挙動を変更する要求が来ました。該当するであろう if文 を見つけて修正しましたが、その状態は他のメソッドの分岐にも関係しており、システム全体として予期せぬ不整合を引き起こしてしまったのです。
+
+影響範囲を正確に把握しようと、ステータス変数をキーにしてソースコード全体を検索（grep）します。すると、無数の箇所がヒットします。さらに、「このメソッドは一体どこから呼ばれているのか？」と呼び出し元をgrepで探すと、また新たな呼び出し元が芋づる式に現れます。検索結果がさらなる検索結果を呼び、次第に自分が何を追いかけていたのか分からなくなっていく……。これは、影響範囲が読み切れずに何度もgrepを繰り返して疲弊する、いわば「grep地獄」という泥臭い痛みです。
+
+この構造では、特定の状態に関するルールを頭の中でパッチワークのようにつなぎ合わせなければ、安全に変更を加えることが難しくなっています。事実として、「現在の構造では、ステータスが増えたり条件が変わったりしたときの変更と影響範囲の特定が極めて難しい」と言えます。
+
+**変わるものと変わらないものが同じ場所にいる**
+
+この困難の根本はどこにあるのでしょうか。それを探るために、「変わるもの」と「変わらないもの」を仕分けてみます。
+
+|**変わり続けるもの（🔴）**|**変わってほしくないもの（🟢）**|
 |---|---|
-| 各ステータスにおけるキャンセル・払い戻し・入場確認の振る舞い | 「現在のステータスに操作を委譲する」という骨格 |
-| ステータスの種類と数 | 操作の種類（cancel / refund / admit） |
+|各ステータスにおける「キャンセル」「払い戻し」「入場確認」の具体的な振る舞い（条件やルール）|「現在のステータスに応じて操作を委譲する」という大枠の骨格|
+|ステータスの種類と数（席変更受付中など、今後も増える可能性がある）|操作の種類（`cancel`, `refund`, `admit` というインターフェース自体）|
 
-現在の設計では、この2つが `ReservationManager` の各メソッドに混在しています。
-問題の根本は「**ステータスごとの振る舞いが、メソッドごとに分断されている**」ことです。
-本来1か所にまとまっていてほしい「予約受付中での振る舞い一式」が、`cancel()`・`refund()`・`admit()` の3か所に散らばっています。
+現在の設計では、この2つ（🔴と🟢）が `ReservationManager` の各メソッドの中に隙間なく混在しています。
+
+第0章でお話しした哲学の1つ目を思い出してみてください。
+
+**哲学1「変わるものをカプセル化せよ」** です。
+
+今、私たちの目の前にあるコードは、公演ごとに変わり続ける「ステータスごとの振る舞い」と、システムが存在する限り変わってほしくない「操作の骨格」が一緒に織り込まれています。そのため、ステータスが1つ増えるという「変わる」出来事が発生したとき、変わってほしくないはずの「操作の骨格」までこじ開けて、すべてのメソッドに if文 を追加しなければならなくなっています。
+
+本来であれば1か所にまとまっていてほしい「予約受付中における振る舞い一式」が、`cancel()`・`refund()`・`admit()` という3つのメソッドに散らばっていること。これが、少しの変更でコード全体を見直さなければならなくなる真因です。
+
+以下それぞれに対して観察した結果を残します。原因がどこに該当するかを見極めることで、次に打つべき手札が決まります。
+
+|**次元**|**物理操作（手札）**|**本質的な原因（何が問題か）**|**使うべき構造的対策案（本質）**|
+|---|---|---|---|
+|要素|① 分割する（切る）|複数の異なる状態の責任（予約中、確定済み等のルール）が、1つのメソッド内に癒着・混在している。|状態ごとの責任の分割（クラスの切り出し）|
+|要素|② 隠蔽する（包む）|「現在の状態が何か」という事実が、各メソッド内で無防備に if文 として露出している。|状態が持つ固有の振る舞いのカプセル化|
+|関係|③ 規格化する（形を揃える）|状態ごとに異なる振る舞いを呼び出すための「共通のつなぎ目」がない。|インターフェースの統一（各状態が共通の契約を持つ）|
+|関係|④ 間接化する（間に挟む）|マネージャーが「特定の状態の時の具体的な処理」に直接触れてしまっている。|現在の状態を表すオブジェクトへの処理の委譲|
+
+> **💡 立ち止まって考える**
+> 
+> ここで、少し視点を変えてみましょう。
+> 
+> もし「予約受付中」という状態そのものが、実体を持った専門の担当者として目の前に存在するとしたらどうでしょうか？
+> 
+> その「予約受付中」さんに「キャンセル処理をお願いします」「払い戻しをお願いします」と頼めば、自分がどう振る舞うべきかを彼自身が知っているはずです。
+> 
+> 現状のコードは、たった一人のマネージャー（ReservationManager）がすべての状態の分厚いマニュアルを丸暗記して、「えーと、予約受付中の時はキャンセル可で…」と毎回ページをめくって確認しているようなものです。マニュアルのページ数（ステータス）が増えれば増えるほど、探すのも書き換えるのも限界が来ます。
+> 
+> 私たちが目指すべきは、一人のマネージャーが全知全能になることではなく、各状態に「自分自身の振る舞いを知っている」という責任を持たせることです。
+
+変更のたびにすべてのメソッドを開き直し、grep検索を繰り返して影響範囲の特定に疲弊する。この構造的な痛みを和らげ、設計を改善するためには、手札を使ってコードを整理していく必要があります。
+
+次のステップ5では、この真因に対して具体的にどのアプローチを取るべきか、段階的に検討していきましょう。
 
 ---
 
-## ステップ5：対策案の検討 ―― 原因から手札を選ぶ
+### ステップ5：対策案の検討 ―― 原因から手札を選ぶ
 
-> **ステップ4で特定した真因：** ステータスごとの振る舞いが、メソッドごとに分断されている
+ステップ4で特定した真因は、**「状態ごとの振る舞いが、メソッドごとに分断されて散らばっていること」**、そして「変わり続ける『ステータスごとのルール』と、変わってほしくない『操作の骨格』が混在していること」でした。
 
-### 3.6 手札の選定
+原因が見えれば、打つべき手札の方向性が決まります。この混在を解消し、散らばった振る舞いを「集める」、そして「分ける」ことが必要です。
 
-真因を改めて確認します。
+#### 方向性の特定
 
-「予約受付中での振る舞い一式」が `cancel()`・`refund()`・`admit()` の3メソッドに散らばっている。
-これを解消するには「**ステータスを軸に振る舞いを集める**」必要があります。
+第0章の4分類で手札を絞り込みます。
 
-**第0章の4分類で手札を絞り込む：**
+現在のコードでは、`cancel()` や `refund()` のメソッドの中に、すべてのステータスの判断が if 文としてむき出しになっています。まずはこれを「要素」の次元で整理し、状態ごとに見通しを良くするアプローチ（分離・隠蔽）から試してみましょう。
 
-| 観察した問題 | 分類 | 手札候補 |
-|---|---|---|
-| ステータスごとの振る舞いがメソッドに分散している | 2. まとめる | switch文への統一（ステータスで集める） |
-| ステータスごとの振る舞いがメソッドに分散している | 2. まとめる | 状態クラス化（状態を軸にまとめる） |
+#### 1. 分離・隠蔽を試す（手段①の基本）
 
-候補は2つ。どちらも「集める」という方向性を持ちます。手段①から試します。
+一番直感的な改善案は、if-else の連続を `switch` 文に置き換え、各状態の処理を整理することです。C++ の `enum` と `switch` を組み合わせれば、新しいステータスを追加したときにコンパイラが「この case が処理されていませんよ」と警告を出してくれるメリットがあります。
 
-### 方向性の特定
-
-原因が「状態ごとの振る舞いが、メソッドごとに分散している」なら、解消する方向性は自然に出てきます。
-
-**→ 「状態と、その状態での振る舞い」を1か所に集める・まとめる。**
-
-「集める」という方向性が決まりました。集め方には複数の手段があります。
-
----
-
-**手段①：switch文への統一**
-
-if文の代わりにswitch文を使えば、コンパイラの警告（未処理ケースの検知）というメリットが得られます。
+早速コードを書いてみましょう。
 
 ```cpp
-// switch文でif文を置き換えた場合
+// 手段①：switch文で状態ごとの分岐を整理する
 
-void cancel() {
-    switch (status_) {
-        case Reserved:    status_ = Reserved; break; // キャンセル受付
-        case AwaitingPayment: status_ = Reserved; break;
-        case Confirmed: case Issued: case Admitted: break; // キャンセル不可
+enum Status {
+    Reserved,        // 予約受付
+    AwaitingPayment, // 支払い待ち
+    Confirmed,       // 確定
+    Issued,          // 発券済み
+    Admitted         // 入場済み
+    // SeatChanging  // 新しく追加する予定のステータス
+};
+
+class ReservationManager {
+public:
+    ReservationManager() : status_(Reserved) {}
+
+    void cancel() {
+        switch (status_) {
+            case Reserved:
+            case AwaitingPayment:
+                status_ = Reserved; // キャンセル受付
+                // メール送信処理など...
+                break;
+            case Confirmed:
+            case Issued:
+            case Admitted:
+                // キャンセル不可のエラー処理
+                break;
+        }
     }
-}
-void refund() {
-    switch (status_) {
-        case Confirmed: case Issued: status_ = Reserved; break; // 払い戻し受付
-        default: break; // 払い戻し不可
+
+    void refund() {
+        switch (status_) {
+            case Confirmed:
+            case Issued:
+                status_ = Reserved; // 払い戻し受付
+                break;
+            case Reserved:
+            case AwaitingPayment:
+            case Admitted:
+                // 払い戻し不可のエラー処理
+                break;
+        }
     }
-}
-void admit() {
-    switch (status_) {
-        case Issued: status_ = Admitted; break; // 入場確認完了
-        default: break; // 入場不可
+
+    void admit() {
+        switch (status_) {
+            case Issued:
+                status_ = Admitted; // 入場確認完了
+                break;
+            case Reserved:
+            case AwaitingPayment:
+            case Confirmed:
+            case Admitted:
+                // 入場不可のエラー処理
+                break;
+        }
     }
-}
+
+private:
+    Status status_;
+};
 ```
 
-「席変更受付中」を追加するとき：
+if-else が続いていた時よりは、どの状態がどう処理されるかが幾分か分かりやすくなりました。コンパイラの警告機能を使えば、「`refund()` の修正を忘れる」といったヒューマンエラーはある程度防ぎやすくなります。
 
-```cpp
-// 追加が必要な箇所
-enum Status { ..., SeatChanging }; // enum に追加
-// cancel()  を開く → SeatChangingのcaseを追加
-// refund()  を開く → SeatChangingのcaseを追加
-// admit()   を開く → SeatChangingのcaseを追加
-```
+**残る課題：なぜこれでは不十分なのか**
 
-コンパイラ警告で追加漏れは検知できますが、**3メソッド全てを開いて修正する構造は変わりません。**
-「席変更受付中の振る舞い一式」は依然として3か所に分散しています。
-switch文は「if文の書き方を変えた」だけで、**真因（振る舞いのメソッド軸への分断）を解消していません。**
+しかし、この手段①で「席変更受付中（SeatChanging）」を追加するシナリオを想像してみてください。
 
-**残る課題：**
+enum に `SeatChanging` を追加した瞬間、`cancel()`, `refund()`, `admit()` の3つのメソッド全てでコンパイル警告が出ます。警告を出してくれるのはありがたいですが、結局のところ「3つのメソッドすべてを開いて、該当する case を書き足す」という物理的な作業量は何も減っていません。
 
-「席変更受付中」を追加しても依然として3メソッドを開く必要があります。
-コンパイラ警告で漏れは防げますが、「1つのステータスの振る舞い一式」が3か所に分散している構造は変わりません。
+「予約受付中における振る舞い一式」は依然として3か所に分散しており、状態が増えるたびに既存のクラス（`ReservationManager`）に手を入れる必要があります。これでは、変更が呼び出し元に波及し、呼び出し元を調べるために何度も検索を繰り返すあの「grep地獄」を引き起こす構造的な脆さは根本的に解決されていないのです。
 
-**手段②：状態クラス化**
+#### 2. さらに規格化・間接化を重ねる（手段②：インターフェース導入）
 
-真因に直接対処するには「ステータスをクラスとして定義し、そのクラスの中に cancel・refund・admit 全ての振る舞いをまとめる」しかありません。各ステータスをインターフェースを実装するクラスとして表現します。
+手段①の限界は、ステータスごとの振る舞いをつなぐ「規格化された境界」がないために、`ReservationManager` が「現在のステータス」という具体的な値の束に直接依存してしまっている点にあります。
 
-「1つのステータスが持つべき振る舞いの契約」をインターフェースとして定義します。
+ここで、第0章の手札選択表を引いてみましょう。
 
----
+関係の次元における問題「型や引数による分岐の増殖、具象への直接依存」を解決する手札として、**③ 規格化する（形を揃える）** と **④ 間接化する（間に挟む）** があります。
 
-### 3.7 状態クラス化の適用：IReservationState インターフェースの導入
+具体的には、「現在の状態」を単なる列挙型の値ではなく、振る舞いを持った「オブジェクト」として扱います。そして、すべての状態クラスが共通の「操作の骨格」を守るようにインターフェースで規格化し、`ReservationManager` はそのインターフェースを介して（間接化して）処理を委譲するように発想を転換します。
+
+> **レゴブロックで考える：状態の専用ブロック**
+> 
+> これまでは、1つの大きなブロックの中にすべての状態の色（ルール）を塗り分けていました。これからは、「赤い状態のブロック」「青い状態のブロック」のように、状態ごとに独立したブロックを作ります。
+> 
+> ブロックの接続部分（インターフェース）の形は規格化されているので、マネージャーは「今手元にあるブロック」のボタンを押すだけです。色が赤から青に変わっても、マネージャー側の土台は一切組み直す必要がありません。
+> 
+> `[ImagePrompt: A top-down 3D illustration of Lego blocks. A base plate with a standardized connector. Next to it, several different colored, specialized Lego bricks, each designed to snap into the standardized connector perfectly. Clean white background, isometric view, educational illustration style.]`
+
+それでは、この発想に基づいてコードを書き換えてみます。
+
+まずは、各状態が必ず持たなければならない「振る舞いの契約」をインターフェースとして規格化します。
 
 ```cpp
 // ステータスの契約：どのステータスも cancel / refund / admit を知っている
+class ReservationManager; // 前方宣言
+
 class IReservationState {
 public:
     virtual void cancel(ReservationManager& ctx) = 0;
@@ -446,98 +522,57 @@ public:
 };
 ```
 
-次に、各ステータスをこのインターフェースを実装したクラスとして作ります。
-**状態遷移はこのクラスの中で行います。** 各状態クラスが「自分が次にどの状態へ移るか」を知っています。
+次に、このインターフェースを実装する形で、各状態の振る舞いを「状態ごとのクラス」として切り出します。これにより、これまで分散していたルールが、状態ごとに1か所に集まります。
+
+状態遷移も、このクラスの中で行います。「次にどの状態へ移るべきか」は、その状態自身が一番よく知っているからです。
 
 ```cpp
-// ────────────────────────────────────────────────────────
-// 予約受付中：cancel可、refund/admit不可
-// ────────────────────────────────────────────────────────
+// 予約受付中の振る舞いを1か所に集めたクラス
 class ReservedState : public IReservationState {
 public:
     void cancel(ReservationManager& ctx) override {
-        ctx.changeState(nullptr); // 予約削除（キャンセル完了）
+        // キャンセル処理の実装（状態を削除など）
+        // ← 次の状態への遷移も自身で行う
+        ctx.changeState(nullptr); 
     }
     void refund(ReservationManager& ctx) override {
-        // まだ支払いがないため払い戻し不可
+        // まだ支払いがないため払い戻し不可（エラー処理）
     }
     void admit(ReservationManager& ctx) override {
-        // 発券されていないため入場不可
+        // 発券されていないため入場不可（エラー処理）
     }
 };
 
-// ────────────────────────────────────────────────────────
-// 支払い待ち：cancel可、refund/admit不可
-// ────────────────────────────────────────────────────────
-class AwaitingPaymentState : public IReservationState {
-public:
-    void cancel(ReservationManager& ctx) override {
-        ctx.changeState(new ReservedState()); // キャンセル受付
-    }
-    void refund(ReservationManager& ctx) override {
-        // 支払い前のため払い戻し不可
-    }
-    void admit(ReservationManager& ctx) override {
-        // 支払い未完了のため入場不可
-    }
-};
-
-// ────────────────────────────────────────────────────────
-// 確定済み：cancel不可、refund可、admit不可
-// ────────────────────────────────────────────────────────
-class ConfirmedState : public IReservationState {
-public:
-    void cancel(ReservationManager& ctx) override {
-        // 確定後はキャンセル不可
-    }
-    void refund(ReservationManager& ctx) override {
-        ctx.changeState(new ReservedState()); // 払い戻し申請受付
-    }
-    void admit(ReservationManager& ctx) override {
-        // 発券前は入場不可
-    }
-};
-
-// ────────────────────────────────────────────────────────
-// 発券済み：cancel不可、refund可、admit可
-// ────────────────────────────────────────────────────────
+// 発券済みの振る舞いを1か所に集めたクラス
 class IssuedState : public IReservationState {
 public:
     void cancel(ReservationManager& ctx) override {
         // 発券済みはキャンセル不可
     }
     void refund(ReservationManager& ctx) override {
-        ctx.changeState(new ReservedState()); // 払い戻し申請受付
+        ctx.changeState(new ReservedState()); // 払い戻し申請受付へ遷移
     }
     void admit(ReservationManager& ctx) override {
-        ctx.changeState(new AdmittedState()); // 入場確認完了 → 入場済みへ
-    }
-};
-
-// ────────────────────────────────────────────────────────
-// 入場済み：全操作不可
-// ────────────────────────────────────────────────────────
-class AdmittedState : public IReservationState {
-public:
-    void cancel(ReservationManager& ctx) override {
-        // 入場済みはキャンセル不可
-    }
-    void refund(ReservationManager& ctx) override {
-        // 入場済みは払い戻し不可
-    }
-    void admit(ReservationManager& ctx) override {
-        // すでに入場済み
+        // 実装はAdmittedStateへ遷移
+        // ctx.changeState(new AdmittedState());
     }
 };
 ```
 
-`ReservationManager` は `IReservationState*` だけを知り、現在の状態に操作を委譲します。
+（※他の状態クラスも、同様に独立したクラスとして実装します）
+
+最後に、`ReservationManager` の構造を変えます。
+
+もはや、全ステータスの if 文を抱え込む必要はありません。規格化されたインターフェース（`IReservationState`）に対するポインタを保持し、操作をそのまま委譲するだけです。
+
 
 ```cpp
 class ReservationManager {
 public:
+    // 初期状態をセット
     ReservationManager() : state_(new ReservedState()) {}
 
+    // ← 知らなくていい：現在の中身が ReservedState なのか IssuedState なのか
     void cancel() { state_->cancel(*this); }
     void refund() { state_->refund(*this); }
     void admit()  { state_->admit(*this); }
@@ -550,11 +585,12 @@ public:
     ~ReservationManager() { delete state_; }
 
 private:
-    IReservationState* state_;
+    IReservationState* state_; // ← ここだけが変わる（状態をオブジェクトとして保持）
 };
 ```
 
-構造を整理します。
+この変更により、クラス間の関係は次のように整理されました。
+
 
 ```mermaid
 classDiagram
@@ -576,22 +612,7 @@ classDiagram
         +refund(ctx)
         +admit(ctx)
     }
-    class AwaitingPaymentState {
-        +cancel(ctx)
-        +refund(ctx)
-        +admit(ctx)
-    }
-    class ConfirmedState {
-        +cancel(ctx)
-        +refund(ctx)
-        +admit(ctx)
-    }
     class IssuedState {
-        +cancel(ctx)
-        +refund(ctx)
-        +admit(ctx)
-    }
-    class AdmittedState {
         +cancel(ctx)
         +refund(ctx)
         +admit(ctx)
@@ -599,162 +620,198 @@ classDiagram
 
     ReservationManager o--> IReservationState : 持つ・委譲する
     IReservationState <|.. ReservedState
-    IReservationState <|.. AwaitingPaymentState
-    IReservationState <|.. ConfirmedState
     IReservationState <|.. IssuedState
-    IReservationState <|.. AdmittedState
 
-    note for ReservationManager "どの状態クラスかを知らない"
-    note for IssuedState "admit()でAdmittedStateへ遷移する"
+    note for ReservationManager "どの状態クラスが入っているかを知らない"
+    note for IssuedState "admit()等の中で次の状態へ遷移する"
 ```
 
+手段①（switch文）では解消できなかった問題が、見事に解きほぐされています。
 
-この構造を採用することを最終決定します。これは **Stateパターン** と呼ばれています。
-GoFがこの構造を観察して付けたラベルです。
-「状態ごとの振る舞いをクラスとして切り出す」——今回のプロセスで自然にたどり着いた構造がそのままです。
+「ある特定の状態における振る舞い一式」は、それぞれ専用のクラス内にカプセル化されました。そして、`ReservationManager` は「操作の骨格」だけを提供するシンプルなクラスへと生まれ変わりました。
 
-「席変更受付中」を追加するとき、何が起きるでしょうか。
+しかし、これは本当に変更に強い設計と言えるのでしょうか？
 
-```cpp
-// 新しい状態クラスを追加するだけでよい
+次のステップ6で、この手段②が将来の変化の痛みにどう耐え、置換と拡張の要件を満たすのか、天秤にかけて評価してみましょう。
 
-class SeatChangingState : public IReservationState {
-public:
-    void cancel(ReservationManager& ctx) override {
-        // 席変更受付中 → キャンセル不可
-    }
-    void refund(ReservationManager& ctx) override {
-        // 席変更受付中 → 払い戻し不可
-    }
-    void admit(ReservationManager& ctx) override {
-        // 席変更受付中 → 入場不可
-    }
-};
-```
-
-`ReservationManager` も `cancel()` も `refund()` も `admit()` も、一切変更しません。
-「席変更受付中での振る舞い一式」が `SeatChangingState` という1か所にまとまっています。
 
 ---
 
-## ステップ6：天秤にかける ―― 柔軟性とシンプルさのバランスを評価する
+### ステップ6：天秤にかける ―― 手段を評価する
 
-### 3.10 耐久テスト ―― ヒアリングで挙がった変化が来た
+ステップ5では、直感的な「手段①：switch文による整理」と、発想を転換した「手段②：インターフェースと状態クラスの導入」の2つを検討しました。
 
-3.3のヒアリングで、チームリーダーからこんな話がありました。
-「システムメンテナンス中は全操作を一時的にロックしたい。」
+ここでは、手段②が本当に優れた設計なのか、将来の変化に耐えうるのかを検証します。
 
-この変化が実際に来た場面をシミュレートします。
-「一時停止」という新しい状態を追加する要求です。
+評価に進む前に、私たちがどのような基準でこの2つの手段を天秤にかけるのかを明確にしておきましょう。設計において「置換」や「拡張」といった言葉をよく耳にするかもしれませんが、これらはコードを直接いじる物理的な操作ではなく、分割・隠蔽・規格化・間接化といった手札を切った後に「システムがどれだけの能力を手に入れたか」を測るための事後評価の基準（評価軸）です。
+
+今回は、以下の3つの軸で手段を評価します。
+
+**評価軸の宣言**
+
+|**評価軸**|**この場面で重視する理由**|
+|---|---|
+|**導入コスト**|クラス数が増えることによる、初期の読み解きの負担度合い。|
+|**置換できるか**|既存コードの if 文や switch 文をこじ開けることなく、現在の状態に応じた振る舞いを「丸ごと差し替え」できるか。|
+|**拡張できるか**|既存の操作の骨格（`ReservationManager`）を壊すことなく、新しい状態（例：席変更受付中）を安全に「追加」できるか。|
+
+#### 3.8 手段①vs手段②の比較
+
+宣言した評価軸で、両方の手段を測ります。
+
+|**評価軸**|**手段①（switch文での整理）**|**手段②（インターフェースと状態クラス）**|
+|---|---|---|
+|**導入コスト**|🟢 低い（1つのクラス内に収まるため、パッと見のコード量は増えない）|🟡 中程度（状態の数だけクラスが増えるため、ファイルや定義は増える）|
+|**置換できるか**|❌ 不可（状態ごとに振る舞いを変えるには、必ず既存の switch 文を直接書き換える必要がある）|🟢 優秀（状態オブジェクトのポインタを切り替えるだけで、振る舞い一式が完全に切り替わる）|
+|**拡張できるか**|❌ 不可（状態を追加するたびに、全メソッドを開き直して case を足す作業から逃れられない）|🟢 優秀（既存クラスに一切触れず、新しい状態クラスを1つ追加するだけで完了する）|
+
+> **結論：** 今回の状況では、**手段②（状態クラスの導入）**を採用します。
+
+「席変更受付中」といった新しいステータスが今後も増える可能性があり、公演ごとにキャンセルや払い戻しのポリシー（振る舞い）が変わるという事実がヒアリングから確定しています。
+
+手段①では、コンパイラが警告を出してくれるとはいえ、結局は「ステータスが増えるたびに3つのメソッドをすべて開き直す」という物理的な作業からは逃れられません。修正漏れの不安から何度もgrep検索を繰り返して呼び出し元を追いかけ、影響範囲の特定に疲弊するあの「grep地獄」の温床は残ったままです。
+
+手段②のように規格化と間接化を重ねた結果得られる「置換」と「拡張」の能力は、将来の激しい変化に対して、クラスを増やすという導入コストを支払ってでも手に入れる価値があると判断できます。
+
+#### 3.9 耐久テスト ―― ヒアリングで挙がった変化が来た
+
+では、私たちが選んだ手段②が、実際に「拡張」の評価軸でどれほどの耐久力を見せるのかをシミュレートしてみましょう。
+
+ステップ2のチームリーダーへのヒアリングの中で、こんな言葉がありました。
+
+「基本操作の種類は変わらないと思いますが、増える可能性はゼロではありません。今の設計で固定して問題ありません。」
+
+さらに、雑談ベースでこのような将来の構想も出ていました。
+
+**「もしシステムメンテナンスが入ったら、全操作を一時的にロックして『メンテナンス中』という扱いにしたいかもしれない」**
+
+この「システムメンテナンス中（一時停止）」という新しい状態を追加する要求が、今、あなたの元に届いたとします。
+
+手段②を採用した今のコードなら、どう対応するでしょうか。
 
 ```cpp
-// 既存の状態クラスには一切触れずに追加できる
+// 耐久テスト：既存コードに一切触れず、新しい状態クラスを追加する
 
+// ────────────────────────────────────────────────────────
+// 新しく追加するクラス（これだけを書けばよい）
+// ────────────────────────────────────────────────────────
 class SuspendedState : public IReservationState {
 public:
     void cancel(ReservationManager& ctx) override {
-        // システムメンテナンス中 → キャンセル不可
+        // システムメンテナンス中はキャンセル不可
+        // エラーメッセージの出力等
     }
     void refund(ReservationManager& ctx) override {
-        // システムメンテナンス中 → 払い戻し申請不可
+        // システムメンテナンス中は払い戻し申請不可
     }
     void admit(ReservationManager& ctx) override {
-        // システムメンテナンス中 → 入場確認不可
+        // システムメンテナンス中は入場確認不可
     }
 };
 
-// 使い方：メンテナンス開始時
-void startMaintenance(ReservationManager& mgr) {
-    mgr.changeState(new SuspendedState());
+// ────────────────────────────────────────────────────────
+// 呼び出し側のイメージ（マネージャーに新しい状態を差し込む）
+// ────────────────────────────────────────────────────────
+void startSystemMaintenance(ReservationManager& mgr) {
+    // ← 知らなくていい：マネージャーの内部がどうなっているか
+    // ただ、規格化された新しい状態ブロックを差し込むだけ
+    mgr.changeState(new SuspendedState()); 
 }
 ```
 
-`IReservationState` も `ReservedState` も `ConfirmedState` も、一切変更していません。
-`ReservationManager` の `cancel()` / `refund()` / `admit()` も変わりません。
+> `[ImagePrompt: A top-down 3D illustration of a base Lego plate representing a system. A new, bright yellow Lego block labeled "Suspended" is being perfectly snapped onto the standardized connector of the base plate, without needing to dismantle or move any of the existing colorful blocks around it. Clean white background, isometric view, educational illustration style.]`
 
-これが**状態クラス化**（第0章 手札）の真の価値です。
-「既存コードへの影響ゼロで新しい状態を追加できる」——この保証が、ステータスが増え続けるシステムでの安心感になります。
+**結果の解説：**
 
----
+ここでの最大の成果は、「何を書いたか」ではなく「何を触らずに済んだか」**です。 私たちは `SuspendedState` というクラスを1つ**新規作成しただけです。
 
-### 3.11 使う場面・使わない場面
+`IReservationState` インターフェースには触れていません。
 
-「では、ステータスがあれば常に状態クラスを使えばいいのか？」という問いは自然です。
-正解はないのですが、一つの考え方として——
+`ReservedState` や `IssuedState` といった既存のステータスクラスのコードも一切開いていません。
 
-**【過剰コード】** 状態が2つで今後も変わらない場面
+そして何より、`ReservationManager` の `cancel()` や `refund()` といった骨格のロジックには指一本触れていないのです。
+
+「`cancel()` を直したせいで、`refund()` にバグが混入したかもしれない」という恐怖は完全に消え去りました。新しい状態のルールは、すべて `SuspendedState` という1つのファイル（境界）の中に安全に隔離されています。
+
+変更のたびにgrep地獄に陥ることもありません。これが「規格化」と「間接化」を組み合わせた結果手に入る「拡張できる」という能力の正体です。
+
+#### 3.10 使う場面・使わない場面
+
+この構造は、状態が増え続けるシステムにおいては非常に強力な防具となります。
+
+しかし、設計に絶対の正解はありません。強力な道具であればあるほど、使いどころを間違えればただの重しになってしまいます。「ステータスを管理する変数があるから、常にこの状態クラス化を行えばいい」というわけではないのです。
+
+**【過剰コード：変化の予定がないものまでパターン化した例】**
+
+例えば、ECサイトのバックヤードで「注文データの取り込み処理」を書いているとします。
+
+状態は「処理中（Processing）」と「完了（Completed）」の2つだけで、今後も増える予定は一切ありません。操作も「キャンセル」しかありません。
 
 ```cpp
-// 過剰な設計の例：状態が2つで今後も変わらない場面
+// 過剰な設計の例：状態が2つで固定され、操作も1つしかない場面
 
-// 注文の「処理中 / 完了」だけを管理するシステム
-// → キャンセル 1メソッドだけが状態で変わる
-
-class IOrderState {         // これは過剰
+class IOrderImportState {         // ← これは過剰な規格化
+public:
     virtual void cancel() = 0;
+    virtual ~IOrderImportState() {}
 };
-class ProcessingState : public IOrderState {
+
+class ProcessingState : public IOrderImportState {
+public:
     void cancel() override {
-        std::cout << "[OK] 注文をキャンセルしました\n";
+        // 処理中のキャンセルロジック
     }
 };
-class CompletedState : public IOrderState {
+
+class CompletedState : public IOrderImportState {
+public:
     void cancel() override {
-        std::cout << "[NG] 完了済みの注文はキャンセルできません\n";
+        // 完了済みはキャンセル不可
     }
 };
+
+// ...これを呼び出すためのContextクラスも必要になる...
 ```
 
-状態が2〜3個で今後も増える見込みがなく、操作も少なければ、シンプルなif文やswitch文で十分です。クラスを増やす複雑さのほうが、状態管理の複雑さを上回ってしまいます。
+状態が2〜3個で固定されており、今後も増える見込みがない。さらに操作の数も少ないのであれば、クラスを何個も作ってポインタを管理する複雑さの方が、素朴な if 文や switch 文の複雑さを上回ってしまいます。これは明確なオーバーエンジニアリングです。単純な `if (status == Processing)` の方が、後から読む人にとって圧倒的に親切です。
 
-| 状況 | 適切な選択 | 理由 |
+以下に、現場で判断する際の1つの指針を示します。
+
+|**状況**|**適切な選択**|**理由**|
 |---|---|---|
-| 状態が4つ以上・今後も増える見込みがある | **状態クラス化**（IReservationState） | ステータス追加の影響が局所化される |
-| 複数のメソッドがステータスで振る舞いを変える | **状態クラス化**（IReservationState） | 振る舞いを状態軸でまとめられる |
-| 状態が2〜3個・固定・メソッドも少ない | switch文またはif分岐 | クラスを増やすコストが割に合わない |
-| 状態の追加が予測できない | switch文で当面の実装を進める | 複雑さを抑えて後から移行を検討 |
+|ステータスが4つ以上あり、**今後も増える見込みがある**|**状態クラス化（手段②）**|ステータス追加による変更が1つのクラスに局所化され、他への飛び火を防げるため。|
+|**複数のメソッド**が、ステータスによって全く違う振る舞いをする|**状態クラス化（手段②）**|「特定のステータスでの振る舞い一式」を1箇所に集め、grep地獄を回避するため。|
+|状態が2〜3個で**固定**されており、メソッドの数も少ない|**switch文またはif分岐（手段①など）**|クラスを増やす認知負荷やファイル管理のコストが、得られるメリットに見合わないため。|
+|状態の追加が予測できない（まだシステムが手探り段階）|**当面はswitch文やif分岐で進める**|どこが変わるか分からない段階で複雑な構造を入れると、間違った抽象化で首を絞めるため。痛みが強くなってから移行する。|
 
-**適用判断のフローチャート：**
+設計には「これをやっておけば絶対に安心」という銀の弾丸はありません。
 
-```mermaid
-flowchart TD
-    Q1{"ステータスが\n4つ以上あるか？"}
-    Q2{"複数のメソッドが\nステータスで振る舞いを変えるか？"}
-    Q3{"ステータスが\n今後も増える見込みがあるか？"}
-    R1["switch文またはif分岐でよい"]
-    R2["状態クラス化を検討する"]
-    R3["switch文で当面の実装を進める"]
-
-    Q1 -->|No：少ない| R1
-    Q1 -->|Yes：多い| Q2
-    Q2 -->|No：1メソッドだけ| R1
-    Q2 -->|Yes：複数メソッド| Q3
-    Q3 -->|Yes：増える| R2
-    Q3 -->|No または 不明| R3
-
-    style R2 fill:#ccffcc,stroke:#00aa00
-    style R1 fill:#ffe8cc,stroke:#cc7700
-    style R3 fill:#ffe8cc,stroke:#cc7700
-```
-
-*このフローは「今回の評価軸」に対するもの。別の状況・別の基準なら、違う判断になります。*
-
-設計に絶対の正解はありません。
-「今どのリスクを優先して対処するか」をチームで話し合うことが、設計の一歩だと私は感じています。
+今、目の前のコードが抱えている「変わる理由」の頻度はどれくらいか。チームの規模や習熟度はどの程度か。そうした現実の要素を踏まえて、「今、どのリスクを優先して、どこまで対策のコストを支払うか」をチームで話し合って決めることが、設計の最も重要なプロセスだと、現場の経験から感じています。自然な帰結としてこの構造にたどり着くまでは、あえて複雑な手段を見送る勇気も必要です。
 
 ---
 
-## ステップ7：決断と、手に入れた未来
 
-### 3.12 解決後のコード（全体）
+### ステップ7：決断と、手に入れた未来
+
+「席変更受付中」という新しいステータスの追加要求から始まり、私たちはコードが抱える根本的な原因を見つめ直しました。そして、状態クラス化（手段②）という手札を切り、変更が他に飛び火しない構造を手に入れました。
+
+ここでは、最終的に私たちがたどり着いた全体のコードと、その構造がもたらす安心感を確認します。
+
+#### 3.12 解決後のコード（全体）
+
+以下が、C++で書かれた最終的なコード全体です。相互に参照し合うため、クラスの前方宣言とメソッドの実装位置を整理しています。
+
 
 ```cpp
+#include <iostream>
+
 // ────────────────────────────────────────────────────────
 // 状態インターフェース
 // ────────────────────────────────────────────────────────
 
 class ReservationManager; // 前方宣言
 
+// ステータスの契約：どのステータスも cancel / refund / admit を知っている
 class IReservationState {
 public:
     virtual void cancel(ReservationManager& ctx) = 0;
@@ -764,26 +821,33 @@ public:
 };
 
 // ────────────────────────────────────────────────────────
-// コンテキスト：現在の状態に操作を委譲する
+// コンテキスト：現在の状態に操作を委譲する（操作の骨格）
 // ────────────────────────────────────────────────────────
 
 class ReservationManager {
 public:
     ReservationManager();
 
+    // ← 知らなくていい：現在どのステータスなのか
     void cancel() { state_->cancel(*this); }
     void refund() { state_->refund(*this); }
     void admit()  { state_->admit(*this); }
 
     void changeState(IReservationState* newState) {
-        delete state_;
+        if (state_ != nullptr) {
+            delete state_;
+        }
         state_ = newState;
     }
 
-    ~ReservationManager() { delete state_; }
+    ~ReservationManager() { 
+        if (state_ != nullptr) {
+            delete state_; 
+        }
+    }
 
 private:
-    IReservationState* state_;
+    IReservationState* state_; // ← ここだけが変わる
 };
 
 // ────────────────────────────────────────────────────────
@@ -793,82 +857,71 @@ private:
 class ReservedState : public IReservationState {
 public:
     void cancel(ReservationManager& ctx) override {
+        std::cout << "[cancel] キャンセルを受け付け、予約を削除しました\n";
         ctx.changeState(nullptr); // 予約削除（キャンセル完了）
     }
     void refund(ReservationManager& ctx) override {
-        // まだ支払いがないため払い戻し不可
+        std::cout << "[refund] まだ支払いがないため払い戻しできません\n";
     }
     void admit(ReservationManager& ctx) override {
-        // 発券されていないため入場不可
+        std::cout << "[admit] 発券されていないため入場できません\n";
     }
 };
 
 class AwaitingPaymentState : public IReservationState {
 public:
     void cancel(ReservationManager& ctx) override {
-        ctx.changeState(new ReservedState()); // キャンセル受付
+        std::cout << "[cancel] キャンセルを受け付けました\n";
+        ctx.changeState(new ReservedState());
     }
     void refund(ReservationManager& ctx) override {
-        // 支払い前のため払い戻し不可
+        std::cout << "[refund] 支払い前のため払い戻しできません\n";
     }
     void admit(ReservationManager& ctx) override {
-        // 支払い未完了のため入場不可
+        std::cout << "[admit] 支払い未完了のため入場できません\n";
     }
 };
 
 class ConfirmedState : public IReservationState {
 public:
     void cancel(ReservationManager& ctx) override {
-        // 確定後はキャンセル不可
+        std::cout << "[cancel] 確定後はキャンセルできません\n";
     }
     void refund(ReservationManager& ctx) override {
-        ctx.changeState(new ReservedState()); // 払い戻し申請受付
+        std::cout << "[refund] 払い戻し申請を受け付けました\n";
+        ctx.changeState(new ReservedState());
     }
     void admit(ReservationManager& ctx) override {
-        // 発券前は入場不可
-    }
-};
-
-class IssuedState : public IReservationState {
-public:
-    void cancel(ReservationManager& ctx) override {
-        // 発券済みはキャンセル不可
-    }
-    void refund(ReservationManager& ctx) override {
-        ctx.changeState(new ReservedState()); // 払い戻し申請受付
-    }
-    void admit(ReservationManager& ctx) override {
-        ctx.changeState(new AdmittedState()); // 入場確認完了
+        std::cout << "[admit] 発券前は入場できません\n";
     }
 };
 
 class AdmittedState : public IReservationState {
 public:
     void cancel(ReservationManager& ctx) override {
-        // 入場済みはキャンセル不可
+        std::cout << "[cancel] 入場済みはキャンセルできません\n";
     }
     void refund(ReservationManager& ctx) override {
-        // 入場済みは払い戻し不可
+        std::cout << "[refund] 入場済みは払い戻しできません\n";
     }
     void admit(ReservationManager& ctx) override {
-        // すでに入場済み
+        std::cout << "[admit] すでに入場済みです\n";
     }
 };
 
-// ────────────────────────────────────────────────────────
-// 追加シナリオ：席変更受付中（既存クラスに触れずに追加）
-// ────────────────────────────────────────────────────────
-
-class SeatChangingState : public IReservationState {
+class IssuedState : public IReservationState {
 public:
     void cancel(ReservationManager& ctx) override {
-        // 席変更期間中はキャンセル不可
+        std::cout << "[cancel] 発券済みはキャンセルできません\n";
     }
     void refund(ReservationManager& ctx) override {
-        // 席変更期間中は払い戻し不可
+        std::cout << "[refund] 払い戻し申請を受け付けました\n";
+        ctx.changeState(new ReservedState());
     }
     void admit(ReservationManager& ctx) override {
-        // 席変更期間中は入場不可
+        std::cout << "[admit] 入場確認が完了しました\n";
+        // 次の状態への遷移も自分で行う
+        ctx.changeState(new AdmittedState()); 
     }
 };
 
@@ -876,33 +929,35 @@ public:
 // コンストラクタの定義（前方宣言の解決後に記述）
 // ────────────────────────────────────────────────────────
 
+// 初期状態は「予約受付中」とする
 ReservationManager::ReservationManager() : state_(new ReservedState()) {}
+
 
 // ────────────────────────────────────────────────────────
 // ReservationApplication（Composition Root）
-// 「どの状態クラスを使うか」を決めて組み立てる唯一の場所。
-// Composition Root とは「具体クラスを知ってよい唯一の場所」というパターン名で、
-// ここだけがインターフェースの裏に何があるかを知っている。
+// 「どの状態クラスを使うか」を決めて組み立てる場所。
 // ────────────────────────────────────────────────────────
 
 class ReservationApplication {
 public:
     void run() {
-        // シナリオ1：予約受付 → キャンセル
+        std::cout << "--- シナリオ1：予約受付 → キャンセル ---\n";
         ReservationManager mgr1;
         mgr1.cancel();  // 予約受付中 → キャンセル受付
 
-        // シナリオ2：予約 → 確定 → 発券 → 入場
+        std::cout << "\n--- シナリオ2：予約 → 確定 → 発券 → 入場 ---\n";
         ReservationManager mgr2;
+        // ※実際は支払い処理等の結果として状態が変わるが、ここでは手動で進める
         mgr2.changeState(new AwaitingPaymentState()); // 支払い待ちへ
         mgr2.changeState(new ConfirmedState());       // 確定へ
         mgr2.changeState(new IssuedState());          // 発券済みへ
         mgr2.admit();   // 発券済み → 入場確認完了
+        mgr2.admit();   // 入場済み → エラー
     }
 };
 
 // ────────────────────────────────────────────────────────
-// main() は ReservationApplication をキックするだけ
+// main() は Application をキックするだけ
 // ────────────────────────────────────────────────────────
 
 int main() {
@@ -912,28 +967,21 @@ int main() {
 }
 ```
 
-**実行結果：**
-```
-[cancel] キャンセルを受け付けました
-[admit] 入場確認が完了しました
-```
+#### 3.13 変更影響グラフ（改善後）
 
----
+ステップ3で確認した「席変更受付中（新しいステータス）」を追加する要求が来たとき、現在の設計ではどのような影響が出るでしょうか。
 
-### 3.13 変更シナリオ表と最終責任テーブル
-
-**変更影響グラフ（改善後）**
 
 ```mermaid
 graph LR
     新ステータス["席変更受付中\n（新しいステータス）"]
-    新クラス["SeatChangingState\nを追加するだけ"]
+    新クラス["SeatChangingStateクラス\nを追加するだけ"]
 
     新ステータス --> 新クラス
 
-    既存cancel["cancel()\n変更なし"]
-    既存refund["refund()\n変更なし"]
-    既存admit["admit()\n変更なし"]
+    既存cancel["ReservationManager::cancel()\n【変更なし】"]
+    既存refund["ReservationManager::refund()\n【変更なし】"]
+    既存admit["ReservationManager::admit()\n【変更なし】"]
 
     新クラス -.->|影響なし| 既存cancel
     新クラス -.->|影響なし| 既存refund
@@ -945,116 +993,94 @@ graph LR
     style 既存admit fill:#eeffee,stroke:#009900
 ```
 
-*→ ステップ3と同じ「席変更受付中の追加」シナリオで、変更が新しいクラス1つに局所化された。*
+→ **変更箇所が「新しいクラスの追加」という1点に局所化され、既存のメソッドに一切飛び火しなくなりました。**
+
+これなら、検索結果から呼び出し元を芋づる式に探るあの泥臭いgrep検索も必要ありません。「席変更受付中」のルールは、追加された新しいファイル（クラス）を読めばすべて把握できます。
+
+#### 3.14 変更シナリオ表と最終責任テーブル
 
 **変更シナリオ表：何が変わったとき、どこが変わるか**
 
-| シナリオ | 変わるクラス | 変わらないクラス |
+|**シナリオ**|**変わるクラス**|**変わらないクラス**|
 |---|---|---|
-| 新しいステータスを追加する | 新しい〇〇State クラスを追加 | IReservationState / ReservationManager / 既存全状態クラス |
-| 特定ステータスのキャンセル条件が変わる | 該当するStateクラスの cancel() のみ | 他の全状態クラス / ReservationManager |
-| 払い戻しポリシーが変わる | 該当するStateクラスの refund() のみ | ReservationManager / 他のメソッド |
-| 入場確認の遷移先が変わる | IssuedState の admit() のみ | 他の全状態クラス |
+|新しいステータス（席変更受付中）を追加する|`SeatChangingState`（新規追加）|`IReservationState`, `ReservationManager`, 既存の全状態クラス|
+|特定ステータス（VIP等）のキャンセル条件が変わる|該当するStateクラスの `cancel()` のみ|他の全状態クラス, `ReservationManager`|
+|基本操作の種類（`cancel`, `refund`, `admit`）が増える|`IReservationState`, `ReservationManager`, 全Stateクラス|`ReservationApplication`|
 
-どのシナリオでも、変わるクラスが1クラスに収まっています。
+もし基本操作自体が増えれば全体に影響が出ますが、ステップ2のヒアリングで「操作の種類は変わらない」と合意が取れているため、そのリスクは許容しています。
 
 **最終責任テーブル**
 
-| クラス | 責任（1文） | 変わる理由 |
+|**クラス名**|**責任（1文）**|**変わる理由**|
 |---|---|---|
-| `main()` | プログラムを起動する | 起動方法が変わるとき |
-| `ReservationApplication` | 依存を組み立て、処理を起動する | 使うシナリオの組み合わせが変わるとき |
-| `ReservationManager` | 現在の状態に操作を委譲する | 操作の種類が変わるとき |
-| `IReservationState` | 状態の振る舞いの契約を定義する | 操作の責任範囲が変わるとき |
-| `ReservedState` | 予約受付中での振る舞いを実装する | 予約受付中のポリシーが変わるとき |
-| `AwaitingPaymentState` | 支払い待ちでの振る舞いを実装する | 支払い待ちのポリシーが変わるとき |
-| `ConfirmedState` | 確定済みでの振る舞いを実装する | 確定済みのポリシーが変わるとき |
-| `IssuedState` | 発券済みでの振る舞いを実装する | 発券済みのポリシーが変わるとき |
-| `AdmittedState` | 入場済みでの振る舞いを実装する | 入場済みのポリシーが変わるとき |
+|`ReservationApplication`|依存を組み立て、処理のシナリオを起動する|使うシナリオの組み合わせが変わるとき|
+|`ReservationManager`|現在の状態に操作を委譲し、操作の骨格を提供する|操作の種類（`cancel`等）が変わるとき|
+|`IReservationState`|状態が持つべき振る舞いの契約を定義する|操作の責任範囲が変わるとき|
+|`ReservedState`|予約受付中での振る舞い一式を実装する|予約受付中のポリシーが変わるとき|
+|`IssuedState` など|該当状態での振る舞い一式を実装する|該当状態のポリシーが変わるとき|
 
-各クラスが持つ「変わる理由」が1つに絞られています。
-これが、ステップ4で特定した問題への答えです。
+各クラスの「変わる理由」が、見事に1つずつに絞り込まれました。
 
 ---
 
-## 整理
+### 整理
 
-### 8ステップとこの章でやったこと
+#### 8ステップとこの章でやったこと
 
-| ステップ | この章でやったこと |
+|**ステップ**|**この章でやったこと**|
 |---|---|
-| ステップ0 | チケット予約管理システムの構成を確認し、「状態ごとの振る舞いは変わりやすく、操作の骨格は変わらない」という仮説を立てた |
-| ステップ1 | 各行が責任範囲内かを確認し、`ReservationManager` の各メソッドに「全ステータスの判断ロジック」が分散していることを発見した |
-| ステップ2 | 運営企画へのヒアリングで「ステータスは今後も増える」「各ステータスのポリシーも変わる」という仮説を事実として確定した |
-| ステップ3 | 「席変更受付中」を追加しようとすると cancel / refund / admit の3メソッド全てを開き直す必要があることを確認した |
-| ステップ4 | 「変わる理由の異なる2つのもの（状態ごとの振る舞い・操作の骨格）が同じ場所にいる」という根本原因を言語化した |
-| ステップ5 | 真因から手札を選定した。switch文統一は真因を解消しないと判断し、**状態クラス化**（第0章 手札）を適用して IReservationState を導入した |
-| ステップ6 | 変更の局所性・振る舞いの追跡容易性・既存コードへの影響という評価軸で採用した手札の価値を確認し、今回のケースでは採用する価値があると判断した |
-| ステップ7 | 全コードを示し、変更シナリオ別に「変わるクラス・変わらないクラス」で効果を確認した |
+|ステップ0|システムの仕様を確認し、「状態ごとの振る舞いは変わりやすく、操作の骨格は変わらない」という仮説を立てた。|
+|ステップ1|`ReservationManager` の各メソッドに、全ステータスの判断ロジック（if文）が分散していることを発見した。|
+|ステップ2|運営企画へのヒアリングで「ステータスは今後も増える」「ポリシーも変わる」という仮説を事実として確定させた。|
+|ステップ3|「席変更受付中」を追加しようとすると、3つのメソッドすべてを開き直さなければならない飛び火を確認した。|
+|ステップ4|「変わり続けるステータスのルール」と「変わってほしくない操作の骨格」が混在していることを根本原因として言語化した。|
+|ステップ5|真因から手札を選び、手段①（switch文）の限界を確認した後、手段②（状態クラス化）でインターフェースを導入した。|
+|ステップ6|評価軸で手段②を採用し、耐久テストで「メンテナンス中」が既存コードに触れず追加できる（拡張できる）ことを確認した。|
+|ステップ7|最終的なコードと責任テーブルを整理し、変更の飛び火を防ぐ構造が完成したことを確認した。|
 
-**各クラスの最終的な責任**
+#### 各クラスの最終的な責任
 
-| クラス | 責任 | 変わる理由 |
+|**クラス名**|**責任**|**変わる理由**|
 |---|---|---|
-| `main()` | プログラムを起動する | 起動方法が変わるとき |
-| `ReservationApplication` | 依存を組み立て、処理を起動する | 使うシナリオの組み合わせが変わるとき |
-| `ReservationManager` | 現在の状態に操作を委譲する | 操作の種類が変わるとき |
-| `IReservationState` | 状態の振る舞いの契約を定義する | 操作の責任範囲が変わるとき |
-| `ReservedState` | 予約受付中での振る舞いを実装する | 予約受付中のポリシーが変わるとき |
-| `ConfirmedState` | 確定済みでの振る舞いを実装する | 確定済みのポリシーが変わるとき |
-| `IssuedState` | 発券済みでの振る舞いを実装する | 発券済みのポリシーが変わるとき |
+|`ReservationManager`|現在の状態に操作を委譲する|操作の種類が変わるとき|
+|`IReservationState`|状態の振る舞いの契約を定義する|操作の責任範囲が変わるとき|
+|各種 `State` クラス|特定の状態での振る舞い一式を実装する|その状態のポリシーが変わるとき|
 
-「変わる理由が1つ」のクラスだけで構成されている。
-このプロセスを回した結果にたどり着いた構造こそが **Stateパターン** です。
-
-設計に絶対の正解はありません。ただ「各クラスの責任は何か」「変わる理由は1つか」を問い続けることが、変更に強いコードへの入り口になります。
+> **このプロセスを回した結果にたどり着いた構造こそが State パターン です。**
 
 ---
 
-## 振り返り：第0章の3つの哲学はどう適用されたか
+### 振り返り：第0章の3つの哲学はどう適用されたか
 
-改めて、ここまで導き出してきた「最終的な設計（図やコード）」を、第0章でお話しした「3つの哲学」と照らし合わせてみましょう。一通り設計のプロセスを体験した今なら、あの哲学が「コードのどの部分に現れているか」がはっきりと見えるはずです。
+改めて、ここまで導き出してきた最終的な設計を、第0章でお話しした「3つの哲学」と照らし合わせてみましょう。一通り設計のプロセスを体験した今なら、あの哲学がコードのどの部分に宿っているかが、はっきりと見えるはずです。
 
-### 哲学1「変わるものをカプセル化せよ」の現れ
-
-**具体化された場所：** 各ステータスの振る舞いを独立させた `ReservedState`・`ConfirmedState`・`IssuedState` などの各状態クラス
-
-「予約受付中でのキャンセルルール」「確定済みでの払い戻しルール」——これらは公演ポリシーの変更のたびに変わります。こうした変わり続ける振る舞いを、`ReservationManager` の各メソッドに同居させるのをやめました。変わる部分をステータスごとに独立したクラスへ切り出し、その中にカプセル化（隔離）しました。
-
-結果として、**ステータスが10種類に増えても、`ReservationManager` の `cancel()` / `refund()` / `admit()` はまったく変わらない構造** を手に入れることができました。
-
-### 哲学2「実装ではなくインターフェースに対してプログラムせよ」の現れ
-
-**具体化された場所：** `ReservationManager` が具体クラスを知らず、`IReservationState` インターフェースだけを知っている構造
-
-`ReservationManager` のメンバー変数は `IReservationState* state_` と宣言されており、`ReservedState` や `IssuedState` の名前はどこにも出てきません。具体クラスを知っているのは `ReservationApplication`（Composition Root）だけです。
-
-この構造により、どんな状態クラスが追加・変更されても `ReservationManager` は一切変わりません。`SuspendedState` を追加したときも、`SeatChangingState` を追加したときも、`ReservationManager` の1行も触りませんでした。「契約だけを知り、実装を知らない」ことが、変更の飛び火を止める壁になっています。
-
----
-
-### 哲学3「継承よりコンポジションを優先せよ」の現れ
-
-**具体化された場所：** `ReservationManager` が `IReservationState*` をメンバー変数として「持つ（has-a）」構造
-
-「確定済みでの振る舞いを持つReservationManager」を継承で作ろうとすれば、`ReservedReservationManager`・`ConfirmedReservationManager`・`IssuedReservationManager`…と、ステータスの数だけクラスが必要になります。コンポジションでは `IReservationState` を差し込む口を1つ持つだけで、どのステータスの振る舞いを当てるかは外から決められます。
-
-`changeState()` で状態を差し替えるだけで、同じ `ReservationManager` インスタンスが「今は予約受付中として動く・今は発券済みとして動く」と振る舞いを変えます。新しいステータスを追加するとき、`ReservationManager` 本体に継承関係の変更は一切発生しません。
+- **哲学1「変わるものをカプセル化せよ」の現れ**
+    
+    - **具体化された場所：** 各ステータスの振る舞いを独立させた `ReservedState` や `IssuedState` などの状態クラス。
+        
+    - **解説：** 「予約受付中でのキャンセルルール」や「発券済みでの入場ルール」は、公演ポリシーの変更によって変わり続ける部分です。これを `ReservationManager` のメソッド内に同居させるのをやめ、状態ごとに独立したクラスへ切り出してカプセル化（隔離）しました。結果として、ステータスが10種類に増えようと、`ReservationManager` 側のロジックは一切傷つかなくなりました。
+        
+- **哲学2「実装ではなくインターフェースに対してプログラムせよ」の現れ**
+    
+    - **具体化された場所：** `ReservationManager` が具体クラス（`IssuedState`など）を知らず、`IReservationState` インターフェースだけを知っている構造。
+        
+    - **解説：** `ReservationManager` のメンバー変数は `IReservationState* state_` と宣言されており、具象クラスの名前はどこにも登場しません。「契約（メソッドの形）」だけを知り、「中身（実装）」を知らない状態を維持することで、後から新しい状態ブロック（`SuspendedState`など）が追加されても、マネージャーは「今まで通りボタンを押すだけ」で安全に処理を委譲できるようになっています。
+        
+- **哲学3「継承よりコンポジションを優先せよ」の現れ**
+    
+    - **具体化された場所：** `ReservationManager` が `IReservationState*` をメンバー変数として「持つ（has-a）」構造。
+        
+    - **解説：** もし「発券済みのマネージャー」を作るために継承を使っていたら、ステータスが増えるたびに `IssuedReservationManager` のようなサブクラスが量産されていたでしょう。コンポジション（部品として持つ構造）を選んだことで、同じ一つの `ReservationManager` インスタンスが、動的に状態オブジェクトを差し替える（`changeState`）だけで、まるで別人のように振る舞いを変えることができる柔軟性を手に入れました。
+        
 
 ---
 
-第3章で体験したプロセスを振り返ると、Stateパターンは「答えとして学ぶもの」ではなく、「こういう状況に直面したとき、このように考えると自然にたどり着く構造」だとわかります。
+### パターン解説：Stateパターン
 
----
+**パターンの骨格**
 
-## パターン解説：Stateパターン
+Stateパターンは、「現在の状態」によって振る舞いが変わるロジックが、複数のメソッドに分散してしまう構造問題を解くパターンです。
 
-> **GoFとは：** GoF（Gang of Four）とは1994年に発表された書籍 *Design Patterns: Elements of Reusable Object-Oriented Software* の4人の著者を指します。この書籍で定義された23種のパターンが「GoFデザインパターン」と総称されています。Stateパターンはその中の1つです。
-
-### パターンの骨格
-
-Stateパターンは「状態ごとの振る舞いの分散」という構造問題を解くパターンです。
-複数のメソッドが「現在の状態」によって振る舞いを変えるとき、その分岐を各メソッドの中に書くのではなく、状態そのものをクラスとして切り出します。
 
 ```mermaid
 classDiagram
@@ -1065,7 +1091,7 @@ classDiagram
     }
     class State {
         <<interface>>
-        +handle(ctx : Context)
+        +handle(ctx : Context)*
     }
     class ConcreteStateA {
         +handle(ctx : Context)
@@ -1078,58 +1104,44 @@ classDiagram
     State <|.. ConcreteStateB
 ```
 
-**Context** は「現在の状態」への参照を持ち、操作を `State` に委譲します。どの状態クラスかを知りません。**State** は「状態が持つべき振る舞いの契約」です。**ConcreteState** は1つの状態における振る舞いを実装します。状態遷移は `ConcreteState` の内部から `ctx.changeState()` を呼ぶことで行います。
+- **Context**: パターンの利用者であり、現在の状態オブジェクトを保持し、具体的な処理をその状態オブジェクトに委譲します。
+    
+- **State**: すべての具体的な状態クラスが実装すべき共通のインターフェース（契約）です。
+    
+- **ConcreteStateA/B**: 特定の状態における振る舞い一式を実装します。条件を満たせば、自身の内部から Context に働きかけて次の状態へ遷移させます。
+    
 
-### この章の実装との対応
+**この章の実装との対応**
+
 
 ```mermaid
 classDiagram
     class ReservationManager {
-        -state : IReservationState
-        +cancel()
-        +refund()
-        +admit()
-        +changeState(IReservationState)
     }
     class IReservationState {
         <<interface>>
-        +cancel(ctx)
-        +refund(ctx)
-        +admit(ctx)
-    }
-    class ReservedState {
-        +cancel(ctx)
-        +refund(ctx)
-        +admit(ctx)
-    }
-    class ConfirmedState {
-        +cancel(ctx)
-        +refund(ctx)
-        +admit(ctx)
     }
     class IssuedState {
-        +cancel(ctx)
-        +refund(ctx)
-        +admit(ctx)
     }
-    class AdmittedState {
-        +cancel(ctx)
-        +refund(ctx)
-        +admit(ctx)
-    }
-    ReservationManager o--> IReservationState : 持つ・委譲する
-    IReservationState <|.. ReservedState
-    IReservationState <|.. ConfirmedState
+    ReservationManager o--> IReservationState
     IReservationState <|.. IssuedState
-    IReservationState <|.. AdmittedState
-    note for ReservationManager "どの状態クラスかを知らない"
-    note for IssuedState "admit()でAdmittedStateへ遷移する"
 ```
 
-`ReservationManager` は `IReservationState` の `cancel()` / `refund()` / `admit()` を呼ぶだけです。どの状態クラスが入っているかを知っているのは `ReservationApplication`（Composition Root）だけです。席変更受付中を追加するとき、`ReservationManager` には一切触れません。
+`Context` にあたるのが `ReservationManager` であり、抽象的な `State` が `IReservationState` です。そして `ConcreteState` が `ReservedState` や `IssuedState` といった各状態クラスに対応しています。
 
-### どんな構造問題を解くか
+**どんな構造問題を解くか**
 
-「現在の状態に応じた振る舞い」と「操作を受け付ける骨格」が同じクラスにいる状態がStageパターンの出番です。
+「この状態の時はどう動くか」という知識が、クラス内の至る所のメソッド（if文）に散らばり、状態が増えるたびにすべてのメソッドを修正しなければならない状態こそが、このパターンの出番です。全体の手続きの骨格（キャンセルや払い戻しという操作）は変わらないが、状態によって「具体的に何をするか」がガラリと変わる場合に、その振る舞いを安全に一箇所に集約できます。
 
-状態が増えるたびに複数のメソッドを開き直す——この状態では「このステータスでのキャンセルは？」という問いへの答えが、コードの複数箇所に分散しています。Stateパターンは「状態�
+**使いどころと限界**
+
+- **使いどころ**: 状態が多数あり（目安として4つ以上）、かつ今後も増える可能性が高い場合。また、複数のメソッドが「現在の状態」によって複雑に分岐している場合に使用します。
+    
+- **限界**: 状態が2〜3個で固定されており、今後も増える見込みがない場合は過剰な設計（オーバーエンジニアリング）になります。クラス数が状態の数だけ増えるため、システム全体を俯瞰するときのファイル追跡のコストが高くなる点には注意が必要です。
+    
+
+**この章のまとめ**
+
+ステータスが増えるたびに、影響範囲に怯えながらあちこちのメソッドを開き直し、何度もgrepを繰り返す。そんな現場の泥臭い苦労を解消する鍵は、「状態ごとの振る舞い」を独立したクラスとしてカプセル化することにありました。
+
+Stateパターンは決して特別な魔法ではありません。変わるものと変わらないものを見極め、影響を局所化しようと試行錯誤した結果たどり着く、非常に自然で合理的な「思考の型」なのです。
