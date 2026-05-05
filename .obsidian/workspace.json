@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "kindle/design-patterns/output/chapter05.md",
+                "file": "kindle/design-patterns/toc.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "chapter05"
+              "title": "toc"
             }
           }
         ]
@@ -185,16 +185,20 @@
   },
   "active": "8ed17ba54f094ece",
   "lastOpenFiles": [
-    "kindle/design-patterns/output/chapter04.md",
+    "kindle/design-patterns/templates/chapter-template2.md",
+    "kindle/design-patterns/output/chapter09.md",
+    "kindle/design-patterns/toc.md",
+    "kindle/design-patterns/templates/chapter0-template.md",
+    "kindle/design-patterns/CLAUDE.md",
+    "kindle/design-patterns/templates/chapter-template.md",
     "kindle/design-patterns/output/chapter05.md",
+    "kindle/design-patterns/output/chapter04.md",
     "kindle/design-patterns/output/chapter02.md",
     "kindle/design-patterns/output/chapter07.md",
     "kindle/design-patterns/output/chapter03.md",
-    "kindle/design-patterns/output/chapter09.md",
     "kindle/design-patterns/design-philosophy.md",
     "kindle/design-patterns/rules/writing-rules.md",
     "shared/skills/markdown-checker.md",
-    "kindle/design-patterns/templates/chapter-template.md",
     "kindle/design-patterns/output/chapter01.md",
     "kindle/design-patterns/skills/chapter-writer.md",
     "kindle/design-patterns/rules/step5-6-model.md",
@@ -206,16 +210,12 @@
     "kindle/design-patterns/script",
     "kindle/design-patterns/新しいフォルダー",
     "kindle/design-patterns/rules/checklist.md",
-    "kindle/design-patterns/CLAUDE.md",
     "kindle/design-patterns/output/chapter06.md",
-    "kindle/design-patterns/templates/chapter0-template.md",
     "kindle/design-patterns/output/chapter00.md",
     "README.md",
     "shared/skills/architecture-review.md",
     "shared/skills/author-voice.md",
     "shared/personas/reader-profiles.md",
-    "kindle/design-patterns/toc.md",
-    "CLAUDE.md",
     "417cad0d-82b8-4ce4-a5cd-8950901fd9c9.png",
     "959fb6a3-16a9-4c88-a191-1f143fb65209 3.png",
     "959fb6a3-16a9-4c88-a191-1f143fb65209 4.png",

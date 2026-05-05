@@ -1,3 +1,5 @@
+★この章としてテンプレートを必要か？chapter-templateがあればよいのでは？
+
 # 第0章テンプレート：この本の読み方
 # 対象：chapter00.md のみ（第1〜8章は chapter-template.md を使うこと）
 
