@@ -49,6 +49,7 @@ orchestrator のフェーズ3で、review-agent・readability-agent と **並列
 ### ステップ1：論理構造のマッピング
 
 `chapter_file` を読み、各節の主張を1行で抽出してマッピングする。
+★以下ステップは現状のテンプレートに合わせて見直し必要
 
 ```
 節     | ステップ | 主張の1行サマリー
@@ -165,6 +166,7 @@ orchestrator のフェーズ3で、review-agent・readability-agent と **並列
 
 ---
 
+★試行案ではなく、事前に提示されている手札がからロジカルに対応案を導き出してほしい
 #### 観点5：試行案の描写品質（〇.5）
 
 **確認する問い：**
@@ -184,6 +186,7 @@ orchestrator のフェーズ3で、review-agent・readability-agent と **並列
 
 ---
 
+★以下は全面見直し
 #### 観点6：ステップ5・6の3ケースモデル準拠チェック
 
 rules/step5-6-model.md の3ケースモデルに基づいてチェックする。
