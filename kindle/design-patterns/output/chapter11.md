@@ -1239,3 +1239,420 @@ classDiagram
 **この章のまとめ**
 
 現実の業務システムでは、教科書のように「この問題にはこのパターン」と1対1で綺麗に当てはまることは稀です。「変わる理由」は複数同時に存在し、絡み合って襲いかかってきます。 しかし、恐れることはありません。コードの行を一つずつ指差し確認し、何が変動し何が不変かをヒアリングで確定させれば、絡まった糸は必ず解きほぐせます。今回のように複数の手札（操作）を適切に組み合わせれば、どんな巨大な全部入りクラスであっても、変更に強い柔軟な構造へと生まれ変わらせることができるのです。
+
+### ステップ7：決断と、手に入れた未来
+
+外部システムへの過剰な依存（Facadeの不在）、通知先の混在（Observerの不在）、そして部品生成の混在（Factory Methodの不在）という3つの病を抱えていた「あの巨大な統括クラス」は、手札を切り続けた結果どう生まれ変わったのでしょうか。
+
+すべての部品をつなぎ合わせた、最終的なコードの全体像を見てみましょう。
+
+#### 10.7 解決後のコード（全体）
+
+ここでは、統括クラスに具体的な工場や通知先を渡して「システムを組み立てる」専用のクラス（Composition Root）を新しく用意します。システム全体の中で、誰が誰を使うかの組み合わせを決定する「唯一の場所」です。
+
+コードが長くなるため、3つのブロックに分けて確認します。
+
+まずは、システムを構成する「ビジネス上の契約（インターフェース）」と、それを実装する「具体的な部品群」です。
+
+C++
+
+```
+#include <iostream>
+#include <string>
+#include <vector>
+
+// ==========================================
+// 1. ビジネスの言葉で定義されたインターフェース（契約）
+// ==========================================
+// ※実装手段（REST等）ではなく、ビジネス責任で命名する
+
+// 通信とデータ同期の複雑さを隠蔽する窓口
+class ISystemSyncer {
+public:
+    virtual ~ISystemSyncer() {}
+    virtual void executeSync() = 0; // ← どう同期するかは隠蔽
+};
+
+// バッチ完了の通知を受け取る購読者
+class ISyncObserver {
+public:
+    virtual ~ISyncObserver() {}
+    virtual void onSyncCompleted() = 0; // ← 誰にどう通知するかは隠蔽
+};
+
+// 適切な通信部品を生成する工場
+class IBatchFactory {
+public:
+    virtual ~IBatchFactory() {}
+    virtual ISystemSyncer* createSyncer() = 0; // ← どの環境用かは隠蔽
+};
+
+
+// ==========================================
+// 2. インターフェースを実装する具体的な部品群
+// ==========================================
+
+// 本番環境用のREST連携部品
+class RestErpSyncer : public ISystemSyncer {
+public:
+    void executeSync() override {
+        std::cout << "POST /api/v2/sync -> REST APIで連携成功 (JSON形式)\n";
+    }
+};
+
+// Email用通知部品
+class EmailNotifier : public ISyncObserver {
+public:
+    void onSyncCompleted() override {
+        std::cout << "Email sent to admin: バッチ連携完了\n";
+    }
+};
+
+// Slack用通知部品
+class SlackNotifier : public ISyncObserver {
+public:
+    void onSyncCompleted() override {
+        std::cout << "Slack channel #alerts: バッチ連携完了\n";
+    }
+};
+
+// 本番環境用の部品を組み立てる工場
+class ProductionBatchFactory : public IBatchFactory {
+public:
+    ISystemSyncer* createSyncer() override {
+        return new RestErpSyncer(); // ← ここで具体的な通信部品を作る
+    }
+};
+```
+
+次に、業務フローの中心となる統括クラスです。このクラスは具体的なクラス名を一切知らず、ただインターフェースという「契約」だけを見て仕事を進行します。
+
+C++
+
+```
+// ==========================================
+// 3. 業務統括クラス（Facadeであり、Subjectでもある）
+// ==========================================
+class SalesSyncBatch {
+private:
+    // インターフェース型のポインタのみを保持する。
+    // つまり、このクラスは「具体的な実装手段」を全く知らない。
+    IBatchFactory* factory;
+    std::vector<ISyncObserver*> observers;
+
+public:
+    // コンストラクタで工場を外から受け取る（依存性の注入）
+    SalesSyncBatch(IBatchFactory* f) : factory(f) {}
+
+    // 通知先を外から登録できるようにする
+    void addObserver(ISyncObserver* observer) {
+        observers.push_back(observer);
+    }
+
+    void run() {
+        std::cout << "--- 売上同期バッチ処理 開始 ---\n";
+
+        // 1. 工場に部品を作らせる（自分で new しない）
+        ISystemSyncer* syncer = factory->createSyncer();
+
+        // 2. 同期処理を実行する（RESTかモックかは知らない）
+        syncer->executeSync();
+
+        // 3. 登録された宛先へ一斉通知する（誰に送るかは知らない）
+        for (size_t i = 0; i < observers.size(); ++i) {
+            observers[i]->onSyncCompleted();
+        }
+
+        // 使い終わった部品は破棄する
+        delete syncer;
+
+        std::cout << "--- 売上同期バッチ処理 終了 ---\n";
+    }
+};
+```
+
+最後に、これらの部品を組み合わせてプログラムを起動する箇所です。
+
+C++
+
+```
+// ==========================================
+// 4. 組み立てクラス（Composition Root）
+// ==========================================
+class BatchApplication {
+public:
+    void run() {
+        // 具体クラスがインスタンス化され、組み合わせが決定される「唯一の場所」。
+        // ここで使う部品を決定し、統括クラスに注入する。
+        
+        ProductionBatchFactory factory;
+        EmailNotifier emailNotifier;
+        SlackNotifier slackNotifier;
+
+        // 統括クラスに工場を渡す
+        SalesSyncBatch batch(&factory);
+
+        // 統括クラスに通知先を登録する
+        batch.addObserver(&emailNotifier);
+        batch.addObserver(&slackNotifier);
+
+        // 全ての準備が整ってから、業務フローを開始する
+        batch.run();
+    }
+};
+
+// ==========================================
+// 5. エントリポイント
+// ==========================================
+int main() {
+    // main()の責任は「プログラムを起動すること」だけ。
+    // どんな部品があるか等の具体クラスの知識は一切持たず、
+    // 組み立てクラスを作って動かすだけにする。
+    BatchApplication app;
+    app.run();
+    return 0;
+}
+```
+
+このコードでは、インターフェースの名前を `SlackObserver` のような実装手段ではなく、`ISyncObserver`（同期完了を購読する者）という「ビジネス上の責任」で命名しています。実装が変わっても名前が嘘にならないからです。一方で、実装クラス名は `SlackNotifier` のように技術手段を含んで構いません。差し替えられた実装クラス名が、そのままシステムの変更内容の説明になるからです。
+
+そして、システムの実行結果はステップ1の時と同じように正しくバッチ処理を完了させますが、その「構造」は全くの別物です。クラス図で確認してみましょう。
+
+コード スニペット
+
+```
+classDiagram
+    class ISyncObserver {
+        <<interface>>
+        +onSyncCompleted()
+    }
+    class ISystemSyncer {
+        <<interface>>
+        +executeSync()
+    }
+    class IBatchFactory {
+        <<interface>>
+        +createSyncer()
+    }
+
+    class SalesSyncBatch {
+        +addObserver()
+        +run()
+    }
+
+    class RestErpSyncer {
+        +executeSync()
+    }
+    class SlackNotifier {
+        +onSyncCompleted()
+    }
+    class ProductionBatchFactory {
+        +createSyncer()
+    }
+
+    SalesSyncBatch --> IBatchFactory
+    SalesSyncBatch --> ISystemSyncer : 工場から受取
+    SalesSyncBatch o-- ISyncObserver : 通知先リスト
+
+    ProductionBatchFactory ..|> IBatchFactory
+    ProductionBatchFactory ..> RestErpSyncer : 生成
+    RestErpSyncer ..|> ISystemSyncer
+    SlackNotifier ..|> ISyncObserver
+```
+
+`SalesSyncBatch` から伸びている依存の矢印を見てください。具体的なクラスへの直接依存が見事に断ち切られ、インターフェースという「契約」への矢印だけが残っていることが分かります。統括クラスは完全に守られた安全地帯（セーフゾーン）になりました。
+
+#### 10.8 変更影響グラフ（改善後）
+
+ステップ3で確認した、インフラや運用の変更がすべて中央の統括クラスに飛び火してしまう「改善前のグラフ」を覚えていますか。
+
+この複合構造を導入した今、同じ変更要求（ERPのREST化、Slack通知の追加、環境の切り替え）を加えた場合の影響範囲はどのように変化したでしょうか。
+
+コード スニペット
+
+```
+graph LR
+    subgraph "外からの変更要求"
+        R1["ERPのREST API化"]
+        R2["Slack通知の追加"]
+        R3["環境ごとの部品切り替え"]
+    end
+
+    S["SalesSyncBatch (統括クラス)"]
+    E["RestErpSyncer (新規追加)"]
+    N["SlackNotifier (新規追加)"]
+    F["TestBatchFactory (新規追加)"]
+    B["BatchApplication (組み立て)"]
+    
+    R1 -->|"新しいクラスを追加するだけ"| E
+    R2 -->|"新しいクラスを追加するだけ"| N
+    R3 -->|"新しい工場を追加するだけ"| F
+    
+    E -.->|"一切影響を受けない"| S
+    N -.->|"一切影響を受けない"| S
+    F -.->|"一切影響を受けない"| S
+
+    E -.->|"工場内の1行を書き換える"| B
+    N -.->|"登録処理を1行追記する"| B
+    F -.->|"使う工場を差し替える"| B
+    
+    classDef req fill:#ffebee,stroke:#c62828,stroke-width:2px;
+    classDef cls fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
+    classDef safe fill:#e3f2fd,stroke:#1565c0,stroke-width:2px;
+    classDef assem fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    
+    class R1,R2,R3 req;
+    class E,N,F cls;
+    class S safe;
+    class B assem;
+```
+
+→ **【変更前と比較して変わったこと】外部からのあらゆる変更要求が、業務の統括クラスに一切飛び火しなくなり、影響が新しい具象クラスの「追加」と、システム外枠（組み立てクラス等）の「数行の差し替え」のみに局所化されました。**
+
+読者の皆さんにお伝えしたいのは、「設計の価値は、新しいコードをきれいに書けることだけではない」ということです。
+
+既存の巨大なコードに変更加わるとき、影響を「この1箇所」に閉じ込められること。変更要求が来た瞬間に「ここだけ追加して、あそこで組み立てれば済む」と確信できること。それこそが、現場のエンジニアを救う設計の真の価値なのです。
+
+#### 10.9 変更シナリオ表と最終責任テーブル
+
+変更の影響が本当に数クラスに収まるのか、シナリオ表で証明します。
+
+**変更シナリオ表：何が変わったとき、どこが変わるか**
+
+|**シナリオ**|**変わるクラス**|**変わらないクラス**|
+|---|---|---|
+|通知先をSlackからTeamsに変更する|`TeamsNotifier` (新規追加)<br><br>  <br><br>`BatchApplication` (1行差し替え)|`SalesSyncBatch` (統括)<br><br>  <br><br>その他の通信や工場クラス全て|
+|ERPのデータ連携形式がJSONからXMLに戻る|`RestErpSyncer` (内部処理の修正のみ)|`SalesSyncBatch` (統括)<br><br>  <br><br>その他の通知や工場クラス全て|
+|テスト環境用にモックで動作させる|`BatchApplication` (使う工場を差し替えるのみ)|`SalesSyncBatch` (統括)<br><br>  <br><br>全てのインターフェースと部品|
+
+**最終責任テーブル**
+
+|**クラス名**|**責任（1文）**|**変わる理由**|
+|---|---|---|
+|`SalesSyncBatch`|データ同期の進行を管理し、完了イベントを発火する|業務プロセス自体のステップが変わったとき|
+|`ISystemSyncer`|バッチ処理に必要な外部システム同期のビジネス上の契約|ビジネスが要求する同期の役割が変わったとき|
+|`RestErpSyncer` 等|共通形式のデータをRESTで送信可能な形式に変換し送信する|ERP側の通信仕様やデータ形式が変わったとき|
+|`ISyncObserver` 等|処理完了通知を受け取るビジネス上の契約|通知という概念の要件が変わったとき|
+|`IBatchFactory` 等|実行環境に合わせた適切な通信部品を生成する|採用する環境やSaaSが切り替わったとき|
+|`BatchApplication`|システムで利用する具体的な部品を選択し、組み立てる|システム全体で採用するツール構成が変わったとき|
+
+---
+
+### 整理
+
+#### 8ステップとこの章でやったこと
+
+|**ステップ**|**この章でやったこと**|
+|---|---|
+|ステップ0|システムの全体構成から、外部依存の多さ（通信）、通知先の追加、部品生成の混在という課題の仮説を立てた。|
+|ステップ1|コードの責任チェックを行い、統括クラスが「どのように通信するか」「誰に通知するか」「どうやって部品を作るか」を知りすぎている事実を発見した。|
+|ステップ2|業務担当者等へのヒアリングを通じて、「業務の進行順序」は不変だが、外部APIや通知先などの「インフラ技術」は変わり続けることを確定させた。|
+|ステップ3|変更影響グラフを描き、外部APIの仕様変更やSlack通知の追加が統括クラスに飛び火して、テストの手戻りを生む「痛み」を確認した。|
+|ステップ4|困難の根本原因が「依存の過多（Facadeで解決）」「変化の混在（Observerで解決）」「生成と利用の混在（Factory Methodで解決）」にあることを言語化した。|
+|ステップ5|手札を組み合わせて、複雑な通信を隠す窓口を作り、通知を出版・購読モデルに分離し、部品の生成を専用の工場クラスに切り出した。|
+|ステップ6|評価軸でコストと未来の恩恵を天秤にかけ、ヒアリングで挙がった「REST化」や「Slack追加」のリスクに対する耐久テストを行った。|
+|ステップ7|Composition Rootを構築してシステム全体を完成させ、変更シナリオ表で修正が1〜2クラスに局所化されることを実証した。|
+
+#### 各クラスの最終的な責任
+
+|**クラス名**|**責任**|**変わる理由**|
+|---|---|---|
+|`SalesSyncBatch`|データ同期の進行管理と完了イベントの通知（Facade/Subject）|業務手順の根幹が変わったとき|
+|`SlackNotifier` 等|具体的な手段でメッセージを送信する（Observer）|通知手段のAPIや仕様が変わったとき|
+|`RestErpSyncer` 等|外部システムと通信し、データを変換する（Facadeの裏側）|外部システムの仕様変更|
+|`ProductionBatchFactory`|環境に応じた通信部品を生成する（Factory）|採用するSaaSや環境が切り替わったとき|
+
+> **このプロセスを回した結果にたどり着いた構造こそが、外部システムの詳細を隠し、生成と通知を分離する【Facade × Observer × Factory Method を組み合わせた設計（応用パターン）】 です。**
+
+#### 振り返り：第0章の3つの哲学はどう適用されたか
+
+- **哲学1「変わるものをカプセル化せよ」の現れ**
+    
+    - **具体化された場所：** 外部システムへの複雑な通信処理を Facade の裏に隠し、頻繁に増減する通知先を Observer として切り出し、部品の作り方を Factory へ分離したこと。
+        
+    - **解説：** 変化の激しい外部APIの仕様、流行り廃りのある通知ツール、そして環境構築の都合という「理由の異なる変化」をカプセル化することで、それらが変わっても業務のコアである統括クラスが一切の影響を受けない構造にしました。
+        
+- **哲学2「実装ではなくインターフェースに対してプログラムせよ」の現れ**
+    
+    - **具体化された場所：** 統括クラスが `RestErpSyncer` や `SlackNotifier` ではなく、`ISystemSyncer` や `ISyncObserver` という契約のみに依存していること。
+        
+    - **解説：** 統括クラスは「誰にどうやって通知するか」「どの方式で通信するか」を知りません。ただ「契約」にのみ依存しているため、後から実装を無制限に差し替えたり増やしたりすることができます。
+        
+- **哲学3「継承よりコンポジションを優先せよ」の現れ**
+    
+    - **具体化された場所：** 使うべき具体的な通信部品を統括クラス内で `new` するのではなく、工場（Factory）を通じて外部から生成させ、通知先も外部からリストとして追加（DI）していること。
+        
+    - **解説：** 環境ごとに統括クラスを継承して `TestSalesSyncBatch` のような派生クラスを作るのではなく、部品の生成を工場に任せ、それを組み合わせることで、クラスの爆発を防ぎながら絶大な柔軟性を確保しました。
+        
+
+---
+
+### パターン解説：Facade × Observer × Factory Method パターン
+
+現実のエンタープライズシステムでは、1つのクラスが「依存の過多」「変化の混在」「生成の混在」という複数の病を同時に抱えていることが珍しくありません。今回の応用章では、第1部で学んだ3つのパターンの考え方が強力に連携してこの病を治療しました。
+
+統括クラスは、複雑な外部API群をまとめてシンプルな操作として提供する **Facade パターン** の役割を担います。しかし、処理完了後の通知先が頻繁に増減するため、通知部分には **Observer パターン** を適用し、統括クラスから「誰に通知するか」という知識を切り離しています。さらに、実行環境や設定によって利用する通信部品が変わる問題に対しては、**Factory Method パターン** を用いて「生成の責任」を外の工場に追い出しています。
+
+**パターンの骨格**
+
+Facade が処理を統括し、必要な部品は Factory に作らせ、結果は Observer たちに一斉に知らせる構造です。
+
+コード スニペット
+
+```
+classDiagram
+    class CompositionRoot {
+        +run()
+    }
+    class IFactory {
+        <<interface>>
+        +createSyncer()
+    }
+    class ConcreteFactory {
+        +createSyncer()
+    }
+    class FacadeSubject {
+        -List~IObserver~ observers
+        -ISyncer syncer
+        +addObserver()
+        +run()
+    }
+    class IObserver {
+        <<interface>>
+        +update()
+    }
+    class ConcreteObserverA {
+        +update()
+    }
+    class ConcreteObserverB {
+        +update()
+    }
+    class ISyncer {
+        <<interface>>
+        +execute()
+    }
+    class ConcreteSyncer {
+        +execute()
+    }
+
+    CompositionRoot ..> ConcreteFactory : 生成
+    CompositionRoot ..> ConcreteObserverA : 生成
+    CompositionRoot ..> ConcreteObserverB : 生成
+    CompositionRoot ..> FacadeSubject : 組み立てて実行
+
+    ConcreteFactory ..|> IFactory
+    ConcreteFactory ..> ConcreteSyncer : 生成
+    FacadeSubject --> IFactory : 部品の生成を依頼
+    FacadeSubject --> ISyncer : 処理を委譲
+    ConcreteSyncer ..|> ISyncer
+
+    FacadeSubject o-- IObserver : 完了を通知
+    ConcreteObserverA ..|> IObserver
+    ConcreteObserverB ..|> IObserver
+```
+
+**この章のまとめ**
+
+現場で巨大な統括クラスのコードを開いたとき、そこにある `new` や、具体的な外部APIへの直接の呼び出し、そしてハードコードされた通知処理は、すべて「変わりうる未来への強力な接着剤」です。
+
+Facade で複雑な外部世界との通信を隠し、Factory Method で生成の判断を追い出し、Observer で通知先への依存を断ち切る。複数のパターンの「考え方」を組み合わせることで初めて、私たちは予測不能な仕様変更から自社の業務コアを守り抜き、grep地獄から解放された穏やかな開発体験を手に入れることができるのです。
