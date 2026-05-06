@@ -20,11 +20,13 @@
 
 ---
 
-| 章 | 組み合わせ | 題材 |
-|---|---|---|
-| 第9章 | Strategy × State | ECサイトの注文処理 |
-| 第10章 | Facade × Observer × Factory Method | 外部連携バッチシステム |
-| 第11章 | Template Method × Decorator × Command | レポート生成エンジン |
+| 章    | 組み合わせ                                 | 題材          |
+| ---- | ------------------------------------- | ----------- |
+| 第9章  | Strategy × State                      | ECサイトの注文処理  |
+| 第10章 | Facade × Observer × Factory Method    | 外部連携バッチシステム |
+| 第11章 | Template Method × Decorator × Command | レポート生成エンジン  |
+
+★第２部というタイトルで区切った方が良いのでは？９章はファイル分ける。あと、１２章の説明が上の表にありません。第２部を分けるなら、第１部の冒頭も分けた方が良い。
 
 ---
 

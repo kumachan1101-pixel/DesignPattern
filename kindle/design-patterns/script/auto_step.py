@@ -22,7 +22,7 @@ try:
                 pyautogui.press('enter')
 
                 print(f"固定テキストと行 '{line}' を貼り付けました。待ちます。")
-                time.sleep(60)  # 必要に応じて待ち時間を調整
+                time.sleep(180)  # 必要に応じて待ち時間を調整
 
 except FileNotFoundError:
     print(f"エラー：処理対象のテキストファイルが見つかりませんでした: {target_text_path}")
