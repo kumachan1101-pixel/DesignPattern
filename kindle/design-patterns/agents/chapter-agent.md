@@ -25,7 +25,7 @@
 
 1. `../../shared/skills/author-voice.md` を読む（最重要・最初に読む）
 2. `CLAUDE.md` を読む（執筆品質ルール・コードルール・読者視点チェックを熟読する）
-3. **`rules/step5-6-model.md` を読む**（ステップ5・6の3ケースモデル。ここを理解してから章を生成する）
+3. **`rules/step5-6-model.md` を読む**（S5〜S8の執筆ルール。接続点の特定・2×2マトリクス接続図・コスト天秤・対策実施。ここを理解してから章を生成する）
 4. **`design-philosophy.md` を読む**（設計思想カタログ。全テーマ・全問いを把握する）
 5. 指定された `pattern_file` を読む
 6. `templates/chapter-template.md` を読む（各節の生成指示の唯一の正）
@@ -35,7 +35,7 @@
 ### ステップ2：章を生成する
 
 `chapter-template.md` を唯一の正とし、その指示通りに各節を生成する。
-ステップ0〜7のH2見出しを必ず使う。順序を崩さない。
+ステップ0〜8（S0〜S8）のH2見出しを必ず使う（9ステップ）。順序を崩さない。
 
 **各節で何を書くかは `chapter-template.md` に定義されている。このファイルには書かない。**
 章の構造フローを変えたい場合は `chapter-template.md` だけを変更すれば良い。
@@ -44,18 +44,36 @@
 新しい設計の問いが見つかったときは `design-philosophy.md` に追加するだけでよい。
 
 重要な生成ルール（CLAUDE.mdより）：
-- 章の冒頭（この章の核心の直後・ステップ0の前）に `## この章を読むと得られること` を必ず書く
+- 章の冒頭（この章の核心の直後・S0の前）に `## この章を読むと得られること` を必ず書く
   - 「〜できるようになる」形式で3〜4項目。パターン名を前面に出さない
 - この章のドメインが CLAUDE.md のドメイン割り当て表と一致しているか確認してから書き始める
 - 各サービスは宣言だけでなく実体のある実装で示す
-- ステップ2（X.3）に関係者ヒアリングの会話シーンを入れる（変動/不変を確定する前）
+- S2（X.3）に関係者ヒアリングの会話シーンを入れる（変動/不変を確定する前）
 - インターフェース名はビジネス責任で命名する（実装手段で付けない）
 - 試行は責任チェックが通るまで繰り返す（複数回可）
 - コードに `// 💭` は使わない。気づきは散文で説明する
 - 使ってよい文法：class / virtual / コンストラクタ / メソッド呼び出し / if / for / 生ポインタ
 - 使わない文法：lambda・スマートポインタ・templateメタプログラミング・C++17以降の機能
-- ステップ6に「使わない方が良い状況」「過剰コード例」「最小コスト代替案との比較」を必ず含める
-- ステップ7の変更シナリオ表で「変わるクラス・変わらないクラス」を明示する（影響範囲の可視化）
+
+**接続点のコネクタ比喩（S0直後の「この章の接続点」セクションで使う）：**
+- **具体×直接**：昔の携帯の専用充電器（その機種専用、直接差し込む）
+- **抽象×直接**：USB-C規格（どのメーカーでも使える、直接差し込む）
+- **具体×間接**：機種専用の変換アダプター経由でつなぐ
+- **抽象×間接**：無線充電Qi規格（どのメーカーでも使える、接触しない）
+- 「なぜ分けたかが決まれば、接続の形が決まる」という原則を必ず説明すること
+
+**S5の出力ルール（課題定義）：**
+- 接続点の特定（どこに何個の接続点があるか）を必ず出力すること
+- 非機能制約（変更頻度・パフォーマンス・メモリ）を確認し表で示すこと
+- クライアント影響範囲（どのクラスが影響を受けるか）を明記すること
+- 課題まとめ表（接続点・分けた理由・非機能制約・クライアント影響の4列）を必ず出力すること
+
+**S6の出力ルール（対策案検討）：**
+- 冒頭に必ず2×2マトリクス接続図（mermaid）を入れること
+- 案0（分けない）から案N（完全対応）の順で展開すること
+
+- S7に「使わない方が良い状況」「過剰コード例」「最小コスト代替案との比較」を必ず含める
+- S8の変更シナリオ表で「変わるクラス・変わらないクラス」を明示する（影響範囲の可視化）
 
 ---
 
@@ -107,7 +125,7 @@
     "reader_benefit_no_pattern_name_upfront": true,
     "reader_benefit_3_to_4_items": true,
     "domain_matches_assignment_table": true,
-    "step0_to_7_headings": true,
+    "step0_to_8_headings": true,
     "system_overview_before_universal_question": true,
     "universal_question_used": true,
     "before_class_diagram": true,
@@ -119,15 +137,19 @@
     "responsibility_check_table_in_step1": true,
     "stakeholder_interview_in_step2": true,
     "interface_named_by_business_not_implementation": true,
-    "step5_3case_model_compliant": true,
+    "step5_connection_points_identified": true,
+    "step5_nonfunctional_constraints_checked": true,
+    "step5_summary_table_exists": true,
+    "step6_2x2_matrix_diagram_exists": true,
+    "step6_case0_to_N_structure": true,
     "batch_application_assembles": true,
     "main_kicks_only": true,
-    "test_proves_same_behavior_in_step7": true,
+    "test_proves_same_behavior_in_step8": true,
     "final_responsibility_table": true,
     "change_scenario_table": true,
     "impact_analysis_graph_in_step3": true,
-    "min_cost_alternative_in_step6": true,
-    "overdesign_example_in_step6": true,
+    "min_cost_alternative_in_step7": true,
+    "overdesign_example_in_step7": true,
     "core_sentence_after_section1": true,
     "no_forbidden_phrases": true,
     "no_next_chapter_preview": true,
