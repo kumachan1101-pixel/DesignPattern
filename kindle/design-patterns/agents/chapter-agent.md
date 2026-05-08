@@ -67,6 +67,50 @@
   - 抽象 ＝ どれでも使える規格（型・インターフェースだけ知っている）
 - 「なぜ分けたかが決まれば、接続の形が決まる」という原則を必ず説明すること
 
+---
+
+# 接続点マトリクス図のImagePromptルール
+
+各章の「この章の接続点」セクション内に、以下の形式でImagePromptを必ず出力してください。
+
+## 出力形式
+
+```
+[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors for software design patterns.
+The matrix has two axes: vertical axis labeled "具体（専用規格）" (top) to "抽象（汎用規格）" (bottom), horizontal axis labeled "直接（直差し）" (left) to "間接（アダプター経由）" (right).
+Four cells:
+- Top-left (具体×直接): Lightning cable plugged directly into iPhone. Label: "Lightning直差し"
+- Top-right (具体×間接): Lightning-to-USB-C adapter between iPhone and charger. Label: "専用アダプター経由"
+- Bottom-left (抽象×直接): USB-C cable plugged directly. Label: "USB-C直差し"
+- Bottom-right (抽象×間接): MacBook connected via USB-C hub to monitor, USB drive, and SD card. Label: "USB-Cハブ経由"
+HIGHLIGHT the [該当セル名] cell with a bright colored border and slightly larger size. All other cells are muted gray.
+Minimalist flat illustration style, white background, no gradients, Japanese labels on axes.]
+```
+
+## 該当セル名の対応表（章ごとに差し替え）
+
+| パターン | 該当セル名（ハイライト対象） |
+|---|---|
+| Strategy | bottom-left (抽象×直接) |
+| Template Method | top-left (具体×直接) |
+| Facade | top-right (具体×間接) |
+| Factory Method | bottom-left (抽象×直接) |
+| Observer | bottom-right (抽象×間接) |
+| Decorator | bottom-right (抽象×間接)、かつ「複数のアダプターを直列に重ねる」旨を追記 |
+| Composite | bottom-left (抽象×直接)、かつ「ハブ自身もUSB-C機器としてネスト可能」旨を追記 |
+| Command | CommandはImagePromptを出力しない（代わりに録画予約リモコンの比喩をテキストで説明する） |
+
+## chapter00_2 専用ルール
+
+chapter00_2では、接続点を1象限ずつ紹介するため、各象限を紹介するタイミングで単独のImagePromptを出力する（4回出力）。
+その際は該当セルのみをハイライトし、残り3セルはグレーアウトする。
+
+## 禁止事項
+- ImagePromptに "Note" という文字を含めないこと（既存ルールと同じ）
+- 1章につきImagePromptは原則1回のみ（Decoratorは積み重ねの図を追記してよい）
+
+---
+
 **S5の出力ルール（課題定義）：**
 - 接続点の特定（どこに何個の接続点があるか）を必ず出力すること
 - 非機能制約（変更頻度・パフォーマンス・メモリ）を確認し表で示すこと
