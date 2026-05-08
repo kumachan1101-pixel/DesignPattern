@@ -406,11 +406,19 @@ graph TD
 
 **具体×直接**は最もシンプルな形です。Aは「Bが何をするか」を直接知っています。「責任の整理」が目的なら、まずここから始めれば十分です。
 
+[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors. HIGHLIGHT only the top-left cell (具体×直接) with a bright orange border and slightly larger size. The highlighted cell shows a Lightning cable plugged directly into iPhone with label "Lightning直差し". The other three cells are muted gray. Vertical axis: "具体（専用規格）" top, "抽象（汎用規格）" bottom. Horizontal axis: "直接（直差し）" left, "間接（アダプター経由）" right. Minimalist flat style, white background, no gradients.]
+
 **抽象×直接**は、AがBの「型（インターフェース）」だけを知る形です。Bの実装がCに替わっても、Aのコードは変わりません。「差し替え」が目的のとき、この形を選びます。
+
+[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors. HIGHLIGHT only the bottom-left cell (抽象×直接) with a bright green border and slightly larger size. The highlighted cell shows a USB-C cable plugged directly with label "USB-C直差し". The other three cells are muted gray. Vertical axis: "具体（専用規格）" top, "抽象（汎用規格）" bottom. Horizontal axis: "直接（直差し）" left, "間接（アダプター経由）" right. Minimalist flat style, white background, no gradients.]
 
 **具体×間接**は、AがBの存在を知らない形です。間にCが入り、複雑さや変化をAから隠します。「複雑さを隠したい」「Aに知らせたくない変化がある」とき、この形を選びます。
 
+[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors. HIGHLIGHT only the top-right cell (具体×間接) with a bright purple border and slightly larger size. The highlighted cell shows Lightning-to-USB-C adapter between iPhone and charger with label "専用アダプター経由". The other three cells are muted gray. Vertical axis: "具体（専用規格）" top, "抽象（汎用規格）" bottom. Horizontal axis: "直接（直差し）" left, "間接（アダプター経由）" right. Minimalist flat style, white background, no gradients.]
+
 **抽象×間接**は最も柔軟な形です。Aは中間層Cの型だけを知り、CがBに処理を委譲します。「差し替えたい かつ 知らせたくない」という2つの理由が重なるとき、この形が必要になります。
+
+[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors. HIGHLIGHT only the bottom-right cell (抽象×間接) with a bright blue border and slightly larger size. The highlighted cell shows MacBook connected via USB-C hub to monitor, USB drive, and SD card with label "USB-Cハブ経由". The other three cells are muted gray. Vertical axis: "具体（専用規格）" top, "抽象（汎用規格）" bottom. Horizontal axis: "直接（直差し）" left, "間接（アダプター経由）" right. Minimalist flat style, white background, no gradients.]
 
 ### 対策案を考えるときの指針：3つの哲学
 

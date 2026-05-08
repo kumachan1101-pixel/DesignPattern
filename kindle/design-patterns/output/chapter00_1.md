@@ -42,14 +42,24 @@
 >
 > そして、**「なぜ分けたか」が決まれば、「どうつなぐか」——接続点の形が決まります**。これが本書のフレームワークの核心です。
 >
-> 接続点の形は、充電器とコネクタの関係で考えるとイメージしやすいです。
+> 接続点の形は、ケーブルとコネクタの関係で考えるとイメージしやすいです。
 >
-> - **具体 × 直接**：昔の携帯の専用充電器。その機種専用で、直接差し込む形。コードでは「特定の具体クラスに直接依存する」状態です。
-> - **抽象 × 直接**：USB-C規格。どのメーカーでも使える統一規格で、直接差し込む形。コードでは「インターフェース経由で直接接続する」状態です。
-> - **具体 × 間接**：機種専用の変換アダプター。専用ケーブルを経由してつなぐ形。コードでは「特定実装専用のアダプターを挟む」状態です。
-> - **抽象 × 間接**：無線充電Qi規格。どのメーカーでも使え、接触しない形。コードでは「インターフェース＋間接的な仲介層」を使う状態です。
+> | 接続の形 | 例え | 意味 |
+> |---|---|---|
+> | 具体×直接 | Lightningケーブルで直差し | iPhone専用端子・直接つなぐ |
+> | 抽象×直接 | USB-Cケーブルで直差し | どのメーカーでも使える規格・直接つなぐ |
+> | 具体×間接 | Lightning→USB-C変換アダプター経由 | 専用端子のためにアダプターを挟む |
+> | 抽象×間接 | MacBook→USB-Cハブ→モニター | 規格化された口を集約するハブを挟む |
+>
+> 軸の対応：
+> - 直接 ＝ ケーブルを端子に直差し（間に別のモノを挟まない）
+> - 間接 ＝ 変換アダプターやハブを挟む（間に別のモノが入る）
+> - 具体 ＝ Lightning（その機種専用・他では使えない）
+> - 抽象 ＝ USB-C（どのメーカーでも使える規格）
 >
 > パターンの名前を覚える前に、まずこの「分ける理由と接続の形の関係」を理解してください。
+
+[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors for software design connection types. The matrix has two axes: vertical axis labeled "具体（専用規格）" at top to "抽象（汎用規格）" at bottom, horizontal axis labeled "直接（直差し）" at left to "間接（アダプター経由）" at right. Four cells, all equally prominent with no highlight: top-left shows Lightning cable plugged directly into iPhone labeled "Lightning直差し 具体×直接", top-right shows Lightning-to-USB-C adapter between iPhone and charger labeled "専用アダプター経由 具体×間接", bottom-left shows USB-C cable plugged directly labeled "USB-C直差し 抽象×直接", bottom-right shows MacBook connected via USB-C hub to monitor USB-drive and SD-card labeled "USB-Cハブ経由 抽象×間接". Minimalist flat illustration style, white background, no gradients, clean Japanese labels.]
 
 > [!INFO] 本書の前提と言語について
 > 本書では、すべてのサンプルコードを **C++** で記述しています。ただし、ここで学ぶ「思考の型」はC++に依存するものではありません。オブジェクト指向の概念を備えた言語であれば、どのような言語でも同じように活かせる知識となっています。
