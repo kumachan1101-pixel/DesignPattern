@@ -232,8 +232,8 @@ int main() {
 
 |**コードの行**|**持っている知識**|**責任内か**|
 |---|---|---|
-|`std::cout << "[File: " << filePath_ << "] "...`|ファイルへの具体的な書き込み手順とフォーマット|**✗ インフラ担当（FileLogger）の責任**|
-|`std::cout << "[Email via " << smtpServer_ << "] "...`|メール送信の具体的な手順とフォーマット|**✗ 監視運用担当（EmailNotifyLogger）の責任**|
+|`std::cout << "[File: " << filePath_ << "] "...`|ファイルへの具体的な書き込み手順とフォーマット|**❌ インフラ担当（FileLogger）の責任**|
+|`std::cout << "[Email via " << smtpServer_ << "] "...`|メール送信の具体的な手順とフォーマット|**❌ 監視運用担当（EmailNotifyLogger）の責任**|
 
 `FileAndEmailLogger` は、ファイル出力とメール出力の具体的なやり方（How）を知りすぎてしまっています。 本来なら `FileLogger` と `EmailNotifyLogger` の中に閉じ込められているべき実装の詳細が、複合クラスの中にそのままコピー＆ペーストされて混入しているのです。
 
