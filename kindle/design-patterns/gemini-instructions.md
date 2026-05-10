@@ -1,104 +1,104 @@
 # Gemini への章執筆指示書（第9〜12章 応用編）
 
-## 共通：毎回添付するファイル（この順で渡す）
+---
 
-1. `shared/skills/author-voice.md`
-2. `CLAUDE.md`
-3. `rules/step5-6-model.md`
-4. `templates/chapter-template.md`
-5. `templates/chapter-template2.md`
-6. `design-philosophy.md`
-7. 章ごとの pattern yaml（下記参照）
-8. `agents/chapter-agent.md`
+## 共通：毎回添付するファイル（7点固定）
+
+| # | ファイル |
+|---|---|
+| 1 | `shared/skills/author-voice.md` |
+| 2 | `CLAUDE.md` |
+| 3 | `rules/step5-6-model.md` |
+| 4 | `templates/chapter-template.md` |
+| 5 | `templates/chapter-template2.md` |
+| 6 | `design-philosophy.md` |
+| 7 | `agents/chapter-agent.md` |
 
 ---
 
-## 第9章
+## 章ごとの追加ファイル（pattern yaml）
 
-**添付する pattern yaml：**
-- `patterns/strategy.yaml`
-- `patterns/state.yaml`
-
-**指示文：**
-
-```
-添付ファイルをすべて読んだうえで、第9章を執筆してください。
-
-- 執筆手順は agents/chapter-agent.md の「実行手順」に従う
-- テンプレートは chapter-template2.md（応用編）を chapter-template.md の S0〜S8 構造に差分適用して使う
-- 章タイトル：第9章　【Strategyパターン】×【Stateパターン】
-- ドメイン：ECサイト注文処理（複合）
-- 出力ファイル：output/chapter09.md
-```
+| 章 | 追加ファイル（計10点以内） |
+|---|---|
+| 第9章 | `patterns/strategy.yaml` `patterns/state.yaml` |
+| 第10章 | `patterns/facade.yaml` `patterns/observer.yaml` `patterns/factory-method.yaml` |
+| 第11章 | `patterns/template-method.yaml` `patterns/decorator.yaml` `patterns/command.yaml` |
+| 第12章 | `patterns/state.yaml` `patterns/observer.yaml` `patterns/strategy.yaml` |
 
 ---
 
-## 第10章
+## ステップ別指示文（1セッション内でこの順に送る）
 
-**添付する pattern yaml：**
-- `patterns/facade.yaml`
-- `patterns/observer.yaml`
-- `patterns/factory-method.yaml`
-
-**指示文：**
+### 最初の指示（セッション開始時に1回だけ送る）
 
 ```
-添付ファイルをすべて読んだうえで、第10章を執筆してください。
+添付ファイルをすべて読んでください。
+これから第X章を、S0〜S8のステップ別に作成します。
+テンプレートは chapter-template2.md（応用編）を chapter-template.md の S0〜S8 構造に差分適用して使ってください。
+章タイトル・ドメインは下記のとおりです。
 
-- 執筆手順は agents/chapter-agent.md の「実行手順」に従う
-- テンプレートは chapter-template2.md（応用編）を chapter-template.md の S0〜S8 構造に差分適用して使う
-- 章タイトル：第10章　【Facadeパターン】×【Observerパターン】×【Factory Methodパターン】
-- ドメイン：外部連携バッチシステム
-- 出力ファイル：output/chapter10.md
+章タイトル：第X章　【〇〇パターン】×【△△パターン】
+ドメイン：〇〇〇〇
+
+準備ができたら「了解しました」とだけ返してください。
 ```
 
----
-
-## 第11章
-
-**添付する pattern yaml：**
-- `patterns/template-method.yaml`
-- `patterns/decorator.yaml`
-- `patterns/command.yaml`
-
-**指示文：**
+### ステップ別の指示（順番に送る）
 
 ```
-添付ファイルをすべて読んだうえで、第11章を執筆してください。
-
-- 執筆手順は agents/chapter-agent.md の「実行手順」に従う
-- テンプレートは chapter-template2.md（応用編）を chapter-template.md の S0〜S8 構造に差分適用して使う
-- 章タイトル：第11章　【Template Methodパターン】×【Decoratorパターン】×【Commandパターン】
-- ドメイン：レポート生成エンジン
-- 出力ファイル：output/chapter11.md
+第X章のS0（クラス構成と責任を読む）を作成してください。
 ```
 
----
-
-## 第12章
-
-**添付する pattern yaml：**
-- `patterns/state.yaml`
-- `patterns/observer.yaml`
-- `patterns/strategy.yaml`
-
-**指示文：**
+```
+第X章のS1（実装コードを読む）を作成してください。
+```
 
 ```
-添付ファイルをすべて読んだうえで、第12章を執筆してください。
+第X章のS2（仮説を立て、関係者に確認する）を作成してください。
+```
 
-- 執筆手順は agents/chapter-agent.md の「実行手順」に従う
-- テンプレートは chapter-template2.md（応用編）を chapter-template.md の S0〜S8 構造に差分適用して使う
-- 章タイトル：第12章　【Stateパターン】×【Observerパターン】×【Strategyパターン】
-- ドメイン：承認ワークフローシステム
-- 出力ファイル：output/chapter12.md
+```
+第X章のS3（課題分析）を作成してください。
+```
+
+```
+第X章のS4（原因分析）を作成してください。
+```
+
+```
+第X章のS5（課題を定義する）を作成してください。
+```
+
+```
+第X章のS6（対策案の検討）を作成してください。
+```
+
+```
+第X章のS7（対策選定）を作成してください。
+```
+
+```
+第X章のS8（決断と未来）を作成してください。
+```
+
+```
+整理・振り返り・パターン解説を作成してください。
 ```
 
 ---
 
-## 注意事項
+## 各章の章タイトルとドメイン
 
-- 各章は独立したGeminiセッションで実行する
-- 前章のファイルを渡す必要はない（各章は完全独立）
-- 出力が途中で切れた場合は「続きを書いてください」と指示する
-- 完成後は agents/review-agent.md を使ってレビューを実施する
+| 章 | 章タイトル | ドメイン |
+|---|---|---|
+| 第9章 | 【Strategyパターン】×【Stateパターン】 | ECサイト注文処理（複合） |
+| 第10章 | 【Facadeパターン】×【Observerパターン】×【Factory Methodパターン】 | 外部連携バッチシステム |
+| 第11章 | 【Template Methodパターン】×【Decoratorパターン】×【Commandパターン】 | レポート生成エンジン |
+| 第12章 | 【Stateパターン】×【Observerパターン】×【Strategyパターン】 | 承認ワークフローシステム |
+
+---
+
+## 注意
+
+- 出力が途中で切れたら「続きを書いてください」と送る
+- 各章は独立したセッションで実施する（前章のファイルは不要）
