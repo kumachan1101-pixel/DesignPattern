@@ -5,56 +5,53 @@
 pattern:
   name: Observer
   chapter: 7
-  subtitle: "通知する側が、受け取る相手を知らなくていい"
-  tagline: "通知の送り元と受け取り先を分離し、受け手の増減をコードレスにする"
-  change_type: "「通知を受け取る相手」が変わる"
+  subtitle: "更新する側が、反応する相手を知らなくていい"
+  tagline: "状態の変化元と反応先を分離し、反応先の増減を変化元に伝えない"
+  change_type: "「変化に反応する相手」が変わる"
 
 scenario:
-  domain: "製造ラインのIoTセンサー監視システム"
+  domain: "在庫管理システム"
   system_overview: |
-    工場の製造ラインに設置されたセンサーの計測値を監視するシステム。
-    センサー値が閾値を超えたとき、複数の受け取り先に通知するシステム。
-    現状は SensorMonitor クラスが異常を検知するたびに、
-    通知先クラスを直接呼び出している。
-    通知先は「管理画面アラート表示」「メール送信」「ログ記録」の3か所。
+    倉庫の入出庫を管理するシステム。
+    InventoryManager クラスが在庫数の更新を担当し、
+    在庫数が変わったとき複数のシステムが反応する必要がある。
+    現状は InventoryManager が反応先クラスを直接呼び出している。
+    反応先は「ECサイトの在庫表示」「バイヤーへのアラート送信」「自動発注トリガー」の3か所。
   current_spec:
-    - "SensorMonitor::onThresholdExceeded(sensorId, value)：センサー値が閾値を超えた時に呼ばれる"
-    - "検知後に DashboardAlerter::showAlert() を呼び出す"
-    - "検知後に EmailNotifier::sendAlert() を呼び出す"
-    - "検知後に AuditLogger::log() を呼び出す"
-    - "3つの呼び出しがすべて onThresholdExceeded() の中に直接書かれている"
+    - "InventoryManager::updateStock(productId, quantity)：在庫数を更新する"
+    - "更新後に StockDisplayUpdater::refresh(productId) を呼び出す"
+    - "更新後に BuyerAlertSender::notify(productId, quantity) を呼び出す"
+    - "更新後に AutoOrderTrigger::check(productId, quantity) を呼び出す"
+    - "3つの呼び出しが全て updateStock() の中に直接書かれている"
   situation:
-    who: "品質管理部門から"
-    what: "センサー異常が検知されたとき、工程管理システムにもリアルタイムで連携したい"
-    deadline: "来週月曜の稼働切り替えまでに"
+    who: "物流部門から"
+    what: "在庫が一定数を下回ったとき、物流倉庫にも自動でピッキング指示を送りたい"
+    deadline: "今月末の倉庫システム統合に合わせて"
 
 observations:
-  - "SensorMonitorはセンサー値の監視が責任のはずなのに、通知先の具体クラスを3つも知っている"
-  - "通知先が1つ増えるたびに SensorMonitor のコードを開いて変更しなければならない"
-  - "SensorMonitorと通知先クラスの間に直接依存があるため、テスト時に全通知先が起動する"
-  - "通知先を増やすかどうかの判断（品管・インフラ・運用）と、センサー監視の責任が同じクラスに混在している"
+  - "InventoryManagerは在庫数の管理が責任のはずなのに、反応先の具体クラスを3つも知っている"
+  - "反応先が1つ増えるたびに InventoryManager のコードを開いて変更しなければならない"
+  - "InventoryManagerと反応先クラスの間に直接依存があるため、テスト時に全反応先が起動する"
+  - "反応先を増やすかどうかの判断（EC担当・バイヤー・物流）と、在庫管理の責任が同じクラスに混在している"
 
-trial_approach: "通知先リストをSensorMonitorにstd::vectorで持たせ、ループで呼び出す"
+trial_approach: "反応先リストをInventoryManagerにリストで持たせ、ループで呼び出す"
 trial_limits:
-  - "通知先クラスごとにメソッド名が異なるため、共通インターフェースなしではループで呼べない"
-  - "SensorMonitorが依然として通知先の具体クラスを知っており、依存は解消されない"
+  - "反応先クラスごとにメソッド名が異なるため、共通インターフェースなしではループで呼べない"
+  - "InventoryManagerが依然として反応先の具体クラスを知っており、依存は解消されない"
 
 advanced_scenario:
-  what: "特定の通知先だけ「温度センサー限定」で通知したい（センサー種別に応じた条件付き購読）"
+  what: "特定の反応先だけ『食品カテゴリの商品限定』で反応させたい（商品カテゴリに応じた条件付き購読）"
   extension: |
-    Observerパターンでは、ISensorObserver に notify(sensorId, value) を持たせ、
-    各Observerが自分で「通知を受けてどう処理するか」を判断できる。
-    SensorMonitorは全Observerに通知するだけで、条件判断はObserver側に委ねられる。
-  difficulty_type: "パターンA：通知先の条件が Observer ごとに異なる"
+    Observerパターンでは、IStockObserver に onStockChanged(productId, quantity) を持たせ、
+    各Observerが自分で「反応するかどうか」を判断できる。
+    InventoryManagerは全Observerに通知するだけで、条件判断はObserver側に委ねられる。
+  difficulty_type: "パターンA：反応条件が Observer ごとに異なる"
 
 threshold:
   use_when:
-    - "あるイベントの通知先が複数あり、今後も変わる可能性がある"
-    - "通知する側が通知先の具体クラスを知っているため、通知先の追加に変更が必要"
-    - "通知先ごとに独立してテストしたい"
+    - "ある状態変化への反応先が複数あり、今後も変わる可能性がある"
+    - "変化元が反応先の具体クラスを知っているため、反応先の追加に変更が必要"
+    - "反応先ごとに独立してテストしたい"
   skip_when:
-    - "通知先が1か所だけで今後も増えない"
-    - "通知先が変わるたびに送り元も必ず変わるビジネスルール（密結合が正しい場合）"
-
-next_chapter:
-  preview: "次章では「作るオブジェクトの種類が変わる」という生成の問題を扱います"
+    - "反応先が1か所だけで今後も増えない"
+    - "反応先が変わるたびに変化元も必ず変わるビジネスルール（密結合が正しい場合）"

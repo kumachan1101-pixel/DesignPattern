@@ -141,14 +141,14 @@ S0〜S8の9ステップという思考の型を、実際のコードを題材に
 |**章**|**パターン**|**ドメイン**|
 |---|---|---|
 |第1章|Strategy|ECサイト決済計算|
-|第2章|Facade|月次給与バッチ|
+|第2章|Facade|ネット銀行の振り込み処理|
 |第3章|State|チケット予約管理|
-|第4章|Template Method|定期レポート生成バッチ|
-|第5章|Command|テキストエディタ|
-|第6章|Decorator|ログ出力・通知機能|
-|第7章|Observer|製造ラインIoTセンサー監視|
-|第8章|Factory Method|帳票出力|
-|第9章（応用）|Strategy × State|ECサイト注文処理（複合）|
+|第4章|Template Method|CSVインポート処理|
+|第5章|Command|家計簿アプリの操作履歴|
+|第6章|Decorator|カスタマイズ注文システム|
+|第7章|Observer|在庫管理システム|
+|第8章|Factory Method|決済プロセッサーの切り替え|
+|第9章（応用）|Strategy × State|サポートチケット管理|
 |第10章（応用）|Facade × Observer × Factory Method|外部連携バッチシステム|
 |第11章（応用）|Template Method × Decorator × Command|レポート生成エンジン|
 |第12章（応用）|State × Observer × Strategy|承認ワークフローシステム|
