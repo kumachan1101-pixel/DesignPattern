@@ -193,7 +193,7 @@ orchestrator のフェーズ3で、review-agent・readability-agent と **並列
 
 #### 観点6：7フェーズ9ステップ（S0〜S8）・接続点2×2マトリクスへの準拠チェック
 
-rules/step5-6-model.md の9ステップモデルに基づいてチェックする。
+rules/design-decision-guide.md の9ステップモデルに基づいてチェックする。
 
 **6-A: S4（原因分析）の品質**
 - S4は接続点の観点で構造的に原因を説明しているか
