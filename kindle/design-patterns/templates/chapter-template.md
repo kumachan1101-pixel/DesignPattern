@@ -223,7 +223,7 @@ graph LR
 - **入力：** ステップ4で特定した「分けるべき場所」と「接続点の存在」
 - **産物：** 課題定義表（接続点・非機能制約・クライアント影響範囲の整理）
 
-<!-- 詳細は rules/step5-6-model.md を参照 -->
+<!-- 詳細は rules/design-decision-guide.md を参照 -->
 
 #### 視点1：接続点の特定
 
@@ -279,13 +279,13 @@ graph LR
 - **入力：** ステップ5の課題定義表（接続点・非機能制約・クライアント影響）
 - **産物：** 対策案（案0〜案N）
 
-<!-- 詳細は rules/step5-6-model.md を参照 -->
+<!-- 詳細は rules/design-decision-guide.md を参照 -->
 
 #### 「なぜ分けたか」→「接続の形が決まる」2×2マトリクス
 
 <!-- 接続の2軸（具体 vs 抽象 × 直接 vs 間接）のmermaid図プレースホルダー
      この章が該当する象限をハイライトして示す。
-     詳細は rules/step5-6-model.md を参照。 -->
+     詳細は rules/design-decision-guide.md を参照。 -->
 
 ```
 graph TD
@@ -366,7 +366,7 @@ graph TD
 
 ### ステップ7：コスト天秤にかける ―― 「現在」と「未来」で対策案を比べる
 
-<!-- 詳細は rules/step5-6-model.md を参照 -->
+<!-- 詳細は rules/design-decision-guide.md を参照 -->
 
 #### コスト天秤
 
