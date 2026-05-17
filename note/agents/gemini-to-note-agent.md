@@ -12,9 +12,12 @@ Noteに下書き状態で投稿する。
 
 ## 受け取る引数
 
-- `gemini_url` : GeminiのURL（以下2種類に対応）
+- `gemini_url` : GeminiのURL（以下2種類に対応）— **省略可能**
   - Gem URL：`https://gemini.google.com/gem/ab22a645b92d/64716de513a74bbc`
   - Share URL：`https://g.co/gemini/share/xxxxxxx` または `https://gemini.google.com/share/xxxxxxx`
+- `content` : 記事コンテンツ（gemini_url を指定しない場合に直接渡す）
+  - `title` : 記事タイトル
+  - `body` : 本文（マークダウン形式）
 
 ---
 
@@ -39,6 +42,22 @@ Noteに下書き状態で投稿する。
 ---
 
 ## 実行手順
+
+### ステップ0：フロー判定
+
+- `gemini_url` が指定されている → **ステップ1**へ（Gemini URLフロー）
+- `content`（title + body）が直接渡されている → **ステップ2・3をスキップ**してステップ3'（直接コンテンツフロー）へ
+
+---
+
+### ステップ3'：直接コンテンツフロー（gemini_url なしの場合）
+
+`content.title` をタイトルとして記録する。`content.body` をそのまま本文として使用する（クリーニング不要）。
+
+→ **ステップ3（Note新規記事を開く）へ進む**。ステップ4以降は通常通り実行する。
+ステップ6-Aでは `body` の内容をClipboardEventで注入する（後述）。
+
+---
 
 ### ステップ1：記事コンテンツをコピーする
 
@@ -186,13 +205,48 @@ form_input: ステップ1で記録したタイトルを入力
 
 ---
 
-### ステップ6-A：本文をペーストする（クリーニング済みの場合）
+### ステップ6-A：本文をペーストする（ClipboardEvent方式）
 
-1. 目次コンポーネントの下の行をクリック
-2. `Ctrl+V` でペーストする（wait 8秒）
+**`Ctrl+V` は使わない。** note_appender.py で実績のある `ClipboardEvent` ディスパッチ方式を使う。
+ProseMirrorエディタに直接イベントを発火するため、クリップボード権限エラーが起きない。
 
-ステップ2が成功していれば、タイトル行・コードラベルはすでに除去されている。
-スクリーンショットは不要。そのまま次のステップへ進む。
+1. 目次コンポーネントの下の行をクリックしてカーソルを置く（wait 1秒）
+2. `javascript_tool` で以下を実行する（wait 3秒）：
+
+**パターンA：直接コンテンツフロー（body を JS に埋め込む）**
+
+```javascript
+// content.body の内容を文字列リテラルとして埋め込む
+const text = `[ここにbodyの内容を貼り付け]`;
+const dataTransfer = new DataTransfer();
+dataTransfer.setData('text/plain', text);
+const editor = document.querySelector('.ProseMirror');
+editor.focus();
+editor.dispatchEvent(
+  new ClipboardEvent('paste', { clipboardData: dataTransfer, bubbles: true })
+);
+'pasted: ' + text.length + ' chars';
+```
+
+**パターンB：Gemini URLフロー（クリップボード経由）**
+
+```javascript
+// クリップボードから取得してClipboardEventで注入する
+const text = await navigator.clipboard.readText();
+const dataTransfer = new DataTransfer();
+dataTransfer.setData('text/plain', text);
+const editor = document.querySelector('.ProseMirror');
+editor.focus();
+editor.dispatchEvent(
+  new ClipboardEvent('paste', { clipboardData: dataTransfer, bubbles: true })
+);
+'pasted: ' + text.length + ' chars';
+```
+
+> **`navigator.clipboard.readText()` が権限エラーになった場合：**
+> パターンAに切り替えてクリップボード内容を直接 `text` に埋め込む。
+
+3. `'pasted: X chars'` が返ればペースト成功。そのまま次のステップへ進む（スクリーンショット不要）。
 
 ---
 
@@ -267,8 +321,8 @@ screenshot 1枚で「下書きを保存しました」を確認
 | エラー | 対処 |
 |:---|:---|
 | Share URLで📋コピーボタンが見つからない | Share URLフロー（ステップ1のJS抽出）を使う |
-| clipboard API が権限エラー | ステップ2をスキップしてステップ6-Bを実行 |
-| clipboard.writeText() がタイムアウト | textarea方式（作成→クリック→Ctrl+C）を使う |
+| clipboard.readText() が権限エラー | パターンAに切り替えて本文を JS に直接埋め込む |
+| ClipboardEvent後に本文が空 | `.ProseMirror` セレクタが合っているか確認。エディタをクリックしてから再実行 |
 | 「コピー」ボタンでURLがペーストされた | 応答ブロック下部の📋アイコンを使う |
 | NoteタブからGeminiに戻れない（Leave site?ダイアログ） | `tabs_create_mcp` で新規タブを開く |
 | 目次がプレーンテキストになった | `/` のみ入力してパレット表示を確認してから「目次」を選択 |
