@@ -558,6 +558,7 @@ int main() {
 |第9章|Strategy × State|ECサイトの注文処理|
 |第10章|Facade × Observer × Factory Method|外部連携バッチシステム|
 |第11章|Template Method × Decorator × Command|レポート生成エンジン|
+|第12章|State × Observer × Strategy|承認ワークフローシステム|
 
 **第二部の特徴：**
 
