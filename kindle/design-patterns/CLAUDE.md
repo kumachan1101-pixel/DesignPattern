@@ -133,20 +133,20 @@
 
 **ドメイン割り当て表（変更禁止。新章追加時はここを更新すること）：**
 
-|**章**|**パターン**|**ドメイン**|
-|---|---|---|
-|第1章|Strategy|ECサイト決済計算|
-|第2章|Facade|ネット銀行の振り込み処理|
-|第3章|State|チケット予約管理|
-|第4章|Template Method|CSVインポート処理|
-|第5章|Command|家計簿アプリの操作履歴|
-|第6章|Decorator|カスタマイズ注文システム|
-|第7章|Observer|在庫管理システム|
-|第8章|Factory Method|決済プロセッサーの切り替え|
-|第9章（応用）|Strategy × State|サポートチケット管理|
-|第10章（応用）|Facade × Observer × Factory Method|外部連携バッチシステム|
-|第11章（応用）|Template Method × Decorator × Command|レポート生成エンジン|
-|第12章（応用）|State × Observer × Strategy|承認ワークフローシステム|
+|**章**|**章タイトル**|**パターン**|**ドメイン**|
+|---|---|---|---|
+|第1章|変わるアルゴリズム ―― Strategy パターン|Strategy|ECサイト決済計算|
+|第2章|変わる処理の組み合わせ ―― Facade パターン|Facade|ネット銀行の振り込み処理|
+|第3章|変わる状態ごとの振る舞い ―― State パターン|State|チケット予約管理|
+|第4章|変わる処理のステップ ―― Template Method パターン|Template Method|CSVインポート処理|
+|第5章|変わる操作の種類 ―― Command パターン|Command|家計簿アプリの操作履歴|
+|第6章|変わる機能の組み合わせ ―― Decorator パターン|Decorator|カスタマイズ注文システム|
+|第7章|変わる通知先 ―― Observer パターン|Observer|在庫管理システム|
+|第8章|変わる生成の種類 ―― Factory Method パターン|Factory Method|決済プロセッサーの切り替え|
+|第9章（応用）|Strategy × State|—|サポートチケット管理|
+|第10章（応用）|Facade × Observer × Factory Method|—|外部連携バッチシステム|
+|第11章（応用）|Template Method × Decorator × Command|—|レポート生成エンジン|
+|第12章（応用）|State × Observer × Strategy|—|承認ワークフローシステム|
 
 **ルール：**
 
