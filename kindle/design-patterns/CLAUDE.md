@@ -309,7 +309,7 @@ int main() {
 
 ## フェーズ5・フェーズ6の思考モデル（最重要）
 
-詳細は `rules/design-decision-guide.md` と `agents/chapter-agent.md` を参照すること（唯一の正）。
+詳細は `rules/design-decision-guide.md` を参照すること（唯一の正）。`agents/chapter-agent.md` のフェーズ5〜7節はこのファイルに準拠している。
 
 **フェーズ5（課題定義）：**
 
