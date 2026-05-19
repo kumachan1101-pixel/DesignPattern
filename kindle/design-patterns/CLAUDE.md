@@ -309,7 +309,7 @@ int main() {
 
 ## フェーズ5・フェーズ6の思考モデル（最重要）
 
-詳細は `rules/design-decision-guide.md` と `agents/chapter-agent.md` を参照すること（唯一の正）。
+詳細は `rules/design-decision-guide.md` を参照すること（唯一の正）。`agents/chapter-agent.md` のフェーズ5〜7節はこのファイルに準拠している。
 
 **フェーズ5（課題定義）：**
 
@@ -433,7 +433,7 @@ int main() {
     
 - **禁止表現**：文頭「まず〜」、次章予告、「悪いコード」、「〜すべき」
     
-- **核心一言**：X.1直後に **要するに〜するパターン。**
+- **核心一言**：フェーズ1（1-8の直後）に **「要するに、[フェーズ1の観察]から[構造の問題]が見えてくる」** 形式で1文。「要するに〜するパターン」はNG（パターン名はフェーズ6まで出さない）
     
 - **テスト**：1コード＋テストで完結してから次へ（後回し禁止）
     
@@ -558,6 +558,7 @@ int main() {
 |第9章|Strategy × State|ECサイトの注文処理|
 |第10章|Facade × Observer × Factory Method|外部連携バッチシステム|
 |第11章|Template Method × Decorator × Command|レポート生成エンジン|
+|第12章|State × Observer × Strategy|承認ワークフローシステム|
 
 **第二部の特徴：**
 
