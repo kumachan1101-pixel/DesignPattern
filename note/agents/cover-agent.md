@@ -3,7 +3,8 @@
 ## 役割
 
 draft-agent 完了後に自動実行される。
-記事タイトル・テーマから SVG カバー画像を生成し output/covers/ に書き出す。
+記事タイトル・テーマから SVG を生成し、Python で PNG に変換して
+`output/covers/cover-NNN.png` に保存する。
 
 ---
 
@@ -37,34 +38,73 @@ draft-agent の完了 JSON：
 SVG を生成し、`output/covers/cover-NNN.svg` に書き出す。
 （NNN は記事番号に合わせる）
 
-**仕様**：幅 1280px、高さ 670px（16:9）
+仕様：幅 1280px、高さ 670px（16:9）
 
-### ステップ4：完了報告
+### ステップ4：SVG を PNG に変換する（自動実行）
 
-完了後にユーザーへ以下を伝える：
+以下の Bash コマンドを実行する：
 
+```bash
+pip install cairosvg -q && \
+python3 -c "
+import cairosvg
+cairosvg.svg2png(
+    url='note/output/covers/cover-NNN.svg',
+    write_to='note/output/covers/cover-NNN.png',
+    output_width=1280,
+    output_height=670
+)
+print('PNG変換完了: note/output/covers/cover-NNN.png')
+"
 ```
-記事ドラフトとカバー画像が完成しました。
 
-📄 記事：output/articles/article-NNN.md
-🎨 カバー：output/covers/cover-NNN.svg
+**cairosvg インストール失敗またはエラーの場合**：
+Pillow で日本語フォント指定なしの代替 PNG を生成する：
 
-内容をご確認いただき、問題なければ「OK」または「投稿して」とお伝えください。
-Noteに下書きとして自動投稿します。
+```bash
+pip install Pillow -q && \
+python3 -c "
+from PIL import Image, ImageDraw
+import json
 
-※ カバー画像はNote投稿後に手動でアップロードをお願いします
-  （Note APIはカバー画像の自動アップロード非対応のため）
+# カラーはcover-design.mdで決めた値を使う
+bg_color = (26, 26, 46)       # #1a1a2e
+accent   = (74, 158, 255)     # #4a9eff
+img = Image.new('RGB', (1280, 670), bg_color)
+draw = ImageDraw.Draw(img)
+img.save('note/output/covers/cover-NNN.png')
+print('PNG生成完了（簡易版）: note/output/covers/cover-NNN.png')
+"
 ```
+
+どちらも失敗した場合は `cover_png_available: false` を JSON に含め、
+publish-agent へ「カバーのブラウザアップロードをスキップ」と伝える。
+
+### ステップ5：完了報告
 
 ```json
 {
   "agent": "cover-agent",
   "status": "complete",
   "cover": {
-    "file": "output/covers/cover-NNN.svg",
+    "svg": "note/output/covers/cover-NNN.svg",
+    "png": "note/output/covers/cover-NNN.png",
+    "cover_png_available": true,
     "width": 1280,
     "height": 670
   },
   "next": "publish-agent（ユーザーのOKを待つ）"
 }
+```
+
+完了後にユーザーへ以下を伝える：
+
+```
+記事ドラフトとカバー画像が完成しました。
+
+📄 記事：note/output/articles/article-NNN.md
+🎨 カバー：note/output/covers/cover-NNN.png
+
+内容をご確認いただき、問題なければ「OK」または「投稿して」とお伝えください。
+Note に記事を投稿し、カバー画像も自動でアップロードします。
 ```
