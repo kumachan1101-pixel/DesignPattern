@@ -14,12 +14,11 @@
 
 ## 実行手順（Claude が自動で行う）
 
-### STEP 1：Gemini でカバー画像を生成する
-
-`agents/cover-agent.md` の手順に従い実行する：
+### STEP 1：Gemini でカバー画像を生成する（半自動・要確認）
 
 1. `https://gemini.google.com` を開く（wait 3秒）
-2. 以下のプロンプトを送信する（wait 15秒）：
+2. ログイン済みであることを確認する（未ログインならユーザーに通知して停止）
+3. 以下のプロンプトを送信する（wait 20秒）：
 
 ```
 Note記事のカバー画像を作成してください。
@@ -34,8 +33,61 @@ Note記事のカバー画像を作成してください。
 - 色調：ネイビー・ブルー系をベースに赤のアクセント
 ```
 
-3. 生成された画像のURLを取得してダウンロードする
-4. `note/output/covers/cover-001.png` として保存する
+4. スクリーンショットを1枚撮り、ユーザーに確認を求める：
+   ```
+   カバー画像が生成されました。スクリーンショットをご確認ください。
+   問題なければ「OK」と、修正が必要であれば内容をお伝えください。
+   ```
+   - **「OK」** → ステップ5へ進む
+   - **修正依頼** → Gemini に追加指示を送り再生成（wait 20秒）→ 再度スクリーンショットで確認
+
+5. ユーザー承認後、以下の方法A→B→C の順で画像をダウンロードする：
+
+   **方法A：JavaScript で base64 変換して保存**
+   ```javascript
+   const img = Array.from(document.querySelectorAll('img')).find(
+     i => i.naturalWidth > 400 && i.src.length > 50
+   );
+   if (!img) { 'not found'; }
+   else {
+     const canvas = document.createElement('canvas');
+     canvas.width = img.naturalWidth;
+     canvas.height = img.naturalHeight;
+     canvas.getContext('2d').drawImage(img, 0, 0);
+     canvas.toDataURL('image/png');
+   }
+   ```
+   取得した base64 文字列を Python で保存：
+   ```bash
+   python3 -c "
+   import base64, sys
+   data = sys.stdin.read().split(',')[1]
+   with open('note/output/covers/cover-001.png', 'wb') as f:
+       f.write(base64.b64decode(data))
+   print('保存完了')
+   "
+   ```
+
+   **方法B：Gemini のダウンロードボタンを使う**
+   ```
+   find: "ダウンロード" または "Download" ボタンをクリック
+   → computer ツールで note/output/covers/cover-001.png に移動
+   ```
+
+   **方法C：画像 URL を取得して Python でダウンロード**
+   ```javascript
+   const img = Array.from(document.querySelectorAll('img')).find(i => i.naturalWidth > 400);
+   img ? img.src : 'not found';
+   ```
+   ```bash
+   python3 -c "
+   import urllib.request
+   urllib.request.urlretrieve('IMAGE_URL', 'note/output/covers/cover-001.png')
+   print('保存完了')
+   "
+   ```
+
+   いずれも失敗した場合はユーザーに手動保存を依頼し、保存パスを確認してから次へ進む。
 
 ### STEP 2：記事本文を Note に投稿する
 
