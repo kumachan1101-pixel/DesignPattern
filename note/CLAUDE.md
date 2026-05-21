@@ -13,121 +13,101 @@
 エージェントは作業開始前に以下を必ずこの順番で読むこと：
 
 1. `../shared/skills/author-voice.md`  — 著者の人格（最重要）
-2. `../shared/skills/markdown-checker.md` — 品質チェック基準
-3. このCLAUDE.md の残りのルール
+2. このCLAUDE.md の残りのルール
+
+---
+
+## メインワークフロー：5ステップ記事作成
+
+```
+[STEP 1] idea-agent
+  WebSearch で自動SEOリサーチ → 記事アイデア3〜5案を提案
+  → ユーザーが「〇番を深掘りして」と選択
+
+[STEP 2] structure-agent
+  選ばれたアイデアをもとに記事構成を作成・提示
+  → ユーザーが「構成OK」と承認
+
+[STEP 3] draft-agent
+  承認された構成から本文ドラフトを自動生成
+  → output/articles/ に .md を書き出し
+
+[STEP 4] cover-agent（STEP 3 完了後に自動実行）
+  記事タイトル・テーマからカバー画像（SVG）を自動生成
+  → output/covers/ に .svg を書き出し
+  → 「確認してOKなら投稿してください」と伝える
+
+[STEP 5] publish-agent
+  ユーザーが「OK」または「投稿して」と言ったら
+  api/post_article.py を自動実行 → Note に下書き投稿
+```
+
+### ユーザー承認フレーズ
+
+| フレーズ例 | 動作 |
+|:---|:---|
+| 「〇番を深掘りして」「これで深掘りして」 | STEP 1 → STEP 2 |
+| 「構成OK」「この構成で」 | STEP 2 → STEP 3（→ STEP 4 も自動） |
+| 「OK」「投稿して」 | STEP 5 を自動実行 |
+
+### ステップ間の引き継ぎ
+
+- 各ステップ完了時にコンパクトな JSON を出力する
+- 次のエージェントは前ステップの JSON を読んで続きを実行する
+- ユーザーの承認なく次のステップに進まない（STEP 3→4 のみ自動）
 
 ---
 
 ## Note記事の構造ルール
 
-### 基本構造（全記事で統一する）
+### 基本構造
 
 ```
 # タイトル
 
-## はじめに
-（読者の共感を呼ぶ問い・状況の描写。3〜5文）
+## はじめに（3〜5文）
 
-## 本題のセクション①
-## 本題のセクション②
-## 本題のセクション③
-（セクション数は内容に応じて2〜5個）
+## 本題セクション①〜③（2〜5個）
 
-## まとめ
-（この記事で伝えたかったことを3点以内で）
+## まとめ（3点以内）
 
-## おわりに
-（読者への一言。著者の温かみのある締め方）
+## おわりに（温かみのある締め）
 ```
-
-### セクションのルール
-
-- セクション見出しは `##`（h2）を使う
-- セクション内の小見出しは `###`（h3）を使う
-- h4以下は使わない（Noteでは読みにくい）
-- 1セクションの目安：400〜800文字
 
 ### Note固有の制限
 
-- 文字数：1記事あたり1,500〜4,000文字が読まれやすい
-- コードブロック：使ってよいが1記事に3箇所以内
-- 画像・図：Mermaidは使わない（Noteで表示されない）
-- 太字：1段落に1〜2箇所まで（多すぎると読みにくい）
-- リスト：連続して5項目以上は避ける（散文に変換を検討）
-
----
-
-## 記事の一貫性ルール
-
-複数記事にまたがる一貫性を保つために以下を守る：
-
-- 著者の語り口は全記事で統一する（author-voice.md に従う）
-- 専門用語を使う場合は記事内で必ず定義する
-- 「前回の記事で」という参照は使わない（各記事は単独で完結）
-- シリーズ記事の場合は冒頭に「このシリーズについて」を1文入れる
+- 文字数：1,500〜4,000文字
+- コードブロック：3箇所以内
+- Mermaid：使わない（表示されないため）
+- 見出し：h2・h3 のみ（h4以下は使わない）
+- 太字：1段落2箇所以内
+- リスト：連続5項目以上は散文に変換
 
 ---
 
 ## 品質チェックリスト（生成後に必ず確認）
 
-### 構造チェック
-- [ ] 基本構造（はじめに・本題・まとめ・おわりに）が揃っているか
-- [ ] セクション見出しが h2・h3 のみか（h4以下を使っていないか）
-- [ ] 1記事が1,500〜4,000文字の範囲か
-- [ ] コードブロックが3箇所以内か
-
-### Note品質チェック
-- [ ] Mermaidを使っていないか
-- [ ] 太字が1段落に2箇所以内か
-- [ ] 5項目以上の連続リストがないか
-
-### 著者の人格チェック
+- [ ] 基本構造が揃っているか
+- [ ] 1,500〜4,000文字の範囲か
+- [ ] Mermaidを使っていないか / コードブロック3箇所以内か
 - [ ] 「〜すべき」「〜べきです」がないか
-- [ ] 否定的なラベルがないか
 - [ ] 著者の口癖が2〜3箇所散りばめられているか
-- [ ] おわりにが温かみのある締め方になっているか
-
-### Markdown品質チェック
-- [ ] 太字・コードブロックの閉じ忘れがないか
-- [ ] メモ書き・TODOが残っていないか
+- [ ] メモ書き・執筆指示コメントが残っていないか
 
 ---
 
-## ワークフロー一覧
+## エージェント一覧
 
-### ① テーマから記事を生成する（既存）
-
-```
-「〇〇についての記事を書いて」と伝える
-→ article-agent.md が実行される
-→ output/ に .md ファイルが生成される
-```
-
-### ② GeminiのURLからNoteに投稿する（新規）
-
-```
-「このGeminiのURLでお願い」と伝える
-→ gemini-to-note-agent.md が実行される
-→ ① 記事テキストを取得
-→ ② カバー画像を生成・ダウンロード
-→ ③ Noteに下書きとして投稿
-→ 完了通知
-```
-
-詳細は `agents/gemini-to-note-agent.md` を参照。
-
-### ③ Note記事をXで紹介投稿する
-
-```
-「この記事をポスト：{Note記事のURL}」と伝える
-→ note-to-x-agent.md が実行される
-→ ① Note記事を取得・要約
-→ ② X投稿文を生成（読者が得られることを200文字以内で）
-→ ③ Claude in Chrome でXに投稿
-→ 完了通知（投稿テキスト・文字数を報告）
-```
-
-詳細は `agents/note-to-x-agent.md` を参照。
+| エージェント | 役割 | 使用ツール |
+|:---|:---|:---|
+| **idea-agent** | SEOリサーチ＋アイデア提案 | WebSearch |
+| **structure-agent** | 記事構成の作成 | Read/Write |
+| **draft-agent** | 本文ドラフト生成 | Write |
+| **cover-agent** | カバーSVG生成（自動） | Write |
+| **publish-agent** | Note投稿 | Bash（Python実行） |
+| review-agent | 品質レビュー | Read |
+| gemini-to-note-agent | GeminiURL→Note投稿 | ブラウザ操作 |
+| note-to-x-agent | Note記事→X紹介投稿 | WebFetch／ブラウザ |
 
 ---
 
@@ -135,20 +115,31 @@
 
 ```
 note/
-├── CLAUDE.md                      ← このファイル
-├── .claude/hooks/
-│   └── post-article.sh            ← 記事生成後チェック
+├── CLAUDE.md
 ├── agents/
-│   ├── article-agent.md           ← ①テーマ→記事生成 担当
-│   ├── gemini-to-note-agent.md    ← ②GeminiURL→Note投稿 担当
-│   ├── note-to-x-agent.md         ← ③Note記事→X紹介投稿 担当
-│   └── review-agent.md            ← レビュー担当
+│   ├── idea-agent.md          ← STEP 1
+│   ├── structure-agent.md     ← STEP 2
+│   ├── draft-agent.md         ← STEP 3
+│   ├── cover-agent.md         ← STEP 4（自動）
+│   ├── publish-agent.md       ← STEP 5
+│   ├── review-agent.md
+│   ├── gemini-to-note-agent.md
+│   └── note-to-x-agent.md
 ├── skills/
-│   └── article-writer.md          ← 記事執筆手順
+│   ├── article-writer.md
+│   ├── seo-research.md        ← NEW
+│   └── cover-design.md        ← NEW
 ├── templates/
-│   └── article-template.md        ← 記事テンプレート
+│   ├── article-template.md
+│   ├── idea-proposal-template.md  ← NEW
+│   └── structure-template.md      ← NEW
+├── api/
+│   ├── post_note_draft.py     ← 既存（参考）
+│   └── post_article.py        ← NEW（引数対応版）
 └── output/
-    ├── images/                    ← 生成した画像の保存先（新規）
-    ├── article-001.md
-    └── ...
+    ├── ideas/        ← STEP 1 出力
+    ├── structures/   ← STEP 2 出力
+    ├── articles/     ← STEP 3 出力
+    ├── covers/       ← STEP 4 出力
+    └── images/
 ```
