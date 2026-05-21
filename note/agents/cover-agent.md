@@ -3,8 +3,10 @@
 ## 役割
 
 draft-agent 完了後に自動実行される。
-記事タイトル・テーマから SVG を生成し、Python で PNG に変換して
+Gemini に画像生成を依頼し、生成された画像を取得して
 `output/covers/cover-NNN.png` に保存する。
+
+> ⚠️ このエージェントはブラウザ操作を使用するため、ローカルの Claude Desktop で実行すること。
 
 ---
 
@@ -18,94 +20,64 @@ draft-agent の完了 JSON：
 
 ---
 
+## ⚠️ 通信量節約の原則
+
+| ❌ 禁止 | ✅ やること |
+|:---|:---|
+| 各ステップでスクリーンショット | 画像保存確認の1枚のみ |
+| get_page_text 全体取得 | find で必要な要素だけ取得 |
+| wait を長くとりすぎる | 画像生成中は wait 15秒、それ以外は wait 3秒 |
+
+---
+
 ## 実行手順
 
-### ステップ1：準備
+### ステップ1：画像生成プロンプトを作る
 
-以下を読む：
+記事タイトルとキーワードから以下の形式でプロンプトを生成する：
 
-1. `skills/cover-design.md`（カラーパレット・レイアウトルール）
-2. draft-agent の完了 JSON
+```
+Note記事のカバー画像を作成してください。
 
-### ステップ2：デザイン方針を決める
-
-`cover-design.md` のテーマ別カラーパレットから背景色・アクセントカラーを選ぶ。
-タイトルの文字数を確認して1行 or 2行（`<tspan>` 改行）を決める（目安：20文字/行）。
-
-### ステップ3：SVG を生成して書き出す
-
-`cover-design.md` の SVG 雛形をベースに、タイトル・サブテキストを埋め込んだ
-SVG を生成し、`output/covers/cover-NNN.svg` に書き出す。
-（NNN は記事番号に合わせる）
-
-仕様：幅 1280px、高さ 670px（16:9）
-
-### ステップ4：Pillow で PNG を直接生成する（自動実行）
-
-SVG 経由ではなく Pillow で直接 PNG を生成する。
-（cairosvg は日本語フォントを正しく描画できないため使用しない）
-
-日本語フォント：`/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf`
-
-```bash
-pip install Pillow -q && python3 << 'PYEOF'
-from PIL import Image, ImageDraw, ImageFont
-
-# cover-design.md のテーマ別カラーから選んだ値を使う
-W, H   = 1280, 670
-BG     = (26, 26, 46)     # テーマに合わせて変更
-ACCENT = (74, 158, 255)   # テーマに合わせて変更
-WHITE  = (255, 255, 255)
-SUBCLR = (176, 184, 200)
-CREDIT = (108, 122, 141)
-
-img  = Image.new("RGB", (W, H), BG)
-draw = ImageDraw.Draw(img)
-
-font_path = "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf"
-f_title  = ImageFont.truetype(font_path, 58)
-f_sub    = ImageFont.truetype(font_path, 32)
-f_credit = ImageFont.truetype(font_path, 24)
-
-# 装飾円（半透明は Pillow では RGBA レイヤーで対応）
-overlay = Image.new("RGBA", (W, H), (0,0,0,0))
-od = ImageDraw.Draw(overlay)
-od.ellipse([(-120,-120),(300,300)], fill=(*ACCENT, 20))
-od.ellipse([(1050,450),(1380,780)], fill=(*ACCENT, 15))
-img.paste(Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB"))
-
-draw = ImageDraw.Draw(img)
-draw.line([(100, H//2),(W-100, H//2)], fill=(*ACCENT, 80), width=1)
-
-# タイトル行（最大4行、1行20文字目安で分割）
-lines = [
-    "【ソフトウェア設計】",   # 1行目はアクセントカラー
-    "（タイトル1行目）",
-    "（タイトル2行目）",
-]
-line_h = 72
-start_y = (H - line_h * len(lines)) // 2 - 30
-for i, line in enumerate(lines):
-    bbox = draw.textbbox((0,0), line, font=f_title)
-    x = (W - (bbox[2]-bbox[0])) // 2
-    color = tuple(ACCENT) if i == 0 else WHITE
-    draw.text((x, start_y + i * line_h), line, font=f_title, fill=color)
-
-# サブテキスト
-sub = "デザインパターン ／ ソフトウェア設計"
-bbox = draw.textbbox((0,0), sub, font=f_sub)
-draw.text(((W-(bbox[2]-bbox[0]))//2, start_y + line_h*len(lines)+24), sub, font=f_sub, fill=SUBCLR)
-
-# 著者クレジット
-draw.text((60, H-48), "note.com/kumachan1101", font=f_credit, fill=CREDIT)
-
-img.save("note/output/covers/cover-NNN.png")
-print("PNG生成完了")
-PYEOF
+【条件】
+- サイズ：横長（16:9）
+- テーマ：ソフトウェア設計・デザインパターン
+- 記事タイトル：{title}
+- キーワード：{keywords}
+- スタイル：ダークトーン、プロフェッショナル、テクノロジー感のある抽象的なデザイン
+- テキストは入れない（タイトル文字は不要）
+- クラス図・ノード・接続線などソフトウェア設計を連想させる抽象的なビジュアル
+- 色調：ネイビー・ブルー系をベースに赤やオレンジのアクセント
 ```
 
-失敗した場合は `cover_png_available: false` を JSON に含め、
-publish-agent へ「カバーのブラウザアップロードをスキップ」と伝える。
+### ステップ2：Gemini を開いてプロンプトを送る
+
+1. `tabs_create_mcp` で新しいタブを作成する
+2. `https://gemini.google.com` に移動する（wait 3秒）
+3. ログイン済みであることを確認する
+   - 未ログインの場合はユーザーに通知して停止する
+4. テキスト入力欄にステップ1で作成したプロンプトをペーストして送信する（wait 15秒）
+   - Gemini の画像生成が完了するまで待つ
+
+### ステップ3：生成された画像をダウンロードする
+
+1. 生成された画像を `find` で特定する
+2. 画像を右クリック → 「名前を付けて画像を保存」 または
+   `javascript_tool` で画像の src URL を取得してダウンロードする：
+
+```javascript
+// 生成画像のURLを取得
+const img = document.querySelector('img[src*="lh3.googleusercontent"]')
+  || document.querySelector('.generative-image img')
+  || document.querySelector('[data-image-src]');
+img ? img.src : 'not found';
+```
+
+3. 取得した URL から画像をダウンロードして `output/covers/cover-NNN.png` に保存する
+
+### ステップ4：SVG は生成しない
+
+Gemini 生成画像を PNG としてそのまま使用する。SVG は不要。
 
 ### ステップ5：完了報告
 
@@ -114,11 +86,9 @@ publish-agent へ「カバーのブラウザアップロードをスキップ」
   "agent": "cover-agent",
   "status": "complete",
   "cover": {
-    "svg": "note/output/covers/cover-NNN.svg",
-    "png": "note/output/covers/cover-NNN.png",
-    "cover_png_available": true,
-    "width": 1280,
-    "height": 670
+    "file": "output/covers/cover-NNN.png",
+    "source": "gemini",
+    "cover_png_available": true
   },
   "next": "publish-agent（ユーザーのOKを待つ）"
 }
@@ -127,7 +97,7 @@ publish-agent へ「カバーのブラウザアップロードをスキップ」
 完了後にユーザーへ以下を伝える：
 
 ```
-記事ドラフトとカバー画像が完成しました。
+記事ドラフトとカバー画像（Gemini生成）が完成しました。
 
 📄 記事：note/output/articles/article-NNN.md
 🎨 カバー：note/output/covers/cover-NNN.png
@@ -135,3 +105,14 @@ publish-agent へ「カバーのブラウザアップロードをスキップ」
 内容をご確認いただき、問題なければ「OK」または「投稿して」とお伝えください。
 Note に記事を投稿し、カバー画像も自動でアップロードします。
 ```
+
+---
+
+## エラー時の対応
+
+| エラー | 対応 |
+|:---|:---|
+| Gemini 未ログイン | ログインを促してから再実行する |
+| 画像生成に失敗（エラーメッセージ表示） | プロンプトを短くして再試行（1回まで） |
+| 画像 URL が取得できない | スクリーンショットを撮ってユーザーに確認を求める |
+| 画像の縦横比が合わない | Gemini 再生成を依頼し「横長16:9」を強調する |
