@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="670" viewBox="0 0 1280 670">
+  <!-- 背景 -->
+  <rect width="1280" height="670" fill="#16213e"/>
+
+  <!-- 装飾：左上の大きな円 -->
+  <circle cx="80" cy="80" r="220" fill="#e94560" opacity="0.08"/>
+
+  <!-- 装飾：右下の円 -->
+  <circle cx="1220" cy="610" r="180" fill="#e94560" opacity="0.10"/>
+
+  <!-- 装飾：中央の細いライン -->
+  <line x1="120" y1="335" x2="1160" y2="335" stroke="#e94560" stroke-width="1" opacity="0.20"/>
+
+  <!-- メインタイトル（3行） -->
+  <text
+    text-anchor="middle"
+    font-family="'Hiragino Kaku Gothic ProN','Hiragino Sans','BIZ UDPGothic',sans-serif"
+    font-size="62" font-weight="700" fill="#ffffff"
+  >
+    <tspan x="640" dy="0" y="230">「パターンを覚えたのに、</tspan>
+    <tspan x="640" dy="80">コードに使えない」と</tspan>
+    <tspan x="640" dy="80">感じていた頃のこと</tspan>
+  </text>
+
+  <!-- サブテキスト -->
+  <text
+    x="640" y="490"
+    text-anchor="middle"
+    font-family="'Hiragino Kaku Gothic ProN','Hiragino Sans','BIZ UDPGothic',sans-serif"
+    font-size="30" font-weight="400" fill="#b0b8c8"
+  >デザインパターン ／ ソフトウェア設計</text>
+
+  <!-- 著者クレジット -->
+  <text
+    x="60" y="645"
+    font-family="'Hiragino Kaku Gothic ProN','Hiragino Sans','BIZ UDPGothic',sans-serif"
+    font-size="24" font-weight="400" fill="#6c7a8d"
+  >note.com/kumachan1101</text>
+</svg>
