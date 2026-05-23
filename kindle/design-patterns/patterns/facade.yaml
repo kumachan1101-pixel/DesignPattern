@@ -6,46 +6,48 @@ pattern:
   name: Facade
   chapter: 2
   subtitle: "使う側に知らせない勇気"
-  tagline: "複数の具体クラスへの依存を一本化し、変更の飛び火を防ぐ"
+  tagline: "複数の具体クラスへの依存を一本化し、変更の影響範囲を限定する"
   change_type: "使う側が知らなくていいことまで知っている（依存の過多）"
 
 scenario:
-  domain: "月次給与バッチシステム"
+  domain: "ネット銀行の振り込み処理"
   system_overview: |
-    毎月末に全社員の給与処理を完了させる月次バッチシステム。
-    MonthlyBatch クラスが起動し、3つの外部サービスと連携して処理を完了させる。
-    - LaborMgmtService：勤怠時間を集計する
-    - PayrollService：給与額を計算する（JSON形式でAPIを受け付ける）
-    - PdfService：給与明細PDFを生成する
+    口座番号と金額を受け取り、振り込みを完了させる処理モジュール。
+    TransferApplication クラスが呼び出し元から使われ、
+    4つのサービスと連携して処理を完結させる。
+    - BalanceService：口座残高を確認する
+    - TransferService：振り込みを実行する（外部銀行APIと接続）
+    - AuditService：取引記録をDBに保存する
+    - NotificationService：振り込み完了をメールで通知する
   current_spec:
-    - "MonthlyBatch が毎月末に run(year, month) を呼び出す"
-    - "LaborMgmtService.getWorkHours(id, year, month) で実働時間を取得する"
-    - "PayrollService.calculateV1(json, hours) で給与額を計算する（JSON形式の引数）"
-    - "PdfService.generate(id, amount) で明細PDFを生成する"
-    - "計算結果を保存して処理完了とする"
+    - "TransferApplication::execute(fromId, toId, amount) が呼び出し元から呼ばれる"
+    - "BalanceService.check(accountId) で残高が十分かを確認する"
+    - "TransferService.sendV1(fromId, toId, amount, 'JPY') で振り込みを実行する"
+    - "AuditService.record(fromId, toId, amount) で取引記録を保存する"
+    - "NotificationService.send(fromId, amount) で完了通知を送る"
   situation:
     who: "インフラ担当から"
-    what: "PayrollServiceがv2になります。引数形式が calcSalary(employeeId, hours) に変わります。JSONは不要です"
-    deadline: "次の四半期"
+    what: "TransferServiceが外部銀行APIのv2に切り替わります。メソッド名が transfer(request) に変わり、引数はRequestオブジェクトになります"
+    deadline: "来月の切り替えまでに"
 
 observations:
-  - "MonthlyBatchが PayrollServiceのAPI形式（JSONの組み立て方）を知っている"
-  - "PayrollServiceのAPIバージョン名（calculateV1）まで呼び出し元のコードに出現している"
-  - "PayrollServiceのAPI形式という『PayrollServiceの責任』がMonthlyBatchの中に染み出している"
-  - "同じ染み出しが MonthlyBatch・PayslipExporter・OvertimeAlertJob の3ファイルに存在する"
+  - "TransferApplication が TransferService のメソッド名・引数形式を直接知っている"
+  - "TransferServiceのAPI形式という『TransferServiceの責任』がTransferApplicationの中に染み出している"
+  - "同じ染み出しが TransferApplication・ScheduledTransferJob・BulkTransferBatch の3ファイルに存在する"
+  - "v2切り替えで3ファイル全てを修正しなければならない"
 
-trial_approach: "PayrollServiceのAPI呼び出しをラッパーメソッドで包んでMonthlyBatchから隠す"
+trial_approach: "TransferServiceの呼び出しをラッパーメソッドに切り出してTransferApplicationから隠す"
 trial_limits:
-  - "MonthlyBatchが依然としてPayrollServiceの具体クラスを直接知っている"
-  - "別のクラス（PayslipExporter等）でも同じ問題が残る"
+  - "TransferApplicationが依然としてTransferServiceの具体クラスを直接知っている"
+  - "ScheduledTransferJob・BulkTransferBatch にも同じ問題が残る"
 
 advanced_scenario:
-  what: "将来、社員IDの型をintからstringに変えたい（外部システム統合の可能性）"
+  what: "将来、口座IDの型をintからstringに変えたい（海外口座統合の可能性）"
   extension: |
-    社員IDが変わると ILaborMgmtService・IPayrollService・IPaySlipOutputService の
-    3つのインターフェース全てのシグネチャが変わる。
+    口座IDの型が変わると IBalanceService・ITransferService・IAuditService・INotificationService の
+    4つのインターフェース全てのシグネチャが変わる。
     こういう状況では「型をどう扱うかをチームで先に合意する」という問いを立てる。
-    選択肢：①現状int固定で合意する ②独自型（EmployeeId）で表現する ③void*で汎用化する
+    選択肢：①現状int固定で合意する ②独自型（AccountId）で表現する
   difficulty_type: "パターンB：インターフェースのシグネチャ自体が変わるリスク"
 
 threshold:
@@ -56,6 +58,3 @@ threshold:
   skip_when:
     - "外部サービスが1つだけで、変更頻度が低い"
     - "呼び出し元が1箇所しかなく、将来的に増える見込みがない"
-
-next_chapter:
-  preview: "次章では「状態によって振る舞いが変わる」という別の種類の変化を扱います"

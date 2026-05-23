@@ -258,11 +258,11 @@ Email sent to admin@example.com : バッチ連携完了
 
 |**コードの行**|**持っている知識**|**責任内か（誰の責任か）**|
 |---|---|---|
-|`apiClient = new SalesApiClient();` 等|利用する具体的な具象クラスとその生成手順|✗ 組み立てる側の責任（Factoryや外部インジェクション）|
-|`fetchCsvData("https://api...");`|接続先のURLと、取得手段がCSVであること|✗ 設定管理とAPI通信クラスの責任|
-|`xmlPayload = "<SalesData>...";`|連携先が要求する独自のXMLデータフォーマット|✗ データ変換（Adapter）の責任|
-|`erpClient->sendSoapRequest(...);`|ERPへの連携手段がSOAPプロトコルであること|✗ ERP通信クラスの責任|
-|`emailNotifier->sendEmail(...);`|通知手段がメールであることと、送信先のメアド|✗ 通知クラスの責任|
+|`apiClient = new SalesApiClient();` 等|利用する具体的な具象クラスとその生成手順|❌ 組み立てる側の責任（Factoryや外部インジェクション）|
+|`fetchCsvData("https://api...");`|接続先のURLと、取得手段がCSVであること|❌ 設定管理とAPI通信クラスの責任|
+|`xmlPayload = "<SalesData>...";`|連携先が要求する独自のXMLデータフォーマット|❌ データ変換（Adapter）の責任|
+|`erpClient->sendSoapRequest(...);`|ERPへの連携手段がSOAPプロトコルであること|❌ ERP通信クラスの責任|
+|`emailNotifier->sendEmail(...);`|通知手段がメールであることと、送信先のメアド|❌ 通知クラスの責任|
 
 このように確認していくと、`SalesSyncBatch` は業務の進行順序を管理する立場でありながら、「どのURLにアクセスするか」「どんな形式のデータか」「どのプロトコルで通信するか」さらには「部品をどうやって作るか」といった、**外部システムの具体的な実装詳細という余計なことまで知りすぎている**ことが分かります。
 
@@ -598,9 +598,9 @@ public:
 
 |**コードの行**|**持っている知識**|**責任内か**|
 |---|---|---|
-|`mockAdapter = new ...` 等|どの具象クラスを使うかという「生成」の知識|✗ 組み立てる側の責任|
-|`if (currentEnv == "test")`|実行環境の違いと、それに紐づく部品の選択ルール|✗ 工場（Factory）の責任|
-|`slackNotifier->sendSlack()`|通知先としてSlackが存在し、専用のメソッドがあること|✗ 購読者（Observer）の管理責任|
+|`mockAdapter = new ...` 等|どの具象クラスを使うかという「生成」の知識|❌ 組み立てる側の責任|
+|`if (currentEnv == "test")`|実行環境の違いと、それに紐づく部品の選択ルール|❌ 工場（Factory）の責任|
+|`slackNotifier->sendSlack()`|通知先としてSlackが存在し、専用のメソッドがあること|❌ 購読者（Observer）の管理責任|
 
 この構造の最大の弱点は、「呼び出し元が、依存先の変更理由を引き継いでしまう」という点にあります。
 

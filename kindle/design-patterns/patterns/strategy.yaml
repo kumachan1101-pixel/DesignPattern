@@ -6,7 +6,7 @@ pattern:
   name: Strategy
   chapter: 1
   subtitle: "役割を分かち合い、共に歩む"
-  tagline: "巨大な条件分岐から「振る舞い」を独立させ、安心を取り戻す"
+  tagline: "変わる振る舞いを識別して独立させ、変更の影響範囲を限定する"
   change_type: "実行する「振る舞い（アルゴリズム）」が変わる"
 
 scenario:
@@ -36,11 +36,14 @@ observations:
 trial_approach: "割引率や割引額を引数として外から渡してもらう"
 trial_limits:
   - "複雑な条件（100個以上の時だけ）を数値1つで表現しきれない"
-  - "計算を決める巨大なif文が呼び出し元に移動しただけで、問題は解消されない"
+  - "計算を決めるif文が呼び出し元に移動しただけで、問題は解消されない"
 
 advanced_scenario:
   what: "複数の割引ルールを順番に重ねて適用したい（秋セール＋会員割引＋クーポン）"
-  extension: "std::vector<unique_ptr<BillingRule>>で複数ルールを順次適用する形に拡張する"
+  extension: |
+    BillingRule* のリストを BillingRuleChain クラスで持ち、
+    順番に apply(amount) を呼ぶ形に拡張する。
+    「ルールをオブジェクトとして持つ」ことで、組み合わせが自然に表現できる。
   difficulty_type: "パターンA：複数のルールを組み合わせる必要が出た"
 
 threshold:
@@ -52,5 +55,3 @@ threshold:
     - "2〜3個の固定された分岐で今後も変わる予定がない"
     - "1人で全容を把握できる規模のコード"
 
-next_chapter:
-  preview: "次章では「通知を受け取る相手が変わる」という別の種類の変化を扱います"
