@@ -1,1240 +1,858 @@
-# 第2章　複雑な外部連携をどうシンプルにするか（Facade）
-―― 思考の型：「各クラスの責任を把握し、責任外の関心を切り出す」
+## 第2章・Facade・ネット銀行の振り込み処理
 
-> **この章の核心**
-> あるクラスが自分の責任ではない知識を持つと、
-> その知識の持ち主が変わるたびに道連れになる。
-> 責任を明確にし、変わる理由を1つに絞ることが、変更に強い設計への入り口だ。
+### 前-1：章タイトル
 
-> [!INFO] レゴブロックで考える：Facadeパターン
-> この章のパターンは、レゴブロックの**「まとめる」**操作に対応しています。
-> 複数の外部システムへの窓口を「1つのブロックにまとめて」シンプルにします。散らばった複雑さを1つの入り口に集約するイメージです。
-> コードでも同じように、複雑な依存関係を1つのFacadeクラスの裏に隠し、呼び出し元はシンプルなインターフェースだけ知っていれば済む構造を作ります。
----
+**変わる処理の組み合わせ ―― Facade パターン**
 
----
-## この章を読むと得られること
+### 前-2：核心
 
-- 「使う側が知らなくていいこと」を知ってしまっているクラスを、コードの中から発見できるようになる
-- 外部サービスの変更が内部実装に飛び火するパターンを、構造によって防ぐFacadeの設計を作れるようになる
-- Facadeが過剰になる状況（外部依存が1つしかない場合、変更予定がない場合）を判断し、最小コストの代替案との使い分けができるようになる
-- 変更要求が来たとき「どのクラスに知らせないか」を設計の出発点として考えられるようになる
+**複雑な外部システムの仕様変更が、私たちのビジネスロジック全体に波及してしまう。それは、相手の「詳細な使い方」を私たちが直接知りすぎているからだ。**
 
+### 前-3：得られること
 
-## ステップ0：システムを把握し、仮説を立てる ―― クラス構成を見てから「変わりそうな場所」を予測する
+* **得られること1：** 「依存の広がり」という観点で、コードの波及範囲を識別できるようになる
+* **得られること2：** 接続点が「具体×間接」になっていないクラスを見て、そこが変更の痛みの発生源だと判断できるようになる
+* **得られること3：** 複雑な呼び出し手順をカプセル化することで、クライアントコードをスッキリ保つ方法を説明できるようになる
+* **得られること4：** 外部システムと自社システムの境界線（窓口）をどこに引くべきか判断できるようになる
 
-> **入力：** システムのシナリオ説明 ＋ クラス構成の概要（仕様表・責任一覧）。実装コードはまだ読まない。
-> **産物：** 変動と不変の「仮説テーブル」
+## 🔵 フェーズ1：現状把握 ―― 変更が来る前にコードを把握する
 
-**全パターンに共通する問い**
+システム全体がどのような仕様で動き、どう実装されているのかをフラットな視点で確認していきましょう。まずはこのシステムの背景から見ていきます。
 
-> 「このコードの中に、**『変わる理由』が異なる2つのものが、
-> 同じ場所に混在していないか？」**
+### 1-1：システムの背景
 
-「変わる理由」とは **「誰の判断で変わるか」** のことです。
-答えが2人以上になるなら、「変わる理由」が複数混在しています。
+このシステムは、あるネット銀行の振り込み処理を自動化するためのものです。銀行のシステムは非常に堅牢で、安全に送金を行うために、口座情報の確認、残高チェック、手数料の計算、そして実際の送金指示という、いくつもの手順を正しい順番で実行する必要があります。
 
-### 2.0 この章のシステム構成と仮説
+開発チームは、この銀行のAPIを直接叩いて振り込みを行うプログラムをメンテナンスしています。当初は単純な送金機能だけでしたが、最近では、振り込み先に応じた送金限度額の確認や、二要素認証の呼び出しなど、銀行側から求められるセキュリティ要件が年々厳しくなってきました。
 
-**この章で扱うシステム：**
-毎月末に全社員の給与処理を完了させる月次バッチシステムです。
-`MonthlyBatch` クラスが起動し、3つの外部サービス（勤怠管理・給与計算・明細出力）を呼び出して処理を完了させます。
+当時の担当者が、銀行側の複雑な仕様と納期の中で必死につないできた跡が、このコードには詰まっています。このコードが今日まで銀行との安全な取引を支えてきたという事実は、まず率直に認めたいと思います。
 
-**仕様表（何ができるシステムか）**
+一見すると、このプログラムは一つのクラスの中に必要な手順がすべて網羅されており、手続き通りに順番を追えば良いため、うまく整理されているように見えます。必要な手続きはすべて揃っており、コードを上から下に読めば何が起きているか理解できるため、当初はこれで十分だったのかもしれません。
 
-| 機能 | 担当クラス | 入力 | 出力 |
-|---|---|---|---|
-| 勤怠取得 | LaborMgmtService | 社員ID・年・月 | 実働時間 |
-| 給与計算 | PayrollService | 社員情報JSON・実働時間 | 給与額 |
-| 明細生成 | PdfService | 社員ID・給与額 | PDFファイル名 |
-| 処理統括 | MonthlyBatch | 年・月 | （記録・出力） |
+### 1-2：仕様表
 
-**クラス構成の概要**
+このシステムが現在持っている機能を整理してみましょう。
+
+| **機能名** | **担当クラス** | **入力** | **出力** |
+| --- | --- | --- | --- |
+| 振り込みの全体制御 | `TransferProcessor` | 振り込み依頼情報（送金先・金額） | 処理結果（成功・失敗） |
+| 銀行システムとの通信 | `BankGateway` | APIリクエスト（口座情報等） | APIレスポンス |
+| セキュリティ認証 | `SecurityAuthenticator` | 認証トークン | 認証ステータス |
+
+### 1-3：クラス構成図
+
+現状のコードがどのような構成になっているかを見てみましょう。`TransferProcessor` が銀行システムの機能に深く依存している様子が見て取れます。
 
 ```mermaid
 classDiagram
-    class MonthlyBatch {
-        -payroll_: PayrollService
-        -labor_: LaborMgmtService
-        -pdf_: PdfService
-        +run(year, month)
+    class TransferProcessor {
+        -BankGateway gateway
+        -SecurityAuthenticator auth
+        +transfer(toAccount, amount)
     }
-    class PayrollService {
-        +calculateV1(json, hours) double
+    class BankGateway {
+        +verifyAccount(account)
+        +checkBalance(account)
+        +executeTransfer(account, amount)
     }
-    class LaborMgmtService {
-        +getWorkHours(id, y, m) double
+    class SecurityAuthenticator {
+        +requestOTP()
+        +verifyOTP(token)
     }
-    class PdfService {
-        +generate(id, amount) string
-    }
+    
+    TransferProcessor --> BankGateway : 使う
+    TransferProcessor --> SecurityAuthenticator : 使う
 
-    MonthlyBatch --> PayrollService : 直接依存
-    MonthlyBatch --> LaborMgmtService : 直接依存
-    MonthlyBatch --> PdfService : 直接依存
 ```
 
-*→ `MonthlyBatch` が3つの具体クラスを直接知っている。
-この「直接依存」が、のちの変更飛び火の原因になる。*
+このクラス図から、`TransferProcessor` クラスが `BankGateway` や `SecurityAuthenticator` といった、外部システムと通信するクラスを直接保持し、その複雑な手順を制御しているという事実が見えます。
 
-**各クラスの責任一覧**
+### 1-4：責任配置テーブル
 
-| クラス | 責任（1文） | 知るべきこと |
-|---|---|---|
-| `MonthlyBatch` | 月次給与処理のフローを完了させる | 年・月・処理の手順 |
-| `PayrollService` | 給与額を計算する | 計算ルール・自分のAPI形式 |
-| `LaborMgmtService` | 勤怠時間を集計する | 出退勤ログの集計方法 |
-| `PdfService` | 給与明細を出力する | ファイル命名規則・出力形式 |
+各クラスが「何を知るべきか」を定義します。
 
----
+| **クラス名** | **責任（1文）** | **知るべきこと** |
+| --- | --- | --- |
+| `TransferProcessor` | 振り込みの全体フローを進行する | 銀行との通信手順、認証手順の正しい呼び出し順 |
+| `BankGateway` | 銀行APIを呼び出し、口座や送金を操作する | APIの仕様、通信のプロトコル、リクエストの組み立て方 |
+| `SecurityAuthenticator` | 銀行システムの認証手順を制御する | 認証の手順、OTP（ワンタイムパスワード）の検証方法 |
 
-この構成を踏まえた上で、仮説を立てます。
-`MonthlyBatch` が3つの外部サービスに直接依存していることが見えています。
-どの部分が変わりやすく、どの部分は変わらないでしょうか。
+各クラスの責任と知識の定義が確認できました。この時点では、`TransferProcessor` が「銀行システムの使い方」をすべて知っているのは、送金という複雑な処理を完了させるために必要なことのように見えます。
 
-**変動と不変の仮説（実装コードを読む前に立てる）**
+### 1-5：依存グラフ
 
-| 分類 | 仮説 | 根拠（クラス構成から読み取れること） |
-|---|---|---|
-| 🔴 **変動する** | 各外部サービスのAPI仕様・引数形式 | 外部ベンダーの都合で変わる。3つの外部依存が直接見える |
-| 🔴 **変動する** | 給与計算の詳細アルゴリズム | 労務規則の改定で変わる |
-| 🟢 **不変** | 「月末に全社員の給与処理を完了する」業務フロー | 会社がある限り変わらない |
-| 🟢 **不変** | 「処理できたか」という結果の形 | 経理上の必須要件 |
-
-この仮説をステップ2（2.3）でヒアリング後に確定します。
-
----
-
-## ステップ1：実装コードを読む ―― 責任チェックで問題の行を見つける
-
-> **入力：** ステップ0で把握したクラス責任 ＋ 実際の実装コード
-> **産物：** 責任チェック表。「このクラスが持つべきでない知識」が混在している行の発見。
-
-### 2.1 実装コードと責任チェック
-
-ステップ0でクラスの責任は把握しました。
-ここでは実際の実装コードを読み、「責任通りに書かれているか」を1行ずつ確認します。
-
-**要するに複数のサービス呼び出しを1つの窓口に集め、呼び出し元の複雑な依存を隠すパターン。**
-
-```cpp
-// LaborMgmtService
-// 責任：「勤怠時間を管理する」
-class LaborMgmtService {
-public:
-    double getWorkHours(
-        int employeeId, int year, int month
-    );
-};
-
-double LaborMgmtService::getWorkHours(
-    int employeeId, int year, int month
-) {
-    // 出退勤ログを集計して実働時間を返す
-    // （ここでは固定値で代表）
-    return 172.5; // 2024年12月の実働時間
-}
-```
-
-LaborMgmtServiceが知っていること：社員IDと年月から実働時間を導く方法。
-給与の計算ルールも、PDFの生成方法も、関知しません。
-
-```cpp
-// PayrollService
-// 責任：「給与額を計算する」
-// API仕様：社員情報はJSON形式で受け取る（例: {"base":300000}）
-class PayrollService {
-public:
-    double calculateV1(
-        const std::string& employeeJson,
-        double workHours
-    );
-private:
-    double parseBaseSalary(const std::string& json);
-};
-
-double PayrollService::calculateV1(
-    const std::string& employeeJson,
-    double workHours
-) {
-    double base = parseBaseSalary(employeeJson);
-    // 160時間超は時給2500円で残業代を加算
-    double overtime = (workHours > 160.0)
-        ? (workHours - 160.0) * 2500.0
-        : 0.0;
-    return base + overtime;
-}
-
-double PayrollService::parseBaseSalary(
-    const std::string& json
-) {
-    // {"base":300000} → 300000.0
-    return 300000.0;
-}
-```
-
-PayrollServiceが知っていること：給与の計算ルールと、自分のAPI形式（JSON形式）。
-勤怠の集計方法も、PDF生成方法も、関知しません。
-
-```cpp
-// PdfService
-// 責任：「給与明細PDFを生成する」
-class PdfService {
-public:
-    std::string generate(int employeeId, double amount);
-};
-
-std::string PdfService::generate(
-    int employeeId, double amount
-) {
-    // ファイル名規則: slip_{社員ID}_{給与額}.pdf
-    return "slip_"
-        + std::to_string(employeeId)
-        + "_" + std::to_string((int)amount)
-        + ".pdf";
-}
-```
-
-PdfServiceが知っていること：ファイル命名規則とPDFのレイアウト。
-給与の計算方法も、勤怠の集計方法も、関知しません。
-
----
-
-これで3つのサービスの責任と実装が見えました。
-次に、これらを呼び出す `MonthlyBatch` を見ます。
-
-```cpp
-// MonthlyBatch（今の設計）
-// 責任のはず：「月次給与処理を完了させる」
-class MonthlyBatch {
-public:
-    void run(int year, int month);
-private:
-    PayrollService   payroll_;
-    LaborMgmtService labor_;
-    PdfService       pdf_;
-};
-
-void MonthlyBatch::run(int year, int month) {
-    int employeeId = 1001;
-
-    double hours = labor_.getWorkHours(
-        employeeId, year, month
-    );
-
-    // PayrollServiceのAPI仕様に従ってJSONを組み立てる
-    std::string json = "{\"base\":300000}";
-    double amount = payroll_.calculateV1(json, hours);
-
-    std::string slipFile = pdf_.generate(employeeId, amount);
-
-    saveResult(year, month, amount, slipFile);
-}
-
-int main() {
-    MonthlyBatch batch;
-    batch.run(2024, 12);
-    return 0;
-}
-```
-
-**実行結果：**
-```
-[LaborMgmt]    社員1001: 実働 172.5時間
-[Payroll]      基本給 300000円 + 残業 31250円 = 331250円
-[Pdf]          slip_1001_331250.pdf を生成
-[MonthlyBatch] 2024年12月 処理完了
-```
-
-動いています。では、**責任チェック**に入ります。
-
-**責任チェック：MonthlyBatchは自分の責任だけを持っているか**
-
-MonthlyBatchの責任は「月次給与処理を完了させること」です。
-その責任を果たすために、MonthlyBatchが「知るべきこと」は何でしょうか。
-
-> 対象の年・月。処理の流れ（勤怠取得→計算→明細生成→保存）。
-
-今のコードで `MonthlyBatch::run()` が「知っていること」を1行ずつ確認します。
-
-| コードの行 | 持っている知識 | MonthlyBatchの責任か |
-|---|---|---|
-| `labor_.getWorkHours(id, year, month)` | 勤怠取得の流れ | ○ 処理の流れとして自然 |
-| `"{\"base\":300000}"` のJSON組み立て | PayrollServiceのAPI形式 | **❌ PayrollServiceの責任** |
-| `payroll_.calculateV1(json, hours)` | APIメソッド名・バージョン | **❌ PayrollServiceの内部事情** |
-| `pdf_.generate(employeeId, amount)` | 引数の意味（id・amount） | △ 呼び出し自体は自然 |
-
-MonthlyBatchは `"{\"base\":300000}"` というJSON文字列を自分で組み立てています。
-このJSON形式を決めているのはPayrollServiceです。
-**PayrollServiceの責任（API仕様の定義）が、MonthlyBatchのコードの中に染み出しています。**
-
-これが「責任範囲外の関心が混在している」状態です。
-
----
-
-### 2.2 届いた変更要求
-
-以上の責任チェックを踏まえた上で、変更要求を受け取ります。
-
----
-
-**インフラ担当**：「PayrollServiceがv2になります。
-引数の形式が変わり、`calcSalary(employeeId, hours)` になります。
-JSONは不要です。」
-
-**開発者**：「PayrollServiceが変わっただけなのに、
-　　　　　　なぜMonthlyBatchを開いているのだろう…」
-
----
-
-責任チェックで確認した通り、PayrollServiceのAPI形式という
-「PayrollServiceの責任」がMonthlyBatchの中に染み出していたため、
-その持ち主（PayrollService）が変わればMonthlyBatchも変わります。
-
-**依存の広がり**
+次に、クラス間の「依存の方向」を確認します。
 
 ```mermaid
 graph TD
-    A[MonthlyBatch.cpp<br/>月次バッチ処理]
-    B[PayslipExporter.cpp<br/>明細出力処理]
-    C[OvertimeAlertJob.cpp<br/>残業アラートJob]
-    X[PayrollService<br/>給与計算サービス]
+    TP["TransferProcessor.cpp"] --> BG["BankGateway.cpp"]
+    TP --> SA["SecurityAuthenticator.cpp"]
 
-    A -->|直接依存| X
-    B -->|直接依存| X
-    C -->|直接依存| X
-
-    style X fill:#ffcccc,stroke:#cc0000
-    style A fill:#ffe8cc,stroke:#cc7700
-    style B fill:#ffe8cc,stroke:#cc7700
-    style C fill:#ffe8cc,stroke:#cc7700
 ```
 
-*→ PayrollServiceの都合がシステムのあちこちに侵食している。これが問題の全体像。*
+このグラフを見ると、`TransferProcessor` に銀行システムとの通信を担う `BankGateway` と、認証を担う `SecurityAuthenticator` の両方への依存が集中していることが分かります。
 
-```bash
-$ grep -r "PayrollService\|calculateV1" .
-MonthlyBatch.cpp:9      PayrollService payroll_;
-MonthlyBatch.cpp:24     payroll_.calculateV1(json, hours);
-PayslipExporter.cpp:7   PayrollService payroll_;
-PayslipExporter.cpp:19  payroll_.calculateV1(json, hours);
-OvertimeAlertJob.cpp:5  PayrollService payroll_;
-OvertimeAlertJob.cpp:15 payroll_.calculateV1(json, hours);
-# → 3ファイルにPayrollServiceの責任が染み出している
-```
+### 1-6：実装コード
 
----
-
-## ステップ2：仮説を確定する ―― 関係者ヒアリングで「変わる理由」に根拠をつける
-
-> **入力：** ステップ0の仮説 × ステップ1の責任チェック結果。関係者（インフラ担当・業務担当など）に直接確認する。
-> **産物：** 確定した変動/不変テーブル（「誰の判断で変わるか」明記）
-
-### 2.3 仮説の検証と変動/不変の確定
-
-ステップ0で「外部サービスのAPI仕様は変わりやすい」「業務フローは変わらない」という仮説を立てました。
-コードを読んだ結果、この仮説はコード上でも確認できます。
-しかし——**コードを読んだだけで「変わる」「変わらない」と断定するのは危険です。**
-
-変わるかどうかを知っているのは、そのサービスのオーナーだけだからです。
-
----
-
-**関係者ヒアリング**
-
-変動/不変を確定する前に、各サービスのオーナーに確認しました。
-
-> **開発者**：「PayrollServiceのAPIについて確認させてください。
-> 今後バージョンアップの予定はありますか？」
->
-> **インフラ担当**：「はい、次の四半期でv2への移行を予定しています。
-> 今のJSON形式の引数はなくなり、`calcSalary(employeeId, hours)` のシンプルな形になります。」
->
-> **開発者**：「LaborMgmtServiceの引数形式について確認させてください。
-> 社員IDの型（int）は今後変更になる可能性はありますか？」
->
-> **人事システム担当**：「現時点ではintのままですが、将来的に文字列IDに変わる
-> 外部システムとの統合の可能性があります。まだ確定していませんが。」
->
-> **開発者**：「給与明細の出力はPDFですが、将来フォーマットが変わる可能性はありますか？」
->
-> **経理担当**：「来年度からExcel出力の要望が上がっています。
-> 確定ではないですが、対応できれば嬉しいです。」
-
----
-
-この「社員IDの型変更リスク」には、一つ注意が必要です。
-社員IDは `ILaborMgmtService`・`IPayrollService`・`IPaySlipOutputService` の
-3つのインターフェースに共通して使われています。
-もし `int` から `string` に変わった場合、
-**3つのインターフェース全てのシグネチャが変わります**。
-「具体クラスの差し替え」を1箇所に局所化する構造を作っても、
-「インターフェース自体のシグネチャが変わる」状況では、その保護の外側に出てしまいます。
-こういう場合は、型をどう扱うかをチームで検討する必要があります。
-型変更リスクへの対処の選択肢は、2.10（耐久テスト）で改めて示します。
-
-チームで話し合う価値がある部分だと思います。
-このヒアリングがあって初めて、変動/不変テーブルに根拠が生まれます。
-
-| 分類 | 具体的な内容 | 変わるタイミング | 根拠 |
-|---|---|---|---|
-| 🔴 **変動する** | PayrollServiceのAPI仕様・バージョン | 次の四半期（確定） | インフラ担当への確認 |
-| 🔴 **変動する** | LaborMgmtServiceの引数形式 | 海外拠点統合時（可能性） | 人事システム担当への確認 |
-| 🔴 **変動する** | 給与明細の出力フォーマット | 来年度（可能性） | 経理担当への確認 |
-| 🟢 **不変** | 「給与処理を完了する」業務フロー | 変わる日は来ない | ビジネスの根幹ルール |
-
-> **設計の決断**：🟢 不変な業務フローを「契約（インターフェース）」として固定し、
-> 🔴 変動する各サービスの詳細は、それぞれのインターフェースの裏側に押し込む。
-
-**インターフェース命名の原則**：インターフェース名はビジネス上の責任で付ける。
-実装手段（PDF・メール等）で付けない。
-「給与明細を出力する」責任ならば `IPaySlipOutputService` ——
-PDFかExcelかはインターフェースの名前には現れない。
-
----
-
-## ステップ3：課題分析 ―― 変更が来たとき、どこが辛いかを確認する
-
-PayrollService が v2 になる場合の修正：
+このシステムは具体的にどのようなコードで動いているのでしょうか。振り込みを実行する起点となるコードを確認します。
 
 ```cpp
-// 変更前：MonthlyBatchがPayrollServiceのJSON形式を知っていた
-std::string json = "{\"base\":300000}";
-double amount = payroll_.calculateV1(json, hours);
+#include <iostream>
+#include <string>
 
-// 変更後：API形式が変わったのでMonthlyBatchも変更
-double amount = payroll_.calcSalary(employeeId, hours);
+// 銀行との通信を担うクラス
+class BankGateway {
+public:
+    void verifyAccount(const std::string& account) { std::cout << "口座確認: " << account << "\n"; }
+    void checkBalance(const std::string& account) { std::cout << "残高確認\n"; }
+    void executeTransfer(const std::string& account, int amount) { std::cout << "送金実行: " << amount << "円\n"; }
+};
+
+// 認証を担うクラス
+class SecurityAuthenticator {
+public:
+    void requestOTP() { std::cout << "認証コード発行\n"; }
+    void verifyOTP(const std::string& token) { std::cout << "認証コード検証\n"; }
+};
+
+// 振り込み処理クラス
+class TransferProcessor {
+private:
+    BankGateway gateway;
+    SecurityAuthenticator auth;
+public:
+    void transfer(const std::string& toAccount, int amount, const std::string& otp) {
+        // 銀行システムの複雑な手順を直接制御している
+        gateway.verifyAccount(toAccount);
+        gateway.checkBalance(toAccount);
+        
+        auth.requestOTP();
+        auth.verifyOTP(otp);
+        
+        gateway.executeTransfer(toAccount, amount);
+        std::cout << "振り込み完了\n";
+    }
+};
+
+int main() {
+    TransferProcessor processor;
+    processor.transfer("12345678", 5000, "999999");
+    return 0;
+}
+
 ```
 
-**「PayrollServiceの責任範囲が変わっただけ」で、
-MonthlyBatch（月次処理の本体）のコードを開いて変更しています。**
+このコードを見ると、`TransferProcessor` の `transfer` メソッドの中に、銀行APIの手順や認証のフローがそのまま書き込まれていることが分かります。
 
-MonthlyBatchの責任（月次処理の完了）は何も変わっていないのに。
+### 1-7：実行結果
 
-**変更影響グラフ（改善前）**
+上記のコードを実行すると、次のような結果が得られます。
+
+> 出力：
+> 口座確認: 12345678
+> 残高確認
+> 認証コード発行
+> 認証コード検証
+> 送金実行: 5000円
+> 振り込み完了
+
+このコードは正しく動きます。これから変えていくのは「機能」ではなく「構造」だ。
+
+### 1-8：責任チェック表
+
+コードの各行が「誰の判断で変わる知識か」を観察してみましょう。
+
+| **コードの行** | **持っている知識** | **管理者（観察）** |
+| --- | --- | --- |
+| `gateway.verifyAccount(toAccount);` | 銀行APIの口座確認手順 | 銀行側のシステム仕様変更で変わる |
+| `auth.requestOTP();` | 認証のための手順 | 銀行側のセキュリティポリシーで変わる |
+| `gateway.executeTransfer(toAccount, amount);` | 送金実行のAPI呼び出し方法 | 銀行側の送金仕様変更で変わる |
+
+`TransferProcessor` クラスの中に、銀行側のAPI仕様や認証手順という、外部システム由来の知識が色濃く混在している様子が見えてきます。
+
+要するに、銀行のAPI呼び出し手順や認証フローが `TransferProcessor` に埋め込まれているという観察から、「業務の流れ（振り込み）」と「外部システムの使い方（API通信や認証手順）」が同じ場所に混在しているという構造の問題が見えてくる。
+
+フェーズ1で責任配置の観察が終わりました。次のフェーズ2では、変更要求を受けて「何が変わり、何が変わらないか」の仮説を立てます。
+
+準備完了。それでは、第2章のフェーズ2を執筆します。
+
+---
+
+## 🟠 フェーズ2：仮説立案 ―― 変更要求を受けて、変動と不変を整理する
+
+フェーズ1で、銀行システムとの連携処理が `TransferProcessor` クラスに集中している現状を把握しました。このフェーズでは、実際に届いた変更要求を起点にして、「コードのどこが変わり、どこが変わらないか」を整理し、関係者とヒアリングを行いながら設計の方向性を定めます。
+
+### 2-1：届いた変更要求
+
+ある月曜日の朝、銀行のシステム担当者から緊急の連絡が入りました。
+
+「来月から、銀行のAPIの認証仕様が大幅に変更になります。これまでは単一のOTP（ワンタイムパスワード）認証だけで十分でしたが、今後は、まず『認証コードの発行』をリクエストし、その後、銀行から送られてくる『取引ID』とあわせて検証しなければなりません。」
+
+さらに、これに続いて「銀行側の送金APIのインターフェースもセキュリティ強化のため、送金時のパラメータに『トランザクションID』が必須になります」とのこと。
+
+リリースは来月の頭。既存の `TransferProcessor` クラスの中身を書き換え、認証手順や送金手順を今のコードの `transfer` メソッドに直接追加しようとすれば、あっという間に複雑なスパゲッティ状態になってしまうのは目に見えています。
+
+設計に絶対の正解はありません。だからこそ、この変更がどこまで広がるのか、慎重に見極める必要があります。
+
+### 2-2：変動・不変の仮説テーブル
+
+フェーズ1の観察（責任チェック表）を材料に、今回の変更要求で何が変わり、何が変わらないかの仮説を立ててみます。
+
+| **分類** | **仮説** | **根拠（フェーズ1の観察から）** |
+| --- | --- | --- |
+| 🔴 **変動しそう** | 銀行APIの認証手順と呼び出し順序 | 認証仕様の変更に伴い、`SecurityAuthenticator` の使い方が根本から変わるため |
+| 🔴 **変動しそう** | 送金APIのパラメータと呼び出し手順 | 送金APIに必須パラメータが増えたため、`BankGateway` の呼び出しコードの修正が必要になるため |
+| 🟢 **不変そう** | 振り込みの全体フロー（口座確認→残高確認→送金） | 銀行APIの仕様が変わっても、私たちの銀行機能としての「振り込み」という業務の流れ自体は変わらないため |
+
+今回の変更は、銀行側の「詳細な使い方（APIの仕様）」に起因するものです。私たちが持っている「振り込み」という業務プロセス自体には、何の影響もありません。
+
+### 2-3：関係者ヒアリング
+
+仮説を確かなものにするため、銀行のAPI担当者にヒアリングを行いました。
+
+* **開発者：** 「認証の仕様が変わるとのことですが、今回の変更は一時的なものでしょうか？今後、さらに認証方式が増える予定はありますか？」
+* **銀行API担当者：** 「申し訳ありませんが、セキュリティ強化の波は止まりません。数ヶ月後には、生体認証を導入する予定もあります。今後も認証手順はさらに複雑になる可能性が高いです。」
+* **開発者：** 「なるほど。送金APIについても、今後パラメータが増えたり、呼び出し順序が変わったりすることは考えられますか？」
+* **銀行API担当者：** 「ええ、来年以降には、さらに上位のトランザクション管理システムと連携するため、送金時のリクエスト形式が現在のJSONからXMLへ移行する計画もあります。」
+* **開発者：** 「分かりました。かなり頻繁に接続仕様が変わりそうですね。今回の認証フローの変更についても、将来的にさらに手順が増えるリスクはありますか？」
+* **銀行API担当者：** 「おっしゃる通りです。現在は二段階認証ですが、将来的には三段階になるかもしれません。現時点での固定的な手順に縛られない設計にしておいた方が、お互いのためかもしれませんね。」
+
+ヒアリングにより、今回の変更が単なる一時的な修正ではなく、今後も「銀行側のAPIの仕様変更」が繰り返されるという将来リスクがはっきりしました。
+
+### 2-4：確定した変動/不変テーブル
+
+ヒアリングの結果、変動/不変を以下のように確定しました。
+
+| **分類** | **具体的な内容** | **変わるタイミング** | **根拠（誰との確認か）** |
+| --- | --- | --- | --- |
+| 🔴 **変動する** | 銀行APIの認証・送金の手順（接続仕様） | 銀行側のセキュリティ改修時 | 銀行API担当者との確認 |
+| 🟢 **不変** | 振り込みという業務プロセス | 変わらない | チーム内での合意 |
+
+テーブルを見ると、私たちが今解決すべき課題が浮かび上がってきました。
+それは、銀行システムという「変動する詳細な使い方」を、私たちの「振り込み」という業務プロセスからどうやって切り離すか、という問題です。
+
+フェーズ2で「何が変わり、何が変わらないか」が確定しました。次のフェーズ3では、今のコードでこの変更を試みたときに何が起きるかを確認します。
+
+## 🟡 フェーズ3：問題特定 ―― 変更を試みて、痛みを発見する
+
+フェーズ2で、銀行APIの認証仕様変更という「将来的に繰り返されるであろう変更要求」が確定しました。このフェーズでは、その変更要求を今のコードのまま適用しようとしたとき、システムにどのような「痛み」が生じるのかを観察していきます。
+
+### 3-1：変更シミュレーション
+
+さっそく、銀行から要求された「認証フローの変更（発行と検証の2段階化）」と「送金時のトランザクションID付与」を、現在の `TransferProcessor` クラスの `transfer` メソッドに直接書き込む作業を試みてみましょう。
+
+```cpp
+void transfer(const std::string& toAccount, int amount, const std::string& otp) {
+    gateway.verifyAccount(toAccount);
+    gateway.checkBalance(toAccount);
+    
+    // 【痛み：認証の手順が変わる】
+    // 既存のコードを書き換える必要がある
+    auth.requestOTP(); 
+    // ここで銀行から発行された取引IDを保持しなければならない
+    std::string transactionId = auth.getTransactionId(); 
+    // 検証時に取引IDを渡す必要がある
+    auth.verifyOTP(otp, transactionId); 
+    
+    // 【痛み：送金APIの仕様が変わる】
+    // トランザクションIDを生成し、送金時に渡さなければならない
+    std::string txId = generateTxId();
+    gateway.executeTransfer(toAccount, amount, txId);
+    
+    std::cout << "振り込み完了\n";
+}
+
+```
+
+この変更を試みたとき、まず気づくのは `TransferProcessor` クラスが、「銀行APIの細かな使い方」をあまりにも詳細に知りすぎているという点です。認証のステップが増えただけでメソッドのシグネチャ（引数や戻り値）を追いかける必要があり、ロジックの修正が連鎖的に発生してしまいます。
+
+「振り込みを実行する」という業務上の命令を処理しているはずの `TransferProcessor` が、銀行システム側から送られてくる「取引IDを保持する」といった一時的な状態管理まで背負わされています。銀行側のAPI仕様が一つ変わるたびに、私たちの業務フローを制御するクラスのコードを書き換え、その結果、振り込み処理全体のテストをやり直さなければならないのです。
+
+### 3-2：変更影響グラフ
+
+変更を試みようとしたときに頭の中で起きた「影響の広がり」を図にしてみます。
 
 ```mermaid
 graph LR
-    subgraph 変更のトリガー
-        T[PayrollService v1 → v2]
-    end
-    subgraph 変更が必要なファイル
-        A[MonthlyBatch.cpp]
-        B[PayslipExporter.cpp]
-        C[OvertimeAlertJob.cpp]
-    end
-    T -->|影響が飛び火| A
-    T -->|影響が飛び火| B
-    T -->|影響が飛び火| C
+    T1["変更要求：認証フローと<br>送金API仕様の変更"] -->|"影響が飛び火"| A["TransferProcessor.cpp<br>（振り込み制御）"]
+    A -->|"さらに影響"| B["BankGateway.cpp<br>（API呼び出し）"]
+    A -->|"さらに影響"| C["SecurityAuthenticator.cpp<br>（認証フロー）"]
 
-    style T fill:#ffcccc,stroke:#cc0000
-    style A fill:#ffe8cc,stroke:#cc7700
-    style B fill:#ffe8cc,stroke:#cc7700
-    style C fill:#ffe8cc,stroke:#cc7700
 ```
 
-*1つの変更が、MonthlyBatch・PayslipExporter・OvertimeAlertJobの3ファイルを道連れにする。これが設計の病巣。*
+このグラフを見ると、銀行APIの仕様という「外部システム都合の変更」が、私たちの業務フローの中枢である `TransferProcessor` を経由して、通信クラスや認証クラス全体に飛び火していることが分かります。
+
+### 3-3：痛みの言語化
+
+変更を試みてみた結果、私たちが現場でよく直面する2つの辛い状況がより鮮明になりました。
+
+1つ目は、銀行側の都合による「仕様変更の波」に、私たちの業務ロジックが直接さらされてしまうことです。
+今回の認証フローの変更は、本来であれば「振り込み」という業務プロセスには影響しないはずのものです。しかし、今の構造では、銀行APIという「外部システムの使い方」を `TransferProcessor` が直接知っているため、APIの引数が増えたり手順が変わったりするたびに、業務フローを記述している核心部分を書き換える羽目になります。まるで、銀行側の仕様変更という嵐の中に、私たちの心臓部が直接さらされているようなものです。
+
+2つ目は、複雑な手続きの連鎖が「振り込み」の目的を見えにくくしていることです。
+コードを見れば、口座確認、残高確認、認証発行、検証、送金実行と、手続きが淡々と並んでいます。しかし、新しい仕様に対応するために一時的なIDを保持したり、条件分岐を足したりすることで、コードは「何のために振り込んでいるのか」という業務上の目的よりも、「銀行のAPIにどうやって命令を通すか」という、技術的な手順の記述で埋め尽くされてしまいました。
+
+「今のままだと、銀行側のAPIが新しくなるたびに、私たちは振り込みの処理フローを壊すリスクを背負い続けることになる」という感覚、うまく伝わっているでしょうか。間違えても大丈夫です。まずは現状の辛さをしっかりと感じ取ることが、良い設計への第一歩になります。
+
+フェーズ3で「変更が辛い」という事実が確認できました。次のフェーズ4では、なぜ辛いのかを構造的に言語化します。
+
+## 🔴 フェーズ4：原因分析 ―― 「なぜ辛いのか」を構造的に言語化する
+
+フェーズ3で、銀行APIの仕様変更が私たちの業務コードに直接飛び火し、変更のたびにコードの核心部分を書き換えなければならないという痛みが確認できました。このフェーズでは、なぜそのような痛みが生まれるのかを、コードの構造（接続形態）の観点から言語化していきます。
+
+### 4-1：観察→原因テーブル
+
+フェーズ3で観察した「痛み」と、その裏にある構造的な原因を紐解いてみましょう。
+
+| **観察** | **原因の方向** |
+| --- | --- |
+| 認証フローやAPI仕様が変わるたびに、業務フローを記述している `TransferProcessor` が修正を強いられる | `TransferProcessor` クラスが、銀行システムの「詳細な使い方（APIの認証手順やパラメータ）」を直接知っているから |
+| 複雑な手順が並び、本来の「振り込み」という目的が見えにくくなっている | 「振り込みという業務プロセス」と「銀行APIの技術的な利用手順」が、同じメソッドの中に混在しているから |
+
+### 4-2：変わるもの / 変わらないものテーブル
+
+原因がはっきりしてくると、どこに境界線を引くべきかが見えてきます。「変わる側」をカプセル化（呼び出し元が知らなくていい詳細を隠すこと）できれば、「変わらない側」である業務ロジックは安定します。
+
+| **変わり続けるもの（🔴）** | **変わってほしくないもの（🟢）** |
+| --- | --- |
+| 銀行APIの認証手順（発行・検証のステップ） | 振り込みの全体フロー（口座確認→残高確認→送金） |
+| 送金APIのパラメータ（IDの追加や型変更） | 振り込みという業務上の目的 |
+
+### 4-3：ケーブルで考える
+
+現在の `TransferProcessor` は、銀行のAPIという「特定の機器」に対して、専用のケーブルを直に配線しているような状態です。
+
+この接続形態は、iPhoneに専用のLightningケーブルを直差ししている状態（具体×直接）だと診断できます。認証方式が変わり、送金時のパラメータが増えるたびに、私たちはその専用端子に合わせてコードという名の「配線」を直接付け替えなければなりません。これでは、銀行側の仕様変更が起こるたびに、私たちの業務フローを制御するクラスの心臓部を切り刻むことになってしまいます。
+
+本来であれば、業務ロジック側は「振り込みたい」という命令を送るだけでよく、具体的な接続手順は窓口の向こう側に隠すべきです。
+
+[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors for software design patterns.
+The matrix has two axes: vertical axis labeled "具体（専用規格）" (top) to "抽象（汎用規格）" (bottom), horizontal axis labeled "直接（直差し）" (left) to "間接（アダプター経由）" (right).
+Four cells:
+
+* Top-left (具体×直接): Lightning cable plugged directly into iPhone. Label: "Lightning直差し"
+* Top-right (具体×間接): Lightning-to-USB-C adapter between iPhone and charger. Label: "専用アダプター経由"
+* Bottom-left (抽象×直接): USB-C cable plugged directly. Label: "USB-C直差し"
+* Bottom-right (抽象×間接): MacBook connected via USB-C hub to monitor, USB drive, and SD card. Label: "USB-Cハブ経由"
+HIGHLIGHT the top-left (具体×直接) cell with a bright colored border and slightly larger size. All other cells are muted gray.
+Minimalist flat illustration style, white background, no gradients, Japanese labels on axes.]
+
+銀行の認証フローや送金APIの使い方は、私たちの業務フローとは「変わる理由」が異なるため、業務フローから切り離すべき存在です。
+
+フェーズ4で根本原因が言語化できました。次のフェーズ5では、解決すべき問題を具体的に定めます。
+
+## 🟣 フェーズ5：課題定義 ―― 解くべき問題を具体的に定める
+
+フェーズ4で「銀行APIの接続手順」と「振り込みという業務プロセス」が密接に絡み合い、互いの変更理由を引きずり合っているという構造的問題が明らかになりました。対策案（フェーズ6）に進む前に、ここで「何を解くべき課題とするか」を具体的に確定させます。
+
+### 5-1：接続点の特定
+
+今回のリファクタリングにおいて、もっとも深刻な影響が出ている場所、つまり、解決すべき「接続点（ジョイント）」は以下の1箇所です。
+
+* **接続点A：** `TransferProcessor`（業務フロー管理クラス） ←→ `BankGateway` ＋ `SecurityAuthenticator`（外部システム利用クラス）の境界
+
+この接続点は、「振り込み」という業務上の命令と、「銀行APIを叩く」という技術的な手順が直接つながっている場所です。ここを切り離すことで、銀行側の仕様変更が業務フローを破壊する波及を止めることが課題となります。
+
+### 5-2：非機能制約の確認
+
+この接続点における非機能制約を整理します。
+
+| **確認項目** | **内容** | **この章での判断** |
+| --- | --- | --- |
+| 変更頻度 | この接続点はどのくらいの頻度で変わるか | 高（銀行側のセキュリティ要件やAPI仕様変更により頻繁に変わる） |
+| パフォーマンス | ホットパスか（高頻度で呼ばれるか） | いいえ（銀行のAPI呼び出しであり、ネットワーク待機が支配的で、クラス分割によるオーバーヘッドは微小） |
+| メモリ | 間接層の追加でオーバーヘッドが問題になるか | いいえ（サーバーのリソースは十分であり、微小なメモリ増加は問題にならない） |
+
+今回のケースでは、パフォーマンスやメモリへの厳しい制約はありません。そのため、変更への強さを最大限に確保するために「間接層」を挟む選択肢も、気兼ねなく検討できます。
+
+### 5-3：クライアントへの影響範囲
+
+「接続点A」を変えることで、どのクラスに修正が及ぶかを確認します。
+
+現在の `TransferProcessor` クラスがこの接続点のクライアントです。`TransferProcessor` は銀行の具体的なゲートウェイや認証のクラスを直接持っているため、この境界を抽象化して切り離す設計変更を行うと、`TransferProcessor` クラス自身のコンストラクタやメンバ変数の定義を変更する必要があります。
+
+しかし、一度切り離してしまえば、以降の銀行側の変更時には `TransferProcessor` に一切手を触れることなく、裏側の接続用クラスを差し替えるだけで済むようになります。
+
+### 5-4：課題まとめ表
+
+以上の情報をまとめ、フェーズ6での対策案検討の基盤となる課題定義を確定させます。
+
+| **接続点** | **分けた理由** | **非機能制約** | **クライアント影響** |
+| --- | --- | --- | --- |
+| 接続点A | 外部システムという「変わる理由」を業務フローから隔離するため | ホットパスではないため抽象化によるコストは許容可 | `TransferProcessor` の内部実装に影響あり |
+
+フェーズ5で「何を解くか」が具体化されました。次のフェーズ6では、この課題に対してどのような「接続の形」を採用すべきか、案0〜案4を並べてコスト比較を行います。
+
+
+添付ファイルを読み込みました。第2章のフェーズ6、6-1から6-6までを執筆します。
 
 ---
 
-## ステップ4：原因分析 ―― 困難の根本にある設計の問題を言語化する
+### 6-1：接続の形 2×2マトリクス
 
-ステップ3で確認したように、`PayrollService` のAPI仕様が変わっただけなのに、影響は `MonthlyBatch`、`PayslipExporter`、`OvertimeAlertJob` と複数のファイルに飛び火してしまいました。
-
-修正範囲を調べようとエディタで `grep -r "PayrollService"` を実行してみます。すると、画面いっぱいに検索結果が広がります。「では、この `PayslipExporter` を呼び出しているのは誰だ？」と、さらに呼び出し元をgrepする……。その呼び出し元をまたgrepする。終わりの見えない連鎖を辿り、影響範囲を追いきれずに疲弊していく。これは、私自身が現場で何度も味わってきた、泥臭くて痛みを伴う実体験でもあります。
-
-影響範囲が読めず、何度もgrepを繰り返してはテストをやり直す。この終わりのない作業の根本的な原因は、どこにあるのでしょうか。コードの構造から探っていきましょう。
-
-まず、現状のコードで起きている事実（観察）と、その背後にある構造的な理由（原因の方向）を整理します。
-
-|**観察**|**原因の方向**|
-|---|---|
-|`PayrollService` のAPI変更（引数の変更）が、呼び出し元の `MonthlyBatch` に直接修正を強いている|`MonthlyBatch` が、「給与を計算する」という結果だけでなく、「引数にJSON文字列を組み立てて渡す」という詳細な手続きを知りすぎているから|
-|`PayrollService` を呼び出している複数の機能（月次バッチ、明細出力、残業アラート）すべてが道連れになっている|システムの各クラスが、それぞれの場所で個別に具体的なクラスを生成し、直接依存してしまっているから|
-
-#### 変わるものと変わらないものが同じ場所にいる
-
-設計の不吉な匂いは、「変わる理由が異なるもの」が同じ場所に同居しているときに強くなります。今回のコードの中で、何が変わり続け、何が変わってほしくないのかを明確に仕分けます。
-
-|**変わり続けるもの**|**変わってほしくないもの**|
-|---|---|
-|各外部サービスのAPI仕様や引数の形式（外部ベンダーの都合で四半期ごとに変わる）|「月末に全社員の給与処理を完了させる」というビジネスの中核フロー（会社が存在する限り変わらない）|
-|外部サービスをどのような順序で、どう組み合わせて呼び出すかという連携の手順|各外部サービスが提供しているコアな機能の目的（給与を計算する、明細を生成する）|
-
-本来であれば、絶対に変わってほしくない「月次給与処理のフロー」の中に、外部ベンダーの都合でコロコロと「変わり続ける」APIの知識が混入しています。
-
-「何をするか（What）」と「どうやって呼び出すか（How）」が完全に癒着している状態です。この構造では、APIのバージョンアップというシステム外部の変更が起こるたびに、ビジネスロジックの中核である `MonthlyBatch` に手を入れることになります。
-
-> **立ち止まって考える：知識の持ち主は誰か？**
-> 
-> 「知りすぎているクラスは、知っている相手の変更に道連れになる。」
-> 
-> `MonthlyBatch` は本来、給与処理の進行役（オーケストレーター）に過ぎません。その責任は「勤怠を取得し、給与を計算し、明細を出力する」という全体の流れを統括することです。
-> 
-> しかし現状は、JSONの組み立て方という `PayrollService` の個人的な事情にまで首を突っ込んでいます。知識の持ち主（PayrollService）の都合が変われば、その知識を勝手に内包しているクラス（MonthlyBatch）も変わらざるを得ないのです。
-
-#### 哲学1「変わるものをカプセル化せよ」との繋がり
-
-ここで、第0章でお話しした設計の哲学1「変わるものをカプセル化せよ」を思い出してみたいと思います。
-
-カプセル化とは、単にメンバ変数を `private` にすることではありません。「変わる部分を、変わらない部分から切り離して隠すこと」が大切な原則になります。
-
-今の `MonthlyBatch` は、変わりやすい「外部サービスの呼び出し方」をそのまま自分のお腹の中に抱え込んでいます。これでは、外部サービスが変わるたびに `MonthlyBatch` のお腹を切り開いて手術をしなければなりません。
-
-私たちが目指すのは、この「変わりやすい呼び出しの手続き」を `MonthlyBatch` の外へ追い出し、安全なカプセルの中に閉じ込めることです。そうすれば、`MonthlyBatch` は「給与処理を完了させる」という自身の変わらない責任だけに集中できるようになります。外部の都合がどう変わろうと、カプセルの外にいる `MonthlyBatch` には影響が及ばなくなる、という自然な結果をもたらすことができます。
-
-#### 構造的対策案の特定
-
-これらの原因を第0章の「4つの物理操作」に当てはめると、現在のシステムが抱える病巣と、打つべき対策の方向性が見えてきます。
-
-以下それぞれに対して観察した結果を残します。全て原因に該当するならすべて対策が必要という事になります。
-
-|**次元**|**物理操作（手札）**|**本質的な原因（何が問題か）**|**使うべき構造的対策案（本質）**|
-|---|---|---|---|
-|**要素**|**① 分割する**<br><br>  <br><br>（切る）|`MonthlyBatch` に「フローの進行」と「各サービスの呼び出し準備」という複数の異なる責任が癒着・混在している。|**責任ごとの分割**<br><br>  <br><br>（単一責任化・共通化）|
-|**要素**|**② 隠蔽する**<br><br>  <br><br>（包む）|複雑なAPIの呼び出し手順や、複数の外部サービスを連携させる手続きが、呼び出し元に無防備に露出している。|**境界によるカプセル化**<br><br>  <br><br>（状態の保護・窓口の単一化）|
-|**関係**|**③ 規格化する**<br><br>  <br><br>（形を揃える）|`MonthlyBatch` が `PayrollService` などの「具体的な実装クラス」に直接依存しており、結合が固着している。|**インターフェースの統一**<br><br>  <br><br>（抽象への依存・依存の逆転）|
-
-今回のケースでは、「要素」**と**「関係」の両方の次元で問題が起きています。
-
-特に大きな課題は、複数のサービスへの依存が散らばっていることと、具体的な実装に直接依存していることです。
-
-この構造的な痛みを和らげるためには、まずは **「② 隠蔽する（包む）」** アプローチで、複雑な外部サービス群の呼び出し手順を一つの窓口に集約します。そしてさらに、その窓口と各サービスを **「③ 規格化する（形を揃える）」** ことで、呼び出し元から直接の実装を見えないように保護します。
-
-コンポーネントを差し替え可能にしたり、機能を拡張しやすくしたりといった柔軟性は、これらの「分離、隠蔽、規格化、間接化」といった物理的な整理を地道に行った後に、評価として得られるものだと考えています。
-
-「呼び出し元が多すぎて影響範囲が分からない」というgrep地獄から抜け出すために。
-
-次のステップ5では、この方針に従って、手札を段階的に適用しながら設計を少しずつ良くしていく過程を一緒に体験していきましょう。
-
----
-
-## ステップ5：対策案の検討 ―― 方向性を決め、手段を順に試す
-
-ステップ4で特定した根本原因は、「『処理の流れを進行する責任』と『外部APIをどう呼び出すかという手続きの知識』が同じクラスに混在していること」でした。
-
-この問題を解消するため、第0章でお話しした4つの物理操作（手札）の中から、まずは **「② 隠蔽する（包む）」** アプローチを試みます。複雑な外部サービス群の呼び出し手順を一つの窓口クラスに集約し、`MonthlyBatch` から詳細を隠し去る方向で進めてみましょう。
-
-そして、ただ分けただけで満足するのではなく、分離と隠蔽を行った後に、**「置換（差し替え）」** や **「拡張」** といった**評価基準**に照らし合わせて、本当に変更に強い構造になっているかを検証していきます。
-
-### 手段①：窓口集約のみ（単純な集約クラスでまとめる）
-
-まずは直感的に、3つの外部サービスへの呼び出しを専門に引き受ける `PayrollCoordinator` というクラスを作り、`MonthlyBatch` から処理を移してみます。
-
-```C++
-// 3サービスの呼び出しをまとめた単純な窓口クラス
-class PayrollCoordinator {
-public:
-    void process(int year, int month);
-private:
-    // ← 各サービスの「具体的な実装クラス」を直接持っている
-    PayrollService   payroll_; 
-    LaborMgmtService labor_;
-    PdfService       pdf_;
-};
-
-void PayrollCoordinator::process(int year, int month) {
-    int employeeId = 1001;
-    
-    double hours = labor_.getWorkHours(employeeId, year, month);
-    
-    // PayrollServiceのAPI仕様（JSON）はここで組み立てる
-    std::string json = "{\"base\":300000}";
-    double amount = payroll_.calculateV1(json, hours);
-    
-    std::string slip = pdf_.generate(employeeId, amount);
-    saveResult(year, month, amount, slip);
-}
-```
-
-これにより、`MonthlyBatch` は非常にシンプルになります。
-
-
-```C++
-// 改善された MonthlyBatch
-class MonthlyBatch {
-public:
-    void run(int year, int month);
-private:
-    PayrollCoordinator coordinator_; // ← 3サービスの代わりに1つの窓口だけを持つ
-};
-
-void MonthlyBatch::run(int year, int month) {
-    coordinator_.process(year, month); // ← 依頼するだけ
-}
-```
-
-**手段①の責任チェックと評価（残る課題）**
-
-このコードを読むと、`MonthlyBatch` の責任チェックは綺麗に通過します。JSONの組み立て方など、余計な知識は一切持っていません。
-
-しかし、新しく作った `PayrollCoordinator` に目を向けてみてください。
-
-このクラスは、`PayrollService`、`LaborMgmtService`、`PdfService` の3つの**具体クラス**を直接持っています。もし、四半期後に `PayrollService` のAPIがv2に変わったらどうなるでしょうか？
-
-結局、`PayrollCoordinator` を開いてコードを書き換えることになります。
-
-つまり、物理的な操作として「分離」と「隠蔽」は行えましたが、**「外部サービスを安全に置換できるか？」という評価基準**に照らすと、合格とは言えません。問題の発生場所（grepで探すべき場所）が `MonthlyBatch` から `PayrollCoordinator` に移動しただけで、呼び出し元が依存先の変更理由を引き継いでしまうという構造的な弱点は残ったままです。
-
-### 手段②：インターフェース層を加える（規格化と間接化）
-
-「置換」や「拡張」という評価基準を満たすためには、手段①の「分離・隠蔽」に加えて、**「③ 規格化する（形を揃える）」** と **「④ 間接化する（間に挟む）」** という手札を重ねる必要があります。
-
-窓口クラスと各サービスの間に「契約（インターフェース）」を導入し、呼び出し元が具体的な実装クラスを一切知らない構造を作ります。
-
-[ImagePrompt: A top-down 3D illustration of Lego blocks. A complex, messy cluster of uniquely shaped and different colored Lego pieces is completely enclosed and hidden within a larger, simple, hollow rectangular Lego block. The larger block presents a clean, smooth, unified connection surface (representing an interface) on top, connecting seamlessly to a standard, simple block above it.]
-
-この「複雑なサブシステムの集まりに対して、単一のシンプルなインターフェース（窓口）を提供する」設計構造を、**Facade（ファサード）パターン** と呼びます。
-
-今回は層が深いため、段階を踏んでインターフェースを導入していきます。
-
-#### 第1段階：MonthlyBatchとFacadeの間に契約を置く
-
-`MonthlyBatch` が「具体的な `PayrollCoordinator`」を知っている状態から、「給与処理を完了してくれる何か（契約）」だけを知る状態へ変えます。
-
-```C++
-// MonthlyBatchが知るべき「契約」だけを定義する
-class IPayrollFacade {
-public:
-    virtual ~IPayrollFacade() {}
-    virtual void process(int year, int month) = 0;
-};
-
-// MonthlyBatchは契約だけを知り、具体クラスは一切知らない
-class MonthlyBatch {
-public:
-    explicit MonthlyBatch(IPayrollFacade* facade);
-    void run(int year, int month);
-private:
-    IPayrollFacade* facade_; // ← ポインタでインターフェースだけを持つ
-};
-
-MonthlyBatch::MonthlyBatch(IPayrollFacade* facade)
-    : facade_(facade) {}
-
-void MonthlyBatch::run(int year, int month) {
-    facade_->process(year, month);
-}
-```
-
-これにより、`MonthlyBatch` は具体クラスへの依存から完全に解放されました。テスト時には、ネットワークに繋がらない「偽物のFacade（スタブ）」を差し込んで、単独で安全にテストすることが可能になります。
-
-#### 第2段階：各サービスへの契約定義と、型変更リスクの隠蔽
-
-次に、Facadeと3つの外部サービスの間にもインターフェースを導入します。
-
-ここで、ステップ2のヒアリングで判明した「将来的に社員IDがint型からstring型に変わるかもしれない」という情報を思い出してください。
-
-カプセル化とは、メソッドのシグネチャ（引数の型）も隠蔽の対象に含めることができます。もし `int employeeId` のままインターフェースを定義してしまうと、将来型が変わったときにすべてのインターフェースと実装クラスを修正する羽目になります。
-
-ここで、型情報を値オブジェクトでくるんで隠蔽します。
-
-```C++
-// EmployeeId：社員IDの型を値オブジェクトとして隠蔽する
-// 将来 int → string になっても、この構造体の中だけを変えれば
-// 呼び出し元のシグネチャは一切変わらない
-struct EmployeeId {
-    int value;
-    explicit EmployeeId(int v) : value(v) {}
-};
-
-// 各サービスの契約（インターフェース）
-// 引数に EmployeeId を使うことで、型変更リスクをカプセル化する
-class IPayrollService {
-public:
-    virtual ~IPayrollService() {}
-    virtual double calcSalary(EmployeeId employeeId, double workHours) = 0;
-};
-
-class ILaborMgmtService {
-public:
-    virtual ~ILaborMgmtService() {}
-    virtual double getWorkHours(EmployeeId employeeId, int year, int month) = 0;
-};
-
-// ビジネス上の責任で命名：「給与明細を出力する」責任
-// （PdfServiceという実装手段の名前にはしない。将来Excelに変わった時に嘘になるため）
-class IPaySlipOutputService {
-public:
-    virtual ~IPaySlipOutputService() {}
-    virtual std::string output(EmployeeId employeeId, double amount) = 0;
-};
-```
-
-インターフェースの命名にも注目してください。「PDFを出力する」ではなく「給与明細を出力する（`IPaySlipOutputService`）」というビジネスの目的で名前をつけています。技術的な手段は変わっても、ビジネスの目的はそう簡単には変わらないからです。
-
-これで、Facadeクラスもインターフェースだけを知る形に書き換えられます。
-
-
-```C++
-class PayrollFacade : public IPayrollFacade {
-public:
-    PayrollFacade(
-        IPayrollService*       payroll,
-        ILaborMgmtService*     labor,
-        IPaySlipOutputService* output
-    ) : payroll_(payroll), labor_(labor), output_(output) {}
-
-    void process(int year, int month) override {
-        EmployeeId employeeId(1001); // 型が隠蔽された値オブジェクト
-        
-        double hours = labor_->getWorkHours(employeeId, year, month);
-        double amount = payroll_->calcSalary(employeeId, hours);
-        
-        // JSONの知識はここにはない。各サービスの内部に閉じ込められた。
-        std::string slip = output_->output(employeeId, amount);
-        saveResult(year, month, amount, slip);
-    }
-private:
-    IPayrollService*       payroll_;
-    ILaborMgmtService*     labor_;
-    IPaySlipOutputService* output_;
-};
-```
-
-#### 第3段階：組み立て点（Composition Root）の導入
-
-ここまでで、すべてのクラスが「インターフェース（契約）」だけを知るようになりました。
-
-では、最終的に誰が「具体的なクラス（`PayrollServiceImpl`など）」を `new` して組み立てるのでしょうか？プログラムの入り口である `main()` に書くこともできますが、`main()` はプログラムの起動に専念させるべきです。
-
-依存関係を組み立てる責任だけを持つ、**Composition Root（コンポジションルート）** という専用のクラスを作ります。
-
-```C++
-// 責任：「依存を組み立て、バッチを起動する」
-class BatchApplication {
-public:
-    void run(int year, int month) {
-        // 具体クラスを生成し、知っているのはこの場所だけ
-        PayrollServiceImpl    payroll;
-        LaborMgmtServiceImpl  labor;
-        PdfServiceImpl        pdf;
-
-        // Facadeに具象クラスを注入
-        PayrollFacade facade(&payroll, &labor, &pdf);
-        
-        // MonthlyBatchにFacadeを注入
-        MonthlyBatch batch(&facade);
-
-        // 実行
-        batch.run(year, month);
-    }
-};
-
-// main() は組み立てクラスを呼ぶだけ
-int main() {
-    BatchApplication app;
-    app.run(2024, 12);
-    return 0;
-}
-```
-
-このように、責任の分離、インターフェースによる規格化、そして組み立て箇所の局所化を行うことで、変更要求が来たとしても「どのファイルを開けばいいか」が明確になります。grep地獄に陥ることなく、安全に部品を置換できる構造へと進化を遂げたと言えるのではないでしょうか。
-
-
----
-
-## ステップ6：天秤にかける ―― 手段①と手段②を評価軸で比べる
-
-解決策（手段②：Facade + インターフェース層）を導き出しましたが、ここで一度立ち止まります。手段①（単純な窓口集約）の方が実装がシンプルで済むからです。本当に今回の状況で、層を厚くするコストを払う価値があるかを天秤にかけます。
-
-### 2.6.1 評価軸の宣言
-
-比較を始める前に、今回の状況で重視する基準を明示します。
-
-| 評価軸 | なぜこの状況で重要か |
-|---|---|
-| 変更の局所性 | 四半期ごとのAPI変更が確定的であり、修正範囲を最小化したい |
-| テストの独立性 | 外部サービスの実機がない環境でも、ロジックを検証可能にしたい |
-| 実装のシンプルさ | コードの理解しやすさと、今すぐリリースできるスピード |
-
-### 2.6.2 手段①vs手段②の比較
-
-宣言した評価軸で両方を測ります。
-
-**比較のまとめ**
-
-| 評価軸 | 手段①（窓口集約のみ） | 手段②（Facade + インターフェース） |
-|---|---|---|
-| 変更の局所性 | 窓口クラスの修正が必要 | 実装クラスの追加/修正のみで完了 |
-| テストの独立性 | 依然として外部依存が残り、テストしづらい | 完全にスタブ化でき、単独テストが可能 |
-| 実装のシンプルさ | ✅ 非常にシンプル。クラス数も少ない | ❌ クラス数・インターフェースが増える |
-
-今回の状況では、将来のAPI変更が確実であること、および開発環境で実機テストが困難であることを考慮し、**手段②（Facadeパターンによる層化）を採用します。**
-
----
-
-**適用判断のフローチャート**
+現在の `TransferProcessor` と外部システム群との接続は、銀行のAPIという「特定の仕様」に対して、コードという配線を直にハンダ付けしている状態（具体×直接）です。ここから、今後予想される「認証手順の複雑化」や「APIの仕様変更」に耐えうる柔軟な接続形態へ移行するため、以下の4つの案を検討します。
 
 ```mermaid
-flowchart TD
-    A[外部サービスの仕様変更は繰り返し発生するか？]
-    A -->|Yes| B[そのサービスを呼ぶ場所が複数あるか？]
-    A -->|No| G[シンプルな直接依存のままでよい]
-    B -->|Yes| C[Facadeパターンを適用する]
-    B -->|No| D[1箇所だけなら様子見でもよい]
+graph TD
+    subgraph 接続マトリクス["接続の形 2×2"]
+        direction LR
+        A["具体×直接<br>（Lightning直差し）"]
+        B["抽象×直接<br>（USB-C直差し）"]
+        C["具体×間接<br>（専用アダプター経由）"]
+        D["抽象×間接<br>（USB-Cハブ経由）"]
+    end
+    style A fill:#ffcccc
+    %% 案0, 案1はセルAに該当
+    %% 案2はセルBへ移動
+    %% 案3はセルCへ移動
+    %% 案4はセルDへ移動
 
-    style C fill:#ccffcc,stroke:#00aa00
-    style G fill:#ffe8cc,stroke:#cc7700
-    style D fill:#ffe8cc,stroke:#cc7700
 ```
 
-一つの参考として受け取っていただければと思います。
+---
 
-### より難しい変化への耐久テスト
+#### 案0：現状維持 ―― 構造を変えない
 
-「PayrollServiceとLaborMgmtServiceが同時に変わった」とします。
+**この形の考え方：**
+クラスの分割やインターフェースの導入を行わず、既存の `transfer` メソッドの中に、銀行APIの新しい仕様を `if` 文で追加します。銀行側の接続仕様が極めて安定しており、今後数年は変更が来ないような場合にのみ、実装コストを最小化するための選択肢となります。
 
-**実装例：2サービスが同時に変わった場合**
+**この形にするための準備：**
+
+* 既存のメソッド内に、認証ステップや送金ID生成のロジックを条件分岐として書き足す。
 
 ```cpp
-// PayrollService v2: 新しいインターフェースを実装
-class PayrollServiceV2Impl : public IPayrollService {
-public:
-    double calcSalary(
-        EmployeeId employeeId, double workHours) override {
-        // v2の計算ルールで実装
-        double base = fetchBaseSalary(employeeId);
-        double rate = (workHours > 160.0) ? 3000.0 : 0.0;
-        double overtime = (workHours - 160.0) * rate;
-        return base + overtime;
+void transfer(const std::string& toAccount, int amount, const std::string& otp) {
+    gateway.verifyAccount(toAccount);
+    // 新しい認証手順をif文でねじ込む
+    if (/* 新仕様 */) {
+        auth.requestOTP();
+        std::string txId = auth.getTransactionId();
+        auth.verifyOTP(otp, txId);
+    } else {
+        // 既存の認証
     }
-private:
-    double fetchBaseSalary(EmployeeId employeeId) {
-        return 320000.0; // v2では社員ごとの基本給を参照
-    }
-};
-
-// BatchApplicationで新しい実装に差し替えるだけ
-void BatchApplication::run(int year, int month) {
-    PayrollServiceV2Impl payroll; // ← ここだけ変わる
-    LaborMgmtServiceImpl labor;
-    PdfServiceImpl       pdf;
-    PayrollFacade facade(&payroll, &labor, &pdf);
-    MonthlyBatch  batch(&facade);
-    batch.run(year, month);
+    gateway.executeTransfer(toAccount, amount, generateTxId());
 }
 
-// MonthlyBatch・PayrollFacade・各インターフェースは
-// 一行も変わらない
 ```
 
-変更は `PayrollServiceV2Impl` の追加と
-`BatchApplication` の1行差し替えだけです。
-「責任が明確な設計」だから変更が局所化されています——
-この感覚、うまく伝わっているでしょうか。
+**この形のトレードオフ：**
+
+* 変更容易性：低（銀行APIが変わるたびに業務フローであるメソッドが破壊される）
+* テスト容易性：低（銀行APIと業務フローが分離されておらずテスト困難）
+* 実装コスト：低（今のコードに数行足すだけ）
 
 ---
 
-**次の変化：明細をExcelファイルでGitHubに登録する要求**
+#### 案1：具体×直接 ―― クラスを分けるが参照は具体型のまま
 
-2.3のヒアリングで「来年度からExcel出力の要望が上がっています」という言葉がありました。
-その変化が実際に来たとします。
+**この形の考え方：**
+銀行通信用のクラスを切り出して責任を分担させますが、呼び出し側の `TransferProcessor` は、相変わらず銀行専用クラス（`BankGateway` 等）の具体型を直接知っている状態です。「責任の分担」という第一段階の整理だけを行いたい場合に合う形です。
 
-> 「給与明細をPDFではなく、Excelファイルとして社内GitHubリポジトリに登録してほしい。」
+**この形にするための準備：**
 
-この要求に応えるには、`ExcelGitHubServiceImpl` という新しい実装クラスを追加します。
+1. 外部接続に関連する処理を新しいクラスに移動する
+2. `TransferProcessor` のコンストラクタで、移動したクラスを直接インスタンス化する
 
 ```cpp
-// ExcelGitHubServiceImpl
-// 責任：給与明細をExcelファイルとしてGitHubに登録する
-class ExcelGitHubServiceImpl : public IPaySlipOutputService {
+class BankTransferService { // 通信ロジックを切り出した
 public:
-    std::string output(
-        EmployeeId employeeId, double amount) override {
-        // Excelファイルを生成し、GitHubリポジトリに登録する
-        std::string fileName = "slip_"
-            + std::to_string(employeeId.value)
-            + "_" + std::to_string((int)amount)
-            + ".xlsx";
-        // pushToGitHub(fileName); // GitHubへの登録処理
-        return fileName;
-    }
+    void execute(std::string account, int amount) { /* 手順を実装 */ }
 };
+// TransferProcessorは具体型を直接知っている
+TransferProcessor(BankTransferService* s) : service(s) {}
+
 ```
 
-BatchApplicationでの差し替えは、たった1行だけです。
+**この形のトレードオフ：**
+
+* 変更容易性：低〜中（APIクラスのインターフェースが変わると、Processor側も修正が必要）
+* テスト容易性：低（具体クラスを生成しているため、切り離しができない）
+* 実装コスト：低（既存コードを別のクラスにコピー＆ペーストする程度）
+
+---
+
+#### 案2：抽象×直接 ―― インターフェースを挟み、型だけで接続する
+
+**この形の考え方：**
+銀行APIの具体的な実装を隠すためにインターフェースを導入し、業務クラスはインターフェース型に対してプログラムします。これにより、APIの実装が銀行Aから銀行Bへ変わろうと、私たちの業務クラスは影響を受けません。この構造を **Facade（ファサード）パターン** の一部、あるいはこの場合は業務的な窓口として **Facade** 的な役割を担わせる構造と呼ぶことができます。
+
+**この形にするための準備：**
+
+1. `IBankService` というインターフェースを定義する
+2. 既存の銀行関連処理を `BankService` クラスとして実装する
+3. `TransferProcessor` をインターフェース依存に書き換える
 
 ```cpp
-void BatchApplication::run(int year, int month) {
-    PayrollServiceImpl     payroll;
-    LaborMgmtServiceImpl   labor;
-    ExcelGitHubServiceImpl pdf;   // ← ここだけ変わる
-    PayrollFacade facade(&payroll, &labor, &pdf);
-    MonthlyBatch  batch(&facade);
-    batch.run(year, month);
+class IBankService { // 共通の窓口（Facadeとなるインターフェース）
+public:
+    virtual void send(std::string acc, int amt) = 0;
+};
+// 呼び出し側はインターフェースのみを知る
+void transfer(IBankService* service, std::string acc, int amt) {
+    service->send(acc, amt); 
 }
+
 ```
 
-インターフェース名 `IPaySlipOutputService` は変わりません。
-「給与明細を出力する」という責任の名前は、PDFでもExcelでもGitHubでも同じです。
-2.3で決めた「ビジネス責任で命名する」原則が、ここで実証されました。
+**この形のトレードオフ：**
+
+* 変更容易性：中〜高（実装が変わっても、業務フロー側は影響を受けない）
+* テスト容易性：高（I/Fにスタブを差し込んでテストできる）
+* 実装コスト：中（インターフェースの設計が必要）
 
 ---
 
-**型変更リスクへの耐久テスト：社員IDがstring型に変わった場合**
+#### 案3：具体×間接 ―― 仲介クラスを置くが、具体型を知っている
 
-2.3のヒアリングで「社員IDが将来的にstring型に変わる可能性がある」ことが判明していました。
-第3段階のインターフェース定義時点で `EmployeeId` を導入していたため、
-**この変化が来ても修正は1箇所だけ**です。
+**この形の考え方：**
+AとBの間に `TransferManager` のような「仲介者」を配置し、複雑な通信手順を隠します。ただし、仲介者は具体的なAPIを知っています。外部システムとの複雑なやり取りを一つの窓口に集中させ、業務フロー側には簡素なインタフェースだけを見せたい場合に適しています。
 
-```cpp
-// EmployeeId の value フィールドの型を int → string に変えるだけ
-struct EmployeeId {
-    std::string value;  // ← ここだけを変える
-    explicit EmployeeId(const std::string& v) : value(v) {}
-};
-```
+**この形にするための準備：**
 
-3つのインターフェースのシグネチャを確認します。
+1. `TransferManager` クラスを作成し、そこにAPIの手順をまとめる
+2. `TransferProcessor` はマネージャーを呼ぶだけにする
 
 ```cpp
-// インターフェースのシグネチャは変わらない
-class IPayrollService {
-    virtual double calcSalary(
-        EmployeeId employeeId, double workHours) = 0;
-    //  ↑ EmployeeId のまま。変更不要。
-};
-class ILaborMgmtService {
-    virtual double getWorkHours(
-        EmployeeId employeeId, int year, int month) = 0;
-    //  ↑ EmployeeId のまま。変更不要。
-};
-class IPaySlipOutputService {
-    virtual std::string output(
-        EmployeeId employeeId, double amount) = 0;
-    //  ↑ EmployeeId のまま。変更不要。
-};
-```
-
-| 変更のシナリオ | 変わる場所 | 変わらない場所 |
-|---|---|---|
-| 社員IDの型が `int` → `string` | `EmployeeId::value` の型のみ | 3つのインターフェース・全クラスのシグネチャ |
-
-2.3のヒアリングで判明したリスクを「インターフェース定義のタイミング」に活かした結果、
-型変更の影響が `EmployeeId` の中だけに封じ込められています。
-
-> **ヒアリングで得た知識は、設計の決断に変換して初めて価値を持ちます。**
-> ステップ2で「変わりうる」と判明した情報を、ステップ5の設計に閉じたループで返す——
-> この往復がなければ、ヒアリングは単なる記録で終わります。
-
-### 使う場面・使わない場面
-
-**使いすぎた例**
-
-```cpp
-// ❌ やりすぎの例
-// 変わらない1行の計算にFacadeとインターフェースを作る
-class ITaxCalcService {
+class TransferManager {
 public:
-    virtual ~ITaxCalcService() {}
-    virtual double calculate(double amount) = 0;
-};
-class TaxCalcServiceImpl : public ITaxCalcService {
-public:
-    double calculate(double amount) override {
-        return amount * 0.1; // 消費税10%。変わらない。
+    void perform(std::string acc, int amt) {
+        // ここに銀行の複雑な通信手順をすべて隠す
+        gateway.verify(); 
+        auth.doAuth();
+        gateway.execute();
     }
 };
-// 責任の混在が起きていない場所に
-// Facadeを入れる必要はない。
+
 ```
 
-| 使う場面 | 使わない場面 |
-|---|---|
-| 複数サービスの責任が呼び出し元に混在している | 責任の混在が起きていない |
-| 外部サービスの仕様変更が繰り返し発生する | 一度作ったら変わらない処理 |
-| 各クラスを単独でテストしたい | 結合テストで十分な場面 |
+**この形のトレードオフ：**
+
+* 変更容易性：中（API側の変更はManagerだけで完結する）
+* テスト容易性：中（Managerを差し替えればOK）
+* 実装コスト：中（仲介クラスの作成が必要）
 
 ---
 
-## ステップ7：決断と、手に入れた未来
+#### 案4：抽象×間接 ―― インターフェース＋仲介役を両立する
 
-### 解決後のコード（全体）
+**この形の考え方：**
+`TransferProcessor` に対しては抽象的な窓口を提供し、かつその窓口の中で具体的なAPIの複雑な手順を隠蔽します。最も柔軟ですが、全層にインターフェースと仲介クラスを導入するため、実装コストは最大になります。
 
-**変更に強い設計の完成形**
+**この形にするための準備：**
+
+1. 窓口となるインターフェース `IBankFacade` を定義する
+2. 具体的な通信手順を隠蔽するクラス `BankFacade` を作成する
+3. 業務クラスは `IBankFacade` を通じてのみ外部システムと会話する
 
 ```cpp
-// ── 値オブジェクト ──────────────────────────────────
-
-// EmployeeId：社員IDの型を封じ込める値オブジェクト
-// int → string に変わっても、この1箇所だけを変えればよい
-struct EmployeeId {
-    int value;
-    explicit EmployeeId(int v) : value(v) {}
+class IBankFacade {
+public:
+    virtual void transfer(std::string acc, int amt) = 0;
 };
 
-// ── インターフェース定義 ─────────────────────────
-
-class IPayrollService {
-public:
-    virtual ~IPayrollService() {}
-    virtual double calcSalary(
-        EmployeeId employeeId, double workHours) = 0;
+// Facade が詳細をすべて隠し、窓口として振る舞う
+class BankFacade : public IBankFacade {
+    void transfer(std::string acc, int amt) override { /* 複雑な手順 */ }
 };
 
-class ILaborMgmtService {
-public:
-    virtual ~ILaborMgmtService() {}
-    virtual double getWorkHours(
-        EmployeeId employeeId, int year, int month) = 0;
-};
+```
 
-// ビジネス責任で命名：「給与明細を出力する」責任
-// PDF か Excel かは名前に現れない
-class IPaySlipOutputService {
-public:
-    virtual ~IPaySlipOutputService() {}
-    virtual std::string output(
-        EmployeeId employeeId, double amount) = 0;
-};
+**この形のトレードオフ：**
 
-class IPayrollFacade {
-public:
-    virtual ~IPayrollFacade() {}
-    virtual void process(int year, int month) = 0;
-};
+* 変更容易性：高（どの層の変更も他層に影響しない）
+* テスト容易性：高（ Facade をスタブに差し替え可能）
+* 実装コスト：高（インターフェースとFacadeクラスが必須となる）
 
-// ── 実装クラス ─────────────────────────────────────
+### 6-7：評価軸
 
-class PayrollServiceImpl : public IPayrollService {
-public:
-    double calcSalary(
-        EmployeeId employeeId, double workHours) override {
-        double base = 300000.0;
-        double overtime = (workHours > 160.0)
-            ? (workHours - 160.0) * 2500.0
-            : 0.0;
-        return base + overtime;
-    }
-};
+対策案が揃ったところで、どの案を採用すべきかを決めるための「ものさし」を宣言します。後から基準を持ち出すと議論が混迷しやすいため、比較表を提示する前に、チーム内で評価軸とその重要度を合意しておくことが大切です。
 
-class LaborMgmtServiceImpl : public ILaborMgmtService {
-public:
-    double getWorkHours(
-        EmployeeId employeeId, int year, int month) override {
-        return 172.5;
-    }
-};
+今回の銀行システム連携では、以下の3軸で評価を行います。
 
-class PdfServiceImpl : public IPaySlipOutputService {
-public:
-    std::string output(
-        EmployeeId employeeId, double amount) override {
-        return "slip_"
-            + std::to_string(employeeId.value)
-            + "_" + std::to_string((int)amount)
-            + ".pdf";
-    }
-};
+| **評価軸** | **意味** | **ウェイト** |
+| --- | --- | --- |
+| 変更容易性 | 変更要求が来たとき、触る場所が最小で済むか | ×3 |
+| テスト容易性 | 依存をスタブ/モックに差し替えてテストを書けるか | ×2 |
+| 可読性 | コードの読みやすさ・構造を理解する工数 | ×1 |
 
-// ── Facade ─────────────────────────────────────────
+採点基準は、全章共通で以下の通りとします。
 
-class PayrollFacade : public IPayrollFacade {
-public:
-    PayrollFacade(
-        IPayrollService*      payroll,
-        ILaborMgmtService*    labor,
-        IPaySlipOutputService* pdf
-    ) : payroll_(payroll), labor_(labor), pdf_(pdf) {}
+| 点数 | 変更容易性 | テスト容易性 | 可読性 |
+| --- | --- | --- | --- |
+| 3 | 変更が1クラスのみで完結する | スタブ1つで完全に切り離せる | クラス数が増えない・既存構造と同じ読み方で理解できる |
+| 2 | 変更が2〜3クラスに及ぶ | 一部スタブが必要だが差し替え可能 | クラスが1〜2増える |
+| 1 | 変更が4クラス以上に波及する | 実装に依存しテストが困難 | 中間層・インターフェースが複数増え理解コストが高い |
 
-    void process(int year, int month) override {
-        EmployeeId employeeId(1001);
-        double hours = labor_->getWorkHours(
-            employeeId, year, month
-        );
-        double amount = payroll_->calcSalary(
-            employeeId, hours
-        );
-        std::string slip = pdf_->output(
-            employeeId, amount
-        );
-        saveResult(year, month, amount, slip);
-    }
+パフォーマンスのVETO（拒否権）については、フェーズ5で「ホットパスではない」と判断したため、今回はスコアリングを優先して検討します。
+
+---
+
+### 6-8：コスト天秤
+
+案0〜案4を定量的に比較します。
+
+| **案** | **現在の対応コスト** | **未来の対応コスト** |
+| --- | --- | --- |
+| 案0：現状維持 | 低 | 高 |
+| 案1：具体×直接 | 低〜中 | 高 |
+| 案2：抽象×直接 | 中 | 低〜中 |
+| 案3：具体×間接 | 中 | 中 |
+| 案4：抽象×間接 | 高 | 低 |
+
+**ステップ1：採点表**
+
+| 案 | 変更容易性（×3） | テスト容易性（×2） | 可読性（×1） |
+| --- | --- | --- | --- |
+| 案0：構造を変えない | 1 | 1 | 3 |
+| 案1：具体×直接 | 1 | 2 | 3 |
+| 案2：抽象×直接 | 2 | 3 | 2 |
+| 案3：具体×間接 | 3 | 2 | 2 |
+| 案4：抽象×間接 | 3 | 3 | 1 |
+
+**ステップ2：加重合計表**
+
+| 案 | 加重スコア | 判定 |
+| --- | --- | --- |
+| 案0 | 8 |  |
+| 案1 | 10 |  |
+| 案2 | 14 |  |
+| 案3 | 15 | ← 採用候補 |
+| 案4 | 16 | ※VETOの確認が必要（今回は除外） |
+
+※案4は柔軟性は高いものの、今回の小規模な銀行連携であれば実装複雑度が高すぎると判断しました。案3の `TransferManager`（仲介者）が最もバランスが取れています。この構造を **Facade（ファサード）パターン** と呼びます。
+
+---
+
+### 6-9：採用案の決定
+
+**採用する案：** 案3
+
+**理由：** 銀行APIの複雑な手順を `TransferManager` クラスという一つの窓口（Facade）に閉じ込めることで、業務フロー側をシンプルに保ちつつ、将来的なAPIの仕様変更が業務ロジック全体に波及するリスクを最小化できるため、案3を採用します。
+
+---
+
+### 6-10：耐久テスト
+
+フェーズ2で挙がっていた「将来のリスク」をシミュレートします。
+
+| **変更シナリオ** | **触る場所** | **コスト評価** |
+| --- | --- | --- |
+| 銀行側APIのJSON→XML移行計画が発生 | `TransferManager` (内部の変換処理のみ) | 低 |
+| 三段階認証へのフロー変更が発生 | `TransferManager` (内部の手順のみ) | 低 |
+
+今回の設計変更により、たとえ銀行側の認証やAPI形式がどれだけ複雑になろうとも、私たちの業務フロー側のクラス（`TransferProcessor`）を書き換える必要はなくなりました。「あのとき言っていた変化」が来たとしても、私たちはただ `TransferManager` クラスだけを修正すればよいのです。
+
+## 🟤 フェーズ7：対策実施 ―― 決断し、変化に強い設計を手に入れる
+
+フェーズ6で採用した「Facadeパターンによる窓口の導入」を、実際のコードに実装します。これにより、銀行システムの詳細な通信手順を `BankFacade` クラスという一つの窓口に閉じ込め、業務フローを記述する `TransferProcessor` から「銀行APIの具体的な使い方」という知識を追い出します。
+
+この設計変更の最大の価値は、今後銀行側のAPI仕様がどれほど複雑になっても、業務フロー全体には一切影響を与えないという安定性を手に入れたことです。
+
+### 7-1：解決後のコード（全体）
+
+新しい設計では、銀行システムとのやり取りをすべて隠蔽する `BankFacade` クラスを作成します。
+
+```cpp
+#include <iostream>
+#include <string>
+
+class BankGateway { /* 既存のAPI通信処理 */ };
+class SecurityAuthenticator { /* 既存の認証処理 */ };
+
+// 銀行との複雑なやり取りを隠蔽する窓口（Facade）
+class BankFacade {
 private:
-    IPayrollService*      payroll_;
-    ILaborMgmtService*    labor_;
-    IPaySlipOutputService* pdf_;
-};
-
-// ── MonthlyBatch ───────────────────────────────────
-
-class MonthlyBatch {
+    BankGateway gateway;
+    SecurityAuthenticator auth;
 public:
-    explicit MonthlyBatch(IPayrollFacade* facade)
-        : facade_(facade) {}
-
-    void run(int year, int month) {
-        facade_->process(year, month);
+    void performTransfer(const std::string& account, int amount, const std::string& otp) {
+        // 複雑な手順はすべてこの窓口の中に閉じる
+        gateway.verifyAccount(account);
+        gateway.checkBalance(account);
+        auth.requestOTP();
+        auth.verifyOTP(otp, "TXN12345"); // 内部的に取引IDを扱う
+        gateway.executeTransfer(account, amount, "TXN12345");
     }
-private:
-    IPayrollFacade* facade_;
 };
 
-// ── 組み立てと起動 ─────────────────────────────────
+// 振り込み処理クラス：銀行の仕様を一切知らなくてよい
+class TransferProcessor {
+private:
+    BankFacade* facade; //Facadeに依存する
+public:
+    TransferProcessor(BankFacade* f) : facade(f) {}
+    void transfer(const std::string& toAccount, int amount, const std::string& otp) {
+        // 振り込みという業務プロセスに集中できる
+        facade->performTransfer(toAccount, amount, otp);
+        std::cout << "振り込み完了\n";
+    }
+};
 
 class BatchApplication {
 public:
-    void run(int year, int month) {
-        PayrollServiceImpl    payroll;
-        LaborMgmtServiceImpl  labor;
-        PdfServiceImpl        pdf;
-        PayrollFacade facade(&payroll, &labor, &pdf);
-        MonthlyBatch  batch(&facade);
-        batch.run(year, month);
+    void run() {
+        BankFacade facade; // 組み立て（Composition Root）
+        TransferProcessor processor(&facade); // ← ここだけ変わる
+        processor.transfer("12345678", 5000, "999999");
     }
 };
 
 int main() {
     BatchApplication app;
-    app.run(2024, 12);
+    app.run();
     return 0;
 }
-```
-
-**実行結果：**
-```
-[LaborMgmt]    社員1001: 実働 172.5時間
-[Payroll]      基本給 300000円 + 残業 31250円 = 331250円
-[Pdf]          slip_1001_331250.pdf を生成
-[MonthlyBatch] 2024年12月 処理完了
-```
-
----
-
-**テストで動作を保証する**
-
-インターフェースがあるため、各クラスを独立してテストできます。
-
-```cpp
-// スタブ：本物のサービスを呼ばずに動く差し替えクラス。
-// IPayrollFacadeを継承することで
-// 本番のPayrollFacadeとそのまま入れ替えられる。
-class StubPayrollFacade : public IPayrollFacade {
-public:
-    bool called      = false;
-    int  calledYear  = 0;
-    int  calledMonth = 0;
-
-    void process(int year, int month) override {
-        called      = true;
-        calledYear  = year;
-        calledMonth = month;
-    }
-};
-
-TEST(MonthlyBatchTest, CallsFacadeWithCorrectYearMonth) {
-    StubPayrollFacade stub;
-    MonthlyBatch batch(&stub);
-
-    batch.run(2024, 12);
-
-    EXPECT_TRUE(stub.called);
-    // EXPECT_EQ(期待値, 実際の値)：等しければテスト通過という検証
-    EXPECT_EQ(2024, stub.calledYear);
-    EXPECT_EQ(12,   stub.calledMonth);
-}
-```
 
 ```
-[  PASSED  ] MonthlyBatchTest.CallsFacadeWithCorrectYearMonth
-```
 
----
+この実装により、`TransferProcessor` クラスの中から銀行特有の複雑な認証フローやAPI呼び出しの記述が消えました。このクラスは「窓口（`BankFacade`）を使って送金を実行する」という業務上の責務に専念できるようになりました。
 
-**変更に強いことを確認する**
+### 7-2：変更影響グラフ（改善後）
 
-| 変更のシナリオ | 変わるクラス | 変わらないクラス |
-|---|---|---|
-| PayrollService APIが変わる | `PayrollServiceImpl` のみ | 他の全クラス |
-| 別の給与計算エンジンに切り替える | `BatchApplication`（差し替え先を指定） | 他の全クラス |
-| LaborMgmtService APIが変わる | `LaborMgmtServiceImpl` のみ | 他の全クラス |
-| 明細をExcel出力に切り替える | `ExcelServiceImpl` を追加し `BatchApplication` で差し替え | 他の全クラス |
-| 月次処理の業務フローが変わる | `MonthlyBatch` | 各サービス実装 |
-| 社員IDの型が `int` → `string` に変わる | `EmployeeId::value` の型のみ | 3インターフェース・全クラスのシグネチャ変わらない |
-
-「変わる理由が異なるクラス」が「別の場所にいる」。
-これが変更に強い設計の正体です。
-
-間違えても大丈夫です。設計は一度決めたら終わりではなく、
-状況が変わればまた考え直せばいい、という軽さで向き合ってほしいと思います。
-
-**変更影響グラフ（改善後）**
+フェーズ3で確認したシナリオを再び当てはめてみます。
 
 ```mermaid
 graph LR
-    subgraph 変更のトリガー
-        T[PayrollService v1 → v2]
-    end
-    subgraph 変更が必要なファイル
-        F[PayrollServiceImpl.cpp のみ]
-    end
-    subgraph 変更不要なファイル
-        A[MonthlyBatch.cpp ✅]
-        B[PayrollFacade.cpp ✅]
-        C[BatchApplication.cpp ✅]
-        D[PayslipExporter.cpp ✅]
-        E[OvertimeAlertJob.cpp ✅]
-    end
-    T --> F
-    T -. 影響なし .-> A
-    T -. 影響なし .-> B
-    T -. 影響なし .-> C
-    T -. 影響なし .-> D
-    T -. 影響なし .-> E
+    T1["変更要求：認証フローの変更"] --> F1["BankFacade.cpp<br>（窓口のみ修正）"]
+    T1 -. "影響なし" .-> A["TransferProcessor.cpp ✅"]
 
-    style T fill:#ffcccc,stroke:#cc0000
-    style F fill:#ccffcc,stroke:#00aa00
 ```
 
-ステップ1で感じた「なぜ給与処理の本体が、PayrollServiceのAPI形式まで知っているんだ？」
-という違和感は完全に消えました。
-新しい通知手段やサービスのバージョンが変わっても、変更は1クラスに収まります。
+→ **フェーズ3の変更影響グラフと比較して、銀行側の認証フロー変更という要求が、窓口クラスである `BankFacade` クラスだけに閉じた設計になりました。**
+
+### 7-3：変更シナリオ表
+
+この設計で何を手に入れたかを確認します。
+
+| **シナリオ** | **変わるクラス（触る場所）** | **変わらないクラス** |
+| --- | --- | --- |
+| 認証フローの変更 | `BankFacade` | `TransferProcessor`, `Order` |
+| 送金APIのパラメータ追加 | `BankFacade` | `TransferProcessor`, `Order` |
+
+変更が来ても、触るのは1クラスだけ——それがこの設計で手に入れたものです。諦めたものは、窓口となるクラスを1つ増やすという、わずかな実装の複雑さです。
+
+銀行システムという外部環境の変化に対して、私たちの業務ロジックを守り抜く。これこそがFacadeパターンによるカプセル化の真骨頂です。
+
+第2章の整理、振り返り、そしてFacadeパターンの解説をまとめます。
 
 ---
 
-## 整理
+### 整理：7フェーズとこの章でやったこと
 
-### 8ステップとこの章でやったこと
+この章では、外部システム（銀行API）との複雑な連携が、私たちの業務ロジックをどれほど困難にしているかを学びました。7フェーズの思考プロセスを適用して、その構造的課題をどう解決したのかを振り返ります。
 
-| ステップ  | この章でやったこと                                            |
-| ----- | ---------------------------------------------------- |
-| ステップ0 | システムの構成と現状のコードを共有し、設計のレンズ（問い）をセットアップした               |
-| ステップ1 | 各クラスの責任を定義し、責任チェックでMonthlyBatchに責任外の知識が混在していることを確認した |
-| ステップ2 | 関係者ヒアリングで変動/不変の根拠を固め、表で確定させた                         |
-| ステップ3 | PayrollService変更が3ファイルに飛び火する痛みを確認した                  |
-| ステップ4 | 「知りすぎているクラスは道連れになる」という根本原因を言語化した                     |
-| ステップ5 | 試行①→②→③→④と段階的に責任を整理し、最終設計に至った                        |
-| ステップ6 | 変更の局所性・責任の明確さを評価軸にして適用を判断した                          |
-| ステップ7 | 全コードを示し、変更シナリオ別に「変わるクラス・変わらないクラス」で効果を確認した            |
+| **フェーズ** | **この章でやったこと** |
+| --- | --- |
+| 🔵 フェーズ1：現状把握 | 銀行APIの認証・送金手順が `TransferProcessor` クラスに直接記述されている現状を可視化しました。 |
+| 🟠 フェーズ2：仮説立案 | ヒアリングを通じ、銀行側のAPI仕様が今後も繰り返し変わるリスクを特定しました。 |
+| 🟡 フェーズ3：問題特定 | API仕様変更をシミュレーションし、業務フロー全体が破壊される「飛び火」という痛みを確認しました。 |
+| 🔴 フェーズ4：原因分析 | 業務ロジックと外部システムの詳細な利用手順が密結合していることが原因だと言語化しました。 |
+| 🔴 フェーズ5：課題定義 | 「接続点A」を外部システムとの窓口として定義し、業務フローから詳細を切り離す課題を設定しました。 |
+| 🟢 対策案検討 | 案0〜案4を比較し、複雑さを隠蔽する「Facade（窓口）」を採用しました。 |
+| 🔵 フェーズ7：対策実施 | `BankFacade` クラスを導入し、`TransferProcessor` から直接的な依存を取り除きました。 |
 
-### **各クラスの最終的な責任**
+### 各クラスの最終的な責任
 
-| クラス | 責任 | 変わる理由 |
-|---|---|---|
-| `main()` | プログラムを起動する | 起動方法が変わるとき |
-| `BatchApplication` | 依存を組み立て、バッチを起動する | 使うクラスの組み合わせが変わるとき |
-| `MonthlyBatch` | 月次給与処理のフローを完了させる | 業務フローが変わるとき |
-| `PayrollFacade` | 3サービスを協調させて給与処理を完了する | 協調の手順が変わるとき |
-| `PayrollServiceImpl` | 給与額を計算する | 計算ルールやAPIが変わるとき |
-| `LaborMgmtServiceImpl` | 勤怠時間を管理する | 勤怠APIが変わるとき |
-| `PdfServiceImpl` | 給与明細を出力する | 出力仕様が変わるとき |
+今回の設計変更により、各クラスの責任は以下のように整理されました。
 
-「変わる理由が1つ」のクラスだけで構成されている。
-このプロセスを回した結果にたどり着いた構造こそが **Facadeパターン** です。
+| **クラス名** | **責任（1文）** | **変わる理由** |
+| --- | --- | --- |
+| `TransferProcessor` | 振り込みという業務フローを進行する | 銀行との送金ルール（業務）が変わるとき |
+| `BankFacade` | 銀行APIの複雑な手順を窓口として隠蔽する | 銀行側のAPI仕様（通信手順やパラメータ）が変わるとき |
+| `BankGateway` 他 | 外部システムと通信する詳細を担う | 通信プロトコルや認証方式が変わるとき |
 
-設計に絶対の正解はありません。ただ「各クラスの責任は何か」「変わる理由は1つか」を問い続けることが、変更に強いコードへの入り口になります。
+> **このプロセスを回した結果にたどり着いた構造こそが Facade パターンです。**
 
 ---
 
-## 振り返り：第0章の3つの哲学はどう適用されたか
+### 振り返り：「この章を読むと得られること」は手に入ったか
 
-改めて、ここまで導き出してきた「最終的な設計」を、第0章でお話しした「3つの哲学」と照らし合わせてみましょう。
+| **得られること** | **この章のどこで示したか** |
+| --- | --- |
+| 1. 依存の広がりを識別 | フェーズ3の「変更影響グラフ」で、変更が全体に波及する様子を可視化したこと。 |
+| 2. 接続形態の診断 | フェーズ4で、現在の密結合を「Lightning直差し」という比喩で診断したこと。 |
+| 3. 構造改善の説明 | フェーズ7の「変更シナリオ表」で、Facadeの導入により影響が局所化されたこと。 |
 
-### 哲学1「変わるものをカプセル化せよ」の現れ
+---
 
-**具体化された場所：** `MonthlyBatch` から追い出された「各APIの仕様や呼び方」の知識
+### 振り返り：第0章の3つの設計原則はどう適用されたか
 
-外部サービスの都合で変わりやすい「APIのバージョンや引数の形式」を、`PayrollFacade` と各インターフェースの裏側に分離（カプセル化）しました。「外部サービスの都合が変わっただけで、システムの中核が道連れになる」という負の連鎖を断ち切った部分です。
+* **原則1「変わるものをカプセル化せよ」の現れ**
+* **具体化された場所：** `BankFacade` クラス
+* **解説：** 銀行APIの複雑な手順という「頻繁に変わる詳細」を、`BankFacade` の中に閉じ込めました。これにより、業務クラスは銀行APIの詳細を知る必要がなくなりました。
 
-#
+
+* **原則2「実装ではなくインターフェースに対してプログラムせよ」の現れ**
+* **具体化された場所：** `TransferProcessor` が `BankFacade` を通して処理を依頼する構造
+* **解説：** 業務クラスは「どのようなAPIか」ではなく、「振り込みを実行する（`performTransfer`）」という窓口のインターフェースに対して命令を送るようになりました。
+
+
+* **原則3「継承よりコンポジションを優先せよ」の現れ**
+* **具体化された場所：** `TransferProcessor` に `BankFacade` を持たせる構造
+* **解説：** 継承を使って銀行機能を拡張するのではなく、コンポジションを用いることで、Facadeを切り替えたり、あるいは将来的なFacadeの増設にも容易に対応できるようになりました。
+
+
+
+---
+
+### パターン解説：Facade パターン
+
+Facadeパターンは、サブシステム（銀行APIなど）の一連のインターフェースに対する統合された窓口を提供し、サブシステムを使いやすくするパターンです。
+
+#### パターンの骨格
+
+Facadeは、サブシステムのクラス群を「Facadeクラス」で包み込み、クライアントに対してはシンプルな窓口を提供します。
+
+```mermaid
+classDiagram
+    class Facade {
+        +operation()
+    }
+    class SubsystemA {
+        +doWork()
+    }
+    class SubsystemB {
+        +doSomething()
+    }
+    Facade --> SubsystemA
+    Facade --> SubsystemB
+
+```
+
+#### この章の実装との対応
+
+```mermaid
+classDiagram
+    class BankFacade {
+        +performTransfer()
+    }
+    class BankGateway { ... }
+    class SecurityAuthenticator { ... }
+    BankFacade --> BankGateway
+    BankFacade --> SecurityAuthenticator
+
+```
+
+`TransferProcessor` は `BankGateway` や `SecurityAuthenticator` を直接呼ぶ必要はなくなり、`BankFacade` を通すことで、安全かつ単純に振り込み処理を行えるようになりました。
+
+#### 使いどころと限界
+
+* **使うと良い状況**：サブシステムが複雑で、クライアントが直接扱うには手順が多すぎる場合。または、サブシステムとクライアントの依存関係を減らしたい場合。
+* **使わない方が良い状況**：サブシステムが十分に単純であり、Facadeを介すことでかえってコードが複雑になる場合。
+
+【過剰コード：ただのラッパーに過ぎない例】
+
+```cpp
+// facadeを導入しても元のメソッドをそのまま呼ぶだけで、隠蔽の効果がない場合
+class SimpleFacade {
+    OriginalClass sub;
+public:
+    void doIt() { sub.doIt(); } // facadeの意味が薄い
+};
+
+```
+
+### この章のまとめ
+
+銀行APIの仕様変更という嵐から私たちの業務ロジックを守るために、Facadeという窓口を設けました。私たちは、銀行APIの複雑な手順（通信や認証）をFacadeに「閉じ込める」ことで、業務フローという「守るべきもの」を安全な場所へ移動させたのです。接続点の形を「具体×直接」から「具体×間接」へ変えることは、外側の変化を内部で消化する「クッション」を手に入れることと同義なのです。

@@ -1,1212 +1,818 @@
+## 第9章 変わるルールと状態の連鎖 ―― Strategy パターン × State パターン
 
-# 第9章　増え続けるルールと変わり続ける状態をどう整理するか
-―― 思考の型：複数の「変わる理由」を見分けて分離する
+―― 思考の型：複雑なビジネスルールと状態遷移が絡み合う場所をどう解くか
 
-> **この章の核心**
-> 「割引の種類が変わる」と「注文の状態によって振る舞いが変わる」は、
-> 別の理由で変わる。それを1つの場所に押し込むと、
-> どちらの変化でも同じクラスを開くことになる。
+### この章の核心
 
----
+**システムの振る舞いが「ビジネスルール」と「状態遷移」という異なる2つの軸で変化する場合、これらを分離せずに一つのクラスに抱え込むと、機能拡張のたびにコードが爆発的に複雑化する。**
 
-## この章を読むと得られること
+### この章を読むと得られること
 
-- 1つのシステムの中に「割引ルールを決める人」と「状態遷移を決める人」という複数の変わる理由が混在している状態を発見できるようになる
-- 問題を8ステップで分析した結果として2つのパターンが自然に組み合わさるプロセスを体験し、「パターンありき」でない設計判断ができるようになる
-- 変更要求が「割引ルールの変更」なのか「状態遷移の変更」なのかで影響範囲が即座に読めるようになる
-- 複数パターンを組み合わせるべき状況と、1つのパターンで十分な状況を判断できるようになる
+* **得られること1：** ビジネスルールの切り替え（Strategy）と状態ごとの振る舞い（State）が混在している箇所を識別できるようになる
 
-> [!INFO] レゴブロックで考える：パターンの応用
-> この章のパターンは、レゴブロックの**「分ける・まとめる・モノ化する（複合）」**操作に対応しています。
-> 実際のECサイト注文処理では、複数の「変わる理由」が混在します。複数のレゴ操作を組み合わせて設計する応用編です。
-> コードでも同じように、Strategy・State・Commandなど複数のパターンを組み合わせて、変化に強い注文処理システムを設計します。
 
-## ステップ0：システムを把握し、仮説を立てる ―― クラス構成を見てから「変わりそうな場所」を予測する
+* **得られること2：** 接続点が「具体×直接」になっているコードを見て、なぜそこが変更の痛みの発生源なのかを判断できるようになる
 
-> **入力：** システムのシナリオ説明 ＋ クラス構成の概要（仕様表・責任一覧）。実装コードはまだ読まない。
-> **産物：** 変動と不変の「仮説テーブル」
 
-**【全パターン共通の問い】**
+* **得られること3：** 複合的な変化に対して、複数のパターンを組み合わせてどのように局所化できるかを説明できるようになる
 
-> 「このコードの中に、**『変わる理由』が異なる2つのものが、
-> 同じ場所に混在していないか？」**
 
-「変わる理由」とは **「誰の判断で変わるか」** のことです。
-第一部の各章では、この問いに対する答えが1つでした。
-この章では、答えが**2つ**あります。
+* **得られること4：** 現場の複雑な条件分岐を、if文の羅列からオブジェクトの構成へと変換する視点
 
-### 9.0 この章のシステム構成と仮説
+## 🔵 フェーズ1：現状把握 ―― 変更が来る前にコードを把握する
 
-**この章で扱うシステム：**
-ECサイトで受け付けた注文を処理する `OrderService` です。
-注文には「カート → 確認中 → 支払い済み → 発送済み → 完了」という状態遷移があり、
-さらに注文種別（通常・法人・キャンペーン）によって金額計算のルールが異なります。
+### 1-1：システムの背景
 
-**仕様表（何ができるシステムか）**
+このシステムは、社内のITヘルプデスクで使われている「サポートチケット管理システム」です。 社員から届くPCやネットワークのトラブル報告をチケットとして登録し、ヘルプデスク担当者がそれを解決するまでの過程を管理しています。
 
-| 機能 | 担当クラス | 主な入力 | 主な出力 |
-|---|---|---|---|
-| 注文処理の統括 | OrderService | 注文種別 | 状態・金額 |
-| カートの確定 | confirm() | （現在状態） | 状態を「確認中」へ |
-| 支払いの完了 | pay() | （現在状態） | 状態を「支払い済み」へ |
-| 発送の指示 | ship() | （現在状態） | 状態を「発送済み」へ |
-| 金額の算出 | calcAmount() | 注文種別 | 最終金額（int） |
+リリース当初は、チケットの受付から完了までのステータスも単純で、ルールの変更もほとんどありませんでした。 しかし、サービスの拡大に伴い、チケットの分類ごとに詳細な対応フローが求められるようになり、さらに重要度や顧客ごとの優先順位設定など、業務ルールが複雑化の一途をたどっています。
 
-**クラス構成の概要**
+現場の担当者からは「チケットのステータス遷移が直感的に分からない」「ルールが増えすぎて、どの条件でどの担当者にエスカレーションすべきか判断が難しい」といった声が上がるようになりました。 私自身、このコードを最初に見たとき、あまりの複雑さにどこから手をつければいいのか、しばらく立ち止まってしまいました。 一見すると、一つのクラスでチケットの状態遷移とビジネスルールをすべて管理しており、機能は網羅されているように見えます。
+
+### 1-2：仕様表
+
+| **機能名** | **担当クラス** | **入力** | **出力** |
+| --- | --- | --- | --- |
+| チケット登録 | Ticket | 問い合わせ内容(string) | 新規チケット発行 |
+| ステータス更新 | TicketManager | チケットID, 新ステータス | 更新後の状態 |
+| 優先度計算 | PriorityCalculator | 問い合わせ内容 | 優先度(enum) |
+
+### 1-3：クラス構成図
+
+現状のコード構造です。 状態管理とルール判定が混在しており、拡張のたびに依存関係が深まっています。
 
 ```mermaid
 classDiagram
-    class OrderService {
-        -state_: string
-        -orderType_: string
-        -baseAmount_: int
-        +confirm()
-        +pay()
-        +ship()
-        +calcAmount() int
+    class Ticket {
+        +status
+        +content
     }
-    note for OrderService "状態管理 × 割引ルールの詳細\n2つの理由が同居している"
+    class TicketManager {
+        +updateStatus(status)
+        +assignSupport()
+    }
+    class PriorityCalculator {
+        +calculate(content)
+    }
+    TicketManager --> Ticket : manages
+    TicketManager --> PriorityCalculator : uses
+
 ```
 
-**各クラスの責任一覧**
+TicketManager クラスが、チケットの状態管理と、その遷移に伴う優先度計算という異なる責務を抱えています。
 
-| クラス | 責任（1文） | 知るべきこと |
-|---|---|---|
-| `OrderService` | 注文の処理フローを管理する | 状態の遷移と注文種別 |
+### 1-4：責任配置テーブル
 
----
+| **クラス名** | **責任（1文）** | **知るべきこと** |
+| --- | --- | --- |
+| Ticket | チケットの現在の状態を保持する。 | 現在のステータス情報。 |
+| TicketManager | チケットの状態遷移と、担当者の割り当てを管理する。 | チケットの状態、担当者割り当てのルール、優先度計算ロジック。 |
+| PriorityCalculator | 問い合わせ内容から優先度を算出する。 | 優先度判定の複雑なビジネスルール。 |
 
-この構成を踏まえた上で、仮説を立てます。
-`OrderService` に「状態管理 × 割引ルールの詳細」という2つの関心が同居していることが見えています。
-どの部分が変わりやすく、どの部分は変わらないでしょうか。
+TicketManager は、チケットの状態だけでなく、優先度計算というビジネスルールそのものまで「知っている」状態です。
 
-**変動と不変の仮説（実装コードを読む前に立てる）**
-
-| 分類 | 仮説 | 根拠（クラス構成から読み取れること） |
-|---|---|---|
-| 🔴 **変動する** | 割引ルールの種類・計算方法 | 営業施策のたびに変わる。クラス図でも「2つの理由が同居」と明記 |
-| 🔴 **変動する** | 状態ごとに許可される操作の範囲 | 業務フロー変更のたびに変わる。同上 |
-| 🟢 **不変** | 「注文を処理する」という業務の存在 | ECサイトがある限り変わらない |
-| 🟢 **不変** | 状態が「カート→確認→支払い→発送→完了」という順に進む骨格 | 決済フローとして固定 |
-
-この仮説をステップ2（9.3）でヒアリング後に確定します。
-
----
-
-## ステップ1：実装コードを読む ―― 責任チェックで問題の行を見つける
-
-> **入力：** ステップ0で把握したクラス責任 ＋ 実際の実装コード
-> **産物：** 責任チェック表。「このクラスが持つべきでない知識」が混在している行の発見。
-
-### 9.1 実装コードと責任チェック
-
-ステップ0でクラスの責任は把握しました。
-ここでは実際の実装コードを読み、「責任通りに書かれているか」を1行ずつ確認します。
-
-**要するに「割引ルールの変わり方」と「状態遷移の変わり方」を別々のクラスに切り出し、2つの変化が互いに干渉しないようにするパターン。**
-
-```cpp
-// OrderService（今の設計）
-// 責任のはず：「注文の処理フローを管理する」
-class OrderService {
-public:
-    OrderService(const std::string& orderType)
-        : state_("cart"),
-          orderType_(orderType),
-          baseAmount_(50000) {}
-
-    void confirm();
-    void pay();
-    void ship();
-    int  calcAmount();
-
-private:
-    std::string state_;
-    std::string orderType_;
-    int         baseAmount_;
-};
-
-void OrderService::confirm() {
-    if (state_ == "cart") {
-        state_ = "confirmed";
-        // 確認メールを送信する処理
-    }
-    // cart以外の状態では何もしない（エラーも出さない）
-}
-
-void OrderService::pay() {
-    if (state_ == "confirmed") {
-        state_ = "paid";
-        // 決済記録を作成する処理
-    }
-}
-
-void OrderService::ship() {
-    if (state_ == "paid") {
-        state_ = "shipped";
-        // 配送ラベルを生成する処理
-    }
-}
-
-int OrderService::calcAmount() {
-    if (orderType_ == "corporate") {
-        return baseAmount_ * 90 / 100;   // 法人：10%引き
-    } else if (orderType_ == "campaign") {
-        return baseAmount_ * 80 / 100;   // キャンペーン：20%引き
-    } else {
-        return baseAmount_;              // 通常：定価
-    }
-}
-
-// 呼び出し側
-int main() {
-    OrderService order("corporate");
-    order.confirm();
-    order.pay();
-    order.ship();
-    int amount = order.calcAmount();
-    // amount = 45000（法人10%引き）
-    return 0;
-}
-```
-
-**実行イメージ：**
-```
-[OrderService] state: cart → confirm() → confirmed
-[OrderService] state: confirmed → pay() → paid
-[OrderService] state: paid → ship() → shipped
-[OrderService] calcAmount: 50000 × 0.9 = 45000円（法人割引）
-```
-
-動いています。では、**責任チェック**に入ります。
-
-**責任チェック：OrderServiceは自分の責任だけを持っているか**
-
-OrderServiceの責任は「注文の処理フローを管理すること」です。
-その責任を果たすために、OrderServiceが「知るべきこと」は何でしょうか。
-
-> 現在の状態と、状態遷移の骨格（どの状態からどこへ進めるか）。
-
-今のコードで `OrderService` が「知っていること」を1行ずつ確認します。
-
-| コードの行 | 持っている知識 | OrderServiceの責任か |
-|---|---|---|
-| `if (state_ == "cart")` → confirm() | 「cart状態のときだけ確認できる」という遷移ルール | △ 遷移管理は自然だが、判断がメソッドに散在 |
-| `if (state_ == "confirmed")` → pay() | 「confirmed状態のときだけ支払えるル」という遷移ルール | △ 同上 |
-| `if (state_ == "paid")` → ship() | 「paid状態のときだけ発送できる」という遷移ルール | △ 同上 |
-| `if (orderType_ == "corporate") ... * 90 / 100` | 法人割引の計算ルール | **❌ 営業部門の管轄** |
-| `if (orderType_ == "campaign") ... * 80 / 100` | キャンペーン割引の計算ルール | **❌ マーケティング部門の管轄** |
-
-2つの問題が見えてきました。
-
-1. **状態ごとの振る舞い**（何ができて何ができないか）が、各メソッドに分散している
-2. **割引ルール**（誰がいくら引きか）が、OrderServiceの中に直書きされている
-
-### 9.2 届いた変更要求
-
-以上の責任チェックを踏まえた上で、変更要求を受け取ります。
-
----
-
-**営業担当**：「法人向けに、四半期末は15%引きにする『四半期末法人割引』を追加してほしい。
-来月から適用です。」
-
-**マーケティング担当**：「来月、プレミアムキャンペーンを打ちます。
-30%引きのプレミアム枠も用意してください。」
-
-**業務担当**：「カートに戻れる機能も追加したいんですが。
-確認中の状態からカートに戻せるようにしてほしいです。」
-
----
-
-3つの変更要求が同時に届きました。そしてすべてが `OrderService` を開くことを要求しています。
-
-**依存の広がり**
+### 1-5：依存グラフ
 
 ```mermaid
 graph TD
-    T1["割引ルールが変わった\n（営業・マーケ）"]
-    T2["状態遷移が変わった\n（業務）"]
-    A["OrderService.cpp"]
+    TicketManager --> Ticket
+    TicketManager --> PriorityCalculator
 
-    T1 -->|影響が飛び火| A
-    T2 -->|影響が飛び火| A
-
-    style T1 fill:#ffcccc,stroke:#cc0000
-    style T2 fill:#ffcccc,stroke:#cc0000
-    style A fill:#ffe8cc,stroke:#cc7700
 ```
 
-割引ルールが変わっても、状態遷移が変わっても、同じ1つのファイルを開くことになります。
+TicketManager に知識が集中しており、ここが変更のボトルネックになるリスクが示唆されます。
 
----
-
-## ステップ2：仮説を確定する ―― 関係者ヒアリングで「変わる理由」に根拠をつける
-
-> **入力：** ステップ0の仮説 × ステップ1の責任チェック結果。関係者（営業・業務担当など）に直接確認する。
-> **産物：** 確定した変動/不変テーブル（「誰の判断で変わるか」明記）
-
-### 9.3 仮説の検証と変動/不変の確定
-
-ステップ0で「割引ルールは変わりやすい」「状態ごとの操作範囲は変わりやすい」という仮説を立てました。
-コードを読んだ結果、仮説はコード上でも確認できます。
-しかし——**コードを読んだだけで断定するのは危険**です。
-「なぜ変わるのか」を関係者に確認して、予測を根拠のある事実に変えます。
-
-**ヒアリング：**
-
----
-
-**設計者**：「割引ルールは、今後どのくらいの頻度で変わりますか？」
-
-**営業担当**：「毎シーズン変わります。法人向けは年間契約で条件が違うこともあります。
-今は2種類ですが、パートナー企業向けとか、新規顧客向けも増やしたいんですよね。」
-
-**設計者**：「状態遷移（カート→確認→支払い→発送）の順序は変わりますか？」
-
-**業務担当**：「基本の順序は変わりません。ただ、各状態で『何ができるか』は変わることがあります。
-たとえば、確認中にカートへ戻れるようにしたい、という話は前からありました。」
-
-**設計者**：「将来、状態の数は増えますか？」
-
-**業務担当**：「増やしたいと思っています。『入金待ち』（確認から支払い完了までの猶予期間）を
-ステータスとして入れたいんですが、そこでできる操作が特殊で……」
-
----
-
-**変動/不変テーブル（ヒアリング後に確定）**
-
-| 分類 | 内容 | 変わるタイミング | 根拠（誰が確認したか） |
-|---|---|---|---|
-| 🔴 **変動する** | 割引ルールの種類・計算式 | 営業施策のたびに | 営業担当（頻度高い） |
-| 🔴 **変動する** | 各状態で許可される操作の範囲 | 業務フロー変更のたびに | 業務担当（増える見込み） |
-| 🔴 **変動する** | 状態の種類（新しいステータスが追加される） | 業務要件変化のたびに | 業務担当（入金待ち追加予定） |
-| 🟢 **不変** | 「注文を処理する」という業務の骨格 | 変わらない | ECサイトの根幹 |
-| 🟢 **不変** | 状態が順方向に進む遷移の基本順序 | 変わりにくい | 決済フローとして固定 |
-
-この章の変化の特徴は、**「変わる理由が2系統ある」**ことです。
-
-- 割引ルール → **営業部門・マーケティング部門の判断**で変わる
-- 状態ごとの振る舞い → **業務部門の判断**で変わる
-
-「誰の判断で変わるか」が異なる2つのものが、1つの `OrderService` に同居しています。
-
----
-
-## ステップ3：課題分析 ―― 変更が来たとき、どこが辛いかを確認する
-
-実際に変更要求を加えてみます。
-
-**変更①：四半期末法人割引（15%引き）を追加する**
+### 1-6：実装コード
 
 ```cpp
-int OrderService::calcAmount() {
-    if (orderType_ == "corporate") {
-        return baseAmount_ * 90 / 100;
-    } else if (orderType_ == "corporate_quarter_end") {  // ← 追加
-        return baseAmount_ * 85 / 100;
-    } else if (orderType_ == "campaign") {
-        return baseAmount_ * 80 / 100;
-    } else if (orderType_ == "campaign_premium") {       // ← 追加
-        return baseAmount_ * 70 / 100;
-    } else {
-        return baseAmount_;
-    }
-}
-```
-
-→ `calcAmount()` の中身を開いて分岐を追加しました。
-
-**変更②：確認中からカートへ戻れる `back()` を追加する**
-
-```cpp
-void OrderService::back() {
-    if (state_ == "confirmed") {     // ← 追加
-        state_ = "cart";
-    }
-    // 他の状態では何もしない
-}
-```
-
-→ 新しいメソッドを追加。ただし、将来「入金待ち」状態を追加したとき、
-`confirm()` / `pay()` / `ship()` / `back()` の**全メソッドを開いて**
-「入金待ちのときはどうするか」を追加しなければなりません。
-
-**変更影響グラフ（改善前）：**
-
-```mermaid
-graph LR
-    T1["割引ルールが変わった"]
-    T2["状態遷移のルールが変わった"]
-    T3["状態の種類が増えた"]
-    A["OrderService.cpp\n（calcAmount）"]
-    B["OrderService.cpp\n（confirm/pay/ship/back）"]
-
-    T1 -->|影響が飛び火| A
-    T2 -->|影響が飛び火| B
-    T3 -->|全メソッドに飛び火| B
-
-    style T1 fill:#ffcccc,stroke:#cc0000
-    style T2 fill:#ffcccc,stroke:#cc0000
-    style T3 fill:#ffcccc,stroke:#cc0000
-    style A fill:#ffe8cc,stroke:#cc7700
-    style B fill:#ffe8cc,stroke:#cc7700
-```
-
-ここで重要なのは、**T1（割引変更）とT2/T3（状態変更）は互いに無関係**だということです。
-にもかかわらず、どちらの変化も `OrderService.cpp` という同じファイルを開かせます。
-
----
-
-## ステップ4：原因分析 ―― 困難の根本にある設計の問題を言語化する
-
-第一部では、原因は1つでした。この章では、**原因が2つ**あります。
-
-| 問い | 答え | 原因の切り口 |
-|---|---|---|
-| なぜ割引変更で OrderService が変わるか | 割引ルールの詳細（計算式）を直接知っているから | **A：変化の混在（割引）** |
-| なぜ状態追加で全メソッドが変わるか | 「この状態のときこの操作はどうするか」の情報が各メソッドに分散しているから | **C：状態と振る舞いの混在** |
-
-#### 原因A：変わるものが変わらないものと同じ場所にいる（割引ルール）
-
-`calcAmount()` の中に、割引ルールの**計算式そのもの**が書かれています。
-「× 90 / 100」という数値は、割引率が変わるたびに書き換えなければならない部分です。
-ところが、それが「注文の処理フローを管理する」という変わらない責任と同じクラスにいます。
-
-#### 原因C：状態と振る舞いの対応関係が分散している
-
-「カート状態のときに `confirm()` を呼ぶと何が起きるか」という情報は
-`confirm()` メソッドの中にあります。
-「カート状態のときに `pay()` を呼ぶと何が起きるか」という情報は
-`pay()` メソッドの中にあります。
-
-新しい状態「入金待ち」を追加するとき、開発者は
-**「入金待ち状態のとき、各メソッドでどう振る舞うか」を全メソッドに書き足していく**
-必要があります。
-「入金待ち状態の完全な振る舞い」が1か所に集まっていないのです。
-
----
-
-## ステップ5：対策案の検討 ―― 原因から手札を選ぶ
-
-第0章の手札選択表を引くと：
-- 「任意の振る舞い（計算ロジック、ルールなど）が変わる」→ **インターフェース抽出**（第0章 手札）
-- 「オブジェクトの状態とそれに伴う振る舞いが変わる」→ **状態クラス化**（第0章 手札）
-
-原因が2つあるので、解消も2段階になります。
-
-### 9.5.1 手札の適用①：インターフェース抽出で割引ルールを切り出す（原因A）
-
-### 方向性の特定
-
-ステップ4で2つの原因が見つかりました。それぞれの原因から方向性を導きます。
-
-| 原因 | 自然に出てくる方向性 |
-|---|---|
-| 割引ルールが変わるたびに処理全体が変わる | 変わるルールを切り出す・分ける |
-| 注文状態ごとの振る舞いが分散している | 状態と振る舞いを1か所に集める |
-
-2つの原因に対して、それぞれ「手段を試す→残る課題→手段②」の流れで解消します。
-
----
-
-「割引ルールの詳細が OrderService に染み出している」問題を解消します。
-
-**発想：** `calcAmount()` の中の `if` 分岐を取り除くには、割引の「判断と計算」を
-外部のオブジェクトに委ねればよい。OrderServiceは「計算結果をもらう」だけにする。
-
-```cpp
-// 割引ルールの「契約」を定義するインターフェース
-class IBillingRule {
-public:
-    virtual int apply(int baseAmount) const = 0;
-    virtual ~IBillingRule() {}
-};
-
-// 通常（定価）
-class NormalRule : public IBillingRule {
-public:
-    int apply(int baseAmount) const {
-        return baseAmount;
-    }
-};
-
-// 法人割引：10%引き
-class CorporateRule : public IBillingRule {
-public:
-    int apply(int baseAmount) const {
-        return baseAmount * 90 / 100;
-    }
-};
-
-// キャンペーン割引：20%引き
-class CampaignRule : public IBillingRule {
-public:
-    int apply(int baseAmount) const {
-        return baseAmount * 80 / 100;
-    }
-};
-
-// 四半期末法人割引：15%引き（新規追加）
-class QuarterEndCorporateRule : public IBillingRule {
-public:
-    int apply(int baseAmount) const {
-        return baseAmount * 85 / 100;
-    }
-};
-```
-
-```cpp
-// OrderService（インターフェース抽出適用後）
-class OrderService {
-public:
-    OrderService(IBillingRule* rule)
-        : state_("cart"),
-          rule_(rule),
-          baseAmount_(50000) {}
-
-    void confirm();
-    void pay();
-    void ship();
-    int  calcAmount();
-
-private:
-    std::string  state_;
-    IBillingRule* rule_;
-    int          baseAmount_;
-};
-
-int OrderService::calcAmount() {
-    return rule_->apply(baseAmount_);  // ifが消えた
-}
-```
-
-**責任チェック（インターフェース抽出適用後）**
-
-| コードの行 | 持っている知識 | OrderServiceの責任か |
-|---|---|---|
-| `rule_->apply(baseAmount_)` | 「何かルールを適用して金額を返す」という処理の骨格 | ✅ 責任範囲内 |
-| `if (orderType_ == "corporate")` | ←消えた | —— |
-| `if (state_ == "cart")` → confirm | 「cart状態のときだけ確認できる」 | **まだ各メソッドに散在** |
-
-割引ルールの問題（原因A）は解消されました。
-ただし、状態ごとの振る舞いの問題（原因C）は依然として残っています。
-
-```mermaid
-classDiagram
-    class OrderService {
-        -state_: string
-        -rule_: IBillingRule
-        +confirm()
-        +pay()
-        +ship()
-        +calcAmount() int
-    }
-    class IBillingRule {
-        <<interface>>
-        +apply(base) int
-    }
-    class NormalRule {
-        +apply(base) int
-    }
-    class CorporateRule {
-        +apply(base) int
-    }
-    class CampaignRule {
-        +apply(base) int
-    }
-
-    OrderService --> IBillingRule : 割引の原因A解消
-    IBillingRule <|.. NormalRule
-    IBillingRule <|.. CorporateRule
-    IBillingRule <|.. CampaignRule
-```
-
-### 9.5.2 手札の適用②：状態クラス化で振る舞いを切り出す（原因C）
-
-次に「状態と振る舞いの対応関係が各メソッドに分散している」問題を解消します。
-
-**発想：** 「この状態のときはこう振る舞う」という情報を、**状態ごとのクラスにまとめる**。
-`confirm()`・`pay()`・`ship()` の中の `if` 分岐を取り除くには、
-「今の状態」を表すオブジェクト自身に、「何ができるか」を持たせればよい。
-
-```cpp
-// 前方宣言
-class OrderService;
-
-// 状態の「契約」を定義するインターフェース
-class IOrderState {
-public:
-    virtual void confirm(OrderService& ctx) = 0;
-    virtual void pay(OrderService& ctx)     = 0;
-    virtual void ship(OrderService& ctx)    = 0;
-    virtual ~IOrderState() {}
-};
-```
-
-各状態クラスが「自分の状態のときに各操作がどう動くか」を完結して持ちます。
-
-```cpp
-// カート状態：confirmだけ受け付ける
-class CartState : public IOrderState {
-public:
-    void confirm(OrderService& ctx);
-    void pay(OrderService& ctx)  {}   // 何もしない
-    void ship(OrderService& ctx) {}   // 何もしない
-};
-
-// 確認中状態：payだけ受け付ける
-class ConfirmedState : public IOrderState {
-public:
-    void confirm(OrderService& ctx) {} // 何もしない
-    void pay(OrderService& ctx);
-    void ship(OrderService& ctx) {}   // 何もしない
-};
-
-// 支払い済み状態：shipだけ受け付ける
-class PaidState : public IOrderState {
-public:
-    void confirm(OrderService& ctx) {} // 何もしない
-    void pay(OrderService& ctx)     {} // 何もしない
-    void ship(OrderService& ctx);
-};
-
-// 発送済み状態：すべての遷移操作を受け付けない
-class ShippedState : public IOrderState {
-public:
-    void confirm(OrderService& ctx) {} // 何もしない
-    void pay(OrderService& ctx)     {} // 何もしない
-    void ship(OrderService& ctx)    {} // 何もしない
-};
-```
-
-`OrderService` は状態の詳細を知る必要がなくなります。
-「今の状態オブジェクトに委ねる」だけです。
-
-```cpp
-// OrderService（状態クラス化適用後）
-class OrderService {
-public:
-    OrderService(IBillingRule* rule, IOrderState* initialState)
-        : state_(initialState),
-          rule_(rule),
-          baseAmount_(50000) {}
-
-    void confirm() { state_->confirm(*this); }
-    void pay()     { state_->pay(*this); }
-    void ship()    { state_->ship(*this); }
-    int  calcAmount() { return rule_->apply(baseAmount_); }
-
-    // 状態クラスから状態を変更するために公開する
-    void changeState(IOrderState* newState) {
-        state_ = newState;
-    }
-
-private:
-    IOrderState*  state_;
-    IBillingRule* rule_;
-    int           baseAmount_;
-};
-```
-
-**責任チェック（状態クラス化適用後）**
-
-| コードの行 | 持っている知識 | OrderServiceの責任か |
-|---|---|---|
-| `state_->confirm(*this)` | 「現在の状態に confirm を委ねる」という骨格 | ✅ 責任範囲内 |
-| `rule_->apply(baseAmount_)` | 「ルールを適用して金額を返す」という骨格 | ✅ 責任範囲内 |
-| `if (state_ == "confirmed")` など | ←消えた | —— |
-| `* 90 / 100` など | ←消えた | —— |
-
-`OrderService` から `if` 文が消えました。
-両方の原因（A・C）が解消されています。
-
-```mermaid
-classDiagram
-    class OrderService {
-        -state_: IOrderState
-        -rule_: IBillingRule
-        +confirm()
-        +pay()
-        +ship()
-        +calcAmount() int
-        +changeState(newState)
-    }
-    class IOrderState {
-        <<interface>>
-        +confirm(ctx)
-        +pay(ctx)
-        +ship(ctx)
-    }
-    class CartState {
-        +confirm(ctx)
-        +pay(ctx)
-        +ship(ctx)
-    }
-    class ConfirmedState {
-        +confirm(ctx)
-        +pay(ctx)
-        +ship(ctx)
-    }
-    class PaidState {
-        +confirm(ctx)
-        +pay(ctx)
-        +ship(ctx)
-    }
-    class IBillingRule {
-        <<interface>>
-        +apply(base) int
-    }
-    class CorporateRule {
-        +apply(base) int
-    }
-
-    OrderService --> IOrderState : 状態の原因C解消
-    OrderService --> IBillingRule : 割引の原因A解消
-    IOrderState <|.. CartState
-    IOrderState <|.. ConfirmedState
-    IOrderState <|.. PaidState
-    IBillingRule <|.. CorporateRule
-```
-
----
-
-## ステップ6：天秤にかける ―― 解決策は未来の変化に耐えられるか
-
-### 評価軸の宣言
-
-解決策を評価する前に、「何を基準に判断するか」を先に宣言します。
-
-| 評価軸 | 内容 |
-|---|---|
-| 割引追加コスト | 新しい割引ルールを追加するとき、既存コードに触れるか |
-| 状態追加コスト | 新しい状態を追加するとき、既存コードに触れるか |
-| 独立テスト | 割引ルール・状態ごとに単独でテストできるか |
-| 読みやすさ | 「この状態のときは何ができるか」が1か所でわかるか |
-
-### 比較と判断
-
-| 評価軸 | 変更前 | Strategy追加後 | Strategy + State後 |
-|---|---|---|---|
-| 割引追加コスト | calcAmount()を開く | 新クラスを追加するだけ | 新クラスを追加するだけ |
-| 状態追加コスト | 全メソッドを開く | 全メソッドを開く | 新クラスを追加するだけ |
-| 独立テスト | OrderService全体が必要 | ルールだけでテスト可 | ルール・状態それぞれ単独でテスト可 |
-| 読みやすさ | メソッドをすべて読む必要 | 改善なし | 状態クラスを読めば一覧できる |
-
-### 耐久テスト ―― ヒアリングで挙がった変化が来たら
-
-**シナリオ：「入金待ち」状態を追加する**
-
-業務担当から挙がっていた要望：確認から支払い完了までの猶予期間を表す「入金待ち」状態を追加する。
-この状態では、`confirm()` と `ship()` は無効で、`pay()` だけ受け付ける。
-
-```cpp
-// 新しい状態クラスを追加するだけ
-class AwaitingPaymentState : public IOrderState {
-public:
-    void confirm(OrderService& ctx) {}  // 無効
-    void pay(OrderService& ctx);        // 支払いのみ受付
-    void ship(OrderService& ctx) {}     // 無効
-};
-
-void AwaitingPaymentState::pay(OrderService& ctx) {
-    // 支払い処理
-    PaidState* paid = new PaidState();
-    ctx.changeState(paid);
-}
-```
-
-**触れた既存コード：ゼロ。**
-`OrderService` も、`CartState` も、`ConfirmedState` も、`IBillingRule` の実装も、
-何ひとつ変更していません。
-
-**シナリオ：プレミアムキャンペーン割引（30%引き）を追加する**
-
-```cpp
-// 新しいルールクラスを追加するだけ
-class PremiumCampaignRule : public IBillingRule {
-public:
-    int apply(int baseAmount) const {
-        return baseAmount * 70 / 100;
-    }
-};
-```
-
-**触れた既存コード：ゼロ。**
-`OrderService` も、`CorporateRule` も、状態クラスも、何ひとつ変更していません。
-
-### 使う場面・使わない場面
-
-**Strategy（割引ルールの分離）を使う場面：**
-- 割引の種類が今後も増える見込みがある
-- 割引ルールを個別にテストしたい
-- 顧客・契約種別・時期によって異なるルールを切り替えたい
-
-**State（状態と振る舞いの分離）を使う場面：**
-- 状態が4つ以上あり、今後も増える見込みがある
-- 複数のメソッドが「現在の状態」によって振る舞いを変えている
-- 「この状態のときは何ができるか」を一覧したい
-
-**どちらも使わなくてよい場面：**
-- 割引が1種類で変わらない、かつ状態が2〜3個で固定されている
-- `calcAmount()` も状態分岐も、将来変わる見込みがない
-
----
-
-## ステップ7：決断と、手に入れた未来
-
-### 解決後のコード（全体）
-
-```cpp
+#include <iostream>
 #include <string>
+#include <vector>
 
-// =============================================
-// IBillingRule（割引ルールの契約）
-// =============================================
-class IBillingRule {
-public:
-    virtual int apply(int baseAmount) const = 0;
-    virtual ~IBillingRule() {}
-};
+using namespace std;
 
-class NormalRule : public IBillingRule {
+// 優先度ルール（変わる可能性がある）
+class PriorityCalculator {
 public:
-    int apply(int baseAmount) const {
-        return baseAmount;
+    string calculate(string content) {
+        if (content.find("urgent") != string::npos) return "High";
+        return "Normal";
     }
 };
 
-class CorporateRule : public IBillingRule {
+// チケット管理（状態とルールが混在）
+class TicketManager {
+    PriorityCalculator calc;
 public:
-    int apply(int baseAmount) const {
-        return baseAmount * 90 / 100;
-    }
-};
-
-class CampaignRule : public IBillingRule {
-public:
-    int apply(int baseAmount) const {
-        return baseAmount * 80 / 100;
-    }
-};
-
-class QuarterEndCorporateRule : public IBillingRule {
-public:
-    int apply(int baseAmount) const {
-        return baseAmount * 85 / 100;
-    }
-};
-
-class PremiumCampaignRule : public IBillingRule {
-public:
-    int apply(int baseAmount) const {
-        return baseAmount * 70 / 100;
-    }
-};
-
-// =============================================
-// 前方宣言（OrderServiceと状態クラスが互いに参照するため）
-// =============================================
-class OrderService;
-class CartState;
-class ConfirmedState;
-class PaidState;
-class ShippedState;
-
-// =============================================
-// IOrderState（状態の契約）
-// =============================================
-class IOrderState {
-public:
-    virtual void confirm(OrderService& ctx) = 0;
-    virtual void pay(OrderService& ctx)     = 0;
-    virtual void ship(OrderService& ctx)    = 0;
-    virtual ~IOrderState() {}
-};
-
-// =============================================
-// 状態クラスの宣言（遷移先クラスの実装は後で定義）
-// =============================================
-class CartState : public IOrderState {
-public:
-    void confirm(OrderService& ctx); // ConfirmedStateを生成するため実装は後で
-    void pay(OrderService& ctx)  {}  // カート状態では支払い不可
-    void ship(OrderService& ctx) {}  // カート状態では発送不可
-};
-
-class ConfirmedState : public IOrderState {
-public:
-    void confirm(OrderService& ctx) {} // 確認済みなので再確認不要
-    void pay(OrderService& ctx);       // PaidStateを生成するため実装は後で
-    void ship(OrderService& ctx) {}    // 支払い前は発送不可
-};
-
-class PaidState : public IOrderState {
-public:
-    void confirm(OrderService& ctx) {} // 支払い済みなので確認不要
-    void pay(OrderService& ctx)     {} // 支払い済みなので再支払い不要
-    void ship(OrderService& ctx);      // ShippedStateを生成するため実装は後で
-};
-
-class ShippedState : public IOrderState {
-public:
-    void confirm(OrderService& ctx) {} // 発送済みなので確認不要
-    void pay(OrderService& ctx)     {} // 発送済みなので支払い不要
-    void ship(OrderService& ctx)    {} // 発送済みなので再発送不要
-};
-
-// =============================================
-// OrderService
-// =============================================
-class OrderService {
-public:
-    OrderService(IBillingRule* rule, IOrderState* initialState)
-        : state_(initialState),
-          rule_(rule),
-          baseAmount_(50000) {}
-
-    void confirm()    { state_->confirm(*this); }
-    void pay()        { state_->pay(*this); }
-    void ship()       { state_->ship(*this); }
-    int  calcAmount() { return rule_->apply(baseAmount_); }
-
-    void changeState(IOrderState* newState) {
-        state_ = newState;
-    }
-
-private:
-    IOrderState*  state_;
-    IBillingRule* rule_;
-    int           baseAmount_;
-};
-
-// =============================================
-// 状態クラスのメソッド実装（全クラス定義後）
-// 各メソッドが遷移先クラスの完全な定義を参照できる
-// =============================================
-void CartState::confirm(OrderService& ctx) {
-    // 確認メールを送信する処理
-    ctx.changeState(new ConfirmedState());
-}
-
-void ConfirmedState::pay(OrderService& ctx) {
-    // 決済記録を作成する処理
-    ctx.changeState(new PaidState());
-}
-
-void PaidState::ship(OrderService& ctx) {
-    // 配送ラベルを生成する処理
-    ctx.changeState(new ShippedState());
-}
-
-// =============================================
-// OrderApplication（Composition Root）
-// =============================================
-class OrderApplication {
-public:
-    void runCorporateOrder() {
-        IBillingRule* rule = new CorporateRule();
-        IOrderState* initialState = new CartState();
-        OrderService order(rule, initialState);
-
-        order.confirm();
-        order.pay();
-        order.ship();
-
-        int amount = order.calcAmount();
-        // amount = 45000（法人10%引き）
-    }
-
-    void runCampaignOrder() {
-        IBillingRule* rule = new CampaignRule();
-        IOrderState* initialState = new CartState();
-        OrderService order(rule, initialState);
-
-        order.confirm();
-        order.pay();
-        order.ship();
-
-        int amount = order.calcAmount();
-        // amount = 40000（キャンペーン20%引き）
+    void updateStatus(string content, string status) {
+        string priority = calc.calculate(content); // ← ルール判定の知識が混在
+        if (status == "Open") {
+            cout << "チケット受付中。優先度: " << priority << endl;
+        } else if (status == "InProgress" && priority == "High") {
+            cout << "緊急対応中。担当者を招集します。" << endl;
+        }
     }
 };
 
 int main() {
-    OrderApplication app;
-    app.runCorporateOrder();
-    app.runCampaignOrder();
+    TicketManager manager;
+    manager.updateStatus("urgent issue", "InProgress");
     return 0;
 }
+
 ```
 
-**実行イメージ：**
-```
-[法人注文]
-  CartState::confirm() → ConfirmedState へ遷移
-  ConfirmedState::pay() → PaidState へ遷移
-  PaidState::ship() → ShippedState へ遷移
-  calcAmount: 50000 × 0.9 = 45000円
+このコードを見ると、TicketManager が優先度の計算ルール（PriorityCalculator）と、状態に応じたアクション（if-else）の両方を直接知っていることが分かります。
 
-[キャンペーン注文]
-  CartState::confirm() → ConfirmedState へ遷移
-  ConfirmedState::pay() → PaidState へ遷移
-  PaidState::ship() → ShippedState へ遷移
-  calcAmount: 50000 × 0.8 = 40000円
+### 1-7：実行結果
+
+```text
+緊急対応中。担当者を招集します。
+
 ```
 
-### 変更シナリオ表と最終責任テーブル
+> このコードは正しく動く。これから変えていくのは「機能」ではなく「構造」だ。
+> 
+> 
 
-**変更シナリオ表：**
+### 1-8：責任チェック表
 
-| シナリオ | 変わるクラス | 変わらないクラス |
-|---|---|---|
-| 新しい割引ルールを追加する | 新しい〇〇Rule クラスを追加 | OrderService / すべての状態クラス |
-| 既存の割引率を変更する | 対象の〇〇Rule のみ | OrderService / すべての状態クラス |
-| 新しい注文状態を追加する | 新しい〇〇State クラスを追加 | OrderService / すべてのRuleクラス |
-| ある状態での振る舞いを変える | 対象の〇〇State のみ | OrderService / 他の状態クラス |
-| 注文を処理するフローを変える | OrderApplication の組み立て部分 | OrderService / Rule / State クラス群 |
+| **コードの行** | **持っている知識** | **管理者（観察）** |
+| --- | --- | --- |
+| string priority = calc.calculate(content); | 優先度判定の具体的なルール | サービス企画チーム |
+| if (status == "InProgress" ...) | 状態遷移時の具体的なアクション条件 | システム開発チーム |
 
-**変更影響グラフ（改善後）：**
+要するに、チケットの「状態」を管理するという観察から、状態遷移のルールと優先度計算という「変わる理由」が異なる知識が同じ場所に混在しているという構造の問題が見えてくる。
+
+フェーズ1で責任配置の観察が終わりました。次のフェーズ2では、変更要求を受けて仮説を立てます。
+
+添付ファイル「ai-context_32.md」を読み込みました。第9章「Strategy × State・サポートチケット管理」のフェーズ2を記述します。
+
+---
+
+## 🟠 フェーズ2：仮説立案 ―― 変更要求を受けて、変動と不変を整理する
+
+### 2-1：届いた変更要求
+
+ある月曜日の朝、ヘルプデスクのマネージャーからチャットが届きました。
+
+「お疲れ様。現在対応しているチケットシステムなんだけど、今度から『SLA（サービスレベル合意）』を厳格に運用することになったんだ。特に、重要度が高いチケットが『Open』状態のまま長時間放置されるのは絶対に避けたい。それと同時に、これまではチケットのステータスが3種類しかなかったけれど、今後は『保留中』や『ベンダー確認中』といった状態も増える予定だ。この新しいルールと状態遷移の複雑さに、今のシステムで対応できるかな？」
+
+なるほど。今回の変更要求は「重要度に応じた優先度判断ルールの追加」と「状態遷移の増加」という、二つの大きな柱があるようですね。今のコードのままでは、チケットの状態が増えるたびに、複雑な if-else の分岐がさらにカオス化するのは目に見えています。この先、このシステムが抱える重荷をどう分けるべきか、慎重に仮説を立てて確認する必要があります。
+
+### 2-2：変動・不変の仮説テーブル
+
+フェーズ1での観察（1-8の責任チェック表）を材料に、何が変動し、何が変わらないのかを整理します。
+
+| **分類** | **仮説** | **根拠（フェーズ1の観察から）** |
+| --- | --- | --- |
+| 🔴 **変動しそう** | チケットのステータスごとの振る舞い（状態遷移） | 1-8で、状態ごとのアクションが if-else で混在していると観察したため。 |
+| 🔴 **変動しそう** | 優先度を判定するビジネスルール（SLA判定等） | 1-8で、優先度計算ロジックが管理者に依存して変わると観察したため。 |
+| 🟢 **不変** | チケット自体の属性データ（問い合わせ内容等） | 状態がどう変わろうと、チケットが保持すべきデータは変わらないため。 |
+
+コードを読んだだけで「このルールと状態管理は分離できる」と断定するのは危険です。実際に運用を担うヘルプデスクの担当者に、この先の見通しを直接確認します。
+
+### 2-3：関係者ヒアリング
+
+仮説を持って、ヘルプデスクの運用担当者と話し合いを持ちました。
+
+* **開発者：** 「今後『保留中』や『ベンダー確認中』といったステータスが増えるとのことですが、状態によって『できること（遷移先）』や『通知の有無』は変わりますか？」
+* **運用担当者：** 「そうなんだ。例えば『ベンダー確認中』の時は、こちらから担当者への割り当ては行わず、自動通知を止める必要がある。逆に『保留中』の時は…」
+* **開発者：** 「なるほど。では、重要度に応じた『優先度判定ルール』は、今後も頻繁に調整されますか？」
+* **運用担当者：** 「その通り。SLAの基準は四半期ごとに見直す予定だし、顧客との契約内容によってもルールが変わる可能性があるんだよ。」
+* **開発者：** 「分かりました。状態ごとの振る舞いと、優先度の計算ルールは、それぞれ独立して頻繁に変更されるということですね。」
+
+ヒアリングの結果、「チケットの状態ごとの振る舞い」と「優先度判定ルール」という二つの軸が、それぞれ独立して、かつ高い頻度で変更されることが確定しました。
+
+### 2-4：確定した変動/不変テーブル
+
+ヒアリングの結果を反映し、今回の設計で対象とすべき要素を確定しました。
+
+| **分類** | **具体的な内容** | **変わるタイミング** | **根拠（誰との確認か）** |
+| --- | --- | --- | --- |
+| 🔴 **変動する** | ステータスごとの振る舞い（遷移先・アクション） | 業務プロセスの変更ごと | 運用担当者との合意 |
+| 🔴 **変動する** | 優先度判定ルール（SLA基準等） | 四半期ごとのルール改定ごと | 運用担当者との合意 |
+| 🟢 **不変** | チケットの基本属性データ | 変わらない | 業務ルールとして確定 |
+
+「状態遷移」という変更軸と「優先度ルール」という変更軸を、今の混沌とした TicketManager から切り離す必要がありそうです。フェーズ2で「何が変わり、何が変わらないか」が確定しました。次のフェーズ3では、この変更要求を実際に今のコードで試みて、具体的にどのような問題が起きるかを明らかにします。
+
+
+添付ファイル「ai-context_33.md」を読み込みました。第9章「Strategy × State・サポートチケット管理」のフェーズ3を記述します。
+
+---
+
+## 🟡 フェーズ3：問題特定 ―― 変更を試みて、痛みを発見する
+
+### 3-1：変更シミュレーション
+
+フェーズ2で確定した「状態遷移の増加」と「優先度判定ルールの変更」を、今のコードにそのまま実装してみることにしました。
+
+まず、新しいステータス「保留中」を追加するために `Ticket` クラスに定数を追加します。 次に、`TicketManager` の `updateStatus` メソッド内にある膨大な `if-else` 分岐に、新しい状態の処理を書き足します。 続いて、SLAルールの変更に対応するため、`PriorityCalculator` の `calculate` メソッドも修正します。
+
+作業を進める中で、すぐに気づきました。「あれ、この `updateStatus` メソッド、どこまで長くすればいいんだろう？」と。 ステータスが一つ増えるだけで、それに伴う「遷移の可否」「担当者への通知」「優先度計算」という複数のロジックを、一つの巨大なメソッドの中で同時に考慮しなければならないのです。
+
+### 3-2：変更影響グラフ
+
+今のコードのまま変更を試みた際の影響範囲を可視化します。
 
 ```mermaid
 graph LR
-    T1["割引ルールが変わった"]
-    T2["状態遷移のルールが変わった"]
-    F1["CorporateRule など\n対象のRuleクラスのみ"]
-    F2["ConfirmedState など\n対象のStateクラスのみ"]
-    A["OrderService.cpp ✅"]
+    T1["変更要求：SLAルール変更"] -->|"ロジック修正"| A["PriorityCalculator.cpp"]
+    T1 -->|"複雑な分岐の修正"| B["TicketManager.cpp"]
+    T2["変更要求：新規状態の追加"] -->|"分岐条件の追加"| B
+    B -->|"影響が飛び火"| C["既存の状態遷移ロジック ✅"]
 
-    T1 --> F1
-    T2 --> F2
-    T1 -. 影響なし .-> A
-    T2 -. 影響なし .-> A
-
-    style T1 fill:#ffcccc,stroke:#cc0000
-    style T2 fill:#ffcccc,stroke:#cc0000
-    style F1 fill:#ccffcc,stroke:#00aa00
-    style F2 fill:#ccffcc,stroke:#00aa00
 ```
 
-**最終責任テーブル（改善後）：**
+グラフが示す通り、ルール変更であれ状態追加であれ、結局は `TicketManager.cpp` という唯一の「決済統括的なクラス」が修正のたびに常に触られることになります。
 
-| クラス | 責任（1文） | 変わる理由 |
-|---|---|---|
-| `OrderService` | 注文の処理フローを管理する | 処理フローの骨格が変わるとき |
-| `CartState` | カート状態での振る舞いを定義する | カート状態の操作ルールが変わるとき |
-| `ConfirmedState` | 確認中状態での振る舞いを定義する | 確認中状態の操作ルールが変わるとき |
-| `PaidState` | 支払い済み状態での振る舞いを定義する | 支払い済み状態の操作ルールが変わるとき |
-| `CorporateRule` | 法人割引の計算ルールを実装する | 法人割引率が変わるとき |
-| `CampaignRule` | キャンペーン割引の計算ルールを実装する | キャンペーン割引率が変わるとき |
-| `OrderApplication` | 注文の組み立てと依存関係の注入を行う | 組み合わせパターンが変わるとき |
+### 3-3：痛みの言語化
 
----
+「またこの巨大な `if-else` を編集するのか…」というのが、この作業を始めた瞬間の率直な感覚です。
 
-## 整理
+1つ目の痛みは、このクラスが「何でも屋」になりすぎていることです。 状態遷移という「振る舞い」と、優先度計算という「ビジネスルール」が密接に絡み合っているため、片方をいじると、もう片方のロジックを無意識に壊してしまう恐怖が常にあります。
 
-### 8ステップとこの章でやったこと
+2つ目の痛みは、変更の局所化ができていないことです。 新しい状態を追加するたびに、本来なら関係のないはずの優先度計算ロジックや、既存の遷移処理まで全てテストし直さなければなりません。 この「どこまで影響が出るか分からない」という不安が、開発者の手を鈍らせ、システムをより硬直的なものにしています。
 
-| ステップ | この章での問い | 得られた答え |
-|---|---|---|
-| ステップ0 | 何が変わりやすそうか | 割引ルール・状態ごとの振る舞いの2系統 |
-| ステップ1 | OrderServiceの責任は何か | 注文フローの管理。割引計算と状態判断は責任外 |
-| ステップ2 | 変化の根拠は何か | 割引は営業判断・状態は業務判断で別系統 |
-| ステップ3 | どこが辛いか | 割引変更でも状態追加でも同じファイルを開く |
-| ステップ4 | 原因は何か | A：割引の混在 / C：状態と振る舞いの混在（2つ） |
-| ステップ5 | どう解消するか | 原因Aに Strategy、原因Cに State を順に適用 |
-| ステップ6 | 未来に耐えられるか | 新状態・新割引の追加がゼロ変更で可能 |
-| ステップ7 | 何を手に入れたか | 「割引軸」と「状態軸」の変化を完全に分離した構造 |
+フェーズ3で「変更が辛い」という事実が確認できました。次のフェーズ4では、なぜ辛いのかを構造的に言語化します。
 
-**第一部との違い：**
-
-第一部では「原因が1つ → パターンが1つ」でした。
-この章では「原因が2つ → パターンが2つ」になりました。
-
-ただし、出発点は変わりません。
-「2つのパターンを組み合わせよう」と決めて始めたのではなく、
-**「2つの根本原因を分析した結果として、2つのパターンが選ばれた」**のです。
+添付ファイル「ai-context_34.md」を読み込みました。第9章「Strategy × State・サポートチケット管理」のフェーズ4を執筆します。
 
 ---
 
-## 振り返り：第0章の3つの哲学はどう適用されたか
+## 🔴 フェーズ4：原因分析 ―― なぜ辛いのかを構造的に言語化する
 
-改めて、ここまで導き出してきた「最終的な設計」を、第0章でお話しした「3つの哲学」と照らし合わせてみましょう。
+フェーズ3で確認したように、チケットの「状態」が増えるたびに、チケット管理クラスのコードが肥大化し、修正のたびに予期せぬ副作用への恐怖を感じる状態にあります。ここでは、この問題の原因を構造的な観点から紐解いていきます。
 
-### 哲学1「変わるものをカプセル化せよ」の現れ
+### 4-1：観察→原因テーブル
 
-**具体化された場所（割引）：** `OrderService` から追い出された「割引率・計算式」の知識
+フェーズ3でのシミュレーションから見えてきた観察事実と、その根本にある構造的な原因を対応させます。
 
-「× 90 / 100」「× 80 / 100」という計算式——これは営業施策のたびに変わる部分です。
-それを `OrderService` という「変わらないはずのクラス」から切り出し、
-`CorporateRule`・`CampaignRule` というクラスに閉じ込めました。
+| **観察** | **原因の方向** |
+| --- | --- |
+| 新しいチケット状態を追加するたびに、管理クラスが修正される | `TicketManager` が各状態に応じた「具体的な振る舞い」を `if-else` で直接知っているから。
 
-**具体化された場所（状態）：** `OrderService` の各メソッドから追い出された「状態ごとの振る舞い」
+ |
+| 優先度計算ルールが変わると、チケットの状態遷移ロジックまで再テストが必要になる | 「状態遷移」という振る舞いと「優先度判定」というビジネスルールが、一つのクラス内で密結合に混在しているから。
 
-`if (state_ == "cart")` という判断——これは状態が増えるたびに変わる部分です。
-それを `OrderService` から切り出し、`CartState`・`ConfirmedState` に閉じ込めました。
+ |
 
-### 哲学2「実装ではなくインターフェースに対してプログラムせよ」の現れ
+コードを追うと、単に状態が増えるだけでなく、その状態によって「何をすべきか（通知するのか、誰に割り当てるのか）」という判定ロジックが、優先度の計算ルールと複雑に絡み合っていることが分かります。 これにより、コードを変更する際に「どこからどこまでが影響範囲なのか」を直感的に捉えることが難しくなっています。
 
-**具体化された場所：** `OrderService` が `IBillingRule` と `IOrderState` だけを知っている構造
+### 4-2：変わるもの / 変わらないものテーブル
 
-`OrderService` のメンバ変数は `IBillingRule* rule_` と `IOrderState* state_` です。
-`CorporateRule` や `CartState` の名前は `OrderService` のコードにどこにも出てきません。
-具体クラスを知っているのは `OrderApplication`（Composition Root）だけです。
+構造を整理するために、変化の軸を分けてみます。
 
-割引ルールが何種類に増えても、注文状態が何個になっても、`OrderService` は一切変わりません。
+| **変わり続けるもの（🔴）** | **変わってほしくないもの（🟢）** |
+| --- | --- |
+| チケットの「状態ごとの振る舞い」（遷移先、アクション） | チケットの「現在の状態」を保持する基盤データ |
+| 優先度判定の「ビジネスルール」（SLA基準、顧客要件） | 「状態遷移を開始する」という汎用的なインターフェース |
 
-### 哲学3「継承よりコンポジションを優先せよ」の現れ
+これまで私たちは、「チケット」という一つのオブジェクトの中に、ライフサイクルの管理（状態）と、そこから派生するビジネス上の判断（ルール）を無理やり押し込めていました。 状態が変わるたびにルールが動くのではなく、それぞれが別の軸として進化できるように整理する必要があります。
 
-**具体化された場所：** `OrderService` が `IBillingRule` と `IOrderState` を「部品として持つ」構造
+### 4-3：ケーブルで考える
 
-もし「法人向けOrderService」「キャンペーン向けOrderService」と継承で増やしていたら、
-割引の種類 × 状態の組み合わせだけクラスが爆発します。
-「部品として持ち、差し替える」構造にすることで、クラスの爆発を防ぎました。
+現在の接続形態を2×2マトリクスで診断します。
 
----
+今の `TicketManager` とビジネスルール、および状態ごとの振る舞いは、USB-Cハブを経由しているようでいて、実はそのハブの中に全機器の回路が直結されているような状態（具体×直接）です。
 
-第一部で1つずつ学んだパターンが、現実の問題の前では組み合わさって使われます。
-道具は同じです。**「変わるものを見つけ、分離する」** という問いが、
-2つの答えをもたらしただけです。
+本来であれば、状態ごとに接続口を用意し、そこにルールを差し替えてつなぐべきところを、一つの大きなコネクタにすべての機能を「直差し」してしまっています。 この状態では、一つの端子を付け替えようとするだけで、ハブ全体（`TicketManager`）の回路をショートさせないよう細心の注意が必要になります。
 
----
+[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors for software design patterns. The matrix has two axes: vertical axis labeled "具体（専用規格）" (top) to "抽象（汎用規格）" (bottom), horizontal axis labeled "直接（直差し）" (left) to "間接（アダプター経由）" (right). Four cells: Top-left (具体×直接): Lightning cable plugged directly into iPhone. Label: "Lightning直差し" Top-right (具体×間接): Lightning-to-USB-C adapter between iPhone and charger. Label: "専用アダプター経由" Bottom-left (抽象×直接): USB-C cable plugged directly. Label: "USB-C直差し" Bottom-right (抽象×間接): MacBook connected via USB-C hub to monitor, USB drive, and SD card. Label: "USB-Cハブ経由" HIGHLIGHT the top-left (具体×直接) cell with a bright colored border and slightly larger size. All other cells are muted gray. Minimalist flat illustration style, white background, no gradients, Japanese labels on axes.]
 
-## パターン解説：StrategyパターンとStateパターン
+「状態ごとの振る舞い」と「ビジネスルール」は、それぞれ独立して頻繁に変更されるべき要素です。 これらを一つの巨大なクラスに閉じ込めるのではなく、それぞれの軸で独立した接続形態へ進化させるべきだと判断できます。
 
-この章では2つのパターンが組み合わさっています。それぞれの骨格と、この章での使われ方を整理します。
+フェーズ4で根本原因が言語化できました。次のフェーズ5では、この整理を元に、解決すべき課題を具体的に定義していきます。
 
-### Strategyパターンの骨格（この章での役割：割引ルールの切り替え）
-
-Strategyパターンは「処理の骨格」と「処理の中身（アルゴリズム）」を分離するパターンです。Contextは `Strategy` インターフェースだけを知り、どの実装クラスが渡されるかを知りません。実装の差し替えは外部（Composition Root）が担います。
-
-この章では `OrderService` が `IBillingRule` だけを知り、`CorporateRule` や `CampaignRule` を直接知りません。割引ルールの追加・変更は新しいクラスを作るだけで完結します。
+添付ファイル「ai-context_35.md」を読み込みました。第9章「Strategy × State・サポートチケット管理」のフェーズ5を記述します。
 
 ---
 
-### Stateパターンの骨格（この章での役割：注文状態の遷移管理）
+## 🟣 フェーズ5：課題定義 ―― 解くべき問題を具体的に定める
 
-Stateパターンの特徴は、ContextがStateに委譲するだけでなく、State自身がContextの状態を遷移させる点にあります。
+フェーズ4で、「チケットの状態ごとの振る舞い」と「優先度判定ルール」が `TicketManager` クラス内で密結合に混在していることが、変更のたびにコードを汚染させる原因だと特定しました。 今のままでは、状態遷移のロジックに手を入れるたびに、無関係な優先度計算のコードまでテストし直す必要があり、非常に効率が悪くなっています。
+
+対策案を検討する前に、今回のリファクタリングで「何を解決すべきか」を4つの視点で具体化し、課題を確定させます。
+
+### 5-1：接続点の特定
+
+今回の分析により、`TicketManager` クラス内に以下の接続点（ジョイント）が存在することが明確になりました。
+
+* 接続点A：`TicketManager` ←→ 状態遷移ロジックの境界
+* 接続点B：`TicketManager` ←→ 優先度判定ロジックの境界
+
+チケットの状態が増えたり、優先度ルールが変わったりするたびに、これらの接続点が `TicketManager` 内の巨大な `if-else` 分岐と絡み合い、影響範囲を際限なく拡大しています。 状態遷移（State）と優先度ルール（Strategy）という、変動の理由が異なる二つの責務を、それぞれ独立した接続点へと分離することが今回の最大の課題です。
+
+### 5-2：非機能制約の確認
+
+設計の方向性を決めるために、この接続点に関わる非機能制約を確認します。
+
+| **確認項目** | **内容** | **この章での判断** |
+| --- | --- | --- |
+| 変更頻度 | この接続点はどのくらいの頻度で変わるか | 高（SLAルールの改定や状態追加が今後も予定されている） |
+| パフォーマンス | ホットパスか（高頻度で呼ばれるか） | 中（チケット更新のたびに実行されるが、即時のレスポンスが極端に求められるわけではない） |
+| メモリ | 間接層の追加でオーバーヘッドが問題になるか | いいえ（状態遷移やルール判断は処理時間全体の割合としては軽微） |
+
+変更頻度が非常に高く、かつ状態遷移という動的な変化が求められているため、既存の `if-else` に依存しない、より拡張性の高い構造が必要です。 パフォーマンス面での極端な制約はないため、オブジェクト指向の柔軟性を活かした間接層の導入を積極的に検討できます。
+
+### 5-3：クライアントへの影響範囲
+
+この接続点の「クライアント」は、現在 `TicketManager` クラス自体です。 接続点をリファクタリングすることで、`TicketManager` の肥大化したメソッドを整理し、状態やルールの切り替えロジックを別のクラスへ移譲します。 これにより、`TicketManager` はチケットのライフサイクル管理という本来の責務に集中できるようになります。
+
+### 5-4：課題まとめ表
+
+以上の分析を、フェーズ6の対策案検討に向けたまとめ表として整理します。
+
+| **接続点** | **分けた理由** | **非機能制約** | **クライアント影響** |
+| --- | --- | --- | --- |
+| 接続点A | 状態ごとの振る舞いが混在している | パフォーマンス影響は軽微 | `TicketManager` の状態遷移処理 |
+| 接続点B | 優先度判定ルールが混在している | パフォーマンス影響は軽微 | `TicketManager` の優先度計算処理 |
+
+この表が埋まったことで、私たちが解くべき課題は「状態ごとの振る舞いをオブジェクトへ抽出すること」と「優先度判定ルールを独立したアルゴリズムとして分離すること」の2点に絞り込まれました。
+
+フェーズ5で「何を解くか」が確定しました。次のフェーズ6では、この2つの課題に対し、それぞれの変更軸に対応した対策案を検討します。
+
+添付ファイル「ai-context_36.md」のルールに基づき、第9章「Strategy × State・サポートチケット管理」のフェーズ6（6-1〜6-6）を記述します。
+
+---
+
+## 🟢 フェーズ6：対策案検討 ―― 解決策を並べ、コストで選ぶ
+
+フェーズ5で整理した「状態ごとの振る舞い」と「優先度判定ルール」という二つの課題に対し、どのように構造を分離するかを検討します。 どちらの課題も「変わりやすさ」が特徴であるため、柔軟な接続形態への移行が必要です。
+
+### 6-1：接続の形 2×2マトリクス
+
+現在は `TicketManager` クラスがすべてのロジックを抱え込む「具体×直接」の状態です。 ここから、各責務を独立したインターフェースへと切り出し、間接層を設ける方向で対策を練ります。
 
 ```mermaid
-classDiagram
-    class Context {
-        -state : State
-        +request()
-        +changeState(s : State)
-    }
-    class State {
-        <<interface>>
-        +handle(ctx : Context)
-    }
-    class ConcreteStateA {
-        +handle(ctx : Context)
-    }
-    class ConcreteStateB {
-        +handle(ctx : Context)
-    }
-    Context o--> State : 現在の状態を持つ
-    State <|.. ConcreteStateA
-    State <|.. ConcreteStateB
-    ConcreteStateA ..> Context : ctx.changeState(new B)
-    ConcreteStateB ..> Context : ctx.changeState(new A)
+graph TD
+    subgraph 接続マトリクス["接続の形 2×2"]
+        direction LR
+        A["具体×直接<br>（Lightningケーブルで直差し）"]
+        B["抽象×直接<br>（USB-Cケーブルで直差し）"]
+        C["具体×間接<br>（Lightning→USB-C変換アダプター経由）"]
+        D["抽象×間接<br>（USB-Cハブ経由）"]
+    end
+    style A fill:#ffcccc
+
 ```
 
-**Context** は状態を「持つ」側です。`request()` を呼ばれたら現在のStateに委譲するだけで、状態の種類を知りません。**State** は「今の状態での振る舞い」の契約です。`handle()` の引数にContextを受け取り、必要なら状態遷移を行います。**ConcreteState** は特定の状態での振る舞いと、次の状態への遷移を実装します。
+---
 
-### この章の実装との対応
+#### 案0：現状維持 ―― 構造を変えない
 
-Stateパターンの特徴は、ContextがStateに委譲するだけでなく、State自身がContextの状態を遷移させる点にあります。
+**この形の考え方：**
+クラスの分割も接続形態の変更もしない。 既存の `if` 文の羅列を維持する。 変更頻度が極めて低く、この先半年以上ルールが変わらないという確信がある場合にのみ選択する。
+
+**この形にするための準備：**
+
+* 特になし。現状のコードを維持する。
+
+
+
+【案0のコード（一部）】
+
+```cpp
+// 既存のif-else分岐をそのまま維持
+if (status == "Open") { /* ... */ }
+else if (status == "InProgress") { /* ... */ }
+
+```
+
+**この形のトレードオフ：**
+
+* 変更容易性：低（新しいルール追加のたびに巨大な分岐が増殖する）
+
+
+* テスト容易性：低（状態遷移と判定ロジックが絡み合っており切り離せない）
+
+
+* 実装コスト：低（今のままコードを足すだけ）
+
+
+
+---
+
+#### 案1：具体×直接 ―― クラスを分けるが参照は具体型のまま
+
+**この形の考え方：**
+責務ごとに小さなクラスに分割するが、それらを呼ぶ側のクラスは具体クラスを直接 `new` して利用する。 責任の所在は明確になるが、具体クラスへの依存は残る。
+
+**この形にするための準備：**
+
+1. 優先度判定処理を `PriorityCalculator` クラスとして抽出する
+2. 状態遷移のロジックを各状態クラスに分離する（ただし生成は直接行う）
+
+【案1のコード（一部）】
+
+```cpp
+void updateStatus(string content, string status) {
+    PriorityCalculator calc; // ← 具体クラスを知っている
+    string priority = calc.calculate(content);
+    // ...
+}
+
+```
+
+**この形のトレードオフ：**
+
+* 変更容易性：低〜中（クラスは分かれたが、利用側の修正は避けられない）
+
+
+* テスト容易性：低（依然として具体クラスをインスタンス化する必要がある）
+
+
+* 実装コスト：低（リファクタリングの範囲が限定的）
+
+
+
+---
+
+#### 案2：抽象×直接 ―― インターフェースを挟み、型だけで接続する
+
+**この形の考え方：**
+優先度ルールには **Strategyパターン** を、状態遷移には **Stateパターン** を適用する。 各ルールや状態をインターフェース経由で扱うことで、具体的なロジックを差し替え可能にする。
+
+**この形にするための準備：**
+
+1. `IPriorityStrategy` と `ITicketState` インターフェースを定義する
+2. `TicketManager` はこれらインターフェース型へのポインタを保持する
+3. 実行時に必要な具体実装を注入する
+
+【案2のコード（一部）】
+
+```cpp
+// StrategyとStateによる抽象化
+class TicketManager {
+    IPriorityStrategy* strategy; // ← 抽象型への参照
+    ITicketState* state;         // ← 抽象型への参照
+public:
+    void update() { state->handle(this); }
+};
+
+```
+
+**この形のトレードオフ：**
+
+* 変更容易性：高（ルールの追加や状態遷移の変更がクラス単位で完結する）
+
+
+* テスト容易性：高（インターフェースに対しスタブを差し込んで個別にテストできる）
+
+
+* 実装コスト：中（インターフェースと複数の実装クラスを定義する必要がある）
+
+
+
+---
+
+#### 案3：具体×間接 ―― 仲介クラスを置くが、具体型を知っている
+
+**この形の考え方：**
+`TicketManager` と各状態クラスの間に「コントローラー」を置く。 `TicketManager` はコントローラーだけを知り、コントローラーが具体的な状態クラスの生成や管理を行う。
+
+**この形にするための準備：**
+
+1. 状態管理を担う `StateController` を作成する
+2. `TicketManager` はこのコントローラーのメソッドを呼ぶ
+3. コントローラー内で具体的な状態クラスを生成する
+
+【案3のコード（一部）】
+
+```cpp
+void update(string status) {
+    controller.handle(status); // 具体的な状態管理はコントローラーに任せる
+}
+
+```
+
+**この形のトレードオフ：**
+
+* 変更容易性：中（状態管理のルールが変わった場合、コントローラーのみ修正で済む）
+
+
+* テスト容易性：中（コントローラーをスタブ化すれば一定のテストは可能）
+
+
+* 実装コスト：中（仲介クラスの責任設計が必要）
+
+
+
+---
+
+#### 案4：抽象×間接 ―― インターフェース＋仲介役を両立する
+
+**この形の考え方：**
+案2のインターフェースと、案3の仲介クラスを併用する。 非常に高い柔軟性を持つが、すべての層に抽象と仲介役が必要となるため、構造が複雑になる。
+
+**この形にするための準備：**
+
+1. 全状態遷移とルール判定をインターフェース化する
+2. 組み立てを担う Factory または Manager クラスを導入する
+3. チケットライフサイクルの全層を抽象化する
+
+【案4のコード（一部）】
+
+```cpp
+// 複雑な構成のため、組み立てを専門のクラスが担う
+class TicketComponentFactory {
+    virtual ITicketState* createState(string type) = 0;
+};
+
+```
+
+**この形のトレードオフ：**
+
+* 変更容易性：高（どの層の変更も他層に影響を与えない）
+
+
+* テスト容易性：高（すべての依存を切り離せる）
+
+
+* 実装コスト：高（クラス数とインターフェースが大幅に増える）
+
+
+
+---
+
+### 6-7：評価軸
+
+対策案を比較するための「ものさし」を先に宣言します。 全章共通の3軸を採用し、パフォーマンスへの影響をVETO（拒否権）として設定します。
+
+| **評価軸** | **意味** | **ウェイト** |
+| --- | --- | --- |
+| 変更容易性 | 状態追加やルール変更に対し、触る場所が最小で済むか | ×3 |
+| テスト容易性 | 状態やルールをスタブに差し替えて独立してテストできるか | ×2 |
+| 可読性 | インターフェースやクラスの導入による構造の理解コスト | ×1 |
+
+**採点基準（章共通）：**
+
+| 点数 | 変更容易性 | テスト容易性 | 可読性 |
+| --- | --- | --- | --- |
+| 3 | 1クラス修正のみで完結 | スタブで完全に切り離せる | クラス増なし・直感的に理解可能 |
+| 2 | 2〜3クラスの修正が必要 | 一部スタブが必要だが可能 | クラス1〜2個増・標準的な構造 |
+| 1 | 4クラス以上に波及 | 実装依存でテスト困難 | 中間層が過多で理解コストが高い |
+
+**パフォーマンスの VETO 判定：**
+今回のチケットシステムは、状態遷移のたびに優先度を再計算するため、呼び出し頻度は中程度です。 極端な高速化は求められていませんが、複雑な状態遷移をスッキリ分離できる設計を優先します。
+
+---
+
+### 6-8：コスト天秤
+
+5つの案を、現在および未来のコスト観点で比較します。
+
+| **案** | **現在の対応コスト** | **未来の対応コスト** |
+| --- | --- | --- |
+| 案0：構造を変えない | 低 | 高 |
+| 案1：具体×直接 | 低〜中 | 高 |
+| 案2：抽象×直接 | 中 | 低 |
+| 案3：具体×間接 | 中 | 中 |
+| 案4：抽象×間接 | 高 | 低 |
+
+**ステップ1：採点表**（1＝低い、2＝中程度、3＝高い）
+
+| 案 | 変更容易性（×3） | テスト容易性（×2） | 可読性（×1） |
+| --- | --- | --- | --- |
+| 案0：構造を変えない | 1 | 1 | 3 |
+| 案1：具体×直接 | 1 | 2 | 3 |
+| 案2：抽象×直接 | 3 | 3 | 2 |
+| 案3：具体×間接 | 2 | 2 | 2 |
+| 案4：抽象×間接 | 3 | 3 | 1 |
+
+**ステップ2：加重合計表**（変更容易性×3 ＋ テスト容易性×2 ＋ 可読性×1）
+
+| 案 | 加重スコア | 判定 |
+| --- | --- | --- |
+| 案0 | 1×3＋1×2＋3×1＝8 |  |
+| 案1 | 1×3＋2×2＋3×1＝10 |  |
+| 案2 | 3×3＋3×2＋2×1＝17 | ← 採用候補 |
+| 案3 | 2×3＋2×2＋2×1＝12 |  |
+| 案4 | 3×3＋3×2＋1×1＝16 |  |
+
+案4も高いスコアですが、構造の複雑化を避けるため、今回はバランスの良い案2（抽象×直接）を第一候補とします。
+
+---
+
+### 6-9：採用案の決定
+
+**採用する案：** 案2（抽象×直接 ―― Strategyパターン × Stateパターン）
+
+**理由：**
+優先度ルールを **Strategyパターン** で、チケットの状態遷移を **Stateパターン** で分離することで、変更軸が異なる二つの責務をそれぞれ独立して拡張可能にするためです。 構造の複雑さを適度に抑えつつ、高い変更耐性を確保できます。
+
+---
+
+### 6-10：耐久テスト
+
+フェーズ2のヒアリングで挙がった「将来のリスク」に対する耐性を確認します。
+
+| **変更シナリオ** | **触る場所** | **コスト評価** |
+| --- | --- | --- |
+| 重要度の算出ルール（SLA）を変更する | PriorityStrategy の具象クラスを修正 | 低 |
+| 新しいチケット状態「保留」を追加する | TicketState の具象クラスを新規作成 | 低 |
+
+採用した設計では、新しいルールや状態の追加がクラス単位の作成・修正に閉じており、既存ロジックへの影響が排除されていることが実証されました。
+
+
+添付ファイル「ai-context_38.md」を読み込みました。第9章「Strategy × State・サポートチケット管理」のフェーズ7、および整理・振り返り・パターン解説を記述します。
+
+---
+
+## 🟤 フェーズ7：対策実施 ―― 決断し、変化に強い設計を手に入れる
+
+採用した Strategy パターンおよび State パターンを実装し、ビジネスルールと状態遷移の責務をそれぞれ独立したクラスへカプセル化（変更の影響を1クラス内に閉じ込めること）します。
+
+### 7-1：解決後のコード（全体）
+
+優先度判定を `IPriorityStrategy`、状態管理を `ITicketState` へとそれぞれ分離しました。
+
+```cpp
+#include <iostream>
+#include <string>
+#include <vector>
+
+using namespace std;
+
+// Strategy: 優先度計算のインターフェース
+class IPriorityStrategy {
+public:
+    virtual ~IPriorityStrategy() = default;
+    virtual string getPriority(string content) = 0;
+};
+
+// Strategy実装
+class UrgentPriority : public IPriorityStrategy {
+public:
+    string getPriority(string content) override { return "High"; }
+};
+
+class NormalPriority : public IPriorityStrategy {
+public:
+    string getPriority(string content) override { return "Normal"; }
+};
+
+// State: 状態遷移のインターフェース
+class ITicketState {
+public:
+    virtual ~ITicketState() = default;
+    virtual void handle(class TicketContext* context) = 0;
+};
+
+// State実装
+class OpenState : public ITicketState {
+public:
+    void handle(TicketContext* context) override; // 後述
+};
+
+// コンテキスト
+class TicketContext {
+    ITicketState* state;
+    IPriorityStrategy* strategy;
+public:
+    void setState(ITicketState* s) { state = s; }
+    void setStrategy(IPriorityStrategy* s) { strategy = s; }
+    void execute() { state->handle(this); }
+    string calculatePriority(string content) { return strategy->getPriority(content); }
+};
+
+```
+
+`TicketManager` はこれらのインターフェースを保持し、具体的な処理は差し替え可能なクラスに委譲します。
+
+### 7-2：変更影響グラフ（改善後）
+
+フェーズ3と同じ「SLAルール変更」や「状態追加」を試みます。
 
 ```mermaid
-classDiagram
-    class Context {
-        -state : State
-        +request()
-        +changeState(s : State)
-    }
-    class State {
-        <<interface>>
-        +handle(ctx : Context)
-    }
-    class ConcreteStateA {
-        +handle(ctx : Context)
-    }
-    class ConcreteStateB {
-        +handle(ctx : Context)
-    }
-    Context o--> State : 現在の状態を持つ
-    State <|.. ConcreteStateA
-    State <|.. ConcreteStateB
-    ConcreteStateA ..> Context : ctx.changeState(new B)
-    ConcreteStateB ..> Context : ctx.changeState(new A)
+graph LR
+    T1["変更要求：SLAルール変更"] --> F1["UrgentPriorityクラス ✅"]
+    T1 -. "影響なし" .-> A["TicketManager ✅"]
+    T2["変更要求：新規状態追加"] --> F2["NewStateクラス ✅"]
+    T2 -. "影響なし" .-> A
+
 ```
 
-**Context** は状態を「持つ」側です。`request()` を呼ばれたら現在のStateに委譲するだけで、状態の種類を知りません。**State** は「今の状態での振る舞い」の契約です。`handle()` の引数にContextを受け取り、必要なら状態遷移を行います。**ConcreteState** は特定の状態での振る舞いと、次の状態への遷移を実装します。
+→ フェーズ3のグラフと比較して、変更要求がそれぞれ独立したクラスに閉じるようになり、`TicketManager` への飛び火がなくなりました。
 
-### この章の実装との対応
+### 7-3：変更シナリオ表
 
-```mermaid
-classDiagram
-    class OrderService {
-        -state : IOrderState
-        -rule : IBillingRule
-        +confirm()
-        +pay()
-        +ship()
-        +changeState(s : IOrderState)
-    }
-    class IOrderState {
-        <<interface>>
-        +confirm(ctx : OrderService)
-        +pay(ctx : OrderService)
-        +ship(ctx : OrderService)
-    }
-    class CartState {
-        +confirm(ctx) CartState→ConfirmedState
-        +pay(ctx) 何もしない
-        +ship(ctx) 何もしない
-    }
-    class ConfirmedState {
-        +confirm(ctx) 何もしない
-        +pay(ctx) ConfirmedState→PaidState
-        +ship(ctx) 何もしない
-    }
-    class PaidState {
-        +confirm(ctx) 何もしない
-        +pay(ctx) 何もしない
-        +ship(ctx) PaidState→ShippedState
-    }
-    OrderService o--> IOrderState : 現在の状態
-    IOrderState <|.. CartState
-    IOrderState <|.. ConfirmedState
-    IOrderState <|.. PaidState
-    CartState ..> OrderService : changeState(new Confirmed)
-    ConfirmedState ..> OrderService : changeState(new Paid)
-    PaidState ..> OrderService : changeState(new Shipped)
-    note for OrderService "状態の種類を知らない\n委譲するだけ"
+| **シナリオ** | **変わるクラス（触る場所）** | **変わらないクラス** |
+| --- | --- | --- |
+| 優先度計算ルールを変更する | `PriorityStrategy` 派生クラス | `TicketManager`, `ITicketState` |
+| 新しい状態を追加する | `ITicketState` 派生クラスを新規作成 | `TicketManager`, `IPriorityStrategy` |
+
+変更が来ても、触るのは該当する戦略や状態クラスのみです。これがこの設計で手に入れた「変更耐性」です。 諦めたものは、インターフェースやクラスの増加というわずかな設計コストです。
+
+---
+
+### ⑩ 整理・振り返り・パターン解説
+
+第9章の締めくくりとして、思考プロセスとパターンの関係を振り返ります。
+
+#### 7フェーズとこの章でやったこと
+
+| **フェーズ** | **この章でやったこと** |
+| --- | --- |
+| 🔵 フェーズ1：現状把握 | チケット管理システムにおける状態遷移とルール判定の混在を観察した。
+
+ |
+| 🟠 フェーズ2：仮説立案 | 運用担当者へのヒアリングで、二つの軸（ルールと状態）が独立して変動することを確認した。
+
+ |
+| 🟡 フェーズ3：問題特定 | `if-else` 分岐の肥大化による修正の連鎖という痛みを確認した。
+
+ |
+| 🔴 フェーズ4：原因分析 | 振る舞いとルールの密結合を「直差し」状態として診断した。
+
+ |
+| 🔴 フェーズ5：課題定義 | 状態とルールの二つの接続点を特定し、疎結合化を課題とした。
+
+ |
+| 🟢 対策案検討 | Strategy パターンと State パターンを組み合わせる構造を採用した。
+
+ |
+| 🔵 フェーズ7：対策実施 | インターフェースを導入し、責務をクラスに分離した。
+
+ |
+
+#### 各クラスの最終的な責任
+
+| **クラス名** | **責任（1文）** | **変わる理由** |
+| --- | --- | --- |
+| `IPriorityStrategy` | 優先度判定の契約を提供する。 | なし |
+| `ITicketState` | 状態遷移の契約を提供する。 | なし |
+| `TicketManager` | チケットのライフサイクルを統合管理する。 | チケットの全体フローが変わる場合 |
+
+> **このプロセスを回した結果にたどり着いた構造こそが Strategy × State パターン です。**
+> 
+
+#### 振り返り：「この章を読むと得られること」は手に入ったか
+
+| **得られること** | **この章のどこで示したか** |
+| --- | --- |
+| 変動箇所の識別力 | フェーズ2の分類表でルールと状態を変動要因として特定。
+
+ |
+| 接続形態の診断力 | フェーズ4のケーブル比喩で現状の混在を診断。
+
+ |
+| 構造改善の説明力 | フェーズ7の変更シナリオ表で局所化を実証。
+
+ |
+
+#### 振り返り：第0章の3つの設計原則はどう適用されたか
+
+* **原則1「変わるものをカプセル化せよ」の現れ**
+* **具体化された場所：** 各 `Strategy` および `State` クラス
+* **解説：** 変化するロジックを個別のクラスへ追い出し、`TicketManager` から切り離しました。
+
+
+
+
+* **原則2「インターフェースに対してプログラムせよ」の現れ**
+* **具体化された場所：** `IPriorityStrategy`, `ITicketState`
+* **解説：** 統括クラスは具体的なアルゴリズムや状態を知らず、インターフェース経由で呼び出すようにしました。
+
+
+
+
+* **原則3「継承よりコンポジションを優先せよ」の現れ**
+* **具体化された場所：** `TicketContext` がStrategyとStateを保持する構成
+* **解説：** ロジックの振る舞いを継承ではなく、保持するオブジェクトの差し替えによって実現しました。
+
+
+
+
+
+---
+
+### パターン解説：Strategy × State
+
+この複合パターンは、ビジネス上の「アルゴリズム（戦略）」と「状態（状態遷移）」が独立して変化する際、それぞれをパターンの対象とすることで、爆発的な分岐を整理する強力なアプローチです。
+
+#### この章の実装との対応
+
+Strategy パターンが「どのルールの元で計算するか」を担当し、State パターンが「現在の状態で何ができるか」を担当することで、チケット管理の複雑さを解きほぐしました。
+
+#### 使いどころと限界
+
+* **使いどころ**：状態遷移が複雑で、さらにその状態ごとのルールが頻繁に変わるような大規模なワークフロー管理。
+
+
+* **限界**：シンプルな遷移であれば `if-else` の方が可読性が高いこともあります。
+
+
+
+【過剰コード：シンプルなものまで無理に分離した例】
+
+```cpp
+// 単純なステータス変更のみのチケット管理に適用すると、
+// クラス数だけが増大し、開発効率を低下させることになります。
+
 ```
 
-`OrderService` は `confirm()` を呼ばれると `state_->confirm(*this)` を呼ぶだけです。今が `CartState` なら `ConfirmedState` に遷移し、`ShippedState` なら何もしない——その判断は `OrderService` の外にあります。状態が1つ増えても `OrderService` は変わりません。
+### この章のまとめ
 
-### StrategyパターンとStateパターンの違い
+「状態」と「ルール」という二つの異なる変化軸を分離することで、変更が局所化され、システムの拡張性が飛躍的に向上しました。 複雑な条件分岐の山に直面したときは、まずはこの二つの軸に分けて考えるところから始めてみてください。
 
-2つのパターンはUMLの図だけ見ると区別がつきません。Contextが「何かを持ち、委譲する」構造は同じです。決定的な違いは「部品を差し替える責任者」にあります。
-
-| | Strategyパターン | Stateパターン |
-|---|---|---|
-| 差し替えの主体 | 外部（Composition RootがContextに注入） | 内部（ConcreteState自身がContextを遷移させる） |
-| 差し替えのきっかけ | Contextを組み立てるとき | Contextのメソッドが呼ばれたとき |
-| 典型的な問い | 「どのアルゴリズムを使うか」 | 「今の状態で何ができるか」 |
-
-Strategyは「外から渡す部品」、Stateは「内部から自走する部品」です。
-
-### どんな構造問題を解くか
-
-「状態ごとに振る舞いが変わる処理」をContextに書き続けると、状態が増えるたびに全メソッドに `if` が追加されます。この章の `OrderService` の起点コードがそれでした。
-
-Stateパターンはその `if` をConcreteStateに移動させます。Contextは「委譲するだけ」になり、状態が増えても既存のConcreteStateを変更する必要はありません。
-
-### 使いどころと限界
-
-**使いどころ：** オブジェクトが明確な「状態」を持ち、状態ごとに「できること・できないこと」が変わる場合です。状態遷移の構造が複雑になるほど、個々のConcreteStateにロジックを分散させるStateパターンが力を発揮します。
-
-**限界：** 状態が2〜3種類で今後も増える見込みがない場合、シンプルな `if` で十分です。Stateパターンは状態の数だけクラスが増えます。遷移が少ない場合のクラス増加は純粋なオーバーヘッドです。
