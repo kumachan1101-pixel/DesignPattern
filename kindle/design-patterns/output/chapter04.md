@@ -139,7 +139,6 @@ public:
 
 フェーズ1で責任配置の観察が終わりました。次のフェーズ2では、変更要求を受けて「何が変わり、何が変わらないか」の仮説を立てます。
 
-添付ファイルを読み込みました。第4章のフェーズ2を執筆します。
 
 ---
 
@@ -287,14 +286,20 @@ graph LR
 
 この状態では、新しい店舗のCSVに対応しようとするたびに、基板全体を書き換えて、新しい店舗用のロジックを直にハンダ付けする必要があります。これは、専用ケーブルで特定の機器と直接つながっているような状態です。もしファイル操作の手順自体に改善（例えばエラーログの強化など）を加えたくなったら、すべての専用ケーブルを一旦外して、ハンダ付けし直さなければならないのです。
 
-[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors for software design patterns. The matrix has two axes: vertical axis labeled "具体（専用規格）" (top) to "抽象（汎用規格）" (bottom), horizontal axis labeled "直接（直差し）" (left) to "間接（アダプター経由）" (right). Four cells:
-
-* Top-left (具体×直接): Lightning cable plugged directly into iPhone. Label: "Lightning直差し"
-* Top-right (具体×間接): Lightning-to-USB-C adapter between iPhone and charger. Label: "専用アダプター経由"
-* Bottom-left (抽象×直接): USB-C cable plugged directly. Label: "USB-C直差し"
-* Bottom-right (抽象×間接): MacBook connected via USB-C hub to monitor, USB drive, and SD card. Label: "USB-Cハブ経由"
-HIGHLIGHT the top-left (具体×直接) cell with a bright colored border and slightly larger size. All other cells are muted gray.
-Minimalist flat illustration style, white background, no gradients, Japanese labels on axes.]
+```mermaid
+quadrantChart
+    title Template Method パターン ── ★具体×直接（Lightning直差し）
+    x-axis 直接（直差し） --> 間接（アダプター経由）
+    y-axis 抽象（汎用規格） --> 具体（専用規格）
+    quadrant-1 専用アダプター経由 (具体×間接)
+    quadrant-2 ★ Lightning直差し (具体×直接)
+    quadrant-3 USB-C直差し (抽象×直接)
+    quadrant-4 USB-Cハブ経由 (抽象×間接)
+    Lightning直差し: [0.25, 0.75]
+    専用アダプター経由: [0.8, 0.75]
+    USB-C直差し: [0.25, 0.25]
+    USB-Cハブ経由: [0.8, 0.25]
+```
 
 本来であれば、手順の骨格だけを「USB-Cの汎用規格（抽象×直接）」のように決めておき、具体的なパースロジックを必要に応じて差し込める形にすべきでしょう。
 

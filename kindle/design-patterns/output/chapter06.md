@@ -353,16 +353,20 @@ graph LR
 
 iPhoneに専用のケーブルを直接つなぐように、特定のトッピングを本体クラスに直接組み込んでいる状態です。この接続形態のままで新しいトッピング（新しい機器）をつなぎたいと思ったら、本体（クラス）の側にも新しい専用の差込口（コンストラクタの引数やメンバ変数）を増やさなければなりません。だからこそ、トッピングが増えるたびに本体側や呼び出し側に影響が飛び火していたのです。
 
-[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors for software design patterns.
-The matrix has two axes: vertical axis labeled "具体（専用規格）" (top) to "抽象（汎用規格）" (bottom), horizontal axis labeled "直接（直差し）" (left) to "間接（アダプター経由）" (right).
-Four cells:
-
-* Top-left (具体×直接): Lightning cable plugged directly into iPhone. Label: "Lightning直差し"
-* Top-right (具体×間接): Lightning-to-USB-C adapter between iPhone and charger. Label: "専用アダプター経由"
-* Bottom-left (抽象×直接): USB-C cable plugged directly. Label: "USB-C直差し"
-* Bottom-right (抽象×間接): MacBook connected via USB-C hub to monitor, USB drive, and SD card. Label: "USB-Cハブ経由"
-HIGHLIGHT the bottom-right (抽象×間接) cell with a bright colored border and slightly larger size. 複数のアダプターを直列に重ねる旨を追記. All other cells are muted gray.
-Minimalist flat illustration style, white background, no gradients, Japanese labels on axes.]
+```mermaid
+quadrantChart
+    title Decorator パターン ── ★抽象×間接（USB-Cハブ経由）＋アダプター直列
+    x-axis 直接（直差し） --> 間接（アダプター経由）
+    y-axis 抽象（汎用規格） --> 具体（専用規格）
+    quadrant-1 専用アダプター経由 (具体×間接)
+    quadrant-2 Lightning直差し (具体×直接)
+    quadrant-3 USB-C直差し (抽象×直接)
+    quadrant-4 ★ USB-Cハブ経由 (抽象×間接) ＝複数アダプター直列
+    Lightning直差し: [0.25, 0.75]
+    専用アダプター経由: [0.8, 0.75]
+    USB-C直差し: [0.25, 0.25]
+    USB-Cハブ経由: [0.8, 0.25]
+```
 
 ここで重要なのは、基本となるドリンクの役割と、後から追加されるトッピングの役割は、明らかに変わる理由が異なるということです。したがって、これらは一つの場所にまとめておくのではなく、分けるべきだと判断できます。
 
@@ -923,6 +927,8 @@ public:
         // ※メモリ解放はサンプル簡略化のため省略
     }
 
+    // ※ testOrderCalculation() は Google Test フレームワークを使用します。
+    //   実際に実行する場合は #include <gtest/gtest.h> とリンク設定が必要です。
     void testOrderCalculation() {
         // EXPECT_EQ(期待値, 実際の値)：等しければテスト通過。Google Test のマクロ。
         IDrink* simpleCoffee = new Coffee();

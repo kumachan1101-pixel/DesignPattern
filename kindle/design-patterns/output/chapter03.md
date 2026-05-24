@@ -284,16 +284,20 @@ graph LR
 
 この状態では、新しい予約ルールという「部品」を一つ追加しようとするたびに、基板上の回路を焼き直さなければなりません。まさに、特定の端子に特定のケーブルを直にハンダ付けしているようなものです。これでは、状態が増えるたびに基板全体が複雑化し、ちょっとした変更でも回路全体がショート（バグが発生）してしまうのは当然のことと言えるでしょう。
 
-[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors for software design patterns.
-The matrix has two axes: vertical axis labeled "具体（専用規格）" (top) to "抽象（汎用規格）" (bottom), horizontal axis labeled "直接（直差し）" (left) to "間接（アダプター経由）" (right).
-Four cells:
-
-* Top-left (具体×直接): Lightning cable plugged directly into iPhone. Label: "Lightning直差し"
-* Top-right (具体×間接): Lightning-to-USB-C adapter between iPhone and charger. Label: "専用アダプター経由"
-* Bottom-left (抽象×直接): USB-C cable plugged directly. Label: "USB-C直差し"
-* Bottom-right (抽象×間接): MacBook connected via USB-C hub to monitor, USB drive, and SD card. Label: "USB-Cハブ経由"
-HIGHLIGHT the top-left (具体×直接) cell with a bright colored border and slightly larger size. All other cells are muted gray.
-Minimalist flat illustration style, white background, no gradients, Japanese labels on axes.]
+```mermaid
+quadrantChart
+    title State パターン ── ★具体×直接（Lightning直差し）
+    x-axis 直接（直差し） --> 間接（アダプター経由）
+    y-axis 抽象（汎用規格） --> 具体（専用規格）
+    quadrant-1 専用アダプター経由 (具体×間接)
+    quadrant-2 ★ Lightning直差し (具体×直接)
+    quadrant-3 USB-C直差し (抽象×直接)
+    quadrant-4 USB-Cハブ経由 (抽象×間接)
+    Lightning直差し: [0.25, 0.75]
+    専用アダプター経由: [0.8, 0.75]
+    USB-C直差し: [0.25, 0.25]
+    USB-Cハブ経由: [0.8, 0.25]
+```
 
 「状態」ごとに振る舞いを別クラスに切り出すことができれば、この配線を「USB-Cハブ経由（抽象×間接）」のような柔軟な接続に変えられるはずです。
 
