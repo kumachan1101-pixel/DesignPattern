@@ -174,7 +174,6 @@ int main() {
 
 フェーズ1で責任配置の観察が終わりました。次のフェーズ2では、変更要求を受けて「何が変わり、何が変わらないか」の仮説を立てます。
 
-準備完了。それでは、第2章のフェーズ2を執筆します。
 
 ---
 
@@ -326,16 +325,20 @@ graph LR
 
 本来であれば、業務ロジック側は「振り込みたい」という命令を送るだけでよく、具体的な接続手順は窓口の向こう側に隠すべきです。
 
-[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors for software design patterns.
-The matrix has two axes: vertical axis labeled "具体（専用規格）" (top) to "抽象（汎用規格）" (bottom), horizontal axis labeled "直接（直差し）" (left) to "間接（アダプター経由）" (right).
-Four cells:
-
-* Top-left (具体×直接): Lightning cable plugged directly into iPhone. Label: "Lightning直差し"
-* Top-right (具体×間接): Lightning-to-USB-C adapter between iPhone and charger. Label: "専用アダプター経由"
-* Bottom-left (抽象×直接): USB-C cable plugged directly. Label: "USB-C直差し"
-* Bottom-right (抽象×間接): MacBook connected via USB-C hub to monitor, USB drive, and SD card. Label: "USB-Cハブ経由"
-HIGHLIGHT the top-left (具体×直接) cell with a bright colored border and slightly larger size. All other cells are muted gray.
-Minimalist flat illustration style, white background, no gradients, Japanese labels on axes.]
+```mermaid
+quadrantChart
+    title Facade パターン ── ★具体×直接（Lightning直差し）
+    x-axis 直接（直差し） --> 間接（アダプター経由）
+    y-axis 抽象（汎用規格） --> 具体（専用規格）
+    quadrant-1 専用アダプター経由 (具体×間接)
+    quadrant-2 ★ Lightning直差し (具体×直接)
+    quadrant-3 USB-C直差し (抽象×直接)
+    quadrant-4 USB-Cハブ経由 (抽象×間接)
+    Lightning直差し: [0.25, 0.75]
+    専用アダプター経由: [0.8, 0.75]
+    USB-C直差し: [0.25, 0.25]
+    USB-Cハブ経由: [0.8, 0.25]
+```
 
 銀行の認証フローや送金APIの使い方は、私たちの業務フローとは「変わる理由」が異なるため、業務フローから切り離すべき存在です。
 
@@ -384,7 +387,6 @@ Minimalist flat illustration style, white background, no gradients, Japanese lab
 フェーズ5で「何を解くか」が具体化されました。次のフェーズ6では、この課題に対してどのような「接続の形」を採用すべきか、案0〜案4を並べてコスト比較を行います。
 
 
-添付ファイルを読み込みました。第2章のフェーズ6、6-1から6-6までを執筆します。
 
 ---
 
@@ -618,9 +620,9 @@ class BankFacade : public IBankFacade {
 | 案1 | 10 |  |
 | 案2 | 14 |  |
 | 案3 | 15 | ← 採用候補 |
-| 案4 | 16 | ※VETOの確認が必要（今回は除外） |
+| 案4 | 16 | 今回は見送り（理由は下記） |
 
-※案4は柔軟性は高いものの、今回の小規模な銀行連携であれば実装複雑度が高すぎると判断しました。案3の `TransferManager`（仲介者）が最もバランスが取れています。この構造を **Facade（ファサード）パターン** と呼びます。
+**案4を見送った理由：** スコアは最高値（16）ですが、可読性の評価で最低点（1）を付けた通り、インターフェース＋仲介クラスを両方導入する構造は実装コストが高く、今回の「銀行API 1本を窓口化する」という要件規模に対しては過剰な複雑さを持ち込むと判断しました。パフォーマンスのVETO（拒否権）はフェーズ5で「ホットパスではない」と確認済みのため今回は除外していませんが、設計コストの観点から案3を優先します。案3の `TransferManager`（仲介者）が最もバランスが取れています。この構造を **Facade（ファサード）パターン** と呼びます。
 
 ---
 
@@ -734,7 +736,6 @@ graph LR
 
 銀行システムという外部環境の変化に対して、私たちの業務ロジックを守り抜く。これこそがFacadeパターンによるカプセル化の真骨頂です。
 
-第2章の整理、振り返り、そしてFacadeパターンの解説をまとめます。
 
 ---
 

@@ -134,7 +134,6 @@ public:
 
 フェーズ1で責任配置の観察が終わりました。次のフェーズ2では、変更要求を受けて「何が変わり、何が変わらないか」の仮説を立てます。
 
-準備完了です。
 
 ---
 
@@ -287,7 +286,20 @@ graph LR
 
 この状態は、リモコンのボタン一つひとつが、テレビの基板上の特定の回路に直接はんだ付けされているようなものです。新しい操作（機能）を追加するたびに、リモコンの筐体をこじ開け、新しい配線をはんだ付けしなければなりません。これでは、家電を買い替えるたびにリモコンの配線をやり直すようなもので、極めて非効率です。
 
-[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors. HIGHLIGHT the top-left (具体×直接) cell with a bright colored border and slightly larger size. All other cells are muted gray. Vertical axis: "具体（専用規格）" top, "抽象（汎用規格）" bottom. Horizontal axis: "直接（直差し）" left, "間接（アダプター経由）" right. Minimalist flat illustration style, white background, no gradients, Japanese labels on axes.]
+```mermaid
+quadrantChart
+    title Command パターン ── ★具体×直接（Lightning直差し）
+    x-axis 直接（直差し） --> 間接（アダプター経由）
+    y-axis 抽象（汎用規格） --> 具体（専用規格）
+    quadrant-1 専用アダプター経由 (具体×間接)
+    quadrant-2 ★ Lightning直差し (具体×直接)
+    quadrant-3 USB-C直差し (抽象×直接)
+    quadrant-4 USB-Cハブ経由 (抽象×間接)
+    Lightning直差し: [0.25, 0.75]
+    専用アダプター経由: [0.8, 0.75]
+    USB-C直差し: [0.25, 0.25]
+    USB-Cハブ経由: [0.8, 0.25]
+```
 
 本来であれば、ボタンが押されたとき「何らかの操作オブジェクト」を投げるようにし、実行・取り消しはそのオブジェクト自身が知っているという「USB-Cハブ経由（抽象×間接）」のような構造にすべきでしょう。
 

@@ -59,7 +59,20 @@
 >
 > パターンの名前を覚える前に、まずこの「分ける理由と接続の形の関係」を理解してください。
 
-[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors for software design connection types. The matrix has two axes: vertical axis labeled "具体（専用規格）" at top to "抽象（汎用規格）" at bottom, horizontal axis labeled "直接（直差し）" at left to "間接（アダプター経由）" at right. Four cells, all equally prominent with no highlight: top-left shows Lightning cable plugged directly into iPhone labeled "Lightning直差し 具体×直接", top-right shows Lightning-to-USB-C adapter between iPhone and charger labeled "専用アダプター経由 具体×間接", bottom-left shows USB-C cable plugged directly labeled "USB-C直差し 抽象×直接", bottom-right shows MacBook connected via USB-C hub to monitor USB-drive and SD-card labeled "USB-Cハブ経由 抽象×間接". Minimalist flat illustration style, white background, no gradients, clean Japanese labels.]
+```mermaid
+quadrantChart
+    title ソフトウェア設計の接続タイプ（ケーブルのメタファー）
+    x-axis 直接（直差し） --> 間接（アダプター経由）
+    y-axis 抽象（汎用規格） --> 具体（専用規格）
+    quadrant-1 専用アダプター経由 (具体×間接)
+    quadrant-2 Lightning直差し (具体×直接)
+    quadrant-3 USB-C直差し (抽象×直接)
+    quadrant-4 USB-Cハブ経由 (抽象×間接)
+    Lightning直差し: [0.25, 0.75]
+    専用アダプター経由: [0.8, 0.75]
+    USB-C直差し: [0.25, 0.25]
+    USB-Cハブ経由: [0.8, 0.25]
+```
 
 > [!INFO] 本書の前提と言語について
 > 本書では、すべてのサンプルコードを **C++** で記述しています。ただし、ここで学ぶ「思考の型」はC++に依存するものではありません。オブジェクト指向の概念を備えた言語であれば、どのような言語でも同じように活かせる知識となっています。

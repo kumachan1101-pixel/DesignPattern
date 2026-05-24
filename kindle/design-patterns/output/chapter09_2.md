@@ -146,7 +146,6 @@ int main() {
 
 フェーズ1で責任配置の観察が終わりました。次のフェーズ2では、変更要求を受けて仮説を立てます。
 
-添付ファイル「ai-context_32.md」を読み込みました。第9章「Strategy × State・サポートチケット管理」のフェーズ2を記述します。
 
 ---
 
@@ -197,7 +196,6 @@ int main() {
 「状態遷移」という変更軸と「優先度ルール」という変更軸を、今の混沌とした TicketManager から切り離す必要がありそうです。フェーズ2で「何が変わり、何が変わらないか」が確定しました。次のフェーズ3では、この変更要求を実際に今のコードで試みて、具体的にどのような問題が起きるかを明らかにします。
 
 
-添付ファイル「ai-context_33.md」を読み込みました。第9章「Strategy × State・サポートチケット管理」のフェーズ3を記述します。
 
 ---
 
@@ -236,7 +234,6 @@ graph LR
 
 フェーズ3で「変更が辛い」という事実が確認できました。次のフェーズ4では、なぜ辛いのかを構造的に言語化します。
 
-添付ファイル「ai-context_34.md」を読み込みました。第9章「Strategy × State・サポートチケット管理」のフェーズ4を執筆します。
 
 ---
 
@@ -278,13 +275,25 @@ graph LR
 
 本来であれば、状態ごとに接続口を用意し、そこにルールを差し替えてつなぐべきところを、一つの大きなコネクタにすべての機能を「直差し」してしまっています。 この状態では、一つの端子を付け替えようとするだけで、ハブ全体（`TicketManager`）の回路をショートさせないよう細心の注意が必要になります。
 
-[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors for software design patterns. The matrix has two axes: vertical axis labeled "具体（専用規格）" (top) to "抽象（汎用規格）" (bottom), horizontal axis labeled "直接（直差し）" (left) to "間接（アダプター経由）" (right). Four cells: Top-left (具体×直接): Lightning cable plugged directly into iPhone. Label: "Lightning直差し" Top-right (具体×間接): Lightning-to-USB-C adapter between iPhone and charger. Label: "専用アダプター経由" Bottom-left (抽象×直接): USB-C cable plugged directly. Label: "USB-C直差し" Bottom-right (抽象×間接): MacBook connected via USB-C hub to monitor, USB drive, and SD card. Label: "USB-Cハブ経由" HIGHLIGHT the top-left (具体×直接) cell with a bright colored border and slightly larger size. All other cells are muted gray. Minimalist flat illustration style, white background, no gradients, Japanese labels on axes.]
+```mermaid
+quadrantChart
+    title Strategy × State パターン ── ★具体×直接（Lightning直差し）
+    x-axis 直接（直差し） --> 間接（アダプター経由）
+    y-axis 抽象（汎用規格） --> 具体（専用規格）
+    quadrant-1 専用アダプター経由 (具体×間接)
+    quadrant-2 ★ Lightning直差し (具体×直接)
+    quadrant-3 USB-C直差し (抽象×直接)
+    quadrant-4 USB-Cハブ経由 (抽象×間接)
+    Lightning直差し: [0.25, 0.75]
+    専用アダプター経由: [0.8, 0.75]
+    USB-C直差し: [0.25, 0.25]
+    USB-Cハブ経由: [0.8, 0.25]
+```
 
 「状態ごとの振る舞い」と「ビジネスルール」は、それぞれ独立して頻繁に変更されるべき要素です。 これらを一つの巨大なクラスに閉じ込めるのではなく、それぞれの軸で独立した接続形態へ進化させるべきだと判断できます。
 
 フェーズ4で根本原因が言語化できました。次のフェーズ5では、この整理を元に、解決すべき課題を具体的に定義していきます。
 
-添付ファイル「ai-context_35.md」を読み込みました。第9章「Strategy × State・サポートチケット管理」のフェーズ5を記述します。
 
 ---
 
@@ -332,7 +341,6 @@ graph LR
 
 フェーズ5で「何を解くか」が確定しました。次のフェーズ6では、この2つの課題に対し、それぞれの変更軸に対応した対策案を検討します。
 
-添付ファイル「ai-context_36.md」のルールに基づき、第9章「Strategy × State・サポートチケット管理」のフェーズ6（6-1〜6-6）を記述します。
 
 ---
 
@@ -615,7 +623,6 @@ class TicketComponentFactory {
 採用した設計では、新しいルールや状態の追加がクラス単位の作成・修正に閉じており、既存ロジックへの影響が排除されていることが実証されました。
 
 
-添付ファイル「ai-context_38.md」を読み込みました。第9章「Strategy × State・サポートチケット管理」のフェーズ7、および整理・振り返り・パターン解説を記述します。
 
 ---
 

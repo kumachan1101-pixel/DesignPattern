@@ -250,47 +250,6 @@ graph LR
 
 フェーズ3で「今の構造では変更が辛い」という事実が確認できました。 次のフェーズ4では、この痛みの原因を構造的に分析します。
 
-フェーズ2で、連携先の増加と通知処理の多様化が確定しました。 次のフェーズ3では、この要求を今のコードのままで実装しようとすると何が起きるか、実際に試してみます。
-
----
-
-## 🟡 フェーズ3：問題特定 ―― 変更を試みて、痛みを発見する
-
-### 3-1：変更シミュレーション
-
-外部連携バッチシステムに「C社との連携」と「Slackへの結果通知」を追加する要求を、既存の BatchExecutor にそのまま組み込もうとします。
-
-まず、SystemCClient クラスを新規作成し、通信処理を実装します。 次に、BatchExecutor の execute メソッド内にある既存の if-else 分岐に、targetId == "C" という条件を追加し、そこで SystemCClient を生成して send メソッドを呼び出します。 さらに、処理結果を Slack に飛ばすため、NotificationService のメソッドを書き換え、BatchExecutor 内で条件判定と通知ロジックを無理やり挿入します。
-
-作業中、ふと気づかされます。「この execute メソッド、連携先が増えるたびに if 文の列が伸びていき、通知処理の記述もカオスになっている」と。 本来なら連携先ごとの通信ロジックと、通知という副次的な振る舞いは独立しているべきです。 しかし現状では、一つのメソッドの中にこれらすべてが詰め込まれており、連携先を一つ増やすたびにバッチ全体の処理フローを壊しかねない恐怖を感じます。
-
-### 3-2：変更影響グラフ
-
-現状の構造で変更を試みた際、影響がどのように飛び火するかを可視化します。
-
-```mermaid
-graph LR
-    T1["変更要求：C社連携追加"] -->|"分岐追加"| B["BatchExecutor.cpp"]
-    T2["変更要求：Slack通知追加"] -->|"ロジック挿入"| B
-    B -->|"影響が飛び火"| C["既存のA社通信ロジック ✅"]
-    B -->|"影響が飛び火"| D["既存のB社通信ロジック ✅"]
-
-```
-
-グラフが示す通り、C社連携の追加やSlack通知の実装といった個別の要求が、既存の他の連携先ロジックにまで影響を及ぼす構造になっています。
-
-### 3-3：痛みの言語化
-
-「連携先が増えるたびに、既存の安定している通信処理までテストし直さないといけないのか…」
-
-変更をシミュレートする中で、エンジニアとして感じる「痛み」が二つ明確になりました。
-
-1つ目は、BatchExecutor が抱える「巨大な責任」の辛さです。 このクラスは本来、バッチ処理全体のフローを制御するだけでいいはずなのに、連携先ごとの具体的な通信手段や、通知先といった「詳細」までをすべて把握し、生成まで行っています。 これでは、連携先が増えるたびに管理不能なほど複雑なコードになるのは必然です。
-
-2つ目は、連携の「生成」と「通知」という、変わる理由が異なる責務が混在していることです。 連携先の通信仕様が変わるのか、それとも通知の要件が変わるのか、それを見極める前に巨大な一つのクラスを編集せざるを得ません。 変更が局所化（影響が1クラスだけで済む状態）されていないため、システム全体の安全性を確保するコストが日々跳ね上がっています。
-
-フェーズ3で「今の構造では変更が辛い」という事実が確認できました。 次のフェーズ4では、この痛みの原因を構造的に分析します。
-
 ---
 
 ## 🔴 フェーズ4：原因分析 ―― なぜ辛いのかを構造的に言語化する
@@ -331,7 +290,20 @@ graph LR
 
 ハブ（`BatchExecutor`）を開けば、中には各機器専用の回路が複雑に入り組んでおり、一つの配線をいじろうとすると、他の回路にまで誤って電流が流れてしまうような状態です。 本来なら、ハブのポートには汎用的な規格（抽象）のプラグを差し込むべきところを、専用線で直結してしまっているために、変更がシステム全体へと伝播してしまうのです。
 
-[ImagePrompt: A clean flat 2x2 matrix diagram showing cable/connector metaphors for software design patterns. The matrix has two axes: vertical axis labeled "具体（専用規格）" (top) to "抽象（汎用規格）" (bottom), horizontal axis labeled "直接（直差し）" (left) to "間接（アダプター経由）" (right). Four cells: Top-left (具体×直接): Lightning cable plugged directly into iPhone. Label: "Lightning直差し" Top-right (具体×間接): Lightning-to-USB-C adapter between iPhone and charger. Label: "専用アダプター経由" Bottom-left (抽象×直接): USB-C cable plugged directly. Label: "USB-C直差し" Bottom-right (抽象×間接): MacBook connected via USB-C hub to monitor, USB drive, and SD card. Label: "USB-Cハブ経由" HIGHLIGHT the top-right (具体×間接) cell with a bright colored border and slightly larger size. All other cells are muted gray. Minimalist flat illustration style, white background, no gradients, Japanese labels on axes.]
+```mermaid
+quadrantChart
+    title Facade × Observer × Factory Method ── ★具体×間接（専用アダプター経由）
+    x-axis 直接（直差し） --> 間接（アダプター経由）
+    y-axis 抽象（汎用規格） --> 具体（専用規格）
+    quadrant-1 ★ 専用アダプター経由 (具体×間接)
+    quadrant-2 Lightning直差し (具体×直接)
+    quadrant-3 USB-C直差し (抽象×直接)
+    quadrant-4 USB-Cハブ経由 (抽象×間接)
+    Lightning直差し: [0.25, 0.75]
+    専用アダプター経由: [0.8, 0.75]
+    USB-C直差し: [0.25, 0.25]
+    USB-Cハブ経由: [0.8, 0.25]
+```
 
 フェーズ4で根本原因が言語化できました。 次のフェーズ5では、解決すべき課題を具体的に定義していきます。
 
@@ -698,6 +670,25 @@ public:
 class SystemAClient : public IExternalClient {
 public:
     void send(string data) override { cout << "A社へ転送: " << data << endl; }
+};
+
+// ※ ClientFactory と SlackObserver の実装詳細は省略しています。
+// ClientFactory::create(targetId) は targetId に応じた IExternalClient 派生クラスを返します。
+class ClientFactory {
+public:
+    static IExternalClient* create(string targetId) {
+        if (targetId == "A") return new SystemAClient();
+        // B社、C社など他の連携先クラスをここに追加するだけで済む
+        return nullptr;
+    }
+};
+
+// SlackObserver は Observer パターンの具体的な通知先クラスです。
+class SlackObserver : public IObserver {
+public:
+    void onComplete(string result) override {
+        cout << "Slack通知: バッチ処理完了 [" << result << "]" << endl;
+    }
 };
 
 // 組み立て（BatchApplication）
