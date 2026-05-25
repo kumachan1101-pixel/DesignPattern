@@ -676,39 +676,39 @@ public:
 
 **この形にするための準備：**
 
-1. ドリンクとトッピングを統一して扱うための `IBeverage` インターフェースを定義する
-2. `Coffee` に `IBeverage` を実装させる
-3. トッピングの基底クラスを作り、`IBeverage` を実装しつつ、内部に `IBeverage*` を保持させる
+1. ドリンクとトッピングを統一して扱うための `IDrink` インターフェースを定義する
+2. `Coffee` に `IDrink` を実装させる
+3. トッピングの基底クラスを作り、`IDrink` を実装しつつ、内部に `IDrink*` を保持させる
 4. 各トッピングは保持している中身の価格に、自身の価格を上乗せして返す
 
 ```cpp
 // 基本ドリンクとトッピングを同じ型で扱うインターフェース
-class IBeverage {
+class IDrink {
 public:
-    virtual ~IBeverage() = default;
+    virtual ~IDrink() = default;
     virtual int getPrice() const = 0;
     virtual string getDescription() const = 0;
 };
 
 // 基本のドリンク
-class Coffee : public IBeverage {
+class Coffee : public IDrink {
 public:
     int getPrice() const override { return 300; }
     string getDescription() const override { return "Coffee"; }
 };
 
 // トッピングの基底（仲介役であり、かつ抽象型に依存する）
-class ToppingDecorator : public IBeverage {
+class ToppingDecorator : public IDrink {
 protected:
-    IBeverage* baseBeverage; // ← 中身を隠し持つ（間接）
+    IDrink* baseBeverage; // ← 中身を隠し持つ（間接）
 public:
-    ToppingDecorator(IBeverage* base) : baseBeverage(base) {}
+    ToppingDecorator(IDrink* base) : baseBeverage(base) {}
 };
 
 // 具体的なトッピング
 class Milk : public ToppingDecorator {
 public:
-    Milk(IBeverage* base) : ToppingDecorator(base) {}
+    Milk(IDrink* base) : ToppingDecorator(base) {}
     
     int getPrice() const override {
         // 中身の価格に、自分の価格を上乗せする
@@ -720,7 +720,7 @@ public:
 };
 
 // 呼び出し側のイメージ
-// IBeverage* order = new Whip(new Milk(new Coffee()));
+// IDrink* order = new Whip(new Milk(new Coffee()));
 
 ```
 
@@ -824,7 +824,7 @@ public:
 
 ```cpp
 // 呼び出し側で Whip で2回包むだけ
-IBeverage* order = new Whip(new Whip(new Coffee()));
+IDrink* order = new Whip(new Whip(new Coffee()));
 
 ```
 
@@ -1053,7 +1053,7 @@ Decorate（装飾）という名の通り、既存のオブジェクトに「動
 
 ```mermaid
 classDiagram
-    class IBeverage {
+    class IDrink {
         <<interface>>
         +getPrice()
     }
@@ -1061,21 +1061,21 @@ classDiagram
         +getPrice()
     }
     class Decorator {
-        -IBeverage base
+        -IDrink base
     }
     class ConcreteDecorator {
         +getPrice()
     }
-    IBeverage <|.. ConcreteBeverage
-    IBeverage <|.. Decorator
-    Decorator o-- IBeverage
+    IDrink <|.. ConcreteBeverage
+    IDrink <|.. Decorator
+    Decorator o-- IDrink
     Decorator <|-- ConcreteDecorator
 
 ```
 
 #### この章の実装との対応
 
-`IDrink` が `IBeverage`（抽象ロール）、`Coffee` が `ConcreteBeverage`（具象コンポーネント）、`ToppingDecorator` が `Decorator`（装飾の基底）、`Milk` や `Matcha` が `ConcreteDecorator`（具象装飾）に対応します。
+`IDrink` が `IDrink`（抽象ロール）、`Coffee` が `ConcreteBeverage`（具象コンポーネント）、`ToppingDecorator` が `Decorator`（装飾の基底）、`Milk` や `Matcha` が `ConcreteDecorator`（具象装飾）に対応します。
 
 #### 使いどころと限界
 
