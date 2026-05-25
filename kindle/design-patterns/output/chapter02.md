@@ -103,9 +103,13 @@ graph TD
 // 銀行との通信を担うクラス
 class BankGateway {
 public:
-    void verifyAccount(const std::string& account) { std::cout << "口座確認: " << account << "\n"; }
+    void verifyAccount(const std::string& account) {
+        std::cout << "口座確認: " << account << "\n";
+    }
     void checkBalance(const std::string& account) { std::cout << "残高確認\n"; }
-    void executeTransfer(const std::string& account, int amount) { std::cout << "送金実行: " << amount << "円\n"; }
+    void executeTransfer(const std::string& account, int amount) {
+        std::cout << "送金実行: " << amount << "円\n";
+    }
 };
 
 // 認証を担うクラス
@@ -121,7 +125,9 @@ private:
     BankGateway gateway;
     SecurityAuthenticator auth;
 public:
-    void transfer(const std::string& toAccount, int amount, const std::string& otp) {
+    void transfer(
+        const std::string& toAccount, int amount,
+        const std::string& otp) {
         // 銀行システムの複雑な手順を直接制御している
         gateway.verifyAccount(toAccount);
         gateway.checkBalance(toAccount);
@@ -241,7 +247,9 @@ int main() {
 さっそく、銀行から要求された「認証フローの変更（発行と検証の2段階化）」と「送金時のトランザクションID付与」を、現在の `TransferProcessor` クラスの `transfer` メソッドに直接書き込む作業を試みてみましょう。
 
 ```cpp
-void transfer(const std::string& toAccount, int amount, const std::string& otp) {
+void transfer(
+        const std::string& toAccount, int amount,
+        const std::string& otp) {
     gateway.verifyAccount(toAccount);
     gateway.checkBalance(toAccount);
     
@@ -423,7 +431,9 @@ graph TD
 * 既存のメソッド内に、認証ステップや送金ID生成のロジックを条件分岐として書き足す。
 
 ```cpp
-void transfer(const std::string& toAccount, int amount, const std::string& otp) {
+void transfer(
+        const std::string& toAccount, int amount,
+        const std::string& otp) {
     gateway.verifyAccount(toAccount);
     // 新しい認証手順をif文でねじ込む
     if (/* 新仕様 */) {
@@ -668,7 +678,9 @@ private:
     BankGateway gateway;
     SecurityAuthenticator auth;
 public:
-    void performTransfer(const std::string& account, int amount, const std::string& otp) {
+    void performTransfer(
+            const std::string& account, int amount,
+            const std::string& otp) {
         // 複雑な手順はすべてこの窓口の中に閉じる
         gateway.verifyAccount(account);
         gateway.checkBalance(account);
@@ -684,7 +696,9 @@ private:
     BankFacade* facade; //Facadeに依存する
 public:
     TransferProcessor(BankFacade* f) : facade(f) {}
-    void transfer(const std::string& toAccount, int amount, const std::string& otp) {
+    void transfer(
+        const std::string& toAccount, int amount,
+        const std::string& otp) {
         // 振り込みという業務プロセスに集中できる
         facade->performTransfer(toAccount, amount, otp);
         std::cout << "振り込み完了\n";

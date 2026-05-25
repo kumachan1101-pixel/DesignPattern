@@ -223,8 +223,8 @@ public:
         writeToPdf(text);
     }
 private:
-    double calcAmount() { return totalSales_ * 0.1; }           // 手数料10%：営業チームが決める
-    std::string format(double v) {                              // CSV形式：経理チームが決める
+    double calcAmount() { return totalSales_ * 0.1; }  // 手数料10%：営業チームが決める
+    std::string format(double v) {  // CSV形式：経理チームが決める
         return "金額," + std::to_string(static_cast<int>(v));
     }
     void writeToPdf(const std::string& text) {
@@ -666,8 +666,9 @@ public:
 
 ```cpp
 // リトライ機能を追加する「ラッパー（包む）」クラス
-class RetryDecorator : public INotifier {  // ① INotifier を実装（外から INotifier として使える）
-    INotifier* inner_;                     // ② 本物の通知クラスをメンバーとして持つ
+// ① INotifier を実装（外から INotifier として使える）
+class RetryDecorator : public INotifier {
+    INotifier* inner_;  // ② 本物の通知クラスをメンバーとして持つ
 public:
     RetryDecorator(INotifier* inner) : inner_(inner) {}
 
@@ -736,7 +737,8 @@ public:
     EmailNotifier(const std::string& host, int port)
         : smtpHost_(host), port_(port) {}
     void notify(const std::string& msg) override {
-        std::cout << "[Email → " << smtpHost_ << ":" << port_ << "] " << msg << "\n";
+        std::cout << "[Email → " << smtpHost_ << ":" << port_
+                  << "] " << msg << "\n";
     }
 };
 
@@ -766,7 +768,8 @@ public:
                 inner_->notify(msg);
                 return;          // 送信成功 → 即リターン
             } catch (...) {
-                std::cerr << "[Retry] 試行 " << attempt << "/" << maxRetries_ << " 失敗\n";
+                std::cerr << "[Retry] 試行 "
+                          << attempt << "/" << maxRetries_ << " 失敗\n";
             }
         }
     }

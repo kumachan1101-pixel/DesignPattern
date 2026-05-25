@@ -99,9 +99,18 @@ InventoryManager に、通知先となるクラスが集中していることが
 using namespace std;
 
 // 各通知先の具体的な実装
-class EmailNotifier { public: void send(string m) { cout << "Email: " << m << endl; } };
-class DashboardUpdater { public: void update(string m) { cout << "Dashboard: " << m << endl; } };
-class ChatNotifier { public: void send(string m) { cout << "Chat: " << m << endl; } };
+class EmailNotifier {
+public:
+    void send(string m) { cout << "Email: " << m << endl; }
+};
+class DashboardUpdater {
+public:
+    void update(string m) { cout << "Dashboard: " << m << endl; }
+};
+class ChatNotifier {
+public:
+    void send(string m) { cout << "Chat: " << m << endl; }
+};
 
 class InventoryManager {
 private:
@@ -111,7 +120,8 @@ private:
 
 public:
     void reduceStock(string productId, int quantity) {
-        cout << "商品 " << productId << " の在庫を " << quantity << " 減らしました。" << endl;
+        cout << "商品 " << productId
+             << " の在庫を " << quantity << " 減らしました。" << endl;
         
         // 在庫が減ったことを検知して通知する
         string message = "商品 " + productId + " の在庫が減少しました。";
@@ -697,7 +707,8 @@ public:
     void attach(INotification* o) { observers.push_back(o); }
 
     void reduceStock(string productId, int quantity) {
-        cout << "商品 " << productId << " の在庫を " << quantity << " 減らしました。" << endl;
+        cout << "商品 " << productId
+             << " の在庫を " << quantity << " 減らしました。" << endl;
         notifyAll("商品 " + productId + " の在庫が減少しました。");
     }
 

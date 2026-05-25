@@ -851,7 +851,8 @@ public:
         PremiumDiscount premiumDiscount;
         PaymentCalculator calculator;
         
-        int finalPrice = calculator.calculate(subtotal, &premiumDiscount); // ← ここだけ変わる
+        // ← ここだけ変わる
+        int finalPrice = calculator.calculate(subtotal, &premiumDiscount);
         std::cout << "最終的な支払金額は " << finalPrice << " 円です。\n";
     }
 };
