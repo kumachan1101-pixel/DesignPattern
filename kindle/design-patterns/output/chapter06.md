@@ -115,7 +115,8 @@ private:
 
 public:
     CustomDrink(string name, int price, bool milk, bool whip, bool syrup)
-        : baseName(name), basePrice(price), hasMilk(milk), hasWhip(whip), hasSyrup(syrup) {}
+        : baseName(name), basePrice(price),
+          hasMilk(milk), hasWhip(whip), hasSyrup(syrup) {}
 
     int getPrice() const {
         int total = basePrice;
@@ -477,8 +478,11 @@ private:
 
 public:
     // 引数が増え続けるため、呼び出し側はすべて修正が必要
-    CustomDrink(string name, int price, bool milk, bool whip, bool syrup, bool matcha)
-        : baseName(name), basePrice(price), hasMilk(milk), hasWhip(whip), hasSyrup(syrup), hasMatcha(matcha) {}
+    CustomDrink(string name, int price,
+                bool milk, bool whip, bool syrup, bool matcha)
+        : baseName(name), basePrice(price),
+          hasMilk(milk), hasWhip(whip),
+          hasSyrup(syrup), hasMatcha(matcha) {}
 
     int getPrice() const {
         int total = basePrice;
