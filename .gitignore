@@ -1,0 +1,8 @@
+# OneDrive temporary upload files
+.tmp.driveupload/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd

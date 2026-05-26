@@ -28,10 +28,19 @@ editor.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: tr
 - markdownの `##` → `<h2>` タグに変換してからペースト
 - コードブロック → `<pre><code class="language-X">` に変換
 
-### 4. TOC挿入（UIクリック、スクリーンショット不要）
+### 4. TOC挿入（安定版：Ctrl+Shift+Down方式）
 ※ ProseMirror JS直接操作は不可（pmView取得できず）
-- browser_batch でまとめて実行：Ctrl+Home → Enter → ArrowUp → 「+」ボタンfindクリック → 「目次」findクリック
-- TOCは必ず **h2より前・本文最上部** に挿入
+※ 旧手順（カーソル位置依存）は廃止。以下の手順を使うこと。
+
+1. 本文ペースト後、**Ctrl+Home** でエディタ先頭へ移動
+2. 「**+**」ブロックボタンをクリック → 「**目次**」を選択
+   - この時点でTOCがh2の直前か直後に挿入される
+3. TOCがh2の**後ろ**に入った場合：h2ブロックにカーソルを置き `Ctrl+Shift+Down` でh2を下へ移動
+4. JS確認：
+   ```javascript
+   document.querySelector('.ProseMirror').firstChild?.nodeName
+   // → 'TABLE-OF-CONTENTS' になればOK
+   ```
 
 ### 5. カバー画像アップロード
 ```javascript
