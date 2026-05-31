@@ -752,6 +752,36 @@ graph LR
 
 変更が来ても、触るのは該当する Factory や Observer の実装クラスだけ——それがこの設計で手に入れたものです。 諦めたものは、クラス数の増加というわずかな設計コストです。
 
+---
+
+### 7-4：接続形態の確認 ── この設計はどの接続か
+
+フェーズ4-3で診断した通り、変更前のコードは **具体×間接** の状態でした。
+採用した Facade × Observer × Factory Method パターンでは、接続形態が **抽象×間接（USB-Cハブ経由）** へと変化しています。
+
+**「抽象×間接」の証拠となるコード：**
+
+```cpp
+class BatchExecutor {
+    vector<IObserver*> observers;  // ← インターフェース型 = 「抽象」の証拠
+public:
+    void execute(string targetId) {
+        // Factory 経由で生成 = 「間接」の証拠
+        IExternalClient* client = ClientFactory::create(targetId);
+        if (client) {
+            client->send("data");
+            for (auto* obs : observers) obs->onComplete("Success"); // ← Observer 経由 = 「間接」の証拠
+        }
+    }
+};
+```
+
+- `IObserver*` と `IExternalClient*` はインターフェース型 → **「抽象」** の証拠
+- クライアントは `ClientFactory::create()` を経由して生成（直接 `new` しない）→ **「間接」** の証拠
+- 通知は `IObserver` リストを経由して送られる → **「間接」** の証拠
+
+「連携先・通知先を差し替えたいかつ生成・通知の詳細を知らせたくない」という動機から、**抽象×間接** が選ばれました。
+
 ### ⑩ 整理・振り返り・パターン解説
 
 第10章では、外部連携バッチシステムという「生成・通信・通知」が絡み合う複雑なシステムを題材に、複数のパターンを組み合わせることで設計を整理しました。

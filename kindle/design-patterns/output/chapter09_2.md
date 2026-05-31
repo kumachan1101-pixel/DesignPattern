@@ -718,6 +718,32 @@ graph LR
 
 ---
 
+### 7-4：接続形態の確認 ── この設計はどの接続か
+
+フェーズ4-3で診断した通り、変更前のコードは **具体×直接** の状態でした。
+採用した Strategy × State パターンでは、接続形態が **抽象×直接（USB-C直差し）** へと変化しています。
+
+**「抽象×直接」の証拠となるコード：**
+
+```cpp
+class TicketContext {
+    ITicketState* state;         // ← インターフェース型 = 「抽象」の証拠
+    IPriorityStrategy* strategy; // ← インターフェース型 = 「抽象」の証拠
+public:
+    void execute() { state->handle(this); }           // ← 直接呼び出し = 「直接」の証拠
+    string calculatePriority(string content) {
+        return strategy->getPriority(content);         // ← 直接呼び出し = 「直接」の証拠
+    }
+};
+```
+
+- `ITicketState*` と `IPriorityStrategy*` はいずれもインターフェース型 → **「抽象」** の証拠
+- `state->handle()` と `strategy->getPriority()` はいずれも中間クラスなしの直接呼び出し → **「直接」** の証拠
+
+「状態遷移ルールと優先度判定ルールをそれぞれ独立して差し替えたい」という2つの動機から、**抽象×直接** が選ばれました。
+
+---
+
 ### ⑩ 整理・振り返り・パターン解説
 
 第9章の締めくくりとして、思考プロセスとパターンの関係を振り返ります。

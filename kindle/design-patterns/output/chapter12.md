@@ -704,6 +704,32 @@ graph LR
 
 「変更が来ても、関連する独立したクラスを一つ作るだけ——それがこの設計で手に入れたものだ。 諦めたものは、クラス数が増えるというわずかな複雑さだ。」
 
+---
+
+### 7-4：接続形態の確認 ── この設計はどの接続か
+
+フェーズ4-3で診断した通り、変更前のコードは **具体×直接** の状態でした。
+採用した State × Observer × Strategy パターンでは、接続形態が **抽象×間接（USB-Cハブ経由）** へと変化しています。
+
+**「抽象×間接」の証拠となるコード：**
+
+```cpp
+class WorkflowManager {
+    IWorkflowState* state;        // ← インターフェース型 = 「抽象」の証拠
+    vector<IObserver*> observers; // ← インターフェース型 = 「抽象」の証拠
+public:
+    void process() {
+        state->handle(this);      // ← State が Strategy に承認判定を委譲 = 「間接」の証拠
+    }
+};
+// WorkflowManager → IWorkflowState → IApprovalStrategy という委譲チェーン
+```
+
+- `IWorkflowState*` と `vector<IObserver*>` はインターフェース型 → **「抽象」** の証拠
+- `state->handle(this)` では State が内部で Strategy に判定を委譲し、`WorkflowManager` は承認ロジックを直接知らない → **「間接」** の証拠
+
+「状態遷移・通知・判定ルールをすべて独立して差し替えたい」という動機から、**抽象×間接** が選ばれました。
+
 
 ---
 

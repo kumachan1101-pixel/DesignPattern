@@ -746,6 +746,37 @@ graph LR
 
 変更が来ても、触るのは生成ロジックを管理する1箇所だけ——それがこの設計で手に入れたものです。 諦めたものは、メソッドの追加というわずかな複雑さです。
 
+---
+
+### 7-4：接続形態の確認 ── この設計はどの接続か
+
+フェーズ4-3で診断した通り、変更前のコードは **具体×直接** の状態でした。
+採用した Factory Method パターンでは、接続形態が **抽象×直接（USB-C直差し）** へと変化しています。
+
+**「抽象×直接」の証拠となるコード：**
+
+```cpp
+class PaymentApplication {
+public:
+    void processPayment(string type, int amount) {
+        IPaymentProcessor* processor = createProcessor(type); // ← インターフェース型 = 「抽象」の証拠
+        if (processor) {
+            processor->pay(amount); // ← 直接呼び出し = 「直接」の証拠
+        }
+    }
+private:
+    IPaymentProcessor* createProcessor(string type) { // ← Factory Method
+        if (type == "credit") return new CreditCardProcessor();
+        // ...
+    }
+};
+```
+
+- `IPaymentProcessor*` はインターフェース型 → **「抽象」** の証拠（具体的な決済クラス名を知らない）
+- `processor->pay(amount)` は中間クラスを挟まない直接呼び出し → **「直接」** の証拠
+
+「生成の仕方だけを差し替えたい（決済手段を追加・変更したい）」という動機から、**抽象×直接** が選ばれました。
+
 ### 整理・振り返り・パターン解説
 
 第8章の締めくくりとして、私たちが辿ってきた7フェーズの思考プロセスを振り返ります。 このプロセスを意識的に回すことで、決済プロセッサーのような「変化を伴うインスタンス生成」に対しても、依存を恐れずに設計できる力が身につくはずです。

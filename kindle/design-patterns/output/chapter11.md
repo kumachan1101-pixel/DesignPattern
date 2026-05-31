@@ -728,6 +728,36 @@ graph LR
 
 機能追加のたびにクラスが増えるという「構造の複雑化」というコストは受け入れましたが、変更が個別のクラスに閉じ、全体の安定性が劇的に高まりました。 これこそが、設計の真の価値です。
 
+---
+
+### 7-4：接続形態の確認 ── この設計はどの接続か
+
+フェーズ4-3で診断した通り、変更前のコードは **具体×直接** の状態でした。
+採用した Template Method × Decorator × Command パターンでは、接続形態が **抽象×間接（USB-Cハブ経由）** へと変化しています。
+
+**「抽象×間接」の証拠となるコード：**
+
+```cpp
+class ReportDecorator : public ReportGenerator {
+protected:
+    ReportGenerator* wrapped; // ← 抽象基底クラス型 = 「抽象」の証拠
+public:
+    ReportDecorator(ReportGenerator* g) : wrapped(g) {}
+};
+
+class GraphDecorator : public ReportDecorator {
+    void renderBody() override {
+        wrapped->renderBody(); // ← wrapped 経由のチェーン = 「間接」の証拠
+        cout << "グラフを追加" << endl;
+    }
+};
+```
+
+- `ReportGenerator* wrapped` の型が抽象基底クラス（純粋仮想メソッド `renderBody()` を持つ）→ **「抽象」** の証拠
+- `wrapped->renderBody()` はデコレータチェーンを経由した間接呼び出し → **「間接」** の証拠
+
+「骨格を変えずに機能を動的に追加・差し替えたいかつデコレータチェーンという仲介構造が必要」という動機から、**抽象×間接** が選ばれました。
+
 第11章では、レポート生成という「処理の定型（骨格）」と「個別の装飾機能」、そして「操作の履歴管理」が絡み合う複雑なシステムを題材に、複数のパターンを組み合わせた設計を体験しました。
 
 ### 整理：7フェーズとこの章でやったこと
