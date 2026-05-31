@@ -11,8 +11,13 @@
 `https://note.com/notes/new` にnavigate
 
 ### 2. タイトル入力
-- `find` でタイトルフィールド取得 → `form_input` でテキスト入力
-- `computer` toolでタイプ入力も可（React管理フィールドなので `.value=` 代入NG）
+```javascript
+const input = document.querySelector('input[placeholder*="タイトル"]');
+Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+  .set.call(input, 'タイトル文字列');
+input.dispatchEvent(new Event('input', {bubbles: true}));
+```
+- セレクタが合わない場合：`find` でタイトル要素を特定してから同様のJSを実行（フォールバック）
 
 ### 3. 本文ペースト（javascript_tool 1回）
 ```javascript
@@ -34,6 +39,8 @@ editor.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: tr
 
 1. 本文ペースト後、**Ctrl+Home** でエディタ先頭へ移動
 2. 「**+**」ブロックボタンをクリック → 「**目次**」を選択
+   - まず `find` で「+」ボタン要素を取得し JS で `element.click()`
+   - `find` で見つからない場合は `computer` ツールで視覚的にクリック（フォールバック）
    - この時点でTOCがh2の直前か直後に挿入される
 3. TOCがh2の**後ろ**に入った場合：h2ブロックにカーソルを置き `Ctrl+Shift+Down` でh2を下へ移動
 4. JS確認：
@@ -51,7 +58,7 @@ HTMLInputElement.prototype.click = function() {
   return orig.call(this);
 };
 ```
-- カバー画像エリアをfindでクリック → find で `window._capturedInput` のrefを取得
+- `find` でカバー画像ボタンを取得 → JS `element.click()` で開く → find で `window._capturedInput` のrefを取得
 - `file_upload` ツールで画像をセット → 「保存」クリック
 - ※ file_upload は start_task の `attachments` パラメータで画像を渡した子タスクでのみ有効
 - **注意①**: インターセプター設定後は必ずJS `!!window._capturedInput` で値がセットされているか確認してから `file_upload` を実行すること
