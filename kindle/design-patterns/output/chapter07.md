@@ -55,6 +55,18 @@ classDiagram
         +reduceStock(productId, quantity)
         -notifyAll(message)
     }
+    class EmailNotifier {
+        +send(message)
+    }
+    class DashboardUpdater {
+        +update(message)
+    }
+    class ChatNotifier {
+        +send(message)
+    }
+    InventoryManager --> EmailNotifier
+    InventoryManager --> DashboardUpdater
+    InventoryManager --> ChatNotifier
 
 ```
 
