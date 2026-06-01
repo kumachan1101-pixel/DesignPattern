@@ -350,6 +350,13 @@ quadrantChart
     USB-Cハブ経由: [0.8, 0.25]
 ```
 
+このコードで言うと：
+
+| ケーブル比喩 | コードの対応箇所 |
+|---|---|
+| 「具体」＝専用規格ケーブル | `BankGateway gateway;` / `SecurityAuthenticator auth;` — 銀行APIの具体クラス名を `TransferProcessor` がメンバとして直接宣言している |
+| 「直接」＝直差し | `gateway.verifyAccount(toAccount); auth.requestOTP();` など — Facade なしに各APIメソッドを `transfer()` 内で直接順に呼び出している |
+
 銀行の認証フローや送金APIの使い方は、私たちの業務フローとは「変わる理由」が異なるため、業務フローから切り離すべき存在です。
 
 フェーズ4で根本原因が言語化できました。次のフェーズ5では、解決すべき問題を具体的に定めます。

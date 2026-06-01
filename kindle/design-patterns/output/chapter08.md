@@ -322,6 +322,13 @@ quadrantChart
     USB-Cハブ経由: [0.8, 0.25]
 ```
 
+このコードで言うと：
+
+| ケーブル比喩 | コードの対応箇所 |
+|---|---|
+| 「具体」＝専用規格ケーブル | `CreditCardProcessor processor;` / `ConvenienceStoreProcessor processor;` — `if-else` の各枝で決済クラスの具体名を直接記述してインスタンス化している |
+| 「直接」＝直差し | `if (type == "credit") { CreditCardProcessor processor; processor.pay(amount); }` — ファクトリを介さず `processPayment()` 内で直接生成・実行している |
+
 現状の `PaymentApplication` と各決済プロセッサーは、その「変わる理由」が大きく異なります。メインの決済処理を安定させるためにも、具体クラスの生成という変動要素を、このクラスの外へと追い出すべきだと判断できます。
 
 フェーズ4で根本原因が言語化できました。次のフェーズ5では、解決すべき問題を具体的に定めます。
