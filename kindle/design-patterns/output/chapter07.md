@@ -448,9 +448,21 @@ void notifyAll(string message) {
     email.send(message);
     dashboard.update(message);
     chat.send(message);
+    // ← 具体："sms"という具体的な通知先を呼び出し側が直接書いている
     sms.send(message); // ← 新しい通知先を直接追記
 }
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案0（現状維持）の呼び出し側
+int main() {
+    InventoryManager manager;
+    manager.notifyAll("在庫不足");  // ← 具体：内部にEmailNotifierなどが直書きされている
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -476,7 +488,9 @@ void notifyAll(string message) {
 
 ```cpp
 class InventoryManager {
-    EmailNotifier email; // ← 具体的な型を直接知っている
+    // ← 具体：EmailNotifierという具体型を直接知っている
+    EmailNotifier email;
+    // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
     ChatNotifier chat;
     // ...
 public:
@@ -486,6 +500,19 @@ public:
     }
 };
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案1（具体×直接）の呼び出し側
+int main() {
+    EmailNotifier email;                 // ← 直接：呼び出し側が具体クラスを直接生成
+    ChatNotifier chat;
+    InventoryManager manager(&email, &chat);
+    manager.notifyAll("在庫不足");
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -517,7 +544,8 @@ public:
 };
 
 class InventoryManager {
-    vector<INotification*> observers; // ← 抽象型だけを知っている
+    // ← 抽象：INotification*型で受け取り、具体クラスを知らない
+    vector<INotification*> observers;
 public:
     void attach(INotification* o) { observers.push_back(o); }
     void notifyAll(string m) {
@@ -525,6 +553,19 @@ public:
     }
 };
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案2（抽象×直接）の呼び出し側
+int main() {
+    EmailNotifier email;                 // ← 具体：呼び出し側だけが具体クラスを生成
+    InventoryManager manager;            // ← 直接：インターフェース経由で直接注入
+    manager.attach(&email);
+    manager.notifyAll("在庫不足");
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -549,6 +590,8 @@ public:
 【コード例】
 
 ```cpp
+// ← 具体：NotificationManagerという具体型を持っている
+// ← 間接：呼び出し側はManagerのみ知り、内部のクラス群は見えない
 class NotificationManager {
     EmailNotifier email;
     ChatNotifier chat;
@@ -559,6 +602,17 @@ public:
     }
 };
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案3（具体×間接）の呼び出し側
+int main() {
+    InventoryManager manager;            // ← 間接：NotificationManagerが内部に隠れており呼び出し側には見えない
+    manager.notifyAll("在庫不足");       // 内部でNotificationManagerが動くが、呼び出し側は知らない
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -583,6 +637,8 @@ public:
 
 ```cpp
 class NotificationManager {
+    // ← 抽象：INotification*型で受け取り、具体実装を知らない
+    // ← 間接：Managerを経由するため内部クラス群が見えない
     vector<INotification*> observers;
 public:
     void addObserver(INotification* o) { observers.push_back(o); }
@@ -591,6 +647,20 @@ public:
     }
 };
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案4（抽象×間接）の呼び出し側
+int main() {
+    EmailNotifier email;                    // ← 具体：組み立て側だけが具体型を知る
+    NotificationManager mgr;
+    mgr.addObserver(&email);
+    InventoryManager manager(&mgr);         // ← 間接：抽象Managerのみ見えて具体実装は隠れる
+    manager.notifyAll("在庫不足");
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**

@@ -395,10 +395,21 @@ graph TD
 
 ```cpp
 if (isEmergency) {
-    status = "EMERGENCY";
-    notify("部長へ直接通知"); // 既存ロジックに修正追加
+    status = "EMERGENCY";                  // ← 具体："EMERGENCY"という具体的な状態名を直接書いている
+    notify("部長へ直接通知");               // ← 具体：通知先を具体的な文字列で直接書いている
 }
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案0（現状維持）の呼び出し側
+int main() {
+    WorkflowManager wf;                   // ← 直接：WorkflowManagerを直接生成して使う
+    wf.process(request);                  // ← 具体：内部にif-else分岐が直書きされている
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -429,10 +440,21 @@ if (isEmergency) {
 
 ```cpp
 void process() {
-    RuleChecker checker; // 具体クラスを知っている
-    if (checker.isApproved(amount)) { /* ... */ }
+    RuleChecker checker; // ← 具体：RuleCheckerという型名を直接書いている
+    if (checker.isApproved(amount)) { /* ... */ } // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
 }
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案1（具体×直接）の呼び出し側
+int main() {
+    WorkflowManager wf; // ← 直接：WorkflowManagerを直接生成して使う
+    wf.process(request); // ← 具体：内部でRuleCheckerが直接生成される
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -468,6 +490,27 @@ public:
     virtual bool canApprove(double amount) = 0;
 };
 
+class WorkflowManager {
+    IApprovalStrategy* strategy; // ← 抽象：IApprovalStrategy*型で受け取り、具体クラスを知らない
+public:
+    WorkflowManager(IApprovalStrategy* s) : strategy(s) {}
+    void process(double amount) {
+        if (strategy->canApprove(amount)) { /* ... */ } // ← 直接：中間クラスを挟まずに直接呼び出す
+    }
+};
+
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案2（抽象×直接）の呼び出し側
+int main() {
+    ManagerApproval strategy;             // ← 具体：呼び出し側だけが具体クラスを生成
+    WorkflowManager wf(&strategy);        // ← 直接：インターフェース経由で直接注入
+    wf.process(50000);
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -503,10 +546,25 @@ public:
 【コード例】
 
 ```cpp
-void process() {
-    orchestrator.dispatch(request); // 中間層を介して処理
-}
+class WorkflowManager {
+    WorkflowOrchestrator orchestrator; // ← 具体：WorkflowOrchestratorという具体型を持っている
+public:
+    void process(Request request) {
+        orchestrator.dispatch(request); // ← 間接：オーケストレーター経由で呼ぶため具体ロジックが見えない
+    }
+};
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案3（具体×間接）の呼び出し側
+int main() {
+    WorkflowManager wf;  // ← 間接：WorkflowOrchestratorが内部に隠れており呼び出し側には見えない
+    wf.process(request); // 内部でOrchestratorが動くが、呼び出し側は知らない
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -538,9 +596,28 @@ void process() {
 
 ```cpp
 // 抽象と間接層を極めた設計
-IState* state = stateFactory->create(status);
-state->handle(this);
+class WorkflowManager {
+    IStateFactory* stateFactory; // ← 抽象：IStateFactory*型で受け取り、具体実装を知らない
+public:
+    WorkflowManager(IStateFactory* f) : stateFactory(f) {}
+    void process(string status) {
+        IState* state = stateFactory->create(status); // ← 間接：Factory経由で呼ぶため具体クラスが見えない
+        state->handle(this);
+    }
+};
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案4（抽象×間接）の呼び出し側
+int main() {
+    ConcreteStateFactory factory;         // ← 具体：組み立て側だけが具体型を知る
+    WorkflowManager wf(&factory);         // ← 間接：抽象Factoryのみ見えて具体実装は隠れる
+    wf.process("PENDING");
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**

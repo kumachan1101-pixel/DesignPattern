@@ -385,9 +385,20 @@ graph TD
 
 ```cpp
 // 既存のif-else分岐をそのまま維持
-if (status == "Open") { /* ... */ }
-else if (status == "InProgress") { /* ... */ }
+if (status == "Open") { /* ... */ }      // ← 具体："Open"という具体的な状態名を直接書いている
+else if (status == "InProgress") { /* ... */ } // ← 具体："InProgress"という型名を直接書いている
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案0（現状維持）の呼び出し側
+int main() {
+    TicketManager manager;                    // ← 直接：TicketManagerを直接生成して使う
+    manager.updateStatus("urgent", "Open");   // ← 具体：内部にif-else分岐が直書きされている
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -418,11 +429,22 @@ else if (status == "InProgress") { /* ... */ }
 
 ```cpp
 void updateStatus(string content, string status) {
-    PriorityCalculator calc; // ← 具体クラスを知っている
-    string priority = calc.calculate(content);
+    PriorityCalculator calc; // ← 具体：PriorityCalculatorという型名を直接書いている
+    string priority = calc.calculate(content); // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
     // ...
 }
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案1（具体×直接）の呼び出し側
+int main() {
+    TicketManager manager; // ← 直接：TicketManagerを直接生成して使う
+    manager.updateStatus("urgent issue", "InProgress"); // ← 具体：内部でPriorityCalculatorが直接生成される
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -455,12 +477,25 @@ void updateStatus(string content, string status) {
 ```cpp
 // StrategyとStateによる抽象化
 class TicketManager {
-    IPriorityStrategy* strategy; // ← 抽象型への参照
-    ITicketState* state;         // ← 抽象型への参照
+    IPriorityStrategy* strategy; // ← 抽象：IPriorityStrategy*型で受け取り、具体クラスを知らない
+    ITicketState* state;         // ← 抽象：ITicketState*型で受け取り、具体クラスを知らない
 public:
-    void update() { state->handle(this); }
+    void update() { state->handle(this); } // ← 直接：中間クラスを挟まずに直接呼び出す
 };
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案2（抽象×直接）の呼び出し側
+int main() {
+    UrgentPriority strategy;                // ← 具体：呼び出し側だけが具体クラスを生成
+    OpenState state;                        // ← 具体：呼び出し側だけが具体クラスを生成
+    TicketManager manager(&strategy, &state); // ← 直接：インターフェース経由で直接注入
+    manager.update();
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -491,10 +526,34 @@ public:
 【案3のコード（一部）】
 
 ```cpp
-void update(string status) {
-    controller.handle(status); // 具体的な状態管理はコントローラーに任せる
-}
+class StateController {
+public:
+    void handle(string status) {
+        if (status == "Open") {
+            OpenState s; s.activate(); // ← 具体：コントローラーが具体クラスを直接知っている
+        }
+    }
+};
 
+class TicketManager {
+    StateController controller; // ← 具体：StateControllerという具体型を持っている
+public:
+    void update(string status) {
+        controller.handle(status); // ← 間接：コントローラー経由で呼ぶため具体状態クラスが見えない
+    }
+};
+
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案3（具体×間接）の呼び出し側
+int main() {
+    TicketManager manager; // ← 間接：StateControllerが内部に隠れており呼び出し側には見えない
+    manager.update("Open"); // 内部でStateControllerが動くが、呼び出し側は知らない
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -526,10 +585,32 @@ void update(string status) {
 
 ```cpp
 // 複雑な構成のため、組み立てを専門のクラスが担う
-class TicketComponentFactory {
-    virtual ITicketState* createState(string type) = 0;
+class TicketComponentFactory { // ← 抽象：生成の窓口をインターフェースとして定義
+    virtual ITicketState* createState(string type) = 0; // ← 抽象：ITicketState*型で返す
 };
 
+class TicketManager {
+    ITicketComponentFactory* factory; // ← 抽象：ITicketComponentFactory*型で受け取り、具体実装を知らない
+public:
+    TicketManager(ITicketComponentFactory* f) : factory(f) {}
+    void update(string status) {
+        ITicketState* s = factory->createState(status); // ← 間接：Factoryを経由するため具体クラスが見えない
+        s->handle(this);
+    }
+};
+
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案4（抽象×間接）の呼び出し側
+int main() {
+    ConcreteTicketFactory factory;        // ← 具体：組み立て側だけが具体型を知る
+    TicketManager manager(&factory);      // ← 間接：抽象Factoryのみ見えて具体実装は隠れる
+    manager.update("Open");
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**

@@ -402,10 +402,22 @@ graph TD
 
 ```cpp
 void onAddExpenseClick() {
+    // ← 具体：ExpenseManagerという具体型を呼び出し側が直接書いている
     em.addExpense(1000, "Food");
     history.push_back("Expense");
 }
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案0（現状維持）の呼び出し側
+int main() {
+    UIButtons ui;
+    ui.onAddExpenseClick();  // ← 具体：具体的な操作メソッドを直接呼んでいる
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -439,12 +451,25 @@ void onAddExpenseClick() {
 【コード例（一部）】
 
 ```cpp
+// ← 具体：AddExpenseCommandという型名を直接書いている
 class AddExpenseCommand {
 public:
     void execute() { em.addExpense(1000, "Food"); }
 };
 // UIButtons内で AddExpenseCommand().execute() を直接呼ぶ
+// ← 直接：呼び出し側がこのクラスを直接インスタンス化している
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案1（具体×直接）の呼び出し側
+int main() {
+    AddExpenseCommand cmd;               // ← 直接：呼び出し側が具体クラスを直接生成
+    cmd.execute();
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -489,6 +514,21 @@ class AddExpenseCommand : public ICommand {
     void execute() override { em.addExpense(1000, "Food"); }
 };
 
+// UIButtonsのメンバ変数：
+// ← 抽象：ICommand*型で受け取り、具体クラスを知らない
+
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案2（抽象×直接）の呼び出し側
+int main() {
+    AddExpenseCommand cmd;               // ← 具体：呼び出し側だけが具体クラスを生成
+    UIButtons ui(&cmd);                  // ← 直接：インターフェース経由で直接注入
+    ui.onButtonClick();
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -522,12 +562,25 @@ class AddExpenseCommand : public ICommand {
 【コード例（一部）】
 
 ```cpp
+// ← 具体：CommandInvokerという具体型を持っている
+// ← 間接：呼び出し側はInvokerのみ知り、内部のクラス群は見えない
 class CommandInvoker {
     ExpenseManager em;
 public:
     void run(std::string cmd) { em.addExpense(1000, "Food"); }
 };
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案3（具体×間接）の呼び出し側
+int main() {
+    UIButtons ui;                        // ← 間接：CommandInvokerが内部に隠れており呼び出し側には見えない
+    ui.onAddExpenseClick();              // 内部でCommandInvokerが動くが、呼び出し側は知らない
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -564,9 +617,24 @@ public:
 class CommandHistory {
     std::stack<ICommand*> history;
 public:
+    // ← 抽象：ICommand*型で受け取り、具体実装を知らない
+    // ← 間接：履歴管理クラスを経由するため操作の詳細が見えない
     void execute(ICommand* cmd) { cmd->execute(); history.push(cmd); }
 };
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案4（抽象×間接）の呼び出し側
+int main() {
+    CommandHistory history;                 // ← 具体：組み立て側だけが具体型を知る
+    AddExpenseCommand cmd;
+    UIButtons ui(&history);                 // ← 間接：抽象Historyのみ見えて具体実装は隠れる
+    ui.onAddExpenseClick(&cmd);
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**

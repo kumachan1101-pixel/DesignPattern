@@ -425,12 +425,24 @@ graph TD
 ```cpp
 void processPayment(string type, int amount) {
     if (type == "credit") {
-        CreditCardProcessor p; p.pay(amount);
-    } else if (type == "paypay") { // ← 追記
-        PayPayProcessor p; p.pay(amount);
+        CreditCardProcessor p; p.pay(amount); // ← 具体：CreditCardProcessorという型名を直接書いている
+    } else if (type == "paypay") {            // ← 追記
+        PayPayProcessor p; p.pay(amount);     // ← 具体：PayPayProcessorという型名を直接書いている
     }
 }
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案0（現状維持）の呼び出し側
+int main() {
+    PaymentApplication app;             // ← 直接：PaymentApplicationを直接生成して使う
+    app.processPayment("credit", 1000); // ← 具体：内部にCreditCardProcessorなどが直書きされている
+    app.processPayment("paypay", 700);
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -456,11 +468,22 @@ void processPayment(string type, int amount) {
 ```cpp
 void processPayment(string type, int amount) {
     if (type == "paypay") {
-        PayPayProcessor p; // ← 具体的なクラスを直接知っている
-        p.pay(amount);
+        PayPayProcessor p; // ← 具体：PayPayProcessorという型名を直接書いている
+        p.pay(amount);     // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
     }
 }
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案1（具体×直接）の呼び出し側
+int main() {
+    PaymentApplication app; // ← 直接：PaymentApplicationを直接生成して使う
+    app.processPayment("paypay", 700); // ← 具体：内部でPayPayProcessorが直接生成される
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -492,10 +515,22 @@ public:
 
 // 呼び出し側の修正
 void processPayment(string type, int amount) {
-    IPaymentProcessor* p = createProcessor(type); // ← Factory Method
-    p->pay(amount);
+    IPaymentProcessor* p = createProcessor(type); // ← 抽象：IPaymentProcessor*型で受け取り、具体クラスを知らない
+    p->pay(amount);                               // ← 直接：中間クラスを挟まずに直接呼び出す
 }
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案2（抽象×直接）の呼び出し側
+int main() {
+    PaymentApplication app;              // ← 直接：PaymentApplicationを直接生成
+    app.processPayment("credit", 1000);  // ← 抽象：呼び出し側は具体クラスを知らない
+    app.processPayment("paypay", 700);
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -524,11 +559,30 @@ class ProcessorManager {
 public:
     void execute(string type, int amount) {
         if (type == "paypay") {
-            PayPayProcessor p; p.pay(amount);
+            PayPayProcessor p; p.pay(amount); // ← 具体：マネージャーが具体クラスを直接知っている
         }
     }
 };
 
+class PaymentApplication {
+    ProcessorManager manager; // ← 具体：ProcessorManagerという具体型を持っている
+public:
+    void processPayment(string type, int amount) {
+        manager.execute(type, amount); // ← 間接：マネージャー経由で呼ぶため具体プロセッサーが見えない
+    }
+};
+
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案3（具体×間接）の呼び出し側
+int main() {
+    PaymentApplication app;  // ← 間接：ProcessorManagerが内部に隠れており呼び出し側には見えない
+    app.processPayment("paypay", 700); // 内部でProcessorManagerが動くが、呼び出し側は知らない
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -552,11 +606,33 @@ public:
 【コード例】
 
 ```cpp
-class PaymentFactory {
+class PaymentFactory { // ← 抽象：生成の窓口をインターフェースとして定義
 public:
-    virtual IPaymentProcessor* create(string type) = 0;
+    virtual IPaymentProcessor* create(string type) = 0; // ← 抽象：IPaymentProcessor*型で返す
 };
 
+class PaymentApplication {
+    PaymentFactory* factory; // ← 抽象：PaymentFactory*型で受け取り、具体実装を知らない
+public:
+    PaymentApplication(PaymentFactory* f) : factory(f) {}
+    void processPayment(string type, int amount) {
+        IPaymentProcessor* p = factory->create(type); // ← 間接：Factoryを経由するため具体クラスが見えない
+        p->pay(amount);
+    }
+};
+
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案4（抽象×間接）の呼び出し側
+int main() {
+    ConcretePaymentFactory factory;      // ← 具体：組み立て側だけが具体型を知る
+    PaymentApplication app(&factory);    // ← 間接：抽象Factoryのみ見えて具体実装は隠れる
+    app.processPayment("credit", 1000);
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**

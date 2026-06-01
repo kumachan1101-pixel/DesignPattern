@@ -509,6 +509,7 @@ int calculate(const Order& order) {
     }
 
     // 既存の分岐の間に新しいルールを無理やり差し込む
+    // ← 具体："Premium"という条件を呼び出し側が直接書いている
     if (order.customerType == "Premium") {
         total = total * 0.8;
     } else if (order.isSummerSale) {
@@ -522,6 +523,22 @@ int calculate(const Order& order) {
 ```
 
 このコードを見ると、条件がさらに複雑になり、どれが優先されるのかが一目で分かりにくくなっていることが分かります。
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案0（現状維持）の呼び出し側
+int main() {
+    Order order;
+    order.items.push_back(Item("ワイヤレスイヤホン", 10000));
+    order.customerType = "Premium";  // ← 具体："Premium"という条件値をそのまま渡している
+    order.isCampaignActive = false;
+
+    OrderProcessor processor;
+    processor.process(order);  // 内部でif文による分岐が走る
+    return 0;
+}
+```
 
 **この形のトレードオフ：**
 
@@ -543,10 +560,12 @@ int calculate(const Order& order) {
 
 ```cpp
 // 割引計算を別クラスに切り出す
+// ← 具体：PremiumDiscountという型名を直接書いている
 class PremiumDiscount {
 public:
     int apply(int total) { return total * 0.8; }
 };
+// ← 具体：SummerSaleDiscountという型名を直接書いている
 class SummerSaleDiscount {
 public:
     int apply(int total) { return total * 0.95; }
@@ -558,10 +577,10 @@ int calculate(const Order& order) {
 
     // 計算は別クラスに委譲するが、具体型を直接知っている
     if (order.customerType == "Premium") {
-        PremiumDiscount discount;
+        PremiumDiscount discount;  // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
         total = discount.apply(total);
     } else if (order.isSummerSale) {
-        SummerSaleDiscount discount;
+        SummerSaleDiscount discount;  // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
         total = discount.apply(total);
     }
     return total;
@@ -570,6 +589,18 @@ int calculate(const Order& order) {
 ```
 
 このコードを見ると、計算式そのものは別ファイルに逃がせたものの、`PaymentCalculator` が「どの割引クラスを使うか」の判定と具体型の知識を抱え込んだままであることが分かります。
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案1（具体×直接）の呼び出し側
+int main() {
+    PremiumDiscount discount;            // ← 直接：呼び出し側が具体クラスを直接生成
+    PaymentCalculator calculator;
+    int result = calculator.calculate(10000, discount);
+    return 0;
+}
+```
 
 **この形のトレードオフ：**
 
@@ -605,7 +636,8 @@ public:
 
 class PaymentCalculator {
 private:
-    IDiscountRule* discountRule; // 具体的なルールを知らない
+    // ← 抽象：IDiscountRule*型で受け取り、具体クラスを知らない
+    IDiscountRule* discountRule;
 public:
     PaymentCalculator(IDiscountRule* rule) : discountRule(rule) {}
 
@@ -623,6 +655,18 @@ public:
 ```
 
 このコードを見ると、`PaymentCalculator` の中から「プレミアム」や「サマーセール」という具体的なビジネス要件が完全に消え去り、ただの計算の骨格だけが残ったことが分かります。この構造を **Strategy（ストラテジー）パターン** と呼びます。
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案2（抽象×直接）の呼び出し側
+int main() {
+    PremiumDiscount rule;                // ← 具体：呼び出し側だけが具体クラスを生成
+    PaymentCalculator calculator(&rule); // ← 直接：インターフェース経由で直接注入
+    calculator.calculate(order);
+    return 0;
+}
+```
 
 **この形のトレードオフ：**
 
@@ -662,6 +706,8 @@ public:
 
 class PaymentCalculator {
 private:
+    // ← 具体：DiscountManagerという具体型を持っている
+    // ← 間接：呼び出し側はManagerのみ知り、内部のクラス群は見えない
     DiscountManager manager;
 public:
     int calculate(const Order& order) {
@@ -674,6 +720,17 @@ public:
 ```
 
 このコードを見ると、`PaymentCalculator` はすっきりしましたが、変更の辛さの発生源が単純に `DiscountManager` クラスへと移動しただけであることが分かります。
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案3（具体×間接）の呼び出し側
+int main() {
+    PaymentCalculator calculator;        // ← 間接：DiscountManagerが内部に隠れており呼び出し側には見えない
+    calculator.calculate(order);         // 内部でDiscountManagerが動くが、呼び出し側は知らない
+    return 0;
+}
+```
 
 **この形のトレードオフ：**
 
@@ -705,6 +762,8 @@ public:
 // 抽象に依存した計算クラス
 class PaymentCalculator {
 private:
+    // ← 抽象：IDiscountManager*型で受け取り、具体実装を知らない
+    // ← 間接：Managerを経由するため内部クラス群が見えない
     IDiscountManager* manager;
 public:
     PaymentCalculator(IDiscountManager* mgr) : manager(mgr) {}
@@ -718,6 +777,18 @@ public:
 ```
 
 このコードを見ると、変更の影響は最も小さく抑えられますが、ファイル数が一気に増え、システム全体の繋がりを追うのが非常に難しくなっていることが分かります。
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案4（抽象×間接）の呼び出し側
+int main() {
+    DiscountManager mgr;                  // ← 具体：組み立て側だけが具体型を知る
+    PaymentCalculator calculator(&mgr);   // ← 間接：抽象Managerのみ見えて具体実装は隠れる
+    calculator.calculate(order);
+    return 0;
+}
+```
 
 **この形のトレードオフ：**
 

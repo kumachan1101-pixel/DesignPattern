@@ -388,12 +388,25 @@ graph TD
 ```cpp
 void import() {
     openFile();
+    // ← 具体："EC"という条件を呼び出し側が直接書いている
     if (format == "EC") parseECData();
     else parseStoreData(); // 直営店用
     saveToDB();
     closeFile();
 }
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案0（現状維持）の呼び出し側
+int main() {
+    DataImporter importer;
+    importer.format = "EC";   // ← 具体："EC"という条件値をそのまま渡している
+    importer.import();
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -423,6 +436,7 @@ void import() {
 【コード例（一部）】
 
 ```cpp
+// ← 具体：ECDataImporterという型名を直接書いている
 class ECDataImporter : public StoreDataImporter {
 public:
     void import() { // 継承を利用するが、呼び出し側は各型を知る必要がある
@@ -433,6 +447,17 @@ public:
     }
 };
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案1（具体×直接）の呼び出し側
+int main() {
+    ECDataImporter importer;             // ← 直接：呼び出し側が具体クラスを直接生成
+    importer.import();
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -463,6 +488,7 @@ public:
 【コード例（一部）】
 
 ```cpp
+// ← 抽象：AbstractImporter*型で受け取り、具体クラスを知らない
 class AbstractImporter {
 public:
     void import() { // 共通手順（テンプレートメソッド）
@@ -474,6 +500,18 @@ public:
     virtual void parseData() = 0; // 実装詳細をサブクラスへ
 };
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案2（抽象×直接）の呼び出し側
+int main() {
+    ECDataImporter importer;                 // ← 具体：呼び出し側だけが具体クラスを生成
+    AbstractImporter* runner = &importer;    // ← 直接：インターフェース経由で直接注入
+    runner->import();
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -503,6 +541,8 @@ public:
 【コード例（一部）】
 
 ```cpp
+// ← 具体：ImporterManagerという具体型を持っている
+// ← 間接：呼び出し側はManagerのみ知り、内部のクラス群は見えない
 class ImporterManager {
 public:
     void execute(std::string type) {
@@ -511,6 +551,17 @@ public:
     }
 };
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案3（具体×間接）の呼び出し側
+int main() {
+    ImporterManager manager;             // ← 間接：ImporterManagerが内部に隠れており呼び出し側には見えない
+    manager.execute("EC");               // 内部でECDataImporterが動くが、呼び出し側は知らない
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -544,6 +595,22 @@ class IImporterManager {
     virtual void executeImport(AbstractImporter* importer) = 0;
 };
 
+// BatchExecutorのメンバ変数：
+// ← 抽象：IImporterManager*型で受け取り、具体実装を知らない
+// ← 間接：Managerを経由するため内部クラス群が見えない
+
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案4（抽象×間接）の呼び出し側
+int main() {
+    ImporterManager mgr;                     // ← 具体：組み立て側だけが具体型を知る
+    BatchExecutor executor(&mgr);            // ← 間接：抽象Managerのみ見えて具体実装は隠れる
+    executor.run();
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**

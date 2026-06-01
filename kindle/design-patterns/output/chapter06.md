@@ -498,6 +498,7 @@ public:
 
     int getPrice() const {
         int total = basePrice;
+        // ← 具体："hasMilk"などの条件を呼び出し側が直接書いている
         if (hasMilk)   total += 50;
         if (hasWhip)   total += 70;
         if (hasSyrup)  total += 30;
@@ -510,6 +511,18 @@ public:
 ```
 
 このコードを見ると、変更要求が来るたびに `CustomDrink` クラスがどんどん肥大化し、呼び出し側も壊れ続けることが分かります。
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案0（現状維持）の呼び出し側
+int main() {
+    // ← 具体：フラグの組み合わせを呼び出し側が直接指定している
+    CustomDrink order("Coffee", 300, true, true, false, false);
+    cout << "合計金額: " << order.getPrice() << "円" << endl;
+    return 0;
+}
+```
 
 **この形のトレードオフ：**
 
@@ -542,7 +555,9 @@ class CustomDrink {
 private:
     string baseName;
     int basePrice;
-    Milk* milk; // ← 具体的な型を直接知っている
+    // ← 具体：Milk*という具体型を直接知っている
+    Milk* milk;
+    // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
     Whip* whip;
 
 public:
@@ -578,6 +593,21 @@ int main() {
 ```
 
 このコードを見ると、価格や名前の知識は個別のトッピングクラスに移動しましたが、`CustomDrink` が「どのトッピングが存在し得るか」という具体的な型を直接知っている状態は変わっていないことが分かります。
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案1（具体×直接）の呼び出し側
+int main() {
+    Milk milk;                           // ← 直接：呼び出し側が具体クラスを直接生成
+    Whip whip;
+    CustomDrink order("Coffee", 300);
+    order.setMilk(&milk);
+    order.setWhip(&whip);
+    cout << "合計金額: " << order.getPrice() << "円" << endl;
+    return 0;
+}
+```
 
 **この形のトレードオフ：**
 
@@ -618,7 +648,8 @@ class CustomDrink {
 private:
     string baseName;
     int basePrice;
-    std::vector<ITopping*> toppings; // ← 抽象型(インターフェース)だけを知っている
+    // ← 抽象：ITopping*型で受け取り、具体クラスを知らない
+    std::vector<ITopping*> toppings;
 
 public:
     CustomDrink(string name, int price) : baseName(name), basePrice(price) {}
@@ -641,14 +672,14 @@ public:
 
 このコードを見ると、トッピングの種類が新しく増えても `CustomDrink` のクラス自体は一切修正しなくてよくなったことが分かります。
 
-呼び出し側のコードはこのようになります。`CustomDrink` は `ITopping` という抽象型だけを知っており、`Milk` や `Whip` の具体型は呼び出し側が組み立てます。
+**呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 呼び出し側のコード
+// 案2（抽象×直接）の呼び出し側
 int main() {
-    CustomDrink order("Coffee", 300);
-    Milk milk;
+    Milk milk;                           // ← 具体：呼び出し側だけが具体クラスを生成
     Whip whip;
+    CustomDrink order("Coffee", 300);    // ← 直接：インターフェース経由で直接注入
     order.addTopping(&milk);
     order.addTopping(&whip);
     cout << "合計金額: " << order.getPrice() << "円" << endl;
@@ -681,6 +712,8 @@ public:
     int getPrice() const { return 300; }
 };
 
+// ← 具体：OrderManagerという具体型を持っている
+// ← 間接：呼び出し側はManagerのみ知り、内部のクラス群は見えない
 // 仲介役が具体型を直接知って計算を行う
 class OrderManager {
 private:
@@ -704,15 +737,15 @@ public:
 
 ```
 
-呼び出し側のコードはこのようになります。
+**呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 呼び出し側のコード
+// 案3（具体×間接）の呼び出し側
 int main() {
-    OrderManager manager;
+    OrderManager manager;                // ← 間接：Coffee/Milk/Whipが内部に隠れており呼び出し側には見えない
     manager.addMilk();
     manager.addWhip();
-    cout << "合計金額: " << manager.calculateTotal() << "円" << endl;
+    cout << "合計金額: " << manager.calculateTotal() << "円" << endl;  // 内部でCoffee等が動くが呼び出し側は知らない
     return 0;
 }
 ```
@@ -758,7 +791,9 @@ public:
 // トッピングの基底（仲介役であり、かつ抽象型に依存する）
 class ToppingDecorator : public IDrink {
 protected:
-    IDrink* baseBeverage; // ← 中身を隠し持つ（間接）
+    // ← 抽象：IDrink*型で受け取り、具体実装を知らない
+    // ← 間接：Decoratorを経由するため内部クラス群が見えない
+    IDrink* baseBeverage;
 public:
     ToppingDecorator(IDrink* base) : baseBeverage(base) {}
 };
@@ -783,6 +818,19 @@ public:
 ```
 
 このコードを見ると、トッピングクラスが「自分が包んでいる中身（基本ドリンクや他のトッピング）」の価格に自分の価格を上乗せするだけで完結しており、呼び出し側はそれが何層に重なっているかを一切知らなくて済むことが分かります。
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案4（抽象×間接）の呼び出し側
+int main() {
+    Coffee coffee;                        // ← 具体：組み立て側だけが具体型を知る
+    // ← 間接：抽象IDrinkのみ見えて具体実装は多層に隠れる
+    IDrink* order = new Whip(new Milk(&coffee));
+    cout << "合計金額: " << order->getPrice() << "円" << endl;
+    return 0;
+}
+```
 
 **この形のトレードオフ：**
 

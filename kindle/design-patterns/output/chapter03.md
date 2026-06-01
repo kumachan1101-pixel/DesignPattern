@@ -394,11 +394,24 @@ graph TD
 
 ```cpp
 void reserve() {
+    // ← 具体："Available"という条件を呼び出し側が直接書いている
     if (status == "Available") { /* ... */ }
     else if (status == "Held") { /* 保留中の予約処理 */ }
     else { /* エラー処理 */ }
 }
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案0（現状維持）の呼び出し側
+int main() {
+    TicketReservation reservation;
+    reservation.status = "Available";  // ← 具体："Available"という条件値をそのまま渡している
+    reservation.reserve();
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -422,13 +435,27 @@ void reserve() {
 【コード例】
 
 ```cpp
+// ← 具体：ReservedStateという型名を直接書いている
 class ReservedState {
 public:
     void pay() { /* ... */ }
 };
 // TicketReservationはReservedStateを知っている
+// ← 直接：呼び出し側がこのクラスを直接インスタンス化している
 void pay() { reservedState.pay(); }
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案1（具体×直接）の呼び出し側
+int main() {
+    ReservedState state;                     // ← 直接：呼び出し側が具体クラスを直接生成
+    TicketReservation reservation(&state);
+    reservation.pay();
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -462,6 +489,21 @@ class ReservedState : public IReservationState {
     void reserve(TicketReservation* ctx) override { /* 処理 */ }
 };
 
+// TicketReservationのメンバ変数：
+// ← 抽象：IReservationState*型で受け取り、具体クラスを知らない
+
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案2（抽象×直接）の呼び出し側
+int main() {
+    ReservedState state;                       // ← 具体：呼び出し側だけが具体クラスを生成
+    TicketReservation reservation(&state);     // ← 直接：インターフェース経由で直接注入
+    reservation.reserve();
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -485,6 +527,8 @@ class ReservedState : public IReservationState {
 【コード例】
 
 ```cpp
+// ← 具体：StateManagerという具体型を持っている
+// ← 間接：呼び出し側はManagerのみ知り、内部のクラス群は見えない
 class StateManager {
     ReservedState res;
     AvailableState ava;
@@ -492,6 +536,17 @@ public:
     void handleReserve() { res.reserve(); }
 };
 
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案3（具体×間接）の呼び出し側
+int main() {
+    TicketReservation reservation;           // ← 間接：StateManagerが内部に隠れており呼び出し側には見えない
+    reservation.reserve();                   // 内部でStateManagerが動くが、呼び出し側は知らない
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
@@ -520,6 +575,22 @@ class IStateManager {
     virtual void changeState(IReservationState* s) = 0;
 };
 
+// TicketReservationのメンバ変数：
+// ← 抽象：IStateManager*型で受け取り、具体実装を知らない
+// ← 間接：Managerを経由するため内部クラス群が見えない
+
+```
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案4（抽象×間接）の呼び出し側
+int main() {
+    StateManager mgr;                         // ← 具体：組み立て側だけが具体型を知る
+    TicketReservation reservation(&mgr);      // ← 間接：抽象Managerのみ見えて具体実装は隠れる
+    reservation.reserve();
+    return 0;
+}
 ```
 
 **この形のトレードオフ：**
