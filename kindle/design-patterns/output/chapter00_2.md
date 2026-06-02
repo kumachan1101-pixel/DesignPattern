@@ -439,69 +439,61 @@ S0で把握したクラスの責任一覧を見れば、「このクラスは営
 **具体×直接**は最もシンプルな形です。Aは「Bが何をするか」を直接知っています。「責任の整理」が目的なら、まずここから始めれば十分です。
 
 ```mermaid
-quadrantChart
-    title ★具体×直接（Lightning直差し）に注目
-    x-axis 直接（直差し） --> 間接（アダプター経由）
-    y-axis 抽象（汎用規格） --> 具体（専用規格）
-    quadrant-1 専用アダプター経由 (具体×間接)
-    quadrant-2 ★ Lightning直差し (具体×直接)
-    quadrant-3 USB-C直差し (抽象×直接)
-    quadrant-4 USB-Cハブ経由 (抽象×間接)
-    Lightning直差し: [0.25, 0.75]
-    専用アダプター経由: [0.8, 0.75]
-    USB-C直差し: [0.25, 0.25]
-    USB-Cハブ経由: [0.8, 0.25]
+graph LR
+    L["★具体×直接<br>Lightning直差し"]:::hl
+    A["具体×間接<br>専用アダプター経由"]
+    U["抽象×直接<br>USB-C直差し"]
+    H["抽象×間接<br>USB-Cハブ経由"]
+    L --- A
+    U --- H
+    L --- U
+    A --- H
+    classDef hl fill:#d4edda,stroke:#28a745,stroke-width:2px
 ```
 
 **抽象×直接**は、AがBの「型（インターフェース）」だけを知る形です。Bの実装がCに替わっても、Aのコードは変わりません。「差し替え」が目的のとき、この形を選びます。
 
 ```mermaid
-quadrantChart
-    title ★抽象×直接（USB-C直差し）に注目
-    x-axis 直接（直差し） --> 間接（アダプター経由）
-    y-axis 抽象（汎用規格） --> 具体（専用規格）
-    quadrant-1 専用アダプター経由 (具体×間接)
-    quadrant-2 Lightning直差し (具体×直接)
-    quadrant-3 ★ USB-C直差し (抽象×直接)
-    quadrant-4 USB-Cハブ経由 (抽象×間接)
-    Lightning直差し: [0.25, 0.75]
-    専用アダプター経由: [0.8, 0.75]
-    USB-C直差し: [0.25, 0.25]
-    USB-Cハブ経由: [0.8, 0.25]
+graph LR
+    L["具体×直接<br>Lightning直差し"]
+    A["具体×間接<br>専用アダプター経由"]
+    U["★抽象×直接<br>USB-C直差し"]:::hl
+    H["抽象×間接<br>USB-Cハブ経由"]
+    L --- A
+    U --- H
+    L --- U
+    A --- H
+    classDef hl fill:#d4edda,stroke:#28a745,stroke-width:2px
 ```
 
 **具体×間接**は、AがBの存在を知らない形です。間にCが入り、複雑さや変化をAから隠します。「複雑さを隠したい」「Aに知らせたくない変化がある」とき、この形を選びます。
 
 ```mermaid
-quadrantChart
-    title ★具体×間接（専用アダプター経由）に注目
-    x-axis 直接（直差し） --> 間接（アダプター経由）
-    y-axis 抽象（汎用規格） --> 具体（専用規格）
-    quadrant-1 ★ 専用アダプター経由 (具体×間接)
-    quadrant-2 Lightning直差し (具体×直接)
-    quadrant-3 USB-C直差し (抽象×直接)
-    quadrant-4 USB-Cハブ経由 (抽象×間接)
-    Lightning直差し: [0.25, 0.75]
-    専用アダプター経由: [0.8, 0.75]
-    USB-C直差し: [0.25, 0.25]
-    USB-Cハブ経由: [0.8, 0.25]
+graph LR
+    L["具体×直接<br>Lightning直差し"]
+    A["★具体×間接<br>専用アダプター経由"]:::hl
+    U["抽象×直接<br>USB-C直差し"]
+    H["抽象×間接<br>USB-Cハブ経由"]
+    L --- A
+    U --- H
+    L --- U
+    A --- H
+    classDef hl fill:#d4edda,stroke:#28a745,stroke-width:2px
 ```
 
 **抽象×間接**は最も柔軟な形です。Aは中間層Cの型だけを知り、CがBに処理を委譲します。「差し替えたい かつ 知らせたくない」という2つの理由が重なるとき、この形が必要になります。
 
 ```mermaid
-quadrantChart
-    title ★抽象×間接（USB-Cハブ経由）に注目
-    x-axis 直接（直差し） --> 間接（アダプター経由）
-    y-axis 抽象（汎用規格） --> 具体（専用規格）
-    quadrant-1 専用アダプター経由 (具体×間接)
-    quadrant-2 Lightning直差し (具体×直接)
-    quadrant-3 USB-C直差し (抽象×直接)
-    quadrant-4 ★ USB-Cハブ経由 (抽象×間接)
-    Lightning直差し: [0.25, 0.75]
-    専用アダプター経由: [0.8, 0.75]
-    USB-C直差し: [0.25, 0.25]
-    USB-Cハブ経由: [0.8, 0.25]
+graph LR
+    L["具体×直接<br>Lightning直差し"]
+    A["具体×間接<br>専用アダプター経由"]
+    U["抽象×直接<br>USB-C直差し"]
+    H["★抽象×間接<br>USB-Cハブ経由"]:::hl
+    L --- A
+    U --- H
+    L --- U
+    A --- H
+    classDef hl fill:#d4edda,stroke:#28a745,stroke-width:2px
 ```
 
 ### 対策案を考えるときの指針：3つの原則

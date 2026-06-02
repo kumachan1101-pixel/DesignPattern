@@ -369,18 +369,16 @@ graph LR
 この接続形態は、iPhoneに専用のLightningケーブルを直差ししている状態（具体×直接）だと診断できます。新しい種類のキャンペーン（新しい機器）が増えるたびに、本体側である `PaymentCalculator` の中を開いて、専用の配線（`else if` 文）を直接追加しなければなりません。具体的な条件を直接知ってしまっているからこそ、ルールが一つ変わるだけで、本体全体のテストをやり直す必要が出てくるのです。
 
 ```mermaid
-quadrantChart
-    title Strategy パターン ── ★抽象×直接（USB-C直差し）
-    x-axis 直接（直差し） --> 間接（アダプター経由）
-    y-axis 抽象（汎用規格） --> 具体（専用規格）
-    quadrant-1 専用アダプター経由 (具体×間接)
-    quadrant-2 Lightning直差し (具体×直接)
-    quadrant-3 ★ USB-C直差し (抽象×直接)
-    quadrant-4 USB-Cハブ経由 (抽象×間接)
-    Lightning直差し: [0.25, 0.75]
-    専用アダプター経由: [0.8, 0.75]
-    USB-C直差し: [0.25, 0.25]
-    USB-Cハブ経由: [0.8, 0.25]
+graph LR
+    L["具体×直接<br>Lightning直差し"]
+    A["具体×間接<br>専用アダプター経由"]
+    U["★抽象×直接<br>USB-C直差し"]:::hl
+    H["抽象×間接<br>USB-Cハブ経由"]
+    L --- A
+    U --- H
+    L --- U
+    A --- H
+    classDef hl fill:#d4edda,stroke:#28a745,stroke-width:2px
 ```
 
 このコードで言うと：

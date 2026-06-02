@@ -290,18 +290,16 @@ graph LR
 ハブ（`BatchExecutor`）を開けば、中には各機器専用の回路が複雑に入り組んでおり、一つの配線をいじろうとすると、他の回路にまで誤って電流が流れてしまうような状態です。 本来なら、ハブのポートには汎用的な規格（抽象）のプラグを差し込むべきところを、専用線で直結してしまっているために、変更がシステム全体へと伝播してしまうのです。
 
 ```mermaid
-quadrantChart
-    title Facade × Observer × Factory Method ── ★具体×間接（専用アダプター経由）
-    x-axis 直接（直差し） --> 間接（アダプター経由）
-    y-axis 抽象（汎用規格） --> 具体（専用規格）
-    quadrant-1 ★ 専用アダプター経由 (具体×間接)
-    quadrant-2 Lightning直差し (具体×直接)
-    quadrant-3 USB-C直差し (抽象×直接)
-    quadrant-4 USB-Cハブ経由 (抽象×間接)
-    Lightning直差し: [0.25, 0.75]
-    専用アダプター経由: [0.8, 0.75]
-    USB-C直差し: [0.25, 0.25]
-    USB-Cハブ経由: [0.8, 0.25]
+graph LR
+    L["具体×直接<br>Lightning直差し"]
+    A["★具体×間接<br>専用アダプター経由"]:::hl
+    U["抽象×直接<br>USB-C直差し"]
+    H["抽象×間接<br>USB-Cハブ経由"]
+    L --- A
+    U --- H
+    L --- U
+    A --- H
+    classDef hl fill:#d4edda,stroke:#28a745,stroke-width:2px
 ```
 
 このコードで言うと：
