@@ -718,6 +718,32 @@ int main() {
 }
 ```
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant IM as InventoryManager
+    participant OFS as OrderFulfillmentService
+    participant EN as EmailNotifier
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>EN: new EmailNotifier
+    main->>IM: new（attach: INotification*）
+    main->>OFS: new（attach: INotification*）
+    main->>IM: reduceStock("T-shirt-001", 5)
+    IM->>EN: o->send(message)
+    Note right of IM: INotification* 経由（直接呼び出し）
+    EN-->>IM: 完了
+    IM-->>main: 在庫更新完了
+    main->>OFS: notifyShipped("ORDER-001")
+    OFS->>EN: o->send(message)
+    Note right of OFS: INotification* 経由（同じ経路）
+    EN-->>OFS: 完了
+    OFS-->>main: 出荷通知完了
+```
+
+一文要約：`main()` が具体クラスを組み立て、両方の呼び出し元は `INotification*` というインターフェース型だけを介して通知するため、通知先が変わっても呼び出し元のコードは変わらない。
+
 **この形のトレードオフ：**
 
 * 変更容易性：中〜高（通知先の追加は通知元を触らずに登録処理だけで済む）

@@ -421,6 +421,22 @@ int main() {
 
 両クラスが同じロジックを重複して持つため、ルールが変わると2か所を修正しなければならない。
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant TM as TicketManager
+    participant EE as EscalationEngine
+    main->>TM: updateStatus("urgent", "Open")
+    Note over TM: if Open → 優先度計算(PriorityCalculator直書き)<br/>elif InProgress かつ High → 担当者招集
+    TM-->>main: 完了
+    main->>EE: checkAndEscalate("T-001")
+    Note over EE: ← 全く同じ if 分岐と PriorityCalculator の直書きが重複して走る
+    EE-->>main: 完了
+```
+一文要約：ロジックが各クラスの内部に直書きされているため、同じ分岐とルール計算コードが2か所で並行して走る。
+
 **この形のトレードオフ：**
 
 * 変更容易性：低（新しいルール追加のたびに巨大な分岐が増殖する）
