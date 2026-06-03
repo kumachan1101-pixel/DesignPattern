@@ -411,6 +411,28 @@ graph LR
 **この形の考え方：**
 クラスの分割も接続形態の変更もしない。既存の `notifyAll` メソッドの中に、新しい通知先への処理を `if` 文やメソッド呼び出しとして書き足す。将来的な通知先の増減が極めて稀で、工数を最小限に抑えたい場合に合理的な選択。
 
+**構造図：**
+
+```mermaid
+graph LR
+    IM["InventoryManager"]
+    OFS["OrderFulfillmentService"]
+    EN["EmailNotifier"]
+    DU["DashboardUpdater"]
+    CN["ChatNotifier"]
+    IM -->|"具体×直接"| EN
+    IM -->|"具体×直接"| DU
+    IM -->|"具体×直接"| CN
+    OFS -->|"具体×直接"| EN
+    OFS -->|"具体×直接"| DU
+    OFS -->|"具体×直接"| CN
+    style EN fill:#ffeecc,stroke:#cc8800
+    style DU fill:#ffeecc,stroke:#cc8800
+    style CN fill:#ffeecc,stroke:#cc8800
+```
+
+両呼び出し元がそれぞれ同じ具体通知クラスを個別に直接抱え込み、通知ロジックと通知先の知識が両方に重複して存在している。
+
 【コード例】
 
 ```cpp
@@ -478,6 +500,24 @@ int main() {
 **この形の考え方：**
 通知ロジックを個別のクラスに切り出すが、通知元はそれらの「具体的なクラス」を直接メンバとして保持する。責務の分離は進むが、通知先クラスのインスタンスを直接管理し続けるため、通知先の増減による通知元の影響は避けられない。
 
+**構造図：**
+
+```mermaid
+graph LR
+    IM["InventoryManager"]
+    OFS["OrderFulfillmentService"]
+    EN["EmailNotifier"]
+    CN["ChatNotifier"]
+    IM -->|"具体×直接"| EN
+    IM -->|"具体×直接"| CN
+    OFS -->|"具体×直接"| EN
+    OFS -->|"具体×直接"| CN
+    style EN fill:#ffeecc,stroke:#cc8800
+    style CN fill:#ffeecc,stroke:#cc8800
+```
+
+`InventoryManager` と `OrderFulfillmentService` の両方が同じ具体通知クラスへの直接依存を持ち、新しい通知先が増えるたびに両方の呼び出し元で修正が発生する。
+
 【コード例】
 
 ```cpp
@@ -539,6 +579,28 @@ int main() {
 
 **この形の考え方：**
 すべての通知先クラスに共通のインターフェース（契約）を持たせることで、通知元は「具体的な型」ではなく「インターフェース型」だけを知る状態にする。この構造を **Observer パターン** と呼ぶ。通知元はリストで通知先を管理し、実行時に通知先を登録・解除できる。
+
+**構造図：**
+
+```mermaid
+graph LR
+    main["main()"]
+    IM["InventoryManager"]
+    OFS["OrderFulfillmentService"]
+    IN[/"INotification\n≪interface≫"/]
+    EN["EmailNotifier"]
+    main -->|"具体で生成"| EN
+    main -->|"注入"| IM
+    main -->|"注入"| OFS
+    IM -->|"抽象×直接(注入)"| IN
+    OFS -->|"抽象×直接(注入)"| IN
+    EN -.->|"実装"| IN
+    style main fill:#e8ffe8,stroke:#448844
+    style IN fill:#cce8ff,stroke:#4488cc
+    style EN fill:#ffeecc,stroke:#cc8800
+```
+
+`main()` だけが具体クラスを知り、`InventoryManager` と `OrderFulfillmentService` は `INotification*` のリストを保持するだけで具体的な通知クラスを一切知らずに済む。
 
 【コード例】
 
@@ -609,6 +671,29 @@ int main() {
 
 **この形の考え方：**
 `InventoryManager` と通知先の間に「通知マネージャー」を置く。`InventoryManager` は通知マネージャーだけを知り、通知マネージャーが通知先の具体型を管理する。
+
+**構造図：**
+
+```mermaid
+graph LR
+    IM["InventoryManager"]
+    OFS["OrderFulfillmentService"]
+    NM["NotificationManager"]
+    EN["EmailNotifier"]
+    SN["SlackNotifier"]
+    EC["ERPConnector"]
+    IM -->|"具体×間接"| NM
+    OFS -->|"具体×間接"| NM
+    NM -->|"具体×直接"| EN
+    NM -->|"具体×直接"| SN
+    NM -->|"具体×直接"| EC
+    style NM fill:#ffffcc,stroke:#aaaa44
+    style EN fill:#ffeecc,stroke:#cc8800
+    style SN fill:#ffeecc,stroke:#cc8800
+    style EC fill:#ffeecc,stroke:#cc8800
+```
+
+両呼び出し元は共有の `NotificationManager` だけを知り、複合条件付き通知ロジック（在庫ゼロはSlack優先など）が仲介役の一箇所に集約されている。
 
 【コード例】
 
@@ -718,6 +803,35 @@ int main() {
 
 **この形の考え方：**
 インターフェース（案2）と仲介役（案3）を組み合わせ、通知先を抽象化しつつ、仲介役（マネージャー）を通じて疎結合を維持する。通知元は「通知先リストを管理する抽象的なマネージャー」を知るだけという、極めて疎結合な構造。
+
+**構造図：**
+
+```mermaid
+graph LR
+    main["main()"]
+    IM["InventoryManager"]
+    OFS["OrderFulfillmentService"]
+    INM[/"INotificationManager\n≪interface≫"/]
+    NM["NotificationManager"]
+    IN[/"INotification\n≪interface≫"/]
+    EN["EmailNotifier"]
+    main -->|"具体で生成"| NM
+    main -->|"具体で生成"| EN
+    main -->|"注入"| IM
+    main -->|"注入"| OFS
+    IM -->|"抽象×間接(注入)"| INM
+    OFS -->|"抽象×間接(注入)"| INM
+    NM -.->|"実装"| INM
+    NM -->|"抽象×直接"| IN
+    EN -.->|"実装"| IN
+    style main fill:#e8ffe8,stroke:#448844
+    style INM fill:#cce8ff,stroke:#4488cc
+    style IN fill:#cce8ff,stroke:#4488cc
+    style NM fill:#ffffcc,stroke:#aaaa44
+    style EN fill:#ffeecc,stroke:#cc8800
+```
+
+`InventoryManager` と `OrderFulfillmentService` は `INotificationManager*` という抽象インターフェースしか知らず、具体的な実装の知識は `main()` の組み立て部分だけに閉じている。
 
 【コード例】
 

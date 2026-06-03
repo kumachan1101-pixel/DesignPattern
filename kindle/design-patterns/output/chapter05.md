@@ -375,7 +375,23 @@ graph LR
 **この形の考え方：**
 クラスの分割やオブジェクト化を行わず、既存のメソッド呼び出しで対応し続けます。追加の設計コストはゼロですが、操作が増えるたびに `UIButtons` クラスの修正が不可避となります。
 
+**構造図：**
 
+```mermaid
+graph LR
+    BA["BudgetApp"]
+    IS["ImportService"]
+    EM["ExpenseManager"]
+    IM["IncomeManager"]
+    BA -->|"具体×直接"| EM
+    BA -->|"具体×直接"| IM
+    IS -->|"具体×直接"| EM
+    IS -->|"具体×直接"| IM
+    style EM fill:#ffeecc,stroke:#cc8800
+    style IM fill:#ffeecc,stroke:#cc8800
+```
+
+両呼び出し元が同じ具体クラスを個別に抱え込み、undo/redo管理ロジックまでそれぞれに重複して書かれている。
 
 【コード例（一部）】
 
@@ -460,7 +476,19 @@ int main() {
 
 2. 呼び出し元で、その操作クラスを直接生成して実行する。
 
+**構造図：**
 
+```mermaid
+graph LR
+    BA["BudgetApp"]
+    IS["ImportService"]
+    AEC["AddExpenseCommand"]
+    BA -->|"具体×直接"| AEC
+    IS -->|"具体×直接"| AEC
+    style AEC fill:#ffeecc,stroke:#cc8800
+```
+
+`BudgetApp` と `ImportService` の両方が同じ具体コマンドクラスを直接生成しており、新しい操作が増えるたびに両方の呼び出し元で修正が発生する。
 
 【コード例（一部）】
 
@@ -545,7 +573,27 @@ int main() {
 
 3. 呼び出し元は `ICommand` 型として操作を受け取り、実行する。
 
+**構造図：**
 
+```mermaid
+graph LR
+    main["main()"]
+    BA["BudgetApp"]
+    IS["ImportService"]
+    IC[/"ICommand\n≪interface≫"/]
+    AEC["AddExpenseCommand"]
+    main -->|"具体で生成"| AEC
+    main -->|"注入"| BA
+    main -->|"注入"| IS
+    BA -->|"抽象×直接(注入)"| IC
+    IS -->|"抽象×直接(注入)"| IC
+    AEC -.->|"実装"| IC
+    style main fill:#e8ffe8,stroke:#448844
+    style IC fill:#cce8ff,stroke:#4488cc
+    style AEC fill:#ffeecc,stroke:#cc8800
+```
+
+`main()` だけが具体クラスを知り、`BudgetApp` と `ImportService` は `ICommand*` という抽象型を直接受け取るだけで、具体的なコマンドクラスを一切知らずに済む。
 
 【コード例（一部）】
 
@@ -627,6 +675,26 @@ int main() {
 
 **この形の考え方：**
 `CommandInvoker` のような仲介役を置き、実行・アンドゥ・リドゥのスタック管理と履歴の上限制御という複雑なロジックをそこに集約します。マネージャへの具体的な参照をその仲介役に閉じ込めることで、UIクラスからはマネージャの知識を隠蔽できます。
+
+**構造図：**
+
+```mermaid
+graph LR
+    BA["BudgetApp"]
+    IS["ImportService"]
+    CI["CommandInvoker"]
+    EM["ExpenseManager"]
+    IM["IncomeManager"]
+    BA -->|"具体×間接"| CI
+    IS -->|"具体×間接"| CI
+    CI -->|"具体×直接"| EM
+    CI -->|"具体×直接"| IM
+    style CI fill:#ffffcc,stroke:#aaaa44
+    style EM fill:#ffeecc,stroke:#cc8800
+    style IM fill:#ffeecc,stroke:#cc8800
+```
+
+両呼び出し元は共有の `CommandInvoker` だけを知り、undo/redo スタック管理と履歴上限制御の複雑なロジックが仲介役の一箇所に集約されている。
 
 【コード例（一部）】
 
@@ -762,7 +830,31 @@ int main() {
 
 2. 案3の仲介クラスを作成し、コマンドインターフェースを受け取るようにする。
 
+**構造図：**
 
+```mermaid
+graph LR
+    main["main()"]
+    BA["BudgetApp"]
+    IS["ImportService"]
+    CH["CommandHistory"]
+    IC[/"ICommand\n≪interface≫"/]
+    AEC["AddExpenseCommand"]
+    main -->|"具体で生成"| CH
+    main -->|"具体で生成"| AEC
+    main -->|"注入"| BA
+    main -->|"注入"| IS
+    BA -->|"抽象×間接(注入)"| CH
+    IS -->|"抽象×間接(注入)"| CH
+    CH -->|"抽象×直接"| IC
+    AEC -.->|"実装"| IC
+    style main fill:#e8ffe8,stroke:#448844
+    style CH fill:#ffffcc,stroke:#aaaa44
+    style IC fill:#cce8ff,stroke:#4488cc
+    style AEC fill:#ffeecc,stroke:#cc8800
+```
+
+`BudgetApp` と `ImportService` は `CommandHistory*` という抽象インターフェースしか知らず、具体的な実装の知識は `main()` の組み立て部分だけに閉じている。
 
 【コード例（一部）】
 
