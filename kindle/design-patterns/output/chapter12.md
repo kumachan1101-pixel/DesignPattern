@@ -369,7 +369,19 @@ graph LR
 **この形の考え方：**
 クラス分割や抽象化を行わず、`if-else` 文を増やして対応します。 承認ルートが今後一切増えず、変更要求もこれ以上発生しないと断言できる場合にのみ合理的な選択です。
 
+**構造図：**
 
+```mermaid
+graph LR
+    WM["WorkflowManager"]
+    EE["EscalationEngine"]
+    WM -- "具体×直接\n(if-elseが直書き)" --> WM
+    EE -- "具体×直接\n(同じロジックを複製)" --> EE
+    style WM fill:#ffe0e0,stroke:#cc4444
+    style EE fill:#ffe0e0,stroke:#cc4444
+```
+
+両クラスが状態チェックと通知ロジックを内部に直書きしており、承認ルールが変わると2か所を同時に修正しなければならない。
 
 【コード例】
 
@@ -432,6 +444,24 @@ int main() {
 **この形の考え方：**
 状態遷移、通知、ルール判定を独立した責務としてクラス化し、`WorkflowManager` から切り出します。 ただし、`WorkflowManager` がそれらの具体クラスを直接保持・生成するため、疎結合化には至りません。
 
+**構造図：**
+
+```mermaid
+graph LR
+    WM["WorkflowManager"]
+    EE["EscalationEngine"]
+    RC["RuleChecker"]
+    PS["PendingState"]
+    WM -- "具体×直接" --> RC
+    WM -- "具体×直接" --> PS
+    EE -- "具体×直接" --> RC
+    EE -- "具体×直接" --> PS
+    style RC fill:#ffeecc,stroke:#cc8800
+    style PS fill:#ffeecc,stroke:#cc8800
+```
+
+クラスは分離されたが、`WorkflowManager` と `EscalationEngine` の両方が同じ具体クラスを直接参照しており、ルール変更時に両方の修正が必要になる。
+
 【コード例】
 
 ```cpp
@@ -491,6 +521,39 @@ int main() {
 
 **この形の考え方：**
 判定ルールには **Strategy パターン** を、状態遷移には **State パターン** を適用します。 インターフェースを介すことで、クラス間の依存を具体型から抽象型へ切り替え、差し替え可能にします。
+
+**構造図：**
+
+```mermaid
+graph LR
+    main["main()"]
+    IAS[/"IApprovalStrategy\n≪interface≫"/]
+    IWS[/"IWorkflowState\n≪interface≫"/]
+    WM["WorkflowManager"]
+    EE["EscalationEngine"]
+    MA["ManagerApproval"]
+    DA["DirectorApproval"]
+    PState["PendingState"]
+    main -- "具体で生成" --> MA
+    main -- "具体で生成" --> DA
+    main -- "具体で生成" --> PState
+    main -- "抽象×直接(注入)" --> WM
+    main -- "抽象×直接(注入)" --> EE
+    WM -- "抽象×直接" --> IAS
+    EE -- "抽象×直接" --> IAS
+    EE -- "抽象×直接" --> IWS
+    MA -. "実装" .-> IAS
+    DA -. "実装" .-> IAS
+    PState -. "実装" .-> IWS
+    style IAS fill:#cce8ff,stroke:#4488cc
+    style IWS fill:#cce8ff,stroke:#4488cc
+    style MA fill:#ffeecc,stroke:#cc8800
+    style DA fill:#ffeecc,stroke:#cc8800
+    style PState fill:#ffeecc,stroke:#cc8800
+    style main fill:#e8ffe8,stroke:#448844
+```
+
+`main()` が具体クラスを生成してインターフェース経由で注入するため、両クラスとも具体的な判定クラスや状態クラスを知らずに済み、選択ロジックの重複が解消される。
 
 【コード例】
 
@@ -570,6 +633,29 @@ int main() {
 
 **この形の考え方：**
 `WorkflowManager` と個別のロジックの間に「オーケストレーター」を配置します。 オーケストレーターが具体的なロジックを保持し、メインクラスの負担を軽減します。
+
+**構造図：**
+
+```mermaid
+graph LR
+    AC["ApprovalController"]
+    EE["EscalationEngine"]
+    WO["WorkflowOrchestrator"]
+    BLR["BudgetLimitRule"]
+    EN["EmailNotifier"]
+    States["PendingState / ApprovedState\n/ RejectedState"]
+    AC -- "具体×間接" --> WO
+    EE -- "具体×間接" --> WO
+    WO -- "具体で生成" --> BLR
+    WO -- "具体で生成" --> EN
+    WO -- "具体で生成" --> States
+    style WO fill:#ffffcc,stroke:#aaaa44
+    style BLR fill:#ffeecc,stroke:#cc8800
+    style EN fill:#ffeecc,stroke:#cc8800
+    style States fill:#ffeecc,stroke:#cc8800
+```
+
+両クラスは `WorkflowOrchestrator` 経由でのみ操作するが、`WorkflowOrchestrator` 自身は具体クラスを直接知っており、新しいルールや状態が増えるたびにオーケストレーターの修正が必要になる。
 
 【コード例】
 
@@ -727,6 +813,25 @@ int main() {
 
 **この形の考え方：**
 状態遷移（State）、ルール判定（Strategy）、通知（Observer）を、それぞれインターフェース経由で仲介クラスに結合させます。 完全に疎結合となり、将来のあらゆる変更要求に対して、メインロジックを一切触らずに対応可能です。
+
+**構造図：**
+
+```mermaid
+graph LR
+    main["main()"]
+    ISF[/"IStateFactory\n≪interface≫"/]
+    WM["WorkflowManager"]
+    CSF["ConcreteStateFactory"]
+    main -- "具体で生成" --> CSF
+    main -- "抽象×間接(注入)" --> WM
+    WM -- "抽象×間接" --> ISF
+    CSF -. "実装" .-> ISF
+    style ISF fill:#cce8ff,stroke:#4488cc
+    style CSF fill:#ffeecc,stroke:#cc8800
+    style main fill:#e8ffe8,stroke:#448844
+```
+
+`WorkflowManager` は抽象ファクトリーのみを知り、状態クラスの具体型は `ConcreteStateFactory` の内部に完全に隠蔽されるため、新しい状態を追加してもワークフロー本体への変更は不要となる。
 
 【コード例】
 
