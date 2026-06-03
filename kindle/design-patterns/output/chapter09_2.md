@@ -316,8 +316,9 @@ graph LR
 | 変更頻度 | この接続点はどのくらいの頻度で変わるか | 高（SLAルールの改定や状態追加が今後も予定されている） |
 | パフォーマンス | ホットパスか（高頻度で呼ばれるか） | 中（チケット更新のたびに実行されるが、即時のレスポンスが極端に求められるわけではない） |
 | メモリ | 間接層の追加でオーバーヘッドが問題になるか | いいえ（状態遷移やルール判断は処理時間全体の割合としては軽微） |
+| 同時実行 | 複数のエージェントが同じチケットを同時に操作するか | 要注意（ヘルプデスクの複数担当者が同時に同一チケットの状態を変更しようとした場合、楽観的ロックによる競合検出か、操作のシリアライズが必要。State遷移の整合性保証が設計上の課題となる） |
 
-変更頻度が非常に高く、かつ状態遷移という動的な変化が求められているため、既存の `if-else` に依存しない、より拡張性の高い構造が必要です。 パフォーマンス面での極端な制約はないため、オブジェクト指向の柔軟性を活かした間接層の導入を積極的に検討できます。
+変更頻度が非常に高く、かつ状態遷移という動的な変化が求められているため、既存の `if-else` に依存しない、より拡張性の高い構造が必要です。 通常の処理頻度では問題ありませんが、ヘルプデスクの複数担当者が同一チケットを同時操作するケースでは、状態遷移の整合性を保証する設計が必要になります。
 
 ### 5-3：クライアントへの影響範囲
 
@@ -329,7 +330,7 @@ graph LR
 
 | **接続点** | **分けた理由** | **非機能制約** | **クライアント影響** |
 | --- | --- | --- | --- |
-| 接続点A | 状態ごとの振る舞いが混在している | パフォーマンス影響は軽微 | `TicketManager` の状態遷移処理 |
+| 接続点A | 状態ごとの振る舞いが混在している | 複数担当者による同一チケットへの同時操作時の状態遷移整合性が必要 | `TicketManager` の状態遷移処理 |
 | 接続点B | 優先度判定ルールが混在している | パフォーマンス影響は軽微 | `TicketManager` の優先度計算処理 |
 
 この表が埋まったことで、私たちが解くべき課題は「状態ごとの振る舞いをオブジェクトへ抽出すること」と「優先度判定ルールを独立したアルゴリズムとして分離すること」の2点に絞り込まれました。
@@ -360,10 +361,6 @@ graph LR
 
 **この形の考え方：**
 クラスの分割も接続形態の変更もしない。 既存の `if` 文の羅列を維持する。 変更頻度が極めて低く、この先半年以上ルールが変わらないという確信がある場合にのみ選択する。
-
-**この形にするための準備：**
-
-* 特になし。現状のコードを維持する。
 
 
 
@@ -406,11 +403,6 @@ int main() {
 **この形の考え方：**
 責務ごとに小さなクラスに分割するが、それらを呼ぶ側のクラスは具体クラスを直接 `new` して利用する。 責任の所在は明確になるが、具体クラスへの依存は残る。
 
-**この形にするための準備：**
-
-1. 優先度判定処理を `PriorityCalculator` クラスとして抽出する
-2. 状態遷移のロジックを各状態クラスに分離する（ただし生成は直接行う）
-
 【案1のコード（一部）】
 
 ```cpp
@@ -451,12 +443,6 @@ int main() {
 
 **この形の考え方：**
 優先度ルールには **Strategyパターン** を、状態遷移には **Stateパターン** を適用する。 各ルールや状態をインターフェース経由で扱うことで、具体的なロジックを差し替え可能にする。
-
-**この形にするための準備：**
-
-1. `IPriorityStrategy` と `ITicketState` インターフェースを定義する
-2. `TicketManager` はこれらインターフェース型へのポインタを保持する
-3. 実行時に必要な具体実装を注入する
 
 【案2のコード（一部）】
 
@@ -503,29 +489,95 @@ int main() {
 **この形の考え方：**
 `TicketManager` と各状態クラスの間に「コントローラー」を置く。 `TicketManager` はコントローラーだけを知り、コントローラーが具体的な状態クラスの生成や管理を行う。
 
-**この形にするための準備：**
-
-1. 状態管理を担う `StateController` を作成する
-2. `TicketManager` はこのコントローラーのメソッドを呼ぶ
-3. コントローラー内で具体的な状態クラスを生成する
-
 【案3のコード（一部）】
 
 ```cpp
+#include <iostream>
+#include <string>
+#include <chrono>
+
+using namespace std;
+
+// 各状態クラス（具体型）
+class OpenState {
+public:
+    void activate() { cout << "チケットをオープン状態に設定。" << endl; }
+};
+class InProgressState {
+public:
+    void activate() { cout << "チケットを対応中状態に設定。" << endl; }
+};
+class ResolvedState {
+public:
+    void activate() { cout << "チケットを解決済み状態に設定。" << endl; }
+};
+class ClosedState {
+public:
+    void activate() { cout << "チケットをクローズ状態に設定。" << endl; }
+};
+
+// StateController: 状態遷移・SLA判定・ルーティングを集約する仲介クラス
 class StateController {
 public:
-    void handle(string status) {
-        if (status == "Open") {
-            OpenState s; s.activate(); // ← 具体：コントローラーが具体クラスを直接知っている
+    // 状態遷移を実行し、SLA超過チェックとルーティングも行う
+    // ← 具体：各状態クラスの具体型を直接知っている
+    void transition(string currentStatus, string targetStatus,
+                    string priority, int elapsedMinutes) {
+        // SLA超過チェック（優先度Highは60分、Normalは240分）
+        int slaLimit = (priority == "High") ? 60 : 240;
+        if (currentStatus == "Open" && elapsedMinutes > slaLimit) {
+            cout << "[SLA超過] エスカレーション実行: " << priority
+                 << "チケットが" << elapsedMinutes << "分経過。" << endl;
+            InProgressState s; s.activate(); // ← 具体：InProgressStateを直接生成
+            routeToTeam("EscalationTeam");
+            return;
         }
+        // 通常の状態遷移
+        if (targetStatus == "Open") {
+            OpenState s; s.activate();       // ← 具体：OpenStateを直接生成
+            routeToTeam("Level1Support");
+        } else if (targetStatus == "InProgress") {
+            InProgressState s; s.activate(); // ← 具体：InProgressStateを直接生成
+            routeToTeam("Level2Support");
+        } else if (targetStatus == "Resolved") {
+            ResolvedState s; s.activate();   // ← 具体：ResolvedStateを直接生成
+        } else if (targetStatus == "Closed") {
+            ClosedState s; s.activate();     // ← 具体：ClosedStateを直接生成
+        }
+    }
+private:
+    void routeToTeam(string team) {
+        cout << "ルーティング先: " << team << endl;
     }
 };
 
+// 呼び出し元1: 担当者の通常操作
 class TicketManager {
     StateController controller; // ← 具体：StateControllerという具体型を持っている
 public:
-    void update(string status) {
-        controller.handle(status); // ← 間接：コントローラー経由で呼ぶため具体状態クラスが見えない
+    void updateTicket(string ticketId, string currentStatus,
+                      string targetStatus, string priority) {
+        cout << "[TicketManager] チケット " << ticketId
+             << " を " << targetStatus << " に更新。" << endl;
+        // 経過時間0分（即時操作）でコントローラーに委譲
+        controller.transition(currentStatus, targetStatus,
+                              priority, 0);
+        // ← 間接：コントローラー経由のため具体状態クラスが見えない
+    }
+};
+
+// 呼び出し元2: SLA監視による自動エスカレーション
+class EscalationEngine {
+    StateController controller; // ← 具体：StateControllerという具体型を持っている
+public:
+    void checkAndEscalate(string ticketId, string currentStatus,
+                          string priority, int elapsedMinutes) {
+        cout << "[EscalationEngine] チケット " << ticketId
+             << " のSLA監視中（経過: " << elapsedMinutes << "分）。" << endl;
+        // 経過時間を渡してコントローラーに委譲
+        controller.transition(currentStatus, "InProgress",
+                              priority, elapsedMinutes);
+        // ← 間接：コントローラー経由のため具体状態クラスが見えない
     }
 };
 
@@ -534,13 +586,23 @@ public:
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 案3（具体×間接）の呼び出し側
 int main() {
-    TicketManager manager; // ← 間接：StateControllerが内部に隠れており呼び出し側には見えない
-    manager.update("Open"); // 内部でStateControllerが動くが、呼び出し側は知らない
+    // 呼び出し元1: 担当者操作
+    TicketManager manager;
+    manager.updateTicket("T-001", "Open", "InProgress", "Normal");
+
+    cout << "---" << endl;
+
+    // 呼び出し元2: 自動エスカレーション（SLA超過）
+    EscalationEngine engine;
+    engine.checkAndEscalate("T-002", "Open", "High", 90);
+    // ↑ High優先度SLA=60分を超過しているためエスカレーション発動
+
     return 0;
 }
 ```
+
+このコードを見ると、`StateController` は依然として各状態クラスの具体型を知っており、状態が増えれば修正が必要です。しかし、SLA超過による自動エスカレーションのような複雑な条件制御を一箇所に集め、`TicketManager`（担当者操作）と `EscalationEngine`（自動エスカレーション）が同じ状態管理ロジックを共有できる点に、この形の価値があります。
 
 **この形のトレードオフ：**
 
@@ -560,12 +622,6 @@ int main() {
 
 **この形の考え方：**
 案2のインターフェースと、案3の仲介クラスを併用する。 非常に高い柔軟性を持つが、すべての層に抽象と仲介役が必要となるため、構造が複雑になる。
-
-**この形にするための準備：**
-
-1. 全状態遷移とルール判定をインターフェース化する
-2. 組み立てを担う Factory または Manager クラスを導入する
-3. チケットライフサイクルの全層を抽象化する
 
 【案4のコード（一部）】
 
