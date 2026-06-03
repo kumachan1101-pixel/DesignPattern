@@ -369,6 +369,24 @@ graph LR
 **この形の考え方：**
 クラスの分割やインターフェースの導入を行わず、既存の `reserve()` や `pay()` メソッドの中に、新しい状態の条件分岐を `if` 文で追加します。変更頻度が極めて低く、これ以上複雑にならないと断言できる場合にのみ許容される最小コストの選択です。
 
+**構造図：**
+
+```mermaid
+graph LR
+    TR["TicketReservation"]
+    AP["AdminPanel"]
+    TR_L["if-else: status=\nAvailable/Reserved/Paid"]
+    AP_L["if-else: status=\nAvailable/Reserved/Paid"]
+    TR --> TR_L
+    AP --> AP_L
+    style TR fill:#ffcccc,stroke:#cc4444
+    style AP fill:#ffcccc,stroke:#cc4444
+    style TR_L fill:#ffcccc,stroke:#cc4444
+    style AP_L fill:#ffcccc,stroke:#cc4444
+```
+
+両クラスがそれぞれ状態判定ロジックを内部に直書きしており、状態が増えるたびに両方のif文を同時に修正しなければならない。
+
 【コード例】
 
 ```cpp
@@ -449,6 +467,23 @@ int main() {
 **この形の考え方：**
 状態ごとにクラスを分割しますが、呼び出し側の `TicketReservation` がそれらの具体クラスを直接知っている状態です。責任は整理されますが、状態を追加するたびに呼び出し側の依存関係を修正する必要があります。
 
+**構造図：**
+
+```mermaid
+graph LR
+    TR["TicketReservation"]
+    AP["AdminPanel"]
+    RS["ReservedState"]
+    AS["AvailableState"]
+    TR -->|"具体×直接"| RS
+    TR -->|"具体×直接"| AS
+    AP -->|"具体×直接"| RS
+    style RS fill:#ffeecc,stroke:#cc8800
+    style AS fill:#ffeecc,stroke:#cc8800
+```
+
+両クラスが `ReservedState` などの具体クラスを直接参照しており、状態クラスが増えるたびに呼び出し元2箇所の修正が必要になる。
+
 【コード例】
 
 ```cpp
@@ -523,6 +558,28 @@ int main() {
 
 **この形の考え方：**
 「状態」をインターフェース化し、呼び出し側はインターフェース型に対してプログラムします。状態が増えても `TicketReservation` はインターフェースしか知らないため、修正が不要です。この構造を **State（ステート）** パターンと呼びます。
+
+**構造図：**
+
+```mermaid
+graph LR
+    main_fn["main()"]
+    IRS[/"IReservationState\n≪interface≫"/]
+    RS["ReservedState"]
+    TR["TicketReservation"]
+    AP["AdminPanel"]
+    main_fn -->|"具体で生成"| RS
+    RS -.->|"実装"| IRS
+    main_fn -->|"抽象×直接(注入)"| TR
+    main_fn -->|"抽象×直接(注入)"| AP
+    TR -->|"抽象×直接"| IRS
+    AP -->|"抽象×直接"| IRS
+    style main_fn fill:#e8ffe8,stroke:#448844
+    style IRS fill:#cce8ff,stroke:#4488cc
+    style RS fill:#ffeecc,stroke:#cc8800
+```
+
+両クラスが `IReservationState` インターフェースだけを知り、新しい状態クラスを追加しても呼び出し元を一切変更しなくてよい。
 
 【コード例】
 
@@ -603,6 +660,29 @@ int main() {
 
 **この形の考え方：**
 `StateManager` のような仲介クラスを置き、そこに状態管理を委譲します。しかし、仲介クラスが個々の状態クラスを知っているため、状態を追加する際には仲介クラスの修正が必要です。
+
+**構造図：**
+
+```mermaid
+graph LR
+    TR["TicketReservation"]
+    AP["AdminPanel"]
+    SM["StateManager"]
+    AS["AvailableState"]
+    RS["ReservedState"]
+    PS["PaidState"]
+    TR -->|"具体×間接"| SM
+    AP -->|"具体×間接"| SM
+    SM -->|"具体×直接"| AS
+    SM -->|"具体×直接"| RS
+    SM -->|"具体×直接"| PS
+    style SM fill:#ffffcc,stroke:#aaaa44
+    style AS fill:#ffeecc,stroke:#cc8800
+    style RS fill:#ffeecc,stroke:#cc8800
+    style PS fill:#ffeecc,stroke:#cc8800
+```
+
+呼び出し元2クラスは `StateManager` だけを知り、内部の状態クラス群は見えない。ただし Manager 自身は各状態クラスを具体型で直接保持する。
 
 【コード例】
 
@@ -736,6 +816,28 @@ int main() {
 
 **この形の考え方：**
 インターフェースと仲介役の両方を導入し、層を抽象化します。極めて柔軟ですが、クラス数と層が増えるため、小〜中規模のチケット予約管理には過剰になる可能性が高いです。
+
+**構造図：**
+
+```mermaid
+graph LR
+    main_fn["main()"]
+    ISM[/"IStateManager\n≪interface≫"/]
+    SM["StateManager"]
+    TR["TicketReservation"]
+    AP["AdminPanel"]
+    main_fn -->|"具体で生成"| SM
+    SM -.->|"実装"| ISM
+    main_fn -->|"抽象×間接(注入)"| TR
+    main_fn -->|"抽象×間接(注入)"| AP
+    TR -->|"抽象×間接"| ISM
+    AP -->|"抽象×間接"| ISM
+    style main_fn fill:#e8ffe8,stroke:#448844
+    style ISM fill:#cce8ff,stroke:#4488cc
+    style SM fill:#ffffcc,stroke:#aaaa44
+```
+
+インターフェース層（`IStateManager`）と仲介層（`StateManager`）の2層を挟むことで、両クラスは具体的な状態実装を一切知らない最も柔軟な構造。
 
 【コード例】
 

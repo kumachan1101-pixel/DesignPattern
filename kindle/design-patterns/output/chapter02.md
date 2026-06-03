@@ -420,6 +420,24 @@ graph LR
 **この形の考え方：**
 クラスの分割やインターフェースの導入を行わず、既存の `transfer` メソッドの中に、銀行APIの新しい仕様を `if` 文で追加します。銀行側の接続仕様が極めて安定しており、今後数年は変更が来ないような場合にのみ、実装コストを最小化するための選択肢となります。
 
+**構造図：**
+
+```mermaid
+graph LR
+    TP["TransferProcessor"]
+    BTS["BatchTransferService"]
+    TP_L["if-else: BankGateway\nSecurityAuthenticator"]
+    BTS_L["if-else: BankGateway\nSecurityAuthenticator"]
+    TP --> TP_L
+    BTS --> BTS_L
+    style TP fill:#ffcccc,stroke:#cc4444
+    style BTS fill:#ffcccc,stroke:#cc4444
+    style TP_L fill:#ffcccc,stroke:#cc4444
+    style BTS_L fill:#ffcccc,stroke:#cc4444
+```
+
+両クラスが銀行APIの呼び出し手順を内部に直書きしており、外部への依存矢印ではなく内部の重複ロジックが問題の核心。
+
 ```cpp
 // 振り込み処理クラス（呼び出し元1）
 class TransferProcessor {
@@ -497,6 +515,20 @@ int main() {
 **この形の考え方：**
 銀行通信用のクラスを切り出して責任を分担させますが、呼び出し側の `TransferProcessor` は、相変わらず銀行専用クラス（`BankGateway` 等）の具体型を直接知っている状態です。「責任の分担」という第一段階の整理だけを行いたい場合に合う形です。
 
+**構造図：**
+
+```mermaid
+graph LR
+    TP["TransferProcessor"]
+    BTS_caller["BatchTransferService"]
+    BTS["BankTransferService"]
+    TP -->|"具体×直接"| BTS
+    BTS_caller -->|"具体×直接"| BTS
+    style BTS fill:#ffeecc,stroke:#cc8800
+```
+
+2つの呼び出し元がどちらも `BankTransferService` という同じ具体クラスを直接参照しており、依存の重複が構造として見える。
+
 ```cpp
 // ← 具体：BankTransferServiceという型名を直接書いている
 class BankTransferService { // 通信ロジックを切り出した
@@ -563,6 +595,28 @@ int main() {
 **この形の考え方：**
 銀行APIの具体的な実装を隠すためにインターフェースを導入し、業務クラスはインターフェース型に対してプログラムします。これにより、APIの実装が銀行Aから銀行Bへ変わろうと、私たちの業務クラスは影響を受けません。この構造を **Facade（ファサード）パターン** の一部、あるいはこの場合は業務的な窓口として **Facade** 的な役割を担わせる構造と呼ぶことができます。
 
+**構造図：**
+
+```mermaid
+graph LR
+    main_fn["main()"]
+    IBS[/"IBankService\n≪interface≫"/]
+    BTS_impl["BankTransferService"]
+    TP["TransferProcessor"]
+    BTS_caller["BatchTransferService"]
+    main_fn -->|"具体で生成"| BTS_impl
+    BTS_impl -.->|"実装"| IBS
+    main_fn -->|"抽象×直接(注入)"| TP
+    main_fn -->|"抽象×直接(注入)"| BTS_caller
+    TP -->|"抽象×直接"| IBS
+    BTS_caller -->|"抽象×直接"| IBS
+    style main_fn fill:#e8ffe8,stroke:#448844
+    style IBS fill:#cce8ff,stroke:#4488cc
+    style BTS_impl fill:#ffeecc,stroke:#cc8800
+```
+
+両クラスが `IBankService` インターフェースだけを知り、`main()` だけが具体クラスを生成・注入する構造。
+
 ```cpp
 class IBankService { // 共通の窓口（Facadeとなるインターフェース）
 public:
@@ -627,6 +681,26 @@ int main() {
 
 **この形の考え方：**
 AとBの間に `TransferManager` のような「仲介者」を配置し、複雑な通信手順を隠します。ただし、仲介者は具体的なAPIを知っています。外部システムとの複雑なやり取りを一つの窓口に集中させ、業務フロー側には簡素なインタフェースだけを見せたい場合に適しています。
+
+**構造図：**
+
+```mermaid
+graph LR
+    TP["TransferProcessor"]
+    BTS_caller["BatchTransferService"]
+    TM["TransferManager"]
+    BG["BankGateway"]
+    BA["BankAuthService"]
+    TP -->|"具体×間接"| TM
+    BTS_caller -->|"具体×間接"| TM
+    TM -->|"具体×直接"| BG
+    TM -->|"具体×直接"| BA
+    style TM fill:#ffffcc,stroke:#aaaa44
+    style BG fill:#ffeecc,stroke:#cc8800
+    style BA fill:#ffeecc,stroke:#cc8800
+```
+
+呼び出し元2クラスは `TransferManager` だけを知り、内部の `BankGateway`・`BankAuthService` は見えない。ただし Manager 自身は具体クラスを直接保持する。
 
 ```cpp
 // 銀行API関連の具体クラス群（インターフェースは持たない）
@@ -719,6 +793,28 @@ int main() {
 
 **この形の考え方：**
 `TransferProcessor` に対しては抽象的な窓口を提供し、かつその窓口の中で具体的なAPIの複雑な手順を隠蔽します。最も柔軟ですが、全層にインターフェースと仲介クラスを導入するため、実装コストは最大になります。
+
+**構造図：**
+
+```mermaid
+graph LR
+    main_fn["main()"]
+    IBF[/"IBankFacade\n≪interface≫"/]
+    BF["BankFacade"]
+    TP["TransferProcessor"]
+    BTS_caller["BatchTransferService"]
+    main_fn -->|"具体で生成"| BF
+    BF -.->|"実装"| IBF
+    main_fn -->|"抽象×間接(注入)"| TP
+    main_fn -->|"抽象×間接(注入)"| BTS_caller
+    TP -->|"抽象×間接"| IBF
+    BTS_caller -->|"抽象×間接"| IBF
+    style main_fn fill:#e8ffe8,stroke:#448844
+    style IBF fill:#cce8ff,stroke:#4488cc
+    style BF fill:#ffffcc,stroke:#aaaa44
+```
+
+インターフェース層（`IBankFacade`）と仲介層（`BankFacade`）の2層を挟むことで、両クラスは具体実装を一切知らない。変更影響が最も局所化された構造。
 
 ```cpp
 class IBankFacade {

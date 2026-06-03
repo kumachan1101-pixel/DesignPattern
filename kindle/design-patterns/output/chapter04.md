@@ -361,6 +361,24 @@ graph LR
 **この形の考え方：**
 クラスの分割やインターフェースの導入を行わず、既存の `import()` メソッドの中に、新しいフォーマット用の処理を `if` 文で追加します。変更頻度が低く、将来的な変化が見込めない場合に許容される最小コストの選択です。
 
+**構造図：**
+
+```mermaid
+graph LR
+    BIJ["BatchImportJob"]
+    MIC["ManualImportController"]
+    BIJ_L["if-else: format=EC\nformat=STORE など"]
+    MIC_L["if-else: format=EC\nformat=STORE など"]
+    BIJ --> BIJ_L
+    MIC --> MIC_L
+    style BIJ fill:#ffcccc,stroke:#cc4444
+    style MIC fill:#ffcccc,stroke:#cc4444
+    style BIJ_L fill:#ffcccc,stroke:#cc4444
+    style MIC_L fill:#ffcccc,stroke:#cc4444
+```
+
+両クラスがフォーマット検出ロジックを内部に直書きしており、インポート形式が増えるたびに両方の条件分岐を同時に修正しなければならない。
+
 【コード例（一部）】
 
 ```cpp
@@ -433,6 +451,24 @@ int main() {
 
 **この形の考え方：**
 インポート処理を店舗ごとにクラス分割しますが、呼び出し側が各具体クラスを直接知っている状態です。責任の境界は引かれますが、新しい形式の追加時には呼び出し側のコード修正が避けられません。
+
+**構造図：**
+
+```mermaid
+graph LR
+    BIJ["BatchImportJob"]
+    MIC["ManualImportController"]
+    SDI["StoreDataImporter"]
+    EDI["ECDataImporter"]
+    BIJ -->|"具体×直接"| SDI
+    BIJ -->|"具体×直接"| EDI
+    MIC -->|"具体×直接"| SDI
+    MIC -->|"具体×直接"| EDI
+    style SDI fill:#ffeecc,stroke:#cc8800
+    style EDI fill:#ffeecc,stroke:#cc8800
+```
+
+2つの呼び出し元がどちらも `StoreDataImporter`・`ECDataImporter` という同じ具体クラスを直接参照しており、形式が増えるたびに両方の呼び出し元の修正が必要になる。
 
 【コード例（一部）】
 
@@ -511,6 +547,32 @@ int main() {
 **この形の考え方：**
 インポート処理の「骨格となる手順」を親クラスで定義し、詳細な「パース・加工処理」をサブクラスで実装する形式です。この構造を **Template Method（テンプレートメソッド）** パターンと呼びます。呼び出し側は親クラスのインターフェースさえ知っていれば、具体的な実装クラスに依存せずに処理を進められます。
 
+**構造図：**
+
+```mermaid
+graph LR
+    main_fn["main()"]
+    AI[/"AbstractImporter\n≪abstract≫"/]
+    SDI["StoreDataImporter"]
+    EDI["ECDataImporter"]
+    BIJ["BatchImportJob"]
+    MIC["ManualImportController"]
+    main_fn -->|"具体で生成"| SDI
+    main_fn -->|"具体で生成"| EDI
+    SDI -.->|"実装"| AI
+    EDI -.->|"実装"| AI
+    main_fn -->|"抽象×直接(注入)"| BIJ
+    main_fn -->|"抽象×直接(注入)"| MIC
+    BIJ -->|"抽象×直接"| AI
+    MIC -->|"抽象×直接"| AI
+    style main_fn fill:#e8ffe8,stroke:#448844
+    style AI fill:#cce8ff,stroke:#4488cc
+    style SDI fill:#ffeecc,stroke:#cc8800
+    style EDI fill:#ffeecc,stroke:#cc8800
+```
+
+両クラスが `AbstractImporter` の抽象インターフェースだけを知り、`main()` だけが具体クラスを生成・注入する構造。新しいインポート形式を追加しても呼び出し元は変更不要。
+
 【コード例（一部）】
 
 ```cpp
@@ -581,6 +643,29 @@ int main() {
 
 **この形の考え方：**
 `ImporterManager` のような仲介クラスを置き、フォーマット検出・エラーカウント・進捗管理といった複雑なロジックをそこに集約します。仲介役が具体クラスを直接知っているため、インポート形式の追加時には仲介クラスの修正が発生します。
+
+**構造図：**
+
+```mermaid
+graph LR
+    BIJ["BatchImportJob"]
+    MIC["ManualImportController"]
+    IM["ImporterManager"]
+    SDI["StoreDataImporter"]
+    EDI["ECDataImporter"]
+    FDI["FCDataImporter"]
+    BIJ -->|"具体×間接"| IM
+    MIC -->|"具体×間接"| IM
+    IM -->|"具体×直接"| SDI
+    IM -->|"具体×直接"| EDI
+    IM -->|"具体×直接"| FDI
+    style IM fill:#ffffcc,stroke:#aaaa44
+    style SDI fill:#ffeecc,stroke:#cc8800
+    style EDI fill:#ffeecc,stroke:#cc8800
+    style FDI fill:#ffeecc,stroke:#cc8800
+```
+
+呼び出し元2クラスは `ImporterManager` だけを知り、内部の具体インポートクラス群は見えない。ただし Manager 自身はフォーマット検出のため各具体クラスを直接保持する。
 
 【コード例（一部）】
 
@@ -696,6 +781,32 @@ int main() {
 
 **この形の考え方：**
 Template Methodで実装された各クラスを、さらに仲介者経由で利用する形です。実装の詳細はどの層も知らず、変更影響は最も局所化されますが、クラス数と層の深さが増え、小規模なシステムには過剰になりがちです。
+
+**構造図：**
+
+```mermaid
+graph LR
+    main_fn["main()"]
+    IIM[/"IImporterManager\n≪interface≫"/]
+    IM["ImporterManager"]
+    AI[/"AbstractImporter\n≪abstract≫"/]
+    BIJ["BatchImportJob"]
+    MIC["ManualImportController"]
+    main_fn -->|"具体で生成"| IM
+    IM -.->|"実装"| IIM
+    main_fn -->|"抽象×間接(注入)"| BIJ
+    main_fn -->|"抽象×間接(注入)"| MIC
+    BIJ -->|"抽象×間接"| IIM
+    MIC -->|"抽象×間接"| IIM
+    BIJ -->|"抽象×直接"| AI
+    MIC -->|"抽象×直接"| AI
+    style main_fn fill:#e8ffe8,stroke:#448844
+    style IIM fill:#cce8ff,stroke:#4488cc
+    style AI fill:#cce8ff,stroke:#4488cc
+    style IM fill:#ffffcc,stroke:#aaaa44
+```
+
+インターフェース層（`IImporterManager`）と仲介層（`ImporterManager`）の2層を挟み、両クラスは具体実装を一切知らない最も柔軟な構造。変更影響は `main()` の組み立て部分だけに閉じる。
 
 【コード例（一部）】
 
