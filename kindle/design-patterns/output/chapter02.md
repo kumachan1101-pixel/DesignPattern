@@ -502,6 +502,22 @@ int main() {
 }
 ```
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant TP as TransferProcessor
+    participant BTS as BatchTransferService
+    main->>TP: transfer(account, amount, otp)
+    Note over TP: gateway.verifyAccount()<br/>gateway.checkBalance()<br/>auth.requestOTP()<br/>auth.verifyOTP()<br/>gateway.executeTransfer()
+    TP-->>main: 処理完了
+    main->>BTS: processPayroll(transfers)
+    Note over BTS: ← 全く同じAPI呼び出し手順が重複して走る
+    BTS-->>main: 処理完了
+```
+銀行APIの呼び出し手順が各クラスの内部に直書きされているため外部への委譲が発生せず、同じ手順が2か所で並行して走る。
+
 **この形のトレードオフ：**
 
 * 変更容易性：低（銀行APIが変わるたびに業務フローであるメソッドが破壊される）
@@ -581,6 +597,27 @@ int main() {
     return 0;
 }
 ```
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant TP as TransferProcessor
+    participant BTS as BatchTransferService
+    participant BankSvc as BankTransferService
+    main->>TP: transfer(account, amount, otp)
+    Note over TP: if BankTransferService → service->execute()
+    TP->>BankSvc: execute(account, amount, otp)
+    BankSvc-->>TP: 処理完了
+    TP-->>main: 振り込み完了
+    main->>BTS: processPayroll(transfers)
+    Note over BTS: ← 同じ選択ロジックが重複
+    BTS->>BankSvc: execute(account, amount, "")
+    BankSvc-->>BTS: 処理完了
+    BTS-->>main: 処理完了
+```
+クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
 
 **この形のトレードオフ：**
 
@@ -668,6 +705,30 @@ int main() {
     return 0;
 }
 ```
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant BankSvc as BankTransferService
+    participant TP as TransferProcessor
+    participant BTS as BatchTransferService
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>BankSvc: new BankTransferService
+    main->>TP: new（service: IBankService*）
+    main->>BTS: new（service: IBankService*）
+    main->>TP: transfer(account, amount, otp)
+    TP->>BankSvc: service->send(account, amount)
+    Note right of TP: IBankService* 経由
+    BankSvc-->>TP: 処理完了
+    TP-->>main: 振り込み完了
+    main->>BTS: processPayroll(transfers)
+    BTS->>BankSvc: service->send(account, amount)
+    BankSvc-->>BTS: 処理完了
+    BTS-->>main: 処理完了
+```
+`main()` が具体型を組み立て、両方の呼び出し元は `IBankService*` という型だけを介して同じオブジェクトを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 
 **この形のトレードオフ：**
 
@@ -781,6 +842,35 @@ int main() {
 }
 ```
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant TP as TransferProcessor
+    participant BTS as BatchTransferService
+    participant TM as TransferManager
+    participant BG as BankGateway
+    main->>TP: transfer(account, amount, otp)
+    TP->>TM: perform(account, amount, otp)
+    Note right of TM: 内部で BankGateway・BankAuthService を生成して判断
+    TM->>BG: gateway.verifyAccount()
+    BG-->>TM: OK
+    TM->>BG: gateway.executeTransfer()
+    BG-->>TM: 完了
+    TM-->>TP: 成功
+    TP-->>main: 振り込み完了
+    main->>BTS: processPayroll(transfers)
+    BTS->>TM: perform(account, amount, "")
+    TM->>BG: gateway.verifyAccount()
+    BG-->>TM: OK
+    TM->>BG: gateway.executeTransfer()
+    BG-->>TM: 完了
+    TM-->>BTS: 成功
+    BTS-->>main: 処理完了
+```
+両方の呼び出し元が同じ `TransferManager` を経由するため銀行API呼び出しの呼び出し経路が1本に収束し、選択ロジックの重複が消える。
+
 **この形のトレードオフ：**
 
 * 変更容易性：中（API側の変更はManagerだけで完結する）
@@ -873,6 +963,36 @@ int main() {
     return 0;
 }
 ```
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant BF as BankFacade
+    participant TP as TransferProcessor
+    participant BTS as BatchTransferService
+    participant BG as BankGateway
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>BF: new BankFacade
+    main->>TP: new（facade: IBankFacade*）
+    main->>BTS: new（facade: IBankFacade*）
+    main->>TP: transfer(account, amount, otp)
+    TP->>BF: facade->transfer(account, amount)
+    Note right of TP: IBankFacade* 経由
+    BF->>BG: 内部で複雑な手順を実行
+    Note right of BF: IBankFacade* 経由
+    BG-->>BF: 完了
+    BF-->>TP: 処理完了
+    TP-->>main: 振り込み完了
+    main->>BTS: processPayroll(transfers)
+    BTS->>BF: facade->transfer(account, amount)
+    BF->>BG: 内部で複雑な手順を実行
+    BG-->>BF: 完了
+    BF-->>BTS: 処理完了
+    BTS-->>main: 処理完了
+```
+呼び出し元→`IBankFacade*`→内部の具体実装という2段階の経由により、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
 
 **この形のトレードオフ：**
 
