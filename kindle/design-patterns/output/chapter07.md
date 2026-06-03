@@ -487,6 +487,38 @@ int main() {
 }
 ```
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant IM as InventoryManager
+    participant OFS as OrderFulfillmentService
+    participant EN as EmailNotifier
+    participant DU as DashboardUpdater
+    participant CN as ChatNotifier
+    main->>IM: reduceStock("T-shirt-001", 5)
+    Note over IM: 通知先クラスを内部に直接保持
+    IM->>EN: email.send(message)
+    EN-->>IM: 完了
+    IM->>DU: dashboard.update(message)
+    DU-->>IM: 完了
+    IM->>CN: chat.send(message)
+    CN-->>IM: 完了
+    IM-->>main: 在庫更新完了
+    main->>OFS: notifyShipped("ORDER-001")
+    Note over OFS: ← 同じ通知先クラスを重複して保持・呼び出し
+    OFS->>EN: email.send(message)
+    EN-->>OFS: 完了
+    OFS->>DU: dashboard.update(message)
+    DU-->>OFS: 完了
+    OFS->>CN: chat.send(message)
+    CN-->>OFS: 完了
+    OFS-->>main: 出荷通知完了
+```
+
+一文要約：通知先クラスが各呼び出し元の内部に直接ハードコードされているため、同じ通知ロジックが2か所で並行して走り、通知先が1つ増えれば両方を修正しなければならない。
+
 **この形のトレードオフ：**
 
 * 変更容易性：低（通知先が増えるたびに `InventoryManager` と `OrderFulfillmentService` の両方を修正する必要がある）
@@ -566,6 +598,33 @@ int main() {
     return 0;
 }
 ```
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant IM as InventoryManager
+    participant OFS as OrderFulfillmentService
+    participant EN as EmailNotifier
+    participant CN as ChatNotifier
+    main->>IM: reduceStock("T-shirt-001", 5)
+    Note over IM: EmailNotifier・ChatNotifier を直接保持
+    IM->>EN: email.send(message)
+    EN-->>IM: 完了
+    IM->>CN: chat.send(message)
+    CN-->>IM: 完了
+    IM-->>main: 在庫更新完了
+    main->>OFS: notifyShipped("ORDER-001")
+    Note over OFS: ← 同じ具体クラスへの依存・選択ロジックが重複
+    OFS->>EN: email.send(message)
+    EN-->>OFS: 完了
+    OFS->>CN: chat.send(message)
+    CN-->>OFS: 完了
+    OFS-->>main: 出荷通知完了
+```
+
+一文要約：クラスは分かれたが「どの具体クラスを使うか」という選択ロジックを両方の呼び出し元がそれぞれ保持しており、呼び出し経路が2本並んで重複している。
 
 **この形のトレードオフ：**
 

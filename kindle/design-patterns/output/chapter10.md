@@ -439,6 +439,23 @@ int main() {
 
 両クラスが同じロジックを重複して持つため、連携先が増えると2か所を修正しなければならない。
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant BE as BatchExecutor
+    participant MTC as ManualTriggerController
+    main->>BE: execute("C")
+    Note over BE: if "A" → SystemAClient<br/>elif "B" → SystemBClient<br/>elif "C" → SystemCClient<br/>+ NotificationService
+    BE-->>main: 完了
+    main->>MTC: triggerSync("B")
+    Note over MTC: ← 全く同じ if-else 分岐が重複して走る<br/>+ NotificationService
+    MTC-->>main: 完了
+```
+
+一文要約：連携先の振り分けロジックと通知処理が両クラスの内部に直書きされているため、同じ分岐が2か所で並行して走る。
+
 **この形のトレードオフ：**
 
 * 変更容易性：低（連携先が増えるたびに `BatchExecutor` が肥大化する）
@@ -523,6 +540,26 @@ int main() {
 ```
 
 選択ロジックが両クラスに重複しており、連携先が増えるたびに両方を修正しなければならない。
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant BE as BatchExecutor
+    participant MTC as ManualTriggerController
+    participant SC as SystemCClient
+    main->>BE: execute("C")
+    Note over BE: if "C" → new SystemCClient
+    BE->>SC: send("data")
+    SC-->>BE: 完了
+    BE-->>main: 支払金額
+    main->>MTC: triggerSync("B")
+    Note over MTC: ← 同じ選択ロジックが重複
+    MTC-->>main: 完了
+```
+
+一文要約：クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
 
 **この形のトレードオフ：**
 
@@ -613,6 +650,31 @@ int main() {
 ```
 
 注入アプローチにより、両クラスとも具体クライアントクラスを知らずに済み、選択ロジックの重複が解消される。
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant BC as SystemBClient
+    participant BE as BatchExecutor
+    participant MTC as ManualTriggerController
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>BC: new SystemBClient
+    main->>BE: new（client: IExternalClient*）
+    main->>MTC: new（client: IExternalClient*）
+    main->>BE: execute("C")
+    BE->>BC: client->send("data")
+    Note right of BE: IExternalClient* 経由
+    BC-->>BE: 完了
+    BE-->>main: 支払金額
+    main->>MTC: triggerSync("B")
+    MTC->>BC: client->send("manualData")
+    BC-->>MTC: 完了
+    MTC-->>main: 完了
+```
+
+一文要約：`main()` が具体型を組み立て、両方の呼び出し元は `IExternalClient*` という型だけを介して同じオブジェクトを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 
 **この形のトレードオフ：**
 
@@ -767,6 +829,30 @@ int main() {
 
 このコードを見ると、`ExternalFacade` は依然として各外部クライアントの具体型を知っており、連携先が増えれば修正が必要です。しかし、指数バックオフによるリトライと連携結果の記録という複雑なロジックを一箇所に集め、`BatchExecutor`（夜間バッチ）と `ManualTriggerController`（手動実行）が同じ連携フローを共有できる点に、この形の価値があります。
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant BE as BatchExecutor
+    participant MTC as ManualTriggerController
+    participant EF as ExternalFacade
+    participant SA as SystemAClient
+    main->>BE: executeNightlyBatch(["A","B","C"])
+    BE->>EF: facade.run("A", "nightlyData")
+    Note right of EF: 内部で具体型を生成して判断<br/>+ リトライ・ログ記録
+    EF->>SA: send("nightlyData")
+    SA-->>EF: 完了
+    EF-->>BE: 完了
+    BE-->>main: バッチ完了
+    main->>MTC: triggerManual("B", "manualTestData")
+    MTC->>EF: facade.run("B", "manualTestData")
+    EF-->>MTC: 完了
+    MTC-->>main: 完了
+```
+
+一文要約：両方の呼び出し元が同じ `ExternalFacade` を経由するため連携判断の呼び出し経路が1本に収束し、選択ロジックの重複が消える。
+
 **この形のトレードオフ：**
 
 * 変更容易性：中（Facadeへの修正に閉じる）
@@ -867,6 +953,37 @@ int main() {
 ```
 
 両クラスとも抽象Facadeインターフェースのみを受け取るため、具体的なクライアントクラスへの依存が完全に排除される。
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant CF as ConcreteFacade
+    participant BE as BatchExecutor
+    participant MTC as ManualTriggerController
+    participant SA as SystemAClient
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>CF: new ConcreteFacade
+    main->>BE: new（facade: IFacade*）
+    main->>MTC: new（facade: IFacade*）
+    main->>BE: execute("C")
+    BE->>CF: facade->execute()
+    Note right of BE: IFacade* 経由
+    CF->>SA: client->send("data")
+    Note right of CF: IExternalClient* 経由
+    SA-->>CF: 完了
+    CF-->>BE: 完了
+    BE-->>main: 支払金額
+    main->>MTC: triggerSync("B")
+    MTC->>CF: facade->execute()
+    CF->>SA: client->send("data")
+    SA-->>CF: 完了
+    CF-->>MTC: 完了
+    MTC-->>main: 完了
+```
+
+一文要約：呼び出し元→`IFacade*`→`IExternalClient*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
 
 **この形のトレードオフ：**
 

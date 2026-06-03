@@ -988,6 +988,40 @@ int main() {
 }
 ```
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant PF as ConcretePaymentFactory
+    participant PA as PaymentApplication
+    participant SS as SubscriptionService
+    participant CC as CreditCardProcessor
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>PF: new ConcretePaymentFactory
+    main->>PA: new（factory: PaymentFactory*）
+    main->>SS: new（factory: PaymentFactory*）
+    main->>PA: processPayment("credit", 1000)
+    PA->>PF: factory->create("credit")
+    Note right of PA: PaymentFactory* 経由
+    PF->>CC: new CreditCardProcessor
+    CC-->>PF: インスタンス
+    PF-->>PA: IPaymentProcessor*
+    PA->>CC: processor->pay(1000)
+    Note right of PA: IPaymentProcessor* 経由
+    CC-->>PA: 完了
+    PA-->>main: 完了
+    main->>SS: chargeMonthly("user-001", 980)
+    SS->>PF: factory->create("credit")
+    PF->>CC: new CreditCardProcessor
+    CC-->>PF: インスタンス
+    PF-->>SS: IPaymentProcessor*
+    SS->>CC: processor->pay(980)
+    CC-->>SS: 完了
+    SS-->>main: 完了
+```
+一文要約：呼び出し元→`PaymentFactory*`→`IPaymentProcessor*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
+
 **この形のトレードオフ：**
 
 * 変更容易性：高（どの層の実装が変わっても他層は無影響）

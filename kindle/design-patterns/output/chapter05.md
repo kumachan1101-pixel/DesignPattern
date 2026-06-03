@@ -454,6 +454,22 @@ int main() {
 
 `BudgetApp` と `ImportService` の両方が、マネージャへの直接呼び出しとundo/redo管理ロジックをそれぞれに書いている。操作の種類が増えるたびに、両方の呼び出し元で同じ修正が必要になる。
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant BA as BudgetApp
+    participant EM as ExpenseManager
+    participant IS as ImportService
+    BA->>EM: addExpense(amount, cat)
+    Note over BA: history.push_back("Expense:...")
+    EM-->>BA: 完了
+    IS->>EM: addExpense(r.first, r.second)
+    Note over IS: ← 全く同じ直接呼び出しが重複して走る
+    EM-->>IS: 完了
+```
+ロジックが各呼び出し元の内部に直書きされているため、マネージャへの直接呼び出しと履歴管理の同じコードが `BudgetApp` と `ImportService` の2か所で並行して走る。
+
 **この形のトレードオフ：**
 
 * 変更容易性：低（操作が増えるたびにUIクラスを修正する必要がある）
@@ -547,6 +563,24 @@ int main() {
 ```
 
 `BudgetApp` と `ImportService` の両方が、「どの具体コマンドクラスを使うか」という選択をそれぞれの場所で直接行っている。新しい操作が追加されるたびに、両方の呼び出し元を修正しなければならない。
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant BA as BudgetApp
+    participant AEC as AddExpenseCommand
+    participant IS as ImportService
+    BA->>AEC: new AddExpenseCommand(amount, cat)
+    BA->>AEC: execute()
+    Note over BA: ← 直接：具体クラスを直接生成
+    AEC-->>BA: 完了
+    IS->>AEC: new AddExpenseCommand(r.first, r.second)
+    IS->>AEC: execute()
+    Note over IS: ← 重複：同じ具体クラスをここでも直接生成
+    AEC-->>IS: 完了
+```
+クラスは分かれたが「どの具体コマンドクラスを使うか」という選択を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
 
 **この形のトレードオフ：**
 
@@ -656,6 +690,30 @@ int main() {
 ```
 
 `BudgetApp` と `ImportService` はどちらも `ICommand*` を受け取るだけで、「どの具体クラスか」を知らずに済む。新しい操作が増えても、どちらの呼び出し元も修正は不要だ。
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant AEC as AddExpenseCommand
+    participant BA as BudgetApp
+    participant IS as ImportService
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>AEC: new AddExpenseCommand(1000, "Food")
+    main->>BA: new（cmd: ICommand*）
+    main->>IS: new（cmds: ICommand*[]）
+    main->>BA: onAddExpenseClick(&cmd1)
+    BA->>AEC: cmd->execute()
+    Note right of BA: ICommand* 経由
+    AEC-->>BA: 完了
+    BA-->>main: 完了
+    main->>IS: importTransactions({&cmd2})
+    IS->>AEC: cmd->execute()
+    AEC-->>IS: 完了
+    IS-->>main: 完了
+```
+`main()` が具体型を組み立て、両方の呼び出し元は `ICommand*` という型だけを介して同じインターフェースを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 
 **この形のトレードオフ：**
 
@@ -808,6 +866,28 @@ int main() {
 }
 ```
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant BA as BudgetApp
+    participant IS as ImportService
+    participant CI as CommandInvoker
+    participant EM as ExpenseManager
+    BA->>CI: addExpense(1000, "Food")
+    Note right of CI: 内部で具体型を直接操作
+    CI->>EM: addExpense(amount, category)
+    EM-->>CI: 完了
+    CI-->>BA: 完了
+    IS->>CI: addExpense(2000, "Rent")
+    CI->>EM: addExpense(amount, category)
+    EM-->>CI: 完了
+    CI-->>IS: 完了
+    BA->>CI: undo()
+    CI-->>BA: 取り消し完了
+```
+両方の呼び出し元が同じ `CommandInvoker` を経由するためundo/redoスタック管理の呼び出し経路が1本に収束し、履歴管理ロジックの重複が消える。
+
 **この形のトレードオフ：**
 
 * 変更容易性：中（Invoker内にロジックが集約されるため）
@@ -915,6 +995,36 @@ int main() {
 ```
 
 `BudgetApp` と `ImportService` はどちらも `CommandHistory*` という同じ抽象インターフェースしか知らない。具体的な実装クラスの知識は `main()` の組み立て部分だけに閉じている。
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant CH as CommandHistory
+    participant BA as BudgetApp
+    participant IS as ImportService
+    participant AEC as AddExpenseCommand
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>CH: new CommandHistory
+    main->>BA: new（history: CommandHistory*）
+    main->>IS: new（history: CommandHistory*）
+    main->>BA: onAddExpenseClick(&cmd1)
+    BA->>CH: history->execute(cmd)
+    Note right of BA: CommandHistory* 経由
+    CH->>AEC: cmd->execute()
+    Note right of CH: ICommand* 経由
+    AEC-->>CH: 完了
+    CH-->>BA: 完了
+    BA-->>main: 完了
+    main->>IS: importTransactions({&cmd2})
+    IS->>CH: history->execute(cmd)
+    CH->>AEC: cmd->execute()
+    AEC-->>CH: 完了
+    CH-->>IS: 完了
+    IS-->>main: 完了
+```
+呼び出し元→`CommandHistory*`→`ICommand*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
 
 **この形のトレードオフ：**
 
