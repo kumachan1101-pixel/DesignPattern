@@ -557,6 +557,23 @@ int main() {
 }
 ```
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant PC as PaymentCalculator
+    participant CPS as CartPreviewService
+    main->>PC: calculate(order)
+    Note over PC: if Premium → ×0.80<br/>elif SummerSale → ×0.95<br/>elif Campaign → ×0.90
+    PC-->>main: 支払金額
+    main->>CPS: getEstimatedTotal(order)
+    Note over CPS: ← 全く同じ if 文が重複して走る
+    CPS-->>main: プレビュー金額
+```
+
+ロジックが各クラスの内部に直書きされているため外部への呼び出しが発生せず、同じ分岐が2か所で並行して走る。
+
 **この形のトレードオフ：**
 
 * 変更容易性：低（次のキャンペーンが来たとき、再びこの複雑な分岐を解読して追加する作業が繰り返されるため）
@@ -678,6 +695,28 @@ int main() {
 }
 ```
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant PC as PaymentCalculator
+    participant CPS as CartPreviewService
+    participant PD as PremiumDiscount
+    main->>PC: calculate(order)
+    Note over PC: if Premium → new PremiumDiscount
+    PC->>PD: apply(total)
+    PD-->>PC: 割引後金額
+    PC-->>main: 支払金額
+    main->>CPS: getEstimatedTotal(order)
+    Note over CPS: ← 同じ選択ロジックが重複
+    CPS->>PD: apply(total)
+    PD-->>CPS: 割引後金額
+    CPS-->>main: プレビュー金額
+```
+
+クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
+
 **この形のトレードオフ：**
 
 * 変更容易性：低〜中（計算ロジック自体の修正は局所化されるが、新しい割引ルールが増えるたびに `PaymentCalculator` の修正が必要になるため）
@@ -782,6 +821,31 @@ int main() {
     return 0;
 }
 ```
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant PD as PremiumDiscount
+    participant PC as PaymentCalculator
+    participant CPS as CartPreviewService
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>PD: new PremiumDiscount
+    main->>PC: new（rule: IDiscountRule*）
+    main->>CPS: new（rule: IDiscountRule*）
+    main->>PC: calculate(order)
+    PC->>PD: rule->apply(total)
+    Note right of PC: IDiscountRule* 経由
+    PD-->>PC: 割引後金額
+    PC-->>main: 支払金額
+    main->>CPS: getEstimatedTotal(order)
+    CPS->>PD: rule->apply(total)
+    PD-->>CPS: 割引後金額
+    CPS-->>main: プレビュー金額
+```
+
+`main()` が具体型を組み立て、両方の呼び出し元は `IDiscountRule*` という型だけを介して同じオブジェクトを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 
 **この形のトレードオフ：**
 
@@ -918,6 +982,32 @@ int main() {
 }
 ```
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant PC as PaymentCalculator
+    participant CPS as CartPreviewService
+    participant DM as DiscountManager
+    participant PD as PremiumDiscount
+    main->>PC: calculate(order)
+    PC->>DM: applyDiscount(subtotal, order)
+    Note right of DM: 内部で具体型を生成して判断
+    DM->>PD: apply(subtotal)
+    PD-->>DM: 割引後金額
+    DM-->>PC: 最終金額
+    PC-->>main: 支払金額
+    main->>CPS: getEstimatedTotal(order)
+    CPS->>DM: applyDiscount(subtotal, order)
+    DM->>PD: apply(subtotal)
+    PD-->>DM: 割引後金額
+    DM-->>CPS: 最終金額
+    CPS-->>main: プレビュー金額
+```
+
+両方の呼び出し元が同じ `DiscountManager` を経由するため割引判断の呼び出し経路が1本に収束し、選択ロジックの重複が消える。
+
 **この形のトレードオフ：**
 
 * 変更容易性：中（計算クラスへの影響はないが、割引ルール追加のたびにマネージャークラスの修正が必要になるため）
@@ -1017,6 +1107,37 @@ int main() {
     return 0;
 }
 ```
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant DM as DiscountManager
+    participant PC as PaymentCalculator
+    participant CPS as CartPreviewService
+    participant PD as PremiumDiscount
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>DM: new DiscountManager
+    main->>PC: new（mgr: IDiscountManager*）
+    main->>CPS: new（mgr: IDiscountManager*）
+    main->>PC: calculate(order)
+    PC->>DM: manager->applyDiscount()
+    Note right of PC: IDiscountManager* 経由
+    DM->>PD: rule->apply(subtotal)
+    Note right of DM: IDiscountRule* 経由
+    PD-->>DM: 割引後金額
+    DM-->>PC: 最終金額
+    PC-->>main: 支払金額
+    main->>CPS: getEstimatedTotal(order)
+    CPS->>DM: manager->applyDiscount()
+    DM->>PD: rule->apply(subtotal)
+    PD-->>DM: 割引後金額
+    DM-->>CPS: 最終金額
+    CPS-->>main: プレビュー金額
+```
+
+呼び出し元→`IDiscountManager*`→`IDiscountRule*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
 
 **この形のトレードオフ：**
 
