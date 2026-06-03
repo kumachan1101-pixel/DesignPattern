@@ -425,6 +425,23 @@ int main() {
 
 両クラスが同じロジックを重複して持つため、ルールが変わると2か所を修正しなければならない。
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant WM as WorkflowManager
+    participant EE as EscalationEngine
+    main->>WM: process("SUBMITTED", 50000)
+    Note over WM: if "SUBMITTED" → 承認待ち<br/>if "APPROVED" → 承認完了<br/>if amount > 100000 → 役員承認
+    WM-->>main: 完了
+    main->>EE: escalateOverdue()
+    Note over EE: ← 全く同じif-else分岐と判定ロジックが重複して走る
+    EE-->>main: 完了
+```
+
+一文要約：状態遷移・通知・判定ロジックが各クラスの内部に直書きされているため外部への呼び出しが発生せず、同じ条件分岐が2か所で並行して走る。
+
 **この形のトレードオフ：**
 
 * 変更容易性：低（変更のたびにメインロジックの修正が不可避）

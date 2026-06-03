@@ -974,6 +974,36 @@ int main() {
 
 両クラスとも抽象コントローラーインターフェースのみを受け取るため、具体的な状態クラスやルールクラスへの依存が完全に排除される。
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant CSC as ConcreteStateController
+    participant TM as TicketManager
+    participant EE as EscalationEngine
+    participant IS as InProgressState
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>CSC: new ConcreteStateController
+    main->>TM: new（controller: IStateController*）
+    main->>EE: new（controller: IStateController*）
+    main->>TM: update("Open")
+    TM->>CSC: controller->transition(...)
+    Note right of TM: IStateController* 経由
+    CSC->>IS: state->activate()
+    Note right of CSC: ITicketState* 経由
+    IS-->>CSC: 完了
+    CSC-->>TM: 完了
+    TM-->>main: 完了
+    main->>EE: checkAndEscalate("T-001")
+    EE->>CSC: controller->transition(...)
+    CSC->>IS: state->activate()
+    IS-->>CSC: 完了
+    CSC-->>EE: 完了
+    EE-->>main: 完了
+```
+一文要約：呼び出し元→`IStateController*`→`ITicketState*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
+
 **この形のトレードオフ：**
 
 * 変更容易性：高（どの層の変更も他層に影響を与えない）
