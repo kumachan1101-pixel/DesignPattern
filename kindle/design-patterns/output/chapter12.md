@@ -520,6 +520,31 @@ int main() {
 
 選択ロジックが両クラスに重複しており、具体クラスへの依存が両方に残る。
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant WM as WorkflowManager
+    participant EE as EscalationEngine
+    participant RC as RuleChecker
+    participant PS as PendingState
+    main->>WM: process(request)
+    Note over WM: new RuleChecker
+    WM->>RC: checker.isApproved(amount)
+    RC-->>WM: 判定結果
+    WM-->>main: 完了
+    main->>EE: escalateOverdue()
+    Note over EE: ← 同じ選択ロジックが重複
+    EE->>RC: checker.isOverdue()
+    RC-->>EE: 判定結果
+    EE->>PS: pending.enter()
+    PS-->>EE: 完了
+    EE-->>main: 完了
+```
+
+一文要約：クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、判定クラスや状態クラスへの呼び出し経路が2本並んで重複している。
+
 **この形のトレードオフ：**
 
 * 変更容易性：低〜中（責務は分かれたが、利用側の修正は必要）
@@ -626,6 +651,34 @@ int main() {
 ```
 
 注入アプローチにより、両クラスとも具体クラスを知らずに済み、選択ロジックの重複が解消される。
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant MA as ManagerApproval
+    participant PS as PendingState
+    participant WM as WorkflowManager
+    participant EE as EscalationEngine
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>MA: new ManagerApproval
+    main->>PS: new PendingState
+    main->>WM: new（strategy: IApprovalStrategy*）
+    main->>EE: new（strategy: IApprovalStrategy*, state: IWorkflowState*）
+    main->>WM: process(50000)
+    WM->>MA: strategy->canApprove(50000)
+    Note right of WM: IApprovalStrategy* 経由
+    MA-->>WM: 判定結果
+    WM-->>main: 完了
+    main->>EE: escalateOverdue()
+    EE->>PS: state->handle(nullptr)
+    Note right of EE: IWorkflowState* 経由
+    PS-->>EE: 完了
+    EE-->>main: 完了
+```
+
+一文要約：`main()` が具体型を組み立て、両方の呼び出し元は `IApprovalStrategy*`・`IWorkflowState*` という型だけを介して呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 
 **この形のトレードオフ：**
 
@@ -811,6 +864,32 @@ int main() {
 ```
 
 このコードを見ると、`WorkflowOrchestrator` は依然として各状態・ルールの具体クラスを知っており、フローが増えれば修正が必要です。しかし、承認権限チェックや期限超過時の自動エスカレーションという複雑なルールを一箇所に集め、`ApprovalController`（ユーザー操作）と `EscalationEngine`（自動処理）が同じワークフローロジックを共有できる点に、この形の価値があります。
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant AC as ApprovalController
+    participant EE as EscalationEngine
+    participant WO as WorkflowOrchestrator
+    participant BLR as BudgetLimitRule
+    main->>AC: submit("REQ-001", 300000)
+    AC->>WO: orchestrator.dispatch("New", 300000, "")
+    Note right of WO: 内部で具体型を生成して判断<br/>+ 通知・ルールチェック
+    WO->>BLR: budgetRule.check(300000, "")
+    BLR-->>WO: 判定結果
+    WO-->>AC: 完了
+    AC-->>main: 完了
+    main->>EE: escalateOverdue("REQ-002", 800000, 5)
+    EE->>WO: orchestrator.dispatch("Pending", 800000, "Director")
+    WO->>BLR: budgetRule.check(800000, "Director")
+    BLR-->>WO: 判定結果
+    WO-->>EE: 完了
+    EE-->>main: 完了
+```
+
+一文要約：両方の呼び出し元が同じ `WorkflowOrchestrator` を経由するためワークフロー判断の呼び出し経路が1本に収束し、ルール選択ロジックの重複が消える。
 
 **この形のトレードオフ：**
 
