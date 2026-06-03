@@ -392,12 +392,51 @@ void onAddExpenseClick() {
 
 ```cpp
 // 案0（現状維持）の呼び出し側
+// UIからの操作：マネージャを直接呼び出し、履歴もここで管理
+class BudgetApp {
+    ExpenseManager em;
+    IncomeManager im;
+    std::vector<std::string> history; // ← 具体：履歴管理もここに直書き
+public:
+    void onAddExpenseClick(int amount, std::string cat) {
+        em.addExpense(amount, cat);
+        history.push_back("Expense:" + cat);
+    }
+    void onUndoClick() {
+        // 巨大な条件分岐でundo処理を直書き…
+    }
+};
+
+// 一括インポート：同じマネージャ直接呼び出しロジックが再び現れる（重複）
+class ImportService {
+    ExpenseManager em; // ← 重複：BudgetAppと同じ具体型を直接保持
+    std::vector<std::string> history; // ← 重複：履歴管理も再び書く
+public:
+    void importTransactions(
+            std::vector<std::pair<int,std::string>> data) {
+        for (auto& r : data) {
+            em.addExpense(r.first, r.second);
+            history.push_back("Expense:" + r.second);
+        }
+    }
+    void rollback(int count) {
+        // ← 重複：undoロジックもここで再実装
+    }
+};
+
 int main() {
-    UIButtons ui;
-    ui.onAddExpenseClick();  // ← 具体：具体的な操作メソッドを直接呼んでいる
+    BudgetApp app;
+    app.onAddExpenseClick(1000, "Food");
+    app.onUndoClick();
+
+    ImportService importer;
+    importer.importTransactions({{2000, "Rent"}, {300, "Water"}});
+    importer.rollback(2);
     return 0;
 }
 ```
+
+`BudgetApp` と `ImportService` の両方が、マネージャへの直接呼び出しとundo/redo管理ロジックをそれぞれに書いている。操作の種類が増えるたびに、両方の呼び出し元で同じ修正が必要になる。
 
 **この形のトレードオフ：**
 
@@ -440,12 +479,46 @@ public:
 
 ```cpp
 // 案1（具体×直接）の呼び出し側
+// UIからの操作：具体クラスを直接生成して実行
+class BudgetApp {
+public:
+    void onAddExpenseClick(int amount, std::string cat) {
+        AddExpenseCommand cmd(amount, cat); // ← 直接：具体クラスを直接生成
+        cmd.execute();
+    }
+    void onUndoClick() {
+        // undoするには具体クラスのundoメソッドを直接呼ぶ必要がある
+    }
+};
+
+// 一括インポート：どの具体コマンドクラスを使うかの選択も重複する
+class ImportService {
+public:
+    void importTransactions(
+            std::vector<std::pair<int,std::string>> data) {
+        for (auto& r : data) {
+            // ← 重複：BudgetAppと同じAddExpenseCommandを直接生成
+            AddExpenseCommand cmd(r.first, r.second);
+            cmd.execute();
+        }
+    }
+    void rollback(int count) {
+        // ← 重複：取り消しのため具体クラスの知識をここにも書く
+    }
+};
+
 int main() {
-    AddExpenseCommand cmd;               // ← 直接：呼び出し側が具体クラスを直接生成
-    cmd.execute();
+    BudgetApp app;
+    app.onAddExpenseClick(1000, "Food");
+
+    ImportService importer;
+    importer.importTransactions({{2000, "Rent"}, {300, "Water"}});
+    importer.rollback(2);
     return 0;
 }
 ```
+
+`BudgetApp` と `ImportService` の両方が、「どの具体コマンドクラスを使うか」という選択をそれぞれの場所で直接行っている。新しい操作が追加されるたびに、両方の呼び出し元を修正しなければならない。
 
 **この形のトレードオフ：**
 
@@ -494,13 +567,47 @@ class AddExpenseCommand : public ICommand {
 
 ```cpp
 // 案2（抽象×直接）の呼び出し側
+// UIからの操作：抽象型で受け取り、具体クラスに依存しない
+class BudgetApp {
+public:
+    void onAddExpenseClick(ICommand* cmd) { // ← 直接：インターフェース経由で受け取る
+        cmd->execute();
+    }
+    void onUndoClick(ICommand* cmd) {
+        cmd->undo();
+    }
+};
+
+// 一括インポート：こちらも同じ抽象型で受け取るだけ（重複なし）
+class ImportService {
+public:
+    void importTransactions(
+            std::vector<ICommand*> cmds) { // ← 直接：同じ形で受け取れる
+        for (auto* cmd : cmds) {
+            cmd->execute();
+        }
+    }
+    void rollback(std::vector<ICommand*> cmds) {
+        for (auto* cmd : cmds) {
+            cmd->undo(); // ← 同じインターフェースを使い回せる
+        }
+    }
+};
+
 int main() {
-    AddExpenseCommand cmd;               // ← 具体：呼び出し側だけが具体クラスを生成
-    UIButtons ui(&cmd);                  // ← 直接：インターフェース経由で直接注入
-    ui.onButtonClick();
+    AddExpenseCommand cmd1(1000, "Food"); // ← 具体：呼び出し側だけが具体クラスを生成
+    AddExpenseCommand cmd2(2000, "Rent");
+
+    BudgetApp app;
+    app.onAddExpenseClick(&cmd1);
+
+    ImportService importer;
+    importer.importTransactions({&cmd2}); // ← 同じインターフェースを使い回せる
     return 0;
 }
 ```
+
+`BudgetApp` と `ImportService` はどちらも `ICommand*` を受け取るだけで、「どの具体クラスか」を知らずに済む。新しい操作が増えても、どちらの呼び出し元も修正は不要だ。
 
 **この形のトレードオフ：**
 
@@ -674,14 +781,48 @@ public:
 
 ```cpp
 // 案4（抽象×間接）の呼び出し側
+// UIからの操作：抽象Historyのみ知り、具体実装は見えない
+class BudgetApp {
+    CommandHistory* history; // ← 抽象：インターフェース型で保持
+public:
+    BudgetApp(CommandHistory* h) : history(h) {}
+    void onAddExpenseClick(ICommand* cmd) {
+        history->execute(cmd); // ← 間接：History経由で実行
+    }
+    void onUndoClick() { history->undo(); }
+};
+
+// 一括インポート：こちらも同じ抽象Historyを受け取る（重複なし）
+class ImportService {
+    CommandHistory* history; // ← 抽象：同じインターフェース型で保持
+public:
+    ImportService(CommandHistory* h) : history(h) {}
+    void importTransactions(std::vector<ICommand*> cmds) {
+        for (auto* cmd : cmds) {
+            history->execute(cmd); // ← 間接：History経由で実行
+        }
+    }
+    void rollback(int count) {
+        for (int i = 0; i < count; i++) history->undo();
+    }
+};
+
 int main() {
-    CommandHistory history;                 // ← 具体：組み立て側だけが具体型を知る
-    AddExpenseCommand cmd;
-    UIButtons ui(&history);                 // ← 間接：抽象Historyのみ見えて具体実装は隠れる
-    ui.onAddExpenseClick(&cmd);
+    CommandHistory hist;               // ← 具体：組み立て側だけが具体型を知る
+    AddExpenseCommand cmd1(1000, "Food");
+    AddExpenseCommand cmd2(2000, "Rent");
+
+    BudgetApp app(&hist);
+    app.onAddExpenseClick(&cmd1);
+
+    ImportService importer(&hist); // ← 間接：抽象Historyのみ見えて具体実装は隠れる
+    importer.importTransactions({&cmd2});
+    importer.rollback(1);
     return 0;
 }
 ```
+
+`BudgetApp` と `ImportService` はどちらも `CommandHistory*` という同じ抽象インターフェースしか知らない。具体的な実装クラスの知識は `main()` の組み立て部分だけに閉じている。
 
 **この形のトレードオフ：**
 

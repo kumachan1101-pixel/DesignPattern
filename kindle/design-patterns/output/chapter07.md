@@ -414,30 +414,60 @@ graph LR
 【コード例】
 
 ```cpp
-void notifyAll(string message) {
-    email.send(message);
-    dashboard.update(message);
-    chat.send(message);
-    // ← 具体："sms"という具体的な通知先を呼び出し側が直接書いている
-    sms.send(message); // ← 新しい通知先を直接追記
-}
+// 呼び出し元1：在庫変動を管理するクラス
+class InventoryManager {
+    EmailNotifier email;
+    DashboardUpdater dashboard;
+    ChatNotifier chat;
+public:
+    void reduceStock(string productId, int quantity) {
+        string message = "商品 " + productId + " の在庫が減少しました。";
+        // ← 具体：通知先クラスを直接呼び出している
+        email.send(message);
+        dashboard.update(message);
+        chat.send(message);
+    }
+};
+
+// 呼び出し元2：出荷完了を管理するクラス
+// ← 同じ通知ロジックをここにも丸ごと複製する（重複の発生）
+class OrderFulfillmentService {
+    EmailNotifier email;        // ← 同じ具体クラスをここでも直接保持
+    DashboardUpdater dashboard;
+    ChatNotifier chat;
+public:
+    void notifyShipped(string orderId) {
+        string message = "注文 " + orderId + " が出荷されました。";
+        // ← InventoryManagerと同じ通知ロジックがそのまま重複する
+        email.send(message);
+        dashboard.update(message);
+        chat.send(message);
+    }
+};
 
 ```
+
+このコードを見ると、`InventoryManager` と `OrderFulfillmentService` の両方が、同じ通知先クラスを個別に抱え込み、同じ通知ロジックを重複して持っていることが分かります。通知先が1つ増えれば、2つのクラスをそれぞれ修正しなければなりません。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案0（現状維持）の呼び出し側
 int main() {
+    // 在庫変動の呼び出し元
     InventoryManager manager;
-    manager.notifyAll("在庫不足");  // ← 具体：内部にEmailNotifierなどが直書きされている
+    manager.reduceStock("T-shirt-001", 5); // ← 内部にEmailNotifierなどが直書き
+
+    // 出荷完了の呼び出し元
+    OrderFulfillmentService fulfillment;
+    fulfillment.notifyShipped("ORDER-001"); // ← 同じ通知ロジックが重複して存在
     return 0;
 }
 ```
 
 **この形のトレードオフ：**
 
-* 変更容易性：低（通知先が増えるたびに `InventoryManager` を修正し再コンパイルが必要）
+* 変更容易性：低（通知先が増えるたびに `InventoryManager` と `OrderFulfillmentService` の両方を修正する必要がある）
 * テスト容易性：低（特定の通知だけをテストするための切り離しができない）
 * 実装コスト：低（今のコードに1行足すだけ）
 
@@ -451,37 +481,55 @@ int main() {
 【コード例】
 
 ```cpp
+// 呼び出し元1：在庫変動を管理するクラス
 class InventoryManager {
     // ← 具体：EmailNotifierという具体型を直接知っている
     EmailNotifier email;
-    // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
     ChatNotifier chat;
-    // ...
 public:
-    void notifyAll(string m) {
-        email.send(m);
-        chat.send(m);
+    void reduceStock(string productId, int quantity) {
+        string message = "商品 " + productId + " の在庫が減少しました。";
+        email.send(message); // ← 直接：具体クラスのメソッドを直接呼んでいる
+        chat.send(message);
+    }
+};
+
+// 呼び出し元2：出荷完了を管理するクラス
+// ← 選択ロジック（どの具体クラスを使うか）がここでも重複する
+class OrderFulfillmentService {
+    EmailNotifier email;  // ← 同じ具体クラスをここでも直接インスタンス化
+    ChatNotifier chat;
+public:
+    void notifyShipped(string orderId) {
+        string message = "注文 " + orderId + " が出荷されました。";
+        email.send(message); // ← どのクラスを選ぶかという判断がここでも重複
+        chat.send(message);
     }
 };
 
 ```
+
+このコードを見ると、`InventoryManager` と `OrderFulfillmentService` の両方が「`EmailNotifier` と `ChatNotifier` を使う」という選択ロジックを各自で保持していることが分かります。通知先を1つ追加・変更するたびに、両方のクラスを修正する必要があります。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案1（具体×直接）の呼び出し側
 int main() {
-    EmailNotifier email;                 // ← 直接：呼び出し側が具体クラスを直接生成
-    ChatNotifier chat;
-    InventoryManager manager(&email, &chat);
-    manager.notifyAll("在庫不足");
+    // 在庫変動の呼び出し元：具体クラスを直接生成して渡す
+    InventoryManager manager;
+    manager.reduceStock("T-shirt-001", 5); // ← 内部で具体クラスが直接使われる
+
+    // 出荷完了の呼び出し元：同様に具体クラスを直接使う
+    OrderFulfillmentService fulfillment;
+    fulfillment.notifyShipped("ORDER-001"); // ← 選択ロジックが重複して存在
     return 0;
 }
 ```
 
 **この形のトレードオフ：**
 
-* 変更容易性：低〜中（責務は分かれたが、通知元の修正は依然必要）
+* 変更容易性：低〜中（責務は分かれたが、通知先を変えるたびに `InventoryManager` と `OrderFulfillmentService` の両方の修正が必要）
 * テスト容易性：低（具体クラスへの依存が強いため切り離せない）
 * 実装コスト：中（切り出しの工数が発生する）
 
@@ -501,27 +549,50 @@ public:
     virtual void send(string m) = 0;
 };
 
+// 呼び出し元1：在庫変動を管理するクラス
 class InventoryManager {
     // ← 抽象：INotification*型で受け取り、具体クラスを知らない
     vector<INotification*> observers;
 public:
     void attach(INotification* o) { observers.push_back(o); }
-    void notifyAll(string m) {
-        for(auto* o : observers) o->send(m);
+    void reduceStock(string productId, int quantity) {
+        string message = "商品 " + productId + " の在庫が減少しました。";
+        for(auto* o : observers) o->send(message); // ← 直接：インターフェース経由で直接呼ぶ
+    }
+};
+
+// 呼び出し元2：出荷完了を管理するクラス
+// ← 同じインターフェース型を外から受け取るため、重複も密結合も生じない
+class OrderFulfillmentService {
+    vector<INotification*> observers; // ← 抽象：具体クラスを知らない
+public:
+    void attach(INotification* o) { observers.push_back(o); }
+    void notifyShipped(string orderId) {
+        string message = "注文 " + orderId + " が出荷されました。";
+        for(auto* o : observers) o->send(message);
     }
 };
 
 ```
+
+このコードを見ると、`InventoryManager` も `OrderFulfillmentService` も、具体的な通知クラスを一切知らずに済んでいることが分かります。どのクラスを使うかは外側（呼び出し側）で決めてインターフェース経由で渡すだけです。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案2（抽象×直接）の呼び出し側
 int main() {
-    EmailNotifier email;                 // ← 具体：呼び出し側だけが具体クラスを生成
-    InventoryManager manager;            // ← 直接：インターフェース経由で直接注入
+    EmailNotifier email;    // ← 具体：呼び出し側だけが具体クラスを生成
+
+    // 在庫変動の呼び出し元：インターフェース経由で注入
+    InventoryManager manager;
     manager.attach(&email);
-    manager.notifyAll("在庫不足");
+    manager.reduceStock("T-shirt-001", 5);
+
+    // 出荷完了の呼び出し元：同じインターフェース経由で注入（重複なし）
+    OrderFulfillmentService fulfillment;
+    fulfillment.attach(&email); // ← 同じ具体クラスを共有することも可能
+    fulfillment.notifyShipped("ORDER-001");
     return 0;
 }
 ```
@@ -651,29 +722,66 @@ int main() {
 【コード例】
 
 ```cpp
-class NotificationManager {
+class INotificationManager { // ← 抽象：マネージャーのインターフェース
+public:
+    virtual ~INotificationManager() = default;
+    virtual void sendAll(string m) = 0;
+};
+
+class NotificationManager : public INotificationManager {
     // ← 抽象：INotification*型で受け取り、具体実装を知らない
     // ← 間接：Managerを経由するため内部クラス群が見えない
     vector<INotification*> observers;
 public:
     void addObserver(INotification* o) { observers.push_back(o); }
-    void sendAll(string m) {
+    void sendAll(string m) override {
         for(auto* o : observers) o->send(m);
     }
 };
 
+// 呼び出し元1：在庫変動を管理するクラス
+class InventoryManager {
+    INotificationManager* mgr; // ← 抽象：具体マネージャーを知らない
+public:
+    InventoryManager(INotificationManager* m) : mgr(m) {}
+    void reduceStock(string productId, int quantity) {
+        string message = "商品 " + productId + " の在庫が減少しました。";
+        mgr->sendAll(message); // ← 間接：Managerを経由して通知
+    }
+};
+
+// 呼び出し元2：出荷完了を管理するクラス
+// ← 同じ抽象マネージャーを外から受け取るため、重複も密結合も生じない
+class OrderFulfillmentService {
+    INotificationManager* mgr; // ← 抽象：同じ抽象インターフェースで受け取る
+public:
+    OrderFulfillmentService(INotificationManager* m) : mgr(m) {}
+    void notifyShipped(string orderId) {
+        string message = "注文 " + orderId + " が出荷されました。";
+        mgr->sendAll(message); // ← 間接：Managerを経由して通知
+    }
+};
+
 ```
+
+このコードを見ると、`InventoryManager` も `OrderFulfillmentService` も、抽象マネージャーのインターフェースだけを知り、具体的な通知クラスについては何も知らなくて済んでいることが分かります。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案4（抽象×間接）の呼び出し側
 int main() {
-    EmailNotifier email;                    // ← 具体：組み立て側だけが具体型を知る
+    EmailNotifier email;          // ← 具体：組み立て側だけが具体型を知る
     NotificationManager mgr;
     mgr.addObserver(&email);
-    InventoryManager manager(&mgr);         // ← 間接：抽象Managerのみ見えて具体実装は隠れる
-    manager.notifyAll("在庫不足");
+
+    // 在庫変動の呼び出し元：抽象マネージャーのみ見えて具体実装は隠れる
+    InventoryManager manager(&mgr);
+    manager.reduceStock("T-shirt-001", 5);
+
+    // 出荷完了の呼び出し元：同じ抽象マネージャーを共有（重複なし）
+    OrderFulfillmentService fulfillment(&mgr);
+    fulfillment.notifyShipped("ORDER-001");
     return 0;
 }
 ```

@@ -385,12 +385,33 @@ void execute(string targetId) {
 
 ```cpp
 // 案0（現状維持）の呼び出し側
+// 両クラスが同じ外部システム振り分けロジックを重複して持つ
+class ManualTriggerController {
+public:
+    void triggerSync(string systemId) {
+        // ← 具体：BatchExecutorと同じif-else分岐をそのまま複製している
+        if (systemId == "A") {
+            SystemAClient client; client.send("manualData");
+        } else if (systemId == "B") {
+            SystemBClient client; client.send("manualData");
+        } else if (systemId == "C") {
+            SystemCClient client; client.send("manualData");
+        }
+        NotificationService n; n.notify("手動同期完了");
+    }
+};
+
 int main() {
     BatchExecutor executor;          // ← 直接：BatchExecutorを直接生成して使う
     executor.execute("C");           // ← 具体：内部にSystemCClientなどが直書きされている
+
+    ManualTriggerController manual;  // ← 直接：ManualTriggerControllerも直接生成
+    manual.triggerSync("B");         // ← 具体：内部に同じif-else分岐が重複している
     return 0;
 }
 ```
+
+両クラスが同じロジックを重複して持つため、連携先が増えると2か所を修正しなければならない。
 
 **この形のトレードオフ：**
 
@@ -427,12 +448,29 @@ void execute(string targetId) {
 
 ```cpp
 // 案1（具体×直接）の呼び出し側
+// 選択ロジックが両クラスに重複している
+class ManualTriggerController {
+public:
+    void triggerSync(string systemId) {
+        if (systemId == "C") {
+            SystemCClient client; // ← 具体：SystemCClientという型名を直接書いている
+            client.send("manualData"); // ← 直接：このクラスを直接インスタンス化している
+        }
+        NotificationService n; n.notify("手動同期完了");
+    }
+};
+
 int main() {
     BatchExecutor executor; // ← 直接：BatchExecutorを直接生成して使う
     executor.execute("C");  // ← 具体：内部でSystemCClientが直接生成される
+
+    ManualTriggerController manual; // ← 直接：ManualTriggerControllerも直接生成して使う
+    manual.triggerSync("B");        // ← 具体：内部でSystemBClientが直接生成される
     return 0;
 }
 ```
+
+選択ロジックが両クラスに重複しており、連携先が増えるたびに両方を修正しなければならない。
 
 **この形のトレードオフ：**
 
@@ -472,12 +510,30 @@ void execute() {
 
 ```cpp
 // 案2（抽象×直接）の呼び出し側
+// 注入アプローチにより、両クラスで具体クライアントへの依存がなくなる
+class ManualTriggerController {
+    IExternalClient* client; // ← 抽象：外部から注入されたインターフェースのみ知っている
+public:
+    ManualTriggerController(IExternalClient* c) : client(c) {}
+    void triggerSync(string systemId) {
+        cout << "[ManualTrigger] " << systemId
+             << " への手動同期を実行。" << endl;
+        client->send("manualData"); // ← 直接：インターフェース経由で直接呼び出す
+    }
+};
+
 int main() {
     BatchExecutor executor;        // ← 直接：BatchExecutorを直接生成
     executor.execute("C");         // ← 抽象：呼び出し側は具体クライアントクラスを知らない
+
+    SystemBClient bClient;
+    ManualTriggerController manual(&bClient); // ← 直接：インターフェース経由で直接注入
+    manual.triggerSync("B");       // ← 抽象：内部では具体クライアントを知らない
     return 0;
 }
 ```
+
+注入アプローチにより、両クラスとも具体クライアントクラスを知らずに済み、選択ロジックの重複が解消される。
 
 **この形のトレードオフ：**
 

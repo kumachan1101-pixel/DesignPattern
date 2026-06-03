@@ -379,13 +379,41 @@ void import() {
 
 ```cpp
 // 案0（現状維持）の呼び出し側
+// 夜間バッチ：フォーマット条件値をそのまま書く
+class BatchImportJob {
+public:
+    void run(std::vector<std::string> files) {
+        for (auto& f : files) {
+            DataImporter importer;
+            // ← 具体：フォーマット種別を呼び出し側が直接指定
+            importer.format = detectFormat(f);
+            importer.import();
+        }
+    }
+};
+
+// 手動実行：同じ条件分岐ロジックが再び現れる（重複）
+class ManualImportController {
+public:
+    void importFile(std::string filename) {
+        DataImporter importer;
+        // ← 重複：BatchImportJobと同じformat検出ロジックをここでも書く
+        importer.format = detectFormat(filename);
+        importer.import();
+    }
+};
+
 int main() {
-    DataImporter importer;
-    importer.format = "EC";   // ← 具体："EC"という条件値をそのまま渡している
-    importer.import();
+    BatchImportJob batch;
+    batch.run({"store_may.csv", "ec_may.csv"});
+
+    ManualImportController ctrl;
+    ctrl.importFile("store_extra.csv");
     return 0;
 }
 ```
+
+`BatchImportJob` と `ManualImportController` の両方が、フォーマット検出と `import()` の呼び出しという同じロジックをそれぞれの場所に書いている。呼び出し元が増えるたびに、同じ条件分岐の重複が量産されていく。
 
 **この形のトレードオフ：**
 
@@ -426,12 +454,43 @@ public:
 
 ```cpp
 // 案1（具体×直接）の呼び出し側
+// 夜間バッチ：具体クラスを直接生成して実行
+class BatchImportJob {
+public:
+    void run() {
+        StoreDataImporter store; // ← 直接：具体クラスを直接生成
+        store.import();
+        ECDataImporter ec;       // ← 直接：具体クラスを直接生成
+        ec.import();
+    }
+};
+
+// 手動実行：呼び出し側でも同じく具体クラスを直接選んで生成する
+class ManualImportController {
+public:
+    void importFile(std::string filename) {
+        // ← 重複：どのクラスを使うかの選択ロジックがここにも現れる
+        if (filename.find("ec_") != std::string::npos) {
+            ECDataImporter importer;
+            importer.import();
+        } else {
+            StoreDataImporter importer;
+            importer.import();
+        }
+    }
+};
+
 int main() {
-    ECDataImporter importer;             // ← 直接：呼び出し側が具体クラスを直接生成
-    importer.import();
+    BatchImportJob batch;
+    batch.run();
+
+    ManualImportController ctrl;
+    ctrl.importFile("store_extra.csv");
     return 0;
 }
 ```
+
+`BatchImportJob` と `ManualImportController` の両方が、「どの具体クラスを使うか」という選択ロジックをそれぞれ持っている。新しいインポート形式が増えるたびに、両方の呼び出し元を修正しなければならない。
 
 **この形のトレードオフ：**
 
@@ -473,13 +532,36 @@ public:
 
 ```cpp
 // 案2（抽象×直接）の呼び出し側
+// 夜間バッチ：抽象型で受け取り、具体クラスに依存しない
+class BatchImportJob {
+public:
+    void run(AbstractImporter* importer) { // ← 直接：インターフェース経由で受け取る
+        importer->import();
+    }
+};
+
+// 手動実行：こちらも同じく抽象型で受け取るだけ（重複なし）
+class ManualImportController {
+public:
+    void importFile(AbstractImporter* importer) { // ← 直接：同じ形で受け取れる
+        importer->import();
+    }
+};
+
 int main() {
-    ECDataImporter importer;                 // ← 具体：呼び出し側だけが具体クラスを生成
-    AbstractImporter* runner = &importer;    // ← 直接：インターフェース経由で直接注入
-    runner->import();
+    ECDataImporter ec;       // ← 具体：呼び出し側だけが具体クラスを生成
+    StoreDataImporter store;
+
+    BatchImportJob batch;
+    batch.run(&ec);
+
+    ManualImportController ctrl;
+    ctrl.importFile(&store); // ← 同じインターフェースを使い回せる
     return 0;
 }
 ```
+
+`BatchImportJob` と `ManualImportController` はどちらも `AbstractImporter*` を受け取るだけで、「どの具体クラスか」を知らずに済む。新しいインポート形式が増えても、どちらの呼び出し元も修正は不要だ。
 
 **この形のトレードオフ：**
 
@@ -632,13 +714,41 @@ class IImporterManager {
 
 ```cpp
 // 案4（抽象×間接）の呼び出し側
+// 夜間バッチ：抽象Managerのみ知り、具体実装は見えない
+class BatchImportJob {
+    IImporterManager* manager; // ← 抽象：インターフェース型で保持
+public:
+    BatchImportJob(IImporterManager* m) : manager(m) {}
+    void run(AbstractImporter* importer) {
+        manager->executeImport(importer); // ← 間接：Manager経由で実行
+    }
+};
+
+// 手動実行：こちらも同じ抽象Managerを受け取る（重複なし）
+class ManualImportController {
+    IImporterManager* manager; // ← 抽象：同じインターフェース型で保持
+public:
+    ManualImportController(IImporterManager* m) : manager(m) {}
+    void importFile(AbstractImporter* importer) {
+        manager->executeImport(importer); // ← 間接：Manager経由で実行
+    }
+};
+
 int main() {
-    ImporterManager mgr;                     // ← 具体：組み立て側だけが具体型を知る
-    BatchExecutor executor(&mgr);            // ← 間接：抽象Managerのみ見えて具体実装は隠れる
-    executor.run();
+    ImporterManager mgr;          // ← 具体：組み立て側だけが具体型を知る
+    ECDataImporter ec;
+    StoreDataImporter store;
+
+    BatchImportJob batch(&mgr);
+    batch.run(&ec);
+
+    ManualImportController ctrl(&mgr); // ← 間接：抽象Managerのみ見えて具体実装は隠れる
+    ctrl.importFile(&store);
     return 0;
 }
 ```
+
+`BatchImportJob` と `ManualImportController` はどちらも `IImporterManager*` という抽象インターフェースしか知らない。具体的な実装クラスの知識は `main()` の組み立て部分だけに閉じている。
 
 **この形のトレードオフ：**
 

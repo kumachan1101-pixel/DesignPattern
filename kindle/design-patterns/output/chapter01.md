@@ -482,18 +482,43 @@ int calculate(const Order& order) {
     // 既存の分岐の間に新しいルールを無理やり差し込む
     // ← 具体："Premium"という条件を呼び出し側が直接書いている
     if (order.customerType == "Premium") {
-        total = total * 0.8;
+        total = static_cast<int>(total * 0.80);
+    } else if (order.isSummerSale && order.isCampaignActive) {
+        total = static_cast<int>(total * 0.95 * 0.90);
     } else if (order.isSummerSale) {
-        total = total * 0.95; // ← サマーセールの追加
-    } else if (order.customerType == "Regular" && order.isCampaignActive) {
-        total = total * 0.9;
+        total = static_cast<int>(total * 0.95); // ← サマーセールの追加
+    } else if (order.isCampaignActive) {
+        total = static_cast<int>(total * 0.90);
     }
     return total;
 }
 
+// カート画面プレビュー（呼び出し元2）
+// ← 案0の問題：PaymentCalculatorと同じif文を重複して持つことになる
+class CartPreviewService {
+public:
+    int getEstimatedTotal(const Order& order) {
+        int total = 0;
+        for (const auto& item : order.items) {
+            total += item.price;
+        }
+        // ← PaymentCalculatorと全く同じ分岐が重複している
+        if (order.customerType == "Premium") {
+            total = static_cast<int>(total * 0.80);
+        } else if (order.isSummerSale && order.isCampaignActive) {
+            total = static_cast<int>(total * 0.95 * 0.90);
+        } else if (order.isSummerSale) {
+            total = static_cast<int>(total * 0.95);
+        } else if (order.isCampaignActive) {
+            total = static_cast<int>(total * 0.90);
+        }
+        return total;
+    }
+};
+
 ```
 
-このコードを見ると、条件がさらに複雑になり、どれが優先されるのかが一目で分かりにくくなっていることが分かります。
+このコードを見ると、条件がさらに複雑になり、どれが優先されるのかが一目で分かりにくくなっていることが分かります。さらに `CartPreviewService` が `PaymentCalculator` と全く同じif文を重複して持つことになり、新しい割引ルールが追加されるたびに2箇所を同時に修正しなければなりません。
 
 **呼び出し側から見た違い（main() 例）：**
 
@@ -502,11 +527,15 @@ int calculate(const Order& order) {
 int main() {
     Order order;
     order.items.push_back(Item("ワイヤレスイヤホン", 10000));
-    order.customerType = "Premium";  // ← 具体："Premium"という条件値をそのまま渡している
+    order.customerType = "Premium";
     order.isCampaignActive = false;
 
     OrderProcessor processor;
     processor.process(order);  // 内部でif文による分岐が走る
+
+    CartPreviewService preview;
+    int previewPrice = preview.getEstimatedTotal(order);  // 同じif文が重複して走る
+    std::cout << "プレビュー価格: " << previewPrice << " 円\n";
     return 0;
 }
 ```
@@ -529,12 +558,16 @@ int main() {
 // ← 具体：PremiumDiscountという型名を直接書いている
 class PremiumDiscount {
 public:
-    int apply(int total) { return total * 0.8; }
+    int apply(int total) { return static_cast<int>(total * 0.8); }
 };
 // ← 具体：SummerSaleDiscountという型名を直接書いている
 class SummerSaleDiscount {
 public:
-    int apply(int total) { return total * 0.95; }
+    int apply(int total) { return static_cast<int>(total * 0.95); }
+};
+class RegularCampaignDiscount {
+public:
+    int apply(int total) { return static_cast<int>(total * 0.90); }
 };
 
 // PaymentCalculatorの内部
@@ -548,22 +581,55 @@ int calculate(const Order& order) {
     } else if (order.isSummerSale) {
         SummerSaleDiscount discount;  // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
         total = discount.apply(total);
+    } else if (order.isCampaignActive) {
+        RegularCampaignDiscount discount;
+        total = discount.apply(total);
     }
     return total;
 }
 
+// カート画面プレビュー（呼び出し元2）
+class CartPreviewService {
+public:
+    int getEstimatedTotal(const Order& order) {
+        int total = 0;
+        for (const auto& item : order.items) {
+            total += item.price;
+        }
+        // ← 「どのクラスを使うか」という選択ロジックがここにも重複している
+        if (order.customerType == "Premium") {
+            PremiumDiscount discount;  // ← 直接：具体クラスをここでも直接生成
+            total = discount.apply(total);
+        } else if (order.isSummerSale) {
+            SummerSaleDiscount discount;
+            total = discount.apply(total);
+        } else if (order.isCampaignActive) {
+            RegularCampaignDiscount discount;
+            total = discount.apply(total);
+        }
+        return total;
+    }
+};
+
 ```
 
-このコードを見ると、計算式そのものは別ファイルに逃がせたものの、`PaymentCalculator` が「どの割引クラスを使うか」の判定と具体型の知識を抱え込んだままであることが分かります。
+このコードを見ると、計算式そのものは別ファイルに逃がせたものの、**「どのクラスを使うか」という選択ロジックが `PaymentCalculator` と `CartPreviewService` の両方に重複して残っています**。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案1（具体×直接）の呼び出し側
 int main() {
-    PremiumDiscount discount;            // ← 直接：呼び出し側が具体クラスを直接生成
+    Order order;
+    order.items.push_back(Item("ワイヤレスイヤホン", 10000));
+    order.customerType = "Premium";
+    order.isCampaignActive = false;
+
     PaymentCalculator calculator;
-    int result = calculator.calculate(10000, discount);
+    calculator.calculate(order);   // ← 直接：内部で具体クラスを生成して判定
+
+    CartPreviewService preview;
+    preview.getEstimatedTotal(order);  // ← 直接：同じ具体クラス生成が重複する
     return 0;
 }
 ```
@@ -592,7 +658,7 @@ public:
 // 実装クラスはインターフェースに準拠する
 class PremiumDiscount : public IDiscountRule {
 public:
-    int apply(int total) override { return total * 0.8; }
+    int apply(int total) override { return static_cast<int>(total * 0.8); }
 };
 
 class PaymentCalculator {
@@ -613,9 +679,28 @@ public:
     }
 };
 
+// カート画面プレビュー（呼び出し元2）
+class CartPreviewService {
+private:
+    IDiscountRule* discountRule;  // ← 抽象：具体クラスを知らない
+public:
+    CartPreviewService(IDiscountRule* rule) : discountRule(rule) {}
+
+    int getEstimatedTotal(const Order& order) {
+        int total = 0;
+        for (const auto& item : order.items) {
+            total += item.price;
+        }
+        if (discountRule != nullptr) {
+            total = discountRule->apply(total);
+        }
+        return total;
+    }
+};
+
 ```
 
-このコードを見ると、`PaymentCalculator` の中から「プレミアム」や「サマーセール」という具体的なビジネス要件が完全に消え去り、ただの計算の骨格だけが残ったことが分かります。この構造を **Strategy（ストラテジー）パターン** と呼びます。
+このコードを見ると、`PaymentCalculator` の中から「プレミアム」や「サマーセール」という具体的なビジネス要件が完全に消え去り、ただの計算の骨格だけが残ったことが分かります。この構造を **Strategy（ストラテジー）パターン** と呼びます。両クラスが同じ `IDiscountRule` を受け取る構造なので、ルールが変わっても `PaymentCalculator` にも `CartPreviewService` にも一切触らずに済みます。
 
 **呼び出し側から見た違い（main() 例）：**
 
@@ -623,8 +708,9 @@ public:
 // 案2（抽象×直接）の呼び出し側
 int main() {
     PremiumDiscount rule;                // ← 具体：呼び出し側だけが具体クラスを生成
-    PaymentCalculator calculator(&rule); // ← 直接：インターフェース経由で直接注入
-    calculator.calculate(order);
+    PaymentCalculator calculator(&rule); // ← 直接：同じruleを注入
+    CartPreviewService preview(&rule);   // ← 直接：同じruleを使い回せる
+    // ...
     return 0;
 }
 ```
@@ -772,6 +858,22 @@ public:
     }
 };
 
+// カート画面プレビュー（呼び出し元2）
+class CartPreviewService {
+private:
+    IDiscountManager* manager;  // ← 抽象：IDiscountManager*型
+public:
+    CartPreviewService(IDiscountManager* mgr) : manager(mgr) {}
+
+    int getEstimatedTotal(const Order& order) {
+        int total = 0;
+        for (const auto& item : order.items) {
+            total += item.price;
+        }
+        return manager->applyDiscount(total, order);
+    }
+};
+
 ```
 
 このコードを見ると、変更の影響は最も小さく抑えられますが、ファイル数が一気に増え、システム全体の繋がりを追うのが非常に難しくなっていることが分かります。
@@ -783,7 +885,9 @@ public:
 int main() {
     DiscountManager mgr;                  // ← 具体：組み立て側だけが具体型を知る
     PaymentCalculator calculator(&mgr);   // ← 間接：抽象Managerのみ見えて具体実装は隠れる
+    CartPreviewService preview(&mgr);     // ← 間接：同じManagerを共有
     calculator.calculate(order);
+    preview.getEstimatedTotal(order);
     return 0;
 }
 ```

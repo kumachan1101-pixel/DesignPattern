@@ -392,31 +392,62 @@ graph LR
 【コード例】
 
 ```cpp
-void processPayment(string type, int amount) {
-    if (type == "credit") {
-        CreditCardProcessor p; p.pay(amount); // ← 具体：CreditCardProcessorという型名を直接書いている
-    } else if (type == "paypay") {            // ← 追記
-        PayPayProcessor p; p.pay(amount);     // ← 具体：PayPayProcessorという型名を直接書いている
+// 呼び出し元1：個別ユーザーの購入処理
+class PaymentApplication {
+public:
+    void processPayment(string type, int amount) {
+        // ← 具体：CreditCardProcessorという型名を直接書いている
+        if (type == "credit") {
+            CreditCardProcessor p; p.pay(amount);
+        } else if (type == "paypay") {
+            PayPayProcessor p; p.pay(amount);
+        } else if (type == "cvs") {
+            ConvenienceStoreProcessor p; p.pay(amount);
+        }
     }
-}
+};
+
+// 呼び出し元2：定期課金の処理
+// ← 同じif-else選択ロジックをここにも丸ごと複製する（重複の発生）
+class SubscriptionService {
+public:
+    void chargeMonthly(string customerId, int amount) {
+        cout << "顧客 " << customerId << " の月額課金を処理します。" << endl;
+        // ← PaymentApplicationと全く同じ分岐ロジックが重複する
+        string type = "credit"; // 定期課金はクレジット固定
+        if (type == "credit") {
+            CreditCardProcessor p; p.pay(amount); // ← 具体クラスの直書きが重複
+        } else if (type == "paypay") {
+            PayPayProcessor p; p.pay(amount);
+        }
+    }
+};
 
 ```
+
+このコードを見ると、`PaymentApplication` と `SubscriptionService` の両方が、同じ `if-else` 選択ロジックと同じ具体クラスの直書きを重複して持っていることが分かります。新しい決済手段が追加されるたびに、2つのクラスをそれぞれ修正しなければなりません。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案0（現状維持）の呼び出し側
 int main() {
-    PaymentApplication app;             // ← 直接：PaymentApplicationを直接生成して使う
-    app.processPayment("credit", 1000); // ← 具体：内部にCreditCardProcessorなどが直書きされている
+    // 個別購入の呼び出し元
+    PaymentApplication app;
+    app.processPayment("credit", 1000); // ← 内部にCreditCardProcessorなどが直書き
     app.processPayment("paypay", 700);
+
+    // 定期課金の呼び出し元
+    SubscriptionService subscription;
+    // ← 同じ選択ロジックが重複して存在
+    subscription.chargeMonthly("user-001", 980);
     return 0;
 }
 ```
 
 **この形のトレードオフ：**
 
-* 変更容易性：低（新しい手段のたびに統括クラスを修正する）
+* 変更容易性：低（新しい手段のたびに `PaymentApplication` と `SubscriptionService` の両方を修正する必要がある）
 * テスト容易性：低（決済処理と生成が混在しており分離不可）
 * 実装コスト：低（今のコードに数行足すだけ）
 
@@ -430,29 +461,66 @@ int main() {
 【コード例】
 
 ```cpp
-void processPayment(string type, int amount) {
-    if (type == "paypay") {
-        PayPayProcessor p; // ← 具体：PayPayProcessorという型名を直接書いている
-        p.pay(amount);     // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
+// 呼び出し元1：個別ユーザーの購入処理
+class PaymentApplication {
+public:
+    void processPayment(string type, int amount) {
+        if (type == "credit") {
+            CreditCardProcessor p; // ← 具体：型名を直接書いている
+            p.pay(amount);         // ← 直接：このクラスを直接インスタンス化している
+        } else if (type == "paypay") {
+            PayPayProcessor p;
+            p.pay(amount);
+        } else if (type == "cvs") {
+            ConvenienceStoreProcessor p;
+            p.pay(amount);
+        }
     }
-}
+};
+
+// 呼び出し元2：定期課金の処理
+// ← 選択ロジック（どの具体クラスを使うか）がここでも重複する
+class SubscriptionService {
+public:
+    void chargeMonthly(string customerId, int amount) {
+        cout << "顧客 " << customerId << " の月額課金を処理します。" << endl;
+        // ← PaymentApplicationと同じ「どのクラスを選ぶか」の判断がここでも重複
+        string type = "credit"; // 定期課金はクレジット固定
+        if (type == "credit") {
+            CreditCardProcessor p; // ← 同じ具体クラスをここでも直接インスタンス化
+            p.pay(amount);
+        } else if (type == "paypay") {
+            PayPayProcessor p; // ← どのクラスを使うかという判断がここでも重複
+            p.pay(amount);
+        }
+    }
+};
 
 ```
+
+このコードを見ると、`PaymentApplication` と `SubscriptionService` の両方が「`CreditCardProcessor` や `PayPayProcessor` を使う」という選択ロジックを各自で保持していることが分かります。新しい決済手段を追加・変更するたびに、両方のクラスを修正する必要があります。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案1（具体×直接）の呼び出し側
 int main() {
-    PaymentApplication app; // ← 直接：PaymentApplicationを直接生成して使う
-    app.processPayment("paypay", 700); // ← 具体：内部でPayPayProcessorが直接生成される
+    // 個別購入の呼び出し元：具体クラスが内部で直接使われる
+    PaymentApplication app;
+    app.processPayment("credit", 1000); // ← 具体クラスが内部で直接生成される
+    app.processPayment("paypay", 700);
+
+    // 定期課金の呼び出し元：同様に具体クラスを直接使う
+    SubscriptionService subscription;
+    // ← 選択ロジックが重複して存在
+    subscription.chargeMonthly("user-001", 980);
     return 0;
 }
 ```
 
 **この形のトレードオフ：**
 
-* 変更容易性：低（決済手段追加のたびに `PaymentApplication` の修正が必要）
+* 変更容易性：低（決済手段追加のたびに `PaymentApplication` と `SubscriptionService` の両方の修正が必要）
 * テスト容易性：低（具体クラスへの依存が強いため切り離せない）
 * 実装コスト：低（抽出するだけのシンプルなリファクタリング）
 
