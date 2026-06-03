@@ -530,6 +530,29 @@ int main() {
 
 `MobileOrderService` と `StaffPreviewService` の両方が、`CustomDrink` の生成とフラグ指定ロジックをそれぞれの場所に書いている。新しいトッピングが増えるたびに、両方の呼び出し元でコンストラクタ引数を修正しなければならない。
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant MOS as MobileOrderService
+    participant SPS as StaffPreviewService
+    participant CD as CustomDrink
+    main->>MOS: placeOrder(milk, whip, syrup)
+    Note over MOS: new CustomDrink(フラグ直書き)
+    MOS->>CD: getDescription() / getPrice()
+    Note over CD: if hasMilk → +Milk<br/>if hasWhip → +Whip<br/>if hasSyrup → +Syrup
+    CD-->>MOS: 注文内容・金額
+    MOS-->>main: 注文確定
+    main->>SPS: getOrderLabel(milk, whip, syrup)
+    Note over SPS: ← 同じ CustomDrink 生成ロジックが重複して走る
+    SPS->>CD: getDescription() / getPrice()
+    CD-->>SPS: 注文内容・金額
+    SPS-->>main: ラベル文字列
+```
+
+一文要約：フラグとif分岐がCustomDrink内部に直書きされているため、両方の呼び出し元がそれぞれ同じコンストラクタ引数を指定してインスタンスを生成し、同じロジックが2か所で並行して走る。
+
 **この形のトレードオフ：**
 
 * 変更容易性：低（次の変更要求が来たときも同じようにクラス内部と呼び出し側を探して修正する作業が繰り返される）
@@ -653,6 +676,35 @@ int main() {
 
 `MobileOrderService` と `StaffPreviewService` の両方が、「どの具体クラスを使うか」という選択ロジックをそれぞれの場所に持っている。新しいトッピングが増えるたびに、両方の呼び出し元を修正しなければならない。
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant MOS as MobileOrderService
+    participant SPS as StaffPreviewService
+    participant CD as CustomDrink
+    participant M as Milk
+    main->>MOS: placeOrder(addMilk, addWhip)
+    Note over MOS: if addMilk → new Milk
+    MOS->>CD: setMilk(&m) / setWhip(&w)
+    MOS->>CD: getPrice()
+    CD->>M: getPrice()
+    M-->>CD: 50円
+    CD-->>MOS: 合計金額
+    MOS-->>main: 注文確定
+    main->>SPS: getOrderLabel(addMilk, addWhip)
+    Note over SPS: ← 同じ具体クラス選択ロジックが重複
+    SPS->>CD: setMilk(&m) / setWhip(&w)
+    SPS->>CD: getPrice()
+    CD->>M: getPrice()
+    M-->>CD: 50円
+    CD-->>SPS: 合計金額
+    SPS-->>main: ラベル文字列
+```
+
+一文要約：クラスは分かれたが「どの具体クラスを選ぶか」という判断を両方の呼び出し元がそれぞれ行っており、具体型への依存と選択ロジックが2か所に重複している。
+
 **この形のトレードオフ：**
 
 * 変更容易性：低〜中（トッピングの計算ロジックは分離できたが、種類が増えればやはり `CustomDrink` の修正が必要になる）
@@ -775,6 +827,38 @@ int main() {
 
 `MobileOrderService` と `StaffPreviewService` はどちらも `CustomDrink*` を受け取るだけで、「どの具体トッピングが追加されているか」を知らずに済む。新しいトッピングが増えても、どちらの呼び出し元も修正は不要だ。
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant MOS as MobileOrderService
+    participant SPS as StaffPreviewService
+    participant CD as CustomDrink
+    participant M as Milk
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>M: new Milk
+    main->>CD: new CustomDrink
+    main->>CD: addTopping(&milk) / addTopping(&whip)
+    main->>MOS: new（order: CustomDrink*）
+    main->>SPS: new（order: CustomDrink*）
+    main->>MOS: placeOrder(&order)
+    MOS->>CD: getPrice()
+    Note right of MOS: CustomDrink* 経由
+    CD->>M: t->getPrice()
+    M-->>CD: 50円
+    CD-->>MOS: 合計金額
+    MOS-->>main: 注文確定
+    main->>SPS: getOrderLabel(&order)
+    SPS->>CD: getPrice() / getDescription()
+    CD->>M: t->getPrice()
+    M-->>CD: 50円
+    CD-->>SPS: 合計金額・説明
+    SPS-->>main: ラベル文字列
+```
+
+一文要約：`main()` が具体型を組み立て、両方の呼び出し元は `CustomDrink*` という型だけを介して同じオブジェクトを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
+
 **この形のトレードオフ：**
 
 * 変更容易性：中〜高（トッピングの追加は `CustomDrink` を触らずに行えるが、「基本ドリンク」と「トッピング」が別々の扱いになっているため、ホイップの量を2倍にするといった複雑な組み合わせに対応しづらい）
@@ -888,6 +972,40 @@ int main() {
     return 0;
 }
 ```
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant MOS as MobileOrderService
+    participant SPS as StaffPreviewService
+    participant OM as OrderManager
+    participant C as Coffee
+    main->>MOS: placeOrder(milk, whip, syrup)
+    MOS->>OM: calculateTotal(milk, whip, syrup)
+    Note right of OM: 内部で Coffee を直接知っている<br/>if addMilk → +50
+    OM->>C: getPrice()
+    C-->>OM: 300円
+    OM-->>MOS: 最終金額
+    MOS->>OM: buildName(milk, whip, syrup)
+    OM->>C: getName()
+    C-->>OM: "Coffee"
+    OM-->>MOS: 注文名称
+    MOS-->>main: 注文確定
+    main->>SPS: preview(milk, whip, syrup)
+    SPS->>OM: buildName(milk, whip, syrup)
+    OM->>C: getName()
+    C-->>OM: "Coffee"
+    OM-->>SPS: 注文名称
+    SPS->>OM: calculateTotal(milk, whip, syrup)
+    OM->>C: getPrice()
+    C-->>OM: 300円
+    OM-->>SPS: 最終金額
+    SPS-->>main: ラベルプレビュー
+```
+
+一文要約：両方の呼び出し元が同じ `OrderManager` を経由するため注文計算と名称組み立ての呼び出し経路が1本に収束し、選択ロジックの重複が消える。
 
 **この形のトレードオフ：**
 
@@ -1013,6 +1131,44 @@ int main() {
 ```
 
 `MobileOrderService` と `StaffPreviewService` はどちらも `IDrink*` という抽象インターフェースしか知らない。具体的なトッピングの重ね方（何層になっているか）の知識は `main()` の組み立て部分だけに閉じている。
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant MOS as MobileOrderService
+    participant SPS as StaffPreviewService
+    participant W as Whip
+    participant M as Milk
+    participant C as Coffee
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>C: new Coffee
+    main->>M: new Milk(coffee)
+    main->>W: new Whip(milk)
+    main->>MOS: new（order: IDrink*）
+    main->>SPS: new（order: IDrink*）
+    main->>MOS: placeOrder(order)
+    MOS->>W: order->getPrice()
+    Note right of MOS: IDrink* 経由（何層かは知らない）
+    W->>M: baseDrink->getPrice()
+    Note right of W: IDrink* 経由（間接チェーン）
+    M->>C: baseDrink->getPrice()
+    C-->>M: 300円
+    M-->>W: 350円
+    W-->>MOS: 420円
+    MOS-->>main: 注文確定
+    main->>SPS: getOrderLabel(order)
+    SPS->>W: order->getPrice()
+    W->>M: baseDrink->getPrice()
+    M->>C: baseDrink->getPrice()
+    C-->>M: 300円
+    M-->>W: 350円
+    W-->>SPS: 420円
+    SPS-->>main: ラベル文字列
+```
+
+一文要約：呼び出し元→`IDrink*`→デコレータチェーンという間接経路を経由するため、トッピングが何層に重なっているかの知識は `main()` の組み立て部分だけが持っている。
 
 **この形のトレードオフ：**
 
