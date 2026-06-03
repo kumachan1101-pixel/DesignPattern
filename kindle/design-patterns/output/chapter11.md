@@ -424,6 +424,23 @@ int main() {
 
 両クラスが同じロジックを重複して持つため、機能追加のたびに2か所を修正しなければならない。
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant RG as ReportGenerator
+    participant PS as PreviewService
+    main->>RG: generate("PDF", true, false)
+    Note over RG: if addGraph → グラフ追加<br/>if addLogo → ロゴ追加<br/>（固定手順と機能判定が混在）
+    RG-->>main: 完了
+    main->>PS: previewReport("HTML")
+    Note over PS: ← 全く同じif-elseフラグ判定が重複して走る
+    PS-->>main: 完了
+```
+
+一文要約：レポート生成ロジックが各クラスの内部に直書きされているため外部への呼び出しが発生せず、同じフラグ判定が2か所で並行して走る。
+
 **この形のトレードオフ：**
 
 * 変更容易性：低（機能追加のたびに `ReportGenerator` が肥大化する）
@@ -497,6 +514,31 @@ int main() {
 ```
 
 選択ロジックが両クラスに重複しており、機能クラスへの依存が両方に残る。
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant RG as ReportGenerator
+    participant PS as PreviewService
+    participant GF as GraphFeature
+    participant LF as LogoFeature
+    main->>RG: generate()
+    Note over RG: new GraphFeature
+    RG->>GF: graph.draw()
+    GF-->>RG: 完了
+    RG-->>main: 完了
+    main->>PS: previewReport()
+    Note over PS: ← 同じ選択ロジックが重複
+    PS->>GF: graph.draw()
+    GF-->>PS: 完了
+    PS->>LF: logo.draw()
+    LF-->>PS: 完了
+    PS-->>main: 完了
+```
+
+一文要約：クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、機能クラスへの呼び出し経路が2本並んで重複している。
 
 **この形のトレードオフ：**
 
@@ -587,6 +629,33 @@ int main() {
 ```
 
 注入アプローチにより、両クラスとも具体クラスを知らずに済み、選択ロジックの重複が解消される。
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant GF as GraphFeature
+    participant LF as LogoFeature
+    participant RG as ReportGenerator
+    participant PS as PreviewService
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>GF: new GraphFeature
+    main->>LF: new LogoFeature
+    main->>RG: new（feature: IReportFeature*）
+    main->>PS: new（feature: IReportFeature*）
+    main->>RG: generate()
+    RG->>GF: feature->apply()
+    Note right of RG: IReportFeature* 経由
+    GF-->>RG: 完了
+    RG-->>main: 完了
+    main->>PS: previewReport()
+    PS->>LF: feature->apply()
+    LF-->>PS: 完了
+    PS-->>main: 完了
+```
+
+一文要約：`main()` が具体型を組み立て、両方の呼び出し元は `IReportFeature*` という型だけを介して同じオブジェクトを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 
 **この形のトレードオフ：**
 
@@ -773,6 +842,32 @@ int main() {
 
 このコードを見ると、`HistoryManager` は依然として各具体クラスを直接扱っており、機能が増えれば修正が必要です。しかし、アンドゥ履歴の管理とデコレーター適用の複雑なロジックを一箇所に集め、`ReportGenerator`（自動生成）と `PreviewService`（プレビュー表示）が同じ操作管理機構を共有できる点に、この形の価値があります。
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant RGA as ReportGeneratorAuto
+    participant PS as PreviewService
+    participant HM as HistoryManager
+    participant AGC as AddGraphCommand
+    main->>RGA: generateMonthlyReport()
+    RGA->>HM: history.addAndExecute("AddGraph")
+    Note right of HM: 内部で具体型を生成して判断
+    HM->>AGC: cmd.execute()
+    AGC-->>HM: 完了
+    HM-->>RGA: 完了
+    RGA-->>main: 完了
+    main->>PS: addFeature("AddGraph")
+    PS->>HM: history.addAndExecute("AddGraph")
+    HM->>AGC: cmd.execute()
+    AGC-->>HM: 完了
+    HM-->>PS: 完了
+    PS-->>main: 完了
+```
+
+一文要約：両方の呼び出し元が同じ `HistoryManager` を経由するため操作管理の呼び出し経路が1本に収束し、コマンド選択ロジックの重複が消える。
+
 **この形のトレードオフ：**
 
 * 変更容易性：中（履歴管理ルールは一箇所に閉じる）
@@ -867,6 +962,36 @@ int main() {
 ```
 
 両クラスとも抽象インターフェースのみを受け取るため、具体的な機能クラスへの依存が完全に排除される。
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant CHM as ConcreteHistoryManager
+    participant RG as ReportGenerator
+    participant PS as PreviewService
+    participant GF as GraphFeature
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>CHM: new ConcreteHistoryManager
+    main->>RG: new（factory: IFactory*）
+    main->>PS: new（history: IHistoryManager*）
+    main->>RG: generate("sales")
+    RG->>CHM: factory->create("sales")
+    Note right of RG: IFactory* 経由
+    CHM->>GF: feature->apply()
+    Note right of CHM: IReportFeature* 経由
+    GF-->>CHM: 完了
+    CHM-->>RG: 完了
+    RG-->>main: 完了
+    main->>PS: previewReport("AddGraph")
+    PS->>CHM: history->addAndExecute("AddGraph")
+    Note right of PS: IHistoryManager* 経由
+    CHM-->>PS: 完了
+    PS-->>main: 完了
+```
+
+一文要約：呼び出し元→`IFactory*`/`IHistoryManager*`→`IReportFeature*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
 
 **この形のトレードオフ：**
 

@@ -526,6 +526,30 @@ int main() {
 
 選択ロジックが両クラスに重複しており、具体クラスへの依存が両方に残る。
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant TM as TicketManager
+    participant EE as EscalationEngine
+    participant PC as PriorityCalculator
+    participant IS as InProgressState
+    main->>TM: updateStatus("urgent issue", "InProgress")
+    Note over TM: if InProgress → new PriorityCalculator
+    TM->>PC: calculate("urgent issue")
+    PC-->>TM: "High"
+    TM-->>main: 完了
+    main->>EE: checkAndEscalate("T-001")
+    Note over EE: ← 同じ選択ロジックが重複（どのクラスを使うか自ら判断）
+    EE->>PC: calculate("urgent")
+    PC-->>EE: "High"
+    EE->>IS: activate()
+    IS-->>EE: 完了
+    EE-->>main: 完了
+```
+一文要約：クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
+
 **この形のトレードオフ：**
 
 * 変更容易性：低〜中（クラスは分かれたが、利用側の修正は避けられない）
@@ -630,6 +654,37 @@ int main() {
 ```
 
 注入アプローチにより、両クラスとも具体クラスを知らずに済み、選択ロジックの重複が解消される。
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant UP as UrgentPriority
+    participant OS as OpenState
+    participant TM as TicketManager
+    participant EE as EscalationEngine
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>UP: new UrgentPriority
+    main->>OS: new OpenState
+    main->>TM: new（strategy: IPriorityStrategy*, state: ITicketState*）
+    main->>EE: new（strategy: IPriorityStrategy*, state: ITicketState*）
+    main->>TM: update()
+    TM->>UP: strategy->getPriority()
+    Note right of TM: IPriorityStrategy* 経由
+    UP-->>TM: "High"
+    TM->>OS: state->handle()
+    Note right of TM: ITicketState* 経由
+    OS-->>TM: 完了
+    TM-->>main: 完了
+    main->>EE: checkAndEscalate("T-001")
+    EE->>UP: strategy->getPriority("urgent")
+    UP-->>EE: "High"
+    EE->>OS: state->handle()
+    OS-->>EE: 完了
+    EE-->>main: 完了
+```
+一文要約：`main()` が具体型を組み立て、両方の呼び出し元は `IPriorityStrategy*` と `ITicketState*` という型だけを介して同じオブジェクトを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 
 **この形のトレードオフ：**
 
@@ -790,6 +845,31 @@ int main() {
 ```
 
 このコードを見ると、`StateController` は依然として各状態クラスの具体型を知っており、状態が増えれば修正が必要です。しかし、SLA超過による自動エスカレーションのような複雑な条件制御を一箇所に集め、`TicketManager`（担当者操作）と `EscalationEngine`（自動エスカレーション）が同じ状態管理ロジックを共有できる点に、この形の価値があります。
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant TM as TicketManager
+    participant EE as EscalationEngine
+    participant SC as StateController
+    participant IS as InProgressState
+    main->>TM: updateTicket("T-001", "Open", "InProgress", "Normal")
+    TM->>SC: transition("Open", "InProgress", "Normal", 0)
+    Note right of SC: 内部で具体型を生成して判断
+    SC->>IS: activate()
+    IS-->>SC: 完了
+    SC-->>TM: 完了
+    TM-->>main: 完了
+    main->>EE: checkAndEscalate("T-002", "Open", "High", 90)
+    EE->>SC: transition("Open", "InProgress", "High", 90)
+    SC->>IS: activate()
+    IS-->>SC: 完了
+    SC-->>EE: 完了
+    EE-->>main: 完了
+```
+一文要約：両方の呼び出し元が同じ `StateController` を経由するため状態判断の呼び出し経路が1本に収束し、選択ロジックの重複が消える。
 
 **この形のトレードオフ：**
 

@@ -876,6 +876,35 @@ int main() {
 }
 ```
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant IM as InventoryManager
+    participant OFS as OrderFulfillmentService
+    participant NM as NotificationManager
+    participant EN as EmailNotifier
+    participant SN as SlackNotifier
+    main->>IM: reduceStock("T-shirt-001", 5, 0)
+    IM->>NM: notifyStockOut(productId)
+    Note right of NM: 内部で具体クラスを直接知っている<br/>在庫ゼロ → Slack優先
+    NM->>SN: slack.send(msg)
+    SN-->>NM: 完了
+    NM->>EN: email.send(msg)
+    EN-->>NM: 完了
+    NM-->>IM: 完了
+    IM-->>main: 在庫更新完了
+    main->>OFS: completeShipment("T-shirt-001")
+    OFS->>NM: notifyShipped(productId)
+    NM->>EN: erp.sync(msg)
+    EN-->>NM: 完了
+    NM-->>OFS: 完了
+    OFS-->>main: 出荷完了
+```
+
+一文要約：両方の呼び出し元が同じ `NotificationManager` を経由するため通知ロジックの呼び出し経路が1本に収束し、複合条件付き通知の判断が仲介役の一箇所に集約される。
+
 **この形のトレードオフ：**
 
 * 変更容易性：中（通知先増減の修正はマネージャーに閉じる）
@@ -984,6 +1013,40 @@ int main() {
     return 0;
 }
 ```
+
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant IM as InventoryManager
+    participant OFS as OrderFulfillmentService
+    participant NM as NotificationManager
+    participant EN as EmailNotifier
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>EN: new EmailNotifier
+    main->>NM: new NotificationManager
+    main->>NM: addObserver(&email)
+    main->>IM: new（mgr: INotificationManager*）
+    main->>OFS: new（mgr: INotificationManager*）
+    main->>IM: reduceStock("T-shirt-001", 5)
+    IM->>NM: mgr->sendAll(message)
+    Note right of IM: INotificationManager* 経由
+    NM->>EN: o->send(message)
+    Note right of NM: INotification* 経由
+    EN-->>NM: 完了
+    NM-->>IM: 完了
+    IM-->>main: 在庫更新完了
+    main->>OFS: notifyShipped("ORDER-001")
+    OFS->>NM: mgr->sendAll(message)
+    Note right of OFS: INotificationManager* 経由
+    NM->>EN: o->send(message)
+    EN-->>NM: 完了
+    NM-->>OFS: 完了
+    OFS-->>main: 出荷通知完了
+```
+
+一文要約：呼び出し元→`INotificationManager*`→`INotification*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
 
 **この形のトレードオフ：**
 
