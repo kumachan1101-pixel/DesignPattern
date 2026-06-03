@@ -345,9 +345,10 @@ graph LR
 | --- | --- | --- |
 | 変更頻度 | この接続点はどのくらいの頻度で変わるか | 高（今後も決済手段が続々と追加される） |
 | パフォーマンス | ホットパスか（高頻度で呼ばれるか） | はい（すべての決済の起点となるため、呼び出し頻度は非常に高い） |
+| 障害切り替え | 決済プロバイダーの障害時にフォールバック先を切り替えられるか | 要設計（クレジットカード決済のプロバイダーが障害を起こした場合、即座にバックアップ経路へ切り替えられる構造が求められる。生成するプロセッサーの種類を動的に変えられる設計が必要） |
 | メモリ | 間接層の追加でオーバーヘッドが問題になるか | いいえ（生成処理自体は一度きりのため、メモリ負荷は軽微） |
 
-変更頻度が「高」であるため、将来的に決済手段が増えても `PaymentApplication` を修正せずに済むような柔軟な抽象化が必須です。一方で「ホットパス」であるという点も無視できません。生成ロジック自体は高頻度で実行されるため、間接層を過剰に重ねるよりも、シンプルでオーバーヘッドの少ない接続の形が望まれます。
+通常のリクエスト処理ではクラス分割によるオーバーヘッドは問題になりません。ただし、決済プロバイダーの障害時にバックアップ経路へ動的に切り替えられる設計が現実的に求められます。これは生成するプロセッサーの種類を外から変えられる構造の選択に直接影響します。
 
 ### 5-3：クライアントへの影響範囲
 
@@ -359,7 +360,7 @@ graph LR
 
 | **接続点** | **分けた理由** | **非機能制約** | **クライアント影響** |
 | --- | --- | --- | --- |
-| 接続点A〜C | 決済手段ごとの生成ロジックが混在している | ホットパス（高頻度） | `PaymentApplication` の利用ロジックに影響 |
+| 接続点A〜C | 決済手段ごとの生成ロジックが混在している | ホットパス（高頻度）・障害時のフォールバック切り替えが必要 | `PaymentApplication` の利用ロジックに影響 |
 
 この表から、私たちが目指すべき方向性が明確になりました。決済手段が何であろうと、`PaymentApplication` はその具体的なクラス名を知らずに、決済を実行するための「オブジェクトの生成窓口」だけを利用できるようにするのです。
 
@@ -387,10 +388,6 @@ graph LR
 
 **この形の考え方：**
 クラスの分割も接続形態の変更もしない。既存の `processPayment` メソッドの中に、新しい決済手段のための `if` や `case` 文を書き足し、具体クラスをその場で `new` する。変更頻度が低く、納期が極めて厳しい場合に合理的な選択となる。
-
-**この形にするための準備：**
-
-* 既存の `if-else` の並びに新しい分岐を追加する
 
 【コード例】
 
@@ -430,11 +427,6 @@ int main() {
 **この形の考え方：**
 決済処理をクラスとして抽出するが、`PaymentApplication` は相変わらず具体クラスを直接 `new` する。責任の境界は明確になるが、生成ロジックの混在は解消されない。
 
-**この形にするための準備：**
-
-1. 決済処理を別クラスとして切り出す
-2. `PaymentApplication` からその具体クラスを `new` するコードを呼び出す
-
 【コード例】
 
 ```cpp
@@ -470,12 +462,6 @@ int main() {
 
 **この形の考え方：**
 各決済プロセッサーに共通のインターフェース（契約）を持たせ、生成の窓口をメソッドとして切り出す。この構造を **Factory Method パターン** と呼ぶ。利用側は「どんな具体クラスか」を知らずに、インターフェースを介して決済を実行できるようになる。
-
-**この形にするための準備：**
-
-1. `IPaymentProcessor` インターフェースを定義する
-2. 各プロセッサーにこれを実装させる
-3. `PaymentApplication` に「生成を担うメソッド（Factory Method）」を定義する
 
 【コード例】
 
@@ -516,50 +502,116 @@ int main() {
 #### 案3：具体×間接 ―― 仲介クラスを置くが、具体型を知っている
 
 **この形の考え方：**
-`PaymentApplication` と決済プロセッサーの間に「決済マネージャー」を置く。統括クラスはマネージャーだけを知り、マネージャーが各プロセッサーの生成を管理する。
-
-**この形にするための準備：**
-
-1. `ProcessorManager` を作成する
-2. マネージャーに具体クラスの生成・管理責任を持たせる
-3. `PaymentApplication` はマネージャーのメソッドを呼ぶだけにする
+`PaymentApplication` と決済プロセッサーの間に「決済マネージャー」を置く。統括クラスはマネージャーだけを知り、マネージャーが各プロセッサーの生成・選択・再試行を管理する。
 
 【コード例】
 
 ```cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+// 具体的な決済プロセッサークラス群
+class CreditCardProcessor {
+public:
+    bool pay(int amount) {
+        cout << "クレジットで " << amount << " 円決済しました。" << endl;
+        return true; // 成功
+    }
+};
+class ConvenienceStoreProcessor {
+public:
+    bool pay(int amount) {
+        cout << "コンビニで " << amount << " 円の支払い番号を発行しました。" << endl;
+        return true;
+    }
+};
+class PayPayProcessor {
+public:
+    bool pay(int amount) {
+        cout << "PayPayで " << amount << " 円決済しました。" << endl;
+        return true;
+    }
+};
+
+// ← 具体：ProcessorManagerは各プロセッサーの具体型を直接知っている
+// ← 間接：呼び出し側はManagerのみ知り、内部のプロセッサー群は見えない
 class ProcessorManager {
 public:
-    void execute(string type, int amount) {
-        if (type == "paypay") {
-            PayPayProcessor p; p.pay(amount); // ← 具体：マネージャーが具体クラスを直接知っている
+    // 注文コンテキストに応じたプロセッサー選択と再試行ロジック
+    void execute(string type, int amount, bool isCampaign) {
+        // キャンペーン中かつクレジット → PayPayへ誘導
+        if (isCampaign && type == "credit") {
+            cout << "[キャンペーン誘導] PayPayに切り替えます。" << endl;
+            PayPayProcessor p;
+            if (!p.pay(amount)) {
+                // 失敗時はクレジットにフォールバック
+                cout << "[再試行] クレジットで再試行します。" << endl;
+                CreditCardProcessor fallback;
+                fallback.pay(amount);
+            }
+        } else if (type == "credit") {
+            CreditCardProcessor p; // ← 具体：クラス名を直接指定
+            if (!p.pay(amount)) {
+                cout << "[再試行] コンビニ決済に切り替えます。" << endl;
+                ConvenienceStoreProcessor fallback;
+                fallback.pay(amount);
+            }
+        } else if (type == "cvs") {
+            ConvenienceStoreProcessor p;
+            p.pay(amount);
+        } else if (type == "paypay") {
+            PayPayProcessor p;
+            p.pay(amount);
         }
     }
 };
 
+// 呼び出し元1：個別ユーザーの購入処理
 class PaymentApplication {
-    ProcessorManager manager; // ← 具体：ProcessorManagerという具体型を持っている
+    ProcessorManager manager; // ← 間接：具体プロセッサーはManagerの中に隠れている
 public:
     void processPayment(string type, int amount) {
-        manager.execute(type, amount); // ← 間接：マネージャー経由で呼ぶため具体プロセッサーが見えない
+        manager.execute(type, amount, false);
     }
 };
 
+// 呼び出し元2：定期課金の処理
+class SubscriptionService {
+    ProcessorManager manager; // ← 同じProcessorManagerを使い回す
+public:
+    void chargeMonthly(string memberId, int amount) {
+        cout << "会員 " << memberId << " の月額課金を処理します。" << endl;
+        // 定期課金はキャンペーン割引対象外
+        manager.execute("credit", amount, false);
+    }
+};
 ```
+
+このコードを見ると、`ProcessorManager` は依然として各決済プロセッサーの具体型を知っており、新しい決済手段が増えれば修正が必要です。しかし、「金額やキャンペーンに応じたプロセッサー選択」と失敗時の再試行という複雑なロジックを一箇所に集め、`PaymentApplication`（通常購入）と `SubscriptionService`（定期課金）が同じプロセッサー管理ロジックを重複なく共有できる点に、この形の価値があります。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案3（具体×間接）の呼び出し側
 int main() {
-    PaymentApplication app;  // ← 間接：ProcessorManagerが内部に隠れており呼び出し側には見えない
-    app.processPayment("paypay", 700); // 内部でProcessorManagerが動くが、呼び出し側は知らない
+    // 個別購入の呼び出し元
+    PaymentApplication app;
+    // ← 間接：ProcessorManagerが内部に隠れており呼び出し側には見えない
+    app.processPayment("credit", 1000);   // 通常購入（再試行ロジック込み）
+    app.processPayment("paypay", 700);    // PayPay購入
+
+    // 定期課金の呼び出し元
+    SubscriptionService subscription;
+    // ← 同じ管理ロジックをSubscriptionServiceも重複なく使える
+    subscription.chargeMonthly("user-001", 980); // 月額課金
     return 0;
 }
 ```
 
 **この形のトレードオフ：**
 
-* 変更容易性：中（通知先の増減修正はマネージャーに閉じる）
+* 変更容易性：中（決済手段の増減修正はマネージャーに閉じる）
 * テスト容易性：中（マネージャーをスタブ化すればテスト可能）
 * 実装コスト：中（仲介クラスの責任設計が必要）
 
@@ -569,11 +621,6 @@ int main() {
 
 **この形の考え方：**
 インターフェース（案2）と仲介役（案3）を組み合わせる。通知元は抽象インターフェースを知り、その具体的な生成は仲介役（Factory）に委ねる。最も柔軟だがクラス構成は複雑になる。
-
-**この形にするための準備：**
-
-1. 案2のインターフェース導入
-2. 案3の仲介役クラスに、インターフェースを介して生成させる
 
 【コード例】
 

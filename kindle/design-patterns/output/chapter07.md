@@ -366,9 +366,10 @@ graph LR
 | --- | --- | --- |
 | 変更頻度 | この接続点はどのくらいの頻度で変わるか | 高（通知先の増減が頻繁に発生する） |
 | パフォーマンス | ホットパスか（高頻度で呼ばれるか） | いいえ（在庫減少は重要だが、即時性を過度に問うホットパスではない） |
+| 通知遅延 | 在庫変動イベントが多発する場合、全通知先への配信に遅延が出るか | 要確認（セール期間中に在庫が短時間で急減すると、通知先が数十のシステムに連鎖イベントが発生する。同期通知では呼び出し元がすべての通知完了を待つ設計になり、処理時間が増大する） |
 | メモリ | 間接層の追加でオーバーヘッドが問題になるか | いいえ（通知先の数は限定的で、メモリへの影響は軽微） |
 
-変更頻度が「高」であるため、将来的に通知先クラスが追加されても、通知元を修正せずに済むような柔軟な抽象化が求められます。幸いにもパフォーマンスやメモリの厳しい制約はないため、多少の間接層（アダプターやハブのような構造）を導入しても、変更の容易性を優先する判断が合理的です。
+通常の在庫変動イベントではパフォーマンス上の問題はありません。ただし、セール期間中に在庫が急変動すると、通知先の数に比例して処理時間が増大します。通知先の増加を見越した設計において、この点は接続形態の選択に影響します。
 
 ### 5-3：クライアントへの影響範囲
 
@@ -382,7 +383,7 @@ graph LR
 
 | **接続点** | **分けた理由** | **非機能制約** | **クライアント影響** |
 | --- | --- | --- | --- |
-| 接続点A〜C | 通知先が頻繁に変わるため、通知元と通知先を疎結合にしたい | ホットパスではない | `InventoryManager` の通知ロジックに影響 |
+| 接続点A〜C | 通知先が頻繁に変わるため、通知元と通知先を疎結合にしたい | 通常は低頻度・セール時にイベントが集中し通知先数に比例して処理時間増大 | `InventoryManager` の通知ロジックに影響 |
 
 この表から、私たちの目指すべき方向性が明確になりました。通知先が何であろうと、`InventoryManager` はその詳細を知らずに「通知を送る」という行為だけを行えるようにすればよいのです。
 
@@ -409,10 +410,6 @@ graph LR
 
 **この形の考え方：**
 クラスの分割も接続形態の変更もしない。既存の `notifyAll` メソッドの中に、新しい通知先への処理を `if` 文やメソッド呼び出しとして書き足す。将来的な通知先の増減が極めて稀で、工数を最小限に抑えたい場合に合理的な選択。
-
-**この形にするための準備：**
-
-* 通知先の増減を、既存メソッドの修正のみで完結させる
 
 【コード例】
 
@@ -450,12 +447,6 @@ int main() {
 
 **この形の考え方：**
 通知ロジックを個別のクラスに切り出すが、通知元はそれらの「具体的なクラス」を直接メンバとして保持する。責務の分離は進むが、通知先クラスのインスタンスを直接管理し続けるため、通知先の増減による通知元の影響は避けられない。
-
-**この形にするための準備：**
-
-1. 通知機能クラスを作成する
-2. 通知元クラスにそれらのインスタンスをメンバとして保持させる
-3. 通知メソッドでそれらを直接呼び出す
 
 【コード例】
 
@@ -500,12 +491,6 @@ int main() {
 
 **この形の考え方：**
 すべての通知先クラスに共通のインターフェース（契約）を持たせることで、通知元は「具体的な型」ではなく「インターフェース型」だけを知る状態にする。この構造を **Observer パターン** と呼ぶ。通知元はリストで通知先を管理し、実行時に通知先を登録・解除できる。
-
-**この形にするための準備：**
-
-1. 通知先が満たすべき `INotification` インターフェースを定義する
-2. 通知先クラスにこのインターフェースを実装させる
-3. `InventoryManager` で `INotification*` のリストを管理する
 
 【コード例】
 
@@ -554,36 +539,98 @@ int main() {
 **この形の考え方：**
 `InventoryManager` と通知先の間に「通知マネージャー」を置く。`InventoryManager` は通知マネージャーだけを知り、通知マネージャーが通知先の具体型を管理する。
 
-**この形にするための準備：**
-
-1. 通知先を束ねる `NotificationManager` クラスを作る
-2. `InventoryManager` は通知マネージャーを1つだけ持つ
-3. 通知マネージャーの中にすべての送信先クラスの具体インスタンスを持たせる
-
 【コード例】
 
 ```cpp
-// ← 具体：NotificationManagerという具体型を持っている
+#include <iostream>
+#include <string>
+using namespace std;
+
+// 具体的な通知先クラス群
+class EmailNotifier {
+public:
+    void send(string m) { cout << "Email: " << m << endl; }
+};
+class SlackNotifier {
+public:
+    void send(string m) { cout << "Slack緊急通知: " << m << endl; }
+};
+class ERPConnector {
+public:
+    void sync(string m) { cout << "ERP同期: " << m << endl; }
+};
+
+// ← 具体：NotificationManagerは各通知クラスの具体型を直接知っている
 // ← 間接：呼び出し側はManagerのみ知り、内部のクラス群は見えない
 class NotificationManager {
     EmailNotifier email;
-    ChatNotifier chat;
+    SlackNotifier slack;
+    ERPConnector erp;
 public:
-    void sendAll(string m) {
-        email.send(m);
-        chat.send(m);
+    // 在庫ゼロ：Slack即時通知 + メール + ERP同期
+    void notifyStockOut(string productId) {
+        string msg = "【在庫ゼロ】商品 " + productId;
+        slack.send(msg);     // ← 緊急度が高い場合はSlackを優先
+        email.send(msg);
+        erp.sync(msg);
+    }
+    // 在庫減少：メール通知 + ERP同期（Slackは不要）
+    void notifyLowStock(string productId, int remaining) {
+        string msg = "【在庫減少】商品 " + productId
+                     + " 残り" + to_string(remaining) + "点";
+        email.send(msg);
+        erp.sync(msg);
+    }
+    // 出荷完了：ERP同期のみ
+    void notifyShipped(string productId) {
+        string msg = "【出荷完了】商品 " + productId;
+        erp.sync(msg);
     }
 };
 
+// 呼び出し元1：在庫変動を管理するクラス
+class InventoryManager {
+    NotificationManager notifier; // ← 間接：具体通知クラスはManagerの中に隠れている
+public:
+    void reduceStock(string productId, int quantity, int remaining) {
+        cout << "商品 " << productId
+             << " の在庫を " << quantity << " 減らしました。" << endl;
+        if (remaining == 0) {
+            notifier.notifyStockOut(productId);
+        } else {
+            notifier.notifyLowStock(productId, remaining);
+        }
+    }
+};
+
+// 呼び出し元2：出荷完了を管理するクラス
+class OrderFulfillmentService {
+    NotificationManager notifier; // ← 同じNotificationManagerを使い回す
+public:
+    void completeShipment(string productId) {
+        cout << "商品 " << productId << " の出荷が完了しました。" << endl;
+        notifier.notifyShipped(productId);
+    }
+};
 ```
+
+このコードを見ると、`NotificationManager` は依然として各通知クラスの具体型を知っており、通知先が増えればManagerの修正が必要です。しかし、「在庫ゼロはSlack即時通知、在庫減少はメール通知」のような複合条件と、`InventoryManager`（在庫変動）と `OrderFulfillmentService`（出荷完了）という複数の発行元が同じ通知ロジックを重複なく共有できる点に、この形の価値があります。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案3（具体×間接）の呼び出し側
 int main() {
-    InventoryManager manager;            // ← 間接：NotificationManagerが内部に隠れており呼び出し側には見えない
-    manager.notifyAll("在庫不足");       // 内部でNotificationManagerが動くが、呼び出し側は知らない
+    // 在庫変動の呼び出し元
+    InventoryManager invManager;
+    // ← 間接：NotificationManagerが内部に隠れており呼び出し側には見えない
+    invManager.reduceStock("T-shirt-001", 5, 0);  // 在庫ゼロ → Slack+Email+ERP
+    invManager.reduceStock("Pants-002", 2, 3);     // 在庫減少 → Email+ERP
+
+    // 出荷完了の呼び出し元
+    OrderFulfillmentService fulfillment;
+    // ← 同じ通知ロジックをOrderFulfillmentServiceも重複なく使える
+    fulfillment.completeShipment("T-shirt-001");   // 出荷完了 → ERPのみ
     return 0;
 }
 ```
@@ -600,11 +647,6 @@ int main() {
 
 **この形の考え方：**
 インターフェース（案2）と仲介役（案3）を組み合わせ、通知先を抽象化しつつ、仲介役（マネージャー）を通じて疎結合を維持する。通知元は「通知先リストを管理する抽象的なマネージャー」を知るだけという、極めて疎結合な構造。
-
-**この形にするための準備：**
-
-1. 案2のインターフェース導入
-2. 案3のマネージャークラスに、インターフェースを介して通知先を管理させる
 
 【コード例】
 
