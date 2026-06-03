@@ -472,6 +472,23 @@ public:
 **この形の考え方：**
 クラスの分割も接続形態の変更もしません。既存の構造のまま、`PaymentCalculator` クラスの中に `if` 文を追加してその場の変更要求に対応します。システムの変更頻度が極めて低く、数年単位で次の変更が来ないような安定したビジネス環境であれば、この選択が合理的な判断になることもあります。
 
+**構造図：**
+
+```mermaid
+graph LR
+    M["main()"]
+    PC["PaymentCalculator\n─ if Premium\n─ if SummerSale\n─ if Campaign"]
+    CPS["CartPreviewService\n─ if Premium ← コピー\n─ if SummerSale ← コピー\n─ if Campaign ← コピー"]
+
+    M -->|呼ぶ| PC
+    M -->|呼ぶ| CPS
+
+    style PC fill:#ffe0e0,stroke:#cc4444
+    style CPS fill:#ffe0e0,stroke:#cc4444
+```
+
+割引ロジックが `PaymentCalculator` と `CartPreviewService` の両方に直書きされており、2箇所が同期して膨らんでいく構造になっています。
+
 ```cpp
 int calculate(const Order& order) {
     int total = 0;
@@ -552,6 +569,33 @@ int main() {
 
 **この形の考え方：**
 計算式のロジックだけでもクラスとして分割し、責任を整理しようというアプローチです。ただし、`PaymentCalculator`（呼び出し側）は、依然として「サマーセール」や「プレミアム割引」といった個別の具体クラスを直接知っている状態を維持します。「各ルールの計算式が複雑になってきたから分けたいが、ルール自体は固定されている」という場合に合う形です。
+
+**構造図：**
+
+```mermaid
+graph LR
+    M["main()"]
+    PC["PaymentCalculator\n具体クラスを直接生成"]
+    CPS["CartPreviewService\n具体クラスを直接生成\n← 選択ロジック重複"]
+    PD["PremiumDiscount"]
+    SD["SummerSaleDiscount"]
+    RC["RegularCampaignDiscount"]
+
+    M -->|呼ぶ| PC
+    M -->|呼ぶ| CPS
+    PC -->|"具体×直接"| PD
+    PC -->|"具体×直接"| SD
+    PC -->|"具体×直接"| RC
+    CPS -->|"具体×直接"| PD
+    CPS -->|"具体×直接"| SD
+    CPS -->|"具体×直接"| RC
+
+    style PD fill:#ffeecc,stroke:#cc8800
+    style SD fill:#ffeecc,stroke:#cc8800
+    style RC fill:#ffeecc,stroke:#cc8800
+```
+
+クラスは分離できましたが、「どのクラスを選ぶか」という判断ロジックが両方の呼び出し元に重複したまま残っています。
 
 ```cpp
 // 割引計算を別クラスに切り出す
@@ -647,6 +691,30 @@ int main() {
 **この形の考え方：**
 `PaymentCalculator` は、具体的な割引ルールを知らなくてよいというアプローチです。すべての割引ルールが満たすべきインターフェース（契約）を定義し、呼び出し側はその「型（規格）」だけを知るようにします。これによって、後からいくらでも新しいルールの実装を差し替えることができるようになります。
 
+**構造図：**
+
+```mermaid
+graph LR
+    M["main()\n具体を組み立て"]
+    IF[/"IDiscountRule\n≪interface≫"/]
+    PC["PaymentCalculator\nインターフェースだけを知る"]
+    CPS["CartPreviewService\nインターフェースだけを知る"]
+    PD["PremiumDiscount\n具体クラス"]
+
+    M -->|"具体で生成"| PD
+    PD -.->|"実装"| IF
+    M -->|"抽象×直接(注入)"| PC
+    M -->|"抽象×直接(注入)"| CPS
+    IF -->|"型だけで使う"| PC
+    IF -->|"型だけで使う"| CPS
+
+    style IF fill:#cce8ff,stroke:#4488cc
+    style PD fill:#ffeecc,stroke:#cc8800
+    style M fill:#e8ffe8,stroke:#448844
+```
+
+両方の呼び出し元が `IDiscountRule` という型だけを知り、具体クラスの知識は `main()` だけに集約されています。
+
 ```cpp
 // 割引ルールのインターフェース（共通規格）
 class IDiscountRule {
@@ -727,6 +795,34 @@ int main() {
 
 **この形の考え方：**
 `PaymentCalculator` から複雑な割引の判断を完全に追い出すために、間に「仲介役」を置くアプローチです。`DiscountManager` という仲介クラスを作り、そこに判断を任せます。ただし、この仲介役は個別の割引ルールの具体型を知っています。「計算フロー側には何も知らせたくないが、割引ルールの決定と実行は一箇所で管理したい」という場合に合う形です。
+
+**構造図：**
+
+```mermaid
+graph LR
+    M["main()"]
+    PC["PaymentCalculator\n仲介役の具体型を持つ"]
+    CPS["CartPreviewService\n仲介役の具体型を持つ"]
+    DM["DiscountManager\n仲介役"]
+    PD["PremiumDiscount"]
+    SD["SummerSaleDiscount"]
+    RC["RegularCampaignDiscount"]
+
+    M -->|呼ぶ| PC
+    M -->|呼ぶ| CPS
+    PC -->|"具体×間接"| DM
+    CPS -->|"具体×間接"| DM
+    DM -->|"具体×直接"| PD
+    DM -->|"具体×直接"| SD
+    DM -->|"具体×直接"| RC
+
+    style DM fill:#ffffcc,stroke:#aaaa44
+    style PD fill:#ffeecc,stroke:#cc8800
+    style SD fill:#ffeecc,stroke:#cc8800
+    style RC fill:#ffeecc,stroke:#cc8800
+```
+
+両方の呼び出し元は `DiscountManager` だけを知り、個々の割引クラスは見えません。割引ロジックは `DiscountManager` に集約されています。
 
 ```cpp
 // 割引ルールの具体クラス群（インターフェースは持たない）
@@ -834,6 +930,36 @@ int main() {
 
 **この形の考え方：**
 案2（インターフェースによる抽象化）と案3（仲介役による分離）の両方を適用し、全層を抽象化するアプローチです。`PaymentCalculator` は抽象化された `IDiscountManager` しか知らず、そのマネージャーもまた抽象化された `IDiscountRule` を組み合わせて動きます。「差し替えたい」かつ「計算クラスには何も知らせたくない」という2つの動機が重なるような、非常に複雑なシステムで求められる形です。
+
+**構造図：**
+
+```mermaid
+graph LR
+    M["main()\n具体を組み立て"]
+    IDM[/"IDiscountManager\n≪interface≫"/]
+    IDR[/"IDiscountRule\n≪interface≫"/]
+    PC["PaymentCalculator\nインターフェースだけを知る"]
+    CPS["CartPreviewService\nインターフェースだけを知る"]
+    DM["DiscountManager\n具体クラス"]
+    PD["PremiumDiscount"]
+
+    M -->|"具体で生成"| DM
+    DM -.->|"実装"| IDM
+    M -->|"抽象×間接(注入)"| PC
+    M -->|"抽象×間接(注入)"| CPS
+    IDM -->|"型だけで使う"| PC
+    IDM -->|"型だけで使う"| CPS
+    DM -->|"具体×直接"| PD
+    PD -.->|"実装"| IDR
+
+    style IDM fill:#cce8ff,stroke:#4488cc
+    style IDR fill:#cce8ff,stroke:#4488cc
+    style DM fill:#ffffcc,stroke:#aaaa44
+    style PD fill:#ffeecc,stroke:#cc8800
+    style M fill:#e8ffe8,stroke:#448844
+```
+
+全層がインターフェースで繋がり、`main()` だけが具体クラスを知っています。最大の柔軟性ですが、構造の追跡コストも最大になります。
 
 ```cpp
 // 仲介役のインターフェース
