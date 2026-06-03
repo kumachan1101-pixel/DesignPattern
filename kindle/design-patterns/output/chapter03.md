@@ -324,9 +324,10 @@ graph LR
 | --- | --- | --- |
 | 変更頻度 | この接続点はどのくらいの頻度で変わるか | 高（今後、新しい状態が頻繁に追加される可能性があるため） |
 | パフォーマンス | ホットパスか（高頻度で呼ばれるか） | いいえ（チケット予約処理は、極端な高頻度アクセスを想定するホットパスではない） |
+| 同時実行 | 複数ユーザーが同じ座席を同時に予約しようとするか | 要注意（人気映画の公開初日や、売り出し直後のタイムセールでは、同一座席への同時予約リクエストが競合する。楽観的ロックやバージョン管理による整合性保証が必要） |
 | メモリ | 間接層の追加でオーバーヘッドが問題になるか | いいえ（状態クラスの導入による微小なインスタンス増加は許容範囲内） |
 
-今回のケースでは、パフォーマンスへの厳しい制約はありません。そのため、今後の変更への耐性を最大限に高めるために「抽象」と「間接」を組み合わせた設計を検討できます。
+通常の予約操作であれば、状態クラスの導入によるパフォーマンスコストは問題になりません。ただし、人気映画の公開初日や売り出し直後のタイムセールでは、同一座席への同時予約リクエストが競合するリスクがあります。状態遷移のロジックをどのクラスに集約するかという設計判断は、この競合制御の実装可能性に直接影響します。この点を念頭に置いて対策案を検討します。
 
 ### 5-3：クライアントへの影響範囲
 
@@ -342,7 +343,7 @@ graph LR
 
 | **接続点** | **分けた理由** | **非機能制約** | **クライアント影響** |
 | --- | --- | --- | --- |
-| 接続点A | 状態ごとの「変わる理由」を業務フローから隔離するため | パフォーマンス制約は緩やか | `TicketReservation` の内部ロジックを全面刷新する必要あり |
+| 接続点A | 状態ごとの「変わる理由」を業務フローから隔離するため | 同一座席への同時予約競合に対する整合性保証が必要 | `TicketReservation` の内部ロジックを全面刷新する必要あり |
 
 フェーズ5で「何を解くか」が具体化されました。次のフェーズ6では、この課題に対してどのような「接続の形」を採用すべきか、案0〜案4を並べてコスト比較を行います。
 
@@ -367,10 +368,6 @@ graph LR
 
 **この形の考え方：**
 クラスの分割やインターフェースの導入を行わず、既存の `reserve()` や `pay()` メソッドの中に、新しい状態の条件分岐を `if` 文で追加します。変更頻度が極めて低く、これ以上複雑にならないと断言できる場合にのみ許容される最小コストの選択です。
-
-**この形にするための準備：**
-
-* 既存の条件分岐に `else if` を追加し、新しい状態の振る舞いを記述する。
 
 【コード例】
 
@@ -408,11 +405,6 @@ int main() {
 
 **この形の考え方：**
 状態ごとにクラスを分割しますが、呼び出し側の `TicketReservation` がそれらの具体クラスを直接知っている状態です。責任は整理されますが、状態を追加するたびに呼び出し側の依存関係を修正する必要があります。
-
-**この形にするための準備：**
-
-1. 各状態ごとの処理クラス（`ReservedState` 等）を作成する
-2. `TicketReservation` がそれらを `new` して保持する
 
 【コード例】
 
@@ -452,12 +444,6 @@ int main() {
 
 **この形の考え方：**
 「状態」をインターフェース化し、呼び出し側はインターフェース型に対してプログラムします。状態が増えても `TicketReservation` はインターフェースしか知らないため、修正が不要です。この構造を **State（ステート）** パターンと呼びます。
-
-**この形にするための準備：**
-
-1. `IReservationState` インターフェースを定義する
-2. 各状態クラス（`AvailableState`, `ReservedState` 等）にI/Fを実装させる
-3. `TicketReservation` が `IReservationState` を委譲するように書き換える
 
 【コード例】
 
@@ -501,32 +487,122 @@ int main() {
 **この形の考え方：**
 `StateManager` のような仲介クラスを置き、そこに状態管理を委譲します。しかし、仲介クラスが個々の状態クラスを知っているため、状態を追加する際には仲介クラスの修正が必要です。
 
-**この形にするための準備：**
-
-1. `StateManager` を作り、現在の `status` と振る舞いを移行する
-2. 業務クラスは `StateManager` を経由して振る舞いを呼び出す
-
 【コード例】
 
 ```cpp
-// ← 具体：StateManagerという具体型を持っている
-// ← 間接：呼び出し側はManagerのみ知り、内部のクラス群は見えない
-class StateManager {
-    ReservedState res;
-    AvailableState ava;
+// 具体的な状態クラス群（インターフェースは持たない）
+class AvailableState {
 public:
-    void handleReserve() { res.reserve(); }
+    bool reserve() { /* 予約処理 */ return true; }
+};
+
+class ReservedState {
+public:
+    bool pay() { /* 支払い処理 */ return true; }
+    // キャンセル料は予約から48時間以内は無料、以降は有料
+    bool cancel(bool withinDeadline) {
+        if (withinDeadline) { /* 無料キャンセル */ return true; }
+        /* 有料キャンセル */ return true;
+    }
+};
+
+class PaidState {
+public:
+    bool cancel(bool withinDeadline) {
+        if (withinDeadline) { /* 払い戻し処理 */ return true; }
+        /* キャンセル不可 */ return false;
+    }
+};
+
+// 仲介役：複数の呼び出し元が共通の状態遷移ロジックを共有するための「窓口」
+// ← 具体：内部で AvailableState・ReservedState・PaidState を直接保持する
+class StateManager {
+    AvailableState available;
+    ReservedState  reserved;
+    PaidState      paid;
+    std::string    current; // "Available" / "Reserved" / "Paid"
+public:
+    StateManager() : current("Available") {}
+
+    bool reserve() {
+        if (current != "Available") return false;
+        if (!available.reserve()) return false;
+        current = "Reserved";
+        return true;
+    }
+
+    bool pay() {
+        if (current != "Reserved") return false;
+        if (!reserved.pay()) return false;
+        current = "Paid";
+        return true;
+    }
+
+    bool cancel(bool withinDeadline) {
+        if (current == "Reserved") {
+            bool ok = reserved.cancel(withinDeadline);
+            if (ok) current = "Available";
+            return ok;
+        }
+        if (current == "Paid") {
+            bool ok = paid.cancel(withinDeadline);
+            if (ok) current = "Available";
+            return ok;
+        }
+        return false;
+    }
+};
+
+// 呼び出し元1：顧客が行う通常の予約フロー
+class TicketReservation {
+    StateManager manager;  // ← 具体：StateManagerという具体型を持つ
+public:
+    void reserve() {
+        if (manager.reserve()) std::cout << "予約完了\n";
+        else std::cout << "予約できません\n";
+    }
+    void pay() {
+        if (manager.pay()) std::cout << "支払い完了\n";
+        else std::cout << "支払いに適した状態ではありません\n";
+    }
+    void cancel(bool withinDeadline) {
+        if (manager.cancel(withinDeadline)) std::cout << "キャンセル完了\n";
+        else std::cout << "キャンセルできません\n";
+    }
+};
+
+// 呼び出し元2：スタッフが行う管理操作（強制キャンセル・状態確認など）
+class AdminPanel {
+    StateManager manager;  // ← 同じ状態管理ロジックを重複なく再利用
+public:
+    void forceCancel() {
+        // 管理画面からのキャンセルは常に「期限内」扱いとする
+        if (manager.cancel(true)) std::cout << "強制キャンセル完了\n";
+        else std::cout << "キャンセル対象外の状態です\n";
+    }
+    void confirmPayment() {
+        if (manager.pay()) std::cout << "支払い確認済み\n";
+        else std::cout << "支払い確認できません\n";
+    }
 };
 
 ```
+
+このコードを見ると、`StateManager` は依然として各状態の具体クラスを知っており、状態が増えればManagerの修正が必要です。しかし、予約→支払い→キャンセルの複雑なフローと、`TicketReservation`（通常予約フロー）と `AdminPanel`（スタッフ管理）が同じ状態管理ロジックを重複なく共有できる点に、この形の価値があります。`StateManager` がなければ、それぞれの呼び出し元が48時間判定のようなキャンセルルールを個別に抱えることになります。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案3（具体×間接）の呼び出し側
 int main() {
-    TicketReservation reservation;           // ← 間接：StateManagerが内部に隠れており呼び出し側には見えない
-    reservation.reserve();                   // 内部でStateManagerが動くが、呼び出し側は知らない
+    // ← 間接：StateManagerが内部に隠れており見えない
+    TicketReservation reservation;
+    reservation.reserve();
+    reservation.pay();
+    reservation.cancel(true);   // 48時間以内のキャンセルは無料
+
+    AdminPanel admin;           // ← 間接：同じStateManagerが内部にあるが見えない
+    admin.forceCancel();        // スタッフ操作は常に無料キャンセル扱い
     return 0;
 }
 ```
@@ -534,7 +610,7 @@ int main() {
 **この形のトレードオフ：**
 
 * 変更容易性：中（状態追加はManager内の修正で済む）
-* テスト容易性：中（Managerを差し替えればOK）
+* テスト容易性：中（Managerを差し替えればOK、ただManager自身のテストは辛い）
 * 実装コスト：中（仲介クラスの作成が必要）
 
 ---
@@ -543,11 +619,6 @@ int main() {
 
 **この形の考え方：**
 インターフェースと仲介役の両方を導入し、層を抽象化します。極めて柔軟ですが、クラス数と層が増えるため、小〜中規模のチケット予約管理には過剰になる可能性が高いです。
-
-**この形にするための準備：**
-
-1. `IState` インターフェースを定義し、各状態をクラス化する（案2）
-2. 状態管理を抽象化した `IStateManager` を作り、それを経由して状態を操作する
 
 【コード例】
 

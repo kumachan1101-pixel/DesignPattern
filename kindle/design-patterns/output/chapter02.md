@@ -373,9 +373,10 @@ graph LR
 | --- | --- | --- |
 | 変更頻度 | この接続点はどのくらいの頻度で変わるか | 高（銀行側のセキュリティ要件やAPI仕様変更により頻繁に変わる） |
 | パフォーマンス | ホットパスか（高頻度で呼ばれるか） | いいえ（銀行のAPI呼び出しであり、ネットワーク待機が支配的で、クラス分割によるオーバーヘッドは微小） |
+| 障害耐性 | API呼び出しが失敗した場合の再試行ポリシーはあるか | 要設計（二重送金を防ぐためべき等性の保証が必要。ネットワーク障害時のリトライ回数と間隔を明示的に制御する設計が求められる） |
 | メモリ | 間接層の追加でオーバーヘッドが問題になるか | いいえ（サーバーのリソースは十分であり、微小なメモリ増加は問題にならない） |
 
-今回のケースでは、パフォーマンスやメモリへの厳しい制約はありません。そのため、変更への強さを最大限に確保するために「間接層」を挟む選択肢も、気兼ねなく検討できます。
+通常の振り込みリクエスト頻度であれば、クラス分割によるパフォーマンスコストは問題になりません。ただし、銀行APIの呼び出しは外部システムへの依存であり、ネットワーク障害時の再試行ポリシーと二重送金防止の設計は、接続クラスの構造に直接影響します。この点を念頭に置いて対策案を検討します。
 
 ### 5-3：クライアントへの影響範囲
 
@@ -391,7 +392,7 @@ graph LR
 
 | **接続点** | **分けた理由** | **非機能制約** | **クライアント影響** |
 | --- | --- | --- | --- |
-| 接続点A | 外部システムという「変わる理由」を業務フローから隔離するため | ホットパスではないため抽象化によるコストは許容可 | `TransferProcessor` の内部実装に影響あり |
+| 接続点A | 外部システムという「変わる理由」を業務フローから隔離するため | 障害時のリトライと二重送金防止のべき等性設計が必要 | `TransferProcessor` の内部実装に影響あり |
 
 フェーズ5で「何を解くか」が具体化されました。次のフェーズ6では、この課題に対してどのような「接続の形」を採用すべきか、案0〜案4を並べてコスト比較を行います。
 
@@ -418,10 +419,6 @@ graph LR
 
 **この形の考え方：**
 クラスの分割やインターフェースの導入を行わず、既存の `transfer` メソッドの中に、銀行APIの新しい仕様を `if` 文で追加します。銀行側の接続仕様が極めて安定しており、今後数年は変更が来ないような場合にのみ、実装コストを最小化するための選択肢となります。
-
-**この形にするための準備：**
-
-* 既存のメソッド内に、認証ステップや送金ID生成のロジックを条件分岐として書き足す。
 
 ```cpp
 void transfer(
@@ -466,11 +463,6 @@ int main() {
 **この形の考え方：**
 銀行通信用のクラスを切り出して責任を分担させますが、呼び出し側の `TransferProcessor` は、相変わらず銀行専用クラス（`BankGateway` 等）の具体型を直接知っている状態です。「責任の分担」という第一段階の整理だけを行いたい場合に合う形です。
 
-**この形にするための準備：**
-
-1. 外部接続に関連する処理を新しいクラスに移動する
-2. `TransferProcessor` のコンストラクタで、移動したクラスを直接インスタンス化する
-
 ```cpp
 // ← 具体：BankTransferServiceという型名を直接書いている
 class BankTransferService { // 通信ロジックを切り出した
@@ -507,12 +499,6 @@ int main() {
 
 **この形の考え方：**
 銀行APIの具体的な実装を隠すためにインターフェースを導入し、業務クラスはインターフェース型に対してプログラムします。これにより、APIの実装が銀行Aから銀行Bへ変わろうと、私たちの業務クラスは影響を受けません。この構造を **Facade（ファサード）パターン** の一部、あるいはこの場合は業務的な窓口として **Facade** 的な役割を担わせる構造と呼ぶことができます。
-
-**この形にするための準備：**
-
-1. `IBankService` というインターフェースを定義する
-2. 既存の銀行関連処理を `BankService` クラスとして実装する
-3. `TransferProcessor` をインターフェース依存に書き換える
 
 ```cpp
 class IBankService { // 共通の窓口（Facadeとなるインターフェース）
@@ -551,33 +537,81 @@ int main() {
 **この形の考え方：**
 AとBの間に `TransferManager` のような「仲介者」を配置し、複雑な通信手順を隠します。ただし、仲介者は具体的なAPIを知っています。外部システムとの複雑なやり取りを一つの窓口に集中させ、業務フロー側には簡素なインタフェースだけを見せたい場合に適しています。
 
-**この形にするための準備：**
-
-1. `TransferManager` クラスを作成し、そこにAPIの手順をまとめる
-2. `TransferProcessor` はマネージャーを呼ぶだけにする
-
 ```cpp
-// ← 具体：TransferManagerという具体型を持っている
-// ← 間接：呼び出し側はManagerのみ知り、内部のクラス群は見えない
-class TransferManager {
+// 銀行API関連の具体クラス群（インターフェースは持たない）
+class BankGateway {
 public:
-    void perform(std::string acc, int amt) {
-        // ここに銀行の複雑な通信手順をすべて隠す
-        gateway.verify(); 
-        auth.doAuth();
-        gateway.execute();
+    bool verifyAccount(const std::string& account) { /* 口座照会 */ return true; }
+    bool executeTransfer(const std::string& to, int amount,
+                         const std::string& txId) { /* 送金実行 */ return true; }
+};
+
+class BankAuthService {
+public:
+    void requestOTP(const std::string& phone) { /* OTP送信 */ }
+    bool verifyOTP(const std::string& otp, const std::string& txId) {
+        /* OTP検証 */ return true;
+    }
+    std::string generateTxId() { return "TX-" + std::to_string(rand()); }
+};
+
+// 仲介役：複数の呼び出し元が共通の送金手順を重複なく共有するための「窓口」
+// ← 具体：内部で BankGateway・BankAuthService の具体型を直接保持する
+class TransferManager {
+    BankGateway gateway;
+    BankAuthService auth;
+public:
+    bool perform(const std::string& toAccount, int amount,
+                 const std::string& otp) {
+        if (!gateway.verifyAccount(toAccount)) return false;
+        std::string txId = auth.generateTxId();
+        if (amount >= 100000) {
+            // 高額送金はOTP認証が必須
+            auth.requestOTP("090-xxxx");
+            if (!auth.verifyOTP(otp, txId)) return false;
+        }
+        return gateway.executeTransfer(toAccount, amount, txId);
+    }
+};
+
+// 呼び出し元1：ユーザーが行う通常の振り込みフロー
+class TransferProcessor {
+    TransferManager manager;  // ← 具体：TransferManagerという具体型を持つ
+public:
+    void transfer(const std::string& toAccount, int amount,
+                  const std::string& otp) {
+        if (manager.perform(toAccount, amount, otp)) {
+            std::cout << "振り込み完了\n";
+        }
+    }
+};
+
+// 呼び出し元2：給与振り込みなどの一括処理バッチ
+class BatchTransferService {
+    TransferManager manager;  // ← 同じ送金手順を重複なく再利用
+public:
+    void processPayroll(const std::vector<std::pair<std::string, int>>& transfers) {
+        for (const auto& [account, amount] : transfers) {
+            manager.perform(account, amount, "");  // バッチは社内承認済みのため OTP不要
+        }
     }
 };
 
 ```
+
+このコードを見ると、`TransferManager` は依然として銀行APIの具体型を直接知っているため、APIの仕様が変わればManagerの修正が必要です。しかし、高額送金時のOTP認証チェックのような複雑な条件制御を一箇所に集め、`TransferProcessor`（ユーザー操作）と `BatchTransferService`（一括処理）という複数の呼び出し元が同じ送金手順を重複なく共有できる点に、この形の価値があります。`TransferManager` がなければ、それぞれの呼び出し元が銀行APIの呼び出し手順を個別に抱えることになります。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案3（具体×間接）の呼び出し側
 int main() {
-    TransferProcessor processor;             // ← 間接：TransferManagerが内部に隠れており呼び出し側には見えない
-    processor.transfer("12345678", 5000, "999999");  // 内部でTransferManagerが動くが、呼び出し側は知らない
+    // ← 間接：TransferManagerが内部に隠れており見えない
+    TransferProcessor processor;
+    processor.transfer("12345678", 150000, "123456");   // 高額：OTP検証が内部で走る
+
+    BatchTransferService batch;     // ← 間接：同じTransferManagerが内部にあるが見えない
+    batch.processPayroll({{"87654321", 280000}, {"11112222", 195000}});
     return 0;
 }
 ```
@@ -585,7 +619,7 @@ int main() {
 **この形のトレードオフ：**
 
 * 変更容易性：中（API側の変更はManagerだけで完結する）
-* テスト容易性：中（Managerを差し替えればOK）
+* テスト容易性：中（Managerを差し替えればOK、ただManager自身のテストは辛い）
 * 実装コスト：中（仲介クラスの作成が必要）
 
 ---
@@ -594,12 +628,6 @@ int main() {
 
 **この形の考え方：**
 `TransferProcessor` に対しては抽象的な窓口を提供し、かつその窓口の中で具体的なAPIの複雑な手順を隠蔽します。最も柔軟ですが、全層にインターフェースと仲介クラスを導入するため、実装コストは最大になります。
-
-**この形にするための準備：**
-
-1. 窓口となるインターフェース `IBankFacade` を定義する
-2. 具体的な通信手順を隠蔽するクラス `BankFacade` を作成する
-3. 業務クラスは `IBankFacade` を通じてのみ外部システムと会話する
 
 ```cpp
 class IBankFacade {
