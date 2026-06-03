@@ -404,10 +404,11 @@ graph LR
 | **確認項目** | **内容** | **この章での判断** |
 | --- | --- | --- |
 | 変更頻度 | この接続点はどのくらいの頻度で変わるか | 高（フェーズ2のヒアリング通り、毎月のように新しい割引ルールが追加される） |
-| パフォーマンス | ホットパスか（高頻度で呼ばれるか） | いいえ（1件の注文に対して1回呼ばれる処理であり、ミリ秒を争うループ処理ではない） |
-| メモリ | 間接層の追加でオーバーヘッドが問題になるか | いいえ（一般的なECサイトのサーバーリソースであれば、クラス分割による微小なメモリ増加は問題にならない） |
+| パフォーマンス | ホットパスか（高頻度で呼ばれるか） | 通常時は1件/リクエストで低頻度だが、タイムセール開始直後は同時リクエストが急増する。仮想関数テーブルのルックアップコスト自体は問題ない水準 |
+| 同時実行 | 複数スレッドが同一インスタンスを共有するか | 要注意（セール時に数百の同時リクエストが `PaymentCalculator` を呼ぶ可能性がある。ルールオブジェクトをリクエストごとに生成するか共有するかによってスレッドセーフ設計が変わる） |
+| メモリ | 間接層の追加でオーバーヘッドが問題になるか | 問題なし（クラス分割による微小なメモリ増加はECサイトの一般的なサーバーリソース内に収まる） |
 
-ここでは、パフォーマンスに対する厳しい制約であるホットパス（プログラムの中で頻繁に呼び出され、処理速度への影響が大きいコードパス）ではないことが確認できました。これは非常に重要な判断材料です。なぜなら、後で接続の形を考える際に、変更への強さを優先して「抽象」を利用する柔軟なアプローチも、気兼ねなく選べることを意味しているからです。
+通常時のリクエスト頻度であれば、仮想関数呼び出しのパフォーマンスコストは設計判断に影響しません。ただし、タイムセール開始時の同時実行数の急増は実際の懸念事項です。複数のリクエストが同一の `DiscountManager` インスタンスを共有する場合、ルールオブジェクトをステートレス（内部状態を持たない設計）にしておくことがスレッドセーフ設計の基本方針になります。
 
 ### 5-3：クライアントへの影響範囲
 
@@ -441,7 +442,7 @@ public:
 
 | **接続点** | **分けた理由** | **非機能制約** | **クライアント影響** |
 | --- | --- | --- | --- |
-| 接続点A | 変わる理由が異なるため（合算の骨格と個別の割引条件） | ホットパスではない | `OrderProcessor` や `main()` に影響波及の可能性あり |
+| 接続点A | 変わる理由が異なるため（合算の骨格と個別の割引条件） | 通常は低頻度・タイムセール時に同時実行が急増（ステートレス設計が必要） | `OrderProcessor` や `main()` に影響波及の可能性あり |
 
 フェーズ5で「何を解くか」が明確に確定しました。次のフェーズ6では、この課題に対する具体的な解決策をいくつか並べ、コストの天秤にかけて最適なものを選び出します。
 
@@ -470,11 +471,6 @@ public:
 
 **この形の考え方：**
 クラスの分割も接続形態の変更もしません。既存の構造のまま、`PaymentCalculator` クラスの中に `if` 文を追加してその場の変更要求に対応します。システムの変更頻度が極めて低く、数年単位で次の変更が来ないような安定したビジネス環境であれば、この選択が合理的な判断になることもあります。
-
-**この形にするための準備：**
-
-1. 既存コードの中で、新ルールの条件と矛盾しない差し込み箇所を特定する
-2. `PaymentCalculator` クラスの `calculate` メソッド内に `else if` を直接追記する
 
 ```cpp
 int calculate(const Order& order) {
@@ -527,11 +523,6 @@ int main() {
 
 **この形の考え方：**
 計算式のロジックだけでもクラスとして分割し、責任を整理しようというアプローチです。ただし、`PaymentCalculator`（呼び出し側）は、依然として「サマーセール」や「プレミアム割引」といった個別の具体クラスを直接知っている状態を維持します。「各ルールの計算式が複雑になってきたから分けたいが、ルール自体は固定されている」という場合に合う形です。
-
-**この形にするための準備：**
-
-1. 各割引ルールの計算ロジックを、独立した具体的なクラス（例：`PremiumDiscount`）に移動する
-2. `PaymentCalculator` の `if` ブロックから、作成した具体クラスを直接生成（`new`）して呼び出す
 
 ```cpp
 // 割引計算を別クラスに切り出す
@@ -589,11 +580,6 @@ int main() {
 
 **この形の考え方：**
 `PaymentCalculator` は、具体的な割引ルールを知らなくてよいというアプローチです。すべての割引ルールが満たすべきインターフェース（契約）を定義し、呼び出し側はその「型（規格）」だけを知るようにします。これによって、後からいくらでも新しいルールの実装を差し替えることができるようになります。
-
-**この形にするための準備：**
-
-1. 「割引ルールが何を提供すべきか」を表現するインターフェース（`IDiscountRule`）を定義する
-2. `PaymentCalculator` から `if` 文の分岐を削除し、外部から渡された `IDiscountRule` をただ実行するように書き換える
 
 ```cpp
 // 割引ルールのインターフェース（共通規格）
@@ -656,53 +642,96 @@ int main() {
 **この形の考え方：**
 `PaymentCalculator` から複雑な割引の判断を完全に追い出すために、間に「仲介役」を置くアプローチです。`DiscountManager` という仲介クラスを作り、そこに判断を任せます。ただし、この仲介役は個別の割引ルールの具体型を知っています。「計算フロー側には何も知らせたくないが、割引ルールの決定と実行は一箇所で管理したい」という場合に合う形です。
 
-**この形にするための準備：**
-
-1. 仲介役となる `DiscountManager` クラスを作成し、`Order` を受け取って割引後の金額を返すメソッドを定義する
-2. `DiscountManager` の内部で、案1のように各具体クラスを直接生成して処理を行う
-3. `PaymentCalculator` は、この `DiscountManager` を呼び出すだけにする
-
 ```cpp
-// 仲介役のマネージャークラス
+// 割引ルールの具体クラス群（インターフェースは持たない）
+class PremiumDiscount {
+public:
+    int apply(int subtotal) { return static_cast<int>(subtotal * 0.80); }  // 20%引き
+};
+class SummerSaleDiscount {
+public:
+    int apply(int subtotal) { return static_cast<int>(subtotal * 0.95); }  // 5%引き
+};
+class RegularCampaignDiscount {
+public:
+    int apply(int subtotal) { return static_cast<int>(subtotal * 0.90); }  // 10%引き
+};
+
+// 仲介役：複数の呼び出し元が共通の割引判断ロジックを重複なく共有するための「窓口」
+// ← 具体：内部で PremiumDiscount など具体型を直接生成する
 class DiscountManager {
 public:
-    int applyDiscount(int total, const Order& order) {
-        // マネージャーが具体的なルールの選択と適用を担う
+    int applyDiscount(int subtotal, const Order& order) {
         if (order.customerType == "Premium") {
             PremiumDiscount discount;
-            return discount.apply(total);
+            return discount.apply(subtotal);
+        } else if (order.isSummerSale && order.isCampaignActive) {
+            // 重ね掛け：サマーセール＋キャンペーン同時適用
+            SummerSaleDiscount sale;
+            RegularCampaignDiscount campaign;
+            return campaign.apply(sale.apply(subtotal));
         } else if (order.isSummerSale) {
             SummerSaleDiscount discount;
-            return discount.apply(total);
+            return discount.apply(subtotal);
+        } else if (order.isCampaignActive) {
+            RegularCampaignDiscount discount;
+            return discount.apply(subtotal);
         }
-        return total;
+        return subtotal;
     }
 };
 
+// 呼び出し元1：注文確定フロー
 class PaymentCalculator {
 private:
-    // ← 具体：DiscountManagerという具体型を持っている
-    // ← 間接：呼び出し側はManagerのみ知り、内部のクラス群は見えない
-    DiscountManager manager;
+    DiscountManager manager;  // ← 具体：DiscountManagerという具体型を持つ
 public:
     int calculate(const Order& order) {
-        int total = 0; // （小計の計算）
-        // 仲介役に丸投げする
-        return manager.applyDiscount(total, order);
+        int subtotal = 0;
+        for (const auto& item : order.items) {
+            subtotal += item.price;
+        }
+        return manager.applyDiscount(subtotal, order);  // ← 間接：内部の割引クラス群は見えない
+    }
+};
+
+// 呼び出し元2：カート画面のプレビュー表示
+class CartPreviewService {
+private:
+    DiscountManager manager;  // ← 同じ判断ロジックを重複なく再利用
+public:
+    int getEstimatedTotal(const Order& order) {
+        int subtotal = 0;
+        for (const auto& item : order.items) {
+            subtotal += item.price;
+        }
+        return manager.applyDiscount(subtotal, order);
     }
 };
 
 ```
 
-このコードを見ると、`PaymentCalculator` はすっきりしましたが、変更の辛さの発生源が単純に `DiscountManager` クラスへと移動しただけであることが分かります。
+このコードを見ると、`DiscountManager` は依然として具体型を知っているため、ルールが増えれば修正が必要です。しかし、「サマーセール＋キャンペーン同時適用」のような複合条件の管理と、複数の呼び出し元（`PaymentCalculator` と `CartPreviewService`）が同じ割引判断ロジックを重複なく共有できる点に、この形の価値があります。`DiscountManager` がなければ、それぞれの呼び出し元が同じ `if` 分岐を個別に抱えることになります。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案3（具体×間接）の呼び出し側
 int main() {
-    PaymentCalculator calculator;        // ← 間接：DiscountManagerが内部に隠れており呼び出し側には見えない
-    calculator.calculate(order);         // 内部でDiscountManagerが動くが、呼び出し側は知らない
+    Order order;
+    order.items.push_back(Item("ワイヤレスイヤホン", 10000));
+    order.customerType = "Regular";
+    order.isSummerSale = true;
+    order.isCampaignActive = true;
+
+    PaymentCalculator calculator;    // ← 間接：DiscountManagerが内部に隠れており見えない
+    int finalPrice = calculator.calculate(order);
+
+    CartPreviewService preview;      // ← 間接：同じDiscountManagerが内部にあるが見えない
+    int previewPrice = preview.getEstimatedTotal(order);
+
+    // サマーセール5%引き→キャンペーン10%引きの重ね掛けが、どちらの呼び出し元でも一貫して適用される
+    std::cout << "確定: " << finalPrice << " 円、プレビュー: " << previewPrice << " 円\n";
     return 0;
 }
 ```
@@ -719,12 +748,6 @@ int main() {
 
 **この形の考え方：**
 案2（インターフェースによる抽象化）と案3（仲介役による分離）の両方を適用し、全層を抽象化するアプローチです。`PaymentCalculator` は抽象化された `IDiscountManager` しか知らず、そのマネージャーもまた抽象化された `IDiscountRule` を組み合わせて動きます。「差し替えたい」かつ「計算クラスには何も知らせたくない」という2つの動機が重なるような、非常に複雑なシステムで求められる形です。
-
-**この形にするための準備：**
-
-1. 案2の手順で `IDiscountRule` を定義する
-2. さらに、仲介役のインターフェース `IDiscountManager` を定義する
-3. 各層がインターフェースだけを知るように組み立てる
 
 ```cpp
 // 仲介役のインターフェース

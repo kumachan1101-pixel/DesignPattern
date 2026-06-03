@@ -317,8 +317,9 @@ graph LR
 | 変更頻度 | この接続点はどのくらいの頻度で変わるか | 高（店舗数やデータフォーマットは今後も増え続けるため） |
 | パフォーマンス | ホットパスか（高頻度で呼ばれるか） | いいえ（日次の売上データ取り込みであり、即時性は求められない） |
 | メモリ | 間接層の追加でオーバーヘッドが問題になるか | いいえ（抽象化層の導入による影響は無視できるレベル） |
+| データ量 | 一度に処理するCSVファイルの行数・サイズはどの程度か | 要確認（月次で全店舗のデータを一括取り込む場合、数十万行のCSVを処理する可能性がある。ストリーミング読み込みや進捗ログの設計がインポートクラスの構造に影響する） |
 
-今回のケースでは、パフォーマンスへの厳しい制約はありません。そのため、今後の変更への耐性を最大限に高めるために「抽象」と「直接」を組み合わせた設計を検討できます。
+通常の単一ファイル処理ではメモリやパフォーマンスの制約は軽微です。ただし、月次の一括インポートで全店舗分を処理する場合は、ファイルサイズが大きくなりストリーミング設計が必要になることがあります。この点を接続形態の設計判断に加えておきます。
 
 ### 5-3：クライアントへの影響範囲
 
@@ -334,7 +335,7 @@ graph LR
 
 | **接続点** | **分けた理由** | **非機能制約** | **クライアント影響** |
 | --- | --- | --- | --- |
-| 接続点A | 処理の骨格と詳細な加工ルールを隔離するため | ホットパスではない | 各Importerクラスを基底クラス継承へ移行する必要あり |
+| 接続点A | 処理の骨格と詳細な加工ルールを隔離するため | 通常は低頻度・一括処理時にデータ量が大きく（ストリーミング設計の考慮が必要） | 各Importerクラスを基底クラス継承へ移行する必要あり |
 
 フェーズ5で「何を解くか」が確定しました。次のフェーズ6では、この課題に対してどのような「接続の形」を採用すべきか、案0〜案4を並べてコスト比較を行います。
 
@@ -359,11 +360,6 @@ graph LR
 
 **この形の考え方：**
 クラスの分割やインターフェースの導入を行わず、既存の `import()` メソッドの中に、新しいフォーマット用の処理を `if` 文で追加します。変更頻度が低く、将来的な変化が見込めない場合に許容される最小コストの選択です。
-
-**この形にするための準備：**
-
-* 既存コードを触れる最小範囲（`if` の追加など）を特定する。
-* 変更が波及しないことを確認してから実施する。
 
 【コード例（一部）】
 
@@ -409,11 +405,6 @@ int main() {
 
 **この形の考え方：**
 インポート処理を店舗ごとにクラス分割しますが、呼び出し側が各具体クラスを直接知っている状態です。責任の境界は引かれますが、新しい形式の追加時には呼び出し側のコード修正が避けられません。
-
-**この形にするための準備：**
-
-1. 共通手順を基底クラスに持たせ、店舗ごとにサブクラス化する。
-2. 呼び出し側で各具体クラスを直接インスタンス化する。
 
 【コード例（一部）】
 
@@ -461,12 +452,6 @@ int main() {
 **この形の考え方：**
 インポート処理の「骨格となる手順」を親クラスで定義し、詳細な「パース・加工処理」をサブクラスで実装する形式です。この構造を **Template Method（テンプレートメソッド）** パターンと呼びます。呼び出し側は親クラスのインターフェースさえ知っていれば、具体的な実装クラスに依存せずに処理を進められます。
 
-**この形にするための準備：**
-
-1. 共通手順を定義した親クラス（`AbstractImporter`）を作成する。
-2. 手順の中の「パース処理」を純粋仮想関数（`abstract method`）として定義する。
-3. 店舗ごとのサブクラスで、パース処理だけを実装する。
-
 【コード例（一部）】
 
 ```cpp
@@ -513,12 +498,7 @@ int main() {
 #### 案3：具体×間接 ―― 仲介クラスを置くが、具体型を知っている
 
 **この形の考え方：**
-`ImporterManager` のような仲介クラスを置き、インポート処理の実行をそこに集約します。仲介役が具体クラスを直接知っているため、インポート形式の追加時には仲介クラスの修正が発生します。
-
-**この形にするための準備：**
-
-1. `ImporterManager` を作り、インポート実行ロジックを集約する。
-2. インポートを実行したい場所は、すべてこのマネージャーを経由するようにする。
+`ImporterManager` のような仲介クラスを置き、フォーマット検出・エラーカウント・進捗管理といった複雑なロジックをそこに集約します。仲介役が具体クラスを直接知っているため、インポート形式の追加時には仲介クラスの修正が発生します。
 
 【コード例（一部）】
 
@@ -526,22 +506,92 @@ int main() {
 // ← 具体：ImporterManagerという具体型を持っている
 // ← 間接：呼び出し側はManagerのみ知り、内部のクラス群は見えない
 class ImporterManager {
+    int errorCount;
+    int processedRows;
 public:
-    void execute(std::string type) {
-        if (type == "EC") ECDataImporter().import();
-        else StoreDataImporter().import();
+    ImporterManager() : errorCount(0), processedRows(0) {}
+
+    // フォーマット検出・インポーター選択・進捗管理を一箇所に集約
+    bool execute(std::string filePath) {
+        std::string type = detectFormat(filePath);
+        if (type == "EC") {
+            ECDataImporter importer;
+            bool ok = importer.import(filePath);
+            processedRows += importer.getRowCount();
+            if (!ok) { errorCount++; return false; }
+        } else if (type == "STORE") {
+            StoreDataImporter importer;
+            bool ok = importer.import(filePath);
+            processedRows += importer.getRowCount();
+            if (!ok) { errorCount++; return false; }
+        } else if (type == "FC") {
+            FCDataImporter importer;
+            bool ok = importer.import(filePath);
+            processedRows += importer.getRowCount();
+            if (!ok) { errorCount++; return false; }
+        }
+        return true;
+    }
+    int getErrorCount() const { return errorCount; }
+    int getProcessedRows() const { return processedRows; }
+
+private:
+    std::string detectFormat(std::string filePath) {
+        // ファイル先頭行のヘッダーを読み取りフォーマットを判定する
+        // ...（省略）
+        return "STORE";
+    }
+};
+
+// 夜間バッチからの呼び出し
+class BatchImportJob {
+    ImporterManager& manager;
+public:
+    BatchImportJob(ImporterManager& m) : manager(m) {}
+    void run(std::vector<std::string> files) {
+        for (auto& f : files) {
+            manager.execute(f);
+        }
+        std::cout << "バッチ完了: "
+                  << manager.getProcessedRows() << "行処理, "
+                  << manager.getErrorCount() << "件エラー" << std::endl;
+    }
+};
+
+// 管理画面からの手動実行
+class ManualImportController {
+    ImporterManager& manager;
+public:
+    ManualImportController(ImporterManager& m) : manager(m) {}
+    void handleUpload(std::string filePath) {
+        bool ok = manager.execute(filePath);
+        if (ok) {
+            std::cout << "インポート成功: "
+                      << manager.getProcessedRows() << "行" << std::endl;
+        } else {
+            std::cout << "インポート失敗（エラー件数: "
+                      << manager.getErrorCount() << "）" << std::endl;
+        }
     }
 };
 
 ```
 
+このコードを見ると、`ImporterManager` は依然として各具体インポートクラスを知っており、新しいフォーマットが増えれば修正が必要です。しかし、フォーマット検出や進捗管理の複雑なロジックを一箇所に集め、`BatchImportJob`（夜間バッチ）と `ManualImportController`（管理画面からの手動実行）が同じインポートロジックを重複なく共有できる点に、この形の価値があります。
+
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 案3（具体×間接）の呼び出し側
+// 案3（具体×間接）の呼び出し側 ― 2つの呼び出し元が同じManagerを共有
 int main() {
-    ImporterManager manager;             // ← 間接：ImporterManagerが内部に隠れており呼び出し側には見えない
-    manager.execute("EC");               // 内部でECDataImporterが動くが、呼び出し側は知らない
+    ImporterManager manager;
+    // 夜間バッチ：複数ファイルを一括処理
+    BatchImportJob batch(manager);
+    batch.run({"store_may.csv", "fc_may.csv", "ec_may.csv"});
+
+    // 管理画面：ユーザーがアップロードした単一ファイルを処理
+    ManualImportController ctrl(manager);
+    ctrl.handleUpload("store_extra.csv");
     return 0;
 }
 ```
@@ -564,11 +614,6 @@ int main() {
 
 **この形の考え方：**
 Template Methodで実装された各クラスを、さらに仲介者経由で利用する形です。実装の詳細はどの層も知らず、変更影響は最も局所化されますが、クラス数と層の深さが増え、小規模なシステムには過剰になりがちです。
-
-**この形にするための準備：**
-
-1. 案2の手順で親クラスとサブクラスを作成する。
-2. その基底クラスを扱う仲介役の抽象インターフェースを作成する。
 
 【コード例（一部）】
 

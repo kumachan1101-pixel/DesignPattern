@@ -333,8 +333,9 @@ graph LR
 | 変更頻度 | この接続点はどのくらいの頻度で変わるか | 高（操作の種類やUndo/Redo要件は今後も増え続けるため） |
 | パフォーマンス | ホットパスか（高頻度で呼ばれるか） | いいえ（ユーザーのボタンクリックに応じた処理であり、パフォーマンスがボトルネックになることはない） |
 | メモリ | 間接層の追加でオーバーヘッドが問題になるか | いいえ（操作オブジェクトの生成コストは、ユーザー体験に影響しない） |
+| 履歴サイズ | アンドゥ・リドゥ履歴をどれだけ保持するか | 要設計（ユーザーが大量の操作を行うと履歴オブジェクトがメモリを圧迫する可能性がある。最大保持件数の上限や古い履歴の自動廃棄ポリシーを、CommandInvokerの設計段階で決める必要がある） |
 
-今回のケースでは、パフォーマンスへの厳しい制約はありません。そのため、変更耐性を最優先し、操作をオブジェクト化して間接的に実行する設計を検討します。
+今回のケースでは、パフォーマンスへの厳しい制約はありません。ただし、長期間アプリを使い続けるユーザーが大量の操作を積み重ねると、履歴スタックがメモリを圧迫することがあります。CommandInvokerの設計段階で、履歴の最大保持件数と廃棄ポリシーを決めておくことが重要です。この点を接続形態の設計判断に加えておきます。
 
 ### 5-3：クライアントへの影響範囲
 
@@ -350,7 +351,7 @@ graph LR
 
 | **接続点** | **分けた理由** | **非機能制約** | **クライアント影響** |
 | --- | --- | --- | --- |
-| 接続点A | 操作の意図と実行手段を隔離するため | ホットパスではない | UIButtonsから直接メソッド呼び出しを削除する必要あり |
+| 接続点A | 操作の意図と実行手段を隔離するため | ホットパスではないが履歴サイズの上限設計が必要（大量操作時のメモリ圧迫を防ぐため） | UIButtonsから直接メソッド呼び出しを削除する必要あり |
 
 フェーズ5で「何を解くか」が確定しました。次のフェーズ6では、この課題に対してどのような「接続の形」を採用すべきか、案0〜案4を並べてコスト比較を行います。
 
@@ -373,10 +374,6 @@ graph LR
 
 **この形の考え方：**
 クラスの分割やオブジェクト化を行わず、既存のメソッド呼び出しで対応し続けます。追加の設計コストはゼロですが、操作が増えるたびに `UIButtons` クラスの修正が不可避となります。
-
-**この形にするための準備：**
-
-* 既存の `if` 分岐を維持したまま、新たな操作メソッドを追加する。
 
 
 
@@ -420,10 +417,6 @@ int main() {
 
 **この形の考え方：**
 操作ごとにクラスを分割しますが、呼び出し側が依然としてそのクラスを直接生成・呼び出しします。責任の境界は明確になりますが、呼び出し側は依然として具体的な操作クラスに依存します。
-
-**この形にするための準備：**
-
-1. 操作ごとに専用のクラスを作成し、実行メソッドを定義する。
 
 
 2. 呼び出し元で、その操作クラスを直接生成して実行する。
@@ -472,10 +465,6 @@ int main() {
 
 **この形の考え方：**
 操作を抽象的なインターフェースとして定義します。呼び出し元は具体的な操作クラスを知らずに、インターフェース経由で実行を依頼します。この構造を **Command（コマンド）** パターンと呼びます。
-
-**この形にするための準備：**
-
-1. 実行メソッドを持つ `ICommand` インターフェースを定義する。
 
 
 2. 各操作クラスに `ICommand` を実装させる。
@@ -530,16 +519,7 @@ int main() {
 #### 案3：具体×間接 ―― 仲介クラスを置くが、具体型を知っている
 
 **この形の考え方：**
-`CommandInvoker` のような仲介役を置き、そこに操作の実行を集約します。マネージャへの具体的な参照をその仲介役に閉じ込めることで、UIクラスからはマネージャの知識を隠蔽できます。
-
-**この形にするための準備：**
-
-1. 操作の実行を担当する `CommandInvoker` を作成する。
-
-
-2. UIからは、Invokeメソッドを介して操作を依頼する。
-
-
+`CommandInvoker` のような仲介役を置き、実行・アンドゥ・リドゥのスタック管理と履歴の上限制御という複雑なロジックをそこに集約します。マネージャへの具体的な参照をその仲介役に閉じ込めることで、UIクラスからはマネージャの知識を隠蔽できます。
 
 【コード例（一部）】
 
@@ -548,19 +528,107 @@ int main() {
 // ← 間接：呼び出し側はInvokerのみ知り、内部のクラス群は見えない
 class CommandInvoker {
     ExpenseManager em;
+    IncomeManager im;
+    // 実行履歴スタック（アンドゥ用）
+    std::vector<std::string> undoStack;
+    // リドゥ用スタック
+    std::vector<std::string> redoStack;
+    // 履歴の最大保持件数（メモリ圧迫防止）
+    static const int MAX_HISTORY = 50;
+
 public:
-    void run(std::string cmd) { em.addExpense(1000, "Food"); }
+    void addExpense(int amount, std::string category) {
+        em.addExpense(amount, category);
+        pushHistory("EXPENSE:" + category + ":" +
+                    std::to_string(amount));
+    }
+    void addIncome(int amount, std::string source) {
+        im.addIncome(amount, source);
+        pushHistory("INCOME:" + source + ":" +
+                    std::to_string(amount));
+    }
+    void undo() {
+        if (undoStack.empty()) return;
+        std::string last = undoStack.back();
+        undoStack.pop_back();
+        redoStack.push_back(last);
+        applyReverse(last);
+    }
+    void redo() {
+        if (redoStack.empty()) return;
+        std::string next = redoStack.back();
+        redoStack.pop_back();
+        undoStack.push_back(next);
+        applyForward(next);
+    }
+    int historySize() const { return undoStack.size(); }
+
+private:
+    void pushHistory(std::string entry) {
+        undoStack.push_back(entry);
+        // 上限を超えたら古い履歴を自動廃棄
+        if ((int)undoStack.size() > MAX_HISTORY) {
+            undoStack.erase(undoStack.begin());
+        }
+        redoStack.clear(); // 新操作でリドゥ履歴をリセット
+    }
+    void applyReverse(std::string entry) { /* 取り消し処理 */ }
+    void applyForward(std::string entry) { /* やり直し処理 */ }
+};
+
+// UIボタン操作からの呼び出し
+class BudgetApp {
+    CommandInvoker& invoker;
+public:
+    BudgetApp(CommandInvoker& inv) : invoker(inv) {}
+    void onAddExpenseClick(int amount, std::string cat) {
+        invoker.addExpense(amount, cat);
+    }
+    void onUndoClick() { invoker.undo(); }
+    void onRedoClick() { invoker.redo(); }
+};
+
+// 一括インポートからの呼び出し（ロールバック可能）
+class ImportService {
+    CommandInvoker& invoker;
+public:
+    ImportService(CommandInvoker& inv) : invoker(inv) {}
+    void importCSV(std::vector<std::pair<int,std::string>> records) {
+        int importedCount = 0;
+        for (auto& r : records) {
+            invoker.addExpense(r.first, r.second);
+            importedCount++;
+        }
+        std::cout << importedCount << "件インポート完了"
+                  << "（履歴: " << invoker.historySize() << "件）"
+                  << std::endl;
+    }
+    void rollbackImport(int count) {
+        for (int i = 0; i < count; i++) invoker.undo();
+        std::cout << count << "件ロールバック完了" << std::endl;
+    }
 };
 
 ```
 
+このコードを見ると、`CommandInvoker` は依然として具体的な `ExpenseManager` や `IncomeManager` を直接操作しており、新しい操作が増えれば対応が必要です。しかし、アンドゥ・リドゥスタックの管理と履歴の上限制御という複雑なロジックを一箇所に集め、`BudgetApp`（UI操作）と `ImportService`（一括インポート）が同じ操作管理機構を共有できる点に、この形の価値があります。
+
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 案3（具体×間接）の呼び出し側
+// 案3（具体×間接）の呼び出し側 ― 2つの呼び出し元が同じInvokerを共有
 int main() {
-    UIButtons ui;                        // ← 間接：CommandInvokerが内部に隠れており呼び出し側には見えない
-    ui.onAddExpenseClick();              // 内部でCommandInvokerが動くが、呼び出し側は知らない
+    CommandInvoker invoker;
+    // UIからの操作
+    BudgetApp app(invoker);
+    app.onAddExpenseClick(1000, "Food");
+    app.onAddExpenseClick(500, "Transport");
+    app.onUndoClick(); // 直前の操作を取り消す
+
+    // 一括インポート（ロールバック可能）
+    ImportService importer(invoker);
+    importer.importCSV({{2000, "Rent"}, {300, "Water"}});
+    importer.rollbackImport(2); // インポートを丸ごと取り消す
     return 0;
 }
 ```
@@ -583,10 +651,6 @@ int main() {
 
 **この形の考え方：**
 抽象化されたコマンドを、さらに仲介役経由で実行する設計です。どの層も具体的な実装を知らず、操作の履歴保持やUndo/Redoが最も容易に実現できます。一方でクラス数や層が増えるため、小規模なアプリには複雑すぎる場合があります。
-
-**この形にするための準備：**
-
-1. 案2のインターフェース設計を行う。
 
 
 2. 案3の仲介クラスを作成し、コマンドインターフェースを受け取るようにする。
