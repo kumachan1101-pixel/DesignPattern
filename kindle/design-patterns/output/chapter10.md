@@ -501,12 +501,89 @@ int main() {
 【コード例】
 
 ```cpp
-// この構造を Facade パターンと呼ぶ
+#include <iostream>
+#include <string>
+#include <vector>
+
+using namespace std;
+
+// 各外部クライアント（具体型）
+class SystemAClient {
+public:
+    void send(string data) { cout << "A社へ送信: " << data << endl; }
+};
+class SystemBClient {
+public:
+    void send(string data) { cout << "B社へ送信: " << data << endl; }
+};
+class SystemCClient {
+public:
+    void send(string data) { cout << "C社へ送信: " << data << endl; }
+};
+
+// 連携結果を記録するクラス
+class SyncLog {
+public:
+    void record(string targetId, bool success, int attempt) {
+        cout << "[ログ] " << targetId << " 試行" << attempt
+             << "回目: " << (success ? "成功" : "失敗") << endl;
+    }
+};
+
+// ExternalFacade: リトライ・ログ記録を集約する仲介クラス
+class ExternalFacade {
+    SyncLog log;
+    // ← 具体：各クライアントの具体型を直接知っている
+    void sendWithRetry(string targetId, string data, int maxRetry) {
+        for (int attempt = 1; attempt <= maxRetry; attempt++) {
+            bool success = false;
+            // 指数バックオフ待機（デモのため省略）
+            if (targetId == "A") {
+                SystemAClient c; c.send(data); success = true;
+            } else if (targetId == "B") {
+                SystemBClient c; c.send(data); success = true;
+            } else if (targetId == "C") {
+                SystemCClient c; c.send(data); success = true;
+            }
+            log.record(targetId, success, attempt);
+            if (success) return;
+            cout << "[リトライ] " << attempt << "回目失敗。再試行します。"
+                 << endl;
+        }
+        cout << "[エラー] " << targetId << " への連携が失敗しました。"
+             << endl;
+    }
+public:
+    // ← 間接：呼び出し元は各クライアントの具体型を知らなくてよい
+    void run(string targetId, string data) {
+        cout << "[Facade] " << targetId << " への連携を開始。" << endl;
+        sendWithRetry(targetId, data, 3); // 最大3回リトライ
+    }
+};
+
+// 呼び出し元1: 夜間バッチ実行
 class BatchExecutor {
     ExternalFacade facade; // ← 具体：ExternalFacadeという具体型を持っている
 public:
-    void execute(string targetId) {
-        facade.run(targetId); // ← 間接：Facade経由で呼ぶため具体クライアントが見えない
+    void executeNightlyBatch(vector<string> targets) {
+        cout << "[BatchExecutor] 夜間バッチ開始。" << endl;
+        for (auto& targetId : targets) {
+            facade.run(targetId, "nightlyData");
+            // ← 間接：Facade経由のため具体クライアントが見えない
+        }
+        cout << "[BatchExecutor] 夜間バッチ完了。" << endl;
+    }
+};
+
+// 呼び出し元2: 管理者による手動トリガー
+class ManualTriggerController {
+    ExternalFacade facade; // ← 具体：ExternalFacadeという具体型を持っている
+public:
+    void triggerManual(string targetId, string data) {
+        cout << "[ManualTrigger] " << targetId
+             << " への手動連携を実行。" << endl;
+        facade.run(targetId, data);
+        // ← 間接：Facade経由のため具体クライアントが見えない
     }
 };
 
@@ -515,13 +592,22 @@ public:
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 案3（具体×間接）の呼び出し側
 int main() {
-    BatchExecutor executor; // ← 間接：ExternalFacadeが内部に隠れており呼び出し側には見えない
-    executor.execute("C");  // 内部でFacadeが動くが、呼び出し側は知らない
+    // 呼び出し元1: 夜間バッチ
+    BatchExecutor batch;
+    batch.executeNightlyBatch({"A", "B", "C"});
+
+    cout << "---" << endl;
+
+    // 呼び出し元2: 手動トリガー（管理者操作）
+    ManualTriggerController manual;
+    manual.triggerManual("B", "manualTestData");
+
     return 0;
 }
 ```
+
+このコードを見ると、`ExternalFacade` は依然として各外部クライアントの具体型を知っており、連携先が増えれば修正が必要です。しかし、指数バックオフによるリトライと連携結果の記録という複雑なロジックを一箇所に集め、`BatchExecutor`（夜間バッチ）と `ManualTriggerController`（手動実行）が同じ連携フローを共有できる点に、この形の価値があります。
 
 **この形のトレードオフ：**
 

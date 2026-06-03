@@ -499,13 +499,119 @@ int main() {
 【コード例】
 
 ```cpp
-// この構造を Command パターンと呼ぶ
-class ReportGenerator {
+#include <iostream>
+#include <string>
+#include <vector>
+
+using namespace std;
+
+// 各操作コマンド（具体型）
+class AddGraphCommand {
+public:
+    void execute() { cout << "グラフを追加しました。" << endl; }
+    void undo()    { cout << "グラフ追加を取り消しました。" << endl; }
+};
+class AddLogoCommand {
+public:
+    void execute() { cout << "ロゴを追加しました。" << endl; }
+    void undo()    { cout << "ロゴ追加を取り消しました。" << endl; }
+};
+class ExportPdfCommand {
+public:
+    void execute() { cout << "PDFとしてエクスポート。" << endl; }
+    void undo()    { cout << "PDFエクスポートを取り消しました。" << endl; }
+};
+
+// デコレーターで機能追加するレポート（具体型）
+class BasicReportWithDecorators {
+    bool hasGraph;
+    bool hasLogo;
+public:
+    BasicReportWithDecorators() : hasGraph(false), hasLogo(false) {}
+    void applyGraph() { hasGraph = true; }
+    void applyLogo()  { hasLogo = true;  }
+    void generate() {
+        cout << "本文を生成。";
+        if (hasGraph) cout << " [グラフあり]";
+        if (hasLogo)  cout << " [ロゴあり]";
+        cout << endl;
+    }
+};
+
+// HistoryManager: コマンド実行・アンドゥ・履歴上限を管理する仲介クラス
+class HistoryManager {
+    // ← 具体：AddGraphCommand等の具体型を直接知っている
+    vector<pair<string, bool>> history; // (コマンド名, 実行済み)
+    const int MAX_HISTORY = 10;
+    BasicReportWithDecorators report;
+public:
+    void addAndExecute(string commandName) {
+        // 履歴上限チェック
+        if ((int)history.size() >= MAX_HISTORY) {
+            cout << "[警告] 履歴上限(" << MAX_HISTORY
+                 << ")に達しました。古い履歴を削除。" << endl;
+            history.erase(history.begin());
+        }
+        // コマンドを実行してデコレーターを適用
+        // ← 具体：コマンド名を文字列で判定し具体クラスを生成
+        if (commandName == "AddGraph") {
+            AddGraphCommand cmd; cmd.execute();
+            report.applyGraph();
+        } else if (commandName == "AddLogo") {
+            AddLogoCommand cmd; cmd.execute();
+            report.applyLogo();
+        } else if (commandName == "ExportPdf") {
+            report.generate();
+            ExportPdfCommand cmd; cmd.execute();
+        }
+        history.push_back({commandName, true});
+    }
+    void undoLast() {
+        if (history.empty()) {
+            cout << "[警告] アンドゥ対象の操作がありません。" << endl;
+            return;
+        }
+        string last = history.back().first;
+        history.pop_back();
+        // ← 具体：コマンド名で具体クラスを生成してアンドゥ
+        if (last == "AddGraph") {
+            AddGraphCommand cmd; cmd.undo();
+        } else if (last == "AddLogo") {
+            AddLogoCommand cmd; cmd.undo();
+        }
+        cout << "[HistoryManager] 直前の操作(" << last
+             << ")を取り消しました。" << endl;
+    }
+    int historySize() const { return (int)history.size(); }
+};
+
+// 呼び出し元1: 自動レポート生成
+class ReportGeneratorAuto {
     HistoryManager history; // ← 具体：HistoryManagerという具体型を持っている
 public:
-    void execute() {
-        history.add(new AddGraphCommand()); // ← 具体：AddGraphCommandという具体クラスを直接知っている
-        history.executeAll();               // ← 間接：HistoryManager経由で呼ぶため具体コマンドが見えない
+    void generateMonthlyReport() {
+        cout << "[ReportGeneratorAuto] 月次レポート自動生成開始。" << endl;
+        history.addAndExecute("AddGraph");
+        // ← 間接：HistoryManager経由のため具体コマンドが見えない
+        history.addAndExecute("AddLogo");
+        history.addAndExecute("ExportPdf");
+        cout << "[ReportGeneratorAuto] 完了。履歴件数: "
+             << history.historySize() << endl;
+    }
+};
+
+// 呼び出し元2: プレビューとアンドゥが必要なインタラクティブ操作
+class PreviewService {
+    HistoryManager history; // ← 具体：HistoryManagerという具体型を持っている
+public:
+    void addFeature(string featureName) {
+        cout << "[PreviewService] 機能追加: " << featureName << endl;
+        history.addAndExecute(featureName);
+        // ← 間接：HistoryManager経由のため具体コマンドが見えない
+    }
+    void undoLastFeature() {
+        cout << "[PreviewService] 直前の操作を取り消します。" << endl;
+        history.undoLast();
     }
 };
 
@@ -514,13 +620,24 @@ public:
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 案3（具体×間接）の呼び出し側
 int main() {
-    ReportGenerator gen; // ← 間接：HistoryManagerが内部に隠れており呼び出し側には見えない
-    gen.execute();       // 内部でHistoryManagerが動くが、呼び出し側は知らない
+    // 呼び出し元1: 自動生成（アンドゥ不要）
+    ReportGeneratorAuto autoGen;
+    autoGen.generateMonthlyReport();
+
+    cout << "---" << endl;
+
+    // 呼び出し元2: プレビュー操作（アンドゥあり）
+    PreviewService preview;
+    preview.addFeature("AddGraph");
+    preview.addFeature("AddLogo");
+    preview.undoLastFeature(); // ロゴ追加を取り消し
+
     return 0;
 }
 ```
+
+このコードを見ると、`HistoryManager` は依然として各具体クラスを直接扱っており、機能が増えれば修正が必要です。しかし、アンドゥ履歴の管理とデコレーター適用の複雑なロジックを一箇所に集め、`ReportGenerator`（自動生成）と `PreviewService`（プレビュー表示）が同じ操作管理機構を共有できる点に、この形の価値があります。
 
 **この形のトレードオフ：**
 

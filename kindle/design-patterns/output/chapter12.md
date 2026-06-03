@@ -509,11 +509,114 @@ int main() {
 【コード例】
 
 ```cpp
-class WorkflowManager {
-    WorkflowOrchestrator orchestrator; // ← 具体：WorkflowOrchestratorという具体型を持っている
+#include <iostream>
+#include <string>
+#include <vector>
+
+using namespace std;
+
+// 各状態クラス（具体型）
+class PendingState {
 public:
-    void process(Request request) {
-        orchestrator.dispatch(request); // ← 間接：オーケストレーター経由で呼ぶため具体ロジックが見えない
+    void enter() { cout << "申請を受付。審査待ち状態へ移行。" << endl; }
+};
+class UnderReviewState {
+public:
+    void enter() { cout << "審査中状態へ移行。" << endl; }
+};
+class ApprovedState {
+public:
+    void enter() { cout << "承認済み状態へ移行。" << endl; }
+};
+class RejectedState {
+public:
+    void enter() { cout << "却下状態へ移行。" << endl; }
+};
+
+// 承認ルールクラス（具体型）
+class BudgetLimitRule {
+public:
+    bool check(double amount, string approverRole) {
+        if (approverRole == "Manager" && amount > 500000) return false;
+        if (approverRole == "Director" && amount > 5000000) return false;
+        return true;
+    }
+};
+
+// 通知クラス（具体型）
+class EmailNotifier {
+public:
+    void notify(string recipient, string message) {
+        cout << "[Email→" << recipient << "] " << message << endl;
+    }
+};
+
+// WorkflowOrchestrator: 状態遷移・ルール判定・通知を集約する仲介クラス
+class WorkflowOrchestrator {
+    BudgetLimitRule budgetRule; // ← 具体：BudgetLimitRuleという具体型を直接知っている
+    EmailNotifier notifier;     // ← 具体：EmailNotifierという具体型を直接知っている
+public:
+    // 申請の状態を管理し、承認権限チェックと通知を行う
+    // ← 具体：各状態クラスの具体型を直接知っている
+    void dispatch(string currentStatus, double amount,
+                  string approverRole) {
+        if (currentStatus == "New") {
+            PendingState s; s.enter();
+            notifier.notify("申請者", "申請を受け付けました。");
+        } else if (currentStatus == "Pending") {
+            UnderReviewState s; s.enter();
+            notifier.notify("承認者", "申請の審査をお願いします。");
+        } else if (currentStatus == "UnderReview") {
+            // 承認権限チェック
+            if (!budgetRule.check(amount, approverRole)) {
+                cout << "[警告] " << approverRole
+                     << "の承認上限を超過。上位承認者へ転送。" << endl;
+                notifier.notify("Director", "上限超過申請の承認依頼。");
+                return;
+            }
+            ApprovedState s; s.enter();
+            notifier.notify("申請者", "申請が承認されました。");
+            notifier.notify("経理部門", "決済処理をお願いします。");
+        } else if (currentStatus == "Rejected") {
+            RejectedState s; s.enter();
+            notifier.notify("申請者", "申請が却下されました。");
+        }
+    }
+};
+
+// 呼び出し元1: ユーザーによる申請・承認操作
+class ApprovalController {
+    WorkflowOrchestrator orchestrator;
+    // ← 具体：WorkflowOrchestratorという具体型を持っている
+public:
+    void submit(string requestId, double amount) {
+        cout << "[ApprovalController] 申請 " << requestId
+             << " を提出（金額: " << amount << "）。" << endl;
+        orchestrator.dispatch("New", amount, "");
+        // ← 間接：Orchestrator経由のため具体ロジックが見えない
+    }
+    void approve(string requestId, double amount,
+                 string approverRole) {
+        cout << "[ApprovalController] 申請 " << requestId
+             << " を " << approverRole << " が承認操作。" << endl;
+        orchestrator.dispatch("UnderReview", amount, approverRole);
+        // ← 間接：Orchestrator経由のため具体ロジックが見えない
+    }
+};
+
+// 呼び出し元2: 期限超過申請の自動エスカレーション
+class EscalationEngine {
+    WorkflowOrchestrator orchestrator;
+    // ← 具体：WorkflowOrchestratorという具体型を持っている
+public:
+    void escalateOverdue(string requestId, double amount,
+                         int pendingDays) {
+        cout << "[EscalationEngine] 申請 " << requestId
+             << " が " << pendingDays << "日間未対応。エスカレーション実行。"
+             << endl;
+        // 期限超過のため審査中状態へ強制遷移
+        orchestrator.dispatch("Pending", amount, "Director");
+        // ← 間接：Orchestrator経由のため具体ロジックが見えない
     }
 };
 
@@ -522,13 +625,24 @@ public:
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 案3（具体×間接）の呼び出し側
 int main() {
-    WorkflowManager wf;  // ← 間接：WorkflowOrchestratorが内部に隠れており呼び出し側には見えない
-    wf.process(request); // 内部でOrchestratorが動くが、呼び出し側は知らない
+    // 呼び出し元1: ユーザー操作
+    ApprovalController controller;
+    controller.submit("REQ-001", 300000);
+    controller.approve("REQ-001", 300000, "Manager");
+
+    cout << "---" << endl;
+
+    // 呼び出し元2: 自動エスカレーション（5日間未対応）
+    EscalationEngine engine;
+    engine.escalateOverdue("REQ-002", 800000, 5);
+    // ↑ Managerの上限(500000)を超えるためDirectorへ転送
+
     return 0;
 }
 ```
+
+このコードを見ると、`WorkflowOrchestrator` は依然として各状態・ルールの具体クラスを知っており、フローが増えれば修正が必要です。しかし、承認権限チェックや期限超過時の自動エスカレーションという複雑なルールを一箇所に集め、`ApprovalController`（ユーザー操作）と `EscalationEngine`（自動処理）が同じワークフローロジックを共有できる点に、この形の価値があります。
 
 **この形のトレードオフ：**
 
