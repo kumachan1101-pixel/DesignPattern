@@ -539,29 +539,62 @@ public:
     virtual void pay(int amount) = 0;
 };
 
-// 呼び出し側の修正
-void processPayment(string type, int amount) {
-    IPaymentProcessor* p = createProcessor(type); // ← 抽象：IPaymentProcessor*型で受け取り、具体クラスを知らない
-    p->pay(amount);                               // ← 直接：中間クラスを挟まずに直接呼び出す
-}
+// 呼び出し元1：個別ユーザーの購入処理
+class PaymentApplication {
+    // ← 抽象：IPaymentProcessor*型で受け取り、具体クラスを知らない
+    IPaymentProcessor* createProcessor(string type) {
+        if (type == "credit") return new CreditCardProcessor();
+        if (type == "paypay") return new PayPayProcessor();
+        if (type == "cvs") return new ConvenienceStoreProcessor();
+        return nullptr;
+    }
+public:
+    void processPayment(string type, int amount) {
+        IPaymentProcessor* p = createProcessor(type);
+        if (p) {
+            p->pay(amount); // ← 直接：中間クラスを挟まずに直接呼び出す
+            delete p;
+        }
+    }
+};
+
+// 呼び出し元2：定期課金の処理
+// ← 同じインターフェース型を使って外から渡すため、重複も密結合も生じない
+class SubscriptionService {
+    IPaymentProcessor* processor; // ← 抽象：具体クラスを知らない
+public:
+    SubscriptionService(IPaymentProcessor* p) : processor(p) {}
+    void chargeMonthly(string customerId, int amount) {
+        cout << "顧客 " << customerId << " の月額課金を処理します。" << endl;
+        processor->pay(amount); // ← 直接：インターフェース経由で直接呼ぶ
+    }
+};
 
 ```
+
+このコードを見ると、`PaymentApplication` はインターフェース経由で決済を実行し、`SubscriptionService` も同じインターフェース型を外から受け取るだけで、具体クラスを一切知らずに済んでいることが分かります。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案2（抽象×直接）の呼び出し側
 int main() {
-    PaymentApplication app;              // ← 直接：PaymentApplicationを直接生成
-    app.processPayment("credit", 1000);  // ← 抽象：呼び出し側は具体クラスを知らない
+    // 個別購入の呼び出し元：抽象型経由で生成・実行
+    PaymentApplication app;
+    app.processPayment("credit", 1000); // ← 具体クラスは内部で生成される
     app.processPayment("paypay", 700);
+
+    // 定期課金の呼び出し元：インターフェース経由で注入（重複なし）
+    CreditCardProcessor credit; // ← 具体：呼び出し側だけが具体クラスを生成
+    SubscriptionService subscription(&credit);
+    subscription.chargeMonthly("user-001", 980); // ← 具体クラスを知らずに実行
     return 0;
 }
 ```
 
 **この形のトレードオフ：**
 
-* 変更容易性：中〜高（生成ロジックは切り出されたため、元の決済ロジックは無影響）
+* 変更容易性：中〜高（生成ロジックは切り出されたため、利用ロジックは無影響）
 * テスト容易性：高（インターフェースに対しスタブを差し込める）
 * 実装コスト：中（インターフェース設計と生成メソッドの導入が必要）
 
@@ -688,7 +721,7 @@ int main() {
 #### 案4：抽象×間接 ―― インターフェース＋仲介役を両立する
 
 **この形の考え方：**
-インターフェース（案2）と仲介役（案3）を組み合わせる。通知元は抽象インターフェースを知り、その具体的な生成は仲介役（Factory）に委ねる。最も柔軟だがクラス構成は複雑になる。
+インターフェース（案2）と仲介役（案3）を組み合わせる。利用側は抽象インターフェースを知り、その具体的な生成は仲介役（Factory）に委ねる。最も柔軟だがクラス構成は複雑になる。
 
 【コード例】
 
@@ -698,26 +731,49 @@ public:
     virtual IPaymentProcessor* create(string type) = 0; // ← 抽象：IPaymentProcessor*型で返す
 };
 
+// 呼び出し元1：個別ユーザーの購入処理
 class PaymentApplication {
     PaymentFactory* factory; // ← 抽象：PaymentFactory*型で受け取り、具体実装を知らない
 public:
     PaymentApplication(PaymentFactory* f) : factory(f) {}
     void processPayment(string type, int amount) {
-        IPaymentProcessor* p = factory->create(type); // ← 間接：Factoryを経由するため具体クラスが見えない
-        p->pay(amount);
+        IPaymentProcessor* p = factory->create(type); // ← 間接：Factory経由で具体クラスが見えない
+        if (p) { p->pay(amount); delete p; }
+    }
+};
+
+// 呼び出し元2：定期課金の処理
+// ← 同じ抽象Factoryを外から受け取るため、重複も密結合も生じない
+class SubscriptionService {
+    PaymentFactory* factory; // ← 抽象：同じ抽象インターフェースで受け取る
+public:
+    SubscriptionService(PaymentFactory* f) : factory(f) {}
+    void chargeMonthly(string customerId, int amount) {
+        cout << "顧客 " << customerId << " の月額課金を処理します。" << endl;
+        IPaymentProcessor* p = factory->create("credit"); // ← 間接：Factory経由
+        if (p) { p->pay(amount); delete p; }
     }
 };
 
 ```
+
+このコードを見ると、`PaymentApplication` も `SubscriptionService` も、抽象Factoryのインターフェースだけを知り、具体的な決済クラスについては何も知らなくて済んでいることが分かります。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案4（抽象×間接）の呼び出し側
 int main() {
-    ConcretePaymentFactory factory;      // ← 具体：組み立て側だけが具体型を知る
-    PaymentApplication app(&factory);    // ← 間接：抽象Factoryのみ見えて具体実装は隠れる
-    app.processPayment("credit", 1000);
+    ConcretePaymentFactory factory; // ← 具体：組み立て側だけが具体型を知る
+
+    // 個別購入の呼び出し元：抽象Factoryのみ見えて具体実装は隠れる
+    PaymentApplication app(&factory);
+    app.processPayment("credit", 1000); // ← 間接：Factoryを経由して生成・実行
+    app.processPayment("paypay", 700);
+
+    // 定期課金の呼び出し元：同じ抽象Factoryを共有（重複なし）
+    SubscriptionService subscription(&factory);
+    subscription.chargeMonthly("user-001", 980); // ← 同じFactory経由で決済
     return 0;
 }
 ```
