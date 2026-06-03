@@ -385,12 +385,33 @@ if (isEmergency) {
 
 ```cpp
 // 案0（現状維持）の呼び出し側
+// 両クラスが同じ承認状態チェック/ルールチェックのロジックを重複して持つ
+class EscalationEngine {
+public:
+    void escalateOverdue() {
+        // ← 具体：ApprovalControllerと同じif-else分岐をそのまま複製している
+        if (amount > 100000) {
+            cout << "役員承認が必要。エスカレーション実行。" << endl;
+            notify("役員へ直接通知");
+        }
+    }
+private:
+    double amount = 150000;
+    void notify(string msg) { cout << msg << endl; }
+};
+
 int main() {
-    WorkflowManager wf;                   // ← 直接：WorkflowManagerを直接生成して使う
-    wf.process(request);                  // ← 具体：内部にif-else分岐が直書きされている
+    WorkflowManager wf;               // ← 直接：WorkflowManagerを直接生成して使う
+    wf.process("SUBMITTED", 50000);   // ← 具体：内部にif-else分岐が直書きされている
+
+    EscalationEngine engine;          // ← 直接：EscalationEngineも直接生成
+    engine.escalateOverdue();
+    // ← 具体：内部にWorkflowManagerと同じif-else分岐が重複している
     return 0;
 }
 ```
+
+両クラスが同じロジックを重複して持つため、ルールが変わると2か所を修正しなければならない。
 
 **この形のトレードオフ：**
 
@@ -425,12 +446,32 @@ void process() {
 
 ```cpp
 // 案1（具体×直接）の呼び出し側
+// 選択ロジックが両クラスに重複している
+class EscalationEngine {
+public:
+    void escalateOverdue() {
+        RuleChecker checker; // ← 具体：RuleCheckerという型名を直接書いている
+        PendingState pending; // ← 具体：PendingStateという型名を直接書いている
+        if (checker.isOverdue()) {
+            pending.enter();
+            cout << "[EscalationEngine] 期限超過申請をエスカレーション。"
+                 << endl;
+        }
+    }
+};
+
 int main() {
     WorkflowManager wf; // ← 直接：WorkflowManagerを直接生成して使う
     wf.process(request); // ← 具体：内部でRuleCheckerが直接生成される
+
+    EscalationEngine engine; // ← 直接：EscalationEngineも直接生成して使う
+    engine.escalateOverdue();
+    // ← 具体：内部で状態/ルールの具体クラスが直接生成される
     return 0;
 }
 ```
+
+選択ロジックが両クラスに重複しており、具体クラスへの依存が両方に残る。
 
 **この形のトレードオフ：**
 
@@ -474,13 +515,37 @@ public:
 
 ```cpp
 // 案2（抽象×直接）の呼び出し側
+// 注入アプローチにより、両クラスで選択ロジックの重複がなくなる
+class EscalationEngine {
+    IApprovalStrategy* strategy;
+    // ← 抽象：外部から注入されたインターフェースのみ知っている
+    IWorkflowState* state;
+    // ← 抽象：外部から注入されたインターフェースのみ知っている
+public:
+    EscalationEngine(IApprovalStrategy* s, IWorkflowState* st)
+        : strategy(s), state(st) {}
+    void escalateOverdue() {
+        cout << "[EscalationEngine] 期限超過申請を処理中。" << endl;
+        state->handle(nullptr);
+        // ← 直接：インターフェース経由で直接呼び出す
+    }
+};
+
 int main() {
     ManagerApproval strategy;             // ← 具体：呼び出し側だけが具体クラスを生成
     WorkflowManager wf(&strategy);        // ← 直接：インターフェース経由で直接注入
     wf.process(50000);
+
+    DirectorApproval esc_strategy;
+    PendingState esc_state;
+    EscalationEngine engine(&esc_strategy, &esc_state);
+    // ← 直接：同様に注入
+    engine.escalateOverdue();
     return 0;
 }
 ```
+
+注入アプローチにより、両クラスとも具体クラスを知らずに済み、選択ロジックの重複が解消される。
 
 **この形のトレードオフ：**
 
