@@ -448,22 +448,27 @@ public:
         // ← 具体：PriorityCalculatorという型名を直接書いている
         PriorityCalculator calc;
         string priority = calc.calculate("urgent");
-        OpenState open; // ← 具体：OpenStateという型名を直接書いている
+        // ← 具体：InProgressStateという型名を直接書いている
         InProgressState inProg;
         if (priority == "High") {
             inProg.activate();
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
+        } else {
+            OpenState open; // ← 具体：OpenStateという型名を直接書いている
+            open.activate();
         }
     }
 };
 
 int main() {
     TicketManager manager; // ← 直接：TicketManagerを直接生成して使う
-    manager.updateStatus("urgent issue", "InProgress"); // ← 具体：内部でPriorityCalculatorが直接生成される
+    manager.updateStatus("urgent issue", "InProgress");
+    // ← 具体：内部でPriorityCalculatorが直接生成される
 
     EscalationEngine engine; // ← 直接：EscalationEngineも直接生成して使う
-    engine.checkAndEscalate("T-001"); // ← 具体：内部で状態/ルールの具体クラスが直接生成される
+    engine.checkAndEscalate("T-001");
+    // ← 具体：内部で状態/ルールの具体クラスが直接生成される
     return 0;
 }
 ```
@@ -718,7 +723,8 @@ public:
 // 案4（抽象×間接）の呼び出し側
 // 両クラスとも抽象コントローラーのみを知っており、具体的な状態/ルールは隠れている
 class EscalationEngine {
-    IStateController* controller; // ← 抽象：抽象コントローラーインターフェースのみ知っている
+    IStateController* controller;
+    // ← 抽象：抽象コントローラーインターフェースのみ知っている
 public:
     EscalationEngine(IStateController* c) : controller(c) {}
     void checkAndEscalate(string ticketId) {
@@ -730,12 +736,13 @@ public:
 };
 
 int main() {
-    ConcreteTicketFactory factory;        // ← 具体：組み立て側だけが具体型を知る
-    TicketManager manager(&factory);      // ← 間接：抽象Factoryのみ見えて具体実装は隠れる
+    ConcreteStateController ctrl; // ← 具体：組み立て側だけが具体型を知る
+    TicketManager manager(&ctrl); // ← 間接：抽象コントローラーのみ見えて具体実装は隠れる
     manager.update("Open");
 
-    ConcreteStateController controller;
-    EscalationEngine engine(&controller); // ← 間接：抽象コントローラーのみ見えて具体実装は隠れる
+    ConcreteStateController ctrl2;
+    EscalationEngine engine(&ctrl2);
+    // ← 間接：抽象コントローラーのみ見えて具体実装は隠れる
     engine.checkAndEscalate("T-001");
     return 0;
 }

@@ -384,12 +384,33 @@ void generate(bool addGraph, bool addLogo) {
 
 ```cpp
 // 案0（現状維持）の呼び出し側
+// 両クラスが同じレポート生成ロジックを重複して持つ
+class PreviewService {
+public:
+    void previewReport(string format) {
+        // ← 具体：ReportGeneratorと同じif-elseフラグ判定をそのまま複製している
+        DataReader reader;
+        reader.readCSV();
+        cout << format << "形式でプレビューのヘッダーを生成。" << endl;
+        bool addGraph = true;
+        if (addGraph) cout << "グラフを追加（プレビュー）。" << endl;
+        cout << format << "形式でプレビューのフッターを生成。" << endl;
+    }
+};
+
 int main() {
-    ReportGenerator gen;             // ← 直接：ReportGeneratorを直接生成して使う
-    gen.generate(true, true);        // ← 具体：内部にグラフ/ロゴのロジックが直書きされている
+    ReportGenerator gen;              // ← 直接：ReportGeneratorを直接生成して使う
+    gen.generate("PDF", true, false);
+    // ← 具体：内部にグラフ/ロゴのロジックが直書きされている
+
+    PreviewService preview;           // ← 直接：PreviewServiceも直接生成
+    preview.previewReport("HTML");
+    // ← 具体：内部にReportGeneratorと同じif-else分岐が重複している
     return 0;
 }
 ```
+
+両クラスが同じロジックを重複して持つため、機能追加のたびに2か所を修正しなければならない。
 
 **この形のトレードオフ：**
 
@@ -424,12 +445,28 @@ void generate() {
 
 ```cpp
 // 案1（具体×直接）の呼び出し側
+// 選択ロジックが両クラスに重複している
+class PreviewService {
+public:
+    void previewReport() {
+        GraphFeature graph; // ← 具体：GraphFeatureという型名を直接書いている
+        graph.draw();       // ← 直接：このクラスを直接インスタンス化している
+        LogoFeature logo;   // ← 具体：LogoFeatureという型名を直接書いている
+        logo.draw();
+    }
+};
+
 int main() {
     ReportGenerator gen; // ← 直接：ReportGeneratorを直接生成して使う
     gen.generate();      // ← 具体：内部でGraphFeatureが直接生成される
+
+    PreviewService preview; // ← 直接：PreviewServiceも直接生成して使う
+    preview.previewReport(); // ← 具体：内部でGraphFeature/LogoFeatureが直接生成される
     return 0;
 }
 ```
+
+選択ロジックが両クラスに重複しており、機能クラスへの依存が両方に残る。
 
 **この形のトレードオフ：**
 
@@ -469,13 +506,31 @@ public:
 
 ```cpp
 // 案2（抽象×直接）の呼び出し側
+// 注入アプローチにより、両クラスで機能クラスへの依存の重複がなくなる
+class PreviewService {
+    IReportFeature* feature;
+    // ← 抽象：外部から注入されたインターフェースのみ知っている
+public:
+    PreviewService(IReportFeature* f) : feature(f) {}
+    void previewReport() {
+        feature->apply(); // ← 直接：インターフェース経由で直接呼び出す
+        cout << "プレビュー表示完了。" << endl;
+    }
+};
+
 int main() {
     GraphFeature graph;                // ← 具体：呼び出し側だけが具体クラスを生成
     ReportGenerator gen(&graph);       // ← 直接：インターフェース経由で直接注入
     gen.generate();
+
+    LogoFeature logo;
+    PreviewService preview(&logo);     // ← 直接：同様にインターフェース経由で注入
+    preview.previewReport();
     return 0;
 }
 ```
+
+注入アプローチにより、両クラスとも具体クラスを知らずに済み、選択ロジックの重複が解消される。
 
 **この形のトレードオフ：**
 
@@ -678,13 +733,39 @@ public:
 
 ```cpp
 // 案4（抽象×間接）の呼び出し側
+// 両クラスとも抽象HistoryManagerのみを知っており、具体的な機能クラスは隠れている
+class PreviewService {
+    IHistoryManager* history;
+    // ← 抽象：抽象HistoryManagerインターフェースのみ知っている
+public:
+    PreviewService(IHistoryManager* h) : history(h) {}
+    void previewReport(string target) {
+        cout << "[PreviewService] " << target
+             << " のプレビューを生成。" << endl;
+        history->addAndExecute(target);
+        // ← 間接：HistoryManager経由のため具体クラスが見えない
+    }
+    void undoLast() {
+        history->undoLast();
+        // ← 間接：HistoryManager経由のため具体クラスが見えない
+    }
+};
+
 int main() {
     ReportFactory factory;             // ← 具体：組み立て側だけが具体型を知る
     ReportGenerator gen(&factory);     // ← 間接：抽象Factoryのみ見えて具体実装は隠れる
     gen.generate("sales");
+
+    ConcreteHistoryManager histMgr;
+    PreviewService preview(&histMgr);
+    // ← 間接：抽象HistoryManagerのみ見えて具体実装は隠れる
+    preview.previewReport("AddGraph");
+    preview.undoLast();
     return 0;
 }
 ```
+
+両クラスとも抽象インターフェースのみを受け取るため、具体的な機能クラスへの依存が完全に排除される。
 
 **この形のトレードオフ：**
 

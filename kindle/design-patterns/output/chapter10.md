@@ -704,13 +704,33 @@ public:
 
 ```cpp
 // 案4（抽象×間接）の呼び出し側
+// 両クラスとも抽象Facadeのみを知っており、具体クライアント実装は隠れている
+class ManualTriggerController {
+    IFacade* facade; // ← 抽象：抽象Facadeインターフェースのみ知っている
+public:
+    ManualTriggerController(IFacade* f) : facade(f) {}
+    void triggerSync(string systemId) {
+        cout << "[ManualTrigger] " << systemId
+             << " への手動同期を実行。" << endl;
+        facade->execute();
+        // ← 間接：Facade経由のため具体クライアントが見えない
+    }
+};
+
 int main() {
     ConcreteFacade facade;             // ← 具体：組み立て側だけが具体型を知る
     BatchExecutor executor(&facade);   // ← 間接：抽象Facadeのみ見えて具体実装は隠れる
     executor.execute("C");
+
+    ConcreteFacade facade2;
+    ManualTriggerController manual(&facade2);
+    // ← 間接：抽象Facadeのみ見えて具体実装は隠れる
+    manual.triggerSync("B");
     return 0;
 }
 ```
+
+両クラスとも抽象Facadeインターフェースのみを受け取るため、具体的なクライアントクラスへの依存が完全に排除される。
 
 **この形のトレードオフ：**
 

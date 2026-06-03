@@ -481,13 +481,40 @@ public:
 
 ```cpp
 // 案0（現状維持）の呼び出し側
+// 顧客注文：フラグの組み合わせを呼び出し側が直接指定する
+class MobileOrderService {
+public:
+    void placeOrder(bool milk, bool whip, bool syrup) {
+        // ← 具体：フラグ組み合わせと価格・名前計算ロジックを直接書く
+        CustomDrink order("Coffee", 300, milk, whip, syrup, false);
+        cout << "注文確定: " << order.getDescription()
+             << " / " << order.getPrice() << "円" << endl;
+    }
+};
+
+// スタッフラベル確認：同じフラグ判定ロジックが再び現れる（重複）
+class StaffPreviewService {
+public:
+    string getOrderLabel(bool milk, bool whip, bool syrup) {
+        // ← 重複：MobileOrderServiceと同じCustomDrinkを直接生成して計算
+        CustomDrink order("Coffee", 300, milk, whip, syrup, false);
+        return order.getDescription() + " ("
+               + to_string(order.getPrice()) + "円)";
+    }
+};
+
 int main() {
-    // ← 具体：フラグの組み合わせを呼び出し側が直接指定している
-    CustomDrink order("Coffee", 300, true, true, false, false);
-    cout << "合計金額: " << order.getPrice() << "円" << endl;
+    MobileOrderService mobile;
+    mobile.placeOrder(true, true, false);
+
+    StaffPreviewService staff;
+    cout << "[ラベル] "
+         << staff.getOrderLabel(true, true, false) << endl;
     return 0;
 }
 ```
+
+`MobileOrderService` と `StaffPreviewService` の両方が、`CustomDrink` の生成とフラグ指定ロジックをそれぞれの場所に書いている。新しいトッピングが増えるたびに、両方の呼び出し元でコンストラクタ引数を修正しなければならない。
 
 **この形のトレードオフ：**
 
@@ -557,16 +584,40 @@ int main() {
 
 ```cpp
 // 案1（具体×直接）の呼び出し側
+// 顧客注文：具体クラスを直接生成して設定する
+class MobileOrderService {
+public:
+    void placeOrder(bool addMilk, bool addWhip) {
+        CustomDrink order("Coffee", 300);
+        if (addMilk) { Milk m; order.setMilk(&m); } // ← 直接：具体クラスを直接生成
+        if (addWhip) { Whip w; order.setWhip(&w); } // ← 直接：具体クラスを直接生成
+        cout << "注文確定: " << order.getPrice() << "円" << endl;
+    }
+};
+
+// スタッフラベル確認：どの具体クラスを使うかの選択も重複する
+class StaffPreviewService {
+public:
+    string getOrderLabel(bool addMilk, bool addWhip) {
+        CustomDrink order("Coffee", 300);
+        // ← 重複：MobileOrderServiceと同じ具体クラス選択ロジックがここにも現れる
+        if (addMilk) { Milk m; order.setMilk(&m); }
+        if (addWhip) { Whip w; order.setWhip(&w); }
+        return to_string(order.getPrice()) + "円";
+    }
+};
+
 int main() {
-    Milk milk;                           // ← 直接：呼び出し側が具体クラスを直接生成
-    Whip whip;
-    CustomDrink order("Coffee", 300);
-    order.setMilk(&milk);
-    order.setWhip(&whip);
-    cout << "合計金額: " << order.getPrice() << "円" << endl;
+    MobileOrderService mobile;
+    mobile.placeOrder(true, true);
+
+    StaffPreviewService staff;
+    cout << "[ラベル] " << staff.getOrderLabel(true, true) << endl;
     return 0;
 }
 ```
+
+`MobileOrderService` と `StaffPreviewService` の両方が、「どの具体クラスを使うか」という選択ロジックをそれぞれの場所に持っている。新しいトッピングが増えるたびに、両方の呼び出し元を修正しなければならない。
 
 **この形のトレードオフ：**
 
@@ -629,16 +680,41 @@ public:
 
 ```cpp
 // 案2（抽象×直接）の呼び出し側
+// 顧客注文：抽象型で受け取り、具体クラスに依存しない
+class MobileOrderService {
+public:
+    void placeOrder(CustomDrink* order) { // ← 直接：インターフェース経由で受け取る
+        cout << "注文確定: " << order->getPrice() << "円" << endl;
+    }
+};
+
+// スタッフラベル確認：こちらも同じ形で受け取るだけ（重複なし）
+class StaffPreviewService {
+public:
+    string getOrderLabel(CustomDrink* order) { // ← 直接：同じ形で受け取れる
+        return order->getDescription()
+               + " (" + to_string(order->getPrice()) + "円)";
+    }
+};
+
 int main() {
     Milk milk;                           // ← 具体：呼び出し側だけが具体クラスを生成
     Whip whip;
     CustomDrink order("Coffee", 300);    // ← 直接：インターフェース経由で直接注入
     order.addTopping(&milk);
     order.addTopping(&whip);
-    cout << "合計金額: " << order.getPrice() << "円" << endl;
+
+    MobileOrderService mobile;
+    mobile.placeOrder(&order);
+
+    StaffPreviewService staff;
+    cout << "[ラベル] "
+         << staff.getOrderLabel(&order) << endl; // ← 同じ形で使い回せる
     return 0;
 }
 ```
+
+`MobileOrderService` と `StaffPreviewService` はどちらも `CustomDrink*` を受け取るだけで、「どの具体トッピングが追加されているか」を知らずに済む。新しいトッピングが増えても、どちらの呼び出し元も修正は不要だ。
 
 **この形のトレードオフ：**
 
@@ -801,14 +877,40 @@ public:
 
 ```cpp
 // 案4（抽象×間接）の呼び出し側
+// 顧客注文：抽象IDrinkのみ知り、具体実装は見えない
+class MobileOrderService {
+public:
+    void placeOrder(IDrink* order) { // ← 抽象：インターフェース型で受け取る
+        cout << "注文確定: " << order->getDescription()
+             << " / " << order->getPrice() << "円" << endl;
+    }
+};
+
+// スタッフラベル確認：こちらも同じ抽象型を受け取る（重複なし）
+class StaffPreviewService {
+public:
+    string getOrderLabel(IDrink* order) { // ← 抽象：同じインターフェース型で受け取る
+        return order->getDescription()
+               + " (" + to_string(order->getPrice()) + "円)";
+    }
+};
+
 int main() {
     Coffee coffee;                        // ← 具体：組み立て側だけが具体型を知る
     // ← 間接：抽象IDrinkのみ見えて具体実装は多層に隠れる
     IDrink* order = new Whip(new Milk(&coffee));
-    cout << "合計金額: " << order->getPrice() << "円" << endl;
+
+    MobileOrderService mobile;
+    mobile.placeOrder(order);
+
+    StaffPreviewService staff;
+    cout << "[ラベル] "
+         << staff.getOrderLabel(order) << endl; // ← 間接：同じ抽象型で使い回せる
     return 0;
 }
 ```
+
+`MobileOrderService` と `StaffPreviewService` はどちらも `IDrink*` という抽象インターフェースしか知らない。具体的なトッピングの重ね方（何層になっているか）の知識は `main()` の組み立て部分だけに閉じている。
 
 **この形のトレードオフ：**
 

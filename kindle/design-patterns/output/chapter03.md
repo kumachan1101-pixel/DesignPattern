@@ -372,14 +372,54 @@ graph LR
 【コード例】
 
 ```cpp
-void reserve() {
-    // ← 具体："Available"という条件を呼び出し側が直接書いている
-    if (status == "Available") { /* ... */ }
-    else if (status == "Held") { /* 保留中の予約処理 */ }
-    else { /* エラー処理 */ }
-}
+// 呼び出し元1：顧客が行う通常の予約フロー
+class TicketReservation {
+private:
+    std::string status; // "Available", "Reserved", "Paid"
+public:
+    TicketReservation() : status("Available") {}
+    void reserve() {
+        // ← 具体："Available"という条件を呼び出し側が直接書いている
+        if (status == "Available") { status = "Reserved"; std::cout << "予約完了\n"; }
+        else if (status == "Held") { status = "Reserved"; /* 保留中の予約処理 */ }
+        else { std::cout << "現在予約できません\n"; }
+    }
+    void cancel() {
+        if (status == "Reserved") { status = "Available"; std::cout << "キャンセル完了\n"; }
+        else { std::cout << "キャンセルできません\n"; }
+    }
+    std::string getStatus() const { return status; }
+};
+
+// 管理パネル（呼び出し元2）
+// ← 案0の問題：TicketReservationと同じif文を重複して持つことになる
+class AdminPanel {
+private:
+    std::string status; // "Available", "Reserved", "Paid"
+public:
+    AdminPanel() : status("Available") {}
+    // 管理画面からの強制キャンセル
+    void forceCancel(const std::string& seatId) {
+        // ← TicketReservationと全く同じ条件判定が重複している
+        if (status == "Reserved" || status == "Paid") {
+            status = "Available";
+            std::cout << "座席 " << seatId << " を強制キャンセルしました\n";
+        } else {
+            std::cout << "キャンセル対象外の状態です\n";
+        }
+    }
+    // 管理画面からの状態確認
+    void checkStatus(const std::string& seatId) {
+        // ← これもTicketReservationと同じ状態チェックロジックが重複している
+        if (status == "Available") std::cout << seatId << ": 空席\n";
+        else if (status == "Reserved") std::cout << seatId << ": 予約済み\n";
+        else if (status == "Paid") std::cout << seatId << ": 支払い済み\n";
+    }
+};
 
 ```
+
+このコードを見ると、状態判定ロジックが `TicketReservation` と `AdminPanel` の両方に重複して書かれていることが分かります。新しい状態が追加されるたびに、両方のクラスの `if` 文を同時に修正しなければなりません。
 
 **呼び出し側から見た違い（main() 例）：**
 
@@ -387,8 +427,11 @@ void reserve() {
 // 案0（現状維持）の呼び出し側
 int main() {
     TicketReservation reservation;
-    reservation.status = "Available";  // ← 具体："Available"という条件値をそのまま渡している
-    reservation.reserve();
+    reservation.reserve();   // ← 具体：内部でif文による状態判定が走る
+
+    AdminPanel admin;
+    admin.forceCancel("A-15");   // ← 同じif文が重複して走る
+    admin.checkStatus("A-15");
     return 0;
 }
 ```
@@ -412,22 +455,58 @@ int main() {
 // ← 具体：ReservedStateという型名を直接書いている
 class ReservedState {
 public:
-    void pay() { /* ... */ }
+    void reserve() { std::cout << "既に予約済みです\n"; }
+    void pay() { std::cout << "支払い完了\n"; }
+    void cancel() { std::cout << "キャンセル完了\n"; }
 };
-// TicketReservationはReservedStateを知っている
+class AvailableState {
+public:
+    void reserve() { std::cout << "予約完了\n"; }
+};
+
+// 呼び出し元1：顧客が行う通常の予約フロー
 // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
-void pay() { reservedState.pay(); }
+class TicketReservation {
+    ReservedState* reservedState;
+    AvailableState* availableState;
+public:
+    TicketReservation(ReservedState* rs, AvailableState* as)
+        : reservedState(rs), availableState(as) {}
+    void pay() { reservedState->pay(); }
+    void cancel() { reservedState->cancel(); }
+};
+
+// 管理パネル（呼び出し元2）
+class AdminPanel {
+    ReservedState* reservedState;   // ← 直接：同じ具体クラスをここでも直接保持
+public:
+    AdminPanel(ReservedState* rs) : reservedState(rs) {}
+    // ← 「どのクラスを使うか」という選択ロジックがここにも重複している
+    void forceCancel(const std::string& seatId) {
+        reservedState->cancel();   // ← 直接：具体クラスをここでも直接呼び出す
+        std::cout << "強制キャンセル: " << seatId << "\n";
+    }
+    void checkStatus(const std::string& seatId) {
+        std::cout << seatId << ": 予約済み\n";  // ← 直接：状態クラスを直接知っている
+    }
+};
 
 ```
+
+このコードを見ると、状態クラスは別ファイルに切り出せましたが、**`TicketReservation` も `AdminPanel` も `ReservedState` という具体クラスを直接知っており、その依存関係が両方に重複しています**。新しい状態クラスが増えるたびに、両方の呼び出し元に修正が必要になります。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案1（具体×直接）の呼び出し側
 int main() {
-    ReservedState state;                     // ← 直接：呼び出し側が具体クラスを直接生成
-    TicketReservation reservation(&state);
+    ReservedState reserved;
+    AvailableState available;
+    TicketReservation reservation(&reserved, &available);  // ← 直接：具体クラスを直接渡す
     reservation.pay();
+
+    AdminPanel admin(&reserved);  // ← 直接：同じ具体クラスをここでも直接渡す
+    admin.forceCancel("A-15");
     return 0;
 }
 ```
@@ -448,19 +527,55 @@ int main() {
 【コード例】
 
 ```cpp
+class TicketReservation;
+
 class IReservationState { // 抽象による分離
 public:
     virtual void reserve(TicketReservation* ctx) = 0;
+    virtual void cancel(TicketReservation* ctx) = 0;
+    virtual ~IReservationState() = default;
 };
 
 class ReservedState : public IReservationState {
-    void reserve(TicketReservation* ctx) override { /* 処理 */ }
+public:
+    void reserve(TicketReservation* ctx) override { /* 既に予約済み */ }
+    void cancel(TicketReservation* ctx) override { /* キャンセル処理 */ }
 };
 
-// TicketReservationのメンバ変数：
-// ← 抽象：IReservationState*型で受け取り、具体クラスを知らない
+// 呼び出し元1：顧客が行う通常の予約フロー
+class TicketReservation {
+private:
+    // ← 抽象：IReservationState*型で受け取り、具体クラスを知らない
+    IReservationState* state;
+public:
+    TicketReservation(IReservationState* s) : state(s) {}
+    void setState(IReservationState* s) { state = s; }
+    void reserve() { state->reserve(this); }
+    void cancel() { state->cancel(this); }
+};
+
+// 管理パネル（呼び出し元2）
+class AdminPanel {
+private:
+    IReservationState* state;  // ← 抽象：具体クラスを知らない
+public:
+    AdminPanel(IReservationState* s) : state(s) {}
+    // 管理画面からの強制キャンセル
+    void forceCancel(const std::string& seatId) {
+        // ← 抽象：IReservationState経由でキャンセルを依頼するだけ
+        // 具体的な状態クラスの詳細は知らない
+        TicketReservation ctx(state);
+        ctx.cancel();
+        std::cout << "強制キャンセル: " << seatId << "\n";
+    }
+    void checkStatus(const std::string& seatId) {
+        std::cout << seatId << ": 状態確認完了\n";
+    }
+};
 
 ```
+
+このコードを見ると、`TicketReservation` も `AdminPanel` も `IReservationState` というインターフェースしか知らず、具体的な状態クラスを一切知らないことが分かります。両クラスが同じ `IReservationState` を受け取る構造なので、状態が変わっても `TicketReservation` にも `AdminPanel` にも一切触らずに済みます。
 
 **呼び出し側から見た違い（main() 例）：**
 
@@ -468,8 +583,10 @@ class ReservedState : public IReservationState {
 // 案2（抽象×直接）の呼び出し側
 int main() {
     ReservedState state;                       // ← 具体：呼び出し側だけが具体クラスを生成
-    TicketReservation reservation(&state);     // ← 直接：インターフェース経由で直接注入
-    reservation.reserve();
+    TicketReservation reservation(&state);     // ← 直接：同じstateを注入
+    AdminPanel admin(&state);                  // ← 直接：同じstateを使い回せる
+    reservation.cancel();
+    admin.forceCancel("A-15");
     return 0;
 }
 ```
@@ -625,23 +742,61 @@ int main() {
 ```cpp
 // 抽象化された管理インターフェース
 class IStateManager {
-    virtual void changeState(IReservationState* s) = 0;
+public:
+    virtual bool reserve() = 0;
+    virtual bool cancel(bool withinDeadline) = 0;
+    virtual ~IStateManager() = default;
 };
 
-// TicketReservationのメンバ変数：
-// ← 抽象：IStateManager*型で受け取り、具体実装を知らない
-// ← 間接：Managerを経由するため内部クラス群が見えない
+// 呼び出し元1：顧客が行う通常の予約フロー
+class TicketReservation {
+private:
+    // ← 抽象：IStateManager*型で受け取り、具体実装を知らない
+    // ← 間接：Managerを経由するため内部クラス群が見えない
+    IStateManager* manager;
+public:
+    TicketReservation(IStateManager* mgr) : manager(mgr) {}
+    void reserve() {
+        if (manager->reserve()) std::cout << "予約完了\n";
+        else std::cout << "予約できません\n";
+    }
+    void cancel(bool withinDeadline) {
+        if (manager->cancel(withinDeadline)) std::cout << "キャンセル完了\n";
+        else std::cout << "キャンセルできません\n";
+    }
+};
+
+// 管理パネル（呼び出し元2）
+class AdminPanel {
+private:
+    IStateManager* manager;  // ← 抽象：IStateManager*型
+public:
+    AdminPanel(IStateManager* mgr) : manager(mgr) {}
+    // 管理画面からの強制キャンセル
+    void forceCancel(const std::string& seatId) {
+        // 管理画面からのキャンセルは常に「期限内」扱いとする
+        if (manager->cancel(true)) std::cout << "強制キャンセル: " << seatId << "\n";
+        else std::cout << "キャンセル対象外の状態です\n";
+    }
+    void checkStatus(const std::string& seatId) {
+        std::cout << seatId << ": 状態確認完了\n";
+    }
+};
 
 ```
+
+このコードを見ると、変更の影響は最も小さく抑えられますが、ファイル数が一気に増え、システム全体の繋がりを追うのが非常に難しくなっていることが分かります。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案4（抽象×間接）の呼び出し側
 int main() {
-    StateManager mgr;                         // ← 具体：組み立て側だけが具体型を知る
-    TicketReservation reservation(&mgr);      // ← 間接：抽象Managerのみ見えて具体実装は隠れる
+    StateManager mgr;                          // ← 具体：組み立て側だけが具体型を知る
+    TicketReservation reservation(&mgr);       // ← 間接：抽象Managerのみ見えて具体実装は隠れる
+    AdminPanel admin(&mgr);                    // ← 間接：同じManagerを共有
     reservation.reserve();
+    admin.forceCancel("A-15");
     return 0;
 }
 ```
