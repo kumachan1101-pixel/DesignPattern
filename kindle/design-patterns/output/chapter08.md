@@ -389,6 +389,29 @@ graph LR
 **この形の考え方：**
 クラスの分割も接続形態の変更もしない。既存の `processPayment` メソッドの中に、新しい決済手段のための `if` や `case` 文を書き足し、具体クラスをその場で `new` する。変更頻度が低く、納期が極めて厳しい場合に合理的な選択となる。
 
+**構造図：**
+
+```mermaid
+graph LR
+    PA["PaymentApplication"]
+    SS["SubscriptionService"]
+    CC["CreditCardProcessor"]
+    PP["PayPayProcessor"]
+    CV["ConvenienceStoreProcessor"]
+    style PA fill:#ffcccc,stroke:#cc4444
+    style SS fill:#ffcccc,stroke:#cc4444
+    style CC fill:#ffeecc,stroke:#cc8800
+    style PP fill:#ffeecc,stroke:#cc8800
+    style CV fill:#ffeecc,stroke:#cc8800
+    PA -->|"具体×直接"| CC
+    PA -->|"具体×直接"| PP
+    PA -->|"具体×直接"| CV
+    SS -->|"具体×直接"| CC
+    SS -->|"具体×直接"| PP
+```
+
+両クラスが同じ具体クラスを直接知っており、選択ロジックと生成コードが重複している。
+
 【コード例】
 
 ```cpp
@@ -457,6 +480,27 @@ int main() {
 
 **この形の考え方：**
 決済処理をクラスとして抽出するが、`PaymentApplication` は相変わらず具体クラスを直接 `new` する。責任の境界は明確になるが、生成ロジックの混在は解消されない。
+
+**構造図：**
+
+```mermaid
+graph LR
+    PA["PaymentApplication"]
+    SS["SubscriptionService"]
+    CC["CreditCardProcessor"]
+    PP["PayPayProcessor"]
+    CV["ConvenienceStoreProcessor"]
+    style CC fill:#ffeecc,stroke:#cc8800
+    style PP fill:#ffeecc,stroke:#cc8800
+    style CV fill:#ffeecc,stroke:#cc8800
+    PA -->|"具体×直接"| CC
+    PA -->|"具体×直接"| PP
+    PA -->|"具体×直接"| CV
+    SS -->|"具体×直接"| CC
+    SS -->|"具体×直接"| PP
+```
+
+クラスは分離されたが、両クラスが各具体クラスへの矢印を重複して持っており、追加のたびに両方を修正する必要がある。
 
 【コード例】
 
@@ -531,6 +575,33 @@ int main() {
 **この形の考え方：**
 各決済プロセッサーに共通のインターフェース（契約）を持たせ、生成の窓口をメソッドとして切り出す。この構造を **Factory Method パターン** と呼ぶ。利用側は「どんな具体クラスか」を知らずに、インターフェースを介して決済を実行できるようになる。
 
+**構造図：**
+
+```mermaid
+graph LR
+    main["main()"]
+    PA["PaymentApplication"]
+    SS["SubscriptionService"]
+    IFace[/"IPaymentProcessor\n≪interface≫"/]
+    CC["CreditCardProcessor"]
+    PP["PayPayProcessor"]
+    CV["ConvenienceStoreProcessor"]
+    style main fill:#e8ffe8,stroke:#448844
+    style IFace fill:#cce8ff,stroke:#4488cc
+    style CC fill:#ffeecc,stroke:#cc8800
+    style PP fill:#ffeecc,stroke:#cc8800
+    style CV fill:#ffeecc,stroke:#cc8800
+    main -->|"具体で生成"| CC
+    main -->|"抽象×直接(注入)"| SS
+    PA -->|"抽象×直接"| IFace
+    SS -->|"抽象×直接(注入)"| IFace
+    CC -.->|"実装"| IFace
+    PP -.->|"実装"| IFace
+    CV -.->|"実装"| IFace
+```
+
+`PaymentApplication` は内部でインターフェース経由に、`SubscriptionService` は外部から注入されたインターフェースのみを知り、両クラスとも具体クラスへの依存がなくなっている。
+
 【コード例】
 
 ```cpp
@@ -604,6 +675,29 @@ int main() {
 
 **この形の考え方：**
 `PaymentApplication` と決済プロセッサーの間に「決済マネージャー」を置く。統括クラスはマネージャーだけを知り、マネージャーが各プロセッサーの生成・選択・再試行を管理する。
+
+**構造図：**
+
+```mermaid
+graph LR
+    PA["PaymentApplication"]
+    SS["SubscriptionService"]
+    PM["ProcessorManager"]
+    CC["CreditCardProcessor"]
+    PP["PayPayProcessor"]
+    CV["ConvenienceStoreProcessor"]
+    style PM fill:#ffffcc,stroke:#aaaa44
+    style CC fill:#ffeecc,stroke:#cc8800
+    style PP fill:#ffeecc,stroke:#cc8800
+    style CV fill:#ffeecc,stroke:#cc8800
+    PA -->|"具体×間接"| PM
+    SS -->|"具体×間接"| PM
+    PM -->|"具体で生成"| CC
+    PM -->|"具体で生成"| PP
+    PM -->|"具体で生成"| CV
+```
+
+両クラスが `ProcessorManager` だけを知り、具体的なプロセッサーはマネージャーの内部に隠蔽されているが、マネージャー自体は各具体クラスを直接知っている。
 
 【コード例】
 
@@ -722,6 +816,37 @@ int main() {
 
 **この形の考え方：**
 インターフェース（案2）と仲介役（案3）を組み合わせる。利用側は抽象インターフェースを知り、その具体的な生成は仲介役（Factory）に委ねる。最も柔軟だがクラス構成は複雑になる。
+
+**構造図：**
+
+```mermaid
+graph LR
+    main["main()"]
+    PA["PaymentApplication"]
+    SS["SubscriptionService"]
+    PF[/"PaymentFactory\n≪interface≫"/]
+    IFace[/"IPaymentProcessor\n≪interface≫"/]
+    CC["CreditCardProcessor"]
+    PP["PayPayProcessor"]
+    CV["ConvenienceStoreProcessor"]
+    style main fill:#e8ffe8,stroke:#448844
+    style PF fill:#cce8ff,stroke:#4488cc
+    style IFace fill:#cce8ff,stroke:#4488cc
+    style CC fill:#ffeecc,stroke:#cc8800
+    style PP fill:#ffeecc,stroke:#cc8800
+    style CV fill:#ffeecc,stroke:#cc8800
+    main -->|"具体で生成"| CC
+    main -->|"抽象×間接(注入)"| PA
+    main -->|"抽象×間接(注入)"| SS
+    PA -->|"抽象×間接(注入)"| PF
+    SS -->|"抽象×間接(注入)"| PF
+    PF -->|"抽象×間接"| IFace
+    CC -.->|"実装"| IFace
+    PP -.->|"実装"| IFace
+    CV -.->|"実装"| IFace
+```
+
+両クラスが抽象Factoryインターフェースのみを受け取り、具体クラスへの依存が完全に排除されているが、インターフェースが2層になり構造が複雑になる。
 
 【コード例】
 

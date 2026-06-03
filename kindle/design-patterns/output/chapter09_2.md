@@ -362,7 +362,21 @@ graph LR
 **この形の考え方：**
 クラスの分割も接続形態の変更もしない。 既存の `if` 文の羅列を維持する。 変更頻度が極めて低く、この先半年以上ルールが変わらないという確信がある場合にのみ選択する。
 
+**構造図：**
 
+```mermaid
+graph LR
+    TM["TicketManager"]
+    EE["EscalationEngine"]
+    PC["PriorityCalculator"]
+    style TM fill:#ffcccc,stroke:#cc4444
+    style EE fill:#ffcccc,stroke:#cc4444
+    style PC fill:#ffeecc,stroke:#cc8800
+    TM -->|"具体×直接"| PC
+    EE -->|"具体×直接"| PC
+```
+
+両クラスが同じ `PriorityCalculator` の選択ロジックと `if-else` 分岐を重複して持っており、ルール変更のたびに2か所を修正しなければならない。
 
 【案0のコード（一部）】
 
@@ -425,6 +439,27 @@ int main() {
 
 **この形の考え方：**
 責務ごとに小さなクラスに分割するが、それらを呼ぶ側のクラスは具体クラスを直接 `new` して利用する。 責任の所在は明確になるが、具体クラスへの依存は残る。
+
+**構造図：**
+
+```mermaid
+graph LR
+    TM["TicketManager"]
+    EE["EscalationEngine"]
+    PC["PriorityCalculator"]
+    OS["OpenState"]
+    IS["InProgressState"]
+    style PC fill:#ffeecc,stroke:#cc8800
+    style OS fill:#ffeecc,stroke:#cc8800
+    style IS fill:#ffeecc,stroke:#cc8800
+    TM -->|"具体×直接"| PC
+    TM -->|"具体×直接"| OS
+    EE -->|"具体×直接"| PC
+    EE -->|"具体×直接"| IS
+    EE -->|"具体×直接"| OS
+```
+
+クラスは分離されたが、両クラスが各具体クラスを直接知っており、状態やルールが増えるたびに両方を修正しなければならない。
 
 【案1のコード（一部）】
 
@@ -494,6 +529,42 @@ int main() {
 **この形の考え方：**
 優先度ルールには **Strategyパターン** を、状態遷移には **Stateパターン** を適用する。 各ルールや状態をインターフェース経由で扱うことで、具体的なロジックを差し替え可能にする。
 
+**構造図：**
+
+```mermaid
+graph LR
+    main["main()"]
+    TM["TicketManager"]
+    EE["EscalationEngine"]
+    PS[/"IPriorityStrategy\n≪interface≫"/]
+    TS[/"ITicketState\n≪interface≫"/]
+    UP["UrgentPriority"]
+    NP["NormalPriority"]
+    OS["OpenState"]
+    IS["InProgressState"]
+    style main fill:#e8ffe8,stroke:#448844
+    style PS fill:#cce8ff,stroke:#4488cc
+    style TS fill:#cce8ff,stroke:#4488cc
+    style UP fill:#ffeecc,stroke:#cc8800
+    style NP fill:#ffeecc,stroke:#cc8800
+    style OS fill:#ffeecc,stroke:#cc8800
+    style IS fill:#ffeecc,stroke:#cc8800
+    main -->|"具体で生成"| UP
+    main -->|"具体で生成"| OS
+    main -->|"抽象×直接(注入)"| TM
+    main -->|"抽象×直接(注入)"| EE
+    TM -->|"抽象×直接(注入)"| PS
+    TM -->|"抽象×直接(注入)"| TS
+    EE -->|"抽象×直接(注入)"| PS
+    EE -->|"抽象×直接(注入)"| TS
+    UP -.->|"実装"| PS
+    NP -.->|"実装"| PS
+    OS -.->|"実装"| TS
+    IS -.->|"実装"| TS
+```
+
+`TicketManager` と `EscalationEngine` はどちらも2つのインターフェースのみを知り、具体クラスはmain()側だけが生成して注入する。
+
 【案2のコード（一部）】
 
 ```cpp
@@ -562,6 +633,32 @@ int main() {
 
 **この形の考え方：**
 `TicketManager` と各状態クラスの間に「コントローラー」を置く。 `TicketManager` はコントローラーだけを知り、コントローラーが具体的な状態クラスの生成や管理を行う。
+
+**構造図：**
+
+```mermaid
+graph LR
+    TM["TicketManager"]
+    EE["EscalationEngine"]
+    SC["StateController"]
+    OS["OpenState"]
+    IS["InProgressState"]
+    RS["ResolvedState"]
+    CS["ClosedState"]
+    style SC fill:#ffffcc,stroke:#aaaa44
+    style OS fill:#ffeecc,stroke:#cc8800
+    style IS fill:#ffeecc,stroke:#cc8800
+    style RS fill:#ffeecc,stroke:#cc8800
+    style CS fill:#ffeecc,stroke:#cc8800
+    TM -->|"具体×間接"| SC
+    EE -->|"具体×間接"| SC
+    SC -->|"具体で生成"| OS
+    SC -->|"具体で生成"| IS
+    SC -->|"具体で生成"| RS
+    SC -->|"具体で生成"| CS
+```
+
+両クラスが `StateController` だけを知り、具体状態クラスはコントローラーの内部に隠蔽されているが、コントローラー自体は各具体クラスを直接知っている。
 
 【案3のコード（一部）】
 
@@ -696,6 +793,37 @@ int main() {
 
 **この形の考え方：**
 案2のインターフェースと、案3の仲介クラスを併用する。 非常に高い柔軟性を持つが、すべての層に抽象と仲介役が必要となるため、構造が複雑になる。
+
+**構造図：**
+
+```mermaid
+graph LR
+    main["main()"]
+    TM["TicketManager"]
+    EE["EscalationEngine"]
+    ISC[/"IStateController\n≪interface≫"/]
+    ITS[/"ITicketState\n≪interface≫"/]
+    CSC["ConcreteStateController"]
+    OS["OpenState"]
+    IS["InProgressState"]
+    style main fill:#e8ffe8,stroke:#448844
+    style ISC fill:#cce8ff,stroke:#4488cc
+    style ITS fill:#cce8ff,stroke:#4488cc
+    style CSC fill:#ffffcc,stroke:#aaaa44
+    style OS fill:#ffeecc,stroke:#cc8800
+    style IS fill:#ffeecc,stroke:#cc8800
+    main -->|"具体で生成"| CSC
+    main -->|"抽象×間接(注入)"| TM
+    main -->|"抽象×間接(注入)"| EE
+    TM -->|"抽象×間接(注入)"| ISC
+    EE -->|"抽象×間接(注入)"| ISC
+    CSC -.->|"実装"| ISC
+    CSC -->|"抽象×間接"| ITS
+    OS -.->|"実装"| ITS
+    IS -.->|"実装"| ITS
+```
+
+両クラスが抽象コントローラーインターフェースのみを受け取り、具体状態クラスへの依存が完全に排除されているが、インターフェースが2層になり構造が複雑になる。
 
 【案4のコード（一部）】
 

@@ -369,7 +369,33 @@ graph LR
 **この形の考え方：**
 クラスの分割も接続形態の変更もしない。 既存の `if-else` 分岐に新しい連携先や通知条件を足し続ける。 変更頻度が極めて低く、この先半年以上修正の予定がない場合にのみ選択する。
 
+**構造図：**
 
+```mermaid
+graph LR
+    BE["BatchExecutor"]
+    MTC["ManualTriggerController"]
+    SA["SystemAClient"]
+    SB["SystemBClient"]
+    SC["SystemCClient"]
+    NS["NotificationService"]
+    style BE fill:#ffcccc,stroke:#cc4444
+    style MTC fill:#ffcccc,stroke:#cc4444
+    style SA fill:#ffeecc,stroke:#cc8800
+    style SB fill:#ffeecc,stroke:#cc8800
+    style SC fill:#ffeecc,stroke:#cc8800
+    style NS fill:#ffeecc,stroke:#cc8800
+    BE -->|"具体×直接"| SA
+    BE -->|"具体×直接"| SB
+    BE -->|"具体×直接"| SC
+    BE -->|"具体×直接"| NS
+    MTC -->|"具体×直接"| SA
+    MTC -->|"具体×直接"| SB
+    MTC -->|"具体×直接"| SC
+    MTC -->|"具体×直接"| NS
+```
+
+両クラスが同じ連携先クライアントと通知サービスを直接知っており、連携先が増えると2か所を修正しなければならない。
 
 【コード例】
 
@@ -432,6 +458,32 @@ int main() {
 **この形の考え方：**
 各連携先のクライアントをクラス化するが、呼び出し側はそれらを直接 `new` する。 責任の所在は明確になるが、依然としてクラスの生成知識が利用側に混在している。
 
+**構造図：**
+
+```mermaid
+graph LR
+    BE["BatchExecutor"]
+    MTC["ManualTriggerController"]
+    SA["SystemAClient"]
+    SB["SystemBClient"]
+    SC["SystemCClient"]
+    NS["NotificationService"]
+    style SA fill:#ffeecc,stroke:#cc8800
+    style SB fill:#ffeecc,stroke:#cc8800
+    style SC fill:#ffeecc,stroke:#cc8800
+    style NS fill:#ffeecc,stroke:#cc8800
+    BE -->|"具体×直接"| SA
+    BE -->|"具体×直接"| SB
+    BE -->|"具体×直接"| SC
+    BE -->|"具体×直接"| NS
+    MTC -->|"具体×直接"| SA
+    MTC -->|"具体×直接"| SB
+    MTC -->|"具体×直接"| SC
+    MTC -->|"具体×直接"| NS
+```
+
+クラスは分離されたが、両クラスが各具体クライアントへの矢印を重複して持っており、連携先が増えるたびに両方を修正する必要がある。
+
 【コード例】
 
 ```cpp
@@ -490,6 +542,33 @@ int main() {
 
 **この形の考え方：**
 連携先との通信インターフェースを定義し、生成を Factory Method パターンで抽象化する。 また、通知処理には Observer パターンを適用し、結果の通知先を動的に登録可能にする。
+
+**構造図：**
+
+```mermaid
+graph LR
+    main["main()"]
+    BE["BatchExecutor"]
+    MTC["ManualTriggerController"]
+    IEC[/"IExternalClient\n≪interface≫"/]
+    SA["SystemAClient"]
+    SB["SystemBClient"]
+    SC["SystemCClient"]
+    style main fill:#e8ffe8,stroke:#448844
+    style IEC fill:#cce8ff,stroke:#4488cc
+    style SA fill:#ffeecc,stroke:#cc8800
+    style SB fill:#ffeecc,stroke:#cc8800
+    style SC fill:#ffeecc,stroke:#cc8800
+    main -->|"具体で生成"| SA
+    main -->|"抽象×直接(注入)"| MTC
+    BE -->|"抽象×直接"| IEC
+    MTC -->|"抽象×直接(注入)"| IEC
+    SA -.->|"実装"| IEC
+    SB -.->|"実装"| IEC
+    SC -.->|"実装"| IEC
+```
+
+`BatchExecutor` はFactory経由でインターフェースのみを利用し、`ManualTriggerController` は外部から注入されたインターフェースのみを知り、両クラスとも具体クライアントへの依存がなくなっている。
 
 【コード例】
 
@@ -553,6 +632,29 @@ int main() {
 
 **この形の考え方：**
 `BatchExecutor` と各クライアントの間に「Facade クラス」を置く。 この Facade が連携処理の裏側を隠蔽する。 ただし、この Facade は個別のクライアントの具体型を知っている。
+
+**構造図：**
+
+```mermaid
+graph LR
+    BE["BatchExecutor"]
+    MTC["ManualTriggerController"]
+    EF["ExternalFacade"]
+    SA["SystemAClient"]
+    SB["SystemBClient"]
+    SC["SystemCClient"]
+    style EF fill:#ffffcc,stroke:#aaaa44
+    style SA fill:#ffeecc,stroke:#cc8800
+    style SB fill:#ffeecc,stroke:#cc8800
+    style SC fill:#ffeecc,stroke:#cc8800
+    BE -->|"具体×間接"| EF
+    MTC -->|"具体×間接"| EF
+    EF -->|"具体で生成"| SA
+    EF -->|"具体で生成"| SB
+    EF -->|"具体で生成"| SC
+```
+
+両クラスが `ExternalFacade` だけを知り、具体クライアントはFacadeの内部に隠蔽されているが、Facade自体は各具体クラスを直接知っている。
 
 【コード例】
 
@@ -683,6 +785,40 @@ int main() {
 
 **この形の考え方：**
 Facade によるインターフェース統合、Factory Method による生成の分離、Observer による通知の疎結合をすべて組み込む。 変更影響は完全に局所化されるが、クラス数は最大になる。
+
+**構造図：**
+
+```mermaid
+graph LR
+    main["main()"]
+    BE["BatchExecutor"]
+    MTC["ManualTriggerController"]
+    IFac[/"IFacade\n≪interface≫"/]
+    IEC[/"IExternalClient\n≪interface≫"/]
+    CF["ConcreteFacade"]
+    SA["SystemAClient"]
+    SB["SystemBClient"]
+    SC["SystemCClient"]
+    style main fill:#e8ffe8,stroke:#448844
+    style IFac fill:#cce8ff,stroke:#4488cc
+    style IEC fill:#cce8ff,stroke:#4488cc
+    style CF fill:#ffffcc,stroke:#aaaa44
+    style SA fill:#ffeecc,stroke:#cc8800
+    style SB fill:#ffeecc,stroke:#cc8800
+    style SC fill:#ffeecc,stroke:#cc8800
+    main -->|"具体で生成"| CF
+    main -->|"抽象×間接(注入)"| BE
+    main -->|"抽象×間接(注入)"| MTC
+    BE -->|"抽象×間接(注入)"| IFac
+    MTC -->|"抽象×間接(注入)"| IFac
+    CF -.->|"実装"| IFac
+    CF -->|"抽象×間接"| IEC
+    SA -.->|"実装"| IEC
+    SB -.->|"実装"| IEC
+    SC -.->|"実装"| IEC
+```
+
+両クラスが抽象Facadeインターフェースのみを受け取り、具体クライアントへの依存が完全に排除されているが、インターフェースが2層になり構造が複雑になる。
 
 【コード例】
 
