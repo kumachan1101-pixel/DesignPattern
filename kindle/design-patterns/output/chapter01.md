@@ -35,13 +35,32 @@
 
 ### 1-2：仕様表
 
-このシステムが現在持っている機能を整理してみましょう。コードを読む前に、全体で何を達成しようとしているのかを把握するための仕様表です。
+設計の選択肢（案0〜案4）はすべて、この仕様を同じように実現します。「仕様は同じで、構造だけが異なる」ことが比較の前提です。
 
-| **機能名** | **担当クラス** | **入力** | **出力** |
+**割引ルール**
+
+| ルール名 | 発動条件 | 割引率 | 小計 10,000円 の場合 |
 | --- | --- | --- | --- |
-| 注文の受付とフロー制御 | `OrderProcessor` | 注文データ（商品リスト、会員種別） | コンソールへの結果出力 |
-| 決済金額の計算 | `PaymentCalculator` | 注文データ（商品の小計、会員種別、キャンペーン状況） | 最終的な支払金額（int） |
-| 注文データの保持 | `Order` | カートに入れられた商品、会員属性 | （データ構造としての保持） |
+| プレミアム割引 | 会員種別が "Premium" | 20%引き | → 8,000円 |
+| サマーセール | isSummerSale = true | 5%引き | → 9,500円 |
+| キャンペーン | isCampaignActive = true | 10%引き | → 9,000円 |
+| サマー＋キャンペーン重ね掛け | 両方 true | 5%→さらに10%引き | → 8,550円 |
+
+**優先・排他ルール**
+
+| 条件 | 動作 |
+| --- | --- |
+| Premium かつ SummerSale | Premium のみ適用（サマーセールは無効） |
+| SummerSale かつ Campaign | 両方重ね掛け |
+
+**このルールを使う場所**
+
+同じ割引計算を2か所で使います。この「2か所で使う」という仕様が、設計の違いを生む起点になります。
+
+| 使用場所 | 用途 |
+| --- | --- |
+| `PaymentCalculator` | 注文確定時の支払金額確定 |
+| `CartPreviewService` | カート画面の金額プレビュー表示 |
 
 ### 1-3：クラス構成図
 
@@ -475,16 +494,22 @@ public:
 **構造図：**
 
 ```mermaid
-graph LR
-    M["main()"]
-    PC["PaymentCalculator\n─ if Premium\n─ if SummerSale\n─ if Campaign"]
-    CPS["CartPreviewService\n─ if Premium ← コピー\n─ if SummerSale ← コピー\n─ if Campaign ← コピー"]
-
-    M -->|呼ぶ| PC
-    M -->|呼ぶ| CPS
-
-    style PC fill:#ffe0e0,stroke:#cc4444
-    style CPS fill:#ffe0e0,stroke:#cc4444
+classDiagram
+    class PaymentCalculator {
+        <<if分岐を直書き>>
+        +calculate(Order) int
+    }
+    class CartPreviewService {
+        <<同じif分岐が重複>>
+        +getEstimatedTotal(Order) int
+    }
+    class Order {
+        +customerType String
+        +isSummerSale bool
+        +isCampaignActive bool
+    }
+    PaymentCalculator ..> Order : 具体×直接
+    CartPreviewService ..> Order : 具体×直接（重複）
 ```
 
 割引ロジックが `PaymentCalculator` と `CartPreviewService` の両方に直書きされており、2箇所が同期して膨らんでいく構造になっています。
@@ -590,26 +615,28 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    M["main()"]
-    PC["PaymentCalculator\n具体クラスを直接生成"]
-    CPS["CartPreviewService\n具体クラスを直接生成\n← 選択ロジック重複"]
-    PD["PremiumDiscount"]
-    SD["SummerSaleDiscount"]
-    RC["RegularCampaignDiscount"]
-
-    M -->|呼ぶ| PC
-    M -->|呼ぶ| CPS
-    PC -->|"具体×直接"| PD
-    PC -->|"具体×直接"| SD
-    PC -->|"具体×直接"| RC
-    CPS -->|"具体×直接"| PD
-    CPS -->|"具体×直接"| SD
-    CPS -->|"具体×直接"| RC
-
-    style PD fill:#ffeecc,stroke:#cc8800
-    style SD fill:#ffeecc,stroke:#cc8800
-    style RC fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class PaymentCalculator {
+        +calculate(Order) int
+    }
+    class CartPreviewService {
+        +getEstimatedTotal(Order) int
+    }
+    class PremiumDiscount {
+        +apply(int) int
+    }
+    class SummerSaleDiscount {
+        +apply(int) int
+    }
+    class RegularCampaignDiscount {
+        +apply(int) int
+    }
+    PaymentCalculator --> PremiumDiscount : 具体×直接
+    PaymentCalculator --> SummerSaleDiscount : 具体×直接
+    PaymentCalculator --> RegularCampaignDiscount : 具体×直接
+    CartPreviewService --> PremiumDiscount : 具体×直接（重複）
+    CartPreviewService --> SummerSaleDiscount : 具体×直接（重複）
+    CartPreviewService --> RegularCampaignDiscount : 具体×直接（重複）
 ```
 
 クラスは分離できましたが、「どのクラスを選ぶか」という判断ロジックが両方の呼び出し元に重複したまま残っています。
@@ -733,23 +760,25 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    M["main()\n具体を組み立て"]
-    IF[/"IDiscountRule\n≪interface≫"/]
-    PC["PaymentCalculator\nインターフェースだけを知る"]
-    CPS["CartPreviewService\nインターフェースだけを知る"]
-    PD["PremiumDiscount\n具体クラス"]
-
-    M -->|"具体で生成"| PD
-    PD -.->|"実装"| IF
-    M -->|"抽象×直接(注入)"| PC
-    M -->|"抽象×直接(注入)"| CPS
-    IF -->|"型だけで使う"| PC
-    IF -->|"型だけで使う"| CPS
-
-    style IF fill:#cce8ff,stroke:#4488cc
-    style PD fill:#ffeecc,stroke:#cc8800
-    style M fill:#e8ffe8,stroke:#448844
+classDiagram
+    class IDiscountRule {
+        <<interface>>
+        +apply(int) int
+    }
+    class PremiumDiscount {
+        +apply(int) int
+    }
+    class PaymentCalculator {
+        -rule IDiscountRule
+        +calculate(Order) int
+    }
+    class CartPreviewService {
+        -rule IDiscountRule
+        +getEstimatedTotal(Order) int
+    }
+    PremiumDiscount ..|> IDiscountRule : 実装
+    PaymentCalculator --> IDiscountRule : 抽象×直接
+    CartPreviewService --> IDiscountRule : 抽象×直接
 ```
 
 両方の呼び出し元が `IDiscountRule` という型だけを知り、具体クラスの知識は `main()` だけに集約されています。
@@ -863,27 +892,32 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    M["main()"]
-    PC["PaymentCalculator\n仲介役の具体型を持つ"]
-    CPS["CartPreviewService\n仲介役の具体型を持つ"]
-    DM["DiscountManager\n仲介役"]
-    PD["PremiumDiscount"]
-    SD["SummerSaleDiscount"]
-    RC["RegularCampaignDiscount"]
-
-    M -->|呼ぶ| PC
-    M -->|呼ぶ| CPS
-    PC -->|"具体×間接"| DM
-    CPS -->|"具体×間接"| DM
-    DM -->|"具体×直接"| PD
-    DM -->|"具体×直接"| SD
-    DM -->|"具体×直接"| RC
-
-    style DM fill:#ffffcc,stroke:#aaaa44
-    style PD fill:#ffeecc,stroke:#cc8800
-    style SD fill:#ffeecc,stroke:#cc8800
-    style RC fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class DiscountManager {
+        +applyDiscount(int, Order) int
+    }
+    class PaymentCalculator {
+        -manager DiscountManager
+        +calculate(Order) int
+    }
+    class CartPreviewService {
+        -manager DiscountManager
+        +getEstimatedTotal(Order) int
+    }
+    class PremiumDiscount {
+        +apply(int) int
+    }
+    class SummerSaleDiscount {
+        +apply(int) int
+    }
+    class RegularCampaignDiscount {
+        +apply(int) int
+    }
+    PaymentCalculator --> DiscountManager : 具体×間接
+    CartPreviewService --> DiscountManager : 具体×間接
+    DiscountManager --> PremiumDiscount : 具体×直接
+    DiscountManager --> SummerSaleDiscount : 具体×直接
+    DiscountManager --> RegularCampaignDiscount : 具体×直接
 ```
 
 両方の呼び出し元は `DiscountManager` だけを知り、個々の割引クラスは見えません。割引ロジックは `DiscountManager` に集約されています。
@@ -1024,29 +1058,34 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    M["main()\n具体を組み立て"]
-    IDM[/"IDiscountManager\n≪interface≫"/]
-    IDR[/"IDiscountRule\n≪interface≫"/]
-    PC["PaymentCalculator\nインターフェースだけを知る"]
-    CPS["CartPreviewService\nインターフェースだけを知る"]
-    DM["DiscountManager\n具体クラス"]
-    PD["PremiumDiscount"]
-
-    M -->|"具体で生成"| DM
-    DM -.->|"実装"| IDM
-    M -->|"抽象×間接(注入)"| PC
-    M -->|"抽象×間接(注入)"| CPS
-    IDM -->|"型だけで使う"| PC
-    IDM -->|"型だけで使う"| CPS
-    DM -->|"具体×直接"| PD
-    PD -.->|"実装"| IDR
-
-    style IDM fill:#cce8ff,stroke:#4488cc
-    style IDR fill:#cce8ff,stroke:#4488cc
-    style DM fill:#ffffcc,stroke:#aaaa44
-    style PD fill:#ffeecc,stroke:#cc8800
-    style M fill:#e8ffe8,stroke:#448844
+classDiagram
+    class IDiscountManager {
+        <<interface>>
+        +applyDiscount(int, Order) int
+    }
+    class IDiscountRule {
+        <<interface>>
+        +apply(int) int
+    }
+    class DiscountManager {
+        +applyDiscount(int, Order) int
+    }
+    class PaymentCalculator {
+        -manager IDiscountManager
+        +calculate(Order) int
+    }
+    class CartPreviewService {
+        -manager IDiscountManager
+        +getEstimatedTotal(Order) int
+    }
+    class PremiumDiscount {
+        +apply(int) int
+    }
+    DiscountManager ..|> IDiscountManager : 実装
+    PremiumDiscount ..|> IDiscountRule : 実装
+    PaymentCalculator --> IDiscountManager : 抽象×間接
+    CartPreviewService --> IDiscountManager : 抽象×間接
+    DiscountManager --> IDiscountRule : 具体×直接
 ```
 
 全層がインターフェースで繋がり、`main()` だけが具体クラスを知っています。最大の柔軟性ですが、構造の追跡コストも最大になります。
