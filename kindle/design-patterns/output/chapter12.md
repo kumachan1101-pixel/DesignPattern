@@ -595,32 +595,39 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    main["main()"]
-    IAS[/"IApprovalStrategy\n≪interface≫"/]
-    IWS[/"IWorkflowState\n≪interface≫"/]
-    WM["WorkflowManager"]
-    EE["EscalationEngine"]
-    MA["ManagerApproval"]
-    DA["DirectorApproval"]
-    PState["PendingState"]
-    main -- "具体で生成" --> MA
-    main -- "具体で生成" --> DA
-    main -- "具体で生成" --> PState
-    main -- "抽象×直接(注入)" --> WM
-    main -- "抽象×直接(注入)" --> EE
-    WM -- "抽象×直接" --> IAS
-    EE -- "抽象×直接" --> IAS
-    EE -- "抽象×直接" --> IWS
-    MA -. "実装" .-> IAS
-    DA -. "実装" .-> IAS
-    PState -. "実装" .-> IWS
-    style IAS fill:#cce8ff,stroke:#4488cc
-    style IWS fill:#cce8ff,stroke:#4488cc
-    style MA fill:#ffeecc,stroke:#cc8800
-    style DA fill:#ffeecc,stroke:#cc8800
-    style PState fill:#ffeecc,stroke:#cc8800
-    style main fill:#e8ffe8,stroke:#448844
+classDiagram
+    class IApprovalStrategy {
+        <<interface>>
+        +canApprove(amount)
+    }
+    class IWorkflowState {
+        <<interface>>
+        +handle(wm)
+    }
+    class WorkflowManager {
+        -strategy IApprovalStrategy
+        +process(amount)
+    }
+    class EscalationEngine {
+        -strategy IApprovalStrategy
+        -state IWorkflowState
+        +escalateOverdue()
+    }
+    class ManagerApproval {
+        +canApprove(amount)
+    }
+    class DirectorApproval {
+        +canApprove(amount)
+    }
+    class PendingState {
+        +handle(wm)
+    }
+    ManagerApproval ..|> IApprovalStrategy : 実装
+    DirectorApproval ..|> IApprovalStrategy : 実装
+    PendingState ..|> IWorkflowState : 実装
+    WorkflowManager --> IApprovalStrategy : 抽象×直接
+    EscalationEngine --> IApprovalStrategy : 抽象×直接
+    EscalationEngine --> IWorkflowState : 抽象×直接
 ```
 
 `main()` が具体クラスを生成してインターフェース経由で注入するため、両クラスとも具体的な判定クラスや状態クラスを知らずに済み、選択ロジックの重複が解消される。
@@ -735,22 +742,39 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    AC["ApprovalController"]
-    EE["EscalationEngine"]
-    WO["WorkflowOrchestrator"]
-    BLR["BudgetLimitRule"]
-    EN["EmailNotifier"]
-    States["PendingState / ApprovedState\n/ RejectedState"]
-    AC -- "具体×間接" --> WO
-    EE -- "具体×間接" --> WO
-    WO -- "具体で生成" --> BLR
-    WO -- "具体で生成" --> EN
-    WO -- "具体で生成" --> States
-    style WO fill:#ffffcc,stroke:#aaaa44
-    style BLR fill:#ffeecc,stroke:#cc8800
-    style EN fill:#ffeecc,stroke:#cc8800
-    style States fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class ApprovalController {
+        -orchestrator WorkflowOrchestrator
+        +submit(requestId, amount)
+        +approve(requestId, amount, role)
+    }
+    class EscalationEngine {
+        -orchestrator WorkflowOrchestrator
+        +escalateOverdue(requestId, amount, days)
+    }
+    class WorkflowOrchestrator {
+        -budgetRule BudgetLimitRule
+        -notifier EmailNotifier
+        +dispatch(currentStatus, amount, role)
+    }
+    class BudgetLimitRule {
+        +check(amount, role)
+    }
+    class EmailNotifier {
+        +notify(recipient, message)
+    }
+    class PendingState {
+        +enter()
+    }
+    class ApprovedState {
+        +enter()
+    }
+    ApprovalController --> WorkflowOrchestrator : 具体×間接
+    EscalationEngine --> WorkflowOrchestrator : 具体×間接
+    WorkflowOrchestrator --> BudgetLimitRule : 具体×直接
+    WorkflowOrchestrator --> EmailNotifier : 具体×直接
+    WorkflowOrchestrator --> PendingState : 具体×直接
+    WorkflowOrchestrator --> ApprovedState : 具体×直接
 ```
 
 両クラスは `WorkflowOrchestrator` 経由でのみ操作するが、`WorkflowOrchestrator` 自身は具体クラスを直接知っており、新しいルールや状態が増えるたびにオーケストレーターの修正が必要になる。
@@ -941,18 +965,41 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    main["main()"]
-    ISF[/"IStateFactory\n≪interface≫"/]
-    WM["WorkflowManager"]
-    CSF["ConcreteStateFactory"]
-    main -- "具体で生成" --> CSF
-    main -- "抽象×間接(注入)" --> WM
-    WM -- "抽象×間接" --> ISF
-    CSF -. "実装" .-> ISF
-    style ISF fill:#cce8ff,stroke:#4488cc
-    style CSF fill:#ffeecc,stroke:#cc8800
-    style main fill:#e8ffe8,stroke:#448844
+classDiagram
+    class IStateFactory {
+        <<interface>>
+        +create(status) IState
+    }
+    class IWorkflowState {
+        <<interface>>
+        +handle(wm)
+    }
+    class IApprovalStrategy {
+        <<interface>>
+        +canApprove(amount)
+    }
+    class IObserver {
+        <<interface>>
+        +update(msg)
+    }
+    class WorkflowManager {
+        -stateFactory IStateFactory
+        -observers IObserver[]
+        +process(status)
+    }
+    class EscalationEngine {
+        -stateFactory IStateFactory
+        +escalateOverdue()
+    }
+    class ConcreteStateFactory {
+        +create(status) IState
+    }
+    ConcreteStateFactory ..|> IStateFactory : 実装
+    WorkflowManager --> IStateFactory : 抽象×間接
+    WorkflowManager --> IObserver : 抽象×直接
+    EscalationEngine --> IStateFactory : 抽象×間接
+    ConcreteStateFactory --> IWorkflowState : 抽象×直接
+    IWorkflowState --> IApprovalStrategy : 抽象×直接
 ```
 
 `WorkflowManager` は抽象ファクトリーのみを知り、状態クラスの具体型は `ConcreteStateFactory` の内部に完全に隠蔽されるため、新しい状態を追加してもワークフロー本体への変更は不要となる。
