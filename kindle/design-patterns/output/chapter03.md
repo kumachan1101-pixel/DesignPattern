@@ -33,13 +33,24 @@
 
 ### 1-2：仕様表
 
-このシステムが持つ基本的な機能を整理します。
+設計の選択肢（案0〜案4）はすべて、この仕様を同じように実現します。「仕様は同じで、構造だけが異なる」ことが比較の前提です。
 
-| **機能名** | **担当クラス** | **入力** | **出力** |
+**予約状態遷移ルール**
+
+| ルール名 | 発動条件 | 結果 | 具体例 |
 | --- | --- | --- | --- |
-| 座席予約の実行 | `TicketReservation` | 希望座席情報 | 予約成功・失敗 |
-| チケットの支払い | `TicketReservation` | 決済情報 | 支払い完了・エラー |
-| チケットのキャンセル | `TicketReservation` | キャンセル理由 | キャンセル完了 |
+| 予約可能チェック | `reserve()` を呼んだとき | 空席（Available）の場合のみ予約済み（Reserved）へ遷移する | 既に予約済みの座席は再予約できない |
+| 支払い可能チェック | `pay()` を呼んだとき | 予約済み（Reserved）の場合のみ支払い済み（Paid）へ遷移する | 空席状態で支払いを試みてもエラーになる |
+| キャンセル可能チェック | `cancel()` を呼んだとき | 予約済み（Reserved）の場合のみ空席（Available）へ戻る | 支払い済みの状態ではキャンセルできない |
+
+**このルールを使う場所**
+
+同じ状態遷移ロジックを2か所で使います。この「2か所で使う」という仕様が、設計の違いを生む起点になります。
+
+| 使用場所 | 用途 |
+| --- | --- |
+| `TicketReservation` | 顧客が行う通常の予約・支払い・キャンセル操作 |
+| `AdminPanel` | スタッフが行う管理操作（強制キャンセル・状態確認） |
 
 ### 1-3：クラス構成図
 
@@ -372,17 +383,20 @@ graph LR
 **構造図：**
 
 ```mermaid
-graph LR
-    TR["TicketReservation"]
-    AP["AdminPanel"]
-    TR_L["if-else: status=\nAvailable/Reserved/Paid"]
-    AP_L["if-else: status=\nAvailable/Reserved/Paid"]
-    TR --> TR_L
-    AP --> AP_L
-    style TR fill:#ffcccc,stroke:#cc4444
-    style AP fill:#ffcccc,stroke:#cc4444
-    style TR_L fill:#ffcccc,stroke:#cc4444
-    style AP_L fill:#ffcccc,stroke:#cc4444
+classDiagram
+    class TicketReservation {
+        <<if分岐を直書き>>
+        -String status
+        +reserve()
+        +pay()
+        +cancel()
+    }
+    class AdminPanel {
+        <<同じif分岐が重複>>
+        -String status
+        +forceCancel(seatId)
+        +checkStatus(seatId)
+    }
 ```
 
 両クラスがそれぞれ状態判定ロジックを内部に直書きしており、状態が増えるたびに両方のif文を同時に修正しなければならない。
@@ -486,16 +500,29 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    TR["TicketReservation"]
-    AP["AdminPanel"]
-    RS["ReservedState"]
-    AS["AvailableState"]
-    TR -->|"具体×直接"| RS
-    TR -->|"具体×直接"| AS
-    AP -->|"具体×直接"| RS
-    style RS fill:#ffeecc,stroke:#cc8800
-    style AS fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class TicketReservation {
+        -ReservedState reservedState
+        -AvailableState availableState
+        +pay()
+        +cancel()
+    }
+    class AdminPanel {
+        -ReservedState reservedState
+        +forceCancel(seatId)
+        +checkStatus(seatId)
+    }
+    class ReservedState {
+        +reserve()
+        +pay()
+        +cancel()
+    }
+    class AvailableState {
+        +reserve()
+    }
+    TicketReservation --> ReservedState : 具体×直接
+    TicketReservation --> AvailableState : 具体×直接
+    AdminPanel --> ReservedState : 具体×直接（重複）
 ```
 
 両クラスが `ReservedState` などの具体クラスを直接参照しており、状態クラスが増えるたびに呼び出し元2箇所の修正が必要になる。
@@ -599,21 +626,29 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    main_fn["main()"]
-    IRS[/"IReservationState\n≪interface≫"/]
-    RS["ReservedState"]
-    TR["TicketReservation"]
-    AP["AdminPanel"]
-    main_fn -->|"具体で生成"| RS
-    RS -.->|"実装"| IRS
-    main_fn -->|"抽象×直接(注入)"| TR
-    main_fn -->|"抽象×直接(注入)"| AP
-    TR -->|"抽象×直接"| IRS
-    AP -->|"抽象×直接"| IRS
-    style main_fn fill:#e8ffe8,stroke:#448844
-    style IRS fill:#cce8ff,stroke:#4488cc
-    style RS fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class IReservationState {
+        <<interface>>
+        +reserve(ctx)
+        +cancel(ctx)
+    }
+    class ReservedState {
+        +reserve(ctx)
+        +cancel(ctx)
+    }
+    class TicketReservation {
+        -IReservationState state
+        +reserve()
+        +cancel()
+    }
+    class AdminPanel {
+        -IReservationState state
+        +forceCancel(seatId)
+        +checkStatus(seatId)
+    }
+    ReservedState ..|> IReservationState : 実装
+    TicketReservation --> IReservationState : 抽象×直接
+    AdminPanel --> IReservationState : 抽象×直接
 ```
 
 両クラスが `IReservationState` インターフェースだけを知り、新しい状態クラスを追加しても呼び出し元を一切変更しなくてよい。
@@ -725,22 +760,42 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    TR["TicketReservation"]
-    AP["AdminPanel"]
-    SM["StateManager"]
-    AS["AvailableState"]
-    RS["ReservedState"]
-    PS["PaidState"]
-    TR -->|"具体×間接"| SM
-    AP -->|"具体×間接"| SM
-    SM -->|"具体×直接"| AS
-    SM -->|"具体×直接"| RS
-    SM -->|"具体×直接"| PS
-    style SM fill:#ffffcc,stroke:#aaaa44
-    style AS fill:#ffeecc,stroke:#cc8800
-    style RS fill:#ffeecc,stroke:#cc8800
-    style PS fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class StateManager {
+        -AvailableState available
+        -ReservedState reserved
+        -PaidState paid
+        -String current
+        +reserve() bool
+        +pay() bool
+        +cancel(withinDeadline) bool
+    }
+    class TicketReservation {
+        -StateManager manager
+        +reserve()
+        +pay()
+        +cancel(withinDeadline)
+    }
+    class AdminPanel {
+        -StateManager manager
+        +forceCancel()
+        +confirmPayment()
+    }
+    class AvailableState {
+        +reserve() bool
+    }
+    class ReservedState {
+        +pay() bool
+        +cancel(withinDeadline) bool
+    }
+    class PaidState {
+        +cancel(withinDeadline) bool
+    }
+    TicketReservation --> StateManager : 具体×間接
+    AdminPanel --> StateManager : 具体×間接
+    StateManager --> AvailableState : 具体×直接
+    StateManager --> ReservedState : 具体×直接
+    StateManager --> PaidState : 具体×直接
 ```
 
 呼び出し元2クラスは `StateManager` だけを知り、内部の状態クラス群は見えない。ただし Manager 自身は各状態クラスを具体型で直接保持する。
@@ -906,21 +961,39 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    main_fn["main()"]
-    ISM[/"IStateManager\n≪interface≫"/]
-    SM["StateManager"]
-    TR["TicketReservation"]
-    AP["AdminPanel"]
-    main_fn -->|"具体で生成"| SM
-    SM -.->|"実装"| ISM
-    main_fn -->|"抽象×間接(注入)"| TR
-    main_fn -->|"抽象×間接(注入)"| AP
-    TR -->|"抽象×間接"| ISM
-    AP -->|"抽象×間接"| ISM
-    style main_fn fill:#e8ffe8,stroke:#448844
-    style ISM fill:#cce8ff,stroke:#4488cc
-    style SM fill:#ffffcc,stroke:#aaaa44
+classDiagram
+    class IStateManager {
+        <<interface>>
+        +reserve() bool
+        +cancel(withinDeadline) bool
+    }
+    class StateManager {
+        -AvailableState available
+        -ReservedState reserved
+        +reserve() bool
+        +cancel(withinDeadline) bool
+    }
+    class TicketReservation {
+        -IStateManager manager
+        +reserve()
+        +cancel(withinDeadline)
+    }
+    class AdminPanel {
+        -IStateManager manager
+        +forceCancel(seatId)
+        +checkStatus(seatId)
+    }
+    class AvailableState {
+        +reserve() bool
+    }
+    class ReservedState {
+        +cancel(withinDeadline) bool
+    }
+    StateManager ..|> IStateManager : 実装
+    TicketReservation --> IStateManager : 抽象×間接
+    AdminPanel --> IStateManager : 抽象×間接
+    StateManager --> AvailableState : 具体×直接
+    StateManager --> ReservedState : 具体×直接
 ```
 
 インターフェース層（`IStateManager`）と仲介層（`StateManager`）の2層を挟むことで、両クラスは具体的な状態実装を一切知らない最も柔軟な構造。

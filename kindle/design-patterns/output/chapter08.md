@@ -33,13 +33,24 @@
 
 ### 1-2：仕様表
 
-読者の皆さんがコードを読む前に、このシステムが「現在何をしているのか」を一覧で整理しておきましょう。
+設計の選択肢（案0〜案4）はすべて、この仕様を同じように実現します。「仕様は同じで、構造だけが異なる」ことが比較の前提です。
 
-| **機能名** | **担当クラス** | **入力** | **出力** |
+**決済実行ルール**
+
+| ルール名 | 発動条件 | 結果 | 具体例 |
 | --- | --- | --- | --- |
-| 決済処理の実行 | `PaymentApplication` | 決済手段の種類(string), 金額(int) | 各決済プロセッサの実行結果 |
-| クレジット決済 | `CreditCardProcessor` | 金額(int) | クレジットカード決済完了 |
-| コンビニ決済 | `ConvenienceStoreProcessor` | 金額(int) | コンビニ支払い番号発行 |
+| クレジットカード決済 | 決済種別が `"credit"` | カード課金を実行し完了を返す | 1000円のカード決済 |
+| コンビニ決済 | 決済種別が `"cvs"` | 支払い番号を発行し完了を返す | 500円のコンビニ払い番号 |
+| QRコード決済 | 決済種別が `"paypay"` | QR決済を実行し完了を返す | 700円のPayPay決済 |
+
+**このルールを使う場所**
+
+同じ「決済処理」を2か所で使います。この「2か所で使う」という仕様が、設計の違いを生む起点になります。
+
+| 使用場所 | 用途 |
+| --- | --- |
+| `PaymentApplication` | 個別ユーザーの購入時に決済プロセッサーを選択・実行する |
+| `SubscriptionService` | 定期課金の月次処理として決済プロセッサーを実行する |
 
 ---
 
@@ -392,22 +403,29 @@ graph LR
 **構造図：**
 
 ```mermaid
-graph LR
-    PA["PaymentApplication"]
-    SS["SubscriptionService"]
-    CC["CreditCardProcessor"]
-    PP["PayPayProcessor"]
-    CV["ConvenienceStoreProcessor"]
-    style PA fill:#ffcccc,stroke:#cc4444
-    style SS fill:#ffcccc,stroke:#cc4444
-    style CC fill:#ffeecc,stroke:#cc8800
-    style PP fill:#ffeecc,stroke:#cc8800
-    style CV fill:#ffeecc,stroke:#cc8800
-    PA -->|"具体×直接"| CC
-    PA -->|"具体×直接"| PP
-    PA -->|"具体×直接"| CV
-    SS -->|"具体×直接"| CC
-    SS -->|"具体×直接"| PP
+classDiagram
+    class PaymentApplication {
+        <<if分岐を直書き>>
+        +processPayment(type, amount)
+    }
+    class SubscriptionService {
+        <<同じif分岐が重複>>
+        +chargeMonthly(customerId, amount)
+    }
+    class CreditCardProcessor {
+        +pay(amount)
+    }
+    class PayPayProcessor {
+        +pay(amount)
+    }
+    class ConvenienceStoreProcessor {
+        +pay(amount)
+    }
+    PaymentApplication --> CreditCardProcessor : 具体×直接
+    PaymentApplication --> PayPayProcessor : 具体×直接
+    PaymentApplication --> ConvenienceStoreProcessor : 具体×直接
+    SubscriptionService --> CreditCardProcessor : 具体×直接
+    SubscriptionService --> PayPayProcessor : 具体×直接
 ```
 
 両クラスが同じ具体クラスを直接知っており、選択ロジックと生成コードが重複している。
@@ -500,20 +518,27 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    PA["PaymentApplication"]
-    SS["SubscriptionService"]
-    CC["CreditCardProcessor"]
-    PP["PayPayProcessor"]
-    CV["ConvenienceStoreProcessor"]
-    style CC fill:#ffeecc,stroke:#cc8800
-    style PP fill:#ffeecc,stroke:#cc8800
-    style CV fill:#ffeecc,stroke:#cc8800
-    PA -->|"具体×直接"| CC
-    PA -->|"具体×直接"| PP
-    PA -->|"具体×直接"| CV
-    SS -->|"具体×直接"| CC
-    SS -->|"具体×直接"| PP
+classDiagram
+    class PaymentApplication {
+        +processPayment(type, amount)
+    }
+    class SubscriptionService {
+        +chargeMonthly(customerId, amount)
+    }
+    class CreditCardProcessor {
+        +pay(amount)
+    }
+    class PayPayProcessor {
+        +pay(amount)
+    }
+    class ConvenienceStoreProcessor {
+        +pay(amount)
+    }
+    PaymentApplication --> CreditCardProcessor : 具体×直接
+    PaymentApplication --> PayPayProcessor : 具体×直接
+    PaymentApplication --> ConvenienceStoreProcessor : 具体×直接
+    SubscriptionService --> CreditCardProcessor : 具体×直接
+    SubscriptionService --> PayPayProcessor : 具体×直接
 ```
 
 クラスは分離されたが、両クラスが各具体クラスへの矢印を重複して持っており、追加のたびに両方を修正する必要がある。
@@ -615,26 +640,33 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    main["main()"]
-    PA["PaymentApplication"]
-    SS["SubscriptionService"]
-    IFace[/"IPaymentProcessor\n≪interface≫"/]
-    CC["CreditCardProcessor"]
-    PP["PayPayProcessor"]
-    CV["ConvenienceStoreProcessor"]
-    style main fill:#e8ffe8,stroke:#448844
-    style IFace fill:#cce8ff,stroke:#4488cc
-    style CC fill:#ffeecc,stroke:#cc8800
-    style PP fill:#ffeecc,stroke:#cc8800
-    style CV fill:#ffeecc,stroke:#cc8800
-    main -->|"具体で生成"| CC
-    main -->|"抽象×直接(注入)"| SS
-    PA -->|"抽象×直接"| IFace
-    SS -->|"抽象×直接(注入)"| IFace
-    CC -.->|"実装"| IFace
-    PP -.->|"実装"| IFace
-    CV -.->|"実装"| IFace
+classDiagram
+    class IPaymentProcessor {
+        <<interface>>
+        +pay(amount)
+    }
+    class PaymentApplication {
+        +processPayment(type, amount)
+        -createProcessor(type) IPaymentProcessor
+    }
+    class SubscriptionService {
+        -processor IPaymentProcessor
+        +chargeMonthly(customerId, amount)
+    }
+    class CreditCardProcessor {
+        +pay(amount)
+    }
+    class PayPayProcessor {
+        +pay(amount)
+    }
+    class ConvenienceStoreProcessor {
+        +pay(amount)
+    }
+    CreditCardProcessor ..|> IPaymentProcessor : 実装
+    PayPayProcessor ..|> IPaymentProcessor : 実装
+    ConvenienceStoreProcessor ..|> IPaymentProcessor : 実装
+    PaymentApplication --> IPaymentProcessor : 抽象×直接
+    SubscriptionService --> IPaymentProcessor : 抽象×直接
 ```
 
 `PaymentApplication` は内部でインターフェース経由に、`SubscriptionService` は外部から注入されたインターフェースのみを知り、両クラスとも具体クラスへの依存がなくなっている。
@@ -739,22 +771,32 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    PA["PaymentApplication"]
-    SS["SubscriptionService"]
-    PM["ProcessorManager"]
-    CC["CreditCardProcessor"]
-    PP["PayPayProcessor"]
-    CV["ConvenienceStoreProcessor"]
-    style PM fill:#ffffcc,stroke:#aaaa44
-    style CC fill:#ffeecc,stroke:#cc8800
-    style PP fill:#ffeecc,stroke:#cc8800
-    style CV fill:#ffeecc,stroke:#cc8800
-    PA -->|"具体×間接"| PM
-    SS -->|"具体×間接"| PM
-    PM -->|"具体で生成"| CC
-    PM -->|"具体で生成"| PP
-    PM -->|"具体で生成"| CV
+classDiagram
+    class PaymentApplication {
+        -manager ProcessorManager
+        +processPayment(type, amount)
+    }
+    class SubscriptionService {
+        -manager ProcessorManager
+        +chargeMonthly(memberId, amount)
+    }
+    class ProcessorManager {
+        +execute(type, amount, isCampaign)
+    }
+    class CreditCardProcessor {
+        +pay(amount) bool
+    }
+    class PayPayProcessor {
+        +pay(amount) bool
+    }
+    class ConvenienceStoreProcessor {
+        +pay(amount) bool
+    }
+    PaymentApplication --> ProcessorManager : 具体×間接
+    SubscriptionService --> ProcessorManager : 具体×間接
+    ProcessorManager --> CreditCardProcessor : 具体×直接
+    ProcessorManager --> PayPayProcessor : 具体×直接
+    ProcessorManager --> ConvenienceStoreProcessor : 具体×直接
 ```
 
 両クラスが `ProcessorManager` だけを知り、具体的なプロセッサーはマネージャーの内部に隠蔽されているが、マネージャー自体は各具体クラスを直接知っている。
@@ -905,30 +947,42 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    main["main()"]
-    PA["PaymentApplication"]
-    SS["SubscriptionService"]
-    PF[/"PaymentFactory\n≪interface≫"/]
-    IFace[/"IPaymentProcessor\n≪interface≫"/]
-    CC["CreditCardProcessor"]
-    PP["PayPayProcessor"]
-    CV["ConvenienceStoreProcessor"]
-    style main fill:#e8ffe8,stroke:#448844
-    style PF fill:#cce8ff,stroke:#4488cc
-    style IFace fill:#cce8ff,stroke:#4488cc
-    style CC fill:#ffeecc,stroke:#cc8800
-    style PP fill:#ffeecc,stroke:#cc8800
-    style CV fill:#ffeecc,stroke:#cc8800
-    main -->|"具体で生成"| CC
-    main -->|"抽象×間接(注入)"| PA
-    main -->|"抽象×間接(注入)"| SS
-    PA -->|"抽象×間接(注入)"| PF
-    SS -->|"抽象×間接(注入)"| PF
-    PF -->|"抽象×間接"| IFace
-    CC -.->|"実装"| IFace
-    PP -.->|"実装"| IFace
-    CV -.->|"実装"| IFace
+classDiagram
+    class PaymentFactory {
+        <<interface>>
+        +create(type) IPaymentProcessor
+    }
+    class IPaymentProcessor {
+        <<interface>>
+        +pay(amount)
+    }
+    class PaymentApplication {
+        -factory PaymentFactory
+        +processPayment(type, amount)
+    }
+    class SubscriptionService {
+        -factory PaymentFactory
+        +chargeMonthly(customerId, amount)
+    }
+    class ConcretePaymentFactory {
+        +create(type) IPaymentProcessor
+    }
+    class CreditCardProcessor {
+        +pay(amount)
+    }
+    class PayPayProcessor {
+        +pay(amount)
+    }
+    class ConvenienceStoreProcessor {
+        +pay(amount)
+    }
+    ConcretePaymentFactory ..|> PaymentFactory : 実装
+    CreditCardProcessor ..|> IPaymentProcessor : 実装
+    PayPayProcessor ..|> IPaymentProcessor : 実装
+    ConvenienceStoreProcessor ..|> IPaymentProcessor : 実装
+    PaymentApplication --> PaymentFactory : 抽象×間接
+    SubscriptionService --> PaymentFactory : 抽象×間接
+    PaymentFactory --> IPaymentProcessor : 抽象×間接
 ```
 
 両クラスが抽象Factoryインターフェースのみを受け取り、具体クラスへの依存が完全に排除されているが、インターフェースが2層になり構造が複雑になる。

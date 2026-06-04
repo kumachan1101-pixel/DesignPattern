@@ -31,11 +31,23 @@
 
 ### 1-2：仕様表
 
-| **機能名** | **担当クラス** | **入力** | **出力** |
+設計の選択肢（案0〜案4）はすべて、この仕様を同じように実現します。「仕様は同じで、構造だけが異なる」ことが比較の前提です。
+
+**チケット優先度判定ルール**
+
+| ルール名 | 発動条件 | 結果 | 具体例 |
 | --- | --- | --- | --- |
-| チケット登録 | Ticket | 問い合わせ内容(string) | 新規チケット発行 |
-| ステータス更新 | TicketManager | チケットID, 新ステータス | 更新後の状態 |
-| 優先度計算 | PriorityCalculator | 問い合わせ内容 | 優先度(enum) |
+| 緊急優先度 | 問い合わせ内容に `"urgent"` を含む | 優先度を `"High"` として扱う | 「urgent issue」というチケット内容 |
+| 通常優先度 | 上記以外 | 優先度を `"Normal"` として扱う | 「password reset」というチケット内容 |
+
+**このルールを使う場所**
+
+同じ「優先度判定」を2か所で使います。この「2か所で使う」という仕様が、設計の違いを生む起点になります。
+
+| 使用場所 | 用途 |
+| --- | --- |
+| `TicketManager` | チケットのステータス更新時に優先度に応じたアクションを決定する |
+| `EscalationEngine` | SLA超過チェック時に優先度に応じてエスカレーション要否を判断する |
 
 ### 1-3：クラス構成図
 
@@ -365,15 +377,20 @@ graph LR
 **構造図：**
 
 ```mermaid
-graph LR
-    TM["TicketManager"]
-    EE["EscalationEngine"]
-    PC["PriorityCalculator"]
-    style TM fill:#ffcccc,stroke:#cc4444
-    style EE fill:#ffcccc,stroke:#cc4444
-    style PC fill:#ffeecc,stroke:#cc8800
-    TM -->|"具体×直接"| PC
-    EE -->|"具体×直接"| PC
+classDiagram
+    class TicketManager {
+        <<if分岐を直書き>>
+        +updateStatus(content, status)
+    }
+    class EscalationEngine {
+        <<同じif分岐が重複>>
+        +checkAndEscalate(ticketId)
+    }
+    class PriorityCalculator {
+        +calculate(content) string
+    }
+    TicketManager --> PriorityCalculator : 具体×直接
+    EscalationEngine --> PriorityCalculator : 具体×直接
 ```
 
 両クラスが同じ `PriorityCalculator` の選択ロジックと `if-else` 分岐を重複して持っており、ルール変更のたびに2か所を修正しなければならない。
@@ -459,20 +476,27 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    TM["TicketManager"]
-    EE["EscalationEngine"]
-    PC["PriorityCalculator"]
-    OS["OpenState"]
-    IS["InProgressState"]
-    style PC fill:#ffeecc,stroke:#cc8800
-    style OS fill:#ffeecc,stroke:#cc8800
-    style IS fill:#ffeecc,stroke:#cc8800
-    TM -->|"具体×直接"| PC
-    TM -->|"具体×直接"| OS
-    EE -->|"具体×直接"| PC
-    EE -->|"具体×直接"| IS
-    EE -->|"具体×直接"| OS
+classDiagram
+    class TicketManager {
+        +updateStatus(content, status)
+    }
+    class EscalationEngine {
+        +checkAndEscalate(ticketId)
+    }
+    class PriorityCalculator {
+        +calculate(content) string
+    }
+    class OpenState {
+        +activate()
+    }
+    class InProgressState {
+        +activate()
+    }
+    TicketManager --> PriorityCalculator : 具体×直接
+    TicketManager --> OpenState : 具体×直接
+    EscalationEngine --> PriorityCalculator : 具体×直接
+    EscalationEngine --> InProgressState : 具体×直接
+    EscalationEngine --> OpenState : 具体×直接
 ```
 
 クラスは分離されたが、両クラスが各具体クラスを直接知っており、状態やルールが増えるたびに両方を修正しなければならない。
@@ -572,35 +596,45 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    main["main()"]
-    TM["TicketManager"]
-    EE["EscalationEngine"]
-    PS[/"IPriorityStrategy\n≪interface≫"/]
-    TS[/"ITicketState\n≪interface≫"/]
-    UP["UrgentPriority"]
-    NP["NormalPriority"]
-    OS["OpenState"]
-    IS["InProgressState"]
-    style main fill:#e8ffe8,stroke:#448844
-    style PS fill:#cce8ff,stroke:#4488cc
-    style TS fill:#cce8ff,stroke:#4488cc
-    style UP fill:#ffeecc,stroke:#cc8800
-    style NP fill:#ffeecc,stroke:#cc8800
-    style OS fill:#ffeecc,stroke:#cc8800
-    style IS fill:#ffeecc,stroke:#cc8800
-    main -->|"具体で生成"| UP
-    main -->|"具体で生成"| OS
-    main -->|"抽象×直接(注入)"| TM
-    main -->|"抽象×直接(注入)"| EE
-    TM -->|"抽象×直接(注入)"| PS
-    TM -->|"抽象×直接(注入)"| TS
-    EE -->|"抽象×直接(注入)"| PS
-    EE -->|"抽象×直接(注入)"| TS
-    UP -.->|"実装"| PS
-    NP -.->|"実装"| PS
-    OS -.->|"実装"| TS
-    IS -.->|"実装"| TS
+classDiagram
+    class IPriorityStrategy {
+        <<interface>>
+        +getPriority(content) string
+    }
+    class ITicketState {
+        <<interface>>
+        +handle(context)
+    }
+    class TicketManager {
+        -strategy IPriorityStrategy
+        -state ITicketState
+        +update()
+    }
+    class EscalationEngine {
+        -strategy IPriorityStrategy
+        -state ITicketState
+        +checkAndEscalate(ticketId)
+    }
+    class UrgentPriority {
+        +getPriority(content) string
+    }
+    class NormalPriority {
+        +getPriority(content) string
+    }
+    class OpenState {
+        +handle(context)
+    }
+    class InProgressState {
+        +handle(context)
+    }
+    UrgentPriority ..|> IPriorityStrategy : 実装
+    NormalPriority ..|> IPriorityStrategy : 実装
+    OpenState ..|> ITicketState : 実装
+    InProgressState ..|> ITicketState : 実装
+    TicketManager --> IPriorityStrategy : 抽象×直接
+    TicketManager --> ITicketState : 抽象×直接
+    EscalationEngine --> IPriorityStrategy : 抽象×直接
+    EscalationEngine --> ITicketState : 抽象×直接
 ```
 
 `TicketManager` と `EscalationEngine` はどちらも2つのインターフェースのみを知り、具体クラスはmain()側だけが生成して注入する。
@@ -708,25 +742,36 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    TM["TicketManager"]
-    EE["EscalationEngine"]
-    SC["StateController"]
-    OS["OpenState"]
-    IS["InProgressState"]
-    RS["ResolvedState"]
-    CS["ClosedState"]
-    style SC fill:#ffffcc,stroke:#aaaa44
-    style OS fill:#ffeecc,stroke:#cc8800
-    style IS fill:#ffeecc,stroke:#cc8800
-    style RS fill:#ffeecc,stroke:#cc8800
-    style CS fill:#ffeecc,stroke:#cc8800
-    TM -->|"具体×間接"| SC
-    EE -->|"具体×間接"| SC
-    SC -->|"具体で生成"| OS
-    SC -->|"具体で生成"| IS
-    SC -->|"具体で生成"| RS
-    SC -->|"具体で生成"| CS
+classDiagram
+    class TicketManager {
+        -controller StateController
+        +updateTicket(ticketId, currentStatus, targetStatus, priority)
+    }
+    class EscalationEngine {
+        -controller StateController
+        +checkAndEscalate(ticketId, currentStatus, priority, elapsed)
+    }
+    class StateController {
+        +transition(currentStatus, targetStatus, priority, elapsedMinutes)
+    }
+    class OpenState {
+        +activate()
+    }
+    class InProgressState {
+        +activate()
+    }
+    class ResolvedState {
+        +activate()
+    }
+    class ClosedState {
+        +activate()
+    }
+    TicketManager --> StateController : 具体×間接
+    EscalationEngine --> StateController : 具体×間接
+    StateController --> OpenState : 具体×直接
+    StateController --> InProgressState : 具体×直接
+    StateController --> ResolvedState : 具体×直接
+    StateController --> ClosedState : 具体×直接
 ```
 
 両クラスが `StateController` だけを知り、具体状態クラスはコントローラーの内部に隠蔽されているが、コントローラー自体は各具体クラスを直接知っている。

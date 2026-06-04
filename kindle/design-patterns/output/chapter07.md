@@ -33,12 +33,23 @@
 
 ### 1-2：仕様表
 
-読者の皆さんがコードを読む前に、このシステムが「現在何をしているのか」を一覧で整理しておきましょう。
+設計の選択肢（案0〜案4）はすべて、この仕様を同じように実現します。「仕様は同じで、構造だけが異なる」ことが比較の前提です。
 
-| **機能名** | **担当クラス** | **入力** | **出力** |
+**在庫変動通知ルール**
+
+| ルール名 | 発動条件 | 結果 | 具体例 |
 | --- | --- | --- | --- |
-| 在庫の減算 | InventoryManager | 商品ID(string), 数量(int) | 倉庫の在庫データベース更新 |
-| 在庫減少の通知 | InventoryManager | なし（内部状態） | メール送信、ダッシュボード更新、チャット通知 |
+| 在庫減算 | 店舗からの売上データを受信した場合 | 指定された商品の在庫数を指定数量だけ減らす | 「T-shirt-001 を 5 点減算」 |
+| 在庫減少通知 | 在庫減算が完了した場合 | 登録されているすべての通知先に在庫減少メッセージを送る | メール・ダッシュボード・チャットにメッセージを配信 |
+
+**このルールを使う場所**
+
+同じ「在庫変動通知」を2か所で使います。この「2か所で使う」という仕様が、設計の違いを生む起点になります。
+
+| 使用場所 | 用途 |
+| --- | --- |
+| `InventoryManager` | 在庫が減算されたタイミングで通知を送る |
+| `OrderFulfillmentService` | 出荷が完了したタイミングで通知を送る |
 
 ---
 
@@ -414,21 +425,37 @@ graph LR
 **構造図：**
 
 ```mermaid
-graph LR
-    IM["InventoryManager"]
-    OFS["OrderFulfillmentService"]
-    EN["EmailNotifier"]
-    DU["DashboardUpdater"]
-    CN["ChatNotifier"]
-    IM -->|"具体×直接"| EN
-    IM -->|"具体×直接"| DU
-    IM -->|"具体×直接"| CN
-    OFS -->|"具体×直接"| EN
-    OFS -->|"具体×直接"| DU
-    OFS -->|"具体×直接"| CN
-    style EN fill:#ffeecc,stroke:#cc8800
-    style DU fill:#ffeecc,stroke:#cc8800
-    style CN fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class InventoryManager {
+        <<if分岐を直書き>>
+        -EmailNotifier email
+        -DashboardUpdater dashboard
+        -ChatNotifier chat
+        +reduceStock(string, int)
+        -notifyAll(string)
+    }
+    class OrderFulfillmentService {
+        <<同じif分岐が重複>>
+        -EmailNotifier email
+        -DashboardUpdater dashboard
+        -ChatNotifier chat
+        +notifyShipped(string)
+    }
+    class EmailNotifier {
+        +send(string)
+    }
+    class DashboardUpdater {
+        +update(string)
+    }
+    class ChatNotifier {
+        +send(string)
+    }
+    InventoryManager --> EmailNotifier : 具体×直接
+    InventoryManager --> DashboardUpdater : 具体×直接
+    InventoryManager --> ChatNotifier : 具体×直接
+    OrderFulfillmentService --> EmailNotifier : 具体×直接
+    OrderFulfillmentService --> DashboardUpdater : 具体×直接
+    OrderFulfillmentService --> ChatNotifier : 具体×直接
 ```
 
 両呼び出し元がそれぞれ同じ具体通知クラスを個別に直接抱え込み、通知ロジックと通知先の知識が両方に重複して存在している。
@@ -535,17 +562,27 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    IM["InventoryManager"]
-    OFS["OrderFulfillmentService"]
-    EN["EmailNotifier"]
-    CN["ChatNotifier"]
-    IM -->|"具体×直接"| EN
-    IM -->|"具体×直接"| CN
-    OFS -->|"具体×直接"| EN
-    OFS -->|"具体×直接"| CN
-    style EN fill:#ffeecc,stroke:#cc8800
-    style CN fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class InventoryManager {
+        -EmailNotifier email
+        -ChatNotifier chat
+        +reduceStock(string, int)
+    }
+    class OrderFulfillmentService {
+        -EmailNotifier email
+        -ChatNotifier chat
+        +notifyShipped(string)
+    }
+    class EmailNotifier {
+        +send(string)
+    }
+    class ChatNotifier {
+        +send(string)
+    }
+    InventoryManager --> EmailNotifier : 具体×直接
+    InventoryManager --> ChatNotifier : 具体×直接
+    OrderFulfillmentService --> EmailNotifier : 具体×直接
+    OrderFulfillmentService --> ChatNotifier : 具体×直接
 ```
 
 `InventoryManager` と `OrderFulfillmentService` の両方が同じ具体通知クラスへの直接依存を持ち、新しい通知先が増えるたびに両方の呼び出し元で修正が発生する。
@@ -642,21 +679,27 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    main["main()"]
-    IM["InventoryManager"]
-    OFS["OrderFulfillmentService"]
-    IN[/"INotification\n≪interface≫"/]
-    EN["EmailNotifier"]
-    main -->|"具体で生成"| EN
-    main -->|"注入"| IM
-    main -->|"注入"| OFS
-    IM -->|"抽象×直接(注入)"| IN
-    OFS -->|"抽象×直接(注入)"| IN
-    EN -.->|"実装"| IN
-    style main fill:#e8ffe8,stroke:#448844
-    style IN fill:#cce8ff,stroke:#4488cc
-    style EN fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class INotification {
+        <<interface>>
+        +send(string)
+    }
+    class EmailNotifier {
+        +send(string)
+    }
+    class InventoryManager {
+        -INotification*[] observers
+        +attach(INotification*)
+        +reduceStock(string, int)
+    }
+    class OrderFulfillmentService {
+        -INotification*[] observers
+        +attach(INotification*)
+        +notifyShipped(string)
+    }
+    EmailNotifier ..|> INotification : 実装
+    InventoryManager --> INotification : 抽象×直接
+    OrderFulfillmentService --> INotification : 抽象×直接
 ```
 
 `main()` だけが具体クラスを知り、`InventoryManager` と `OrderFulfillmentService` は `INotification*` のリストを保持するだけで具体的な通知クラスを一切知らずに済む。
@@ -760,22 +803,37 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    IM["InventoryManager"]
-    OFS["OrderFulfillmentService"]
-    NM["NotificationManager"]
-    EN["EmailNotifier"]
-    SN["SlackNotifier"]
-    EC["ERPConnector"]
-    IM -->|"具体×間接"| NM
-    OFS -->|"具体×間接"| NM
-    NM -->|"具体×直接"| EN
-    NM -->|"具体×直接"| SN
-    NM -->|"具体×直接"| EC
-    style NM fill:#ffffcc,stroke:#aaaa44
-    style EN fill:#ffeecc,stroke:#cc8800
-    style SN fill:#ffeecc,stroke:#cc8800
-    style EC fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class NotificationManager {
+        -EmailNotifier email
+        -SlackNotifier slack
+        -ERPConnector erp
+        +notifyStockOut(string)
+        +notifyLowStock(string, int)
+        +notifyShipped(string)
+    }
+    class EmailNotifier {
+        +send(string)
+    }
+    class SlackNotifier {
+        +send(string)
+    }
+    class ERPConnector {
+        +sync(string)
+    }
+    class InventoryManager {
+        -NotificationManager notifier
+        +reduceStock(string, int, int)
+    }
+    class OrderFulfillmentService {
+        -NotificationManager notifier
+        +completeShipment(string)
+    }
+    InventoryManager --> NotificationManager : 具体×間接
+    OrderFulfillmentService --> NotificationManager : 具体×間接
+    NotificationManager --> EmailNotifier : 具体×直接
+    NotificationManager --> SlackNotifier : 具体×直接
+    NotificationManager --> ERPConnector : 具体×直接
 ```
 
 両呼び出し元は共有の `NotificationManager` だけを知り、複合条件付き通知ロジック（在庫ゼロはSlack優先など）が仲介役の一箇所に集約されている。
@@ -921,28 +979,36 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    main["main()"]
-    IM["InventoryManager"]
-    OFS["OrderFulfillmentService"]
-    INM[/"INotificationManager\n≪interface≫"/]
-    NM["NotificationManager"]
-    IN[/"INotification\n≪interface≫"/]
-    EN["EmailNotifier"]
-    main -->|"具体で生成"| NM
-    main -->|"具体で生成"| EN
-    main -->|"注入"| IM
-    main -->|"注入"| OFS
-    IM -->|"抽象×間接(注入)"| INM
-    OFS -->|"抽象×間接(注入)"| INM
-    NM -.->|"実装"| INM
-    NM -->|"抽象×直接"| IN
-    EN -.->|"実装"| IN
-    style main fill:#e8ffe8,stroke:#448844
-    style INM fill:#cce8ff,stroke:#4488cc
-    style IN fill:#cce8ff,stroke:#4488cc
-    style NM fill:#ffffcc,stroke:#aaaa44
-    style EN fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class INotificationManager {
+        <<interface>>
+        +sendAll(string)
+    }
+    class NotificationManager {
+        -INotification*[] observers
+        +addObserver(INotification*)
+        +sendAll(string)
+    }
+    class INotification {
+        <<interface>>
+        +send(string)
+    }
+    class EmailNotifier {
+        +send(string)
+    }
+    class InventoryManager {
+        -INotificationManager* mgr
+        +reduceStock(string, int)
+    }
+    class OrderFulfillmentService {
+        -INotificationManager* mgr
+        +notifyShipped(string)
+    }
+    NotificationManager ..|> INotificationManager : 実装
+    NotificationManager --> INotification : 抽象×直接
+    EmailNotifier ..|> INotification : 実装
+    InventoryManager --> INotificationManager : 抽象×間接
+    OrderFulfillmentService --> INotificationManager : 抽象×間接
 ```
 
 `InventoryManager` と `OrderFulfillmentService` は `INotificationManager*` という抽象インターフェースしか知らず、具体的な実装の知識は `main()` の組み立て部分だけに閉じている。

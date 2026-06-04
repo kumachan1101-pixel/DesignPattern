@@ -935,21 +935,37 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    main_fn["main()"]
-    IBF[/"IBankFacade\n≪interface≫"/]
-    BF["BankFacade"]
-    TP["TransferProcessor"]
-    BTS_caller["BatchTransferService"]
-    main_fn -->|"具体で生成"| BF
-    BF -.->|"実装"| IBF
-    main_fn -->|"抽象×間接(注入)"| TP
-    main_fn -->|"抽象×間接(注入)"| BTS_caller
-    TP -->|"抽象×間接"| IBF
-    BTS_caller -->|"抽象×間接"| IBF
-    style main_fn fill:#e8ffe8,stroke:#448844
-    style IBF fill:#cce8ff,stroke:#4488cc
-    style BF fill:#ffffcc,stroke:#aaaa44
+classDiagram
+    class IBankFacade {
+        <<interface>>
+        +transfer(acc, amt)
+    }
+    class BankFacade {
+        -BankGateway gateway
+        -SecurityAuthenticator auth
+        +transfer(acc, amt)
+    }
+    class TransferProcessor {
+        -IBankFacade facade
+        +transfer(toAccount, amount, otp)
+    }
+    class BatchTransferService {
+        -IBankFacade facade
+        +processPayroll(transfers)
+    }
+    class BankGateway {
+        +verifyAccount(account)
+        +executeTransfer(account, amount, txId)
+    }
+    class SecurityAuthenticator {
+        +requestOTP()
+        +verifyOTP(token)
+    }
+    BankFacade ..|> IBankFacade : 実装
+    TransferProcessor --> IBankFacade : 抽象×間接
+    BatchTransferService --> IBankFacade : 抽象×間接
+    BankFacade --> BankGateway : 具体×直接
+    BankFacade --> SecurityAuthenticator : 具体×直接
 ```
 
 インターフェース層（`IBankFacade`）と仲介層（`BankFacade`）の2層を挟むことで、両クラスは具体実装を一切知らない。変更影響が最も局所化された構造。
