@@ -35,12 +35,24 @@
 
 ### 1-2：仕様表
 
-今回扱う家計簿アプリの操作に関する機能を整理します。
+設計の選択肢（案0〜案4）はすべて、この仕様を同じように実現します。「仕様は同じで、構造だけが異なる」ことが比較の前提です。
 
-| **機能名** | **担当クラス** | **入力** | **出力** |
+**家計簿操作ルール**
+
+| ルール名 | 発動条件 | 結果 | 具体例 |
 | --- | --- | --- | --- |
-| 支出の追加 | `ExpenseManager` | 金額、項目名 | DB更新、画面更新 |
-| 収入の追加 | `IncomeManager` | 金額、項目名 | DB更新、画面更新 |
+| 支出追加 | ユーザーが支出ボタンを押す | 指定金額・カテゴリをDBに保存し画面を更新する | 1,000円／食費 → DBに登録 |
+| 収入追加 | ユーザーが収入ボタンを押す | 指定金額・発生源をDBに保存し画面を更新する | 3,000円／給与 → DBに登録 |
+| 操作取り消し（Undo） | ユーザーがUndoを押す | 直前の操作を取り消し、DBと画面を元の状態に戻す | 登録した支出を削除して画面を元に戻す |
+
+**このルールを使う場所**
+
+同じ操作管理を2か所で使います。この「2か所で使う」という仕様が、設計の違いを生む起点になります。
+
+| 使用場所 | 用途 |
+| --- | --- |
+| `BudgetApp` | UIボタン押下に応じてリアルタイムに操作を実行・取り消しする |
+| `ImportService` | CSVなどから複数件を一括登録し、必要に応じてロールバックする |
 
 ### 1-3：クラス構成図
 
@@ -378,17 +390,21 @@ graph LR
 **構造図：**
 
 ```mermaid
-graph LR
-    BA["BudgetApp"]
-    IS["ImportService"]
-    EM["ExpenseManager"]
-    IM["IncomeManager"]
-    BA -->|"具体×直接"| EM
-    BA -->|"具体×直接"| IM
-    IS -->|"具体×直接"| EM
-    IS -->|"具体×直接"| IM
-    style EM fill:#ffeecc,stroke:#cc8800
-    style IM fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class BudgetApp {
+        <<if分岐を直書き>>
+        +onAddExpenseClick() void
+        +onUndoClick() void
+    }
+    class ImportService {
+        <<同じif分岐が重複>>
+        +importTransactions() void
+        +rollback() void
+    }
+    BudgetApp ..> ExpenseManager : 具体×直接
+    BudgetApp ..> IncomeManager : 具体×直接
+    ImportService ..> ExpenseManager : 具体×直接（重複）
+    ImportService ..> IncomeManager : 具体×直接（重複）
 ```
 
 両呼び出し元が同じ具体クラスを個別に抱え込み、undo/redo管理ロジックまでそれぞれに重複して書かれている。
@@ -495,13 +511,20 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    BA["BudgetApp"]
-    IS["ImportService"]
-    AEC["AddExpenseCommand"]
-    BA -->|"具体×直接"| AEC
-    IS -->|"具体×直接"| AEC
-    style AEC fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class BudgetApp {
+        +onAddExpenseClick() void
+        +onUndoClick() void
+    }
+    class ImportService {
+        +importTransactions() void
+        +rollback() void
+    }
+    class AddExpenseCommand {
+        +execute() void
+    }
+    BudgetApp --> AddExpenseCommand : 具体×直接
+    ImportService --> AddExpenseCommand : 具体×直接（重複）
 ```
 
 `BudgetApp` と `ImportService` の両方が同じ具体コマンドクラスを直接生成しており、新しい操作が増えるたびに両方の呼び出し元で修正が発生する。
@@ -610,21 +633,27 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    main["main()"]
-    BA["BudgetApp"]
-    IS["ImportService"]
-    IC[/"ICommand\n≪interface≫"/]
-    AEC["AddExpenseCommand"]
-    main -->|"具体で生成"| AEC
-    main -->|"注入"| BA
-    main -->|"注入"| IS
-    BA -->|"抽象×直接(注入)"| IC
-    IS -->|"抽象×直接(注入)"| IC
-    AEC -.->|"実装"| IC
-    style main fill:#e8ffe8,stroke:#448844
-    style IC fill:#cce8ff,stroke:#4488cc
-    style AEC fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class ICommand {
+        <<interface>>
+        +execute() void
+        +undo() void
+    }
+    class AddExpenseCommand {
+        +execute() void
+        +undo() void
+    }
+    class BudgetApp {
+        +onAddExpenseClick(cmd) void
+        +onUndoClick(cmd) void
+    }
+    class ImportService {
+        +importTransactions(cmds) void
+        +rollback(cmds) void
+    }
+    AddExpenseCommand ..|> ICommand : 実装
+    BudgetApp --> ICommand : 抽象×直接
+    ImportService --> ICommand : 抽象×直接
 ```
 
 `main()` だけが具体クラスを知り、`BudgetApp` と `ImportService` は `ICommand*` という抽象型を直接受け取るだけで、具体的なコマンドクラスを一切知らずに済む。
@@ -737,19 +766,33 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    BA["BudgetApp"]
-    IS["ImportService"]
-    CI["CommandInvoker"]
-    EM["ExpenseManager"]
-    IM["IncomeManager"]
-    BA -->|"具体×間接"| CI
-    IS -->|"具体×間接"| CI
-    CI -->|"具体×直接"| EM
-    CI -->|"具体×直接"| IM
-    style CI fill:#ffffcc,stroke:#aaaa44
-    style EM fill:#ffeecc,stroke:#cc8800
-    style IM fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class BudgetApp {
+        -invoker CommandInvoker
+        +onAddExpenseClick() void
+        +onUndoClick() void
+    }
+    class ImportService {
+        -invoker CommandInvoker
+        +importCSV() void
+        +rollbackImport() void
+    }
+    class CommandInvoker {
+        +addExpense(amount, category) void
+        +addIncome(amount, source) void
+        +undo() void
+        +redo() void
+    }
+    class ExpenseManager {
+        +addExpense() void
+    }
+    class IncomeManager {
+        +addIncome() void
+    }
+    BudgetApp --> CommandInvoker : 具体×間接
+    ImportService --> CommandInvoker : 具体×間接
+    CommandInvoker --> ExpenseManager : 具体×直接
+    CommandInvoker --> IncomeManager : 具体×直接
 ```
 
 両呼び出し元は共有の `CommandInvoker` だけを知り、undo/redo スタック管理と履歴上限制御の複雑なロジックが仲介役の一箇所に集約されている。
@@ -913,25 +956,34 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    main["main()"]
-    BA["BudgetApp"]
-    IS["ImportService"]
-    CH["CommandHistory"]
-    IC[/"ICommand\n≪interface≫"/]
-    AEC["AddExpenseCommand"]
-    main -->|"具体で生成"| CH
-    main -->|"具体で生成"| AEC
-    main -->|"注入"| BA
-    main -->|"注入"| IS
-    BA -->|"抽象×間接(注入)"| CH
-    IS -->|"抽象×間接(注入)"| CH
-    CH -->|"抽象×直接"| IC
-    AEC -.->|"実装"| IC
-    style main fill:#e8ffe8,stroke:#448844
-    style CH fill:#ffffcc,stroke:#aaaa44
-    style IC fill:#cce8ff,stroke:#4488cc
-    style AEC fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class ICommand {
+        <<interface>>
+        +execute() void
+        +undo() void
+    }
+    class AddExpenseCommand {
+        +execute() void
+        +undo() void
+    }
+    class CommandHistory {
+        +execute(cmd) void
+        +undo() void
+    }
+    class BudgetApp {
+        -history CommandHistory
+        +onAddExpenseClick(cmd) void
+        +onUndoClick() void
+    }
+    class ImportService {
+        -history CommandHistory
+        +importTransactions(cmds) void
+        +rollback(count) void
+    }
+    AddExpenseCommand ..|> ICommand : 実装
+    CommandHistory --> ICommand : 抽象×直接
+    BudgetApp --> CommandHistory : 抽象×間接
+    ImportService --> CommandHistory : 抽象×間接
 ```
 
 `BudgetApp` と `ImportService` は `CommandHistory*` という抽象インターフェースしか知らず、具体的な実装の知識は `main()` の組み立て部分だけに閉じている。
