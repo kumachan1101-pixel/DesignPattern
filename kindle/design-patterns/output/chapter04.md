@@ -39,12 +39,25 @@
 
 ### 1-2：仕様表
 
-今回扱うCSVインポート処理の主要な機能を整理します。
+設計の選択肢（案0〜案4）はすべて、この仕様を同じように実現します。「仕様は同じで、構造だけが異なる」ことが比較の前提です。
 
-| **機能名** | **担当クラス** | **入力** | **出力** |
+**CSVインポートの処理手順ルール**
+
+| ルール名 | 発動条件 | 結果 | 具体例 |
 | --- | --- | --- | --- |
-| 直営店データ取り込み | `StoreDataImporter` | 店舗用CSV | DBレコード作成 |
-| FC店データ取り込み | `FCDataImporter` | FC店用CSV | DBレコード作成 |
+| ファイルオープン | インポート開始時に必ず実行 | CSVファイルを読み込み可能な状態にする | 直営店・FC店・EC店、どの形式でも同じ手順 |
+| データパース | フォーマットごとに異なるルールを適用 | CSV行をシステム内部データに変換する | 直営店：カンマ区切り／FC店：タブ区切り／EC：ポイント項目追加 |
+| DB保存 | パース完了後に必ず実行 | 変換済みデータをDBに登録する | 保存先・保存形式はどの形式でも共通 |
+| ファイルクローズ | 保存完了後に必ず実行 | ファイルリソースを解放する | 直営店・FC店・EC店、どの形式でも同じ手順 |
+
+**このルールを使う場所**
+
+同じインポート処理を2か所で使います。この「2か所で使う」という仕様が、設計の違いを生む起点になります。
+
+| 使用場所 | 用途 |
+| --- | --- |
+| `BatchImportJob` | 夜間バッチで複数ファイルを一括インポートする |
+| `ManualImportController` | 管理画面からユーザーが手動でファイルをアップロードする |
 
 ### 1-3：クラス構成図
 
@@ -364,17 +377,17 @@ graph LR
 **構造図：**
 
 ```mermaid
-graph LR
-    BIJ["BatchImportJob"]
-    MIC["ManualImportController"]
-    BIJ_L["if-else: format=EC\nformat=STORE など"]
-    MIC_L["if-else: format=EC\nformat=STORE など"]
-    BIJ --> BIJ_L
-    MIC --> MIC_L
-    style BIJ fill:#ffcccc,stroke:#cc4444
-    style MIC fill:#ffcccc,stroke:#cc4444
-    style BIJ_L fill:#ffcccc,stroke:#cc4444
-    style MIC_L fill:#ffcccc,stroke:#cc4444
+classDiagram
+    class BatchImportJob {
+        <<if分岐を直書き>>
+        +run(files) void
+    }
+    class ManualImportController {
+        <<同じif分岐が重複>>
+        +importFile(filename) void
+    }
+    BatchImportJob ..> DataImporter : 具体×直接
+    ManualImportController ..> DataImporter : 具体×直接（重複）
 ```
 
 両クラスがフォーマット検出ロジックを内部に直書きしており、インポート形式が増えるたびに両方の条件分岐を同時に修正しなければならない。
@@ -471,17 +484,23 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    BIJ["BatchImportJob"]
-    MIC["ManualImportController"]
-    SDI["StoreDataImporter"]
-    EDI["ECDataImporter"]
-    BIJ -->|"具体×直接"| SDI
-    BIJ -->|"具体×直接"| EDI
-    MIC -->|"具体×直接"| SDI
-    MIC -->|"具体×直接"| EDI
-    style SDI fill:#ffeecc,stroke:#cc8800
-    style EDI fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class BatchImportJob {
+        +run() void
+    }
+    class ManualImportController {
+        +importFile(filename) void
+    }
+    class StoreDataImporter {
+        +import() void
+    }
+    class ECDataImporter {
+        +import() void
+    }
+    BatchImportJob --> StoreDataImporter : 具体×直接
+    BatchImportJob --> ECDataImporter : 具体×直接
+    ManualImportController --> StoreDataImporter : 具体×直接（重複）
+    ManualImportController --> ECDataImporter : 具体×直接（重複）
 ```
 
 2つの呼び出し元がどちらも `StoreDataImporter`・`ECDataImporter` という同じ具体クラスを直接参照しており、形式が増えるたびに両方の呼び出し元の修正が必要になる。
