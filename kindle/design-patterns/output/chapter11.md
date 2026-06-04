@@ -483,17 +483,23 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    RG["ReportGenerator"]
-    PS["PreviewService"]
-    GF["GraphFeature"]
-    LF["LogoFeature"]
-    RG -- "具体×直接" --> GF
-    RG -- "具体×直接" --> LF
-    PS -- "具体×直接" --> GF
-    PS -- "具体×直接" --> LF
-    style GF fill:#ffeecc,stroke:#cc8800
-    style LF fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class ReportGenerator {
+        +generate()
+    }
+    class PreviewService {
+        +previewReport()
+    }
+    class GraphFeature {
+        +draw()
+    }
+    class LogoFeature {
+        +draw()
+    }
+    ReportGenerator --> GraphFeature : 具体×直接
+    ReportGenerator --> LogoFeature : 具体×直接
+    PreviewService --> GraphFeature : 具体×直接
+    PreviewService --> LogoFeature : 具体×直接
 ```
 
 クラスは分離されたが、`ReportGenerator` と `PreviewService` の両方が同じ具体クラスへ直接依存しており、機能クラスへの重複した結合が残る。
@@ -582,25 +588,29 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    main["main()"]
-    IFeat[/"IReportFeature\n≪interface≫"/]
-    RG["ReportGenerator"]
-    PS["PreviewService"]
-    GF["GraphFeature"]
-    LF["LogoFeature"]
-    main -- "具体で生成" --> GF
-    main -- "具体で生成" --> LF
-    main -- "抽象×直接(注入)" --> RG
-    main -- "抽象×直接(注入)" --> PS
-    RG -- "抽象×直接" --> IFeat
-    PS -- "抽象×直接" --> IFeat
-    GF -. "実装" .-> IFeat
-    LF -. "実装" .-> IFeat
-    style IFeat fill:#cce8ff,stroke:#4488cc
-    style GF fill:#ffeecc,stroke:#cc8800
-    style LF fill:#ffeecc,stroke:#cc8800
-    style main fill:#e8ffe8,stroke:#448844
+classDiagram
+    class IReportFeature {
+        <<interface>>
+        +apply()
+    }
+    class ReportGenerator {
+        -feature IReportFeature
+        +generate()
+    }
+    class PreviewService {
+        -feature IReportFeature
+        +previewReport()
+    }
+    class GraphFeature {
+        +apply()
+    }
+    class LogoFeature {
+        +apply()
+    }
+    GraphFeature ..|> IReportFeature : 実装
+    LogoFeature ..|> IReportFeature : 実装
+    ReportGenerator --> IReportFeature : 抽象×直接
+    PreviewService --> IReportFeature : 抽象×直接
 ```
 
 `main()` が具体クラスを生成してインターフェース経由で注入するため、`ReportGenerator` と `PreviewService` は具体クラスを知らずに済み、選択ロジックの重複が解消される。

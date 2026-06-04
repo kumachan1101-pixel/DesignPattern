@@ -938,30 +938,38 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    main["main()"]
-    TM["TicketManager"]
-    EE["EscalationEngine"]
-    ISC[/"IStateController\n≪interface≫"/]
-    ITS[/"ITicketState\n≪interface≫"/]
-    CSC["ConcreteStateController"]
-    OS["OpenState"]
-    IS["InProgressState"]
-    style main fill:#e8ffe8,stroke:#448844
-    style ISC fill:#cce8ff,stroke:#4488cc
-    style ITS fill:#cce8ff,stroke:#4488cc
-    style CSC fill:#ffffcc,stroke:#aaaa44
-    style OS fill:#ffeecc,stroke:#cc8800
-    style IS fill:#ffeecc,stroke:#cc8800
-    main -->|"具体で生成"| CSC
-    main -->|"抽象×間接(注入)"| TM
-    main -->|"抽象×間接(注入)"| EE
-    TM -->|"抽象×間接(注入)"| ISC
-    EE -->|"抽象×間接(注入)"| ISC
-    CSC -.->|"実装"| ISC
-    CSC -->|"抽象×間接"| ITS
-    OS -.->|"実装"| ITS
-    IS -.->|"実装"| ITS
+classDiagram
+    class IStateController {
+        <<interface>>
+        +transition(currentStatus, targetStatus, priority, elapsedMinutes)
+    }
+    class ITicketState {
+        <<interface>>
+        +activate()
+    }
+    class TicketManager {
+        -controller IStateController
+        +update(status)
+    }
+    class EscalationEngine {
+        -controller IStateController
+        +checkAndEscalate(ticketId)
+    }
+    class ConcreteStateController {
+        +transition(currentStatus, targetStatus, priority, elapsedMinutes)
+    }
+    class OpenState {
+        +activate()
+    }
+    class InProgressState {
+        +activate()
+    }
+    ConcreteStateController ..|> IStateController : 実装
+    OpenState ..|> ITicketState : 実装
+    InProgressState ..|> ITicketState : 実装
+    TicketManager --> IStateController : 抽象×間接
+    EscalationEngine --> IStateController : 抽象×間接
+    ConcreteStateController --> ITicketState : 抽象×間接
 ```
 
 両クラスが抽象コントローラーインターフェースのみを受け取り、具体状態クラスへの依存が完全に排除されているが、インターフェースが2層になり構造が複雑になる。
