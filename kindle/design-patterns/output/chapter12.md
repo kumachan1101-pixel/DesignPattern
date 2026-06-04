@@ -957,6 +957,38 @@ int main() {
 }
 ```
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant CSF as ConcreteStateFactory
+    participant WM as WorkflowManager
+    participant EE as EscalationEngine
+    participant PS as PendingState
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>CSF: new ConcreteStateFactory
+    main->>WM: new（factory: IStateFactory*）
+    main->>EE: new（factory: IStateFactory*）
+    main->>WM: process("PENDING")
+    WM->>CSF: stateFactory->create("PENDING")
+    Note right of WM: IStateFactory* 経由
+    CSF->>PS: new PendingState
+    PS-->>CSF: 状態オブジェクト
+    CSF-->>WM: IState*
+    WM->>PS: state->handle(this)
+    Note right of WM: IState* 経由
+    PS-->>WM: 完了
+    WM-->>main: 完了
+    main->>EE: escalateOverdue()
+    EE->>CSF: stateFactory->create("PENDING")
+    Note right of EE: IStateFactory* 経由
+    CSF-->>EE: IState*
+    EE-->>main: 完了
+```
+
+一文要約：呼び出し元→`IStateFactory*`→`IState*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
+
 **この形のトレードオフ：**
 
 * 変更容易性：高（どのパーツが変わっても全体は無影響）
