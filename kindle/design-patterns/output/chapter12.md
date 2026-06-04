@@ -33,11 +33,24 @@
 
 ### 1-2：仕様表
 
-| **機能名** | **担当クラス** | **入力** | **出力** |
+設計の選択肢（案0〜案4）はすべて、この仕様を同じように実現します。「仕様は同じで、構造だけが異なる」ことが比較の前提です。
+
+**承認ワークフロールール**
+
+| ルール名 | 発動条件 | 結果 | 具体例 |
 | --- | --- | --- | --- |
-| 申請作成 | `WorkflowManager` | 申請内容 | 状態: 作成済 |
-| 承認判定 | `WorkflowManager` | 承認者の役職/金額 | 状態: 承認済/却下済 |
-| ステータス通知 | `WorkflowManager` | 承認状況 | 各関係者への通知 |
+| 状態遷移 | 申請ステータスが変化する時（提出・承認・却下） | 次の状態へ移行し、対応する処理を実行 | ステータス="SUBMITTED" → 承認待ち状態へ移行 |
+| 承認可否判定 | 承認者が操作した時（金額・役職に基づく） | 承認または却下の判定結果を返す | 金額 > 100,000円 → 役員承認が必要と判定 |
+| 完了通知 | 各状態遷移が完了した時 | 登録済みの関係者全員へ承認状況を送信 | 承認完了 → 申請者・経理部門へ通知 |
+
+**このルールを使う場所**
+
+同じ承認処理を2か所で使います。この「2か所で使う」という仕様が、設計の違いを生む起点になります。
+
+| 使用場所 | 用途 |
+| --- | --- |
+| `WorkflowManager` | ユーザーの申請・承認操作を処理する通常フロー |
+| `EscalationEngine` | 期限超過申請を自動的にエスカレーションする自動フロー |
 
 ### 1-3：クラス構成図
 
@@ -372,13 +385,21 @@ graph LR
 **構造図：**
 
 ```mermaid
-graph LR
-    WM["WorkflowManager"]
-    EE["EscalationEngine"]
-    WM -- "具体×直接\n(if-elseが直書き)" --> WM
-    EE -- "具体×直接\n(同じロジックを複製)" --> EE
-    style WM fill:#ffe0e0,stroke:#cc4444
-    style EE fill:#ffe0e0,stroke:#cc4444
+classDiagram
+    class WorkflowManager {
+        <<if分岐を直書き>>
+        +process(status, amount)
+    }
+    class EscalationEngine {
+        <<同じif分岐が重複>>
+        +escalateOverdue()
+    }
+    class Approver {
+        +role
+        +limit
+    }
+    WorkflowManager --> Approver : 具体×直接
+    EscalationEngine --> Approver : 具体×直接
 ```
 
 両クラスが状態チェックと通知ロジックを内部に直書きしており、承認ルールが変わると2か所を同時に修正しなければならない。
@@ -464,17 +485,24 @@ sequenceDiagram
 **構造図：**
 
 ```mermaid
-graph LR
-    WM["WorkflowManager"]
-    EE["EscalationEngine"]
-    RC["RuleChecker"]
-    PS["PendingState"]
-    WM -- "具体×直接" --> RC
-    WM -- "具体×直接" --> PS
-    EE -- "具体×直接" --> RC
-    EE -- "具体×直接" --> PS
-    style RC fill:#ffeecc,stroke:#cc8800
-    style PS fill:#ffeecc,stroke:#cc8800
+classDiagram
+    class WorkflowManager {
+        +process(request)
+    }
+    class EscalationEngine {
+        +escalateOverdue()
+    }
+    class RuleChecker {
+        +isApproved(amount)
+        +isOverdue()
+    }
+    class PendingState {
+        +enter()
+    }
+    WorkflowManager --> RuleChecker : 具体×直接
+    WorkflowManager --> PendingState : 具体×直接
+    EscalationEngine --> RuleChecker : 具体×直接
+    EscalationEngine --> PendingState : 具体×直接
 ```
 
 クラスは分離されたが、`WorkflowManager` と `EscalationEngine` の両方が同じ具体クラスを直接参照しており、ルール変更時に両方の修正が必要になる。
