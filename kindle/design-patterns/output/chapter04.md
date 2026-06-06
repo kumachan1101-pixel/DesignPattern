@@ -713,6 +713,8 @@ int main() {
 
 #### 案3：抽象×直接 ―― インターフェースを挟み、型だけで接続する
 
+> **ケーブルで言うと：** LightningからUSB-Cコネクタに変換する。どのメーカーの充電器でも同じUSB-C口で繋がるようになり、機器が増えても口の規格を変える必要がなくなる。
+
 **この形の考え方：**
 インポート処理の「骨格となる手順」を親クラスで定義し、詳細な「パース・加工処理」をサブクラスで実装する形式です。呼び出し側は親クラスのインターフェースさえ知っていれば、具体的な実装クラスに依存せずに処理を進められます。
 
@@ -841,6 +843,32 @@ int main() {
 }
 ```
 
+**動作図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant SDI as StoreDataImporter
+    participant EDI as ECDataImporter
+    participant BIJ as BatchImportJob
+    participant MIC as ManualImportController
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>SDI: new StoreDataImporter
+    main->>EDI: new ECDataImporter
+    main->>BIJ: new BatchImportJob
+    main->>MIC: new ManualImportController
+    main->>BIJ: run(&ec)
+    BIJ->>EDI: importer->import()
+    Note right of BIJ: AbstractImporter* 経由
+    EDI-->>BIJ: 完了
+    BIJ-->>main: 完了
+    main->>MIC: importFile(&store)
+    MIC->>SDI: importer->import()
+    Note right of MIC: AbstractImporter* 経由
+    SDI-->>MIC: 完了
+    MIC-->>main: 完了
+```
+
 `main()` が具体型を組み立て、両方の呼び出し元は `AbstractImporter*` という型だけを介して同じインターフェースを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 
 **この形のトレードオフ：**
@@ -858,6 +886,8 @@ int main() {
 ---
 
 #### 案4：抽象×間接 ―― インターフェース＋仲介役を両立する
+
+> **ケーブルで言うと：** USB-CハブをMacBookに接続し、そのハブを介してHDMI・USB-A・LANなど多様な機器へ展開する。ハブが仲介役になるため、Macbook本体は各機器の規格を一切知らなくてよい。最も柔軟だが、ハブ自体のコストと配線の複雑さも増す。
 
 **この形の考え方：**
 処理の骨格を持つ各クラスを、さらに仲介者経由で利用する形です。実装の詳細はどの層も知らず、変更影響は最も局所化されますが、クラス数と層の深さが増え、小規模なシステムには過剰になりがちです。
@@ -974,35 +1004,7 @@ int main() {
 }
 ```
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant IM as ImporterManager
-    participant BIJ as BatchImportJob
-    participant MIC as ManualImportController
-    participant SDI as StoreDataImporter
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>IM: new ImporterManager
-    main->>BIJ: new（mgr: IImporterManager*）
-    main->>MIC: new（mgr: IImporterManager*）
-    main->>BIJ: run(&ec)
-    BIJ->>IM: manager->executeImport(importer)
-    Note right of BIJ: IImporterManager* 経由
-    IM->>SDI: importer->import()
-    Note right of IM: AbstractImporter* 経由
-    SDI-->>IM: 完了
-    IM-->>BIJ: 完了
-    BIJ-->>main: 完了
-    main->>MIC: importFile(&store)
-    MIC->>IM: manager->executeImport(importer)
-    IM->>SDI: importer->import()
-    SDI-->>IM: 完了
-    IM-->>MIC: 完了
-    MIC-->>main: 完了
-```
-呼び出し元→`IImporterManager*`→`AbstractImporter*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
+呼び出し元 → `IImporterManager*` → `AbstractImporter*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。`BatchImportJob` と `ManualImportController` はどちらも `IImporterManager*` しか見えず、内部で何が動くかは完全に隠蔽されている。
 
 **この形のトレードオフ：**
 
