@@ -528,21 +528,6 @@ int main() {
 }
 ```
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant PA as PaymentApplication
-    participant SS as SubscriptionService
-    main->>PA: processPayment("credit", 1000)
-    Note over PA: if credit → CreditCardProcessor を直生成
-    PA-->>main: 完了
-    main->>SS: chargeMonthly("user-001", 980)
-    Note over SS: 全く同じ if 分岐と具体クラスの直書きが重複して走る
-    SS-->>main: 完了
-```
-
 一文要約：ロジックが各クラスの内部に直書きされているため、同じ分岐と具体クラスの生成コードが2か所で並行して走る。
 
 **この形のトレードオフ：**
@@ -676,26 +661,6 @@ int main() {
     subscription.chargeMonthly("user-001", 980);
     return 0;
 }
-```
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant PA as PaymentApplication
-    participant SS as SubscriptionService
-    participant CC as CreditCardProcessor
-    main->>PA: processPayment("credit", 1000)
-    Note over PA: if credit → new CreditCardProcessor
-    PA->>CC: pay(1000)
-    CC-->>PA: 完了
-    PA-->>main: 完了
-    main->>SS: chargeMonthly("user-001", 980)
-    Note over SS: 同じ選択ロジックが重複（どのクラスを使うか自ら判断）
-    SS->>CC: pay(980)
-    CC-->>SS: 完了
-    SS-->>main: 完了
 ```
 
 一文要約：クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
@@ -861,28 +826,6 @@ int main() {
     subscription.chargeMonthly("user-001", 980);
     return 0;
 }
-```
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant CC as CreditCardProcessor
-    participant PA as PaymentApplication
-    participant SS as SubscriptionService
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>CC: new CreditCardProcessor
-    main->>SS: new（processor: IPaymentProcessor*）
-    main->>PA: processPayment("credit", 1000)
-    PA->>CC: processor->pay(1000)
-    Note right of PA: IPaymentProcessor* 経由
-    CC-->>PA: 完了
-    PA-->>main: 完了
-    main->>SS: chargeMonthly("user-001", 980)
-    SS->>CC: processor->pay(980)
-    CC-->>SS: 完了
-    SS-->>main: 完了
 ```
 
 一文要約：`main()` が具体型を組み立て、両方の呼び出し元は `IPaymentProcessor*` という型だけを介して同じオブジェクトを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
