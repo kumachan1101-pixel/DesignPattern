@@ -1072,71 +1072,147 @@ sequenceDiagram
 
 ### 7-1：解決後のコード（全体）
 
-レポートの生成骨格を Template Method で定義し、装飾機能を Decorator で重ね、生成操作自体を Command としてカプセル化しました。
+レポートの生成骨格を Template Method で定義し、装飾機能を Decorator で重ね、生成操作自体を Command としてカプセル化しました。クラスを責務ごとに分割して示します。
+
+**【抽象基底クラス】骨格とインターフェース**
 
 ```cpp
-// ICommand: 操作履歴のインターフェース
+// ICommand: 操作履歴のインターフェース（Command パターン）
 class ICommand {
 public:
     virtual ~ICommand() = default;
     virtual void execute() = 0;
+    virtual void undo() = 0;  // ← 取り消し操作も契約に含める
 };
 ```
 
 ```cpp
-// ReportGenerator: レポート生成の骨格（Template Method）
+// ReportGenerator: レポート生成の骨格（Template Method パターン）
 class ReportGenerator {
 public:
+    virtual ~ReportGenerator() = default;
     void generate() {
         cout << "CSV読み込み" << endl;
-        renderBody(); // 継承先で変化する部分
+        renderBody(); // ← 継承先で変化する部分だけをここに任せる
         cout << "フッター生成" << endl;
     }
     virtual void renderBody() = 0;
 };
 ```
 
+`ReportGenerator` は「CSV読み込み → 本文生成 → フッター出力」という実行順序を固定します。本文の中身（`renderBody()`）だけが派生クラスに委ねられており、これが Template Method パターンの核心です。
+
+**【具体実装クラス】基本レポート**
+
 ```cpp
-// BasicReport: 基本レポートの本体
+// BasicReport: 基本レポートの本体（Template Method の具体実装）
 class BasicReport : public ReportGenerator {
 public:
     void renderBody() override {
-        cout << "本文を生成" << endl;
+        cout << "本文を生成。" << endl;
     }
 };
 ```
 
 ```cpp
-// ReportDecorator: 装飾機能のインターフェース（Decorator基底）
+// MonthlyReport: 月次レポートの本体
+class MonthlyReport : public ReportGenerator {
+public:
+    void renderBody() override {
+        cout << "月次集計を本文として生成。" << endl;
+    }
+};
+```
+
+`BasicReport` と `MonthlyReport` は、それぞれ「本文の中身」だけを知っています。骨格（CSV読み込み・フッター）には一切触れません。
+
+**【デコレータクラス】装飾機能**
+
+```cpp
+// ReportDecorator: 装飾機能の基底クラス（Decorator パターン基底）
 class ReportDecorator : public ReportGenerator {
 protected:
-    ReportGenerator* wrapped;
+    ReportGenerator* wrapped; // ← 抽象基底クラス型 = 「抽象」の証拠
 public:
     ReportDecorator(ReportGenerator* g) : wrapped(g) {}
 };
 ```
 
 ```cpp
-// GraphDecorator: グラフ追加の具体装飾
+// GraphDecorator: グラフ追加の装飾
 class GraphDecorator : public ReportDecorator {
 public:
     GraphDecorator(ReportGenerator* g) : ReportDecorator(g) {}
     void renderBody() override {
-        wrapped->renderBody();
-        cout << "グラフを追加" << endl; // ← ここだけ変わる
+        wrapped->renderBody();         // ← 内側の処理を先に呼ぶ
+        cout << "グラフを追加。" << endl; // ← その後に自分の装飾を追加
     }
 };
 ```
 
 ```cpp
-// BatchApplication: 具体クラスを知っている唯一の場所（組み立て担当）
+// WatermarkDecorator: 透かし追加の装飾
+class WatermarkDecorator : public ReportDecorator {
+public:
+    WatermarkDecorator(ReportGenerator* g) : ReportDecorator(g) {}
+    void renderBody() override {
+        wrapped->renderBody();
+        cout << "透かしを追加。" << endl;
+    }
+};
+```
+
+`GraphDecorator` と `WatermarkDecorator` は、どちらも `wrapped->renderBody()` を呼んだ後に自分の処理を追加します。`new WatermarkDecorator(new GraphDecorator(new BasicReport()))` のように入れ子にすることで、装飾を自由に重ねがけできます。
+
+**【コマンドクラス】操作の履歴化**
+
+```cpp
+// GenerateReportCommand: レポート生成操作をオブジェクトとして記録
+class GenerateReportCommand : public ICommand {
+    ReportGenerator* generator; // ← 生成対象を保持
+    string outputPath;          // ← 生成先パスも記録（undo時に削除する）
+public:
+    GenerateReportCommand(ReportGenerator* g, string path)
+        : generator(g), outputPath(path) {}
+    void execute() override {
+        generator->generate();
+        cout << "[コマンド] " << outputPath
+             << " に出力して履歴に記録。" << endl;
+    }
+    void undo() override {
+        cout << "[コマンド] " << outputPath
+             << " を削除してアンドゥ完了。" << endl;
+    }
+};
+```
+
+`GenerateReportCommand` は「どのレポートを、どのパスに出力したか」という情報を持ちます。`undo()` を呼ぶことで、生成されたファイルを削除し操作を取り消せます。
+
+**【BatchApplication】組み立てと履歴管理**
+
+```cpp
+// BatchApplication: 具体クラスを知っている唯一の場所
 class BatchApplication {
-    vector<ICommand*> history;
+    vector<ICommand*> history; // ← 実行済みコマンドを積み上げる
 public:
     void run() {
-        ReportGenerator* gen = new GraphDecorator(new BasicReport());
-        gen->generate();
-        // Command で操作を履歴管理（拡張ポイント）
+        // 装飾を重ねてレポートを組み立てる
+        ReportGenerator* gen =
+            new WatermarkDecorator(
+                new GraphDecorator(
+                    new BasicReport()));
+
+        // 操作をコマンドとして記録・実行
+        ICommand* cmd =
+            new GenerateReportCommand(gen, "monthly_report.pdf");
+        cmd->execute();
+        history.push_back(cmd); // ← 履歴に追加
+
+        // アンドゥのデモ
+        if (!history.empty()) {
+            history.back()->undo();
+            history.pop_back();
+        }
     }
 };
 ```
@@ -1150,7 +1226,21 @@ int main() {
 }
 ```
 
-この実装により、`ReportGenerator` の骨格を変更することなく、機能（グラフやロゴ）の追加や順序の入れ替えが可能になりました。
+この実装により、`ReportGenerator` の骨格を変更することなく、装飾（グラフ・透かし）の追加や順序の入れ替えが可能になりました。また、`GenerateReportCommand` の `undo()` によって、動作例テーブルの「アンドゥ操作」も実現しています。
+
+**実行結果：**
+
+```text
+CSV読み込み
+本文を生成。
+グラフを追加。
+透かしを追加。
+フッター生成
+[コマンド] monthly_report.pdf に出力して履歴に記録。
+[コマンド] monthly_report.pdf を削除してアンドゥ完了。
+```
+
+動作例テーブルの「ヘッダー付き・透かし付きでPDF出力」と「レポート生成後にキャンセル操作」の両方がこの出力で実現されています。
 
 ### 7-2：変更影響グラフ（改善後）
 
