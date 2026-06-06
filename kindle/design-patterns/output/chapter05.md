@@ -508,20 +508,6 @@ int main() {
 
 `BudgetApp` と `ImportService` の両方が、マネージャへの直接呼び出しとundo/redo管理ロジックをそれぞれに書いている。操作の種類が増えるたびに、両方の呼び出し元で同じ修正が必要になる。
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant BA as BudgetApp
-    participant EM as ExpenseManager
-    participant IS as ImportService
-    BA->>EM: addExpense(amount, cat)
-    Note over BA: history.push_back("Expense:...")
-    EM-->>BA: 完了
-    IS->>EM: addExpense(r.first, r.second)
-    Note over IS: ← 全く同じ直接呼び出しが重複して走る
-    EM-->>IS: 完了
-```
 ロジックが各呼び出し元の内部に直書きされているため、マネージャへの直接呼び出しと履歴管理の同じコードが `BudgetApp` と `ImportService` の2か所で並行して走る。
 
 **この形のトレードオフ：**
@@ -630,22 +616,6 @@ int main() {
 
 `BudgetApp` と `ImportService` の両方が、「どの具体コマンドクラスを使うか」という選択をそれぞれの場所で直接行っている。新しい操作が追加されるたびに、両方の呼び出し元を修正しなければならない。
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant BA as BudgetApp
-    participant AEC as AddExpenseCommand
-    participant IS as ImportService
-    BA->>AEC: new AddExpenseCommand(amount, cat)
-    BA->>AEC: execute()
-    Note over BA: ← 直接：具体クラスを直接生成
-    AEC-->>BA: 完了
-    IS->>AEC: new AddExpenseCommand(r.first, r.second)
-    IS->>AEC: execute()
-    Note over IS: ← 重複：同じ具体クラスをここでも直接生成
-    AEC-->>IS: 完了
-```
 クラスは分かれたが「どの具体コマンドクラスを使うか」という選択を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
 
 **この形のトレードオフ：**
@@ -821,28 +791,6 @@ int main() {
 
 `BudgetApp` と `ImportService` はどちらも `ICommand*` を受け取るだけで、「どの具体クラスか」を知らずに済む。新しい操作が増えても、どちらの呼び出し元も修正は不要だ。
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant AEC as AddExpenseCommand
-    participant BA as BudgetApp
-    participant IS as ImportService
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>AEC: new AddExpenseCommand(em, 1000, "Food")
-    main->>BA: new（cmd: ICommand*）
-    main->>IS: new（cmds: ICommand*[]）
-    main->>BA: onAddExpenseClick(&cmd1)
-    BA->>AEC: cmd->execute()
-    Note right of BA: ICommand* 経由
-    AEC-->>BA: 完了
-    BA-->>main: 完了
-    main->>IS: importTransactions({&cmd2})
-    IS->>AEC: cmd->execute()
-    AEC-->>IS: 完了
-    IS-->>main: 完了
-```
 `main()` が具体型を組み立て、両方の呼び出し元は `ICommand*` という型だけを介して同じインターフェースを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 
 **この形のトレードオフ：**

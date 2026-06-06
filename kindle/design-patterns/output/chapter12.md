@@ -811,32 +811,6 @@ int main() {
 
 注入アプローチにより、両クラスとも具体クラスを知らずに済み、選択ロジックの重複が解消される。
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant MAR as ManagerApprovalRule
-    participant PS as PendingState
-    participant WM as WorkflowManager
-    participant EE as EscalationEngine
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>MAR: new ManagerApprovalRule
-    main->>PS: new PendingState
-    main->>WM: new（rule: IApprovalRule*）
-    main->>EE: new（rule: IApprovalRule*, state: IWorkflowState*）
-    main->>WM: process(50000)
-    WM->>MAR: rule->canApprove(50000)
-    Note right of WM: IApprovalRule* 経由
-    MAR-->>WM: 判定結果
-    WM-->>main: 完了
-    main->>EE: escalateOverdue()
-    EE->>PS: state->handle(nullptr)
-    Note right of EE: IWorkflowState* 経由
-    PS-->>EE: 完了
-    EE-->>main: 完了
-```
-
 一文要約：`main()` が具体型を組み立て、両方の呼び出し元は `IApprovalRule*`・`IWorkflowState*` という型だけを介して呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 
 **この形のトレードオフ：**

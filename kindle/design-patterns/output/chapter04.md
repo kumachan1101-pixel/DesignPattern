@@ -482,20 +482,6 @@ int main() {
 }
 ```
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant BIJ as BatchImportJob
-    participant DI as DataImporter
-    participant MIC as ManualImportController
-    BIJ->>DI: import()
-    Note over DI: if format=EC → parseECData()<br/>elif format=STORE → parseStoreData()
-    DI-->>BIJ: 完了
-    MIC->>DI: import()
-    Note over DI: ← 全く同じ if 文が重複して走る
-    DI-->>MIC: 完了
-```
 ロジックが各呼び出し元の内部に直書きされているため、フォーマット検出の同じ条件分岐が `BatchImportJob` と `ManualImportController` の2か所で並行して走る。
 
 **この形のトレードオフ：**
@@ -632,25 +618,6 @@ int main() {
 }
 ```
 
-**動作図：**
-★シーケンス図は、全ての案に載せるのはやめて、最終案だけに記載すると言ってませんでしたか？方針変えたらそれでも良いですが統一してほしい。
-
-```mermaid
-sequenceDiagram
-    participant BIJ as BatchImportJob
-    participant SDI as StoreDataImporter
-    participant EDI as ECDataImporter
-    participant MIC as ManualImportController
-    BIJ->>SDI: import()
-    SDI-->>BIJ: 完了
-    BIJ->>EDI: import()
-    EDI-->>BIJ: 完了
-    MIC->>SDI: import()
-    Note over MIC: ← 同じ選択ロジックが重複
-    SDI-->>MIC: 完了
-    MIC->>EDI: import()
-    EDI-->>MIC: 完了
-```
 クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
 
 **この形のトレードオフ：**
@@ -797,30 +764,6 @@ int main() {
 }
 ```
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant SDI as StoreDataImporter
-    participant EDI as ECDataImporter
-    participant BIJ as BatchImportJob
-    participant MIC as ManualImportController
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>SDI: new StoreDataImporter
-    main->>EDI: new ECDataImporter
-    main->>BIJ: new（importer: AbstractImporter*）
-    main->>MIC: new（importer: AbstractImporter*）
-    main->>BIJ: run(&ec)
-    BIJ->>EDI: importer->import()
-    Note right of BIJ: AbstractImporter* 経由
-    EDI-->>BIJ: 完了
-    BIJ-->>main: 完了
-    main->>MIC: importFile(&store)
-    MIC->>SDI: importer->import()
-    SDI-->>MIC: 完了
-    MIC-->>main: 完了
-```
 `main()` が具体型を組み立て、両方の呼び出し元は `AbstractImporter*` という型だけを介して同じインターフェースを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 
 **この形のトレードオフ：**
