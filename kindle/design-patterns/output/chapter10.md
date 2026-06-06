@@ -33,7 +33,6 @@
 
 ### 1-2：仕様表
 
-設計の選択肢（案0〜案4）はすべて、この仕様を同じように実現します。「仕様は同じで、構造だけが異なる」ことが比較の前提です。
 
 **外部連携バッチルール**
 
@@ -51,6 +50,19 @@
 | --- | --- |
 | `BatchExecutor` | 夜間バッチで全連携先へ一括転送する |
 | `ManualTriggerController` | 管理者が手動で特定の連携先へ即時転送する |
+
+### 1-X：動作例テーブル ―― 仕様を「動かした結果」で確認する
+
+コードを読む前に、このシステムがどんな入力に対してどんな出力を返すかを確認します。この章のどの案も、以下の動作を実現します。
+
+| シナリオ | 操作 | 外部API状態 | 結果 | 通知 |
+| --- | --- | --- | --- | --- |
+| 月次バッチ・A社正常応答 | `BatchExecutor.execute("A")` | 正常応答 | A社へデータ転送成功 | Slack「A社連携完了」 |
+| 月次バッチ・C社タイムアウト | `BatchExecutor.execute("C")` | タイムアウト | 3回リトライ後に失敗ログ記録 | Slack「C社連携失敗」 |
+| 日次バッチ・新規D社追加後 | `BatchExecutor.execute("D")` | 正常応答 | D社向け新クライアントがデータ転送成功 | Slack「D社連携完了」 |
+| 手動トリガー・B社正常応答 | `ManualTriggerController.triggerSync("B")` | 正常応答 | B社へ手動データ転送成功 | Slack「B社手動連携完了」 |
+| バッチ失敗・監視チーム設定あり | `BatchExecutor.execute("A")`（API障害） | 障害 | 転送失敗ログ記録 | Slack＋メール両方に通知 |
+| 通知先にログ基盤追加後 | `BatchExecutor.execute("B")` | 正常応答 | B社へデータ転送成功 | Slack＋ログ基盤へ同時通知 |
 
 ### 1-3：クラス構成図
 
@@ -154,7 +166,7 @@ A社へ送信: data
 
 ```
 
-> このコードは正しく動く。これから変えていくのは「機能」ではなく「構造」だ。
+このコードは正しく動いています。これから検討するのは、同じ機能を保ちながら、変更に強い構造をどう作るかという点です。
 > 
 > 
 
@@ -182,17 +194,14 @@ A社へ送信: data
 
 データ転送先が増えるたびにバッチ全体のロジックが肥大化し、通知処理までが「おまけ」のように付け足されていく現状、そろそろ構造的なテコ入れが必要なようです。
 
-### 2-2：変動・不変の仮説テーブル
+### 2-2：今回の確定変更テーブル
 
-フェーズ1での観察（1-8の責任チェック表）を基に、システムの変化を整理します。
+この変更要求で確実に発生する変更を整理します。「将来起きるかもしれない」ではなく、「今回の要件として決まっている」ものだけを載せます。
 
-| **分類** | **仮説** | **根拠（フェーズ1の観察から）** |
+| **変更内容** | **具体的な変更箇所** | **根拠（変更要求）** |
 | --- | --- | --- |
-| 🔴 **変動しそう** | 連携先のクライアント（SystemA/B/C...）の生成と通信ロジック | 1-8で、連携先ごとに生成と通信が混在していると観察したため。 |
-| 🔴 **変動しそう** | 処理完了後の通知先や通知手段 | 1-8で、通知サービスの知識が処理ロジックと混在していると観察したため。 |
-| 🟢 **不変** | バッチ処理の「実行フロー」そのもの（取得・転送・通知の流れ） | 連携先が変わっても、一連の転送フロー自体は安定しているため。 |
-
-ただ、個別のクライアント生成や通知ルールをどこまで切り出せばいいのか、判断には慎重を期す必要があります。
+| C社との外部連携を追加する | `BatchExecutor` に `SystemCClient` の生成と呼び出しロジックを追加 | PM「来週からC社とも連携」 |
+| Slackへの完了通知を追加する | `BatchExecutor` 内に Slack への通知処理を挿入 | PM「Slackへ自動通知してほしい」 |
 
 ### 2-3：関係者ヒアリング
 
@@ -218,13 +227,15 @@ A社へ送信: data
 
 > **現実のヒアリングでは——** このシナリオでは相手がちょうど設計に役立つ情報を教えてくれています。現実には「変わるかどうか分からない」「たぶん変わらない」という答えが返ることも多いです。そのときは、コードの変更履歴（`git log`）や過去の障害記録を「ヒアリングの代わり」として使ってみてください。「過去に何度変わったか」が、「将来変わりやすいか」の最も正直な証拠です。
 
-### 2-4：確定した変動/不変テーブル
+### 2-4：将来リスクテーブル
 
-| **分類** | **具体的な内容** | **変わるタイミング** | **根拠（誰との確認か）** |
-| --- | --- | --- | --- |
-| 🔴 **変動する** | 外部連携先の生成と通信ロジック | 連携先の追加・仕様変更時 | 運用担当者との合意 |
-| 🔴 **変動する** | 結果通知の種類や通知先 | 通知要件の追加・変更時 | 運用担当者との合意 |
-| 🟢 **不変** | バッチの実行プロセス（取得→転送→通知） | 変わらない | 運用担当者との合意 |
+ヒアリングで判明した「将来起きるかもしれない」変化をまとめます。確定変更（2-2）とは別に管理することで、今回の設計判断と将来への備えを混在させずに済みます。
+
+| **将来のリスク** | **変わる可能性がある箇所** | **根拠（誰が言ったか）** |
+| --- | --- | --- |
+| D社・E社など連携先がさらに増える | `BatchExecutor` 内の振り分けロジック全体 | 運用担当者「D社・E社も控えている」 |
+| Slack以外にメール・ログ基盤への通知が追加される | 通知処理全体 | 運用担当者「ログ収集基盤も検討中」 |
+| バッチの実行フロー自体は変わらない | 不変 | 運用担当者「仕組み自体は変わらない」 |
 
 フェーズ2で「何が変わり、何が変わらないか」が確定しました。次のフェーズ3では、この変更要求を現在のコードで実行しようとすると何が起きるか、その痛みを確認します。
 
@@ -353,9 +364,7 @@ graph LR
 | 接続点A | 連携先追加によるロジックの肥大化 | 高頻度の変更・夜間バッチの締め時刻によるタイムアウト設計が必要 | `BatchExecutor` の通信処理 |
 | 接続点B | 通知手段の多様化への対応 | 高頻度の変更 | `BatchExecutor` の通知処理 |
 
-この表が、次に検討するパターン適用の出発点となります。 外部連携（Factory Method・Facade）と、通知処理（Observer）を別々の視点で切り離す構造を目指します。
-
-フェーズ5で「何を解くか」が確定しました。 次のフェーズ6では、これらの課題に対して具体的にどのようなパターンの組み合わせが最適か、コストの観点から案を検討します。
+フェーズ5で「何を解くか」が確定しました。 次のフェーズ6では、これらの課題に対して具体的にどのような構造が最適か、コストの観点から案を検討します。
 
 ---
 
@@ -363,9 +372,11 @@ graph LR
 
 外部連携バッチシステムにおいて、「連携先の追加」と「通知処理の多様化」という二つの変更軸が `BatchExecutor` に混在していることが、システムを複雑にする原因です。 ここでは、これらの責務を適切に切り離すための対策案を検討します。
 
+**どの案も、動作例テーブルで示した動作を実現します。違うのは「変更が来たときにどこを触ることになるか」です。**
+
 ### 6-1：接続の形 2×2マトリクス
 
-現在は通信クライアントや通知サービスを `BatchExecutor` が直接生成して利用する「具体×直接」の状態です。 これらをインターフェースで抽象化し、生成を Factory Method 等へ委譲する方向で検討します。
+現在は通信クライアントや通知サービスを `BatchExecutor` が直接生成して利用する「具体×直接」の状態です。 これらをインターフェースで抽象化し、生成を委譲する方向で検討します。
 
 | 接続形態 | ケーブル例 | 特徴 |
 |:---:|:---|:---|
@@ -376,7 +387,7 @@ graph LR
 
 ---
 
-#### 案0：現状維持 ―― 構造を変えない
+#### 案1：現状のまま ―― 構造を変えない
 
 **この形の考え方：**
 クラスの分割も接続形態の変更もしない。 既存の `if-else` 分岐に新しい連携先や通知条件を足し続ける。 変更頻度が極めて低く、この先半年以上修正の予定がない場合にのみ選択する。
@@ -417,25 +428,38 @@ classDiagram
 
 両クラスが同じ連携先クライアントと通知サービスを直接知っており、連携先が増えると2か所を修正しなければならない。
 
+**手段の比較：**
+
+| 手段 | 方法 | 特徴 |
+| --- | --- | --- |
+| 手段A：if分岐に追記 | `execute()` 内に `else if (targetId == "C")` を追加 | 最も実装が速い。ただし分岐が増えるたびに読みにくくなる |
+| 手段B：switch文に整理 | `if-else` を `switch` に書き換え | `if-else` より見通しがわずかに良くなるが、本質的な問題は変わらない |
+
+→ **採用：手段A**（今回の要件はC社追加の1件のみ。最速で対応できる手段を選ぶ。ただし構造問題は解消しない）
+
 【コード例】
 
 ```cpp
 void execute(string targetId) {
-    if (targetId == "C") { SystemCClient client; client.send("data"); } // ← 具体：SystemCClientという型名を直接書いている
-    NotificationService n; n.notify("Success"); // ← 具体：NotificationServiceという型名を直接書いている
+    if (targetId == "C") { SystemCClient client; client.send("data"); }
+    // ← 具体：SystemCClientという型名を直接書いている
+    NotificationService n; n.notify("Success");
+    // ← 具体：NotificationServiceという型名を直接書いている
 }
 
 ```
 
+このコードを見ると、連携先が増えるたびに `execute()` が肥大化し、既存の安定したロジックを毎回触ることになる構造が明確です。
+
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 案0（現状維持）の呼び出し側
+// 案1（現状のまま）の呼び出し側
 // 両クラスが同じ外部システム振り分けロジックを重複して持つ
 class ManualTriggerController {
 public:
     void triggerSync(string systemId) {
-        // ← 具体：BatchExecutorと同じif-else分岐をそのまま複製している
+        // ← BatchExecutorと同じif-else分岐をそのまま複製している
         if (systemId == "A") {
             SystemAClient client; client.send("manualData");
         } else if (systemId == "B") {
@@ -448,11 +472,11 @@ public:
 };
 
 int main() {
-    BatchExecutor executor;          // ← 直接：BatchExecutorを直接生成して使う
-    executor.execute("C");           // ← 具体：内部にSystemCClientなどが直書きされている
+    BatchExecutor executor;
+    executor.execute("C");
 
-    ManualTriggerController manual;  // ← 直接：ManualTriggerControllerも直接生成
-    manual.triggerSync("B");         // ← 具体：内部に同じif-else分岐が重複している
+    ManualTriggerController manual;
+    manual.triggerSync("B");
     return 0;
 }
 ```
@@ -490,7 +514,7 @@ sequenceDiagram
 
 ---
 
-#### 案1：具体×直接 ―― クラスを分けるが参照は具体型のまま
+#### 案2：具体×直接 ―― クラスを分けるが参照は具体型のまま
 
 **この形の考え方：**
 各連携先のクライアントをクラス化するが、呼び出し側はそれらを直接 `new` する。 責任の所在は明確になるが、依然としてクラスの生成知識が利用側に混在している。
@@ -529,7 +553,28 @@ classDiagram
 
 クラスは分離されたが、両クラスが各具体クライアントへの矢印を重複して持っており、連携先が増えるたびに両方を修正する必要がある。
 
+**手段の比較：**
+
+| 手段 | 方法 | 特徴 |
+| --- | --- | --- |
+| 手段A：クラスを切り出して直接生成 | `SystemCClient` をクラス化し、呼び出し元で直接 `new` する | 責任はクラスに分かれるが、生成の知識は呼び出し元に残る |
+| 手段B：ヘルパー関数に集約 | 振り分けロジックをフリー関数にまとめる | 関数1つに集約されるが、インターフェースなしのため型依存は変わらない |
+| 手段C：staticメソッドに集約 | クラスのstaticメソッドに振り分けを集める | 案Aの変形。依存関係は同じで利点は薄い |
+
+→ **採用：手段A**（クラスの責任を分離するという方向性は正しい。ただし次の案（抽象化）への踏み台として位置づける）
+
 【コード例】
+
+各連携先クライアントをクラスとして分離します。
+
+```cpp
+class SystemCClient {
+public:
+    void send(string data) { cout << "C社へ送信: " << data << endl; }
+};
+```
+
+呼び出し元では具体型を直接生成します。
 
 ```cpp
 void execute(string targetId) {
@@ -541,28 +586,30 @@ void execute(string targetId) {
 
 ```
 
+クラスは分かれたが、`execute()` が `SystemCClient` という型名を直接知っている点は変わらない。
+
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 案1（具体×直接）の呼び出し側
+// 案2（具体×直接）の呼び出し側
 // 選択ロジックが両クラスに重複している
 class ManualTriggerController {
 public:
     void triggerSync(string systemId) {
         if (systemId == "C") {
             SystemCClient client; // ← 具体：SystemCClientという型名を直接書いている
-            client.send("manualData"); // ← 直接：このクラスを直接インスタンス化している
+            client.send("manualData");
         }
         NotificationService n; n.notify("手動同期完了");
     }
 };
 
 int main() {
-    BatchExecutor executor; // ← 直接：BatchExecutorを直接生成して使う
-    executor.execute("C");  // ← 具体：内部でSystemCClientが直接生成される
+    BatchExecutor executor;
+    executor.execute("C");
 
-    ManualTriggerController manual; // ← 直接：ManualTriggerControllerも直接生成して使う
-    manual.triggerSync("B");        // ← 具体：内部でSystemBClientが直接生成される
+    ManualTriggerController manual;
+    manual.triggerSync("B");
     return 0;
 }
 ```
@@ -581,7 +628,7 @@ sequenceDiagram
     Note over BE: if "C" → new SystemCClient
     BE->>SC: send("data")
     SC-->>BE: 完了
-    BE-->>main: 支払金額
+    BE-->>main: 完了
     main->>MTC: triggerSync("B")
     Note over MTC: ← 同じ選択ロジックが重複
     MTC-->>main: 完了
@@ -601,12 +648,13 @@ sequenceDiagram
 
 
 
+
 ---
 
-#### 案2：抽象×直接 ―― インターフェースを挟み、型だけで接続する
+#### 案3：抽象×直接 ―― インターフェースを挟み、型だけで接続する
 
 **この形の考え方：**
-連携先との通信インターフェースを定義し、生成を Factory Method パターンで抽象化する。 また、通知処理には Observer パターンを適用し、結果の通知先を動的に登録可能にする。
+連携先との通信インターフェースを定義し、生成を一か所に集約する。 また、通知処理を動的に登録可能な仕組みにする。 呼び出し元はインターフェース型だけを知り、具体クラスへの依存をなくす。
 
 **構造図：**
 
@@ -640,27 +688,61 @@ classDiagram
     ManualTriggerController --> IExternalClient : 抽象×直接
 ```
 
-`BatchExecutor` はFactory経由でインターフェースのみを利用し、`ManualTriggerController` は外部から注入されたインターフェースのみを知り、両クラスとも具体クライアントへの依存がなくなっている。
+`BatchExecutor` はインターフェースのみを利用し、`ManualTriggerController` は外部から注入されたインターフェースのみを知り、両クラスとも具体クライアントへの依存がなくなっている。
 
-【コード例】
+**手段の比較：**
+
+| 手段 | 方法 | 特徴 |
+| --- | --- | --- |
+| 手段A：コンストラクタ注入 | `BatchExecutor(IExternalClient* c)` でインターフェース型を受け取る | 依存を外から差し込める。テスト時にスタブを注入しやすい |
+| 手段B：セッターで注入 | `setClient(IExternalClient* c)` でセットする | 後から差し替え可能。ただし「未設定」状態のリスクがある |
+| 手段C：生成を内部に集約（振り分け関数） | `if-else` で具体型を生成するヘルパーをメンバに持つ | 外部には型を隠せるが、内部では具体型を知っている。次の案（間接）に近い発想 |
+
+→ **採用：手段A**（コンストラクタ注入は「依存を明示する」という設計の意図が最も明確。テスト容易性も高い）
+
+インターフェースと連携先クライアントの実装を定義します。
 
 ```cpp
-class IExternalClient { public: virtual void send(string d) = 0; };
-// この構造を Factory Method パターンと呼ぶ
-IExternalClient* factory(string id) { /* ... */ } // ← 抽象：IExternalClient*型で返し、具体クラスを知らない
+class IExternalClient {
+public:
+    virtual void send(string d) = 0;
+};
 
-// Observer パターンの導入
-void execute() {
-    client->send("data");                           // ← 抽象：IExternalClient*型で受け取り、具体クラスを知らない
-    for(auto* obs : observers) obs->notify("Success"); // ← 直接：IObserver*型で直接通知する
-}
+class SystemAClient : public IExternalClient {
+public:
+    void send(string d) override { cout << "A社へ送信: " << d << endl; }
+};
+class SystemBClient : public IExternalClient {
+public:
+    void send(string d) override { cout << "B社へ送信: " << d << endl; }
+};
+class SystemCClient : public IExternalClient {
+public:
+    void send(string d) override { cout << "C社へ送信: " << d << endl; }
+};
+```
+
+`BatchExecutor` はインターフェース経由でクライアントを受け取ります。
+
+```cpp
+class BatchExecutor {
+    IExternalClient* client; // ← 抽象：IExternalClient*型で受け取り、具体クラスを知らない
+public:
+    BatchExecutor(IExternalClient* c) : client(c) {}
+    void execute(string targetId) {
+        client->send("data"); // ← 直接：インターフェース経由で直接呼び出す
+        cout << "完了通知を送信" << endl;
+    }
+};
 
 ```
+
+`BatchExecutor` の内部から具体クラス名が消えた。代わりに `IExternalClient*` という型だけで動作する。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 案2（抽象×直接）の呼び出し側
+// 案3（抽象×直接）の呼び出し側
 // 注入アプローチにより、両クラスで具体クライアントへの依存がなくなる
 class ManualTriggerController {
     IExternalClient* client; // ← 抽象：外部から注入されたインターフェースのみ知っている
@@ -674,12 +756,12 @@ public:
 };
 
 int main() {
-    BatchExecutor executor;        // ← 直接：BatchExecutorを直接生成
-    executor.execute("C");         // ← 抽象：呼び出し側は具体クライアントクラスを知らない
+    SystemCClient cClient;
+    BatchExecutor executor(&cClient); // ← 抽象：呼び出し側は具体クライアントクラスを渡すだけ
 
     SystemBClient bClient;
-    ManualTriggerController manual(&bClient); // ← 直接：インターフェース経由で直接注入
-    manual.triggerSync("B");       // ← 抽象：内部では具体クライアントを知らない
+    ManualTriggerController manual(&bClient);
+    manual.triggerSync("B");
     return 0;
 }
 ```
@@ -702,7 +784,7 @@ sequenceDiagram
     BE->>BC: client->send("data")
     Note right of BE: IExternalClient* 経由
     BC-->>BE: 完了
-    BE-->>main: 支払金額
+    BE-->>main: 完了
     main->>MTC: triggerSync("B")
     MTC->>BC: client->send("manualData")
     BC-->>MTC: 完了
@@ -713,201 +795,13 @@ sequenceDiagram
 
 **この形のトレードオフ：**
 
-* 変更容易性：中〜高（新しい連携先追加はFactoryの修正だけで済む）
+* 変更容易性：中〜高（新しい連携先追加は新クラスの追加と `main()` の組み立て修正だけで済む）
 
 
-* テスト容易性：高（I/Fに対してスタブを容易に差し込める）
+* テスト容易性：高（インターフェースに対してスタブを容易に差し込める）
 
 
-* 実装コスト：中（インターフェース定義とFactoryの実装が必要）
-
-
-
----
-
-#### 案3：具体×間接 ―― 仲介クラスを置くが、具体型を知っている
-
-**この形の考え方：**
-`BatchExecutor` と各クライアントの間に「Facade クラス」を置く。 この Facade が連携処理の裏側を隠蔽する。 ただし、この Facade は個別のクライアントの具体型を知っている。
-
-**構造図：**
-
-```mermaid
-classDiagram
-    class BatchExecutor {
-        -facade ExternalFacade
-        +executeNightlyBatch(targets)
-    }
-    class ManualTriggerController {
-        -facade ExternalFacade
-        +triggerManual(targetId, data)
-    }
-    class ExternalFacade {
-        -log SyncLog
-        +run(targetId, data)
-    }
-    class SystemAClient {
-        +send(data)
-    }
-    class SystemBClient {
-        +send(data)
-    }
-    class SystemCClient {
-        +send(data)
-    }
-    BatchExecutor --> ExternalFacade : 具体×間接
-    ManualTriggerController --> ExternalFacade : 具体×間接
-    ExternalFacade --> SystemAClient : 具体×直接
-    ExternalFacade --> SystemBClient : 具体×直接
-    ExternalFacade --> SystemCClient : 具体×直接
-```
-
-両クラスが `ExternalFacade` だけを知り、具体クライアントはFacadeの内部に隠蔽されているが、Facade自体は各具体クラスを直接知っている。
-
-【コード例】
-
-```cpp
-#include <iostream>
-#include <string>
-#include <vector>
-
-using namespace std;
-
-// 各外部クライアント（具体型）
-class SystemAClient {
-public:
-    void send(string data) { cout << "A社へ送信: " << data << endl; }
-};
-class SystemBClient {
-public:
-    void send(string data) { cout << "B社へ送信: " << data << endl; }
-};
-class SystemCClient {
-public:
-    void send(string data) { cout << "C社へ送信: " << data << endl; }
-};
-
-// 連携結果を記録するクラス
-class SyncLog {
-public:
-    void record(string targetId, bool success, int attempt) {
-        cout << "[ログ] " << targetId << " 試行" << attempt
-             << "回目: " << (success ? "成功" : "失敗") << endl;
-    }
-};
-
-// ExternalFacade: リトライ・ログ記録を集約する仲介クラス
-class ExternalFacade {
-    SyncLog log;
-    // ← 具体：各クライアントの具体型を直接知っている
-    void sendWithRetry(string targetId, string data, int maxRetry) {
-        for (int attempt = 1; attempt <= maxRetry; attempt++) {
-            bool success = false;
-            // 指数バックオフ待機（デモのため省略）
-            if (targetId == "A") {
-                SystemAClient c; c.send(data); success = true;
-            } else if (targetId == "B") {
-                SystemBClient c; c.send(data); success = true;
-            } else if (targetId == "C") {
-                SystemCClient c; c.send(data); success = true;
-            }
-            log.record(targetId, success, attempt);
-            if (success) return;
-            cout << "[リトライ] " << attempt << "回目失敗。再試行します。"
-                 << endl;
-        }
-        cout << "[エラー] " << targetId << " への連携が失敗しました。"
-             << endl;
-    }
-public:
-    // ← 間接：呼び出し元は各クライアントの具体型を知らなくてよい
-    void run(string targetId, string data) {
-        cout << "[Facade] " << targetId << " への連携を開始。" << endl;
-        sendWithRetry(targetId, data, 3); // 最大3回リトライ
-    }
-};
-
-// 呼び出し元1: 夜間バッチ実行
-class BatchExecutor {
-    ExternalFacade facade; // ← 具体：ExternalFacadeという具体型を持っている
-public:
-    void executeNightlyBatch(vector<string> targets) {
-        cout << "[BatchExecutor] 夜間バッチ開始。" << endl;
-        for (auto& targetId : targets) {
-            facade.run(targetId, "nightlyData");
-            // ← 間接：Facade経由のため具体クライアントが見えない
-        }
-        cout << "[BatchExecutor] 夜間バッチ完了。" << endl;
-    }
-};
-
-// 呼び出し元2: 管理者による手動トリガー
-class ManualTriggerController {
-    ExternalFacade facade; // ← 具体：ExternalFacadeという具体型を持っている
-public:
-    void triggerManual(string targetId, string data) {
-        cout << "[ManualTrigger] " << targetId
-             << " への手動連携を実行。" << endl;
-        facade.run(targetId, data);
-        // ← 間接：Facade経由のため具体クライアントが見えない
-    }
-};
-
-```
-
-**呼び出し側から見た違い（main() 例）：**
-
-```cpp
-int main() {
-    // 呼び出し元1: 夜間バッチ
-    BatchExecutor batch;
-    batch.executeNightlyBatch({"A", "B", "C"});
-
-    cout << "---" << endl;
-
-    // 呼び出し元2: 手動トリガー（管理者操作）
-    ManualTriggerController manual;
-    manual.triggerManual("B", "manualTestData");
-
-    return 0;
-}
-```
-
-このコードを見ると、`ExternalFacade` は依然として各外部クライアントの具体型を知っており、連携先が増えれば修正が必要です。しかし、指数バックオフによるリトライと連携結果の記録という複雑なロジックを一箇所に集め、`BatchExecutor`（夜間バッチ）と `ManualTriggerController`（手動実行）が同じ連携フローを共有できる点に、この形の価値があります。
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant BE as BatchExecutor
-    participant MTC as ManualTriggerController
-    participant EF as ExternalFacade
-    participant SA as SystemAClient
-    main->>BE: executeNightlyBatch(["A","B","C"])
-    BE->>EF: facade.run("A", "nightlyData")
-    Note right of EF: 内部で具体型を生成して判断<br/>+ リトライ・ログ記録
-    EF->>SA: send("nightlyData")
-    SA-->>EF: 完了
-    EF-->>BE: 完了
-    BE-->>main: バッチ完了
-    main->>MTC: triggerManual("B", "manualTestData")
-    MTC->>EF: facade.run("B", "manualTestData")
-    EF-->>MTC: 完了
-    MTC-->>main: 完了
-```
-
-一文要約：両方の呼び出し元が同じ `ExternalFacade` を経由するため連携判断の呼び出し経路が1本に収束し、選択ロジックの重複が消える。
-
-**この形のトレードオフ：**
-
-* 変更容易性：中（Facadeへの修正に閉じる）
-
-
-* テスト容易性：中（Facadeをスタブ化すれば一定のテストは可能）
-
-
-* 実装コスト：中（Facadeクラスの作成が必要）
+* 実装コスト：中（インターフェース定義と注入の仕組みが必要）
 
 
 
@@ -916,7 +810,7 @@ sequenceDiagram
 #### 案4：抽象×間接 ―― インターフェース＋仲介役を両立する
 
 **この形の考え方：**
-Facade によるインターフェース統合、Factory Method による生成の分離、Observer による通知の疎結合をすべて組み込む。 変更影響は完全に局所化されるが、クラス数は最大になる。
+仲介クラス（Facade）によるインターフェース統合、生成の分離、通知の疎結合をすべて組み込む。 変更影響は完全に局所化されるが、クラス数は最大になる。
 
 **構造図：**
 
@@ -961,11 +855,48 @@ classDiagram
 
 両クラスが抽象Facadeインターフェースのみを受け取り、具体クライアントへの依存が完全に排除されているが、インターフェースが2層になり構造が複雑になる。
 
-【コード例】
+**手段の比較：**
+
+| 手段 | 方法 | 特徴 |
+| --- | --- | --- |
+| 手段A：生成を専用クラス（Factory）に委譲 | `IExternalClient* create(targetId)` を持つクラスを作る | 生成の責務が1クラスに集中。呼び出し元は型を知らずに済む |
+| 手段B：通知をリスト管理（Observer型） | `vector<IObserver*>` に通知先を登録・一括呼び出し | 通知先の追加・削除がリストへの操作だけで完結する |
+| 手段C：生成と通知を同一クラスに持つ | 仲介クラスが生成も通知も担う | クラス数は減るが責務が再び混在する。変化の軸が違うので分けるべき |
+
+→ **採用：手段A＋手段B の組み合わせ**（生成と通知はそれぞれ独立して変わるため、それぞれ別の仕組みで管理する。これにより変更影響が完全に局所化される）
+
+通知インターフェースと生成の窓口を定義します。
 
 ```cpp
-class IFacade { virtual void execute() = 0; }; // ← 抽象：生成の窓口をインターフェースとして定義
+class IObserver {
+public:
+    virtual void onComplete(string result) = 0;
+};
 
+class IExternalClient {
+public:
+    virtual void send(string data) = 0;
+};
+```
+
+生成の責務を専用クラスに切り出します。
+
+```cpp
+class ClientFactory {
+public:
+    static IExternalClient* create(string targetId) {
+        if (targetId == "A") return new SystemAClient();
+        if (targetId == "B") return new SystemBClient();
+        if (targetId == "C") return new SystemCClient();
+        // 新しい連携先はここに1行追加するだけ
+        return nullptr;
+    }
+};
+```
+
+`BatchExecutor` は生成と通知の詳細を知らず、フローの統括だけを担います。
+
+```cpp
 class BatchExecutor {
     IFacade* facade; // ← 抽象：IFacade*型で受け取り、具体実装を知らない
 public:
@@ -976,6 +907,8 @@ public:
 };
 
 ```
+
+`BatchExecutor` は `IFacade*` だけを知っている。連携先が何社あろうと、通知先が何件あろうと、このクラスを変更する理由がなくなった。
 
 **呼び出し側から見た違い（main() 例）：**
 
@@ -1029,7 +962,7 @@ sequenceDiagram
     Note right of CF: IExternalClient* 経由
     SA-->>CF: 完了
     CF-->>BE: 完了
-    BE-->>main: 支払金額
+    BE-->>main: 完了
     main->>MTC: triggerSync("B")
     MTC->>CF: facade->execute()
     CF->>SA: client->send("data")
@@ -1056,13 +989,13 @@ sequenceDiagram
 
 ### 6-7：評価軸
 
-対策案を比較するための「ものさし」を先に宣言します。 外部連携バッチシステムにおいて、複数のパターン（Facade、Observer、Factory Method）を適用する際の評価軸を定義します。
+対策案を比較するための「ものさし」を先に宣言します。 外部連携バッチシステムにおいて、複数の構造オプションを比較する際の評価軸を定義します。
 
 | **評価軸** | **意味** | **ウェイト** |
 | --- | --- | --- |
 | 変更容易性 | 連携先追加や通知要件変更の際、触る場所が最小で済むか | ×3 |
 | テスト容易性 | クライアントや通知先をスタブに差し替えてテスト可能か | ×2 |
-| 可読性 | パターン導入によるクラス数増加と構造の複雑化度合い | ×1 |
+| 可読性 | クラス数増加と構造の複雑化度合い | ×1 |
 
 > **注：** このウェイト（変更容易性×3など）は本書の例です。チームの変更頻度・テスト文化に合わせて、比較を始める前にチームで合意してください。スコアは「答えを決める計算式」ではなく、「チームの議論を整理する道具」です。
 
@@ -1081,33 +1014,30 @@ sequenceDiagram
 
 ### 6-8：コスト天秤
 
-5つの案を比較します。
+4つの案を比較します。
 
 | **案** | **現在の対応コスト** | **未来の対応コスト** |
 | --- | --- | --- |
-| 案0：現状維持 | 低 | 高 |
-| 案1：具体×直接 | 低〜中 | 高 |
-| 案2：抽象×直接 | 中 | 低〜中 |
-| 案3：具体×間接 | 中 | 中 |
+| 案1：現状のまま | 低 | 高 |
+| 案2：具体×直接 | 低〜中 | 高 |
+| 案3：抽象×直接 | 中 | 低〜中 |
 | 案4：抽象×間接 | 高 | 低 |
 
 **ステップ1：採点表**（1＝低い、2＝中程度、3＝高い）
 
 | 案 | 変更容易性（×3） | テスト容易性（×2） | 可読性（×1） |
 | --- | --- | --- | --- |
-| 案0：構造を変えない | 1 | 1 | 3 |
-| 案1：具体×直接 | 1 | 2 | 3 |
-| 案2：抽象×直接 | 2 | 2 | 2 |
-| 案3：具体×間接 | 2 | 2 | 2 |
+| 案1：現状のまま | 1 | 1 | 3 |
+| 案2：具体×直接 | 1 | 2 | 3 |
+| 案3：抽象×直接 | 2 | 2 | 2 |
 | 案4：抽象×間接 | 3 | 3 | 1 |
 
 **ステップ2：加重合計表**
 
 | 案 | 加重スコア | 判定 |
 | --- | --- | --- |
-| 案0 | 1×3＋1×2＋3×1＝8 |  |
-| 案1 | 1×3＋2×2＋3×1＝10 |  |
-| 案2 | 2×3＋2×2＋2×1＝12 |  |
+| 案1 | 1×3＋1×2＋3×1＝8 |  |
+| 案2 | 1×3＋2×2＋3×1＝10 |  |
 | 案3 | 2×3＋2×2＋2×1＝12 |  |
 | 案4 | 3×3＋3×2＋1×1＝16 | ← 採用候補 |
 
@@ -1117,7 +1047,7 @@ sequenceDiagram
 
 ### 6-9：採用案の決定
 
-**採用する案：** 案4（抽象×間接 ―― Facade パターン × Observer パターン × Factory Method パターン）
+**採用する案：** 案4（抽象×間接）
 
 **理由：**
 複数の外部連携先と通知要件を独立して拡張できるようにするため、各責務を完全にインターフェース経由で疎結合化する案4を採用します。 実装コストは高いですが、将来の連携先増殖を見越した長期運用には不可欠な投資です。
@@ -1131,21 +1061,25 @@ sequenceDiagram
 | **変更シナリオ** | **触る場所** | **コスト評価** |
 | --- | --- | --- |
 | D社連携を追加する | `ClientFactory` に new ロジック追加 | 低 |
-| 通知先に「ログ基盤」を追加する | `IObserver` を実装した `LogObserver` を作成 | 低 |
+| 通知先に「ログ基盤」を追加する | 通知インターフェースを実装した `LogObserver` を作成 | 低 |
 
-採用した設計では、新しい通信先は Factory で、新しい通知先は Observer で追加でき、既存の連携ロジックを一切修正せずに済みました。
+採用した設計では、新しい通信先は Factory で、新しい通知先は Observer で追加でき、既存の連携ロジックを一切修正せずに済みます。
 
-フェーズ6で採用する案が決まりました。次のフェーズ7では、この案を実際にコードとして実装し、変更耐性が高まった構造を確認します。
+フェーズ6で採用する案が決まりました。次のフェーズ7では、この案を実際にコードとして実装し、採用した構造の名前を確認します。
 
 ---
 
 ## 🟤 フェーズ7：対策実施 ―― 決断し、変化に強い設計を手に入れる
 
-採用した案4（Facade × Observer × Factory Method）を実装し、外部連携と通知処理の責務をそれぞれ独立したクラスへカプセル化（変更の影響を1クラス内に閉じ込めること）します。
+採用した案4（抽象×間接）を実装し、外部連携と通知処理の責務をそれぞれ独立したクラスへカプセル化（変更の影響を1クラス内に閉じ込めること）します。
+
+実は、この章で選んだ案4の構造には名前があります。**Facade パターン × Observer パターン × Factory Method パターン** です。「パターンを学んで使い方を覚える」のではなく、「問題を分析した結果として自然に選ばれた構造」がこの3つのパターンの組み合わせだったという順序が大切です。
 
 ### 7-1：解決後のコード（全体）
 
-連携先クライアントの生成を `ClientFactory` に、通知処理を `Observer` として分離しました。
+フェーズ6で選んだ構造を実装します。連携先クライアントの生成を `ClientFactory` に、通知処理を `IObserver` として分離しました。
+
+まず、通知のインターフェースと具体的な通知クラスを定義します。
 
 ```cpp
 #include <iostream>
@@ -1154,56 +1088,93 @@ sequenceDiagram
 
 using namespace std;
 
-// 1. Observer: 通知のインターフェース
+// 通知のインターフェース（Observer パターンの契約）
 class IObserver {
 public:
     virtual ~IObserver() = default;
     virtual void onComplete(string result) = 0;
 };
 
-// 2. Factory Method & Facade: 連携先クライアントのインターフェース
-class IExternalClient {
-public:
-    virtual ~IExternalClient() = default;
-    virtual void send(string data) = 0;
-};
-
-// クライアント実装（Facadeで呼び出される）
-class SystemAClient : public IExternalClient {
-public:
-    void send(string data) override { cout << "A社へ転送: " << data << endl; }
-};
-
-// ※ ClientFactory と SlackObserver の実装詳細は省略しています。
-// ClientFactory::create(targetId) は targetId に応じた IExternalClient 派生クラスを返します。
-class ClientFactory {
-public:
-    static IExternalClient* create(string targetId) {
-        if (targetId == "A") return new SystemAClient();
-        // B社、C社など他の連携先クラスをここに追加するだけで済む
-        return nullptr;
-    }
-};
-
-// SlackObserver は Observer パターンの具体的な通知先クラスです。
+// Slack通知の具体的な実装
 class SlackObserver : public IObserver {
 public:
     void onComplete(string result) override {
         cout << "Slack通知: バッチ処理完了 [" << result << "]" << endl;
     }
 };
+```
 
-// 組み立て（BatchApplication）
+`IObserver` を定義することで、通知先の追加は「このインターフェースを実装した新クラスを作る」だけになる。
+
+次に、連携先クライアントのインターフェースと実装を定義します。
+
+```cpp
+// 連携先クライアントのインターフェース（Facade の内部で使われる）
+class IExternalClient {
+public:
+    virtual ~IExternalClient() = default;
+    virtual void send(string data) = 0;
+};
+
+// A社向け実装
+class SystemAClient : public IExternalClient {
+public:
+    void send(string data) override {
+        cout << "A社へ転送: " << data << endl;
+    }
+};
+
+// B社向け実装（以降、連携先が増えるたびにこの形で追加する）
+class SystemBClient : public IExternalClient {
+public:
+    void send(string data) override {
+        cout << "B社へ転送: " << data << endl;
+    }
+};
+
+class SystemCClient : public IExternalClient {
+public:
+    void send(string data) override {
+        cout << "C社へ転送: " << data << endl;
+    }
+};
+```
+
+各連携先クライアントは `IExternalClient` を実装するだけ。D社を追加するときも同じ形で1クラス追加するだけで済む。
+
+生成の責務を一か所に集めます。
+
+```cpp
+// 生成の窓口（Factory Method パターン）
+class ClientFactory {
+public:
+    static IExternalClient* create(string targetId) {
+        if (targetId == "A") return new SystemAClient();
+        if (targetId == "B") return new SystemBClient();
+        if (targetId == "C") return new SystemCClient();
+        // 新しい連携先はここに1行追加するだけ
+        return nullptr;
+    }
+};
+```
+
+`ClientFactory` が「どの連携先クラスを生成するか」という知識を一手に引き受ける。`BatchExecutor` はもうこの知識を持たなくてよい。
+
+最後に、フローを統括する `BatchExecutor` と組み立てを示します。
+
+```cpp
+// バッチ全体のフローを統括するクラス
 class BatchExecutor {
-    vector<IObserver*> observers;
+    vector<IObserver*> observers; // ← Observer リスト
 public:
     void addObserver(IObserver* obs) { observers.push_back(obs); }
+
     void execute(string targetId) {
-        // Factory Method で生成
+        // Factory Method で生成（具体クラスを知らない）
         IExternalClient* client = ClientFactory::create(targetId);
         if (client) {
             client->send("data");
-            // Observerに通知
+            // 全Observerに通知（通知先を知らない）
             for (auto* obs : observers) obs->onComplete("Success");
             delete client;
         }
@@ -1235,7 +1206,7 @@ graph LR
 
 ```
 
-→ グラフが示す通り、変更要求はそれぞれ `ClientFactory` や `Observer` クラスに閉じており、`BatchExecutor` のメインフローには一切影響が及ばなくなりました。
+グラフが示す通り、変更要求はそれぞれ `ClientFactory` や `Observer` クラスに閉じており、`BatchExecutor` のメインフローには一切影響が及ばなくなりました。
 
 ### 7-3：変更シナリオ表
 
@@ -1243,8 +1214,8 @@ graph LR
 
 | **シナリオ** | **変わるクラス（触る場所）** | **変わらないクラス** |
 | --- | --- | --- |
-| 新しい連携先（D社）を追加する | `ClientFactory` に new ロジック追加 | `BatchExecutor`, `NotificationService` |
-| メール通知を追加する | `MailObserver` クラスを新規作成 | `BatchExecutor`, `IExternalClient` |
+| 新しい連携先（D社）を追加する | `ClientFactory` に new ロジック追加 | `BatchExecutor`, `IObserver` 実装クラス |
+| メール通知を追加する | `MailObserver` クラスを新規作成 | `BatchExecutor`, `IExternalClient` 実装クラス |
 
 変更が来ても、触るのは該当する Factory や Observer の実装クラスだけ——それがこの設計で手に入れたものです。 諦めたものは、クラス数の増加というわずかな設計コストです。
 
@@ -1253,7 +1224,7 @@ graph LR
 ### 7-4：接続形態の確認 ── この設計はどの接続か
 
 フェーズ4-3で診断した通り、変更前のコードは **具体×間接** の状態でした。
-採用した Facade × Observer × Factory Method パターンでは、接続形態が **抽象×間接（USB-Cハブ経由）** へと変化しています。
+採用した構造（Facade × Observer × Factory Method パターン）では、接続形態が **抽象×間接（USB-Cハブ経由）** へと変化しています。
 
 **「抽象×間接」の証拠となるコード：**
 
@@ -1266,7 +1237,8 @@ public:
         IExternalClient* client = ClientFactory::create(targetId);
         if (client) {
             client->send("data");
-            for (auto* obs : observers) obs->onComplete("Success"); // ← Observer 経由 = 「間接」の証拠
+            for (auto* obs : observers) obs->onComplete("Success");
+            // ← Observer 経由 = 「間接」の証拠
         }
     }
 };
@@ -1280,19 +1252,19 @@ public:
 
 ### ⑩ 整理・振り返り・パターン解説
 
-第10章では、外部連携バッチシステムという「生成・通信・通知」が絡み合う複雑なシステムを題材に、複数のパターンを組み合わせることで設計を整理しました。
+第10章では、外部連携バッチシステムという「生成・通信・通知」が絡み合う複雑なシステムを題材に、複数の構造を比較検討することで設計を整理しました。
 
 #### 7フェーズとこの章でやったこと
 
 | **フェーズ** | **この章でやったこと** |
 | --- | --- |
 | 🔵 フェーズ1：現状把握 | 外部連携先の増殖と通知処理が `BatchExecutor` に混在している現状を観察した。 |
-| 🟠 フェーズ2：仮説立案 | 「連携先の生成（Factory）」と「通知（Observer）」を独立させる仮説を立てた。 |
+| 🟠 フェーズ2：仮説立案 | 「連携先の生成」と「通知」を独立させる仮説を立てた。確定変更と将来リスクを別々に管理した。 |
 | 🟡 フェーズ3：問題特定 | `BatchExecutor` がすべての詳細を知っていることによる修正の連鎖（痛み）を確認した。 |
 | 🔴 フェーズ4：原因分析 | 責務の混在を「具体クラスへの直接依存」という構造的負債として特定した。 |
 | 🟣 フェーズ5：課題定義 | 通信境界と通知境界の2点を接続点として特定し、疎結合化を課題とした。 |
-| 🟢 フェーズ6：対策案検討 | Facade、Observer、Factory Method の複合適用（案4）を採用した。 |
-| 🟤 フェーズ7：対策実施 | 各責務をインターフェース経由で分離し、バッチ本体の変更耐性を高めた。 |
+| 🟢 フェーズ6：対策案検討 | 案1〜案4を並べ、各案で手段を比較しながらコスト天秤をかけて案4を採用した。 |
+| 🟤 フェーズ7：対策実施 | 各責務をインターフェース経由で分離し、バッチ本体の変更耐性を高めた。採用した構造がFacade × Observer × Factory Method パターンと呼ばれることを確認した。 |
 
 #### 各クラスの最終的な責任
 
@@ -1317,7 +1289,7 @@ public:
 #### 振り返り：3つの設計原則はどう適用されたか
 
 * **原則1「変わるものをカプセル化せよ」の現れ**
-* **具体化された場所：** `ClientFactory` と `Observer` 派生クラス
+* **具体化された場所：** `ClientFactory` と `IObserver` 派生クラス
 * **解説：** 連携先の実装詳細や通知先ごとのロジックを、独立したクラス群にカプセル化しました。
 
 
@@ -1333,7 +1305,6 @@ public:
 * **原則3「継承よりコンポジションを優先せよ」の現れ**
 * **具体化された場所：** `BatchExecutor` が `IObserver` リストを保持する構造
 * **解説：** 通知ロジックを継承で拡張するのではなく、オブジェクトを注入することで機能を追加しました。
-
 
 
 
@@ -1388,10 +1359,20 @@ Facade はバッチ実行部の複雑な連携フローを隠蔽し、Factory Me
 
 ```cpp
 // 連携先が今後も増える見込みがなく、通知もログ出力のみであれば、
-// Facadeを導入するだけで十分であり、FactoryやObserverは過剰な抽象化となります。
+// 仲介クラスを導入するだけで十分であり、生成の分離や通知リストは過剰な抽象化となります。
 
 ```
 
 ### この章のまとめ
 
-連携先や通知先といった「個別の変動」を、インターフェースという「契約」で保護し、生成の責務を分離しました。 これにより、バッチシステムの骨格を変えずに、新しい外部要求を安全に追加できる柔軟な設計が実現しました。
+この章の冒頭で示した「得られること」4点を、あらためて確認します。
+
+**得られること1**（各パターンの対応箇所の識別）：フェーズ2のヒアリングと分類表で、「窓口の統合」・「通知先の増減」・「連携先クラスの生成」という3つの変化がそれぞれ独立して変わりうることを識別しました。「この構造はシステムのどの変化に対応しているのか」を問う視点が、複合的な設計を読み解く入口になります。
+
+**得られること2**（複数接続点の責務分離の判断）：フェーズ5で、`BatchExecutor` が連携先・通知先・生成ロジックの3つの具体知識を同時に持っている状態を特定しました。複数の接続点が絡み合う複雑なシステムでも、「それぞれの責務がどこで変わるか」を問うことで、分離すべき境界が見えてくることを確認しました。
+
+**得られること3**（疎結合な連携アーキテクチャの説明）：フェーズ7の変更シナリオ表で、連携先が変わるときは `IExternalClient` の実装クラスのみ、通知先が変わるときは `IObserver` の登録のみ、生成方法が変わるときは `ClientFactory` の実装のみを変えればよい設計を確認しました。「変更が1か所に閉じる理由」を構造から説明できる状態が、チームの設計判断を支えます。
+
+**得られること4**（生成・通知・統合という3責務の整理視点）：フェーズ7の最終コードで、`BatchExecutor` が純粋にバッチフローの制御だけを知っている状態を確認しました。「生成する」「通知する」「インターフェースで統合する」という3つの責務を意識的に分けることで、複雑な連携システムへの向き合い方が変わります。
+
+外部連携バッチシステムという題材を通じて、複数の構造が交差する設計を段階的に解きほぐす思考を体験できたのではないかと思います。この章で辿った7つのフェーズは、どんな現場のコードにも同じように使える思考の型です。
