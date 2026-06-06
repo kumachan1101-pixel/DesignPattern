@@ -659,10 +659,10 @@ public:
     void chargeMonthly(string customerId, int amount) {
         cout << "顧客 " << customerId
              << " の月額課金を処理します。" << endl;
-        // ← 同じ「どのクラスを選ぶか」の判断がここでも重複
+        // ← 同じ「どのクラスを選ぶか」判断がここでも重複
         string type = "credit"; // 定期課金はクレジット固定
         if (type == "credit") {
-            // ← 同じ具体クラスをここでも直接インスタンス化
+            // ← 同じ具体クラスをここでも直接生成
             CreditCardProcessor p;
             p.pay(amount);
         } else if (type == "paypay") {
@@ -773,15 +773,16 @@ public:
 class CreditCardProcessor : public IPaymentProcessor {
 public:
     void pay(int amount) override {
-        cout << "クレジットで " << amount << " 円決済しました。" << endl;
+        cout << "クレジットで " << amount
+             << " 円決済しました。" << endl;
     }
 };
 
 class ConvenienceStoreProcessor : public IPaymentProcessor {
 public:
     void pay(int amount) override {
-        cout << "コンビニで " << amount << " 円の支払い番号を発行しました。"
-             << endl;
+        cout << "コンビニで " << amount
+             << " 円の番号を発行しました。" << endl;
     }
 };
 
@@ -789,7 +790,8 @@ public:
 class PayPayProcessor : public IPaymentProcessor {
 public:
     void pay(int amount) override {
-        cout << "PayPayで " << amount << " 円決済しました。" << endl;
+        cout << "PayPayで " << amount
+             << " 円決済しました。" << endl;
     }
 };
 ```
@@ -812,7 +814,8 @@ public:
     void processPayment(string type, int amount) {
         IPaymentProcessor* p = createProcessor(type);
         if (p) {
-            p->pay(amount); // ← 直接：中間クラスを挟まずに直接呼び出す
+            // ← 直接：中間クラスを挟まずに直接呼び出す
+            p->pay(amount);
             delete p;
         }
     }
@@ -950,22 +953,24 @@ public:
 class CreditCardProcessor : public IPaymentProcessor {
 public:
     void pay(int amount) override {
-        cout << "クレジットで " << amount << " 円決済しました。" << endl;
+        cout << "クレジットで " << amount
+             << " 円決済しました。" << endl;
     }
 };
 
 class ConvenienceStoreProcessor : public IPaymentProcessor {
 public:
     void pay(int amount) override {
-        cout << "コンビニで " << amount << " 円の支払い番号を発行しました。"
-             << endl;
+        cout << "コンビニで " << amount
+             << " 円の番号を発行しました。" << endl;
     }
 };
 
 class PayPayProcessor : public IPaymentProcessor {
 public:
     void pay(int amount) override {
-        cout << "PayPayで " << amount << " 円決済しました。" << endl;
+        cout << "PayPayで " << amount
+             << " 円決済しました。" << endl;
     }
 };
 ```
@@ -1213,16 +1218,16 @@ public:
 class CreditCardProcessor : public IPaymentProcessor {
 public:
     void pay(int amount) override {
-        cout << "クレジットで "
-             << amount << " 円決済しました。" << endl;
+        cout << "クレジットで " << amount
+             << " 円決済しました。" << endl;
     }
 };
 
 class ConvenienceStoreProcessor : public IPaymentProcessor {
 public:
     void pay(int amount) override {
-        cout << "コンビニで " << amount << " 円の支払い番号を発行しました。"
-             << endl;
+        cout << "コンビニで " << amount
+             << " 円の番号を発行しました。" << endl;
     }
 };
 
