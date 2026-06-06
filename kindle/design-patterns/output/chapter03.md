@@ -1,4 +1,4 @@
-## 第3章 状態に応じた振る舞いの切り替え ―― State パターン
+## 第3章 状態に応じた振る舞いの切り替え
 
 ―― 思考の型：状態によって振る舞いが変わる処理が、条件分岐で混在している
 ### この章の核心
@@ -45,7 +45,22 @@
 | `TicketReservation` | 顧客が行う通常の予約・支払い・キャンセル操作 |
 | `AdminPanel` | スタッフが行う管理操作（強制キャンセル・状態確認） |
 
-### 1-3：クラス構成図
+### 1-3：動作例テーブル ―― 仕様を「動かした結果」で確認する
+
+コードを読む前に、このシステムがどんな入力に対してどんな出力を返すかを確認します。この章のどの案も、以下の動作を実現します。
+
+| # | 現在の状態 | 操作 | 結果 | 備考 |
+|---|---|---|---|---|
+| 1 | Available（空席） | `reserve()` | Reserved（予約済み）へ遷移 | 通常の予約フロー |
+| 2 | Reserved（予約済み） | `pay()` | Paid（支払い済み）へ遷移 | 支払い完了フロー |
+| 3 | Reserved（予約済み） | `cancel()` | Available（空席）へ戻る | 予約キャンセルフロー |
+| 4 | Paid（支払い済み） | `cancel()` | エラー（キャンセル不可） | 支払い後はキャンセルできない |
+| 5 | Available（空席） | `pay()` | エラー（支払い不可） | 予約なしで支払いを試みた場合 |
+| 6 | Paid（支払い済み） | `reserve()` | エラー（予約不可） | 支払い済み座席には再予約できない |
+
+この動作テーブルは、後のフェーズで案を比較するときの「ものさし」になります。案1から案4まで、どれを採用しても上記の動作が変わってはいけません。違いはあくまで「変更が来たときにどこを触るか」という構造上の差だけです。
+
+### 1-4：クラス構成図
 
 予約管理の中核となるクラスの現状の構造を見てみましょう。
 
@@ -62,7 +77,7 @@ classDiagram
 
 → `TicketReservation` クラスがすべての予約状態と、状態ごとの処理ロジックを抱え込んでいます。
 
-### 1-4：責任配置テーブル
+### 1-5：責任配置テーブル
 
 | **クラス名** | **責任（1文）** | **知るべきこと** |
 | --- | --- | --- |
@@ -70,7 +85,7 @@ classDiagram
 
 各クラスの責任と知識の定義が確認できました。`TicketReservation` クラスが「予約ステータス」と「全状態の遷移ロジック」の両方を定義していることが分かります。
 
-### 1-5：依存グラフ
+### 1-6：依存グラフ
 
 ```mermaid
 graph TD
@@ -80,7 +95,7 @@ graph TD
 
 → 現在は一つのクラス内にロジックが凝縮されており、外部への依存よりもクラス内部での知識の混在が顕著であることが分かります。
 
-### 1-6：実装コード
+### 1-7：実装コード
 
 現在の予約管理クラスの姿を確認します。
 
@@ -135,7 +150,7 @@ int main() {
 }
 ```
 
-### 1-7：実行結果
+### 1-8：実行結果
 
 ```text
 出力：
@@ -145,7 +160,8 @@ int main() {
 ```
 
 このコードは正しく動いています。これから検討するのは、同じ機能を保ちながら、変更に強い構造をどう作るかという点です。
-### 1-8：責任チェック表
+
+### 1-9：責任チェック表
 
 この表は「コードの各行が、どの知識を持っているか」を可視化するものです。作り方はシンプルで、実装コードを1行ずつ読みながら「この行は何を知っているか」「その知識は誰が持つべきか」を書き出すだけです。知識の持ち主が2人以上になる行が見つかれば、そこが「変わる理由の混在」を示す兆候です。
 
@@ -184,7 +200,19 @@ int main() {
 
 仮説を立ててみて改めて痛感するのは、今の構造だと状態が2つ増えるだけで、ロジックが指数関数的に複雑になりそうだという点です。
 
-### 2-3：関係者ヒアリング
+### 2-3：今回の確定変更テーブル
+
+変更要求として届いた内容のうち、今回のリリースで確実に発生する変更を整理します。これはヒアリング前の段階でも、要件として明確に確定している内容です。
+
+| **分類** | **具体的な内容** | **変わるタイミング** | **根拠** |
+| --- | --- | --- | --- |
+| 🔴 **変動する** | 状態の種類（キャンセル待ち・一時保留の追加） | 今回のリリース | 支配人からの変更要求に明記されている |
+| 🔴 **変動する** | 各状態における振る舞い（状態ごとのアクション可否） | 今回のリリース | 新状態の導入に伴い定義が必要 |
+| 🟢 **不変** | 映画館の基本情報（上映時間、座席数） | 変わる日は来ない | 運営管理部門との合意 |
+
+この時点で確定しているのは「状態が2つ増える」という事実だけです。将来どれだけ変わり続けるかは、次の関係者ヒアリングで確認します。
+
+### 2-4：関係者ヒアリング
 
 仮説を確実なものにするため、企画担当の鈴木氏にヒアリングを行いました。
 
@@ -197,17 +225,16 @@ int main() {
 
 > **現実のヒアリングでは——** このシナリオでは相手がちょうど設計に役立つ情報を教えてくれています。現実には「変わるかどうか分からない」「たぶん変わらない」という答えが返ることも多いです。そのときは、コードの変更履歴（`git log`）や過去の障害記録を「ヒアリングの代わり」として使ってみてください。「過去に何度変わったか」が、「将来変わりやすいか」の最も正直な証拠です。
 
-### 2-4：確定した変動/不変テーブル
+### 2-5：将来リスクテーブル
 
-ヒアリングを反映し、今回の変更で影響を受ける領域を確定します。
+ヒアリングで判明した「今後起こりうる変化のリスク」を、今回の確定変更とは分けて整理します。これらはまだ確定ではありませんが、設計の方向性を決める重要な情報です。
 
-| **分類** | **具体的な内容** | **変わるタイミング** | **根拠（誰との確認か）** |
+| **分類** | **具体的なリスク** | **変わるタイミング** | **根拠（誰との確認か）** |
 | --- | --- | --- | --- |
-| 🔴 **変動する** | 状態遷移のルール（アクションの可否） | キャンペーンや運用の見直し時 | 企画担当 鈴木氏との確認 |
-| 🔴 **変動する** | 状態の種類（ステータスの追加） | 新機能導入時 | 企画担当 鈴木氏との確認 |
-| 🟢 **不変** | 映画館の基本情報（上映時間、座席数） | 変わる日は来ない | 運営管理部門との合意 |
+| 🔴 **変動リスク** | 状態遷移のルール（アクションの可否） | キャンペーンや運用の見直し時 | 企画担当 鈴木氏との確認 |
+| 🔴 **変動リスク** | 状態の種類（特別優待予約などの追加） | 新機能導入時 | 企画担当 鈴木氏との確認 |
 
-確定したテーブルを見ると、今回の設計変更は「状態を一つ追加して終わり」ではなく、今後の度重なるルール変更に対して「いかにしなやかに対応するか」という構造上の問題であることが分かります。
+確定した情報とリスク情報を合わせて見ると、今回の設計変更は「状態を一つ追加して終わり」ではなく、今後の度重なるルール変更に対して「いかにしなやかに対応するか」という構造上の問題であることが分かります。
 
 フェーズ2で「何が変わり、何が変わらないか」が確定しました。次のフェーズ3では、今のコードでこの変更を実際に試みたときに何が起きるかを確認します。
 
@@ -311,7 +338,7 @@ graph LR
 |  | 直接（直差し） | 間接（アダプター経由） |
 |:---:|:---|:---|
 | **具体**（専用規格） | **← 現在のコード**　`TicketReservation` が `status` 文字列を直接知って操作する | `StateManager` などの仲介役を挟む（状態名は知っている） |
-| **抽象**（汎用規格） | `IReservationState*` 型経由で直接呼ぶ（Stateパターン） | インターフェース＋仲介役の両方を挟む |
+| **抽象**（汎用規格） | `IReservationState*` 型経由で直接呼ぶ | インターフェース＋仲介役の両方を挟む |
 
 現在のコードが「具体×直接」に該当する根拠は次の2点です。
 
@@ -356,11 +383,13 @@ graph LR
 | --- | --- | --- | --- |
 | 接続点A | 状態ごとの「変わる理由」を業務フローから隔離するため | 同一座席への同時予約競合に対する整合性保証が必要 | `TicketReservation` の内部ロジックを全面刷新する必要あり |
 
-フェーズ5で「何を解くか」が具体化されました。次のフェーズ6では、この課題に対してどのような「接続の形」を採用すべきか、案0〜案4を並べてコスト比較を行います。
+フェーズ5で「何を解くか」が具体化されました。次のフェーズ6では、この課題に対してどのような「接続の形」を採用すべきか、案1〜案4を並べてコスト比較を行います。
 
 ## 🟢 フェーズ6：対策案検討 ―― 解決策を並べ、コストで選ぶ
 
-フェーズ5で課題定義した「状態管理ロジックの混在」を解消するための対策案（案0〜案4）を検討します。
+フェーズ5で課題定義した「状態管理ロジックの混在」を解消するための対策案（案1〜案4）を検討します。
+
+どの案も、動作例テーブルで示した動作を実現します。違うのは「変更が来たときにどこを触ることになるか」です。
 
 ### 6-1：接続の形 2×2マトリクス
 
@@ -375,12 +404,21 @@ graph LR
 
 ---
 
-#### 案0：現状維持 ―― 構造を変えない
+#### 案1：現状のまま ―― 構造を変えない
 
 **この形の考え方：**
 クラスの分割やインターフェースの導入を行わず、既存の `reserve()` や `pay()` メソッドの中に、新しい状態の条件分岐を `if` 文で追加します。変更頻度が極めて低く、これ以上複雑にならないと断言できる場合にのみ許容される最小コストの選択です。
 
-なお、クラス図に `AdminPanel` が登場していますが、これはフェーズ1の1-2節「このルールを使う場所」で示した通り、同じ状態遷移ロジックを使う2つ目の呼び出し元です。案0はあくまり構造を変えない選択ですが、`AdminPanel` もすでに仕様として存在しています。それぞれが同じ `if` 文を重複して抱える点が、案0の問題として示したいことです。
+なお、クラス図に `AdminPanel` が登場していますが、これはフェーズ1の1-2節「このルールを使う場所」で示した通り、同じ状態遷移ロジックを使う2つ目の呼び出し元です。案1はあくまり構造を変えない選択ですが、`AdminPanel` もすでに仕様として存在しています。それぞれが同じ `if` 文を重複して抱える点が、案1の問題として示したいことです。
+
+**手段の比較：**
+
+| 手段 | 方法 | 特徴 |
+|---|---|---|
+| 手段A：分岐をメソッドに追記 | 既存の各メソッドの `if` 文に `else if` を足す | 変更箇所が最小だが、全メソッドに修正が必要 |
+| 手段B：状態ごとのメソッドに分割 | `reserveIfAvailable()` のような状態別メソッドを作る | 分岐の見通しは良くなるが、メソッド数が状態数 × 操作数だけ増える |
+
+→ **採用：手段A**（構造を変えないという案1の趣旨に最も合っているため）
 
 **構造図：**
 
@@ -403,7 +441,15 @@ classDiagram
 
 両クラスがそれぞれ状態判定ロジックを内部に直書きしており、状態が増えるたびに両方のif文を同時に修正しなければならない。
 
-【コード例】
+**状態インターフェース（なし）：**
+
+案1は状態の分離を行わないため、インターフェースや状態クラスは存在しません。すべてのロジックが `TicketReservation` と `AdminPanel` の各メソッドに直書きされます。
+
+**各状態クラス（なし）：**
+
+状態クラスは作りません。`status` 文字列の値が状態の区別に使われます。
+
+**コンテキストクラス（TicketReservation と AdminPanel）：**
 
 ```cpp
 // 呼び出し元1：顧客が行う通常の予約フロー
@@ -414,25 +460,40 @@ public:
     TicketReservation() : status("Available") {}
     void reserve() {
         // ← 具体："Available"という条件を呼び出し側が直接書いている
-        if (status == "Available") { status = "Reserved"; std::cout << "予約完了\n"; }
-        else if (status == "Held") { status = "Reserved"; /* 保留中の予約処理 */ }
-        else { std::cout << "現在予約できません\n"; }
+        if (status == "Available") {
+            status = "Reserved";
+            std::cout << "予約完了\n";
+        } else if (status == "Held") {
+            status = "Reserved";
+            std::cout << "保留から予約へ変更しました\n";
+        } else {
+            std::cout << "現在予約できません\n";
+        }
     }
     void cancel() {
-        if (status == "Reserved") { status = "Available"; std::cout << "キャンセル完了\n"; }
-        else { std::cout << "キャンセルできません\n"; }
+        if (status == "Reserved") {
+            status = "Available";
+            std::cout << "キャンセル完了\n";
+        } else {
+            std::cout << "キャンセルできません\n";
+        }
     }
     std::string getStatus() const { return status; }
 };
+```
 
+このコードを見ると、新しい状態 `Held` に対応するために `reserve()` に `else if` を追加しています。同じ修正を `pay()` や `cancel()` にも繰り返す必要があります。
+
+**管理パネル（AdminPanel）：**
+
+```cpp
 // 管理パネル（呼び出し元2）
-// ← 案0の問題：TicketReservationと同じif文を重複して持つことになる
+// ← 案1の問題：TicketReservationと同じif文を重複して持つことになる
 class AdminPanel {
 private:
     std::string status; // "Available", "Reserved", "Paid"
 public:
     AdminPanel() : status("Available") {}
-    // 管理画面からの強制キャンセル
     void forceCancel(const std::string& seatId) {
         // ← TicketReservationと全く同じ条件判定が重複している
         if (status == "Reserved" || status == "Paid") {
@@ -442,7 +503,6 @@ public:
             std::cout << "キャンセル対象外の状態です\n";
         }
     }
-    // 管理画面からの状態確認
     void checkStatus(const std::string& seatId) {
         // ← これもTicketReservationと同じ状態チェックロジックが重複している
         if (status == "Available") std::cout << seatId << ": 空席\n";
@@ -450,15 +510,14 @@ public:
         else if (status == "Paid") std::cout << seatId << ": 支払い済み\n";
     }
 };
-
 ```
 
-このコードを見ると、状態判定ロジックが `TicketReservation` と `AdminPanel` の両方に重複して書かれていることが分かります。新しい状態が追加されるたびに、両方のクラスの `if` 文を同時に修正しなければなりません。
+状態判定ロジックが `TicketReservation` と `AdminPanel` の両方に重複して書かれていることが分かります。新しい状態が追加されるたびに、両方のクラスの `if` 文を同時に修正しなければなりません。
 
-**呼び出し側から見た違い（main() 例）：**
+**組み立て（BatchApplication / main）：**
 
 ```cpp
-// 案0（現状維持）の呼び出し側
+// 案1（現状のまま）の呼び出し側
 int main() {
     TicketReservation reservation;
     reservation.reserve();   // ← 具体：内部でif文による状態判定が走る
@@ -484,6 +543,7 @@ sequenceDiagram
     Note over AP: ← 全く同じ状態判定if文が重複して走る
     AP-->>main: 強制キャンセル完了
 ```
+
 状態判定ロジックが各クラスの内部に直書きされているため外部への委譲が発生せず、同じ分岐が2か所で並行して走る。
 
 **この形のトレードオフ：**
@@ -494,13 +554,22 @@ sequenceDiagram
 
 ---
 
-#### 案1：具体×直接 ―― クラスを分けるが参照は具体型のまま
+#### 案2：具体×直接 ―― クラスを分けるが参照は具体型のまま
 
 **この形の考え方：**
 
-案0との違いは「状態ごとのロジックをクラスに切り出したかどうか」です。案0は `TicketReservation` の中に `if` 文が直書きされていましたが、案1では `ReservedState` や `AvailableState` という状態クラスを別に作り、それぞれのロジックをそちらに移します。ただし、`TicketReservation` がそれらの具体クラスを型名で直接知っている点は変わりません。
+案1との違いは「状態ごとのロジックをクラスに切り出したかどうか」です。案1は `TicketReservation` の中に `if` 文が直書きされていましたが、案2では `ReservedState` や `AvailableState` という状態クラスを別に作り、それぞれのロジックをそちらに移します。ただし、`TicketReservation` がそれらの具体クラスを型名で直接知っている点は変わりません。
 
-なぜコントロール側（`TicketReservation`）も変えるのかというと、「どの状態クラスを使うか」を `TicketReservation` 自身が決めなければならないためです。この判断が呼び出し元に残る限り、状態クラスが増えるたびに呼び出し元の修正も発生します。状態ごとにクラスは分かれたが、依存が2か所（`TicketReservation` と `AdminPanel`）に重複している——それが案1の問題です。
+なぜコントロール側（`TicketReservation`）も変えるのかというと、「どの状態クラスを使うか」を `TicketReservation` 自身が決めなければならないためです。この判断が呼び出し元に残る限り、状態クラスが増えるたびに呼び出し元の修正も発生します。状態ごとにクラスは分かれたが、依存が2か所（`TicketReservation` と `AdminPanel`）に重複している——それが案2の問題です。
+
+**手段の比較：**
+
+| 手段 | 方法 | 特徴 |
+|---|---|---|
+| 手段A：状態クラスをポインタで保持 | `TicketReservation` が `ReservedState*` 等を直接メンバに持つ | クラスは分かれるが依存が増える |
+| 手段B：状態クラスを値で保持 | `ReservedState reserved;` のように値メンバとして持つ | ポインタ管理が不要だが、状態の入れ替えに制限がある |
+
+→ **採用：手段A**（状態の切り替えを実行時に行うにはポインタが必要なため）
 
 **構造図：**
 
@@ -532,7 +601,7 @@ classDiagram
 
 両クラスが `ReservedState` などの具体クラスを直接参照しており、状態クラスが増えるたびに呼び出し元2箇所の修正が必要になる。
 
-【コード例】
+**状態クラス群：**
 
 ```cpp
 // ← 具体：ReservedStateという型名を直接書いている
@@ -542,11 +611,18 @@ public:
     void pay() { std::cout << "支払い完了\n"; }
     void cancel() { std::cout << "キャンセル完了\n"; }
 };
+
 class AvailableState {
 public:
     void reserve() { std::cout << "予約完了\n"; }
 };
+```
 
+状態ごとのロジックがクラスに分かれたことで、案1よりも各状態の振る舞いが読みやすくなっています。ただし、インターフェースがないため `TicketReservation` はこれらの具体クラスを型名で知っています。
+
+**コンテキストクラス（TicketReservation）：**
+
+```cpp
 // 呼び出し元1：顧客が行う通常の予約フロー
 // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
 class TicketReservation {
@@ -558,7 +634,13 @@ public:
     void pay() { reservedState->pay(); }
     void cancel() { reservedState->cancel(); }
 };
+```
 
+`TicketReservation` が `ReservedState` という具体クラスを直接知っていることが分かります。新しい状態クラスが追加されるたびに、このクラスの修正も避けられません。
+
+**管理パネル（AdminPanel）：**
+
+```cpp
 // 管理パネル（呼び出し元2）
 class AdminPanel {
     ReservedState* reservedState;   // ← 直接：同じ具体クラスをここでも直接保持
@@ -570,18 +652,17 @@ public:
         std::cout << "強制キャンセル: " << seatId << "\n";
     }
     void checkStatus(const std::string& seatId) {
-        std::cout << seatId << ": 予約済み\n";  // ← 直接：状態クラスを直接知っている
+        std::cout << seatId << ": 予約済み\n";
     }
 };
-
 ```
 
-このコードを見ると、状態クラスは別ファイルに切り出せましたが、**`TicketReservation` も `AdminPanel` も `ReservedState` という具体クラスを直接知っており、その依存関係が両方に重複しています**。新しい状態クラスが増えるたびに、両方の呼び出し元に修正が必要になります。
+`AdminPanel` も `ReservedState` を直接知っており、状態クラスが増えるたびに両方の呼び出し元が影響を受けます。状態クラスは別ファイルに切り出せましたが、依存関係の重複が両クラスに残っています。
 
-**呼び出し側から見た違い（main() 例）：**
+**組み立て（BatchApplication / main）：**
 
 ```cpp
-// 案1（具体×直接）の呼び出し側
+// 案2（具体×直接）の呼び出し側
 int main() {
     ReservedState reserved;
     AvailableState available;
@@ -613,6 +694,7 @@ sequenceDiagram
     RS-->>AP: キャンセル完了
     AP-->>main: 強制キャンセル完了
 ```
+
 クラスは分かれたが「どの状態クラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
 
 **この形のトレードオフ：**
@@ -624,10 +706,20 @@ sequenceDiagram
 
 ---
 
-#### 案2：抽象×直接 ―― インターフェースを挟み、型だけで接続する
+#### 案3：抽象×直接 ―― インターフェースを挟み、型だけで接続する
 
 **この形の考え方：**
-「状態」をインターフェース化し、呼び出し側はインターフェース型に対してプログラムします。状態が増えても `TicketReservation` はインターフェースしか知らないため、修正が不要です。この構造を **State（ステート）** パターンと呼びます。
+「状態」をインターフェース化し、呼び出し側はインターフェース型に対してプログラムします。状態が増えても `TicketReservation` はインターフェースしか知らないため、修正が不要になります。
+
+**手段の比較：**
+
+| 手段 | 方法 | 特徴 |
+|---|---|---|
+| 手段A：コンストラクタインジェクション | `TicketReservation(IReservationState* s)` で外から受け取る | 依存の組み立てが呼び出し元に移り、テストしやすい |
+| 手段B：セッターインジェクション | `setState(IReservationState* s)` で後から切り替える | 状態の動的切り替えが可能だが、未設定時の制御が必要 |
+| 手段C：継承による状態定義 | `TicketReservation` を継承して状態ごとにサブクラスを作る | クラス階層が深まり、状態の実行時切り替えができない |
+
+→ **採用：手段A＋手段Bの併用**（初期状態をコンストラクタで受け取り、遷移時は `setState` で切り替えるのが最も自然なため）
 
 **構造図：**
 
@@ -659,24 +751,64 @@ classDiagram
 
 両クラスが `IReservationState` インターフェースだけを知り、新しい状態クラスを追加しても呼び出し元を一切変更しなくてよい。
 
-【コード例】
+**状態インターフェース（IReservationState）：**
 
 ```cpp
 class TicketReservation;
 
-class IReservationState { // 抽象による分離
+// 抽象による分離：状態ごとの振る舞いを定義するインターフェース
+class IReservationState {
 public:
     virtual void reserve(TicketReservation* ctx) = 0;
     virtual void cancel(TicketReservation* ctx) = 0;
     virtual ~IReservationState() = default;
 };
+```
+
+このインターフェースが「どの状態クラスでも同じ口で繋がる」ことを保証します。呼び出し元はこの型しか知らないため、具体クラスが何であっても呼び出し方が変わりません。
+
+**各状態クラス（AvailableState / ReservedState / PaidState）：**
+
+```cpp
+class AvailableState : public IReservationState {
+public:
+    void reserve(TicketReservation* ctx) override {
+        // 予約処理：Reserved状態へ遷移する
+        std::cout << "予約完了しました\n";
+    }
+    void cancel(TicketReservation* ctx) override {
+        std::cout << "空席状態のためキャンセル不要です\n";
+    }
+};
 
 class ReservedState : public IReservationState {
 public:
-    void reserve(TicketReservation* ctx) override { /* 既に予約済み */ }
-    void cancel(TicketReservation* ctx) override { /* キャンセル処理 */ }
+    void reserve(TicketReservation* ctx) override {
+        std::cout << "既に予約済みです\n";
+    }
+    void cancel(TicketReservation* ctx) override {
+        // キャンセル処理：Available状態へ戻す
+        std::cout << "予約をキャンセルしました\n";
+    }
 };
 
+class PaidState : public IReservationState {
+public:
+    void reserve(TicketReservation* ctx) override {
+        std::cout << "支払い済みのため再予約できません\n";
+    }
+    void cancel(TicketReservation* ctx) override {
+        // 支払い済みはキャンセル不可
+        std::cout << "支払い済みのためキャンセルできません\n";
+    }
+};
+```
+
+新しい状態（例：`HeldState`）を追加したいときは、この `IReservationState` を実装したクラスを1つ追加するだけで済みます。既存のクラスに一切触れません。
+
+**コンテキストクラス（TicketReservation）：**
+
+```cpp
 // 呼び出し元1：顧客が行う通常の予約フロー
 class TicketReservation {
 private:
@@ -688,7 +820,13 @@ public:
     void reserve() { state->reserve(this); }
     void cancel() { state->cancel(this); }
 };
+```
 
+`TicketReservation` が `IReservationState*` というインターフェース型しか持っていないことが分かります。どの状態クラスが渡されても、呼び出し方は変わりません。
+
+**管理パネル（AdminPanel）：**
+
+```cpp
 // 管理パネル（呼び出し元2）
 class AdminPanel {
 private:
@@ -698,7 +836,6 @@ public:
     // 管理画面からの強制キャンセル
     void forceCancel(const std::string& seatId) {
         // ← 抽象：IReservationState経由でキャンセルを依頼するだけ
-        // 具体的な状態クラスの詳細は知らない
         TicketReservation ctx(state);
         ctx.cancel();
         std::cout << "強制キャンセル: " << seatId << "\n";
@@ -707,15 +844,14 @@ public:
         std::cout << seatId << ": 状態確認完了\n";
     }
 };
-
 ```
 
-このコードを見ると、`TicketReservation` も `AdminPanel` も `IReservationState` というインターフェースしか知らず、具体的な状態クラスを一切知らないことが分かります。両クラスが同じ `IReservationState` を受け取る構造なので、状態が変わっても `TicketReservation` にも `AdminPanel` にも一切触らずに済みます。
+`AdminPanel` も `IReservationState*` しか知らないため、状態クラスが変わっても `AdminPanel` に触る必要がありません。
 
-**呼び出し側から見た違い（main() 例）：**
+**組み立て（BatchApplication / main）：**
 
 ```cpp
-// 案2（抽象×直接）の呼び出し側
+// 案3（抽象×直接）の呼び出し側
 int main() {
     ReservedState state;                       // ← 具体：呼び出し側だけが具体クラスを生成
     TicketReservation reservation(&state);     // ← 直接：同じstateを注入
@@ -748,6 +884,7 @@ sequenceDiagram
     RS-->>AP: キャンセル完了
     AP-->>main: 強制キャンセル完了
 ```
+
 `main()` が具体型を組み立て、両方の呼び出し元は `IReservationState*` という型だけを介して同じオブジェクトを呼ぶため、状態クラスが変わっても呼び出し経路は変わらない。
 
 **この形のトレードオフ：**
@@ -758,212 +895,19 @@ sequenceDiagram
 
 ---
 
-#### 案3：具体×間接 ―― 仲介クラスを置くが、具体型を知っている
-
-**この形の考え方：**
-`StateManager` のような仲介クラスを置き、そこに状態管理を委譲します。しかし、仲介クラスが個々の状態クラスを知っているため、状態を追加する際には仲介クラスの修正が必要です。
-
-**構造図：**
-
-```mermaid
-classDiagram
-    class StateManager {
-        -AvailableState available
-        -ReservedState reserved
-        -PaidState paid
-        -String current
-        +reserve() bool
-        +pay() bool
-        +cancel(withinDeadline) bool
-    }
-    class TicketReservation {
-        -StateManager manager
-        +reserve()
-        +pay()
-        +cancel(withinDeadline)
-    }
-    class AdminPanel {
-        -StateManager manager
-        +forceCancel()
-        +confirmPayment()
-    }
-    class AvailableState {
-        +reserve() bool
-    }
-    class ReservedState {
-        +pay() bool
-        +cancel(withinDeadline) bool
-    }
-    class PaidState {
-        +cancel(withinDeadline) bool
-    }
-    TicketReservation --> StateManager : 具体×間接
-    AdminPanel --> StateManager : 具体×間接
-    StateManager --> AvailableState : 具体×直接
-    StateManager --> ReservedState : 具体×直接
-    StateManager --> PaidState : 具体×直接
-```
-
-呼び出し元2クラスは `StateManager` だけを知り、内部の状態クラス群は見えない。ただし Manager 自身は各状態クラスを具体型で直接保持する。
-
-【コード例】
-
-```cpp
-// 具体的な状態クラス群（インターフェースは持たない）
-class AvailableState {
-public:
-    bool reserve() { /* 予約処理 */ return true; }
-};
-
-class ReservedState {
-public:
-    bool pay() { /* 支払い処理 */ return true; }
-    // キャンセル料は予約から48時間以内は無料、以降は有料
-    bool cancel(bool withinDeadline) {
-        if (withinDeadline) { /* 無料キャンセル */ return true; }
-        /* 有料キャンセル */ return true;
-    }
-};
-
-class PaidState {
-public:
-    bool cancel(bool withinDeadline) {
-        if (withinDeadline) { /* 払い戻し処理 */ return true; }
-        /* キャンセル不可 */ return false;
-    }
-};
-
-// 仲介役：複数の呼び出し元が共通の状態遷移ロジックを共有するための「窓口」
-// ← 具体：内部で AvailableState・ReservedState・PaidState を直接保持する
-class StateManager {
-    AvailableState available;
-    ReservedState  reserved;
-    PaidState      paid;
-    std::string    current; // "Available" / "Reserved" / "Paid"
-public:
-    StateManager() : current("Available") {}
-
-    bool reserve() {
-        if (current != "Available") return false;
-        if (!available.reserve()) return false;
-        current = "Reserved";
-        return true;
-    }
-
-    bool pay() {
-        if (current != "Reserved") return false;
-        if (!reserved.pay()) return false;
-        current = "Paid";
-        return true;
-    }
-
-    bool cancel(bool withinDeadline) {
-        if (current == "Reserved") {
-            bool ok = reserved.cancel(withinDeadline);
-            if (ok) current = "Available";
-            return ok;
-        }
-        if (current == "Paid") {
-            bool ok = paid.cancel(withinDeadline);
-            if (ok) current = "Available";
-            return ok;
-        }
-        return false;
-    }
-};
-
-// 呼び出し元1：顧客が行う通常の予約フロー
-class TicketReservation {
-    StateManager manager;  // ← 具体：StateManagerという具体型を持つ
-public:
-    void reserve() {
-        if (manager.reserve()) std::cout << "予約完了\n";
-        else std::cout << "予約できません\n";
-    }
-    void pay() {
-        if (manager.pay()) std::cout << "支払い完了\n";
-        else std::cout << "支払いに適した状態ではありません\n";
-    }
-    void cancel(bool withinDeadline) {
-        if (manager.cancel(withinDeadline)) std::cout << "キャンセル完了\n";
-        else std::cout << "キャンセルできません\n";
-    }
-};
-
-// 呼び出し元2：スタッフが行う管理操作（強制キャンセル・状態確認など）
-class AdminPanel {
-    StateManager manager;  // ← 同じ状態管理ロジックを重複なく再利用
-public:
-    void forceCancel() {
-        // 管理画面からのキャンセルは常に「期限内」扱いとする
-        if (manager.cancel(true)) std::cout << "強制キャンセル完了\n";
-        else std::cout << "キャンセル対象外の状態です\n";
-    }
-    void confirmPayment() {
-        if (manager.pay()) std::cout << "支払い確認済み\n";
-        else std::cout << "支払い確認できません\n";
-    }
-};
-
-```
-
-このコードを見ると、`StateManager` は依然として各状態の具体クラスを知っており、状態が増えればManagerの修正が必要です。しかし、予約→支払い→キャンセルの複雑なフローと、`TicketReservation`（通常予約フロー）と `AdminPanel`（スタッフ管理）が同じ状態管理ロジックを重複なく共有できる点に、この形の価値があります。`StateManager` がなければ、それぞれの呼び出し元が48時間判定のようなキャンセルルールを個別に抱えることになります。
-
-**呼び出し側から見た違い（main() 例）：**
-
-```cpp
-// 案3（具体×間接）の呼び出し側
-int main() {
-    // ← 間接：StateManagerが内部に隠れており見えない
-    TicketReservation reservation;
-    reservation.reserve();
-    reservation.pay();
-    reservation.cancel(true);   // 48時間以内のキャンセルは無料
-
-    AdminPanel admin;           // ← 間接：同じStateManagerが内部にあるが見えない
-    admin.forceCancel();        // スタッフ操作は常に無料キャンセル扱い
-    return 0;
-}
-```
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant TR as TicketReservation
-    participant AP as AdminPanel
-    participant SM as StateManager
-    participant RS as ReservedState
-    main->>TR: reserve()
-    TR->>SM: manager.reserve()
-    Note right of SM: 内部で状態クラスを生成して判断
-    SM->>RS: available.reserve()
-    RS-->>SM: 予約完了
-    SM-->>TR: 成功
-    TR-->>main: 予約完了
-    main->>AP: forceCancel()
-    AP->>SM: manager.cancel(true)
-    SM->>RS: reserved.cancel(withinDeadline)
-    RS-->>SM: キャンセル完了
-    SM-->>AP: 成功
-    AP-->>main: 強制キャンセル完了
-```
-両方の呼び出し元が同じ `StateManager` を経由するため状態遷移判断の呼び出し経路が1本に収束し、選択ロジックの重複が消える。
-
-**この形のトレードオフ：**
-
-* 変更容易性：中（状態追加はManager内の修正で済む）
-* テスト容易性：中（Managerを差し替えればOK、ただManager自身のテストは辛い）
-* 実装コスト：中（仲介クラスの作成が必要）
-* ※ 同時予約の競合制御：状態遷移のロジックが `StateManager` に集約されているため、楽観的ロックによる整合性保証をここ一箇所に実装できる。
-
----
-
 #### 案4：抽象×間接 ―― インターフェース＋仲介役を両立する
 
 **この形の考え方：**
 インターフェースと仲介役の両方を導入し、層を抽象化します。極めて柔軟ですが、クラス数と層が増えるため、小〜中規模のチケット予約管理には過剰になる可能性が高いです。
+
+**手段の比較：**
+
+| 手段 | 方法 | 特徴 |
+|---|---|---|
+| 手段A：Manager＋インターフェースの2層 | `IStateManager` インターフェースと `StateManager` 実装クラスを分ける | 最大の柔軟性。テスト時に Manager をモック化できる |
+| 手段B：Manager のみ（インターフェースなし） | `StateManager` 具体クラスだけを仲介役として置く | 案3（具体×間接）に相当。抽象化が不完全 |
+
+→ **採用：手段A**（案4の趣旨である「抽象×間接」を実現するには2層が必要なため）
 
 **構造図：**
 
@@ -1005,7 +949,7 @@ classDiagram
 
 インターフェース層（`IStateManager`）と仲介層（`StateManager`）の2層を挟むことで、両クラスは具体的な状態実装を一切知らない最も柔軟な構造。
 
-【コード例】
+**状態インターフェース（IStateManager）：**
 
 ```cpp
 // 抽象化された管理インターフェース
@@ -1015,7 +959,58 @@ public:
     virtual bool cancel(bool withinDeadline) = 0;
     virtual ~IStateManager() = default;
 };
+```
 
+このインターフェースが `TicketReservation` と `AdminPanel` から見える唯一の接点です。`StateManager` の内部実装は完全に隠蔽されます。
+
+**仲介クラス（StateManager）と各状態クラス：**
+
+```cpp
+// 具体的な状態クラス群
+class AvailableState {
+public:
+    bool reserve() { return true; }
+};
+
+class ReservedState {
+public:
+    bool cancel(bool withinDeadline) {
+        if (withinDeadline) { return true; }
+        return true;
+    }
+};
+
+// 仲介役：内部の状態クラス群を隠しつつ、外部には統一インターフェースを提供する
+class StateManager : public IStateManager {
+    AvailableState available;
+    ReservedState  reserved;
+    std::string    current; // "Available" / "Reserved"
+public:
+    StateManager() : current("Available") {}
+
+    bool reserve() override {
+        if (current != "Available") return false;
+        if (!available.reserve()) return false;
+        current = "Reserved";
+        return true;
+    }
+
+    bool cancel(bool withinDeadline) override {
+        if (current == "Reserved") {
+            bool ok = reserved.cancel(withinDeadline);
+            if (ok) current = "Available";
+            return ok;
+        }
+        return false;
+    }
+};
+```
+
+`StateManager` が状態クラス群をカプセル化しており、呼び出し元はその存在を知りません。状態が増えた場合、`StateManager` 内の修正で済みます。
+
+**コンテキストクラスと管理パネル：**
+
+```cpp
 // 呼び出し元1：顧客が行う通常の予約フロー
 class TicketReservation {
 private:
@@ -1040,7 +1035,6 @@ private:
     IStateManager* manager;  // ← 抽象：IStateManager*型
 public:
     AdminPanel(IStateManager* mgr) : manager(mgr) {}
-    // 管理画面からの強制キャンセル
     void forceCancel(const std::string& seatId) {
         // 管理画面からのキャンセルは常に「期限内」扱いとする
         if (manager->cancel(true)) std::cout << "強制キャンセル: " << seatId << "\n";
@@ -1050,12 +1044,11 @@ public:
         std::cout << seatId << ": 状態確認完了\n";
     }
 };
-
 ```
 
-このコードを見ると、変更の影響は最も小さく抑えられますが、ファイル数が一気に増え、システム全体の繋がりを追うのが非常に難しくなっていることが分かります。
+変更の影響は最も小さく抑えられますが、ファイル数が一気に増え、システム全体の繋がりを追うのが非常に難しくなっていることが分かります。
 
-**呼び出し側から見た違い（main() 例）：**
+**組み立て（BatchApplication / main）：**
 
 ```cpp
 // 案4（抽象×間接）の呼び出し側
@@ -1097,6 +1090,7 @@ sequenceDiagram
     SM-->>AP: 成功
     AP-->>main: 強制キャンセル完了
 ```
+
 呼び出し元→`IStateManager*`→内部の状態クラスという2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
 
 **この形のトレードオフ：**
@@ -1131,51 +1125,52 @@ sequenceDiagram
 
 ### 6-8：コスト天秤
 
-案0〜案4を定量的に比較します。
+案1〜案4を定量的に比較します。
 
 | **案** | **現在の対応コスト** | **未来の対応コスト** |
 | --- | --- | --- |
-| 案0：構造を変えない | 低 | 高 |
-| 案1：具体×直接 | 低〜中 | 高 |
-| 案2：抽象×直接 | 中 | 低〜中 |
-| 案3：具体×間接 | 中 | 中 |
+| 案1：現状のまま | 低 | 高 |
+| 案2：具体×直接 | 低〜中 | 高 |
+| 案3：抽象×直接 | 中 | 低〜中 |
 | 案4：抽象×間接 | 高 | 低 |
 
 **ステップ1：採点表**（1＝低い、2＝中程度、3＝高い）
 
 | 案 | 変更容易性（×3） | テスト容易性（×2） | 可読性（×1） |
 | --- | --- | --- | --- |
-| 案0：構造を変えない | 1 | 1 | 3 |
-| 案1：具体×直接 | 1 | 2 | 3 |
-| 案2：抽象×直接 | 3 | 3 | 2 |
-| 案3：具体×間接 | 2 | 2 | 2 |
+| 案1：現状のまま | 1 | 1 | 3 |
+| 案2：具体×直接 | 1 | 2 | 3 |
+| 案3：抽象×直接 | 3 | 3 | 2 |
 | 案4：抽象×間接 | 3 | 3 | 1 |
 
 **ステップ2：加重合計表**（変更容易性×3 ＋ テスト容易性×2 ＋ 可読性×1）
 
 | 案 | 加重スコア | 判定 |
 | --- | --- | --- |
-| 案0 | 8 |  |
-| 案1 | 10 |  |
-| 案2 | 17 | ← 採用候補 |
-| 案3 | 12 |  |
+| 案1 | 8 |  |
+| 案2 | 10 |  |
+| 案3 | 17 | ← 採用候補 |
 | 案4 | 16 |  |
 
-※案2が最高スコアとなりました。状態遷移の追加に対する柔軟性と、テストのしやすさが最もバランスよく実現されています。
+※案3が最高スコアとなりました。状態遷移の追加に対する柔軟性と、テストのしやすさが最もバランスよく実現されています。
 
 ---
 
 ### 6-9：採用案の決定
 
-**採用する案：** 案2
+**採用する案：** 案3
 
-**理由：** 状態が増えるたびに条件分岐を修正する現状から脱却し、各状態をクラスとして切り出すことで、変更時の影響をそのクラス内だけに閉じるため、案2を採用します。この構造を **State（ステート）** パターンと呼びます。
+**理由：** 状態が増えるたびに条件分岐を修正する現状から脱却し、各状態をクラスとして切り出すことで、変更時の影響をそのクラス内だけに閉じることができます。案3は案4に比べて実装コストが低く、このシステムの規模と変更頻度のバランスに最も適しています。
+
+**この構造は、State（ステート）パターンと呼ばれています。**
+
+状態ごとに専用のクラスを用意し、コンテキスト（`TicketReservation`）はインターフェース経由で現在の状態に処理を委譲します。状態が増えても、コンテキストクラスに一切触れることなく、新しい状態クラスを追加するだけで機能拡張できる構造です。
 
 ---
 
 ### 6-10：耐久テスト
 
-フェーズ2のヒアリングで挙がった「将来のリスク」をシミュレートし、案2の変更耐性を検証します。
+フェーズ2のヒアリングで挙がった「将来のリスク」をシミュレートし、案3の変更耐性を検証します。
 
 | **変更シナリオ** | **触る場所** | **コスト評価** |
 | --- | --- | --- |
@@ -1186,13 +1181,13 @@ sequenceDiagram
 
 ## 🟤 フェーズ7：対策実施 ―― 決断し、変化に強い設計を手に入れる
 
-採用した「Stateパターンによる状態管理」を、実際のコードに実装します。これにより、これまで `TicketReservation` クラスが抱え込んでいた複雑な条件分岐を、個別の状態クラスへと移譲します。
+採用した設計（案3：抽象×直接）を、実際のコードに実装します。これにより、これまで `TicketReservation` クラスが抱え込んでいた複雑な条件分岐を、個別の状態クラスへと移譲します。
 
 この設計変更の最大の価値は、今後「キャンセル待ち」や「特別優待」といった新しい状態がどれだけ増えても、既存の業務フローや他の状態クラスに影響を与えることなく、新しいクラスを追加するだけで機能拡張ができる安定性を手に入れたことです。
 
-### 7-1：解決後のコード（全体）
+### 7-1：状態インターフェース
 
-新しい設計では、チケットの状態を `IReservationState` インターフェースとして定義し、具体的な状態変化を個別のクラスが担います。
+新しい設計の基盤となるインターフェースを定義します。このインターフェースが「すべての状態クラスが守るべき契約」を定めます。
 
 ```cpp
 #include <iostream>
@@ -1201,45 +1196,135 @@ sequenceDiagram
 class TicketReservation;
 
 // 状態ごとの振る舞いを定義するインターフェース
+// このインターフェースを実装したクラスだけが「予約状態」として扱える
 class IReservationState {
 public:
     virtual void reserve(TicketReservation* ctx) = 0;
     virtual void pay(TicketReservation* ctx) = 0;
     virtual void cancel(TicketReservation* ctx) = 0;
+    virtual ~IReservationState() = default;
 };
-
-// 予約クラス：各状態を切り替えて管理する
-class TicketReservation {
-private:
-    IReservationState* state; // ← ここだけ変わる
-public:
-    void setState(IReservationState* s) { state = s; }
-    void reserve() { state->reserve(this); }
-    void pay() { state->pay(this); }
-    void cancel() { state->cancel(this); }
-};
-
-// 具体的な状態クラスの例
-class ReservedState : public IReservationState {
-public:
-    void reserve(TicketReservation* ctx) override { /* ... */ }
-    void pay(TicketReservation* ctx) override { /* 支払い処理 */ }
-    void cancel(TicketReservation* ctx) override { /* キャンセル処理 */ }
-};
-
 ```
 
-この実装により、`TicketReservation` クラスの中から `if` 文や `switch` 文による状態判定が完全に排除されました。このクラスは「現在の状態オブジェクト」に処理を委譲するだけで、予約管理という責務を果たせるようになりました。
+`IReservationState` が `TicketReservation*` を受け取る形になっているのは、状態クラスが遷移時にコンテキスト（`TicketReservation`）の状態を切り替えるためです。インターフェースがこの契約を定めることで、どの状態クラスも同じ方法で呼び出せます。
 
-### 7-2：変更影響グラフ（改善後）
+### 7-2：各状態クラス
+
+状態ごとの振る舞いをそれぞれのクラスに実装します。各クラスは「その状態のときだけの責任」を持ちます。
+
+```cpp
+// Available（空席）状態：予約を受け付けられる状態
+class AvailableState : public IReservationState {
+public:
+    void reserve(TicketReservation* ctx) override;  // 予約してReservedへ
+    void pay(TicketReservation* ctx) override {
+        std::cout << "予約なしで支払いはできません\n";
+    }
+    void cancel(TicketReservation* ctx) override {
+        std::cout << "空席状態のためキャンセル不要です\n";
+    }
+};
+```
+
+```cpp
+// Reserved（予約済み）状態：支払いかキャンセルを待っている状態
+class ReservedState : public IReservationState {
+public:
+    void reserve(TicketReservation* ctx) override {
+        std::cout << "既に予約済みです\n";
+    }
+    void pay(TicketReservation* ctx) override;     // 支払いしてPaidへ
+    void cancel(TicketReservation* ctx) override;  // キャンセルしてAvailableへ
+};
+```
+
+```cpp
+// Paid（支払い済み）状態：発券待ちの状態
+class PaidState : public IReservationState {
+public:
+    void reserve(TicketReservation* ctx) override {
+        std::cout << "支払い済みのため再予約できません\n";
+    }
+    void pay(TicketReservation* ctx) override {
+        std::cout << "既に支払い済みです\n";
+    }
+    void cancel(TicketReservation* ctx) override {
+        std::cout << "支払い済みのためキャンセルできません\n";
+    }
+};
+```
+
+各クラスが「自分の状態のときに何ができて、何ができないか」を自己完結して持っています。`TicketReservation` 内に散らばっていた条件分岐が、それぞれのクラスに分散して格納されました。
+
+### 7-3：コンテキストクラス（TicketReservation）
+
+状態クラスを保持し、操作を現在の状態に委譲する中心クラスです。
+
+```cpp
+// 予約クラス：現在の状態オブジェクトを保持し、操作を委譲するだけ
+class TicketReservation {
+private:
+    IReservationState* state; // ← ここだけ変わる。ifもswitchも一切ない
+public:
+    TicketReservation(IReservationState* initialState)
+        : state(initialState) {}
+
+    // 状態遷移時に呼ばれる（各状態クラスから呼び出す）
+    void setState(IReservationState* s) { state = s; }
+
+    // 操作を現在の状態に委譲するだけ
+    void reserve() { state->reserve(this); }
+    void pay()     { state->pay(this); }
+    void cancel()  { state->cancel(this); }
+};
+```
+
+このクラスを見ると、`if` 文や `switch` 文が一切ないことが分かります。`TicketReservation` はただ「今の状態に丸投げする」だけの存在になりました。状態が何であるかを知らなくてもよいため、状態が増えてもこのクラスに触る必要がありません。
+
+状態遷移の実装（`reserve()` や `cancel()` の中で `setState()` を呼ぶ部分）は、各状態クラスのメソッド内で行います。例えば `AvailableState::reserve()` の中で `ctx->setState(new ReservedState())` を呼ぶ形です。
+
+### 7-4：組み立て（BatchApplication / main）
+
+依存の組み立てと実行の責任を分離します。
+
+```cpp
+// BatchApplication：依存の組み立てを担う唯一の場所
+class BatchApplication {
+public:
+    void run() {
+        // 具体クラスを知っているのはここだけ
+        AvailableState initialState;
+        TicketReservation seat(&initialState);
+
+        // 動作例テーブルの動作を確認
+        seat.reserve();   // Available → Reserved
+        seat.pay();       // Reserved  → Paid
+        seat.cancel();    // Paid → エラー（支払い済みはキャンセル不可）
+    }
+};
+
+int main() {
+    BatchApplication app;
+    app.run();
+    return 0;
+}
+```
+
+```text
+出力：
+予約完了しました
+支払い完了しました
+支払い済みのためキャンセルできません
+```
+
+この実行結果は、フェーズ1の動作例テーブル（行4）で示した「Paid状態でcancel()を呼ぶとエラー」という動作と一致しています。構造が変わっても、動作は変わっていません。
+
+### 7-5：変更影響グラフ（改善後）
 
 フェーズ3で確認した「状態追加」のシナリオを再度適用します。
 
 ```mermaid
 graph LR
-    %% 【改善後の変更影響グラフ。フェーズ3と同じシナリオで、変更が局所化された様子を示す。
-    %%   変更が1クラスだけに閉じていることを矢印で示す。
-    %%   影響を受けないクラスには「影響なし」の点線矢印を付ける】
     T1["変更要求：新規状態の追加"] --> F1["NewState.cpp<br>（新規作成のみ）"]
     T1 -. "影響なし" .-> A["TicketReservation.cpp ✅"]
     T1 -. "影響なし" .-> B["ExistingState.cpp ✅"]
@@ -1248,7 +1333,7 @@ graph LR
 
 → **フェーズ3の変更影響グラフと比較して、新しい状態の追加という変更要求が、新規作成したクラスだけに閉じた設計になりました**。
 
-### 7-3：変更シナリオ表
+### 7-6：変更シナリオ表
 
 この設計で手に入れたものと、諦めたものを整理します。
 
@@ -1257,14 +1342,14 @@ graph LR
 | キャンセル待ち状態の追加 | `WaitingState` (新規作成) | `TicketReservation`, `ReservedState` |
 | 支払い済みからの返金対応 | `PaidState` (修正のみ) | `TicketReservation`, `ReservedState` |
 
-変更が来ても、触るのは状態クラスだけで済みます——それがこの設計で手に入れたものだ。諦めたものは、状態ごとのクラスファイルが増加するという、わずかな可読性のコストです。
+変更が来ても、触るのは状態クラスだけで済みます——それがこの設計で手に入れたものです。諦めたものは、状態ごとのクラスファイルが増加するという、わずかな可読性のコストです。
 
 ---
 
-### 7-4：接続形態の確認 ── この設計はどの接続か
+### 7-7：接続形態の確認 ── この設計はどの接続か
 
 フェーズ4-3で診断した通り、変更前のコードは **具体×直接** の状態でした。
-採用した State パターンでは、接続形態が **抽象×直接（USB-C直差し）** へと変化しています。
+採用した案3では、接続形態が **抽象×直接（USB-C直差し）** へと変化しています。
 
 **「抽象×直接」の証拠となるコード：**
 
@@ -1297,7 +1382,7 @@ public:
 | 🟡 フェーズ3：問題特定 | 新しい状態（一時保留など）の追加を試み、全メソッドの修正が不可避になる「痛み」を確認しました。 |
 | 🔴 フェーズ4：原因分析 | 状態管理のルールと業務ロジックが同じ場所に混在していることが、システムを脆くしている根本原因だと突き止めました。 |
 | 🟣 フェーズ5：課題定義 | 接続点（予約管理と状態遷移の境界）を特定し、状態ごとの振る舞いをカプセル化する課題を設定しました。 |
-| 🟢 フェーズ6：対策案検討 | 案0〜案4を比較し、最も変更耐性が高くテストも容易な「Stateパターン」を採用しました。 |
+| 🟢 フェーズ6：対策案検討 | 案1〜案4を比較し、最も変更耐性が高くテストも容易な案3（抽象×直接）を採用しました。 |
 | 🟤 フェーズ7：対策実施 | 状態を個別のクラスへ分割し、業務クラスから直接的な条件分岐を取り除きました。 |
 
 ### 各クラスの最終的な責任
@@ -1311,8 +1396,6 @@ public:
 | `ReservedState` 等 | 特定の状態におけるアクションを実装する | その特定の状態におけるルールが変わるとき |
 
 > このプロセスを回した結果にたどり着いた構造こそが State パターンです。
-> 
-> 
 
 ---
 
@@ -1345,7 +1428,6 @@ public:
 * **原則3「継承よりコンポジションを優先せよ」の現れ**
 * **具体化された場所：** `TicketReservation` が `IReservationState` を持つ構造
 * **解説：** 状態を継承で表現しようとすると階層が深まり柔軟性を失いますが、コンポジションとして状態を持たせることで、実行時に状態を自由に入れ替えられるようになりました。
-
 
 
 
@@ -1425,7 +1507,7 @@ classDiagram
 
 ```cpp
 // 状態が一つしかないのに、無理にクラスを分けてインターフェースを作るのは過剰です
-class OnlyOneState : public IState { ... }; 
+class OnlyOneState : public IState { };
 
 ```
 
@@ -1447,4 +1529,3 @@ class OnlyOneState : public IState { ... };
 **得られること4**（状態追加の判断）：フェーズ6の耐久テストで、将来「特別優待予約」や「一時保留のキャンセル不可ルール」が来ても、既存のフローを壊さずに対応できることを確認しました。
 
 チケット予約システムという一つの題材を通じて、「状態と振る舞いの混在」という構造問題を分析し、解決するまでの思考の流れを体験できたのではないかと思います。この章で辿った7つのフェーズは、設計に悩んだとき、どんな現場のコードに対しても同じように使える型です。
-
