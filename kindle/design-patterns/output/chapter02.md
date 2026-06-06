@@ -311,7 +311,7 @@ void transfer(
 
 ```mermaid
 graph LR
-    T1["変更要求：認証フローと<br>送金API仕様の変更"] -->|"影響が飛び火"| A["TransferProcessor.cpp<br>（振り込み制御）"]
+    T1["変更要求：認証・送金API変更"] -->|"影響が飛び火"| A["TransferProcessor.cpp<br>（振り込み制御）"]
     A -->|"さらに影響"| B["BankGateway.cpp<br>（API呼び出し）"]
     A -->|"さらに影響"| C["SecurityAuthenticator.cpp<br>（認証フロー）"]
 

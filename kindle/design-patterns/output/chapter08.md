@@ -114,8 +114,8 @@ classDiagram
 
 ```mermaid
 graph TD
-    PaymentApplication["PaymentApplication"] --> CreditCardProcessor["CreditCardProcessor"]
-    PaymentApplication --> ConvenienceStoreProcessor["ConvenienceStoreProcessor"]
+    PayApp["PaymentApplication"] --> CreditCard["CreditCardProcessor"]
+    PayApp --> CVS["ConvenienceStoreProcessor"]
 
 ```
 
@@ -137,14 +137,16 @@ using namespace std;
 class CreditCardProcessor {
 public:
     void pay(int amount) {
-        cout << "クレジットカードで " << amount << " 円決済しました。" << endl;
+        cout << "クレジットカードで "
+             << amount << " 円決済しました。" << endl;
     }
 };
 
 class ConvenienceStoreProcessor {
 public:
     void pay(int amount) {
-        cout << "コンビニで " << amount << " 円の支払い番号を発行しました。" << endl;
+        cout << "コンビニで " << amount
+             << " 円の支払い番号を発行しました。" << endl;
     }
 };
 
@@ -276,7 +278,7 @@ int main() {
 
 ```mermaid
 graph LR
-    T1["変更要求：PayPay対応"] -->|"分岐と生成ロジックの追記"| A["PaymentApplication.cpp"]
+    T1["変更要求：PayPay対応"] -->|"追記"| A["PaymentApplication.cpp"]
     A -->|"新規クラス作成"| B["PayPayProcessor.cpp"]
 
 ```
@@ -408,6 +410,15 @@ graph LR
 **この形の考え方：**
 クラスの分割も接続形態の変更もしない。既存の `processPayment` メソッドの中に、新しい決済手段のための `if` や `case` 文を書き足し、具体クラスをその場で `new` する。変更頻度が低く、納期が極めて厳しい場合に合理的な選択となる。
 
+**手段の比較：**
+
+| 手段 | 方法 | 特徴 |
+|---|---|---|
+| 手段A：if文追加 | 既存の `if-else` チェーンに `else if (type == "paypay")` を書き足す | 変更が最小で今すぐ対応できるが、決済手段が増えるたびに同じ作業が繰り返される |
+| 手段B：switch-case | `if-else` を `switch-case` に書き換えて新しい `case` を追加する | 構文が整理されるが変更の波及範囲は変わらず、`SubscriptionService` の重複も解消されない |
+
+→ **採用：手段A**（既存コードへの影響が最小であり、この案の方針（構造を変えない）と一致するため）
+
 **構造図：**
 
 ```mermaid
@@ -445,22 +456,24 @@ classDiagram
 class CreditCardProcessor {
 public:
     void pay(int amount) {
-        cout << "クレジットで " << amount << " 円決済しました。" << endl;
+        cout << "クレジットで " << amount
+             << " 円決済しました。" << endl;
     }
 };
 
 class ConvenienceStoreProcessor {
 public:
     void pay(int amount) {
-        cout << "コンビニで " << amount << " 円の支払い番号を発行しました。"
-             << endl;
+        cout << "コンビニで " << amount
+             << " 円の番号を発行しました。" << endl;
     }
 };
 
 class PayPayProcessor {
 public:
     void pay(int amount) {
-        cout << "PayPayで " << amount << " 円決済しました。" << endl;
+        cout << "PayPayで " << amount
+             << " 円決済しました。" << endl;
     }
 };
 ```
@@ -474,7 +487,7 @@ public:
 class PaymentApplication {
 public:
     void processPayment(string type, int amount) {
-        // ← 具体：CreditCardProcessorという型名を直接書いている
+        // ← 具体：型名を直接書いている
         if (type == "credit") {
             CreditCardProcessor p; p.pay(amount);
         } else if (type == "paypay") {
@@ -492,12 +505,13 @@ public:
 
 ```cpp
 // 呼び出し元2：定期課金の処理
-// ← 同じif-else選択ロジックをここにも丸ごと複製する（重複の発生）
+// ← 同じif-else選択ロジックをここにも複製（重複の発生）
 class SubscriptionService {
 public:
     void chargeMonthly(string customerId, int amount) {
-        cout << "顧客 " << customerId << " の月額課金を処理します。" << endl;
-        // ← PaymentApplicationと全く同じ分岐ロジックが重複する
+        cout << "顧客 " << customerId
+             << " の月額課金を処理します。" << endl;
+        // ← PaymentApplicationと同じ分岐ロジックが重複する
         string type = "credit"; // 定期課金はクレジット固定
         if (type == "credit") {
             CreditCardProcessor p; p.pay(amount);
@@ -543,6 +557,15 @@ int main() {
 **この形の考え方：**
 決済処理をクラスとして抽出するが、`PaymentApplication` は相変わらず具体クラスを直接 `new` する。責任の境界は明確になるが、生成ロジックの混在は解消されない。
 
+**手段の比較：**
+
+| 手段 | 方法 | 特徴 |
+|---|---|---|
+| 手段A：クラス分割 | 各決済プロセッサーを別クラスに切り出し、`PaymentApplication` がその具体型を直接 `new` して使う | 責任の境界が明確になるが、利用側が具体クラス名を直接知り続けるため差し替えはできない |
+| 手段B：メソッド抽出 | `processPayment` 内の処理をプライベートメソッドに分ける | ファイル分割なしで整理できるが、クラス外からテスト用の実装に差し替えることができない |
+
+→ **採用：手段A**（将来のインターフェース化に向けて責任の境界を明確にするため）
+
 **構造図：**
 
 ```mermaid
@@ -574,19 +597,20 @@ classDiagram
 **コード：CreditCardProcessor / ConvenienceStoreProcessor / PayPayProcessor**
 
 ```cpp
-// 各決済プロセッサー（案1と同じ構造、インターフェースなし）
+// 各決済プロセッサー（インターフェースなし）
 class CreditCardProcessor {
 public:
     void pay(int amount) {
-        cout << "クレジットで " << amount << " 円決済しました。" << endl;
+        cout << "クレジットで " << amount
+             << " 円決済しました。" << endl;
     }
 };
 
 class ConvenienceStoreProcessor {
 public:
     void pay(int amount) {
-        cout << "コンビニで " << amount << " 円の支払い番号を発行しました。"
-             << endl;
+        cout << "コンビニで " << amount
+             << " 円の番号を発行しました。" << endl;
     }
 };
 
@@ -608,8 +632,10 @@ class PaymentApplication {
 public:
     void processPayment(string type, int amount) {
         if (type == "credit") {
-            CreditCardProcessor p; // ← 具体：型名を直接書いている
-            p.pay(amount);         // ← 直接：このクラスを直接インスタンス化している
+            // ← 具体：型名を直接書いている
+            // ← 直接：このクラスを直接生成している
+            CreditCardProcessor p;
+            p.pay(amount);
         } else if (type == "paypay") {
             PayPayProcessor p;
             p.pay(amount);
@@ -627,18 +653,21 @@ public:
 
 ```cpp
 // 呼び出し元2：定期課金の処理
-// ← 選択ロジック（どの具体クラスを使うか）がここでも重複する
+// ← 選択ロジックがここでも重複する
 class SubscriptionService {
 public:
     void chargeMonthly(string customerId, int amount) {
-        cout << "顧客 " << customerId << " の月額課金を処理します。" << endl;
-        // ← PaymentApplicationと同じ「どのクラスを選ぶか」の判断がここでも重複
+        cout << "顧客 " << customerId
+             << " の月額課金を処理します。" << endl;
+        // ← 同じ「どのクラスを選ぶか」の判断がここでも重複
         string type = "credit"; // 定期課金はクレジット固定
         if (type == "credit") {
-            CreditCardProcessor p; // ← 同じ具体クラスをここでも直接インスタンス化
+            // ← 同じ具体クラスをここでも直接インスタンス化
+            CreditCardProcessor p;
             p.pay(amount);
         } else if (type == "paypay") {
-            PayPayProcessor p; // ← どのクラスを使うかという判断がここでも重複
+            // ← どのクラスを使うかの判断がここでも重複
+            PayPayProcessor p;
             p.pay(amount);
         }
     }
@@ -772,7 +801,7 @@ public:
 ```cpp
 // 呼び出し元1：個別ユーザーの購入処理
 class PaymentApplication {
-    // ← 抽象：IPaymentProcessor*型で受け取り、具体クラスを知らない
+    // ← 抽象：IPaymentProcessor*型で受け取る
     IPaymentProcessor* createProcessor(string type) {
         if (type == "credit") return new CreditCardProcessor();
         if (type == "paypay") return new PayPayProcessor();
@@ -796,14 +825,16 @@ public:
 
 ```cpp
 // 呼び出し元2：定期課金の処理
-// ← 同じインターフェース型を使って外から渡すため、重複も密結合も生じない
+// ← 同じIF型で外から渡すため、重複も密結合も生じない
 class SubscriptionService {
     IPaymentProcessor* processor; // ← 抽象：具体クラスを知らない
 public:
     SubscriptionService(IPaymentProcessor* p) : processor(p) {}
     void chargeMonthly(string customerId, int amount) {
-        cout << "顧客 " << customerId << " の月額課金を処理します。" << endl;
-        processor->pay(amount); // ← 直接：インターフェース経由で直接呼ぶ
+        cout << "顧客 " << customerId
+             << " の月額課金を処理します。" << endl;
+        // ← 直接：インターフェース経由で直接呼ぶ
+        processor->pay(amount);
     }
 };
 ```
@@ -820,8 +851,9 @@ int main() {
     app.processPayment("credit", 1000);
     app.processPayment("paypay", 700);
 
-    // 定期課金の呼び出し元：インターフェース経由で注入（重複なし）
-    CreditCardProcessor credit; // ← 具体：呼び出し側だけが具体クラスを生成
+    // 定期課金：インターフェース経由で注入（重複なし）
+    // ← 具体：呼び出し側だけが具体クラスを生成
+    CreditCardProcessor credit;
     SubscriptionService subscription(&credit);
     subscription.chargeMonthly("user-001", 980);
     return 0;
@@ -973,7 +1005,8 @@ class PaymentApplication {
 public:
     PaymentApplication(PaymentFactory* f) : factory(f) {}
     void processPayment(string type, int amount) {
-        IPaymentProcessor* p = factory->create(type); // ← 間接：Factory経由
+        // ← 間接：Factory経由
+        IPaymentProcessor* p = factory->create(type);
         if (p) { p->pay(amount); delete p; }
     }
 };
@@ -986,12 +1019,15 @@ public:
 ```cpp
 // 呼び出し元2：定期課金の処理
 class SubscriptionService {
-    PaymentFactory* factory; // ← 抽象：同じ抽象インターフェースで受け取る
+    // ← 抽象：同じ抽象インターフェースで受け取る
+    PaymentFactory* factory;
 public:
     SubscriptionService(PaymentFactory* f) : factory(f) {}
     void chargeMonthly(string customerId, int amount) {
-        cout << "顧客 " << customerId << " の月額課金を処理します。" << endl;
-        IPaymentProcessor* p = factory->create("credit"); // ← 間接：Factory経由
+        cout << "顧客 " << customerId
+             << " の月額課金を処理します。" << endl;
+        // ← 間接：Factory経由
+        IPaymentProcessor* p = factory->create("credit");
         if (p) { p->pay(amount); delete p; }
     }
 };
@@ -1004,7 +1040,8 @@ public:
 ```cpp
 // 案4（抽象×間接）の呼び出し側
 int main() {
-    ConcretePaymentFactory factory; // ← 具体：組み立て側だけが具体型を知る
+    // ← 具体：組み立て側だけが具体型を知る
+    ConcretePaymentFactory factory;
 
     // 個別購入：抽象Factoryのみ見えて具体実装は隠れる
     PaymentApplication app(&factory);
@@ -1176,7 +1213,8 @@ public:
 class CreditCardProcessor : public IPaymentProcessor {
 public:
     void pay(int amount) override {
-        cout << "クレジットで " << amount << " 円決済しました。" << endl;
+        cout << "クレジットで "
+             << amount << " 円決済しました。" << endl;
     }
 };
 
@@ -1188,7 +1226,7 @@ public:
     }
 };
 
-// ← 新しい決済手段（PayPayなど）はここに追加するだけ（ここだけ変わる）
+// ← 新しい決済手段はここに追加するだけ（ここだけ変わる）
 class PayPayProcessor : public IPaymentProcessor {
 public:
     void pay(int amount) override {
@@ -1208,13 +1246,15 @@ private:
     IPaymentProcessor* createProcessor(string type) {
         if (type == "credit") return new CreditCardProcessor();
         if (type == "cvs") return new ConvenienceStoreProcessor();
-        if (type == "paypay") return new PayPayProcessor(); // ← ここだけ変わる
+        // ← ここだけ変わる
+        if (type == "paypay") return new PayPayProcessor();
         return nullptr;
     }
 
 public:
     void processPayment(string type, int amount) {
-        IPaymentProcessor* processor = createProcessor(type); // ← 知らなくていい
+        // ← 知らなくていい
+        IPaymentProcessor* processor = createProcessor(type);
         if (processor) {
             processor->pay(amount); // ← 知らなくていい
             delete processor;
@@ -1231,7 +1271,8 @@ public:
 int main() {
     PaymentApplication app;
     app.processPayment("credit", 1000);
-    app.processPayment("paypay", 700); // ← 新しい決済手段も呼び出せる
+    // ← 新しい決済手段も呼び出せる
+    app.processPayment("paypay", 700);
     return 0;
 }
 ```
@@ -1244,8 +1285,8 @@ int main() {
 
 ```mermaid
 graph LR
-    T1["変更要求：PayPay対応"] --> F1["createProcessor（生成ロジック） ✅"]
-    T1 -. "影響なし" .-> A["processPayment（決済ロジック） ✅"]
+    T1["変更要求：PayPay対応"] --> F1["createProcessor ✅"]
+    T1 -. "影響なし" .-> A["processPayment ✅"]
     T1 -. "影響なし" .-> B["CreditCardProcessor ✅"]
 
 ```
@@ -1276,9 +1317,11 @@ graph LR
 class PaymentApplication {
 public:
     void processPayment(string type, int amount) {
-        IPaymentProcessor* processor = createProcessor(type); // ← インターフェース型 = 「抽象」の証拠
+        // ← インターフェース型 = 「抽象」の証拠
+        IPaymentProcessor* processor = createProcessor(type);
         if (processor) {
-            processor->pay(amount); // ← 直接呼び出し = 「直接」の証拠
+            // ← 直接呼び出し = 「直接」の証拠
+            processor->pay(amount);
         }
     }
 private:
@@ -1410,8 +1453,8 @@ classDiagram
 【過剰コード：変化の予定がないものまでパターン化した例】
 
 ```cpp
-// 単に固定のクラスをnewするだけで、手段が増える予定もない場合は、
-// Factory Methodを導入するとコードが却って複雑になります。
+// 固定クラスをnewするだけで増える予定もない場合は、
+// Factory Methodは却って複雑になります。
 
 ```
 

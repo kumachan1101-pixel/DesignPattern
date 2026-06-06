@@ -209,7 +209,7 @@ classDiagram
         +sendEmail()
         +saveToDb()
     }
-    note for OrderService_before "誰が変更を決める？<br>・calcDiscount : 営業チーム<br>・sendEmail : マーケチーム<br>・saveToDb : インフラチーム<br>変わる理由が3つ混在している"
+    note for OrderService_before "変わる理由が3つある<br>営業/マーケ/インフラ"
 ```
 
 ```mermaid
