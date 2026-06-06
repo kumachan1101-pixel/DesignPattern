@@ -500,21 +500,6 @@ int main() {
 
 両クラスが同じロジックを重複して持つため、ルールが変わると2か所を修正しなければならない。
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant WM as WorkflowManager
-    participant EE as EscalationEngine
-    main->>WM: process("SUBMITTED", 50000)
-    Note over WM: if "SUBMITTED" → 承認待ち<br/>if "APPROVED" → 承認完了<br/>if amount > 100000 → 役員承認
-    WM-->>main: 完了
-    main->>EE: escalateOverdue()
-    Note over EE: ← 全く同じif-else分岐と判定ロジックが重複して走る
-    EE-->>main: 完了
-```
-
 一文要約：状態遷移・通知・判定ロジックが各クラスの内部に直書きされているため外部への呼び出しが発生せず、同じ条件分岐が2か所で並行して走る。
 
 **この形のトレードオフ：**
@@ -642,29 +627,6 @@ int main() {
 ```
 
 選択ロジックが両クラスに重複しており、具体クラスへの依存が両方に残る。
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant WM as WorkflowManager
-    participant EE as EscalationEngine
-    participant RC as RuleChecker
-    participant PS as PendingState
-    main->>WM: process(50000)
-    Note over WM: new RuleChecker
-    WM->>RC: checker.isApproved(amount)
-    RC-->>WM: 判定結果
-    WM-->>main: 完了
-    main->>EE: escalateOverdue()
-    Note over EE: ← 同じ選択ロジックが重複
-    EE->>RC: checker.isOverdue()
-    RC-->>EE: 判定結果
-    EE->>PS: pending.enter()
-    PS-->>EE: 完了
-    EE-->>main: 完了
-```
 
 一文要約：クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、判定クラスや状態クラスへの呼び出し経路が2本並んで重複している。
 
