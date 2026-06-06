@@ -502,21 +502,6 @@ int main() {
 
 両クラスが同じロジックを重複して持つため、ルールが変わると2か所を修正しなければならない。
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant TM as TicketManager
-    participant EE as EscalationEngine
-    main->>TM: updateStatus("premium", "Open")
-    Note over TM: if Open → 優先度計算(PriorityCalculator直書き)
-    TM-->>main: 完了
-    main->>EE: checkAndEscalate("T-001")
-    Note over EE: 全く同じ if 分岐と PriorityCalculator の直書きが重複して走る
-    EE-->>main: 完了
-```
-
 一文要約：ロジックが各クラスの内部に直書きされているため、同じ分岐とルール計算コードが2か所で並行して走る。
 
 **この形のトレードオフ：**
@@ -648,29 +633,6 @@ int main() {
 ```
 
 選択ロジックが両クラスに重複しており、具体クラスへの依存が両方に残る。
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant TM as TicketManager
-    participant EE as EscalationEngine
-    participant PC as PriorityCalculator
-    participant IS as InProgressState
-    main->>TM: updateStatus("premium", "InProgress")
-    Note over TM: if InProgress → new PriorityCalculator
-    TM->>PC: calculate("premium")
-    PC-->>TM: "High"
-    TM-->>main: 完了
-    main->>EE: checkAndEscalate("T-001")
-    Note over EE: 同じ選択ロジックが重複（どのクラスを使うか自ら判断）
-    EE->>PC: calculate("premium")
-    PC-->>EE: "High"
-    EE->>IS: activate()
-    IS-->>EE: 完了
-    EE-->>main: 完了
-```
 
 一文要約：クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
 
@@ -865,36 +827,6 @@ int main() {
 ```
 
 注入アプローチにより、両クラスとも具体クラスを知らずに済み、選択ロジックの重複が解消される。
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant PP as PremiumPriority
-    participant IS as InProgressState
-    participant TM as TicketContext
-    participant EE as EscalationEngine
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>PP: new PremiumPriority
-    main->>IS: new InProgressState
-    main->>TM: new（strategy, state）
-    main->>EE: new（strategy, state）
-    main->>TM: execute()
-    TM->>PP: strategy->getPriority()
-    Note right of TM: IPriorityStrategy* 経由
-    PP-->>TM: "High"
-    TM->>IS: state->handle()
-    Note right of TM: ITicketState* 経由
-    IS-->>TM: 完了
-    TM-->>main: 完了
-    main->>EE: checkAndEscalate("T-001")
-    EE->>PP: strategy->getPriority("")
-    PP-->>EE: "High"
-    EE->>IS: state->handle()
-    IS-->>EE: 完了
-    EE-->>main: 完了
-```
 
 一文要約：`main()` が具体型を組み立て、両方の呼び出し元は `IPriorityStrategy*` と `ITicketState*` という型だけを介して同じオブジェクトを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 

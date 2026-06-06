@@ -24,7 +24,7 @@
 
 現在このシステムは、「Available（空席）」「Reserved（予約済み）」「Paid（支払い済み）」という3つの状態で動作しています。座席の予約、支払い、キャンセルという操作に対して、現在の状態に応じた処理が実行される仕組みです。
 
-このコードが今日まで映画館の運営を支えてきたことは確かです。当時の担当者が、限られた制約の中で必死につないできた跡が、このコードには詰まっています。
+
 
 ### 1-2：仕様表
 
@@ -529,21 +529,6 @@ int main() {
 }
 ```
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant TR as TicketReservation
-    participant AP as AdminPanel
-    main->>TR: reserve()
-    Note over TR: if Available → status="Reserved"<br/>elif Held → status="Reserved"<br/>else → エラー
-    TR-->>main: 予約完了
-    main->>AP: forceCancel("A-15")
-    Note over AP: ← 全く同じ状態判定if文が重複して走る
-    AP-->>main: 強制キャンセル完了
-```
-
 状態判定ロジックが各クラスの内部に直書きされているため外部への委譲が発生せず、同じ分岐が2か所で並行して走る。
 
 **この形のトレードオフ：**
@@ -673,26 +658,6 @@ int main() {
     admin.forceCancel("A-15");
     return 0;
 }
-```
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant TR as TicketReservation
-    participant AP as AdminPanel
-    participant RS as ReservedState
-    main->>TR: pay()
-    Note over TR: if ReservedState → reservedState->pay()
-    TR->>RS: pay()
-    RS-->>TR: 支払い完了
-    TR-->>main: 支払い完了
-    main->>AP: forceCancel("A-15")
-    Note over AP: ← 同じ選択ロジックが重複
-    AP->>RS: cancel()
-    RS-->>AP: キャンセル完了
-    AP-->>main: 強制キャンセル完了
 ```
 
 クラスは分かれたが「どの状態クラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
@@ -860,29 +825,6 @@ int main() {
     admin.forceCancel("A-15");
     return 0;
 }
-```
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant RS as ReservedState
-    participant TR as TicketReservation
-    participant AP as AdminPanel
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>RS: new ReservedState
-    main->>TR: new（state: IReservationState*）
-    main->>AP: new（state: IReservationState*）
-    main->>TR: cancel()
-    TR->>RS: state->cancel(this)
-    Note right of TR: IReservationState* 経由
-    RS-->>TR: キャンセル完了
-    TR-->>main: 処理完了
-    main->>AP: forceCancel("A-15")
-    AP->>RS: state->cancel()
-    RS-->>AP: キャンセル完了
-    AP-->>main: 強制キャンセル完了
 ```
 
 `main()` が具体型を組み立て、両方の呼び出し元は `IReservationState*` という型だけを介して同じオブジェクトを呼ぶため、状態クラスが変わっても呼び出し経路は変わらない。

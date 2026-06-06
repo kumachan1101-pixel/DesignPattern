@@ -483,21 +483,6 @@ int main() {
 
 両クラスが同じロジックを重複して持つため、連携先が増えると2か所を修正しなければならない。
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant BE as BatchExecutor
-    participant MTC as ManualTriggerController
-    main->>BE: execute("C")
-    Note over BE: if "A" → SystemAClient<br/>elif "B" → SystemBClient<br/>elif "C" → SystemCClient<br/>+ NotificationService
-    BE-->>main: 完了
-    main->>MTC: triggerSync("B")
-    Note over MTC: ← 全く同じ if-else 分岐が重複して走る<br/>+ NotificationService
-    MTC-->>main: 完了
-```
-
 一文要約：連携先の振り分けロジックと通知処理が両クラスの内部に直書きされているため、同じ分岐が2か所で並行して走る。
 
 **この形のトレードオフ：**
@@ -615,24 +600,6 @@ int main() {
 ```
 
 選択ロジックが両クラスに重複しており、連携先が増えるたびに両方を修正しなければならない。
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant BE as BatchExecutor
-    participant MTC as ManualTriggerController
-    participant SC as SystemCClient
-    main->>BE: execute("C")
-    Note over BE: if "C" → new SystemCClient
-    BE->>SC: send("data")
-    SC-->>BE: 完了
-    BE-->>main: 完了
-    main->>MTC: triggerSync("B")
-    Note over MTC: ← 同じ選択ロジックが重複
-    MTC-->>main: 完了
-```
 
 一文要約：クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
 
@@ -767,29 +734,6 @@ int main() {
 ```
 
 注入アプローチにより、両クラスとも具体クライアントクラスを知らずに済み、選択ロジックの重複が解消される。
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant BC as SystemBClient
-    participant BE as BatchExecutor
-    participant MTC as ManualTriggerController
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>BC: new SystemBClient
-    main->>BE: new（client: IExternalClient*）
-    main->>MTC: new（client: IExternalClient*）
-    main->>BE: execute("C")
-    BE->>BC: client->send("data")
-    Note right of BE: IExternalClient* 経由
-    BC-->>BE: 完了
-    BE-->>main: 完了
-    main->>MTC: triggerSync("B")
-    MTC->>BC: client->send("manualData")
-    BC-->>MTC: 完了
-    MTC-->>main: 完了
-```
 
 一文要約：`main()` が具体型を組み立て、両方の呼び出し元は `IExternalClient*` という型だけを介して同じオブジェクトを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 

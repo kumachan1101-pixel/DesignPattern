@@ -27,7 +27,7 @@
 
 開発チームは、この銀行のAPIを直接叩いて振り込みを行うプログラムをメンテナンスしています。当初は単純な送金機能だけでしたが、最近では、振り込み先に応じた送金限度額の確認や、二要素認証の呼び出しなど、銀行側から求められるセキュリティ要件が年々厳しくなってきました。
 
-当時の担当者が、銀行側の複雑な仕様と納期の中で必死につないできた跡が、このコードには詰まっています。このコードが今日まで銀行との安全な取引を支えてきたことは確かです。
+
 
 一見すると、このプログラムは一つのクラスの中に必要な手順がすべて網羅されており、手続き通りに順番を追えば良いため、うまく整理されているように見えます。必要な手続きはすべて揃っており、コードを上から下に読めば何が起きているか理解できるため、当初はこれで十分だったのかもしれません。
 
@@ -570,21 +570,6 @@ int main() {
 }
 ```
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant TP as TransferProcessor
-    participant BTS as BatchTransferService
-    main->>TP: transfer(account, amount, otp)
-    Note over TP: gateway.verifyAccount()<br/>gateway.checkBalance()<br/>auth.requestOTP()<br/>auth.verifyOTP()<br/>gateway.executeTransfer()
-    TP-->>main: 処理完了
-    main->>BTS: processPayroll(transfers)
-    Note over BTS: ← 全く同じAPI呼び出し手順が重複して走る
-    BTS-->>main: 処理完了
-```
-
 銀行APIの呼び出し手順が各クラスの内部に直書きされているため、同じ手順が2か所で並行して走ります。
 
 **この形のトレードオフ：**
@@ -697,26 +682,6 @@ int main() {
     batch.processPayroll({{"87654321", 30000}, {"11112222", 25000}});
     return 0;
 }
-```
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant TP as TransferProcessor
-    participant BTS as BatchTransferService
-    participant BankSvc as BankTransferService
-    main->>TP: transfer(account, amount, otp)
-    Note over TP: if BankTransferService → service->execute()
-    TP->>BankSvc: execute(account, amount, otp)
-    BankSvc-->>TP: 処理完了
-    TP-->>main: 振り込み完了
-    main->>BTS: processPayroll(transfers)
-    Note over BTS: ← 同じ選択ロジックが重複
-    BTS->>BankSvc: execute(account, amount, "")
-    BankSvc-->>BTS: 処理完了
-    BTS-->>main: 処理完了
 ```
 
 クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複しています。
@@ -842,29 +807,6 @@ int main() {
     batch.processPayroll({{"87654321", 30000}, {"11112222", 25000}});
     return 0;
 }
-```
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant BankSvc as BankTransferService
-    participant TP as TransferProcessor
-    participant BTS as BatchTransferService
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>BankSvc: new BankTransferService
-    main->>TP: new（service: IBankService*）
-    main->>BTS: new（service: IBankService*）
-    main->>TP: transfer(account, amount, otp)
-    TP->>BankSvc: service->send(account, amount)
-    Note right of TP: IBankService* 経由
-    BankSvc-->>TP: 処理完了
-    TP-->>main: 振り込み完了
-    main->>BTS: processPayroll(transfers)
-    BTS->>BankSvc: service->send(account, amount)
-    BankSvc-->>BTS: 処理完了
-    BTS-->>main: 処理完了
 ```
 
 `main()` が具体型を組み立て、両方の呼び出し元は `IBankService*` という型だけを介して同じオブジェクトを呼ぶため、具体クラスが変わっても呼び出し経路は変わりません。

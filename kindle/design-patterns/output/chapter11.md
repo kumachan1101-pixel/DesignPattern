@@ -482,21 +482,6 @@ int main() {
 
 両クラスが同じロジックを重複して持つため、機能追加のたびに2か所を修正しなければならない。
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant RG as ReportGenerator
-    participant PS as PreviewService
-    main->>RG: generate(true, false)
-    Note over RG: if addGraph → グラフ追加
-    RG-->>main: 完了
-    main->>PS: previewReport("HTML")
-    Note over PS: 全く同じif-elseが重複して走る
-    PS-->>main: 完了
-```
-
 一文要約：レポート生成ロジックが各クラスの内部に直書きされているため、同じフラグ判定が2か所で並行して走る。
 
 **この形のトレードオフ：**
@@ -606,29 +591,6 @@ int main() {
 ```
 
 選択ロジックが両クラスに重複しており、機能クラスへの依存が両方に残る。
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant RG as ReportGenerator
-    participant PS as PreviewService
-    participant GF as GraphFeature
-    participant LF as LogoFeature
-    main->>RG: generate()
-    Note over RG: new GraphFeature
-    RG->>GF: graph.draw()
-    GF-->>RG: 完了
-    RG-->>main: 完了
-    main->>PS: previewReport()
-    Note over PS: 同じ選択ロジックが重複
-    PS->>GF: graph.draw()
-    GF-->>PS: 完了
-    PS->>LF: logo.draw()
-    LF-->>PS: 完了
-    PS-->>main: 完了
-```
 
 一文要約：クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、機能クラスへの呼び出し経路が2本並んで重複している。
 
@@ -761,31 +723,6 @@ int main() {
 ```
 
 注入アプローチにより、両クラスとも具体クラスを知らずに済み、選択ロジックの重複が解消される。
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant GF as GraphFeature
-    participant LF as LogoFeature
-    participant RG as ReportGenerator
-    participant PS as PreviewService
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>GF: new GraphFeature
-    main->>LF: new LogoFeature
-    main->>RG: new（feature: IReportFeature*）
-    main->>PS: new（feature: IReportFeature*）
-    main->>RG: generate()
-    RG->>GF: feature->apply()
-    Note right of RG: IReportFeature* 経由
-    GF-->>RG: 完了
-    RG-->>main: 完了
-    main->>PS: previewReport()
-    PS->>LF: feature->apply()
-    LF-->>PS: 完了
-    PS-->>main: 完了
-```
 
 一文要約：`main()` が具体型を組み立て、両方の呼び出し元は `IReportFeature*` という型だけを介して同じオブジェクトを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 
