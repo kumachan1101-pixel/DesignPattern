@@ -465,40 +465,83 @@ int calculate(const Order& order) {
 *手段A：各割引を別クラスに切り出す（クラス分割）*
 
 ```cpp
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+struct Item { string name; int price; };
+struct Order {
+    vector<Item> items;
+    string customerType;
+    bool isSummerSale;
+    bool isCampaignActive;
+};
+
 class PremiumDiscount {
 public:
-    int apply(int total) { return static_cast<int>(total * 0.80); }
+    int apply(int total) {
+        return static_cast<int>(total * 0.80);
+    }
 };
 class SummerSaleDiscount {
 public:
-    int apply(int total) { return static_cast<int>(total * 0.95); }
+    int apply(int total) {
+        return static_cast<int>(total * 0.95);
+    }
 };
 
 // PaymentCalculatorは具体クラスを直接 new して使う
-int calculate(const Order& order) {
-    int total = /* 小計計算 */;
-    if (order.customerType == "Premium") {
-        PremiumDiscount d;          // ← 具体型を直接生成
-        return d.apply(total);
-    } else if (order.isSummerSale) {
-        SummerSaleDiscount d;
-        return d.apply(total);
+class PaymentCalculator {
+public:
+    int calculate(const Order& order) {
+        int total = 0;
+        for (const auto& item : order.items)
+            total += item.price;
+        if (order.customerType == "Premium") {
+            PremiumDiscount d;       // ← 具体型を直接生成
+            return d.apply(total);
+        } else if (order.isSummerSale) {
+            SummerSaleDiscount d;
+            return d.apply(total);
+        }
+        return total;
     }
-    return total;
+};
+
+int main() {
+    Order order;
+    order.items = {{"ワイヤレスイヤホン", 10000}};
+    order.customerType = "Premium";
+    order.isSummerSale = false;
+    order.isCampaignActive = false;
+
+    PaymentCalculator calc;
+    cout << "支払金額: " << calc.calculate(order) << " 円" << endl;
+    return 0;
 }
 ```
 
 *手段B：同クラス内でプライベートメソッドに分ける（メソッド分割）*
 
 ```cpp
+// 同一クラス内でプライベートメソッドに分ける
 class PaymentCalculator {
-    int applyPremium(int t) { return static_cast<int>(t * 0.80); }
-    int applySummerSale(int t) { return static_cast<int>(t * 0.95); }
+    int applyPremium(int t) {
+        return static_cast<int>(t * 0.80);
+    }
+    int applySummerSale(int t) {
+        return static_cast<int>(t * 0.95);
+    }
 public:
     int calculate(const Order& order) {
-        int total = /* 小計計算 */;
-        if (order.customerType == "Premium") return applyPremium(total);
-        if (order.isSummerSale) return applySummerSale(total);
+        int total = 0;
+        for (const auto& item : order.items)
+            total += item.price;
+        if (order.customerType == "Premium")
+            return applyPremium(total);
+        if (order.isSummerSale)
+            return applySummerSale(total);
         return total;
     }
 };
@@ -560,12 +603,16 @@ public:
 **手段C：継承（オーバーライド）**
 
 ```cpp
+// 手段C：継承（オーバーライド）
 class PaymentCalculator {
 protected:
-    virtual int applyDiscount(int total) { return total; }  // デフォルト: 割引なし
+    // デフォルト: 割引なし
+    virtual int applyDiscount(int total) { return total; }
 public:
     int calculate(const Order& order) {
-        int total = /* 小計計算 */;
+        int total = 0;
+        for (const auto& item : order.items)
+            total += item.price;
         return applyDiscount(total);
     }
 };
@@ -660,7 +707,8 @@ CartPreviewService preview(&rule);   // 同じルールを使い回せる
 ```cpp
 class IDiscountManager {
 public:
-    virtual int applyDiscount(int total, const Order& order) = 0;
+    virtual int applyDiscount(
+        int total, const Order& order) = 0;
     virtual ~IDiscountManager() = default;
 };
 
@@ -668,9 +716,12 @@ public:
 class PaymentCalculator {
     IDiscountManager* manager;
 public:
-    PaymentCalculator(IDiscountManager* m) : manager(m) {}
+    PaymentCalculator(IDiscountManager* m)
+        : manager(m) {}
     int calculate(const Order& order) {
-        int total = /* 小計計算 */;
+        int total = 0;
+        for (const auto& item : order.items)
+            total += item.price;
         return manager->applyDiscount(total, order);
     }
 };
