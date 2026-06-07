@@ -707,7 +707,7 @@ int main() {
 
 | 手段 | 方法 | 特徴 |
 |---|---|---|
-| 手段A：コンストラクタインジェクション | `TransferProcessor(IBankService* s)` でインターフェース型を受け取る | テスト時にスタブ（※後述）を差し込みやすい。最も一般的 |
+| 手段A：コンストラクタインジェクション | `TransferProcessor(IBankService* s)` でインターフェース型を受け取る | テスト時にスタブ（本物のAPIの代わりに動く模擬実装）を差し込みやすい。最も一般的 |
 | 手段B：セッターインジェクション | `setService(IBankService* s)` で後から注入する | 生成後に差し替えできるが、未設定状態が生まれやすい |
 | 手段C：継承 | `TransferProcessor` が `IBankService` を継承する | インターフェースと呼び出し元が同一クラスになり責任が混在する |
 
@@ -837,7 +837,7 @@ int main() {
 
 | 手段 | 方法 | 特徴 |
 |---|---|---|
-| 手段A：インターフェース＋仲介クラス | `IBankTransferService` インターフェースと `BankTransferService` 実装クラスの2層構成 | 最も変更に強い。呼び出し元は型すら変わらない |
+| 手段A：インターフェース＋仲介クラス | `IBankServiceWindow` インターフェースと `BankServiceWindow` 実装クラスの2層構成 | 最も変更に強い。呼び出し元は型すら変わらない |
 | 手段B：抽象基底クラス＋仲介クラス | 純粋仮想クラスではなく継承可能な基底クラスを使う | 部分的な実装を基底クラスに置けるが、継承の硬直性がある |
 
 → **採用：手段A**（純粋なインターフェースにすることで、将来スタブやモック差し替えが最もシンプルになるため）
@@ -846,21 +846,21 @@ int main() {
 
 ```mermaid
 classDiagram
-    class IBankTransferService {
+    class IBankServiceWindow {
         <<interface>>
         +transfer(acc, amt)
     }
-    class BankTransferService {
+    class BankServiceWindow {
         -BankGateway gateway
         -SecurityAuthenticator auth
         +transfer(acc, amt)
     }
     class TransferProcessor {
-        -IBankTransferService facade
+        -IBankServiceWindow facade
         +transfer(toAccount, amount, otp)
     }
     class BatchTransferService {
-        -IBankTransferService facade
+        -IBankServiceWindow facade
         +processPayroll(transfers)
     }
     class BankGateway {
@@ -871,14 +871,14 @@ classDiagram
         +requestOTP()
         +verifyOTP(token)
     }
-    BankTransferService ..|> IBankTransferService : 実装
-    TransferProcessor --> IBankTransferService : 抽象×間接
-    BatchTransferService --> IBankTransferService : 抽象×間接
-    BankTransferService --> BankGateway : 具体×直接
-    BankTransferService --> SecurityAuthenticator : 具体×直接
+    BankServiceWindow ..|> IBankServiceWindow : 実装
+    TransferProcessor --> IBankServiceWindow : 抽象×間接
+    BatchTransferService --> IBankServiceWindow : 抽象×間接
+    BankServiceWindow --> BankGateway : 具体×直接
+    BankServiceWindow --> SecurityAuthenticator : 具体×直接
 ```
 
-インターフェース層（`IBankTransferService`）と仲介層（`BankTransferService`）の2層を挟むことで、両クラスは具体実装を一切知らない。変更影響が最も局所化された構造です。
+インターフェース層（`IBankServiceWindow`）と仲介層（`BankServiceWindow`）の2層を挟むことで、両クラスは具体実装を一切知らない。変更影響が最も局所化された構造です。
 
 **実装コード：**
 
@@ -886,7 +886,7 @@ classDiagram
 
 ```cpp
 // 抽象的な窓口（インターフェース）
-class IBankTransferService {
+class IBankServiceWindow {
 public:
     virtual void transfer(const std::string& acc, int amt) = 0;
 };
@@ -898,7 +898,7 @@ public:
 
 ```cpp
 // 銀行APIとの複雑なやり取りをすべて隠蔽する仲介クラス
-class BankTransferService : public IBankTransferService {
+class BankServiceWindow : public IBankServiceWindow {
     BankGateway gateway;
     SecurityAuthenticator auth;
 public:
@@ -913,7 +913,7 @@ public:
 };
 ```
 
-このコードで分かること：`BankGateway` と `SecurityAuthenticator` という具体クラスを `BankTransferService` だけが知っており、呼び出し元には一切見えない。
+このコードで分かること：`BankGateway` と `SecurityAuthenticator` という具体クラスを `BankServiceWindow` だけが知っており、呼び出し元には一切見えない。
 
 最後に、インターフェース型だけを知る2つの呼び出し元クラスです。
 
@@ -921,11 +921,11 @@ public:
 // 振り込み処理クラス（呼び出し元1）
 class TransferProcessor {
 private:
-    // ← 抽象：IBankTransferService*型で受け取り、具体実装を知らない
+    // ← 抽象：IBankServiceWindow*型で受け取り、具体実装を知らない
     // ← 間接：Facadeを経由するため内部クラス群が見えない
-    IBankTransferService* facade;
+    IBankServiceWindow* facade;
 public:
-    TransferProcessor(IBankTransferService* f) : facade(f) {}
+    TransferProcessor(IBankServiceWindow* f) : facade(f) {}
     void transfer(const std::string& toAccount, int amount,
                   const std::string& otp) {
         facade->transfer(toAccount, amount);
@@ -936,9 +936,9 @@ public:
 // 給与振り込みなどの一括処理バッチ（呼び出し元2）
 class BatchTransferService {
 private:
-    IBankTransferService* facade;  // ← 抽象：IBankTransferService*型
+    IBankServiceWindow* facade;  // ← 抽象：IBankServiceWindow*型
 public:
-    BatchTransferService(IBankTransferService* f) : facade(f) {}
+    BatchTransferService(IBankServiceWindow* f) : facade(f) {}
     void processPayroll(
             const std::vector<std::pair<std::string, int>>& transfers) {
         for (const auto& [account, amount] : transfers) {
@@ -955,12 +955,9 @@ public:
 ```cpp
 // 案4（抽象×間接）の呼び出し側
 int main() {
-    // ← 具体：組み立て側だけが具体型を知る
-    BankTransferService facade;
-    // ← 間接：抽象Facadeのみ見えて具体実装は隠れる
-    TransferProcessor processor(&facade);
-    // ← 間接：同じFacadeを共有
-    BatchTransferService batch(&facade);
+    BankServiceWindow facade;                         // ← 具体：組み立て側だけが具体型を知る
+    TransferProcessor processor(&facade);      // ← 間接：抽象Facadeのみ見えて具体実装は隠れる
+    BatchTransferService batch(&facade);       // ← 間接：同じFacadeを共有
     processor.transfer("12345678", 5000, "999999");
     batch.processPayroll({{"87654321", 30000}, {"11112222", 25000}});
     return 0;
@@ -972,19 +969,19 @@ int main() {
 ```mermaid
 sequenceDiagram
     participant main
-    participant BF as BankTransferService
+    participant BF as BankServiceWindow
     participant TP as TransferProcessor
     participant BTS as BatchTransferService
     participant BG as BankGateway
     Note over main: 具体型を組み立てる唯一の場所
-    main->>BF: new BankTransferService
-    main->>TP: new（facade: IBankTransferService*）
-    main->>BTS: new（facade: IBankTransferService*）
+    main->>BF: new BankServiceWindow
+    main->>TP: new（facade: IBankServiceWindow*）
+    main->>BTS: new（facade: IBankServiceWindow*）
     main->>TP: transfer(account, amount, otp)
     TP->>BF: facade->transfer(account, amount)
-    Note right of TP: IBankTransferService* 経由
+    Note right of TP: IBankServiceWindow* 経由
     BF->>BG: 内部で複雑な手順を実行
-    Note right of BF: IBankTransferService* 経由
+    Note right of BF: IBankServiceWindow* 経由
     BG-->>BF: 完了
     BF-->>TP: 処理完了
     TP-->>main: 振り込み完了
@@ -996,14 +993,14 @@ sequenceDiagram
     BTS-->>main: 処理完了
 ```
 
-呼び出し元→`IBankTransferService*`→内部の具体実装という2段階の経由により、どの具体クラスが動くかは `main()` の組み立て部分だけが知っています。
+呼び出し元→`IBankServiceWindow*`→内部の具体実装という2段階の経由により、どの具体クラスが動くかは `main()` の組み立て部分だけが知っています。
 
 **この形のトレードオフ：**
 
 * 変更容易性：高（どの層の変更も他層に影響しない）
 * テスト容易性：高（Facade をスタブに差し替え可能）
 * 実装コスト：高（インターフェースと仲介クラスが必須となる）
-* ※ 障害時のリトライと二重送金防止：`BankTransferService` が銀行API呼び出しを一箇所に集約しているため、再試行ロジックとべき等性の保証（同一振り込みが二重実行されない仕組み）をここに実装できる。`TransferProcessor` はこれを一切意識する必要がない。
+* ※ 障害時のリトライと二重送金防止：`BankServiceWindow` が銀行API呼び出しを一箇所に集約しているため、再試行ロジックとべき等性の保証（同一振り込みが二重実行されない仕組み）をここに実装できる。`TransferProcessor` はこれを一切意識する必要がない。
 
 ### 6-7：評価軸
 
@@ -1058,9 +1055,9 @@ sequenceDiagram
 | 案1 | 8 |  |
 | 案2 | 10 |  |
 | 案3 | 14 | 次点 |
-| 案4 | 16 | 最高スコア・最終採用 |
+| 案4 | 16 | ← 最終採用 |
 
-**案3 vs 案4 の最終判断：** スコアだけ見れば案4（16点）が案3（14点）を上回りますが、可読性（1点）が低い点は無視できません。ただし、フェーズ2のヒアリングで「認証フローの三段階化」「JSON→XML移行」という将来変化が予告されています。これらが来るたびに `BankTransferService` の内部を書き換え、かつ呼び出し元に影響が及ぶリスクを考えると、初期コストよりも長期の変更耐性を優先すべきと判断します。
+**案3 vs 案4 の最終判断：** スコア上は案4（16点）が案3（14点）を上回ります。ただし、スコアはトレードオフの見える化であり「最高点＝採用」ではありません。ここでは次の問いに答えて判断します——「フェーズ2で予告されたリスクが来たとき、どちらの案が変更を1クラスに閉じられるか？」。案3では、認証フロー変更や JSON→XML 移行のたびに `IBankService` を実装する具体クラスを修正し、さらに呼び出し元（`TransferProcessor`）への影響確認も必要です。案4は仲介クラスが銀行APIの複雑さを完全に隠蔽するため、将来の変更を「窓口クラス1つの修正」に閉じ込められます。この将来コストの差が、可読性スコアの差を上回ると判断し、案4を採用します。
 
 ---
 
@@ -1070,9 +1067,9 @@ sequenceDiagram
 
 ここで一度立ち止まります。採点表では案3（抽象×直接）が14点、案4（抽象×間接）が16点でした。フェーズ2のヒアリングで確認した将来リスクを振り返ると、「認証フローの三段階化」「JSON→XML移行」という変化が予告されています。これらが来るたびに `BankTransferService` の内部を書き換え、かつインターフェース `IBankService` を通じて呼び出し元に影響が及ぶリスクを考えると、案4の「仲介クラスが複雑な手順を完全に隠蔽する」構造が長期的には最もコスト効率が良いと判断します。
 
-**採用する理由：** 銀行APIの複雑な手順を `BankTransferService` クラスという一つの窓口に閉じ込めることで、業務フロー側をシンプルに保ちつつ、将来的なAPIの仕様変更が業務ロジック全体に波及するリスクを最小化できるため、案4を採用します。
+**採用する理由：** 銀行APIの複雑な手順を `BankServiceWindow` クラスという一つの窓口に閉じ込めることで、業務フロー側をシンプルに保ちつつ、将来的なAPIの仕様変更が業務ロジック全体に波及するリスクを最小化できるため、案4を採用します。
 
-**この構造は、Facade（ファサード）パターンと呼ばれています。**
+「銀行APIとのやり取りを一つの窓口クラス（`BankServiceWindow`）に集約する」この構造は、Facade（ファサード）パターンと呼ばれています。パターン名に倣い、以降ではこの窓口クラスを `BankFacade` と表記します。
 
 仲介クラス（`BankTransferService`）がサブシステム群（`BankGateway`・`SecurityAuthenticator`）の複雑さを隠蔽し、呼び出し元にはシンプルな窓口だけを見せるこの構造が、Facadeパターンの本質です。「Facade（建物の正面）」という名前の通り、裏側にある複雑な配管や配線を見せず、綺麗な受付窓口だけを提供する役割を果たします。
 
@@ -1282,7 +1279,7 @@ public:
 | 🟠 フェーズ4：原因分析 | 業務ロジックと外部システムの詳細な利用手順が密結合していることが原因だと言語化しました。 |
 | 🟡 フェーズ5：課題定義 | 「接続点A」を外部システムとの窓口として定義し、業務フローから詳細を切り離す課題を設定しました。 |
 | 🔴 フェーズ6：対策案検討 | 案1〜案4を比較し、複雑さを隠蔽する「窓口（Facade）」を採用しました。 |
-| 🟢 フェーズ7：対策実施 | `BankTransferService` クラスを導入し、`TransferProcessor` から直接的な依存を取り除きました。 |
+| 🟢 フェーズ7：対策実施 | `BankFacade` クラスを導入し、`TransferProcessor` から直接的な依存を取り除きました。 |
 
 ### 各クラスの最終的な責任
 

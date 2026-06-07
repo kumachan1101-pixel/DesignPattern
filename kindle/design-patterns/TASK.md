@@ -24,24 +24,41 @@
 
 ## Priority 3：reader-critic-report ブロッキング8件（確認・修正）
 
-- [ ] R0-01 chapter00_1.md「哲学」の定義を冒頭に追加
-- [ ] R0-02 chapter00_1.md 哲学1の論理説明補強
-- [ ] R0-03 chapter00_1.md ステップ5の具体化
-- [ ] R1-01 chapter01.md ヒアリング結果の「都合よさ」への補足
-- [ ] R1-02 chapter01.md GoF初出時に一行説明追加
-- [ ] R1-03 chapter01.md 責任チェック表の判断基準を明示
-- [ ] R2-01 chapter02.md PayrollFacade命名をパターン名前出し前に変更
-- [ ] R2-02 chapter02.md スタブの定義を初出時に追加
+- [x] R0-01 chapter00_1.md「哲学」→「原則」に変更済み（定義明確化）
+- [x] R0-02 chapter00_1.md 原則1の論理説明補強済み（「誰の判断で変わるか」明記）
+- [x] R0-03 chapter00_1.md ステップ5節は現行構成では存在しない（章構成の再編で解決）
+- [x] R1-01 chapter01.md ヒアリング結果の補足追加済み（git log代替アドバイス）
+- [x] R1-02 chapter01.md GoF初出時に一行説明を追加（パターン解説セクション冒頭）
+- [x] R1-03 chapter01.md 責任チェック表に「誰の判断で変わるか」列を追加済み
+- [x] R2-01 chapter02.md BankFacade→BankServiceWindow（フェーズ6）に変更。フェーズ7でパターン名導入時に改名を明示
+- [x] R2-02 chapter02.md スタブの定義を初出時（手段比較表）に追加。chapter01にも類似追加
 
 ## Priority 4：第9〜12章の★確認
 
-- [ ] chapter09_2.md の★有無確認
-- [ ] chapter10.md の★有無確認
-- [ ] chapter11.md の★有無確認
-- [ ] chapter12.md の★有無確認
+- [x] chapter09_2.md の★有無確認 → ★なし（Mermaid内の★のみ、対応不要）
+- [x] chapter10.md の★有無確認 → ★なし
+- [x] chapter11.md の★有無確認 → ★なし
+- [x] chapter12.md の★有無確認 → ★なし
+
+## その他：GitHub Issues 横断修正
+
+- [x] Issue B: フェーズ2-7絵文字カラーを全章統一（ch00_2〜ch12、147箇所）
+- [x] Issue C: `[cite: 1]` マーカー → 全章で確認、残存なし
+- [x] Issue D: chapter03 振り返りテーブル → `<br>` はMermaid内のみ、Markdownテーブルは正常
+- [x] Issue E: 章ヘッダーを「## 第N章 タイトル ―― Pattern パターン」形式に全章統一
+- [x] Issue F: chapter02 案4「見送り」→「採用」矛盾を修正（スコアテーブル＋採用理由文）
+- [x] Issue G: chapter07 フェーズ6重複 → 既に解決済み（1回のみ）
+- [x] Issue H: chapter10 フェーズ3重複 → 既に解決済み（1回のみ）
+- [x] Issue I: chapter09_1 編集メモ（★テキスト） → 削除済み
+- [x] Issue J: chapter09_1 第12章未記載 → 追加済み
+- [x] Issue K: 未定義クラス参照（ch06/10/11） → 全て解決済み
+- [x] Issue L: chapter09 題材不一致 → chapter09_1 を「サポートチケット管理」に統一済み
+- [x] Issue 13: 振り返りテーブルフェーズ番号・過剰コード見出し統一（chapter11修正）
 
 ## プッシュ記録
 
 | バッチ | 内容 | コミットID |
 |---|---|---|
-| - | - | - |
+| 1 | 章構造全面改訂（動作例テーブル・案1-4・手段比較） | 35dfddd |
+| 2 | Issue B/E/13 絵文字カラー・ヘッダー・過剰コード全章修正 | 1ee4828 |
+| 3 | Priority 3全件 + 類似問題横断修正 | （最新） |
