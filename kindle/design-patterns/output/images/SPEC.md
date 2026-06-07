@@ -98,3 +98,90 @@ y-20  説明テキスト（10px #777）
 | 具体×間接 | iPhone ─Lightning─ [変換] ─USB-C─ MacBook | ✅ 実装済み |
 | 抽象×直接 | USB-Cデバイス ─USB-C─ USB-Cデバイス | ✅ 実装済み |
 | 抽象×間接 | MacBook ─USB-C─ [Hub] ─×3─ Monitor/iPad/USB機器 | ✅ 実装済み |
+
+---
+
+## matrix-hl-*.svg ― 2×2マトリクス ハイライト版（4枚組）
+
+### 目的
+
+各章のフェーズ4「接続形態を診断する」セクション直下に置く。
+「現在地」となる象限をグリーン（`#d4edda` / `#155724`）でハイライトした
+ミニサイズの2×2マトリクス図。
+
+### キャンバス
+
+- サイズ: `width="300" height="190"`
+- 背景: `fill="#f8f9fa"` `rx="5"` border `#d0d0d0 stroke-width=1`
+
+### グリッドレイアウト
+
+```
+x=50..289  グリッド領域
+y=25..179  グリッド領域
+
+縦軸ラベル（左端 x=30）:
+  上段中心 y=90  → 「具体」rotate(-90)
+  下段中心 y=150 → 「抽象」rotate(-90)
+
+横軸ラベル（上端 y=18）:
+  左列中心 x=110 → 「直接」
+  右列中心 x=235 → 「間接」
+
+分割線:
+  垂直 x=170  y=25→180  stroke=#bbb width=1
+  水平 x=50→290 y=102    stroke=#bbb width=1
+  外枠 x=50 y=25 w=240 h=155  stroke=#bbb width=1.5
+```
+
+### セル座標
+
+| 象限 | x | y | width | height |
+|---|---|---|---|---|
+| 具体×直接 | 51 | 26 | 118 | 75 |
+| 具体×間接 | 171 | 26 | 118 | 75 |
+| 抽象×直接 | 51 | 103 | 118 | 76 |
+| 抽象×間接 | 171 | 103 | 118 | 76 |
+
+### ハイライト仕様
+
+| 状態 | fill | テキスト fill | font-size | font-weight |
+|---|---|---|---|---|
+| ハイライト（現在地） | `#d4edda` | `#155724` | `11px` | `bold` |
+| 通常 | `white` | `#888` / `#aaa` | `10px` / `9px` | normal |
+
+各セルの中心テキスト:
+- 1行目（上）: 象限名（例: `★ 具体×直接`）`font-size="11"` または `"10"`
+- 2行目（下）: ケーブル例テキスト `font-size="9"`
+
+### 4ファイル一覧
+
+| ファイル名 | ハイライト象限 | 使用章 |
+|---|---|---|
+| `matrix-hl-concrete-direct.svg` | 具体×直接 | ch01〜ch08（各フェーズ4現在地表示） |
+| `matrix-hl-concrete-indirect.svg` | 具体×間接 | 案2説明時など（必要に応じて） |
+| `matrix-hl-abstract-direct.svg` | 抽象×直接 | ch01〜ch08（採用案フェーズ7） |
+| `matrix-hl-abstract-indirect.svg` | 抽象×間接 | ch02・ch05など（採用案がabstract×indirect） |
+
+### セル内テキスト内容（各ファイル共通テンプレート）
+
+```xml
+<!-- ハイライト象限 -->
+<rect x="..." y="..." width="..." height="..." fill="#d4edda" rx="2"/>
+<text ... font-size="11" font-weight="bold" fill="#155724">★ [象限名]</text>
+<text ... font-size="9" fill="#155724">[ケーブル例]</text>
+
+<!-- 通常象限 -->
+<rect x="..." y="..." width="..." height="..." fill="white" rx="2"/>
+<text ... font-size="10" fill="#888">[象限名]</text>
+<text ... font-size="9" fill="#aaa">[ケーブル例]</text>
+```
+
+### 全象限のケーブル例テキスト
+
+| 象限 | テキスト |
+|---|---|
+| 具体×直接 | Lightning 直差し |
+| 具体×間接 | 変換アダプター経由 |
+| 抽象×直接 | USB-C 直差し |
+| 抽象×間接 | USB-C ハブ経由 |
