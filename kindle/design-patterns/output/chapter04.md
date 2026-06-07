@@ -742,7 +742,6 @@ int main() {
 → **採用：手段A**（手順の骨格を完全に基底クラスに閉じ込めることが今回の目的に合致しているため。コンポジション（手段B）は骨格の順序をサブクラスが自由に変えられてしまうリスクがある）
 
 **構造図：**
-★以下のクラス図の配置関係見直しできませんか。継承しているクラスは下に持ってきた方が、バランスが良くないですか？類似の部分は塊でそろえる、そういう記載にした方が見やすいです。
 
 ```mermaid
 classDiagram
@@ -765,8 +764,8 @@ classDiagram
         -importer AbstractImporter
         +importFile() void
     }
-    StoreDataImporter --|> AbstractImporter : 継承
-    ECDataImporter --|> AbstractImporter : 継承
+    AbstractImporter <|-- StoreDataImporter : 継承
+    AbstractImporter <|-- ECDataImporter : 継承
     BatchImportJob --> AbstractImporter : 抽象×直接
     ManualImportController --> AbstractImporter : 抽象×直接
 ```
@@ -857,34 +856,6 @@ int main() {
 }
 ```
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant SDI as StoreDataImporter
-    participant EDI as ECDataImporter
-    participant BIJ as BatchImportJob
-    participant MIC as ManualImportController
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>SDI: new StoreDataImporter
-    main->>EDI: new ECDataImporter
-    main->>BIJ: new BatchImportJob
-    main->>MIC: new ManualImportController
-    main->>BIJ: run(&ec)
-    BIJ->>EDI: importer->import()
-    Note right of BIJ: AbstractImporter* 経由
-    EDI-->>BIJ: 完了
-    BIJ-->>main: 完了
-    main->>MIC: importFile(&store)
-    MIC->>SDI: importer->import()
-    Note right of MIC: AbstractImporter* 経由
-    SDI-->>MIC: 完了
-    MIC-->>main: 完了
-```
-
-`main()` が具体型を組み立て、両方の呼び出し元は `AbstractImporter*` という型だけを介して同じインターフェースを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
-
 **この形のトレードオフ：**
 
 * 変更容易性：中〜高（サブクラスを追加するだけで新形式に対応可）
@@ -916,19 +887,21 @@ sequenceDiagram
 → **採用：手段A**（呼び出し元が仲介役の実装にも依存しない完全な分離を実現するため）
 
 **構造図：**
-★クラスの責任を記載してほしい。急に案に紐づくクラス図が登場するが、各クラスがどんな責任でどんなデータのやり取りをする話になっているか、本当にわかりづらい。前の指摘にも上げたが、クラスの配置は工夫して。
 
 ```mermaid
 classDiagram
+    note for IImporterManager "【責任】インポート処理の実行依頼を受け付ける"
     class IImporterManager {
         <<interface>>
         +executeImport(importer) void
     }
+    note for AbstractImporter "【責任】インポート手順の骨格を定義する"
     class AbstractImporter {
         <<abstract>>
         +import() void
         #parseData() void
     }
+    note for ImporterManager "【責任】具象Importerのimport()を呼び出す仲介役"
     class ImporterManager {
         +executeImport(importer) void
     }
@@ -940,7 +913,7 @@ classDiagram
         -manager IImporterManager
         +handleUpload() void
     }
-    ImporterManager ..|> IImporterManager : 実装
+    IImporterManager <|.. ImporterManager : 実装
     BatchImportJob --> IImporterManager : 抽象×間接
     ManualImportController --> IImporterManager : 抽象×間接
     ImporterManager --> AbstractImporter : 抽象×直接
@@ -1122,8 +1095,35 @@ int main() {
 
 ### 7-1：解決後のコード（全体）
 
-★ここだけにシーケンス図を記載したい。各案に記載するとごちゃごちゃするし、対策決定案だけに記載したら、評価する前にシーケンス図のみ記載されていて、明らかにおかしいですよね？
-新しい設計では、共通の手順を親クラスで定義し、具体的なパース処理だけをサブクラスに委譲します。
+新しい設計では、共通の手順を親クラスで定義し、具体的なパース処理だけをサブクラスに委譲します。この構造をシーケンス図で確認します。
+
+**シーケンス図：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant SDI as StoreDataImporter
+    participant EDI as ECDataImporter
+    participant BIJ as BatchImportJob
+    participant MIC as ManualImportController
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>SDI: new StoreDataImporter
+    main->>EDI: new ECDataImporter
+    main->>BIJ: new BatchImportJob
+    main->>MIC: new ManualImportController
+    main->>BIJ: run(&ec)
+    BIJ->>EDI: importer->import()
+    Note right of BIJ: AbstractImporter* 経由
+    EDI-->>BIJ: 完了
+    BIJ-->>main: 完了
+    main->>MIC: importFile(&store)
+    MIC->>SDI: importer->import()
+    Note right of MIC: AbstractImporter* 経由
+    SDI-->>MIC: 完了
+    MIC-->>main: 完了
+```
+
+`main()` が具体型を組み立て、両方の呼び出し元は `AbstractImporter*` という型だけを介して同じインターフェースを呼ぶため、具体クラスが変わっても呼び出し経路は変わりません。
 
 **AbstractImporterクラス（骨格の定義）：**
 
@@ -1375,31 +1375,23 @@ classDiagram
 
 ---
 
-★以下当たり前でしょ？もっと、こういう時には使った方が良いか迷う、そういう内容にしてほしい。誰が見ても使わないよね？という例は上げないで。
 ### 使いどころと限界
 
-* **使うと良い状況**：複数のクラスで処理手順の骨格が共通しており、一部のステップだけが異なる場合。
+Template Methodパターンは「手順の骨格」を再利用するのに強力ですが、使いどころを間違えると「硬直した設計」を生み出します。実務で導入を迷いやすい場面と、その判断基準を整理します。
 
+**1. 手順の一部が「不要なクラス」が現れた場合**
+たとえば「ファイルを開かずに、ネットワークから直接読み込む新しいインポート形式」が追加されたとします。このとき、既存の骨格（`openFile()`）が邪魔になります。
+このような場合は、無理に既存のTemplate Methodに押し込めず、**新しい骨格クラスを作るか、手順の再利用（継承）自体を諦めてコンポジションに切り替える**のが正解です。
 
-* **使わない方が良い状況**：処理の手順自体がほとんど共通していない場合や、サブクラス側で手順を自由に変えたい場合。
+**2. 差し替えるステップ（フック）が多すぎる場合**
+基底クラスに `parseHeader()`, `parseBody()`, `parseFooter()`, `validateData()` など、サブクラスが実装しなければならないメソッドが5個も6個もある場合、サブクラスの実装負担が大きすぎます。
+この場合は、骨格の粒度が細かすぎるサインです。いくつかのステップをまとめて大きなステップにするか、**Strategyパターンなどの別の設計**への移行を検討します。
 
-
-
-【過剰コード：共通手順がほとんどない例】
-
-```cpp
-// 共通手順がほぼゼロなら、テンプレートメソッドにする必要はありません
-void import() { 
-    // ただの一行の呼び出しだけであれば、無理に継承を使うのは過剰です
-    parseData();
-}
-
-```
-
-| **状況** | **適切な選択** | **理由** |
-| --- | --- | --- |
-| **共通の手順がある場合** | **Template Methodを使う** | 重複を排除し、保守性を高めるため |
-| **手順がバラバラな場合** | **無理に使わない** | 継承による結合度が高まり、かえって不便になるため |
+| **迷う状況** | **設計の判断基準** |
+| --- | --- |
+| 手順の一部を使わないサブクラスが出た | 既存の骨格への追加を諦め、骨格クラスを分ける |
+| 実装が必要なステップ数が多すぎる | 骨格の粒度を見直すか、Strategyパターンへ移行する |
+| 将来、手順の順序自体が変わる可能性がある | Template Methodの導入を見送り、コンポジションを使う |
 
 ### この章のまとめ
 
