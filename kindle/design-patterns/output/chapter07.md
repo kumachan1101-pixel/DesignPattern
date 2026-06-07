@@ -18,7 +18,6 @@
 * **得られること4：** 通知を送る側が通知先を具体的に知らなくても、動的に通知先を増やしたり減らしたりできる視点
 
 ## 🔵 フェーズ1：現状把握 ―― 変更が来る前にコードを把握する
-
 ### 1-1：システムの背景
 
 このシステムは、あるアパレルメーカーの在庫管理システムを支える一部です。日々、全国の店舗から刻々と送られてくる売上データを受けて、倉庫にある在庫数を減らし、規定数を下回れば追加発注をかける、といった業務の流れを管理しています。
@@ -30,29 +29,7 @@
 一見すると、このコードは処理が一つにまとまっており、何が起きているか非常に分かりやすく整理されているように見えます。
 
 ---
-
-### 1-2：仕様表
-
-
-**在庫変動通知ルール**
-
-| ルール名 | 発動条件 | 結果 | 具体例 |
-| --- | --- | --- | --- |
-| 在庫減算 | 店舗からの売上データを受信した場合 | 指定された商品の在庫数を指定数量だけ減らす | 「T-shirt-001 を 5 点減算」 |
-| 在庫減少通知 | 在庫減算が完了した場合 | 登録されているすべての通知先に在庫減少メッセージを送る | メール・ダッシュボード・チャットにメッセージを配信 |
-
-**このルールを使う場所**
-
-同じ「在庫変動通知」を2か所で使います。この「2か所で使う」という仕様が、設計の違いを生む起点になります。
-
-| 使用場所 | 用途 |
-| --- | --- |
-| `InventoryManager` | 在庫が減算されたタイミングで通知を送る |
-| `OrderFulfillmentService` | 出荷が完了したタイミングで通知を送る |
-
----
-
-### 1-X：動作例テーブル ―― 仕様を「動かした結果」で確認する
+### 1-2：動作例テーブル ―― 仕様を「動かした結果」で確認する
 
 コードを読む前に、このシステムがどんな入力に対してどんな出力を返すかを確認します。この章のどの案も、以下の動作を実現します。
 
@@ -68,68 +45,7 @@
 このテーブルが示す通り、在庫が閾値以下になるたびに登録されているすべての通知先へメッセージが届き、閾値を超えていれば誰にも送らない、という動作が核心です。「どの案を選ぶか」は実装の構造の話であって、この動作結果は変わりません。
 
 ---
-
-### 1-3：クラス構成図
-
-システムのクラス構成を可視化し、構造を確認します。
-
-```mermaid
-classDiagram
-    class InventoryManager {
-        -EmailNotifier email
-        -DashboardUpdater dashboard
-        -ChatNotifier chat
-        +reduceStock(productId, quantity)
-        -notifyAll(message)
-    }
-    class EmailNotifier {
-        +send(message)
-    }
-    class DashboardUpdater {
-        +update(message)
-    }
-    class ChatNotifier {
-        +send(message)
-    }
-    InventoryManager --> EmailNotifier
-    InventoryManager --> DashboardUpdater
-    InventoryManager --> ChatNotifier
-
-```
-
-この図が示す通り、InventoryManager という単一のクラスが、通知先であるすべてのクラス（メール、ダッシュボード、チャット）を直接保持している構成になっています。
-
----
-
-### 1-4：責任配置テーブル
-
-各クラスが「何を知るべきか（責任）」を定義し、事実を確認します。
-
-| **クラス名** | **責任（1文）** | **知るべきこと** |
-| --- | --- | --- |
-| InventoryManager | 在庫を減算し、関係者に通知する。 | 在庫数、在庫減少時の通知先クラスの実装。 |
-
-この表から、InventoryManager が在庫管理という本来の責務に加えて、通知先クラスのインスタンス化や具体的な送信方法までを知っている状態が見て取れます。私自身、現場でこういうコードを見ると「このクラスは一体、何箇所に気を配ればいいのだろう…」と感じてしまうのですが、皆さんはいかがでしょうか。
-
----
-
-### 1-5：依存グラフ
-
-クラス間の「依存の方向」をマクロな視点で示します。
-
-```mermaid
-graph TD
-    InventoryManager["InventoryManager"] --> EmailNotifier["EmailNotifier"]
-    InventoryManager --> DashboardUpdater["DashboardUpdater"]
-    InventoryManager --> ChatNotifier["ChatNotifier"]
-
-```
-
-InventoryManager に、通知先となるクラスが集中していることが分かります。
-
----
-
-### 1-6：実装コード
+### 1-3：実装コード
 
 それでは、実際にシステムを動かしているコードを見てみましょう。在庫が減った際に各通知先へメッセージを送る処理をシミュレートしています。
 
@@ -194,7 +110,63 @@ int main() {
 このコードを見ると、InventoryManager クラスがどの通知先クラスが存在し、どうやって通知を送るかをすべて直接知っていることが分かります。
 
 ---
+### 1-4：クラス構成図
 
+システムのクラス構成を可視化し、構造を確認します。
+
+```mermaid
+classDiagram
+    class InventoryManager {
+        -EmailNotifier email
+        -DashboardUpdater dashboard
+        -ChatNotifier chat
+        +reduceStock(productId, quantity)
+        -notifyAll(message)
+    }
+    class EmailNotifier {
+        +send(message)
+    }
+    class DashboardUpdater {
+        +update(message)
+    }
+    class ChatNotifier {
+        +send(message)
+    }
+    InventoryManager --> EmailNotifier
+    InventoryManager --> DashboardUpdater
+    InventoryManager --> ChatNotifier
+
+```
+
+この図が示す通り、InventoryManager という単一のクラスが、通知先であるすべてのクラス（メール、ダッシュボード、チャット）を直接保持している構成になっています。
+
+---
+### 1-5：責任配置テーブル
+
+各クラスが「何を知るべきか（責任）」を定義し、事実を確認します。
+
+| **クラス名** | **責任（1文）** | **知るべきこと** |
+| --- | --- | --- |
+| InventoryManager | 在庫を減算し、関係者に通知する。 | 在庫数、在庫減少時の通知先クラスの実装。 |
+
+この表から、InventoryManager が在庫管理という本来の責務に加えて、通知先クラスのインスタンス化や具体的な送信方法までを知っている状態が見て取れます。私自身、現場でこういうコードを見ると「このクラスは一体、何箇所に気を配ればいいのだろう…」と感じてしまうのですが、皆さんはいかがでしょうか。
+
+---
+### 1-6：依存グラフ
+
+クラス間の「依存の方向」をマクロな視点で示します。
+
+```mermaid
+graph TD
+    InventoryManager["InventoryManager"] --> EmailNotifier["EmailNotifier"]
+    InventoryManager --> DashboardUpdater["DashboardUpdater"]
+    InventoryManager --> ChatNotifier["ChatNotifier"]
+
+```
+
+InventoryManager に、通知先となるクラスが集中していることが分かります。
+
+---
 ### 1-7：実行結果
 
 上記コードの実行結果：

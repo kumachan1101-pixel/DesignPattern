@@ -22,7 +22,6 @@
 ---
 
 ## 🔵 フェーズ1：現状把握 ―― 変更が来る前にコードを把握する
-
 ### 1-1：システムの背景
 
 このシステムは、社内の主要システムと外部の物流管理システムを繋ぐ「外部連携バッチシステム」です。 日々の注文データや在庫情報を外部システムへ同期する役割を担っており、連携先が増えるたびにバッチ処理の規模も拡大してきました。
@@ -30,28 +29,7 @@
 当初は単一の外部連携先に対してデータを転送するだけのシンプルな構成でしたが、現在は連携先が3社に増え、それぞれが独自のデータフォーマットと接続認証を要求しています。 加えて、データの転送完了後に在庫管理システムや社内通知サービスへ「処理完了」を通知する機能も追加されました。
 
 コードの構成を見ると、`BatchExecutor` というクラスが、すべての連携先との通信制御、データ変換、完了後の通知処理をすべて抱え込んでいます。 連携先が増えるたびに `BatchExecutor` に処理が追加され、今やどのロジックがどの連携先のためのものなのか、一見しただけでは判別が難しい状態です。 このコードがこれまで事業を支えてきた事実は尊重しつつ、現状を整理していきましょう。
-
-### 1-2：仕様表
-
-
-**外部連携バッチルール**
-
-| ルール名 | 発動条件 | 結果 | 具体例 |
-| --- | --- | --- | --- |
-| 連携先振り分け | 連携先ID（"A"/"B"/"C"）を受け取る | 対応するクライアントへデータ転送 | ID="A" → A社向けフォーマットで送信 |
-| リトライ制御 | 転送失敗時（最大3回） | 再試行・失敗ログ記録 | C社への接続タイムアウト → 3回再試行後にエラーログ |
-| 完了通知 | データ転送が成功・失敗で完了した時 | 登録済みの通知先全員へ結果を送信 | Slackへ「A社連携完了」を通知 |
-
-**このルールを使う場所**
-
-同じ外部連携処理を2か所で使います。この「2か所で使う」という仕様が、設計の違いを生む起点になります。
-
-| 使用場所 | 用途 |
-| --- | --- |
-| `BatchExecutor` | 夜間バッチで全連携先へ一括転送する |
-| `ManualTriggerController` | 管理者が手動で特定の連携先へ即時転送する |
-
-### 1-X：動作例テーブル ―― 仕様を「動かした結果」で確認する
+### 1-2：動作例テーブル ―― 仕様を「動かした結果」で確認する
 
 コードを読む前に、このシステムがどんな入力に対してどんな出力を返すかを確認します。この章のどの案も、以下の動作を実現します。
 
@@ -63,53 +41,7 @@
 | 手動トリガー・B社正常応答 | `ManualTriggerController.triggerSync("B")` | 正常応答 | B社へ手動データ転送成功 | Slack「B社手動連携完了」 |
 | バッチ失敗・監視チーム設定あり | `BatchExecutor.execute("A")`（API障害） | 障害 | 転送失敗ログ記録 | Slack＋メール両方に通知 |
 | 通知先にログ基盤追加後 | `BatchExecutor.execute("B")` | 正常応答 | B社へデータ転送成功 | Slack＋ログ基盤へ同時通知 |
-
-### 1-3：クラス構成図
-
-現在のクラス構造です。`BatchExecutor` にすべてが依存していることが分かります。
-
-```mermaid
-classDiagram
-    class BatchExecutor {
-        +execute(targetId)
-    }
-    class SystemAClient {
-        +send(data)
-    }
-    class SystemBClient {
-        +send(data)
-    }
-    class NotificationService {
-        +notify(result)
-    }
-    BatchExecutor --> SystemAClient : uses
-    BatchExecutor --> SystemBClient : uses
-    BatchExecutor --> NotificationService : uses
-
-```
-
-### 1-4：責任配置テーブル
-
-| **クラス名** | **責任（1文）** | **知るべきこと** |
-| --- | --- | --- |
-| `BatchExecutor` | 外部連携バッチのフローを統括する。 | 連携先一覧、各クライアントの生成方法、通知先サービス。 |
-| `SystemAClient` | A社システムへデータ転送を行う。 | A社のAPI接続仕様。 |
-| `SystemBClient` | B社システムへデータ転送を行う。 | B社のAPI接続仕様。 |
-| `NotificationService` | 処理結果を各担当者へ通知する。 | 通知先のメールアドレス等。 |
-
-### 1-5：依存グラフ
-
-```mermaid
-graph TD
-    BatchExecutor --> SystemAClient
-    BatchExecutor --> SystemBClient
-    BatchExecutor --> NotificationService
-
-```
-
-`BatchExecutor` に矢印が集中しており、連携先の追加や通知仕様の変更が即座にここへの修正を強いる構造です。
-
-### 1-6：実装コード
+### 1-3：実装コード
 
 連携処理の起点となる `BatchExecutor` の様子です。
 
@@ -157,7 +89,48 @@ int main() {
 ```
 
 このコードから、`BatchExecutor` が各連携先の生成と送信、さらにはその後の通知処理までを一手に引き受けていることが分かります。
+### 1-4：クラス構成図
 
+現在のクラス構造です。`BatchExecutor` にすべてが依存していることが分かります。
+
+```mermaid
+classDiagram
+    class BatchExecutor {
+        +execute(targetId)
+    }
+    class SystemAClient {
+        +send(data)
+    }
+    class SystemBClient {
+        +send(data)
+    }
+    class NotificationService {
+        +notify(result)
+    }
+    BatchExecutor --> SystemAClient : uses
+    BatchExecutor --> SystemBClient : uses
+    BatchExecutor --> NotificationService : uses
+
+```
+### 1-5：責任配置テーブル
+
+| **クラス名** | **責任（1文）** | **知るべきこと** |
+| --- | --- | --- |
+| `BatchExecutor` | 外部連携バッチのフローを統括する。 | 連携先一覧、各クライアントの生成方法、通知先サービス。 |
+| `SystemAClient` | A社システムへデータ転送を行う。 | A社のAPI接続仕様。 |
+| `SystemBClient` | B社システムへデータ転送を行う。 | B社のAPI接続仕様。 |
+| `NotificationService` | 処理結果を各担当者へ通知する。 | 通知先のメールアドレス等。 |
+### 1-6：依存グラフ
+
+```mermaid
+graph TD
+    BatchExecutor --> SystemAClient
+    BatchExecutor --> SystemBClient
+    BatchExecutor --> NotificationService
+
+```
+
+`BatchExecutor` に矢印が集中しており、連携先の追加や通知仕様の変更が即座にここへの修正を強いる構造です。
 ### 1-7：実行結果
 
 上記コードの実行結果：```text
