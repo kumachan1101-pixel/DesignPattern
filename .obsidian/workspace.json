@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "kindle/design-patterns/output/chapter04.md",
+                "file": "kindle/design-patterns/output/chapter05.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "chapter04"
+              "title": "chapter05"
             }
           }
         ]
@@ -185,11 +185,13 @@
   },
   "active": "8ed17ba54f094ece",
   "lastOpenFiles": [
-    "kindle/design-patterns/output/chapter05.md",
-    "kindle/design-patterns/output/chapter01.md",
     "kindle/design-patterns/output/chapter04.md",
     "kindle/design-patterns/output/chapter03.md",
+    "kindle/design-patterns/output/chapter05.md",
+    "kindle/design-patterns/output/chapter02.md",
+    "kindle/design-patterns/output/chapter01.md",
     "kindle/design-patterns/output/chapter00_1.md",
+    "kindle/design-patterns/output/chapter00_2.md",
     "kindle/design-patterns/output/chapter04.md.tmp.8444.fdf857e60ee5",
     "kindle/design-patterns/output/chapter03.md.tmp.8444.e4dfb1525345",
     "kindle/design-patterns/output/chapter11.md.tmp.8444.0ed0be8cfbb0",
@@ -203,8 +205,6 @@
     "kindle/design-patterns/output/chapter09_1.md",
     "kindle/design-patterns/output/chapter09_2.md",
     "kindle/design-patterns/output/chapter07.md",
-    "kindle/design-patterns/output/chapter02.md",
-    "kindle/design-patterns/output/chapter00_2.md",
     "959fb6a3-16a9-4c88-a191-1f143fb65209.png",
     "808ae3c1-f77b-4bab-a516-8451a5c31c35.png",
     "417cad0d-82b8-4ce4-a5cd-8950901fd9c9 1.png",
