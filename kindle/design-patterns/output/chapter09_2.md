@@ -162,6 +162,8 @@ int main() {
 
 ### 1-8：実行結果
 
+上記コードの実行結果：
+
 ```text
 緊急対応中。担当者を招集します。
 
@@ -532,17 +534,17 @@ classDiagram
     class PriorityCalculator {
         +calculate(userType) string
     }
-    class OpenState {
+    class OpenPhase {
         +activate()
     }
-    class InProgressState {
+    class InProgressPhase {
         +activate()
     }
     TicketManager --> PriorityCalculator : 具体×直接
-    TicketManager --> OpenState : 具体×直接
+    TicketManager --> OpenPhase : 具体×直接
     EscalationEngine --> PriorityCalculator : 具体×直接
-    EscalationEngine --> InProgressState : 具体×直接
-    EscalationEngine --> OpenState : 具体×直接
+    EscalationEngine --> InProgressPhase : 具体×直接
+    EscalationEngine --> OpenPhase : 具体×直接
 ```
 
 クラスは分離されたが、両クラスが各具体クラスを直接知っており、状態やルールが増えるたびに両方を修正しなければならない。
@@ -568,12 +570,12 @@ public:
     }
 };
 
-class OpenState {
+class OpenPhase {
 public:
     void activate() { cout << "チケットをオープン状態に設定。" << endl; }
 };
 
-class InProgressState {
+class InProgressPhase {
 public:
     void activate() { cout << "チケットを対応中状態に設定。" << endl; }
 };
@@ -590,10 +592,10 @@ public:
         PriorityCalculator calc; // ← 具体：PriorityCalculatorという型名を直接書いている
         string priority = calc.calculate(userType);
         if (status == "Open") {
-            OpenState s; s.activate(); // ← 具体：OpenStateを直接生成
+            OpenPhase s; s.activate(); // ← 具体：OpenPhaseを直接生成
             cout << "優先度: " << priority << endl;
         } else if (status == "InProgress" && priority == "High") {
-            InProgressState s; s.activate(); // ← 具体：InProgressStateを直接生成
+            InProgressPhase s; s.activate(); // ← 具体：InProgressPhaseを直接生成
             cout << "緊急対応中。担当者を招集します。" << endl;
         }
     }
@@ -610,13 +612,13 @@ public:
     void checkAndEscalate(string ticketId) {
         PriorityCalculator calc; // ← 具体：TicketManagerと同じ型を重複して使用
         string priority = calc.calculate("premium");
-        InProgressState inProg;
+        InProgressPhase inProg;
         if (priority == "High") {
             inProg.activate();
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
         } else {
-            OpenState open;
+            OpenPhase open;
             open.activate();
         }
     }
@@ -655,22 +657,22 @@ int main() {
 
 ```mermaid
 classDiagram
-    class IPriorityStrategy {
+    class IPriorityRule {
         <<interface>>
         +getPriority(userType) string
     }
-    class ITicketState {
+    class ITicketPhase {
         <<interface>>
         +handle(context)
     }
     class TicketManager {
-        -strategy IPriorityStrategy
-        -state ITicketState
+        -strategy IPriorityRule
+        -state ITicketPhase
         +update()
     }
     class EscalationEngine {
-        -strategy IPriorityStrategy
-        -state ITicketState
+        -strategy IPriorityRule
+        -state ITicketPhase
         +checkAndEscalate(ticketId)
     }
     class PremiumPriority {
@@ -679,20 +681,20 @@ classDiagram
     class NormalPriority {
         +getPriority(userType) string
     }
-    class OpenState {
+    class OpenPhase {
         +handle(context)
     }
-    class InProgressState {
+    class InProgressPhase {
         +handle(context)
     }
-    PremiumPriority ..|> IPriorityStrategy : 実装
-    NormalPriority ..|> IPriorityStrategy : 実装
-    OpenState ..|> ITicketState : 実装
-    InProgressState ..|> ITicketState : 実装
-    TicketManager --> IPriorityStrategy : 抽象×直接
-    TicketManager --> ITicketState : 抽象×直接
-    EscalationEngine --> IPriorityStrategy : 抽象×直接
-    EscalationEngine --> ITicketState : 抽象×直接
+    PremiumPriority ..|> IPriorityRule : 実装
+    NormalPriority ..|> IPriorityRule : 実装
+    OpenPhase ..|> ITicketPhase : 実装
+    InProgressPhase ..|> ITicketPhase : 実装
+    TicketManager --> IPriorityRule : 抽象×直接
+    TicketManager --> ITicketPhase : 抽象×直接
+    EscalationEngine --> IPriorityRule : 抽象×直接
+    EscalationEngine --> ITicketPhase : 抽象×直接
 ```
 
 `TicketManager` と `EscalationEngine` はどちらも2つのインターフェースのみを知り、具体クラスはmain()側だけが生成して注入する。
@@ -715,16 +717,16 @@ classDiagram
 using namespace std;
 
 // 優先度判定のインターフェース
-class IPriorityStrategy {
+class IPriorityRule {
 public:
-    virtual ~IPriorityStrategy() = default;
+    virtual ~IPriorityRule() = default;
     virtual string getPriority(string userType) = 0;
 };
 
 // 状態遷移のインターフェース
-class ITicketState {
+class ITicketPhase {
 public:
-    virtual ~ITicketState() = default;
+    virtual ~ITicketPhase() = default;
     virtual void handle(class TicketContext* context) = 0;
 };
 
@@ -734,7 +736,7 @@ public:
 
 ```cpp
 // プレミアムユーザー向け優先度ルール
-class PremiumPriority : public IPriorityStrategy {
+class PremiumPriority : public IPriorityRule {
 public:
     string getPriority(string userType) override {
         return "High"; // ← プレミアムユーザーは常にHighとする
@@ -742,7 +744,7 @@ public:
 };
 
 // 一般ユーザー向け優先度ルール
-class NormalPriority : public IPriorityStrategy {
+class NormalPriority : public IPriorityRule {
 public:
     string getPriority(string userType) override {
         return "Normal";
@@ -755,7 +757,7 @@ public:
 
 ```cpp
 // Open状態の振る舞い
-class OpenState : public ITicketState {
+class OpenPhase : public ITicketPhase {
 public:
     void handle(TicketContext* context) override {
         cout << "チケット受付中。" << endl;
@@ -763,7 +765,7 @@ public:
 };
 
 // 対応中状態の振る舞い
-class InProgressState : public ITicketState {
+class InProgressPhase : public ITicketPhase {
 public:
     void handle(TicketContext* context) override {
         cout << "チケット対応中。担当者に割り当て。" << endl;
@@ -777,12 +779,12 @@ public:
 ```cpp
 // コンテキスト：インターフェース型のみを知る
 class TicketContext {
-    ITicketState* state;
-    IPriorityStrategy* strategy;
+    ITicketPhase* state;
+    IPriorityRule* strategy;
 public:
-    TicketContext(ITicketState* st, IPriorityStrategy* s)
+    TicketContext(ITicketPhase* st, IPriorityRule* s)
         : state(st), strategy(s) {}
-    void setState(ITicketState* s) { state = s; }
+    void setState(ITicketPhase* s) { state = s; }
     void execute() {
         string priority = strategy->getPriority(""); // ← 抽象経由
         cout << "優先度: " << priority << " で ";
@@ -797,10 +799,10 @@ public:
 ```cpp
 // EscalationEngineもインターフェースのみを知る
 class EscalationEngine {
-    IPriorityStrategy* strategy; // ← 抽象：外部から注入されたインターフェースのみ知っている
-    ITicketState* state;
+    IPriorityRule* strategy; // ← 抽象：外部から注入されたインターフェースのみ知っている
+    ITicketPhase* state;
 public:
-    EscalationEngine(IPriorityStrategy* s, ITicketState* st)
+    EscalationEngine(IPriorityRule* s, ITicketPhase* st)
         : strategy(s), state(st) {}
     void checkAndEscalate(string ticketId) {
         string priority = strategy->getPriority("");
@@ -814,12 +816,12 @@ public:
 
 int main() {
     PremiumPriority strategy;            // ← 具体：呼び出し側だけが具体クラスを生成
-    InProgressState state;               // ← 具体：呼び出し側だけが具体クラスを生成
+    InProgressPhase state;               // ← 具体：呼び出し側だけが具体クラスを生成
     TicketContext ctx(&state, &strategy);
     ctx.execute();
 
     PremiumPriority esc_strategy;
-    InProgressState esc_state;
+    InProgressPhase esc_state;
     EscalationEngine engine(&esc_strategy, &esc_state); // ← 直接：インターフェース経由で注入
     engine.checkAndEscalate("T-001");
     return 0;
@@ -828,7 +830,7 @@ int main() {
 
 注入アプローチにより、両クラスとも具体クラスを知らずに済み、選択ロジックの重複が解消される。
 
-一文要約：`main()` が具体型を組み立て、両方の呼び出し元は `IPriorityStrategy*` と `ITicketState*` という型だけを介して同じオブジェクトを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
+一文要約：`main()` が具体型を組み立て、両方の呼び出し元は `IPriorityRule*` と `ITicketPhase*` という型だけを介して同じオブジェクトを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 
 **この形のトレードオフ：**
 
@@ -853,7 +855,7 @@ classDiagram
         <<interface>>
         +transition(currentStatus, targetStatus, priority, elapsedMinutes)
     }
-    class ITicketState {
+    class ITicketPhase {
         <<interface>>
         +activate()
     }
@@ -868,18 +870,18 @@ classDiagram
     class ConcreteStateController {
         +transition(currentStatus, targetStatus, priority, elapsedMinutes)
     }
-    class OpenState {
+    class OpenPhase {
         +activate()
     }
-    class InProgressState {
+    class InProgressPhase {
         +activate()
     }
     ConcreteStateController ..|> IStateController : 実装
-    OpenState ..|> ITicketState : 実装
-    InProgressState ..|> ITicketState : 実装
+    OpenPhase ..|> ITicketPhase : 実装
+    InProgressPhase ..|> ITicketPhase : 実装
     TicketManager --> IStateController : 抽象×間接
     EscalationEngine --> IStateController : 抽象×間接
-    ConcreteStateController --> ITicketState : 抽象×間接
+    ConcreteStateController --> ITicketPhase : 抽象×間接
 ```
 
 両クラスが抽象コントローラーインターフェースのみを受け取り、具体状態クラスへの依存が完全に排除されているが、インターフェースが2層になり構造が複雑になる。
@@ -901,9 +903,9 @@ classDiagram
 using namespace std;
 
 // 状態遷移の抽象インターフェース
-class ITicketState {
+class ITicketPhase {
 public:
-    virtual ~ITicketState() = default;
+    virtual ~ITicketPhase() = default;
     virtual void activate() = 0;
 };
 
@@ -920,15 +922,15 @@ public:
 **状態クラス（案4）：**
 
 ```cpp
-// 各状態クラス（ITicketState を実装）
-class OpenState : public ITicketState {
+// 各状態クラス（ITicketPhase を実装）
+class OpenPhase : public ITicketPhase {
 public:
     void activate() override {
         cout << "チケットをオープン状態に設定。" << endl;
     }
 };
 
-class InProgressState : public ITicketState {
+class InProgressPhase : public ITicketPhase {
 public:
     void activate() override {
         cout << "チケットを対応中状態に設定。" << endl;
@@ -949,13 +951,13 @@ public:
         if (currentStatus == "Open" && elapsedMinutes > slaLimit) {
             cout << "[SLA超過] エスカレーション: " << priority
                  << "チケットが" << elapsedMinutes << "分経過。" << endl;
-            InProgressState s; s.activate(); // ← ITicketState* 経由
+            InProgressPhase s; s.activate(); // ← ITicketPhase* 経由
             return;
         }
         if (targetStatus == "Open") {
-            OpenState s; s.activate();
+            OpenPhase s; s.activate();
         } else if (targetStatus == "InProgress") {
-            InProgressState s; s.activate();
+            InProgressPhase s; s.activate();
         }
     }
 };
@@ -1008,36 +1010,7 @@ int main() {
 
 両クラスとも抽象コントローラーインターフェースのみを受け取るため、具体的な状態クラスやルールクラスへの依存が完全に排除される。
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant CSC as ConcreteStateController
-    participant TM as TicketManager
-    participant EE as EscalationEngine
-    participant IS as InProgressState
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>CSC: new ConcreteStateController
-    main->>TM: new（controller: IStateController*）
-    main->>EE: new（controller: IStateController*）
-    main->>TM: update("Open", "InProgress", "Normal")
-    TM->>CSC: controller->transition(...)
-    Note right of TM: IStateController* 経由
-    CSC->>IS: state->activate()
-    Note right of CSC: ITicketState* 経由
-    IS-->>CSC: 完了
-    CSC-->>TM: 完了
-    TM-->>main: 完了
-    main->>EE: checkAndEscalate("T-001", "High", 90)
-    EE->>CSC: controller->transition(...)
-    CSC->>IS: state->activate()
-    IS-->>CSC: 完了
-    CSC-->>EE: 完了
-    EE-->>main: 完了
-```
-
-一文要約：呼び出し元→`IStateController*`→`ITicketState*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
+一文要約：呼び出し元→`IStateController*`→`ITicketPhase*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
 
 **この形のトレードオフ：**
 
@@ -1124,9 +1097,9 @@ sequenceDiagram
 
 | **変更シナリオ** | **触る場所** | **コスト評価** |
 | --- | --- | --- |
-| 重要度の算出ルール（SLA）を変更する | IPriorityStrategy の具象クラスを修正 | 低 |
-| 新しいチケット状態「保留」を追加する | ITicketState の具象クラスを新規作成 | 低 |
-| プレミアムユーザーの区分を細分化する | 新たな IPriorityStrategy 実装クラスを追加 | 低 |
+| 重要度の算出ルール（SLA）を変更する | IPriorityRule の具象クラスを修正 | 低 |
+| 新しいチケット状態「保留」を追加する | ITicketPhase の具象クラスを新規作成 | 低 |
+| プレミアムユーザーの区分を細分化する | 新たな IPriorityRule 実装クラスを追加 | 低 |
 
 採用した設計では、新しいルールや状態の追加がクラス単位の作成・修正に閉じており、既存ロジックへの影響が排除されていることが実証されました。
 
@@ -1140,9 +1113,9 @@ sequenceDiagram
 
 ### 7-1：解決後のコード（全体）
 
-優先度判定を `IPriorityStrategy`、状態管理を `ITicketState` へとそれぞれ分離しました。
+優先度判定を `IPriorityRule`、状態管理を `ITicketPhase` へとそれぞれ分離しました。
 
-**IPriorityStrategy インターフェースと実装クラス**
+**IPriorityRule インターフェースと実装クラス**
 
 ```cpp
 #include <iostream>
@@ -1152,9 +1125,9 @@ sequenceDiagram
 using namespace std;
 
 // Strategy: 優先度計算のインターフェース
-class IPriorityStrategy {
+class IPriorityRule {
 public:
-    virtual ~IPriorityStrategy() = default;
+    virtual ~IPriorityRule() = default;
     virtual string getPriority(string userType) = 0;
 };
 
@@ -1164,42 +1137,42 @@ public:
 
 ```cpp
 // プレミアムユーザー向け優先度ルール
-class PremiumPriority : public IPriorityStrategy {
+class PremiumPriority : public IPriorityRule {
 public:
     string getPriority(string userType) override { return "High"; }
 };
 
 // 一般ユーザー向け優先度ルール
-class NormalPriority : public IPriorityStrategy {
+class NormalPriority : public IPriorityRule {
 public:
     string getPriority(string userType) override { return "Normal"; }
 };
 
 ```
 
-**ITicketState インターフェース**
+**ITicketPhase インターフェース**
 
 ```cpp
 // State: 状態遷移のインターフェース
-class ITicketState {
+class ITicketPhase {
 public:
-    virtual ~ITicketState() = default;
+    virtual ~ITicketPhase() = default;
     virtual void handle(class TicketContext* context) = 0;
 };
 
 ```
 
-**OpenState クラスと InProgressState クラス**
+**OpenPhase クラスと InProgressPhase クラス**
 
 ```cpp
 // Open状態の振る舞い
-class OpenState : public ITicketState {
+class OpenPhase : public ITicketPhase {
 public:
     void handle(TicketContext* context) override;
 };
 
 // InProgress状態の振る舞い
-class InProgressState : public ITicketState {
+class InProgressPhase : public ITicketPhase {
 public:
     void handle(TicketContext* context) override;
 };
@@ -1211,13 +1184,13 @@ public:
 ```cpp
 // コンテキスト：インターフェース型のみを保持する
 class TicketContext {
-    ITicketState* state;
-    IPriorityStrategy* strategy;
+    ITicketPhase* state;
+    IPriorityRule* strategy;
 public:
-    TicketContext(ITicketState* st, IPriorityStrategy* s)
+    TicketContext(ITicketPhase* st, IPriorityRule* s)
         : state(st), strategy(s) {}
-    void setState(ITicketState* s) { state = s; }
-    void setStrategy(IPriorityStrategy* s) { strategy = s; }
+    void setState(ITicketPhase* s) { state = s; }
+    void setStrategy(IPriorityRule* s) { strategy = s; }
     void execute(string userType) {
         string priority = strategy->getPriority(userType); // ← 抽象経由
         cout << "優先度: " << priority << " — ";
@@ -1233,13 +1206,13 @@ public:
 **状態クラスの handle 実装**
 
 ```cpp
-// OpenState の実装（TicketContextが定義された後）
-void OpenState::handle(TicketContext* context) {
+// OpenPhase の実装（TicketContextが定義された後）
+void OpenPhase::handle(TicketContext* context) {
     cout << "チケット受付中。" << endl;
 }
 
-// InProgressState の実装
-void InProgressState::handle(TicketContext* context) {
+// InProgressPhase の実装
+void InProgressPhase::handle(TicketContext* context) {
     cout << "チケット対応中。担当者に割り当て。" << endl;
 }
 
@@ -1250,10 +1223,10 @@ void InProgressState::handle(TicketContext* context) {
 ```cpp
 // EscalationEngineもインターフェースのみを知る
 class EscalationEngine {
-    IPriorityStrategy* strategy;
-    ITicketState* state;
+    IPriorityRule* strategy;
+    ITicketPhase* state;
 public:
-    EscalationEngine(IPriorityStrategy* s, ITicketState* st)
+    EscalationEngine(IPriorityRule* s, ITicketPhase* st)
         : strategy(s), state(st) {}
     void checkAndEscalate(string ticketId) {
         string priority = strategy->getPriority("");
@@ -1273,19 +1246,19 @@ public:
 int main() {
     // 一般ユーザーがチケットを開く
     NormalPriority normalStrategy;
-    OpenState openState;
+    OpenPhase openState;
     TicketContext ctx1(&openState, &normalStrategy);
     ctx1.execute("normal");
 
     // プレミアムユーザーがチケットを開く
     PremiumPriority premiumStrategy;
-    OpenState openState2;
+    OpenPhase openState2;
     TicketContext ctx2(&openState2, &premiumStrategy);
     ctx2.execute("premium");
 
     // エスカレーションエンジン（プレミアムユーザー）
     PremiumPriority esc_strategy;
-    InProgressState esc_state;
+    InProgressPhase esc_state;
     EscalationEngine engine(&esc_strategy, &esc_state);
     engine.checkAndEscalate("T-001");
     return 0;
@@ -1294,6 +1267,36 @@ int main() {
 ```
 
 `TicketContext` はこれらのインターフェースを保持し、具体的な処理は差し替え可能なクラスに委譲します。
+
+**動作図（シーケンス図）：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant TM as TicketContext
+    participant EE as EscalationEngine
+    participant IS as InProgressPhase
+    participant PP as PremiumPriority
+    Note over main: 組み立てと実行
+    main->>IS: new InProgressPhase()
+    main->>PP: new PremiumPriority()
+    main->>TM: new TicketContext(&state, &strategy)
+    main->>EE: new EscalationEngine(&strategy, &state)
+    main->>TM: updateStatus(...)
+    TM->>PP: strategy->getPriority(userType)
+    Note right of TM: IPriorityRule* 経由
+    PP-->>TM: "High"
+    TM->>IS: state->handle(this)
+    Note right of TM: ITicketPhase* 経由
+    IS-->>TM: 完了
+    TM-->>main: 完了
+    main->>EE: checkAndEscalate(...)
+    EE->>PP: strategy->getPriority(userType)
+    PP-->>EE: "High"
+    EE->>IS: state->handle(nullptr)
+    IS-->>EE: 完了
+    EE-->>main: 完了
+```
 
 ### 7-2：変更影響グラフ（改善後）
 
@@ -1314,8 +1317,8 @@ graph LR
 
 | **シナリオ** | **変わるクラス（触る場所）** | **変わらないクラス** |
 | --- | --- | --- |
-| 優先度計算ルールを変更する | `IPriorityStrategy` 派生クラス | `TicketContext`, `ITicketState` |
-| 新しい状態を追加する | `ITicketState` 派生クラスを新規作成 | `TicketContext`, `IPriorityStrategy` |
+| 優先度計算ルールを変更する | `IPriorityRule` 派生クラス | `TicketContext`, `ITicketPhase` |
+| 新しい状態を追加する | `ITicketPhase` 派生クラスを新規作成 | `TicketContext`, `IPriorityRule` |
 
 変更が来ても、触るのは該当する戦略や状態クラスのみです。これがこの設計で手に入れた「変更耐性」です。 諦めたものは、インターフェースやクラスの増加というわずかな設計コストです。
 
@@ -1330,8 +1333,8 @@ graph LR
 
 ```cpp
 class TicketContext {
-    ITicketState* state;         // ← インターフェース型 = 「抽象」の証拠
-    IPriorityStrategy* strategy; // ← インターフェース型 = 「抽象」の証拠
+    ITicketPhase* state;         // ← インターフェース型 = 「抽象」の証拠
+    IPriorityRule* strategy; // ← インターフェース型 = 「抽象」の証拠
 public:
     void execute(string userType) {
         string priority = strategy->getPriority(userType); // ← 直接呼び出し = 「直接」の証拠
@@ -1340,7 +1343,7 @@ public:
 };
 ```
 
-- `ITicketState*` と `IPriorityStrategy*` はいずれもインターフェース型 → **「抽象」** の証拠
+- `ITicketPhase*` と `IPriorityRule*` はいずれもインターフェース型 → **「抽象」** の証拠
 - `state->handle()` と `strategy->getPriority()` はいずれも中間クラスなしの直接呼び出し → **「直接」** の証拠
 
 「状態遷移ルールと優先度判定ルールをそれぞれ独立して差し替えたい」という2つの動機から、**抽象×直接** が選ばれました。
@@ -1367,8 +1370,8 @@ public:
 
 | **クラス名** | **責任（1文）** | **変わる理由** |
 | --- | --- | --- |
-| `IPriorityStrategy` | 優先度判定の契約を提供する。 | なし |
-| `ITicketState` | 状態遷移の契約を提供する。 | なし |
+| `IPriorityRule` | 優先度判定の契約を提供する。 | なし |
+| `ITicketPhase` | 状態遷移の契約を提供する。 | なし |
 | `TicketContext` | チケットのライフサイクルを統合管理する。 | チケットの全体フローが変わる場合 |
 
 > **このプロセスを回した結果にたどり着いた構造こそが Strategy × State パターン です。**
@@ -1384,14 +1387,14 @@ public:
 #### 振り返り：第0章の3つの設計原則はどう適用されたか
 
 * **原則1「変わるものをカプセル化せよ」の現れ**
-* **具体化された場所：** 各 `IPriorityStrategy` および `ITicketState` の実装クラス
+* **具体化された場所：** 各 `IPriorityRule` および `ITicketPhase` の実装クラス
 * **解説：** 変化するロジックを個別のクラスへ追い出し、`TicketContext` から切り離しました。
 
 
 
 
 * **原則2「インターフェースに対してプログラムせよ」の現れ**
-* **具体化された場所：** `IPriorityStrategy`, `ITicketState`
+* **具体化された場所：** `IPriorityRule`, `ITicketPhase`
 * **解説：** 統括クラスは具体的なアルゴリズムや状態を知らず、インターフェース経由で呼び出すようにしました。
 
 
@@ -1442,16 +1445,4 @@ Strategyパターンが「どのルールの元で計算するか」を担当し
 
 ```
 
-### この章のまとめ
 
-この章の冒頭で示した「得られること」4点を、あらためて確認します。
-
-**得られること1**（ビジネスルールと状態の識別）：フェーズ2のヒアリングと確定テーブルで、「状態ごとに振る舞いが変わる」部分（Stateパターンに対応）と「ビジネスルールの切り替えによって処理が変わる」部分（Strategyパターンに対応）が、同じ条件分岐の中に混在していることを識別しました。この二軸の違いを見分ける問いが、複雑な条件分岐を読み解く出発点になります。
-
-**得られること2**（接続点の診断）：フェーズ5で、`TicketManager` が状態判定とルール判定の両方を直接知っている「具体×直接」の接続形態を診断しました。一か所に複数の変化軸が混在している状態では、どちらか一方が変わるだけで全体を触らざるを得ない——その痛みの原因を接続の形から読めるようになります。
-
-**得られること3**（複合パターンによる局所化の説明）：フェーズ7の変更シナリオ表で、状態が変わるときは `ITicketState` の実装クラスだけ、ルールが変わるときは `IPriorityStrategy` の実装クラスだけを変えればよい設計を確認しました。「変化の軸ごとにパターンを割り当てる」という発想が、複合的な変化への対処法として機能します。
-
-**得られること4**（if文からオブジェクト構成への変換）：フェーズ7の最終コードで、状態ごとの分岐がオブジェクトの切り替えになり、ルール判定が委譲先の呼び出しになる変換を確認しました。「条件を増やす」ではなく「構成を変える」という視点の切り替えが、現場の複雑な条件分岐に向き合う新しい選択肢を与えます。
-
-サポートチケット管理という題材を通じて、複数の変化軸が絡み合う複雑な条件分岐を分解する思考を体験できたのではないかと思います。この章で辿った7つのフェーズは、どんな現場のコードにも同じように使える思考の型です。
