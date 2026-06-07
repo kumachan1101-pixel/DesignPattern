@@ -152,11 +152,11 @@ int main() {
 
 ### 1-8：実行結果
 
+上記コードの実行結果：
+
 ```text
-出力：
 予約完了しました
 支払い完了しました
-
 ```
 
 このコードは正しく動いています。これから検討するのは、同じ機能を保ちながら、変更に強い構造をどう作るかという点です。
@@ -1004,37 +1004,6 @@ int main() {
 }
 ```
 
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant SM as StateManager
-    participant TR as TicketReservation
-    participant AP as AdminPanel
-    participant RS as ReservedState
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>SM: new StateManager
-    main->>TR: new（manager: IStateManager*）
-    main->>AP: new（manager: IStateManager*）
-    main->>TR: reserve()
-    TR->>SM: manager->reserve()
-    Note right of TR: IStateManager* 経由
-    SM->>RS: 内部の状態クラスを呼ぶ
-    Note right of SM: IReservationState* 経由
-    RS-->>SM: 予約完了
-    SM-->>TR: 成功
-    TR-->>main: 予約完了
-    main->>AP: forceCancel("A-15")
-    AP->>SM: manager->cancel(true)
-    SM->>RS: 内部の状態クラスを呼ぶ
-    RS-->>SM: キャンセル完了
-    SM-->>AP: 成功
-    AP-->>main: 強制キャンセル完了
-```
-
-呼び出し元→`IStateManager*`→内部の状態クラスという2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
-
 **この形のトレードオフ：**
 
 * 変更容易性：高（全層が抽象化されており影響が最小）
@@ -1252,14 +1221,40 @@ int main() {
 }
 ```
 
+上記コードの実行結果：
+
 ```text
-出力：
 予約完了しました
 支払い完了しました
 支払い済みのためキャンセルできません
 ```
 
 この実行結果は、フェーズ1の動作例テーブル（行4）で示した「Paid状態でcancel()を呼ぶとエラー」という動作と一致しています。構造が変わっても、動作は変わっていません。
+
+**動作図（シーケンス図）：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant BA as BatchApplication
+    participant TR as TicketReservation
+    participant AS as AvailableState
+    participant RS as ReservedState
+    
+    main->>BA: run()
+    Note over BA: 具体クラスを組み立てる
+    BA->>AS: new AvailableState
+    BA->>TR: new TicketReservation(state: IReservationState*)
+    
+    BA->>TR: reserve()
+    Note right of TR: IReservationState*経由の呼び出し
+    TR->>AS: reserve(ctx)
+    Note right of AS: 状態遷移（状態の切り替え）
+    AS->>RS: new ReservedState
+    AS->>TR: setState(new ReservedState)
+    AS-->>TR: 予約完了
+    TR-->>BA: 完了
+```
 
 ### 7-5：変更影響グラフ（改善後）
 

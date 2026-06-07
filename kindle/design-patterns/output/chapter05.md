@@ -155,10 +155,11 @@ public:
 
 ### 1-7：実行結果
 
-```text
-出力：支出データを追加しました
-出力：収入データを追加しました
+上記コードの実行結果：
 
+```text
+支出データを追加しました
+収入データを追加しました
 ```
 
 このコードは正しく動いています。これから検討するのは、同じ機能を保ちながら、変更に強い構造をどう作るかという点です。
@@ -531,7 +532,7 @@ int main() {
 
 | 手段 | 方法 | 特徴 |
 |---|---|---|
-| 手段A：操作クラスを呼び出し側で直接生成 | BudgetAppの中でAddExpenseCommandをnewして実行する | クラスが分かれるが「どの具体クラスを使うか」の知識は呼び出し側に残る |
+| 手段A：操作クラスを呼び出し側で直接生成 | BudgetAppの中でAddExpenseActionをnewして実行する | クラスが分かれるが「どの具体クラスを使うか」の知識は呼び出し側に残る |
 | 手段B：staticファクトリメソッドで生成 | CommandFactory::create("expense")のような形で作る | 生成ロジックを1箇所にまとめられるが、呼び出し側がファクトリに依存する |
 
 → **採用：手段A**（比較のために最もシンプルな形で示す。手段Bは複雑さが増すだけで根本問題は解決しない）
@@ -548,11 +549,11 @@ classDiagram
         +importTransactions() void
         +rollback() void
     }
-    class AddExpenseCommand {
+    class AddExpenseAction {
         +execute() void
     }
-    BudgetApp --> AddExpenseCommand : 具体×直接
-    ImportService --> AddExpenseCommand : 具体×直接（重複）
+    BudgetApp --> AddExpenseAction : 具体×直接
+    ImportService --> AddExpenseAction : 具体×直接（重複）
 ```
 
 `BudgetApp` と `ImportService` の両方が同じ具体コマンドクラスを直接生成しており、新しい操作が増えるたびに両方の呼び出し元で修正が発生する。
@@ -560,12 +561,12 @@ classDiagram
 **コード例：**
 
 ```cpp
-// ← 具体：AddExpenseCommandという型名を直接書いている
-class AddExpenseCommand {
+// ← 具体：AddExpenseActionという型名を直接書いている
+class AddExpenseAction {
 public:
     void execute() { em.addExpense(1000, "Food"); }
 };
-// UIButtons内で AddExpenseCommand().execute() を直接呼ぶ
+// UIButtons内で AddExpenseAction().execute() を直接呼ぶ
 // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
 
 ```
@@ -579,7 +580,7 @@ public:
 class BudgetApp {
 public:
     void onAddExpenseClick(int amount, std::string cat) {
-        AddExpenseCommand cmd(amount, cat); // ← 直接：具体クラスを直接生成
+        AddExpenseAction cmd(amount, cat); // ← 直接：具体クラスを直接生成
         cmd.execute();
     }
     void onUndoClick() {
@@ -593,8 +594,8 @@ public:
     void importTransactions(
             std::vector<std::pair<int,std::string>> data) {
         for (auto& r : data) {
-            // ← 重複：BudgetAppと同じAddExpenseCommandを直接生成
-            AddExpenseCommand cmd(r.first, r.second);
+            // ← 重複：BudgetAppと同じAddExpenseActionを直接生成
+            AddExpenseAction cmd(r.first, r.second);
             cmd.execute();
         }
     }
@@ -635,15 +636,15 @@ int main() {
 #### 案3：抽象×直接 ―― インターフェースを挟み、型だけで接続する
 
 **この形の考え方：**
-操作を抽象的なインターフェースとして定義します。呼び出し元は具体的な操作クラスを知らずに、インターフェース経由で実行を依頼します。各操作クラスに `ICommand` を実装させ、呼び出し元は `ICommand` 型として操作を受け取り、実行する形にします。
+操作を抽象的なインターフェースとして定義します。呼び出し元は具体的な操作クラスを知らずに、インターフェース経由で実行を依頼します。各操作クラスに `IAction` を実装させ、呼び出し元は `IAction` 型として操作を受け取り、実行する形にします。
 
 **手段の比較：**
 
 | 手段 | 方法 | 特徴 |
 |---|---|---|
-| 手段A：コンストラクタインジェクション | BudgetApp(ICommand* cmd) のようにコンストラクタで受け取る | 依存関係が明確で、オブジェクト生成時に全依存が揃う。最もシンプル |
+| 手段A：コンストラクタインジェクション | BudgetApp(IAction* cmd) のようにコンストラクタで受け取る | 依存関係が明確で、オブジェクト生成時に全依存が揃う。最もシンプル |
 | 手段B：セッターインジェクション | app.setCommand(cmd) のようにメソッドで後から注入する | 生成後に差し替えできる柔軟性があるが、注入し忘れのリスクがある |
-| 手段C：メソッドパラメータ渡し | onAddExpenseClick(ICommand* cmd) のように実行時に渡す | 呼び出しのたびに異なるコマンドを渡せる。今回の「操作ごとに異なるコマンド」には最も自然 |
+| 手段C：メソッドパラメータ渡し | onAddExpenseClick(IAction* cmd) のように実行時に渡す | 呼び出しのたびに異なるコマンドを渡せる。今回の「操作ごとに異なるコマンド」には最も自然 |
 
 → **採用：手段C**（ボタンを押すたびに異なるコマンドを渡すという今回の動作に最もフィットしている）
 
@@ -651,12 +652,12 @@ int main() {
 
 ```mermaid
 classDiagram
-    class ICommand {
+    class IAction {
         <<interface>>
         +execute() void
         +undo() void
     }
-    class AddExpenseCommand {
+    class AddExpenseAction {
         +execute() void
         +undo() void
     }
@@ -668,12 +669,12 @@ classDiagram
         +importTransactions(cmds) void
         +rollback(cmds) void
     }
-    AddExpenseCommand ..|> ICommand : 実装
-    BudgetApp --> ICommand : 抽象×直接
-    ImportService --> ICommand : 抽象×直接
+    AddExpenseAction ..|> IAction : 実装
+    BudgetApp --> IAction : 抽象×直接
+    ImportService --> IAction : 抽象×直接
 ```
 
-`main()` だけが具体クラスを知り、`BudgetApp` と `ImportService` は `ICommand*` という抽象型を直接受け取るだけで、具体的なコマンドクラスを一切知らずに済む。
+`main()` だけが具体クラスを知り、`BudgetApp` と `ImportService` は `IAction*` という抽象型を直接受け取るだけで、具体的なコマンドクラスを一切知らずに済む。
 
 **コードをクラスごとに見ていきます。**
 
@@ -681,27 +682,27 @@ classDiagram
 
 ```cpp
 // 操作の契約：実行と取り消しをすべての操作クラスに強制する
-class ICommand {
+class IAction {
 public:
-    virtual ~ICommand() {}
+    virtual ~IAction() {}
     virtual void execute() = 0;
     virtual void undo() = 0;
 };
 
 ```
 
-`ICommand` が定まることで、呼び出し側はどの具体クラスが来ても同じ `execute()` と `undo()` を呼ぶだけで済む。
+`IAction` が定まることで、呼び出し側はどの具体クラスが来ても同じ `execute()` と `undo()` を呼ぶだけで済む。
 
 次に、支出追加の具体的な操作クラスです。
 
 ```cpp
 // 支出追加の操作をカプセル化したクラス
-class AddExpenseCommand : public ICommand {
+class AddExpenseAction : public IAction {
     ExpenseManager& em;
     int amount;
     std::string category;
 public:
-    AddExpenseCommand(ExpenseManager& em,
+    AddExpenseAction(ExpenseManager& em,
                       int amount, std::string category)
         : em(em), amount(amount), category(category) {}
     void execute() override {
@@ -720,12 +721,12 @@ public:
 
 ```cpp
 // 収入追加の操作をカプセル化したクラス
-class AddIncomeCommand : public ICommand {
+class AddIncomeAction : public IAction {
     IncomeManager& im;
     int amount;
     std::string source;
 public:
-    AddIncomeCommand(IncomeManager& im,
+    AddIncomeAction(IncomeManager& im,
                      int amount, std::string source)
         : im(im), amount(amount), source(source) {}
     void execute() override {
@@ -746,11 +747,11 @@ public:
 // 案3（抽象×直接）の呼び出し側
 class BudgetApp {
 public:
-    void onAddExpenseClick(ICommand* cmd) {
-        // ← 抽象：ICommand*型で受け取り、具体クラスを知らない
+    void onAddExpenseClick(IAction* cmd) {
+        // ← 抽象：IAction*型で受け取り、具体クラスを知らない
         cmd->execute();
     }
-    void onUndoClick(ICommand* cmd) {
+    void onUndoClick(IAction* cmd) {
         cmd->undo();
     }
 };
@@ -759,13 +760,13 @@ public:
 class ImportService {
 public:
     void importTransactions(
-            std::vector<ICommand*> cmds) {
+            std::vector<IAction*> cmds) {
         // ← 直接：同じ形で受け取れる
         for (auto* cmd : cmds) {
             cmd->execute();
         }
     }
-    void rollback(std::vector<ICommand*> cmds) {
+    void rollback(std::vector<IAction*> cmds) {
         for (auto* cmd : cmds) {
             cmd->undo(); // ← 同じインターフェースを使い回せる
         }
@@ -776,8 +777,8 @@ int main() {
     ExpenseManager em;
     IncomeManager im;
     // ← 具体：呼び出し側だけが具体クラスを生成
-    AddExpenseCommand cmd1(em, 1000, "Food");
-    AddExpenseCommand cmd2(em, 2000, "Rent");
+    AddExpenseAction cmd1(em, 1000, "Food");
+    AddExpenseAction cmd2(em, 2000, "Rent");
 
     BudgetApp app;
     app.onAddExpenseClick(&cmd1);
@@ -789,9 +790,9 @@ int main() {
 }
 ```
 
-`BudgetApp` と `ImportService` はどちらも `ICommand*` を受け取るだけで、「どの具体クラスか」を知らずに済む。新しい操作が増えても、どちらの呼び出し元も修正は不要だ。
+`BudgetApp` と `ImportService` はどちらも `IAction*` を受け取るだけで、「どの具体クラスか」を知らずに済む。新しい操作が増えても、どちらの呼び出し元も修正は不要だ。
 
-`main()` が具体型を組み立て、両方の呼び出し元は `ICommand*` という型だけを介して同じインターフェースを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
+`main()` が具体型を組み立て、両方の呼び出し元は `IAction*` という型だけを介して同じインターフェースを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
 
 **この形のトレードオフ：**
 
@@ -810,14 +811,14 @@ int main() {
 #### 案4：抽象×間接 ―― インターフェース＋仲介役を両立する
 
 **この形の考え方：**
-抽象化されたコマンドを、さらに仲介役（`CommandHistory`）経由で実行する設計です。どの層も具体的な実装を知らず、操作の履歴保持やUndo/Redoが最も容易に実現できます。一方でクラス数や層が増えるため、小規模なアプリには複雑すぎる場合があります。
+抽象化されたコマンドを、さらに仲介役（`ActionHistory`）経由で実行する設計です。どの層も具体的な実装を知らず、操作の履歴保持やUndo/Redoが最も容易に実現できます。一方でクラス数や層が増えるため、小規模なアプリには複雑すぎる場合があります。
 
 **手段の比較：**
 
 | 手段 | 方法 | 特徴 |
 |---|---|---|
-| 手段A：CommandHistoryをシングルトンで共有 | 静的なインスタンスをアプリ全体で共有する | 実装が簡単だが、テスト時にリセットが難しく、並列処理にも弱い |
-| 手段B：CommandHistoryをDIで注入する | main()でインスタンスを生成し、各呼び出し元に渡す | 依存関係が明確で、複数の独立したHistoryをテストで差し替えやすい |
+| 手段A：ActionHistoryをシングルトンで共有 | 静的なインスタンスをアプリ全体で共有する | 実装が簡単だが、テスト時にリセットが難しく、並列処理にも弱い |
+| 手段B：ActionHistoryをDIで注入する | main()でインスタンスを生成し、各呼び出し元に渡す | 依存関係が明確で、複数の独立したHistoryをテストで差し替えやすい |
 
 → **採用：手段B**（テスト容易性と変更耐性の観点から、DIによる注入が最も自然な形になる）
 
@@ -825,36 +826,36 @@ int main() {
 
 ```mermaid
 classDiagram
-    class ICommand {
+    class IAction {
         <<interface>>
         +execute() void
         +undo() void
     }
-    class AddExpenseCommand {
+    class AddExpenseAction {
         +execute() void
         +undo() void
     }
-    class CommandHistory {
+    class ActionHistory {
         +execute(cmd) void
         +undo() void
     }
     class BudgetApp {
-        -history CommandHistory
+        -history ActionHistory
         +onAddExpenseClick(cmd) void
         +onUndoClick() void
     }
     class ImportService {
-        -history CommandHistory
+        -history ActionHistory
         +importTransactions(cmds) void
         +rollback(count) void
     }
-    AddExpenseCommand ..|> ICommand : 実装
-    CommandHistory --> ICommand : 抽象×直接
-    BudgetApp --> CommandHistory : 抽象×間接
-    ImportService --> CommandHistory : 抽象×間接
+    AddExpenseAction ..|> IAction : 実装
+    ActionHistory --> IAction : 抽象×直接
+    BudgetApp --> ActionHistory : 抽象×間接
+    ImportService --> ActionHistory : 抽象×間接
 ```
 
-`BudgetApp` と `ImportService` は `CommandHistory*` という抽象インターフェースしか知らず、具体的な実装の知識は `main()` の組み立て部分だけに閉じている。
+`BudgetApp` と `ImportService` は `ActionHistory*` という抽象インターフェースしか知らず、具体的な実装の知識は `main()` の組み立て部分だけに閉じている。
 
 **コードをクラスごとに見ていきます。**
 
@@ -862,9 +863,9 @@ classDiagram
 
 ```cpp
 // 操作の契約：実行と取り消しをすべての操作クラスに強制する
-class ICommand {
+class IAction {
 public:
-    virtual ~ICommand() {}
+    virtual ~IAction() {}
     virtual void execute() = 0;
     virtual void undo() = 0;
 };
@@ -877,12 +878,12 @@ public:
 
 ```cpp
 // 支出追加の操作をカプセル化したクラス
-class AddExpenseCommand : public ICommand {
+class AddExpenseAction : public IAction {
     ExpenseManager& em;
     int amount;
     std::string category;
 public:
-    AddExpenseCommand(ExpenseManager& em,
+    AddExpenseAction(ExpenseManager& em,
                       int amount, std::string category)
         : em(em), amount(amount), category(category) {}
     void execute() override {
@@ -899,12 +900,12 @@ public:
 
 ```cpp
 // 収入追加の操作をカプセル化したクラス
-class AddIncomeCommand : public ICommand {
+class AddIncomeAction : public IAction {
     IncomeManager& im;
     int amount;
     std::string source;
 public:
-    AddIncomeCommand(IncomeManager& im,
+    AddIncomeAction(IncomeManager& im,
                      int amount, std::string source)
         : im(im), amount(amount), source(source) {}
     void execute() override {
@@ -921,15 +922,15 @@ public:
 
 ```cpp
 // 操作履歴を保持し、Undo/Redoを制御する仲介役
-class CommandHistory {
-    std::stack<ICommand*> undoStack;
-    std::stack<ICommand*> redoStack;
+class ActionHistory {
+    std::stack<IAction*> undoStack;
+    std::stack<IAction*> redoStack;
     // 履歴の最大保持件数（メモリ圧迫防止）
     static const int MAX_HISTORY = 50;
 public:
-    // ← 抽象：ICommand*型で受け取り、具体実装を知らない
+    // ← 抽象：IAction*型で受け取り、具体実装を知らない
     // ← 間接：履歴管理クラスを経由するため操作の詳細が見えない
-    void execute(ICommand* cmd) {
+    void execute(IAction* cmd) {
         cmd->execute();
         undoStack.push(cmd);
         // 上限を超えたら古い履歴を廃棄
@@ -941,14 +942,14 @@ public:
     }
     void undo() {
         if (undoStack.empty()) return;
-        ICommand* cmd = undoStack.top();
+        IAction* cmd = undoStack.top();
         undoStack.pop();
         cmd->undo();
         redoStack.push(cmd);
     }
     void redo() {
         if (redoStack.empty()) return;
-        ICommand* cmd = redoStack.top();
+        IAction* cmd = redoStack.top();
         redoStack.pop();
         cmd->execute();
         undoStack.push(cmd);
@@ -960,17 +961,17 @@ public:
 
 ```
 
-このクラスを見ると、`ICommand*` という抽象型だけを知っており、具体的な操作クラス（AddExpenseCommandなど）を一切知らずにUndo/Redoを制御できることが分かります。
+このクラスを見ると、`IAction*` という抽象型だけを知っており、具体的な操作クラス（AddExpenseActionなど）を一切知らずにUndo/Redoを制御できることが分かります。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案4（抽象×間接）の呼び出し側
 class BudgetApp {
-    CommandHistory* history; // ← 抽象：インターフェース型で保持
+    ActionHistory* history; // ← 抽象：インターフェース型で保持
 public:
-    BudgetApp(CommandHistory* h) : history(h) {}
-    void onAddExpenseClick(ICommand* cmd) {
+    BudgetApp(ActionHistory* h) : history(h) {}
+    void onAddExpenseClick(IAction* cmd) {
         history->execute(cmd); // ← 間接：History経由で実行
     }
     void onUndoClick() { history->undo(); }
@@ -979,10 +980,10 @@ public:
 
 // 一括インポート：こちらも同じ抽象Historyを受け取る（重複なし）
 class ImportService {
-    CommandHistory* history; // ← 抽象：同じインターフェース型で保持
+    ActionHistory* history; // ← 抽象：同じインターフェース型で保持
 public:
-    ImportService(CommandHistory* h) : history(h) {}
-    void importTransactions(std::vector<ICommand*> cmds) {
+    ImportService(ActionHistory* h) : history(h) {}
+    void importTransactions(std::vector<IAction*> cmds) {
         for (auto* cmd : cmds) {
             history->execute(cmd); // ← 間接：History経由で実行
         }
@@ -1000,9 +1001,9 @@ public:
 int main() {
     ExpenseManager em;
     IncomeManager im;
-    CommandHistory hist; // ← 具体：組み立て側だけが具体型を知る
-    AddExpenseCommand cmd1(em, 1000, "Food");
-    AddExpenseCommand cmd2(em, 2000, "Rent");
+    ActionHistory hist; // ← 具体：組み立て側だけが具体型を知る
+    AddExpenseAction cmd1(em, 1000, "Food");
+    AddExpenseAction cmd2(em, 2000, "Rent");
 
     BudgetApp app(&hist);
     app.onAddExpenseClick(&cmd1);
@@ -1015,37 +1016,7 @@ int main() {
 }
 ```
 
-`BudgetApp` と `ImportService` はどちらも `CommandHistory*` という同じ抽象インターフェースしか知らない。具体的な実装クラスの知識は `main()` の組み立て部分だけに閉じている。
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant CH as CommandHistory
-    participant BA as BudgetApp
-    participant IS as ImportService
-    participant AEC as AddExpenseCommand
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>CH: new CommandHistory
-    main->>BA: new（history: CommandHistory*）
-    main->>IS: new（history: CommandHistory*）
-    main->>BA: onAddExpenseClick(&cmd1)
-    BA->>CH: history->execute(cmd)
-    Note right of BA: CommandHistory* 経由
-    CH->>AEC: cmd->execute()
-    Note right of CH: ICommand* 経由
-    AEC-->>CH: 完了
-    CH-->>BA: 完了
-    BA-->>main: 完了
-    main->>IS: importTransactions({&cmd2})
-    IS->>CH: history->execute(cmd)
-    CH->>AEC: cmd->execute()
-    AEC-->>CH: 完了
-    CH-->>IS: 完了
-    IS-->>main: 完了
-```
-呼び出し元→`CommandHistory*`→`ICommand*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
+`BudgetApp` と `ImportService` はどちらも `ActionHistory*` という同じ抽象インターフェースしか知らない。具体的な実装クラスの知識は `main()` の組み立て部分だけに閉じている。
 
 **この形のトレードオフ：**
 
@@ -1130,7 +1101,7 @@ sequenceDiagram
 | --- | --- | --- |
 | 一括削除機能の追加（ヒアリングで予告） | 新しいコマンドクラスの新規作成のみ | 低 |
 | Undo/Redoの回数制限機能の追加 | 履歴管理クラスの修正のみ | 低 |
-| Redo機能の追加（ヒアリングで予告） | CommandHistoryにredo()メソッドを追加するのみ | 低 |
+| Redo機能の追加（ヒアリングで予告） | ActionHistoryにredo()メソッドを追加するのみ | 低 |
 
 採用案（案4）では、新しい操作が追加されても履歴管理ロジックやUIクラスには一切影響を与えないため、変更耐性が十分に高いことを確認できました。
 
@@ -1152,27 +1123,27 @@ sequenceDiagram
 
 ```cpp
 // 操作の契約：実行と取り消しをすべての操作クラスに強制する
-class ICommand {
+class IAction {
 public:
-    virtual ~ICommand() {}
+    virtual ~IAction() {}
     virtual void execute() = 0;
     virtual void undo() = 0;
 };
 
 ```
 
-`ICommand` を定めることで、履歴管理クラスはどの具体的な操作クラスが来ても同じ方法で扱える。この「型の統一」が、Undo/Redoを汎用的に実現する鍵になる。
+`IAction` を定めることで、履歴管理クラスはどの具体的な操作クラスが来ても同じ方法で扱える。この「型の統一」が、Undo/Redoを汎用的に実現する鍵になる。
 
 **次に、具体的な操作クラスです。**
 
 ```cpp
 // 支出追加の操作をカプセル化したクラス
-class AddExpenseCommand : public ICommand {
+class AddExpenseAction : public IAction {
     ExpenseManager& em;
     int amount;
     std::string category;
 public:
-    AddExpenseCommand(ExpenseManager& em,
+    AddExpenseAction(ExpenseManager& em,
                       int amount, std::string category)
         : em(em), amount(amount), category(category) {}
     void execute() override {
@@ -1187,12 +1158,12 @@ public:
 
 ```cpp
 // 収入追加の操作をカプセル化したクラス
-class AddIncomeCommand : public ICommand {
+class AddIncomeAction : public IAction {
     IncomeManager& im;
     int amount;
     std::string source;
 public:
-    AddIncomeCommand(IncomeManager& im,
+    AddIncomeAction(IncomeManager& im,
                      int amount, std::string source)
         : im(im), amount(amount), source(source) {}
     void execute() override {
@@ -1211,12 +1182,12 @@ public:
 
 ```cpp
 // 操作履歴を保持し、Undo/Redoを制御する仲介役
-class CommandHistory {
-    std::stack<ICommand*> undoStack;
-    std::stack<ICommand*> redoStack;
+class ActionHistory {
+    std::stack<IAction*> undoStack;
+    std::stack<IAction*> redoStack;
     static const int MAX_HISTORY = 50;
 public:
-    void execute(ICommand* cmd) {
+    void execute(IAction* cmd) {
         cmd->execute();
         undoStack.push(cmd);
         while ((int)undoStack.size() > MAX_HISTORY) {
@@ -1226,14 +1197,14 @@ public:
     }
     void undo() {
         if (undoStack.empty()) return;
-        ICommand* cmd = undoStack.top();
+        IAction* cmd = undoStack.top();
         undoStack.pop();
         cmd->undo(); // ← ここだけ変わる
         redoStack.push(cmd);
     }
     void redo() {
         if (redoStack.empty()) return;
-        ICommand* cmd = redoStack.top();
+        IAction* cmd = redoStack.top();
         redoStack.pop();
         cmd->execute();
         undoStack.push(cmd);
@@ -1245,17 +1216,17 @@ public:
 
 ```
 
-`CommandHistory` は `ICommand*` という抽象型だけを知っており、具体的な操作クラスを一切知らない。Undo/Redoのロジックがここに集約されているため、どの呼び出し元（BudgetAppやImportService）も履歴管理の詳細を知らなくてよい。
+`ActionHistory` は `IAction*` という抽象型だけを知っており、具体的な操作クラスを一切知らない。Undo/Redoのロジックがここに集約されているため、どの呼び出し元（BudgetAppやImportService）も履歴管理の詳細を知らなくてよい。
 
 **最後に、呼び出し元と組み立てコードです。**
 
 ```cpp
 // UIからの操作を受け取り、Historyに委譲するだけ
 class BudgetApp {
-    CommandHistory* history;
+    ActionHistory* history;
 public:
-    BudgetApp(CommandHistory* h) : history(h) {}
-    void onAddExpenseClick(ICommand* cmd) {
+    BudgetApp(ActionHistory* h) : history(h) {}
+    void onAddExpenseClick(IAction* cmd) {
         history->execute(cmd);
     }
     void onUndoClick() { history->undo(); }
@@ -1264,10 +1235,10 @@ public:
 
 // 一括インポートからの操作を受け取り、Historyに委譲するだけ
 class ImportService {
-    CommandHistory* history;
+    ActionHistory* history;
 public:
-    ImportService(CommandHistory* h) : history(h) {}
-    void importTransactions(std::vector<ICommand*> cmds) {
+    ImportService(ActionHistory* h) : history(h) {}
+    void importTransactions(std::vector<IAction*> cmds) {
         for (auto* cmd : cmds) {
             history->execute(cmd);
         }
@@ -1286,16 +1257,16 @@ public:
 int main() {
     ExpenseManager em;
     IncomeManager im;
-    CommandHistory hist;
+    ActionHistory hist;
 
     BudgetApp app(&hist);
-    AddExpenseCommand cmd1(em, 1000, "Food");
+    AddExpenseAction cmd1(em, 1000, "Food");
     app.onAddExpenseClick(&cmd1);    // 支出1000円を登録
     app.onUndoClick();               // 取り消す
 
     ImportService importer(&hist);
-    AddExpenseCommand cmd2(em, 2000, "Rent");
-    AddExpenseCommand cmd3(em, 300, "Water");
+    AddExpenseAction cmd2(em, 2000, "Rent");
+    AddExpenseAction cmd3(em, 300, "Water");
     importer.importTransactions({&cmd2, &cmd3}); // 一括登録
     importer.rollback(2);            // 2件ロールバック
     return 0;
@@ -1303,6 +1274,28 @@ int main() {
 ```
 
 この実装により、UIは「コマンド」の `execute` メソッドを呼ぶだけでよくなり、業務ロジックの詳細から完全に解放されました。
+
+**動作図（シーケンス図）：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant CH as ActionHistory
+    participant BA as BudgetApp
+    participant AEC as AddExpenseAction
+    Note over main: 具体型を組み立てる唯一の場所
+    main->>CH: new ActionHistory
+    main->>BA: new BudgetApp(history: ActionHistory*)
+    main->>AEC: new AddExpenseAction(...)
+    main->>BA: onAddExpenseClick(&cmd1)
+    BA->>CH: history->execute(cmd)
+    Note right of BA: ActionHistory*経由
+    CH->>AEC: cmd->execute()
+    Note right of CH: IAction*経由で実行
+    AEC-->>CH: 完了
+    CH-->>BA: 完了
+    BA-->>main: 完了
+```
 
 ### 7-2：変更影響グラフ（改善後）
 
@@ -1312,7 +1305,7 @@ int main() {
 graph LR
     T1["変更要求：新しい操作の追加"] --> F1["AddNewCommand.cpp<br>（新規クラスの作成のみ）"]
     T1 -. "影響なし" .-> A["UIButtons.cpp ✅"]
-    T1 -. "影響なし" .-> B["CommandHistory.cpp ✅"]
+    T1 -. "影響なし" .-> B["ActionHistory.cpp ✅"]
 
 ```
 
@@ -1324,9 +1317,9 @@ graph LR
 
 | **シナリオ** | **変わるクラス（触る場所）** | **変わらないクラス** |
 | --- | --- | --- |
-| 新しい操作（例：振込）の追加 | `TransferCommand` (新規作成) | `UIButtons`, `CommandHistory` |
-| Undo/Redoの仕様変更 | `CommandHistory` (修正のみ) | `UIButtons`, 各 `Command` クラス |
-| 操作の上限件数変更 | `CommandHistory` 内の定数変更のみ | すべてのCommandクラス、UIクラス |
+| 新しい操作（例：振込）の追加 | `TransferCommand` (新規作成) | `UIButtons`, `ActionHistory` |
+| Undo/Redoの仕様変更 | `ActionHistory` (修正のみ) | `UIButtons`, 各 `Command` クラス |
+| 操作の上限件数変更 | `ActionHistory` 内の定数変更のみ | すべてのCommandクラス、UIクラス |
 
 操作の意図をオブジェクトとして独立させたことで、UIは操作の実行方法を知る必要がなくなりました——それがこの設計で手に入れたものです。諦めたものは、操作ごとにクラスを定義することによる、わずかなクラス数の増加です。
 
@@ -1340,21 +1333,21 @@ graph LR
 **「抽象×間接」の証拠となるコード：**
 
 ```cpp
-class CommandHistory {
+class ActionHistory {
     // ← インターフェース型 = 「抽象」の証拠
-    std::stack<ICommand*> undoStack;
+    std::stack<IAction*> undoStack;
 public:
-    void execute(ICommand* cmd) {
-        // ← CommandHistory 経由 = 「間接」の証拠
+    void execute(IAction* cmd) {
+        // ← ActionHistory 経由 = 「間接」の証拠
         cmd->execute();
         undoStack.push(cmd);
     }
 };
-// UIButtons → CommandHistory → ICommand → 実際の処理（2段階の委譲）
+// UIButtons → ActionHistory → IAction → 実際の処理（2段階の委譲）
 ```
 
-- `ICommand*` はインターフェース型 → **「抽象」** の証拠（具体的な操作クラス名を知らない）
-- `UIButtons` は `ExpenseManager` を直接知らず、`CommandHistory` を経由して `ICommand` を実行する → **「間接」** の証拠
+- `IAction*` はインターフェース型 → **「抽象」** の証拠（具体的な操作クラス名を知らない）
+- `UIButtons` は `ExpenseManager` を直接知らず、`ActionHistory` を経由して `IAction` を実行する → **「間接」** の証拠
 
 「操作を差し替えたい（操作の追加・変更）かつ履歴管理という仲介層が必要」という動機から、**抽象×間接** が選ばれました。
 
@@ -1382,10 +1375,10 @@ public:
 
 | **クラス名** | **責任（1文）** | **変わる理由** |
 | --- | --- | --- |
-| `ICommand` | 操作の実行と取り消しというインターフェースを定義する | Undo/Redoの仕組み全体が変わるとき |
-| `AddExpenseCommand` | 支出追加の意図と実行・取り消しロジックを保持する | 支出追加の業務ルールが変わるとき |
-| `AddIncomeCommand` | 収入追加の意図と実行・取り消しロジックを保持する | 収入追加の業務ルールが変わるとき |
-| `CommandHistory` | コマンドの実行履歴を保持し、Undo/Redoを制御する | Undo/Redoの回数制限や履歴管理方針が変わるとき |
+| `IAction` | 操作の実行と取り消しというインターフェースを定義する | Undo/Redoの仕組み全体が変わるとき |
+| `AddExpenseAction` | 支出追加の意図と実行・取り消しロジックを保持する | 支出追加の業務ルールが変わるとき |
+| `AddIncomeAction` | 収入追加の意図と実行・取り消しロジックを保持する | 収入追加の業務ルールが変わるとき |
+| `ActionHistory` | コマンドの実行履歴を保持し、Undo/Redoを制御する | Undo/Redoの回数制限や履歴管理方針が変わるとき |
 
 > このプロセスを回した結果にたどり着いた構造こそが Command パターンです。
 > 
@@ -1406,21 +1399,21 @@ public:
 ### 振り返り：3つの設計原則はどう適用されたか
 
 * **原則1「変わるものをカプセル化せよ」の現れ**
-* **具体化された場所：** 個別のコマンドクラス（`AddExpenseCommand` など）
+* **具体化された場所：** 個別のコマンドクラス（`AddExpenseAction` など）
 * **解説：** 操作ごとの「実行・取り消しロジック」を個別のクラスへカプセル化しました。これにより、UIクラスは操作の中身を知る必要がなくなりました。
 
 
 
 
 * **原則2「実装ではなくインターフェースに対してプログラムせよ」の現れ**
-* **具体化された場所：** `CommandHistory` が扱う `ICommand` インターフェース
-* **解説：** `CommandHistory` は具体的なコマンドクラスではなく、`ICommand` インターフェースに対して実行を依頼します。
+* **具体化された場所：** `ActionHistory` が扱う `IAction` インターフェース
+* **解説：** `ActionHistory` は具体的なコマンドクラスではなく、`IAction` インターフェースに対して実行を依頼します。
 
 
 
 
 * **原則3「継承よりコンポジションを優先せよ」の現れ**
-* **具体化された場所：** `CommandHistory` の履歴管理
+* **具体化された場所：** `ActionHistory` の履歴管理
 * **解説：** 継承による振る舞いの固定ではなく、コマンドオブジェクトをスタックに保持するコンポジションを用いて柔軟な履歴操作を実現しました。
 
 
@@ -1467,7 +1460,7 @@ classDiagram
 
 #### この章の実装との対応
 
-`ICommand` インターフェースが `Command` ロール、`AddExpenseCommand` / `AddIncomeCommand` が `ConcreteCommand` ロール、`CommandHistory` が `Invoker` ロールに対応しています。
+`IAction` インターフェースが `Command` ロール、`AddExpenseAction` / `AddIncomeAction` が `ConcreteCommand` ロール、`ActionHistory` が `Invoker` ロールに対応しています。
 
 ---
 
