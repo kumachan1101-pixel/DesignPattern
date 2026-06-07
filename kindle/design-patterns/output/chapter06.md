@@ -186,7 +186,7 @@ int main() {
 
 ### 1-7：実行結果
 
-上記のコードを実行した結果は以下のようになります。
+上記コードの実行結果：
 
 ```text
 注文内容: Coffee + Milk + Whip
@@ -923,7 +923,7 @@ classDiagram
         +getPrice() int
         +getDescription() string
     }
-    class ToppingDecorator {
+    class ToppingWrapper {
         #IDrink* baseDrink
         +getPrice() int
         +getDescription() string
@@ -943,10 +943,10 @@ classDiagram
         +getOrderLabel(IDrink*) string
     }
     Coffee ..|> IDrink : 実装
-    ToppingDecorator ..|> IDrink : 実装
-    ToppingDecorator --> IDrink : 抽象×間接
-    Milk --|> ToppingDecorator : 継承
-    Whip --|> ToppingDecorator : 継承
+    ToppingWrapper ..|> IDrink : 実装
+    ToppingWrapper --> IDrink : 抽象×間接
+    Milk --|> ToppingWrapper : 継承
+    Whip --|> ToppingWrapper : 継承
     MobileOrderService --> IDrink : 抽象×間接
     StaffPreviewService --> IDrink : 抽象×間接
 ```
@@ -982,30 +982,30 @@ public:
 
 `Coffee` は `IDrink` を実装するシンプルなクラスです。このクラス自体は今後ほとんど変わりません。
 
-**ToppingDecorator クラス（仲介役の基底）：**
+**ToppingWrapper クラス（仲介役の基底）：**
 
 ```cpp
 // 変わる部分を繋ぐ仲介役：トッピングの基底クラス
-class ToppingDecorator : public IDrink {
+class ToppingWrapper : public IDrink {
 protected:
     // ← 抽象：IDrink*型で受け取り、具体実装を知らない
     // ← 間接：Decoratorを経由するため内部クラス群が見えない
     IDrink* baseDrink;
 public:
-    ToppingDecorator(IDrink* base) : baseDrink(base) {}
+    ToppingWrapper(IDrink* base) : baseDrink(base) {}
 };
 
 ```
 
-`ToppingDecorator` が「自分の中に別のドリンクを包む」という仲介の仕組みを担います。
+`ToppingWrapper` が「自分の中に別のドリンクを包む」という仲介の仕組みを担います。
 
 **Milk クラス（具体的なトッピング）：**
 
 ```cpp
 // 具体的なトッピング：ミルク
-class Milk : public ToppingDecorator {
+class Milk : public ToppingWrapper {
 public:
-    Milk(IDrink* base) : ToppingDecorator(base) {}
+    Milk(IDrink* base) : ToppingWrapper(base) {}
     
     int getPrice() const override {
         // 中身が何であるかは知らなくていい。価格を上乗せするだけ
@@ -1061,42 +1061,6 @@ int main() {
 ```
 
 `MobileOrderService` と `StaffPreviewService` はどちらも `IDrink*` という抽象インターフェースしか知らない。具体的なトッピングの重ね方（何層になっているか）の知識は `main()` の組み立て部分だけに閉じている。
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant MOS as MobileOrderService
-    participant SPS as StaffPreviewService
-    participant W as Whip
-    participant M as Milk
-    participant C as Coffee
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>C: new Coffee
-    main->>M: new Milk(coffee)
-    main->>W: new Whip(milk)
-    main->>MOS: new（order: IDrink*）
-    main->>SPS: new（order: IDrink*）
-    main->>MOS: placeOrder(order)
-    MOS->>W: order->getPrice()
-    Note right of MOS: IDrink* 経由（何層かは知らない）
-    W->>M: baseDrink->getPrice()
-    Note right of W: IDrink* 経由（間接チェーン）
-    M->>C: baseDrink->getPrice()
-    C-->>M: 300円
-    M-->>W: 350円
-    W-->>MOS: 420円
-    MOS-->>main: 注文確定
-    main->>SPS: getOrderLabel(order)
-    SPS->>W: order->getPrice()
-    W->>M: baseDrink->getPrice()
-    M->>C: baseDrink->getPrice()
-    C-->>M: 300円
-    M-->>W: 350円
-    W-->>SPS: 420円
-    SPS-->>main: ラベル文字列
-```
 
 一文要約：呼び出し元→`IDrink*`→デコレータチェーンという間接経路を経由するため、トッピングが何層に重なっているかの知識は `main()` の組み立て部分だけが持っている。
 
@@ -1257,29 +1221,29 @@ public:
 
 `Coffee` は最も変化が少ないクラスです。基本ドリンクの種類が増えるときだけ、このような新しいクラスを追加します。
 
-**ToppingDecorator クラス（仲介役の基底）：**
+**ToppingWrapper クラス（仲介役の基底）：**
 
 ```cpp
 // 変わる部分を繋ぐ仲介役：トッピングの基底クラス
-class ToppingDecorator : public IDrink {
+class ToppingWrapper : public IDrink {
 protected:
     // ← 中身（基本ドリンクや他のトッピング）を隠し持つ
     IDrink* baseDrink; 
 public:
-    ToppingDecorator(IDrink* base) : baseDrink(base) {}
+    ToppingWrapper(IDrink* base) : baseDrink(base) {}
 };
 
 ```
 
-`ToppingDecorator` が「中に別のドリンクを包む」仕組みを提供します。具体的なトッピングはこのクラスを継承するだけで済みます。
+`ToppingWrapper` が「中に別のドリンクを包む」仕組みを提供します。具体的なトッピングはこのクラスを継承するだけで済みます。
 
 **Milk クラス・Whip クラス（具体的なトッピング）：**
 
 ```cpp
 // 具体的なトッピング：ミルク
-class Milk : public ToppingDecorator {
+class Milk : public ToppingWrapper {
 public:
-    Milk(IDrink* base) : ToppingDecorator(base) {}
+    Milk(IDrink* base) : ToppingWrapper(base) {}
     int getPrice() const override {
         // ← 中身が何であるかは知らなくていい。価格を上乗せするだけ
         return baseDrink->getPrice() + 50;
@@ -1290,9 +1254,9 @@ public:
 };
 
 // 具体的なトッピング：ホイップ
-class Whip : public ToppingDecorator {
+class Whip : public ToppingWrapper {
 public:
-    Whip(IDrink* base) : ToppingDecorator(base) {}
+    Whip(IDrink* base) : ToppingWrapper(base) {}
     int getPrice() const override {
         return baseDrink->getPrice() + 70;
     }
@@ -1309,9 +1273,9 @@ public:
 
 ```cpp
 // ← 新しいトッピングを追加する場合は、クラスを1つ増やすだけ（ここだけ変わる）
-class Matcha : public ToppingDecorator {
+class Matcha : public ToppingWrapper {
 public:
-    Matcha(IDrink* base) : ToppingDecorator(base) {}
+    Matcha(IDrink* base) : ToppingWrapper(base) {}
     int getPrice() const override {
         return baseDrink->getPrice() + 60;
     }
@@ -1365,7 +1329,31 @@ int main() {
 
 このコードを見ると、新しいルール（抹茶）を追加するために既存のクラスを一切開く必要がなくなり、新しく `Matcha` クラスを作るだけで要件を満たせるようになったことが分かります。
 
----
+**動作図（シーケンス図）：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant OA as OrderApplication
+    participant M as Matcha
+    participant Mi as Milk
+    participant C as Coffee
+    Note over main: 組み立てと実行
+    main->>OA: run()
+    OA->>C: new Coffee()
+    OA->>Mi: new Milk(coffee)
+    OA->>M: new Matcha(milk)
+    OA->>M: new Matcha(matcha1)
+    OA->>M: order->getPrice()
+    Note right of OA: IDrink*経由
+    M->>M: baseDrink->getPrice()
+    M->>Mi: baseDrink->getPrice()
+    Mi->>C: baseDrink->getPrice()
+    C-->>Mi: 300
+    Mi-->>M: 350
+    M-->>M: 410
+    M-->>OA: 470
+```
 
 ### 7-2：変更影響グラフ（改善後）
 
@@ -1405,7 +1393,7 @@ graph LR
 **「抽象×間接」の証拠となるコード：**
 
 ```cpp
-class ToppingDecorator : public IDrink {
+class ToppingWrapper : public IDrink {
 protected:
     IDrink* baseDrink; // ← インターフェース型 = 「抽象」の証拠
 public:
@@ -1473,7 +1461,7 @@ public:
 
 
 * **原則3「継承よりコンポジションを優先せよ」の現れ**
-* **具体化された場所：** `ToppingDecorator` 内での `IDrink*` 保持
+* **具体化された場所：** `ToppingWrapper` 内での `IDrink*` 保持
 * **解説：** 継承階層を深くするのではなく、コンポジション（保持）によって機能を動的に重ね合わせる構造にしました。
 
 
@@ -1523,7 +1511,7 @@ classDiagram
 
 #### この章の実装との対応
 
-`IDrink` が `IDrink`（抽象ロール）、`Coffee` が `ConcreteBeverage`（具象コンポーネント）、`ToppingDecorator` が `Decorator`（装飾の基底）、`Milk` や `Matcha` が `ConcreteDecorator`（具象装飾）に対応します。
+`IDrink` が `IDrink`（抽象ロール）、`Coffee` が `ConcreteBeverage`（具象コンポーネント）、`ToppingWrapper` が `Decorator`（装飾の基底）、`Milk` や `Matcha` が `ConcreteDecorator`（具象装飾）に対応します。
 
 #### 使いどころと限界
 
@@ -1538,15 +1526,4 @@ classDiagram
 
 ```
 
-この章のまとめ：
-この章の冒頭で示した「得られること」4点を、あらためて確認します。
 
-**得られること1**（変動箇所の識別）：フェーズ1で、`CustomDrink` クラスに「トッピングが何種あるか」という知識が直接埋め込まれていることを確認しました。「変わる機能」（トッピングの種類）と「変わらない機能」（ドリンクの基本的な注文処理）を区別する問いが、変動箇所を見抜く目を育てます。
-
-**得られること2**（接続点の診断）：フェーズ4で、`CustomDrink` が各トッピングの具体クラスを名指しで知っている「具体×直接」の状態を診断しました。特定のクラスを直接知っているということは、そのクラスが変われば自分も変わらざるを得ないという必然を、接続の形から読み取れるようになります。
-
-**得られること3**（変更局所化の説明）：フェーズ7で、新しいトッピングを追加するとき既存のクラスに一切触れずに新規クラスを追加するだけで済む構造を確認しました。「変更の影響がこのクラスだけに閉じる理由」を接続の形で説明できる状態が、チームの設計会話で力を発揮します。
-
-**得られること4**（多層重ね掛けの視点）：フェーズ7で、`Coffee` → `Milk` → `Whip` と何層でもラップできる構造を確認しました。基本機能と追加機能を同じインターフェースで扱うことで、呼び出し側に違いを意識させずに機能を重ねていく発想が身につきます。
-
-カフェのカスタマイズ注文という題材を通じて、機能の組み合わせをコードで表現する設計の視点を体験できたのではないかと思います。この章で辿った7つのフェーズは、どんな現場のコードにも同じように使える思考の型です。

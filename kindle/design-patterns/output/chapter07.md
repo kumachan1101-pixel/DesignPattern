@@ -197,7 +197,7 @@ int main() {
 
 ### 1-7：実行結果
 
-上記のコードを実行した結果は以下のようになります。
+上記コードの実行結果：
 
 ```text
 商品 T-shirt-001 の在庫を 5 減らしました。
@@ -701,7 +701,7 @@ int main() {
 | 手段 | 方法 | 特徴 |
 |---|---|---|
 | 手段A：コンストラクタインジェクション | コンストラクタでリストを受け取る | 一度組み立てたら変更しない場合に明快 |
-| 手段B：addObserver()メソッド | 実行時に `attach()` を呼んで通知先リストに追加 | 柔軟に増減できる。組み立て側が登録を管理する |
+| 手段B：addSubscriber()メソッド | 実行時に `attach()` を呼んで通知先リストに追加 | 柔軟に増減できる。組み立て側が登録を管理する |
 | 手段C：ポーリング | 通知先が定期的に状態を確認しに来る | 通知元が通知先を一切知らずに済む。ただし遅延が発生する |
 
 → **採用：手段B**（通知先を実行時に動的に追加・削除できる柔軟性が、田中部長の要求「どんどん増えていく」に最も適合する）
@@ -872,7 +872,7 @@ classDiagram
     }
     class NotificationManager {
         -INotification*[] observers
-        +addObserver(INotification*)
+        +addSubscriber(INotification*)
         +sendAll(string)
     }
     class INotification {
@@ -928,7 +928,7 @@ class NotificationManager : public INotificationManager {
     // ← 間接：Managerを経由するため内部クラス群が見えない
     vector<INotification*> observers;
 public:
-    void addObserver(INotification* o) { observers.push_back(o); }
+    void addSubscriber(INotification* o) { observers.push_back(o); }
     void sendAll(string m) override {
         for(auto* o : observers) o->send(m);
     }
@@ -989,8 +989,8 @@ int main() {
     EmailNotifier email;          // ← 具体：組み立て側だけが具体型を知る
     SlackNotifier slack;
     NotificationManager mgr;
-    mgr.addObserver(&email);
-    mgr.addObserver(&slack);
+    mgr.addSubscriber(&email);
+    mgr.addSubscriber(&slack);
 
     // 在庫変動の呼び出し元：抽象マネージャーのみ見えて具体実装は隠れる
     InventoryManager manager(&mgr);
@@ -1001,38 +1001,6 @@ int main() {
     fulfillment.notifyShipped("ORDER-001");
     return 0;
 }
-```
-
-**動作図：**
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant IM as InventoryManager
-    participant OFS as OrderFulfillmentService
-    participant NM as NotificationManager
-    participant EN as EmailNotifier
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>EN: new EmailNotifier
-    main->>NM: new NotificationManager
-    main->>NM: addObserver(&email)
-    main->>IM: new（mgr: INotificationManager*）
-    main->>OFS: new（mgr: INotificationManager*）
-    main->>IM: reduceStock("T-shirt-001", 5)
-    IM->>NM: mgr->sendAll(message)
-    Note right of IM: INotificationManager* 経由
-    NM->>EN: o->send(message)
-    Note right of NM: INotification* 経由
-    EN-->>NM: 完了
-    NM-->>IM: 完了
-    IM-->>main: 在庫更新完了
-    main->>OFS: notifyShipped("ORDER-001")
-    OFS->>NM: mgr->sendAll(message)
-    Note right of OFS: INotificationManager* 経由
-    NM->>EN: o->send(message)
-    EN-->>NM: 完了
-    NM-->>OFS: 完了
-    OFS-->>main: 出荷通知完了
 ```
 
 一文要約：呼び出し元→`INotificationManager*`→`INotification*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
@@ -1268,6 +1236,38 @@ graph LR
 フェーズ4-3で診断した通り、変更前のコードは **具体×直接** の状態でした。
 採用した Observer パターンでは、接続形態が **抽象×直接（USB-C直差し）** へと変化しています。
 
+**動作図（シーケンス図）：**
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant IM as InventoryManager
+    participant OFS as OrderFulfillmentService
+    participant NM as NotificationManager
+    participant EN as EmailNotifier
+    Note over main: 組み立てと実行
+    main->>EN: new EmailNotifier()
+    main->>NM: new NotificationManager()
+    main->>NM: addSubscriber(&email)
+    main->>IM: new InventoryManager(&mgr)
+    main->>OFS: new OrderFulfillmentService(&mgr)
+    main->>IM: reduceStock("T-shirt-001", 5)
+    IM->>NM: mgr->sendAll(message)
+    Note right of IM: INotificationManager* 経由
+    NM->>EN: o->send(message)
+    Note right of NM: INotification* 経由
+    EN-->>NM: 完了
+    NM-->>IM: 完了
+    IM-->>main: 在庫更新完了
+    main->>OFS: notifyShipped("ORDER-001")
+    OFS->>NM: mgr->sendAll(message)
+    Note right of OFS: INotificationManager* 経由
+    NM->>EN: o->send(message)
+    EN-->>NM: 完了
+    NM-->>OFS: 完了
+    OFS-->>main: 出荷通知完了
+```
+
 **「抽象×直接」の証拠となるコード：**
 
 ```cpp
@@ -1395,16 +1395,4 @@ classDiagram
 
 ```
 
-### この章のまとめ
 
-この章の冒頭で示した「得られること」4点を、あらためて確認します。
-
-**得られること1**（在庫変動の識別）：フェーズ1で、`InventoryManager` の `notifyAll` メソッドが通知先の具体クラスを直接呼び出していることを確認しました。「在庫の変動」という一つの変化が複数の通知先に伝わる流れを追うことで、変動箇所を識別する視点が養われたはずです。
-
-**得られること2**（接続点の診断）：フェーズ4で、`InventoryManager` が各通知先の具体クラスを直接知っている「具体×直接」の接続形態を診断しました。この構造では通知先が増えるたびに通知元のコードを変更する必要があり、その痛みの原因が接続の形から読めるようになります。
-
-**得られること3**（変更局所化の説明）：フェーズ7で、通知先を `INotification` インターフェース越しに受け取る構造に変えたことで、通知先が増減しても `InventoryManager` 本体に一切触れなくて済む設計を確認しました。「なぜ閉じたままでいられるのか」を構造から説明できる状態になったと思います。
-
-**得られること4**（動的な追加・削除の視点）：フェーズ7で、通知先の登録・解除が実行時に動的に行える構造も確認しました。「通知する側が通知先を具体的に知らなくても動く」という発想が、柔軟なシステム設計の選択肢を広げます。
-
-在庫管理システムという题材を通じて、変化の「発信元」と「受け取り手」を疎結合に繋ぐ設計の視点を体験できたのではないかと思います。この章で辿った7つのフェーズは、どんな現場のコードにも同じように使える思考の型です。
