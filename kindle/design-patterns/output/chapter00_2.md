@@ -438,63 +438,19 @@ S0で把握したクラスの責任一覧を見れば、「このクラスは営
 
 **具体×直接**は最もシンプルな形です。Aは「Bが何をするか」を直接知っています。「責任の整理」が目的なら、まずここから始めれば十分です。
 
-```mermaid
-graph LR
-    L["★具体×直接<br>Lightning直差し"]:::hl
-    A["具体×間接<br>専用アダプター経由"]
-    U["抽象×直接<br>USB-C直差し"]
-    H["抽象×間接<br>USB-Cハブ経由"]
-    L --- A
-    U --- H
-    L --- U
-    A --- H
-    classDef hl fill:#d4edda,stroke:#28a745,stroke-width:2px
-```
+![接続マトリクス：具体×直接（★）を選択中](images/matrix-hl-concrete-direct.svg)
 
 **抽象×直接**は、AがBの「型（インターフェース）」だけを知る形です。Bの実装がCに替わっても、Aのコードは変わりません。「差し替え」が目的のとき、この形を選びます。
 
-```mermaid
-graph LR
-    L["具体×直接<br>Lightning直差し"]
-    A["具体×間接<br>専用アダプター経由"]
-    U["★抽象×直接<br>USB-C直差し"]:::hl
-    H["抽象×間接<br>USB-Cハブ経由"]
-    L --- A
-    U --- H
-    L --- U
-    A --- H
-    classDef hl fill:#d4edda,stroke:#28a745,stroke-width:2px
-```
+![接続マトリクス：抽象×直接（★）を選択中](images/matrix-hl-abstract-direct.svg)
 
 **具体×間接**は、AがBの存在を知らない形です。間にCが入り、複雑さや変化をAから隠します。「複雑さを隠したい」「Aに知らせたくない変化がある」とき、この形を選びます。
 
-```mermaid
-graph LR
-    L["具体×直接<br>Lightning直差し"]
-    A["★具体×間接<br>専用アダプター経由"]:::hl
-    U["抽象×直接<br>USB-C直差し"]
-    H["抽象×間接<br>USB-Cハブ経由"]
-    L --- A
-    U --- H
-    L --- U
-    A --- H
-    classDef hl fill:#d4edda,stroke:#28a745,stroke-width:2px
-```
+![接続マトリクス：具体×間接（★）を選択中](images/matrix-hl-concrete-indirect.svg)
 
 **抽象×間接**は最も柔軟な形です。Aは中間層Cの型だけを知り、CがBに処理を委譲します。「差し替えたい かつ 知らせたくない」という2つの理由が重なるとき、この形が必要になります。
 
-```mermaid
-graph LR
-    L["具体×直接<br>Lightning直差し"]
-    A["具体×間接<br>専用アダプター経由"]
-    U["抽象×直接<br>USB-C直差し"]
-    H["★抽象×間接<br>USB-Cハブ経由"]:::hl
-    L --- A
-    U --- H
-    L --- U
-    A --- H
-    classDef hl fill:#d4edda,stroke:#28a745,stroke-width:2px
-```
+![接続マトリクス：抽象×間接（★）を選択中](images/matrix-hl-abstract-indirect.svg)
 
 ### 対策案を考えるときの指針：3つの原則
 

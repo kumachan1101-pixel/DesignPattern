@@ -1,0 +1,202 @@
+<svg width="680" height="460" xmlns="http://www.w3.org/2000/svg"
+     font-family="'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif">
+
+  <!-- ===== 背景 ===== -->
+  <rect width="680" height="460" fill="#f8f9fa" rx="6" stroke="#d0d0d0" stroke-width="1"/>
+
+  <!-- ===== 列ヘッダー（横軸） ===== -->
+  <rect x="90" y="0" width="295" height="50" fill="#e8edf3" rx="0"/>
+  <text x="237" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#2c3e50">直接</text>
+  <text x="237" y="37" text-anchor="middle" font-size="10" fill="#555">（直差し）</text>
+
+  <rect x="385" y="0" width="295" height="50" fill="#e8edf3" rx="0"/>
+  <text x="532" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#2c3e50">間接</text>
+  <text x="532" y="37" text-anchor="middle" font-size="10" fill="#555">（アダプター / ハブ経由）</text>
+
+  <!-- ===== 行ヘッダー（縦軸） ===== -->
+  <rect x="0" y="50" width="90" height="205" fill="#e8edf3"/>
+  <text x="25" y="153" text-anchor="middle" font-size="13" font-weight="bold" fill="#2c3e50"
+        transform="rotate(-90 25 153)">具体</text>
+  <text x="25" y="170" text-anchor="middle" font-size="10" fill="#555"
+        transform="rotate(-90 25 170)">（専用端子）</text>
+
+  <rect x="0" y="255" width="90" height="205" fill="#e8edf3"/>
+  <text x="25" y="358" text-anchor="middle" font-size="13" font-weight="bold" fill="#2c3e50"
+        transform="rotate(-90 25 358)">抽象</text>
+  <text x="25" y="375" text-anchor="middle" font-size="10" fill="#555"
+        transform="rotate(-90 25 375)">（共通規格）</text>
+
+  <!-- ===== グリッド線 ===== -->
+  <rect x="90" y="50" width="590" height="410" fill="none" stroke="#bbb" stroke-width="1.5"/>
+  <line x1="385" y1="50" x2="385" y2="460" stroke="#bbb" stroke-width="2"/>
+  <line x1="90" y1="255" x2="680" y2="255" stroke="#bbb" stroke-width="2"/>
+
+  <!-- ============================================================ -->
+  <!-- セル (1,1)  具体 × 直接  ―― Lightning 直差し                -->
+  <!-- ============================================================ -->
+  <rect x="90" y="50" width="295" height="205" fill="white"/>
+
+  <!-- iPhone -->
+  <rect x="110" y="90" width="52" height="90" rx="8"
+        fill="#ececec" stroke="#999" stroke-width="1.5"/>
+  <rect x="116" y="98" width="40" height="70" rx="3" fill="#aab8c2"/>
+  <rect x="128" y="172" width="16" height="4" rx="2" fill="#90a4ae"/>
+  <text x="136" y="142" text-anchor="middle" font-size="9" fill="#555">iPhone</text>
+  <!-- Lightning ポート（右側） -->
+  <rect x="162" y="131" width="5" height="7" rx="1" fill="#888"/>
+
+  <!-- Lightning ケーブル（橙） -->
+  <!-- 左コネクタ -->
+  <rect x="165" y="130" width="11" height="9" rx="1.5" fill="#ff8f00" stroke="#bf6000" stroke-width="0.8"/>
+  <!-- ケーブル線 -->
+  <line x1="176" y1="134" x2="240" y2="134" stroke="#ff8f00" stroke-width="5"/>
+  <!-- 右コネクタ -->
+  <rect x="240" y="130" width="11" height="9" rx="1.5" fill="#ff8f00" stroke="#bf6000" stroke-width="0.8"/>
+  <text x="208" y="150" text-anchor="middle" font-size="9" fill="#bf6000" font-style="italic">Lightning</text>
+
+  <!-- MacBook -->
+  <!-- 本体 -->
+  <rect x="252" y="98" width="90" height="62" rx="4"
+        fill="#d5d5d5" stroke="#999" stroke-width="1.5"/>
+  <rect x="256" y="102" width="82" height="54" rx="2" fill="#aab8c2"/>
+  <!-- ベース -->
+  <rect x="244" y="160" width="106" height="9" rx="3"
+        fill="#c0c0c0" stroke="#999" stroke-width="1"/>
+  <!-- Lightning ポート（左側） -->
+  <rect x="251" y="130" width="5" height="7" rx="1" fill="#888"/>
+  <text x="297" y="136" text-anchor="middle" font-size="9" fill="#555">MacBook</text>
+
+  <text x="237" y="240" text-anchor="middle" font-size="10" fill="#777">iPhone 専用端子 ─ 中間物なし</text>
+
+
+  <!-- ============================================================ -->
+  <!-- セル (1,2)  具体 × 間接  ―― Lightning → 変換アダプター経由  -->
+  <!-- ============================================================ -->
+  <rect x="385" y="50" width="295" height="205" fill="white"/>
+
+  <!-- iPhone（小） -->
+  <rect x="398" y="96" width="42" height="72" rx="7"
+        fill="#ececec" stroke="#999" stroke-width="1.5"/>
+  <rect x="403" y="102" width="32" height="56" rx="2" fill="#aab8c2"/>
+  <rect x="412" y="162" width="14" height="3" rx="1.5" fill="#90a4ae"/>
+  <text x="419" y="134" text-anchor="middle" font-size="8" fill="#555">iPhone</text>
+  <rect x="440" y="129" width="4" height="6" rx="1" fill="#888"/>
+
+  <!-- Lightning ケーブル（橙・短） -->
+  <rect x="443" y="128" width="9" height="8" rx="1.5" fill="#ff8f00" stroke="#bf6000" stroke-width="0.8"/>
+  <line x1="452" y1="132" x2="468" y2="132" stroke="#ff8f00" stroke-width="4"/>
+
+  <!-- 変換アダプター -->
+  <rect x="468" y="118" width="48" height="28" rx="5"
+        fill="#fff8e1" stroke="#ff8f00" stroke-width="2"/>
+  <text x="492" y="130" text-anchor="middle" font-size="8" fill="#bf6000" font-weight="bold">変換</text>
+  <text x="492" y="141" text-anchor="middle" font-size="7" fill="#bf6000">Adapter</text>
+
+  <!-- USB-C ケーブル（青・短） -->
+  <line x1="516" y1="132" x2="532" y2="132" stroke="#1976d2" stroke-width="4"/>
+  <rect x="532" y="129" width="9" height="8" rx="3" fill="#1976d2" stroke="#0d47a1" stroke-width="0.8"/>
+
+  <!-- MacBook（小） -->
+  <rect x="542" y="100" width="80" height="50" rx="4"
+        fill="#d5d5d5" stroke="#999" stroke-width="1.5"/>
+  <rect x="546" y="104" width="72" height="42" rx="2" fill="#aab8c2"/>
+  <rect x="534" y="150" width="96" height="8" rx="3"
+        fill="#c0c0c0" stroke="#999" stroke-width="1"/>
+  <rect x="541" y="129" width="4" height="6" rx="1" fill="#888"/>
+  <text x="582" y="129" text-anchor="middle" font-size="8" fill="#555">MacBook</text>
+
+  <text x="532" y="183" text-anchor="middle" font-size="9" fill="#bf6000">Lightning → アダプター → USB-C</text>
+  <text x="532" y="240" text-anchor="middle" font-size="10" fill="#777">専用端子のため ─ アダプターを挟む</text>
+
+
+  <!-- ============================================================ -->
+  <!-- セル (2,1)  抽象 × 直接  ―― USB-C 直差し                   -->
+  <!-- ============================================================ -->
+  <rect x="90" y="255" width="295" height="205" fill="white"/>
+
+  <!-- デバイス A（USB-C対応・汎用） -->
+  <rect x="108" y="290" width="55" height="82" rx="8"
+        fill="#e3f2fd" stroke="#64b5f6" stroke-width="2"/>
+  <rect x="114" y="297" width="43" height="64" rx="3" fill="#82b1d4"/>
+  <rect x="122" y="364" width="27" height="4" rx="2" fill="#5c8fad"/>
+  <text x="136" y="333" text-anchor="middle" font-size="8" fill="white">USB-C</text>
+  <text x="136" y="345" text-anchor="middle" font-size="8" fill="white">device</text>
+  <!-- USB-C ポート（右） -->
+  <rect x="162" y="327" width="5" height="7" rx="2.5" fill="#1976d2"/>
+
+  <!-- USB-C ケーブル（青） -->
+  <!-- 左コネクタ -->
+  <rect x="166" y="325" width="10" height="9" rx="4" fill="#1976d2" stroke="#0d47a1" stroke-width="0.8"/>
+  <!-- ケーブル線 -->
+  <line x1="176" y1="329" x2="238" y2="329" stroke="#1976d2" stroke-width="5"/>
+  <!-- 右コネクタ -->
+  <rect x="238" y="325" width="10" height="9" rx="4" fill="#1976d2" stroke="#0d47a1" stroke-width="0.8"/>
+  <text x="207" y="347" text-anchor="middle" font-size="9" fill="#1565c0" font-style="italic">USB-C</text>
+
+  <!-- デバイス B（USB-C対応・汎用） -->
+  <rect x="249" y="290" width="55" height="82" rx="8"
+        fill="#e3f2fd" stroke="#64b5f6" stroke-width="2"/>
+  <rect x="255" y="297" width="43" height="64" rx="3" fill="#82b1d4"/>
+  <rect x="263" y="364" width="27" height="4" rx="2" fill="#5c8fad"/>
+  <!-- USB-C ポート（左） -->
+  <rect x="248" y="327" width="5" height="7" rx="2.5" fill="#1976d2"/>
+  <text x="277" y="333" text-anchor="middle" font-size="8" fill="white">USB-C</text>
+  <text x="277" y="345" text-anchor="middle" font-size="8" fill="white">device</text>
+
+  <text x="237" y="430" text-anchor="middle" font-size="10" fill="#777">どのメーカーでも使える規格 ─ 中間物なし</text>
+
+
+  <!-- ============================================================ -->
+  <!-- セル (2,2)  抽象 × 間接  ―― USB-C ハブ経由                 -->
+  <!-- ============================================================ -->
+  <rect x="385" y="255" width="295" height="205" fill="white"/>
+
+  <!-- MacBook（送信元） -->
+  <rect x="393" y="288" width="70" height="48" rx="4"
+        fill="#d5d5d5" stroke="#999" stroke-width="1.5"/>
+  <rect x="397" y="292" width="62" height="40" rx="2" fill="#aab8c2"/>
+  <rect x="385" y="336" width="86" height="8" rx="3"
+        fill="#c0c0c0" stroke="#999" stroke-width="1"/>
+  <text x="428" y="315" text-anchor="middle" font-size="9" fill="#555">MacBook</text>
+  <!-- USB-C ポート（右） -->
+  <rect x="463" y="308" width="5" height="7" rx="2.5" fill="#1976d2"/>
+
+  <!-- USB-C ケーブル（Mac→Hub） -->
+  <line x1="468" y1="311" x2="483" y2="311" stroke="#1976d2" stroke-width="4"/>
+  <rect x="482" y="308" width="9" height="7" rx="3" fill="#1976d2"/>
+
+  <!-- ハブ -->
+  <rect x="491" y="284" width="56" height="62" rx="6"
+        fill="#e8f5e9" stroke="#43a047" stroke-width="2.5"/>
+  <text x="519" y="307" text-anchor="middle" font-size="9" fill="#1b5e20" font-weight="bold">USB-C</text>
+  <text x="519" y="320" text-anchor="middle" font-size="9" fill="#1b5e20">Hub</text>
+  <!-- ハブ右側ポート（3つ） -->
+  <rect x="543" y="294" width="6" height="5" rx="2" fill="#43a047"/>
+  <rect x="543" y="307" width="6" height="5" rx="2" fill="#43a047"/>
+  <rect x="543" y="320" width="6" height="5" rx="2" fill="#43a047"/>
+
+  <!-- Monitor（右上） -->
+  <line x1="548" y1="297" x2="570" y2="284" stroke="#1976d2" stroke-width="2.5"/>
+  <rect x="570" y="272" width="60" height="36" rx="3"
+        fill="#eceff1" stroke="#b0bec5" stroke-width="1.5"/>
+  <rect x="574" y="276" width="52" height="26" rx="2" fill="#78909c"/>
+  <rect x="589" y="302" width="22" height="6" rx="2" fill="#b0bec5"/>
+  <text x="600" y="291" text-anchor="middle" font-size="8" fill="white">Monitor</text>
+
+  <!-- iPad（右中） -->
+  <line x1="548" y1="310" x2="570" y2="310" stroke="#1976d2" stroke-width="2.5"/>
+  <rect x="570" y="301" width="56" height="36" rx="6"
+        fill="#fce4ec" stroke="#f48fb1" stroke-width="1.5"/>
+  <rect x="574" y="305" width="44" height="28" rx="3" fill="#f48fb1"/>
+  <text x="598" y="322" text-anchor="middle" font-size="8" fill="white">iPad</text>
+
+  <!-- USB 機器（右下） -->
+  <line x1="548" y1="322" x2="570" y2="338" stroke="#1976d2" stroke-width="2.5"/>
+  <rect x="570" y="331" width="56" height="22" rx="4"
+        fill="#f3e5f5" stroke="#ce93d8" stroke-width="1.5"/>
+  <text x="598" y="345" text-anchor="middle" font-size="8" fill="#6a1b9a">USB 機器</text>
+
+  <text x="532" y="390" text-anchor="middle" font-size="9" fill="#1b5e20">Mac → ハブ → Monitor / iPad / USB 機器</text>
+  <text x="532" y="430" text-anchor="middle" font-size="10" fill="#777">規格化された口を集約するハブを挟む</text>
+
+</svg>
