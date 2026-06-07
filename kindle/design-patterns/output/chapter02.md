@@ -1,4 +1,4 @@
-## 第2章・Facade・ネット銀行の振り込み処理
+## 第2章 窓口を一本化する ―― Facade パターン
 
 ### 前-1：章タイトル
 
@@ -134,7 +134,9 @@ public:
     void verifyAccount(const std::string& account) {
         std::cout << "口座確認: " << account << "\n";
     }
-    void checkBalance(const std::string& account) { std::cout << "残高確認\n"; }
+    void checkBalance(const std::string& account) {
+        std::cout << "残高確認\n";
+    }
     void executeTransfer(const std::string& account, int amount) {
         std::cout << "送金実行: " << amount << "円\n";
     }
@@ -144,7 +146,9 @@ public:
 class SecurityAuthenticator {
 public:
     void requestOTP() { std::cout << "認証コード発行\n"; }
-    void verifyOTP(const std::string& token) { std::cout << "認証コード検証\n"; }
+    void verifyOTP(const std::string& token) {
+        std::cout << "認証コード検証\n";
+    }
 };
 
 // 振り込み処理クラス
@@ -212,7 +216,7 @@ int main() {
 
 ---
 
-## 🟠 フェーズ2：仮説立案 ―― 変更要求を受けて、変動と不変を整理する
+## 🟣 フェーズ2：仮説立案 ―― 変更要求を受けて、変動と不変を整理する
 
 フェーズ1で、銀行システムとの連携処理が `TransferProcessor` クラスに集中している現状を把握しました。このフェーズでは、実際に届いた変更要求を起点にして、「コードのどこが変わり、どこが変わらないか」を整理し、関係者とヒアリングを行いながら設計の方向性を定めます。
 
@@ -269,7 +273,7 @@ int main() {
 
 フェーズ2で「今回確実に変わること」と「将来変わりうるリスク」が整理できました。次のフェーズ3では、今のコードでこの変更を試みたときに何が起きるかを確認します。
 
-## 🟡 フェーズ3：問題特定 ―― 変更を試みて、痛みを発見する
+## 🟣 フェーズ3：問題特定 ―― 変更を試みて、痛みを発見する
 
 フェーズ2で、銀行APIの認証仕様変更という「将来的に繰り返されるであろう変更要求」が確定しました。このフェーズでは、その変更要求を今のコードのまま適用しようとしたとき、システムにどのような「痛み」が生じるのかを観察していきます。
 
@@ -287,13 +291,13 @@ void transfer(
     // 【痛み：認証の手順が変わる】
     // 既存のコードを書き換える必要がある
     auth.requestOTP(); 
-    // ここで銀行から発行された取引IDを保持しなければならない
+    // 銀行から発行された取引IDを保持しなければならない
     std::string transactionId = auth.getTransactionId(); 
     // 検証時に取引IDを渡す必要がある
     auth.verifyOTP(otp, transactionId); 
     
     // 【痛み：送金APIの仕様が変わる】
-    // トランザクションIDを生成し、送金時に渡さなければならない
+    // TxIDを生成し、送金時に渡さなければならない
     std::string txId = generateTxId();
     gateway.executeTransfer(toAccount, amount, txId);
     
@@ -312,9 +316,9 @@ void transfer(
 
 ```mermaid
 graph LR
-    T1["変更要求：認証・送金API変更"] -->|"影響が飛び火"| A["TransferProcessor.cpp<br>（振り込み制御）"]
-    A -->|"さらに影響"| B["BankGateway.cpp<br>（API呼び出し）"]
-    A -->|"さらに影響"| C["SecurityAuthenticator.cpp<br>（認証フロー）"]
+    T1["変更要求：API変更"] -->|"飛び火"| A["TransferProcessor.cpp"]
+    A -->|"影響"| B["BankGateway.cpp"]
+    A -->|"影響"| C["SecurityAuthenticator.cpp"]
 
 ```
 
@@ -334,7 +338,7 @@ graph LR
 
 フェーズ3で「変更が辛い」という事実が確認できました。次のフェーズ4では、なぜ辛いのかを構造的に言語化します。
 
-## 🔴 フェーズ4：原因分析 ―― 「なぜ辛いのか」を構造的に言語化する
+## 🟠 フェーズ4：原因分析 ―― 「なぜ辛いのか」を構造的に言語化する
 
 フェーズ3で、銀行APIの仕様変更が私たちの業務コードに直接飛び火し、変更のたびにコードの核心部分を書き換えなければならないという痛みが確認できました。このフェーズでは、なぜそのような痛みが生まれるのかを、コードの構造（接続形態）の観点から言語化していきます。
 
@@ -380,7 +384,7 @@ graph LR
 
 フェーズ4で根本原因が言語化できました。次のフェーズ5では、解決すべき問題を具体的に定めます。
 
-## 🟣 フェーズ5：課題定義 ―― 解くべき問題を具体的に定める
+## 🟡 フェーズ5：課題定義 ―― 解くべき問題を具体的に定める
 
 フェーズ4で「銀行APIの接続手順」と「振り込みという業務プロセス」が密接に絡み合い、互いの変更理由を引きずり合っているという構造的問題が明らかになりました。対策案（フェーズ6）に進む前に、ここで「何を解くべき課題とするか」を具体的に確定させます。
 
@@ -414,7 +418,7 @@ graph LR
 
 フェーズ5で「何を解くか」が具体化されました。次のフェーズ6では、この課題に対してどのような「接続の形」を採用すべきか、案1〜案4を並べてコスト比較を行います。
 
-## 🟢 フェーズ6：対策案検討 ―― 解決策を並べ、コストで選ぶ
+## 🔴 フェーズ6：対策案検討 ―― 解決策を並べ、コストで選ぶ
 
 フェーズ5の課題定義で、業務フロー（`TransferProcessor`）と外部システム（銀行API群）の間の接続点を切り離すべきだと確認しました。このステップで最も重要なことは、「最初からどうコードを書くか」を決めないことです。課題の形が決まれば、そこをつなぐ「接続の形」の選択肢は自然と導き出されます。
 
@@ -523,7 +527,7 @@ public:
         gateway.verifyAccount(toAccount);
         gateway.checkBalance(toAccount);
         // 新しい認証手順をif文でねじ込む
-        // ← 具体："新仕様"という条件を呼び出し側が直接書いている
+        // ← 具体：条件を呼び出し側が直接書いている
         if (/* 新仕様 */) {
             auth.requestOTP();
             std::string txId = auth.getTransactionId();
@@ -538,7 +542,7 @@ public:
 };
 
 // 給与振り込みなどの一括処理バッチ（呼び出し元2）
-// ← 案1の問題：TransferProcessorと同じ銀行API呼び出し手順を重複して持つことになる
+// ← 案1の問題：同じ銀行API手順を重複して持つことになる
 class BatchTransferService {
     BankGateway gateway;         // ← 同じ具体クラスを再度保持
     SecurityAuthenticator auth;  // ← 同じ具体クラスを再度保持
@@ -655,12 +659,13 @@ public:
 
 // 給与振り込みなどの一括処理バッチ（呼び出し元2）
 class BatchTransferService {
-    BankTransferService* service;  // ← 直接：同じ具体クラスをここでも直接保持
+    // ← 直接：同じ具体クラスをここでも直接保持
+    BankTransferService* service;
 public:
     BatchTransferService(BankTransferService* s) : service(s) {}
     void processPayroll(
             const std::vector<std::pair<std::string, int>>& transfers) {
-        // ← 「どのクラスを使うか」という選択ロジックがここにも重複している
+        // ← 選択ロジックがここにも重複している
         for (const auto& [account, amount] : transfers) {
             service->execute(account, amount, "");  // バッチはOTP不要
         }
@@ -675,11 +680,13 @@ public:
 ```cpp
 // 案2（具体×直接）の呼び出し側
 int main() {
-    BankTransferService service;             // ← 直接：呼び出し側が具体クラスを直接生成
+    // ← 直接：呼び出し側が具体クラスを直接生成
+    BankTransferService service;
     TransferProcessor processor(&service);
     processor.transfer("12345678", 5000, "999999");
 
-    BatchTransferService batch(&service);   // ← 直接：同じ具体クラスをここでも直接生成
+    // ← 直接：同じ具体クラスをここでも直接生成
+    BatchTransferService batch(&service);
     batch.processPayroll({{"87654321", 30000}, {"11112222", 25000}});
     return 0;
 }
@@ -770,7 +777,8 @@ public:
 // 振り込み処理クラス（呼び出し元1）
 class TransferProcessor {
 private:
-    IBankService* service;  // ← 抽象：IBankService*型で受け取り、具体クラスを知らない
+    // ← 抽象：IBankService*型で受け取る
+    IBankService* service;
 public:
     TransferProcessor(IBankService* s) : service(s) {}
     void transfer(const std::string& toAccount, int amount,
@@ -783,12 +791,13 @@ public:
 // 給与振り込みなどの一括処理バッチ（呼び出し元2）
 class BatchTransferService {
 private:
-    IBankService* service;  // ← 抽象：同じIBankService*型で受け取る
+    // ← 抽象：同じIBankService*型で受け取る
+    IBankService* service;
 public:
     BatchTransferService(IBankService* s) : service(s) {}
     void processPayroll(
             const std::vector<std::pair<std::string, int>>& transfers) {
-        // ← 抽象：IBankServiceを通じて送金するだけで、具体クラスを知らない
+        // ← 抽象：IBankService経由で送金
         for (const auto& [account, amount] : transfers) {
             service->send(account, amount);
         }
@@ -803,9 +812,10 @@ public:
 ```cpp
 // 案3（抽象×直接）の呼び出し側
 int main() {
-    BankTransferService bankService;            // ← 具体：呼び出し側だけが具体クラスを生成
-    TransferProcessor processor(&bankService);  // ← 直接：同じserviceを注入
-    BatchTransferService batch(&bankService);   // ← 直接：同じserviceを使い回せる
+    // ← 具体：呼び出し側だけが具体クラスを生成
+    BankTransferService bankService;
+    TransferProcessor processor(&bankService);  // ← 直接：注入
+    BatchTransferService batch(&bankService);   // ← 直接：使い回せる
     processor.transfer("12345678", 5000, "999999");
     batch.processPayroll({{"87654321", 30000}, {"11112222", 25000}});
     return 0;
@@ -949,9 +959,12 @@ public:
 ```cpp
 // 案4（抽象×間接）の呼び出し側
 int main() {
-    BankTransferService facade;                         // ← 具体：組み立て側だけが具体型を知る
-    TransferProcessor processor(&facade);      // ← 間接：抽象Facadeのみ見えて具体実装は隠れる
-    BatchTransferService batch(&facade);       // ← 間接：同じFacadeを共有
+    // ← 具体：組み立て側だけが具体型を知る
+    BankTransferService facade;
+    // ← 間接：抽象Facadeのみ見えて具体実装は隠れる
+    TransferProcessor processor(&facade);
+    // ← 間接：同じFacadeを共有
+    BatchTransferService batch(&facade);
     processor.transfer("12345678", 5000, "999999");
     batch.processPayroll({{"87654321", 30000}, {"11112222", 25000}});
     return 0;
@@ -1048,10 +1061,10 @@ sequenceDiagram
 | --- | --- | --- |
 | 案1 | 8 |  |
 | 案2 | 10 |  |
-| 案3 | 14 | ← 採用候補 |
-| 案4 | 16 | 今回は見送り（理由は下記） |
+| 案3 | 14 | 次点 |
+| 案4 | 16 | 最高スコア・最終採用 |
 
-**案4を見送った理由：** スコアは最高値（16）ですが、可読性の評価で最低点（1）を付けた通り、インターフェース＋仲介クラスを両方導入する構造は実装コストが高く、今回の「銀行API 1本を窓口化する」という要件規模に対しては過剰な複雑さを持ち込むと判断しました。パフォーマンスのVETO（拒否権）はフェーズ5で「ホットパスではない」と確認済みのため今回は除外していませんが、設計コストの観点から案4よりも案3のバランスが優れていると判断します。
+**案3 vs 案4 の最終判断：** スコアだけ見れば案4（16点）が案3（14点）を上回りますが、可読性（1点）が低い点は無視できません。ただし、フェーズ2のヒアリングで「認証フローの三段階化」「JSON→XML移行」という将来変化が予告されています。これらが来るたびに `BankTransferService` の内部を書き換え、かつ呼び出し元に影響が及ぶリスクを考えると、初期コストよりも長期の変更耐性を優先すべきと判断します。
 
 ---
 
@@ -1080,7 +1093,7 @@ sequenceDiagram
 
 今回の設計変更により、たとえ銀行側の認証やAPI形式がどれだけ複雑になろうとも、私たちの業務フロー側のクラス（`TransferProcessor`）を書き換える必要はなくなりました。「あのとき言っていた変化」が来たとしても、私たちはただ `BankTransferService` クラスだけを修正すればよいのです。
 
-## 🟤 フェーズ7：対策実施 ―― 決断し、変化に強い設計を手に入れる
+## 🟢 フェーズ7：対策実施 ―― 決断し、変化に強い設計を手に入れる
 
 フェーズ6で採用した「窓口クラスの導入」を、実際のコードに実装します。これにより、銀行システムの詳細な通信手順を `BankTransferService` クラスという一つの窓口に閉じ込め、業務フローを記述する `TransferProcessor` から「銀行APIの具体的な使い方」という知識を追い出します。
 
@@ -1211,7 +1224,7 @@ int main() {
 
 ```mermaid
 graph LR
-    T1["変更要求：認証フローの変更"] --> F1["BankTransferService.cpp<br>（窓口のみ修正）"]
+    T1["認証フロー変更"] --> F1["BankTransferService.cpp<br>（窓口のみ）"]
     T1 -. "影響なし" .-> A["TransferProcessor.cpp ✅"]
 
 ```
@@ -1240,11 +1253,13 @@ graph LR
 
 ```cpp
 class TransferProcessor {
-    IBankTransferService* facade; // ← インターフェース型 = 「抽象」の証拠
+    // ← インターフェース型 = 「抽象」の証拠
+    IBankTransferService* facade;
 public:
     void transfer(const std::string& toAccount, int amount,
                   const std::string& otp) {
-        facade->performTransfer(toAccount, amount, otp); // ← Facade経由 = 「間接」の証拠
+        // ← Facade経由 = 「間接」の証拠
+        facade->performTransfer(toAccount, amount, otp);
     }
 };
 ```
@@ -1266,12 +1281,12 @@ public:
 | **フェーズ** | **この章でやったこと** |
 | --- | --- |
 | 🔵 フェーズ1：現状把握 | 銀行APIの認証・送金手順が `TransferProcessor` クラスに直接記述されている現状を可視化しました。 |
-| 🟠 フェーズ2：仮説立案 | ヒアリングを通じ、銀行側のAPI仕様が今後も繰り返し変わるリスクを特定しました。 |
-| 🟡 フェーズ3：問題特定 | API仕様変更をシミュレーションし、業務フロー全体が破壊される「飛び火」という痛みを確認しました。 |
-| 🔴 フェーズ4：原因分析 | 業務ロジックと外部システムの詳細な利用手順が密結合していることが原因だと言語化しました。 |
-| 🟣 フェーズ5：課題定義 | 「接続点A」を外部システムとの窓口として定義し、業務フローから詳細を切り離す課題を設定しました。 |
-| 🟢 フェーズ6：対策案検討 | 案1〜案4を比較し、複雑さを隠蔽する「窓口（Facade）」を採用しました。 |
-| 🟤 フェーズ7：対策実施 | `BankTransferService` クラスを導入し、`TransferProcessor` から直接的な依存を取り除きました。 |
+| 🟣 フェーズ2：仮説立案 | ヒアリングを通じ、銀行側のAPI仕様が今後も繰り返し変わるリスクを特定しました。 |
+| 🟣 フェーズ3：問題特定 | API仕様変更をシミュレーションし、業務フロー全体が破壊される「飛び火」という痛みを確認しました。 |
+| 🟠 フェーズ4：原因分析 | 業務ロジックと外部システムの詳細な利用手順が密結合していることが原因だと言語化しました。 |
+| 🟡 フェーズ5：課題定義 | 「接続点A」を外部システムとの窓口として定義し、業務フローから詳細を切り離す課題を設定しました。 |
+| 🔴 フェーズ6：対策案検討 | 案1〜案4を比較し、複雑さを隠蔽する「窓口（Facade）」を採用しました。 |
+| 🟢 フェーズ7：対策実施 | `BankTransferService` クラスを導入し、`TransferProcessor` から直接的な依存を取り除きました。 |
 
 ### 各クラスの最終的な責任
 
@@ -1376,7 +1391,8 @@ classDiagram
 【過剰コード：ただのラッパーに過ぎない例】
 
 ```cpp
-// facadeを導入しても元のメソッドをそのまま呼ぶだけで、隠蔽の効果がない場合
+// facadeを導入しても元のメソッドをそのまま呼ぶだけで
+// 隠蔽の効果がない場合
 class SimpleFacade {
     OriginalClass sub;
 public:
