@@ -278,7 +278,7 @@ private:
 int main() {
     ReportService service(1000);
     service.generate();
-    // 実行結果:
+    // 上記コードの実行結果：
     // [PDF] 金額,100
     return 0;
 }
@@ -335,7 +335,7 @@ int main() {
     CsvFormatter formatter;
     ReportService service(&calc, &formatter);
     service.generate();
-    // 実行結果:
+    // 上記コードの実行結果：
     // [PDF] 金額,100
     return 0;
 }
