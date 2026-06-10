@@ -336,7 +336,7 @@ graph LR
 | 「具体」＝専用規格ケーブル | `EmailNotifier email;` / `DashboardUpdater dashboard;` / `ChatNotifier chat;` — 3つの通知先クラスを具体名で `InventoryManager` のメンバとして直接宣言している |
 | 「直接」＝直差し | `email.send(message); dashboard.update(message); chat.send(message);` — インターフェースや登録リストを介さず、`notifyAll()` 内で3つを直接呼び出している |
 
-現状の InventoryManager と各通知先は、その「変わる理由」が異なるため、このまま密接に接続させておくべきではありません。両者を切り離し、疎な関係にするべきだと判断できます。
+現状の InventoryManager と各通知先は、その「変わる理由」が異なります。このまま密接に接続させておくと、一方の変更がもう一方に波及し続けます。両者を切り離して疎な関係にすることが、根本原因への対処になります。
 
 フェーズ4で根本原因が言語化できました。次のフェーズ5では、解決する必要がある問題を具体的に定めます。
 
