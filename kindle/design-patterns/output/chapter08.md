@@ -1154,7 +1154,7 @@ int main() {
 
 採用案である案3（抽象×直接）を実装し、決済プロセッサーの生成をカプセル化（変更の影響が1クラスだけで済む状態）します。 これにより、決済処理のメインロジックから具体的なクラス名の依存を排除します。
 
-**この構造は、Factory Method（ファクトリーメソッド）パターンと呼ばれています。**
+案3の「インターフェースを介して接続し、生成の窓口をメソッドとして切り出す」という構成（抽象×直接）を実現した結果、生成の責任が一か所に集まった構造が自然に生まれます。**この構造は、Factory Method（ファクトリーメソッド）パターンと呼ばれています。**
 
 `createProcessor` というメソッドが「どのクラスを生成するか」という判断を一手に引き受け、利用側はインターフェースを通じて結果を受け取るだけになります。このように、生成の責任をメソッドに委譲する構造がFactory Methodパターンの核心です。
 
@@ -1178,7 +1178,7 @@ public:
 };
 ```
 
-`IPaymentProcessor` は「決済を実行する」という契約を定義します。具体クラスが何であれ、このインターフェースさえ実装していれば、利用側はそのまま使えます。
+`IPaymentProcessor` は「決済を実行するために持つべきメソッドと戻り値の約束」を定義します。具体クラスが何であれ、このインターフェースさえ実装していれば、利用側はそのまま使えます。
 
 **コード：CreditCardProcessor / ConvenienceStoreProcessor / PayPayProcessor**
 
@@ -1227,10 +1227,10 @@ private:
 
 public:
     void processPayment(string type, int amount) {
-        // ← 知らなくていい
+        // ← 生成結果の型は気にしなくていい（IPaymentProcessor*として受け取るだけ）
         IPaymentProcessor* processor = createProcessor(type);
         if (processor) {
-            processor->pay(amount); // ← 知らなくていい
+            processor->pay(amount); // ← 実装詳細を直接触らない（インターフェースの約束だけを信じる）
             delete processor;
         }
     }
@@ -1258,32 +1258,26 @@ int main() {
 ```mermaid
 sequenceDiagram
     participant main
-    participant PF as DefaultPaymentProvider
     participant PA as PaymentApplication
-    participant SS as SubscriptionService
+    participant CP as createProcessor
     participant CC as CreditCardProcessor
-    Note over main: 組み立てと実行
-    main->>PF: new DefaultPaymentProvider()
-    main->>PA: new PaymentApplication(&factory)
-    main->>SS: new SubscriptionService(&factory)
+    Note over main: 実行
     main->>PA: processPayment("credit", 1000)
-    PA->>PF: factory->create("credit")
-    Note right of PA: PaymentProvider* 経由
-    PF->>CC: new CreditCardProcessor()
-    CC-->>PF: インスタンス
-    PF-->>PA: IPaymentProcessor*
+    PA->>CP: createProcessor("credit")
+    Note right of PA: 生成をメソッドに委譲
+    CP->>CC: new CreditCardProcessor()
+    CC-->>CP: インスタンス
+    CP-->>PA: IPaymentProcessor*
     PA->>CC: processor->pay(1000)
-    Note right of PA: IPaymentProcessor* 経由
+    Note right of PA: IPaymentProcessor* 経由（実装詳細を知らない）
     CC-->>PA: 完了
     PA-->>main: 完了
-    main->>SS: chargeMonthly("user-001", 980)
-    SS->>PF: factory->create("credit")
-    PF->>CC: new CreditCardProcessor()
-    CC-->>PF: インスタンス
-    PF-->>SS: IPaymentProcessor*
-    SS->>CC: processor->pay(980)
-    CC-->>SS: 完了
-    SS-->>main: 完了
+    main->>PA: processPayment("paypay", 700)
+    PA->>CP: createProcessor("paypay")
+    CP-->>PA: IPaymentProcessor*（PayPayProcessor）
+    PA->>PA: processor->pay(700)
+    Note right of PA: IPaymentProcessor* 経由
+    PA-->>main: 完了
 ```
 
 ### 7-2：変更影響グラフ（改善後）
@@ -1358,7 +1352,7 @@ private:
 | 🟠 フェーズ4：原因分析 | 生成と利用のロジックが混在していることが、変更影響を広げる根本原因だと特定した。 |
 | 🟡 フェーズ5：課題定義 | ホットパスであることを考慮し、過剰な間接層を避けつつ、具体クラスへの依存を断つ接続形態を課題とした。 |
 | 🔴 フェーズ6：対策案検討 | 案1〜案4を比較し、インターフェースと生成メソッドを導入する構造（案3）を採用した。 |
-| 🟢 フェーズ7：対策実施 | 決済統括クラス内に生成の窓口を移譲し、決済の実行ロジックを変更から保護した。Factory Methodパターンと命名した。 |
+| 🟢 フェーズ7：対策実施 | どのプロセッサーを生成するかの判断を `createProcessor()` に集約し、利用側にはその詳細を隠した。決済の実行ロジックを変更から保護した。Factory Methodパターンと命名した。 |
 
 #### 各クラスの最終的な責任
 
@@ -1367,7 +1361,8 @@ private:
 | **クラス名** | **責任（1文）** | **変わる理由** |
 | --- | --- | --- |
 | `IPaymentProcessor` | 決済処理が実装する必要があるインタフェースを提供する。 | なし（抽象） |
-| `PaymentApplication` | 決済手段の種類に応じて、適切なプロセッサーを選択・生成し実行する。 | 決済の振り分けフローが変わる場合 |
+| `PaymentApplication`（実行責務：`processPayment`） | 決済手段の種類に応じて、適切なプロセッサーを呼び出し実行する。 | 決済の振り分けフローが変わる場合 |
+| `PaymentApplication`（生成責務：`createProcessor`） | 決済種別の文字列から対応するプロセッサーを生成して返す。 | 新しい決済手段が追加・変更される場合 |
 | `CreditCardProcessor` 等 | 各決済プロセッサの具体的な決済APIを実行する。 | 各決済手段のAPIやパラメータが変わる場合 |
 
 > **このプロセスを回した結果にたどり着いた構造こそが Factory Method パターン です。**
@@ -1380,6 +1375,8 @@ private:
 | 変動箇所の識別力 | フェーズ2の仮説テーブルで、生成ロジックを変動要因として特定しました。 |
 | 接続形態の診断力 | フェーズ4のケーブル比喩で「具体×直接」の弊害を診断しました。 |
 | 構造改善の説明力 | フェーズ7の変更影響グラフで、変更が局所化された様子を説明しました。 |
+
+**自己チェック：** 新しい決済種別を追加するとき、触るクラスは `createProcessor` だけで済んでいますか？ `processPayment` や他の決済クラスに変更が波及しているなら、生成と利用がまだ混在しているサインです。
 
 #### 振り返り：3つの設計原則はどう適用されたか
 
@@ -1460,9 +1457,37 @@ classDiagram
 【過剰コード：変化の予定がないものまでパターン化した例】
 
 ```cpp
-// 固定クラスをnewするだけで増える予定もない場合は、
-// Factory Methodは却って複雑になります。
+// 決済手段が1種類しかなく、今後も増える予定がない場合
+// Factory Methodを導入すると、かえって複雑になります。
 
+// ❌ 過剰なFactory（固定クラスをnewするだけなら不要）
+class PaymentProcessorFactory {
+public:
+    IPaymentProcessor* create() {
+        return new CreditCardProcessor(); // ← 常にこれだけ
+    }
+};
+
+class PaymentApplication {
+    PaymentProcessorFactory factory;
+public:
+    void processPayment(int amount) {
+        IPaymentProcessor* p = factory.create();
+        p->pay(amount);
+        delete p;
+    }
+};
+
+// ✅ この場合はシンプルに直接生成すれば十分
+class PaymentApplication {
+public:
+    void processPayment(int amount) {
+        CreditCardProcessor processor;
+        processor.pay(amount);
+    }
+};
 ```
+
+生成するクラスが常に1種類で固定されているなら、Factoryを介する必要はありません。「今後も変わらない」という確信があるときは、シンプルな直接生成の方が読みやすいコードになります。
 
 
