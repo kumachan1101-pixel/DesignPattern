@@ -553,10 +553,15 @@ public:
     virtual ~IDiscountRule() = default;
 };
 
-// プレミアム割引の実装
+// 一貫した構造を個別のクラスとして独立させる
 class PremiumDiscount : public IDiscountRule {
 public:
     int apply(int total) override { return static_cast<int>(total * 0.80); }
+};
+
+class SummerSaleDiscount : public IDiscountRule {
+public:
+    int apply(int total) override { return static_cast<int>(total * 0.95); }
 };
 
 class PaymentCalculator {
@@ -568,9 +573,23 @@ public:
     int calculate(const Order& order) {
         int total = 0;
         for (const auto& item : order.items) total += item.price;
-        return rule ? rule->apply(total) : total;
+        return rule ? rule->apply(total) : total; // if文がなくなり、無傷の骨格になった
     }
 };
+
+// ─── 呼び出し側のコード（依存性の注入） ───
+void processOrder(const Order& order) {
+    // 使う側（呼び出し元）が条件を判断し、具体的なルールを注入（セット）する
+    if (order.customerType == "Premium") {
+        PremiumDiscount rule;
+        PaymentCalculator calculator(&rule);
+        int finalPrice = calculator.calculate(order);
+    } else if (order.isSummerSale) {
+        SummerSaleDiscount rule;
+        PaymentCalculator calculator(&rule);
+        int finalPrice = calculator.calculate(order);
+    }
+}
 ```
 
 **この段階の評価：**
