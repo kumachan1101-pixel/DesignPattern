@@ -485,7 +485,12 @@ class PaymentCalculator {
         if (order.isCampaignActive) return applyCampaign(total);
         return total;
     }
-    // ... calculate() は同じ ...
+public:
+    int calculate(const Order& order) {
+        int total = 0;
+        for (const auto& item : order.items) total += item.price;
+        return applyDiscount(total, order);
+    }
 };
 ```
 
@@ -517,7 +522,12 @@ class PaymentCalculator {
         if (isCampaign(order)) return applyCampaign(total);
         return total;
     }
-    // ... calculate() は同じ ...
+public:
+    int calculate(const Order& order) {
+        int total = 0;
+        for (const auto& item : order.items) total += item.price;
+        return applyDiscount(total, order);
+    }
 };
 ```
 
