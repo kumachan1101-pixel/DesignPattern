@@ -1121,28 +1121,28 @@ int main() {
 ```mermaid
 sequenceDiagram
     participant main
-    participant CF as DefaultBatchCoordinator
+    participant BA as BatchApplication
     participant BE as BatchExecutor
-    participant MTC as ManualTriggerController
+    participant CP as ClientProvider
+    participant SN as SlackNotifier
     participant SA as SystemAClient
-    Note over main: 具体型を組み立てる唯一の場所
-    main->>CF: new DefaultBatchCoordinator
-    main->>BE: new（coordinator: IBatchCoordinator*）
-    main->>MTC: new（coordinator: IBatchCoordinator*）
-    main->>BE: execute("C")
-    BE->>CF: coordinator->execute()
-    Note right of BE: IBatchCoordinator* 経由
-    CF->>SA: client->send("data")
-    Note right of CF: IExternalClient* 経由
-    SA-->>CF: 完了
-    CF-->>BE: 完了
-    BE-->>main: 完了
-    main->>MTC: triggerSync("B")
-    MTC->>CF: coordinator->execute()
-    CF->>SA: client->send("data")
-    SA-->>CF: 完了
-    CF-->>MTC: 完了
-    MTC-->>main: 完了
+    Note over main: BatchApplicationが全具体型を組み立て
+    main->>BA: app.run()
+    BA->>BE: new BatchExecutor
+    BA->>SN: new SlackNotifier
+    BA->>BE: addNotifier(&slackNotifier)
+    BA->>BE: execute("C")
+    BE->>CP: ClientProvider::create("C")
+    Note right of BE: IExternalClient* 経由（抽象）
+    CP-->>BE: *client
+    BE->>SA: client->send("data")
+    Note right of BE: IExternalClient* 経由
+    SA-->>BE: 完了
+    BE->>SN: obs->onComplete("Success")
+    Note right of BE: INotifier* 経由（抽象）
+    SN-->>BE: 完了
+    BE-->>BA: 完了
+    BA-->>main: 完了
 ```
 
 ### 7-2：変更影響グラフ（改善後）
