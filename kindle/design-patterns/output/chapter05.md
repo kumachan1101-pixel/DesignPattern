@@ -415,19 +415,21 @@ graph LR
 
 ---
 
-#### 案1：現状のまま ―― 構造を変えない
+#### 案1：具体×直接 ―― プライベートメソッドで責任を整理する
+
+> **ケーブルで言うと：** LightningケーブルをそのままUI直差しのまま使い続ける。新しい操作が増えるたびに専用のif分岐を追加する。接続方法を変える工事は不要だが、分岐の山になっていく。
 
 **この形の考え方：**
-クラスの分割やオブジェクト化を行わず、既存のメソッド呼び出しで対応し続けます。追加の設計コストはゼロですが、操作が増えるたびに `UIButtons` クラスの修正が不可避となります。
+フェーズ3で示したコードを、接続の形は変えずにプライベートメソッドで整理した形です。各処理の意味がメソッド名で明確になります。クラスの分割やインターフェースの導入は行わず、if/elseの各分岐を意味のある名前のプライベートメソッドへ抽出します。変更頻度が低く、操作の種類がこれ以上増えないことが確実で、チームの規模も小さく短命なコードであれば合理的な選択です。
 
 **手段の比較：**
 
 | 手段 | 方法 | 特徴 |
 |---|---|---|
-| 手段A：現行コードに追記 | UIButtonsに履歴リストとundo()メソッドを直書きする | 最速で実装できるが、操作が増えるほど同じクラスが肥大化する |
-| 手段B：マネージャにundo追加 | 各マネージャクラスにundoメソッドを追加してUIから呼ぶ | 責任がマネージャに移るが、UIとマネージャの両方を変更する必要がある |
+| 手段A：if文追加のまま | UIButtonsに履歴リストとundo()を直書きしたまま | 最速で実装できるが意図が読み取りにくい |
+| 手段B：プライベートメソッド抽出 | 各分岐をprivateメソッドに切り出す | 読みやすくなるが根本的な重複は残る |
 
-→ **どちらも「今回は動く、でも次の変更でまた全体を触る」という点では同じ。** 現状維持の枠の中での工夫であり、構造的な問題は解決されない。ただし、操作の種類がこれ以上増えないことが確実で、チームの規模も小さく短命なコードであれば、案1は合理的な選択肢です。過剰な設計よりシンプルな直書きが最善になる場面もあります。
+**手段B**（各分岐をプライベートメソッドに抽出し、処理の意図をメソッド名で明確にする）のコードを以下に示します。
 
 **構造図：**
 
@@ -437,6 +439,8 @@ classDiagram
         <<if分岐を直書き>>
         +onAddExpenseClick() void
         +onUndoClick() void
+        -undoExpense() void
+        -undoIncome() void
     }
     class ImportService {
         <<同じif分岐が重複>>
@@ -449,57 +453,58 @@ classDiagram
     ImportService ..> IncomeManager : 具体×直接（重複）
 ```
 
-両呼び出し元が同じ具体クラスを個別に抱え込み、undo/redo管理ロジックまでそれぞれに重複して書かれている。
+両呼び出し元が同じ具体クラスを個別に抱え込んでいる。プライベートメソッドで意図は読みやすくなるが、undo/redoの重複という根本問題は残る。
 
-**コード例：**
-
-```cpp
-void onAddExpenseClick() {
-    // ← 具体：ExpenseManagerという具体型を呼び出し側が直接書いている
-    em.addExpense(1000, "Food");
-    history.push_back("Expense");
-}
-
-```
-
-**呼び出し側から見た違い（main() 例）：**
+**BudgetAppクラス：**
 
 ```cpp
-// 案1（現状のまま）の呼び出し側
+// ← 具体：ExpenseManager・IncomeManagerを呼び出し側が直接知っている
 class BudgetApp {
     ExpenseManager em;
     IncomeManager im;
-    std::vector<std::string> history; // ← 具体：履歴管理もここに直書き
+    // ← 直接：履歴管理もここに直書き
+    std::vector<std::string> history;
 public:
     void onAddExpenseClick(int amount, std::string cat) {
         em.addExpense(amount, cat);
         history.push_back("Expense:" + cat);
     }
+    void onAddIncomeClick(int amount, std::string src) {
+        im.addIncome(amount, src);
+        history.push_back("Income:" + src);
+    }
     void onUndoClick() {
         if (history.empty()) return;
         std::string lastOp = history.back();
         history.pop_back();
-        if (lastOp.rfind("Expense:", 0) == 0) {
-            // 支出を取り消すには金額とカテゴリを取り出してundoする
-            // → でもExpenseManagerにはundoメソッドがない！追加が必要
-            return;
-        }
-        if (lastOp.rfind("Income:", 0) == 0) {
-            // 収入を取り消す → IncomeManagerにもundoメソッドを追加が必要
-            return;
-        }
-        if (lastOp == "Delete") {
-            // 削除を取り消す → 削除前のデータを保存しておく必要がある
-            return;
-        }
+        // 各分岐をプライベートメソッドに抽出し、意図を名前で示す
+        if (lastOp.rfind("Expense:", 0) == 0)
+            undoExpense(lastOp);
+        else if (lastOp.rfind("Income:", 0) == 0)
+            undoIncome(lastOp);
         // 操作が1種類増えるたびに、ここにifが1段追加される…
+    }
+private:
+    void undoExpense(std::string op) {
+        // 支出取り消し：ExpenseManagerのundoメソッドを呼ぶ
+    }
+    void undoIncome(std::string op) {
+        // 収入取り消し：IncomeManagerのundoメソッドを呼ぶ
     }
 };
 
+```
+
+このコードを見ると、各取り消し処理がプライベートメソッドに切り出されており、`onUndoClick()` の意図が読みやすくなっています。ただし、`ExpenseManager`・`IncomeManager` という具体型への依存は変わらず、新しい操作が増えるたびに `BudgetApp` の中身を触り続ける点は解消されていません。
+
+**呼び出し側から見た違い（main() 例）：**
+
+```cpp
+// 案1（具体×直接）の呼び出し側
 // 一括インポート：同じマネージャ直接呼び出しロジックが再び現れる（重複）
 class ImportService {
     ExpenseManager em; // ← 重複：BudgetAppと同じ具体型を直接保持
-    std::vector<std::string> history; // ← 重複：履歴管理も再び書く
+    std::vector<std::string> history;
 public:
     void importTransactions(
             std::vector<std::pair<int,std::string>> data) {
@@ -509,7 +514,7 @@ public:
         }
     }
     void rollback(int count) {
-        // ← 重複：undoロジックもここで再実装
+        // ← 重複：undoロジックもここで再実装が必要
     }
 };
 
@@ -525,9 +530,7 @@ int main() {
 }
 ```
 
-`BudgetApp` と `ImportService` の両方が、マネージャへの直接呼び出しとundo/redo管理ロジックをそれぞれに書いている。操作の種類が増えるたびに、両方の呼び出し元で同じ修正が必要になる。
-
-ロジックが各呼び出し元の内部に直書きされているため、マネージャへの直接呼び出しと履歴管理の同じコードが `BudgetApp` と `ImportService` の2か所で並行して走る。
+`BudgetApp` と `ImportService` の両方が、マネージャへの直接呼び出しとundo管理ロジックをそれぞれに書いている。操作の種類が増えるたびに、両方の呼び出し元で同じ修正が必要になる。
 
 **この形のトレードオフ：**
 
@@ -541,10 +544,10 @@ int main() {
 
 ---
 
-#### 案2：具体×直接 ―― 操作ごとにクラスを分けるが呼び出しは直接行う
+#### 案2：具体×間接 ―― 処理を別クラスに切り出して委ねる
 
 **この形の考え方：**
-操作ごとにクラスを分割しますが、呼び出し側が依然としてそのクラスを直接生成・呼び出しします。責任の境界は明確になりますが、呼び出し側は依然として具体的な操作クラスに依存します。
+操作ごとにクラスを分割し、呼び出し側はその具体クラスを名指しで知りながらも、処理そのものはそのオブジェクトに委ねる（間接）形です。責任の境界は明確になりますが、呼び出し側は依然として具体的な操作クラスに依存します。
 
 **手段の比較：**
 
@@ -570,11 +573,11 @@ classDiagram
     class AddExpenseAction {
         +execute() void
     }
-    BudgetApp --> AddExpenseAction : 具体×直接
-    ImportService --> AddExpenseAction : 具体×直接（重複）
+    BudgetApp --> AddExpenseAction : 具体×間接
+    ImportService --> AddExpenseAction : 具体×間接（重複）
 ```
 
-`BudgetApp` と `ImportService` の両方が同じ具体コマンドクラスを直接生成しており、新しい操作が増えるたびに両方の呼び出し元で修正が発生する。
+`BudgetApp` と `ImportService` の両方が同じ具体コマンドクラスを名指しで生成しており、処理はそのオブジェクトに委ねている。新しい操作が増えるたびに両方の呼び出し元で修正が発生する。
 
 **コード例：**
 
@@ -584,22 +587,23 @@ class AddExpenseAction {
 public:
     void execute() { em.addExpense(1000, "Food"); }
 };
-// UIButtons内で AddExpenseAction().execute() を直接呼ぶ
-// ← 直接：呼び出し側がこのクラスを直接インスタンス化している
+// UIButtons内で AddExpenseAction().execute() を呼ぶ
+// ← 間接：処理はAddExpenseActionオブジェクトに委ねている
 
 ```
 
-このコードを見ると、操作をクラスとして切り出したことで責任の境界は明確になりましたが、呼び出し側が具体クラスの名前を直接書いていることに変わりはないことが分かります。
+このコードを見ると、操作をクラスとして切り出したことで責任の境界は明確になりました。呼び出し側が具体クラスの名前を直接書いている点は残りますが、処理そのものは `AddExpenseAction` オブジェクトに「委ねて」おり、案1の「自分で全部やる」状態とは一歩異なります。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 案2（具体×直接）の呼び出し側
+// 案2（具体×間接）の呼び出し側
 class BudgetApp {
 public:
     void onAddExpenseClick(int amount, std::string cat) {
-        AddExpenseAction cmd(amount, cat); // ← 直接：具体クラスを直接生成
-        cmd.execute();
+        // ← 具体：AddExpenseActionという型名を直接書く
+        AddExpenseAction cmd(amount, cat);
+        cmd.execute(); // ← 間接：処理はcmdオブジェクトに委ねる
     }
     void onUndoClick() {
         // undoするには具体クラスのundoメソッドを直接呼ぶ必要がある
@@ -1082,8 +1086,8 @@ int main() {
 
 | **案** | **現在の対応コスト** | **未来の対応コスト** |
 | --- | --- | --- |
-| 案1：現状のまま | 低 | 高 |
-| 案2：具体×直接 | 低〜中 | 高 |
+| 案1：具体×直接 | 低 | 高 |
+| 案2：具体×間接 | 低〜中 | 高 |
 | 案3：抽象×直接 | 中 | 低〜中 |
 | 案4：抽象×間接 | 高 | 低 |
 
@@ -1091,8 +1095,8 @@ int main() {
 
 | 案 | 変更容易性（×3） | テスト容易性（×2） | 可読性（×1） |
 | --- | --- | --- | --- |
-| 案1：現状のまま | 1 | 1 | 3 |
-| 案2：具体×直接 | 1 | 2 | 3 |
+| 案1：具体×直接 | 1 | 1 | 3 |
+| 案2：具体×間接 | 1 | 2 | 3 |
 | 案3：抽象×直接 | 2 | 3 | 2 |
 | 案4：抽象×間接 | 3 | 3 | 1 |
 
