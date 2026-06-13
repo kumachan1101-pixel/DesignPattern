@@ -487,64 +487,39 @@ void transfer(
 
 ---
 
-#### 案1：現状のまま ―― 構造を変えない
+#### 案1：具体×直接 ―― プライベートメソッドで責任を整理する
 
 **この形の考え方：**
-クラスの分割やインターフェースの導入を行わず、既存の `transfer` メソッドの中に、銀行APIの新しい仕様を `if` 文で追加します。銀行側の接続仕様が極めて安定しており、今後数年は変更が来ないような場合にのみ、実装コストを最小化するための選択肢となります。
+フェーズ3で示したコードを、接続の形は変えずにプライベートメソッドで整理した形です。各処理の意味がメソッド名で明確になります。`BankGateway` と `SecurityAuthenticator` を `TransferProcessor` が直接保持するという接続形態は変わりません。銀行側の接続仕様が極めて安定しており、今後数年は変更が来ないような場合にのみ、実装コストを最小化するための選択肢となります。
 
 **手段の比較：**
 
 | 手段 | 方法 | 特徴 |
 |---|---|---|
-| 手段A：条件分岐の直書き | `if` 文で新旧仕様を `transfer()` 内に並べる | コード量は最少だが、条件が増えるたびにメソッドが肥大化する |
-| 手段B：メソッド分割 | 認証手順を別メソッドに切り出し、`transfer()` から呼ぶ | 少しだけ読みやすくなるが、クラス内の依存は変わらない |
+| 手段A：条件分岐の直書き | `if` 文を `transfer()` 内に並べる | コード量は最少だが、意図がメソッド名で伝わらない |
+| 手段B：プライベートメソッド分割 | 口座確認・認証・送金を各プライベートメソッドに切り出す | 処理の意味がメソッド名で明確になる |
 
 手段AとBのコードを比較して、採用する手段を決めます。
 
-**手段B（メソッド分割）のコード例：**
-
-```cpp
-class TransferProcessor {
-    BankGateway gateway;
-    SecurityAuthenticator auth;
-
-    // 認証手順を別メソッドに切り出す
-    void authenticate(const std::string& otp) {
-        if (/* 新仕様 */) {
-            auth.requestOTP();
-            std::string txId = auth.getTransactionId();
-            auth.verifyOTP(otp, txId);
-        } else {
-            auth.requestOTP();
-            auth.verifyOTP(otp, "");
-        }
-    }
-public:
-    void transfer(
-            const std::string& toAccount, int amount,
-            const std::string& otp) {
-        gateway.verifyAccount(toAccount);
-        gateway.checkBalance(toAccount);
-        authenticate(otp);              // ← メソッドに切り出した
-        gateway.executeTransfer(toAccount, amount, generateTxId());
-    }
-};
-```
-
-手段Bで認証手順を別メソッドに切り出しても、`if` 分岐は `authenticate()` の中に残ります。認証フローが変わるたびにこのクラスを開いて書き換える必要があるという問題は解消されていません。
-
-**手段A**（構造を変えないという方針に忠実なため。手段Bも構造的には同じ問題を抱えることが確認できた）のコードを以下に示します。
+**手段B**（処理の意味をメソッド名で表現することで、`transfer()` が「振り込みの手順」として読めるようになるため）のコードを以下に示します。
 
 **構造図：**
 
 ```mermaid
 classDiagram
     class TransferProcessor {
-        <<if分岐を直書き>>
+        <<具体×直接>>
+        -BankGateway gateway
+        -SecurityAuthenticator auth
         +transfer(toAccount, amount, otp)
+        -verifyAccount(account)
+        -authenticate(otp)
+        -executeTransfer(account, amount)
     }
     class BatchTransferService {
-        <<同じif分岐が重複>>
+        <<同じ具体クラスが重複>>
+        -BankGateway gateway
+        -SecurityAuthenticator auth
         +processPayroll(transfers)
     }
     class BankGateway {
@@ -554,14 +529,15 @@ classDiagram
     }
     class SecurityAuthenticator {
         +requestOTP()
-        +verifyOTP(token)
+        +verifyOTP(token, txId)
     }
-    TransferProcessor ..> BankGateway : 具体×直接
-    TransferProcessor ..> SecurityAuthenticator : 具体×直接（重複）
-    BatchTransferService ..> BankGateway : 具体×直接（重複）
+    TransferProcessor --> BankGateway : 具体×直接
+    TransferProcessor --> SecurityAuthenticator : 具体×直接
+    BatchTransferService --> BankGateway : 具体×直接（重複）
+    BatchTransferService --> SecurityAuthenticator : 具体×直接（重複）
 ```
 
-両クラスが銀行APIの呼び出し手順を内部に直書きしており、外部への依存矢印ではなく内部の重複ロジックが問題の核心です。
+両クラスが銀行APIの具体クラスを直接保持しており、仕様変更が来るたびに2か所の修正が必要になる構造です。
 
 **実装コード：**
 
@@ -593,84 +569,97 @@ public:
 };
 ```
 
-このコードで分かること：`BankGateway` と `SecurityAuthenticator` は変更されていないが、呼び出し側で仕様の変化を全部吸収しなければならない。
+このコードで分かること：`BankGateway` と `SecurityAuthenticator` は変更されていないが、呼び出し側の `TransferProcessor` がこれらの具体クラスを名指しで保持し続けている。
 
-次に、呼び出し元の `TransferProcessor` と `BatchTransferService` を見ます。
+次に、プライベートメソッドで整理した `TransferProcessor` と `BatchTransferService` を見ます。
 
 ```cpp
 // 振り込み処理クラス（呼び出し元1）
 class TransferProcessor {
-    BankGateway gateway;
-    SecurityAuthenticator auth;
+    BankGateway gateway;         // ← 具体：型名を直接宣言
+    SecurityAuthenticator auth;  // ← 具体：型名を直接宣言
+
+    // 口座確認の意図をメソッド名で表現する
+    void verifyAccount(const std::string& account) {
+        gateway.verifyAccount(account);
+        gateway.checkBalance(account);
+    }
+
+    // 認証手順をまとめてプライベートメソッドに収める
+    void authenticate(const std::string& otp) {
+        auth.requestOTP();
+        std::string txId = "TXN12345"; // 内部で取引IDを生成
+        auth.verifyOTP(otp, txId);
+    }
+
+    // 送金実行の意図をメソッド名で表現する
+    void executeTransfer(
+            const std::string& account, int amount) {
+        gateway.executeTransfer(account, amount, "TXN12345");
+    }
+
 public:
     void transfer(
             const std::string& toAccount, int amount,
             const std::string& otp) {
-        gateway.verifyAccount(toAccount);
-        gateway.checkBalance(toAccount);
-        // 新しい認証手順をif文でねじ込む
-        // ← 具体：条件を呼び出し側が直接書いている
-        if (/* 新仕様 */) {
-            auth.requestOTP();
-            std::string txId = auth.getTransactionId();
-            auth.verifyOTP(otp, txId);
-        } else {
-            auth.requestOTP();
-            auth.verifyOTP(otp, "");
-        }
-        gateway.executeTransfer(toAccount, amount, generateTxId());
+        verifyAccount(toAccount);   // ← 手順の意味が読める
+        authenticate(otp);
+        executeTransfer(toAccount, amount);
         std::cout << "振り込み完了\n";
     }
 };
 
 // 給与振り込みなどの一括処理バッチ（呼び出し元2）
-// ← 案1の問題：同じ銀行API手順を重複して持つことになる
+// ← 案1の問題：同じ具体クラスをここでも直接保持する
 class BatchTransferService {
     BankGateway gateway;         // ← 同じ具体クラスを再度保持
     SecurityAuthenticator auth;  // ← 同じ具体クラスを再度保持
 public:
     void processPayroll(
-            const std::vector<std::pair<std::string, int>>& transfers) {
-        for (const auto& [account, amount] : transfers) {
-            // ← TransferProcessorと全く同じ手順が重複している
+            const std::vector<std::pair<std::string, int>>&
+            transfers) {
+        for (int i = 0; i < (int)transfers.size(); i++) {
+            const std::string& account = transfers[i].first;
+            int amount = transfers[i].second;
             gateway.verifyAccount(account);
             gateway.checkBalance(account);
-            gateway.executeTransfer(account, amount, generateTxId());
+            gateway.executeTransfer(account, amount, "BATCH");
         }
     }
 };
 ```
 
-このコードで分かること：銀行APIの呼び出し手順が `TransferProcessor` と `BatchTransferService` の両方に重複して書かれており、銀行APIの仕様が変わるたびに2箇所を同時に修正しなければなりません。
+このコードで分かること：`transfer()` の本文はプライベートメソッドの呼び出しだけになり読みやすくなったが、`BankGateway` と `SecurityAuthenticator` への依存が `TransferProcessor` と `BatchTransferService` の両方に重複している。銀行APIの仕様が変わるたびに2か所を同時に修正しなければならない問題は解消されていない。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 案1（現状のまま）の呼び出し側
+// 案1（具体×直接）の呼び出し側
 int main() {
     TransferProcessor processor;
     processor.transfer("12345678", 5000, "999999");
 
     BatchTransferService batch;
-    batch.processPayroll({{"87654321", 30000}, {"11112222", 25000}});
+    batch.processPayroll(
+        {{"87654321", 30000}, {"11112222", 25000}});
     return 0;
 }
 ```
 
-銀行APIの呼び出し手順が各クラスの内部に直書きされているため、同じ手順が2か所で並行して走ります。
+呼び出し元から見ると手順はシンプルに見えるが、各クラスの内部で銀行APIの具体クラスを直接保持しているため、仕様変更の影響が2か所に及ぶ構造は変わらない。
 
 **この形のトレードオフ：**
 
-* 変更容易性：低（銀行APIが変わるたびに業務フローであるメソッドが破壊される）
-* テスト容易性：低（銀行APIと業務フローが分離されておらずテスト困難）
-* 実装コスト：低（今のコードに数行足すだけ）
+* 変更容易性：低（銀行APIが変わるたびに2か所のクラスを修正しなければならない）
+* テスト容易性：低（具体クラスを内部で生成しているため差し替えが困難）
+* 実装コスト：低（今のコードをプライベートメソッドに整理するだけ）
 
 ---
 
-#### 案2：具体×直接 ―― クラスを分けるが参照は具体型のまま
+#### 案2：具体×間接 ―― 処理を別クラスに切り出して委ねる
 
 **この形の考え方：**
-銀行通信用のクラスを切り出して責任を分担させますが、呼び出し側の `TransferProcessor` は、相変わらず銀行専用クラス（`BankGateway` 等）の具体型を直接知っている状態です。「責任の分担」という第一段階の整理だけを行いたい場合に合う形です。
+銀行通信用のクラスを切り出して責任を分担させます。呼び出し側の `TransferProcessor` は切り出した具体クラス（`BankTransferService`）を名指しで知っているものの、処理そのものはその具体クラスに「委ねる」形になります。自分で直接計算・実行しなくなる点が案1との違いです。「責任の分担」という第一段階の整理だけを行いたい場合に合う形です。
 
 **手段の比較：**
 
@@ -760,14 +749,15 @@ public:
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 案2（具体×直接）の呼び出し側
+// 案2（具体×間接）の呼び出し側
 int main() {
-    // ← 直接：呼び出し側が具体クラスを直接生成
+    // ← 具体：呼び出し側が具体クラスを直接生成
     BankTransferService service;
+    // ← 間接：処理はserviceに委ねる（自分では実行しない）
     TransferProcessor processor(&service);
     processor.transfer("12345678", 5000, "999999");
 
-    // ← 直接：同じ具体クラスをここでも直接生成
+    // ← 具体：同じ具体クラスをここでも直接生成
     BatchTransferService batch(&service);
     batch.processPayroll({{"87654321", 30000}, {"11112222", 25000}});
     return 0;
@@ -1120,8 +1110,8 @@ sequenceDiagram
 
 | **案** | **現在の対応コスト** | **未来の対応コスト** |
 | --- | --- | --- |
-| 案1：現状のまま | 低 | 高 |
-| 案2：具体×直接 | 低〜中 | 高 |
+| 案1：具体×直接 | 低 | 高 |
+| 案2：具体×間接 | 低〜中 | 高 |
 | 案3：抽象×直接 | 中 | 低〜中 |
 | 案4：抽象×間接 | 高 | 低 |
 
@@ -1129,8 +1119,8 @@ sequenceDiagram
 
 | 案 | 変更容易性（×3） | テスト容易性（×2） | 可読性（×1） |
 | --- | --- | --- | --- |
-| 案1：現状のまま | 1 | 1 | 3 |
-| 案2：具体×直接 | 1 | 2 | 3 |
+| 案1：具体×直接 | 1 | 1 | 3 |
+| 案2：具体×間接 | 1 | 2 | 3 |
 | 案3：抽象×直接 | 2 | 3 | 2 |
 | 案4：抽象×間接 | 3 | 3 | 1 |
 
@@ -1138,10 +1128,10 @@ sequenceDiagram
 
 | 案 | 加重スコア | 判定 |
 | --- | --- | --- |
-| 案1 | 8 |  |
-| 案2 | 10 |  |
-| 案3 | 14 | 次点 |
-| 案4 | 16 | ← 最終採用 |
+| 案1：具体×直接 | 8 |  |
+| 案2：具体×間接 | 10 |  |
+| 案3：抽象×直接 | 14 | 次点 |
+| 案4：抽象×間接 | 16 | ← 最終採用 |
 
 **案3 vs 案4 の最終判断：** スコア上は案4（16点）が案3（14点）を上回ります。ただし、スコアはトレードオフの見える化であり「最高点＝採用」ではありません。ここでは次の問いに答えて判断します——「フェーズ2で予告されたリスクが来たとき、どちらの案が変更を1クラスに閉じられるか？」。案3では、認証フロー変更や JSON→XML 移行のたびに `IBankService` を実装する具体クラスを修正し、さらに呼び出し元（`TransferProcessor`）への影響確認も必要です。案4は仲介クラスが銀行APIの複雑さを完全に隠蔽するため、将来の変更を「窓口クラス1つの修正」に閉じ込められます。この将来コストの差が、可読性スコアの差を上回ると判断し、案4を採用します。
 

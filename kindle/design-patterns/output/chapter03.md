@@ -420,32 +420,35 @@ graph LR
 
 ---
 
-#### 案1：現状のまま ―― 構造を変えない
+#### 案1：具体×直接 ―― プライベートメソッドで責任を整理する
 
 **この形の考え方：**
-クラスの分割やインターフェースの導入を行わず、既存の `reserve()` や `pay()` メソッドの中に、新しい状態の条件分岐を `if` 文で追加します。変更頻度が極めて低く、これ以上複雑にならないと断言できる場合にのみ許容される最小コストの選択です。
+フェーズ3で示したコードを、接続の形は変えずにプライベートメソッドで整理した形です。各処理の意味がメソッド名で明確になります。`TicketReservation` が `status` 文字列を直接知って操作するという接続形態は変わりません。銀行側の接続仕様が極めて安定しており、今後数年は変更が来ないような場合にのみ、実装コストを最小化するための選択肢となります。
 
-なお、クラス図に `AdminPanel` が登場していますが、これは管理者向け画面として仕様上すでに存在するクラスです。顧客向けの `TicketReservation` と同じ状態遷移ロジックを使う2つ目の呼び出し元として、案1ではそれぞれが同じ `if` 文を重複して抱える点が問題として示したいことです。
+なお、クラス図に `AdminPanel` が登場していますが、これは管理者向け画面として仕様上すでに存在するクラスです。顧客向けの `TicketReservation` と同じ状態遷移ロジックを使う2つ目の呼び出し元として、案1ではそれぞれが同じ判定ロジックを重複して抱える点が問題として示したいことです。
 
 **手段の比較：**
 
 | 手段 | 方法 | 特徴 |
 |---|---|---|
-| 手段A：分岐をメソッドに追記 | 既存の各メソッドの `if` 文に `else if` を足す | 変更箇所が最小だが、全メソッドに修正が必要 |
-| 手段B：状態ごとのメソッドに分割 | `reserveIfAvailable()` のような状態別メソッドを作る | 分岐の見通しは良くなるが、メソッド数が状態数 × 操作数だけ増える |
+| 手段A：条件分岐の直書き | `if` 文を各メソッドに並べる | コード量は最少だが、意図がメソッド名で伝わらない |
+| 手段B：プライベートメソッド分割 | 予約・支払・キャンセルを各プライベートメソッドに切り出す | 処理の意味がメソッド名で明確になる |
 
-**手段A**（構造を変えないという案1の趣旨に最も合っているため）のコードを以下に示します。
+**手段B**（処理の意味をメソッド名で表現することで、`reserve()` が「予約の手順」として読めるようになるため）のコードを以下に示します。
 
 **構造図：**
 
 ```mermaid
 classDiagram
     class TicketReservation {
-        <<if分岐を直書き>>
+        <<具体×直接>>
         -String status
         +reserve()
         +pay()
         +cancel()
+        -tryReserveFromAvailable()
+        -tryReserveFromHeld()
+        -tryCancelFromReserved()
     }
     class AdminPanel {
         <<同じif分岐が重複>>
@@ -455,52 +458,72 @@ classDiagram
     }
 ```
 
-両クラスがそれぞれ状態判定ロジックを内部に直書きしており、状態が増えるたびに両方のif文を同時に修正しなければならない。
+両クラスがそれぞれ状態判定ロジックを内部に直書きしており、状態が増えるたびに両方のメソッドを同時に修正しなければならない構造です。
 
-**状態インターフェース（なし）：**
-
-案1は状態の分離を行わないため、インターフェースや状態クラスは存在しません。すべてのロジックが `TicketReservation` と `AdminPanel` の各メソッドに直書きされます。
-
-**各状態クラス（なし）：**
-
-状態クラスは作りません。`status` 文字列の値が状態の区別に使われます。
-
-**コンテキストクラス（TicketReservation と AdminPanel）：**
+**コンテキストクラス（TicketReservation）：**
 
 ```cpp
 // 呼び出し元1：顧客が行う通常の予約フロー
 class TicketReservation {
 private:
     std::string status; // "Available", "Reserved", "Paid"
+
+    // 空席からの予約処理をプライベートメソッドに切り出す
+    void tryReserveFromAvailable() {
+        status = "Reserved";
+        std::cout << "予約完了\n";
+    }
+
+    // 保留状態からの予約処理をプライベートメソッドに切り出す
+    void tryReserveFromHeld() {
+        status = "Reserved";
+        std::cout << "保留から予約へ変更しました\n";
+    }
+
+    // 予約済みからのキャンセル処理をプライベートメソッドに切り出す
+    void tryCancelFromReserved() {
+        status = "Available";
+        std::cout << "キャンセル完了\n";
+    }
+
 public:
     TicketReservation() : status("Available") {}
+
     void reserve() {
-        // ← 具体：条件を呼び出し側が直接書いている
+        // ← 具体：状態名を直接知って判定する
         if (status == "Available") {
-            status = "Reserved";
-            std::cout << "予約完了\n";
+            tryReserveFromAvailable();
             return;
         }
         if (status == "Held") {
-            status = "Reserved";
-            std::cout << "保留から予約へ変更しました\n";
+            tryReserveFromHeld();
             return;
         }
         std::cout << "現在予約できません\n";
     }
+
+    void pay() {
+        if (status == "Reserved") {
+            status = "Paid";
+            std::cout << "支払い完了\n";
+            return;
+        }
+        std::cout << "支払いに適した状態ではありません\n";
+    }
+
     void cancel() {
         if (status == "Reserved") {
-            status = "Available";
-            std::cout << "キャンセル完了\n";
+            tryCancelFromReserved();
             return;
         }
         std::cout << "キャンセルできません\n";
     }
+
     std::string getStatus() const { return status; }
 };
 ```
 
-このコードを見ると、新しい状態 `Held` に対応するために `reserve()` に `else if` を追加しています。同じ修正を `pay()` や `cancel()` にも繰り返す必要があります。
+このコードで分かること：`reserve()` の本文はプライベートメソッドの呼び出しだけになり読みやすくなったが、`status` 文字列を `TicketReservation` と `AdminPanel` の両方が直接知っており、状態が増えるたびに両クラスの修正が必要な問題は解消されていない。
 
 **管理パネル（AdminPanel）：**
 
@@ -523,49 +546,54 @@ public:
         std::cout << "キャンセル対象外の状態です\n";
     }
     void checkStatus(const std::string& seatId) {
-        // ← 同じ状態チェックロジックが重複している
-        if (status == "Available") { std::cout << seatId << ": 空席\n"; return; }
-        if (status == "Reserved")  { std::cout << seatId << ": 予約済み\n"; return; }
-        if (status == "Paid")      { std::cout << seatId << ": 支払い済み\n"; return; }
+        if (status == "Available") {
+            std::cout << seatId << ": 空席\n"; return;
+        }
+        if (status == "Reserved") {
+            std::cout << seatId << ": 予約済み\n"; return;
+        }
+        if (status == "Paid") {
+            std::cout << seatId << ": 支払い済み\n"; return;
+        }
     }
 };
 ```
 
-状態判定ロジックが `TicketReservation` と `AdminPanel` の両方に重複して書かれていることが分かります。新しい状態が追加されるたびに、両方のクラスの `if` 文を同時に修正しなければなりません。
+状態判定ロジックが `TicketReservation` と `AdminPanel` の両方に重複して書かれていることが分かります。新しい状態が追加されるたびに、両方のクラスの判定ロジックを同時に修正しなければなりません。
 
 **組み立て（BatchApplication / main）：**
 
 ```cpp
-// 案1（現状のまま）の呼び出し側
+// 案1（具体×直接）の呼び出し側
 int main() {
     TicketReservation reservation;
-    // ← 具体：内部でif文による状態判定が走る
+    // ← 具体：内部でstatus文字列による状態判定が走る
     reservation.reserve();
 
     AdminPanel admin;
-    admin.forceCancel("A-15");   // ← 同じif文が重複して走る
+    admin.forceCancel("A-15");   // ← 同じ状態判定が重複して走る
     admin.checkStatus("A-15");
     return 0;
 }
 ```
 
-状態判定ロジックが各クラスの内部に直書きされているため外部への委譲が発生せず、同じ分岐が2か所で並行して走る。
+呼び出し元から見ると手順はシンプルに見えるが、各クラスの内部で状態名を直接知って判定しているため、状態が増えると2か所の修正が同時に発生する構造は変わらない。
 
 **この形のトレードオフ：**
 
-* 変更容易性：低（状態が増えるたび全メソッドの修正が必要）
+* 変更容易性：低（状態が増えるたび両クラスのメソッドを修正しなければならない）
 * テスト容易性：低（状態が複雑に絡み合い、テスト網羅が困難）
-* 実装コスト：低（今のコードに修正を加えるだけ）
+* 実装コスト：低（今のコードをプライベートメソッドに整理するだけ）
 
 ---
 
-#### 案2：具体×直接 ―― クラスを分けるが参照は具体型のまま
+#### 案2：具体×間接 ―― 処理を別クラスに切り出して委ねる
 
 **この形の考え方：**
 
-案1との違いは「状態ごとのロジックをクラスに切り出したかどうか」です。案1は `TicketReservation` の中に `if` 文が直書きされていましたが、案2では `ReservedState` や `AvailableState` という状態クラスを別に作り、それぞれのロジックをそちらに移します。ただし、`TicketReservation` がそれらの具体クラスを型名で直接知っている点は変わりません。
+状態ごとのロジックを `ReservedState` や `AvailableState` という別クラスに切り出し、`TicketReservation` はその具体クラスに処理を「委ねる」形にします。自分で `if` 文を回して判定・実行するのではなく、具体クラスのメソッドを呼ぶだけになる点が案1との違いです。ただし、`TicketReservation` はこれらの具体クラスを型名で直接知っており、状態クラスが増えるたびに呼び出し元の修正が発生します。具体クラスを名指しで知っている点は変わらないため「具体×間接」と分類します。
 
-なぜコントロール側（`TicketReservation`）も変えるのかというと、「どの状態クラスを使うか」を `TicketReservation` 自身が決めなければならないためです。この判断が呼び出し元に残る限り、状態クラスが増えるたびに呼び出し元の修正も発生します。状態ごとにクラスは分かれたが、依存が2か所（`TicketReservation` と `AdminPanel`）に重複している——それが案2の問題です。
+依存が2か所（`TicketReservation` と `AdminPanel`）に重複している——それが案2の問題です。
 
 **手段の比較：**
 
@@ -679,15 +707,16 @@ public:
 **組み立て（BatchApplication / main）：**
 
 ```cpp
-// 案2（具体×直接）の呼び出し側
+// 案2（具体×間接）の呼び出し側
 int main() {
     ReservedState reserved;
     AvailableState available;
-    // ← 直接：具体クラスを直接渡す
+    // ← 具体：具体クラスを直接渡す
+    // ← 間接：処理はreserved/availableに委ねる
     TicketReservation reservation(&reserved, &available);
     reservation.pay();
 
-    // ← 直接：同じ具体クラスをここでも直接渡す
+    // ← 具体：同じ具体クラスをここでも直接渡す
     AdminPanel admin(&reserved);
     admin.forceCancel("A-15");
     return 0;
@@ -1081,8 +1110,8 @@ int main() {
 
 | **案** | **現在の対応コスト** | **未来の対応コスト** |
 | --- | --- | --- |
-| 案1：現状のまま | 低 | 高 |
-| 案2：具体×直接 | 低〜中 | 高 |
+| 案1：具体×直接 | 低 | 高 |
+| 案2：具体×間接 | 低〜中 | 高 |
 | 案3：抽象×直接 | 中 | 低〜中 |
 | 案4：抽象×間接 | 高 | 低 |
 
@@ -1090,8 +1119,8 @@ int main() {
 
 | 案 | 変更容易性（×3） | テスト容易性（×2） | 可読性（×1） |
 | --- | --- | --- | --- |
-| 案1：現状のまま | 1 | 1 | 3 |
-| 案2：具体×直接 | 1 | 2 | 3 |
+| 案1：具体×直接 | 1 | 1 | 3 |
+| 案2：具体×間接 | 1 | 2 | 3 |
 | 案3：抽象×直接 | 3 | 3 | 2 |
 | 案4：抽象×間接 | 3 | 3 | 1 |
 
@@ -1099,10 +1128,10 @@ int main() {
 
 | 案 | 変更×3 | テスト×2 | 可読×1 | 合計 | 判定 |
 | --- | --- | --- | --- | --- | --- |
-| 案1 | 1×3=3 | 1×2=2 | 3×1=3 | 8 |  |
-| 案2 | 1×3=3 | 2×2=4 | 3×1=3 | 10 |  |
-| 案3 | 3×3=9 | 3×2=6 | 2×1=2 | 17 | ← 採用候補 |
-| 案4 | 3×3=9 | 3×2=6 | 1×1=1 | 16 |  |
+| 案1：具体×直接 | 1×3=3 | 1×2=2 | 3×1=3 | 8 |  |
+| 案2：具体×間接 | 1×3=3 | 2×2=4 | 3×1=3 | 10 |  |
+| 案3：抽象×直接 | 3×3=9 | 3×2=6 | 2×1=2 | 17 | ← 採用候補 |
+| 案4：抽象×間接 | 3×3=9 | 3×2=6 | 1×1=1 | 16 |  |
 
 ※案3が最高スコアとなりました。状態遷移の追加に対する柔軟性と、テストのしやすさが最もバランスよく実現されています。
 
