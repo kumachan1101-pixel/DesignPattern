@@ -417,48 +417,57 @@ public:
 
 ---
 
-### 案1：具体×直接 ―― 現状のまま（接続の形を変えない）
+### 案1：具体×直接 ―― 計算式をプライベートメソッドで整理する
 
 **この案の考え方：**
-構造を変えず、`PaymentCalculator` の `if` 文の隙間にサマーセールの条件を追加します。変更頻度が極めて低く、次の変更が数年単位で来ないような安定したビジネス環境では合理的な選択です。
+フェーズ3で見た素朴な追加（`calculate()` に計算式を直書き）より一歩進んで、各割引の計算式をプライベートメソッドに分離します。クラスは分割せず、`calculate()` は「どの条件か」の判断に専念し、実際の計算は個別メソッドが担います。接続の形（具体×直接）は変わりませんが、コードの読みやすさが大きく改善されます。
 
 **手段の比較：**
 
 | 手段 | 方法 | 特徴 |
 |---|---|---|
-| 手段A：if文追加 | 既存の `if-else` チェーンに新しい条件を書き足す | 変更が最小で今すぐ対応できるが、次の変更でまた同じ作業が必要になる |
+| 手段A：プライベートメソッドに抽出 | 割引ごとの計算式をプライベートメソッドに切り出す | `calculate()` が条件判断に専念でき、計算式の修正が局所化される |
 | 手段B：定数定義 | 割引率を定数として切り出し、値だけ変更する | 数値の変更には強くなるが、条件の追加には対応できない |
 
-**手段A**（最小コストで今回の要求に対応でき、この案の方針（構造を変えない）と一致するため）のコードを以下に示します。
+**手段A**（計算式の修正箇所が明確になり、`calculate()` の読みやすさが上がるため）のコードを以下に示します。
 
-**変更後のコード（サマーセール追加）：**
+**変更後のコード（手段A）：**
 
 ```cpp
-int calculate(const Order& order) {
-    int total = 0;
-    for (const auto& item : order.items) {
-        total += item.price;
+class PaymentCalculator {
+    int applyPremium(int total) {
+        return static_cast<int>(total * 0.80); // 20%引き
     }
-
-    // サマーセール対応：Regular会員向けに条件を追加
-    if (order.customerType == "Premium")
-        return static_cast<int>(total * 0.80);         // 20%引き（サマーセール対象外）
-    if (order.isSummerSale && order.isCampaignActive)
-        return static_cast<int>(total * 0.95 * 0.90); // 重ね掛け（Regular会員）
-    if (order.isSummerSale)
-        return static_cast<int>(total * 0.95);         // 5%引き（Regular会員）
-    if (order.isCampaignActive)
-        return static_cast<int>(total * 0.90);         // 10%引き
-    return total;
-}
+    int applySummerSale(int total) {
+        return static_cast<int>(total * 0.95); // 5%引き
+    }
+    int applyCampaign(int total) {
+        return static_cast<int>(total * 0.90); // 10%引き
+    }
+public:
+    int calculate(const Order& order) {
+        int total = 0;
+        for (const auto& item : order.items)
+            total += item.price;
+        if (order.customerType == "Premium")
+            return applyPremium(total);
+        if (order.isSummerSale && order.isCampaignActive)
+            return applyCampaign(applySummerSale(total));
+        if (order.isSummerSale)
+            return applySummerSale(total);
+        if (order.isCampaignActive)
+            return applyCampaign(total);
+        return total;
+    }
+};
 ```
 
-この変更で、`Order` クラスへの `isSummerSale` フラグ追加が必要になりました。また `isSummerSale && isCampaignActive` の組み合わせ分岐も新たに追加が必要です。さらに `CartPreviewService` にも全く同じ分岐が重複します。
+`calculate()` から計算式が消え、条件の分岐だけが残りました。割引率を変えたいときは各プライベートメソッドだけを修正すれば済みます。ただし全てのロジックが依然として同じクラスに集まっているため、新しい割引を追加するたびにこのクラスを修正する必要があります。
 
 **この案のトレードオフ：**
-- 変更容易性：低（次のキャンペーンでまた同じ作業が繰り返される）
-- テスト容易性：低（ロジックが1メソッドに集中し、個別ルールだけをテストできない）
-- 実装コスト：低（今すぐ対応できる）
+- 変更容易性：低〜中（計算式の修正は局所化されるが、条件の追加はこのクラスへの変更が必要）
+- テスト容易性：低（クラス外からロジックを差し替えられない）
+- 実装コスト：低（クラス設計が不要）
 
 ---
 
@@ -471,10 +480,10 @@ int calculate(const Order& order) {
 
 | 手段 | 方法 | 特徴 |
 |---|---|---|
-| 手段A：クラス分割 | 各割引ロジックを別クラスに切り出し、`PaymentCalculator` がその具体型を直接使う | 責任の境界が明確になり、案3（インターフェース化）への移行が自然な一歩になる |
-| 手段B：メソッド抽出 | 同じクラス内でプライベートメソッドに分ける | ファイル分割が不要でシンプルだが、クラス外からロジックを差し替えることができない |
+| 手段A：クラス分割 | 各割引ロジックを別クラスに切り出し、`PaymentCalculator` がその具体クラスに計算を委ねる | 責任の境界が明確になり、案3（インターフェース化）への移行が自然な一歩になる |
+| 手段B：定数＋条件の整理 | 案1のプライベートメソッドをそのまま別ファイルに移動するだけ | ファイルは分かれるが、クラス外からロジックを差し替えることができない |
 
-**手段A**（クラス境界ができ、後のインターフェース化に向けて構造が整うため）のコードを以下に示します。
+**手段A**（クラスの境界が生まれ、案3へのステップアップが自然になるため）のコードを以下に示します。
 
 **変更後のコード（手段A）：**
 
