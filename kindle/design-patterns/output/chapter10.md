@@ -773,24 +773,21 @@ int main() {
 
 ```mermaid
 classDiagram
-    class IFacade {
-        <<interface>>
-        +execute()
-    }
     class IExternalClient {
         <<interface>>
         +send(data)
     }
+    class INotifier {
+        <<interface>>
+        +onComplete(result)
+    }
     class BatchExecutor {
-        -facade IFacade
+        -notifiers vector
+        +addNotifier(obs)
         +execute(targetId)
     }
-    class ManualTriggerController {
-        -facade IFacade
-        +triggerSync(systemId)
-    }
-    class ConcreteFacade {
-        +execute()
+    class ClientProvider {
+        +create(targetId)
     }
     class SystemAClient {
         +send(data)
@@ -801,16 +798,19 @@ classDiagram
     class SystemCClient {
         +send(data)
     }
-    ConcreteFacade ..|> IFacade : 実装
+    class SlackNotifier {
+        +onComplete(result)
+    }
     SystemAClient ..|> IExternalClient : 実装
     SystemBClient ..|> IExternalClient : 実装
     SystemCClient ..|> IExternalClient : 実装
-    BatchExecutor --> IFacade : 抽象×間接
-    ManualTriggerController --> IFacade : 抽象×間接
-    ConcreteFacade --> IExternalClient : 抽象×直接
+    SlackNotifier ..|> INotifier : 実装
+    BatchExecutor --> ClientProvider : 生成を委譲（間接）
+    BatchExecutor --> INotifier : 抽象×間接
+    ClientProvider --> IExternalClient : 抽象×直接
 ```
 
-両クラスが抽象Facadeインターフェースのみを受け取り、具体クライアントへの依存が完全に排除されているが、インターフェースが2層になり構造が複雑になる。
+`BatchExecutor` が窓口（Facade）としてフローを統括し、`ClientProvider` が生成を担い、`INotifier` リストが通知を担う。3つの責務がそれぞれ独立したクラスに分離されている。
 
 **手段の比較：**
 
@@ -851,55 +851,48 @@ public:
 };
 ```
 
-`BatchExecutor` は生成と通知の詳細を知らず、フローの統括だけを担います。
+`BatchExecutor` は窓口（Facade）として機能し、生成と通知の詳細を知らず、フローの統括だけを担います。
 
 ```cpp
+// BatchExecutor自体がFacadeとして機能する
 class BatchExecutor {
-    IFacade* facade; // ← 抽象：IFacade*型で受け取り、具体実装を知らない
+    vector<INotifier*> notifiers; // ← Observerリスト（抽象型のみ）
 public:
-    BatchExecutor(IFacade* f) : facade(f) {}
+    void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
+
     void execute(string targetId) {
-        facade->execute(); // ← 間接：Facade経由で呼ぶため内部のクライアント群が見えない
+        // Factory経由で生成（具体クラスを知らない）← 間接
+        IExternalClient* client = ClientProvider::create(targetId);
+        if (client) {
+            client->send("data"); // ← 抽象：IExternalClient*型で呼ぶ
+            // 全Observerに通知（通知先を知らない）← 間接
+            for (auto* obs : notifiers) obs->onComplete("Success");
+            delete client;
+        }
     }
 };
 
 ```
 
-`BatchExecutor` は `IFacade*` だけを知っている。連携先が何社あろうと、通知先が何件あろうと、このクラスを変更する理由がなくなった。
+`BatchExecutor` は通信の詳細も通知の詳細も知らず、フローの統括（Facade）だけを担う。連携先が何社あろうと、通知先が何件あろうと、このクラスを変更する理由がなくなった。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
 // 案4（抽象×間接）の呼び出し側
-// 両クラスとも抽象Facadeのみを知っており、具体クライアント実装は隠れている
-class ManualTriggerController {
-    IFacade* facade; // ← 抽象：抽象Facadeインターフェースのみ知っている
-public:
-    ManualTriggerController(IFacade* f) : facade(f) {}
-    void triggerSync(string systemId) {
-        cout << "[ManualTrigger] " << systemId
-             << " への手動同期を実行。" << endl;
-        facade->execute();
-        // ← 間接：Facade経由のため具体クライアントが見えない
-    }
-};
-
+// BatchExecutorが窓口となり、呼び出し側は組み立てだけを知る
 int main() {
-    ConcreteFacade facade;             // ← 具体：組み立て側だけが具体型を知る
-    BatchExecutor executor(&facade);   // ← 間接：抽象Facadeのみ見えて具体実装は隠れる
-    executor.execute("C");
-
-    ConcreteFacade facade2;
-    ManualTriggerController manual(&facade2);
-    // ← 間接：抽象Facadeのみ見えて具体実装は隠れる
-    manual.triggerSync("B");
+    BatchExecutor executor;   // ← Facade：窓口を生成するだけ
+    SlackNotifier slack;
+    executor.addNotifier(&slack); // ← 通知先をリストに登録
+    executor.execute("C");        // ← 具体クラスを知らずに実行できる
     return 0;
 }
 ```
 
-両クラスとも抽象Facadeインターフェースのみを受け取るため、具体的なクライアントクラスへの依存が完全に排除される。
+`BatchExecutor`（Facade）が窓口となるため、呼び出し側は通知先をリストに登録するだけで通知先を増やせる。具体的なクライアントクラスへの依存は`ClientProvider`に閉じている。
 
-一文要約：呼び出し元→`IBatchCoordinator*`→`IExternalClient*` という2段階の抽象型を経由するため、どの具体クラスが動くかは `main()` の組み立て部分だけが知っている。
+一文要約：`ClientProvider::create()` 経由で生成（間接）、`INotifier*`リスト経由で通知（間接）——どの具体クラスが動くかは`ClientProvider`と`addNotifier()`の登録部分だけが知っている。
 
 **この形のトレードオフ：**
 
