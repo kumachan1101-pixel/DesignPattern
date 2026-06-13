@@ -564,6 +564,11 @@ public:
     int apply(int total) override { return static_cast<int>(total * 0.95); }
 };
 
+class SummerSaleAndCampaignDiscount : public IDiscountRule {
+public:
+    int apply(int total) override { return static_cast<int>(total * 0.95 * 0.90); }
+};
+
 class PaymentCalculator {
 private:
     IDiscountRule* rule;   // ← 抽象型（インターフェース）だけを知る
@@ -579,16 +584,25 @@ public:
 
 // ─── 呼び出し側のコード（依存性の注入） ───
 void processOrder(const Order& order) {
-    // 使う側（呼び出し元）が条件を判断し、具体的なルールを注入（セット）する
+    PremiumDiscount premium;
+    SummerSaleAndCampaignDiscount both;
+    SummerSaleDiscount summer;
+
+    IDiscountRule* rule = nullptr;
+    
+    // ★かつてPaymentCalculatorの中にあった「全く同じif文」がここに移動する！
+    // 実行結果は一切変わらず、判断の責任だけが外側に押し出された
     if (order.customerType == "Premium") {
-        PremiumDiscount rule;
-        PaymentCalculator calculator(&rule);
-        int finalPrice = calculator.calculate(order);
+        rule = &premium;
+    } else if (order.isSummerSale && order.isCampaignActive) {
+        rule = &both;
     } else if (order.isSummerSale) {
-        SummerSaleDiscount rule;
-        PaymentCalculator calculator(&rule);
-        int finalPrice = calculator.calculate(order);
+        rule = &summer;
     }
+
+    // 使う側（呼び出し元）が選んだルールを本体に注入（セット）する
+    PaymentCalculator calculator(rule);
+    int finalPrice = calculator.calculate(order);
 }
 ```
 
@@ -664,6 +678,13 @@ public:
     }
 };
 
+class SummerSaleAndCampaignDiscount : public IDiscountRule {
+public:
+    int apply(int total) override {
+        return static_cast<int>(total * 0.95 * 0.90);
+    }
+};
+
 class SummerSaleDiscount : public IDiscountRule {
 public:
     int apply(int total) override {
@@ -715,6 +736,26 @@ public:
 最後に、必要な部品を組み立てて実行します。具体的なクラス名（`PremiumDiscount`等）を知っているのは、この組み立てを行う箇所だけです。
 
 ```cpp
+// ルールを選択するファクトリ（かつて本体にあったif文を隔離する場所）
+class RuleFactory {
+public:
+    // メモリ管理を簡略化するため、今回は静的なインスタンスのポインタを返します
+    static IDiscountRule* create(const Order& order) {
+        static PremiumDiscount premium;
+        static SummerSaleAndCampaignDiscount both;
+        static SummerSaleDiscount summer;
+        static CampaignDiscount campaign;
+        static NoDiscount none;
+
+        // ★実行結果を変えないため、元のコードと全く同じif文が存在する
+        if (order.customerType == "Premium") return &premium;
+        if (order.isSummerSale && order.isCampaignActive) return &both;
+        if (order.isSummerSale) return &summer;
+        if (order.isCampaignActive) return &campaign;
+        return &none;
+    }
+};
+
 class BatchApplication {
 public:
     void run() {
@@ -723,9 +764,11 @@ public:
         order.customerType = "Premium";
         order.isCampaignActive = false;
 
-        PremiumDiscount rule;                 // ← 具体型を知るのは組み立て役だけ
-        PaymentCalculator calculator(&rule);  // ← 依存性の注入（DI）
-        CartPreviewService preview(&rule);
+        // 組み立て役がif文でルールを選び、本体に注入する（DI）
+        IDiscountRule* rule = RuleFactory::create(order);
+        
+        PaymentCalculator calculator(rule);
+        CartPreviewService preview(rule);
 
         int finalPrice = calculator.calculate(order);
         int previewPrice = preview.getEstimatedTotal(order);
