@@ -498,7 +498,7 @@ public:
 これで「条件文」と「計算式」が綺麗に整理されました。一歩レベルアップです。
 しかし、まだ根本的な痛みが残っています。新しいキャンペーンが来るたびに、結局はこの `PaymentCalculator` クラスを開いて、①新しい計算関数を追加し、② `applyDiscount` に新しい `if` 文を書き足さなければなりません。**条件文が本体に取り残されている**ため、「クラスが永遠に変わり続ける」という根本問題は解決していないのです。
 
-### ステップ3：インターフェース化して入れ替え可能にする（Strategyパターン）
+### ステップ3：インターフェース化して入れ替え可能にする（抽象×直接）
 
 既存コード（本体）を一切触らずに新しいルールを追加するにはどうすればよいでしょうか？
 「if文」という条件判断すらも本体から追い出し、各計算式をクラス化してインターフェース（抽象）で受け取る形にします。
@@ -547,18 +547,24 @@ public:
 **今回の決断：**
 フェーズ2のヒアリングで、マーケティング責任者から「今後も毎月ルールが追加される」と明言されています。したがって、今回は迷わず**ステップ3（抽象化）まで進化させる**決断を下します。
 
+このように、変わるロジック（割引ルール）をインターフェースで分離し、呼び出し側から自由に差し替え可能にするこの設計構造を **Strategy（ストラテジー）パターン** と呼びます。
+
 フェーズ6で採用案が決まりました。次のフェーズ7では、この決断を最終的なコードに落とし込みます。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 
 ### 7-1：解決後のコード（全体）
 
+ステップ3で決断した構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて見ていきましょう。
+
+**1. データの定義とインターフェース（契約）**
+計算に必要なデータクラスと、すべての割引ルールが守るべき共通のインターフェースを定義します。
+
 ```cpp
 #include <iostream>
 #include <string>
 #include <vector>
 
-// ─── データクラス ──────────────────────────────
 class Item {
 public:
     std::string name;
@@ -573,14 +579,18 @@ public:
     bool isCampaignActive;
 };
 
-// ─── 割引ルールのインターフェース ─────────────
+// 割引ルールの共通インターフェース（Strategy）
 class IDiscountRule {
 public:
     virtual int apply(int total) = 0;
     virtual ~IDiscountRule() = default;
 };
+```
 
-// ─── 割引ルールの実装クラス群 ─────────────────
+**2. 個別の割引ルールの実装（具体）**
+インターフェースを満たす具体的な割引クラスを作成します。本体コードに触れることなく、このクラス群だけを自由に追加・変更できます。
+
+```cpp
 class NoDiscount : public IDiscountRule {
 public:
     int apply(int total) override { return total; }
@@ -606,8 +616,12 @@ public:
         return static_cast<int>(total * 0.90);
     }
 };
+```
 
-// ─── 計算クラス：インターフェースのみを知る ───
+**3. 本体クラス（コンテキスト）**
+計算を行う本体クラスです。具体的な割引ルールを知らず、インターフェースだけを通じて計算を委譲します。これにより、if文が存在しない無傷の骨格が完成します。
+
+```cpp
 class PaymentCalculator {
 private:
     IDiscountRule* rule;
@@ -621,7 +635,7 @@ public:
     }
 };
 
-// ─── カートプレビュー：同じI/Fを使う ──────────
+// カートプレビュー機能も同じインターフェースを使い回せる
 class CartPreviewService {
 private:
     IDiscountRule* rule;
@@ -634,8 +648,12 @@ public:
         return rule->apply(total);
     }
 };
+```
 
-// ─── 組み立て（具体型を知るのはここだけ）──────
+**4. 組み立てと実行（メイン関数）**
+最後に、必要な部品を組み立てて実行します。具体的なクラス名（`PremiumDiscount`等）を知っているのは、この組み立てを行う箇所だけです。
+
+```cpp
 class BatchApplication {
 public:
     void run() {
@@ -644,8 +662,8 @@ public:
         order.customerType = "Premium";
         order.isCampaignActive = false;
 
-        PremiumDiscount rule;                         // ← ここだけ具体型
-        PaymentCalculator calculator(&rule);
+        PremiumDiscount rule;                 // ← 具体型を知るのは組み立て役だけ
+        PaymentCalculator calculator(&rule);  // ← 依存性の注入（DI）
         CartPreviewService preview(&rule);
 
         int finalPrice = calculator.calculate(order);
