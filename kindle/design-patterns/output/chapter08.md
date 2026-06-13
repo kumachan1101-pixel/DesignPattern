@@ -490,13 +490,9 @@ class PaymentApplication {
 public:
     void processPayment(string type, int amount) {
         // ← 具体：型名を直接書いている
-        if (type == "credit") {
-            CreditCardProcessor p; p.pay(amount);
-        } else if (type == "paypay") {
-            PayPayProcessor p; p.pay(amount);
-        } else if (type == "cvs") {
-            ConvenienceStoreProcessor p; p.pay(amount);
-        }
+        if (type == "credit") { CreditCardProcessor p; p.pay(amount); return; }
+        if (type == "paypay") { PayPayProcessor p; p.pay(amount); return; }
+        if (type == "cvs") { ConvenienceStoreProcessor p; p.pay(amount); return; }
     }
 };
 ```
@@ -515,11 +511,8 @@ public:
              << " の月額課金を処理します。" << endl;
         // ← PaymentApplicationと同じ分岐ロジックが重複する
         string type = "credit"; // 定期課金はクレジット固定
-        if (type == "credit") {
-            CreditCardProcessor p; p.pay(amount);
-        } else if (type == "paypay") {
-            PayPayProcessor p; p.pay(amount);
-        }
+        if (type == "credit") { CreditCardProcessor p; p.pay(amount); return; }
+        if (type == "paypay") { PayPayProcessor p; p.pay(amount); return; }
     }
 };
 ```
@@ -633,18 +626,11 @@ public:
 class PaymentApplication {
 public:
     void processPayment(string type, int amount) {
-        if (type == "credit") {
-            // ← 具体：型名を直接書いている
-            // ← 直接：このクラスを直接生成している
-            CreditCardProcessor p;
-            p.pay(amount);
-        } else if (type == "paypay") {
-            PayPayProcessor p;
-            p.pay(amount);
-        } else if (type == "cvs") {
-            ConvenienceStoreProcessor p;
-            p.pay(amount);
-        }
+        // ← 具体：型名を直接書いている
+        // ← 直接：このクラスを直接生成している
+        if (type == "credit") { CreditCardProcessor p; p.pay(amount); return; }
+        if (type == "paypay") { PayPayProcessor p; p.pay(amount); return; }
+        if (type == "cvs") { ConvenienceStoreProcessor p; p.pay(amount); return; }
     }
 };
 ```
@@ -663,15 +649,10 @@ public:
              << " の月額課金を処理します。" << endl;
         // ← 同じ選択判断がここでも重複
         string type = "credit"; // 定期課金はクレジット固定
-        if (type == "credit") {
-            // ← 同じ具体クラスをここでも直接生成
-            CreditCardProcessor p;
-            p.pay(amount);
-        } else if (type == "paypay") {
-            // ← どのクラスを使うかの判断がここでも重複
-            PayPayProcessor p;
-            p.pay(amount);
-        }
+        // ← 同じ具体クラスをここでも直接生成
+        if (type == "credit") { CreditCardProcessor p; p.pay(amount); return; }
+        // ← どのクラスを使うかの判断がここでも重複
+        if (type == "paypay") { PayPayProcessor p; p.pay(amount); return; }
     }
 };
 ```

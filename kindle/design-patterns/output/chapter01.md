@@ -453,17 +453,16 @@ int calculate(const Order& order) {
     }
 
     // サマーセール対応：既存ブロックの書き換えと新フラグが必要になった
-    if (order.customerType == "Premium" && order.isSummerSale) {
-        total = static_cast<int>(total * 0.85);         // 15%引き
-    } else if (order.customerType == "Premium") {
-        total = static_cast<int>(total * 0.80);         // 20%引き
-    } else if (order.isSummerSale && order.isCampaignActive) {
-        total = static_cast<int>(total * 0.95 * 0.90); // 重ね掛け
-    } else if (order.isSummerSale) {
-        total = static_cast<int>(total * 0.95);         // 5%引き
-    } else if (order.isCampaignActive) {
-        total = static_cast<int>(total * 0.90);         // 10%引き
-    }
+    if (order.customerType == "Premium" && order.isSummerSale)
+        return static_cast<int>(total * 0.85);         // 15%引き
+    if (order.customerType == "Premium")
+        return static_cast<int>(total * 0.80);         // 20%引き
+    if (order.isSummerSale && order.isCampaignActive)
+        return static_cast<int>(total * 0.95 * 0.90); // 重ね掛け
+    if (order.isSummerSale)
+        return static_cast<int>(total * 0.95);         // 5%引き
+    if (order.isCampaignActive)
+        return static_cast<int>(total * 0.90);         // 10%引き
     return total;
 }
 ```
@@ -534,7 +533,8 @@ public:
         if (order.customerType == "Premium") {
             PremiumDiscount d;       // ← 具体型を直接生成
             return d.apply(total);
-        } else if (order.isSummerSale) {
+        }
+        if (order.isSummerSale) {
             SummerSaleDiscount d;
             return d.apply(total);
         }

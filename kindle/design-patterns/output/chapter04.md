@@ -700,10 +700,10 @@ public:
         if (filename.find("ec_") != std::string::npos) {
             ECDataImporter importer;
             importer.import();
-        } else {
-            StoreDataImporter importer;
-            importer.import();
+            return;
         }
+        StoreDataImporter importer;
+        importer.import();
     }
 };
 

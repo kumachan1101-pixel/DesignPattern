@@ -443,13 +443,9 @@ class ManualTriggerController {
 public:
     void triggerSync(string systemId) {
         // ← BatchExecutorと同じif-else分岐をそのまま複製している
-        if (systemId == "A") {
-            SystemAClient client; client.send("manualData");
-        } else if (systemId == "B") {
-            SystemBClient client; client.send("manualData");
-        } else if (systemId == "C") {
-            SystemCClient client; client.send("manualData");
-        }
+        if (systemId == "A") { SystemAClient client; client.send("manualData"); }
+        if (systemId == "B") { SystemBClient client; client.send("manualData"); }
+        if (systemId == "C") { SystemCClient client; client.send("manualData"); }
         NotificationService n; n.notify("手動同期完了");
     }
 };

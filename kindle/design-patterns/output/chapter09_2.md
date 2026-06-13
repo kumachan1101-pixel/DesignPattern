@@ -462,7 +462,9 @@ public:
         string priority = calc.calculate(userType);
         if (status == "Open") {          // ← 具体："Open"を直接書いている
             cout << "チケット受付中。優先度: " << priority << endl;
-        } else if (status == "InProgress" && priority == "High") {
+            return;
+        }
+        if (status == "InProgress" && priority == "High") {
             cout << "緊急対応中。担当者を招集します。" << endl;
         }
     }
@@ -482,10 +484,10 @@ public:
         if (priority == "High") {
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
-        } else {
-            cout << "[EscalationEngine] チケット " << ticketId
-                 << " は通常優先度。対応待ち。" << endl;
+            return;
         }
+        cout << "[EscalationEngine] チケット " << ticketId
+             << " は通常優先度。対応待ち。" << endl;
     }
 };
 
@@ -591,7 +593,9 @@ public:
         if (status == "Open") {
             OpenPhase s; s.activate(); // ← 具体：OpenPhaseを直接生成
             cout << "優先度: " << priority << endl;
-        } else if (status == "InProgress" && priority == "High") {
+            return;
+        }
+        if (status == "InProgress" && priority == "High") {
             InProgressPhase s; s.activate(); // ← 具体：InProgressPhaseを直接生成
             cout << "緊急対応中。担当者を招集します。" << endl;
         }
@@ -614,10 +618,10 @@ public:
             inProg.activate();
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
-        } else {
-            OpenPhase open;
-            open.activate();
+            return;
         }
+        OpenPhase open;
+        open.activate();
     }
 };
 

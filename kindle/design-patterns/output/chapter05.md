@@ -495,12 +495,17 @@ public:
         if (lastOp.rfind("Expense:", 0) == 0) {
             // 支出を取り消すには金額とカテゴリを取り出してundoする
             // → でもExpenseManagerにはundoメソッドがない！追加が必要
-        } else if (lastOp.rfind("Income:", 0) == 0) {
-            // 収入を取り消す → IncomeManagerにもundoメソッドを追加が必要
-        } else if (lastOp == "Delete") {
-            // 削除を取り消す → 削除前のデータを保存しておく必要がある
+            return;
         }
-        // 操作が1種類増えるたびに、ここにelse ifが1段追加される…
+        if (lastOp.rfind("Income:", 0) == 0) {
+            // 収入を取り消す → IncomeManagerにもundoメソッドを追加が必要
+            return;
+        }
+        if (lastOp == "Delete") {
+            // 削除を取り消す → 削除前のデータを保存しておく必要がある
+            return;
+        }
+        // 操作が1種類増えるたびに、ここにifが1段追加される…
     }
 };
 

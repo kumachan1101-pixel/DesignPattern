@@ -483,20 +483,22 @@ public:
         if (status == "Available") {
             status = "Reserved";
             std::cout << "予約完了\n";
-        } else if (status == "Held") {
+            return;
+        }
+        if (status == "Held") {
             status = "Reserved";
             std::cout << "保留から予約へ変更しました\n";
-        } else {
-            std::cout << "現在予約できません\n";
+            return;
         }
+        std::cout << "現在予約できません\n";
     }
     void cancel() {
         if (status == "Reserved") {
             status = "Available";
             std::cout << "キャンセル完了\n";
-        } else {
-            std::cout << "キャンセルできません\n";
+            return;
         }
+        std::cout << "キャンセルできません\n";
     }
     std::string getStatus() const { return status; }
 };
@@ -520,18 +522,15 @@ public:
             status = "Available";
             std::cout << "座席 " << seatId
                       << " を強制キャンセルしました\n";
-        } else {
-            std::cout << "キャンセル対象外の状態です\n";
+            return;
         }
+        std::cout << "キャンセル対象外の状態です\n";
     }
     void checkStatus(const std::string& seatId) {
         // ← 同じ状態チェックロジックが重複している
-        if (status == "Available")
-            std::cout << seatId << ": 空席\n";
-        else if (status == "Reserved")
-            std::cout << seatId << ": 予約済み\n";
-        else if (status == "Paid")
-            std::cout << seatId << ": 支払い済み\n";
+        if (status == "Available") { std::cout << seatId << ": 空席\n"; return; }
+        if (status == "Reserved")  { std::cout << seatId << ": 予約済み\n"; return; }
+        if (status == "Paid")      { std::cout << seatId << ": 支払い済み\n"; return; }
     }
 };
 ```
@@ -647,9 +646,9 @@ public:
         if (currentState == "Available") {
             availableState->reserve(); // ← 具体クラスを直接呼ぶ
             currentState = "Reserved"; // ← 切り替えは文字列で管理
-        } else {
-            std::cout << "現在予約できません\n";
+            return;
         }
+        std::cout << "現在予約できません\n";
     }
     void pay() { reservedState->pay(); }
     void cancel() { reservedState->cancel(); }
