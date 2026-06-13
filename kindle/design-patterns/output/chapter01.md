@@ -186,7 +186,7 @@ classDiagram
 
 マーケティング部から以下の変更要求が来ました。
 
-「来週から『サマーセール』を開始します。期間中は全会員を対象に5%オフにするルールを追加してください。プレミアム会員の場合は特別に15%オフに調整をお願いします。」
+「来週から『サマーセール』を開始します。期間中はRegular会員を対象に5%オフを追加してください。プレミアム会員はすでに20%引きが適用されているため、今回のセールは対象外です。」
 
 リリースは来週末。既存の `if` 文の隙間に `else if` を追加すれば間に合うかもしれません。しかし少し立ち止まって、「これは1回限りの変更なのか、今後も続くのか」を確認しましょう。
 
@@ -197,19 +197,19 @@ classDiagram
 
 | ルール名 | 変更前 | 変更後 |
 |---|---|---|
-| プレミアム割引 | Premium会員に20%引き | **サマーセール期間中は15%引き**に変更（通常時は20%引きのまま） |
+| プレミアム割引 | Premium会員に20%引き | 変更なし |
 | キャンペーン割引 | Regular会員にキャンペーン10%引き | 変更なし |
-| **サマーセール割引（新規）** | —（なし） | **全会員に5%引きを追加**。ただしPremiumには適用されない |
+| **サマーセール割引（新規）** | —（なし） | **Regular会員に5%引きを追加** |
 
 **変更後の動作例**
 
 | 会員種別 | サマーセール | 変更前の支払金額（1万円の場合） | 変更後の支払金額 |
 |---|---|---|---|
-| Premium | ✓ | 8,000円（20%引き） | **8,500円（15%引き）** |
+| Premium | ✓ | 8,000円（20%引き） | 8,000円（変更なし） |
 | Regular | ✓ | 9,000円（10%引き） | **9,500円（5%引き）** |
 | Regular | ✗ | 10,000円（割引なし） | 10,000円（変更なし） |
 
-プレミアム会員の割引率は「20%→15%」へ変更されます。Regular会員はサマーセール中に5%引きが新たに加わります。
+Regular会員はサマーセール中に5%引きが新たに加わります。プレミアム会員はすでに20%引きが適用されているため、今回のサマーセールの対象外となります。
 
 フェーズ1でシステムの現状と変更要求が把握できました。次のフェーズ2では、「何が変わり、何が変わらないか」を整理します。
 
@@ -246,8 +246,7 @@ classDiagram
 
 | **変わること** | **なぜ確定か** |
 |---|---|
-| プレミアム会員への割引率（20% → 15%） | 「プレミアム会員は15%オフに調整」と明示 |
-| サマーセール割引の追加（全会員5%オフ） | 「全会員を対象に5%オフ」と明示 |
+| サマーセール割引の追加（Regular会員5%オフ） | 「Regular会員を対象に5%オフ」と明示 |
 
 確定している変更は2点です。しかし「この変更が1回限りか、今後も続くか」によって、どこまで設計を変えるべきかが大きく変わります。関係者に確認します。
 
@@ -283,7 +282,7 @@ classDiagram
 
 ### 3-1：変更を試みる
 
-「サマーセール：全会員5%オフ、プレミアム会員は15%オフ」を現在の `PaymentCalculator` に追加してみます。変更前のコードはこうでした。
+「サマーセール：Regular会員に5%オフを追加」を現在の `PaymentCalculator` に追加してみます。変更前のコードはこうでした。
 
 ```cpp
 if (order.customerType == "Premium") {
@@ -297,13 +296,13 @@ if (order.customerType == "Premium") {
 このコードにサマーセールの条件を追加すると、以下のようになります。
 
 ```cpp
-// サマーセール対応：既存ブロックの書き換えが必要になった
-if (order.customerType == "Premium" && order.isSummerSale) {
-    total = static_cast<int>(total * 0.85);  // 15%引き
-} else if (order.customerType == "Premium") {
-    total = static_cast<int>(total * 0.80);  // 20%引き
+// サマーセール対応：Regular会員向けに条件を追加
+if (order.customerType == "Premium") {
+    total = static_cast<int>(total * 0.80);  // 20%引き（サマーセール対象外）
+} else if (order.isSummerSale && order.isCampaignActive) {
+    total = static_cast<int>(total * 0.95 * 0.90); // 重ね掛け（Regular会員）
 } else if (order.isSummerSale) {
-    total = static_cast<int>(total * 0.95);  // 5%引き
+    total = static_cast<int>(total * 0.95);  // 5%引き（Regular会員）
 } else if (order.isCampaignActive) {
     total = static_cast<int>(total * 0.90);  // 10%引き
 }
@@ -311,7 +310,7 @@ if (order.customerType == "Premium" && order.isSummerSale) {
 
 この変更後コードを見ると、問題が浮かび上がります。
 
-「サマーセール中のプレミアム会員は15%オフ」という要件は、既存の「プレミアム会員は常に20%オフ」と競合します。単純に `else if` を追加するだけでは済まず、既存の `if (customerType == "Premium")` ブロック全体を書き換える必要があります。さらに、`Order` クラスに `isSummerSale` フラグを追加しなければなりません。
+一見シンプルな追加に見えますが、サマーセールは「Regular会員のみ」「キャンペーンと重複した場合は重ね掛け」という複合条件を持っています。単純に `else if` を1行追加するだけでは済まず、`isSummerSale && isCampaignActive` の組み合わせを考慮した分岐も追加する必要があります。さらに、`Order` クラスに `isSummerSale` フラグを追加しなければなりません。
 
 ヒアリングで予告された「1000円引きクーポン」が来た場合はどうでしょうか。パーセント計算とは異なる「引き算」のロジックが混入し、全ての `if` ブロックの計算順序を見直す必要が出てきます。
 
@@ -452,22 +451,20 @@ int calculate(const Order& order) {
         total += item.price;
     }
 
-    // サマーセール対応：既存ブロックの書き換えと新フラグが必要になった
-    if (order.customerType == "Premium" && order.isSummerSale)
-        return static_cast<int>(total * 0.85);         // 15%引き
+    // サマーセール対応：Regular会員向けに条件を追加
     if (order.customerType == "Premium")
-        return static_cast<int>(total * 0.80);         // 20%引き
+        return static_cast<int>(total * 0.80);         // 20%引き（サマーセール対象外）
     if (order.isSummerSale && order.isCampaignActive)
-        return static_cast<int>(total * 0.95 * 0.90); // 重ね掛け
+        return static_cast<int>(total * 0.95 * 0.90); // 重ね掛け（Regular会員）
     if (order.isSummerSale)
-        return static_cast<int>(total * 0.95);         // 5%引き
+        return static_cast<int>(total * 0.95);         // 5%引き（Regular会員）
     if (order.isCampaignActive)
         return static_cast<int>(total * 0.90);         // 10%引き
     return total;
 }
 ```
 
-この変更で、既存の `Premium` ブロックを書き換え、`Order` クラスへの `isSummerSale` フラグ追加が必要になりました。さらに `CartPreviewService` にも全く同じ分岐が重複します。
+この変更で、`Order` クラスへの `isSummerSale` フラグ追加が必要になりました。また `isSummerSale && isCampaignActive` の組み合わせ分岐も新たに追加が必要です。さらに `CartPreviewService` にも全く同じ分岐が重複します。
 
 **この案のトレードオフ：**
 - 変更容易性：低（次のキャンペーンでまた同じ作業が繰り返される）
