@@ -817,6 +817,10 @@ int main() {
 
 案4では、これら2つの残課題を順番に解決します。
 
+**案3の限界**
+
+案3でStateによる状態遷移の整理はできたが、通知先管理の問題が残っている。新しい通知先（承認者へのSlack通知など）を追加するたびにWorkflowManagerの修正が必要になる。次の案4では、この通知の問題を解消するためObserver構造が、さらに判定ルールを外部化するためStrategy構造が自然に加わります。
+
 ---
 
 #### 案4：抽象×間接 ―― インターフェース＋仲介役を両立する
@@ -1129,6 +1133,8 @@ sequenceDiagram
 **理由：**
 承認フローの「状態」「通知」「判定ルール」という3つの変動軸をすべて独立したインターフェースとして切り出すことで、将来的に組織変更やルール追加が発生しても、メインロジックを一切修正せずに拡張可能となるため、長期的な運用コストを最小化できると判断しました。
 
+実はこの3つの仕組みにはそれぞれ名前があります——State・Observer・Strategy。第3章・第7章・第1章で学んだ3つのパターンが、問題分析の末に自然に組み合わさりました。
+
 ---
 
 ### 6-5：耐久テスト
@@ -1180,6 +1186,52 @@ public:
 class IWorkflowPhase {
 public:
     virtual void handle(class WorkflowManager* wm) = 0;
+};
+
+```
+
+**承認判定ルールの具体実装**
+
+```cpp
+// 承認判定ルールの具体実装
+class ManagerApprovalRule : public IApprovalRule {
+public:
+    bool canApprove(double amount) const override {
+        return amount <= 100000; // 10万円以下はマネージャー承認
+    }
+};
+
+class DirectorApprovalRule : public IApprovalRule {
+public:
+    bool canApprove(double amount) const override {
+        return amount <= 1000000; // 100万円以下は部長承認
+    }
+};
+
+```
+
+**状態クラスの実装（IApprovalRuleを使用）**
+
+```cpp
+struct ApprovalRequest {
+    double amount;
+};
+
+class PendingPhase : public IWorkflowPhase {
+    IApprovalRule* rule; // ← 判定ルールを外部から注入
+public:
+    PendingPhase(IApprovalRule* r) : rule(r) {}
+
+    void handle(WorkflowManager* wm) override {
+        ApprovalRequest req{50000};
+        if (rule->canApprove(req.amount)) {
+            cout << "審査待ち：承認可能。承認済み状態へ移行。" << endl;
+            wm->notifyAll("承認済みに移行しました");
+        } else {
+            cout << "審査待ち：上位承認者へエスカレーション。" << endl;
+            wm->notifyAll("エスカレーションが発生しました");
+        }
+    }
 };
 
 ```
@@ -1282,6 +1334,14 @@ public:
 | 🔴 フェーズ6：対策案検討 | 3つの変化軸を独立したインターフェースで切り出す案4を採用した。 |
 | 🟢 フェーズ7：対策実施 | 責務をインターフェースで疎結合化し、変更影響をクラス単位に局所化した。 |
 
+### 使ったパターン × 解消した根本原因
+
+| パターン | 解消した根本原因 |
+|---|---|
+| State | 状態遷移の混在（WorkflowManagerに状態ごとの分岐が詰まっていた問題）|
+| Observer | 通知の密結合（通知先追加のたびWorkflowManager本体の修正が必要だった問題）|
+| Strategy | 判定ルールの混在（承認判定ロジックが状態クラスに直接書かれていた問題）|
+
 ### 各クラスの最終的な責任
 
 | **クラス名** | **責任（1文）** | **変わる理由** |
@@ -1359,7 +1419,7 @@ classDiagram
 ```mermaid
 classDiagram
     class WorkflowManager {
-        -IWorkflowState* state
+        -IWorkflowPhase* state
         -INotificationListener[] listeners
         +process()
     }
@@ -1422,6 +1482,8 @@ private:
 これらの仕組みが威力を発揮するのは、「状態の数が増える」「通知先が変わる」「判定ルールが差し替わる」という変化軸が**実際に複数存在するとき**です。その変化軸が見えないうちはシンプルな実装を選んでください。
 
 
+
+第二部では、複数の変化軸が同居する4つの問題に、第一部と同じ7フェーズの思考プロセスを適用した。フェーズ4で根本原因が複数見つかり、フェーズ6でパターンが積み上がる——これが第二部の体験だった。使ったパターンは全て第一部で学んだものだ。応用は、新しい知識を加えることではなく、既知の知識を組み合わせることで実現した。
 
 ---
 
