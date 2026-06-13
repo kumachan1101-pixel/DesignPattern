@@ -299,8 +299,8 @@ graph LR
 
 |  | 直接（直差し） | 間接（アダプター経由） |
 |:---:|:---|:---|
-| **具体**（専用規格） | **← 現在地**　iPhone → [Lightning] → Apple純正ドック（Lightning端子） | iPhone → [Lightning] → [変換] → USB-A充電器（汎用端子） |
-| **抽象**（汎用規格） | MacBook → [USB-C] → USB-C対応モニター（汎用端子） | MacBook → [USB-C] → [ハブ] → HDMI・USB-A・LAN |
+| **具体**（専用規格） | **← 現在地**　iPhone → [Lightning] → Apple純正ドック（Lightning端子） | ライトニング直生え → ゲーム機用アダプタを挟む → ゲーム機 |
+| **抽象**（汎用規格） | MacBook → [USB-C] → USB-C対応モニター（汎用端子） | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 |
 
 フェーズ4で根本原因が言語化できました。 次のフェーズ5では、解決する課題を具体的に定義していきます。
 
@@ -364,9 +364,9 @@ graph LR
 | 接続形態 | ケーブル例 | 特徴 |
 |:---:|:---|:---|
 | **具体×直接**（← 現在地） | iPhone → [Lightning] → Apple純正ドック（Lightning端子） | 専用端子のみ対応。差し替え不可 |
-| **具体×間接** | iPhone → [Lightning] → [変換] → USB-A充電器（汎用端子） | 変換器を挟むが規格は専用のまま |
+| **具体×間接** | ライトニング直生え → ゲーム機用アダプタを挟む → ゲーム機 | 変換器を挟むが規格は専用のまま |
 | **抽象×直接** | MacBook → [USB-C] → USB-C対応モニター（汎用端子） | どのメーカーでも同じ口で繋がる |
-| **抽象×間接** | MacBook → [USB-C] → [ハブ] → HDMI・USB-A・LAN | ハブを介して多様な機器へ展開可能 |
+| **抽象×間接** | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 | アダプタを介して汎用規格で展開可能 |
 
 ---
 
@@ -813,7 +813,7 @@ classDiagram
 | 手段 | 方法 | 特徴 |
 | --- | --- | --- |
 | 手段A：生成を専用クラス（Factory）に委譲 | `IExternalClient* create(targetId)` を持つクラスを作る | 生成の責務が1クラスに集中。呼び出し元は型を知らずに済む |
-| 手段B：通知をリスト管理（Observer型） | `vector<INotifier*>` に通知先を登録・一括呼び出し | 通知先の追加・削除がリストへの操作だけで完結する |
+| 手段B：通知先をリストで動的に管理する | `vector<INotifier*>` に通知先を登録・一括呼び出し | 通知先の追加・削除がリストへの操作だけで完結する |
 | 手段C：生成と通知を同一クラスに持つ | 仲介クラスが生成も通知も担う | クラス数は減るが責務が再び混在する。変化の軸が違うので分けるべき |
 
 **手段A＋手段B の組み合わせ**（生成と通知はそれぞれ独立して変わるため、それぞれ別の仕組みで管理する。これにより変更影響が完全に局所化される）のコードを以下に示します。
@@ -1100,11 +1100,44 @@ public:
     }
 };
 
+// 手動実行コントローラー（ManualTriggerController）
+class ManualTriggerController {
+    IExternalClient* client;
+public:
+    ManualTriggerController(IExternalClient* c) : client(c) {}
+    void triggerSync(string targetId) {
+        cout << "[ManualTrigger] " << targetId
+             << " への手動同期を実行。" << endl;
+        client->send("manualData");
+    }
+};
+
+// 組み立てと実行を担うクラス（main()の代わりに具体クラスを知る）
+class BatchApplication {
+public:
+    void run(string targetId) {
+        // 通知先の組み立て
+        SlackNotifier slack;
+
+        // バッチ実行クラスの組み立て
+        BatchExecutor executor;
+        executor.addNotifier(&slack);
+
+        // 実行
+        executor.execute(targetId);
+    }
+
+    void runManual(string targetId) {
+        SystemAClient client;
+        ManualTriggerController manual(&client);
+        manual.triggerSync(targetId);
+    }
+};
+
 int main() {
-    BatchExecutor executor;
-    SlackNotifier slack;
-    executor.addNotifier(&slack); // 通知先を登録
-    executor.execute("A");
+    BatchApplication app;
+    app.run("A");
+    app.runManual("A");
     return 0;
 }
 
@@ -1172,7 +1205,7 @@ graph LR
 ### 7-4：接続形態の確認 ── この設計はどの接続か
 
 フェーズ4-3で診断した通り、変更前のコードは **具体×間接** の状態でした。
-採用した構造（Facade × Observer × Factory Method パターン）では、接続形態が **抽象×間接（USB-Cハブ経由）** へと変化しています。
+採用した構造（Facade × Observer × Factory Method パターン）では、接続形態が **抽象×間接（Type-C変換アダプタ経由）** へと変化しています。
 
 **「抽象×間接」の証拠となるコード：**
 
@@ -1314,9 +1347,35 @@ Facade はバッチ実行部の複雑な連携フローを隠蔽し、Factory Me
 【過剰コード：変化が単一である場合の例】
 
 ```cpp
-// 連携先が今後も増える見込みがなく、通知もログ出力のみであれば、
-// 仲介クラスを導入するだけで十分であり、生成の分離や通知リストは過剰な抽象化となります。
+// 【過剰コード例】連携先が1社・通知もSlack固定の単純ケースで
+//               Factory+Observerを使った場合
+class SimpleBatchExecutor {
+    // 連携先は SystemAClient のみ・通知は SlackNotifier のみ
+    // この規模でFactory/Observer/Facadeを全部使うのは過剰
+    IExternalClient* client;
+    vector<INotifier*> notifiers;
+public:
+    SimpleBatchExecutor(IExternalClient* c) : client(c) {}
+    void addNotifier(INotifier* n) { notifiers.push_back(n); }
+    void execute() {
+        client->send("data");
+        for (auto* n : notifiers) n->onComplete("Success");
+    }
+};
 
+// シンプルな直接実装で十分な場合
+class SimpleBatch {
+public:
+    void execute() {
+        SystemAClient client;  // 連携先は固定
+        client.send("data");
+        SlackNotifier notifier; // 通知先は固定
+        notifier.onComplete("Success");
+    }
+};
+// → 連携先が1社・通知先が1つで今後も変わらないなら
+//   SimpleBatch の直接実装で十分。
+//   インターフェースや Factory を重ねるコストに見合わない。
 ```
 
 

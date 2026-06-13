@@ -301,8 +301,8 @@ graph LR
 
 |  | 直接（直差し） | 間接（アダプター経由） |
 |:---:|:---|:---|
-| **具体**（専用規格） | **← 現在地**　iPhone → [Lightning] → Apple純正ドック（Lightning端子） | iPhone → [Lightning] → [変換] → USB-A充電器（汎用端子） |
-| **抽象**（汎用規格） | MacBook → [USB-C] → USB-C対応モニター（汎用端子） | MacBook → [USB-C] → [ハブ] → HDMI・USB-A・LAN |
+| **具体**（専用規格） | **← 現在地**　iPhone → [Lightning] → Apple純正ドック（Lightning端子） | ライトニング直生え → ゲーム機用アダプタを挟む → ゲーム機 |
+| **抽象**（汎用規格） | MacBook → [USB-C] → USB-C対応モニター（汎用端子） | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 |
 
 比喩からコードへの橋渡しを3段階で示します。
 
@@ -394,9 +394,9 @@ graph LR
 | 接続形態 | ケーブル例 | 特徴 |
 |:---:|:---|:---|
 | **具体×直接**（← 現在地） | iPhone → [Lightning] → Apple純正ドック（Lightning端子） | 専用端子のみ対応。差し替え不可 |
-| **具体×間接** | iPhone → [Lightning] → [変換] → USB-A充電器（汎用端子） | 変換器を挟むが規格は専用のまま |
+| **具体×間接** | ライトニング直生え → ゲーム機用アダプタを挟む → ゲーム機 | 変換器を挟むが規格は専用のまま |
 | **抽象×直接** | MacBook → [USB-C] → USB-C対応モニター（汎用端子） | どのメーカーでも同じ口で繋がる |
-| **抽象×間接** | MacBook → [USB-C] → [ハブ] → HDMI・USB-A・LAN | ハブを介して多様な機器へ展開可能 |
+| **抽象×間接** | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 | アダプタを介して汎用規格で展開可能 |
 
 どの案も、動作例テーブルで示した動作を実現します。違うのは「変更が来たときにどこを触ることになるか」です。
 
@@ -1525,5 +1525,59 @@ void updateStatus(string status) {
 ```
 
 「状態が2つ以下・ルールが1種類」という条件では、パターン適用はクラス数を増やすだけで変更耐性の恩恵がありません。変化の見込みがないなら、シンプルな実装が正解です。
+
+### GoF抽象構造との対応
+
+**Strategyパターン（GoF標準）：**
+
+```mermaid
+classDiagram
+    class Context {
+        -strategy: IStrategy
+        +setStrategy(s: IStrategy)
+        +doWork()
+    }
+    class IStrategy {
+        <<interface>>
+        +execute()
+    }
+    class ConcreteStrategyA {
+        +execute()
+    }
+    class ConcreteStrategyB {
+        +execute()
+    }
+    Context --> IStrategy
+    IStrategy <|.. ConcreteStrategyA
+    IStrategy <|.. ConcreteStrategyB
+```
+
+この章での対応：Context = `TicketManager`、IStrategy = `IPriorityRule`、ConcreteStrategyA = `PremiumPriority`、ConcreteStrategyB = `NormalPriority`
+
+**Stateパターン（GoF標準）：**
+
+```mermaid
+classDiagram
+    class Context {
+        -state: IState
+        +setState(s: IState)
+        +request()
+    }
+    class IState {
+        <<interface>>
+        +handle(context: Context)
+    }
+    class ConcreteStateA {
+        +handle(context: Context)
+    }
+    class ConcreteStateB {
+        +handle(context: Context)
+    }
+    Context --> IState
+    IState <|.. ConcreteStateA
+    IState <|.. ConcreteStateB
+```
+
+この章での対応：Context = `TicketContext`、IState = `ITicketPhase`、ConcreteStateA = `OpenPhase`、ConcreteStateB = `InProgressPhase`
 
 
