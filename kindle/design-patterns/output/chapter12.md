@@ -314,7 +314,7 @@ graph LR
 
 |  | 直接（直差し） | 間接（アダプター経由） |
 |:---:|:---|:---|
-| **具体**（専用規格） | **← 現在地**　ライトニング直生え → ゲーム機（直差し） | ライトニング直生え → ゲーム機用アダプタを挟む → ゲーム機 |
+| **具体**（専用規格） | **← 現在地**　ライトニング直生え → iPhone（直差し） | ライトニング直生え → ゲーム機専用アダプタを挟む → ゲーム機 |
 | **抽象**（汎用規格） | Type-C直生え → 各種機器（直差し） | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 |
 
 このコードで言うと：
@@ -376,8 +376,8 @@ graph LR
 
 | 接続形態 | ケーブル例 | 特徴 |
 |:---:|:---|:---|
-| **具体×直接**（← 現在地） | ライトニング直生え → ゲーム機（直差し） | 専用端子のみ対応。差し替え不可 |
-| **具体×間接** | ライトニング直生え → ゲーム機用アダプタを挟む → ゲーム機 | 変換器を挟むが規格は専用のまま |
+| **具体×直接**（← 現在地） | ライトニング直生え → iPhone（直差し） | 専用端子のみ対応。差し替え不可 |
+| **具体×間接** | ライトニング直生え → ゲーム機専用アダプタを挟む → ゲーム機 | 変換器を挟むが規格は専用のまま |
 | **抽象×直接** | Type-C直生え → 各種機器（直差し） | どのメーカーでも同じ口で繋がる |
 | **抽象×間接** | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 | アダプタを介して汎用規格で展開可能 |
 
@@ -387,230 +387,252 @@ graph LR
 
 ---
 
-#### 案1：現状のまま ―― 構造を変えない
+#### 案1：具体×直接 ―― プライベートメソッドで責任を整理する
 
 **この形の考え方：**
-クラス分割や抽象化を行わず、`if-else` 文を増やして対応します。 承認ルートが今後一切増えず、変更要求もこれ以上発生しないと断言できる場合にのみ合理的な選択です。
+フェーズ3で示したコードを、接続の形は変えずにプライベートメソッドで整理した形です。`WorkflowManager` と `EscalationEngine` が判定・通知のロジックを自分自身で直接実行する（具体×直接）点は変わりませんが、各ケースをプライベートメソッドに抽出することで読みやすさが大きく向上します。
 
 **構造図：**
 
 ```mermaid
 classDiagram
     class WorkflowManager {
-        <<if分岐を直書き>>
+        <<プライベートメソッドで整理>>
         +process(status, amount)
+        -processSubmitted(amount)
+        -processEmergency()
+        -processEscalated(amount)
     }
     class EscalationEngine {
-        <<同じif分岐が重複>>
-        +escalateOverdue()
+        <<同じ具体依存が重複>>
+        +escalateOverdue(amount)
+        -notifyExec()
     }
-    class Approver {
-        +role
-        +limit
-    }
-    WorkflowManager --> Approver : 具体×直接
-    EscalationEngine --> Approver : 具体×直接
+    WorkflowManager --> WorkflowManager : 具体×直接（自己完結）
+    EscalationEngine --> EscalationEngine : 具体×直接（自己完結）
 ```
 
-両クラスが状態チェックと通知ロジックを内部に直書きしており、承認ルールが変わると2か所を同時に修正しなければならない。
+両クラスとも外部オブジェクトに委ねず自ら判定・通知する（直接）。承認ルールが変わると2か所を同時に修正しなければならない点はフェーズ3と変わらないが、プライベートメソッドで読みやすくなった。
 
 **手段比較：**
 
 | 手段 | アプローチ | 評価 |
 | --- | --- | --- |
-| 手段A：if-else を増やす | 既存の `process()` 内にフラグと分岐を追加 | ✅（最小コスト） |
-| 手段B：メソッド抽出のみ | `notifyStakeholders()` などの private メソッドに切り出す | ✗（呼び出し元の修正が依然必要） |
+| 手段A：プライベートメソッドに抽出 | 各分岐の処理をプライベートメソッドに切り出す | ✅（読みやすさが向上する） |
+| 手段B：コメントのみで整理 | コードは変えずにコメントだけ整理する | ✗（構造問題は解決しない） |
 
-手段Aが最小コストですが、ルール変更のたびに `WorkflowManager` を直接修正しなければならない構造は変わりません。
+手段Aを採用します。接続形態は具体×直接のままですが、各処理の意図がメソッド名で明確になります。
 
-【コード例】
+**WorkflowManager クラス（案1）：**
 
 ```cpp
-if (isEmergency) {
-    status = "EMERGENCY";                  // ← 具体："EMERGENCY"という具体的な状態名を直接書いている
-    notify("部長へ直接通知");               // ← 具体：通知先を具体的な文字列で直接書いている
-}
-
+// 案1：プライベートメソッドで各分岐の責任を整理（具体×直接）
+class WorkflowManager {
+public:
+    void process(string status, double amount) {
+        if (status == "SUBMITTED")  { processSubmitted(amount); return; }
+        if (status == "EMERGENCY")  { processEmergency();        return; }
+        if (status == "ESCALATED")  { processEscalated(amount);  return; }
+    }
+private:
+    void processSubmitted(double amount) {
+        // ← 直接：判定ロジックをこのメソッド内で自分で実行する
+        if (amount > 100000)
+            cout << "役員承認が必要。" << endl;
+        else
+            cout << "審査待ち状態へ移行。" << endl;
+    }
+    void processEmergency() {
+        cout << "緊急承認ルートで処理。部長へ直接通知。" << endl;
+    }
+    void processEscalated(double amount) {
+        // ← 直接：エスカレーション判定も自分で実行する
+        if (amount > 100000)
+            cout << "期限超過。役員承認要。役員へ直接通知。" << endl;
+    }
+};
 ```
 
-**呼び出し側から見た違い（main() 例）：**
-
-**EscalationEngine クラス（同じロジックが重複）**
+**EscalationEngine クラスと main（案1）：**
 
 ```cpp
-// 案1（現状のまま）の呼び出し側
-// 両クラスが同じ承認状態チェック/ルールチェックのロジックを重複して持つ
+// EscalationEngineも同じ構造でプライベートメソッドに整理
 class EscalationEngine {
 public:
-    void escalateOverdue() {
-        // ← 具体：WorkflowManagerと同じif-else分岐をそのまま複製している
+    void escalateOverdue(double amount) {
+        // ← 具体かつ直接：WorkflowManagerと同じ判定ロジックを重複して保持
         if (amount > 100000) {
-            cout << "役員承認が必要。エスカレーション実行。" << endl;
-            notify("役員へ直接通知");
+            notifyExec();
         }
     }
 private:
-    double amount = 150000;
-    void notify(string msg) { cout << msg << endl; }
+    void notifyExec() {
+        cout << "役員へ直接通知：期限超過エスカレーション。" << endl;
+    }
 };
 
-```
-
-**main()**
-
-```cpp
 int main() {
-    WorkflowManager wf;               // ← 直接：WorkflowManagerを直接生成して使う
-    wf.process("SUBMITTED", 50000);   // ← 具体：内部にif-else分岐が直書きされている
+    WorkflowManager wf;
+    wf.process("SUBMITTED", 50000);
+    wf.process("EMERGENCY", 80000);
 
-    EscalationEngine engine;          // ← 直接：EscalationEngineも直接生成
-    engine.escalateOverdue();
-    // ← 具体：内部にWorkflowManagerと同じif-else分岐が重複している
+    EscalationEngine engine;
+    // ← 具体×直接：amount > 100000の判定がここでも重複している
+    engine.escalateOverdue(150000);
     return 0;
 }
 ```
 
-両クラスが同じロジックを重複して持つため、ルールが変わると2か所を修正しなければならない。
+プライベートメソッドに整理したことで各処理の意図は読みやすくなりましたが、両クラスともに `amount > 100000` という判定ルールを直接知っており、ルールが変わると2か所を修正しなければならない構造は変わっていません。
 
-一文要約：状態遷移・通知・判定ロジックが各クラスの内部に直書きされているため外部への呼び出しが発生せず、同じ条件分岐が2か所で並行して走る。
+一文要約：フェーズ3のコードをプライベートメソッドで読みやすく整理した形で、接続は「具体×直接」のまま、同じ判定ロジックが2か所で並行して走る。
 
 **この形のトレードオフ：**
 
-* 変更容易性：低（変更のたびにメインロジックの修正が不可避）
+* 変更容易性：低（承認ルールが変わると両クラスを修正する必要がある）
 
 
-* テスト容易性：低（状態と条件が密結合のため、特定経路のテストが困難）
+* テスト容易性：低（判定ロジックが内部に閉じており切り離せない）
 
 
-* 実装コスト：低（今のコードに追記するだけ）
+* 実装コスト：低（プライベートメソッドへの抽出のみ）
 
 
 
 ---
 
-#### 案2：具体×直接 ―― クラスを分けるが参照は具体型のまま
+#### 案2：具体×間接 ―― 処理を別クラスに切り出して委ねる
 
 **この形の考え方：**
-状態遷移、通知、ルール判定を独立した責務としてクラス化し、`WorkflowManager` から切り出します。 ただし、`WorkflowManager` がそれらの具体クラスを直接保持・生成するため、疎結合化には至りません。
+判定ルールを `RuleChecker` クラスに切り出し、`WorkflowManager` はその具体クラスを名指しで知った上で判断を委ねます（具体×間接）。自分で判定するのではなく、切り出したオブジェクトに任せる（間接）ことで、判定の責任が明確に分離されます。ただし `WorkflowManager` は `RuleChecker` という具体型を名指しで保持しており、差し替えるには呼び出し元の修正が必要です。
 
 **構造図：**
 
 ```mermaid
 classDiagram
     class WorkflowManager {
-        +process(request)
+        -RuleChecker* checker
+        +WorkflowManager(RuleChecker*)
+        +process(status, amount)
     }
     class EscalationEngine {
-        +escalateOverdue()
+        -RuleChecker* checker
+        +EscalationEngine(RuleChecker*)
+        +escalateOverdue(amount)
     }
     class RuleChecker {
         +isApproved(amount)
-        +isOverdue()
+        +isOverdue(amount)
     }
-    class PendingPhase {
-        +enter()
-    }
-    WorkflowManager --> RuleChecker : 具体×直接
-    WorkflowManager --> PendingPhase : 具体×直接
-    EscalationEngine --> RuleChecker : 具体×直接
-    EscalationEngine --> PendingPhase : 具体×直接
+    WorkflowManager --> RuleChecker : 具体×間接
+    EscalationEngine --> RuleChecker : 具体×間接
 ```
 
-クラスは分離されたが、`WorkflowManager` と `EscalationEngine` の両方が同じ具体クラスを直接参照しており、ルール変更時に両方の修正が必要になる。
+クラスは分離されて処理を委ねるようになりましたが（間接）、`WorkflowManager` と `EscalationEngine` の両方が `RuleChecker*` という具体型を名指しで知っており（具体）、ルール変更時に両方の修正が必要になる。
 
 **手段比較：**
 
 | 手段 | アプローチ | 評価 |
 | --- | --- | --- |
-| 手段A：クラス抽出のみ | ロジックを別クラスに切り出し、直接インスタンス化 | ✅（案1より責務が分かれる） |
-| 手段B：静的メソッド化 | `RuleChecker::check(amount)` のように静的関数として定義 | ✗（テスト時にスタブ化できない） |
+| 手段A：コンストラクタインジェクション | `RuleChecker` を外部から注入し、判断を委ねる | ✅（この案の定義通り） |
+| 手段B：内部で直接 new | `WorkflowManager` 内部で `new RuleChecker()` する | ✗（テストで差し替えができない） |
 
-手段Aを採用しますが、具体クラスを直接 `new` しているため、クラスを差し替えるには呼び出し元の修正が必要です。
+手段Aを採用します。処理を切り出したクラスに「委ねる」形になり、判定の責任が明確に分離されました。ただし呼び出し側が `RuleChecker` という具体クラス名を直接知り続けることは変わりません。
 
-【コード例】
-
-**RuleChecker クラス・PendingPhase クラス**
+**RuleChecker クラス（案2）：**
 
 ```cpp
+// 案2：判定ルールを独立したクラスに切り出した（具体×間接）
 class RuleChecker {
 public:
+    // ← 間接：呼び出し元はここに判断を委ねる
     bool isApproved(double amount) {
-        return amount <= 100000; // ← 具体：判定ルールが直接書かれている
+        return amount <= 100000;
     }
-    bool isOverdue() { return true; }
-};
-
-class PendingPhase {
-public:
-    void enter() {
-        cout << "審査待ち状態へ移行。" << endl;
+    bool isOverdue(double amount) {
+        return amount > 100000;
     }
 };
-
 ```
 
-**WorkflowManager クラス（具体型を直接使用）**
+**WorkflowManager クラス（案2）：**
 
 ```cpp
-void process(double amount) {
-    RuleChecker checker; // ← 具体：RuleCheckerという型名を直接書いている
-    if (checker.isApproved(amount)) {
-        // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
-        cout << "承認完了。" << endl;
-    }
-}
-
-```
-
-**呼び出し側から見た違い（main() 例）：**
-
-**EscalationEngine クラス（同じ選択ロジックが重複）**
-
-```cpp
-// 案2（具体×直接）の呼び出し側
-// 選択ロジックが両クラスに重複している
-class EscalationEngine {
+// WorkflowManagerが具体クラスを知り、判断を委ねる（具体×間接）
+class WorkflowManager {
+    // ← 具体：RuleCheckerという型名を名指しで知っている
+    RuleChecker* checker;
 public:
-    void escalateOverdue() {
-        RuleChecker checker; // ← 具体：RuleCheckerという型名を直接書いている
-        PendingPhase pending; // ← 具体：PendingPhaseという型名を直接書いている
-        if (checker.isOverdue()) {
-            pending.enter();
-            cout << "[EscalationEngine] 期限超過申請をエスカレーション。"
-                 << endl;
+    WorkflowManager(RuleChecker* c) : checker(c) {}
+
+    void process(string status, double amount) {
+        if (status == "SUBMITTED") {
+            // ← 間接：判定はcheckerに委ねる（自分では判定しない）
+            if (checker->isApproved(amount))
+                cout << "承認完了。" << endl;
+            else
+                cout << "審査待ち状態へ移行。" << endl;
+            return;
+        }
+        if (status == "EMERGENCY") {
+            cout << "緊急承認ルートで処理。部長へ直接通知。" << endl;
+            return;
+        }
+        if (status == "ESCALATED") {
+            // ← 間接：エスカレーション判定もcheckerに委ねる
+            if (checker->isOverdue(amount))
+                cout << "期限超過。役員承認要。役員へ直接通知。" << endl;
+            return;
         }
     }
 };
-
 ```
 
-**main()**
+**EscalationEngine クラスと main（案2）：**
 
 ```cpp
-int main() {
-    WorkflowManager wf; // ← 直接：WorkflowManagerを直接生成して使う
-    wf.process(50000); // ← 具体：内部でRuleCheckerが直接生成される
+// EscalationEngineも同じ具体クラスを知り、判断を委ねる
+class EscalationEngine {
+    // ← 具体：WorkflowManagerと同じRuleChecker*を重複して保持
+    RuleChecker* checker;
+public:
+    EscalationEngine(RuleChecker* c) : checker(c) {}
 
-    EscalationEngine engine; // ← 直接：EscalationEngineも直接生成して使う
-    engine.escalateOverdue();
-    // ← 具体：内部で状態/ルールの具体クラスが直接生成される
+    void escalateOverdue(double amount) {
+        // ← 間接：判定はcheckerに委ねる
+        if (checker->isOverdue(amount))
+            cout << "役員へ直接通知：期限超過エスカレーション。" << endl;
+    }
+};
+
+int main() {
+    // ← 呼び出し側でRuleCheckerを生成して渡す
+    RuleChecker checker;
+
+    // ← 具体：RuleCheckerという型をmainが直接知っている（重複）
+    WorkflowManager wf(&checker);
+    wf.process("SUBMITTED", 50000);
+    wf.process("ESCALATED", 150000);
+
+    EscalationEngine engine(&checker);
+    engine.escalateOverdue(150000);
     return 0;
 }
 ```
 
-選択ロジックが両クラスに重複しており、具体クラスへの依存が両方に残る。
+判定処理を別クラスに委ねる形（間接）になりましたが、`RuleChecker` という具体クラス名の知識が両クラスに重複しており、ルールが変わると `RuleChecker` 自体の修正と、それを使う両クラスへの影響確認が必要になります。
 
-一文要約：クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、判定クラスや状態クラスへの呼び出し経路が2本並んで重複している。
+一文要約：判定を別クラスに委ねるようになった（間接）が、「どのクラスを使うか」という具体クラス名の知識が両方の呼び出し元に重複して残っている（具体）。
 
 **この形のトレードオフ：**
 
-* 変更容易性：低〜中（責務は分かれたが、利用側の修正は必要）
+* 変更容易性：低〜中（判定ロジックは分離できたが、具体クラス名の依存は両方に残る）
 
 
-* テスト容易性：低（具体クラスへの強い依存が残る）
+* テスト容易性：低（具体クラスへの依存が強く、差し替えが難しい）
 
 
-* 実装コスト：低（クラスの抽出のみ）
+* 実装コスト：中（コンストラクタインジェクションへの切り出し工数が発生する）
 
 
 
@@ -1090,8 +1112,8 @@ sequenceDiagram
 
 | **案** | **現在の対応コスト** | **未来の対応コスト** |
 | --- | --- | --- |
-| 案1：現状のまま | 低 | 高 |
-| 案2：具体×直接 | 低〜中 | 高 |
+| 案1：具体×直接 | 低 | 高 |
+| 案2：具体×間接 | 低〜中 | 高 |
 | 案3：抽象×直接 | 中 | 低〜中 |
 | 案4：抽象×間接 | 高 | 低 |
 

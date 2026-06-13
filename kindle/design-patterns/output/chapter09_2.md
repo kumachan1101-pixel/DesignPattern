@@ -301,7 +301,7 @@ graph LR
 
 |  | 直接（直差し） | 間接（アダプター経由） |
 |:---:|:---|:---|
-| **具体**（専用規格） | **← 現在地**　ライトニング直生え → ゲーム機（直差し） | ライトニング直生え → ゲーム機用アダプタを挟む → ゲーム機 |
+| **具体**（専用規格） | **← 現在地**　ライトニング直生え → iPhone（直差し） | ライトニング直生え → ゲーム機専用アダプタを挟む → ゲーム機 |
 | **抽象**（汎用規格） | Type-C直生え → 各種機器（直差し） | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 |
 
 比喩からコードへの橋渡しを3段階で示します。
@@ -380,8 +380,8 @@ graph LR
 
 | 接続形態 | ケーブル例 | 特徴 |
 |:---:|:---|:---|
-| **具体×直接**（← 現在地） | ライトニング直生え → ゲーム機（直差し） | 専用端子のみ対応。差し替え不可 |
-| **具体×間接** | ライトニング直生え → ゲーム機用アダプタを挟む → ゲーム機 | 変換器を挟むが規格は専用のまま |
+| **具体×直接**（← 現在地） | ライトニング直生え → iPhone（直差し） | 専用端子のみ対応。差し替え不可 |
+| **具体×間接** | ライトニング直生え → ゲーム機専用アダプタを挟む → ゲーム機 | 変換器を挟むが規格は専用のまま |
 | **抽象×直接** | Type-C直生え → 各種機器（直差し） | どのメーカーでも同じ口で繋がる |
 | **抽象×間接** | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 | アダプタを介して汎用規格で展開可能 |
 
@@ -389,22 +389,26 @@ graph LR
 
 ---
 
-#### 案1：現状のまま ―― 構造を変えない
+#### 案1：具体×直接 ―― プライベートメソッドで責任を整理する
 
 **この形の考え方：**
-クラスの分割も接続形態の変更もしない。 既存の `if` 文の羅列を維持する。 変更頻度が極めて低く、この先半年以上ルールが変わらないという確信がある場合にのみ選択する。
+フェーズ3で示したコードを、接続の形は変えずにプライベートメソッドで整理した形です。各処理の意味がメソッド名で明確になります。 `PriorityCalculator` を直接メンバに持ち、`if-else` 分岐もそのままですが、各分岐をプライベートメソッドに抽出して責任を整理します。
 
 **構造図：**
 
 ```mermaid
 classDiagram
     class TicketManager {
-        <<if分岐を直書き>>
+        <<プライベートメソッドで整理>>
         +updateStatus(userType, status)
+        -handleOpen(priority)
+        -handleInProgress(priority)
     }
     class EscalationEngine {
-        <<同じif分岐が重複>>
+        <<同じ具体依存が重複>>
         +checkAndEscalate(ticketId)
+        -escalateHigh(ticketId)
+        -holdNormal(ticketId)
     }
     class PriorityCalculator {
         +calculate(userType) string
@@ -413,21 +417,21 @@ classDiagram
     EscalationEngine --> PriorityCalculator : 具体×直接
 ```
 
-両クラスが同じ `PriorityCalculator` の選択ロジックと `if-else` 分岐を重複して持っており、ルール変更のたびに2か所を修正しなければならない。
+両クラスとも `PriorityCalculator` という具体型を直接知っており、ルール変更のたびに2か所を修正しなければならない点はフェーズ3と同じです。プライベートメソッドで読みやすくなりましたが、接続形態は変わっていません。
 
 **手段の比較（案1内部）：**
 
 | 手段 | 内容 | ✅ |
 | --- | --- | --- |
-| 手段A：そのまま放置 | 何も変えない。今後もif-elseを足し続ける | ✅（この案の定義通り） |
-| 手段B：コメントで整理 | コードは変えずにコメントだけ整理する | 却下（構造問題は解決しない） |
+| 手段A：プライベートメソッドに抽出 | 各分岐の処理をプライベートメソッドに切り出す | ✅（読みやすさが向上する） |
+| 手段B：コメントのみで整理 | コードは変えずにコメントだけ整理する | 却下（構造問題は解決しない） |
 
-手段A以外に選択肢はなく、この案を選ぶ理由は「変更コストが本当にゼロに近い場合だけ」です。
+手段Aを採用します。接続形態は具体×直接のままですが、各処理の意図がメソッド名で明確になります。
 
 **PriorityCalculator クラス（案1）：**
 
 ```cpp
-// 案1：優先度ルールをそのまま維持
+// 案1：優先度ルールをそのまま維持（具体×直接）
 class PriorityCalculator {
 public:
     string calculate(string userType) {
@@ -441,17 +445,26 @@ public:
 **TicketManager クラス（案1）：**
 
 ```cpp
-// 案1：既存のif-else分岐をそのまま維持
+// 案1：プライベートメソッドで各分岐の責任を整理
 class TicketManager {
-    PriorityCalculator calc;
+    PriorityCalculator calc; // ← 具体：PriorityCalculatorを直接保持
 public:
     void updateStatus(string userType, string status) {
         string priority = calc.calculate(userType);
-        if (status == "Open") {          // ← 具体："Open"を直接書いている
-            cout << "チケット受付中。優先度: " << priority << endl;
+        if (status == "Open") {
+            handleOpen(priority); // ← 処理の意図がメソッド名で明確になった
             return;
         }
-        if (status == "InProgress" && priority == "High") {
+        if (status == "InProgress") {
+            handleInProgress(priority);
+        }
+    }
+private:
+    void handleOpen(string priority) {
+        cout << "チケット受付中。優先度: " << priority << endl;
+    }
+    void handleInProgress(string priority) {
+        if (priority == "High") {
             cout << "緊急対応中。担当者を招集します。" << endl;
         }
     }
@@ -462,17 +475,24 @@ public:
 **EscalationEngine クラスと main（案1）：**
 
 ```cpp
-// 案1：EscalationEngineも同じロジックを重複して持つ
+// 案1：EscalationEngineも同じ構造でプライベートメソッドに整理
 class EscalationEngine {
 public:
     void checkAndEscalate(string ticketId) {
-        PriorityCalculator calc; // ← 具体：TicketManagerと同じif-else分岐をそのまま複製
+        PriorityCalculator calc; // ← 具体：TicketManagerと同じ具体型を重複して保持
         string priority = calc.calculate("premium");
         if (priority == "High") {
-            cout << "[EscalationEngine] チケット " << ticketId
-                 << " をエスカレーション。" << endl;
+            escalateHigh(ticketId);
             return;
         }
+        holdNormal(ticketId);
+    }
+private:
+    void escalateHigh(string ticketId) {
+        cout << "[EscalationEngine] チケット " << ticketId
+             << " をエスカレーション。" << endl;
+    }
+    void holdNormal(string ticketId) {
         cout << "[EscalationEngine] チケット " << ticketId
              << " は通常優先度。対応待ち。" << endl;
     }
@@ -488,24 +508,24 @@ int main() {
 }
 ```
 
-両クラスが同じロジックを重複して持つため、ルールが変わると2か所を修正しなければならない。
+プライベートメソッドに整理したことで各分岐の意図は読みやすくなりましたが、両クラスともに `PriorityCalculator` という具体型を直接知っており、ルールが変わると2か所を修正しなければならない構造は変わっていません。
 
-一文要約：ロジックが各クラスの内部に直書きされているため、同じ分岐とルール計算コードが2か所で並行して走る。
+一文要約：フェーズ3のコードをプライベートメソッドで読みやすく整理した形で、接続は「具体×直接」のまま、同じ具体型依存が2か所で並行して走る。
 
 **この形のトレードオフ：**
 
-* 変更容易性：低（新しいルール追加のたびに巨大な分岐が増殖する）
-* テスト容易性：低（状態遷移と判定ロジックが絡み合っており切り離せない）
-* 実装コスト：低（今のままコードを足すだけ）
+* 変更容易性：低（ルール変更のたびに具体型を知る両クラスを修正する必要がある）
+* テスト容易性：低（具体クラスへの依存が残り、切り離せない）
+* 実装コスト：低（プライベートメソッドへの抽出のみ）
 
 
 
 ---
 
-#### 案2：具体×直接 ―― クラスを分けるが参照は具体型のまま
+#### 案2：具体×間接 ―― 処理を別クラスに切り出して委ねる
 
 **この形の考え方：**
-責務ごとに小さなクラスに分割するが、それらを呼ぶ側のクラスは具体クラスを直接 `new` して利用する。 責任の所在は明確になるが、具体クラスへの依存は残る。
+優先度計算や状態処理を別クラスに切り出し、呼び出し元はその具体クラスを名指しで知った上でオブジェクトに処理を「委ねる」形です。自分で直接やるのではなく、切り出したオブジェクトに任せる（間接）ことで、処理の責任が明確に分離されます。ただし呼び出し元は具体クラス名を直接知っており、クラスを差し替えるには呼び出し元の修正が必要です。
 
 **構造図：**
 
@@ -526,28 +546,28 @@ classDiagram
     class InProgressPhase {
         +activate()
     }
-    TicketManager --> PriorityCalculator : 具体×直接
-    TicketManager --> OpenPhase : 具体×直接
-    EscalationEngine --> PriorityCalculator : 具体×直接
-    EscalationEngine --> InProgressPhase : 具体×直接
-    EscalationEngine --> OpenPhase : 具体×直接
+    TicketManager --> PriorityCalculator : 具体×間接
+    TicketManager --> OpenPhase : 具体×間接
+    EscalationEngine --> PriorityCalculator : 具体×間接
+    EscalationEngine --> InProgressPhase : 具体×間接
+    EscalationEngine --> OpenPhase : 具体×間接
 ```
 
-クラスは分離されたが、両クラスが各具体クラスを直接知っており、状態やルールが増えるたびに両方を修正しなければならない。
+クラスは分離されて処理を委ねるようになりましたが（間接）、両クラスが各具体クラス名を直接知っており（具体）、状態やルールが増えるたびに両方を修正しなければならない。
 
 **手段の比較（案2内部）：**
 
 | 手段 | 内容 | ✅ |
 | --- | --- | --- |
-| 手段A：クラス分割のみ | ロジックを別クラスに分けるが、呼び出しは具体型で直書き | ✅（この案の定義通り） |
+| 手段A：別クラスに切り出し、処理を委ねる | ロジックを別クラスに分けて呼び出し、処理はそのクラスに任せる | ✅（この案の定義通り） |
 | 手段B：クラス分割＋ローカル変数に切り出し | メソッド内でローカル変数に抽出する | 却下（クラスを跨いだ依存は解消されない） |
 
-手段Aを採用します。クラスが分かれたことで責任の所在は見えやすくなりましたが、呼び出し側が具体型を知り続けるという根本問題は残ります。
+手段Aを採用します。処理を切り出したクラスに「委ねる」形になり、各クラスの責任は明確になりました。ただし呼び出し側が具体クラス名を直接知り続けることは変わりません。
 
 **PriorityCalculator クラスと状態クラス（案2）：**
 
 ```cpp
-// 案2：クラスは分かれたが、具体型のまま
+// 案2：処理を別クラスに切り出した（具体×間接）
 class PriorityCalculator {
 public:
     string calculate(string userType) {
@@ -558,6 +578,7 @@ public:
 
 class OpenPhase {
 public:
+    // 呼び出し元はここに処理を委ねる（間接）
     void activate() { cout << "チケットをオープン状態に設定。" << endl; }
 };
 
@@ -571,19 +592,22 @@ public:
 **TicketManager クラス（案2）：**
 
 ```cpp
-// 案2：TicketManagerが具体クラスを直接知っている
+// 案2：TicketManagerが具体クラスを知り、処理をそのクラスに委ねる
 class TicketManager {
 public:
     void updateStatus(string userType, string status) {
-        PriorityCalculator calc; // ← 具体：PriorityCalculatorという型名を直接書いている
+        PriorityCalculator calc; // ← 具体：型名を直接書いている
         string priority = calc.calculate(userType);
+        // ← 間接：計算はcalcに委ねて自分ではやらない
         if (status == "Open") {
-            OpenPhase s; s.activate(); // ← 具体：OpenPhaseを直接生成
+            OpenPhase s; // ← 具体：OpenPhaseという型名を直接書いている
+            s.activate(); // ← 間接：Open状態の処理をsに委ねる
             cout << "優先度: " << priority << endl;
             return;
         }
         if (status == "InProgress" && priority == "High") {
-            InProgressPhase s; s.activate(); // ← 具体：InProgressPhaseを直接生成
+            InProgressPhase s; // ← 具体：InProgressPhaseを直接生成
+            s.activate(); // ← 間接：対応中状態の処理をsに委ねる
             cout << "緊急対応中。担当者を招集します。" << endl;
         }
     }
@@ -594,21 +618,22 @@ public:
 **EscalationEngine クラスと main（案2）：**
 
 ```cpp
-// 案2：EscalationEngineも同じ具体型を直接知っている
+// 案2：EscalationEngineも同じ具体クラスを知り処理を委ねる
 class EscalationEngine {
 public:
     void checkAndEscalate(string ticketId) {
         PriorityCalculator calc; // ← 具体：TicketManagerと同じ型を重複して使用
         string priority = calc.calculate("premium");
-        InProgressPhase inProg;
+        // ← 間接：優先度計算はcalcに委ねる
         if (priority == "High") {
-            inProg.activate();
+            InProgressPhase inProg; // ← 具体：型名を直接書いている
+            inProg.activate();      // ← 間接：処理を委ねる
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
             return;
         }
-        OpenPhase open;
-        open.activate();
+        OpenPhase open; // ← 具体：型名を直接書いている
+        open.activate();            // ← 間接：処理を委ねる
     }
 };
 
@@ -622,14 +647,14 @@ int main() {
 }
 ```
 
-選択ロジックが両クラスに重複しており、具体クラスへの依存が両方に残る。
+処理を別クラスに委ねる形（間接）になりましたが、具体クラス名の知識が両クラスに重複しており、クラスを差し替えるには両方を修正しなければならない。
 
-一文要約：クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
+一文要約：クラスは分かれて処理を委ねるようになった（間接）が、「どのクラスを呼ぶか」という具体クラス名の知識が両方の呼び出し元に重複して残っている。
 
 **この形のトレードオフ：**
 
-* 変更容易性：低〜中（クラスは分かれたが、利用側の修正は避けられない）
-* テスト容易性：低（依然として具体クラスをインスタンス化する必要がある）
+* 変更容易性：低〜中（クラスは分かれたが、具体クラス名の依存は両方に残る）
+* テスト容易性：低（依然として具体クラスを直接生成する必要がある）
 * 実装コスト：低（リファクタリングの範囲が限定的）
 
 
@@ -1049,8 +1074,8 @@ int main() {
 
 | **案** | **現在の対応コスト** | **未来の対応コスト** |
 | --- | --- | --- |
-| 案1：現状のまま | 低 | 高 |
-| 案2：具体×直接 | 低〜中 | 高 |
+| 案1：具体×直接 | 低 | 高 |
+| 案2：具体×間接 | 低〜中 | 高 |
 | 案3：抽象×直接 | 中 | 低 |
 | 案4：抽象×間接 | 高 | 低 |
 
@@ -1058,8 +1083,8 @@ int main() {
 
 | 案 | 変更容易性（×3） | テスト容易性（×2） | 可読性（×1） |
 | --- | --- | --- | --- |
-| 案1：現状のまま | 1 | 1 | 3 |
-| 案2：具体×直接 | 1 | 2 | 3 |
+| 案1：具体×直接 | 1 | 1 | 3 |
+| 案2：具体×間接 | 1 | 2 | 3 |
 | 案3：抽象×直接 | 3 | 3 | 2 |
 | 案4：抽象×間接 | 3 | 3 | 1 |
 

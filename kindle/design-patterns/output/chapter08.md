@@ -334,7 +334,7 @@ graph LR
 
 |  | 直接（直差し） | 間接（アダプター経由） |
 |:---:|:---|:---|
-| **具体**（専用規格） | **← 現在地**　ライトニング直生え → ゲーム機（直差し） | ライトニング直生え → ゲーム機用アダプタを挟む → ゲーム機 |
+| **具体**（専用規格） | **← 現在地**　ライトニング直生え → iPhone（直差し） | ライトニング直生え → ゲーム機専用アダプタを挟む → ゲーム機 |
 | **抽象**（汎用規格） | Type-C直生え → 各種機器（直差し） | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 |
 
 このコードで言うと：
@@ -396,37 +396,40 @@ graph LR
 
 | 接続形態 | ケーブル例 | 特徴 |
 |:---:|:---|:---|
-| **具体×直接**（← 現在地） | ライトニング直生え → ゲーム機（直差し） | 専用端子のみ対応。差し替え不可 |
-| **具体×間接** | ライトニング直生え → ゲーム機用アダプタを挟む → ゲーム機 | 変換器を挟むが規格は専用のまま |
+| **具体×直接**（← 現在地） | ライトニング直生え → iPhone（直差し） | 専用端子のみ対応。差し替え不可 |
+| **具体×間接** | ライトニング直生え → ゲーム機専用アダプタを挟む → ゲーム機 | 変換器を挟むが規格は専用のまま |
 | **抽象×直接** | Type-C直生え → 各種機器（直差し） | どのメーカーでも同じ口で繋がる |
 | **抽象×間接** | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 | アダプタを介して汎用規格で展開可能 |
 
 ---
 
-#### 案1：現状のまま ―― 構造を変えない
+#### 案1：具体×直接 ―― プライベートメソッドで責任を整理する
 
 **この形の考え方：**
-クラスの分割も接続形態の変更もしない。既存の `processPayment` メソッドの中に、新しい決済手段のための `if` や `case` 文を書き足し、具体クラスをその場で `new` する。変更頻度が低く、納期が極めて厳しい場合に合理的な選択となる。
+接続の形は変えません（具体×直接のまま）。フェーズ3で示したコードを、決済手段ごとの処理をプライベートメソッドに抽出した形で整理します。各処理の意味がメソッド名で明確になり、`processPayment` の見通しが改善されますが、決済手段が増えるたびにクラス内の複数箇所と呼び出し側に影響が波及する問題は残ります。
 
 **手段の比較：**
 
 | 手段 | 方法 | 特徴 |
 |---|---|---|
-| 手段A：if文追加 | 既存の `if-else` チェーンに `else if (type == "paypay")` を書き足す | 変更が最小で今すぐ対応できるが、決済手段が増えるたびに同じ作業が繰り返される |
+| 手段A：プライベートメソッド抽出 | 各決済分岐の処理をプライベートメソッドに抽出する | 変更が最小限。決済手段が増えるたびに `if` 分岐と呼び出しが増え続ける問題は残る |
 | 手段B：switch-case | `if-else` を `switch-case` に書き換えて新しい `case` を追加する | 構文が整理されるが変更の波及範囲は変わらず、`SubscriptionService` の重複も解消されない |
 
-**手段A**（既存コードへの影響が最小であり、この案の方針（構造を変えない）と一致するため）のコードを以下に示します。
+**手段A**（フェーズ3のコードをベースに、プライベートメソッドで整理した形を示すため）のコードを以下に示します。
 
 **構造図：**
 
 ```mermaid
 classDiagram
     class PaymentApplication {
-        <<if分岐を直書き>>
+        <<プライベートメソッドで整理>>
         +processPayment(type, amount)
+        -processCredit(amount)
+        -processPayPay(amount)
+        -processCvs(amount)
     }
     class SubscriptionService {
-        <<同じif分岐が重複>>
+        <<同じ構造が重複>>
         +chargeMonthly(customerId, amount)
     }
     class CreditCardProcessor {
@@ -447,7 +450,7 @@ classDiagram
 
 両クラスが同じ具体クラスを直接知っており、選択ロジックと生成コードが重複している。
 
-**コード：IPaymentProcessor（インターフェースなし）/ CreditCardProcessor / ConvenienceStoreProcessor / PayPayProcessor**
+**コード：CreditCardProcessor / ConvenienceStoreProcessor / PayPayProcessor**
 
 ```cpp
 // 各決済手段の具体クラス（インターフェースなし）
@@ -476,24 +479,38 @@ public:
 };
 ```
 
-各プロセッサーは独立したクラスとして存在しているが、共通のインターフェースを持たないため、利用側はそれぞれの具体クラス名を直接知る必要があります。
+各プロセッサーは独立したクラスとして存在していますが、共通のインターフェースはありません。次に、フェーズ3のコードをベースに、プライベートメソッドで整理した呼び出し元1を見てみましょう。
 
 **コード：PaymentApplication**
 
 ```cpp
 // 呼び出し元1：個別ユーザーの購入処理
 class PaymentApplication {
+    // プライベートメソッドで各決済手段の処理を整理する
+    void processCredit(int amount) {
+        // ← 具体：型名を直接書いている
+        CreditCardProcessor p;
+        p.pay(amount);
+    }
+    void processPayPay(int amount) {
+        PayPayProcessor p;
+        p.pay(amount);
+    }
+    void processCvs(int amount) {
+        ConvenienceStoreProcessor p;
+        p.pay(amount);
+    }
+
 public:
     void processPayment(string type, int amount) {
-        // ← 具体：型名を直接書いている
-        if (type == "credit") { CreditCardProcessor p; p.pay(amount); return; }
-        if (type == "paypay") { PayPayProcessor p; p.pay(amount); return; }
-        if (type == "cvs") { ConvenienceStoreProcessor p; p.pay(amount); return; }
+        if (type == "credit") { processCredit(amount); return; }
+        if (type == "paypay") { processPayPay(amount); return; }
+        if (type == "cvs")    { processCvs(amount);    return; }
     }
 };
 ```
 
-`PaymentApplication` の中で、どのクラスを生成してどう実行するかをすべて直接記述しています。決済手段が増えるたびにこのメソッドに分岐が追加されます。
+このコードを見ると、フェーズ3の直書きコードと比べて `processPayment` の見通しが改善されています。しかし、決済手段が増えるたびにプライベートメソッドと `processPayment` の分岐の両方を追加し続ける点は変わりません。次に呼び出し元2を見てみましょう。
 
 **コード：SubscriptionService**
 
@@ -518,7 +535,7 @@ public:
 **コード：Composition Root（main）**
 
 ```cpp
-// 案1（現状のまま）の呼び出し側
+// 案1（具体×直接）の呼び出し側
 int main() {
     // 個別購入の呼び出し元
     PaymentApplication app;
@@ -527,44 +544,49 @@ int main() {
 
     // 定期課金の呼び出し元
     SubscriptionService subscription;
-    // ← 同じ選択ロジックが重複して存在
     subscription.chargeMonthly("user-001", 980);
     return 0;
 }
 ```
 
-一文要約：ロジックが各クラスの内部に直書きされているため、同じ分岐と具体クラスの生成コードが2か所で並行して走る。
+一文要約：プライベートメソッドで `processPayment` の見通しは改善されたが、具体クラスを直接生成する構造は変わらず、同じ分岐と生成コードが2か所で並行して走る。
 
 **この形のトレードオフ：**
 
 * 変更容易性：低（新しい手段のたびに `PaymentApplication` と `SubscriptionService` の両方を修正する必要がある）
-* テスト容易性：低（決済処理と生成が混在しており分離不可）
-* 実装コスト：低（今のコードに数行足すだけ）
+* テスト容易性：低（具体クラスへの依存が強く分離不可）
+* 実装コスト：低（フェーズ3のコードからプライベートメソッドを抽出するだけ）
 
 ---
 
-#### 案2：具体×直接 ―― クラスは分けるが参照は具体型のまま
+#### 案2：具体×間接 ―― 処理を別クラスに切り出して委ねる
 
 **この形の考え方：**
-決済処理をクラスとして抽出するが、`PaymentApplication` は相変わらず具体クラスを直接 `new` する。責任の境界は明確になるが、生成ロジックの混在は解消されない。
+決済処理を具体クラスとして切り出し、`PaymentApplication` はそれら具体クラスを名指しで知っていますが、実際の決済処理はそのオブジェクトに「委ねる」（間接）構造です。直接自分でif文で処理するのではなく、呼び出しを委譲する点が案1との違いです。
 
 **手段の比較：**
 
 | 手段 | 方法 | 特徴 |
 |---|---|---|
-| 手段A：クラス分割 | 各決済プロセッサーを別クラスに切り出し、`PaymentApplication` がその具体型を直接 `new` して使う | 責任の境界が明確になるが、利用側が具体クラス名を直接知り続けるため差し替えはできない |
-| 手段B：メソッド抽出 | `processPayment` 内の処理をプライベートメソッドに分ける | ファイル分割なしで整理できるが、クラス外からテスト用の実装に差し替えることができない |
+| 手段A：コンストラクタインジェクション | 具体クラスのポインタをコンストラクタで受け取り、処理を委ねる | 委譲の仕組みが明確。呼び出し側が具体型を生成して渡す必要がある |
+| 手段B：内部で直接生成 | `PaymentApplication` が内部で具体クラスを `new` して使う | 呼び出し側は具体型を知らなくてよいが、生成判断が内部に残る |
 
-**手段A**（将来のインターフェース化に向けて責任の境界を明確にするため）のコードを以下に示します。
+**手段A**（「具体×間接」の委譲構造を最も素直に示すため）のコードを以下に示します。
 
 **構造図：**
 
 ```mermaid
 classDiagram
     class PaymentApplication {
+        -CreditCardProcessor* credit
+        -ConvenienceStoreProcessor* cvs
+        -PayPayProcessor* paypay
+        +PaymentApplication(...)
         +processPayment(type, amount)
     }
     class SubscriptionService {
+        -CreditCardProcessor* processor
+        +SubscriptionService(CreditCardProcessor*)
         +chargeMonthly(customerId, amount)
     }
     class CreditCardProcessor {
@@ -576,14 +598,13 @@ classDiagram
     class ConvenienceStoreProcessor {
         +pay(amount)
     }
-    PaymentApplication --> CreditCardProcessor : 具体×直接
-    PaymentApplication --> PayPayProcessor : 具体×直接
-    PaymentApplication --> ConvenienceStoreProcessor : 具体×直接
-    SubscriptionService --> CreditCardProcessor : 具体×直接
-    SubscriptionService --> PayPayProcessor : 具体×直接
+    PaymentApplication --> CreditCardProcessor : 具体×間接
+    PaymentApplication --> PayPayProcessor : 具体×間接
+    PaymentApplication --> ConvenienceStoreProcessor : 具体×間接
+    SubscriptionService --> CreditCardProcessor : 具体×間接
 ```
 
-クラスは分離されたが、両クラスが各具体クラスへの矢印を重複して持っており、追加のたびに両方を修正する必要がある。
+`PaymentApplication` が `CreditCardProcessor*` などの具体型を名指しで知っており（具体）、処理は注入されたオブジェクトに委ねる（間接）。新しい決済手段が増えるたびに `PaymentApplication` のメンバ変数追加が必要になる。
 
 **コード：CreditCardProcessor / ConvenienceStoreProcessor / PayPayProcessor**
 
@@ -613,71 +634,83 @@ public:
 };
 ```
 
-各プロセッサーは独立したクラスとして整理されているが、共通のインターフェースはまだ存在しません。
+各プロセッサーは独立したクラスとして整理されており、処理の責任をそれぞれ持っています。次に呼び出し元の実装を見てみましょう。
 
 **コード：PaymentApplication**
 
 ```cpp
 // 呼び出し元1：個別ユーザーの購入処理
 class PaymentApplication {
+    // ← 具体：各プロセッサーの具体型を名指しで知っている
+    CreditCardProcessor* credit;
+    // ← 間接：処理はこのオブジェクトに委ねる（自分でやらない）
+    ConvenienceStoreProcessor* cvs;
+    PayPayProcessor* paypay;
 public:
+    PaymentApplication(CreditCardProcessor* c,
+                       ConvenienceStoreProcessor* v,
+                       PayPayProcessor* p)
+        : credit(c), cvs(v), paypay(p) {}
+
     void processPayment(string type, int amount) {
-        // ← 具体：型名を直接書いている
-        // ← 直接：このクラスを直接生成している
-        if (type == "credit") { CreditCardProcessor p; p.pay(amount); return; }
-        if (type == "paypay") { PayPayProcessor p; p.pay(amount); return; }
-        if (type == "cvs") { ConvenienceStoreProcessor p; p.pay(amount); return; }
+        if (type == "credit") { credit->pay(amount);  return; }
+        if (type == "paypay") { paypay->pay(amount);  return; }
+        if (type == "cvs")    { cvs->pay(amount);     return; }
     }
 };
 ```
 
-`PaymentApplication` は具体クラスを直接知っており、型名と分岐が密結合している状態です。
+このコードを見ると、処理はオブジェクトに委ねている（間接）ものの、`CreditCardProcessor*` という具体型を名指しで知っている（具体）ことが分かります。次に呼び出し元2を見てみましょう。
 
 **コード：SubscriptionService**
 
 ```cpp
 // 呼び出し元2：定期課金の処理
-// ← 選択ロジックがここでも重複する
 class SubscriptionService {
+    // ← 具体：CreditCardProcessor*という具体型を直接知っている
+    CreditCardProcessor* processor;
 public:
+    SubscriptionService(CreditCardProcessor* p) : processor(p) {}
+
     void chargeMonthly(string customerId, int amount) {
         cout << "顧客 " << customerId
              << " の月額課金を処理します。" << endl;
-        // ← 同じ選択判断がここでも重複
-        string type = "credit"; // 定期課金はクレジット固定
-        // ← 同じ具体クラスをここでも直接生成
-        if (type == "credit") { CreditCardProcessor p; p.pay(amount); return; }
-        // ← どのクラスを使うかの判断がここでも重複
-        if (type == "paypay") { PayPayProcessor p; p.pay(amount); return; }
+        // ← 間接：processorに処理を委ねる
+        processor->pay(amount);
     }
 };
 ```
 
-このコードを見ると、`PaymentApplication` と `SubscriptionService` の両方が「`CreditCardProcessor` や `PayPayProcessor` を使う」という選択ロジックを各自で保持していることが分かります。新しい決済手段を追加・変更するたびに、両方のクラスを修正する必要があります。
+このコードを見ると、`SubscriptionService` も `CreditCardProcessor*` という具体型を名指しで保持しています。決済の処理自体は委ねていますが、「どの具体クラスを使うか」は依然として各クラスがそれぞれ知っている状態です。
 
 **コード：Composition Root（main）**
 
 ```cpp
-// 案2（具体×直接）の呼び出し側
+// 案2（具体×間接）の呼び出し側
 int main() {
-    PaymentApplication app;
+    // ← 呼び出し側で具体クラスを生成して渡す
+    CreditCardProcessor credit;
+    ConvenienceStoreProcessor cvs;
+    PayPayProcessor paypay;
+
+    PaymentApplication app(&credit, &cvs, &paypay);
     app.processPayment("credit", 1000);
     app.processPayment("paypay", 700);
 
-    SubscriptionService subscription;
-    // ← 選択ロジックが重複して存在
+    // ← CreditCardProcessorという具体型をここでも知っている（重複）
+    SubscriptionService subscription(&credit);
     subscription.chargeMonthly("user-001", 980);
     return 0;
 }
 ```
 
-一文要約：クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
+一文要約：処理はオブジェクトに委ねているが（間接）、`CreditCardProcessor` などの具体クラス名を両方の呼び出し元が直接知り続けており（具体）、新しい決済手段が増えれば `PaymentApplication` のメンバ変数追加が必要になる。
 
 **この形のトレードオフ：**
 
-* 変更容易性：低（決済手段追加のたびに `PaymentApplication` と `SubscriptionService` の両方の修正が必要）
+* 変更容易性：低〜中（処理ロジックは分離できたが、決済手段の種類が増えるたびに `PaymentApplication` のコンストラクタとメンバ変数の修正が必要）
 * テスト容易性：低（具体クラスへの依存が強いため切り離せない）
-* 実装コスト：低（抽出するだけのシンプルなリファクタリング）
+* 実装コスト：中（コンストラクタインジェクションへの切り出し工数が発生する）
 
 ---
 
@@ -1080,8 +1113,8 @@ int main() {
 
 | **案** | **現在の対応コスト** | **未来の対応コスト** |
 | --- | --- | --- |
-| 案1：現状のまま | 低 | 高 |
-| 案2：具体×直接 | 低〜中 | 高 |
+| 案1：具体×直接 | 低 | 高 |
+| 案2：具体×間接 | 低〜中 | 高 |
 | 案3：抽象×直接 | 中 | 低〜中 |
 | 案4：抽象×間接 | 高 | 低 |
 
@@ -1089,8 +1122,8 @@ int main() {
 
 | 案 | 変更容易性（×3） | テスト容易性（×2） | 可読性（×1） |
 | --- | --- | --- | --- |
-| 案1：現状のまま | 1 | 1 | 3 |
-| 案2：具体×直接 | 1 | 2 | 3 |
+| 案1：具体×直接 | 1 | 1 | 3 |
+| 案2：具体×間接 | 1 | 2 | 3 |
 | 案3：抽象×直接 | 3 | 3 | 2 |
 | 案4：抽象×間接 | 3 | 3 | 1 |
 

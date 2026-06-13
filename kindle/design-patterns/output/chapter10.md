@@ -299,7 +299,7 @@ graph LR
 
 |  | 直接（直差し） | 間接（アダプター経由） |
 |:---:|:---|:---|
-| **具体**（専用規格） | **← 現在地**　ライトニング直生え → ゲーム機（直差し） | ライトニング直生え → ゲーム機用アダプタを挟む → ゲーム機 |
+| **具体**（専用規格） | **← 現在地**　ライトニング直生え → iPhone（直差し） | ライトニング直生え → ゲーム機専用アダプタを挟む → ゲーム機 |
 | **抽象**（汎用規格） | Type-C直生え → 各種機器（直差し） | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 |
 
 フェーズ4で根本原因が言語化できました。 次のフェーズ5では、解決する課題を具体的に定義していきます。
@@ -350,29 +350,36 @@ graph LR
 
 | 接続形態 | ケーブル例 | 特徴 |
 |:---:|:---|:---|
-| **具体×直接**（← 現在地） | ライトニング直生え → ゲーム機（直差し） | 専用端子のみ対応。差し替え不可 |
-| **具体×間接** | ライトニング直生え → ゲーム機用アダプタを挟む → ゲーム機 | 変換器を挟むが規格は専用のまま |
+| **具体×直接**（← 現在地） | ライトニング直生え → iPhone（直差し） | 専用端子のみ対応。差し替え不可 |
+| **具体×間接** | ライトニング直生え → ゲーム機専用アダプタを挟む → ゲーム機 | 変換器を挟むが規格は専用のまま |
 | **抽象×直接** | Type-C直生え → 各種機器（直差し） | どのメーカーでも同じ口で繋がる |
 | **抽象×間接** | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 | アダプタを介して汎用規格で展開可能 |
 
 ---
 
-#### 案1：現状のまま ―― 構造を変えない
+#### 案1：具体×直接 ―― プライベートメソッドで責任を整理する
 
 **この形の考え方：**
-クラスの分割も接続形態の変更もしない。 既存の `if-else` 分岐に新しい連携先や通知条件を足し続ける。 変更頻度が極めて低く、この先半年以上修正の予定がない場合にのみ選択する。
+フェーズ3で示したコードを、接続の形は変えずにプライベートメソッドで整理した形です。各処理の意味がメソッド名で明確になります。 `SystemAClient` や `SystemBClient` を直接メンバに持ち、`if-else` 分岐もそのままですが、各分岐をプライベートメソッドに抽出して責任を整理します。
 
 **構造図：**
 
 ```mermaid
 classDiagram
     class BatchExecutor {
-        <<if分岐を直書き>>
+        <<プライベートメソッドで整理>>
         +execute(targetId)
+        -sendToA()
+        -sendToB()
+        -sendToC()
+        -notifyComplete()
     }
     class ManualTriggerController {
-        <<同じif分岐が重複>>
+        <<同じ具体依存が重複>>
         +triggerSync(systemId)
+        -sendToA()
+        -sendToB()
+        -sendToC()
     }
     class SystemAClient {
         +send(data)
@@ -396,43 +403,77 @@ classDiagram
     ManualTriggerController --> NotificationService : 具体×直接
 ```
 
-両クラスが同じ連携先クライアントと通知サービスを直接知っており、連携先が増えると2か所を修正しなければならない。
+両クラスとも具体型を直接知っており、連携先が増えると2か所を修正しなければならない点はフェーズ3と同じです。プライベートメソッドで読みやすくなりましたが、接続形態は変わっていません。
 
 **手段の比較：**
 
 | 手段 | 方法 | 特徴 |
 | --- | --- | --- |
-| 手段A：if分岐に追記 | `execute()` 内に `else if (targetId == "C")` を追加 | 最も実装が速い。ただし分岐が増えるたびに読みにくくなる |
-| 手段B：switch文に整理 | `if-else` を `switch` に書き換え | `if-else` より見通しがわずかに良くなるが、本質的な問題は変わらない |
+| 手段A：プライベートメソッドに抽出 | 各分岐の処理をプライベートメソッドに切り出す | ✅（読みやすさが向上する） |
+| 手段B：コメントのみで整理 | コードは変えずにコメントだけ整理する | 却下（構造問題は解決しない） |
 
-**手段A**（今回の要件はC社追加の1件のみ。最速で対応できる手段を選ぶ。ただし構造問題は解消しない）のコードを以下に示します。
+手段Aを採用します。接続形態は具体×直接のままですが、各処理の意図がメソッド名で明確になります。
 
-【コード例】
+**BatchExecutor クラス（案1）：**
 
 ```cpp
-void execute(string targetId) {
-    if (targetId == "C") { SystemCClient client; client.send("data"); }
-    // ← 具体：SystemCClientという型名を直接書いている
-    NotificationService n; n.notify("Success");
-    // ← 具体：NotificationServiceという型名を直接書いている
-}
-
+// 案1：プライベートメソッドで各分岐の責任を整理
+class BatchExecutor {
+public:
+    void execute(string targetId) {
+        if (targetId == "A") {
+            sendToA(); // ← 処理の意図がメソッド名で明確になった
+        } else if (targetId == "B") {
+            sendToB();
+        } else if (targetId == "C") {
+            sendToC();
+        }
+        notifyComplete(); // ← 通知処理もメソッド名で意図を示す
+    }
+private:
+    void sendToA() {
+        SystemAClient client; // ← 具体：SystemAClientを直接生成
+        client.send("data");
+    }
+    void sendToB() {
+        SystemBClient client; // ← 具体：SystemBClientを直接生成
+        client.send("data");
+    }
+    void sendToC() {
+        SystemCClient client; // ← 具体：SystemCClientを直接生成
+        client.send("data");
+    }
+    void notifyComplete() {
+        NotificationService n; // ← 具体：NotificationServiceを直接生成
+        n.notify("Success");
+    }
+};
 ```
 
-このコードを見ると、連携先が増えるたびに `execute()` が肥大化し、既存の安定したロジックを毎回触ることになる構造が明確です。
-
-**呼び出し側から見た違い（main() 例）：**
+**ManualTriggerController クラスと main（案1）：**
 
 ```cpp
-// 案1（現状のまま）の呼び出し側
-// 両クラスが同じ外部システム振り分けロジックを重複して持つ
+// 案1：ManualTriggerControllerも同じ構造でプライベートメソッドに整理
 class ManualTriggerController {
 public:
     void triggerSync(string systemId) {
-        // ← BatchExecutorと同じif-else分岐をそのまま複製している
-        if (systemId == "A") { SystemAClient client; client.send("manualData"); }
-        if (systemId == "B") { SystemBClient client; client.send("manualData"); }
-        if (systemId == "C") { SystemCClient client; client.send("manualData"); }
+        // ← BatchExecutorと同じ具体型を重複して保持
+        if (systemId == "A") { sendToA(); }
+        if (systemId == "B") { sendToB(); }
+        if (systemId == "C") { sendToC(); }
+        notifyComplete();
+    }
+private:
+    void sendToA() {
+        SystemAClient client; client.send("manualData");
+    }
+    void sendToB() {
+        SystemBClient client; client.send("manualData");
+    }
+    void sendToC() {
+        SystemCClient client; client.send("manualData");
+    }
+    void notifyComplete() {
         NotificationService n; n.notify("手動同期完了");
     }
 };
@@ -447,28 +488,28 @@ int main() {
 }
 ```
 
-両クラスが同じロジックを重複して持つため、連携先が増えると2か所を修正しなければならない。
+プライベートメソッドに整理したことで各処理の意図は読みやすくなりましたが、両クラスともに具体型を直接知っており、連携先が増えると2か所を修正しなければならない構造は変わっていません。
 
-一文要約：連携先の振り分けロジックと通知処理が両クラスの内部に直書きされているため、同じ分岐が2か所で並行して走る。
+一文要約：フェーズ3のコードをプライベートメソッドで読みやすく整理した形で、接続は「具体×直接」のまま、同じ具体型依存が2か所で並行して走る。
 
 **この形のトレードオフ：**
 
-* 変更容易性：低（連携先が増えるたびに `BatchExecutor` が肥大化する）
+* 変更容易性：低（連携先が増えるたびに両クラスを修正する必要がある）
 
 
-* テスト容易性：低（通信処理と通知ロジックが分離できず、テストが困難）
+* テスト容易性：低（具体クラスへの依存が残り、切り離せない）
 
 
-* 実装コスト：低（今のコードに数行足すだけ）
+* 実装コスト：低（プライベートメソッドへの抽出のみ）
 
 
 
 ---
 
-#### 案2：具体×直接 ―― クラスを分けるが参照は具体型のまま
+#### 案2：具体×間接 ―― 処理を別クラスに切り出して委ねる
 
 **この形の考え方：**
-各連携先のクライアントをクラス化するが、呼び出し側はそれらを直接 `new` する。 責任の所在は明確になるが、依然としてクラスの生成知識が利用側に混在している。
+各連携先クライアントを別クラスに切り出し、呼び出し元はその具体クラスを名指しで知った上でオブジェクトに処理を「委ねる」形です。自分で直接やるのではなく、切り出したオブジェクトに任せる（間接）ことで、処理の責任が明確に分離されます。ただし呼び出し元は具体クラス名を直接知っており、クラスを差し替えるには呼び出し元の修正が必要です。
 
 **構造図：**
 
@@ -492,66 +533,97 @@ classDiagram
     class NotificationService {
         +notify(result)
     }
-    BatchExecutor --> SystemAClient : 具体×直接
-    BatchExecutor --> SystemBClient : 具体×直接
-    BatchExecutor --> SystemCClient : 具体×直接
-    BatchExecutor --> NotificationService : 具体×直接
-    ManualTriggerController --> SystemAClient : 具体×直接
-    ManualTriggerController --> SystemBClient : 具体×直接
-    ManualTriggerController --> SystemCClient : 具体×直接
-    ManualTriggerController --> NotificationService : 具体×直接
+    BatchExecutor --> SystemAClient : 具体×間接
+    BatchExecutor --> SystemBClient : 具体×間接
+    BatchExecutor --> SystemCClient : 具体×間接
+    BatchExecutor --> NotificationService : 具体×間接
+    ManualTriggerController --> SystemAClient : 具体×間接
+    ManualTriggerController --> SystemBClient : 具体×間接
+    ManualTriggerController --> SystemCClient : 具体×間接
+    ManualTriggerController --> NotificationService : 具体×間接
 ```
 
-クラスは分離されたが、両クラスが各具体クライアントへの矢印を重複して持っており、連携先が増えるたびに両方を修正する必要がある。
+クラスは分離されて処理を委ねるようになりましたが（間接）、両クラスが各具体クラス名を直接知っており（具体）、連携先が増えるたびに両方を修正しなければならない。
 
 **手段の比較：**
 
 | 手段 | 方法 | 特徴 |
 | --- | --- | --- |
-| 手段A：クラスを切り出して直接生成 | `SystemCClient` をクラス化し、呼び出し元で直接 `new` する | 責任はクラスに分かれるが、生成の知識は呼び出し元に残る |
-| 手段B：ヘルパー関数に集約 | 振り分けロジックをフリー関数にまとめる | 関数1つに集約されるが、インターフェースなしのため型依存は変わらない |
-| 手段C：staticメソッドに集約 | クラスのstaticメソッドに振り分けを集める | 案Aの変形。依存関係は同じで利点は薄い |
+| 手段A：別クラスに切り出し、処理を委ねる | ロジックを別クラスに分けて呼び出し、処理はそのクラスに任せる | ✅（この案の定義通り） |
+| 手段B：クラス分割＋ローカル変数に切り出し | メソッド内でローカル変数に抽出する | 却下（クラスを跨いだ依存は解消されない） |
 
-**手段A**（クラスの責任を分離するという方向性は正しい。ただし次の案（抽象化）への踏み台として位置づける）のコードを以下に示します。
+手段Aを採用します。処理を切り出したクラスに「委ねる」形になり、各クラスの責任は明確になりました。ただし呼び出し側が具体クラス名を直接知り続けることは変わりません。
 
-【コード例】
-
-各連携先クライアントをクラスとして分離します。
+**連携先クライアントと通知クラス（案2）：**
 
 ```cpp
+// 案2：各クライアントを独立したクラスに切り出した（具体×間接）
+class SystemAClient {
+public:
+    // 呼び出し元はここに処理を委ねる（間接）
+    void send(string data) { cout << "A社へ送信: " << data << endl; }
+};
+
+class SystemBClient {
+public:
+    void send(string data) { cout << "B社へ送信: " << data << endl; }
+};
+
 class SystemCClient {
 public:
     void send(string data) { cout << "C社へ送信: " << data << endl; }
 };
+
+class NotificationService {
+public:
+    void notify(string result) { cout << "完了通知: " << result << endl; }
+};
 ```
 
-呼び出し元では具体型を直接生成します。
+**BatchExecutor クラス（案2）：**
 
 ```cpp
-void execute(string targetId) {
-    if (targetId == "C") {
-        SystemCClient client; // ← 具体：SystemCClientという型名を直接書いている
-        client.send("data");  // ← 直接：呼び出し側がこのクラスを直接インスタンス化している
+// 案2：BatchExecutorが具体クラスを知り、処理をそのクラスに委ねる
+class BatchExecutor {
+public:
+    void execute(string targetId) {
+        if (targetId == "A") {
+            SystemAClient client; // ← 具体：型名を直接書いている
+            client.send("data"); // ← 間接：送信処理はclientに委ねる
+        } else if (targetId == "B") {
+            SystemBClient client; // ← 具体：型名を直接書いている
+            client.send("data"); // ← 間接：送信処理はclientに委ねる
+        } else if (targetId == "C") {
+            SystemCClient client; // ← 具体：型名を直接書いている
+            client.send("data"); // ← 間接：送信処理はclientに委ねる
+        }
+        NotificationService n; // ← 具体：型名を直接書いている
+        n.notify("Success");   // ← 間接：通知処理はnに委ねる
     }
-}
-
+};
 ```
 
-クラスは分かれたが、`execute()` が `SystemCClient` という型名を直接知っている点は変わらない。
-
-**呼び出し側から見た違い（main() 例）：**
+**ManualTriggerController クラスと main（案2）：**
 
 ```cpp
-// 案2（具体×直接）の呼び出し側
-// 選択ロジックが両クラスに重複している
+// 案2：ManualTriggerControllerも同じ具体クラスを知り処理を委ねる
 class ManualTriggerController {
 public:
     void triggerSync(string systemId) {
-        if (systemId == "C") {
-            SystemCClient client; // ← 具体：SystemCClientという型名を直接書いている
+        if (systemId == "A") {
+            SystemAClient client; // ← 具体：BatchExecutorと同じ型を重複して使用
+            client.send("manualData"); // ← 間接：処理を委ねる
+        }
+        if (systemId == "B") {
+            SystemBClient client; // ← 具体：型名を直接書いている
             client.send("manualData");
         }
-        NotificationService n; n.notify("手動同期完了");
+        if (systemId == "C") {
+            SystemCClient client; // ← 具体：型名を直接書いている
+            client.send("manualData");
+        }
+        NotificationService n; // ← 具体：型名を直接書いている
+        n.notify("手動同期完了"); // ← 間接：処理を委ねる
     }
 };
 
@@ -565,19 +637,19 @@ int main() {
 }
 ```
 
-選択ロジックが両クラスに重複しており、連携先が増えるたびに両方を修正しなければならない。
+処理を別クラスに委ねる形（間接）になりましたが、具体クラス名の知識が両クラスに重複しており、連携先が増えるたびに両方を修正しなければならない。
 
-一文要約：クラスは分かれたが「どのクラスを呼ぶか」という判断を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
+一文要約：クラスは分かれて処理を委ねるようになった（間接）が、「どのクラスを呼ぶか」という具体クラス名の知識が両方の呼び出し元に重複して残っている。
 
 **この形のトレードオフ：**
 
-* 変更容易性：低〜中（クラスは分離できたが、生成ロジックの混在は残る）
+* 変更容易性：低〜中（クラスは分かれたが、具体クラス名の依存は両方に残る）
 
 
-* テスト容易性：低（具体クラスへの依存が強いため切り離せない）
+* テスト容易性：低（依然として具体クラスを直接生成する必要がある）
 
 
-* 実装コスト：低（クラスへの切り出しのみ）
+* 実装コスト：低（リファクタリングの範囲が限定的）
 
 
 
@@ -922,8 +994,8 @@ int main() {
 
 | **案** | **現在の対応コスト** | **未来の対応コスト** |
 | --- | --- | --- |
-| 案1：現状のまま | 低 | 高 |
-| 案2：具体×直接 | 低〜中 | 高 |
+| 案1：具体×直接 | 低 | 高 |
+| 案2：具体×間接 | 低〜中 | 高 |
 | 案3：抽象×直接 | 中 | 低〜中 |
 | 案4：抽象×間接 | 高 | 低 |
 
@@ -931,8 +1003,8 @@ int main() {
 
 | 案 | 変更容易性（×3） | テスト容易性（×2） | 可読性（×1） |
 | --- | --- | --- | --- |
-| 案1：現状のまま | 1 | 1 | 3 |
-| 案2：具体×直接 | 1 | 2 | 3 |
+| 案1：具体×直接 | 1 | 1 | 3 |
+| 案2：具体×間接 | 1 | 2 | 3 |
 | 案3：抽象×直接 | 2 | 2 | 2 |
 | 案4：抽象×間接 | 3 | 3 | 1 |
 

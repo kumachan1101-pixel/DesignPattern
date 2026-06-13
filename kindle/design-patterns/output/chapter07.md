@@ -363,7 +363,7 @@ graph LR
 
 |  | 直接（直差し） | 間接（アダプター経由） |
 |:---:|:---|:---|
-| **具体**（専用規格） | **← 現在地**　ライトニング直生え → ゲーム機（直差し） | ライトニング直生え → ゲーム機用アダプタを挟む → ゲーム機 |
+| **具体**（専用規格） | **← 現在地**　ライトニング直生え → iPhone（直差し） | ライトニング直生え → ゲーム機専用アダプタを挟む → ゲーム機 |
 | **抽象**（汎用規格） | Type-C直生え → 各種機器（直差し） | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 |
 
 このコードで言うと：
@@ -426,8 +426,8 @@ graph LR
 
 | 接続形態 | ケーブル例 | 特徴 |
 |:---:|:---|:---|
-| **具体×直接**（← 現在地） | ライトニング直生え → ゲーム機（直差し） | 専用端子のみ対応。差し替え不可 |
-| **具体×間接** | ライトニング直生え → ゲーム機用アダプタを挟む → ゲーム機 | 変換器を挟むが規格は専用のまま |
+| **具体×直接**（← 現在地） | ライトニング直生え → iPhone（直差し） | 専用端子のみ対応。差し替え不可 |
+| **具体×間接** | ライトニング直生え → ゲーム機専用アダプタを挟む → ゲーム機 | 変換器を挟むが規格は専用のまま |
 | **抽象×直接** | Type-C直生え → 各種機器（直差し） | どのメーカーでも同じ口で繋がる |
 | **抽象×間接** | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 | アダプタを介して汎用規格で展開可能 |
 
@@ -435,36 +435,39 @@ graph LR
 
 ---
 
-#### 案1：現状のまま ―― 構造を変えない
+#### 案1：具体×直接 ―― プライベートメソッドで責任を整理する
 
 **この形の考え方：**
-クラスの分割も接続形態の変更もしない。既存の `notifyAll` メソッドの中に、新しい通知先への処理を `if` 文やメソッド呼び出しとして書き足す。将来的な通知先の増減が極めて稀で、工数を最小限に抑えたい場合に合理的な選択。
+接続の形は変えません（具体×直接のまま）。フェーズ3で示したコードを、通知先ごとの処理をプライベートメソッドに抽出した形で整理します。各処理の意味がメソッド名で明確になり、`notifyAll` の見通しが改善されますが、通知先が増えるたびにメンバ変数・メソッド・呼び出し側に影響が波及する問題は残ります。
 
 **手段の比較：**
 
 | 手段 | 方法 | 特徴 |
 |---|---|---|
-| 手段A：notifyAll内に直書き | 既存の `notifyAll` にメソッド呼び出しを1行追加 | 最も少ない変更量。ただしクラスの肥大化が続く |
+| 手段A：プライベートメソッド抽出 | 各通知先への呼び出しをプライベートメソッドに抽出する | 変更が最小限。通知先が増えるたびにメンバ変数と呼び出しが増え続ける問題は残る |
 | 手段B：if分岐で切り替え | 通知先の種類をフラグで管理し `if` で分岐 | 条件が増えるほど複雑化し読みにくくなる |
 
-**手段A**（変更量が最小。この案を選ぶ動機自体がコスト最小化なので、さらに複雑な手段を取る理由がない）のコードを以下に示します。
+**手段A**（フェーズ3のコードをベースに、プライベートメソッドで整理した形を示すため）のコードを以下に示します。
 
-> **注：** 以下のコード例には `OrderFulfillmentService`（出荷完了を管理するクラス）が登場します。これは「在庫変動以外にも通知が必要な場面がある」という実務での典型的な状況を示すために追加しています。構造を変えないまま通知先を追加すると、同じ通知ロジックが複数のクラスに重複してしまうことを示すための例です。
+> **注：** 以下のコード例には `OrderFulfillmentService`（出荷完了を管理するクラス）が登場します。これは「在庫変動以外にも通知が必要な場面がある」という実務での典型的な状況を示すために追加しています。具体×直接の構造のまま通知先を追加すると、同じ通知ロジックが複数のクラスに重複してしまうことを示すための例です。
 
 **構造図：**
 
 ```mermaid
 classDiagram
     class InventoryManager {
-        <<if分岐を直書き>>
+        <<プライベートメソッドで整理>>
         -EmailNotifier email
         -DashboardUpdater dashboard
         -ChatNotifier chat
         +reduceStock(string, int)
         -notifyAll(string)
+        -notifyEmail(string)
+        -notifyDashboard(string)
+        -notifyChat(string)
     }
     class OrderFulfillmentService {
-        <<同じif分岐が重複>>
+        <<同じ構造が重複>>
         -EmailNotifier email
         -DashboardUpdater dashboard
         -ChatNotifier chat
@@ -491,7 +494,7 @@ classDiagram
 
 【コード例】
 
-はじめに各通知先クラスと呼び出し元1（在庫変動を管理するクラス）の実装です。
+はじめに各通知先クラスの実装です。
 
 ```cpp
 // 各通知先（変更前と同じ）
@@ -507,28 +510,48 @@ class ChatNotifier {
 public:
     void send(string m) { cout << "Chat: " << m << endl; }
 };
+```
 
+次に、フェーズ3のコードをベースに、プライベートメソッドで整理した呼び出し元1を見てみましょう。
+
+```cpp
 // 呼び出し元1：在庫変動を管理するクラス
 class InventoryManager {
+    // ← 具体：各通知先クラスを直接保持している
     EmailNotifier email;
     DashboardUpdater dashboard;
     ChatNotifier chat;
+
+    // プライベートメソッドで各通知先への処理を整理する
+    void notifyEmail(string message) {
+        email.send(message);
+    }
+    void notifyDashboard(string message) {
+        dashboard.update(message);
+    }
+    void notifyChat(string message) {
+        chat.send(message);
+    }
+
+    void notifyAll(string message) {
+        notifyEmail(message);
+        notifyDashboard(message);
+        notifyChat(message);
+    }
+
 public:
     void reduceStock(string productId, int quantity) {
         string message = "商品 " + productId + " の在庫が減少しました。";
-        // ← 具体：通知先クラスを直接呼び出している
-        email.send(message);
-        dashboard.update(message);
-        chat.send(message);
+        notifyAll(message);
     }
 };
 ```
 
-通知先クラスをそのまま保持し、`notifyAll` 内で直接呼び出す構造が見て取れます。次に呼び出し元2（出荷完了を管理するクラス）を見てみましょう。
+このコードを見ると、フェーズ3の直書きコードと比べて `notifyAll` の見通しが改善されています。しかし、通知先が増えるたびにメンバ変数・プライベートメソッド・`notifyAll` の3か所を探して修正し、呼び出し側も変わり続けることは変わりません。次に呼び出し元2（出荷完了を管理するクラス）を見てみましょう。
 
 ```cpp
 // 呼び出し元2：出荷完了を管理するクラス
-// ← 同じ通知ロジックをここにも丸ごと複製する（重複の発生）
+// ← 同じ通知ロジックをここにも複製する（重複の発生）
 class OrderFulfillmentService {
     EmailNotifier email;        // ← 同じ具体クラスをここでも直接保持
     DashboardUpdater dashboard;
@@ -549,55 +572,57 @@ public:
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 案1（現状のまま）の呼び出し側
+// 案1（具体×直接）の呼び出し側
 int main() {
     // 在庫変動の呼び出し元
     InventoryManager manager;
-    manager.reduceStock("T-shirt-001", 5); // ← 内部にEmailNotifierなどが直書き
+    manager.reduceStock("T-shirt-001", 5);
 
     // 出荷完了の呼び出し元
     OrderFulfillmentService fulfillment;
-    fulfillment.notifyShipped("ORDER-001"); // ← 同じ通知ロジックが重複して存在
+    fulfillment.notifyShipped("ORDER-001");
     return 0;
 }
 ```
 
-一文要約：通知先クラスが各呼び出し元の内部に直接ハードコードされているため、同じ通知ロジックが2か所で並行して走り、通知先が1つ増えれば両方を修正しなければならない。
+一文要約：プライベートメソッドでクラス内部の見通しは改善されたが、具体型を直接保持する構造は変わらず、通知先が増えるたびに両方の呼び出し元を修正しなければならない。
 
 **この形のトレードオフ：**
 
 * 変更容易性：低（通知先が増えるたびに `InventoryManager` と `OrderFulfillmentService` の両方を修正する必要がある）
 * テスト容易性：低（特定の通知だけをテストするための切り離しができない）
-* 実装コスト：低（今のコードに1行足すだけ）
+* 実装コスト：低（今のコードにプライベートメソッドを抽出するだけ）
 
 ---
 
-#### 案2：具体×直接 ―― クラスは分けるが参照は具体型のまま
+#### 案2：具体×間接 ―― 処理を別クラスに切り出して委ねる
 
 **この形の考え方：**
-通知ロジックを個別のクラスに切り出すが、通知元はそれらの「具体的なクラス」を直接メンバとして保持する。責務の分離は進むが、通知先クラスのインスタンスを直接管理し続けるため、通知先の増減による通知元の影響は避けられない。
+通知ロジックを個別のクラスに切り出し、`InventoryManager` はそれら具体クラスを名指しで知っていますが、実際の通知処理はそのオブジェクトに「委ねる」（間接）構造です。直接自分で `email.send()` を呼ぶのではなく、呼び出しを委譲する点が案1との違いです。
 
 **手段の比較：**
 
 | 手段 | 方法 | 特徴 |
 |---|---|---|
-| 手段A：メンバ変数として宣言 | 具体クラスをメンバとしてコンストラクタで初期化 | コードが明確。ただし通知先が増えるたびにメンバ変数の追加が必要 |
+| 手段A：メンバ変数として宣言 | 具体クラスをメンバとしてコンストラクタで初期化 | 委譲の仕組みが明確。通知先が増えるたびにメンバ変数の追加が必要 |
 | 手段B：ポインタリストで管理 | 具体型のポインタリストを持つ | リストで管理できるが、型が具体型のままなので抽象化の恩恵が得られない |
 
-**手段A**（「具体×直接」の形を正直に示すためにメンバ変数宣言が最も分かりやすい）のコードを以下に示します。
+**手段A**（「具体×間接」の委譲構造を最も素直に示すため）のコードを以下に示します。
 
 **構造図：**
 
 ```mermaid
 classDiagram
     class InventoryManager {
-        -EmailNotifier email
-        -ChatNotifier chat
+        -EmailNotifier* email
+        -ChatNotifier* chat
+        +InventoryManager(EmailNotifier*, ChatNotifier*)
         +reduceStock(string, int)
     }
     class OrderFulfillmentService {
-        -EmailNotifier email
-        -ChatNotifier chat
+        -EmailNotifier* email
+        -ChatNotifier* chat
+        +OrderFulfillmentService(EmailNotifier*, ChatNotifier*)
         +notifyShipped(string)
     }
     class EmailNotifier {
@@ -606,20 +631,20 @@ classDiagram
     class ChatNotifier {
         +send(string)
     }
-    InventoryManager --> EmailNotifier : 具体×直接
-    InventoryManager --> ChatNotifier : 具体×直接
-    OrderFulfillmentService --> EmailNotifier : 具体×直接
-    OrderFulfillmentService --> ChatNotifier : 具体×直接
+    InventoryManager --> EmailNotifier : 具体×間接
+    InventoryManager --> ChatNotifier : 具体×間接
+    OrderFulfillmentService --> EmailNotifier : 具体×間接
+    OrderFulfillmentService --> ChatNotifier : 具体×間接
 ```
 
-`InventoryManager` と `OrderFulfillmentService` の両方が同じ具体通知クラスへの直接依存を持ち、新しい通知先が増えるたびに両方の呼び出し元で修正が発生する。
+`InventoryManager` は `EmailNotifier*` という具体型を名指しで知っているが、処理自体はそのオブジェクトに委ねる（間接）。新しい通知先が増えるたびに両方の呼び出し元で修正が発生する点は変わらない。
 
 【コード例】
 
 はじめに EmailNotifier と ChatNotifier の実装です。
 
 ```cpp
-// 呼び出し元1が直接依存する具体的な通知クラス
+// 具体的な通知クラス（インターフェースなし）
 class EmailNotifier {
 public:
     void send(string m) { cout << "Email: " << m << endl; }
@@ -630,61 +655,71 @@ public:
 };
 ```
 
-この2つのクラスを、呼び出し元が直接名前で知っている点が「具体」の特徴です。次に呼び出し元の実装を見てみましょう。
+各クラスが通知の責任を持ち、処理の中身はこちらに委ねられています。次に呼び出し元の実装を見てみましょう。
 
 ```cpp
 // 呼び出し元1：在庫変動を管理するクラス
 class InventoryManager {
-    // ← 具体：EmailNotifierという具体型を直接知っている
-    EmailNotifier email;
-    ChatNotifier chat;
+    // ← 具体：EmailNotifier*という具体型を名指しで知っている
+    EmailNotifier* email;
+    // ← 間接：処理はこのオブジェクトに委ねる（自分でやらない）
+    ChatNotifier* chat;
 public:
+    InventoryManager(EmailNotifier* e, ChatNotifier* c)
+        : email(e), chat(c) {}
+
     void reduceStock(string productId, int quantity) {
         string message = "商品 " + productId + " の在庫が減少しました。";
-        email.send(message); // ← 直接：具体クラスのメソッドを直接呼んでいる
-        chat.send(message);
+        email->send(message);  // ← 間接：emailオブジェクトに委ねる
+        chat->send(message);
     }
 };
 
 // 呼び出し元2：出荷完了を管理するクラス
-// ← 選択ロジック（どの具体クラスを使うか）がここでも重複する
+// ← 同じ具体クラスへの依存がここでも重複する
 class OrderFulfillmentService {
-    EmailNotifier email;  // ← 同じ具体クラスをここでも直接インスタンス化
-    ChatNotifier chat;
+    // ← 同じ具体型を名指しで知っている（重複）
+    EmailNotifier* email;
+    ChatNotifier* chat;
 public:
+    OrderFulfillmentService(EmailNotifier* e, ChatNotifier* c)
+        : email(e), chat(c) {}
+
     void notifyShipped(string orderId) {
         string message = "注文 " + orderId + " が出荷されました。";
-        email.send(message); // ← どのクラスを選ぶかという判断がここでも重複
-        chat.send(message);
+        email->send(message);
+        chat->send(message);
     }
 };
 ```
 
-このコードを見ると、`InventoryManager` と `OrderFulfillmentService` の両方が「`EmailNotifier` と `ChatNotifier` を使う」という選択ロジックを各自で保持していることが分かります。通知先を1つ追加・変更するたびに、両方のクラスを修正する必要があります。
+このコードを見ると、処理はオブジェクトに委ねている（間接）ものの、`InventoryManager` と `OrderFulfillmentService` の両方が `EmailNotifier*` という具体型を名指しで知っている（具体）ことが分かります。新しい通知先が増えるたびに、両方のクラスのコンストラクタとメンバ変数を修正しなければなりません。
 
 **呼び出し側から見た違い（main() 例）：**
 
 ```cpp
-// 案2（具体×直接）の呼び出し側
+// 案2（具体×間接）の呼び出し側
 int main() {
-    // 在庫変動の呼び出し元：具体クラスを直接生成して渡す
-    InventoryManager manager;
-    manager.reduceStock("T-shirt-001", 5); // ← 内部で具体クラスが直接使われる
+    // ← 呼び出し側で具体クラスを生成して渡す
+    EmailNotifier email;
+    ChatNotifier chat;
 
-    // 出荷完了の呼び出し元：同様に具体クラスを直接使う
-    OrderFulfillmentService fulfillment;
-    fulfillment.notifyShipped("ORDER-001"); // ← 選択ロジックが重複して存在
+    InventoryManager manager(&email, &chat);
+    manager.reduceStock("T-shirt-001", 5);
+
+    OrderFulfillmentService fulfillment(&email, &chat);
+    fulfillment.notifyShipped("ORDER-001");
     return 0;
 }
 ```
 
-一文要約：クラスは分かれたが「どの具体クラスを使うか」という選択ロジックを両方の呼び出し元がそれぞれ保持しており、呼び出し経路が2本並んで重複している。
+一文要約：処理は委ねるオブジェクトに委譲されているが（間接）、`EmailNotifier` という具体クラス名を両方の呼び出し元が直接知り続けており（具体）、新しい通知先が増えれば両方を修正しなければならない。
 
 **この形のトレードオフ：**
 
-* 変更容易性：低〜中（責務は分かれたが、通知先を変えるたびに `InventoryManager` と `OrderFulfillmentService` の両方の修正が必要）
+* 変更容易性：低〜中（処理ロジックは分離できたが、通知先の種類が増えるたびに両方の呼び出し元の修正が必要）
 * テスト容易性：低（具体クラスへの依存が強いため切り離せない）
-* 実装コスト：中（切り出しの工数が発生する）
+* 実装コスト：中（コンストラクタインジェクションへの切り出し工数が発生する）
 
 ---
 
@@ -1041,8 +1076,8 @@ int main() {
 
 | **案** | **現在の対応コスト** | **未来の対応コスト** |
 | --- | --- | --- |
-| 案1：現状のまま | 低 | 高 |
-| 案2：具体×直接 | 低〜中 | 高 |
+| 案1：具体×直接 | 低 | 高 |
+| 案2：具体×間接 | 低〜中 | 高 |
 | 案3：抽象×直接 | 中 | 低〜中 |
 | 案4：抽象×間接 | 高 | 低 |
 
@@ -1050,8 +1085,8 @@ int main() {
 
 | 案 | 変更容易性（×3） | テスト容易性（×2） | 可読性（×1） |
 | --- | --- | --- | --- |
-| 案1：現状のまま | 1 | 1 | 3 |
-| 案2：具体×直接 | 1 | 2 | 3 |
+| 案1：具体×直接 | 1 | 1 | 3 |
+| 案2：具体×間接 | 1 | 2 | 3 |
 | 案3：抽象×直接 | 3 | 3 | 2 |
 | 案4：抽象×間接 | 3 | 3 | 1 |
 
