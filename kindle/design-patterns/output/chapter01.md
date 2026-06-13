@@ -466,45 +466,72 @@ public:
 **この段階の評価：**
 メインの `calculate()` 骨格は非常にスッキリしました。しかし、分離した `applyDiscount()` の中を見ると、「条件文（if）」と「計算式」が相変わらず入り乱れたスパゲティ状態のままです。「新しい割引ルール」が来るたびに、結局はこの関数を開いて `else if` を書き足さなければなりません。
 
-### ステップ2：さらに「計算式」を個別の関数に分ける（処理の分離）
+### ステップ2：処理（計算式）を個別の関数に分ける
 
-ステップ1の「関数の中身がぐちゃぐちゃ」という問題を解決するために、変わりやすい「計算式」の部分を個別の関数に切り出してみます。
+ステップ1の「関数の中身がぐちゃぐちゃ」という問題を解決するために、変わりやすい「計算式（処理）」の部分をそれぞれ個別の関数に切り出してみます。
 
 ```cpp
 class PaymentCalculator {
-    // 計算式だけを専用の関数に分ける
+    // 処理（計算式）だけを専用の関数に分ける
     int applyPremium(int total) { return static_cast<int>(total * 0.80); }
     int applySummerSale(int total) { return static_cast<int>(total * 0.95); }
     int applyCampaign(int total) { return static_cast<int>(total * 0.90); }
 
     int applyDiscount(int total, const Order& order) {
-        // 条件の判断だけを行う
+        // if文の中は条件の判断だけを行う
         if (order.customerType == "Premium") return applyPremium(total);
         if (order.isSummerSale && order.isCampaignActive) return applyCampaign(applySummerSale(total));
         if (order.isSummerSale) return applySummerSale(total);
         if (order.isCampaignActive) return applyCampaign(total);
         return total;
     }
-public:
-    int calculate(const Order& order) {
-        int total = 0;
-        for (const auto& item : order.items) total += item.price;
-        return applyDiscount(total, order);
-    }
+    // ... calculate() は同じ ...
 };
 ```
 
 **この段階の評価：**
-これで「条件文」と「計算式」が綺麗に整理されました。一歩レベルアップです。
-しかし、まだ根本的な痛みが残っています。新しいキャンペーンが来るたびに、結局はこの `PaymentCalculator` クラスを開いて、①新しい計算関数を追加し、② `applyDiscount` に新しい `if` 文を書き足さなければなりません。**条件文が本体に取り残されている**ため、「クラスが永遠に変わり続ける」という根本問題は解決していないのです。
+これで「計算式」が綺麗に分離されました。しかし、if文の条件（`order.isSummerSale && order.isCampaignActive` 等）がまだ複雑で読みにくさが残っています。
 
-### ステップ3：インターフェース化して入れ替え可能にする（抽象×直接）
+### ステップ3：条件も個別の関数に分ける
 
-既存コード（本体）を一切触らずに新しいルールを追加するにはどうすればよいでしょうか？
-「if文」という条件判断すらも本体から追い出し、各計算式をクラス化してインターフェース（抽象）で受け取る形にします。
+処理を分けたなら、次は「いつ適用するか（条件）」も関数に分けてみましょう。
 
 ```cpp
-// 割引ルールの共通インターフェース（de契約）
+class PaymentCalculator {
+    // 処理（計算式）の関数
+    int applyPremium(int total) { return static_cast<int>(total * 0.80); }
+    int applySummerSale(int total) { return static_cast<int>(total * 0.95); }
+    int applyCampaign(int total) { return static_cast<int>(total * 0.90); }
+
+    // 条件（いつ適用するか）の関数
+    bool isPremium(const Order& order) { return order.customerType == "Premium"; }
+    bool isSummerSaleAndCampaign(const Order& order) { return order.isSummerSale && order.isCampaignActive; }
+    bool isSummerSale(const Order& order) { return order.isSummerSale; }
+    bool isCampaign(const Order& order) { return order.isCampaignActive; }
+
+    int applyDiscount(int total, const Order& order) {
+        // 関数同士を組み合わせるだけになり、最高に読みやすくなる
+        if (isPremium(order)) return applyPremium(total);
+        if (isSummerSaleAndCampaign(order)) return applyCampaign(applySummerSale(total));
+        if (isSummerSale(order)) return applySummerSale(total);
+        if (isCampaign(order)) return applyCampaign(total);
+        return total;
+    }
+    // ... calculate() は同じ ...
+};
+```
+
+**この段階の評価：**
+コードが英語の文章のように完璧に読みやすくなりました。**これが「関数化（手続き型プログラミング）」によるコード整理の限界（最終到達点）**です。
+しかし、最大の痛みが残っています。新しいルールが来るたびに、結局はこの `PaymentCalculator` クラスを開いて新しい関数を追加し、`applyDiscount` の中に **新しい `if` 文を書き足さなければならない** のです。このままでは、「クラスが永遠に変わり続ける」という根本問題は解決していません。
+
+### ステップ4：インターフェース化して「if文」ごと追い出す（抽象×直接）
+
+既存コード（本体）を一切触らずに新しいルールを追加するにはどうすればよいでしょうか？
+「if文」という条件判断すらも本体から完全に追い出し、各計算式をクラス化してインターフェース（抽象）で受け取る形にします。
+
+```cpp
+// 割引ルールの共通インターフェース（契約）
 class IDiscountRule {
 public:
     virtual int apply(int total) = 0;
@@ -532,7 +559,7 @@ public:
 ```
 
 **この段階の評価：**
-ついに、`PaymentCalculator` の中から「どの割引を適用するか」という `if` 文（条件文）が完全に消え去りました！ 実行時にどんな `IDiscountRule` が渡されるかは呼び出し側（`main` 等）が決定します。接続の形が**「抽象×直接」**へ到達したことで、本体は無傷のまま、いくらでも新しいルールを差し替えられるようになりました。
+ついに、`PaymentCalculator` の中から「どの割引を適用するか」という `if` 文（条件ルーティング）が完全に消え去りました！ 実行時にどんな `IDiscountRule` が渡されるかは呼び出し側（`main` 等）が決定します。接続の形が**「抽象×直接」**へ到達したことで、本体は無傷のまま、いくらでも新しいルールを差し替えられるようになりました。
 
 ---
 
@@ -540,12 +567,12 @@ public:
 
 それぞれのステップには一長一短があります。ステップ3の抽象化は強力ですが、ファイル数や型が増えるという「初期投資コスト」もかかります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
 
-*   **Step 1（関数化）で止めるケース：** 今回のサマーセールが「今回限りの特例」の場合。余計なクラスを作らず、ファイルをシンプルに保つのが適切です。
-*   **Step 2（個別関数化）で止めるケース：** 将来的にルールが増えるかもしれないが確証がない場合。関数を整理するだけにとどめ、本当に増えた時にStep 3へ進化させる「様子見」の判断です。
-*   **Step 3（抽象化）まで進むケース：** 「毎月新しい割引が追加される」と確定している場合。今すぐ初期コストを払ってでも、将来の変更コストをゼロにするのが適切です。
+*   **Step 1（丸ごと関数化）で止めるケース：** 「今回限りの特例」の場合。とりあえず分けておくだけで十分です。
+*   **Step 2・3（処理・条件の関数化）で止めるケース：** ルールが増えるかもしれないが確証がない場合。関数を綺麗に整理するだけにとどめ、本当に増えた時にStep 4へ進化させる「様子見」の判断です。
+*   **Step 4（抽象化）まで進むケース：** 「毎月新しい割引が追加される」と確定している場合。今すぐ初期投資コストを払ってでも、将来の変更コストをゼロにするのが適切です。
 
 **今回の決断：**
-フェーズ2のヒアリングで、マーケティング責任者から「今後も毎月ルールが追加される」と明言されています。したがって、今回は迷わず**ステップ3（抽象化）まで進化させる**決断を下します。
+フェーズ2のヒアリングで、マーケティング責任者から「今後も毎月ルールが追加される」と明言されています。したがって、今回は迷わず**ステップ4（抽象化）まで進化させる**決断を下します。
 
 このように、変わるロジック（割引ルール）をインターフェースで分離し、呼び出し側から自由に差し替え可能にするこの設計構造を **Strategy（ストラテジー）パターン** と呼びます。
 
@@ -555,7 +582,7 @@ public:
 
 ### 7-1：解決後のコード（全体）
 
-ステップ3で決断した構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて見ていきましょう。
+ステップ4で決断した構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて見ていきましょう。
 
 **1. データの定義とインターフェース（契約）**
 計算に必要なデータクラスと、すべての割引ルールが守るべき共通のインターフェースを定義します。
