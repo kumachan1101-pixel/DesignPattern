@@ -366,7 +366,9 @@ graph LR
 | 仕様変更の波が業務ロジックに直撃する | `TransferProcessor` が銀行APIの具体的な呼び出し手順を直接知っているから |
 | 複雑化して目的が見えなくなる | 変わる理由が違う2つのもの（「振り込み業務のフロー」と「銀行APIの技術手順」）が同じメソッドの中に混在しているから |
 
-### 4-2：変わるもの/変わらないもの
+### 4-2：変わるもの/変わってほしくないもの
+
+> **「変わらないもの」と「変わってほしくないもの」は異なります。** 「変わらないもの」は経験的事実（今まで変わっていない）、「変わってほしくないもの」は設計意図（ここを安定させてほかを守りたい）です。ここで整理するのは後者です。
 
 | **変わり続けるもの（外部システムの詳細）** | **変わってほしくないもの（業務フローの骨格）** |
 |---|---|
@@ -670,8 +672,11 @@ public:
         // 複雑な手順はすべてこの窓口の中に閉じる
         gateway.verifyAccount(account);
         gateway.checkBalance(account);
-        auth.requestOTP();
-        auth.verifyOTP(otp, "TXN12345"); // 内部的に取引IDを扱う
+        // バッチ処理（otp=""）は社内承認済みのためOTPをスキップ
+        if (!otp.empty()) {
+            auth.requestOTP();
+            auth.verifyOTP(otp, "TXN12345"); // 内部的に取引IDを扱う
+        }
         gateway.executeTransfer(account, amount, "TXN12345");
     }
 };
@@ -788,8 +793,11 @@ public:
         // 複雑な手順はすべてこの窓口の中に閉じる
         gateway.verifyAccount(account);
         gateway.checkBalance(account);
-        auth.requestOTP();
-        auth.verifyOTP(otp, "TXN12345"); // 内部的に取引IDを扱う
+        // バッチ処理（otp=""）は社内承認済みのためOTPをスキップ
+        if (!otp.empty()) {
+            auth.requestOTP();
+            auth.verifyOTP(otp, "TXN12345"); // 内部的に取引IDを扱う
+        }
         gateway.executeTransfer(account, amount, "TXN12345");
     }
 };
@@ -873,17 +881,13 @@ int main() {
 振り込み完了
 口座確認: 87654321
 残高確認
-認証コード発行
-認証コード検証
 送金実行: 30000円
 口座確認: 11112222
 残高確認
-認証コード発行
-認証コード検証
 送金実行: 25000円
 ```
 
-動作例テーブルの行1（12345678 / 5,000円 → 振り込み完了）と一致しています。`TransferProcessor` の中から `BankGateway` や `SecurityAuthenticator` への依存が完全に消えました。
+動作例テーブルの行1（12345678 / 5,000円 → 振り込み完了）と行5（87654321 / 30,000円 → OTPスキップで送金）の動作を確認しました。バッチ処理では `otp=""` を渡すことで `BankTransferService` 内のOTPステップがスキップされ、テーブルの「OTP不要」仕様と一致しています。行2〜4（口座なし・残高不足・認証失敗）は本番実装では各サブシステムがエラーを返すことで対応します。`TransferProcessor` の中から `BankGateway` や `SecurityAuthenticator` への依存が完全に消えました。
 
 ### 7-2：動作シーケンス図
 

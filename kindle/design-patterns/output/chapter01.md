@@ -138,24 +138,44 @@ public:
 };
 
 int main() {
+    OrderProcessor processor;
     Order order;
     order.items.push_back(Item("ワイヤレスイヤホン", 10000));
+
+    // 行1：Premium / キャンペーンなし → プレミアム20%引き
     order.customerType = "Premium";
     order.isCampaignActive = false;
-
-    OrderProcessor processor;
     processor.process(order);
+
+    // 行2：Premium / キャンペーンあり → Premium優先（キャンペーン無効）
+    order.customerType = "Premium";
+    order.isCampaignActive = true;
+    processor.process(order);
+
+    // 行3：Regular / キャンペーンあり → キャンペーン10%引き
+    order.customerType = "Regular";
+    order.isCampaignActive = true;
+    processor.process(order);
+
+    // 行4：Regular / キャンペーンなし → 割引なし
+    order.customerType = "Regular";
+    order.isCampaignActive = false;
+    processor.process(order);
+
     return 0;
 }
 ```
 
-上記コードの実行結果：
+上記コードの実行結果（動作例テーブルの全4行と一致）：
 
 ```
-支払金額は 8000 円です。
+支払金額は 8000 円です。   // 行1：Premium 20%引き
+支払金額は 8000 円です。   // 行2：Premium優先（キャンペーン無効）
+支払金額は 9000 円です。   // 行3：Regular 10%引き
+支払金額は 10000 円です。  // 行4：割引なし
 ```
 
-動作例テーブルの行1（Premium / キャンペーンなし / 10,000円 → 8,000円）と一致しています。次のフェーズで変更が来たときに何が起きるかを確認します。
+動作例テーブルの全4パターンをコードが正しく処理していることを確認できました。次のフェーズで変更が来たときに何が起きるかを確認します。
 
 ---
 
@@ -373,30 +393,38 @@ graph LR
 | 影響範囲が読めない恐怖 | `PaymentCalculator` が各割引の具体的な条件を直接知っているから |
 | grep地獄・複雑化 | 変わる理由が違う2つのもの（「合算ロジック」と「割引条件」）が同じメソッドの中に混在しているから。USBのように端子を分けておらず、基板に直差ししている状態と同じで、端子の形が変わるたびに本体側の配線を開け直す必要がある |
 
-### 4-2：変わるもの/変わらないもの
+### 4-2：変わるもの/変わってほしくないもの
 
-| **変わるもの（割引ルール）** | **変わらないもの（計算骨格）** |
+> **「変わらないもの」と「変わってほしくないもの」は異なります。** 「変わらないもの」は経験的事実（今まで変わっていない）、「変わってほしくないもの」は設計意図（ここを安定させてほかを守りたい）です。ここで整理するのは後者です。
+
+| **変わるもの（割引ルール）** | **変わってほしくないもの（計算骨格）** |
 |---|---|
-| 各キャンペーンの適用条件（サマーセール、ハロウィン等） | 商品単価を順番に足す合算ロジック          |
+| 各キャンペーンの適用条件（サマーセール、ハロウィン等） | 商品単価を順番に足す合算ロジック |
 | 割引額の計算方法（パーセント引き・定額引きなど） | 計算を依頼して最終金額を受け取る呼び出し側のフロー |
 
 **【変わる部分（変わり続けるif文と計算）】**
+
+1-3で示した `calculate` メソッドの割引判定ブロックが、キャンペーンのたびに変わる箇所です。
+
 ```cpp
         if (order.customerType == "Premium") {
-            total = static_cast<int>(total * 0.8);
+            total = static_cast<int>(total * 0.8);   // 20%引き
         } else if (order.isSummerSale && order.isCampaignActive) {
-            total = static_cast<int>(total * 0.95 * 0.90);
-        // ...
+            total = static_cast<int>(total * 0.95 * 0.90); // 複合割引
+        // ← 新しいキャンペーンが来るたびに、ここにelse ifが追加される
 ```
 
-**【変わらない部分（不変の骨格）】**
+**【変わってほしくない部分（守りたい骨格）】**
+
+1-3の `calculate` メソッドのうち、「商品を順に足して合計を出し、最終金額を返す」という骨格部分は変えたくありません。
+
 ```cpp
         int total = 0;
         for (const auto& item : order.items) {
-            total += item.price;
+            total += item.price;             // 小計計算（変えたくない）
         }
-        // ... (ここに変わる部分が入る) ...
-        return total;
+        // ← ここに「変わる部分」（割引判定）が割り込んでいる
+        return total;                        // 結果を返す（変えたくない）
 ```
 
 ### 4-3：接続形態の診断
@@ -408,12 +436,12 @@ graph LR
 class PaymentCalculator {
 public:
     int calculate(const Order& order) {
-        // ... 骨格 ...
+        // ← 1-3で示した合算ループ（for + total += item.price）がここに入る
         // 割引ルール（具体）を、自分自身で直接判断して処理している
         if (order.customerType == "Premium") {
             total = static_cast<int>(total * 0.8);
         }
-        // ...
+        // ← 1-3で示した他のelse ifブロックがここに続く
     }
 };
 ```
