@@ -435,313 +435,171 @@ graph LR
 | --- | --- | --- | --- |
 | 接続点A | 「操作の意図（何をしたいか）」と「実行手段（どのクラスのどのメソッドを呼ぶか）」を別の場所に置く | ホットパスではないが履歴サイズの上限設計が必要（大量操作時のメモリ圧迫を防ぐため） | UIButtonsから直接メソッド呼び出しを削除する必要あり |
 
-フェーズ5で「何を解くか」が確定しました。次のフェーズ6では、この課題に対してどのような「接続の形」を採用するかを、2×2マトリクスで各ステップを比較して決定します。
+フェーズ5で「何を解くか」が確定しました。次のフェーズ6では、この課題に対してどのような「接続の形」を採用するかを、段階的なリファクタリングを通じて検討します。
 
-## 🔴 フェーズ6：段階的進化 ―― どこまで設計を進めるべきか
+## 🔴 フェーズ6：対策検討 ―― 段階的な改善と決断
 
-### 6-1：接続の形 2×2マトリクス
+ターゲットである「UIボタンが各マネージャのメソッドを直接知っている」という密結合を解消するために、いきなり正解へ飛ぶのではなく、段階的にリファクタリングを進めてみます。それぞれのステップでどこまで痛みが解消されるかを確認し、今回の要件において「どのステップで止めるべきか」を決断します。
 
-現在は `UIButtons` クラスが各マネージャクラスのメソッドを直接呼び出している「具体×直接」の状態です。ここから、操作をオブジェクトとしてカプセル化することで、呼び出し元と実行先を疎結合にしていきます。
+### ステップ1：ボタン処理をプライベートメソッドに切り出す（とりあえず分ける）
 
-| 接続形態 | ケーブル例 | 特徴 |
-|:---:|:---|:---|
-| **具体×直接**（← 現在地） | ライトニング直生え → iPhone（直差し） | 専用端子のみ対応。差し替え不可 |
-| **具体×間接** | ライトニング直生え → ゲーム機専用アダプタを挟む → ゲーム機 | 変換器を挟むが規格は専用のまま |
-| **抽象×直接** | Type-C直生え → 各種機器（直差し） | どのメーカーでも同じ口で繋がる |
-| **抽象×間接** | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 | アダプタを介して汎用規格で展開可能 |
-
-どのステップも、動作例テーブルで示した動作を実現します。違うのは「変更が来たときにどこを触ることになるか」です。
-
----
-
-#### Step 1：具体×直接 ―― プライベートメソッドで責任を整理する
-
-> **ケーブルで言うと：** LightningケーブルをそのままUI直差しのまま使い続ける。新しい操作が増えるたびに専用のif分岐を追加する。接続方法を変える工事は不要だが、分岐の山になっていく。
-
-**この形の考え方：**
-フェーズ3で示したコードを、接続の形は変えずにプライベートメソッドで整理した形です。各処理の意味がメソッド名で明確になります。クラスの分割やインターフェースの導入は行わず、if/elseの各分岐を意味のある名前のプライベートメソッドへ抽出します。変更頻度が低く、操作の種類がこれ以上増えないことが確実で、チームの規模も小さく短命なコードであれば合理的な選択です。
-
-**手段の比較：**
-
-| 手段 | 方法 | 特徴 |
-|---|---|---|
-| 手段A：if文追加のまま | UIButtonsに履歴リストとundo()を直書きしたまま | 最速で実装できるが意図が読み取りにくい |
-| 手段B：プライベートメソッド抽出 | 各分岐をprivateメソッドに切り出す | 読みやすくなるが根本的な重複は残る |
-
-**手段B**（各分岐をプライベートメソッドに抽出し、処理の意図をメソッド名で明確にする）のコードを以下に示します。
-
-**構造図：**
-
-```mermaid
-classDiagram
-    class BudgetApp {
-        <<if分岐を直書き>>
-        +onAddExpenseClick() void
-        +onUndoClick() void
-        -undoExpense() void
-        -undoIncome() void
-    }
-    class ImportService {
-        <<同じif分岐が重複>>
-        +importTransactions() void
-        +rollback() void
-    }
-    BudgetApp ..> ExpenseManager : 具体×直接
-    BudgetApp ..> IncomeManager : 具体×直接
-    ImportService ..> ExpenseManager : 具体×直接（重複）
-    ImportService ..> IncomeManager : 具体×直接（重複）
-```
-
-両呼び出し元が同じ具体クラスを個別に抱え込んでいる。プライベートメソッドで意図は読みやすくなるが、undo/redoの重複という根本問題は残る。
-
-**BudgetAppクラス：**
+はじめに、クラスを分けずに、各ボタン処理の実体をプライベートメソッドとして分離してみます。
 
 ```cpp
-// ← 具体：ExpenseManager・IncomeManagerを呼び出し側が直接知っている
 class BudgetApp {
     ExpenseManager em;
     IncomeManager im;
-    // ← 直接：履歴管理もここに直書き
     std::vector<std::string> history;
+
+    // ボタン処理の実体をプライベートメソッドに切り出す
+    void executeAddExpense(int amount, std::string cat) {
+        em.addExpense(amount, cat);
+        history.push_back("Expense:" + cat); // 文字列で記録
+    }
+    void executeUndo() {
+        if (history.empty()) return;
+        std::string last = history.back();
+        history.pop_back();
+        // 文字列から操作を判断するが、元の金額情報がない！
+        if (last.rfind("Expense:", 0) == 0) {
+            // em.removeExpense(???, ???); ← 情報が足りない
+        }
+    }
+public:
+    void onAddExpenseClick(int amount, std::string cat) {
+        executeAddExpense(amount, cat); // 呼び出しだけに
+    }
+    void onUndoClick() { executeUndo(); }
+};
+```
+
+**この段階の評価：**
+各ボタンハンドラの骨格はスッキリしました。しかし、プライベートメソッドの中身を見ると深刻な問題があります。操作履歴を文字列で記録しているため、Undo時に「元の金額」や「カテゴリ」が取り出せず、正確な取り消しができません。
+
+### ステップ2：実行情報を構造体で保持する（追跡可能にする）
+
+ステップ1の「情報が足りない」問題を解決するために、操作の詳細をそのまま保持できる構造体を使います。
+
+```cpp
+struct OperationRecord {
+    std::string type;   // "Expense" or "Income"
+    int amount;
+    std::string detail;
+};
+
+class BudgetApp {
+    ExpenseManager em;
+    IncomeManager im;
+    std::vector<OperationRecord> history;
+
+    void executeAddExpense(int amount, std::string cat) {
+        em.addExpense(amount, cat);
+        history.push_back({"Expense", amount, cat}); // 全情報を保存
+    }
+    void executeUndo() {
+        if (history.empty()) return;
+        OperationRecord last = history.back();
+        history.pop_back();
+        if (last.type == "Expense")
+            em.removeExpense(last.amount, last.detail); // 正確に取り消せる
+        else if (last.type == "Income")
+            im.removeIncome(last.amount, last.detail);
+        // 操作が増えるたびに、ここに if が追加される...
+    }
+public:
+    void onAddExpenseClick(int amount, std::string cat) {
+        executeAddExpense(amount, cat);
+    }
+    void onUndoClick() { executeUndo(); }
+};
+```
+
+**この段階の評価：**
+取り消し処理が正確になりました。しかし、新しい操作（「口座移動」など）が増えるたびに `executeUndo()` 内の条件分岐が増え続けます。また `BudgetApp` と同じロジックが `ImportService` にも重複して書かれる問題は残っています。
+
+### ステップ3：操作ごとに取り消し関数を分ける（最大の関数化）
+
+ステップ2の「if文の肥大化」を解決するために、操作の種類ごとに取り消し関数を分けてみます。
+
+```cpp
+class BudgetApp {
+    ExpenseManager em;
+    IncomeManager im;
+    std::vector<OperationRecord> history;
+
+    // 取り消しロジックを操作ごとに分ける
+    void undoExpense(const OperationRecord& r) {
+        em.removeExpense(r.amount, r.detail);
+    }
+    void undoIncome(const OperationRecord& r) {
+        im.removeIncome(r.amount, r.detail);
+    }
+    void executeUndo() {
+        if (history.empty()) return;
+        OperationRecord last = history.back();
+        history.pop_back();
+        if (last.type == "Expense") undoExpense(last);
+        else if (last.type == "Income") undoIncome(last);
+        // 口座移動が来たら: else if (last.type == "Transfer") undoTransfer(last);
+    }
 public:
     void onAddExpenseClick(int amount, std::string cat) {
         em.addExpense(amount, cat);
-        history.push_back("Expense:" + cat);
+        history.push_back({"Expense", amount, cat});
     }
-    void onAddIncomeClick(int amount, std::string src) {
-        im.addIncome(amount, src);
-        history.push_back("Income:" + src);
+    void onUndoClick() { executeUndo(); }
+};
+```
+
+**この段階の評価：**
+コードが英語の文章のように読みやすくなりました。**これが「関数化（手続き型プログラミング）」によるコード整理の限界（最終到達点）**です。
+
+ここで関数群をよく観察してください。`undoExpense` / `undoIncome` など、すべての取り消し関数が「同じ引数（OperationRecord）を受け取る」という一貫した構造を持っています。「綺麗に関数として並べられる」ということは、「共通のインターフェースとして抽象化できる」という証拠です。
+
+しかし、関数化のままでは最大の痛みが残っています。新しい操作が来るたびに結局は `BudgetApp` クラスを開いて新しい関数を追加し、`executeUndo` の中に **新しい `if` 文を書き足さなければならない** のです。そして同じロジックが `ImportService` にも重複します。
+
+### ステップ4：操作をクラスに切り出してみる（具体×直接）
+
+「操作の実行と取り消しを一つのクラスに閉じ込めてみよう」という発想を試します。
+
+
+```cpp
+class AddExpenseAction {
+    ExpenseManager& em;
+    int amount;
+    std::string category;
+public:
+    AddExpenseAction(ExpenseManager& em, int amount, std::string category)
+        : em(em), amount(amount), category(category) {}
+    void execute() { em.addExpense(amount, category); }
+    void undo()    { em.removeExpense(amount, category); }
+};
+
+class BudgetApp {
+    ExpenseManager em;
+    IncomeManager im;
+    // ← 具体型のまま保持：AddExpenseAction* しか積めない
+    std::vector<AddExpenseAction*> history;
+public:
+    void onAddExpenseClick(int amount, std::string cat) {
+        AddExpenseAction* cmd = new AddExpenseAction(em, amount, cat);
+        cmd->execute();
+        history.push_back(cmd);
     }
     void onUndoClick() {
         if (history.empty()) return;
-        std::string lastOp = history.back();
+        history.back()->undo();
         history.pop_back();
-        // 各分岐をプライベートメソッドに抽出し、意図を名前で示す
-        if (lastOp.rfind("Expense:", 0) == 0)
-            undoExpense(lastOp);
-        else if (lastOp.rfind("Income:", 0) == 0)
-            undoIncome(lastOp);
-        // 操作が1種類増えるたびに、ここにifが1段追加される…
-    }
-private:
-    void undoExpense(std::string op) {
-        // 支出取り消し：ExpenseManagerのundoメソッドを呼ぶ
-    }
-    void undoIncome(std::string op) {
-        // 収入取り消し：IncomeManagerのundoメソッドを呼ぶ
     }
 };
-
 ```
 
-このコードを見ると、各取り消し処理がプライベートメソッドに切り出されており、`onUndoClick()` の意図が読みやすくなっています。ただし、`ExpenseManager`・`IncomeManager` という具体型への依存は変わらず、新しい操作が増えるたびに `BudgetApp` の中身を触り続ける点は解消されていません。
+**この段階の評価：**
+操作の実行・取り消しが `AddExpenseAction` という1クラスに閉じ込められました。`BudgetApp` の中から条件分岐が消え、操作ごとの責任が明確になります。しかし `history` が `std::vector<AddExpenseAction*>` という具体型を直接保持しているため、「口座移動」という新しい操作が来ると `TransferAction*` を同じスタックに積めません。**複数種類の操作を1つの履歴として管理するには、すべての操作クラスが共通のインターフェースを実装する必要があります。**「同じシグネチャ（execute・undo）を持つ操作クラスが複数ある」——この繰り返し構造こそが、次のステップへの合図です。
 
-**呼び出し側から見た違い（main() 例）：**
+### ステップ5：インターフェース＋仲介役で完全分離する（抽象×間接）
 
-```cpp
-// Step 1（具体×直接）の呼び出し側
-// 一括インポート：同じマネージャ直接呼び出しロジックが再び現れる（重複）
-class ImportService {
-    ExpenseManager em; // ← 重複：BudgetAppと同じ具体型を直接保持
-    std::vector<std::string> history;
-public:
-    void importTransactions(
-            std::vector<std::pair<int,std::string>> data) {
-        for (auto& r : data) {
-            em.addExpense(r.first, r.second);
-            history.push_back("Expense:" + r.second);
-        }
-    }
-    void rollback(int count) {
-        // ← 重複：undoロジックもここで再実装が必要
-    }
-};
-
-int main() {
-    BudgetApp app;
-    app.onAddExpenseClick(1000, "Food");
-    app.onUndoClick();
-
-    ImportService importer;
-    importer.importTransactions({{2000, "Rent"}, {300, "Water"}});
-    importer.rollback(2);
-    return 0;
-}
-```
-
-`BudgetApp` と `ImportService` の両方が、マネージャへの直接呼び出しとundo管理ロジックをそれぞれに書いている。操作の種類が増えるたびに、両方の呼び出し元で同じ修正が必要になる。
-
-**この形のトレードオフ：**
-
-* 変更容易性：低（操作が増えるたびにUIクラスを修正する必要がある）
-
-
-* テスト容易性：低（UIのボタン操作と処理実行が密結合している）
-
-
-* 実装コスト：低（既存のコードに追記するのみ）
-
----
-
-#### Step 2：具体×間接 ―― 処理を別クラスに切り出して委ねる
-
-**この形の考え方：**
-操作ごとにクラスを分割し、呼び出し側はその具体クラスを名指しで知りながらも、処理そのものはそのオブジェクトに委ねる（間接）形です。責任の境界は明確になりますが、呼び出し側は依然として具体的な操作クラスに依存します。
-
-**手段の比較：**
-
-| 手段 | 方法 | 特徴 |
-|---|---|---|
-| 手段A：操作クラスを呼び出し側で直接生成 | BudgetAppの中でAddExpenseActionをnewして実行する | クラスが分かれるが「どの具体クラスを使うか」の知識は呼び出し側に残る |
-| 手段B：staticファクトリメソッドで生成 | CommandFactory::create("expense")のような形で作る | 生成ロジックを1箇所にまとめられるが、呼び出し側がファクトリに依存する |
-
-**手段A**（比較のために最もシンプルな形で示す。手段Bは複雑さが増すだけで根本問題は解決しない）のコードを以下に示します。
-
-**構造図：**
-
-```mermaid
-classDiagram
-    class BudgetApp {
-        +onAddExpenseClick() void
-        +onUndoClick() void
-    }
-    class ImportService {
-        +importTransactions() void
-        +rollback() void
-    }
-    class AddExpenseAction {
-        +execute() void
-    }
-    BudgetApp --> AddExpenseAction : 具体×間接
-    ImportService --> AddExpenseAction : 具体×間接（重複）
-```
-
-`BudgetApp` と `ImportService` の両方が同じ具体コマンドクラスを名指しで生成しており、処理はそのオブジェクトに委ねている。新しい操作が増えるたびに両方の呼び出し元で修正が発生する。
-
-**コード例：**
-
-```cpp
-// ← 具体：AddExpenseActionという型名を直接書いている
-class AddExpenseAction {
-public:
-    void execute() { em.addExpense(1000, "Food"); }
-};
-// UIButtons内で AddExpenseAction().execute() を呼ぶ
-// ← 間接：処理はAddExpenseActionオブジェクトに委ねている
-
-```
-
-このコードを見ると、操作をクラスとして切り出したことで責任の境界は明確になりました。呼び出し側が具体クラスの名前を直接書いている点は残りますが、処理そのものは `AddExpenseAction` オブジェクトに「委ねて」おり、Step 1の「自分で全部やる」状態とは一歩異なります。
-
-**呼び出し側から見た違い（main() 例）：**
-
-```cpp
-// Step 2（具体×間接）の呼び出し側
-class BudgetApp {
-public:
-    void onAddExpenseClick(int amount, std::string cat) {
-        // ← 具体：AddExpenseActionという型名を直接書く
-        AddExpenseAction cmd(amount, cat);
-        cmd.execute(); // ← 間接：処理はcmdオブジェクトに委ねる
-    }
-    void onUndoClick() {
-        // undoするには具体クラスのundoメソッドを直接呼ぶ必要がある
-    }
-};
-
-// 一括インポート：どの具体コマンドクラスを使うかの選択も重複する
-class ImportService {
-public:
-    void importTransactions(
-            std::vector<std::pair<int,std::string>> data) {
-        for (auto& r : data) {
-            // ← 重複：BudgetAppと同じAddExpenseActionを直接生成
-            AddExpenseAction cmd(r.first, r.second);
-            cmd.execute();
-        }
-    }
-    void rollback(int count) {
-        // ← 重複：取り消しのため具体クラスの知識をここにも書く
-    }
-};
-
-int main() {
-    BudgetApp app;
-    app.onAddExpenseClick(1000, "Food");
-
-    ImportService importer;
-    importer.importTransactions({{2000, "Rent"}, {300, "Water"}});
-    importer.rollback(2);
-    return 0;
-}
-```
-
-`BudgetApp` と `ImportService` の両方が、「どの具体コマンドクラスを使うか」という選択をそれぞれの場所で直接行っている。新しい操作が追加されるたびに、両方の呼び出し元を修正しなければならない。
-
-クラスは分かれたが「どの具体コマンドクラスを使うか」という選択を両方の呼び出し元がそれぞれ行っており、呼び出し経路が2本並んで重複している。
-
-**この形のトレードオフ：**
-
-* 変更容易性：低〜中（新操作追加時に呼び出し側のコード変更が発生する）
-
-
-* テスト容易性：低（操作クラスが特定のマネージャに依存したまま）
-
-
-* 実装コスト：低（クラスを分けるのみ）
-
-
-
----
-
-#### Step 3：抽象×直接 ―― インターフェースを挟み、型だけで接続する
-
-Step 2の問題は「どの具体クラスを使うか」という選択が `BudgetApp` と `ImportService` の両方に重複していた点でした。Step 3では、呼び出し元が具体クラス名を一切知らなくてよいよう、`IAction` というインターフェース型を間に挟みます。これにより、新しい操作が追加されても、呼び出し元は `IAction*` を受け取るだけで変更不要になります。
-
-**この形の考え方：**
-操作を抽象的なインターフェースとして定義します。呼び出し元は具体的な操作クラスを知らずに、インターフェース経由で実行を依頼します。各操作クラスに `IAction` を実装させ、呼び出し元は `IAction` 型として操作を受け取り、実行する形にします。
-
-**手段の比較：**
-
-| 手段 | 方法 | 特徴 |
-|---|---|---|
-| 手段A：コンストラクタインジェクション | BudgetApp(IAction* cmd) のようにコンストラクタで受け取る | 依存関係が明確で、オブジェクト生成時に全依存が揃う。最もシンプル |
-| 手段B：セッターインジェクション | app.setCommand(cmd) のようにメソッドで後から注入する | 生成後に差し替えできる柔軟性があるが、注入し忘れのリスクがある |
-| 手段C：メソッドパラメータ渡し | onAddExpenseClick(IAction* cmd) のように実行時に渡す | 呼び出しのたびに異なるコマンドを渡せる。今回の「操作ごとに異なるコマンド」には最も自然 |
-
-**手段C**（ボタンを押すたびに異なるコマンドを渡すという今回の動作に最もフィットしている）のコードを以下に示します。
-
-**構造図：**
-
-```mermaid
-classDiagram
-    class IAction {
-        <<interface>>
-        +execute() void
-        +undo() void
-    }
-    class AddExpenseAction {
-        +execute() void
-        +undo() void
-    }
-    class BudgetApp {
-        +onAddExpenseClick(cmd) void
-        +onUndoClick(cmd) void
-    }
-    class ImportService {
-        +importTransactions(cmds) void
-        +rollback(cmds) void
-    }
-    AddExpenseAction ..|> IAction : 実装
-    BudgetApp --> IAction : 抽象×直接
-    ImportService --> IAction : 抽象×直接
-```
-
-`main()` だけが具体クラスを知り、`BudgetApp` と `ImportService` は `IAction*` という抽象型を直接受け取るだけで、具体的なコマンドクラスを一切知らずに済む。
-
-**コードをクラスごとに見ていきます。**
-
-はじめに、操作を統一的に扱うためのインターフェースです。
+ステップ4の「具体型が散らばる」問題を解決するために、`IAction` インターフェースと `ActionHistory` 仲介役を導入します。`BudgetApp` と `ImportService` は `ActionHistory*` だけを知り、どの具体操作クラスが来ても変更不要になります。
 
 ```cpp
 // 操作の契約：実行と取り消しをすべての操作クラスに強制する
@@ -752,376 +610,109 @@ public:
     virtual void undo() = 0;
 };
 
-```
-
-`IAction` が定まることで、呼び出し側はどの具体クラスが来ても同じ `execute()` と `undo()` を呼ぶだけで済む。
-
-次に、支出追加の具体的な操作クラスです。
-
-```cpp
 // 支出追加の操作をカプセル化したクラス
 class AddExpenseAction : public IAction {
     ExpenseManager& em;
     int amount;
     std::string category;
 public:
-    AddExpenseAction(ExpenseManager& em,
-                      int amount, std::string category)
+    AddExpenseAction(ExpenseManager& em, int amount, std::string category)
         : em(em), amount(amount), category(category) {}
-    void execute() override {
-        em.addExpense(amount, category);
-    }
-    void undo() override {
-        em.removeExpense(amount, category);
-    }
+    void execute() override { em.addExpense(amount, category); }
+    void undo()    override { em.removeExpense(amount, category); }
 };
 
-```
-
-このクラスを見ると、支出追加の「実行」と「取り消し」の両方のロジックが1つのクラスに閉じ込められていることが分かります。
-
-収入追加の操作クラスも同様に定義します。
-
-```cpp
 // 収入追加の操作をカプセル化したクラス
 class AddIncomeAction : public IAction {
     IncomeManager& im;
     int amount;
     std::string source;
 public:
-    AddIncomeAction(IncomeManager& im,
-                     int amount, std::string source)
+    AddIncomeAction(IncomeManager& im, int amount, std::string source)
         : im(im), amount(amount), source(source) {}
-    void execute() override {
-        im.addIncome(amount, source);
-    }
-    void undo() override {
-        im.removeIncome(amount, source);
-    }
+    void execute() override { im.addIncome(amount, source); }
+    void undo()    override { im.removeIncome(amount, source); }
 };
 
-```
-
-操作クラスを増やすたびに、呼び出し側（BudgetApp）は一切変更しなくてよい。
-
-**呼び出し側から見た違い（main() 例）：**
-
-```cpp
-// Step 3（抽象×直接）の呼び出し側
-class BudgetApp {
-public:
-    void onAddExpenseClick(IAction* cmd) {
-        // ← 抽象：IAction*型で受け取り、具体クラスを知らない
-        cmd->execute();
-    }
-    void onUndoClick(IAction* cmd) {
-        cmd->undo();
-    }
-};
-
-// 一括インポート：こちらも同じ抽象型で受け取るだけ（重複なし）
-class ImportService {
-public:
-    void importTransactions(
-            std::vector<IAction*> cmds) {
-        // ← 直接：同じ形で受け取れる
-        for (auto* cmd : cmds) {
-            cmd->execute();
-        }
-    }
-    void rollback(std::vector<IAction*> cmds) {
-        for (auto* cmd : cmds) {
-            cmd->undo(); // ← 同じインターフェースを使い回せる
-        }
-    }
-};
-
-int main() {
-    ExpenseManager em;
-    IncomeManager im;
-    // ← 具体：呼び出し側だけが具体クラスを生成
-    AddExpenseAction cmd1(em, 1000, "Food");
-    AddExpenseAction cmd2(em, 2000, "Rent");
-
-    BudgetApp app;
-    app.onAddExpenseClick(&cmd1);
-
-    ImportService importer;
-    // ← 同じインターフェースを使い回せる
-    importer.importTransactions({&cmd2});
-    return 0;
-}
-```
-
-`BudgetApp` と `ImportService` はどちらも `IAction*` を受け取るだけで、「どの具体クラスか」を知らずに済む。新しい操作が増えても、どちらの呼び出し元も修正は不要だ。
-
-`main()` が具体型を組み立て、両方の呼び出し元は `IAction*` という型だけを介して同じインターフェースを呼ぶため、具体クラスが変わっても呼び出し経路は変わらない。
-
-**この形のトレードオフ：**
-
-* 変更容易性：中〜高（呼び出し側は具体的なコマンドを知らなくて済む）
-
-
-* テスト容易性：高（コマンドをスタブに差し替え可能）
-
-
-* 実装コスト：中（インターフェース定義が必要）
-
-
-
----
-
-#### Step 4：抽象×間接 ―― インターフェース＋仲介役を両立する
-
-Step 3との違いは「履歴を誰が管理するか」という一点です。Step 3では `BudgetApp` や `ImportService` が `IAction*` を直接受け取って `execute()` を呼ぶため、「実行した操作を記録してUndoする」という責任は呼び出し元に残ります。Step 4では `ActionHistory` という仲介役を挟むことで、実行・記録・Undo/Redoの全責任をその1クラスに集約します。「履歴管理が不要ならStep 3、Undo/Redoが必要ならStep 4」という判断の分かれ目がここです。
-
-**この形の考え方：**
-抽象化されたコマンドを、さらに仲介役（`ActionHistory`）経由で実行する設計です。どの層も具体的な実装を知らず、操作の履歴保持やUndo/Redoが最も容易に実現できます。一方でクラス数や層が増えるため、小規模なアプリには複雑すぎる場合があります。
-
-**手段の比較：**
-
-| 手段 | 方法 | 特徴 |
-|---|---|---|
-| 手段A：ActionHistoryをシングルトンで共有 | 静的なインスタンスをアプリ全体で共有する | 実装が簡単だが、テスト時にリセットが難しく、並列処理にも弱い |
-| 手段B：ActionHistoryをDIで注入する | main()でインスタンスを生成し、各呼び出し元に渡す | 依存関係が明確で、複数の独立したHistoryをテストで差し替えやすい |
-
-**手段B**（テスト容易性と変更耐性の観点から、DIによる注入が最も自然な形になる）のコードを以下に示します。
-
-**構造図：**
-
-```mermaid
-classDiagram
-    class IAction {
-        <<interface>>
-        +execute() void
-        +undo() void
-    }
-    class AddExpenseAction {
-        +execute() void
-        +undo() void
-    }
-    class ActionHistory {
-        +execute(cmd) void
-        +undo() void
-    }
-    class BudgetApp {
-        -history ActionHistory
-        +onAddExpenseClick(cmd) void
-        +onUndoClick() void
-    }
-    class ImportService {
-        -history ActionHistory
-        +importTransactions(cmds) void
-        +rollback(count) void
-    }
-    AddExpenseAction ..|> IAction : 実装
-    ActionHistory --> IAction : 抽象×直接
-    BudgetApp --> ActionHistory : 抽象×間接
-    ImportService --> ActionHistory : 抽象×間接
-```
-
-`BudgetApp` と `ImportService` は `ActionHistory*` という抽象インターフェースしか知らず、具体的な実装の知識は `main()` の組み立て部分だけに閉じている。
-
-**コードをクラスごとに見ていきます。**
-
-はじめに、操作の契約となるインターフェースです。
-
-```cpp
-// 操作の契約：実行と取り消しをすべての操作クラスに強制する
-class IAction {
-public:
-    virtual ~IAction() {}
-    virtual void execute() = 0;
-    virtual void undo() = 0;
-};
-
-```
-
-すべての操作クラスがこの契約を実装することで、履歴管理クラスは具体クラスを一切知らなくてよくなる。
-
-次に、支出追加の具体的な操作クラスです。
-
-```cpp
-// 支出追加の操作をカプセル化したクラス
-class AddExpenseAction : public IAction {
-    ExpenseManager& em;
-    int amount;
-    std::string category;
-public:
-    AddExpenseAction(ExpenseManager& em,
-                      int amount, std::string category)
-        : em(em), amount(amount), category(category) {}
-    void execute() override {
-        em.addExpense(amount, category);
-    }
-    void undo() override {
-        em.removeExpense(amount, category);
-    }
-};
-
-```
-
-収入追加の操作クラスも同様に定義します。
-
-```cpp
-// 収入追加の操作をカプセル化したクラス
-class AddIncomeAction : public IAction {
-    IncomeManager& im;
-    int amount;
-    std::string source;
-public:
-    AddIncomeAction(IncomeManager& im,
-                     int amount, std::string source)
-        : im(im), amount(amount), source(source) {}
-    void execute() override {
-        im.addIncome(amount, source);
-    }
-    void undo() override {
-        im.removeIncome(amount, source);
-    }
-};
-
-```
-
-次に、操作の履歴を管理する仲介役クラスです。
-
-```cpp
 // 操作履歴を保持し、Undo/Redoを制御する仲介役
 class ActionHistory {
     std::stack<IAction*> undoStack;
-    std::stack<IAction*> redoStack;
-    // 履歴の最大保持件数（メモリ圧迫防止）
     static const int MAX_HISTORY = 50;
 public:
-    // ← 抽象：IAction*型で受け取り、具体実装を知らない
-    // ← 間接：履歴管理クラスを経由するため操作の詳細が見えない
+    // ← 抽象型で受け取る：どの具体操作クラスかを知らない
     void execute(IAction* cmd) {
         cmd->execute();
         undoStack.push(cmd);
-        // 上限を超えたら古い履歴を廃棄
-        while ((int)undoStack.size() > MAX_HISTORY) {
-            undoStack.pop();
-        }
-        // 新操作でリドゥ履歴をリセット
-        while (!redoStack.empty()) redoStack.pop();
+        while ((int)undoStack.size() > MAX_HISTORY) undoStack.pop();
     }
     void undo() {
         if (undoStack.empty()) return;
         IAction* cmd = undoStack.top();
         undoStack.pop();
         cmd->undo();
-        redoStack.push(cmd);
     }
-    void redo() {
-        if (redoStack.empty()) return;
-        IAction* cmd = redoStack.top();
-        redoStack.pop();
-        cmd->execute();
-        undoStack.push(cmd);
-    }
-    int historySize() const {
-        return (int)undoStack.size();
-    }
+    int historySize() const { return (int)undoStack.size(); }
 };
 
-```
-
-> **MAX_HISTORY = 50 の根拠：** この値は「ユーザーが1セッションで現実的に行う操作回数」から導きました。家計簿アプリでは、1回の入力セッションで数十件の操作が行われると想定されます。1件の操作オブジェクトが保持するデータ（金額・カテゴリ・参照）は数十バイト程度なので、50件で数KB以下に収まります。これはモバイル端末でも問題のないメモリ量です。実際の値はユーザーの利用パターン（`git log` やセッションログ）から測定して決めてください。50はあくまで設計上の出発点です。
-
-このクラスを見ると、`IAction*` という抽象型だけを知っており、具体的な操作クラス（AddExpenseActionなど）を一切知らずにUndo/Redoを制御できることが分かります。
-
-**呼び出し側から見た違い（main() 例）：**
-
-```cpp
-// Step 4（抽象×間接）の呼び出し側
+// BudgetApp：ActionHistory*だけを知り、具体操作クラスを一切知らない
 class BudgetApp {
-    ActionHistory* history; // ← 抽象：インターフェース型で保持
+    ActionHistory* history; // ← 抽象×間接の証拠
 public:
     BudgetApp(ActionHistory* h) : history(h) {}
-    void onAddExpenseClick(IAction* cmd) {
-        history->execute(cmd); // ← 間接：History経由で実行
-    }
+    void onAddExpenseClick(IAction* cmd) { history->execute(cmd); }
     void onUndoClick() { history->undo(); }
-    void onRedoClick() { history->redo(); }
 };
 
-// 一括インポート：こちらも同じ抽象Historyを受け取る（重複なし）
+// ImportService：同じActionHistory*を共有できる（重複なし）
 class ImportService {
-    ActionHistory* history; // ← 抽象：同じインターフェース型で保持
+    ActionHistory* history;
 public:
     ImportService(ActionHistory* h) : history(h) {}
     void importTransactions(std::vector<IAction*> cmds) {
-        for (auto* cmd : cmds) {
-            history->execute(cmd); // ← 間接：History経由で実行
-        }
-        std::cout << cmds.size() << "件インポート完了"
-                  << "（履歴: " << history->historySize()
-                  << "件）" << std::endl;
+        for (auto* cmd : cmds) history->execute(cmd);
     }
     void rollback(int count) {
         for (int i = 0; i < count; i++) history->undo();
-        std::cout << count << "件ロールバック完了"
-                  << std::endl;
     }
 };
 
 int main() {
     ExpenseManager em;
     IncomeManager im;
-    ActionHistory hist; // ← 具体：組み立て側だけが具体型を知る
-    AddExpenseAction cmd1(em, 1000, "Food");
-    AddExpenseAction cmd2(em, 2000, "Rent");
-
+    ActionHistory hist; // ← 組み立て側だけが具体型を知る
     BudgetApp app(&hist);
-    app.onAddExpenseClick(&cmd1);
 
-    // ← 間接：抽象Historyのみ見えて具体実装は隠れる
+    AddExpenseAction cmd1(em, 1000, "Food");
+    app.onAddExpenseClick(&cmd1);
+    app.onUndoClick();
+
     ImportService importer(&hist);
+    AddExpenseAction cmd2(em, 2000, "Rent");
     importer.importTransactions({&cmd2});
     importer.rollback(1);
     return 0;
 }
 ```
 
-`BudgetApp` と `ImportService` はどちらも `ActionHistory*` という同じ抽象インターフェースしか知らない。具体的な実装クラスの知識は `main()` の組み立て部分だけに閉じている。
-
-**この形のトレードオフ：**
-
-* 変更容易性：高（操作と実行環境が完全に分離される）
-
-
-* テスト容易性：高（各要素を独立してテスト可）
-
-
-* 実装コスト：高（構成要素が多く設計が重い）
+**この段階の評価：**
+`BudgetApp` も `ActionHistory` も `IAction*` という抽象型だけを知っており、具体クラス名はどこにも登場しません。新しい操作（口座移動・一括削除）が来ても、新しいクラスを追加するだけで、`BudgetApp` や `ActionHistory` への変更はゼロです。`BudgetApp` と `ImportService` が同じ `ActionHistory*` を共有できるため、Undo/Redoの重複実装も解消されます。
 
 ### どこまで設計を進めるべきか（採用ステップの決断）
 
-それぞれのステップには一長一短があります。ステップ4の「抽象×間接（インターフェース＋履歴管理クラス）」は強力ですが、クラス数が増えるという「初期投資コスト」もかかります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
+それぞれのステップには一長一短があります。ステップ5の「インターフェース＋仲介役」は強力ですが、クラス数が増えるという初期投資コストもかかります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
 
-*   **Step 1（具体×直接）で止めるケース：** Undo/Redo機能が不要で、ボタンの種類もこれ以上増えない場合。
-*   **Step 2（具体×間接）で止めるケース：** Undoは欲しいが履歴は直近1回分だけでよく、操作の種類も少ない場合。
-*   **Step 3（抽象×直接）で止めるケース：** 操作の種類は増えるが、一元的な履歴管理（一括Undoなど）は求められない場合。
-*   **Step 4（抽象×間接）まで進むケース：** 操作の種類が頻繁に増え、複数ステップのUndo/Redoなど高度な履歴管理が要求される場合。
+*   **ステップ1〜3で止めるケース：** Undo/Redo機能が不要で、操作の種類もこれ以上増えない場合。関数整理で十分です。
+*   **ステップ4で止めるケース：** 操作の種類は増えるが、複数種類を一括管理する履歴スタックは不要な場合。
+*   **ステップ5まで進むケース：** 操作の種類が頻繁に増え、複数ステップのUndo/Redoなど高度な履歴管理が要求される場合。
 
 **今回の決断：**
-フェーズ2のヒアリングで「口座間の移動」や「一括削除」など新しい操作が次々に追加されることが予告されています。また、Undo/Redo機能は操作の履歴管理という独立した責任を持ちます。したがって、初期投資コストを払ってでも、操作オブジェクトと履歴管理クラス（Manager）の両方を導入する**ステップ4（抽象×間接）まで進化させる**決断を下します。
+フェーズ2のヒアリングで「口座間の移動」や「一括削除」など新しい操作が次々に追加されることが予告されています。また、Undo/Redo機能は操作の履歴管理という独立した責任を持ちます。したがって、初期投資コストを払ってでも、`IAction` インターフェースと `ActionHistory` の両方を導入する**ステップ5まで進化させる**決断を下します。
 
-### 6-5：耐久テスト
-
-フェーズ2のヒアリングで挙がった「将来のリスク」が実際に発生した場面をシミュレートし、Step 4の変更耐性を検証します。
-
-| **変更シナリオ** | **触る場所** | **コスト評価** |
-| --- | --- | --- |
-| 一括削除機能の追加（ヒアリングで予告） | 新しいコマンドクラスの新規作成のみ | 低 |
-| Undo/Redoの回数制限機能の追加 | 履歴管理クラスの修正のみ | 低 |
-| Redo機能の追加（ヒアリングで予告） | ActionHistoryにredo()メソッドを追加するのみ | 低 |
-
-Step 4の構造では、新しい操作が追加されても履歴管理ロジックやUIクラスには一切影響を与えないため、変更耐性が十分に高いことを確認できました。
+フェーズ6で採用ステップが決まりました。次のフェーズ7では、この決断を最終的なコードに落とし込みます。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 
-Step 4の「操作のオブジェクト化＋仲介役による履歴管理」を、実際のコードに実装します。これまではUIが各マネージャの具体的なメソッドを知っていましたが、これを「操作そのものを表すオブジェクト」へと置き換えます。
+ステップ5の「操作のオブジェクト化＋仲介役による履歴管理」を、実際のコードに実装します。これまではUIが各マネージャの具体的なメソッドを知っていましたが、これを「操作そのものを表すオブジェクト」へと置き換えます。
 
 **この構造は、Command（コマンド）パターンと呼ばれています。**
 
@@ -1289,7 +880,7 @@ int main() {
 
 この実装により、UIは「コマンド」の `execute` メソッドを呼ぶだけでよくなり、業務ロジックの詳細から完全に解放されました。
 
-**動作図（シーケンス図）：**
+### 7-2：動作シーケンス図
 
 ```mermaid
 sequenceDiagram
@@ -1311,7 +902,7 @@ sequenceDiagram
     BA-->>main: 完了
 ```
 
-### 7-2：変更影響グラフ（改善後）
+### 7-3：変更影響グラフ（改善後）
 
 フェーズ3で確認したUndo機能の追加要求を再適用します。
 
@@ -1325,7 +916,7 @@ graph LR
 
 → **フェーズ3の変更影響グラフと比較して、新しい操作の追加という変更要求が、新規作成したコマンドクラスだけに閉じた設計になりました**。
 
-### 7-3：変更シナリオ表
+### 7-4：変更シナリオ表
 
 この設計で手に入れたものと、諦めたものを整理します。
 
@@ -1337,39 +928,9 @@ graph LR
 
 操作の意図をオブジェクトとして独立させたことで、UIは操作の実行方法を知る必要がなくなりました——それがこの設計で手に入れたものです。諦めたものは、操作ごとにクラスを定義することによる、わずかなクラス数の増加です。
 
----
+## 整理
 
-### 7-4：接続形態の確認 ── この設計はどの接続か
-
-フェーズ4-3で診断した通り、変更前のコードは **具体×直接** の状態でした。
-採用したStep 4では、接続形態が **抽象×間接（Type-C変換アダプタ経由）** へと変化しています。
-
-**「抽象×間接」の証拠となるコード：**
-
-```cpp
-class ActionHistory {
-    // ← インターフェース型 = 「抽象」の証拠
-    std::stack<IAction*> undoStack;
-public:
-    void execute(IAction* cmd) {
-        // ← ActionHistory 経由 = 「間接」の証拠
-        cmd->execute();
-        undoStack.push(cmd);
-    }
-};
-// UIButtons → ActionHistory → IAction → 実際の処理（2段階の委譲）
-```
-
-- `IAction*` はインターフェース型 → **「抽象」** の証拠（具体的な操作クラス名を知らない）
-- `UIButtons` は `ExpenseManager` を直接知らず、`ActionHistory` を経由して `IAction` を実行する → **「間接」** の証拠
-
-「操作を差し替えたい（操作の追加・変更）かつ履歴管理という仲介層が必要」という動機から、**抽象×間接** が選ばれました。
-
-第5章の締めくくりとして、家計簿アプリの操作履歴管理を通じて学んだ「操作の意図と実行ロジックの分離」を振り返ります。
-
----
-
-### 整理：7フェーズとこの章でやったこと
+### フェーズとこの章でやったこと
 
 この章では、ボタン押下という操作が特定の処理を直接知っているために、Undo/Redoのような機能追加でコード全体が複雑化する現状を学びました。7フェーズの思考プロセスを適用した改善の流れを振り返ります。
 
@@ -1380,7 +941,7 @@ public:
 | 🟣 フェーズ3：問題特定 | 操作を追加するたびに呼び出し元のUIクラスが肥大化する「痛み」を変更影響グラフで確認しました。 | 3-1〜3-3 |
 | 🟠 フェーズ4：原因分析 | 操作の「意図」と「実行手段」が同じ場所に混在していることが変更影響を拡大させていると突き止め、接続形態を4象限で診断しました。 | 4-1〜4-3 |
 | 🟡 フェーズ5：課題定義 | UIとマネージャクラスの間の直接的なメソッド呼び出しを接続点として特定し、課題まとめ表を確定しました。 | 5-1〜5-3 |
-| 🔴 フェーズ6：対策検討 | Step 1〜Step 4を2×2マトリクスで比較し、コスト天秤で操作をオブジェクトとしてカプセル化するStep 4を採用しました。 | 6-1〜6-5 |
+| 🔴 フェーズ6：対策検討 | ステップ1〜5を段階的に比較し、コスト天秤で `IAction` インターフェース＋`ActionHistory` 仲介役のステップ5を採用しました。 | 6-1〜6-5 |
 | 🟢 フェーズ7：対策実施 | 操作をコマンドオブジェクトとして独立させ、呼び出し元から詳細を切り離した最終コードを示しました。 | 7-1〜7-4 |
 
 ### 各クラスの最終的な責任
@@ -1400,7 +961,9 @@ public:
 
 ---
 
-### 振り返り：「この章を読むと得られること」は手に入ったか
+## 振り返り
+
+### 「この章を読むと得られること」は手に入ったか
 
 | **得られること** | **この章のどこで示したか** |
 | --- | --- |
@@ -1410,7 +973,7 @@ public:
 
 ---
 
-### 振り返り：3つの設計原則はどう適用されたか
+### 3つの設計原則はどう適用されたか
 
 * **原則1「変わるものをカプセル化せよ」の現れ**
 * **具体化された場所：** 個別のコマンドクラス（`AddExpenseAction` など）
@@ -1435,7 +998,7 @@ public:
 
 ---
 
-### あなたのコードで考えてみてください
+## あなたのコードで考えてみてください
 
 この章で辿った思考プロセスを、あなた自身のコードに当てはめてみましょう。
 
@@ -1446,11 +1009,11 @@ public:
 
 ---
 
-### パターン解説：Command パターン
+## パターン解説：Command パターン
 
 Commandパターンは、リクエストをオブジェクトとしてカプセル化し、呼び出し元と実行先を完全に分離するパターンです。
 
-#### パターンの骨格
+### パターンの骨格
 
 ```mermaid
 classDiagram
@@ -1472,7 +1035,7 @@ classDiagram
 
 ```
 
-#### この章の実装との対応
+### この章の実装との対応
 
 `IAction` インターフェースが `Command` ロール、`AddExpenseAction` / `AddIncomeAction` が `ConcreteCommand` ロール、`ActionHistory` が `Invoker` ロールに対応しています。
 
