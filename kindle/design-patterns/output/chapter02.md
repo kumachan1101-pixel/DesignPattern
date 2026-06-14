@@ -409,7 +409,8 @@ public:
         // ← 直接：各APIメソッドを窓口なしに直接順に呼び出す
         gateway.verifyAccount(toAccount);
         auth.requestOTP();
-        // ...
+        // gateway.executeTransfer(fromAccount, toAccount, amount);
+        // gateway.confirmTransaction(); など送金実行処理が直接続く
     }
 };
 ```

@@ -336,7 +336,7 @@ graph LR
             PayPayProcessor processor;
             processor.pay(amount);
         }
-        // ...
+        // 銀行振込・Apple Pay など、決済手段を追加するたびに else if がここに増える
 ```
 
 **【変わらない部分（不変の骨格）】**
@@ -359,7 +359,7 @@ public:
             CreditCardProcessor processor;  // ← 具体×直接
             processor.pay(amount);
         }
-        // ...
+        // PayPay・銀行振込など、決済手段を追加するたびに else if がここに増える
     }
 };
 ```

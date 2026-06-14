@@ -311,7 +311,8 @@ public:
             // em.undoExpense(1000, "Food");
             // そもそも取り消しメソッドがない！
         }
-        // ...
+        // Income・Transfer など他の種別の取り消しも
+        // else if で続く（操作が増えるたびにここが肥大化する）
     }
 };
 
