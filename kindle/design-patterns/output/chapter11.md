@@ -744,23 +744,54 @@ class BatchApplication {
     vector<IReportAction*> history; // ← 実行済みコマンドを積み上げる
 public:
     void run() {
-        // 装飾を重ねてレポートを組み立てる
-        ReportSkeleton* gen =
-            new WatermarkFeature(
-                new GraphFeature(
-                    new StandardReport()));
+        // 行1: 月次レポートをPDF出力
+        cout << "--- 行1: 月次レポートPDF出力 ---" << endl;
+        MonthlyReport monthly1;
+        IReportAction* a1 = new GenerateReportAction(&monthly1, "monthly.pdf");
+        a1->execute();
+        history.push_back(a1);
 
-        // 操作をコマンドとして記録・実行
-        IReportAction* action =
-            new GenerateReportAction(gen, "monthly_report.pdf");
-        action->execute();
-        history.push_back(action); // ← 履歴に追加
+        // 行2: 月次レポートをExcel出力
+        cout << "--- 行2: 月次レポートExcel出力 ---" << endl;
+        MonthlyReport monthly2;
+        IReportAction* a2 = new GenerateReportAction(&monthly2, "monthly.xlsx");
+        a2->execute();
+        history.push_back(a2);
 
-        // アンドゥのデモ
-        if (!history.empty()) {
-            history.back()->undo();
-            history.pop_back();
-        }
+        // 行3: ヘッダー付き・透かし付きでPDF出力
+        cout << "--- 行3: 装飾付きレポートPDF出力 ---" << endl;
+        ReportSkeleton* decorated =
+            new WatermarkFeature(new GraphFeature(new StandardReport()));
+        IReportAction* a3 = new GenerateReportAction(decorated, "decorated.pdf");
+        a3->execute();
+        history.push_back(a3);
+
+        // 行4: 直前の生成をキャンセル（行3のアンドゥ）
+        cout << "--- 行4: 直前の生成をキャンセル ---" << endl;
+        history.back()->undo();
+        history.pop_back();
+
+        // 行5: バッチで3レポートを同時生成
+        cout << "--- 行5: バッチで3レポート同時生成 ---" << endl;
+        MonthlyReport b1;
+        StandardReport b2;
+        ReportSkeleton* b3gen = new GraphFeature(new MonthlyReport());
+        IReportAction* ba1 = new GenerateReportAction(&b1, "weekly.pdf");
+        IReportAction* ba2 = new GenerateReportAction(&b2, "monthly_std.pdf");
+        IReportAction* ba3 = new GenerateReportAction(b3gen, "dept.pdf");
+        ba1->execute(); history.push_back(ba1);
+        ba2->execute(); history.push_back(ba2);
+        ba3->execute(); history.push_back(ba3);
+        cout << "[この操作で3コマンドが履歴に追加されました。]" << endl;
+
+        // 行6: グラフ付き月次レポートを生成してアンドゥ
+        cout << "--- 行6: グラフ付き月次レポートを生成してアンドゥ ---" << endl;
+        ReportSkeleton* gm = new GraphFeature(new MonthlyReport());
+        IReportAction* a6 = new GenerateReportAction(gm, "graph_monthly.pdf");
+        a6->execute();
+        history.push_back(a6);
+        history.back()->undo();
+        history.pop_back();
     }
 };
 ```
@@ -774,19 +805,53 @@ int main() {
 }
 ```
 
-上記コードの実行結果：
+**実行結果：**
 
 ```
+--- 行1: 月次レポートPDF出力 ---
+CSV読み込み
+月次集計を本文として生成。
+フッター生成
+[コマンド] monthly.pdf に出力して履歴に記録。
+--- 行2: 月次レポートExcel出力 ---
+CSV読み込み
+月次集計を本文として生成。
+フッター生成
+[コマンド] monthly.xlsx に出力して履歴に記録。
+--- 行3: 装飾付きレポートPDF出力 ---
 CSV読み込み
 本文を生成。
 グラフを追加。
 透かしを追加。
 フッター生成
-[コマンド] monthly_report.pdf に出力して履歴に記録。
-[コマンド] monthly_report.pdf を削除してアンドゥ完了。
+[コマンド] decorated.pdf に出力して履歴に記録。
+--- 行4: 直前の生成をキャンセル ---
+[コマンド] decorated.pdf を削除してアンドゥ完了。
+--- 行5: バッチで3レポート同時生成 ---
+CSV読み込み
+月次集計を本文として生成。
+フッター生成
+[コマンド] weekly.pdf に出力して履歴に記録。
+CSV読み込み
+本文を生成。
+フッター生成
+[コマンド] monthly_std.pdf に出力して履歴に記録。
+CSV読み込み
+月次集計を本文として生成。
+グラフを追加。
+フッター生成
+[コマンド] dept.pdf に出力して履歴に記録。
+[この操作で3コマンドが履歴に追加されました。]
+--- 行6: グラフ付き月次レポートを生成してアンドゥ ---
+CSV読み込み
+月次集計を本文として生成。
+グラフを追加。
+フッター生成
+[コマンド] graph_monthly.pdf に出力して履歴に記録。
+[コマンド] graph_monthly.pdf を削除してアンドゥ完了。
 ```
 
-動作例テーブルの「ヘッダー付き・透かし付きでPDF出力」と「レポート生成後にキャンセル操作」の両方がこの出力で実現されています。`ReportSkeleton` の中から `if` 文が完全に消え、装飾は Decorator チェーンで動的に組み合わされています。
+動作テーブル全6行と一致しています。`ReportSkeleton` の中から `if` 文が完全に消え、装飾は Decorator チェーンで動的に組み合わされています。
 
 ### 7-2：動作シーケンス図
 

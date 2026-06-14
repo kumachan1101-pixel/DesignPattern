@@ -336,7 +336,7 @@ graph LR
             PayPayProcessor processor;
             processor.pay(amount);
         }
-        // ...
+        // 銀行振込・Apple Pay など、決済手段を追加するたびに else if がここに増える
 ```
 
 **【変わらない部分（不変の骨格）】**
@@ -359,7 +359,7 @@ public:
             CreditCardProcessor processor;  // ← 具体×直接
             processor.pay(amount);
         }
-        // ...
+        // PayPay・銀行振込など、決済手段を追加するたびに else if がここに増える
     }
 };
 ```
@@ -720,11 +720,32 @@ public:
 **4. 組み立てと実行（メイン関数）**
 
 ```cpp
+// 定期課金サービス：Factory Method経由でクレジット決済を行う
+class SubscriptionService {
+private:
+    PaymentApplication* app;
+public:
+    SubscriptionService(PaymentApplication* a) : app(a) {}
+    void chargeMonthly(int amount) {
+        cout << "[定期課金] 月額 " << amount
+             << " 円 課金ログを記録しました。" << endl;
+        // Factory Method経由で決済を実行（SubscriptionServiceはcreditしか使わない）
+        app->processPayment("credit", amount);
+    }
+};
+
 int main() {
     PaymentApplication app;
+
+    // 行1：credit / 1000円
     app.processPayment("credit", 1000);
+    // 行2：paypay / 700円
     app.processPayment("paypay", 700);   // ← 新しい決済手段も呼び出せる
+    // 行3：cvs / 500円
     app.processPayment("cvs", 500);
+    // 行4：定期課金（SubscriptionService経由でcredit/980円）
+    SubscriptionService sub(&app);
+    sub.chargeMonthly(980);
     return 0;
 }
 ```
@@ -735,9 +756,11 @@ int main() {
 クレジットで 1000 円決済しました。
 PayPayで 700 円決済しました。
 コンビニで 500 円の番号を発行しました。
+[定期課金] 月額 980 円 課金ログを記録しました。
+クレジットで 980 円決済しました。
 ```
 
-動作例テーブルの3行と一致しています。`processPayment` の中から具体クラス名が完全に消えました。
+動作例テーブルの全4行と一致しています。`SubscriptionService` も `PaymentApplication` を通じて `createProcessor` を呼ぶため、新しい決済手段を追加しても `SubscriptionService` に一切触れる必要がありません。`processPayment` の中から具体クラス名が完全に消えました。
 
 ### 7-2：動作シーケンス図
 

@@ -785,10 +785,21 @@ public:
 
 各トッピングクラスは「中身の価格に自分の価格を足す」だけです。中身が何層に重なっているかを知る必要はありません。
 
-**Matcha クラス（新規追加トッピング）：**
+**Syrup クラス・Matcha クラス（新規追加トッピング）：**
 
 ```cpp
 // ← 新しいトッピングを追加する場合は、クラスを1つ増やすだけ（ここだけ変わる）
+class Syrup : public ToppingWrapper {
+public:
+    Syrup(IDrink* base) : ToppingWrapper(base) {}
+    int getPrice() const override {
+        return baseDrink->getPrice() + 30;
+    }
+    string getDescription() const override {
+        return baseDrink->getDescription() + " + Syrup";
+    }
+};
+
 class Matcha : public ToppingWrapper {
 public:
     Matcha(IDrink* base) : ToppingWrapper(base) {}
@@ -810,23 +821,44 @@ public:
 class OrderApplication {
 public:
     void run() {
-        // コーヒーにミルクと、抹茶のダブルを追加する
-        // （フェーズ2で予告された「同じトッピングの複数回追加」を実演）
-        IDrink* myOrder = new Matcha(new Matcha(new Milk(new Coffee())));
+        // 行1：コーヒーのみ
+        IDrink* o1 = new Coffee();
+        cout << o1->getDescription() << " → " << o1->getPrice() << "円" << endl;
 
-        cout << "注文内容: " << myOrder->getDescription() << endl;
-        cout << "合計金額: " << myOrder->getPrice() << "円" << endl;
+        // 行2：コーヒー + ミルク
+        IDrink* o2 = new Milk(new Coffee());
+        cout << o2->getDescription() << " → " << o2->getPrice() << "円" << endl;
+
+        // 行3：コーヒー + ミルク + シロップ
+        IDrink* o3 = new Syrup(new Milk(new Coffee()));
+        cout << o3->getDescription() << " → " << o3->getPrice() << "円" << endl;
+
+        // 行4：コーヒー + ミルク + ホイップ
+        IDrink* o4 = new Whip(new Milk(new Coffee()));
+        cout << o4->getDescription() << " → " << o4->getPrice() << "円" << endl;
+
+        // 行5：コーヒー + ホイップ × 2（ダブル）
+        IDrink* o5 = new Whip(new Whip(new Coffee()));
+        cout << o5->getDescription() << " → " << o5->getPrice() << "円" << endl;
+
+        // 行6：コーヒー + ミルク + シロップ + ホイップ
+        IDrink* o6 = new Whip(new Syrup(new Milk(new Coffee())));
+        cout << o6->getDescription() << " → " << o6->getPrice() << "円" << endl;
+
+        // 行7：コーヒー + ミルク + シロップ + ホイップ + 抹茶（全5種）
+        IDrink* o7 = new Matcha(new Whip(new Syrup(new Milk(new Coffee()))));
+        cout << o7->getDescription() << " → " << o7->getPrice() << "円" << endl;
 
         // ※メモリ解放はサンプル簡略化のため省略
     }
 
     void testOrderCalculation() {
         // EXPECT_EQ(期待値, 実際の値)：等しければテスト通過。Google Test のマクロ。
-        IDrink* simpleCoffee = new Coffee();
-        EXPECT_EQ(300, simpleCoffee->getPrice());
+        IDrink* o1 = new Coffee();
+        EXPECT_EQ(300, o1->getPrice());
 
-        IDrink* matchaDouble = new Matcha(new Matcha(new Milk(new Coffee())));
-        EXPECT_EQ(470, matchaDouble->getPrice()); // 300 + 50 + 60*2 = 470
+        IDrink* o6 = new Whip(new Syrup(new Milk(new Coffee())));
+        EXPECT_EQ(450, o6->getPrice()); // 300 + 50 + 30 + 70 = 450
     }
 };
 
@@ -839,7 +871,19 @@ int main() {
 }
 ```
 
-このコードを見ると、新しいルール（抹茶）を追加するために既存のクラスを一切開く必要がなくなり、新しく `Matcha` クラスを作るだけで要件を満たせるようになったことが分かります。
+上記コードの実行結果：
+
+```
+Coffee → 300円
+Coffee + Milk → 350円
+Coffee + Milk + Syrup → 380円
+Coffee + Milk + Whip → 420円
+Coffee + Whip + Whip → 440円
+Coffee + Milk + Syrup + Whip → 450円
+Coffee + Milk + Syrup + Whip + Matcha → 510円
+```
+
+動作例テーブルの全7行と一致しています。既存のクラスを一切開くことなく、`Syrup` や `Matcha` を追加クラスとして定義するだけで新しい組み合わせが実現できるようになりました。
 
 ---
 
