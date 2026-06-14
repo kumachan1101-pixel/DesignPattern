@@ -393,19 +393,17 @@ graph LR
 
 フェーズ4の分析から、`InventoryManager` と各通知先の間には、以下のような接続点（ジョイント）が存在することが分かります。
 
-* 接続点A：`InventoryManager` ←→ `EmailNotifier` の境界
-* 接続点B：`InventoryManager` ←→ `DashboardUpdater` の境界
-* 接続点C：`InventoryManager` ←→ `ChatNotifier` の境界
+* 接続点A：`notifyAll()` 内で `email.send(string msg)` を直接呼び出している ―― `EmailNotifier` のクラス名・メソッド名・引数型を `InventoryManager` が直接知っている
+* 接続点B：`notifyAll()` 内で `dashboard.update(string msg)` を直接呼び出している ―― `DashboardUpdater` のクラス名・メソッド名・引数型を `InventoryManager` が直接知っている
+* 接続点C：`notifyAll()` 内で `chat.send(string msg)` を直接呼び出している ―― `ChatNotifier` のクラス名・メソッド名・引数型を `InventoryManager` が直接知っている
 
 合計で3つの接続点が存在します。通知先が増えるたびにこの境界線が増えていくことが、これまで私たちが直面してきた「修正の影響範囲の拡大」の直接的な原因です。これらの接続点を、個別の具体クラスから切り離すことが今回の重要な課題です。
 
-分離対象である通知先クラスを呼び出しているのは、`InventoryManager` クラスそのものです。したがって、ここでの「クライアント」は `InventoryManager` になります。接続点の形を変えるということは、`InventoryManager` の `notifyAll` メソッド周辺のコードを大幅に書き換えることを意味します。このクラスは通知ロジックの心臓部にあたるため、ここをリファクタリングして「通知先を意識しなくていい構造」に作り変えることは、今後の変更耐性を大きく左右する重要な修正になります。
-
 これまでの情報を課題まとめ表として整理します。
 
-| **接続点** | **分けた理由** | **非機能制約** | **現在の直接呼び出し元** |
+| **接続点** | **接続するデータ（型・シグネチャ）** | **変わる理由** | **非機能制約** |
 | --- | --- | --- | --- |
-| 接続点A〜C | 通知先が頻繁に変わるため、通知元と通知先を疎結合にしたい | 通常は低頻度・セール時にイベントが集中し通知先数に比例して処理時間増大 | `InventoryManager`（`notifyAll()` 内で `email.send()` / `dashboard.update()` / `chat.send()` を直接呼んでいる） |
+| 接続点A〜C | 通知メッセージ（string型）と各通知先メソッドのシグネチャ：`email.send(msg)` / `dashboard.update(msg)` / `chat.send(msg)` ― 通知先ごとに異なるメソッド名・呼び出し方を `InventoryManager` が直接保持している | 通知先リストはビジネス要件と運用チームが決める | セール時にイベントが集中し、通知先数に比例して処理時間が増大 |
 
 この表から、私たちが目指す方向性が明確になりました。通知先が何であろうと、`InventoryManager` はその詳細を知らずに「通知を送る」という行為だけを行えるようにすればよいのです。
 
