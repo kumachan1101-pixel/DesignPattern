@@ -991,7 +991,7 @@ public:
 };
 ```
 
-**OpenPhase クラスと InProgressPhase クラス**
+**OpenPhase / InProgressPhase / ResolvedPhase クラス**
 
 ```cpp
 // Open状態の振る舞い
@@ -1002,6 +1002,12 @@ public:
 
 // InProgress状態の振る舞い
 class InProgressPhase : public ITicketPhase {
+public:
+    void handle(TicketContext* context) override;
+};
+
+// Resolved状態の振る舞い
+class ResolvedPhase : public ITicketPhase {
 public:
     void handle(TicketContext* context) override;
 };
@@ -1042,6 +1048,11 @@ void OpenPhase::handle(TicketContext* context) {
 void InProgressPhase::handle(TicketContext* context) {
     cout << "チケット対応中。担当者に割り当て。" << endl;
 }
+
+// ResolvedPhase の実装
+void ResolvedPhase::handle(TicketContext* context) {
+    cout << "チケット解決済み。クローズしました。" << endl;
+}
 ```
 
 **EscalationEngine クラス**
@@ -1074,22 +1085,41 @@ public:
 class TicketApplication {
 public:
     void run() {
-        // 一般ユーザーがチケットを開く
         NormalPriority normalStrategy;
-        OpenPhase openState;
-        TicketContext ctx1(&openState, &normalStrategy);
+        PremiumPriority premiumStrategy;
+        OpenPhase openPhase;
+        InProgressPhase inProgressPhase;
+        ResolvedPhase resolvedPhase;
+
+        // 行1: 一般ユーザーが新規登録
+        cout << "--- 行1: 一般ユーザーが新規登録 ---" << endl;
+        TicketContext ctx1(&openPhase, &normalStrategy);
         ctx1.execute("normal");
 
-        // プレミアムユーザーがチケットを開く
-        PremiumPriority premiumStrategy;
-        OpenPhase openState2;
-        TicketContext ctx2(&openState2, &premiumStrategy);
+        // 行2: プレミアムユーザーが新規登録
+        cout << "--- 行2: プレミアムユーザーが新規登録 ---" << endl;
+        TicketContext ctx2(&openPhase, &premiumStrategy);
         ctx2.execute("premium");
 
-        // エスカレーションエンジン（プレミアムユーザー）
-        PremiumPriority esc_strategy;
+        // 行3: 受付中チケットに担当者をアサイン（Open→InProgress）
+        cout << "--- 行3: 担当者アサイン ---" << endl;
+        ctx1.setState(&inProgressPhase);
+        ctx1.execute("normal");
+
+        // 行4: 担当者が解決（InProgress→Resolved）
+        cout << "--- 行4: 担当者が解決 ---" << endl;
+        ctx1.setState(&resolvedPhase);
+        ctx1.execute("normal");
+
+        // 行5: 解決済みを一般ユーザーが再オープン（Resolved→Open）
+        cout << "--- 行5: 一般ユーザーが再オープン ---" << endl;
+        ctx1.setState(&openPhase);
+        ctx1.execute("normal");
+
+        // 行6: プレミアムユーザーがエスカレーション
+        cout << "--- 行6: プレミアムユーザーがエスカレーション ---" << endl;
         InProgressPhase esc_state;
-        EscalationEngine engine(&esc_strategy, &esc_state);
+        EscalationEngine engine(&premiumStrategy, &esc_state);
         engine.checkAndEscalate("T-001");
     }
 };
@@ -1104,6 +1134,26 @@ int main() {
     return 0;
 }
 ```
+
+**実行結果：**
+
+```
+--- 行1: 一般ユーザーが新規登録 ---
+優先度: Normal — チケット受付中。
+--- 行2: プレミアムユーザーが新規登録 ---
+優先度: High — チケット受付中。
+--- 行3: 担当者アサイン ---
+優先度: Normal — チケット対応中。担当者に割り当て。
+--- 行4: 担当者が解決 ---
+優先度: Normal — チケット解決済み。クローズしました。
+--- 行5: 一般ユーザーが再オープン ---
+優先度: Normal — チケット受付中。
+--- 行6: プレミアムユーザーがエスカレーション ---
+[EscalationEngine] チケット T-001 をエスカレーション。
+チケット対応中。担当者に割り当て。
+```
+
+動作テーブル全6行と一致しています。
 
 `TicketApplication` が具体クラスの組み立てを一手に引き受け、`main()` はキックするだけです。具体クラス名を知っているのは `TicketApplication` の1か所に集約されており、優先度ルールや状態クラスを差し替えるときもここだけを修正すれば済みます。
 

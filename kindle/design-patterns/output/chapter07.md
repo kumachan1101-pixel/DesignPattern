@@ -710,7 +710,17 @@ public:
 ```
 
 ```cpp
-// 通知先2：チャット通知
+// 通知先2：ダッシュボード更新
+class DashboardUpdater : public INotification {
+public:
+    void send(string m) override {
+        cout << "Dashboard: " << m << endl;
+    }
+};
+```
+
+```cpp
+// 通知先3：チャット通知
 class ChatNotifier : public INotification {
 public:
     void send(string m) override {
@@ -721,7 +731,7 @@ public:
 
 ```cpp
 // ← 新しい通知先を追加する場合は、このクラスを1つ増やすだけ（ここだけ変わる）
-// 通知先3：SMS通知（田中部長の要求に対応）
+// 通知先4：SMS通知（田中部長の要求に対応）
 class SMSNotifier : public INotification {
 public:
     void send(string m) override {
@@ -748,6 +758,17 @@ public:
         notifyAll("商品 " + productId + " の在庫が減少しました。");
     }
 
+    void restoreStock(string productId, int quantity) {
+        // 補充は閾値を超えるため通知しない
+        cout << "商品 " << productId
+             << " の在庫を " << quantity << " 補充しました。（通知なし）" << endl;
+    }
+
+    void notifyShipped(string orderId) {
+        cout << "注文 " << orderId << " の出荷が完了しました。" << endl;
+        notifyAll("注文 " + orderId + " の出荷が完了しました。");
+    }
+
 private:
     void notifyAll(string message) {
         // 通知先が何であれ、一律に通知を送る
@@ -762,20 +783,77 @@ private:
 
 ```cpp
 int main() {
-    // 依存の組み立て（BatchApplication相当）
+    // 行1〜5: 全通知先を登録した状態
     InventoryManager manager;
     EmailNotifier email;
+    DashboardUpdater dashboard;
     ChatNotifier chat;
     SMSNotifier sms;
-
     manager.attach(&email);
+    manager.attach(&dashboard);
     manager.attach(&chat);
-    manager.attach(&sms); // ← 柔軟に通知先を追加可能
+    manager.attach(&sms);
 
+    cout << "--- 行1: 在庫が閾値以下に減少（通常） ---" << endl;
     manager.reduceStock("T-shirt-001", 5);
+
+    cout << "--- 行2: 在庫が閾値以下に減少（複数通知先） ---" << endl;
+    manager.reduceStock("Pants-002", 3);
+
+    cout << "--- 行3: 在庫が補充された（閾値超え） ---" << endl;
+    manager.restoreStock("T-shirt-001", 20);
+
+    cout << "--- 行4: 在庫が閾値ちょうどに減少（境界値） ---" << endl;
+    manager.reduceStock("Cap-003", 1);
+
+    cout << "--- 行5: 出荷完了イベント ---" << endl;
+    manager.notifyShipped("ORDER-001");
+
+    // 行6: Chatのみ登録した状態
+    cout << "--- 行6: 通知先をChatのみ登録した状態 ---" << endl;
+    InventoryManager managerChatOnly;
+    managerChatOnly.attach(&chat);
+    managerChatOnly.reduceStock("Shoes-004", 2);
+
     return 0;
 }
 ```
+
+**実行結果：**
+
+```
+--- 行1: 在庫が閾値以下に減少（通常） ---
+商品 T-shirt-001 の在庫を 5 減らしました。
+Email: 商品 T-shirt-001 の在庫が減少しました。
+Dashboard: 商品 T-shirt-001 の在庫が減少しました。
+Chat: 商品 T-shirt-001 の在庫が減少しました。
+SMS: 商品 T-shirt-001 の在庫が減少しました。
+--- 行2: 在庫が閾値以下に減少（複数通知先） ---
+商品 Pants-002 の在庫を 3 減らしました。
+Email: 商品 Pants-002 の在庫が減少しました。
+Dashboard: 商品 Pants-002 の在庫が減少しました。
+Chat: 商品 Pants-002 の在庫が減少しました。
+SMS: 商品 Pants-002 の在庫が減少しました。
+--- 行3: 在庫が補充された（閾値超え） ---
+商品 T-shirt-001 の在庫を 20 補充しました。（通知なし）
+--- 行4: 在庫が閾値ちょうどに減少（境界値） ---
+商品 Cap-003 の在庫を 1 減らしました。
+Email: 商品 Cap-003 の在庫が減少しました。
+Dashboard: 商品 Cap-003 の在庫が減少しました。
+Chat: 商品 Cap-003 の在庫が減少しました。
+SMS: 商品 Cap-003 の在庫が減少しました。
+--- 行5: 出荷完了イベント ---
+注文 ORDER-001 の出荷が完了しました。
+Email: 注文 ORDER-001 の出荷が完了しました。
+Dashboard: 注文 ORDER-001 の出荷が完了しました。
+Chat: 注文 ORDER-001 の出荷が完了しました。
+SMS: 注文 ORDER-001 の出荷が完了しました。
+--- 行6: 通知先をChatのみ登録した状態 ---
+商品 Shoes-004 の在庫を 2 減らしました。
+Chat: 商品 Shoes-004 の在庫が減少しました。
+```
+
+動作テーブル全6行と一致しています。
 
 このコードにより、InventoryManager は通知先の具体的な実装に一切依存しなくなりました。新しい通知方法が増えても InventoryManager を修正する必要はありません。
 

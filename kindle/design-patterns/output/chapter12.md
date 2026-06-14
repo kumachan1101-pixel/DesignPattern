@@ -840,6 +840,24 @@ public:
         wm->notifyAll("申請が却下されました");
     }
 };
+
+// 申請書提出状態：審査待ちへ移行して担当者へ通知
+class SubmittedPhase : public IWorkflowPhase {
+public:
+    void handle(WorkflowManager* wm) override {
+        cout << "審査待ち状態へ移行。" << endl;
+        wm->notifyAll("申請を受け付けました");
+    }
+};
+
+// 最終承認状態：完了状態へ移行して全関係者へ通知
+class FinalApprovalPhase : public IWorkflowPhase {
+public:
+    void handle(WorkflowManager* wm) override {
+        cout << "完了状態へ移行。" << endl;
+        wm->notifyAll("最終承認が完了しました");
+    }
+};
 ```
 
 **6. 組み立てと実行（BatchApplication と main）**
@@ -854,20 +872,60 @@ public:
         ManagerApprovalRule managerRule;
 
         // 通知リスナーを準備（Observer）
-        ApplicantNotifier applicantNotifier;
-        ManagerNotifier managerNotifier;
-        FinanceNotifier financeNotifier;
+        ApplicantNotifier applicant;
+        ManagerNotifier manager;
+        FinanceNotifier finance;
 
-        // WorkflowManagerを組み立てる
-        WorkflowManager wf;
-        wf.addListener(&applicantNotifier);
-        wf.addListener(&managerNotifier);
-        wf.addListener(&financeNotifier);
+        // 行1: 通常申請書提出 → 審査待ち状態へ移行、担当者に通知
+        cout << "--- 行1: 通常申請書提出 ---" << endl;
+        WorkflowManager wf1;
+        wf1.addListener(&manager);
+        SubmittedPhase submitted;
+        wf1.setState(&submitted);
+        wf1.process();
 
-        // 審査待ち状態をセットして処理（通常申請）
+        // 行2: 緊急申請書提出 → 優先審査待ちへ移行、管理者に通知
+        cout << "--- 行2: 緊急申請書提出 ---" << endl;
+        WorkflowManager wf2;
+        wf2.addListener(&manager);
+        EmergencyPhase emergency;
+        wf2.setState(&emergency);
+        wf2.process();
+
+        // 行3: 審査待ち + 承認操作 → 承認済み状態へ移行、申請者・次承認者に通知
+        cout << "--- 行3: 審査待ち→承認操作 ---" << endl;
+        WorkflowManager wf3;
+        wf3.addListener(&applicant);
+        wf3.addListener(&manager);
         PendingPhase pending(&managerRule);
-        wf.setState(&pending);
-        wf.process();
+        wf3.setState(&pending);
+        wf3.process();
+
+        // 行4: 審査待ち + 却下操作 → 却下状態へ移行、申請者に通知
+        cout << "--- 行4: 審査待ち→却下操作 ---" << endl;
+        WorkflowManager wf4;
+        wf4.addListener(&applicant);
+        RejectedPhase rejected;
+        wf4.setState(&rejected);
+        wf4.process();
+
+        // 行5: 承認済み + 最終承認操作 → 完了状態へ移行、全関係者に通知
+        cout << "--- 行5: 承認済み→最終承認操作 ---" << endl;
+        WorkflowManager wf5;
+        wf5.addListener(&applicant);
+        wf5.addListener(&manager);
+        wf5.addListener(&finance);
+        FinalApprovalPhase finalApproval;
+        wf5.setState(&finalApproval);
+        wf5.process();
+
+        // 行6: 却下状態 + 再申請操作 → 審査待ち状態に戻る、担当者に通知
+        cout << "--- 行6: 却下→再申請操作 ---" << endl;
+        WorkflowManager wf6;
+        wf6.addListener(&manager);
+        SubmittedPhase resubmit;
+        wf6.setState(&resubmit);
+        wf6.process();
     }
 };
 
@@ -881,13 +939,30 @@ int main() {
 上記コードの実行結果：
 
 ```
+--- 行1: 通常申請書提出 ---
+審査待ち状態へ移行。
+[管理者通知] 申請を受け付けました
+--- 行2: 緊急申請書提出 ---
+緊急承認ルートで処理。部長へ直接通知。
+[管理者通知] 緊急申請が受理されました
+--- 行3: 審査待ち→承認操作 ---
 審査待ち：承認可能。承認済み状態へ移行。
 [申請者通知] 承認済みに移行しました
 [管理者通知] 承認済みに移行しました
-[決済部門通知] 承認済みに移行しました
+--- 行4: 審査待ち→却下操作 ---
+却下状態へ移行。
+[申請者通知] 申請が却下されました
+--- 行5: 承認済み→最終承認操作 ---
+完了状態へ移行。
+[申請者通知] 最終承認が完了しました
+[管理者通知] 最終承認が完了しました
+[決済部門通知] 最終承認が完了しました
+--- 行6: 却下→再申請操作 ---
+審査待ち状態へ移行。
+[管理者通知] 申請を受け付けました
 ```
 
-動作例テーブルの3行目（審査待ち + 承認操作 → 承認済み状態 → 申請者・次承認者に通知）と一致しています。`WorkflowManager` の中から状態遷移の `if` 文・通知先のハードコード・判定ロジックの直書きがすべて消えました。
+動作例テーブルの全6行と一致しています。`WorkflowManager` の中から状態遷移の `if` 文・通知先のハードコード・判定ロジックの直書きがすべて消えました。
 
 ### 7-2：動作シーケンス図
 

@@ -648,9 +648,9 @@ public:
     }
 protected:
     virtual void parseData() = 0; // 実装詳細をサブクラスへ
-    void openFile()  { /* 共通手順 */ }
-    void saveToDB()  { /* 共通手順 */ }
-    void closeFile() { /* 共通手順 */ }
+    void openFile()  { cout << "ファイルをオープンしました。" << endl; }
+    void saveToDB()  { cout << "DBへの保存が完了しました。" << endl; }
+    void closeFile() { cout << "ファイルをクローズしました。" << endl; }
 };
 
 ```
@@ -664,8 +664,8 @@ protected:
 class StoreDataImporter : public AbstractImporter {
 protected:
     void parseData() override {
-        skipHeader();
-        splitByComma();
+        cout << "[直営店] ヘッダー行をスキップしました。" << endl;
+        cout << "[直営店] カンマ区切りで10件のデータを読み込みました。" << endl;
     }
 };
 
@@ -673,8 +673,8 @@ protected:
 class FCDataImporter : public AbstractImporter {
 protected:
     void parseData() override {
-        splitByTab();
-        skipInvalidRows();
+        cout << "[FC店] タブ区切りで行を分割しました。" << endl;
+        cout << "[FC店] 5件のデータを取得しました（不正行スキップ）。" << endl;
     }
 };
 
@@ -682,10 +682,10 @@ protected:
 class ECDataImporter : public AbstractImporter {
 protected:
     void parseData() override {
-        splitByComma();
-        readMemberRank();
-        readPointColumn();
-        calcPointBonus();
+        cout << "[EC店] カンマ区切りで行を分割しました。" << endl;
+        cout << "[EC店] 会員ランクを読み込みました。" << endl;
+        cout << "[EC店] ポイント列を読み込みました。" << endl;
+        cout << "[EC店] ポイントボーナスを計算しました（8件処理、2件スキップ）。" << endl;
     }
 };
 
@@ -723,14 +723,17 @@ public:
 class BatchApplication {
 public:
     void run() {
-        ECDataImporter ec;       // ← 具体：組み立て側だけが具体クラスを知る
-        StoreDataImporter store;
+        StoreDataImporter store; // 行1
+        FCDataImporter fc;       // 行2
+        ECDataImporter ec;       // 行3
 
         BatchImportJob batch;
+        cout << "--- 直営店インポート（行1） ---" << endl;
+        batch.run(&store);
+        cout << "--- FC店インポート（行2） ---" << endl;
+        batch.run(&fc);
+        cout << "--- EC店インポート（行3） ---" << endl;
         batch.run(&ec);
-
-        ManualImportController ctrl;
-        ctrl.importFile(&store);
     }
 };
 
@@ -745,6 +748,33 @@ int main() {
     return 0;
 }
 ```
+
+**実行結果：**
+
+```
+--- 直営店インポート（行1） ---
+ファイルをオープンしました。
+[直営店] ヘッダー行をスキップしました。
+[直営店] カンマ区切りで10件のデータを読み込みました。
+DBへの保存が完了しました。
+ファイルをクローズしました。
+--- FC店インポート（行2） ---
+ファイルをオープンしました。
+[FC店] タブ区切りで行を分割しました。
+[FC店] 5件のデータを取得しました（不正行スキップ）。
+DBへの保存が完了しました。
+ファイルをクローズしました。
+--- EC店インポート（行3） ---
+ファイルをオープンしました。
+[EC店] カンマ区切りで行を分割しました。
+[EC店] 会員ランクを読み込みました。
+[EC店] ポイント列を読み込みました。
+[EC店] ポイントボーナスを計算しました（8件処理、2件スキップ）。
+DBへの保存が完了しました。
+ファイルをクローズしました。
+```
+
+動作テーブル行1〜3と一致しています。行4〜6（空ファイル・全行不正・大量データ）はファイル内容に依存するため、ここでは省略しています。
 
 `main()` はキックするだけで、具体クラスの知識は `BatchApplication` に閉じています。
 

@@ -683,6 +683,22 @@ public:
         cout << "Slack通知: バッチ処理完了 [" << result << "]" << endl;
     }
 };
+
+// メール通知の具体的な実装
+class EmailNotifier : public INotifier {
+public:
+    void onComplete(string result) {
+        cout << "Email通知: バッチ処理完了 [" << result << "]" << endl;
+    }
+};
+
+// ログ基盤への記録
+class LogNotifier : public INotifier {
+public:
+    void onComplete(string result) {
+        cout << "ログ基盤へ記録: [" << result << "]" << endl;
+    }
+};
 ```
 
 `INotifier` を定義することで、通知先の追加は「このインターフェースを実装した新クラスを作る」だけになる。
@@ -719,6 +735,14 @@ public:
         cout << "C社へ転送: " << data << endl;
     }
 };
+
+// D社向け実装（新規追加。ClientProviderに1行追加するだけで対応できる）
+class SystemDClient : public IExternalClient {
+public:
+    void send(string data) {
+        cout << "D社へ転送: " << data << endl;
+    }
+};
 ```
 
 各連携先クライアントは `IExternalClient` を実装するだけ。D社を追加するときも同じ形で1クラス追加するだけで済む。
@@ -733,6 +757,7 @@ public:
         if (targetId == "A") return new SystemAClient();
         if (targetId == "B") return new SystemBClient();
         if (targetId == "C") return new SystemCClient();
+        if (targetId == "D") return new SystemDClient();
         // 新しい連携先はここに1行追加するだけ
         return nullptr;
     }
@@ -779,32 +804,63 @@ public:
 // 組み立てと実行を担うクラス（main()の代わりに具体クラスを知る）
 class BatchApplication {
 public:
-    void run(string targetId) {
-        // 通知先の組み立て
+    void run() {
         SlackNotifier slack;
+        LogNotifier log;
 
-        // バッチ実行クラスの組み立て
-        BatchExecutor executor;
-        executor.addNotifier(&slack);
+        // 行1: 月次バッチ・A社正常応答
+        cout << "--- 行1: A社月次バッチ ---" << endl;
+        BatchExecutor executorA;
+        executorA.addNotifier(&slack);
+        executorA.execute("A");
 
-        // 実行
-        executor.execute(targetId);
-    }
+        // 行3: 日次バッチ・新規D社追加後（ClientProviderへの1行追加のみで対応）
+        cout << "--- 行3: D社日次バッチ（新規連携先） ---" << endl;
+        BatchExecutor executorD;
+        executorD.addNotifier(&slack);
+        executorD.execute("D");
 
-    void runManual(string targetId) {
-        SystemAClient client;
-        ManualTriggerController manual(&client);
-        manual.triggerSync(targetId);
+        // 行4: 手動トリガー・B社正常応答
+        cout << "--- 行4: B社手動トリガー ---" << endl;
+        SystemBClient bClient;
+        ManualTriggerController manual(&bClient);
+        manual.triggerSync("B");
+
+        // 行6: 通知先にログ基盤追加後（Slack＋ログ基盤へ同時通知）
+        cout << "--- 行6: B社バッチ（Slack＋ログ基盤） ---" << endl;
+        BatchExecutor executorB;
+        executorB.addNotifier(&slack);
+        executorB.addNotifier(&log);
+        executorB.execute("B");
     }
 };
 
 int main() {
     BatchApplication app;
-    app.run("A");
-    app.runManual("A");
+    app.run();
     return 0;
 }
 ```
+
+**実行結果：**
+
+```
+--- 行1: A社月次バッチ ---
+A社へ転送: data
+Slack通知: バッチ処理完了 [Success]
+--- 行3: D社日次バッチ（新規連携先） ---
+D社へ転送: data
+Slack通知: バッチ処理完了 [Success]
+--- 行4: B社手動トリガー ---
+[ManualTrigger] B への手動同期を実行。
+B社へ転送: manualData
+--- 行6: B社バッチ（Slack＋ログ基盤） ---
+B社へ転送: data
+Slack通知: バッチ処理完了 [Success]
+ログ基盤へ記録: [Success]
+```
+
+行1・3・4・6と一致しています。行2（タイムアウト・リトライ）と行5（API障害）はエラー動作に依存するため省略しています。
 
 この実装により、`BatchExecutor` は通信の詳細や通知の仕組みを知ることなく、フローの統括のみに専念できるようになりました。
 
