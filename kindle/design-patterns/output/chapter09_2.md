@@ -1210,15 +1210,15 @@ graph LR
 | 🔴 フェーズ6：対策検討 | 5ステップで段階的に接続形態を進化させ、Strategy × Stateパターン（抽象×直接）を採用した |
 | 🟢 フェーズ7：対策実施 | インターフェースを導入し、責務をクラスに分離した。シーケンス図・変更影響グラフ・変更シナリオ表で局所化を確認した |
 
-### 各クラスの最終的な責任
+### 責任の移動
 
-| **クラス名** | **責任（1文）** | **変わる理由** |
+| **責任** | **変更前** | **変更後** |
 | --- | --- | --- |
-| `IPriorityRule` | 優先度判定の契約を提供する。 | なし |
-| `ITicketPhase` | 状態遷移の契約を提供する。 | なし |
-| `TicketContext` | チケットのライフサイクルを統合管理する。 | チケットの全体フローが変わる場合 |
-| `PremiumPriority` / `NormalPriority` | 個別の優先度ルールを実装する。 | そのルールの条件が変わるとき |
-| `OpenPhase` / `InProgressPhase` | 個別の状態での振る舞いを実装する。 | その状態の処理が変わるとき |
+| チケットの全体フロー管理 | `TicketManager` | `TicketContext`（変わらず） |
+| 状態ごとの振る舞いの実装 | `TicketManager`（if-else直書き） | `OpenPhase` / `InProgressPhase` 等の各フェーズクラス |
+| 優先度判定ルールの実装 | `TicketManager`（直書き） | `PremiumPriority` / `NormalPriority` 等の各ルールクラス |
+| 状態遷移の契約定義 | —（なし） | `ITicketPhase` |
+| 優先度判定の契約定義 | —（なし） | `IPriorityRule` |
 
 ### 使ったパターン × 解消した根本原因
 

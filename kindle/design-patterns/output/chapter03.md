@@ -1015,9 +1015,10 @@ graph LR
 
 | **責任** | **変更前** | **変更後** |
 |---|---|---|
-| 予約フローの進行管理（reserve/pay/cancel の呼び出し） | `TicketReservation` | `TicketReservation`（変わらず） |
-| 各状態での操作可否の判断 | `TicketReservation` | 各 `IReservationState` 実装クラス |
-| 状態遷移後の新しい状態値の定義 | `TicketReservation` | 各 `IReservationState` 実装クラス |
+| 予約コンテキストの保持と委譲 | `TicketReservation` | `TicketReservation`（変わらず） |
+| 各状態での操作可否の判断 | `TicketReservation`（if-else直書き） | `ReservedState` 等の各実装クラス |
+| 状態遷移後の状態値の設定 | `TicketReservation`（if-else直書き） | `ReservedState` 等の各実装クラス |
+| 状態の振る舞い契約の定義 | —（なし） | `IReservationState` |
 
 > このプロセスを回した結果にたどり着いた構造こそが State パターンです。
 

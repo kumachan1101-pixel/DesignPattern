@@ -817,14 +817,14 @@ graph LR
 | 🔴 フェーズ6：対策検討 | 5ステップの段階的進化でそれぞれの痛みの限界を確認し、ステップ5（インターフェース化・抽象×直接）まで進化させる決断を下した |
 | 🟢 フェーズ7：対策実施 | 最終コードを実装し、変更影響グラフで変更の局所化を確認した |
 
-### 各クラスの最終的な責任
+### 責任の移動
 
-| **クラス名** | **責任（1文）** | **変わる理由** |
+| **責任** | **変更前** | **変更後** |
 |---|---|---|
-| `IPaymentProcessor` | 決済処理が実装する必要があるインターフェースを提供する | なし（抽象） |
-| `PaymentApplication`（`processPayment`） | 決済手段の種類に応じて、適切なプロセッサーを呼び出し実行する | 決済の振り分けフローが変わる場合 |
-| `PaymentApplication`（`createProcessor`） | 決済種別の文字列から対応するプロセッサーを生成して返す | 新しい決済手段が追加・変更される場合 |
-| `CreditCardProcessor` 等 | 各決済プロセッサーの具体的な決済処理を実行する | 各決済手段のAPIやパラメータが変わる場合 |
+| 決済の振り分けフローの進行 | `PaymentApplication` | `PaymentApplication`（変わらず） |
+| 決済種別に応じたプロセッサーの生成 | `PaymentApplication`（if-else + new 直書き） | `PaymentApplication.createProcessor()`（Factory Methodとして分離） |
+| 各決済の具体的な処理 | `CreditCardProcessor` 等（変わらず） | `CreditCardProcessor` 等（`IPaymentProcessor`経由に） |
+| 決済処理の契約定義 | —（なし） | `IPaymentProcessor` |
 
 ---
 
