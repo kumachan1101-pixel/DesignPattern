@@ -439,10 +439,21 @@ private:
 
 int main() {
     TicketManager manager;
+
+    // 行1: 一般ユーザーが新規登録（Normal優先度でOpen）
+    manager.updateStatus("normal", "Open");
+
+    // 行2: プレミアムユーザーが新規登録（High優先度でOpen）
     manager.updateStatus("premium", "Open");
 
+    // 行3: 担当者アサイン（InProgressへ遷移）
+    manager.updateStatus("normal", "InProgress");
+
+    // 行6: プレミアムユーザーがエスカレーション（このステップでは EscalationEngine が担当）
     EscalationEngine engine;
     engine.checkAndEscalate("T-001");
+
+    // 行4・行5（Resolved／再オープン）はこのステップでは未実装
     return 0;
 }
 ```

@@ -491,12 +491,14 @@ class TransferProcessor {
     // 認証手順をまとめる
     void authenticate(const std::string& otp) {
         auth.requestOTP();
+        // 本来は銀行が返す取引IDを受け取るが、整理の段階ではダミー値を使う
         std::string txId = "TXN12345";
         auth.verifyOTP(otp, txId);
     }
 
     // 送金手順をまとめる
     void sendMoney(const std::string& account, int amount) {
+        // TxIdの生成・管理も本来はここに閉じるべきだが、今はダミー値で確認する
         gateway.executeTransfer(account, amount, "TXN12345");
     }
 
@@ -535,9 +537,11 @@ public:
         gateway.checkBalance(account);
         if (!otp.empty()) {
             auth.requestOTP();
+            // 取引IDは本来、bankから返される値を使う（ここではダミー値）
             std::string txId = "TXN12345";
             auth.verifyOTP(otp, txId);
         }
+        // txIdの生成と送金の実際の実装はFacade内に閉じる（ステップ3で完成する）
         gateway.executeTransfer(account, amount, "TXN12345");
     }
 };
@@ -675,7 +679,7 @@ int main() {
 
 ### 7-1：解決後のコード（全体）
 
-ステップ5で決断した構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて見ていきましょう。
+ステップ3で決断した構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて見ていきましょう。
 
 **1. サブシステム群（銀行APIと認証）**
 銀行との通信を担うクラスと認証クラスです。今後も銀行側の仕様変更に応じて変わり続けるクラスですが、それを `TransferProcessor` は知らなくてよくなります。
@@ -894,7 +898,7 @@ graph LR
 | 🟣 フェーズ3：問題特定 | API変更の適用を試み、影響が `TransferProcessor` を経由して全体に飛び火することを確認した |
 | 🟠 フェーズ4：原因分析 | 振り込み業務のフローと銀行APIの技術詳細が同じ場所にいることが痛みの根本と特定した |
 | 🟡 フェーズ5：課題定義 | 接続点で流れるのは toAccount/amount/otp（安定）、変わるのはAPIの呼び出し手順（生産者）であることを特定した |
-| 🔴 フェーズ6：対策検討 | 5ステップの段階的進化でそれぞれの痛みの限界を確認し、ステップ5（インターフェース化・抽象×間接）まで進化させる決断を下した |
+| 🔴 フェーズ6：対策検討 | 3ステップの段階的進化でそれぞれの痛みの限界を確認し、ステップ3（インターフェース化・Facade）まで進化させる決断を下した |
 | 🟢 フェーズ7：対策実施 | 最終コードを実装し、変更影響グラフで変更の局所化を確認した |
 
 ### 責任の移動

@@ -54,6 +54,8 @@
 | コーヒー + ミルク + ホイップ | `Coffee + Milk + Whip` | 420円（300 + 50 + 70） |
 | コーヒー + ミルク + シロップ + ホイップ | `Coffee + Milk + Syrup + Whip` | 450円（300 + 50 + 30 + 70） |
 | コーヒー + ミルク + シロップ + ホイップ + 抹茶 | `Coffee + Milk + Syrup + Whip + Matcha` | 510円（300 + 50 + 30 + 70 + 60） |
+| コーヒー + チョコ | `Coffee + Choco` | 340円（300 + 40） |
+| コーヒー + ミルク + 抹茶 + チョコ | `Coffee + Milk + Matcha + Choco` | 450円（300 + 50 + 60 + 40） |
 
 この表がこの章全体の動作の基準になります。フェーズ1からフェーズ7まで、構造がどれだけ違っても、この入出力の対応は変わりません。「何が同じで、何が違うのか」を意識しながらコードを読むと、各ステップの本質的な差異が見えやすくなります。
 
@@ -893,9 +895,20 @@ public:
         return baseDrink->getDescription() + " + Matcha";
     }
 };
+
+class Choco : public ToppingWrapper {
+public:
+    Choco(IDrink* base) : ToppingWrapper(base) {}
+    int getPrice() const override {
+        return baseDrink->getPrice() + 40;
+    }
+    string getDescription() const override {
+        return baseDrink->getDescription() + " + Choco";
+    }
+};
 ```
 
-佐藤マネージャーが要求した「抹茶パウダーの追加」は、このクラスを1つ作るだけで完結します。既存のクラスには一切触れていません。
+佐藤マネージャーが要求した「抹茶パウダーの追加」も「チョコチップの追加」も、それぞれのクラスを1つ作るだけで完結します。既存のクラスには一切触れていません。
 
 **OrderApplication クラス（組み立てと実行）：**
 
@@ -932,6 +945,14 @@ public:
         IDrink* o7 = new Matcha(new Whip(new Syrup(new Milk(new Coffee()))));
         cout << o7->getDescription() << " → " << o7->getPrice() << "円" << endl;
 
+        // 行8：コーヒー + チョコ（変更要求で追加されたトッピング）
+        IDrink* o8 = new Choco(new Coffee());
+        cout << o8->getDescription() << " → " << o8->getPrice() << "円" << endl;
+
+        // 行9：コーヒー + ミルク + 抹茶 + チョコ（新トッピング2種の組み合わせ）
+        IDrink* o9 = new Choco(new Matcha(new Milk(new Coffee())));
+        cout << o9->getDescription() << " → " << o9->getPrice() << "円" << endl;
+
         // ※メモリ解放はサンプル簡略化のため省略
     }
 
@@ -964,9 +985,11 @@ Coffee + Milk + Whip → 420円
 Coffee + Whip + Whip → 440円
 Coffee + Milk + Syrup + Whip → 450円
 Coffee + Milk + Syrup + Whip + Matcha → 510円
+Coffee + Choco → 340円
+Coffee + Milk + Matcha + Choco → 450円
 ```
 
-動作例テーブルの全7行と一致しています。既存のクラスを一切開くことなく、`Syrup` や `Matcha` を追加クラスとして定義するだけで新しい組み合わせが実現できるようになりました。
+動作例テーブルの全9行と一致しています。既存のクラスを一切開くことなく、`Syrup`・`Matcha`・`Choco` を追加クラスとして定義するだけで新しい組み合わせが実現できるようになりました。
 
 ---
 
