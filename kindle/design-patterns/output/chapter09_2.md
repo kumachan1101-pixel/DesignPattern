@@ -43,7 +43,7 @@
 | 3 | 受付中チケット | 担当者アサイン | ルール適用なし | → 対応中（InProgress）に遷移 |
 | 4 | 対応中チケット | 担当者が解決 | ルール適用なし | → 解決済み（Resolved）に遷移 |
 | 5 | 解決済みチケット | 一般ユーザーが再オープン | 標準優先度（Normal） | → 再受付中（Open）に遷移 |
-| 6 | 対応中チケット | プレミアムユーザーがエスカレーション | 高優先度（High）に切り替え | 緊急対応モードへ移行 |
+| 6 | 対応中チケット | プレミアムユーザーがエスカレーション | 高優先度（High）に切り替え | エスカレーション実行・対応中状態へ遷移 |
 
 この6つの動作パターンが、このシステムが満たす必要がある動作の基準です。後でステップを比較するときも、「どのステップもこれと同じ動作を実現する」という前提で読んでください。
 
@@ -900,6 +900,8 @@ public:
         if (priority == "High") {
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
+            // このパターンではcontextは使わないため nullptr を渡している
+            // （handle()の実装（InProgressPhase等）はcontext引数を参照しない）
             state->handle(nullptr); // ← 直接：インターフェース経由で直接呼び出す
         }
     }
@@ -1079,6 +1081,8 @@ public:
         if (priority == "High") {
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
+            // このパターンではcontextは使わないため nullptr を渡している
+            // （handle()の実装（InProgressPhase等）はcontext引数を参照しない）
             state->handle(nullptr);
         }
     }
