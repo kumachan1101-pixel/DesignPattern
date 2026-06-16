@@ -296,9 +296,9 @@ private:
 ```mermaid
 graph LR
     T1["変更要求：新フォーマット対応<br>（ヘッダーバージョンチェック追加）"]
-    T1 -->|"影響が飛び火"| A["StoreDataImporter.cpp"]
-    T1 -->|"影響が飛び火"| B["FCDataImporter.cpp"]
-    T1 -->|"影響が飛び火"| C["ECDataImporter.cpp"]
+    T1 -->|"影響が飛び火"| A["StoreDataImporter"]
+    T1 -->|"影響が飛び火"| B["FCDataImporter"]
+    T1 -->|"影響が飛び火"| C["ECDataImporter"]
 
 ```
 
@@ -694,13 +694,13 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    T1["変更要求：保存処理へのログ出力追加"] --> F1["AbstractImporter.cpp<br>（基底クラスの修正のみ）"]
-    T1 -. "影響なし" .-> A["StoreDataImporter.cpp ✅"]
-    T1 -. "影響なし" .-> B["FCDataImporter.cpp ✅"]
+    T1["変更要求：保存処理へのログ出力追加"] --> F1["AbstractImporter<br>（基底クラスの修正のみ）"]
+    T1 -. "影響なし" .-> A["StoreDataImporter ✅"]
+    T1 -. "影響なし" .-> B["FCDataImporter ✅"]
 
 ```
 
-→ **フェーズ3の変更影響グラフと比較して、ログ出力の追加という変更要求が、基底クラスである `AbstractImporter.cpp` 一箇所に閉じた設計になりました**。
+→ **フェーズ3の変更影響グラフと比較して、ログ出力の追加という変更要求が、基底クラスである `AbstractImporter` 一箇所に閉じた設計になりました**。
 
 ### 7-4：変更シナリオ表
 

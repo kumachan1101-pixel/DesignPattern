@@ -63,7 +63,7 @@
 
 ### 1-3：実装コード（現状）
 
-それでは、実際にシステムを動かしているコードを見てみましょう。在庫が減った際に各通知先へメッセージを送る処理をシミュレートしています。
+在庫が減った際に各通知先へメッセージを送る処理をシミュレートしています。
 
 はじめに、各通知先クラスの定義です。それぞれが独立した実装を持ち、InventoryManager から直接呼び出されています。
 
@@ -292,8 +292,8 @@ classDiagram
 
 ```mermaid
 graph LR
-    T1["変更要求：SMS通知の追加"] -->|"メンバ変数と通知ロジックの修正"| A["InventoryManager.cpp"]
-    A -->|"新規クラス作成"| B["SMSNotifier.cpp"]
+    T1["変更要求：SMS通知の追加"] -->|"メンバ変数と通知ロジックの修正"| A["InventoryManager"]
+    A -->|"新規クラス作成"| B["SMSNotifier"]
 
 ```
 
@@ -817,9 +817,9 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    T1["変更要求：SMS通知の追加"] --> F1["SMSNotifier.cpp（新規追加のみ）"]
-    T1 -. "影響なし" .-> A["InventoryManager.cpp ✅"]
-    T1 -. "影響なし" .-> B["EmailNotifier.cpp ✅"]
+    T1["変更要求：SMS通知の追加"] --> F1["SMSNotifier（新規追加のみ）"]
+    T1 -. "影響なし" .-> A["InventoryManager ✅"]
+    T1 -. "影響なし" .-> B["EmailNotifier ✅"]
 
 ```
 

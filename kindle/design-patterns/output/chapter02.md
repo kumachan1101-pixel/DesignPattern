@@ -61,8 +61,6 @@
 
 ### 1-3：実装コード（現状）
 
-システムの現状の実装を確認します。コードを役割ごとに分けて読んでいきます。
-
 #### 銀行システムと通信するクラス群
 
 はじめに、銀行APIとの通信を担うクラスと認証を担うクラスを見てみます。
@@ -330,9 +328,9 @@ void transfer(
 
 ```mermaid
 graph LR
-    T1["変更要求：API変更"] -->|"飛び火"| A["TransferProcessor.cpp"]
-    A -->|"影響"| B["BankGateway.cpp"]
-    A -->|"影響"| C["SecurityAuthenticator.cpp"]
+    T1["変更要求：API変更"] -->|"飛び火"| A["TransferProcessor"]
+    A -->|"影響"| B["BankGateway"]
+    A -->|"影響"| C["SecurityAuthenticator"]
 ```
 
 このグラフを見ると、銀行APIの仕様という「外部システム都合の変更」が、私たちの業務フローの中枢である `TransferProcessor` を経由して、通信クラスや認証クラス全体に飛び火していることが分かります。
@@ -856,9 +854,9 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    T1["変更要求：認証フロー変更"] --> F1["BankTransferService.cpp<br>（窓口のみ）"]
-    T1 -. "影響なし" .-> A["TransferProcessor.cpp ✅"]
-    T1 -. "影響なし" .-> B["BatchTransferService.cpp ✅"]
+    T1["変更要求：認証フロー変更"] --> F1["BankTransferService<br>（窓口のみ）"]
+    T1 -. "影響なし" .-> A["TransferProcessor ✅"]
+    T1 -. "影響なし" .-> B["BatchTransferService ✅"]
 ```
 
 フェーズ3の変更影響グラフと比べると、変更要求が窓口クラスの修正だけに閉じるようになりました。

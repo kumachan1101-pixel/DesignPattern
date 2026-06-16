@@ -66,8 +66,6 @@ stateDiagram-v2
 
 ### 1-3：実装コード（現状）
 
-ここからは実装コードの読み込みです。クラス図で確認した構造と、実際のコードが一致しているかを照合します。
-
 ```cpp
 #include <iostream>
 #include <string>
@@ -857,9 +855,9 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    T1["新規状態追加"] --> F1["NewState.cpp（新規作成のみ）"]
-    T1 -. "影響なし" .-> A["TicketReservation.cpp ✅"]
-    T1 -. "影響なし" .-> B["ExistingState.cpp ✅"]
+    T1["新規状態追加"] --> F1["NewState（新規作成のみ）"]
+    T1 -. "影響なし" .-> A["TicketReservation ✅"]
+    T1 -. "影響なし" .-> B["ExistingState ✅"]
 ```
 
 フェーズ3の変更影響グラフと比較して、新しい状態の追加という変更要求が、新規作成したクラスだけに閉じた設計になりました。

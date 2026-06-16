@@ -64,8 +64,6 @@
 
 ### 1-3：実装コード（現状）
 
-システムの現状の実装を確認します。コードを役割ごとに分けて読んでいきます。
-
 ```cpp
 #include <iostream>
 #include <string>
@@ -284,7 +282,7 @@ void processPayment(string type, int amount) {
 ```mermaid
 graph LR
     T1["変更要求：PayPay対応"] -->|"追記"| A["PaymentApplication<br>（既存の条件分岐全体）"]
-    A -->|"新規クラス作成"| B["PayPayProcessor.cpp"]
+    A -->|"新規クラス作成"| B["PayPayProcessor"]
 ```
 
 新しい決済手段という「ビジネス上の変化」を実装するたびに、本来は決済手段の振り分けだけを担うべき `PaymentApplication` クラスが必ず修正対象として矢印を向けられていることが分かります。
