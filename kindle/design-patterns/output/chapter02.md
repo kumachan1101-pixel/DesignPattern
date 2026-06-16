@@ -464,61 +464,29 @@ void transfer(
 
 ターゲットである「銀行API呼び出しの塊」を外に出すために、いきなり正解へ飛ぶのではなく、段階的にリファクタリングを進めてみます。それぞれの段階（ステップ）でどこまで痛みが解消されるかを確認し、今回の要件において「どのステップで止めるべきか」を決断します。
 
-### ステップ1：丸ごと関数に切り出す（とりあえず分ける）
+### ステップ1：呼び出し元でヘルパーメソッドに切り出す（同じクラスの中で整理する）
 
-はじめに、クラスを分けずに、ターゲットの塊を丸ごとプライベートメソッド（関数）として分離してみます。
-
-```cpp
-class TransferProcessor {
-    BankGateway gateway;
-    SecurityAuthenticator auth;
-
-    // API呼び出しの塊をそのままプライベートメソッドに移動
-    void executeTransferFlow(
-            const std::string& toAccount, int amount,
-            const std::string& otp) {
-        gateway.verifyAccount(toAccount);
-        gateway.checkBalance(toAccount);
-        auth.requestOTP();
-        std::string txId = "TXN12345";
-        auth.verifyOTP(otp, txId);
-        gateway.executeTransfer(toAccount, amount, txId);
-    }
-
-public:
-    void transfer(
-            const std::string& toAccount, int amount,
-            const std::string& otp) {
-        executeTransferFlow(toAccount, amount, otp); // 関数を呼ぶだけ
-        std::cout << "振り込み完了\n";
-    }
-};
-```
-
-**この段階の評価：**
-メインの `transfer()` の本文は非常にスッキリしました。しかし、分離した `executeTransferFlow()` の中を見ると、銀行APIの呼び出し手順が相変わらず `TransferProcessor` の内部に存在したままです。銀行側の認証仕様が変わるたびに、結局はこの関数を開いて書き直さなければなりません。
-
-### ステップ2：処理を個別のメソッドに分ける
-
-ステップ1の「関数の中身がぐちゃぐちゃ」という問題を解決するために、変わりやすい「各APIの呼び出し（処理）」の部分をそれぞれ個別の関数に切り出してみます。
+「API呼び出しが複雑に絡み合っているなら、意味のある単位でメソッドに切り出して整理しよう」というのが自然な最初の発想です。クラスを新しく作るのはコストがかかる。`TransferProcessor` の中で、各手順を意味のある単位にまとめてみます。
 
 ```cpp
 class TransferProcessor {
     BankGateway gateway;
     SecurityAuthenticator auth;
 
-    // 処理の意味ごとに個別の関数に分ける
-    void verifyAccount(const std::string& account) {
+    // 口座の確認手順をまとめる
+    void checkAccount(const std::string& account) {
         gateway.verifyAccount(account);
         gateway.checkBalance(account);
     }
 
+    // 認証手順をまとめる
     void authenticate(const std::string& otp) {
         auth.requestOTP();
         std::string txId = "TXN12345";
         auth.verifyOTP(otp, txId);
     }
 
+    // 送金手順をまとめる
     void sendMoney(const std::string& account, int amount) {
         gateway.executeTransfer(account, amount, "TXN12345");
     }
@@ -527,7 +495,7 @@ public:
     void transfer(
             const std::string& toAccount, int amount,
             const std::string& otp) {
-        verifyAccount(toAccount);   // ← 手順の意味が読める
+        checkAccount(toAccount);  // ← 手順の意図が読めるようになった
         authenticate(otp);
         sendMoney(toAccount, amount);
         std::cout << "振り込み完了\n";
@@ -535,119 +503,73 @@ public:
 };
 ```
 
-**この段階の評価：**
-`transfer()` の本文が「振り込みの手順」として読めるようになりました。各処理がメソッド名で意図を伝えており、格段に読みやすくなっています。しかし、`verifyAccount`・`authenticate`・`sendMoney` はすべて `TransferProcessor` クラスの内部に存在しており、このクラスはまだ銀行APIの具体的な呼び出し方を知り続けています。
+`transfer()` の本文が「振り込みの手順」として読めるようになり、各ステップの意図が伝わるようになった。
 
-### ステップ3：条件も個別のメソッドに分ける
+**この段階の評価：** `transfer()` は格段に読みやすくなりました。しかし `checkAccount()`・`authenticate()`・`sendMoney()` はすべて `TransferProcessor` クラスの内部にあります。銀行側の認証仕様が変わるたびに、結局はこの `TransferProcessor` を開いて書き直さなければなりません。呼び出し元がきれいになったが、銀行APIの手順という知識は呼び出し元に残ったまま。これを外に出すために「専用のクラスを作る」方向を試してみましょう。
 
-ステップ2をさらに進め、OTPが必要なケース（通常振り込み）とOTP不要なケース（バッチ処理）のような条件ごとの分岐も、個別のメソッドに切り出してみましょう。
+---
 
-```cpp
-class TransferProcessor {
-    BankGateway gateway;
-    SecurityAuthenticator auth;
+### ステップ2：銀行API手順を専用クラスに集約する（具体×直接）
 
-    // 通常の振り込みの認証（OTPあり）
-    void authenticateWithOTP(const std::string& otp) {
-        auth.requestOTP();
-        std::string txId = "TXN12345";
-        auth.verifyOTP(otp, txId);
-    }
-
-    // バッチ振り込みの認証（OTPなし）
-    void authenticateForBatch() {
-        // バッチは事前承認済みのため追加認証不要
-    }
-
-    bool isBatchAccount(const std::string& account) {
-        return account == "87654321"; // バッチ口座の判定
-    }
-
-    void verifyAccount(const std::string& account) {
-        gateway.verifyAccount(account);
-        gateway.checkBalance(account);
-    }
-
-    void sendMoney(const std::string& account, int amount) {
-        gateway.executeTransfer(account, amount, "TXN12345");
-    }
-
-public:
-    void transfer(
-            const std::string& toAccount, int amount,
-            const std::string& otp) {
-        verifyAccount(toAccount);
-        if (isBatchAccount(toAccount)) {
-            authenticateForBatch();
-        } else {
-            authenticateWithOTP(otp);
-        }
-        sendMoney(toAccount, amount);
-        std::cout << "振り込み完了\n";
-    }
-};
-```
-
-**この段階の評価：**
-コードが英語の文章のように読みやすくなりました。**これが「関数化（手続き型プログラミング）」によるコード整理の限界（最終到達点）**です。
-
-ここで、この `TransferProcessor` クラスをよく観察してください。`verifyAccount()`・`authenticate()`・`sendMoney()` という処理の関数も、`isBatchAccount()` という条件の関数も、すべて同じクラスの中にあります。銀行側の新しい認証方式が追加されるたびに、結局はこの `TransferProcessor` クラスを開いて新しいメソッドを追加し、`transfer()` の分岐を書き直さなければなりません。「クラスが永遠に変わり続ける」という根本問題は解決していません。
-
-### ステップ4：別のクラスに切り出してみる（具体×直接）
-
-「メソッドが増えて `TransferProcessor` クラスが肥大化してきたので、とりあえず銀行APIとのやり取りを別のクラス（別ファイル）に分けてみよう」という発想を試してみます。
+「銀行APIとのやり取りをすべて別のクラスに任せてしまえば、`TransferProcessor` は呼ぶだけでよくなる」という発想です。手順全体を担当するクラスを新しく作り、呼び出し元はそのクラスを1つ呼ぶだけにします。
 
 ```cpp
-// 通信ロジックを切り出したクラス（インターフェースはない）
-class BankTransferService {
+// 銀行APIとのやり取りをすべて担う専用クラス（インターフェースはまだない）
+class BankTransferHelper {
+    BankGateway gateway;         // ← 具体クラスを直接保持
+    SecurityAuthenticator auth;  // ← 具体クラスを直接保持
 public:
     void execute(const std::string& account, int amount,
                  const std::string& otp) {
-        std::cout << "口座確認: " << account << "\n";
-        std::cout << "残高確認\n";
-        std::cout << "認証コード発行\n";
-        std::cout << "認証コード検証\n";
-        std::cout << "送金実行: " << amount << "円\n";
+        // 複雑な手順はすべてここに集まる
+        gateway.verifyAccount(account);
+        gateway.checkBalance(account);
+        if (!otp.empty()) {
+            auth.requestOTP();
+            std::string txId = "TXN12345";
+            auth.verifyOTP(otp, txId);
+        }
+        gateway.executeTransfer(account, amount, "TXN12345");
     }
 };
 
 // 振り込み処理クラス（呼び出し元1）
 class TransferProcessor {
-    BankTransferService* service; // ← 具体：型名を直接宣言
+    BankTransferHelper* helper; // ← 具体クラスを直接知っている
 public:
-    TransferProcessor(BankTransferService* s) : service(s) {}
+    TransferProcessor(BankTransferHelper* h) : helper(h) {}
     void transfer(const std::string& toAccount, int amount,
                   const std::string& otp) {
-        service->execute(toAccount, amount, otp);
+        helper->execute(toAccount, amount, otp); // 1行に集約された
         std::cout << "振り込み完了\n";
     }
 };
 
 // 給与振り込みなどの一括処理バッチ（呼び出し元2）
-class BatchTransferService {
-    BankTransferService* service; // ← 同じ具体クラスをここでも直接保持
+class BatchTransferProcessor {
+    BankTransferHelper* helper; // ← 同じ具体クラスをここでも直接保持
 public:
-    BatchTransferService(BankTransferService* s) : service(s) {}
+    BatchTransferProcessor(BankTransferHelper* h) : helper(h) {}
     void processPayroll(
             const std::vector<std::pair<std::string, int>>& transfers) {
         for (int i = 0; i < (int)transfers.size(); i++) {
             const std::string& account = transfers[i].first;
             int amount = transfers[i].second;
-            service->execute(account, amount, "");
+            helper->execute(account, amount, ""); // OTPなしで実行
         }
     }
 };
 ```
 
-**この段階の評価：**
-銀行APIの呼び出し手順が `BankTransferService` に集約され、`TransferProcessor` の中身はスッキリしました。しかし、これでは**半分しか解決していません**。
+`TransferProcessor` も `BatchTransferProcessor` も `helper->execute()` の1行を呼ぶだけになり、呼び出し元は大幅にシンプルになった。
 
-`TransferProcessor` も `BatchTransferService` も `BankTransferService` という具体クラスを名指しで知っており、その依存関係が両方に重複しています。銀行APIの仕様が変わるたびに2か所を同時に修正しなければならない問題は解消されていません。これが「具体×直接」の限界です。
+**この段階の評価：** 呼び出し元はシンプルになりました。銀行APIの複雑な手順が `BankTransferHelper` に集まっているのは良い変化です。しかし `TransferProcessor` も `BatchTransferProcessor` も `BankTransferHelper` という具体クラス名を直接知っており、この依存が2か所に重複しています。銀行APIの仕様が変わって `BankTransferHelper` を置き換えたいとき、2つのクラスを同時に修正しなければなりません。呼び出し元はシンプルになったが、ヘルパークラスが具体的なAPIクラスを全部知っており、そのヘルパーに対する依存が呼び出し元に残っている。「具体クラス名を直接知る」という依存を断ち切るために、インターフェースを導入してみましょう。
 
-### ステップ5：インターフェース化して「具体クラス名」ごと追い出す（抽象×間接）
+---
 
-既存コード（本体）を一切触らずに銀行APIの変更に対応するにはどうすればよいでしょうか？
-「銀行APIの具体クラス名」という知識すらも本体から完全に追い出し、窓口となるインターフェース（抽象）だけを通じてやり取りする形にします。
+### ステップ3：インターフェースで窓口を一本化する（Facade）
+
+「`BankTransferHelper` という具体クラス名すら呼び出し元に知らせたくない。窓口となるインターフェースだけを知らせ、その内部で何が起きているかは完全に隠蔽しよう」という発想です。この窓口クラスこそが Facade になります。
 
 ```cpp
 // 業務フロー側に見せる窓口（インターフェース）
@@ -659,10 +581,10 @@ public:
     virtual ~IBankTransferService() = default;
 };
 
-// 銀行との複雑なやり取りを隠蔽する窓口（Facade実装）
-class BankTransferServiceImpl : public IBankTransferService {
-    BankGateway gateway;
-    SecurityAuthenticator auth;
+// 銀行との複雑なやり取りをすべて隠蔽する窓口クラス（Facade）
+class BankTransferService : public IBankTransferService {
+    BankGateway gateway;         // ← サブシステムは窓口の内側に隠れる
+    SecurityAuthenticator auth;  // ← サブシステムは窓口の内側に隠れる
 public:
     void performTransfer(
             const std::string& account, int amount,
@@ -673,7 +595,7 @@ public:
         // バッチ処理（otp=""）は社内承認済みのためOTPをスキップ
         if (!otp.empty()) {
             auth.requestOTP();
-            auth.verifyOTP(otp, "TXN12345"); // 内部的に取引IDを扱う
+            auth.verifyOTP(otp, "TXN12345");
         }
         gateway.executeTransfer(account, amount, "TXN12345");
     }
@@ -682,9 +604,7 @@ public:
 // 振り込み処理クラス：銀行の仕様を一切知らなくてよい
 class TransferProcessor {
 private:
-    // ← 抽象：IBankTransferService*型で受け取る
-    // ← 間接：Facade経由のため内部クラス群が見えない
-    IBankTransferService* facade;
+    IBankTransferService* facade; // ← 抽象型だけを知る
 public:
     TransferProcessor(IBankTransferService* f) : facade(f) {}
     void transfer(
@@ -695,32 +615,48 @@ public:
     }
 };
 
+// 給与振り込みなどの一括処理バッチ
+class BatchTransferProcessor {
+private:
+    IBankTransferService* facade; // ← 同じ抽象型を共有する
+public:
+    BatchTransferProcessor(IBankTransferService* f) : facade(f) {}
+    void processPayroll(
+            const std::vector<std::pair<std::string, int>>& transfers) {
+        for (int i = 0; i < (int)transfers.size(); i++) {
+            const std::string& account = transfers[i].first;
+            int amount = transfers[i].second;
+            facade->performTransfer(account, amount, "");
+        }
+    }
+};
+
 // ─── 呼び出し側のコード（依存性の注入） ───
 int main() {
     // ★具体クラス名を知っているのはここだけ
-    BankTransferServiceImpl facade;
+    BankTransferService facade;
     TransferProcessor processor(&facade);
     processor.transfer("12345678", 5000, "999999");
     return 0;
 }
 ```
 
-**この段階の評価：**
-ついに、`TransferProcessor` の中から `BankGateway` や `SecurityAuthenticator` という具体クラス名が完全に消え去りました！ 銀行APIの認証手順が変わっても、送金パラメータが増えても、`BankTransferServiceImpl` の中だけを修正すればよく、`TransferProcessor` は無傷のままです。接続の形が**「抽象×間接」**へ到達したことで、本体は外部システムの変化から完全に守られるようになりました。
+`TransferProcessor` の中から `BankGateway` や `SecurityAuthenticator` という具体クラス名が完全に消え、`IBankTransferService* facade` だけを知る状態になった。
+
+**この段階の評価：** `TransferProcessor` も `BatchTransferProcessor` も、銀行APIの具体的な手順を一切知らなくなりました。銀行APIの認証手順が変わっても、送金パラメータが増えても、`BankTransferService` の中だけを修正すればよく、呼び出し元のクラス群は無傷のままです。窓口インターフェースが安定している限り、内部の手順がどれだけ複雑に変わっても呼び出し元には影響しない。これが Facade の本質です。
 
 ---
 
 ### どこまで設計を進めるべきか（採用ステップの決断）
 
-それぞれのステップには一長一短があります。ステップ5のインターフェース化は強力ですが、ファイル数や型が増えるという「初期投資コスト」もかかります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
+それぞれのステップには一長一短があります。ステップ3のインターフェース化は強力ですが、ファイル数や型が増えるという「初期投資コスト」もかかります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
 
-*   **ステップ1（丸ごと関数化）で止めるケース：** 「銀行APIの仕様変更が過去5年で一度も起きていない」場合。現在のコードをプライベートメソッドで整理するだけで十分です。
-*   **ステップ2・3（処理・条件の関数化）で止めるケース：** 将来APIの変更があるかもしれないが、まだ確証がない場合。処理を綺麗に整理するだけにとどめ、本当に変化が来たときにステップ5へ進化させる「様子見」の判断です。
-*   **ステップ4（具体クラスへの分離）で止めるケース：** ファイルを分けて整理したいが、インターフェース導入のコストをまだかけたくない場合の「中間策」です。
-*   **ステップ5（インターフェース化・抽象化）まで進むケース：** 認証手順や通信仕様が今後頻繁に変わると確定している場合。今すぐ初期投資コストを払ってでも、業務フロー（`TransferProcessor`）を保護するのが適切です。
+*   **ステップ1（ヘルパーメソッド化）で止めるケース：** 「銀行APIの仕様変更が過去5年で一度も起きていない」場合。現在のコードを整理するだけで十分です。
+*   **ステップ2（専用クラスへの集約）で止めるケース：** 将来APIの変更があるかもしれないが、複数の呼び出し元がまだ1つしかない場合。手順を1か所に集約するだけにとどめ、本当に変化が来たときにステップ3へ進化させる「様子見」の判断です。
+*   **ステップ3（インターフェース化・Facade）まで進むケース：** 認証手順や通信仕様が今後頻繁に変わると確定している場合。今すぐ初期投資コストを払ってでも、業務フロー（`TransferProcessor`・`BatchTransferProcessor`）を保護するのが適切です。
 
 **今回の決断：**
-フェーズ2のヒアリングで、銀行API担当者から「生体認証の追加」「JSONからXMLへの移行」など、今後も頻繁に仕様変更が発生することが明言されています。したがって、今回は迷わず**ステップ5（インターフェース化・抽象×間接）まで進化させる**決断を下します。
+フェーズ2のヒアリングで、銀行API担当者から「生体認証の追加」「JSONからXMLへの移行」など、今後も頻繁に仕様変更が発生することが明言されています。したがって、今回は迷わず**ステップ3（インターフェース化・Facade）まで進化させる**決断を下します。
 
 このように、銀行APIとのやり取りをインターフェースで包み込んだ単一の窓口クラスに集約し、呼び出し元はその窓口だけを知る形にするこの設計構造を **Facade（ファサード）パターン** と呼びます。
 

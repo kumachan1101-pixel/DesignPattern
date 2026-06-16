@@ -405,9 +405,9 @@ graph LR
 
 ターゲットである「通知の呼び出し処理」を外に出すために、いきなり正解へ飛ぶのではなく、段階的にリファクタリングを進めてみます。それぞれの段階（ステップ）でどこまで痛みが解消されるかを確認し、今回の要件において「どのステップで止めるべきか」を決断します。
 
-### ステップ1：notifyAll をプライベートメソッドに切り出す（とりあえず分ける）
+### ステップ1：通知処理をプライベートメソッドに切り出す（まず整理する）
 
-はじめに、クラスの構造を変えずに、通知処理のディスパッチをプライベートメソッドとして整理してみます。
+新しい通知先（SMS）を追加するとき、`reduceStock` の中に通知処理が直書きされているのが気になります。「通知の呼び出しをひとつのメソッドにまとめれば、少なくとも変更箇所が一ヶ所になるはず」と考えて、プライベートメソッドに切り出してみます。
 
 ```cpp
 class InventoryManager {
@@ -416,152 +416,70 @@ private:
     DashboardUpdater dashboard;
     ChatNotifier chat;
 
+    // 通知処理をプライベートメソッドにまとめる
     void notifyAll(string message) {
-        // 通知先が増えるたびに、ここが修正される（変わらず）
         email.send(message);
         dashboard.update(message);
         chat.send(message);
+        // SMS通知を追加するにはここに1行書き足す
     }
 
 public:
     void reduceStock(string productId, int quantity) {
         cout << "商品 " << productId
              << " の在庫を " << quantity << " 減らしました。" << endl;
-        string message = "商品 " + productId + " の在庫が減少しました。";
-        notifyAll(message); // ← 呼び出しは1行になった
+        string message = "商品 " + productId
+                       + " の在庫が減少しました。";
+        notifyAll(message);  // ← 呼び出しは1行にまとまった
     }
 };
 ```
 
-このコードを見ると、`reduceStock` の見通しは改善されています。しかし、新しい通知先（SMSNotifier）を追加しようとすると、メンバ変数の追加・初期化・`notifyAll` 内への呼び出し追加の3か所を修正する必要があることは変わりません。
+`reduceStock` の見通しは改善され、通知ロジックが `notifyAll` に集約されたことが分かる。
 
-**この段階の評価：** 呼び出し口が1行にまとまって見通しが改善されたが、問題は残っている。新しい通知先が増えるたびに、メンバ変数・`notifyAll` 内の呼び出しの両方を修正しなければならない。
+**この段階の評価：** 通知処理は整理できた。しかし、新しい通知先（SMSNotifier）を追加するには、InventoryManager を開いてメンバ変数・初期化・`notifyAll` 内の呼び出しの3箇所を修正しなければならない。通知処理は整理できたが、新しい通知先を追加するにはInventoryManagerを開いてメンバ変数・初期化・呼び出しの3箇所を修正しなければならない。
 
-### ステップ2：通知先ごとの処理を個別メソッドに分ける
+---
 
-ステップ1のままでは `notifyAll` の中身が増え続けます。各通知先への処理を個別のプライベートメソッドに分けてみましょう。
+### ステップ2：通知先をリストで持つ（同種の型を束ねる）
+
+ステップ1で気になるのは「メンバ変数・初期化・呼び出しの3箇所」という修正の散らばりです。通知先の追加がリストへの追加だけで済めば、少なくとも修正箇所が減るはずです。同じ送信メソッド名 `send` を持つ具体クラスをリストにまとめてみます。
 
 ```cpp
 class InventoryManager {
 private:
-    EmailNotifier email;
-    DashboardUpdater dashboard;
-    ChatNotifier chat;
-
-    // 各通知先への処理を個別メソッドに分ける
-    void notifyEmail(string message) {
-        email.send(message);
-    }
-    void notifyDashboard(string message) {
-        dashboard.update(message);
-    }
-    void notifyChat(string message) {
-        chat.send(message);
-    }
+    // 同種の型を束ねることで追加がリストだけで済む…はず
+    vector<EmailNotifier*> emailList;
+    vector<ChatNotifier*>  chatList;
+    // SMSを追加するには vector<SMSNotifier*> smsListも必要になる
 
     void notifyAll(string message) {
-        notifyEmail(message);
-        notifyDashboard(message);
-        notifyChat(message);
+        for (auto* n : emailList) n->send(message);
+        for (auto* n : chatList)  n->send(message);
+        // SMS用のループも追加しなければならない
     }
 
 public:
+    void attachEmail(EmailNotifier* n) { emailList.push_back(n); }
+    void attachChat(ChatNotifier* n)   { chatList.push_back(n); }
+
     void reduceStock(string productId, int quantity) {
-        string message = "商品 " + productId + " の在庫が減少しました。";
+        string message = "商品 " + productId
+                       + " の在庫が減少しました。";
         notifyAll(message);
     }
 };
 ```
 
-このコードを見ると、`notifyAll` は各メソッドを呼ぶだけになり、各通知先への処理が明確に分離されています。SMSを追加するときも `notifyEmail` と同じ形でメソッドを1つ書けばよいことが分かります。
+リストで管理することで同種の通知先を複数登録できるようになったことが分かる。
 
-**この段階の評価：** 個別メソッドに分かれたことで責任が明確になった。しかし、新しい通知先（SMSNotifier）を追加するには、メンバ変数の追加・個別メソッドの追加・`notifyAll` 内への呼び出し追加の3か所を修正しなければならない。
+**この段階の評価：** リストで管理することで通知先の追加はしやすくなった。しかし、リストに格納できる型が固定されている。新しい通知先（SMSNotifier）を追加するには `vector<SMSNotifier*>` という新しいリストを追加し、`notifyAll` にもループを追加しなければならない。リストで管理することで通知先の追加はしやすくなったが、リストに格納できる型が固定されている。
 
-### ステップ3：関数化の限界（最終整理形）
+---
 
-個別メソッドをさらに整理し、最もコード構造がきれいな状態を試してみます。
+### ステップ3：インターフェースで型を統一する（抽象×直接）
 
-```cpp
-class InventoryManager {
-private:
-    EmailNotifier email;
-    DashboardUpdater dashboard;
-    ChatNotifier chat;
-
-    // 各通知先への処理（シグネチャが揃っていることに注目）
-    void notifyEmail(string message)     { email.send(message); }
-    void notifyDashboard(string message) { dashboard.update(message); }
-    void notifyChat(string message)      { chat.send(message); }
-
-    void notifyAll(string message) {
-        notifyEmail(message);
-        notifyDashboard(message);
-        notifyChat(message);
-    }
-
-public:
-    void reduceStock(string productId, int quantity) {
-        cout << "商品 " << productId
-             << " の在庫を " << quantity << " 減らしました。" << endl;
-        notifyAll("商品 " + productId + " の在庫が減少しました。");
-    }
-};
-```
-
-このコードを見ると、各メソッドが整然と並んでいて非常に読みやすくなっています。しかしここで、抽出したメソッド群をよく観察してください。`notifyEmail(string message)` / `notifyDashboard(string message)` / `notifyChat(string message)` ——すべてのメソッドが**「同じ引数を受け取る」という一貫した構造（同じ形）**を持っています。
-
-**この段階の評価：** これが「プライベートメソッドによる整理」の限界（最終到達点）です。構造的に一貫性があるにもかかわらず、新しい通知先が増えるたびに `InventoryManager` を開かなければならない問題は解決していません。「同じ形のメソッドが並べられる」ということは、「共通のインターフェースとして抽象化できる」という証拠でもあります。
-
-### ステップ4：別のクラスに切り出してみる（具体×直接）
-
-「メソッドが肥大化してきたので、それぞれの通知処理を別々のクラス（別ファイル）に分けてみよう」という発想を試してみます。
-
-```cpp
-// 各通知先を独立したクラスに分ける（インターフェースはない）
-class EmailNotifier {
-public:
-    void send(string m) { cout << "Email: " << m << endl; }
-};
-
-class ChatNotifier {
-public:
-    void send(string m) { cout << "Chat: " << m << endl; }
-};
-
-class SMSNotifier {
-public:
-    void send(string m) { cout << "SMS: " << m << endl; }
-};
-
-// 呼び出し元：具体クラスを直接保持している
-class InventoryManager {
-private:
-    EmailNotifier email;   // ← 具体クラスを直接知っている
-    ChatNotifier chat;
-    SMSNotifier sms;
-
-    void notifyAll(string message) {
-        email.send(message);
-        chat.send(message);
-        sms.send(message);
-        // 新しい通知先が増えるたびにここを修正（変わらず）
-    }
-
-public:
-    void reduceStock(string productId, int quantity) {
-        string message = "商品 " + productId + " の在庫が減少しました。";
-        notifyAll(message);
-    }
-};
-```
-
-このコードを見ると、クラスがファイルとして分離できたため整理されたように思えます。しかし、`InventoryManager` がまだ `EmailNotifier` / `ChatNotifier` / `SMSNotifier` という具体クラス名を全部知っています。新しい通知先が増えれば、`InventoryManager` を開いてメンバ変数と `notifyAll` の両方を修正しなければなりません。
-
-**この段階の評価：** ファイルは分離できたが、`InventoryManager` が具体クラスを名指しで知り続けている（具体×直接）という構造は変わっていない。一貫性があるなら、この依存関係ごと外に追い出すことができるはずです。
-
-### ステップ5：インターフェース化して通知先ごと追い出す（抽象×直接）
-
-既存コード（`InventoryManager`）を一切触らずに新しい通知先を追加するにはどうすればよいでしょうか？すべての通知先クラスに共通のインターフェース（契約）を持たせることで、通知元は「具体的な型」ではなく「インターフェース型」だけを知る状態にします。
+ステップ2の問題は「具体型ごとにリストが必要になる」ことです。通知先クラスのメソッド名が `send` / `update` とバラバラなのも原因の一つでした。すべての通知先クラスに共通の契約（インターフェース）を持たせれば、`InventoryManager` は型を一切知らずに済むはずです。
 
 ```cpp
 // 通知先が満たす必要がある契約（インターフェース）
@@ -579,6 +497,13 @@ public:
     }
 };
 
+class DashboardUpdater : public INotification {
+public:
+    void send(string m) override {
+        cout << "Dashboard: " << m << endl;
+    }
+};
+
 class ChatNotifier : public INotification {
 public:
     void send(string m) override {
@@ -586,7 +511,7 @@ public:
     }
 };
 
-// ← 新しい通知先を追加するには、このクラスを1つ増やすだけ
+// ← 新しい通知先はこのクラスを1つ増やすだけ
 class SMSNotifier : public INotification {
 public:
     void send(string m) override {
@@ -597,11 +522,11 @@ public:
 // 通知元クラス：具体クラスを一切知らない
 class InventoryManager {
 private:
-    vector<INotification*> observers; // ← インターフェース型だけを知る
+    vector<INotification*> observers; // ← インターフェース型で統一
 
     void notifyAll(string message) {
         for (auto* o : observers) {
-            o->send(message); // ← どの具体クラスかは知らずに呼べる
+            o->send(message);  // 具体クラスを知らずに呼べる
         }
     }
 
@@ -609,7 +534,8 @@ public:
     void attach(INotification* o) { observers.push_back(o); }
 
     void reduceStock(string productId, int quantity) {
-        string message = "商品 " + productId + " の在庫が減少しました。";
+        string message = "商品 " + productId
+                       + " の在庫が減少しました。";
         notifyAll(message);
     }
 };
@@ -617,11 +543,13 @@ public:
 // 呼び出し側（main）だけが具体クラスを知る
 int main() {
     EmailNotifier email;
+    DashboardUpdater dashboard;
     ChatNotifier chat;
     SMSNotifier sms;
 
     InventoryManager manager;
     manager.attach(&email);
+    manager.attach(&dashboard);
     manager.attach(&chat);
     manager.attach(&sms);
 
@@ -630,22 +558,22 @@ int main() {
 }
 ```
 
-このコードを見ると、`InventoryManager` の中から具体クラス名（`EmailNotifier`, `ChatNotifier`, `SMSNotifier`）が完全に消え去りました。新しい通知先を追加するには、`INotification` を実装した新しいクラスを1つ作り、`attach()` で登録するだけです。
+`InventoryManager` の中から具体クラス名（`EmailNotifier`、`DashboardUpdater`、`SMSNotifier`）が完全に消え去り、`INotification*` のリストだけが残ったことが分かる。
 
-**この段階の評価：** ついに、`InventoryManager` は「誰に通知するか」を一切知らずに済むようになりました。接続の形が「抽象×直接」へ到達したことで、本体は無傷のまま、いくらでも新しい通知先を追加できるようになりました。
+**この段階の評価：** `InventoryManager` は「誰に通知するか」を一切知らずに済むようになった。新しい通知先を追加するには、`INotification` を実装した新しいクラスを1つ作り、`attach()` で登録するだけで既存クラスへの変更はゼロになる。
 
 ---
 
 ### どこまで設計を進めるべきか（採用ステップの決断）
 
-それぞれのステップには一長一短があります。ステップ5の「インターフェース化（抽象×直接）」は強力ですが、インターフェースを導入する「初期投資コスト」もかかります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
+それぞれのステップには一長一短があります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
 
-*   **ステップ1・2・3で止めるケース：** 通知先がメールとダッシュボードだけで、今後絶対に増えない場合。プライベートメソッドで整理するだけで十分です。
-*   **ステップ4で止めるケース：** ファイルを分けて整理したいが、インターフェース導入のコストをまだかけたくない場合の「中間策」です。
-*   **ステップ5（インターフェース化・抽象×直接）まで進むケース：** 「チャット」「SMS」「別システム」など、今後新しい通知先が増減することが見込まれる場合。通知元を一切修正せずに拡張できる仕組みを作るのが適切です。
+*   **ステップ1で止めるケース：** 通知先が固定で、今後絶対に増えない場合。プライベートメソッドで整理するだけで十分です。
+*   **ステップ2で止めるケース：** 同種の通知先を複数登録したいが、通知先の種類が増えることはない場合の「中間策」です。
+*   **ステップ3（インターフェース化・抽象×直接）まで進むケース：** 「チャット」「SMS」「別システム」など、今後新しい通知先が増減することが見込まれる場合。通知元を一切修正せずに拡張できる仕組みを作るのが適切です。
 
 **今回の決断：**
-フェーズ2のヒアリングで「田中部長からSMSへの通知が要望されている」ことが確定しています。また、今後も音声通知システムとの連携など、通知先が増える可能性があります。未来のコストを最小化しつつ、現在の実装コストを許容範囲内に抑えるため、**ステップ5（インターフェース化・抽象×直接）で止める**決断を下します。
+フェーズ2のヒアリングで「田中部長からSMSへの通知が要望されている」ことが確定しています。また、今後も音声通知システムとの連携など、通知先が増える可能性があります。未来のコストを最小化しつつ、現在の実装コストを許容範囲内に抑えるため、**ステップ3（インターフェース化・抽象×直接）で止める**決断を下します。
 
 このように、変わる通知先をインターフェースで分離し、登録リストを通じて動的に通知できるようにするこの設計構造を **Observer（オブザーバー）パターン** と呼びます。
 
@@ -655,13 +583,13 @@ int main() {
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 
-採用したステップ5（抽象×直接）を実装し、通知元と通知先の依存関係を劇的に改善します。この設計によって、通知元の InventoryManager は「誰に通知するか」を一切知ることなく、「通知を送る」という自分の責務だけを果たすようになります。
+フェーズ6のステップ3（抽象×直接）を実装し、通知元と通知先の依存関係を劇的に改善します。この設計によって、通知元の InventoryManager は「誰に通知するか」を一切知ることなく、「通知を送る」という自分の責務だけを果たすようになります。
 
 **この構造は、Observer（オブザーバー）パターンと呼ばれています。**
 
 名前の由来は、Subject（被観察者・通知を送る側）がObserver（観察者・通知先）に通知する仕組みだから、Observerパターンと呼ばれています。通知を「受け取る側」の役割名が、このパターンの名称になっています。
 
-通知を送る側（Subject）がオブザーバーのリストを保持し、状態が変化したときに一斉に通知を送るという構造が、私たちが選んだステップ5そのものです。フェーズ1から積み上げてきた思考の結果、たどり着いた構造に名前があった——というのが本書の伝えたいことです。
+通知を送る側（Subject）がオブザーバーのリストを保持し、状態が変化したときに一斉に通知を送るという構造が、私たちが選んだステップ3そのものです。フェーズ1から積み上げてきた思考の結果、たどり着いた構造に名前があった——というのが本書の伝えたいことです。
 
 ### 7-1：解決後のコード（全体）
 
@@ -847,7 +775,7 @@ Chat: 商品 Shoes-004 の在庫が減少しました。
 
 ### 7-2：動作シーケンス図
 
-ステップ5で到達したObserverパターンの実行時のオブジェクト間のやり取りを可視化します。main() が依存関係を注入し、InventoryManager が具象クラスを知らずに抽象インターフェース経由で通知を送る流れが確認できます。
+ステップ3で到達したObserverパターンの実行時のオブジェクト間のやり取りを可視化します。main() が依存関係を注入し、InventoryManager が具象クラスを知らずに抽象インターフェース経由で通知を送る流れが確認できます。
 
 ```mermaid
 sequenceDiagram
@@ -922,7 +850,7 @@ graph LR
 | 🟣 フェーズ3：問題特定 | 新しい通知手段を追加しようとすると、既存の通知元クラスを毎回修正しなければならないという「痛み」を確認した。 |
 | 🟠 フェーズ4：原因分析 | 通知元が、通知先の具体的な実装を直接知っていることが、影響範囲を広げる根本原因だと特定した。 |
 | 🟡 フェーズ5：課題定義 | ホットパスではないため間接層を許容し、通知元と通知先を疎結合にする接続形態を課題とした。 |
-| 🔴 フェーズ6：対策検討 | 5ステップの段階的進化でそれぞれの痛みの限界を確認し、ステップ5（インターフェース化・抽象×直接）まで進化させる決断を下した。 |
+| 🔴 フェーズ6：対策検討 | 3ステップの段階的進化でそれぞれの痛みの限界を確認し、ステップ3（インターフェース化・抽象×直接）まで進化させる決断を下した。 |
 | 🟢 フェーズ7：対策実施 | 通知元はインターフェースのリストを保持するだけに留め、通知先を動的に登録・解除できる構造を実現した。この構造が Observer パターンと呼ばれると知った。 |
 
 ### 責任の移動

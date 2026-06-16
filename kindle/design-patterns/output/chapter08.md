@@ -407,157 +407,86 @@ void processPayment(string type, int amount) {
 
 ## 🔴 フェーズ6：対策検討 ―― 段階的な改善と決断
 
-ターゲットである「生成の塊」を外に出すために、いきなり正解へ飛ぶのではなく、段階的にリファクタリングを進めてみます。それぞれの段階（ステップ）でどこまで痛みが解消されるかを確認し、今回の要件において「どのステップで止めるべきか」を決断します。
+ターゲットである「生成の塊」を外に出すために、いきなり正解へ飛ぶのではなく、エンジニアとして自然に思いつく順番で試していきます。それぞれの段階で「まだ何が残っているか」を正直に確認し、その積み重ねの先に「どこまで進むべきか」の決断があります。
 
-### ステップ1：生成ロジックをプライベートメソッドに切り出す（とりあえず分ける）
+### ステップ1：生成ロジックをプライベートメソッドに切り出す
 
-はじめに、クラスを分けずに、ターゲットの塊をプライベートメソッドとして分離してみます。`processPayment` の見通しが改善されることを確認しましょう。
+`processPayment` の中を見ると、「どの種別か判断する if-else」と「具体クラスを生成して pay() を呼ぶ」が一体になっています。「とりあえず読みやすくしよう」と思ったとき、最初に思いつくのは「生成の部分だけをメソッドに切り出す」ことではないでしょうか。クラスは分けず、`PaymentApplication` の中に `createProcessor` というプライベートメソッドを作ります。
 
 ```cpp
 class PaymentApplication {
-    // ← 生成ロジックをここに切り出す（Factory Methodの概念が始まる）
-    void processCredit(int amount) {
-        CreditCardProcessor p;
-        p.pay(amount);
-    }
-    void processPayPay(int amount) {
-        PayPayProcessor p;
-        p.pay(amount);
-    }
-    void processCvs(int amount) {
-        ConvenienceStoreProcessor p;
-        p.pay(amount);
+private:
+    // 生成処理を切り出す（PaymentApplicationの中にとどまっている）
+    IPaymentProcessor* createProcessor(string type) {
+        if (type == "credit") return new CreditCardProcessor();
+        if (type == "paypay") return new PayPayProcessor();
+        if (type == "cvs")    return new ConvenienceStoreProcessor();
+        return nullptr;
     }
 
 public:
     void processPayment(string type, int amount) {
-        if (type == "credit") { processCredit(amount); return; }
-        if (type == "paypay") { processPayPay(amount); return; }
-        if (type == "cvs")    { processCvs(amount);    return; }
-    }
-};
-```
-
-**この段階の評価：**
-メインの `processPayment()` の見通しが改善されました。しかし、決済手段が増えるたびにプライベートメソッドと `processPayment` の分岐の両方を追加し続ける点は変わりません。「生成と利用を同一クラスが知っている」という根本構造は変わっていません。
-
-### ステップ2：決済種別ごとにクラスを分ける（型ごとに責任を切り出す）
-
-ステップ1の「1クラスが全手段の生成を知っている」という問題を解決するために、各決済手段の処理を個別のクラスとして切り出してみます。
-
-```cpp
-// 各決済手段の処理を独立したクラスとして整理する
-class CreditCardProcessor {
-public:
-    void pay(int amount) {
-        cout << "クレジットで " << amount << " 円決済しました。" << endl;
-    }
-};
-
-class PayPayProcessor {
-public:
-    void pay(int amount) {
-        cout << "PayPayで " << amount << " 円決済しました。" << endl;
-    }
-};
-
-class ConvenienceStoreProcessor {
-public:
-    void pay(int amount) {
-        cout << "コンビニで " << amount << " 円の番号を発行しました。" << endl;
-    }
-};
-
-class PaymentApplication {
-public:
-    void processPayment(string type, int amount) {
-        // クラスに分けたのに、if文と生成は本体に残ったまま！
-        if (type == "credit") { CreditCardProcessor p; p.pay(amount); return; }
-        if (type == "paypay") { PayPayProcessor p;     p.pay(amount); return; }
-        if (type == "cvs")    { ConvenienceStoreProcessor p; p.pay(amount); return; }
-    }
-};
-```
-
-**この段階の評価：**
-各プロセッサーが独立したクラスとして整理されました。しかし、`PaymentApplication` はまだすべての具体クラス名を直接知っており、決済手段が増えるたびに修正が必要です。これが「具体×直接」の限界です。
-
-### ステップ3：クラス化の整理を最大化する（このクラスの中での限界）
-
-ステップ2をさらに整理し、クラス内での最大の綺麗さを目指してみます。生成メソッドを切り出すことで、利用ロジックと生成ロジックをメソッドレベルで分離できます。
-
-```cpp
-class PaymentApplication {
-    // 生成の知識をこのメソッドに集約する
-    // ← この時点で「Factory Methodの概念」が現れ始める
-    CreditCardProcessor* createCredit() { return new CreditCardProcessor(); }
-    PayPayProcessor* createPayPay() { return new PayPayProcessor(); }
-    ConvenienceStoreProcessor* createCvs() { return new ConvenienceStoreProcessor(); }
-
-public:
-    void processPayment(string type, int amount) {
-        if (type == "credit") {
-            CreditCardProcessor* p = createCredit();
-            p->pay(amount); delete p;
-        } else if (type == "paypay") {
-            PayPayProcessor* p = createPayPay();
-            p->pay(amount); delete p;
-        } else if (type == "cvs") {
-            ConvenienceStoreProcessor* p = createCvs();
-            p->pay(amount); delete p;
+        IPaymentProcessor* processor = createProcessor(type);
+        if (processor) {
+            processor->pay(amount);
+            delete processor;
         }
     }
 };
 ```
 
+`processPayment` が「生成→実行」という流れだけを担い、`createProcessor` が「どのクラスを生成するか」の判断を一手に引き受けた形になっています。
+
 **この段階の評価：**
-生成と利用がメソッドレベルで分かれ、コードが整理されました。**これが「クラス内の関数化」によるコード整理の限界（最終到達点）** です。
+`processPayment` の見通しが良くなり、生成処理がひとまとまりになりました。これは確かな一歩前進です。しかし `createProcessor` は `PaymentApplication` の中にあるため、新しい決済手段が増えるたびに `PaymentApplication` を開いて `if` を追加しなければなりません。生成処理がまとまったことは良いのですが、`PaymentApplication` がすべての具体クラス（`CreditCardProcessor`・`PayPayProcessor`・`ConvenienceStoreProcessor`）を直接知っているという根本は変わっていません。
 
-ここで、各プロセッサークラスをよく観察してください。`CreditCardProcessor`、`PayPayProcessor`、`ConvenienceStoreProcessor` は、すべて**「同じ引数（amount）を受け取り、同じ処理パターンを持つ」という一貫した構造** を持っています。
-**「綺麗にメソッドとして並べられる（構造に一貫性がある）」ということは、「共通のインターフェースとして抽象化できる」という何よりの証拠** なのです。
+「生成の知識を `PaymentApplication` の外に出せないか」という問いが自然に湧いてきます。
 
-しかし、メソッド化のままでは最大の痛みが残っています。新しい決済手段が来るたびに結局はこの `PaymentApplication` クラスを開いて新しいメソッドを追加し、`processPayment` の中に **新しい `if` 文を書き足さなければならない** のです。このままでは、「クラスが永遠に変わり続ける」という根本問題は解決していません。
+### ステップ2：生成ロジックを専用の PaymentFactory クラスに分離する
 
-### ステップ4：具体クラスのファクトリを切り出す（具体×直接）
-
-「クラスが肥大化してきたので、生成ロジックだけを別のクラスに切り出してみよう」という発想を試してみます。
+ステップ1で気になったのは「生成の知識が `PaymentApplication` に留まっている」という点でした。「では、生成の担当クラスを別に作ろう」という次の一手を試してみます。`createProcessor` の中身をそのまま `PaymentFactory` という独立したクラスに移します。
 
 ```cpp
-// 生成ロジックだけを別クラスに切り出す（インターフェースはまだない）
-class ProcessorFactory {
+// 生成の責任を専用クラスに分離する
+class PaymentFactory {
 public:
-    void processCredit(int amount) {
-        CreditCardProcessor p; p.pay(amount);
-    }
-    void processPayPay(int amount) {
-        PayPayProcessor p; p.pay(amount);
-    }
-    void processCvs(int amount) {
-        ConvenienceStoreProcessor p; p.pay(amount);
+    IPaymentProcessor* create(string type) {
+        if (type == "credit") return new CreditCardProcessor();
+        if (type == "paypay") return new PayPayProcessor();
+        if (type == "cvs")    return new ConvenienceStoreProcessor();
+        return nullptr;
     }
 };
 
 class PaymentApplication {
-    ProcessorFactory factory;
+private:
+    PaymentFactory factory;  // ← 生成の担当を外部クラスに委ねる
+
 public:
     void processPayment(string type, int amount) {
-        // ファクトリに分けたのに、if文は本体に残ったまま！
-        // しかも全ての具体クラスをFactoryが知っている
-        if (type == "credit") { factory.processCredit(amount); return; }
-        if (type == "paypay") { factory.processPayPay(amount); return; }
-        if (type == "cvs")    { factory.processCvs(amount);    return; }
+        IPaymentProcessor* processor = factory.create(type);
+        if (processor) {
+            processor->pay(amount);
+            delete processor;
+        }
     }
 };
 ```
 
+`PaymentApplication` は `PaymentFactory` に生成を依頼するだけになり、具体クラスの名前（`CreditCardProcessor` など）を直接知らなくなっています。
+
 **この段階の評価：**
-生成ロジックが別クラスに移りましたが、**何も本質的には解決していません**。
-`if` 文は `PaymentApplication` に残ったまま、新しい決済手段が来るたびに `PaymentApplication` も `ProcessorFactory` も両方修正しなければなりません。一貫性があるなら、この `if` 文すらも外に追い出すことができるはずです。
+生成の責任を `PaymentApplication` から切り出せました。`PaymentApplication` は決済の振り分けフローに集中できるようになっています。しかし今度は `PaymentFactory` がすべての具体クラスを知っており、新しい決済手段を追加するたびに `PaymentFactory` を修正しなければなりません。「修正が必要なクラスが `PaymentApplication` から `PaymentFactory` に移っただけ」という見方もできます。
 
-### ステップ5：インターフェース化して「生成と判断の責任」を分離する（抽象×直接）
+もう少し深く考えると、`PaymentFactory` は固定された1つのクラスです。「テスト環境ではモック用のプロセッサーを使いたい」「本番とステージングで生成ロジックを変えたい」といった要求が来たとき、`PaymentFactory` ごと差し替える仕組みがありません。Factory クラスを分離したのに、その Factory 自体が固定されてしまっているのです。
 
-既存コード（本体）を一切触らずに新しい決済手段を追加するにはどうすればよいでしょうか？
-「生成の判断（`if` 文）」と「具体クラスの生成（`new`）」を一か所のメソッドに集め、利用側はインターフェース（抽象）だけを知る形にします。
+「Factory の生成ロジック自体を差し替え可能にできないか」という問いが見えてきます。
+
+### ステップ3：生成メソッドを抽象化し、具体クラスに委ねる（Factory Method）
+
+ステップ2の `PaymentFactory` は、「どの具体クラスを生成するか」という知識を一手に持つ固定されたクラスでした。この発想を逆転させてみます。`PaymentApplication` 自体に `createProcessor` という抽象メソッドを宣言し、「生成の仕方は自分では決めない、サブクラスに任せる」という構造にします。
+
+まず、すべての決済プロセッサーが従う共通のインターフェースを定義します。
 
 ```cpp
 // 決済プロセッサーの共通インターフェース（契約）
@@ -566,8 +495,13 @@ public:
     virtual ~IPaymentProcessor() {}
     virtual void pay(int amount) = 0;
 };
+```
 
-// 各プロセッサーがインターフェースを実装する
+`IPaymentProcessor` は「金額を受け取って決済を実行する」という約束だけを定義します。
+
+次に、各決済手段の具体クラスがこのインターフェースを実装します。
+
+```cpp
 class CreditCardProcessor : public IPaymentProcessor {
 public:
     void pay(int amount) override {
@@ -588,46 +522,59 @@ public:
         cout << "コンビニで " << amount << " 円の番号を発行しました。" << endl;
     }
 };
+```
 
+どのクラスも `IPaymentProcessor` を実装しており、呼び出し側は `pay(amount)` という一つの窓口だけを使えます。
+
+そして核心の構造です。`PaymentApplication` は `createProcessor` を純粋仮想メソッドとして宣言し、具体的な生成はサブクラスに委ねます。
+
+```cpp
+// 生成の仕方を「サブクラスに任せる」抽象クラス
 class PaymentApplication {
-private:
-    // ★ Factory Method：生成ロジックをこのメソッドに集約
-    // 「どのクラスを生成するか」という判断がここに閉じ込められる
-    IPaymentProcessor* createProcessor(string type) {
+protected:
+    // ★ Factory Method：「何を作るか」はサブクラスが決める
+    virtual IPaymentProcessor* createProcessor(string type) = 0;
+
+public:
+    void processPayment(string type, int amount) {
+        // ← 生成結果の型は IPaymentProcessor* だけを知る
+        IPaymentProcessor* processor = createProcessor(type);
+        if (processor) {
+            processor->pay(amount);
+            delete processor;
+        }
+    }
+};
+
+// 実際の生成ロジックはここだけに閉じる
+class DefaultPaymentApplication : public PaymentApplication {
+protected:
+    IPaymentProcessor* createProcessor(string type) override {
         if (type == "credit") return new CreditCardProcessor();
         if (type == "paypay") return new PayPayProcessor();
         if (type == "cvs")    return new ConvenienceStoreProcessor();
         return nullptr;
     }
-
-public:
-    void processPayment(string type, int amount) {
-        // ← 生成結果の型は IPaymentProcessor* だけを知る（抽象）
-        IPaymentProcessor* processor = createProcessor(type);
-        if (processor) {
-            processor->pay(amount);  // ← if文なしで呼び出せる（直接）
-            delete processor;
-        }
-    }
 };
 ```
 
+`PaymentApplication` の `processPayment` は `IPaymentProcessor*` を受け取って `pay` を呼ぶだけです。「どのクラスを生成するか」という判断は、`DefaultPaymentApplication` という具体サブクラスの中だけに完全に閉じています。
+
 **この段階の評価：**
-ついに、`processPayment` の中から「どのクラスを生成するか」という `if` 文（条件ルーティング）が完全に消え去りました！ 新しい決済手段を追加するときは、`createProcessor` に1行追加するだけで対応できます。接続の形が **「抽象×直接」** へ到達したことで、利用ロジックは無傷のまま、いくらでも新しいプロセッサーを差し替えられるようになりました。
+`PaymentApplication`（振り分けフローの骨格）と `DefaultPaymentApplication`（生成の知識）が完全に分離されました。新しい決済手段を追加するとき、`DefaultPaymentApplication.createProcessor` に1行加えるだけで、`PaymentApplication` の `processPayment` には一切触れる必要がありません。「テスト用にモックプロセッサーを使いたい」という要求が来たときも、`PaymentApplication` を継承した別のサブクラスを作るだけで対応できます。これが Factory Method パターンの到達点です。
 
 ---
 
 ### どこまで設計を進めるべきか（採用ステップの決断）
 
-それぞれのステップには一長一短があります。ステップ5のインターフェース化は強力ですが、ファイル数や型が増えるという「初期投資コスト」もかかります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
+3つのステップにはそれぞれトレードオフがあります。ステップ3の抽象化は強力ですが、クラスの数が増えるという「初期投資コスト」もかかります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
 
-*   **ステップ1（プライベートメソッド化）で止めるケース：** 決済手段が2〜3種類で今後増える予定が全くない場合。とりあえず分けておくだけで十分です。
-*   **ステップ2・3（クラス化・メソッド整理）で止めるケース：** ルールが増えるかもしれないが確証がない場合。クラスを整理するだけにとどめ、本当に増えた時にステップ5へ進化させる「様子見」の判断です。
-*   **ステップ4（具体ファクトリへの分離）で止めるケース：** 生成ロジックを別クラスに分けて整理したいが、インターフェース導入のコストをまだかけたくない場合の「中間策」です。
-*   **ステップ5（インターフェース化・抽象化）まで進むケース：** 「今後も新しい決済手段が追加される」と確定している場合。今すぐ初期投資コストを払ってでも、将来の変更コストを最小化するのが適切です。
+*   **ステップ1（プライベートメソッド化）で止めるケース：** 決済手段が2〜3種類で今後増える予定が全くない場合。生成処理がひとまとまりになるだけで、読みやすさは十分改善されます。
+*   **ステップ2（具体ファクトリへの分離）で止めるケース：** 生成ロジックを `PaymentApplication` から切り出したいが、抽象化とサブクラスを増やすコストをまだかけたくない場合の「中間策」です。変更の主体が `PaymentFactory` に移るため、`PaymentApplication` への修正は不要になります。
+*   **ステップ3（Factory Method）まで進むケース：** 「今後も新しい決済手段が追加される」と確定しており、かつ「生成の仕方そのものを差し替えたい（テスト・環境別設定など）」という要求が見込まれる場合。今すぐ初期投資コストを払ってでも、将来の変更コストを最小化するのが適切です。
 
 **今回の決断：**
-フェーズ2のヒアリングで、決済担当者から「かなりハイペースで追加していく予定」と明言されています。したがって、今回は迷わず**ステップ5（インターフェース化・抽象化）まで進化させる**決断を下します。
+フェーズ2のヒアリングで、決済担当者から「かなりハイペースで追加していく予定」と明言されています。したがって、今回は**ステップ3（Factory Method）まで進化させる**決断を下します。
 
 生成するオブジェクトの種類（決済手段）を、利用側から隠蔽するメソッドに集約し、利用側がインターフェースを通じてインスタンスを得る構造——これが **Factory Method（ファクトリーメソッド）パターン** と呼ばれています。
 
@@ -637,7 +584,7 @@ public:
 
 ### 7-1：解決後のコード（全体）
 
-ステップ5で決断した構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて見ていきましょう。
+ステップ3で決断した構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて見ていきましょう。
 
 **1. インターフェース（契約）の定義**
 すべての決済プロセッサーが守るべき共通のインターフェースを定義します。
@@ -688,19 +635,14 @@ public:
 ```
 
 **3. 本体クラス（Factory Methodを持つCreator）**
-決済を行う本体クラスです。`createProcessor` というFactory Methodが「どのクラスを生成するか」という判断を一手に引き受け、利用側である `processPayment` はインターフェースを通じて結果を受け取るだけになります。
+決済を行う本体クラスです。`PaymentApplication` が「振り分けフローの骨格」を担い、`DefaultPaymentApplication` が「どのクラスを生成するか」という判断を一手に引き受けます。利用側である `processPayment` はインターフェースを通じて結果を受け取るだけになります。
 
 ```cpp
+// 振り分けフローの骨格（生成は知らない）
 class PaymentApplication {
-private:
-    // Factory Method：生成ロジックをここに集約
-    IPaymentProcessor* createProcessor(string type) {
-        if (type == "credit") return new CreditCardProcessor();
-        if (type == "cvs")    return new ConvenienceStoreProcessor();
-        // ← ここだけ変わる
-        if (type == "paypay") return new PayPayProcessor();
-        return nullptr;
-    }
+protected:
+    // Factory Method：生成はサブクラスに委ねる
+    virtual IPaymentProcessor* createProcessor(string type) = 0;
 
 public:
     void processPayment(string type, int amount) {
@@ -710,6 +652,17 @@ public:
             processor->pay(amount); // ← 実装詳細を直接触らない
             delete processor;
         }
+    }
+};
+
+// 生成ロジックはここだけに閉じる（← ここだけ変わる）
+class DefaultPaymentApplication : public PaymentApplication {
+protected:
+    IPaymentProcessor* createProcessor(string type) override {
+        if (type == "credit") return new CreditCardProcessor();
+        if (type == "cvs")    return new ConvenienceStoreProcessor();
+        if (type == "paypay") return new PayPayProcessor();
+        return nullptr;
     }
 };
 ```
@@ -732,7 +685,7 @@ public:
 };
 
 int main() {
-    PaymentApplication app;
+    DefaultPaymentApplication app;  // ← 具体的な生成担当を選ぶのはここだけ
 
     // 行1：credit / 1000円
     app.processPayment("credit", 1000);
@@ -761,7 +714,7 @@ PayPayで 700 円決済しました。
 
 ### 7-2：動作シーケンス図
 
-ステップ5で到達したFactory Methodパターンの実行時のオブジェクト間のやり取りを可視化します。`PaymentApplication` が `createProcessor` を通じて生成の判断を委譲し、利用側は `IPaymentProcessor*` というインターフェース経由で処理を実行する流れが確認できます。
+ステップ3で到達したFactory Methodパターンの実行時のオブジェクト間のやり取りを可視化します。`PaymentApplication` が `createProcessor` を通じて生成の判断を委譲し、利用側は `IPaymentProcessor*` というインターフェース経由で処理を実行する流れが確認できます。
 
 ```mermaid
 sequenceDiagram
@@ -814,7 +767,7 @@ graph LR
 | 🟣 フェーズ3：問題特定 | PayPay追加を試み、決済手段が増えるたびに統括クラスが修正対象になることを確認した |
 | 🟠 フェーズ4：原因分析 | 変わる理由が異なる2つのもの（振り分けフローと生成ロジック）が同じ場所にいることが痛みの根本と特定した |
 | 🟡 フェーズ5：課題定義 | 生成の塊を分離することをターゲットとして特定した |
-| 🔴 フェーズ6：対策検討 | 5ステップの段階的進化でそれぞれの痛みの限界を確認し、ステップ5（インターフェース化・抽象×直接）まで進化させる決断を下した |
+| 🔴 フェーズ6：対策検討 | 3ステップの段階的進化でそれぞれの限界を確認し、ステップ3（Factory Method・抽象化）まで進化させる決断を下した |
 | 🟢 フェーズ7：対策実施 | 最終コードを実装し、変更影響グラフで変更の局所化を確認した |
 
 ### 責任の移動
@@ -837,7 +790,7 @@ graph LR
 | 1. 変動箇所の識別 | フェーズ2の責任チェック表と変わる理由の分析で、生成ロジックを変動要因として特定した |
 | 2. 接続形態の診断 | フェーズ4で「具体×直接」の状態を診断した |
 | 3. 変更局所化の説明 | フェーズ7の変更シナリオ表で、変更が `createProcessor` に閉じる構造を示した |
-| 4. 利用側が生成知識から解放される視点 | フェーズ6のステップ5で、`processPayment` からif文が消える様子を示した |
+| 4. 利用側が生成知識から解放される視点 | フェーズ6のステップ3で、`processPayment` からif文が消える様子を示した |
 
 ### 3つの設計原則はどう適用されたか
 
@@ -948,4 +901,4 @@ public:
 
 **得られること3**（接続の形の効果を説明する）：フェーズ6と7で、`createProcessor` というFactory Methodに生成の判断を集約し、利用側を `IPaymentProcessor*` インターフェースだけに接続することで、既存の決済フローには一切触れずに新しいプロセッサーを追加できるようになること（変更の局所化）を学びました。
 
-**得られること4**（利用側が生成知識から解放される視点）：フェーズ6のステップ5で見たように、`processPayment` の中からif文が消え、「どの具体クラスが動くか」を知らずに処理を委譲できるようになった状態がFactory Methodパターンの到達点です。
+**得られること4**（利用側が生成知識から解放される視点）：フェーズ6のステップ3で見たように、`processPayment` の中からif文が消え、「どの具体クラスが動くか」を知らずに処理を委譲できるようになった状態がFactory Methodパターンの到達点です。

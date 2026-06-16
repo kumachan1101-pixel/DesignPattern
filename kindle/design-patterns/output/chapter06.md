@@ -17,8 +17,6 @@
 * **得られること3：** 接続点の形を変えると変更がどのように局所化（変更の影響が1クラスだけで済む状態）されるかを、構造から説明できるようになる。「変わる責任はどのクラスが持つべきか」という問いが、変更の影響範囲を構造から予測する力を与えてくれる。
 * **得られること4：** 基本機能と追加機能を同じインターフェースで扱うことで、呼び出し側に違いを意識させずに機能を何層でも重ねていく視点が身につく。「追加するたびに呼び出し側も変えなければならない」という痛みを経験したとき、この構造の必要性が実感として伝わってくる。
 
-前段でこの章の目的と得られる視点を共有しました。ここからはいよいよ、実際のコードを前にして思考プロセスを回していきます。最初のステップであるフェーズ1では、システムの現状を「事実として」観察することから始めましょう。一緒に少しずつ解きほぐしていきましょう。
-
 ---
 
 ## 🔵 フェーズ1：現状把握 ―― コードとクラス構成を読む
@@ -27,6 +25,8 @@
 このシステムは、カフェのドリンク注文を**カスタマイズ**し、合計金額と注文名称を算出します。
 
 お客様は基本ドリンクを選択したうえで、複数のトッピングを自由に組み合わせられます。システムは選択された内容から `getPrice()`（合計金額）と `getDescription()`（注文名称）の2つの値を返します。
+
+このシステムには、メニューとトッピングの価格・種類を決める**商品企画部**、スタッフに表示する注文名称のルールを管理する**店舗オペレーション部**、コードを保守する**開発チーム**の3者が関わっています。
 
 **現在のメニューと価格**
 
@@ -37,14 +37,14 @@
 | トッピング | Syrup（シロップ） | +30円 |
 | トッピング | Whip（ホイップ） | +70円 |
 
-トッピングは複数追加でき、同じトッピングを重ねることも可能です（例：ホイップ×2）。`getDescription()` の出力例：`Coffee + Milk + Syrup`
+トッピングは複数追加できます。`getDescription()` の出力例：`Coffee + Milk + Syrup`
 
 ---
 ---
 
 ### 1-2：動作例テーブル ―― 仕様を「動かした結果」で確認する
 
-コードを読む前に、このシステムがどんな入力に対してどんな出力を返すかを確認します。この章のどのステップも、以下の動作を実現します。
+コードを読む前に、このシステムがどんな入力に対してどんな出力を返すかを確認します。以下の動作を基準として確認します。フェーズ1〜フェーズ6の途中ステップは一部の行を実現できないことがありますが、フェーズ7の最終コードはすべての行を実現します。
 
 | 注文内容 | getDescription() の出力 | getPrice() の出力 |
 | --- | --- | --- |
@@ -52,11 +52,10 @@
 | コーヒー + ミルク | `Coffee + Milk` | 350円（300 + 50） |
 | コーヒー + ミルク + シロップ | `Coffee + Milk + Syrup` | 380円（300 + 50 + 30） |
 | コーヒー + ミルク + ホイップ | `Coffee + Milk + Whip` | 420円（300 + 50 + 70） |
-| コーヒー + ホイップ × 2（ダブル） | `Coffee + Whip + Whip` | 440円（300 + 70 + 70） |
 | コーヒー + ミルク + シロップ + ホイップ | `Coffee + Milk + Syrup + Whip` | 450円（300 + 50 + 30 + 70） |
 | コーヒー + ミルク + シロップ + ホイップ + 抹茶 | `Coffee + Milk + Syrup + Whip + Matcha` | 510円（300 + 50 + 30 + 70 + 60） |
 
-この表がこの章全体のアンカーです。フェーズ1からフェーズ7まで、構造がどれだけ違っても、この入出力の対応は変わりません。「何が同じで、何が違うのか」を意識しながらコードを読むと、各ステップの本質的な差異が見えやすくなります。
+この表がこの章全体の動作の基準になります。フェーズ1からフェーズ7まで、構造がどれだけ違っても、この入出力の対応は変わりません。「何が同じで、何が違うのか」を意識しながらコードを読むと、各ステップの本質的な差異が見えやすくなります。
 
 ---
 ---
@@ -287,7 +286,20 @@ int getPrice() const {
 }
 ```
 
-これでクラスの修正は終わったと思い、コンパイルしてみると、エラーが大量に出力されました。`CustomDrink` を生成しているモバイルアプリ側（呼び出し元）のコードです。コンストラクタの引数が増えたことで、既存の「コーヒーにミルクだけ」といった注文を生成しているすべての箇所が壊れてしまったのです。
+`getPrice()` と同様に、`getDescription()` にも抹茶の処理を書き足す必要があります。
+
+```cpp
+string getDescription() const {
+    string desc = baseName;
+    if (hasMilk)     desc += " + Milk";
+    if (hasWhip)     desc += " + Whip";
+    if (hasSyrup)    desc += " + Syrup";
+    if (hasMatcha)   desc += " + Matcha"; // ← 抹茶パウダーを追加
+    return desc;
+}
+```
+
+これでクラスの修正は終わったと思い、コンパイルしてみると、コンストラクタの引数が増えたため、`main()` 内の `CustomDrink order(...)` でコンパイルエラーが発生しました。`CustomDrink` を生成しているモバイルアプリ側（呼び出し元）のコードです。コンストラクタの引数が増えたことで、既存の「コーヒーにミルクだけ」といった注文を生成しているすべての箇所が壊れてしまったのです。
 
 たった2つのトッピングを追加しようとしただけなのに、クラスの中をあちこち探し回って修正した上に、呼び出し側のコードまで直さなければならない状況になっています。
 
@@ -409,9 +421,13 @@ graph LR
 
 ターゲットである「if文とフラグの塊」を外に出すために、いきなり正解へ飛ぶのではなく、段階的にリファクタリングを進めてみます。それぞれの段階（ステップ）でどこまで痛みが解消されるかを確認し、今回の要件において「どのステップで止めるべきか」を決断します。
 
-### ステップ1：機能の組み合わせロジックをプライベートメソッドに切り出す（とりあえず分ける）
+どのステップも、フェーズ1の動作基準テーブルの動作を実現します（ホイップ×2はステップ5以降で対応可能になります）。違うのは「変更が来たときにどこを触ることになるか」です。
 
-はじめに、クラスを分けずに、ターゲットの処理を丸ごとプライベートメソッドとして分離してみます。
+---
+
+### ステップ1：プライベートメソッドに切り出す（最小の整理）
+
+まず手始めに、クラスを分けずに、トッピング処理をプライベートメソッドとして整理してみます。
 
 ```cpp
 class CustomDrink {
@@ -421,9 +437,8 @@ private:
     bool hasMilk;
     bool hasWhip;
     bool hasSyrup;
-    bool hasMatcha; // ← 新しくフラグを追加
+    bool hasMatcha;
 
-    // プライベートメソッドでトッピング処理を整理する
     int calcToppingPrice() const {
         int extra = 0;
         if (hasMilk)   extra += 50;
@@ -443,110 +458,75 @@ private:
     }
 
 public:
-    // 引数が増え続けるため呼び出し側もすべて修正が必要
     CustomDrink(string name, int price,
                 bool milk, bool whip, bool syrup, bool matcha)
         : baseName(name), basePrice(price),
           hasMilk(milk), hasWhip(whip),
           hasSyrup(syrup), hasMatcha(matcha) {}
 
-    int getPrice() const {
-        return basePrice + calcToppingPrice();
-    }
-
-    string getDescription() const {
-        return baseName + buildToppingDesc();
-    }
+    int getPrice() const { return basePrice + calcToppingPrice(); }
+    string getDescription() const { return baseName + buildToppingDesc(); }
 };
 ```
 
-**この段階の評価：**
-`getPrice()` と `getDescription()` のメインロジックはスッキリしました。しかし、分離した `calcToppingPrice()` の中を見ると、if文の羅列が相変わらず存在しています。新しいトッピングが来るたびに、結局はこのクラスを開いてフラグを追加し、2つのプライベートメソッドを修正し、コンストラクタ引数を増やして呼び出し側も壊す作業が繰り返されます。
+`getPrice()` と `getDescription()` の見通しは改善されました。
 
-### ステップ2：個別のトッピング処理を専用メソッドに分ける
+**この段階の評価：** 読みやすくはなったが、問題の根本は何も変わっていない。新しいトッピングが来るたびに、フラグの追加・コンストラクタの変更・`calcToppingPrice` と `buildToppingDesc` の両方への追記・呼び出し元の修正という4箇所の修正が毎回必要になる。
 
-ステップ1の「プライベートメソッドの中身がごちゃごちゃ」という問題を解決するために、各トッピングの価格と名前を個別のメソッドに切り出してみます。
+ここで自然と「フラグの増加を止めるには？」という問いが浮かぶ。
+
+---
+
+### ステップ2：継承で全組み合わせを表現する（最初の直感）
+
+「フラグではなく、組み合わせごとにサブクラスを作ればいい」という発想を試してみます。継承を使えば、各組み合わせを型として表現できます。
 
 ```cpp
-class CustomDrink {
-private:
-    string baseName;
-    int basePrice;
-    bool hasMilk;
-    bool hasWhip;
-    bool hasSyrup;
-    bool hasMatcha;
-
-    // 各トッピングの価格を専用メソッドに分ける
-    int milkPrice()   const { return 50; }
-    int whipPrice()   const { return 70; }
-    int syrupPrice()  const { return 30; }
-    int matchaPrice() const { return 60; }
-
-    // 各トッピングの表示名を専用メソッドに分ける
-    string milkDesc()   const { return " + Milk"; }
-    string whipDesc()   const { return " + Whip"; }
-    string syrupDesc()  const { return " + Syrup"; }
-    string matchaDesc() const { return " + Matcha"; }
-
-    int calcToppingPrice() const {
-        int extra = 0;
-        if (hasMilk)   extra += milkPrice();
-        if (hasWhip)   extra += whipPrice();
-        if (hasSyrup)  extra += syrupPrice();
-        if (hasMatcha) extra += matchaPrice();
-        return extra;
-    }
-
-    string buildToppingDesc() const {
-        string desc;
-        if (hasMilk)   desc += milkDesc();
-        if (hasWhip)   desc += whipDesc();
-        if (hasSyrup)  desc += syrupDesc();
-        if (hasMatcha) desc += matchaDesc();
-        return desc;
-    }
-
+class Coffee {
 public:
-    CustomDrink(string name, int price,
-                bool milk, bool whip, bool syrup, bool matcha)
-        : baseName(name), basePrice(price),
-          hasMilk(milk), hasWhip(whip),
-          hasSyrup(syrup), hasMatcha(matcha) {}
-
-    int getPrice() const {
-        return basePrice + calcToppingPrice();
-    }
-
-    string getDescription() const {
-        return baseName + buildToppingDesc();
-    }
+    int getPrice() const { return 300; }
+    string getDescription() const { return "Coffee"; }
 };
+
+// コーヒー + ミルク
+class CoffeeMilk : public Coffee {
+public:
+    int getPrice() const { return 350; }  // 300 + 50
+    string getDescription() const { return "Coffee + Milk"; }
+};
+
+// コーヒー + ホイップ
+class CoffeeWhip : public Coffee {
+public:
+    int getPrice() const { return 370; }  // 300 + 70
+    string getDescription() const { return "Coffee + Whip"; }
+};
+
+// コーヒー + ミルク + ホイップ
+class CoffeeMilkWhip : public Coffee {
+public:
+    int getPrice() const { return 420; }  // 300 + 50 + 70
+    string getDescription() const { return "Coffee + Milk + Whip"; }
+};
+
+// 抹茶を追加すると、さらに倍の数が必要になる
+class CoffeeMatcha : public Coffee { };
+class CoffeeMilkMatcha : public Coffee { };
+class CoffeeWhipMatcha : public Coffee { };
+class CoffeeMilkWhipMatcha : public Coffee { };
 ```
 
-**この段階の評価：**
-ミルクの価格は `milkPrice()` に、ホイップの価格は `whipPrice()` に閉じ込まれました。価格の変更は対応するメソッドを1行直すだけで済みます。しかし、if文のチェーンはまだそのままです。そして何より、新しいトッピングが増えるたびにこのクラス全体が成長し続けます。
+継承ツリーはメニューの「全組み合わせ」を型として持つことになります。
 
-### ステップ3：関数化の限界 ―― これ以上は整理できない
+**この段階の評価：** トッピングが3種類なら 2³ = 8クラス、5種類なら 2⁵ = 32クラスが必要になる。「抹茶パウダー」1つを追加しようとしただけで、既存のすべての組み合わせに抹茶を足したクラスが一気に増える。また、ホイップ×2（ダブル）のような「同じトッピングを複数回」は、継承では原理的に表現できない。この方向はすぐに行き詰まる。
 
-ステップ2まで進めると、コードは相当読みやすくなります。各メソッドの名前は意図を明確に示し、「ミルクの価格が60円に変わった」というような変更には1行の修正で対応できます。
+「継承ではなく、トッピングを独立したクラスとして切り出せないか」という方向に思考が向く。
 
-ここで少し立ち止まって、抽出したメソッド群を眺めてみてください。
+---
 
-```cpp
-int milkPrice()   const { return 50; }
-int whipPrice()   const { return 70; }
-int syrupPrice()  const { return 30; }
-int matchaPrice() const { return 60; }
-```
+### ステップ3：トッピングをクラスに切り出す（具体×直接）
 
-`milkPrice()` も `whipPrice()` も、引数を取らず `int` を返すという、全く同じシグネチャを持っています。同様に、説明メソッドもすべて `string` を返す一貫した形です。この「綺麗に関数として並べられる」という事実は、「共通のインターフェースとして抽象化できる」という証拠でもあります。
-
-しかし、関数化のままでは最大の痛みが残っています。一貫性があるにもかかわらず、新しいトッピングが来るたびに結局はこの `CustomDrink` クラスを開いて新しいメソッドを追加し、if文にも新しい行を書き足さなければなりません。このままでは「クラスが永遠に変わり続ける」という根本問題は解決していません。
-
-### ステップ4：別のクラスに切り出してみる（具体×直接）
-
-「プライベートメソッドが増えて `CustomDrink` クラスが肥大化してきたので、とりあえずそれぞれを別クラスに分けてみよう」という発想を試してみます。
+「継承で組み合わせを表現するのではなく、トッピングを独立したクラスとして持てばいい」という発想を試してみます。
 
 ```cpp
 // インターフェースなし：ただクラスに分けただけ
@@ -562,47 +542,159 @@ public:
     string getName() const { return " + Whip"; }
 };
 
+class Matcha {
+public:
+    int getPrice() const { return 60; }
+    string getName() const { return " + Matcha"; }
+};
+
 class CustomDrink {
 private:
     string baseName;
     int basePrice;
-    // ← 具体：Milk* という具体型を直接知っている
-    Milk* milk;
-    Whip* whip;
+    // ← 具体クラス名を直接メンバとして持つ
+    Milk  milk;
+    Whip  whip;
+    Matcha matcha;
+    bool hasMilk  = false;
+    bool hasWhip  = false;
+    bool hasMatcha = false;
 
 public:
     CustomDrink(string name, int price)
-        : baseName(name), basePrice(price),
-          milk(nullptr), whip(nullptr) {}
+        : baseName(name), basePrice(price) {}
 
-    void setMilk(Milk* m) { milk = m; }
-    void setWhip(Whip* w) { whip = w; }
+    void addMilk()   { hasMilk  = true; }
+    void addWhip()   { hasWhip  = true; }
+    void addMatcha() { hasMatcha = true; }
 
     int getPrice() const {
         int total = basePrice;
-        // クラスに分けたのに、if文は本体に残ったまま
-        if (milk) total += milk->getPrice();
-        if (whip) total += whip->getPrice();
+        if (hasMilk)   total += milk.getPrice();
+        if (hasWhip)   total += whip.getPrice();
+        if (hasMatcha) total += matcha.getPrice();
         return total;
     }
 
     string getDescription() const {
         string desc = baseName;
-        if (milk) desc += milk->getName();
-        if (whip) desc += whip->getName();
+        if (hasMilk)   desc += milk.getName();
+        if (hasWhip)   desc += whip.getName();
+        if (hasMatcha) desc += matcha.getName();
         return desc;
     }
 };
+
+// 使い方
+int main() {
+    CustomDrink order("Coffee", 300);
+    order.addMilk();
+    order.addWhip();
+    cout << order.getDescription() << endl; // Coffee + Milk + Whip
+    cout << order.getPrice() << "円" << endl; // 420円
+    return 0;
+}
 ```
 
-**この段階の評価：**
-価格や名前の知識は個別のトッピングクラスに移動しました。しかし、`CustomDrink` が「`Milk`」「`Whip`」という具体的なクラス名を直接知っている状態は変わっていません。新しいトッピング `Matcha` が増えれば、`CustomDrink` に `Matcha* matcha;` というメンバ変数を追加し、`setMatcha()` メソッドを追加し、`getPrice()` と `getDescription()` にも新しいif文を書き足さなければなりません。これが「具体×直接」の限界です。
+トッピングの価格や名前の知識は個別クラスに移動し、`CustomDrink` は「何があるか」だけを管理するようになりました。
 
-### ステップ5：インターフェースで全層を統一する（抽象×間接）
+**この段階の評価：** 価格の変更（例：ミルク50円→60円）は `Milk.getPrice()` の1行だけで済む。しかし、`Choco`（チョコチップ）を追加しようとすると、`CustomDrink` に `Choco choco;` メンバと `bool hasChoco;` フラグと `addChoco()` メソッドを追加し、`getPrice()` と `getDescription()` にも `if` 文を書き足さなければならない。`CustomDrink` が具体クラス名（`Milk`, `Whip`, `Matcha`）を直接知っている状態は変わっていない。「具体クラスを直接知っている」ことが根本的な問題だと見えてくる。
 
-既存コードを一切触らずに新しいトッピングを追加するにはどうすればよいでしょうか。ステップ3で観察した「一貫したシグネチャ」を手がかりに、すべてのトッピングを共通のインターフェースで扱う形にします。
+---
 
-ここで重要な発想の転換があります。単にトッピングをインターフェース化するだけでなく、**基本ドリンクとトッピングを同じインターフェースで扱う**という構造にします。これにより、トッピング自体が「内部に別のドリンクを包む」仲介役として振る舞え、何層にも機能を重ねることが可能になります。
+### ステップ4：インターフェースで抽象化するが、スロットは固定のまま（抽象×直接）
+
+「`CustomDrink` が具体クラスを直接知っているのが問題なら、インターフェースを挟もう」という方向を試してみます。
+
+```cpp
+// トッピング共通の契約
+class ITopping {
+public:
+    virtual ~ITopping() = default;
+    virtual int getPrice() const = 0;
+    virtual string getName() const = 0;
+};
+
+class Milk : public ITopping {
+public:
+    int getPrice() const override { return 50; }
+    string getName() const override { return " + Milk"; }
+};
+
+class Whip : public ITopping {
+public:
+    int getPrice() const override { return 70; }
+    string getName() const override { return " + Whip"; }
+};
+
+class Matcha : public ITopping {
+public:
+    int getPrice() const override { return 60; }
+    string getName() const override { return " + Matcha"; }
+};
+
+class CustomDrink {
+private:
+    string baseName;
+    int basePrice;
+    // ← 抽象型で受け取るが、ミルク・ホイップ・抹茶の「枠」が固定
+    ITopping* milk   = nullptr;
+    ITopping* whip   = nullptr;
+    ITopping* matcha = nullptr;
+
+public:
+    CustomDrink(string name, int price)
+        : baseName(name), basePrice(price) {}
+
+    void setMilk(ITopping* t)   { milk   = t; }
+    void setWhip(ITopping* t)   { whip   = t; }
+    void setMatcha(ITopping* t) { matcha = t; }
+
+    int getPrice() const {
+        int total = basePrice;
+        if (milk)   total += milk->getPrice();
+        if (whip)   total += whip->getPrice();
+        if (matcha) total += matcha->getPrice();
+        return total;
+    }
+
+    string getDescription() const {
+        string desc = baseName;
+        if (milk)   desc += milk->getName();
+        if (whip)   desc += whip->getName();
+        if (matcha) desc += matcha->getName();
+        return desc;
+    }
+};
+
+// 使い方
+int main() {
+    CustomDrink order("Coffee", 300);
+    Milk  m;
+    Whip  w;
+    order.setMilk(&m);
+    order.setWhip(&w);
+    cout << order.getDescription() << endl; // Coffee + Milk + Whip
+    cout << order.getPrice() << "円" << endl; // 420円
+    return 0;
+}
+```
+
+`CustomDrink` は具体クラス名（`Milk`, `Whip`）を知らなくなりました。コンストラクタ引数の爆発もなくなっています。
+
+**この段階の評価：** ミルクを `ITopping` を実装した別のクラスに差し替えても `CustomDrink` は変更不要になった。しかし、`Choco`（チョコチップ）を追加しようとすると、`CustomDrink` に `ITopping* choco = nullptr;` と `setChoco()` メソッドを追加し、`getPrice()` と `getDescription()` にも `if (choco)` を書き足す必要がある。トッピングの「枠（スロット）」が `CustomDrink` に固定されている限り、新しいトッピングを追加するたびに `CustomDrink` を修正しなければならないという根本は変わっていない。また、「ホイップをダブルにする」という要望（`new Whip(new Whip(...))` のような連鎖）は、固定スロット方式では実現できない。
+
+「`CustomDrink` にスロットを追加せずにトッピングを足したい」という問いが浮かぶ。
+
+---
+
+### ステップ5：トッピング自体がドリンクを包む（抽象×間接）
+
+ステップ4の限界は、「トッピングの枠を `CustomDrink` が持っている」という構造から来ています。ここで発想を転換します。
+
+**「トッピング自体が、別のドリンクを中に包む構造にしたら？」**
+
+トッピングが `IDrink` インターフェースを実装して内部に別の `IDrink*` を持てば、`CustomDrink` というクラスは不要になります。`Coffee` も `Milk` も `Whip` もすべて同じ `IDrink` として扱えるので、何層にでも重ねることができます。
 
 ```cpp
 // 基本ドリンクとトッピング共通の契約
@@ -613,7 +705,7 @@ public:
     virtual string getDescription() const = 0;
 };
 
-// 基本ドリンク：変わらない処理の骨格
+// 基本ドリンク
 class Coffee : public IDrink {
 public:
     int getPrice() const override { return 300; }
@@ -623,8 +715,7 @@ public:
 // トッピングの基底クラス：中に別のドリンクを包む仲介役
 class ToppingWrapper : public IDrink {
 protected:
-    // ← 抽象：IDrink* 型で受け取り、具体クラスを知らない
-    IDrink* baseDrink;
+    IDrink* baseDrink; // ← 何を包むかは知らない。IDrink*だけを知る
 public:
     ToppingWrapper(IDrink* base) : baseDrink(base) {}
 };
@@ -634,8 +725,7 @@ class Milk : public ToppingWrapper {
 public:
     Milk(IDrink* base) : ToppingWrapper(base) {}
     int getPrice() const override {
-        // 中身が何であるかは知らなくていい。価格を上乗せするだけ
-        return baseDrink->getPrice() + 50;
+        return baseDrink->getPrice() + 50; // ← 中身の価格に自分の価格を上乗せするだけ
     }
     string getDescription() const override {
         return baseDrink->getDescription() + " + Milk";
@@ -646,26 +736,21 @@ public:
 class Matcha : public ToppingWrapper {
 public:
     Matcha(IDrink* base) : ToppingWrapper(base) {}
-    int getPrice() const override {
-        return baseDrink->getPrice() + 60;
-    }
+    int getPrice() const override { return baseDrink->getPrice() + 60; }
     string getDescription() const override {
         return baseDrink->getDescription() + " + Matcha";
     }
 };
 
-// 呼び出し側：IDrink* という型だけを知る
-void placeOrder(IDrink* order) {
-    cout << "注文内容: " << order->getDescription() << endl;
-    cout << "合計金額: " << order->getPrice() << "円" << endl;
-}
-
-// 組み立ては呼び出し側でだけ行われる
-// IDrink* order = new Matcha(new Milk(new Coffee()));
+// 組み立て
+IDrink* order = new Matcha(new Milk(new Coffee()));
+// ホイップ×2（ダブル）は、同じ型を2回包むだけ
+IDrink* double_whip = new Whip(new Whip(new Coffee()));
 ```
 
-**この段階の評価：**
-ついに、新しいトッピング `Matcha` を追加するために既存のクラスを一切開く必要がなくなりました。`Matcha` クラスを1つ新規作成するだけで、`Coffee` も `Milk` も `ToppingWrapper` も無傷のまま要件を満たせます。また、「ホイップをダブルにする」という要望は `new Whip(new Whip(new Coffee()))` と包むだけで実現できます。
+`Matcha` クラスを1つ追加するだけで、`Coffee` も `Milk` も `ToppingWrapper` も無傷のまま要件を満たせます。
+
+**この段階の評価：** 新しいトッピング追加 = 新しいクラスを1つ作るだけ。既存コードを一切開かずに済む。「ホイップをダブルにする」は `new Whip(new Whip(new Coffee()))` と包むだけで実現できる。ステップ4の「スロットを追加するたびに `CustomDrink` を修正する」という根本問題が解消された。
 
 ---
 
@@ -673,13 +758,13 @@ void placeOrder(IDrink* order) {
 
 それぞれのステップには一長一短があります。ステップ5の「インターフェース＋ラッパークラス」は強力ですが、クラス数が増えるという「初期投資コスト」もかかります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
 
-- **ステップ1で止めるケース：** トッピングの追加が年に1回あるかないかの場合。フラグとプライベートメソッドで整理しておくだけで、クラス数を増やして複雑さを上げる必要はありません。
-- **ステップ2・3で止めるケース：** トッピングが増えるかもしれないが確証がない場合。各トッピングの処理を綺麗に整理するにとどめ、本当に頻度が高まった時に進化させる「様子見」の判断です。
-- **ステップ4で止めるケース：** クラスを分けて整理したいが、インターフェース導入のコストをまだかけたくない場合の「中間策」です。トッピング種類が数個に固定されているなら有効です。
-- **ステップ5まで進むケース：** 「毎月新しいトッピングが追加される」「同じトッピングを複数回重ねる要望がある」と確定している場合。今すぐ初期投資コストを払ってでも、将来の変更コストをゼロにするのが適切です。
+- **ステップ1で止めるケース：** トッピングの追加が年に1回あるかないかの場合。整理するだけで十分。
+- **ステップ3で止めるケース：** トッピングが数種類に固定されており、今後大きく変わらない場合の中間策。
+- **ステップ4で止めるケース：** インターフェースを導入して差し替えやすくしたいが、チェーン構造まで必要ない場合。
+- **ステップ5まで進むケース：** 「毎月新しいトッピングが追加される」「同じトッピングを複数回重ねる要望がある」と確定している場合。
 
 **今回の決断：**
-フェーズ2のヒアリングで、商品企画部の佐藤マネージャーから「毎月のキャンペーンごとにトッピングが入れ替わる」「ホイップのダブル・チョコチップのトリプルも将来実現したい」と明言されています。したがって、今回は迷わず**ステップ5（インターフェースで全層を統一する）まで進化させる**決断を下します。
+フェーズ2のヒアリングで、商品企画部の佐藤マネージャーから「毎月のキャンペーンごとにトッピングが入れ替わる」「ホイップのダブル・チョコチップのトリプルも将来実現したい」と明言されています。したがって、今回は迷わず**ステップ5（トッピング自体がドリンクを包む）まで進化させる**決断を下します。
 
 このように、基本機能（ドリンク）と追加機能（トッピング）を同じインターフェースで統一し、追加機能が内部に別の機能を包む形で機能を動的に重ね合わせるこの設計構造を **Decorator（デコレーター）パターン** と呼びます。
 
@@ -951,7 +1036,7 @@ graph LR
 | 🟣 フェーズ3：問題特定 | 抹茶パウダーの追加を試み、影響がモバイルアプリ側にまで波及することを確認した |
 | 🟠 フェーズ4：原因分析 | 変わる理由が異なる2つのものが同じ場所にいることが痛みの根本と特定した |
 | 🟡 フェーズ5：課題定義 | 接続点A（`bool` フラグ引数）・接続点B（`if` 分岐のハードコード値）をデータレベルで特定した |
-| 🔴 フェーズ6：対策検討 | 5ステップの段階的進化でそれぞれの痛みの限界を確認し、ステップ5（インターフェースで全層を統一）まで進化させる決断を下した |
+| 🔴 フェーズ6：対策検討 | 5ステップの段階的進化で各アプローチの限界を確認した。継承による組み合わせ爆発→具体クラス直参照→抽象型スロット固定→ラッパー構造という思考の流れでステップ5（トッピング自体がドリンクを包む）まで進化させる決断を下した |
 | 🟢 フェーズ7：対策実施 | 最終コードを実装し、変更影響グラフで変更の局所化を確認した |
 
 ### 責任の移動
@@ -1001,7 +1086,7 @@ graph LR
 
 1. **変動の兆候を探す：** あなたのコードに「機能の組み合わせが増えるたびに、既存クラスを継承した新しいサブクラスを作っている」パターンがありますか？
 2. **変える理由を問う：** その機能の組み合わせは、誰の判断で変わりますか？コンパイル時に決まるものですか、それとも実行時に動的に変わるものですか？
-3. **継承の限界を測る：** 機能の組み合わせが n 種類になったとき、必要なサブクラスは何個になりますか？それは現実的に管理できる数ですか？
+3. **継承の限界を測る：** トッピングの種類が n 種類になったとき、継承で全組み合わせを表現すると 2ⁿ 個のサブクラスが必要になります。あなたのコードは現実的に管理できる数に収まっていますか？
 4. **包んだ後を想像する：** もし「機能を追加する層」をクラスとして独立させると、既存のクラスに触れずに新しい機能を加えられますか？組み合わせの数はどう変わりますか？
 
 ---

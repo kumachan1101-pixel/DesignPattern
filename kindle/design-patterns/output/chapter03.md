@@ -60,7 +60,7 @@ stateDiagram-v2
 | 5 | Available（空席） | `pay()` | エラー（支払い不可） | 予約なしで支払いを試みた場合 |
 | 6 | Paid（支払い済み） | `reserve()` | エラー（予約不可） | 支払い済み座席には再予約できない |
 
-この動作テーブルは、後のフェーズでステップを比較するときに「全ステップがこのテーブルと同じ出力を返すことで動作不変を確認する」ための基準として使います。ステップ1からステップ5まで、どれを採用しても上記の動作が変わってはいけません。違いはあくまで「変更が来たときにどこを触るか」という構造上の差だけです。
+この動作テーブルは、後のフェーズでステップを比較するときに「全ステップがこのテーブルと同じ出力を返すことで動作不変を確認する」ための基準として使います。ステップ1からステップ3まで、どれを採用しても上記の動作が変わってはいけません。違いはあくまで「変更が来たときにどこを触るか」という構造上の差だけです。
 
 ---
 
@@ -420,9 +420,9 @@ graph LR
 
 ---
 
-### ステップ1：丸ごとプライベートメソッドに切り出す（とりあえず分ける）
+### ステップ1：各状態処理をプライベートメソッドへ切り出す
 
-まず手始めに、各メソッド内の「状態ごとの処理のかたまり」を、プライベートメソッドとして切り出してみます。`reserve()` の中に直接書かれていたロジックを、`reserveFromAvailable()` などの専用メソッドに移す形です。
+フェーズ3で確認した痛みは「状態ごとの分岐が複数メソッドに散らばっている」でした。一番最小限の改善として、`reserve()` の中に直接書かれていたロジックを `reserveFromAvailable()` などの専用プライベートメソッドへ移してみます。
 
 ```cpp
 class TicketReservation {
@@ -454,7 +454,6 @@ public:
         }
         std::cout << "現在予約できません\n";
     }
-
     void pay() {
         if (status == "Reserved") {
             payFromReserved();
@@ -462,7 +461,6 @@ public:
         }
         std::cout << "支払いに適した状態ではありません\n";
     }
-
     void cancel() {
         if (status == "Reserved") {
             cancelFromReserved();
@@ -473,118 +471,15 @@ public:
 };
 ```
 
-`reserve()` の本文がプライベートメソッドの呼び出しだけになり、メソッドの「見た目」はすっきりしました。ただし、`if (status == "Available")` という状態名の直書きは各パブリックメソッドの中に残ったままです。新しい状態（例：`Held`）が追加されれば、`reserve()`・`pay()`・`cancel()` の3メソッドすべてを開いて条件分岐を追記しなければならない構造は変わっていません。
+各状態での処理が名前つきのメソッドとして読めるようになり、`reserve()` などの本文が短くなりました。
+
+**評価：** 見通しは良くなったが、新しい状態（キャンセル待ち等）を追加するときには `reserve()`・`pay()`・`cancel()` の全メソッドに新しい分岐を書き足すことに変わりはない。`TicketReservation` が「どの状態のときに何をするか」をすべて知っている構造が続く限り、状態が増えるたびにこのクラスを触り続けることになる。
 
 ---
 
-### ステップ2：状態ごとの処理を個別メソッドにさらに細かく分ける
+### ステップ2：状態ごとにクラスを作り、直接参照する（具体×直接）
 
-ステップ1でプライベートメソッドへの切り出しを試みましたが、パブリックメソッドに条件分岐が残ったままでした。次に、各状態からの操作をより明示的に整理することを試みます。`pay` の処理も `Paid` 状態からのキャンセル（返金）も、それぞれの遷移を対応するメソッドとして切り出す形です。
-
-```cpp
-class TicketReservation {
-private:
-    std::string status;
-
-    // Available 状態からの操作
-    void reserveFromAvailable() {
-        status = "Reserved";
-        std::cout << "予約完了しました\n";
-    }
-
-    // Reserved 状態からの操作
-    void payFromReserved() {
-        status = "Paid";
-        std::cout << "支払い完了しました\n";
-    }
-    void cancelFromReserved() {
-        status = "Available";
-        std::cout << "予約をキャンセルしました\n";
-    }
-
-    // Paid 状態からの操作
-    void errorAlreadyPaid() {
-        std::cout << "支払い済みのため操作できません\n";
-    }
-
-public:
-    TicketReservation() : status("Available") {}
-
-    void reserve() {
-        if (status == "Available") { reserveFromAvailable(); return; }
-        if (status == "Paid")      { errorAlreadyPaid();    return; }
-        std::cout << "現在予約できません\n";
-    }
-
-    void pay() {
-        if (status == "Reserved") { payFromReserved(); return; }
-        std::cout << "支払いに適した状態ではありません\n";
-    }
-
-    void cancel() {
-        if (status == "Reserved") { cancelFromReserved(); return; }
-        std::cout << "キャンセルできません\n";
-    }
-};
-```
-
-各状態からの操作が、メソッド名から読み取れるようになりました。しかし、`reserve()`・`pay()`・`cancel()` の先頭に `if (status == ...)` という状態名の羅列が残っています。新しい状態が加わるたびに、これら3つのパブリックメソッドを必ず修正しなければなりません。プライベートメソッドの整理はここが限界です。
-
----
-
-### ステップ3：状態チェックも個別メソッドに分ける
-
-ステップ2の構造からさらに一歩進めて、`status == "Available"` という判定そのものもメソッドとして切り出してみます。`isAvailable()`・`isReserved()`・`isPaid()` という確認メソッドを用意する形です。
-
-```cpp
-class TicketReservation {
-private:
-    std::string status;
-
-    bool isAvailable()  const { return status == "Available"; }
-    bool isReserved()   const { return status == "Reserved"; }
-    bool isPaid()       const { return status == "Paid"; }
-
-    void reserveFromAvailable() {
-        status = "Reserved";
-        std::cout << "予約完了しました\n";
-    }
-    void payFromReserved() {
-        status = "Paid";
-        std::cout << "支払い完了しました\n";
-    }
-    void cancelFromReserved() {
-        status = "Available";
-        std::cout << "予約をキャンセルしました\n";
-    }
-
-public:
-    TicketReservation() : status("Available") {}
-
-    void reserve() {
-        if (isAvailable()) { reserveFromAvailable(); return; }
-        std::cout << "現在予約できません\n";
-    }
-
-    void pay() {
-        if (isReserved()) { payFromReserved(); return; }
-        std::cout << "支払いに適した状態ではありません\n";
-    }
-
-    void cancel() {
-        if (isReserved()) { cancelFromReserved(); return; }
-        std::cout << "キャンセルできません\n";
-    }
-};
-```
-
-`reserve()` が `if (isAvailable())` という自然な英語で読めるようになり、クラス内での可読性は最大化されました。しかし、これが「1クラス内での整理」の限界です。新しい状態 `HeldState` が必要になれば、`isHeld()` という確認メソッドを追加しつつ、`reserve()`・`pay()`・`cancel()` を全て開いて条件分岐を追記しなければなりません。また、よく見ると `isAvailable()` / `isReserved()` / `isPaid()` / `reserveFromAvailable()` / `payFromReserved()` / `cancelFromReserved()` ……と、すべてのプライベートメソッドが「状態名＋操作名」という同じ形をしていることに気づきます。このパターンが繰り返されているとき、それは「状態ごとにまとめて別の場所に切り出せるサイン」です。
-
----
-
-### ステップ4：別のクラスに切り出してみる（具体×直接）
-
-ステップ3で「すべてのプライベートメソッドが状態名＋操作名という形をしている」というパターンに気づきました。それなら、状態ごとにクラスとして切り出してみましょう。`AvailableState` クラスには `reserve` の処理を、`ReservedState` クラスには `pay` と `cancel` の処理を移します。
+ステップ1の限界を確認したところで、「状態ごとのロジックを別クラスに切り出せば整理できるのでは」という自然な発想が浮かぶ。`ReservedState`・`AvailableState`・`PaidState` という3つのクラスを作り、`TicketReservation` がそれぞれを直接フィールドとして持つ形を試してみる。
 
 ```cpp
 class AvailableState {
@@ -619,55 +514,40 @@ public:
 
 class TicketReservation {
 private:
-    std::string status;
-    AvailableState available;
-    ReservedState  reserved;
-    PaidState      paid;
+    std::string    status;
+    AvailableState available; // ← 具体クラスを直接保持
+    ReservedState  reserved;  // ← 具体クラスを直接保持
+    PaidState      paid;      // ← 具体クラスを直接保持
 
 public:
     TicketReservation() : status("Available") {}
 
     void reserve() {
-        if (status == "Available") {
-            available.reserve(status);
-            return;
-        }
-        if (status == "Paid") {
-            paid.errorReserve();
-            return;
-        }
+        if (status == "Available") { available.reserve(status); return; }
+        if (status == "Paid")      { paid.errorReserve();       return; }
         std::cout << "現在予約できません\n";
     }
-
     void pay() {
-        if (status == "Reserved") {
-            reserved.pay(status);
-            return;
-        }
+        if (status == "Reserved") { reserved.pay(status); return; }
         std::cout << "支払いに適した状態ではありません\n";
     }
-
     void cancel() {
-        if (status == "Reserved") {
-            reserved.cancel(status);
-            return;
-        }
-        if (status == "Paid") {
-            paid.errorCancel();
-            return;
-        }
+        if (status == "Reserved") { reserved.cancel(status); return; }
+        if (status == "Paid")     { paid.errorCancel();      return; }
         std::cout << "キャンセルできません\n";
     }
 };
 ```
 
-状態ごとの処理がそれぞれのクラスに分離され、`TicketReservation` 自身のメソッドはずいぶんすっきりしました。しかし、`if (status == "Available")` という条件分岐はまだ `TicketReservation` の中に残っています。新しい状態が追加されれば、状態クラスを新規作成するだけでなく、`TicketReservation` の `reserve()`・`pay()`・`cancel()` にもそれぞれ `if` 文を追記しなければなりません。状態クラスを分けても、`TicketReservation` が状態名を直接知っている「具体×直接」という接続形態は変わっていません。
+状態ごとのロジックが `TicketReservation` から別クラスに移り、クラスを見ただけで「これがAvailable状態のふるまい」と分かるようになった。
+
+**評価：** 状態ごとのロジックは分離できたが、`TicketReservation` が全状態クラスを直接知っている。新しい状態（`WaitlistedState`）が必要になったとき、新クラスを追加するだけでなく、`reserve()`・`pay()`・`cancel()` の3メソッドすべてを開いて `if` 分岐を追記しなければならない。`TicketReservation` が具体クラスを直接名指しで持っている（具体×直接）限り、状態が増えるたびにこのクラスを修正し続ける。
 
 ---
 
-### ステップ5：インターフェース化して状態ごとの振る舞いを外に出す（抽象×直接）
+### ステップ3：インターフェースを導入し、現在の状態に委譲する（抽象×直接）
 
-ステップ4で「状態クラスを分けても `TicketReservation` が状態名を直接知っている」という問題が残りました。この問題を解消するには、`TicketReservation` が具体的な状態クラス名を知る必要をなくせばよいのです。そのための手段がインターフェースです。「どの状態クラスも `reserve()`・`pay()`・`cancel()` というメソッドを持つ」という契約（インターフェース）を定め、`TicketReservation` はその契約だけを知っていれば動けるようにします。
+ステップ2で「`TicketReservation` が全状態クラスを直接知っている」ことが問題だと分かった。解消するには `TicketReservation` が具体的なクラス名を知らなくてよい構造にすればいい。「どの状態クラスも `reserve()`・`pay()`・`cancel()` を持つ」という契約（インターフェース）を定め、`TicketReservation` はその契約だけを通じて現在の状態に処理を丸投げする。
 
 **状態インターフェース（IReservationState）：**
 
@@ -683,7 +563,7 @@ public:
 };
 ```
 
-メソッド引数に `TicketReservation* ctx` を受け取るのは、状態クラスが遷移先を `ctx->setState()` で設定するためにコンテキストへのポインタが必要だからです。インターフェースがこの契約を定めることで、どの状態クラスも同じ方法で呼び出せます。
+メソッド引数に `TicketReservation* ctx` を受け取るのは、各状態クラスが遷移後の状態を `ctx->setState()` でセットするためにコンテキストへのポインタが必要だからだ。
 
 **各状態クラス：**
 
@@ -729,6 +609,8 @@ public:
 };
 ```
 
+各クラスが「自分の状態のときに何ができて何ができないか」を自己完結して持っている。
+
 **コンテキストクラス（TicketReservation）：**
 
 ```cpp
@@ -744,7 +626,9 @@ public:
 };
 ```
 
-`TicketReservation` の中に `if` 文が一切ないことを確認してください。どの状態かを判断する必要がなくなり、`state->reserve(this)` と呼ぶだけでよくなりました。新しい状態 `HeldState` が追加されたとき、`TicketReservation` には一切触れる必要がありません。`IReservationState` を実装した `HeldState` クラスを新規作成するだけで、システムに組み込めます。
+`TicketReservation` の中に `if` 文が一切なくなった。新しい状態 `WaitlistedState` が追加されたとき、`IReservationState` を実装した新クラスを作るだけで組み込める。`TicketReservation` には一切触れる必要がない。
+
+**評価：** 新しい状態を追加するコストが「新クラスを1つ作るだけ」に下がった。状態が増えても既存のコードを修正する必要がなく、修正漏れによるバグも発生しない。
 
 ---
 
@@ -752,12 +636,12 @@ public:
 
 各ステップには一長一短があります。どこで止めるかは、「今後の変更頻度（ビジネス要求）」で決断します。
 
-* **ステップ1〜3で止めるケース：** 状態の種類が固定されており、今後も増える見込みがない場合。1クラス内の整理で十分であり、クラスを増やすコストに見合いません。
-* **ステップ4で止めるケース：** 状態ごとの処理を別クラスに整理したいが、新しい状態が追加されるかどうかまだ確証がない場合。
-* **ステップ5まで進むケース：** 今後も頻繁に新しい状態が追加されると確定している場合。今すぐ初期投資コストを払ってでも、業務フローのコンテキストクラスを変更から守る設計が適切です。
+* **ステップ1で止めるケース：** 状態の種類が固定されており、今後も増える見込みがない場合。1クラス内の整理で十分であり、クラスを増やすコストに見合いません。
+* **ステップ2で止めるケース：** 状態ごとの処理を別クラスに整理したいが、新しい状態が追加されるかどうかまだ確証がない場合。状態の数が少なく、追加の見込みが薄ければここで止めるのも現実的な選択です。
+* **ステップ3まで進むケース：** 今後も頻繁に新しい状態が追加されると確定している場合。今すぐ初期投資コストを払ってでも、業務フローのコンテキストクラスを変更から守る設計が適切です。
 
 **今回の決断：**
-フェーズ2のヒアリングで、「キャンセル待ち状態」「特別優待予約」など、状態は今後も増え続けると予告されています。また、状態遷移のルール自体も変わりうると確認できています。したがって、今回は**ステップ5（インターフェース化・抽象×直接）まで進化させる**決断を下します。
+フェーズ2のヒアリングで、「キャンセル待ち状態」「特別優待予約」など、状態は今後も増え続けると予告されています。また、状態遷移のルール自体も変わりうると確認できています。したがって、今回は**ステップ3（インターフェース化・抽象×直接）まで進化させる**決断を下します。
 
 **この構造は、State（ステート）パターンと呼ばれています。**
 
@@ -767,7 +651,7 @@ public:
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 
-採用した設計（ステップ5：抽象×直接）を、実際のコードに実装します。これにより、これまで `TicketReservation` クラスが抱え込んでいた複雑な条件分岐を、個別の状態クラスへと移譲します。
+採用した設計（ステップ3：抽象×直接）を、実際のコードに実装します。これにより、これまで `TicketReservation` クラスが抱え込んでいた複雑な条件分岐を、個別の状態クラスへと移譲します。
 
 この設計変更の最大の価値は、今後「キャンセル待ち」や「特別優待」といった新しい状態がどれだけ増えても、既存の業務フローや他の状態クラスに影響を与えることなく、新しいクラスを追加するだけで機能拡張ができる安定性を手に入れたことです。
 
@@ -1006,7 +890,7 @@ graph LR
 | 🟣 フェーズ3：問題特定 | 新しい状態（一時保留など）の追加を試み、全メソッドの修正が不可避になる「痛み」を確認しました。 |
 | 🟠 フェーズ4：原因分析 | 状態管理のルールと業務ロジックが同じ場所に混在していることが、システムを脆くしている根本原因だと突き止めました。 |
 | 🟡 フェーズ5：課題定義 | 接続点（予約管理と状態遷移の境界）を特定し、状態ごとの振る舞いをカプセル化する課題を設定しました。 |
-| 🔴 フェーズ6：対策検討 | ステップ1〜5を段階的に比較し、最も変更耐性が高くテストも容易なステップ5（抽象×直接）を採用しました。 |
+| 🔴 フェーズ6：対策検討 | ステップ1〜3を段階的に比較し、最も変更耐性が高くテストも容易なステップ3（抽象×直接）を採用しました。 |
 | 🟢 フェーズ7：対策実施 | 状態を個別のクラスへ分割し、業務クラスから直接的な条件分岐を取り除きました。 |
 
 ### 責任の移動
