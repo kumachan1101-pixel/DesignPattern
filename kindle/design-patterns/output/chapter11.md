@@ -127,15 +127,15 @@ PDF形式でレポートのフッターを生成。
 ```mermaid
 classDiagram
     class ReportSkeleton {
-        +generate(format)
-        +addGraph()
-        +addLogo()
+        +generate(format, addGraph, addLogo)
     }
     class DataReader {
         +readCSV()
     }
     ReportSkeleton --> DataReader : uses
 ```
+
+> **注記：** `addGraph` と `addLogo` は独立したメソッドではなく、`generate()` の引数として渡されるフラグです。グラフ追加・ロゴ追加の処理は `generate()` 内部の `if` 分岐で行われており、1-3節の実装コードで確認できます。
 
 `ReportSkeleton` クラスが、データの読み込み、レポート生成のステップ管理、そして個別のグラフィック追加処理という、異なる3つの責務をすべて抱えています。
 
