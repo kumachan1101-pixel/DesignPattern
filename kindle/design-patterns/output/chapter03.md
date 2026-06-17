@@ -691,6 +691,8 @@ public:
 };
 ```
 
+> **C++の定義順について：** `AvailableState` の中で `new ReservedState()` を使っていますが、`ReservedState` の定義はこの後に登場します。C++では定義前のクラスを完全型として `new` することはできないため、実際にコンパイルする際はクラスの定義順を入れ替えるか、ファイル先頭で `class ReservedState;` と前方宣言する必要があります。本書では読み進める流れに合わせてブロックを分けて提示しています。
+
 ```cpp
 // Reserved（予約済み）状態：支払いかキャンセルを待つ
 class ReservedState : public IReservationState {
