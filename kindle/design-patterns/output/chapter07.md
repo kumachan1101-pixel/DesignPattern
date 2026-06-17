@@ -36,9 +36,9 @@
 
 | 通知先 | 通知手段 | 担当者 |
 |---|---|---|
-| EmailNotifier | メール | 倉庫担当者 |
-| DashboardUpdater | 社内ダッシュボード | 在庫管理チーム |
-| ChatNotifier | 社内チャット | 在庫担当者 |
+| メール通知 | メール | 倉庫担当者 |
+| ダッシュボード更新 | 社内ダッシュボード | 在庫管理チーム |
+| チャット通知 | 社内チャット | 在庫担当者 |
 
 ---
 ---
@@ -49,12 +49,12 @@
 
 | シナリオ | 操作 | Email通知 | Chat通知 | ダッシュボード更新 |
 | --- | --- | --- | --- | --- |
-| 在庫が閾値以下に減少（通常） | `reduceStock("T-shirt-001", 5)` | 送信される | 送信される | 更新される |
-| 在庫が閾値以下に減少（複数通知先） | `reduceStock("Pants-002", 3)` | 送信される | 送信される | 更新される |
-| 在庫が補充された（閾値超え） | `restoreStock("T-shirt-001", 20)` | 送信されない | 送信されない | 更新されない |
-| 在庫が閾値ちょうどに減少（境界値） | `reduceStock("Cap-003", 1)` | 送信される | 送信される | 更新される |
-| 出荷完了イベント | `notifyShipped("ORDER-001")` | 送信される | 送信される | 更新される |
-| 通知先をChatのみ登録した状態 | `reduceStock("Shoes-004", 2)` | 送信されない | 送信される | 更新されない |
+| 在庫が閾値以下に減少（通常） | Tシャツ-001の在庫を5減らす | 送信される | 送信される | 更新される |
+| 在庫が閾値以下に減少（複数通知先） | パンツ-002の在庫を3減らす | 送信される | 送信される | 更新される |
+| 在庫が補充された（閾値超え） | Tシャツ-001の在庫を20補充する | 送信されない | 送信されない | 更新されない |
+| 在庫が閾値ちょうどに減少（境界値） | キャップ-003の在庫を1減らす | 送信される | 送信される | 更新される |
+| 出荷完了イベント | ORDER-001の出荷完了を記録する | 送信される | 送信される | 更新される |
+| 通知先をChatのみ登録した状態 | シューズ-004の在庫を2減らす | 送信されない | 送信される | 更新されない |
 
 このテーブルが示す通り、在庫が閾値以下になるたびに登録されているすべての通知先へメッセージが届き、閾値を超えていれば誰にも送らない、という動作が核心です。「どのステップを選ぶか」は実装の構造の話であって、この動作結果は変わりません。
 
@@ -805,14 +805,17 @@ sequenceDiagram
     participant M as main
     participant IM as InventoryManager
     participant E as EmailNotifier
+    participant D as DashboardUpdater
     participant C as ChatNotifier
     participant S as SMSNotifier
 
     M->>E: 生成
+    M->>D: 生成
     M->>C: 生成
     M->>S: 生成
     M->>IM: 生成
     M->>IM: attach(&email)
+    M->>IM: attach(&dashboard)
     M->>IM: attach(&chat)
     M->>IM: attach(&sms)
     M->>IM: reduceStock("T-shirt-001", 5)
@@ -822,6 +825,10 @@ sequenceDiagram
     activate E
     E-->>IM: 完了
     deactivate E
+    IM->>D: send(message)
+    activate D
+    D-->>IM: 完了
+    deactivate D
     IM->>C: send(message)
     activate C
     C-->>IM: 完了
