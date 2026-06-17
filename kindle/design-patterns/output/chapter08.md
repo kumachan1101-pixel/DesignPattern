@@ -443,7 +443,7 @@ void processPayment(string type, int amount) {
 
 ### ステップ1：生成ロジックをプライベートメソッドに切り出す
 
-`processPayment` の中を見ると、「どの種別か判断する if-else」と「具体クラスを生成して pay() を呼ぶ」が一体になっています。「とりあえず読みやすくしよう」と思ったとき、最初に思いつくのは「生成の部分だけをメソッドに切り出す」ことではないでしょうか。クラスは分けず、`PaymentApplication` の中に `createProcessor` というプライベートメソッドを作ります。
+`processPayment` の中を見ると、「どの種別か判断する if-else」と「具体クラスを生成して pay() を呼ぶ」が一体になっています。「とりあえず読みやすくしよう」と思ったとき、最初に思いつくのは「生成の部分だけをメソッドに切り出す」ことではないでしょうか。クラスは分けず、`PaymentApplication` の中に `createProcessor` というプライベートメソッドを作ります。なお、コード中の `IPaymentProcessor*` は、ステップ3で正式に定義するインターフェースです。ここでは「どのクラスを返すかを一か所にまとめる」という構造の変化に注目してください。
 
 ```cpp
 class PaymentApplication {
