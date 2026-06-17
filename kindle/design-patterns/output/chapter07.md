@@ -472,19 +472,22 @@ public:
 class InventoryManager {
 private:
     // 同種の型を束ねることで追加がリストだけで済む…はず
-    vector<EmailNotifier*> emailList;
-    vector<ChatNotifier*>  chatList;
+    vector<EmailNotifier*>     emailList;
+    vector<ChatNotifier*>      chatList;
+    vector<DashboardUpdater*>  dashboardList; // ← update() 型なので別リストが必要
     // SMSを追加するには vector<SMSNotifier*> smsListも必要になる
 
     void notifyAll(string message) {
-        for (auto* n : emailList) n->send(message);
-        for (auto* n : chatList)  n->send(message);
+        for (auto* n : emailList)     n->send(message);
+        for (auto* n : chatList)      n->send(message);
+        for (auto* n : dashboardList) n->update(message); // ← メソッド名が違う
         // SMS用のループも追加しなければならない
     }
 
 public:
-    void attachEmail(EmailNotifier* n) { emailList.push_back(n); }
-    void attachChat(ChatNotifier* n)   { chatList.push_back(n); }
+    void attachEmail(EmailNotifier* n)       { emailList.push_back(n); }
+    void attachChat(ChatNotifier* n)         { chatList.push_back(n); }
+    void attachDashboard(DashboardUpdater* n){ dashboardList.push_back(n); }
 
     void reduceStock(string productId, int quantity) {
         string message = "商品 " + productId

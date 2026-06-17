@@ -267,27 +267,11 @@ classDiagram
 
 | 仕様 | 修正対象メソッド |
 |---|---|
-| `Held`（一時保留）：上映24時間前まで座席を仮押さえする状態 | `reserve()` / `pay()` / `cancel()` 全てに `else if (status == "Held")` の追加が必要 |
-| `Held` からは `reserve()` で `Reserved` に遷移できる | `reserve()` を修正（下記コード参照） |
-| `Held` からも `cancel()` でキャンセルできる | `cancel()` を同様に修正 |
+| `Held`（一時保留）：上映24時間前まで座席を仮押さえする状態 | `pay()` / `cancel()` の両メソッドに `else if (status == "Held")` の追加が必要 |
+| `Held` からは `pay()` で `Paid` に遷移できる | `pay()` を修正 |
+| `Held` からは `cancel()` でキャンセルし `Available` に戻る | `cancel()` を同様に修正 |
 
-この仕様を今の `TicketReservation` クラスに当てはめてみます。`reserve` メソッドを修正すると次のようになります。
-
-```cpp
-void reserve() {
-    if (status == "Available") {
-        status = "Reserved";
-        std::cout << "予約完了しました\n";
-    } else if (status == "Held") { // 新しい状態への対応
-        status = "Reserved";
-        std::cout << "保留から予約へ変更しました\n";
-    } else {
-        std::cout << "現在予約できません\n";
-    }
-}
-```
-
-`reserve` だけで終わりではありません。`Held` は「支払いもキャンセルも受け付ける」状態なので、`pay` と `cancel` にも同様の追加が必要です。
+この仕様を今の `TicketReservation` クラスに当てはめてみます。`pay` と `cancel` を修正します。
 
 ```cpp
 // pay() に追加が必要な箇所
@@ -310,9 +294,9 @@ void reserve() {
 | Available | → Reserved | —— | —— |
 | Reserved | —— | → Paid | → Available |
 | Paid | —— | —— | —— |
-| **Held（新規）** | → Reserved | → Paid | → Available |
+| **Held（新規）** | —— | → Paid | → Available |
 
-しかし実装では、この1行のためにメソッド3本すべてを開いて `else if` を追加しなければなりません。`reserve` メソッドを修正したとき、同時に `pay` メソッドや `cancel` メソッドの中にある `if` 文の条件もすべて見直し、新しい状態である `Held`（保留）を考慮しなければならないことに気づきます。
+しかし実装では、この1行のためにメソッド2本（`pay` / `cancel`）を開いて `else if` を追加しなければなりません。さらに `reserve()` の中にも「Heldのときは予約操作を拒否する」という制御を追加するかどうか検討しなければならず、状態ごとに「このメソッドでは何が起きるべきか」をすべてのメソッドで見直す必要が生じます。`reserve` メソッドを修正したとき、同時に `pay` メソッドや `cancel` メソッドの中にある `if` 文の条件もすべて見直し、新しい状態である `Held`（保留）を考慮しなければならないことに気づきます。
 
 もし、さらに「キャンセル待ち」状態が追加されたらどうなるでしょうか。すべてのメソッドにある条件分岐がさらに増殖し、一つのアクションを行うたびに、今の `status` が何なのかを常に意識しなければならないのです。
 

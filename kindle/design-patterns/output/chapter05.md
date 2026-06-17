@@ -585,19 +585,19 @@ public:
 
 // 履歴管理：IAction*という抽象型だけを知り、操作の中身を知らない
 class ActionHistory {
-    std::stack<IAction*> undoStack;
+    std::deque<IAction*> undoStack;  // ← 先頭（最古）を削除できるdequeを使う
     static const int MAX_HISTORY = 50;
 public:
     void execute(IAction* cmd) {
         cmd->execute();
-        undoStack.push(cmd);
-        while ((int)undoStack.size() > MAX_HISTORY)
-            undoStack.pop();
+        undoStack.push_back(cmd);
+        if ((int)undoStack.size() > MAX_HISTORY)
+            undoStack.pop_front();  // ← 最古のコマンドを削除する
     }
     void undo() {
         if (undoStack.empty()) return;
-        IAction* cmd = undoStack.top();
-        undoStack.pop();
+        IAction* cmd = undoStack.back();
+        undoStack.pop_back();
         cmd->undo();  // ← どの操作かを知らずに取り消せる
     }
     int historySize() const { return (int)undoStack.size(); }
@@ -722,31 +722,31 @@ public:
 ```cpp
 // 操作履歴を保持し、Undo/Redoを制御する仲介役
 class ActionHistory {
-    std::stack<IAction*> undoStack;
-    std::stack<IAction*> redoStack;
+    std::deque<IAction*> undoStack;  // ← 先頭（最古）を削除できるdequeを使う
+    std::deque<IAction*> redoStack;
     static const int MAX_HISTORY = 50;
 public:
     void execute(IAction* cmd) {
         cmd->execute();
-        undoStack.push(cmd);
-        while ((int)undoStack.size() > MAX_HISTORY) {
-            undoStack.pop();
+        undoStack.push_back(cmd);
+        if ((int)undoStack.size() > MAX_HISTORY) {
+            undoStack.pop_front();  // ← 最古のコマンドを削除する
         }
-        while (!redoStack.empty()) redoStack.pop();
+        while (!redoStack.empty()) redoStack.pop_back();
     }
     void undo() {
         if (undoStack.empty()) return;
-        IAction* cmd = undoStack.top();
-        undoStack.pop();
+        IAction* cmd = undoStack.back();
+        undoStack.pop_back();
         cmd->undo(); // ← ここだけ変わる
-        redoStack.push(cmd);
+        redoStack.push_back(cmd);
     }
     void redo() {
         if (redoStack.empty()) return;
-        IAction* cmd = redoStack.top();
-        redoStack.pop();
+        IAction* cmd = redoStack.back();
+        redoStack.pop_back();
         cmd->execute();
-        undoStack.push(cmd);
+        undoStack.push_back(cmd);
     }
     int historySize() const {
         return (int)undoStack.size();
