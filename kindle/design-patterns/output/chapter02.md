@@ -657,7 +657,7 @@ public:
 
 // ─── 呼び出し側のコード（依存性の注入） ───
 int main() {
-    // ★具体クラス名を知っているのはここだけ
+    // 具体クラス名を知っているのはここだけ
     BankTransferService facade;
     TransferProcessor processor(&facade);
     processor.transfer("12345678", 5000, "999999");
