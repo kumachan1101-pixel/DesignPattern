@@ -643,6 +643,8 @@ public:
 };
 ```
 
+なお、ステップ1・2で登場した `EscalationEngine` も同様に関数化できますが、ここでは `TicketManager` の関数化パターンに絞って確認します。`EscalationEngine` も同じ思考プロセスを経て同じ限界に突き当たります。
+
 関数化により各処理の意図は読みやすくなりました。しかしここで立ち止まって、抽出した関数群を観察してください。`calcPremiumPriority()` と `calcNormalPriority()` はどちらも「同じ引数を受け取り同じ型を返す」一貫した構造を持っています。`handleOpen()` と `handleInProgress()` も同様です。「一貫した構造（同じ形）を持つ関数が並んでいる」ことは「共通インターフェースとして抽象化できる」証拠です。
 
 しかし関数化のままでは2つの軸で同じ限界に直面します。**優先度ルールの軸：**「VIP優先度」が増えるたびに `TicketManager` を開いて新しい関数を追加し、`routePriority` の `if` 文に書き足す必要があります。**状態遷移の軸：**「保留中」状態が追加されるたびに `TicketManager` を開いて `handleHold()` 関数を追加し、`routeStatus` の `if` 文に書き足す必要があります。2つの軸それぞれで「クラスが永遠に変わり続ける」という根本問題は解決していません。
@@ -743,7 +745,7 @@ class EscalationEngine {
 public:
     EscalationEngine(IPriorityRule* s) : strategy(s) {}
     void checkAndEscalate(string ticketId) {
-        string priority = strategy->getPriority("");
+        string priority = strategy->getPriority("premium"); // EscalationEngineはPremium用途に限定して使うため
         if (priority == "High") {
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
@@ -913,7 +915,7 @@ public:
     EscalationEngine(IPriorityRule* s, ITicketPhase* st)
         : strategy(s), state(st) {}
     void checkAndEscalate(string ticketId) {
-        string priority = strategy->getPriority("");
+        string priority = strategy->getPriority("premium"); // EscalationEngineはPremium用途に限定して使うため
         if (priority == "High") {
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
@@ -1094,7 +1096,7 @@ public:
     EscalationEngine(IPriorityRule* s, ITicketPhase* st)
         : strategy(s), state(st) {}
     void checkAndEscalate(string ticketId) {
-        string priority = strategy->getPriority("");
+        string priority = strategy->getPriority("premium"); // EscalationEngineはPremium用途に限定して使うため
         if (priority == "High") {
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
