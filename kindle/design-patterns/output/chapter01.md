@@ -46,8 +46,8 @@
 
 | 使用場所 | 用途 |
 |---|---|
-| `PaymentCalculator` | 注文確定時の支払金額の確定 |
-| `CartPreviewService` | カート画面の金額プレビュー表示 |
+| 決済計算モジュール | 注文確定時の支払金額の確定 |
+| カートプレビュー機能 | カート画面の金額プレビュー表示 |
 
 ---
 
@@ -724,7 +724,7 @@ void processOrder(const Order& order) {
     CampaignDiscount campaign;
     NoDiscount none;
 
-    // ★かつてPaymentCalculatorの中にあったif文がここに移動した
+    // かつてPaymentCalculatorの中にあったif文がここに移動した
     // 実行結果は一切変わらず、判断の責任だけが外側に押し出された
     IDiscountRule* rule = &none;
     if (order.customerType == "Premium") {
@@ -887,7 +887,7 @@ public:
         static CampaignDiscount campaign;
         static NoDiscount none;
 
-        // ★実行結果を変えないため、元のコードと全く同じif文が存在する
+        // 実行結果を変えないため、元のコードと全く同じif文が存在する
         if (order.customerType == "Premium") return &premium;
         if (order.isSummerSale && order.isCampaignActive) return &both;
         if (order.isSummerSale) return &summer;
