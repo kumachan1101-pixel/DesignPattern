@@ -56,7 +56,9 @@
 | 出荷完了イベント | ORDER-001の出荷完了を記録する | 送信される | 送信される | 更新される |
 | 通知先をChatのみ登録した状態 | シューズ-004の在庫を2減らす | 送信されない | 送信される | 更新されない |
 
-このテーブルが示す通り、在庫が閾値以下になるたびに登録されているすべての通知先へメッセージが届き、閾値を超えていれば誰にも送らない、という動作が核心です。「どのステップを選ぶか」は実装の構造の話であって、この動作結果は変わりません。
+このテーブルが示す通り、在庫が閾値以下になるたびに登録されているすべての通知先へメッセージが届き、閾値を超えていれば誰にも送らない、という動作が核心です。シナリオ1〜5については「どのステップを選ぶか」は実装の構造の話であって、動作結果は変わりません。ただしシナリオ6（通知先を動的に選択する動作）はフェーズ7のObserverパターン導入後にのみ実現できます。
+
+> **注：** フェーズ7の最終実装ではSMS通知（田中部長の変更要求）も登録されており、シナリオ1〜5ではEmail・Chat・ダッシュボードに加えてSMSも送信されます。上記テーブルの列は初期の3通知先を基準に示しています。また、シナリオ6（通知先をChatのみ登録した状態）は、フェーズ7の Observer パターン導入後に初めて実現できる動作です。現状コード（1-3節）では全通知先がハードコードされているため、このシナリオを再現することはできません。
 
 > **注：** フェーズ7の最終実装ではSMS通知（田中部長の変更要求）も登録されており、シナリオ1〜5ではEmail・Chat・ダッシュボードに加えてSMSも送信されます。上記テーブルの列は初期の3通知先を基準に示しています。また、シナリオ6（通知先をChatのみ登録した状態）は、フェーズ7の Observer パターン導入後に初めて実現できる動作です。現状コード（1-3節）では全通知先がハードコードされているため、このシナリオを再現することはできません。
 
@@ -472,19 +474,22 @@ public:
 class InventoryManager {
 private:
     // 同種の型を束ねることで追加がリストだけで済む…はず
-    vector<EmailNotifier*> emailList;
-    vector<ChatNotifier*>  chatList;
+    vector<EmailNotifier*>     emailList;
+    vector<ChatNotifier*>      chatList;
+    vector<DashboardUpdater*>  dashboardList; // ← update() 型なので別リストが必要
     // SMSを追加するには vector<SMSNotifier*> smsListも必要になる
 
     void notifyAll(string message) {
-        for (auto* n : emailList) n->send(message);
-        for (auto* n : chatList)  n->send(message);
+        for (auto* n : emailList)     n->send(message);
+        for (auto* n : chatList)      n->send(message);
+        for (auto* n : dashboardList) n->update(message); // ← メソッド名が違う
         // SMS用のループも追加しなければならない
     }
 
 public:
-    void attachEmail(EmailNotifier* n) { emailList.push_back(n); }
-    void attachChat(ChatNotifier* n)   { chatList.push_back(n); }
+    void attachEmail(EmailNotifier* n)       { emailList.push_back(n); }
+    void attachChat(ChatNotifier* n)         { chatList.push_back(n); }
+    void attachDashboard(DashboardUpdater* n){ dashboardList.push_back(n); }
 
     void reduceStock(string productId, int quantity) {
         string message = "商品 " + productId

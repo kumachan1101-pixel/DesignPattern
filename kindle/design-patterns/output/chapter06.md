@@ -54,6 +54,7 @@
 | コーヒー + ミルク + ホイップ | `Coffee + Milk + Whip` | 420円（300 + 50 + 70） |
 | コーヒー + ホイップ×2 | `Coffee + Whip + Whip` | 440円（300 + 70 + 70） |
 | コーヒー + ミルク + シロップ + ホイップ | `Coffee + Milk + Syrup + Whip` | 450円（300 + 50 + 30 + 70） |
+| ↓ 変更要求による追加分（Matcha・Choco は1-5節で導入）↓ | | |
 | コーヒー + ミルク + シロップ + ホイップ + 抹茶 | `Coffee + Milk + Syrup + Whip + Matcha` | 510円（300 + 50 + 30 + 70 + 60） |
 | コーヒー + チョコ | `Coffee + Choco` | 340円（300 + 40） |
 | コーヒー + ミルク + 抹茶 + チョコ | `Coffee + Milk + Matcha + Choco` | 450円（300 + 50 + 60 + 40） |
@@ -772,6 +773,16 @@ public:
     }
 };
 
+// WhipもSyrupも同じパターンで定義できる（Milkのコピーで価格だけ変える）
+class Whip : public ToppingWrapper {
+public:
+    Whip(IDrink* base) : ToppingWrapper(base) {}
+    int getPrice() const override { return baseDrink->getPrice() + 70; }
+    string getDescription() const override {
+        return baseDrink->getDescription() + " + Whip";
+    }
+};
+
 // 組み立て
 IDrink* order = new Matcha(new Milk(new Coffee()));
 // ホイップ×2（ダブル）は、同じ型を2回包むだけ
@@ -973,12 +984,11 @@ public:
     }
 
     void testOrderCalculation() {
-        // EXPECT_EQ(期待値, 実際の値)：等しければテスト通過。Google Test のマクロ。
         IDrink* o1 = new Coffee();
-        EXPECT_EQ(300, o1->getPrice());
+        assert(o1->getPrice() == 300);  // ← Coffee のみ: 300円
 
         IDrink* o6 = new Whip(new Syrup(new Milk(new Coffee())));
-        EXPECT_EQ(450, o6->getPrice()); // 300 + 50 + 30 + 70 = 450
+        assert(o6->getPrice() == 450);  // ← 300 + 50 + 30 + 70 = 450円
     }
 };
 

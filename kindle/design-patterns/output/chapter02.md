@@ -310,13 +310,13 @@ void transfer(
     // 【痛み：認証の手順が変わる】
     // 既存のコードを書き換える必要がある
     auth.requestOTP();
-    // 銀行から発行された取引IDを保持しなければならない
+    // 銀行から発行された「取引ID」（認証フロー内の識別子）を保持しなければならない
     std::string transactionId = auth.getTransactionId();
     // 検証時に取引IDを渡す必要がある
     auth.verifyOTP(otp, transactionId);
 
     // 【痛み：送金APIの仕様が変わる】
-    // TxIDを生成し、送金時に渡さなければならない
+    // 送金用の「トランザクションID」（認証の取引IDとは別の、送金単位の識別子）を生成して渡す
     std::string txId = generateTxId();
     gateway.executeTransfer(toAccount, amount, txId);
 

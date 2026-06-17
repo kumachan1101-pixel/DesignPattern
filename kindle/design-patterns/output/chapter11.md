@@ -685,6 +685,18 @@ public:
 };
 ```
 
+```cpp
+// WeeklyReport: 週次レポートの本体
+class WeeklyReport : public ReportSkeleton {
+public:
+    void renderBody() override {
+        cout << "週次集計を本文として生成。" << endl;
+    }
+};
+```
+
+ここで重要な設計の意図を確認しておきます。**「レポートの種別（月次・週次・部門別）」は `ReportSkeleton` の派生クラスで区別します。一方、「出力形式（PDF・Excel）」は `GenerateReportAction` に渡す出力パス（`.pdf` か `.xlsx`）で表現します。** このシステムでは実際のファイル出力処理は省略していますが、将来的に `IOutputFormatter` のようなインターフェースを追加すれば、出力形式の切り替えも Decorator チェーンに組み込めます。
+
 **3. デコレータクラス（Decorator の実装）**
 
 装飾機能を動的に重ねる仕組みを実装します。
@@ -788,11 +800,11 @@ public:
 
         // 行5: バッチで3レポートを同時生成
         cout << "--- 行5: バッチで3レポート同時生成 ---" << endl;
-        MonthlyReport b1;
-        StandardReport b2;
+        WeeklyReport b1;
+        MonthlyReport b2;
         ReportSkeleton* b3gen = new GraphFeature(new MonthlyReport());
         IReportAction* ba1 = new GenerateReportAction(&b1, "weekly.pdf");
-        IReportAction* ba2 = new GenerateReportAction(&b2, "monthly_std.pdf");
+        IReportAction* ba2 = new GenerateReportAction(&b2, "monthly.pdf");
         IReportAction* ba3 = new GenerateReportAction(b3gen, "dept.pdf");
         ba1->execute(); history.push_back(ba1);
         ba2->execute(); history.push_back(ba2);
@@ -844,13 +856,13 @@ CSV読み込み
 [コマンド] decorated.pdf を削除してアンドゥ完了。
 --- 行5: バッチで3レポート同時生成 ---
 CSV読み込み
-月次集計を本文として生成。
+週次集計を本文として生成。
 フッター生成
 [コマンド] weekly.pdf に出力して履歴に記録。
 CSV読み込み
-本文を生成。
+月次集計を本文として生成。
 フッター生成
-[コマンド] monthly_std.pdf に出力して履歴に記録。
+[コマンド] monthly.pdf に出力して履歴に記録。
 CSV読み込み
 月次集計を本文として生成。
 グラフを追加。
