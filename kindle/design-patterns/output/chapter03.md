@@ -179,6 +179,43 @@ classDiagram
 
 現状の `if` 文を使った状態分岐ロジックに、この2状態と5遷移を追加することになります。
 
+**仕様変更後の状態遷移マトリクス（全体像）**
+
+「——」は操作を受け付けず、エラーメッセージを出力して終了することを表します。列数の都合で表を2つに分けています。
+
+【表1：従来の操作】
+
+| 現在の状態 | 予約する | 支払う | キャンセルする |
+|---|---|---|---|
+| Available（空席） | → Reserved | —— | —— |
+| Reserved（予約済み） | —— | → Paid | → Available |
+| Paid（支払済み） | —— | —— | —— |
+| Waitlisted（キャンセル待ち） | —— | —— | —— |
+| Held（一時保留） | —— | → Paid | —— |
+
+【表2：新規追加の操作】
+
+| 現在の状態 | waitlist登録 | 予約昇格 | 一時保留 | 期限切れ |
+|---|---|---|---|---|
+| Available（空席） | → Waitlisted | —— | —— | —— |
+| Reserved（予約済み） | —— | —— | → Held | —— |
+| Paid（支払済み） | —— | —— | —— | —— |
+| Waitlisted（キャンセル待ち） | —— | → Reserved | —— | —— |
+| Held（一時保留） | —— | —— | —— | → Available |
+
+```mermaid
+stateDiagram-v2
+    [*] --> Available : 初期状態
+    Available --> Reserved : 予約する
+    Reserved --> Paid : 支払う
+    Reserved --> Available : キャンセルする
+    Available --> Waitlisted : waitlist登録
+    Waitlisted --> Reserved : 予約昇格
+    Reserved --> Held : 一時保留
+    Held --> Paid : 支払う
+    Held --> Available : 期限切れ
+```
+
 フェーズ1でシステムの現状と変更要求が把握できました。次のフェーズ2では、「何が変わり、何が変わらないか」を整理します。
 
 ---
