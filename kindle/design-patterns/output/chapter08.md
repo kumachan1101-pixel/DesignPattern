@@ -584,7 +584,7 @@ public:
 // 生成の仕方を「サブクラスに任せる」抽象クラス
 class PaymentApplication {
 protected:
-    // ★ Factory Method：「何を作るか」はサブクラスが決める
+    //  Factory Method：「何を作るか」はサブクラスが決める
     virtual IPaymentProcessor* createProcessor(string type) = 0;
 
 public:
