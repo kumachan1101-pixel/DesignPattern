@@ -14,7 +14,7 @@
 
 * **得られること1：** 「オブジェクトを生成する」という観点で、コードの変動箇所を識別できるようになる
 * **得られること2：** 利用処理が決済手段のクラス名と生成方法をどこまで知っているかを接続点から調べ、生成と利用の混在による痛みを説明できるようになる
-* **得られること3：** 生成の責任を分離し、インターフェースを介してインスタンスを得る構造にすることで、変更がどのように局所化（変更の影響が1クラスだけで済む状態）されるかを説明できるようになる
+* **得られること3：** 生成の責任を利用処理から分けることで、決済手段追加の変更をCreatorと組み立て箇所へ寄せられることを説明できるようになる
 * **得られること4：** 利用側が具体的な生成ロジックを知らずに、必要な機能を持つオブジェクトを受け取れる視点
 
 ## 🔵 フェーズ1：現状把握 ―― コードとクラス構成を読む
@@ -613,7 +613,7 @@ protected:
 `PaymentApplication` の `processPayment` は `IPaymentProcessor*` を受け取って `pay` を呼ぶだけです。「どのクラスを生成するか」という判断は、`DefaultPaymentApplication` という具体サブクラスの中だけに完全に閉じています。
 
 **この段階の評価：**
-`PaymentApplication`（振り分けフローの骨格）と `DefaultPaymentApplication`（生成の知識）が完全に分離されました。新しい決済手段を追加するとき、`DefaultPaymentApplication.createProcessor` に1行加えるだけで、`PaymentApplication` の `processPayment` には一切触れる必要がありません。「テスト用にモックプロセッサーを使いたい」という要求が来たときも、`PaymentApplication` を継承した別のサブクラスを作るだけで対応できます。これが Factory Method パターンの到達点です。
+`PaymentApplication`（振り分けフローの骨格）から、`DefaultPaymentApplication`へ生成判断を移しました。新しい決済手段を追加するときはCreatorの生成処理と、必要に応じて種別の入力・組み立て設定を変更します。`processPayment`の処理手順は変更せずに済みます。「テスト用にモックプロセッサーを使いたい」という要求では、別のCreatorを用意できます。
 
 ---
 
@@ -762,7 +762,7 @@ PayPayで 700 円決済しました。
 クレジットで 980 円決済しました。
 ```
 
-動作例テーブルの全4行と一致しています。`SubscriptionService` も `PaymentApplication` を通じて `createProcessor` を呼ぶため、新しい決済手段を追加しても `SubscriptionService` に一切触れる必要がありません。`processPayment` の中から具体クラス名が完全に消えました。
+掲載した実行結果は動作例テーブルの4行に対応しています。`SubscriptionService`は`PaymentApplication`を利用するため、今回の決済手段追加ではその処理を変更していません。`processPayment`の中から決済手段のクラス名がなくなりました。
 
 ### 7-2：動作シーケンス図
 
