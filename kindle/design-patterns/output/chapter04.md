@@ -551,6 +551,10 @@ public:
 **AbstractImporterクラス（骨格の定義）：**
 
 ```cpp
+#include <iostream>
+
+using namespace std;
+
 // 共通の骨格を持つ基底クラス
 class AbstractImporter {
 public:
