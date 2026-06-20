@@ -72,6 +72,8 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <fstream>
+#include <cstdio>
 
 using namespace std;
 
@@ -562,7 +564,12 @@ public:
 装飾の問題は解決しましたが、「操作履歴」の問題はまだ残っています。レポート生成という操作自体をオブジェクトとして扱える仕組みを加えます。
 
 ```cpp
-// IReportAction: 操作履歴のインターフェース（Command パターン）
+enum class OutputFormat { Pdf, Excel };
+
+string formatName(OutputFormat format) {
+    return format == OutputFormat::Pdf ? "PDF" : "Excel";
+}
+
 class IReportAction {
 public:
     virtual ~IReportAction() = default;
@@ -570,27 +577,40 @@ public:
     virtual void undo() = 0;
 };
 
-// GenerateReportAction: レポート生成操作をオブジェクトとして記録
 class GenerateReportAction : public IReportAction {
     ReportSkeleton* generator;
     string outputPath;
+    OutputFormat format;
 public:
-    GenerateReportAction(ReportSkeleton* g, string path)
-        : generator(g), outputPath(path) {}
+    GenerateReportAction(
+        ReportSkeleton* g,
+        string path,
+        OutputFormat f
+    ) : generator(g), outputPath(path), format(f) {}
+
     void execute() override {
         generator->generate();
-        cout << "[コマンド] " << outputPath
-             << " に出力して履歴に記録。" << endl;
+        ofstream output(outputPath);
+        output << formatName(format) << " report" << endl;
+        output.close();
+        cout << "[コマンド] " << formatName(format) << "形式で "
+             << outputPath << " を生成して履歴に記録。" << endl;
     }
+
     void undo() override {
-        cout << "[コマンド] " << outputPath
-             << " を削除してアンドゥ完了。" << endl;
+        if (remove(outputPath.c_str()) == 0) {
+            cout << "[コマンド] " << outputPath
+                 << " を削除してアンドゥ完了。" << endl;
+        } else {
+            cout << "[コマンド] " << outputPath
+                 << " は存在しないため削除できません。" << endl;
+        }
     }
 };
 ```
 
 **この段階の評価：**
-`GenerateReportAction` は「どのレポートを、どのパスに出力したか」という情報を持ちます。`undo()` を呼ぶことで、生成されたファイルを削除し操作を取り消せます。3つの根本原因がすべて解消されました。
+`GenerateReportAction`はレポート、出力形式、出力先を保持します。`execute()`はデモ用ファイルを実際に作成し、`undo()`はそのファイルを削除します。これにより、Commandの実行と取り消しをコード上でも確認できます。
 
 ---
 
@@ -641,6 +661,8 @@ flowchart TD
 #include <iostream>
 #include <string>
 #include <vector>
+#include <fstream>
+#include <cstdio>
 
 using namespace std;
 
@@ -703,7 +725,7 @@ public:
 };
 ```
 
-ここで重要な設計の意図を確認しておきます。**「レポートの種別（月次・週次・部門別）」は `ReportSkeleton` の派生クラスで区別します。一方、「出力形式（PDF・Excel）」は `GenerateReportAction` に渡す出力パス（`.pdf` か `.xlsx`）で表現します。** このシステムでは実際のファイル出力処理は省略していますが、将来的に `IOutputFormatter` のようなインターフェースを追加すれば、出力形式の切り替えも Decorator チェーンに組み込めます。
+ここで重要な設計の意図を確認しておきます。**「レポートの種別（月次・週次・部門別）」は`ReportSkeleton`の派生クラスで区別し、「出力形式（PDF・Excel）」は`OutputFormat`としてCommandへ渡します。**サンプルでは形式名を書いたデモ用ファイルを生成します。実運用で本物のPDF・Excelを生成する場合は、`IOutputFormatter`の実装へ置き換える想定です。
 
 **3. デコレータクラス（Decorator の実装）**
 
@@ -750,21 +772,43 @@ public:
 レポート生成操作をオブジェクトとして記録し、取り消し可能にします。
 
 ```cpp
-// GenerateReportAction: レポート生成操作をオブジェクトとして記録
+enum class OutputFormat { Pdf, Excel };
+
+string formatName(OutputFormat format) {
+    return format == OutputFormat::Pdf ? "PDF" : "Excel";
+}
+
 class GenerateReportAction : public IReportAction {
-    ReportSkeleton* generator; // ← 生成対象を保持
-    string outputPath;          // ← 生成先パスも記録（undo時に削除する）
+    ReportSkeleton* generator;
+    string outputPath;
+    OutputFormat format;
 public:
-    GenerateReportAction(ReportSkeleton* g, string path)
-        : generator(g), outputPath(path) {}
+    GenerateReportAction(
+        ReportSkeleton* g,
+        string path,
+        OutputFormat f
+    ) : generator(g), outputPath(path), format(f) {}
+
     void execute() override {
         generator->generate();
-        cout << "[コマンド] " << outputPath
-             << " に出力して履歴に記録。" << endl;
+
+        // サンプルでは形式名を記録したデモ用ファイルを実際に作成する
+        ofstream output(outputPath);
+        output << formatName(format) << " report" << endl;
+        output.close();
+
+        cout << "[コマンド] " << formatName(format) << "形式で "
+             << outputPath << " を生成して履歴に記録。" << endl;
     }
+
     void undo() override {
-        cout << "[コマンド] " << outputPath
-             << " を削除してアンドゥ完了。" << endl;
+        if (remove(outputPath.c_str()) == 0) {
+            cout << "[コマンド] " << outputPath
+                 << " を削除してアンドゥ完了。" << endl;
+        } else {
+            cout << "[コマンド] " << outputPath
+                 << " は存在しないため削除できません。" << endl;
+        }
     }
 };
 ```
@@ -782,14 +826,16 @@ public:
         // 行1: 月次レポートをPDF出力
         cout << "--- 行1: 月次レポートPDF出力 ---" << endl;
         MonthlyReport monthly1;
-        IReportAction* a1 = new GenerateReportAction(&monthly1, "monthly.pdf");
+        IReportAction* a1 = new GenerateReportAction(
+            &monthly1, "monthly.pdf", OutputFormat::Pdf);
         a1->execute();
         history.push_back(a1);
 
         // 行2: 月次レポートをExcel出力
         cout << "--- 行2: 月次レポートExcel出力 ---" << endl;
         MonthlyReport monthly2;
-        IReportAction* a2 = new GenerateReportAction(&monthly2, "monthly.xlsx");
+        IReportAction* a2 = new GenerateReportAction(
+            &monthly2, "monthly.xlsx", OutputFormat::Excel);
         a2->execute();
         history.push_back(a2);
 
@@ -797,7 +843,8 @@ public:
         cout << "--- 行3: 装飾付きレポートPDF出力 ---" << endl;
         ReportSkeleton* decorated =
             new WatermarkFeature(new GraphFeature(new StandardReport()));
-        IReportAction* a3 = new GenerateReportAction(decorated, "decorated.pdf");
+        IReportAction* a3 = new GenerateReportAction(
+            decorated, "decorated.pdf", OutputFormat::Pdf);
         a3->execute();
         history.push_back(a3);
 
@@ -811,9 +858,9 @@ public:
         WeeklyReport b1;
         MonthlyReport b2;
         ReportSkeleton* b3gen = new GraphFeature(new MonthlyReport());
-        IReportAction* ba1 = new GenerateReportAction(&b1, "weekly.pdf");
-        IReportAction* ba2 = new GenerateReportAction(&b2, "monthly.pdf");
-        IReportAction* ba3 = new GenerateReportAction(b3gen, "dept.pdf");
+        IReportAction* ba1 = new GenerateReportAction(&b1, "weekly.pdf", OutputFormat::Pdf);
+        IReportAction* ba2 = new GenerateReportAction(&b2, "monthly.pdf", OutputFormat::Pdf);
+        IReportAction* ba3 = new GenerateReportAction(b3gen, "dept.pdf", OutputFormat::Pdf);
         ba1->execute(); history.push_back(ba1);
         ba2->execute(); history.push_back(ba2);
         ba3->execute(); history.push_back(ba3);
@@ -822,7 +869,8 @@ public:
         // 行6: グラフ付き月次レポートを生成してアンドゥ
         cout << "--- 行6: グラフ付き月次レポートを生成してアンドゥ ---" << endl;
         ReportSkeleton* gm = new GraphFeature(new MonthlyReport());
-        IReportAction* a6 = new GenerateReportAction(gm, "graph_monthly.pdf");
+        IReportAction* a6 = new GenerateReportAction(
+            gm, "graph_monthly.pdf", OutputFormat::Pdf);
         a6->execute();
         history.push_back(a6);
         history.back()->undo();
@@ -847,46 +895,46 @@ int main() {
 CSV読み込み
 月次集計を本文として生成。
 フッター生成
-[コマンド] monthly.pdf に出力して履歴に記録。
+[コマンド] PDF形式で monthly.pdf を生成して履歴に記録。
 --- 行2: 月次レポートExcel出力 ---
 CSV読み込み
 月次集計を本文として生成。
 フッター生成
-[コマンド] monthly.xlsx に出力して履歴に記録。
+[コマンド] Excel形式で monthly.xlsx を生成して履歴に記録。
 --- 行3: 装飾付きレポートPDF出力 ---
 CSV読み込み
 本文を生成。
 グラフを追加。
 透かしを追加。
 フッター生成
-[コマンド] decorated.pdf に出力して履歴に記録。
+[コマンド] PDF形式で decorated.pdf を生成して履歴に記録。
 --- 行4: 直前の生成をキャンセル ---
 [コマンド] decorated.pdf を削除してアンドゥ完了。
 --- 行5: バッチで3レポート同時生成 ---
 CSV読み込み
 週次集計を本文として生成。
 フッター生成
-[コマンド] weekly.pdf に出力して履歴に記録。
+[コマンド] PDF形式で weekly.pdf を生成して履歴に記録。
 CSV読み込み
 月次集計を本文として生成。
 フッター生成
-[コマンド] monthly.pdf に出力して履歴に記録。
+[コマンド] PDF形式で monthly.pdf を生成して履歴に記録。
 CSV読み込み
 月次集計を本文として生成。
 グラフを追加。
 フッター生成
-[コマンド] dept.pdf に出力して履歴に記録。
+[コマンド] PDF形式で dept.pdf を生成して履歴に記録。
 [この操作で3コマンドが履歴に追加されました。]
 --- 行6: グラフ付き月次レポートを生成してアンドゥ ---
 CSV読み込み
 月次集計を本文として生成。
 グラフを追加。
 フッター生成
-[コマンド] graph_monthly.pdf に出力して履歴に記録。
+[コマンド] PDF形式で graph_monthly.pdf を生成して履歴に記録。
 [コマンド] graph_monthly.pdf を削除してアンドゥ完了。
 ```
 
-動作テーブル全6行と一致しています。`ReportSkeleton` の中から `if` 文が完全に消え、装飾は Decorator チェーンで動的に組み合わされています。
+動作テーブル全6行と一致しています。サンプル実行後にはPDF用またはExcel用のデモファイルが作成され、行4と行6では対象ファイルが実際に削除されます。`ReportSkeleton`の中から`if`文が消え、装飾はDecoratorチェーンで動的に組み合わされています。
 
 ### 7-2：動作シーケンス図
 
