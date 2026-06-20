@@ -735,7 +735,7 @@ public:
     int calculate(const Order& order) {
         int total = 0;
         for (const auto& item : order.items) total += item.price;
-        return rule->apply(total); // if文がなくなり、無傷の骨格になった
+        return rule->apply(total); // 割引種別を選ぶif文が計算フローから外れた
     }
 };
 
@@ -765,9 +765,9 @@ void processOrder(const Order& order) {
 }
 ```
 
-`PaymentCalculator` の中から `if` 文が完全に消え、`IDiscountRule* rule` を受け取って使うだけの無傷の骨格になった。
+`PaymentCalculator` の中から割引種別を選ぶ `if` 文が消え、`IDiscountRule* rule` を受け取って計算を委譲する骨格になりました。
 
-**この段階の評価：** `PaymentCalculator` からすべての割引判断が消えました。新しい割引が来たとき、触るのは新しいクラスを1つ追加することと、呼び出し側の if 文だけです。`PaymentCalculator` 本体には一切手を入れなくて済みます。これが今回目指した「変わる理由の分離」の到達点です。
+**この段階の評価：** `PaymentCalculator` から割引種別の選択判断が消えました。新しい割引を追加するときは、ルールクラスと選択を担う組み立て箇所を変更します。`IDiscountRule` の契約が安定している限り、`PaymentCalculator` の計算フローへ条件分岐を追加せずに済みます。これが今回目指した「変わる理由の分離」の到達点です。
 
 ---
 
@@ -825,7 +825,7 @@ public:
 ```
 
 **2. 個別の割引ルールの実装（具体）**
-インターフェースを満たす具体的な割引クラスを作成します。本体コードに触れることなく、このクラス群だけを自由に追加・変更できます。
+インターフェースを満たす具体的な割引クラスを作成します。割引計算の追加・変更は主にこのクラス群へ閉じ、利用するルールの選択は組み立て箇所で行います。
 
 ```cpp
 class NoDiscount : public IDiscountRule {
@@ -863,7 +863,7 @@ public:
 ```
 
 **3. 本体クラス（コンテキスト）**
-計算を行う本体クラスです。具体的な割引ルールを知らず、インターフェースだけを通じて計算を委譲します。これにより、if文が存在しない無傷の骨格が完成します。
+計算を行う本体クラスです。具体的な割引ルールを知らず、インターフェースを通じて計算を委譲します。これにより、割引種別を選ぶ条件分岐を計算フローから外せます。
 
 ```cpp
 class PaymentCalculator {
@@ -957,7 +957,7 @@ int main() {
 プレビュー: 8000 円
 ```
 
-動作例テーブルの行1（Premium / キャンペーンなし / 10,000円 → 8,000円）と一致しています。`PaymentCalculator` の中から `if` 文が完全に消えました。
+動作例テーブルの行1（Premium / キャンペーンなし / 10,000円 → 8,000円）と一致しています。`PaymentCalculator` の中には、具体的な割引種別を選ぶ `if` 文がありません。
 
 ### 7-2：動作シーケンス図
 

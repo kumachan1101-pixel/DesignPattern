@@ -777,7 +777,7 @@ public:
     }
 };
 
-// 新しいトッピング追加は、このクラスを1つ作るだけ（既存コードを一切触らない）
+// 新しいトッピングの振る舞いは、このクラスへまとめる
 class Matcha : public ToppingWrapper {
 public:
     Matcha(IDrink* base) : ToppingWrapper(base) {}
@@ -803,9 +803,9 @@ IDrink* order = new Matcha(new Milk(new Coffee()));
 IDrink* double_whip = new Whip(new Whip(new Coffee()));
 ```
 
-`Matcha` クラスを1つ追加するだけで、`Coffee` も `Milk` も `ToppingWrapper` も無傷のまま要件を満たせます。
+`Matcha` クラスへ抹茶固有の価格と説明をまとめ、利用する組み立てコードで `Matcha` を追加すれば要件を満たせます。既存の `Coffee`、`Milk`、`ToppingWrapper` の実装へ抹茶の条件分岐を加える必要はありません。
 
-**この段階の評価：** 新しいトッピング追加 = 新しいクラスを1つ作るだけ。既存コードを一切開かずに済む。「ホイップをダブルにする」は `new Whip(new Whip(new Coffee()))` と包むだけで実現できる。ステップ4の「スロットを追加するたびに `CustomDrink` を修正する」という根本問題が解消された。
+**この段階の評価：** 新しいトッピングの振る舞いは新しいDecoratorクラスへ置き、提供メニューや生成処理などの組み立て箇所へ登録します。「ホイップをダブルにする」は `new Whip(new Whip(new Coffee()))` のように同じ部品を重ねて表現できます。ステップ4の「スロットを追加するたびに `CustomDrink` の条件分岐を増やす」という問題が解消されました。
 
 ---
 

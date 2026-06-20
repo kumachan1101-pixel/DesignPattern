@@ -621,7 +621,7 @@ public:
 
 ### ステップ3：インターフェースで窓口を一本化する（Facade）
 
-「`BankTransferHelper` という具体クラス名すら呼び出し元に知らせたくない。窓口となるインターフェースだけを知らせ、その内部で何が起きているかは完全に隠蔽しよう」という発想です。この窓口クラスこそが Facade になります。
+「呼び出し元には窓口となるインターフェースを見せ、銀行APIの具体的な呼び出し順序は窓口の内側へまとめよう」という発想です。この窓口クラスが Facade になります。
 
 ```cpp
 // 業務フロー側に見せる窓口（インターフェース）
@@ -693,9 +693,9 @@ int main() {
 }
 ```
 
-`TransferProcessor` の中から `BankGateway` や `SecurityAuthenticator` という具体クラス名が完全に消え、`IBankTransferService* facade` だけを知る状態になった。
+`TransferProcessor` は `BankGateway` や `SecurityAuthenticator` という具体クラスを直接参照せず、窓口となる `IBankTransferService* facade` だけを知る状態になりました。
 
-**この段階の評価：** `TransferProcessor` も `BatchTransferProcessor` も、銀行APIの具体的な手順を一切知らなくなりました。銀行APIの認証手順が変わっても、送金パラメータが増えても、`BankTransferService` の中だけを修正すればよく、呼び出し元のクラス群は無傷のままです。窓口インターフェースが安定している限り、内部の手順がどれだけ複雑に変わっても呼び出し元には影響しない。これが Facade の本質です。
+**この段階の評価：** `TransferProcessor` と `BatchTransferProcessor` は、銀行APIの具体的な呼び出し順序を知らず、窓口へ必要な値を渡すだけになりました。認証手順など窓口の内側の変更は `BankTransferService` へ局所化できます。一方、送金パラメータや戻り値など窓口の契約自体が変わる場合は、インターフェースと呼び出し元の変更も必要です。Facadeは、安定させたい窓口と変わりやすい内部手順の境界を作るパターンです。
 
 ---
 
@@ -873,7 +873,7 @@ int main() {
 送金実行: 25000円
 ```
 
-動作例テーブルの行1（12345678 / 5,000円 → 振り込み完了）と行5（87654321 / 30,000円 → OTPスキップで送金）の動作を確認しました。バッチ処理では `otp=""` を渡すことで `BankTransferService` 内のOTPステップがスキップされ、テーブルの「OTP不要」仕様と一致しています。行2〜4（口座なし・残高不足・認証失敗）は本番実装では各サブシステムがエラーを返すことで対応します。`TransferProcessor` の中から `BankGateway` や `SecurityAuthenticator` への依存が完全に消えました。
+動作例テーブルの行1（12345678 / 5,000円 → 振り込み完了）と行5（87654321 / 30,000円 → OTPスキップで送金）の動作を確認しました。バッチ処理では `otp=""` を渡すことで `BankTransferService` 内のOTPステップがスキップされ、テーブルの「OTP不要」仕様と一致しています。行2〜4（口座なし・残高不足・認証失敗）は本番実装では各サブシステムがエラーを返すことで対応します。`TransferProcessor` は `BankGateway` や `SecurityAuthenticator` を直接参照せず、`IBankTransferService` という窓口に依存する形へ変わりました。
 
 ### 7-2：動作シーケンス図
 

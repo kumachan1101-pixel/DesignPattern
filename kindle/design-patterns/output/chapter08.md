@@ -610,7 +610,7 @@ protected:
 };
 ```
 
-`PaymentApplication` の `processPayment` は `IPaymentProcessor*` を受け取って `pay` を呼ぶだけです。「どのクラスを生成するか」という判断は、`DefaultPaymentApplication` という具体サブクラスの中だけに完全に閉じています。
+`PaymentApplication` の `processPayment` は `IPaymentProcessor*` を受け取って `pay` を呼びます。「どのクラスを生成するか」という判断は `DefaultPaymentApplication` へ移りました。新しい決済手段を追加するときは、具体Processorと生成判断を変更しますが、決済を実行する共通フローへ分岐を増やさずに済みます。
 
 **この段階の評価：**
 `PaymentApplication`（振り分けフローの骨格）から、`DefaultPaymentApplication`へ生成判断を移しました。新しい決済手段を追加するときはCreatorの生成処理と、必要に応じて種別の入力・組み立て設定を変更します。`processPayment`の処理手順は変更せずに済みます。「テスト用にモックプロセッサーを使いたい」という要求では、別のCreatorを用意できます。
