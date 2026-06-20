@@ -389,7 +389,7 @@ public:
 };
 ```
 
-この状態は **「具体×直接」の接続形態** です。iPhoneに専用のLightningケーブルを直差ししている状態と同じで、新しい決済手段が増えるたびに本体側を開いて専用の配線（`else if` 文）を直接追加必要があります。
+この状態は **「具体×直接」の接続形態** です。iPhoneに専用のLightningケーブルを直差ししている状態と同じで、新しい決済手段が増えるたびに本体側を開いて専用の配線（`else if` 文）を直接追加する必要があります。
 
 決済の振り分けフローと個別の生成ロジックは、変わる理由が全く異なります。これらが同じ場所に混在していることが、根本原因として確認できました。
 
@@ -490,7 +490,7 @@ public:
 `processPayment` が「生成→実行」という流れだけを担い、`createProcessor` が「どのクラスを生成するか」の判断を一手に引き受けた形になっています。
 
 **この段階の評価：**
-`processPayment` の見通しが良くなり、生成処理がひとまとまりになりました。これは確かな一歩前進です。しかし `createProcessor` は `PaymentApplication` の中にあるため、新しい決済手段が増えるたびに `PaymentApplication` を開いて `if` を追加必要があります。生成処理がまとまったことは良いのですが、`PaymentApplication` がすべての具体クラス（`CreditCardProcessor`・`PayPayProcessor`・`ConvenienceStoreProcessor`）を直接知っているという根本は変わっていません。
+`processPayment` の見通しが良くなり、生成処理がひとまとまりになりました。これは確かな一歩前進です。しかし `createProcessor` は `PaymentApplication` の中にあるため、新しい決済手段が増えるたびに `PaymentApplication` を開いて `if` を追加する必要があります。生成処理がまとまったことは良いのですが、`PaymentApplication` がすべての具体クラス（`CreditCardProcessor`・`PayPayProcessor`・`ConvenienceStoreProcessor`）を直接知っているという根本は変わっていません。
 
 「生成の知識を `PaymentApplication` の外に出せないか」という問いが自然に湧いてきます。
 
