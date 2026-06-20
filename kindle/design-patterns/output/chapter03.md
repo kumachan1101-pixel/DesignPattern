@@ -604,6 +604,11 @@ public:
     virtual void cancel(TicketReservation* ctx) = 0;
     virtual ~IReservationState() = default;
 };
+
+// 状態オブジェクトを共有するための取得関数
+IReservationState* availableState();
+IReservationState* reservedState();
+IReservationState* paidState();
 ```
 
 メソッド引数に `TicketReservation* ctx` を受け取るのは、各状態クラスが遷移後の状態を `ctx->setState()` でセットするためにコンテキストへのポインタが必要だからだ。
@@ -726,39 +731,19 @@ public:
 // Available（空席）状態：予約を受け付けられる状態
 class AvailableState : public IReservationState {
 public:
-    void reserve(TicketReservation* ctx) override {
-        std::cout << "予約完了しました\n";
-        // ← 遷移：コンテキストにReservedStateをセット
-        ctx->setState(new ReservedState());
-    }
-    void pay(TicketReservation* ctx) override {
-        std::cout << "予約なしで支払いはできません\n";
-    }
-    void cancel(TicketReservation* ctx) override {
-        std::cout << "空席状態のためキャンセル不要です\n";
-    }
+    void reserve(TicketReservation* ctx) override;
+    void pay(TicketReservation* ctx) override;
+    void cancel(TicketReservation* ctx) override;
 };
 ```
-
-> **C++の定義順について：** `AvailableState` の中で `new ReservedState()` を使っていますが、`ReservedState` の定義はこの後に登場します。C++では定義前のクラスを完全型として `new` することはできないため、実際にコンパイルする際はクラスの定義順を入れ替えるか、ファイル先頭で `class ReservedState;` と前方宣言する必要があります。本書では読み進める流れに合わせてブロックを分けて提示しています。
 
 ```cpp
 // Reserved（予約済み）状態：支払いかキャンセルを待つ
 class ReservedState : public IReservationState {
 public:
-    void reserve(TicketReservation* ctx) override {
-        std::cout << "既に予約済みです\n";
-    }
-    void pay(TicketReservation* ctx) override {
-        std::cout << "支払い完了しました\n";
-        // ← 遷移：コンテキストにPaidStateをセット
-        ctx->setState(new PaidState());
-    }
-    void cancel(TicketReservation* ctx) override {
-        std::cout << "予約をキャンセルしました\n";
-        // ← 遷移：コンテキストにAvailableStateをセット
-        ctx->setState(new AvailableState());
-    }
+    void reserve(TicketReservation* ctx) override;
+    void pay(TicketReservation* ctx) override;
+    void cancel(TicketReservation* ctx) override;
 };
 ```
 
@@ -766,19 +751,13 @@ public:
 // Paid（支払い済み）状態：発券待ちの状態
 class PaidState : public IReservationState {
 public:
-    void reserve(TicketReservation* ctx) override {
-        std::cout << "支払い済みのため再予約できません\n";
-    }
-    void pay(TicketReservation* ctx) override {
-        std::cout << "既に支払い済みです\n";
-    }
-    void cancel(TicketReservation* ctx) override {
-        std::cout << "支払い済みのためキャンセルできません\n";
-    }
+    void reserve(TicketReservation* ctx) override;
+    void pay(TicketReservation* ctx) override;
+    void cancel(TicketReservation* ctx) override;
 };
 ```
 
-各クラスが「自分の状態のときに何ができて、何ができないか」を自己完結して持っています。`ctx->setState(new ReservedState())` のように、遷移先の状態クラスを呼び出し元（コンテキスト）にセットする責任も各状態クラスが担います。`TicketReservation` 内に散らばっていた条件分岐が、それぞれのクラスに分散して格納されました。
+各状態クラスは、対応する操作メソッドを宣言します。`TicketReservation` の定義後にメソッド本体を書くことで、C++の定義順を守りながら、状態ごとの責任をクラス単位で確認できる形にします。
 
 続いて、状態クラスを保持し、操作を現在の状態に委譲する中心クラスです。
 
@@ -804,6 +783,58 @@ public:
 
 このクラスには、具体的な状態名を判定する `if` 文や `switch` 文がありません。`TicketReservation` は公開操作を現在の状態へ委譲します。状態を追加するときは状態クラスと遷移の組み立てを変更し、公開操作や状態インターフェースの契約が変わらない限り、この委譲部分は保てます。
 
+状態クラスのメソッド本体を、必要な型がすべて定義された後に記述します。状態オブジェクトは振る舞いだけを持つため、この例では関数ローカルの静的オブジェクトを共有し、遷移のたびに `new` しない形にします。
+
+```cpp
+IReservationState* availableState() {
+    static AvailableState state;
+    return &state;
+}
+
+IReservationState* reservedState() {
+    static ReservedState state;
+    return &state;
+}
+
+IReservationState* paidState() {
+    static PaidState state;
+    return &state;
+}
+
+void AvailableState::reserve(TicketReservation* ctx) {
+    std::cout << "予約完了しました\n";
+    ctx->setState(reservedState());
+}
+void AvailableState::pay(TicketReservation*) {
+    std::cout << "予約なしで支払いはできません\n";
+}
+void AvailableState::cancel(TicketReservation*) {
+    std::cout << "空席状態のためキャンセル不要です\n";
+}
+
+void ReservedState::reserve(TicketReservation*) {
+    std::cout << "既に予約済みです\n";
+}
+void ReservedState::pay(TicketReservation* ctx) {
+    std::cout << "支払い完了しました\n";
+    ctx->setState(paidState());
+}
+void ReservedState::cancel(TicketReservation* ctx) {
+    std::cout << "予約をキャンセルしました\n";
+    ctx->setState(availableState());
+}
+
+void PaidState::reserve(TicketReservation*) {
+    std::cout << "支払い済みのため再予約できません\n";
+}
+void PaidState::pay(TicketReservation*) {
+    std::cout << "既に支払い済みです\n";
+}
+void PaidState::cancel(TicketReservation*) {
+    std::cout << "支払い済みのためキャンセルできません\n";
+}
+```
+
 最後に、依存の組み立てと実行の責任を分離します。
 
 ```cpp
@@ -815,27 +846,27 @@ public:
 
         // 行1：Available → reserve() → Reserved
         // 行2：Reserved → pay() → Paid
-        TicketReservation seat1(new AvailableState());
+        TicketReservation seat1(availableState());
         seat1.reserve();
         seat1.pay();
 
         // 行3：Reserved → cancel() → Available
-        TicketReservation seat2(new AvailableState());
+        TicketReservation seat2(availableState());
         seat2.reserve();
         seat2.cancel();
 
         // 行4：Paid → cancel() → エラー（キャンセル不可）
-        TicketReservation seat3(new AvailableState());
+        TicketReservation seat3(availableState());
         seat3.reserve();
         seat3.pay();
         seat3.cancel();
 
         // 行5：Available → pay() → エラー（支払い不可）
-        TicketReservation seat4(new AvailableState());
+        TicketReservation seat4(availableState());
         seat4.pay();
 
         // 行6：Paid → reserve() → エラー（再予約不可）
-        TicketReservation seat5(new AvailableState());
+        TicketReservation seat5(availableState());
         seat5.reserve();
         seat5.pay();
         seat5.reserve();
