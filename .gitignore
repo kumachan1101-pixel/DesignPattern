@@ -9,3 +9,12 @@ __pycache__/
 
 # Claude Code internal
 .claude/
+# Local review scratch files
+/scratch/
+/AGENTS.md
+kindle/design-patterns/output/*_temp*.md
+kindle/design-patterns/output/fix_ch*.py
+kindle/design-patterns/output/script*.py
+kindle/design-patterns/output/find.py
+kindle/design-patterns/output/temp*.txt
+kindle/design-patterns/output/tmp.txt
