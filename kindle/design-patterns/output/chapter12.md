@@ -842,22 +842,28 @@ public:
 
 ```cpp
 class WorkflowManager {
-    IWorkflowPhase* state;
+    IWorkflowPhase* phase = nullptr;
+    string currentState;
     vector<INotificationListener*> listeners;
 public:
-    void setState(IWorkflowPhase* s) { state = s; }
+    void setPhase(IWorkflowPhase* p) { phase = p; }
 
     void addListener(INotificationListener* listener) {
         listeners.push_back(listener);
     }
 
     void process() {
-        state->handle(this);  // ← 知らなくていい（状態遷移の詳細はStateが管理）
+        if (phase) phase->handle(this);
     }
 
-    void notifyAll(string msg) {
-        for (int i = 0; i < (int)listeners.size(); i++) {
-            listeners[i]->onStatusChanged(msg);
+    void transitionTo(const string& nextState) {
+        currentState = nextState;
+        cout << "状態: " << currentState << endl;
+    }
+
+    void notifyAll(const string& msg) {
+        for (auto* listener : listeners) {
+            listener->onStatusChanged(msg);
         }
     }
 };
@@ -870,58 +876,66 @@ struct ApprovalRequest {
     double amount;
 };
 
-// 審査待ち状態：承認可否を判定してフェーズを進行する
-class PendingPhase : public IWorkflowPhase {
-    IApprovalRule* rule;  // ← 判定ルールを外部から注入（Strategy）
-public:
-    PendingPhase(IApprovalRule* r) : rule(r) {}
-
-    void handle(WorkflowManager* wm) override {
-        ApprovalRequest req;
-        req.amount = 50000;  // デモ用の固定値。実運用では申請オブジェクトをコンストラクタ等で受け取る
-        if (rule->canApprove(req.amount)) {
-            cout << "審査待ち：承認可能。承認済み状態へ移行。" << endl;
-            wm->notifyAll("承認済みに移行しました");  // ← Observerに伝搬
-        } else {
-            cout << "審査待ち：上位承認者へエスカレーション。" << endl;
-            wm->notifyAll("エスカレーションが発生しました");
-        }
-    }
-};
-
-// 緊急申請状態：課長をスキップして部長へ直接
-class EmergencyPhase : public IWorkflowPhase {
-public:
-    void handle(WorkflowManager* wm) override {
-        cout << "優先審査待ちへ移行。部長へ直接通知。" << endl;
-        wm->notifyAll("緊急申請が受理されました");
-    }
-};
-
-// 却下状態：申請者へ即時アラート
-class RejectedPhase : public IWorkflowPhase {
-public:
-    void handle(WorkflowManager* wm) override {
-        cout << "却下状態へ移行。" << endl;
-        wm->notifyAll("申請が却下されました");
-    }
-};
-
-// 申請書提出状態：審査待ちへ移行して担当者へ通知
+// 通常申請：審査待ちへ進める
 class SubmittedPhase : public IWorkflowPhase {
 public:
     void handle(WorkflowManager* wm) override {
-        cout << "審査待ち状態へ移行。" << endl;
+        wm->transitionTo("審査待ち");
         wm->notifyAll("申請を受け付けました");
     }
 };
 
-// 最終承認状態：完了状態へ移行して全関係者へ通知
+// 緊急申請：優先審査待ちへ進める
+class EmergencyPhase : public IWorkflowPhase {
+public:
+    void handle(WorkflowManager* wm) override {
+        wm->transitionTo("優先審査待ち");
+        wm->notifyAll("緊急申請を受け付けました");
+    }
+};
+
+// 審査待ちでの承認操作：Strategyで判定して承認済みへ進める
+class PendingApprovalPhase : public IWorkflowPhase {
+    ApprovalRequest request;
+    IApprovalRule* rule;
+public:
+    PendingApprovalPhase(double amount, IApprovalRule* r)
+        : request{amount}, rule(r) {}
+
+    void handle(WorkflowManager* wm) override {
+        if (rule->canApprove(request.amount)) {
+            wm->transitionTo("承認済み");
+            wm->notifyAll("承認されました");
+        } else {
+            wm->notifyAll("上位承認者への確認が必要です");
+        }
+    }
+};
+
+// 審査待ちでの却下操作
+class RejectionPhase : public IWorkflowPhase {
+public:
+    void handle(WorkflowManager* wm) override {
+        wm->transitionTo("却下");
+        wm->notifyAll("申請が却下されました");
+    }
+};
+
+// 承認済みでの最終承認操作
 class FinalApprovalPhase : public IWorkflowPhase {
 public:
     void handle(WorkflowManager* wm) override {
-        cout << "完了状態へ移行。" << endl;
+        wm->transitionTo("完了");
         wm->notifyAll("最終承認が完了しました");
+    }
+};
+
+// 却下状態での再申請操作
+class ResubmissionPhase : public IWorkflowPhase {
+public:
+    void handle(WorkflowManager* wm) override {
+        wm->transitionTo("審査待ち");
+        wm->notifyAll("再申請を受け付けました");
     }
 };
 ```
@@ -934,63 +948,54 @@ public:
 class BatchApplication {
 public:
     void run() {
-        // 判定ルールを準備（Strategy）
         ManagerApprovalRule managerRule;
-
-        // 通知リスナーを準備（Observer）
         ApplicantNotifier applicant;
         ManagerNotifier manager;
         FinanceNotifier finance;
 
-        // 行1: 通常申請書提出 → 審査待ち状態へ移行、担当者に通知
         cout << "--- 行1: 通常申請書提出 ---" << endl;
         WorkflowManager wf1;
         wf1.addListener(&manager);
         SubmittedPhase submitted;
-        wf1.setState(&submitted);
+        wf1.setPhase(&submitted);
         wf1.process();
 
-        // 行2: 緊急申請書提出 → 優先審査待ちへ移行、管理者に通知
         cout << "--- 行2: 緊急申請書提出 ---" << endl;
         WorkflowManager wf2;
         wf2.addListener(&manager);
         EmergencyPhase emergency;
-        wf2.setState(&emergency);
+        wf2.setPhase(&emergency);
         wf2.process();
 
-        // 行3: 審査待ち + 承認操作 → 承認済み状態へ移行、申請者・次承認者に通知
         cout << "--- 行3: 審査待ち→承認操作 ---" << endl;
         WorkflowManager wf3;
         wf3.addListener(&applicant);
         wf3.addListener(&manager);
-        PendingPhase pending(&managerRule);
-        wf3.setState(&pending);
+        PendingApprovalPhase approve(50000, &managerRule);
+        wf3.setPhase(&approve);
         wf3.process();
 
-        // 行4: 審査待ち + 却下操作 → 却下状態へ移行、申請者に通知
         cout << "--- 行4: 審査待ち→却下操作 ---" << endl;
         WorkflowManager wf4;
         wf4.addListener(&applicant);
-        RejectedPhase rejected;
-        wf4.setState(&rejected);
+        RejectionPhase reject;
+        wf4.setPhase(&reject);
         wf4.process();
 
-        // 行5: 承認済み + 最終承認操作 → 完了状態へ移行、全関係者に通知
         cout << "--- 行5: 承認済み→最終承認操作 ---" << endl;
         WorkflowManager wf5;
         wf5.addListener(&applicant);
         wf5.addListener(&manager);
         wf5.addListener(&finance);
         FinalApprovalPhase finalApproval;
-        wf5.setState(&finalApproval);
+        wf5.setPhase(&finalApproval);
         wf5.process();
 
-        // 行6: 却下状態 + 再申請操作 → 審査待ち状態に戻る、担当者に通知
         cout << "--- 行6: 却下→再申請操作 ---" << endl;
         WorkflowManager wf6;
         wf6.addListener(&manager);
-        SubmittedPhase resubmit;
-        wf6.setState(&resubmit);
+        ResubmissionPhase resubmit;
+        wf6.setPhase(&resubmit);
         wf6.process();
     }
 };
@@ -1004,29 +1009,33 @@ int main() {
 
 上記コードの実行結果：
 
-```	ext
---- 既存仕様：通常の申請・承認 ---
-申請者へ通知: 新しい申請が提出されました（W-001）
-課長（Limit: 50万）が承認しました。
-申請者へ通知: 承認済みに移行しました（W-001）
-監査部へ通知: 承認済みに移行しました（W-001）
+```text
+--- 行1: 通常申請書提出 ---
+状態: 審査待ち
+[管理者通知] 申請を受け付けました
+--- 行2: 緊急申請書提出 ---
+状態: 優先審査待ち
+[管理者通知] 緊急申請を受け付けました
+--- 行3: 審査待ち→承認操作 ---
+状態: 承認済み
+[申請者通知] 承認されました
+[管理者通知] 承認されました
+--- 行4: 審査待ち→却下操作 ---
+状態: 却下
+[申請者通知] 申請が却下されました
+--- 行5: 承認済み→最終承認操作 ---
+状態: 完了
+[申請者通知] 最終承認が完了しました
+[管理者通知] 最終承認が完了しました
+[決済部門通知] 最終承認が完了しました
+--- 行6: 却下→再申請操作 ---
+状態: 審査待ち
+[管理者通知] 再申請を受け付けました
+```
 
---- 新機能：緊急対応フロー（State） ---
-申請者へ通知: 緊急対応に移行しました（W-002）
-部長（Limit: 無制限）が承認しました。
-申請者へ通知: 緊急承認済みに移行しました（W-002）
-監査部へ通知: 緊急承認済みに移行しました（W-002）
-
---- 新機能：判定ルールの変更（Strategy） ---
-[StrictApprovalRule] 厳格な審査を開始。
-部長（Limit: 無制限）が承認しました。
-申請者へ通知: 承認済みに移行しました（W-003）
-監査部へ通知: 承認済みに移行しました（W-003）
-経理部へ通知: 承認済みに移行しました（W-003）  <-- 新機能：通知先の追加（Observer）
-`
-
-フェーズ2で予告された「新しい承認ルートの追加（緊急対応）」「通知先の拡張（経理部）」「部署ごとの承認上限の変更（厳格な審査）」という3つの変更要求が来た場合の実行例です。
-WorkflowManager本体のコードには一切触れることなく、新しいState（状態）、Observer（通知リスナー）、Strategy（判定ルール）を追加するだけで仕様変更に対応できることが確認できました。
+動作例テーブル6行と同じ順序で、各操作後の状態と通知先を確認できます。
+`WorkflowManager` は遷移先の文字列を記録して通知を配信し、各
+`IWorkflowPhase` 実装が「どの状態へ進めるか」を決めています。
 
 
 ### 7-2：動作シーケンス図
@@ -1042,8 +1051,8 @@ sequenceDiagram
     participant L as INotificationListener[]
 
     B->>R: 生成（ManagerApprovalRule）
-    B->>P: 生成（rule を注入）
-    B->>WM: setState(pending)
+    B->>P: 生成（amount と rule を注入）
+    B->>WM: setPhase(approve)
     B->>WM: addListener（3件）
     B->>WM: process()
     activate WM
@@ -1053,7 +1062,8 @@ sequenceDiagram
     activate R
     R-->>P: true（承認可能）
     deactivate R
-    P->>WM: notifyAll("承認済みに移行しました")
+    P->>WM: transitionTo("承認済み")
+    P->>WM: notifyAll("承認されました")
     WM->>L: onStatusChanged（3件に伝搬）
     deactivate P
     deactivate WM
@@ -1071,7 +1081,7 @@ graph LR
     T3 -. "影響なし" .-> A
 ```
 
-フェーズ3の変更影響グラフと比べると、変更要求が新規クラスの作成だけに閉じるようになりました。
+フェーズ3の変更影響グラフと比べると、変更要求ごとの実装先が、状態・通知・判定ルールの各クラスへ分かれるようになりました。組み立て箇所への登録は必要ですが、`WorkflowManager` の実行骨格は変更せずに済みます。
 
 ### 7-4：変更シナリオ表
 
