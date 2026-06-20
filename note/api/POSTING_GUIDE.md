@@ -32,6 +32,11 @@ editor.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: tr
 ```
 - markdownの `##` → `<h2>` タグに変換してからペースト
 - コードブロック → `<pre><code class="language-X">` に変換
+- **`<table>` タグ禁止**（article-013で発見）: `<table><tr><td>` を含むHTMLをClipboardEventでペーストすると、ProseMirrorエディタがテーブルとして解釈せず、セル内容がすべて1つの段落に連結されてしまう（例：「コメントの内容補おうとしているもの　この処理は〇〇をしている処理の意図…」のように繋がる）。比較表・対応表は以下の形式で代替すること：
+  ```html
+  <p><strong>ラベル1</strong> → 値1</p>
+  <p><strong>ラベル2</strong> → 値2</p>
+  ```
 
 ### 4. TOC挿入（安定版：Ctrl+Shift+Down方式）
 ※ ProseMirror JS直接操作は不可（pmView取得できず）
@@ -97,6 +102,7 @@ HTMLInputElement.prototype.click = function() {
 - **本文HTMLはタスクプロンプトに直接含めること**（既存記事からの取得は30+ターン無駄になるためNG）
 - **ペースト前に本文エリアをクリックしてフォーカスを確認すること**（タイトルフィールドにフォーカスが残っていると本文がタイトル欄に入る）
 - 同一操作を2回失敗した場合は、リトライを続けず一度状況を報告すること（無駄なトークン消費を避ける）
+- **本文HTMLに `<table>` タグを使わない**（article-013、約8ターン浪費）: note.comのProseMirrorエディタはClipboardEvent経由の `<table>` をテーブルとして解釈しないため、公開直前に発覚すると本文の削除・再ペーストという手戻りが発生する。本文HTML作成段階から `<table>` は一切使わず、比較表・対応表は `<p><strong>ラベル</strong> → 値</p>` 形式で書くこと
 
 ## 別タスク・別セッションへの引き渡し
 
