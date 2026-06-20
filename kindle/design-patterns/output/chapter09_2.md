@@ -6,7 +6,7 @@
 
 **システムの振る舞いが「ビジネスルール」と「状態遷移」という異なる2つの軸で変化する場合、これらを分離せずに一つのクラスに抱え込むと、機能拡張のたびにコードが爆発的に複雑化する。**
 
-第9章からは本書の第二部です。第一部では「変わる理由が1つ」のコードに対して1つのパターンを適用してきました。第二部では「変わる理由が複数、しかも独立している」という現実のシステムを扱います。同じ7つのフェーズで問題を分析しますが、分析の結果として複数のパターンが組み合わさって登場します。「パターンを使うために設計する」のではなく、「変化の軸を分析した結果として自然にパターンが選ばれる」という順序は変わりません。
+第9章からは本書の第二部です。第一部では、章ごとに主となる一つの変更課題へ焦点を当て、対応するパターンを一つずつ学びました。第二部では、変更の決定者や頻度が異なる複数の課題が同じシステムに存在する場合を扱います。同じ7つのフェーズで問題を分析しますが、一つの構造だけでは変更影響を十分に分けられないとき、複数のパターンを組み合わせます。「パターンを使うために設計する」のではなく、「変化の軸を分析して必要な境界を選ぶ」という順序は変わりません。
 
 ### この章を読むと得られること
 
@@ -758,6 +758,7 @@ public:
     EscalationEngine(IPriorityRule* s) : strategy(s) {}
     void checkAndEscalate(string ticketId) {
         string priority = strategy->getPriority("premium"); // EscalationEngineはPremium用途に限定して使うため
+        cout << "[EscalationEngine] 判定優先度: " << priority << endl;
         if (priority == "High") {
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
@@ -1145,6 +1146,7 @@ public:
         : strategy(s), state(st) {}
     void checkAndEscalate(string ticketId) {
         string priority = strategy->getPriority("premium"); // EscalationEngineはPremium用途に限定して使うため
+        cout << "[EscalationEngine] 判定優先度: " << priority << endl;
         if (priority == "High") {
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
@@ -1234,11 +1236,12 @@ int main() {
 --- 行5: 一般ユーザーが再オープン ---
 優先度: Normal — チケット受付中。
 --- 行6: プレミアムユーザーがエスカレーション ---
+[EscalationEngine] 判定優先度: High
 [EscalationEngine] チケット T-001 をエスカレーション。
 チケット対応中。担当者に割り当て。
 ```
 
-動作テーブル全6行と一致しています。行6の「高優先度（High）に切り替え」については、`EscalationEngine` が `strategy->getPriority("premium")` を呼んで `"High"` を受け取り、`if (priority == "High")` の条件を満たしたときにのみエスカレーションを実行する仕組みです。`[EscalationEngine] チケット T-001 をエスカレーション。` という出力自体が「優先度がHighと判定された」証拠になっています。
+動作テーブル全6行と一致しています。行6では、`EscalationEngine` が `strategy->getPriority("premium")` を呼び、判定結果の `High` を出力してからエスカレーションします。期待値である優先度と、条件成立後の処理をそれぞれ実行結果で確認できます。
 
 `TicketApplication` が具体クラスの組み立てを一手に引き受け、`main()` はキックするだけです。具体クラス名を知っているのは `TicketApplication` の1か所に集約されており、優先度ルールや状態クラスを差し替えるときもここだけを修正すれば済みます。
 
