@@ -9,13 +9,14 @@
 
 | 優先 | ID | 内容 | 状態 |
 |---|---|---|---|
-| 🔴 | ACTIVE-01 | `chapter09_2.md` の `state->handle(nullptr)` を、将来の状態実装でも安全な設計へ変更する | 未対応 |
 | 🟠 | C0-05 | Kindle EPUBでSVG 10枚のレンダリングを確認する | 未対応 |
 | 🟡 | C18-04 | `chapter04.md` のMermaidコード1行（88文字）を80文字以内へ整形する | 未対応 |
 | 🟡 | ACTIVE-02 | GitHubのOpen Issueを現行mainと照合し、対応済みIssueをコメント付きでCloseする | 未対応 |
 | 🟡 | ACTIVE-03 | ローカルの一時ファイル・修正スクリプトを確認し、必要なものだけ残す | 未対応 |
 
 ### 再照合で完了を確認した旧タスク
+
+- ACTIVE-01：`ITicketPhase` に安全な `display()` を追加し、`EscalationEngine` の `nullptr` 依存を除去
 
 - C8-01〜03：章末必須セクションは3章すべてに存在
 - C9-01〜08：chapter01〜08の文頭「まず」は解消済み

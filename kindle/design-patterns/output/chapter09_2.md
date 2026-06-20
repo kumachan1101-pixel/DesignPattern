@@ -796,6 +796,7 @@ classDiagram
     class ITicketPhase {
         <<interface>>
         +handle(context)
+        +display()
     }
     class TicketContext {
         -strategy IPriorityRule
@@ -815,9 +816,11 @@ classDiagram
     }
     class OpenPhase {
         +handle(context)
+        +display()
     }
     class InProgressPhase {
         +handle(context)
+        +display()
     }
     PremiumPriority ..|> IPriorityRule : 実装
     NormalPriority ..|> IPriorityRule : 実装
@@ -850,6 +853,7 @@ class ITicketPhase {
 public:
     virtual ~ITicketPhase() = default;
     virtual void handle(class TicketContext* context) = 0;
+    virtual void display() = 0;
 };
 ```
 
@@ -879,7 +883,8 @@ public:
 // Open状態の振る舞い
 class OpenPhase : public ITicketPhase {
 public:
-    void handle(TicketContext* context) override {
+    void handle(TicketContext* context) override { display(); }
+    void display() override {
         cout << "チケット受付中。" << endl;
     }
 };
@@ -887,7 +892,8 @@ public:
 // 対応中状態の振る舞い
 class InProgressPhase : public ITicketPhase {
 public:
-    void handle(TicketContext* context) override {
+    void handle(TicketContext* context) override { display(); }
+    void display() override {
         cout << "チケット対応中。担当者に割り当て。" << endl;
     }
 };
@@ -931,9 +937,9 @@ public:
         if (priority == "High") {
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
-            // このパターンではcontextは使わないため nullptr を渡している
-            // （handle()の実装（InProgressPhase等）はcontext引数を参照しない）
-            state->handle(nullptr); // ← 直接：インターフェース経由で直接呼び出す
+            // エスカレーションでは状態遷移を行わず、
+            // 現在状態の表示だけを安全に呼び出す
+            state->display(); // ← context不要の専用操作
         }
     }
 };
@@ -1030,6 +1036,7 @@ class ITicketPhase {
 public:
     virtual ~ITicketPhase() = default;
     virtual void handle(class TicketContext* context) = 0;
+    virtual void display() = 0;
 };
 ```
 
@@ -1040,18 +1047,21 @@ public:
 class OpenPhase : public ITicketPhase {
 public:
     void handle(TicketContext* context) override;
+    void display() override;
 };
 
 // InProgress状態の振る舞い
 class InProgressPhase : public ITicketPhase {
 public:
     void handle(TicketContext* context) override;
+    void display() override;
 };
 
 // Resolved状態の振る舞い
 class ResolvedPhase : public ITicketPhase {
 public:
     void handle(TicketContext* context) override;
+    void display() override;
 };
 ```
 
@@ -1082,17 +1092,20 @@ public:
 
 ```cpp
 // OpenPhase の実装（TicketContextが定義された後）
-void OpenPhase::handle(TicketContext* context) {
+void OpenPhase::handle(TicketContext* context) { display(); }
+void OpenPhase::display() {
     cout << "チケット受付中。" << endl;
 }
 
 // InProgressPhase の実装
-void InProgressPhase::handle(TicketContext* context) {
+void InProgressPhase::handle(TicketContext* context) { display(); }
+void InProgressPhase::display() {
     cout << "チケット対応中。担当者に割り当て。" << endl;
 }
 
 // ResolvedPhase の実装
-void ResolvedPhase::handle(TicketContext* context) {
+void ResolvedPhase::handle(TicketContext* context) { display(); }
+void ResolvedPhase::display() {
     cout << "チケット解決済み。クローズしました。" << endl;
 }
 ```
@@ -1112,13 +1125,18 @@ public:
         if (priority == "High") {
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
-            // このパターンではcontextは使わないため nullptr を渡している
-            // （handle()の実装（InProgressPhase等）はcontext引数を参照しない）
-            state->handle(nullptr);
+            // エスカレーションでは状態遷移を行わず、
+            // 現在状態の表示だけを安全に呼び出す
+            state->display();
         }
     }
 };
 ```
+
+`handle(context)` は状態遷移を伴う通常処理で使い、`display()` は
+状態を変えずに現在の振る舞いだけを実行するときに使います。
+`EscalationEngine` が `nullptr` を渡す必要がなくなり、将来の状態クラスが
+`context` を参照する実装へ変わっても安全です。
 
 **TicketApplication クラス（組み立て担当）**
 
@@ -1230,7 +1248,7 @@ sequenceDiagram
     App->>EE: checkAndEscalate(...)
     EE->>PP: strategy->getPriority(userType)
     PP-->>EE: "High"
-    EE->>IS: state->handle(nullptr)
+    EE->>IS: state->display()
     IS-->>EE: 完了
     EE-->>App: 完了
 ```
@@ -1531,7 +1549,7 @@ sequenceDiagram
     App->>EE: checkAndEscalate(...)
     EE->>PP: strategy->getPriority(userType)
     PP-->>EE: "High"
-    EE->>IS: state->handle(nullptr)
+    EE->>IS: state->display()
     IS-->>EE: 完了
     EE-->>App: 完了
 ```
