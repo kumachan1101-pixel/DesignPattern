@@ -39,11 +39,9 @@
 | 月次バッチ・A社正常応答 | A社向け月次バッチを実行する | 正常応答 | A社へデータ転送成功 | Slack「A社連携完了」 |
 | 月次バッチ・C社タイムアウト | C社向け月次バッチを実行する | タイムアウト | 3回リトライ後に失敗ログ記録 | Slack「C社連携失敗」 |
 | 日次バッチ・新規D社追加後 | D社向け日次バッチを実行する | 正常応答 | D社向け新クライアントがデータ転送成功 | Slack「D社連携完了」 |
-| 手動トリガー・B社正常応答 | B社向けデータ同期を手動で実行する | 正常応答 | B社へ手動データ転送成功 | Slack「B社手動連携完了」（注記あり） |
+| 手動トリガー・B社正常応答 | B社向けデータ同期を手動で実行する | 正常応答 | B社へ手動データ転送成功 | Slack「B社手動連携完了」 |
 | バッチ失敗・監視チーム設定あり | A社向け月次バッチを実行する（API障害） | 障害 | 転送失敗ログ記録 | Slack＋メール両方に通知 |
 | 通知先にログ基盤追加後 | B社向けバッチを実行する | 正常応答 | B社へデータ転送成功 | Slack＋ログ基盤へ同時通知 |
-
-（注記あり）行4：フェーズ7の簡略実装では `ManualTriggerController` に通知機能を持たせていないため、データ転送は実行されますが Slack 通知は省略しています。`BatchExecutor` と同様に `INotifier` リストを追加することで対応できます。
 
 ---
 
@@ -719,7 +717,7 @@ public:
 class SlackNotifier : public INotifier {
 public:
     void onComplete(string result) {
-        cout << "Slack通知: バッチ処理完了 [" << result << "]" << endl;
+        cout << "Slack通知: " << result << endl;
     }
 };
 
@@ -727,7 +725,7 @@ public:
 class EmailNotifier : public INotifier {
 public:
     void onComplete(string result) {
-        cout << "Email通知: バッチ処理完了 [" << result << "]" << endl;
+        cout << "Email通知: " << result << endl;
     }
 };
 
@@ -735,12 +733,12 @@ public:
 class LogNotifier : public INotifier {
 public:
     void onComplete(string result) {
-        cout << "ログ基盤へ記録: [" << result << "]" << endl;
+        cout << "ログ基盤へ記録: " << result << endl;
     }
 };
 ```
 
-`INotifier` を定義することで、通知先の追加は「このインターフェースを実装した新クラスを作る」だけになる。
+`INotifier` を定義することで、通知先ごとの送信方法を個別クラスへ分けられます。新しい通知先を利用するときは、このインターフェースを実装したクラスを追加し、組み立て箇所で登録します。
 
 次に、連携先クライアントのインターフェースと実装を定義します。
 
@@ -836,12 +834,12 @@ class BatchExecutor {
 public:
     void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
 
-    void execute(IClientCreator* creator) {
+    void execute(IClientCreator* creator, string completionMessage) {
         // Factory Methodを抽象Creator経由で呼び出す
         IExternalClient* client = creator->createClient();
         client->send("data");
         for (auto* notifier : notifiers) {
-            notifier->onComplete("Success");
+            notifier->onComplete(completionMessage);
         }
         delete client;
     }
@@ -849,12 +847,19 @@ public:
 
 class ManualTriggerController {
     IExternalClient* client;
+    vector<INotifier*> notifiers;
 public:
     ManualTriggerController(IExternalClient* c) : client(c) {}
+    void addNotifier(INotifier* notifier) {
+        notifiers.push_back(notifier);
+    }
     void triggerSync(string targetId) {
         cout << "[ManualTrigger] " << targetId
              << " への手動同期を実行。" << endl;
         client->send("manualData");
+        for (auto* notifier : notifiers) {
+            notifier->onComplete(targetId + "社手動連携完了");
+        }
     }
 };
 
@@ -870,16 +875,17 @@ public:
         cout << "--- 行1: A社月次バッチ ---" << endl;
         BatchExecutor executorA;
         executorA.addNotifier(&slack);
-        executorA.execute(&creatorA);
+        executorA.execute(&creatorA, "A社連携完了");
 
         cout << "--- 行3: D社日次バッチ（新規連携先） ---" << endl;
         BatchExecutor executorD;
         executorD.addNotifier(&slack);
-        executorD.execute(&creatorD);
+        executorD.execute(&creatorD, "D社連携完了");
 
         cout << "--- 行4: B社手動トリガー ---" << endl;
         IExternalClient* bClient = creatorB.createClient();
         ManualTriggerController manual(bClient);
+        manual.addNotifier(&slack);
         manual.triggerSync("B");
         delete bClient;
 
@@ -887,7 +893,7 @@ public:
         BatchExecutor executorB;
         executorB.addNotifier(&slack);
         executorB.addNotifier(&log);
-        executorB.execute(&creatorB);
+        executorB.execute(&creatorB, "B社連携完了");
     }
 };
 
@@ -903,20 +909,21 @@ int main() {
 ```
 --- 行1: A社月次バッチ ---
 A社へ転送: data
-Slack通知: バッチ処理完了 [Success]
+Slack通知: A社連携完了
 --- 行3: D社日次バッチ（新規連携先） ---
 D社へ転送: data
-Slack通知: バッチ処理完了 [Success]
+Slack通知: D社連携完了
 --- 行4: B社手動トリガー ---
 [ManualTrigger] B への手動同期を実行。
 B社へ転送: manualData
+Slack通知: B社手動連携完了
 --- 行6: B社バッチ（Slack＋ログ基盤） ---
 B社へ転送: data
-Slack通知: バッチ処理完了 [Success]
-ログ基盤へ記録: [Success]
+Slack通知: B社連携完了
+ログ基盤へ記録: B社連携完了
 ```
 
-行1・3・6と一致しています。行4（手動トリガー）はデータ転送部分を実現していますが、`ManualTriggerController` には通知の仕組みを追加していないため、Slack通知の出力は省略しています（`BatchExecutor` と同様に `INotifier` リストを持たせることで対応できます）。行2（タイムアウト・リトライ）と行5（API障害）はエラー動作に依存するため省略しています。
+基本シナリオの行1・3・4・6と一致しています。`BatchExecutor` と `ManualTriggerController` はどちらも `INotifier` を登録できるため、実行経路が異なっても同じ通知契約を利用できます。行2（タイムアウト・リトライ）と行5（API障害）は、ここでは外部APIの失敗実装を省略しているため動作仕様として残します。
 
 この実装により、`BatchExecutor` は通信の詳細や通知の仕組みを知ることなく、フローの統括のみに専念できるようになりました。
 
@@ -937,14 +944,14 @@ sequenceDiagram
     BA->>BE: new BatchExecutor
     BA->>SN: new SlackNotifier
     BA->>BE: addNotifier(&slackNotifier)
-    BA->>BE: execute(&creatorC)
+    BA->>BE: execute(&creatorC, "C社連携完了")
     BE->>CC: creator->createClient()
     Note right of BE: IExternalClient* 経由（抽象）
     CC-->>BE: IExternalClient*
     BE->>SC: client->send("data")
     Note right of BE: IExternalClient* 経由
     SC-->>BE: 完了
-    BE->>SN: obs->onComplete("Success")
+    BE->>SN: obs->onComplete("C社連携完了")
     Note right of BE: INotifier* 経由（抽象）
     SN-->>BE: 完了
     BE-->>BA: 完了
@@ -972,9 +979,9 @@ graph LR
 | **シナリオ** | **変わるクラス（触る場所）** | **変わらないクラス** |
 | --- | --- | --- |
 | 新しい連携先（D社）を追加する | `SystemDClient`と`SystemDClientCreator`を新規作成し、組み立て箇所へ登録 | `BatchExecutor`, `INotifier` 実装クラス |
-| メール通知を追加する | `MailNotifier` クラスを新規作成 | `BatchExecutor`, `IExternalClient` 実装クラス |
+| メール通知を追加する | `MailNotifier` クラスを新規作成し、組み立て箇所へ登録 | `BatchExecutor`, `IExternalClient` 実装クラス |
 
-変更が来ても、触るのは該当する Factory や Observer の実装クラスだけ——それがこの設計で手に入れたものです。諦めたものは、クラス数の増加というわずかな設計コストです。
+変更内容に対応するClient・Creator・Notifierと組み立て箇所へ、修正対象を絞りやすくなりました。一方で、クラス数が増え、どの部品を組み合わせるかを管理するコストは引き受けます。
 
 ---
 
