@@ -12,12 +12,12 @@
 
 ### 2. タイトル入力
 ```javascript
-const input = document.querySelector('input[placeholder*="タイトル"]');
-Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
-  .set.call(input, 'タイトル文字列');
-input.dispatchEvent(new Event('input', {bubbles: true}));
+const titleEl = document.querySelector('textarea[placeholder="記事タイトル"]');
+const titleSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+titleSetter.call(titleEl, 'タイトル文字列');
+titleEl.dispatchEvent(new Event('input', { bubbles: true }));
 ```
-- セレクタが合わない場合：`find` でタイトル要素を特定してから同様のJSを実行（フォールバック）
+- セレクタはDOM調査で確認済みの安定セレクタ（`find` フォールバックは要素が本当に見つからない場合のみ）
 
 ### 3. 本文ペースト（javascript_tool 1回）
 ```javascript
@@ -55,35 +55,44 @@ editor.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: tr
    ```
 
 ### 5. カバー画像アップロード
-- **前提**: `#note-editor-eyecatch-input` は常にDOM上に存在するわけではない。タイトル上の「**+**」アイコン→「**画像をアップロード**」を一度クリックして初めて生成される（article-011で確認）。`find` で見つからない場合は先に「+」アイコンをクリックしてから再度 `find` すること
+- **前提**: `#note-editor-eyecatch-input` はクリック前はDOMに存在しない。「画像をアップロード」クリック後に動的生成される（article-011で確認）
+
+**確定手順（DOM調査済み）:**
+1. `button[aria-label="画像を追加"]` をJS `click()`
+2. 300ms 待機
+3. テキスト一致で「画像をアップロード」ボタンをJS `click()` → `#note-editor-eyecatch-input` が動的生成される
+4. `find({cssSelector:'#note-editor-eyecatch-input'})` → `file_upload` で画像をセット
+5. computerでスクリーンショット1回 → トリムダイアログの「保存」をクリック
 
 ```javascript
-// file inputクリックをインターセプト
-const orig = HTMLInputElement.prototype.click;
-HTMLInputElement.prototype.click = function() {
-  if (this.type === 'file') { window._capturedInput = this; return; }
-  return orig.call(this);
-};
+document.querySelector('button[aria-label="画像を追加"]').click();
+await new Promise(r => setTimeout(r, 300));
+[...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('画像をアップロード')).click();
+// → find({cssSelector:'#note-editor-eyecatch-input'}) → file_upload → computerでスクリーンショット1回 → 「保存」クリック
 ```
-- `find` でカバー画像ボタンを取得 → JS `element.click()` で開く → find で `window._capturedInput` のrefを取得
-- `file_upload` ツールで画像をセット → 「保存」クリック
-- ※ file_upload は start_task の `attachments` パラメータで画像を渡した子タスクでのみ有効
-- **注意①**: インターセプター設定後は必ずJS `!!window._capturedInput` で値がセットされているか確認してから `file_upload` を実行すること
-- **注意②**: ページ遷移やReactの再レンダリングでインターセプターがリセットされる場合がある。カバー画像エリアをクリックした直後に `!!window._capturedInput` をチェックし、`false` なら再度インターセプターを設定してからクリックし直すこと
+- ※ `file_upload` は start_task の `attachments` パラメータで画像を渡した子タスクでのみ有効
 
 ### 6. タグ設定
-- 「公開に進む」は `find` で要素を取得してJSクリック（`element.click()`）で遷移
+- 「公開に進む」ボタン: テキスト一致で取得してJSクリック（タイトル・本文が空だとエラーモーダルが出るので先に入力すること）
   ```javascript
-  // findで取得した要素をJSでクリック（computerツールの視覚クリック不要）
-  // find結果のelementに対して: element.click()
+  [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '公開に進む').click();
   ```
-- タグ入力は `find` でタグ入力フィールドを取得 → `form_input` で入力（シャープ記号なし）
-  - **効果**: computerツールでのクリック+タイプ方式（4タグで10ターン）から1〜2ターンに削減
-- ※ `#C#` などシャープ含むタグはnote側の制限で入力不可
+- タグ入力はネイティブセッター方式（`form_input` より高速。シャープ記号なし）
+  ```javascript
+  const tagEl = document.querySelector('input[placeholder="ハッシュタグを追加する"]');
+  const tagSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  tagSetter.call(tagEl, 'タグ名');
+  tagEl.dispatchEvent(new Event('input', { bubbles: true }));
+  ```
+  - ※ タグ入力後にEnterキーでのチップ確定が必要な場合がある（未検証）
+  - ※ `#C#` などシャープ含むタグはnote側の制限で入力不可
 - 「キャンセル」でエディタに戻る
 
 ### 7. 公開
-- 「公開する」ボタンは `find` で要素を取得してJSクリック（`element.click()`）で実行
+- 「**投稿する**」ボタン: テキスト一致で取得してJSクリック（DOM調査で確認済み。「公開する」というボタンは存在しない）
+  ```javascript
+  [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '投稿する').click();
+  ```
   - computerツールでの視覚クリック不要
   - 下書き保存ではなく即時公開されることを確認
 
@@ -119,6 +128,81 @@ HTMLInputElement.prototype.click = function() {
 投稿作業を別タスク・別セッションに依頼する場合、手順の要約やこのファイルへの参照だけでは元の手順を再現できない。article-011では90ターン程度の試行錯誤が発生した実例がある。
 
 本文HTML・タイトル入力・画像アップロードの具体的な操作手順は省略せず、**確定手順を全文プロンプトに埋め込むこと**。
+
+## 確定セレクタ一覧（DOM調査済み）
+
+note.com は styled-components 製でCSSクラス名がビルドごとに変わり、React useId 由来の id（`:r9:` 等）も非安定なため、これらは使わない。以下の安定セレクタを使うこと。
+
+| 要素 | セレクタ |
+|:---|:---|
+| タイトル | `textarea[placeholder="記事タイトル"]` |
+| 本文エディタ | `.ProseMirror` |
+| カバー画像「+」ボタン | `button[aria-label="画像を追加"]` |
+| 「画像をアップロード」項目 | `[...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('画像をアップロード'))` |
+| カバー画像 file input | `#note-editor-eyecatch-input`（「画像をアップロード」クリック後に動的生成。クリック前はDOMに存在しない） |
+| 「公開に進む」ボタン | `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '公開に進む')` |
+| タグ入力欄 | `input[placeholder="ハッシュタグを追加する"]` |
+| 最終公開ボタン | `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '投稿する')` |
+
+**注意**: 「公開に進む」ボタンはタイトル・本文が空の状態でクリックするとエラーモーダルが出て遷移しない。先に両方入力してから押すこと。
+
+## ネイティブセッター方式
+
+タイトル・タグの入力には、`computer` ツールでのタイピングシミュレーションより高速な以下の方式が使える：
+
+```javascript
+// タイトル（textarea）
+const titleSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+titleSetter.call(titleEl, 'テキスト');
+titleEl.dispatchEvent(new Event('input', { bubbles: true }));
+
+// タグ（input）
+const tagSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+tagSetter.call(tagEl, 'テキスト');
+tagEl.dispatchEvent(new Event('input', { bubbles: true }));
+```
+
+本文（`.ProseMirror`、contenteditable）にはこの方式は使えない。本文は既存のClipboardEventペースト方式（ステップ3）を継続すること。
+
+## 確定スクリプト（実行そのまま使う）
+
+**方針**: 次回からはこのスクリプトをそのまま実行し、AIが毎回手順を考え直さない。`TITLE_TEXT`・`BODY_HTML`・`TAG_TEXT` を差し替えるだけでよい。`find` + `computer` へのフォールバックは要素が本当に見つからない場合のみに限定する。
+
+```javascript
+// ステップA: タイトル設定
+const titleEl = document.querySelector('textarea[placeholder="記事タイトル"]');
+const titleSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+titleSetter.call(titleEl, TITLE_TEXT);
+titleEl.dispatchEvent(new Event('input', { bubbles: true }));
+
+// ステップB: 本文ペースト
+const editor = document.querySelector('.ProseMirror');
+editor.focus();
+document.execCommand('selectAll');
+const dt = new DataTransfer();
+dt.setData('text/html', BODY_HTML);
+dt.setData('text/plain', editor.textContent);
+editor.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true}));
+
+// ステップC: カバー画像アップロードのトリガー
+document.querySelector('button[aria-label="画像を追加"]').click();
+await new Promise(r => setTimeout(r, 300));
+[...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('画像をアップロード')).click();
+// → find({cssSelector:'#note-editor-eyecatch-input'}) → file_upload → computerでスクリーンショット1回 → トリムダイアログの「保存」をクリック
+
+// ステップD: 公開フロー
+[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '公開に進む').click();
+await new Promise(r => setTimeout(r, 500));
+const tagEl = document.querySelector('input[placeholder="ハッシュタグを追加する"]');
+const tagSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+tagSetter.call(tagEl, TAG_TEXT);
+tagEl.dispatchEvent(new Event('input', { bubbles: true }));
+await new Promise(r => setTimeout(r, 300));
+// 最終公開（コメントアウトを解除して実行）:
+// [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '投稿する').click();
+```
+
+**未検証事項**: タグ入力後にEnterキーでのチップ確定が別途必要になる可能性がある。必要な場合は `tagEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))` を追加すること。
 
 ## テスト結果
 - 2026-05-27 手順テスト実施：本文プロンプト直接渡し方式で18ターン達成（タグなし）、公開フロー込みで20〜30ターン見込み
