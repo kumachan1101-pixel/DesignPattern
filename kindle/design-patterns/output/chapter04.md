@@ -732,7 +732,9 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    T1["変更要求：新フォーマット対応<br>（ヘッダーバージョンチェック追加）"] --> F1["AbstractImporter<br>（基底クラスの修正のみ）"]
+    T1["変更要求：新フォーマット対応<br>（ヘッダーバージョンチェック追加）"]
+    F1["AbstractImporter<br>（基底クラスの修正のみ）"]
+    T1 --> F1
     T1 -. "影響なし" .-> A["StoreDataImporter ✅"]
     T1 -. "影響なし" .-> B["FCDataImporter ✅"]
     T1 -. "影響なし" .-> C["ECDataImporter ✅"]
