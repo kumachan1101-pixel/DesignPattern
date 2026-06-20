@@ -958,7 +958,7 @@ int main() {
 }
 ```
 
-ステップ5で2つの変化軸がそれぞれ独立して管理できるようになりました。優先度ルールは `IPriorityRule` の派生クラスを追加するだけで拡張でき、状態遷移は `ITicketPhase` の派生クラスを追加するだけで拡張できます。`TicketContext` には一切触れる必要がありません。
+ここまでの短いコードは、2つの変化軸を別のインターフェースへ分ける骨格を示したものです。`handle()` は表示だけに省略しています。フェーズ7の完成版では、各状態クラスが次の状態を保持し、`TicketContext::setState()` を呼んで実際に遷移させます。
 
 **このステップのトレードオフ：**
 
@@ -1045,21 +1045,27 @@ public:
 ```cpp
 // Open状態の振る舞い
 class OpenPhase : public ITicketPhase {
+    ITicketPhase* next = nullptr;
 public:
+    void setNext(ITicketPhase* phase) { next = phase; }
     void handle(TicketContext* context) override;
     void display() override;
 };
 
 // InProgress状態の振る舞い
 class InProgressPhase : public ITicketPhase {
+    ITicketPhase* next = nullptr;
 public:
+    void setNext(ITicketPhase* phase) { next = phase; }
     void handle(TicketContext* context) override;
     void display() override;
 };
 
 // Resolved状態の振る舞い
 class ResolvedPhase : public ITicketPhase {
+    ITicketPhase* next = nullptr;
 public:
+    void setNext(ITicketPhase* phase) { next = phase; }
     void handle(TicketContext* context) override;
     void display() override;
 };
@@ -1080,7 +1086,12 @@ public:
     void execute(string userType) {
         string priority = strategy->getPriority(userType); // ← 抽象経由
         cout << "優先度: " << priority << " — ";
-        state->handle(this); // ← 直接呼び出し
+        state->display();
+    }
+    void transition(string userType) {
+        string priority = strategy->getPriority(userType);
+        cout << "優先度: " << priority << " — ";
+        state->handle(this); // 現在の状態が次の状態を決める
     }
     string calculatePriority(string userType) {
         return strategy->getPriority(userType);
@@ -1092,19 +1103,31 @@ public:
 
 ```cpp
 // OpenPhase の実装（TicketContextが定義された後）
-void OpenPhase::handle(TicketContext* context) { display(); }
+void OpenPhase::handle(TicketContext* context) {
+    if (next == nullptr) { display(); return; }
+    context->setState(next);
+    next->display();
+}
 void OpenPhase::display() {
     cout << "チケット受付中。" << endl;
 }
 
 // InProgressPhase の実装
-void InProgressPhase::handle(TicketContext* context) { display(); }
+void InProgressPhase::handle(TicketContext* context) {
+    if (next == nullptr) { display(); return; }
+    context->setState(next);
+    next->display();
+}
 void InProgressPhase::display() {
     cout << "チケット対応中。担当者に割り当て。" << endl;
 }
 
 // ResolvedPhase の実装
-void ResolvedPhase::handle(TicketContext* context) { display(); }
+void ResolvedPhase::handle(TicketContext* context) {
+    if (next == nullptr) { display(); return; }
+    context->setState(next);
+    next->display();
+}
 void ResolvedPhase::display() {
     cout << "チケット解決済み。クローズしました。" << endl;
 }
@@ -1133,8 +1156,8 @@ public:
 };
 ```
 
-`handle(context)` は状態遷移を伴う通常処理で使い、`display()` は
-状態を変えずに現在の振る舞いだけを実行するときに使います。
+`handle(context)` は各状態が次の状態を選び、`TicketContext` を更新する通常処理で使います。`display()` は
+状態を変えずに現在の振る舞いだけを実行するときに使います。遷移先は組み立て時に `setNext()` で注入するため、`TicketContext` に状態名の条件分岐は戻りません。
 `EscalationEngine` が `nullptr` を渡す必要がなくなり、将来の状態クラスが
 `context` を参照する実装へ変わっても安全です。
 
@@ -1152,6 +1175,9 @@ public:
         OpenPhase openPhase;
         InProgressPhase inProgressPhase;
         ResolvedPhase resolvedPhase;
+        openPhase.setNext(&inProgressPhase);
+        inProgressPhase.setNext(&resolvedPhase);
+        resolvedPhase.setNext(&openPhase);
 
         // 行1: 一般ユーザーが新規登録
         cout << "--- 行1: 一般ユーザーが新規登録 ---" << endl;
@@ -1165,18 +1191,15 @@ public:
 
         // 行3: 受付中チケットに担当者をアサイン（Open→InProgress）
         cout << "--- 行3: 担当者アサイン ---" << endl;
-        ctx1.setState(&inProgressPhase);
-        ctx1.execute("normal");
+        ctx1.transition("normal");
 
         // 行4: 担当者が解決（InProgress→Resolved）
         cout << "--- 行4: 担当者が解決 ---" << endl;
-        ctx1.setState(&resolvedPhase);
-        ctx1.execute("normal");
+        ctx1.transition("normal");
 
         // 行5: 解決済みを一般ユーザーが再オープン（Resolved→Open）
         cout << "--- 行5: 一般ユーザーが再オープン ---" << endl;
-        ctx1.setState(&openPhase);
-        ctx1.execute("normal");
+        ctx1.transition("normal");
 
         // 行6: プレミアムユーザーがエスカレーション
         cout << "--- 行6: プレミアムユーザーがエスカレーション ---" << endl;
@@ -1502,4 +1525,3 @@ void updateStatus(string status) {
 **得られること3**（複数パターンの組み合わせ効果の説明）：フェーズ6と7で、2つの変化軸をそれぞれ独立したインターフェース（`IPriorityRule` と `ITicketPhase`）で分離することで、どちらの軸の変更も独立したクラスに閉じられることを学びました。1つのパターンでは解決できない複合問題に対して、複数パターンを組み合わせる判断プロセスが身についたはずです。
 
 **得られること4**（if文からオブジェクトへの変換視点）：フェーズ6の5ステップで、プライベートメソッド→別クラス切り出し→関数化の限界→Strategyパターン→Strategy × Stateと段階的に進化させる思考プロセスを体験しました。「一貫した構造を持つ関数が並んでいるときは共通インターフェースに抽象化できる」という視点が、次の現場でも活用できます。
-
