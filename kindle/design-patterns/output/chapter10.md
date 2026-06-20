@@ -616,43 +616,55 @@ public:
 
 ### ステップ6：Factory Methodパターンを加える ―― 生成を一か所に集める（完全解）
 
-ステップ5に残った「生成の分散」を解消します。連携先クライアントの生成を専用クラス（`ClientProvider`）に集約し、`BatchExecutor` は「どの連携先クラスを生成するか」という知識を持たなくてよくなります。
+ステップ5に残った「生成の分散」を解消します。生成メソッドを`IClientCreator::createClient()`として定義し、連携先ごとのCreatorがオーバーライドします。`BatchExecutor` はCreatorの抽象型だけを受け取り、どのクライアントを生成するかを知りません。
 
 ```cpp
-// 生成の窓口（Factory Methodパターン）
-class ClientProvider {
+// Creatorの契約。createClient()がFactory Methodに当たる
+class IClientCreator {
 public:
-    static IExternalClient* create(string targetId) {
-        if (targetId == "A") return new SystemAClient();
-        if (targetId == "B") return new SystemBClient();
-        if (targetId == "C") return new SystemCClient();
-        // 新しい連携先はここに1行追加するだけ
-        return nullptr;
+    virtual ~IClientCreator() = default;
+    virtual IExternalClient* createClient() = 0;
+};
+
+class SystemAClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemAClient();
     }
 };
 
-// BatchExecutorは生成も通知も知らず、フロー統括だけを担う
+class SystemBClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemBClient();
+    }
+};
+
+class SystemCClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemCClient();
+    }
+};
+
+// BatchExecutorはCreatorの抽象型だけを受け取る
 class BatchExecutor {
     vector<INotifier*> notifiers;
 public:
     void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
 
-    void execute(string targetId) {
-        // Factory経由で生成（具体クラスを知らない）
-        IExternalClient* client = ClientProvider::create(targetId);
-        if (client) {
-            client->send("data");
-            // 全Observerに通知（通知先を知らない）
-            for (int i = 0; i < notifiers.size(); i++) {
-                notifiers[i]->onComplete("Success");
-            }
-            delete client;
+    void execute(IClientCreator* creator) {
+        IExternalClient* client = creator->createClient();
+        client->send("data");
+        for (auto* notifier : notifiers) {
+            notifier->onComplete("Success");
         }
+        delete client;
     }
 };
 ```
 
-`BatchExecutor` は、連携先の具体クラス（`SystemAClient` 等）への直接依存がなくなりました。`ClientProvider`（Factory）に生成を委ねることで、新しい連携先が追加されても `BatchExecutor` を変更する理由がなくなっています。3つの関心がそれぞれ独立したクラスに収まりました。なお、`BatchExecutor` は依然として `ClientProvider` という具体クラスを知っていますが、ここでの「依存の集約」の意味は「個々の連携先具体クラスを直接知る責任を持たない」という点です。
+`BatchExecutor` は`IClientCreator`だけを知り、具体的なCreatorやクライアントには依存しません。新しい連携先には新しい具象Creatorを追加し、組み立て箇所で選択します。生成方法の変更が実行フローへ波及しない点が、Factory Methodを導入した効果です。
 
 **評価：** 3つの変化軸（生成・通信・通知）がそれぞれ独立して変更できる構造になった。これが今回の完全解です。
 
@@ -669,7 +681,7 @@ public:
 | ステップ3 | 具体×間接 | 限界を確認 | 関数では3つの関心を分離できない |
 | ステップ4 | 抽象×直接（通信のみ） | Facade適用 | 通知の変化軸が残る |
 | ステップ5 | 抽象×直接（通信＋通知） | Observer追加 | 生成の知識が分散している |
-| ステップ6 | 抽象×間接（完全解） | Factory追加 | なし |
+| ステップ6 | 抽象×間接（完全解） | Factory Method追加 | 具象Creatorの組み立てが必要 |
 
 今回の決断はステップ6まで進めることです。フェーズ2のヒアリングで「外部連携先の追加（D社・E社）」と「通知方法の多様化（ログ基盤）」が確定しています。変化の軸が3つ独立して存在する以上、各責務を完全にインターフェース経由で分離する構造が必要です。
 
@@ -685,7 +697,7 @@ public:
 
 ### 7-1：解決後のコード（全体）
 
-フェーズ6で選んだ構造を実装します。連携先クライアントの生成を `ClientProvider` に、通知処理を `INotifier` として分離しました。
+フェーズ6で選んだ構造を実装します。連携先クライアントの生成を`IClientCreator`と具象Creatorに、通知処理を`INotifier`として分離しました。
 
 はじめに、通知のインターフェースと具体的な通知クラスを定義します。
 
@@ -763,7 +775,7 @@ public:
     }
 };
 
-// D社向け実装（新規追加。ClientProviderに1行追加するだけで対応できる）
+// D社向け実装（新規追加）
 class SystemDClient : public IExternalClient {
 public:
     void send(string data) {
@@ -772,51 +784,69 @@ public:
 };
 ```
 
-各連携先クライアントは `IExternalClient` を実装するだけ。D社を追加するときも同じ形で1クラス追加するだけで済む。
+各連携先クライアントは`IExternalClient`を実装します。D社を追加するときは、クライアントと対応するCreatorを追加します。
 
-生成の責務を一か所に集めます。
+生成メソッドの契約と、連携先ごとの具象Creatorを定義します。
 
 ```cpp
-// 生成の窓口（Factory Method パターン）
-class ClientProvider {
+// Creatorの契約：サブクラスが生成方法を決める
+class IClientCreator {
 public:
-    static IExternalClient* create(string targetId) {
-        if (targetId == "A") return new SystemAClient();
-        if (targetId == "B") return new SystemBClient();
-        if (targetId == "C") return new SystemCClient();
-        if (targetId == "D") return new SystemDClient();
-        // 新しい連携先はここに1行追加するだけ
-        return nullptr;
+    virtual ~IClientCreator() = default;
+    virtual IExternalClient* createClient() = 0;
+};
+
+class SystemAClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemAClient();
+    }
+};
+
+class SystemBClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemBClient();
+    }
+};
+
+class SystemCClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemCClient();
+    }
+};
+
+class SystemDClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemDClient();
     }
 };
 ```
 
-`ClientProvider` が「どの連携先クラスを生成するか」という知識を一手に引き受ける。`BatchExecutor` はもうこの知識を持たなくてよい。
+各具象Creatorが、自分に対応するクライアントの生成だけを知ります。`BatchExecutor`は`IClientCreator`だけを知り、生成する具体型を知りません。
 
 最後に、フローを統括する `BatchExecutor` と組み立てを示します。
 
 ```cpp
 // バッチ全体のフローを統括するクラス（Facade）
 class BatchExecutor {
-    vector<INotifier*> notifiers; // ← Observer リスト
+    vector<INotifier*> notifiers;
 public:
     void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
 
-    void execute(string targetId) {
-        // Factory Method で生成（具体クラスを知らない）
-        IExternalClient* client = ClientProvider::create(targetId);
-        if (client) {
-            client->send("data");
-            // 全Observerに通知（通知先を知らない）
-            for (int i = 0; i < notifiers.size(); i++) {
-                notifiers[i]->onComplete("Success");
-            }
-            delete client;
+    void execute(IClientCreator* creator) {
+        // Factory Methodを抽象Creator経由で呼び出す
+        IExternalClient* client = creator->createClient();
+        client->send("data");
+        for (auto* notifier : notifiers) {
+            notifier->onComplete("Success");
         }
+        delete client;
     }
 };
 
-// 手動実行コントローラー
 class ManualTriggerController {
     IExternalClient* client;
 public:
@@ -828,37 +858,36 @@ public:
     }
 };
 
-// 組み立てと実行を担うクラス（main()の代わりに具体クラスを知る）
 class BatchApplication {
 public:
     void run() {
         SlackNotifier slack;
         LogNotifier log;
+        SystemAClientCreator creatorA;
+        SystemBClientCreator creatorB;
+        SystemDClientCreator creatorD;
 
-        // 行1: 月次バッチ・A社正常応答
         cout << "--- 行1: A社月次バッチ ---" << endl;
         BatchExecutor executorA;
         executorA.addNotifier(&slack);
-        executorA.execute("A");
+        executorA.execute(&creatorA);
 
-        // 行3: 日次バッチ・新規D社追加後（ClientProviderへの1行追加のみで対応）
         cout << "--- 行3: D社日次バッチ（新規連携先） ---" << endl;
         BatchExecutor executorD;
         executorD.addNotifier(&slack);
-        executorD.execute("D");
+        executorD.execute(&creatorD);
 
-        // 行4: 手動トリガー・B社正常応答
         cout << "--- 行4: B社手動トリガー ---" << endl;
-        SystemBClient bClient;
-        ManualTriggerController manual(&bClient);
+        IExternalClient* bClient = creatorB.createClient();
+        ManualTriggerController manual(bClient);
         manual.triggerSync("B");
+        delete bClient;
 
-        // 行6: 通知先にログ基盤追加後（Slack＋ログ基盤へ同時通知）
         cout << "--- 行6: B社バッチ（Slack＋ログ基盤） ---" << endl;
         BatchExecutor executorB;
         executorB.addNotifier(&slack);
         executorB.addNotifier(&log);
-        executorB.execute("B");
+        executorB.execute(&creatorB);
     }
 };
 
@@ -900,7 +929,7 @@ sequenceDiagram
     participant main
     participant BA as BatchApplication
     participant BE as BatchExecutor
-    participant CP as ClientProvider
+    participant CC as SystemCClientCreator
     participant SN as SlackNotifier
     participant SC as SystemCClient
     Note over main: BatchApplicationが全具体型を組み立て
@@ -908,10 +937,10 @@ sequenceDiagram
     BA->>BE: new BatchExecutor
     BA->>SN: new SlackNotifier
     BA->>BE: addNotifier(&slackNotifier)
-    BA->>BE: execute("C")
-    BE->>CP: ClientProvider::create("C")
+    BA->>BE: execute(&creatorC)
+    BE->>CC: creator->createClient()
     Note right of BE: IExternalClient* 経由（抽象）
-    CP-->>BE: *client
+    CC-->>BE: IExternalClient*
     BE->>SC: client->send("data")
     Note right of BE: IExternalClient* 経由
     SC-->>BE: 完了
@@ -928,13 +957,13 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    T1["変更要求：C社連携追加"] --> F1["ClientProvider ✅"]
+    T1["変更要求：C社連携追加"] --> F1["SystemCClient + Creator ✅"]
     T1 -. "影響なし" .-> A["BatchExecutor ✅"]
     T2["変更要求：Slack通知変更"] --> F2["SlackNotifier ✅"]
     T2 -. "影響なし" .-> A
 ```
 
-グラフが示す通り、変更要求はそれぞれ `ClientProvider` や `SlackNotifier` クラスに閉じており、`BatchExecutor` のメインフローには一切影響が及ばなくなりました。
+グラフが示す通り、連携先追加はクライアントと具象Creator、通知変更はNotifierの実装に分かれます。組み立て箇所でCreatorを登録する変更は必要ですが、`BatchExecutor`の実行フローは変わりません。
 
 ### 7-4：変更シナリオ表
 
@@ -942,7 +971,7 @@ graph LR
 
 | **シナリオ** | **変わるクラス（触る場所）** | **変わらないクラス** |
 | --- | --- | --- |
-| 新しい連携先（D社）を追加する | `ClientProvider` に new ロジック追加 | `BatchExecutor`, `INotifier` 実装クラス |
+| 新しい連携先（D社）を追加する | `SystemDClient`と`SystemDClientCreator`を新規作成し、組み立て箇所へ登録 | `BatchExecutor`, `INotifier` 実装クラス |
 | メール通知を追加する | `MailNotifier` クラスを新規作成 | `BatchExecutor`, `IExternalClient` 実装クラス |
 
 変更が来ても、触るのは該当する Factory や Observer の実装クラスだけ——それがこの設計で手に入れたものです。諦めたものは、クラス数の増加というわずかな設計コストです。
@@ -978,7 +1007,7 @@ graph LR
 | `IExternalClient` | 外部連携クライアントの通信契約を提供する。 | なし |
 | `INotifier` | 通知処理の契約を提供する。 | なし |
 | `BatchExecutor` | バッチ全体の処理フローを統括する。 | バッチの実行順序が変わる場合 |
-| `ClientProvider` | 外部連携クライアントを生成する。 | 新しい連携先が増える場合 |
+| `IClientCreator` / 具象Creator | Factory Methodの契約を定義し、連携先ごとのクライアントを生成する | 新しい連携先が増える場合 |
 
 > **このプロセスを回した結果にたどり着いた構造こそが Facade × Observer × Factory Method の複合パターンです。**
 
@@ -998,7 +1027,7 @@ graph LR
 ### 3つの設計原則はどう適用されたか
 
 * **原則1「変わるものをカプセル化せよ」の現れ**
-* **具体化された場所：** `ClientProvider` と `INotifier` 派生クラス
+* **具体化された場所：** `IClientCreator`の具象Creatorと`INotifier`派生クラス
 * **解説：** 連携先の実装詳細や通知先ごとのロジックを、独立したクラス群にカプセル化しました。
 
 * **原則2「実装ではなくインターフェースに対してプログラムせよ」の現れ**
@@ -1104,4 +1133,4 @@ public:
 | **問題** | 外部連携バッチで「連携先の追加」「通知先の追加」「生成方法の変更」という変わる理由が異なる3つの変化が、同じ `BatchExecutor` に混在している |
 | **原因** | `BatchExecutor` が各連携先クライアントと通知サービスを「具体×直接」で生成・呼び出しているため、どの変化が来ても `BatchExecutor` 全体への影響確認が必要になる |
 | **課題** | 通信の詳細（接続点A）・通知先の仕組み（接続点B）・連携先クライアントの生成（接続点C）を、それぞれ独立して差し替えられる構造に切り離すこと |
-| **解決策** | Facade × Observer × Factory Method：`IExternalClient`（通信の複雑さを隠す）・`INotifier`リスト（通知の疎結合）・`ClientProvider`（生成の集約）の3つの分離で、`BatchExecutor` が変化の影響を受けない設計にする |
+| **解決策** | Facade × Observer × Factory Method：`IExternalClient`（通信の複雑さを隠す）・`INotifier`リスト（通知の疎結合）・`IClientCreator`と具象Creator（生成方法の分離）の3つの分離で、`BatchExecutor` が変化の影響を受けない設計にする |
