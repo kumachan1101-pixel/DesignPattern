@@ -84,7 +84,7 @@ await new Promise(r => setTimeout(r, 300));
   tagSetter.call(tagEl, 'タグ名');
   tagEl.dispatchEvent(new Event('input', { bubbles: true }));
   ```
-  - ※ タグ入力後にEnterキーでのチップ確定が必要な場合がある（未検証）
+  - ※ タグ入力後にEnterキーでのチップ確定が**必須**（article-016で確認）: ネイティブセッター方式だけではタグがチップ化されない。computerツールでtagElにフォーカスした状態でEnterキーを送ること
   - ※ `#C#` などシャープ含むタグはnote側の制限で入力不可
 - 「キャンセル」でエディタに戻る
 
@@ -198,14 +198,17 @@ const tagSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.protot
 tagSetter.call(tagEl, TAG_TEXT);
 tagEl.dispatchEvent(new Event('input', { bubbles: true }));
 await new Promise(r => setTimeout(r, 300));
+// ⚠️ ネイティブセッター方式だけではタグがチップ化されない（article-016で確認）。
+// 必ずEnterキー送信が必要（computerツールでtagElにフォーカスした状態でEnterキーを送る）
 // 最終公開（コメントアウトを解除して実行）:
 // [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '投稿する').click();
 ```
 
-**未検証事項**: タグ入力後にEnterキーでのチップ確定が別途必要になる可能性がある。必要な場合は `tagEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))` を追加すること。
+**確定事項（article-016）**: タグ入力後のEnterキーによるチップ確定は必須。ネイティブセッター + `input` イベントだけではタグがチップ化されない。computerツールでtagElにフォーカスした状態でEnterキーを送ること（`KeyboardEvent('keydown', { key: 'Enter' })` のJS dispatch では不十分な可能性があるため、computerツールのEnterキー操作を優先すること）。
 
 ## テスト結果
 - 2026-05-27 手順テスト実施：本文プロンプト直接渡し方式で18ターン達成（タグなし）、公開フロー込みで20〜30ターン見込み
+- 2026-06-20 article-016：確定スクリプト方式で約20ターンで完了（前回article-014の約90ターンから大幅短縮）。タイトル設定・本文ペーストを1回のJS実行にまとめる方式が完全に機能。唯一フォールバックが必要だったのはタグ入力のEnterキー確定のみ。
 
 ## 投稿済み記事
 - n68088c41faf0（ソフトウェア設計・まず動かす）
