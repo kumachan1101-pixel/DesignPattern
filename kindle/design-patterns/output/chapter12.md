@@ -752,12 +752,13 @@ flowchart TD
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 
-なお、フェーズ6の短い例では `SubmittedPhase` が「申請受付」と「承認可否の判定」をまとめて担当していました。フェーズ7では動作例テーブルの操作を区別するため、次の二つへ分けています。
+フェーズ6の短い例では、`SubmittedPhase` が申請受付と承認判定をまとめていました。フェーズ7ではStateパターンの役割を明確にするため、クラスを「操作名」ではなく「現在状態」で分けます。
 
-- **`SubmittedPhase`**：通常申請を受け付け、審査待ちへ進める。
-- **`PendingApprovalPhase`**：審査待ちで承認操作を受け、注入された `IApprovalRule` へ金額判定を委譲する。申請金額はコンストラクタで受け取る。
+- `DraftPhase`：通常申請・緊急申請のイベントを受け、審査待ちへ遷移する。
+- `PendingPhase` / `PriorityPendingPhase`：承認・却下のイベントを受け、判定ルールを使って次状態を選ぶ。
+- `ApprovedPhase` / `RejectedPhase` / `CompletedPhase`：それぞれの状態で許可されたイベントだけを処理する。
 
-これは名前だけの変更ではなく、入口の操作と審査中の操作を別の状態実装として表すための整理です。実運用では、金額だけでなく申請IDや申請者などを持つ申請オブジェクトを渡す設計も検討します。
+`WorkflowManager` は現在の `IWorkflowPhase` を保持し、イベントを現在状態へ渡します。各状態オブジェクトが次状態を選び、Contextの `phase` を更新するため、「状態によって振る舞いが変わる」というStateパターンの構造をコード上でも確認できます。
 
 ### 7-1：解決後のコード（全体）
 
@@ -785,10 +786,28 @@ public:
     virtual ~INotificationListener() = default;
 };
 
+enum class WorkflowEvent {
+    SubmitNormal,
+    SubmitEmergency,
+    Approve,
+    Reject,
+    FinalApprove,
+    Resubmit
+};
+
+struct ApprovalRequest {
+    double amount;
+};
+
 // 状態遷移の契約（変わる理由：承認フロー変更・新ルート追加）
 class IWorkflowPhase {
 public:
-    virtual void handle(class WorkflowManager* wm) = 0;
+    virtual string name() const = 0;
+    virtual void handle(
+        class WorkflowManager* wm,
+        WorkflowEvent event,
+        const ApprovalRequest& request
+    ) = 0;
     virtual ~IWorkflowPhase() = default;
 };
 ```
@@ -845,7 +864,6 @@ public:
 ```cpp
 class WorkflowManager {
     IWorkflowPhase* phase = nullptr;
-    string currentState;
     vector<INotificationListener*> listeners;
 public:
     void setPhase(IWorkflowPhase* p) { phase = p; }
@@ -854,13 +872,14 @@ public:
         listeners.push_back(listener);
     }
 
-    void process() {
-        if (phase) phase->handle(this);
+    void process(WorkflowEvent event, const ApprovalRequest& request = {0}) {
+        if (phase) phase->handle(this, event, request);
     }
 
-    void transitionTo(const string& nextState) {
-        currentState = nextState;
-        cout << "状態: " << currentState << endl;
+    void transitionTo(IWorkflowPhase* next, const string& message) {
+        phase = next;
+        cout << "状態: " << phase->name() << endl;
+        notifyAll(message);
     }
 
     void notifyAll(const string& msg) {
@@ -874,70 +893,104 @@ public:
 **5. 状態クラスの具体実装（State × Strategy の組み合わせ）**
 
 ```cpp
-struct ApprovalRequest {
-    double amount;
-};
-
-// 通常申請：審査待ちへ進める
-class SubmittedPhase : public IWorkflowPhase {
+class DraftPhase : public IWorkflowPhase {
+    IWorkflowPhase* pending;
+    IWorkflowPhase* priorityPending;
 public:
-    void handle(WorkflowManager* wm) override {
-        wm->transitionTo("審査待ち");
-        wm->notifyAll("申請を受け付けました");
-    }
-};
-
-// 緊急申請：優先審査待ちへ進める
-class EmergencyPhase : public IWorkflowPhase {
-public:
-    void handle(WorkflowManager* wm) override {
-        wm->transitionTo("優先審査待ち");
-        wm->notifyAll("緊急申請を受け付けました");
-    }
-};
-
-// 審査待ちでの承認操作：Strategyで判定して承認済みへ進める
-class PendingApprovalPhase : public IWorkflowPhase {
-    ApprovalRequest request;
-    IApprovalRule* rule;
-public:
-    PendingApprovalPhase(double amount, IApprovalRule* r)
-        : request{amount}, rule(r) {}
-
-    void handle(WorkflowManager* wm) override {
-        if (rule->canApprove(request.amount)) {
-            wm->transitionTo("承認済み");
-            wm->notifyAll("承認されました");
-        } else {
-            wm->notifyAll("上位承認者への確認が必要です");
+    DraftPhase(IWorkflowPhase* p, IWorkflowPhase* pp)
+        : pending(p), priorityPending(pp) {}
+    string name() const override { return "作成中"; }
+    void handle(
+        WorkflowManager* wm,
+        WorkflowEvent event,
+        const ApprovalRequest&
+    ) override {
+        if (event == WorkflowEvent::SubmitNormal) {
+            wm->transitionTo(pending, "申請を受け付けました");
+        } else if (event == WorkflowEvent::SubmitEmergency) {
+            wm->transitionTo(priorityPending, "緊急申請を受け付けました");
         }
     }
 };
 
-// 審査待ちでの却下操作
-class RejectionPhase : public IWorkflowPhase {
+class PendingPhase : public IWorkflowPhase {
+protected:
+    IApprovalRule* rule;
+    IWorkflowPhase* approved;
+    IWorkflowPhase* rejected;
 public:
-    void handle(WorkflowManager* wm) override {
-        wm->transitionTo("却下");
-        wm->notifyAll("申請が却下されました");
+    PendingPhase(
+        IApprovalRule* r,
+        IWorkflowPhase* a,
+        IWorkflowPhase* reject
+    ) : rule(r), approved(a), rejected(reject) {}
+
+    string name() const override { return "審査待ち"; }
+
+    void handle(
+        WorkflowManager* wm,
+        WorkflowEvent event,
+        const ApprovalRequest& request
+    ) override {
+        if (event == WorkflowEvent::Approve) {
+            if (rule->canApprove(request.amount)) {
+                wm->transitionTo(approved, "承認されました");
+            } else {
+                wm->notifyAll("上位承認者への確認が必要です");
+            }
+        } else if (event == WorkflowEvent::Reject) {
+            wm->transitionTo(rejected, "申請が却下されました");
+        }
     }
 };
 
-// 承認済みでの最終承認操作
-class FinalApprovalPhase : public IWorkflowPhase {
+class PriorityPendingPhase : public PendingPhase {
 public:
-    void handle(WorkflowManager* wm) override {
-        wm->transitionTo("完了");
-        wm->notifyAll("最終承認が完了しました");
+    using PendingPhase::PendingPhase;
+    string name() const override { return "優先審査待ち"; }
+};
+
+class ApprovedPhase : public IWorkflowPhase {
+    IWorkflowPhase* completed;
+public:
+    ApprovedPhase(IWorkflowPhase* c) : completed(c) {}
+    string name() const override { return "承認済み"; }
+    void handle(
+        WorkflowManager* wm,
+        WorkflowEvent event,
+        const ApprovalRequest&
+    ) override {
+        if (event == WorkflowEvent::FinalApprove) {
+            wm->transitionTo(completed, "最終承認が完了しました");
+        }
     }
 };
 
-// 却下状態での再申請操作
-class ResubmissionPhase : public IWorkflowPhase {
+class RejectedPhase : public IWorkflowPhase {
+    IWorkflowPhase* pending = nullptr;
 public:
-    void handle(WorkflowManager* wm) override {
-        wm->transitionTo("審査待ち");
-        wm->notifyAll("再申請を受け付けました");
+    void setPending(IWorkflowPhase* p) { pending = p; }
+    string name() const override { return "却下"; }
+    void handle(
+        WorkflowManager* wm,
+        WorkflowEvent event,
+        const ApprovalRequest&
+    ) override {
+        if (event == WorkflowEvent::Resubmit && pending) {
+            wm->transitionTo(pending, "再申請を受け付けました");
+        }
+    }
+};
+
+class CompletedPhase : public IWorkflowPhase {
+public:
+    string name() const override { return "完了"; }
+    void handle(
+        WorkflowManager*,
+        WorkflowEvent,
+        const ApprovalRequest&
+    ) override {
+        // 完了状態からの遷移は、この動作仕様では定義しない
     }
 };
 ```
@@ -955,50 +1008,54 @@ public:
         ManagerNotifier manager;
         FinanceNotifier finance;
 
+        // 状態グラフを一度組み立てる
+        CompletedPhase completed;
+        ApprovedPhase approved(&completed);
+        RejectedPhase rejected;
+        PendingPhase pending(&managerRule, &approved, &rejected);
+        PriorityPendingPhase priorityPending(
+            &managerRule, &approved, &rejected);
+        DraftPhase draft(&pending, &priorityPending);
+        rejected.setPending(&pending);
+
         cout << "--- 行1: 通常申請書提出 ---" << endl;
         WorkflowManager wf1;
         wf1.addListener(&manager);
-        SubmittedPhase submitted;
-        wf1.setPhase(&submitted);
-        wf1.process();
+        wf1.setPhase(&draft);
+        wf1.process(WorkflowEvent::SubmitNormal);
 
         cout << "--- 行2: 緊急申請書提出 ---" << endl;
         WorkflowManager wf2;
         wf2.addListener(&manager);
-        EmergencyPhase emergency;
-        wf2.setPhase(&emergency);
-        wf2.process();
+        wf2.setPhase(&draft);
+        wf2.process(WorkflowEvent::SubmitEmergency);
 
         cout << "--- 行3: 審査待ち→承認操作 ---" << endl;
         WorkflowManager wf3;
         wf3.addListener(&applicant);
         wf3.addListener(&manager);
-        PendingApprovalPhase approve(50000, &managerRule);
-        wf3.setPhase(&approve);
-        wf3.process();
+        wf3.setPhase(&pending);
+        wf3.process(WorkflowEvent::Approve, {50000});
 
         cout << "--- 行4: 審査待ち→却下操作 ---" << endl;
         WorkflowManager wf4;
         wf4.addListener(&applicant);
-        RejectionPhase reject;
-        wf4.setPhase(&reject);
-        wf4.process();
+        wf4.setPhase(&pending);
+        wf4.process(WorkflowEvent::Reject);
 
         cout << "--- 行5: 承認済み→最終承認操作 ---" << endl;
         WorkflowManager wf5;
         wf5.addListener(&applicant);
         wf5.addListener(&manager);
         wf5.addListener(&finance);
-        FinalApprovalPhase finalApproval;
-        wf5.setPhase(&finalApproval);
-        wf5.process();
+        wf5.setPhase(&approved);
+        wf5.process(WorkflowEvent::FinalApprove);
 
         cout << "--- 行6: 却下→再申請操作 ---" << endl;
         WorkflowManager wf6;
         wf6.addListener(&manager);
-        ResubmissionPhase resubmit;
-        wf6.setPhase(&resubmit);
-        wf6.process();
+        wf6.setPhase(&rejected);
+        wf6.process(WorkflowEvent::Resubmit);
     }
 };
 
@@ -1036,8 +1093,7 @@ int main() {
 ```
 
 動作例テーブル6行と同じ順序で、各操作後の状態と通知先を確認できます。
-`WorkflowManager` は遷移先の文字列を記録して通知を配信し、各
-`IWorkflowPhase` 実装が「どの状態へ進めるか」を決めています。
+`WorkflowManager` は現在の `IWorkflowPhase` を保持し、操作イベントをその状態へ委譲します。各状態実装は許可するイベントを処理し、`transitionTo()` を通じてContextの現在状態を次の状態オブジェクトへ更新します。
 
 
 ### 7-2：動作シーケンス図
@@ -1048,25 +1104,26 @@ int main() {
 sequenceDiagram
     participant B as BatchApplication
     participant WM as WorkflowManager
-    participant P as PendingApprovalPhase<br/>(IWorkflowPhase)
+    participant P as PendingPhase<br/>(IWorkflowPhase)
+    participant A as ApprovedPhase<br/>(IWorkflowPhase)
     participant R as ManagerApprovalRule<br/>(IApprovalRule)
     participant L as INotificationListener[]
 
     B->>R: 生成（ManagerApprovalRule）
-    B->>P: 生成（amount と rule を注入）
-    B->>WM: setPhase(approve)
-    B->>WM: addListener（3件）
-    B->>WM: process()
+    B->>P: 生成（rule と遷移先を注入）
+    B->>WM: setPhase(pending)
+    B->>WM: addListener（申請者・次承認者）
+    B->>WM: process(Approve, {50000})
     activate WM
-    WM->>P: handle(wm)
+    WM->>P: handle(wm, Approve, request)
     activate P
     P->>R: canApprove(amount)
     activate R
     R-->>P: true（承認可能）
     deactivate R
-    P->>WM: transitionTo("承認済み")
-    P->>WM: notifyAll("承認されました")
-    WM->>L: onStatusChanged（3件に伝搬）
+    P->>WM: transitionTo(approved, "承認されました")
+    WM->>A: 現在状態を更新
+    WM->>L: onStatusChanged（登録先に伝搬）
     deactivate P
     deactivate WM
 ```
@@ -1075,11 +1132,11 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    T1["変更要求：緊急ルート追加"] --> F1["EmergencyPhase（新規作成） ✅"]
+    T1["変更要求：緊急ルート追加"] --> F1["PriorityPendingPhase + DraftPhase + 組み立て"]
     T1 -. "影響なし" .-> A["WorkflowManager本体 ✅"]
-    T2["変更要求：新通知先追加"] --> F2["FinanceNotifier（新規作成） ✅"]
+    T2["変更要求：新通知先追加"] --> F2["FinanceNotifier + 登録処理"]
     T2 -. "影響なし" .-> A
-    T3["変更要求：部署別承認上限"] --> F3["DeptApprovalRule（新規作成） ✅"]
+    T3["変更要求：部署別承認上限"] --> F3["DeptApprovalRule + 注入箇所"]
     T3 -. "影響なし" .-> A
 ```
 
@@ -1089,9 +1146,9 @@ graph LR
 
 | **シナリオ** | **変わるクラス（触る場所）** | **変わらないクラス** |
 | --- | --- | --- |
-| 緊急ルートを追加する | `EmergencyPhase`（新規作成） | `WorkflowManager`、既存の Phase クラス |
-| 新しい承認ルールを追加する（部署別上限） | `DeptApprovalRule`（新規作成） | `WorkflowManager`、リスナークラス |
-| 却下時の通知先を増やす | `AlertNotifier`（新規作成） | `WorkflowManager`、判定ルールクラス |
+| 緊急ルートを追加する | `PriorityPendingPhase`、`DraftPhase` の遷移分岐、組み立て箇所 | `WorkflowManager`、既存の承認・却下処理 |
+| 新しい承認ルールを追加する（部署別上限） | `DeptApprovalRule` と注入する組み立て箇所 | `WorkflowManager`、リスナークラス |
+| 却下時の通知先を増やす | `AlertNotifier` と登録する組み立て箇所 | `WorkflowManager`、判定ルールクラス |
 | 通常の承認上限金額を変更する | `ManagerApprovalRule`（1行修正） | `WorkflowManager`、Phase クラス |
 
 ---
@@ -1153,7 +1210,7 @@ graph LR
 
 **原則1「変わるものをカプセル化せよ」の現れ**
 
-- 具体化された場所：各状態実装クラス（`SubmittedPhase`、`PendingApprovalPhase` 等）、判定ルール実装クラス（`ManagerApprovalRule` 等）、通知リスナー実装クラス（`ApplicantNotifier` 等）
+- 具体化された場所：各状態実装クラス（`DraftPhase`、`PendingPhase` 等）、判定ルール実装クラス（`ManagerApprovalRule` 等）、通知リスナー実装クラス（`ApplicantNotifier` 等）
 - 解説：変化の理由が異なる「状態遷移」「判定ルール」「通知」を個別のクラスにカプセル化しました。既存のインターフェースで表現できる承認ルートや通知先であれば、実装クラスと組み立て箇所を中心に変更できます。
 
 **原則2「実装ではなくインターフェースに対してプログラムせよ」の現れ**
@@ -1163,7 +1220,7 @@ graph LR
 
 **原則3「継承よりコンポジションを優先せよ」の現れ**
 
-- 具体化された場所：`WorkflowManager` が各インターフェースを保持する構成、`PendingApprovalPhase` が `IApprovalRule` をコンストラクタで受け取る構成
+- 具体化された場所：`WorkflowManager` が現在状態とリスナーを保持する構成、`PendingPhase` が `IApprovalRule` と遷移先をコンストラクタで受け取る構成
 - 解説：承認ルールを継承による拡張ではなく、コンポジション（保持・委譲）による差し替え可能な構成にしました。
 
 ---
@@ -1199,14 +1256,16 @@ classDiagram
 ```mermaid
 classDiagram
     class WorkflowManager {
-        -IWorkflowPhase* state
+        -IWorkflowPhase* phase
         -INotificationListener[] listeners
-        +process()
+        +process(event, request)
+        +transitionTo(next, message)
         +notifyAll(msg)
     }
     class IWorkflowPhase {
         <<Phase>>
-        +handle(WorkflowManager*)*
+        +name()*
+        +handle(WorkflowManager*, event, request)*
     }
     class IApprovalRule {
         <<Rule>>
@@ -1224,10 +1283,10 @@ classDiagram
 | GoFの名前 | この章での対応 |
 |---|---|
 | State / Context | `WorkflowManager` |
-| State / ConcreteState | `SubmittedPhase` / `EmergencyPhase` / `PendingApprovalPhase` / `RejectionPhase` / `FinalApprovalPhase` / `ResubmissionPhase` |
+| State / ConcreteState | `DraftPhase` / `PendingPhase` / `PriorityPendingPhase` / `ApprovedPhase` / `RejectedPhase` / `CompletedPhase` |
 | Observer / Subject | `WorkflowManager`（`notifyAll` を担う）|
 | Observer / Observer | `INotificationListener`（`ApplicantNotifier` 等）|
-| Strategy / Context | `PendingApprovalPhase`（`IApprovalRule` を使う）|
+| Strategy / Context | `PendingPhase` / `PriorityPendingPhase`（`IApprovalRule` を使う）|
 | Strategy / Strategy | `IApprovalRule`（`ManagerApprovalRule` 等）|
 
 ### 使いどころと限界
