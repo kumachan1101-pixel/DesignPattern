@@ -752,10 +752,12 @@ flowchart TD
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 
-なお、フェーズ6の検討からフェーズ7の最終実装にかけて、以下の2点を変更しています。
+なお、フェーズ6の短い例では `SubmittedPhase` が「申請受付」と「承認可否の判定」をまとめて担当していました。フェーズ7では動作例テーブルの操作を区別するため、次の二つへ分けています。
 
-- **クラス名**：フェーズ6の `SubmittedPhase` → フェーズ7の `PendingPhase`（審査待ち状態の役割をより正確に表す名前に変更）
-- **コンストラクタの引数**：フェーズ6では `SubmittedPhase(double amount, IApprovalRule* r)` として申請金額をコンストラクタで受け取っていましたが、フェーズ7のデモコードでは金額を固定値（50,000円）として直接参照し、`IApprovalRule*` のみを受け取る形に簡略化しています。実運用では申請オブジェクトをコンストラクタや `handle()` の引数で受け取る設計が適切です。
+- **`SubmittedPhase`**：通常申請を受け付け、審査待ちへ進める。
+- **`PendingApprovalPhase`**：審査待ちで承認操作を受け、注入された `IApprovalRule` へ金額判定を委譲する。申請金額はコンストラクタで受け取る。
+
+これは名前だけの変更ではなく、入口の操作と審査中の操作を別の状態実装として表すための整理です。実運用では、金額だけでなく申請IDや申請者などを持つ申請オブジェクトを渡す設計も検討します。
 
 ### 7-1：解決後のコード（全体）
 
@@ -1046,7 +1048,7 @@ int main() {
 sequenceDiagram
     participant B as BatchApplication
     participant WM as WorkflowManager
-    participant P as PendingPhase<br/>(IWorkflowPhase)
+    participant P as PendingApprovalPhase<br/>(IWorkflowPhase)
     participant R as ManagerApprovalRule<br/>(IApprovalRule)
     participant L as INotificationListener[]
 
@@ -1151,8 +1153,8 @@ graph LR
 
 **原則1「変わるものをカプセル化せよ」の現れ**
 
-- 具体化された場所：各状態実装クラス（`PendingPhase` 等）、判定ルール実装クラス（`ManagerApprovalRule` 等）、通知リスナー実装クラス（`ApplicantNotifier` 等）
-- 解説：変化の理由が異なる「状態遷移」「判定ルール」「通知」を個別のクラスにカプセル化しました。新しい承認ルートや通知先が追加されても `WorkflowManager` は無影響。
+- 具体化された場所：各状態実装クラス（`SubmittedPhase`、`PendingApprovalPhase` 等）、判定ルール実装クラス（`ManagerApprovalRule` 等）、通知リスナー実装クラス（`ApplicantNotifier` 等）
+- 解説：変化の理由が異なる「状態遷移」「判定ルール」「通知」を個別のクラスにカプセル化しました。既存のインターフェースで表現できる承認ルートや通知先であれば、実装クラスと組み立て箇所を中心に変更できます。
 
 **原則2「実装ではなくインターフェースに対してプログラムせよ」の現れ**
 
@@ -1161,7 +1163,7 @@ graph LR
 
 **原則3「継承よりコンポジションを優先せよ」の現れ**
 
-- 具体化された場所：`WorkflowManager` が各インターフェースを保持する構成、`PendingPhase` が `IApprovalRule` をコンストラクタで受け取る構成
+- 具体化された場所：`WorkflowManager` が各インターフェースを保持する構成、`PendingApprovalPhase` が `IApprovalRule` をコンストラクタで受け取る構成
 - 解説：承認ルールを継承による拡張ではなく、コンポジション（保持・委譲）による差し替え可能な構成にしました。
 
 ---
@@ -1222,10 +1224,10 @@ classDiagram
 | GoFの名前 | この章での対応 |
 |---|---|
 | State / Context | `WorkflowManager` |
-| State / ConcreteState | `PendingPhase` / `EmergencyPhase` / `RejectedPhase` |
+| State / ConcreteState | `SubmittedPhase` / `EmergencyPhase` / `PendingApprovalPhase` / `RejectionPhase` / `FinalApprovalPhase` / `ResubmissionPhase` |
 | Observer / Subject | `WorkflowManager`（`notifyAll` を担う）|
 | Observer / Observer | `INotificationListener`（`ApplicantNotifier` 等）|
-| Strategy / Context | `PendingPhase`（`IApprovalRule` を使う）|
+| Strategy / Context | `PendingApprovalPhase`（`IApprovalRule` を使う）|
 | Strategy / Strategy | `IApprovalRule`（`ManagerApprovalRule` 等）|
 
 ### 使いどころと限界
