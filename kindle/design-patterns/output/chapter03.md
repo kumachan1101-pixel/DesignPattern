@@ -15,7 +15,7 @@
 * **得られること3：** 状態ごとの振る舞いを別クラスに分離することで、条件分岐を排除した構造改善の説明ができるようになる
 * **得られること4：** 状態が増える可能性がある設計において、既存のフローを壊さずに状態を追加する判断ができるようになる
 
-## 🔵 フェーズ1：現状把握 ―― コードとクラス構成を読む
+## 🔵 フェーズ1：現状把握 ―― 仕様を整理し、システムと紐付ける
 
 はじめには、チケット予約管理システムという、私たちの目の前にあるシステムの現状を、ありのままの事実として把握するところから始めましょう。
 
@@ -45,6 +45,15 @@ stateDiagram-v2
 
 このマトリクスが、後のフェーズで「新しい状態が増えるとどこが変わるか」を確認する基準になります。
 
+**このシステムの関係者**
+
+| 役割 | 担当者 | 管轄する知識 |
+|---|---|---|
+| システム開発チーム | 自チーム | 予約フローの実装・保守 |
+| 企画担当 | 映画館運営企画部門 | 状態遷移のルール（どの状態からどの操作を許可するか） |
+
+後のフェーズで「誰の判断で変わる知識か」を確認するとき、この関係者表が基準になります。
+
 ---
 
 ### 1-2：動作例テーブル
@@ -64,7 +73,25 @@ stateDiagram-v2
 
 ---
 
-### 1-3：実装コード（現状）（現状）
+### 1-3：クラス構成図
+
+コードを読んだところで、クラス間の関係を図で整理します。
+
+```mermaid
+classDiagram
+    class TicketReservation {
+        -String status
+        +reserve()
+        +pay()
+        +cancel()
+    }
+```
+
+→ 1-4節のコードを見ると、`reserve()`・`pay()`・`cancel()` の各メソッドに `if (status == ...)` という条件分岐が散在しており、`TicketReservation` クラスがすべての予約状態と、状態ごとの処理ロジックを一手に抱え込んでいることが分かります。
+
+---
+
+### 1-4：実装コード（現状）
 
 #### このシステムの登場クラス
 
@@ -137,24 +164,6 @@ int main() {
 
 ---
 
-### 1-4：クラス構成図
-
-コードを読んだところで、クラス間の関係を図で整理します。
-
-```mermaid
-classDiagram
-    class TicketReservation {
-        -String status
-        +reserve()
-        +pay()
-        +cancel()
-    }
-```
-
-→ 1-3節のコードを見ると、`reserve()`・`pay()`・`cancel()` の各メソッドに `if (status == ...)` という条件分岐が散在しており、`TicketReservation` クラスがすべての予約状態と、状態ごとの処理ロジックを一手に抱え込んでいることが分かります。
-
----
-
 ### 1-5：変更要求
 
 ある週明けの朝、映画館の支配人から開発チームへ、新しい施策についての連絡が入りました。
@@ -203,15 +212,25 @@ classDiagram
 | Waitlisted（キャンセル待ち） | —— | —— | —— |
 | Held（一時保留） | —— | → Paid | —— |
 
-【表2：新規追加の操作】
+【表2a：キャンセル待ち系の操作】
 
-| 現在の状態 | waitlist登録 | 予約昇格 | 一時保留 | 期限切れ |
-|---|---|---|---|---|
-| Available（空席） | → Waitlisted | —— | —— | —— |
-| Reserved（予約済み） | —— | —— | → Held | —— |
-| Paid（支払済み） | —— | —— | —— | —— |
-| Waitlisted（キャンセル待ち） | —— | → Reserved | —— | —— |
-| Held（一時保留） | —— | —— | —— | → Available |
+| 現在の状態 | waitlist登録 | 予約昇格 |
+|---|---|---|
+| Available（空席） | → Waitlisted | —— |
+| Reserved（予約済み） | —— | —— |
+| Paid（支払済み） | —— | —— |
+| Waitlisted（キャンセル待ち） | —— | → Reserved |
+| Held（一時保留） | —— | —— |
+
+【表2b：一時保留系の操作】
+
+| 現在の状態 | 一時保留 | 期限切れ |
+|---|---|---|
+| Available（空席） | —— | —— |
+| Reserved（予約済み） | → Held | —— |
+| Paid（支払済み） | —— | —— |
+| Waitlisted（キャンセル待ち） | —— | —— |
+| Held（一時保留） | —— | → Available |
 
 ```mermaid
 stateDiagram-v2
@@ -919,13 +938,13 @@ sequenceDiagram
     Note right of TR: IReservationState*経由の呼び出し
     TR->>AS: reserve(ctx)
     Note right of AS: 状態遷移（状態の切り替え）
-    AS->>RS: new ReservedState
-    AS->>TR: setState(new ReservedState)
+    AS->>RS: reservedState()
+    AS->>TR: setState(reservedState())
     AS-->>TR: 予約完了
     TR-->>BA: 完了
 ```
 
-`TicketReservation` は `AvailableState` という具体クラス名を知らず、`IReservationState*` 経由で呼び出すだけです。状態の切り替え判断（`setState(new ReservedState())`）は `AvailableState` 自身が行います。
+`TicketReservation` は `AvailableState` という具体クラス名を知らず、`IReservationState*` 経由で呼び出すだけです。状態の切り替え判断（`setState(reservedState())`）は `AvailableState` 自身が行います。`reservedState()` は静的オブジェクトへのポインタを返す関数で、遷移のたびに `new` でオブジェクトを生成しません。
 
 ### 7-3：変更影響グラフ（改善後）
 

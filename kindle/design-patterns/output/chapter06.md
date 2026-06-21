@@ -19,7 +19,7 @@
 
 ---
 
-## 🔵 フェーズ1：現状把握 ―― コードとクラス構成を読む
+## 🔵 フェーズ1：現状把握 ―― 仕様を整理し、システムと紐付ける
 ### 1-1：このシステムの仕様
 
 このシステムは、カフェのドリンク注文を**カスタマイズ**し、合計金額と注文名称を算出します。
@@ -76,7 +76,28 @@
 
 ---
 
-### 1-3：実装コード（現状）（現状）
+### 1-3：クラス構成図
+
+システムのクラス構成を可視化し、構造を確認します。
+
+```mermaid
+classDiagram
+    class CustomDrink {
+        -string baseName
+        -int basePrice
+        -bool hasMilk
+        -bool hasWhip
+        -bool hasSyrup
+        +getPrice() int
+        +getDescription() string
+    }
+```
+
+この図が示す通り、`CustomDrink` という単一のクラスが、ドリンクの基本情報とすべてのトッピング情報を一手に引き受けている構成になっています。
+
+---
+
+### 1-4：実装コード（現状）
 
 コーヒーにミルクとホイップを追加する注文をシミュレートしています。
 
@@ -134,27 +155,6 @@ int main() {
 `CustomDrink` がすべてのトッピングをフラグで持ち `if` 文で処理している。これが後に問題になる。
 
 このコードを見ると、`CustomDrink` クラスがどのトッピングがいくらで、どんな名前になるかをすべて直接知っていることが分かります。
-
----
-
-### 1-4：クラス構成図
-
-システムのクラス構成を可視化し、構造を確認します。
-
-```mermaid
-classDiagram
-    class CustomDrink {
-        -string baseName
-        -int basePrice
-        -bool hasMilk
-        -bool hasWhip
-        -bool hasSyrup
-        +getPrice() int
-        +getDescription() string
-    }
-```
-
-この図が示す通り、`CustomDrink` という単一のクラスが、ドリンクの基本情報とすべてのトッピング情報を一手に引き受けている構成になっています。
 
 ---
 

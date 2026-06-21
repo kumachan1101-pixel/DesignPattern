@@ -17,7 +17,7 @@
 
 ---
 
-## 🔵 フェーズ1：現状把握 ―― コードとクラス構成を読む
+## 🔵 フェーズ1：現状把握 ―― 仕様を整理し、システムと紐付ける
 
 この問題を解くために7つのフェーズを使います。はじめに現状把握から開始し、仮説立案・問題特定・原因分析・課題定義・対策検討・対策実施という順で進みます。
 
@@ -77,7 +77,39 @@
 
 ---
 
-### 1-3：実装コード（現状）
+### 1-3：クラス構成図
+
+コードを読んだところで、クラス間の関係を図で整理します。
+
+```mermaid
+classDiagram
+    class OrderProcessor {
+        -PaymentCalculator calculator
+        +process(Order)
+    }
+    class PaymentCalculator {
+        +calculate(Order) int
+    }
+    class Order {
+        +vector~Item~ items
+        +String customerType
+        +bool isCampaignActive
+    }
+    class Item {
+        +String name
+        +int price
+    }
+
+    OrderProcessor --> PaymentCalculator : 使う
+    PaymentCalculator --> Order : 参照する
+    Order o-- Item : 持つ
+```
+
+`OrderProcessor` が `PaymentCalculator` を使い、`PaymentCalculator` が `Order` の属性を直接参照しています。
+
+---
+
+### 1-4：実装コード（現状）
 
 #### データクラス
 
@@ -185,38 +217,6 @@ int main() {
 ```
 
 動作例テーブルの全4パターンをコードが正しく処理していることを確認できました。次のフェーズで変更が来たときに何が起きるかを確認します。
-
----
-
-### 1-4：クラス構成図
-
-コードを読んだところで、クラス間の関係を図で整理します。
-
-```mermaid
-classDiagram
-    class OrderProcessor {
-        -PaymentCalculator calculator
-        +process(Order)
-    }
-    class PaymentCalculator {
-        +calculate(Order) int
-    }
-    class Order {
-        +vector~Item~ items
-        +String customerType
-        +bool isCampaignActive
-    }
-    class Item {
-        +String name
-        +int price
-    }
-
-    OrderProcessor --> PaymentCalculator : 使う
-    PaymentCalculator --> Order : 参照する
-    Order o-- Item : 持つ
-```
-
-`OrderProcessor` が `PaymentCalculator` を使い、`PaymentCalculator` が `Order` の属性を直接参照しています。
 
 ---
 

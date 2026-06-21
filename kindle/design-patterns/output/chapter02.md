@@ -17,7 +17,7 @@
 
 ---
 
-## 🔵 フェーズ1：現状把握 ―― コードとクラス構成を読む
+## 🔵 フェーズ1：現状把握 ―― 仕様を整理し、システムと紐付ける
 
 この問題を解くために7つのフェーズを使います。はじめに現状把握から開始し、仮説立案・問題特定・原因分析・課題定義・対策検討・対策実施という順で進みます。
 
@@ -40,6 +40,16 @@
 
 この4つの手順は必ず順番通りに実行される必要があります。どこかで失敗すれば後続の手順は実行されません。
 
+**このシステムの関係者**
+
+| 役割 | 担当者 | 管轄する知識 |
+|---|---|---|
+| 振り込みシステム開発チーム | 自チーム | 振り込みの処理フロー全体 |
+| 銀行側のシステム担当者 | 銀行API管理部門 | 口座確認・残高確認・送金APIの仕様 |
+| 銀行側のセキュリティ担当者 | 銀行セキュリティ部門 | OTP認証の手順・認証方式 |
+
+後のフェーズで「誰の判断で変わる知識か」を確認するとき、この関係者表が基準になります。
+
 ---
 
 ### 1-2：動作例テーブル
@@ -58,7 +68,36 @@
 
 ---
 
-### 1-3：実装コード（現状）（現状）
+### 1-3：クラス構成図
+
+コードを読んだところで、クラス間の関係を図で整理します。
+
+```mermaid
+classDiagram
+    class TransferProcessor {
+        -BankGateway gateway
+        -SecurityAuthenticator auth
+        +transfer(toAccount, amount, otp)
+    }
+    class BankGateway {
+        +verifyAccount(account)
+        +checkBalance(account)
+        +executeTransfer(account, amount)
+    }
+    class SecurityAuthenticator {
+        +requestOTP()
+        +verifyOTP(token)
+    }
+
+    TransferProcessor --> BankGateway : 使う
+    TransferProcessor --> SecurityAuthenticator : 使う
+```
+
+`TransferProcessor` が `BankGateway` と `SecurityAuthenticator` の両方を直接保持し、それぞれのメソッドを順番に呼び出してフローを制御しています。
+
+---
+
+### 1-4：実装コード（現状）
 
 #### このシステムの登場クラス
 
@@ -166,35 +205,6 @@ int main() {
 
 ---
 
-### 1-4：クラス構成図
-
-コードを読んだところで、クラス間の関係を図で整理します。
-
-```mermaid
-classDiagram
-    class TransferProcessor {
-        -BankGateway gateway
-        -SecurityAuthenticator auth
-        +transfer(toAccount, amount, otp)
-    }
-    class BankGateway {
-        +verifyAccount(account)
-        +checkBalance(account)
-        +executeTransfer(account, amount)
-    }
-    class SecurityAuthenticator {
-        +requestOTP()
-        +verifyOTP(token)
-    }
-
-    TransferProcessor --> BankGateway : 使う
-    TransferProcessor --> SecurityAuthenticator : 使う
-```
-
-`TransferProcessor` が `BankGateway` と `SecurityAuthenticator` の両方を直接保持し、それぞれのメソッドを順番に呼び出してフローを制御しています。
-
----
-
 ### 1-5：変更要求
 
 ある月曜日の朝、銀行のシステム担当者から緊急の連絡が入りました。
@@ -203,7 +213,7 @@ classDiagram
 
 さらに、これに続いて「銀行側の送金APIのインターフェースもセキュリティ強化のため、送金時のパラメータに『トランザクションID』が必須になります」とのこと。
 
-リリースは来月の頭。既存の `TransferProcessor` クラスの中身を書き換え、認証手順や送金手順を今のコードの `transfer` メソッドに直接追加しようとすれば、あっという間に複雑な複雑に絡み合った状態状態になってしまうのは目に見えています。
+リリースは来月の頭。既存の `TransferProcessor` クラスの中身を書き換え、認証手順や送金手順を今のコードの `transfer` メソッドに直接追加しようとすれば、あっという間に複雑に絡み合った状態になってしまうのは目に見えています。
 
 設計に絶対の正解はありません。だからこそ、この変更がどこまで広がるのか、慎重に見極める必要があります。
 
@@ -551,7 +561,7 @@ public:
 
 `transfer()` の本文が「振り込みの手順」として読めるようになり、各ステップの意図が伝わるようになった。
 
-**この段階の評価：** 	ransfer() は格段に読みやすくなりました。しかし checkAccount()・uthenticate()・sendMoney() はすべて TransferProcessor クラスの内部にあります。銀行側の認証仕様が変わるたびに、結局はこの TransferProcessor を開いて書き直す必要があるのではないでしょうか。呼び出し元がきれいになったが、銀行APIの手順という知識は呼び出し元に残ったままです。
+**この段階の評価：** `transfer()` は格段に読みやすくなりました。しかし `checkAccount()`・`authenticate()`・`sendMoney()` はすべて TransferProcessor クラスの内部にあります。銀行側の認証仕様が変わるたびに、結局はこの TransferProcessor を開いて書き直す必要があるのではないでしょうか。呼び出し元がきれいになったが、銀行APIの手順という知識は呼び出し元に残ったままです。
 
 私が試みるのは、いきなりクラスを分けることではなく、まずはこのように処理を関数に切り出すことです。やってみると、それでも同じクラスの中に知識が残り続けることに気づき、クラスを分けるという発想に至ります。
 
