@@ -92,6 +92,7 @@ classDiagram
 
 ```cpp
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -629,27 +630,27 @@ public:
 class IClientCreator {
 public:
     virtual ~IClientCreator() = default;
-    virtual IExternalClient* createClient() = 0;
+    virtual unique_ptr<IExternalClient> createClient() = 0;
 };
 
 class SystemAClientCreator : public IClientCreator {
 public:
-    IExternalClient* createClient() override {
-        return new SystemAClient();
+    unique_ptr<IExternalClient> createClient() override {
+        return make_unique<SystemAClient>();
     }
 };
 
 class SystemBClientCreator : public IClientCreator {
 public:
-    IExternalClient* createClient() override {
-        return new SystemBClient();
+    unique_ptr<IExternalClient> createClient() override {
+        return make_unique<SystemBClient>();
     }
 };
 
 class SystemCClientCreator : public IClientCreator {
 public:
-    IExternalClient* createClient() override {
-        return new SystemCClient();
+    unique_ptr<IExternalClient> createClient() override {
+        return make_unique<SystemCClient>();
     }
 };
 
@@ -709,6 +710,7 @@ public:
 
 ```cpp
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -799,34 +801,34 @@ public:
 class IClientCreator {
 public:
     virtual ~IClientCreator() = default;
-    virtual IExternalClient* createClient() = 0;
+    virtual unique_ptr<IExternalClient> createClient() = 0;
 };
 
 class SystemAClientCreator : public IClientCreator {
 public:
-    IExternalClient* createClient() override {
-        return new SystemAClient();
+    unique_ptr<IExternalClient> createClient() override {
+        return make_unique<SystemAClient>();
     }
 };
 
 class SystemBClientCreator : public IClientCreator {
 public:
-    IExternalClient* createClient() override {
-        return new SystemBClient();
+    unique_ptr<IExternalClient> createClient() override {
+        return make_unique<SystemBClient>();
     }
 };
 
 class SystemCClientCreator : public IClientCreator {
 public:
-    IExternalClient* createClient() override {
-        return new SystemCClient();
+    unique_ptr<IExternalClient> createClient() override {
+        return make_unique<SystemCClient>();
     }
 };
 
 class SystemDClientCreator : public IClientCreator {
 public:
-    IExternalClient* createClient() override {
-        return new SystemDClient();
+    unique_ptr<IExternalClient> createClient() override {
+        return make_unique<SystemDClient>();
     }
 };
 ```
@@ -844,12 +846,11 @@ public:
 
     void execute(IClientCreator* creator, string completionMessage) {
         // Factory Methodを抽象Creator経由で呼び出す
-        IExternalClient* client = creator->createClient();
+        auto client = creator->createClient();
         client->send("data");
         for (auto* notifier : notifiers) {
             notifier->onComplete(completionMessage);
         }
-        delete client;
     }
 };
 
@@ -891,11 +892,10 @@ public:
         executorD.execute(&creatorD, "D社連携完了");
 
         cout << "--- 行4: B社手動トリガー ---" << endl;
-        IExternalClient* bClient = creatorB.createClient();
-        ManualTriggerController manual(bClient);
+        auto bClient = creatorB.createClient();
+        ManualTriggerController manual(bClient.get());
         manual.addNotifier(&slack);
         manual.triggerSync("B");
-        delete bClient;
 
         cout << "--- 行6: B社バッチ（Slack＋ログ基盤） ---" << endl;
         BatchExecutor executorB;
