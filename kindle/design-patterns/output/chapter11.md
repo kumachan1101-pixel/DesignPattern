@@ -112,6 +112,7 @@ classDiagram
 #include <fstream>
 #include <cstdio>
 #include <memory>
+#include <stdexcept>
 #include <utility>
 
 using namespace std;
@@ -591,6 +592,11 @@ string formatName(OutputFormat format) {
     return format == OutputFormat::Pdf ? "PDF" : "Excel";
 }
 
+bool fileExists(const string& path) {
+    ifstream input(path);
+    return input.good();
+}
+
 class IReportAction {
 public:
     virtual ~IReportAction() = default;
@@ -599,27 +605,51 @@ public:
 };
 
 class GenerateReportAction : public IReportAction {
-    ReportSkeleton* generator;
+    unique_ptr<ReportSkeleton> generator;
     string outputPath;
     OutputFormat format;
+    bool created = false;
 public:
     GenerateReportAction(
-        ReportSkeleton* g,
+        unique_ptr<ReportSkeleton> g,
         string path,
         OutputFormat f
-    ) : generator(g), outputPath(path), format(f) {}
+    ) : generator(move(g)), outputPath(move(path)), format(f) {}
 
     void execute() override {
+        if (created) {
+            throw logic_error("同じCommandは再実行できません。");
+        }
+        if (fileExists(outputPath)) {
+            throw runtime_error(
+                outputPath + " は既に存在するため上書きしません。");
+        }
+
         generator->generate();
         ofstream output(outputPath);
+        if (!output) {
+            throw runtime_error(outputPath + " を作成できません。");
+        }
         output << formatName(format) << " report" << endl;
         output.close();
+        if (!output) {
+            remove(outputPath.c_str());
+            throw runtime_error(outputPath + " の書き込みに失敗しました。");
+        }
+        created = true;
+
         cout << "[コマンド] " << formatName(format) << "形式で "
              << outputPath << " を生成して履歴に記録。" << endl;
     }
 
     void undo() override {
+        if (!created) {
+            cout << "[コマンド] このCommandが生成したファイルはありません。"
+                 << endl;
+            return;
+        }
         if (remove(outputPath.c_str()) == 0) {
+            created = false;
             cout << "[コマンド] " << outputPath
                  << " を削除してアンドゥ完了。" << endl;
         } else {
@@ -631,7 +661,7 @@ public:
 ```
 
 **この段階の評価：**
-`GenerateReportAction`はレポート、出力形式、出力先を保持します。`execute()`はデモ用ファイルを実際に作成し、`undo()`はそのファイルを削除します。これにより、Commandの実行と取り消しをコード上でも確認できます。
+`GenerateReportAction`はレポート、出力形式、出力先を保持します。`execute()`は既存ファイルを上書きせず、デモ用ファイルを実際に作成します。`undo()`が削除するのは、このCommand自身が正常に作成したファイルだけです。これにより、別処理が先に作成していたファイルを誤って削除せずに、Commandの実行と取り消しを確認できます。
 
 ---
 
@@ -685,6 +715,7 @@ flowchart TD
 #include <fstream>
 #include <cstdio>
 #include <memory>
+#include <stdexcept>
 #include <utility>
 
 using namespace std;
@@ -804,10 +835,16 @@ string formatName(OutputFormat format) {
     return format == OutputFormat::Pdf ? "PDF" : "Excel";
 }
 
+bool fileExists(const string& path) {
+    ifstream input(path);
+    return input.good();
+}
+
 class GenerateReportAction : public IReportAction {
     unique_ptr<ReportSkeleton> generator;
     string outputPath;
     OutputFormat format;
+    bool created = false;
 public:
     GenerateReportAction(
         unique_ptr<ReportSkeleton> g,
@@ -816,19 +853,41 @@ public:
     ) : generator(move(g)), outputPath(move(path)), format(f) {}
 
     void execute() override {
+        if (created) {
+            throw logic_error("同じCommandは再実行できません。");
+        }
+        if (fileExists(outputPath)) {
+            throw runtime_error(
+                outputPath + " は既に存在するため上書きしません。");
+        }
+
         generator->generate();
 
         // サンプルでは形式名を記録したデモ用ファイルを実際に作成する
         ofstream output(outputPath);
+        if (!output) {
+            throw runtime_error(outputPath + " を作成できません。");
+        }
         output << formatName(format) << " report" << endl;
         output.close();
+        if (!output) {
+            remove(outputPath.c_str());
+            throw runtime_error(outputPath + " の書き込みに失敗しました。");
+        }
+        created = true;
 
         cout << "[コマンド] " << formatName(format) << "形式で "
              << outputPath << " を生成して履歴に記録。" << endl;
     }
 
     void undo() override {
+        if (!created) {
+            cout << "[コマンド] このCommandが生成したファイルはありません。"
+                 << endl;
+            return;
+        }
         if (remove(outputPath.c_str()) == 0) {
+            created = false;
             cout << "[コマンド] " << outputPath
                  << " を削除してアンドゥ完了。" << endl;
         } else {
@@ -897,7 +956,7 @@ public:
             OutputFormat::Pdf));
         executeAndRemember(make_unique<GenerateReportAction>(
             make_unique<MonthlyReport>(),
-            "monthly.pdf",
+            "batch_monthly.pdf",
             OutputFormat::Pdf));
         executeAndRemember(make_unique<GenerateReportAction>(
             make_unique<GraphFeature>(
@@ -924,9 +983,14 @@ public:
 ```cpp
 // main: BatchApplicationを起動するだけ
 int main() {
-    BatchApplication app;
-    app.run();
-    return 0;
+    try {
+        BatchApplication app;
+        app.run();
+        return 0;
+    } catch (const exception& e) {
+        cerr << "[エラー] " << e.what() << endl;
+        return 1;
+    }
 }
 ```
 
@@ -964,7 +1028,7 @@ CSV読み込み
 CSV読み込み
 月次集計を本文として生成。
 フッター生成
-[コマンド] PDF形式で monthly.pdf を生成して履歴に記録。
+[コマンド] PDF形式で batch_monthly.pdf を生成して履歴に記録。
 CSV読み込み
 月次集計を本文として生成。
 グラフを追加。
@@ -980,7 +1044,7 @@ CSV読み込み
 [コマンド] graph_monthly.pdf を削除してアンドゥ完了。
 ```
 
-掲載したデモでは、動作テーブルの6つのシナリオに対応する生成・一括実行・削除を確認しています。行5は並列処理ではなく、三つのCommandを順に実行する一括処理です。サンプル実行後にはPDF用またはExcel用のデモファイルが作成され、行4と行6ではそれぞれ直前に生成した対象ファイルが削除されます。装飾はDecoratorチェーンで組み合わされています。
+掲載したデモでは、動作テーブルの6つのシナリオに対応する生成・一括実行・削除を確認しています。行5は並列処理ではなく、三つのCommandを順に実行する一括処理です。サンプル実行後にはPDF用またはExcel用のデモファイルが作成され、行4と行6ではそれぞれ直前に生成した対象ファイルが削除されます。既存の出力先は上書きせず、UndoはCommand自身が作成したファイルだけを削除します。装飾はDecoratorチェーンで組み合わされています。
 
 ### 7-2：動作シーケンス図
 
@@ -993,9 +1057,9 @@ sequenceDiagram
     participant WF as WatermarkFeature
     participant SR as StandardReport
     Note over BA: 具体型を組み立てる唯一の場所
-    BA->>SR: new StandardReport
-    BA->>WF: new WatermarkFeature(StandardReport)
-    BA->>GRA: new GenerateReportAction(WatermarkFeature, path)
+    BA->>SR: make_unique StandardReport
+    BA->>WF: make_unique WatermarkFeature(StandardReport)
+    BA->>GRA: make_unique GenerateReportAction(WatermarkFeature, path)
     BA->>GRA: action->execute()
     GRA->>WF: generator->generate()
     WF->>SR: wrapped->renderBody()
