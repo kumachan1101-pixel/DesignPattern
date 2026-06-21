@@ -573,27 +573,35 @@ public:
 
 // Commandが処理を委譲するReceiver
 class ExpenseManager {
+    int total = 0;
 public:
     void addExpense(int amount, const std::string& category) {
+        total += amount;
         std::cout << "支出を追加しました：" << category
                   << " " << amount << "円" << std::endl;
     }
     void removeExpense(int amount, const std::string& category) {
+        total -= amount;
         std::cout << "支出を取り消しました：" << category
                   << " " << amount << "円" << std::endl;
     }
+    int totalExpenses() const { return total; }
 };
 
 class IncomeManager {
+    int total = 0;
 public:
     void addIncome(int amount, const std::string& source) {
+        total += amount;
         std::cout << "収入を追加しました：" << source
                   << " " << amount << "円" << std::endl;
     }
     void removeIncome(int amount, const std::string& source) {
+        total -= amount;
         std::cout << "収入を取り消しました：" << source
                   << " " << amount << "円" << std::endl;
     }
+    int totalIncome() const { return total; }
 };
 
 // 操作の契約：実行と取り消しをすべての操作クラスに強制する
@@ -717,27 +725,35 @@ int main() {
 
 // Commandが処理を委譲するReceiver
 class ExpenseManager {
+    int total = 0;
 public:
     void addExpense(int amount, const std::string& category) {
+        total += amount;
         std::cout << "支出を追加しました：" << category
                   << " " << amount << "円" << std::endl;
     }
     void removeExpense(int amount, const std::string& category) {
+        total -= amount;
         std::cout << "支出を取り消しました：" << category
                   << " " << amount << "円" << std::endl;
     }
+    int totalExpenses() const { return total; }
 };
 
 class IncomeManager {
+    int total = 0;
 public:
     void addIncome(int amount, const std::string& source) {
+        total += amount;
         std::cout << "収入を追加しました：" << source
                   << " " << amount << "円" << std::endl;
     }
     void removeIncome(int amount, const std::string& source) {
+        total -= amount;
         std::cout << "収入を取り消しました：" << source
                   << " " << amount << "円" << std::endl;
     }
+    int totalIncome() const { return total; }
 };
 
 // 操作の契約：実行と取り消しをすべての操作クラスに強制する
@@ -887,9 +903,18 @@ int main() {
         std::make_unique<AddExpenseAction>(em, 1000, "Food"));
     app.onAddIncomeClick(
         std::make_unique<AddIncomeAction>(im, 5000, "Salary"));
+    std::cout << "残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
     app.onUndoClick();               // 直前の収入を取り消す
     app.onUndoClick();               // さらに支出も取り消す
+    std::cout << "Undo後の残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
     app.onRedoClick();               // 支出を再実行
+    std::cout << "Redo後の残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
 
     ImportService importer(&hist);
     std::vector<std::unique_ptr<IAction>> imported;
@@ -900,7 +925,13 @@ int main() {
     imported.push_back(
         std::make_unique<AddExpenseAction>(em, 800, "Food"));
     importer.importTransactions(std::move(imported)); // 一括登録（3件）
+    std::cout << "インポート後の残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
     importer.rollback(3);            // 3件ロールバック
+    std::cout << "ロールバック後の残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
     return 0;
 }
 ```
@@ -910,20 +941,25 @@ int main() {
 ```text
 支出を追加しました：Food 1000円
 収入を追加しました：Salary 5000円
+残高: 4000円
 収入を取り消しました：Salary 5000円
 支出を取り消しました：Food 1000円
+Undo後の残高: 0円
 支出を追加しました：Food 1000円
+Redo後の残高: -1000円
 支出を追加しました：Rent 2000円
 支出を追加しました：Water 300円
 支出を追加しました：Food 800円
 3件インポート完了（履歴: 4件）
+インポート後の残高: -4100円
 支出を取り消しました：Food 800円
 支出を取り消しました：Water 300円
 支出を取り消しました：Rent 2000円
 3件ロールバック完了
+ロールバック後の残高: -1000円
 ```
 
-フェーズ2で予告された「直前の操作を取り消すUndo機能」や、さらに高度な「インポートの一括ロールバック」のような要件が来ても、既存のクラスをほとんど触らずに対応できることが、このコードからもわかります。
+支出1,000円と収入5,000円の登録後は残高4,000円、2回のUndo後は0円、Redo後は-1,000円になります。3件合計3,100円の支出をインポートすると-4,100円になり、3件をロールバックすると-1,000円へ戻ります。ログの順序だけでなく、Receiverが保持する集計状態も元へ戻ることを確認できます。
 
 この実装により、UIはコマンドの所有権を履歴へ渡すだけでよくなり、支出・収入ごとの実行手順やCommandの寿命を管理する必要がなくなりました。コマンドの生成と画面への割り当ては組み立て側に残ります。
 
