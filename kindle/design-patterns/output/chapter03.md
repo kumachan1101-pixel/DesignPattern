@@ -919,13 +919,13 @@ sequenceDiagram
     Note right of TR: IReservationState*経由の呼び出し
     TR->>AS: reserve(ctx)
     Note right of AS: 状態遷移（状態の切り替え）
-    AS->>RS: new ReservedState
-    AS->>TR: setState(new ReservedState)
+    AS->>RS: reservedState()
+    AS->>TR: setState(reservedState())
     AS-->>TR: 予約完了
     TR-->>BA: 完了
 ```
 
-`TicketReservation` は `AvailableState` という具体クラス名を知らず、`IReservationState*` 経由で呼び出すだけです。状態の切り替え判断（`setState(new ReservedState())`）は `AvailableState` 自身が行います。
+`TicketReservation` は `AvailableState` という具体クラス名を知らず、`IReservationState*` 経由で呼び出すだけです。状態の切り替え判断（`setState(reservedState())`）は `AvailableState` 自身が行います。`reservedState()` は静的オブジェクトへのポインタを返す関数で、遷移のたびに `new` でオブジェクトを生成しません。
 
 ### 7-3：変更影響グラフ（改善後）
 
