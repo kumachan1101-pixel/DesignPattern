@@ -146,10 +146,9 @@ classDiagram
     }
     class TicketManager {
         +updateStatus(status)
-        +assignSupport()
     }
     class PriorityCalculator {
-        +calculate(content)
+        +calculate(userType)
     }
     TicketManager --> Ticket : manages
     TicketManager --> PriorityCalculator : uses
