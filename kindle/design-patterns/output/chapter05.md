@@ -567,6 +567,36 @@ public:
 呼び出し元が `IAction*` を生成して渡す形にすることで、UIは操作の実行手段を知らなくて済む。その前提として、すべての操作クラスに `execute()` と `undo()` の実装を強制する共通インターフェース `IAction` を導入します。
 
 ```cpp
+#include <deque>
+#include <iostream>
+#include <string>
+#include <vector>
+
+// Commandが処理を委譲するReceiver
+class ExpenseManager {
+public:
+    void addExpense(int amount, const std::string& category) {
+        std::cout << "支出を追加しました：" << category
+                  << " " << amount << "円" << std::endl;
+    }
+    void removeExpense(int amount, const std::string& category) {
+        std::cout << "支出を取り消しました：" << category
+                  << " " << amount << "円" << std::endl;
+    }
+};
+
+class IncomeManager {
+public:
+    void addIncome(int amount, const std::string& source) {
+        std::cout << "収入を追加しました：" << source
+                  << " " << amount << "円" << std::endl;
+    }
+    void removeIncome(int amount, const std::string& source) {
+        std::cout << "収入を取り消しました：" << source
+                  << " " << amount << "円" << std::endl;
+    }
+};
+
 // 操作の契約：実行と取り消しをすべての操作クラスに強制する
 class IAction {
 public:
@@ -679,6 +709,36 @@ int main() {
 **はじめに、操作の契約となるインターフェースです。**
 
 ```cpp
+#include <deque>
+#include <iostream>
+#include <string>
+#include <vector>
+
+// Commandが処理を委譲するReceiver
+class ExpenseManager {
+public:
+    void addExpense(int amount, const std::string& category) {
+        std::cout << "支出を追加しました：" << category
+                  << " " << amount << "円" << std::endl;
+    }
+    void removeExpense(int amount, const std::string& category) {
+        std::cout << "支出を取り消しました：" << category
+                  << " " << amount << "円" << std::endl;
+    }
+};
+
+class IncomeManager {
+public:
+    void addIncome(int amount, const std::string& source) {
+        std::cout << "収入を追加しました：" << source
+                  << " " << amount << "円" << std::endl;
+    }
+    void removeIncome(int amount, const std::string& source) {
+        std::cout << "収入を取り消しました：" << source
+                  << " " << amount << "円" << std::endl;
+    }
+};
+
 // 操作の契約：実行と取り消しをすべての操作クラスに強制する
 class IAction {
 public:
@@ -733,7 +793,7 @@ public:
 
 ```
 
-各操作クラスは「実行」と「取り消し」の両方を知っている。操作が増えても、このパターンで新しいクラスを追加するだけでよく、中心となる既存クラスは変更しない。
+各操作クラスは「実行」と「取り消し」の両方を知っています。操作を増やすときはCommandクラスを追加し、画面やバッチへ割り当てる組み立て箇所を変更します。`ActionHistory` の履歴管理ロジックには、操作種別ごとの分岐を増やさずに済みます。
 
 **次に、操作履歴を保持し、Undo/Redoを制御する仲介役クラスです。**
 
