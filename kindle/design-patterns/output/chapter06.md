@@ -838,7 +838,9 @@ IDrink* double_whip = new Whip(new Whip(new Coffee()));
 ```cpp
 #include <cassert>
 #include <iostream>
+#include <memory>
 #include <string>
+#include <utility>
 
 using namespace std;
 
@@ -873,9 +875,10 @@ public:
 class ToppingWrapper : public IDrink {
 protected:
     // ← 中身（基本ドリンクや他のトッピング）を隠し持つ
-    IDrink* baseDrink;
+    std::unique_ptr<IDrink> baseDrink;
 public:
-    ToppingWrapper(IDrink* base) : baseDrink(base) {}
+    explicit ToppingWrapper(std::unique_ptr<IDrink> base)
+        : baseDrink(std::move(base)) {}
 };
 ```
 
@@ -887,7 +890,8 @@ public:
 // 具体的なトッピング：ミルク
 class Milk : public ToppingWrapper {
 public:
-    Milk(IDrink* base) : ToppingWrapper(base) {}
+    explicit Milk(std::unique_ptr<IDrink> base)
+        : ToppingWrapper(std::move(base)) {}
     int getPrice() const override {
         // ← 中身が何であるかは知らなくていい。価格を上乗せするだけ
         return baseDrink->getPrice() + 50;
@@ -900,7 +904,8 @@ public:
 // 具体的なトッピング：ホイップ
 class Whip : public ToppingWrapper {
 public:
-    Whip(IDrink* base) : ToppingWrapper(base) {}
+    explicit Whip(std::unique_ptr<IDrink> base)
+        : ToppingWrapper(std::move(base)) {}
     int getPrice() const override {
         return baseDrink->getPrice() + 70;
     }
@@ -918,7 +923,8 @@ public:
 // 新しいトッピングの振る舞いを追加し、組み立て側で利用する
 class Syrup : public ToppingWrapper {
 public:
-    Syrup(IDrink* base) : ToppingWrapper(base) {}
+    explicit Syrup(std::unique_ptr<IDrink> base)
+        : ToppingWrapper(std::move(base)) {}
     int getPrice() const override {
         return baseDrink->getPrice() + 30;
     }
@@ -929,7 +935,8 @@ public:
 
 class Matcha : public ToppingWrapper {
 public:
-    Matcha(IDrink* base) : ToppingWrapper(base) {}
+    explicit Matcha(std::unique_ptr<IDrink> base)
+        : ToppingWrapper(std::move(base)) {}
     int getPrice() const override {
         return baseDrink->getPrice() + 60;
     }
@@ -940,7 +947,8 @@ public:
 
 class Choco : public ToppingWrapper {
 public:
-    Choco(IDrink* base) : ToppingWrapper(base) {}
+    explicit Choco(std::unique_ptr<IDrink> base)
+        : ToppingWrapper(std::move(base)) {}
     int getPrice() const override {
         return baseDrink->getPrice() + 40;
     }
@@ -960,49 +968,70 @@ class OrderApplication {
 public:
     void run() {
         // 行1：コーヒーのみ
-        IDrink* o1 = new Coffee();
+        auto o1 = std::make_unique<Coffee>();
         cout << o1->getDescription() << " → " << o1->getPrice() << "円" << endl;
 
         // 行2：コーヒー + ミルク
-        IDrink* o2 = new Milk(new Coffee());
+        auto o2 = std::make_unique<Milk>(
+            std::make_unique<Coffee>());
         cout << o2->getDescription() << " → " << o2->getPrice() << "円" << endl;
 
         // 行3：コーヒー + ミルク + シロップ
-        IDrink* o3 = new Syrup(new Milk(new Coffee()));
+        auto o3 = std::make_unique<Syrup>(
+            std::make_unique<Milk>(
+                std::make_unique<Coffee>()));
         cout << o3->getDescription() << " → " << o3->getPrice() << "円" << endl;
 
         // 行4：コーヒー + ミルク + ホイップ
-        IDrink* o4 = new Whip(new Milk(new Coffee()));
+        auto o4 = std::make_unique<Whip>(
+            std::make_unique<Milk>(
+                std::make_unique<Coffee>()));
         cout << o4->getDescription() << " → " << o4->getPrice() << "円" << endl;
 
         // 行5：コーヒー + ホイップ × 2（ダブル）
-        IDrink* o5 = new Whip(new Whip(new Coffee()));
+        auto o5 = std::make_unique<Whip>(
+            std::make_unique<Whip>(
+                std::make_unique<Coffee>()));
         cout << o5->getDescription() << " → " << o5->getPrice() << "円" << endl;
 
         // 行6：コーヒー + ミルク + シロップ + ホイップ
-        IDrink* o6 = new Whip(new Syrup(new Milk(new Coffee())));
+        auto o6 = std::make_unique<Whip>(
+            std::make_unique<Syrup>(
+                std::make_unique<Milk>(
+                    std::make_unique<Coffee>())));
         cout << o6->getDescription() << " → " << o6->getPrice() << "円" << endl;
 
         // 行7：コーヒー + ミルク + シロップ + ホイップ + 抹茶（全5種）
-        IDrink* o7 = new Matcha(new Whip(new Syrup(new Milk(new Coffee()))));
+        auto o7 = std::make_unique<Matcha>(
+            std::make_unique<Whip>(
+                std::make_unique<Syrup>(
+                    std::make_unique<Milk>(
+                        std::make_unique<Coffee>()))));
         cout << o7->getDescription() << " → " << o7->getPrice() << "円" << endl;
 
         // 行8：コーヒー + チョコ（変更要求で追加されたトッピング）
-        IDrink* o8 = new Choco(new Coffee());
+        auto o8 = std::make_unique<Choco>(
+            std::make_unique<Coffee>());
         cout << o8->getDescription() << " → " << o8->getPrice() << "円" << endl;
 
         // 行9：コーヒー + ミルク + 抹茶 + チョコ（新トッピング2種の組み合わせ）
-        IDrink* o9 = new Choco(new Matcha(new Milk(new Coffee())));
+        auto o9 = std::make_unique<Choco>(
+            std::make_unique<Matcha>(
+                std::make_unique<Milk>(
+                    std::make_unique<Coffee>())));
         cout << o9->getDescription() << " → " << o9->getPrice() << "円" << endl;
 
-        // ※メモリ解放はサンプル簡略化のため省略
+        // unique_ptrの連鎖により、外側の破棄時に内側も順に解放される
     }
 
     void testOrderCalculation() {
-        IDrink* o1 = new Coffee();
+        auto o1 = std::make_unique<Coffee>();
         assert(o1->getPrice() == 300);  // ← Coffee のみ: 300円
 
-        IDrink* o6 = new Whip(new Syrup(new Milk(new Coffee())));
+        auto o6 = std::make_unique<Whip>(
+            std::make_unique<Syrup>(
+                std::make_unique<Milk>(
+                    std::make_unique<Coffee>())));
         assert(o6->getPrice() == 450);  // ← 300 + 50 + 30 + 70 = 450円
     }
 };
