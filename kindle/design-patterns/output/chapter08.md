@@ -116,6 +116,8 @@ classDiagram
 
 ```cpp
 #include <iostream>
+#include <memory>
+#include <stdexcept>
 #include <string>
 
 using namespace std;
@@ -653,6 +655,8 @@ protected:
 
 ```cpp
 #include <iostream>
+#include <memory>
+#include <stdexcept>
 #include <string>
 
 using namespace std;
@@ -704,30 +708,35 @@ public:
 class PaymentApplication {
 protected:
     // Factory Method：生成はサブクラスに委ねる
-    virtual IPaymentProcessor* createProcessor(string type) = 0;
+    virtual unique_ptr<IPaymentProcessor>
+    createProcessor(const string& type) = 0;
 
 public:
-    void processPayment(string type, int amount) {
-        // ← 生成結果の型は気にしなくていい（IPaymentProcessor*として受け取るだけ）
-        IPaymentProcessor* processor = createProcessor(type);
-        if (processor) {
-            processor->pay(amount); // ← 実装詳細を直接触らない
-            delete processor;
-        }
+    virtual ~PaymentApplication() = default;
+
+    void processPayment(const string& type, int amount) {
+        auto processor = createProcessor(type);
+        processor->pay(amount); // ← 実装詳細を直接触らない
     }
 };
 
 // 具体的な生成判断を、この具象Creatorへまとめる
 class DefaultPaymentApplication : public PaymentApplication {
 protected:
-    IPaymentProcessor* createProcessor(string type) override {
-        if (type == "credit") return new CreditCardProcessor();
-        if (type == "cvs")    return new ConvenienceStoreProcessor();
-        if (type == "paypay") return new PayPayProcessor();
-        return nullptr;
+    unique_ptr<IPaymentProcessor>
+    createProcessor(const string& type) override {
+        if (type == "credit")
+            return make_unique<CreditCardProcessor>();
+        if (type == "cvs")
+            return make_unique<ConvenienceStoreProcessor>();
+        if (type == "paypay")
+            return make_unique<PayPayProcessor>();
+        throw invalid_argument("未対応の決済種別: " + type);
     }
 };
 ```
+
+この例は、1つの具象Creatorが引数に応じてProductを選ぶ**引数付きFactory Method**です。生成と利用は分離できますが、新しい種別の追加では新しいProcessorに加えて `DefaultPaymentApplication::createProcessor()` の分岐も変更します。種別ごとに具象Creatorを分ける設計なら中央の分岐は減らせますが、Creatorのクラス数と組み立て設定が増えます。
 
 **4. 組み立てと実行（メイン関数）**
 
@@ -790,9 +799,9 @@ sequenceDiagram
     main->>PA: processPayment("credit", 1000)
     PA->>CP: createProcessor("credit")
     Note right of PA: 生成をメソッドに委譲
-    CP->>CC: new CreditCardProcessor()
+    CP->>CC: make_unique CreditCardProcessor()
     CC-->>CP: インスタンス
-    CP-->>PA: IPaymentProcessor*
+    CP-->>PA: unique_ptr IPaymentProcessor
     PA->>CC: processor->pay(1000)
     Note right of PA: インターフェース経由（具体型を知らない）
     CC-->>PA: 完了
@@ -803,20 +812,21 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    T1["変更要求：PayPay対応"] --> F1["createProcessor ✅"]
+    T1["変更要求：PayPay対応"] --> F0["PayPayProcessor<br>新規作成"]
+    T1 --> F1["DefaultPaymentApplication<br>生成分岐の追加"]
     T1 -. "影響なし" .-> A["processPayment ✅"]
     T1 -. "影響なし" .-> B["CreditCardProcessor ✅"]
 ```
 
-フェーズ3の変更影響グラフと比べると、変更要求が `createProcessor` の修正だけに閉じるようになりました。
+フェーズ3の変更影響グラフと比べると、変更は新しいProductと具象Creatorの生成判断へ寄り、利用フロー `processPayment()` と既存Productを保てます。「1か所だけ」ではなく、生成に関係する場所を予測できることが効果です。
 
 ### 7-4：変更シナリオ表
 
 | **シナリオ** | **変わるクラス** | **変わらないクラス** |
 |---|---|---|
-| 銀行系決済を追加する | `createProcessor`（1行追加）、新クラスの作成 | `PaymentApplication`（利用ロジック）、他の決済クラス |
+| 銀行系決済を追加する | 新しいProcessorと `DefaultPaymentApplication::createProcessor()` | `PaymentApplication::processPayment()`、他の決済クラス |
 | コンビニ決済の実装を変更する | `ConvenienceStoreProcessor`（1箇所修正） | `PaymentApplication`、他の決済クラス |
-| クレジット決済を廃止する | `createProcessor`（1行削除） | `PaymentApplication`（利用ロジック）、他の決済クラス |
+| クレジット決済を廃止する | Creatorの生成分岐、呼び出し・設定箇所。不要ならProcessor定義も削除 | `PaymentApplication::processPayment()`、他の決済クラス |
 
 ---
 
@@ -829,7 +839,7 @@ graph LR
 | **問題** | 決済手段が変わるたびに `PaymentApplication` の分岐条件・生成コードが連動して変わる |
 | **原因** | `PaymentApplication` が具体的な決済プロセッサーのクラス名と生成方法を直接知っており、決済手段の追加コストが統括クラスの修正回数に直結している |
 | **課題** | 振り分けフローと生成ロジックを切り離し、`PaymentApplication` が具体クラスを知らずに決済を実行できる構造にする |
-| **解決策** | Factory Method パターン：`createProcessor` という抽象メソッドに生成の判断を委ね、`processPayment` は `IPaymentProcessor*` インターフェース経由だけで結果を受け取る |
+| **解決策** | Factory Method パターン：`createProcessor` という抽象メソッドに生成の判断を委ね、`processPayment` は所有権付きの `unique_ptr<IPaymentProcessor>` を受け取って利用する |
 
 ### フェーズとこの章でやったこと
 
@@ -862,7 +872,7 @@ graph LR
 |---|---|
 | 1. 変動箇所の識別 | フェーズ2の責任チェック表と変わる理由の分析で、生成ロジックを変動要因として特定した |
 | 2. 接続点の診断 | フェーズ4で、決済手段のクラス名と生成方法が利用処理へ漏れている状態を確認した |
-| 3. 変更局所化の説明 | フェーズ7の変更シナリオ表で、変更が `createProcessor` に閉じる構造を示した |
+| 3. 変更局所化の説明 | フェーズ7の変更シナリオ表で、新しいProductと具象Creatorへ変更を寄せ、利用フローを保つ構造を示した |
 | 4. 利用側が生成知識から解放される視点 | フェーズ6のステップ3で、`processPayment` からif文が消える様子を示した |
 
 ### 3つの設計原則はどう適用されたか
@@ -897,7 +907,7 @@ graph LR
 
 ### パターンの骨格
 
-Factory Method パターンは、インスタンスの生成をメソッド（またはサブクラス）に委譲することで、具体クラスへの依存を断ち切り、利用側をインスタンス生成の知識から解放するパターンです。
+Factory Method パターンは、Productを生成するためのメソッドを定義し、どの具体Productを作るかをサブクラスへ委ねるパターンです。Creatorの利用フローから具体Productの生成コードを分けられますが、具象Creatorは自分が生成するProductを知ります。
 
 ```mermaid
 classDiagram
