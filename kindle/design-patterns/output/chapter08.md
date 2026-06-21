@@ -717,7 +717,7 @@ public:
     }
 };
 
-// 生成ロジックはここだけに閉じる（← ここだけ変わる）
+// 具体的な生成判断を、この具象Creatorへまとめる
 class DefaultPaymentApplication : public PaymentApplication {
 protected:
     IPaymentProcessor* createProcessor(string type) override {

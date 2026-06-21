@@ -784,7 +784,7 @@ public:
 // 予約クラス：状態を保持し操作を委譲するだけ
 class TicketReservation {
 private:
-    // ← ここだけ変わる。ifもswitchも一切ない
+    // 現在状態への参照だけを保持し、具体的な状態名は判定しない
     IReservationState* state;
 public:
     TicketReservation(IReservationState* initialState)

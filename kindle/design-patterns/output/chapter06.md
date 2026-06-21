@@ -915,7 +915,7 @@ public:
 **Syrup クラス・Matcha クラス（新規追加トッピング）：**
 
 ```cpp
-// ← 新しいトッピングを追加する場合は、クラスを1つ増やすだけ（ここだけ変わる）
+// 新しいトッピングの振る舞いを追加し、組み立て側で利用する
 class Syrup : public ToppingWrapper {
 public:
     Syrup(IDrink* base) : ToppingWrapper(base) {}

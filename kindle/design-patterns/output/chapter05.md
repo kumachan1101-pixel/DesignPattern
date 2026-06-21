@@ -816,7 +816,7 @@ public:
         if (undoStack.empty()) return;
         IAction* cmd = undoStack.back();
         undoStack.pop_back();
-        cmd->undo(); // ← ここだけ変わる
+        cmd->undo(); // 具体的な取り消し処理はCommandへ委譲する
         redoStack.push_back(cmd);
     }
     void redo() {

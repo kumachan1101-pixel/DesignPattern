@@ -570,7 +570,7 @@ public:
     }
 };
 
-// ← 新しい通知先はこのクラスを1つ増やすだけ
+// 新しい通知先の実装例。利用時は通知元へ登録する
 class SMSNotifier : public INotification {
 public:
     void send(string m) override {
@@ -705,7 +705,7 @@ public:
 ```
 
 ```cpp
-// ← 新しい通知先を追加する場合は、このクラスを1つ増やすだけ（ここだけ変わる）
+// 新しい通知先の実装を追加し、組み立て側で登録する
 // 通知先4：SMS通知（田中部長の要求に対応）
 class SMSNotifier : public INotification {
 public:
