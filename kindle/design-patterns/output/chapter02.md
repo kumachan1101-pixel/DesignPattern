@@ -81,7 +81,7 @@ classDiagram
     }
     class BankGateway {
         +verifyAccount(account)
-        +checkBalance(account)
+        +checkBalance(amount)
         +executeTransfer(account, amount)
     }
     class SecurityAuthenticator {
@@ -125,7 +125,7 @@ public:
     void verifyAccount(const std::string& account) {
         std::cout << "口座確認: " << account << "\n";
     }
-    void checkBalance(const std::string& account) {
+    void checkBalance(int /*amount*/) {
         std::cout << "残高確認\n";
     }
     void executeTransfer(const std::string& account, int amount) {
@@ -161,7 +161,7 @@ public:
         const std::string& otp) {
         // 銀行システムの複雑な手順を直接制御している
         gateway.verifyAccount(toAccount);
-        gateway.checkBalance(toAccount);
+        gateway.checkBalance(amount);
 
         auth.requestOTP();
         auth.verifyOTP(otp);
@@ -209,7 +209,7 @@ int main() {
 
 ある月曜日の朝、銀行のシステム担当者から緊急の連絡が入りました。
 
-「来月から、銀行のAPIの認証仕様が大幅に変更になります。これまでは単一のOTP（ワンタイムパスワード）認証だけで十分でしたが、今後は、はじめに『認証コードの発行』をリクエストし、その後、銀行から送られてくる『取引ID』とあわせて検証する必要があるのではないでしょうか。」
+「来月から、銀行APIの認証仕様が大幅に変わります。これまでは単一のOTP（ワンタイムパスワード）認証だけで十分でしたが、今後は、はじめに『認証コードの発行』をリクエストし、その応答で返る『取引ID』とあわせて検証する必要があります。」
 
 さらに、これに続いて「銀行側の送金APIのインターフェースもセキュリティ強化のため、送金時のパラメータに『トランザクションID』が必須になります」とのこと。
 
@@ -230,7 +230,7 @@ int main() {
 | **③ 認証** | OTP（ワンタイムパスワード）1ステップで完了 | **「認証コードの発行」→「取引IDと認証コードの照合」の2ステップに変更** |
 | **④ 送金実行** | 振込先口座と金額だけを指定して送金 | **「トランザクションID」が必須パラメータとして追加** |
 
-現行の単一OTP認証では `verifyOTP(code)` を1回呼ぶだけでよかったところ、新仕様では `requestAuthCode()` で認証コードを発行し、返ってきた取引IDと合わせて `verifyWithTransactionID(authCode, txId)` を呼ぶ流れに変わります。送金APIも `executeTransfer(account, amount, transactionId)` という形にパラメータが増えます。
+現行の認証では発行と検証の間に識別子を受け渡していませんでした。新仕様では `requestOTP()` の応答から取引IDを受け取り、`verifyOTP(authCode, transactionId)` で検証します。検証済みの同じ取引IDを、`executeTransfer(account, amount, transactionId)` にも渡します。
 
 フェーズ1でシステムの現状と変更要求が把握できました。次のフェーズ2では、「何が変わり、何が変わらないか」を整理します。
 
@@ -257,7 +257,7 @@ int main() {
 | **コードの行** | **持っている知識** | **誰の判断で変わるか** | **責任内か** |
 |---|---|---|---|
 | `gateway.verifyAccount(toAccount);` | 銀行APIの口座確認手順 | 銀行側のシステム担当者 | ❌ 別担当者 |
-| `gateway.checkBalance(toAccount);` | 銀行APIの残高確認手順 | 銀行側のシステム担当者 | ❌ 別担当者 |
+| `gateway.checkBalance(amount);` | 送金元残高が金額を満たすか確認する手順 | 銀行側のシステム担当者 | ❌ 別担当者 |
 | `auth.requestOTP();` | 認証のための手順（OTP発行） | 銀行側のセキュリティ担当者 | ❌ 別担当者 |
 | `auth.verifyOTP(otp);` | 認証コードの検証方法 | 銀行側のセキュリティ担当者 | ❌ 別担当者 |
 | `gateway.executeTransfer(toAccount, amount);` | 送金APIの呼び出し方法 | 銀行側のシステム担当者 | ❌ 別担当者 |
@@ -314,7 +314,7 @@ int main() {
 
 ```cpp
 gateway.verifyAccount(toAccount);
-gateway.checkBalance(toAccount);
+gateway.checkBalance(amount);
 
 auth.requestOTP();
 auth.verifyOTP(otp);
@@ -329,20 +329,18 @@ void transfer(
         const std::string& toAccount, int amount,
         const std::string& otp) {
     gateway.verifyAccount(toAccount);
-    gateway.checkBalance(toAccount);
+    gateway.checkBalance(amount);
 
     // 【痛み：認証の手順が変わる】
     // 既存のコードを書き換える必要がある
-    auth.requestOTP();
-    // 銀行から発行された「取引ID」（認証フロー内の識別子）を保持しなければならない
-    std::string transactionId = auth.getTransactionId();
+    // 認証コードの発行応答から取引IDを受け取る
+    std::string transactionId = auth.requestOTP();
     // 検証時に取引IDを渡す必要がある
     auth.verifyOTP(otp, transactionId);
 
     // 【痛み：送金APIの仕様が変わる】
-    // 送金用の「トランザクションID」（認証の取引IDとは別の、送金単位の識別子）を生成して渡す
-    std::string txId = generateTxId();
-    gateway.executeTransfer(toAccount, amount, txId);
+    // 認証済みの取引IDを送金APIにも渡す
+    gateway.executeTransfer(toAccount, amount, transactionId);
 
     std::cout << "振り込み完了\n";
 }
@@ -411,11 +409,9 @@ graph LR
 **【変わる部分（外部システムの技術詳細）】**
 ```cpp
         // ← 銀行側の都合で変わり続ける部分
-        auth.requestOTP();
-        std::string transactionId = auth.getTransactionId();
+        std::string transactionId = auth.requestOTP();
         auth.verifyOTP(otp, transactionId);
-        std::string txId = generateTxId();
-        gateway.executeTransfer(toAccount, amount, txId);
+        gateway.executeTransfer(toAccount, amount, transactionId);
 ```
 
 **【変わらない部分（業務フローの不変の骨格）】**
@@ -482,28 +478,27 @@ void transfer(
 
     // ↓ 銀行APIの呼び出し手順（変わり続ける）
     gateway.verifyAccount(toAccount);
-    gateway.checkBalance(toAccount);
-    auth.requestOTP();
-    std::string transactionId = auth.getTransactionId();
+    gateway.checkBalance(amount);
+    std::string transactionId = auth.requestOTP();
     auth.verifyOTP(otp, transactionId);
-    std::string txId = generateTxId();
-    gateway.executeTransfer(toAccount, amount, txId);
+    gateway.executeTransfer(toAccount, amount, transactionId);
     // ↑ ここまでが分離するターゲット
 
     std::cout << "振り込み完了\n"; // ← 変わらない骨格
 }
 ```
 
-「銀行API呼び出し群」が受け取るのは振り込み先・金額・OTPです。完了は副作用（void）で表現されます。
+「銀行API呼び出し群」が受け取るのは振り込み先・金額・OTPです。内部では認証応答の取引IDを検証と送金へ引き継ぎます。完了は副作用（void）で表現されます。
 
 | 接続点 | 接続するデータ | 変わるもの |
 |---|---|---|
-| 銀行API群 → `transfer()` の骨格 | toAccount（string）・amount（int）・otp（string）→ 完了（void） | APIの呼び出し手順・実装詳細 |
+| 銀行API群 → 通常振込の骨格 | toAccount（string）・amount（int）・otp（string）→ 完了（void） | APIの呼び出し手順・実装詳細 |
+| 銀行API群 → 事前承認済みバッチ | toAccount（string）・amount（int）→ 完了（void） | 事前承認結果を送金へ引き継ぐ手順 |
 
 ### 何が変わり、何が変わらないか
 
 - **変わるもの**：銀行APIの呼び出し手順（gateway/auth のメソッド群・順序・パラメータ）。外部システムの仕様変更のたびに内部が変わる。
-- **変わらないもの**：受け取る引数の型（toAccount:string・amount:int・otp:string）。業務フローが求める「振り込みを完了する」という意図。
+- **比較的安定しているもの**：通常振込と事前承認済みバッチという業務上の操作、および口座・金額・認証コードという入力。外部API内の取引ID受け渡しは窓口の外へ見せない。
 
 呼び出し元（`BatchTransferService` 等）が知る必要があるのは、口座・金額・OTPを窓口へ渡す方法です。問題は「どのAPIをどの順番でどう呼ぶか」という**外部連携の手順**まで呼び出し元へ漏れていることです。
 
@@ -528,32 +523,31 @@ class TransferProcessor {
     SecurityAuthenticator auth;
 
     // 口座の確認手順をまとめる
-    void checkAccount(const std::string& account) {
+    void checkAccount(const std::string& account, int amount) {
         gateway.verifyAccount(account);
-        gateway.checkBalance(account);
+        gateway.checkBalance(amount);
     }
 
     // 認証手順をまとめる
-    void authenticate(const std::string& otp) {
-        auth.requestOTP();
-        // 本来は銀行が返す取引IDを受け取るが、整理の段階ではダミー値を使う
-        std::string txId = "TXN12345";
+    std::string authenticate(const std::string& otp) {
+        std::string txId = auth.requestOTP();
         auth.verifyOTP(otp, txId);
+        return txId;
     }
 
     // 送金手順をまとめる
-    void sendMoney(const std::string& account, int amount) {
-        // TxIdの生成・管理も本来はここに閉じるべきだが、今はダミー値で確認する
-        gateway.executeTransfer(account, amount, "TXN12345");
+    void sendMoney(const std::string& account, int amount,
+                   const std::string& txId) {
+        gateway.executeTransfer(account, amount, txId);
     }
 
 public:
     void transfer(
             const std::string& toAccount, int amount,
             const std::string& otp) {
-        checkAccount(toAccount);  // ← 手順の意図が読めるようになった
-        authenticate(otp);
-        sendMoney(toAccount, amount);
+        checkAccount(toAccount, amount);  // ← 手順の意図が読めるようになった
+        std::string txId = authenticate(otp);
+        sendMoney(toAccount, amount, txId);
         std::cout << "振り込み完了\n";
     }
 };
@@ -583,15 +577,16 @@ public:
                  const std::string& otp) {
         // 複雑な手順はすべてここに集まる
         gateway.verifyAccount(account);
-        gateway.checkBalance(account);
-        if (!otp.empty()) {
-            auth.requestOTP();
-            // 取引IDは本来、bankから返される値を使う（ここではダミー値）
-            std::string txId = "TXN12345";
-            auth.verifyOTP(otp, txId);
-        }
-        // txIdの生成と送金の実際の実装はFacade内に閉じる（ステップ3で完成する）
-        gateway.executeTransfer(account, amount, "TXN12345");
+        gateway.checkBalance(amount);
+        std::string txId = auth.requestOTP();
+        auth.verifyOTP(otp, txId);
+        gateway.executeTransfer(account, amount, txId);
+    }
+
+    void executeApprovedBatch(const std::string& account, int amount) {
+        gateway.verifyAccount(account);
+        gateway.checkBalance(amount);
+        gateway.executeTransfer(account, amount, "APPROVED-BATCH");
     }
 };
 
@@ -617,7 +612,7 @@ public:
         for (int i = 0; i < (int)transfers.size(); i++) {
             const std::string& account = transfers[i].first;
             int amount = transfers[i].second;
-            helper->execute(account, amount, ""); // OTPなしで実行
+            helper->executeApprovedBatch(account, amount);
         }
     }
 };
@@ -642,6 +637,8 @@ public:
     virtual void performTransfer(
         const std::string& account, int amount,
         const std::string& otp) = 0;
+    virtual void performApprovedBatchTransfer(
+        const std::string& account, int amount) = 0;
     virtual ~IBankTransferService() = default;
 };
 
@@ -655,13 +652,18 @@ public:
             const std::string& otp) override {
         // 複雑な手順はすべてこの窓口の中に閉じる
         gateway.verifyAccount(account);
-        gateway.checkBalance(account);
-        // バッチ処理（otp=""）は社内承認済みのためOTPをスキップ
-        if (!otp.empty()) {
-            auth.requestOTP();
-            auth.verifyOTP(otp, "TXN12345");
-        }
-        gateway.executeTransfer(account, amount, "TXN12345");
+        gateway.checkBalance(amount);
+        std::string txId = auth.requestOTP();
+        auth.verifyOTP(otp, txId);
+        gateway.executeTransfer(account, amount, txId);
+    }
+
+    void performApprovedBatchTransfer(
+            const std::string& account, int amount) override {
+        gateway.verifyAccount(account);
+        gateway.checkBalance(amount);
+        // 実際には事前承認処理が発行した取引IDを受け取る
+        gateway.executeTransfer(account, amount, "APPROVED-BATCH");
     }
 };
 
@@ -690,7 +692,7 @@ public:
         for (int i = 0; i < (int)transfers.size(); i++) {
             const std::string& account = transfers[i].first;
             int amount = transfers[i].second;
-            facade->performTransfer(account, amount, "");
+            facade->performApprovedBatchTransfer(account, amount);
         }
     }
 };
@@ -746,11 +748,13 @@ public:
     void verifyAccount(const std::string& account) {
         std::cout << "口座確認: " << account << "\n";
     }
-    void checkBalance(const std::string& account) {
+    void checkBalance(int /*amount*/) {
         std::cout << "残高確認\n";
     }
     void executeTransfer(const std::string& account, int amount,
                          const std::string& txId) {
+        (void)account;
+        (void)txId;
         std::cout << "送金実行: " << amount << "円\n";
     }
 };
@@ -758,9 +762,14 @@ public:
 // 認証を担うクラス（サブシステム2）
 class SecurityAuthenticator {
 public:
-    void requestOTP() { std::cout << "認証コード発行\n"; }
+    std::string requestOTP() {
+        std::cout << "認証コード発行\n";
+        return "TXN12345"; // 銀行APIの応答で返る取引ID
+    }
     void verifyOTP(const std::string& token,
                    const std::string& txId) {
+        (void)token;
+        (void)txId;
         std::cout << "認証コード検証\n";
     }
 };
@@ -776,6 +785,8 @@ public:
     virtual void performTransfer(
         const std::string& account, int amount,
         const std::string& otp) = 0;
+    virtual void performApprovedBatchTransfer(
+        const std::string& account, int amount) = 0;
     virtual ~IBankTransferService() = default;
 };
 
@@ -790,13 +801,18 @@ public:
             const std::string& otp) override {
         // 複雑な手順はすべてこの窓口の中に閉じる
         gateway.verifyAccount(account);
-        gateway.checkBalance(account);
-        // バッチ処理（otp=""）は社内承認済みのためOTPをスキップ
-        if (!otp.empty()) {
-            auth.requestOTP();
-            auth.verifyOTP(otp, "TXN12345"); // 内部的に取引IDを扱う
-        }
-        gateway.executeTransfer(account, amount, "TXN12345");
+        gateway.checkBalance(amount);
+        std::string txId = auth.requestOTP();
+        auth.verifyOTP(otp, txId);
+        gateway.executeTransfer(account, amount, txId);
+    }
+
+    void performApprovedBatchTransfer(
+            const std::string& account, int amount) override {
+        gateway.verifyAccount(account);
+        gateway.checkBalance(amount);
+        // 実システムでは、事前承認処理から受け取った取引IDを渡す
+        gateway.executeTransfer(account, amount, "APPROVED-BATCH");
     }
 };
 ```
@@ -834,7 +850,7 @@ public:
         for (int i = 0; i < (int)transfers.size(); i++) {
             const std::string& account = transfers[i].first;
             int amount = transfers[i].second;
-            facade->performTransfer(account, amount, "");
+            facade->performApprovedBatchTransfer(account, amount);
         }
     }
 };
@@ -885,7 +901,7 @@ int main() {
 送金実行: 25000円
 ```
 
-動作例テーブルの行1（12345678 / 5,000円 → 振り込み完了）と行5（87654321 / 30,000円 → OTPスキップで送金）の動作を確認しました。バッチ処理では `otp=""` を渡すことで `BankTransferService` 内のOTPステップがスキップされ、テーブルの「OTP不要」仕様と一致しています。行2〜4（口座なし・残高不足・認証失敗）は本番実装では各サブシステムがエラーを返すことで対応します。`TransferProcessor` は `BankGateway` や `SecurityAuthenticator` を直接参照せず、`IBankTransferService` という窓口に依存する形へ変わりました。
+動作例テーブルの行1（12345678 / 5,000円 → 振り込み完了）と行5（87654321 / 30,000円 → OTP不要で送金）の動作を確認しました。バッチ処理は空文字という暗黙の合図ではなく、事前承認済みの振込を表す `performApprovedBatchTransfer()` を呼びます。行2〜4（口座なし・残高不足・認証失敗）は本番実装では各サブシステムがエラーを返すことで対応します。`TransferProcessor` は `BankGateway` や `SecurityAuthenticator` を直接参照せず、`IBankTransferService` という窓口に依存する形へ変わりました。
 
 ### 7-2：動作シーケンス図
 
@@ -906,8 +922,9 @@ sequenceDiagram
     T->>F: performTransfer(account, amount, otp)
     activate F
     F->>G: verifyAccount(account)
-    F->>G: checkBalance(account)
+    F->>G: checkBalance(amount)
     F->>A: requestOTP()
+    A-->>F: txId
     F->>A: verifyOTP(otp, txId)
     F->>G: executeTransfer(account, amount, txId)
     F-->>T: 処理完了
