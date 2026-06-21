@@ -721,11 +721,27 @@ public:
 // 通知元クラス（Subject に相当）
 class InventoryManager {
 private:
-    vector<INotification*> observers; // ← 具体的な実装クラスを知らない
+    // 非所有ポインタ。登録中のObserverはInventoryManagerより長く生存すること。
+    vector<INotification*> observers;
 
 public:
-    // 通知先の登録
-    void attach(INotification* o) { observers.push_back(o); }
+    // nullと重複登録を拒否する
+    bool attach(INotification* o) {
+        if (o == nullptr) return false;
+        if (find(observers.begin(), observers.end(), o)
+                != observers.end()) {
+            return false;
+        }
+        observers.push_back(o);
+        return true;
+    }
+
+    // 破棄前や購読停止時に登録を解除する
+    void detach(INotification* o) {
+        observers.erase(
+            remove(observers.begin(), observers.end(), o),
+            observers.end());
+    }
 
     void reduceStock(string productId, int quantity) {
         cout << "商品 " << productId
@@ -746,15 +762,17 @@ public:
 
 private:
     void notifyAll(string message) {
-        // 通知先が何であれ、一律に通知を送る
-        for (auto* o : observers) {
+        // 通知中のattach/detachが現在の反復を壊さないよう、
+        // この通知開始時点のスナップショットを使う
+        const auto snapshot = observers;
+        for (auto* o : snapshot) {
             o->send(message);
         }
     }
 };
 ```
 
-`InventoryManager` は `INotification*` のリストを持つだけで、`EmailNotifier` や `SMSNotifier` の名前を一切知りません。最後に、具体クラスを組み立てる部分（main）を見てみましょう。
+`InventoryManager` は `INotification*` のリストを持つだけで、`EmailNotifier` や `SMSNotifier` の名前を知りません。この例のポインタは非所有なので、登録中の通知先は `InventoryManager` が通知を終えるまで生存させ、破棄前に `detach()` します。所有期間を共有する必要がある設計では、`weak_ptr` など別の寿命管理も検討します。
 
 ```cpp
 int main() {
@@ -784,11 +802,12 @@ int main() {
     cout << "--- 行5: 出荷完了イベント ---" << endl;
     manager.notifyShipped("ORDER-001");
 
-    // 行6: Chatのみ登録した状態
+    // 行6: 既存managerから不要な通知先を解除し、Chatだけを残す
     cout << "--- 行6: 通知先をChatのみ登録した状態 ---" << endl;
-    InventoryManager managerChatOnly;
-    managerChatOnly.attach(&chat);
-    managerChatOnly.reduceStock("Shoes-004", 2);
+    manager.detach(&email);
+    manager.detach(&dashboard);
+    manager.detach(&sms);
+    manager.reduceStock("Shoes-004", 2);
 
     return 0;
 }
@@ -898,7 +917,7 @@ graph LR
 | **シナリオ** | **変わるクラス（触る場所）** | **変わらないクラス** |
 | --- | --- | --- |
 | 新しい通知先「音声通知」を追加する | AudioNotifier（新規作成）、main（登録処理） | InventoryManager, EmailNotifier 等すべての既存クラス |
-| 既存の「メール通知」を廃止する | main（`manager.attach(&email)` の呼び出しを削除。EmailNotifierクラス定義はコードに残るが、登録されないため呼び出されない） | InventoryManager, INotification, 他の通知先クラス |
+| 実行中にメール通知の購読を停止する | `manager.detach(&email)` を呼ぶ設定・組み立て箇所 | InventoryManager, INotification, 他の通知先クラス |
 | 通知の基準を変更する | InventoryManager | INotification, 各通知先クラス |
 
 変更が来ても、触るのは新規作成するクラスか、組み立てを行うコードだけ——それがこの設計で手に入れたものです。諦めたものは、通知のたびにインターフェースを経由するというわずかな間接性と、Observerの登録・解除を管理するクラス数の増加です。
@@ -933,7 +952,7 @@ graph LR
 | **責任** | **変更前** | **変更後** |
 | --- | --- | --- |
 | 在庫減算と通知先への通知 | `InventoryManager` | `InventoryManager`（変わらず） |
-| 具体的な通知先クラスの直接保持 | `InventoryManager`（メンバとして直接宣言） | 各Notifierが登録リストに自己登録 |
+| 具体的な通知先クラスの直接保持 | `InventoryManager`（メンバとして直接宣言） | 組み立て側が共通契約の登録リストへ追加・解除 |
 | 個別の通知手段の実装 | `EmailNotifier` 等（変わらず） | `EmailNotifier` 等（`INotification`経由に） |
 | 通知受け取り契約の定義 | —（なし） | `INotification` |
 
@@ -1015,6 +1034,8 @@ classDiagram
 
 * **使うと良い状況**：ある状態の変化を、複数の相手に即座に伝えたい場合。また、通知先が将来増えることが分かっている場合。
 * **使わない方が良い状況**：（1）通知先が固定で増減の予定がない場合（例：ログ出力先が1か所のみで将来も変わらない）。（2）通知の順序や確実性が求められる同期処理の場合（例：処理AがBの完了を待ってから実行する必要がある連鎖処理）。このような場合、Observerの登録リストを管理するコストが設計の複雑さを増すだけになります。
+
+* **寿命と通知中の変更に注意する状況**：SubjectがObserverを生ポインタで保持する場合、Observerを先に破棄するとダングリングポインタになります。登録解除を必須にする、所有期間を上位でそろえる、`weak_ptr`を使うなど、寿命の契約を決めます。また通知中の登録・解除、同一Observerの重複登録、Observer例外時に残りへ通知するかも仕様として定めます。
 
 【過剰コード：変化の予定がないものまでパターン化した例】
 
