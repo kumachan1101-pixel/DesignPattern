@@ -84,6 +84,8 @@ classDiagram
         +reserve()
         +pay()
         +cancel()
+        +hold()
+        +expire()
     }
 ```
 
@@ -371,7 +373,7 @@ graph LR
 
 変更を試みてみた結果、現場でよく直面する2つの辛い状況が浮かび上がってきました。
 
-1つ目は、修正漏れがバグに直結する恐怖です。新しい状態を追加するためには、すべてのメソッド内にある条件分岐を一つずつ確認し、適切にロジックを追記する必要があるのではないでしょうか。もし `pay` メソッドで「保留中からの支払い」を考慮し忘れたらどうなるでしょうか。ユーザーは支払いができず、システムは正しく動かないまま放置されます。一つの小さな仕様変更のために、クラス内の全てのロジックを神経質にチェックしなければならないというのは、非常にコストが高く、リスクの大きい作業です。
+1つ目は、修正漏れがバグに直結する恐怖です。新しい状態を追加すると、既存の各操作でその状態をどう扱うかを確認します。さらに新しい操作も追加するなら、すべての状態で許可・拒否を定義します。もし `pay()` で「保留中からの支払い」を考慮し忘れたら、利用者は支払いができません。状態×操作の組み合わせを人手で追う作業は、変更が重なるほど高コストになります。
 
 2つ目は、システムの振る舞いが「コードの迷路」になってしまうことです。現状では、`TicketReservation` クラスを開けば予約のルールが一目瞭然でした。しかし、状態が増えるたびに `if` や `else if` が折り重なり、ビジネス上のルールがどこに書かれているのかが見えにくくなります。コードを読むたびに、脳内で「今この状態なら、このメソッドは動いて……」というシミュレーションを繰り返さなければなりません。これでは、誰かが修正を加えるたびに別の場所を壊してしまう「副作用」の温床になってしまいます。
 
@@ -394,7 +396,7 @@ graph LR
 
 | **観察した症状（痛み）** | **構造的な原因（痛みの根源）** |
 |---|---|
-| 新しい状態を追加するたびに、既存の全メソッドの条件分岐を書き換える必要がある | 「現在の状態（ステータス）」と「その状態で実行可能な振る舞い」という、本来分離する必要がある知識が、一つのクラスの中に混在しているから |
+| 状態や操作を追加するたびに、関係する条件分岐を横断して許可・拒否と遷移を確認する必要がある | 「現在の状態（ステータス）」と「その状態で実行可能な振る舞い」が、一つのクラスの中に混在しているから |
 | 複雑な条件分岐により、現在の状態が何であるかを常に意識しないとコードが書けない | 状態管理のルール（遷移条件）がロジックの中に埋め込まれ、状態の変化を追跡するのが困難になっているから |
 
 ### 4-2：変わるもの/変わってほしくないもの
@@ -405,7 +407,7 @@ graph LR
 
 | **変わり続けるもの（🔴）** | **変わってほしくないもの（🟢）** |
 |---|---|
-| 状態の種類（キャンセル待ち、保留中などの追加） | 予約システムとしての基本的な業務フロー |
+| 予約ライフサイクルの状態（保留中、法人審査中などの追加） | 予約システムとしての基本的な業務フロー |
 | 各状態における振る舞い（状態ごとのアクション） | 状態を管理するという概念（状態があること自体） |
 
 私たちが守るべきは「予約管理」という概念であり、増え続ける「状態の種類」や「状態ごとの細かなルール」は、安定した業務フローから切り離す必要がある存在なのです。
@@ -605,6 +607,8 @@ public:
     virtual void reserve(TicketReservation* ctx) = 0;
     virtual void pay(TicketReservation* ctx) = 0;
     virtual void cancel(TicketReservation* ctx) = 0;
+    virtual void hold(TicketReservation* ctx) = 0;
+    virtual void expire(TicketReservation* ctx) = 0;
     virtual ~IReservationState() = default;
 };
 
@@ -612,6 +616,7 @@ public:
 IReservationState* availableState();
 IReservationState* reservedState();
 IReservationState* paidState();
+IReservationState* heldState();
 ```
 
 メソッド引数に `TicketReservation* ctx` を受け取るのは、各状態クラスが遷移後の状態を `ctx->setState()` でセットするためにコンテキストへのポインタが必要だからだ。
@@ -631,6 +636,12 @@ public:
     void cancel(TicketReservation* ctx) override {
         std::cout << "空席状態のためキャンセル不要です\n";
     }
+    void hold(TicketReservation*) override {
+        std::cout << "予約前のため保留できません\n";
+    }
+    void expire(TicketReservation*) override {
+        std::cout << "保留状態ではありません\n";
+    }
 };
 
 class ReservedState : public IReservationState {
@@ -644,6 +655,12 @@ public:
     void cancel(TicketReservation* ctx) override {
         std::cout << "予約をキャンセルしました\n";
     }
+    void hold(TicketReservation* ctx) override {
+        std::cout << "予約を一時保留しました\n";
+    }
+    void expire(TicketReservation*) override {
+        std::cout << "保留状態ではありません\n";
+    }
 };
 
 class PaidState : public IReservationState {
@@ -656,6 +673,31 @@ public:
     }
     void cancel(TicketReservation* ctx) override {
         std::cout << "支払い済みのためキャンセルできません\n";
+    }
+    void hold(TicketReservation*) override {
+        std::cout << "支払い済みのため保留できません\n";
+    }
+    void expire(TicketReservation*) override {
+        std::cout << "保留状態ではありません\n";
+    }
+};
+
+class HeldState : public IReservationState {
+public:
+    void reserve(TicketReservation*) override {
+        std::cout << "保留中のため再予約できません\n";
+    }
+    void pay(TicketReservation* ctx) override {
+        std::cout << "保留中の予約を支払いました\n";
+    }
+    void cancel(TicketReservation*) override {
+        std::cout << "保留中は手動キャンセルできません\n";
+    }
+    void hold(TicketReservation*) override {
+        std::cout << "既に保留中です\n";
+    }
+    void expire(TicketReservation* ctx) override {
+        std::cout << "保留期限が切れました\n";
     }
 };
 ```
@@ -674,10 +716,12 @@ public:
     void reserve() { state->reserve(this); }
     void pay()     { state->pay(this); }
     void cancel()  { state->cancel(this); }
+    void hold()    { state->hold(this); }
+    void expire()  { state->expire(this); }
 };
 ```
 
-`TicketReservation` から状態名を判定する `if` 文がなくなりました。既存の操作契約の範囲で新しい状態を追加するなら、`IReservationState` を実装するクラスを作り、その状態へ入る遷移元を変更します。公開操作を委譲する `TicketReservation` の条件分岐は増やさずに済みます。
+`TicketReservation` から状態名を判定する `if` 文がなくなりました。既存の操作契約の範囲で新しい状態を追加するなら、`IReservationState` を実装するクラスを作り、その状態へ入る遷移元を変更します。今回のように `hold()`・`expire()` という**新しい操作も追加する場合**は、インターフェース、コンテキスト、すべての状態クラスへメソッドを追加する必要があります。Stateは状態追加と操作追加で得意な変更方向が異なります。
 
 **評価：** 状態ごとの振る舞いを新しい状態クラスへ置けるようになりました。実際の追加時には、新クラスに加えて遷移先の設定や組み立て箇所の登録が必要です。なお、このコードはまだ状態遷移処理を省いているため、動作例テーブルの全パターンは再現できません。完成版はフェーズ7で示します。
 
@@ -704,7 +748,7 @@ public:
 
 採用した設計（ステップ3：状態の契約と委譲）を、実際のコードに実装します。これにより、これまで`TicketReservation`が抱え込んでいた複雑な条件分岐を、個別の状態クラスへ移します。
 
-この設計変更の最大の価値は、今後「キャンセル待ち」や「特別優待」といった新しい状態がどれだけ増えても、既存の業務フローの条件分岐を変更せず、新しい状態クラスと組み立て設定を追加することで機能拡張ができる安定性を手に入れたことです。
+この設計変更の価値は、`reserve()`・`pay()` など既存操作の範囲で新しい予約状態を増やすとき、コンテキストの条件分岐を増やさず、状態クラスと遷移元へ変更を寄せられることです。一方、新しい操作を増やす場合は全状態クラスにその操作の振る舞いを定義します。本章では両方の変更を実装し、違いを確認します。
 
 ### 7-1：解決後のコード（全体）
 
@@ -722,11 +766,13 @@ public:
     virtual void reserve(TicketReservation* ctx) = 0;
     virtual void pay(TicketReservation* ctx) = 0;
     virtual void cancel(TicketReservation* ctx) = 0;
+    virtual void hold(TicketReservation* ctx) = 0;
+    virtual void expire(TicketReservation* ctx) = 0;
     virtual ~IReservationState() = default;
 };
 ```
 
-`IReservationState` が `TicketReservation*` を受け取る形になっているのは、状態クラスが遷移先を `ctx->setState()` で設定するためにコンテキストへのポインタが必要だからです。例えば `AvailableState::reserve()` は処理後に `ctx->setState(new ReservedState())` を呼んで状態を切り替えます。インターフェースがこの契約を定めることで、どの状態クラスも同じ方法で呼び出せます。
+`IReservationState` が `TicketReservation*` を受け取る形になっているのは、状態クラスが遷移先を `ctx->setState()` で設定するためにコンテキストへのポインタが必要だからです。例えば `AvailableState::reserve()` は処理後に `ctx->setState(reservedState())` を呼んで状態を切り替えます。インターフェースがこの契約を定めることで、どの状態クラスも同じ方法で呼び出せます。
 
 次に、状態ごとの振る舞いをそれぞれのクラスに実装します。各クラスは「その状態のときだけの責任」を持ちます。
 
@@ -737,6 +783,8 @@ public:
     void reserve(TicketReservation* ctx) override;
     void pay(TicketReservation* ctx) override;
     void cancel(TicketReservation* ctx) override;
+    void hold(TicketReservation* ctx) override;
+    void expire(TicketReservation* ctx) override;
 };
 ```
 
@@ -747,6 +795,8 @@ public:
     void reserve(TicketReservation* ctx) override;
     void pay(TicketReservation* ctx) override;
     void cancel(TicketReservation* ctx) override;
+    void hold(TicketReservation* ctx) override;
+    void expire(TicketReservation* ctx) override;
 };
 ```
 
@@ -757,6 +807,20 @@ public:
     void reserve(TicketReservation* ctx) override;
     void pay(TicketReservation* ctx) override;
     void cancel(TicketReservation* ctx) override;
+    void hold(TicketReservation* ctx) override;
+    void expire(TicketReservation* ctx) override;
+};
+```
+
+```cpp
+// Held（一時保留）状態：支払いまたは期限切れを待つ
+class HeldState : public IReservationState {
+public:
+    void reserve(TicketReservation* ctx) override;
+    void pay(TicketReservation* ctx) override;
+    void cancel(TicketReservation* ctx) override;
+    void hold(TicketReservation* ctx) override;
+    void expire(TicketReservation* ctx) override;
 };
 ```
 
@@ -781,6 +845,8 @@ public:
     void reserve() { state->reserve(this); }
     void pay()     { state->pay(this); }
     void cancel()  { state->cancel(this); }
+    void hold()    { state->hold(this); }
+    void expire()  { state->expire(this); }
 };
 ```
 
@@ -804,6 +870,11 @@ IReservationState* paidState() {
     return &state;
 }
 
+IReservationState* heldState() {
+    static HeldState state;
+    return &state;
+}
+
 void AvailableState::reserve(TicketReservation* ctx) {
     std::cout << "予約完了しました\n";
     ctx->setState(reservedState());
@@ -813,6 +884,12 @@ void AvailableState::pay(TicketReservation*) {
 }
 void AvailableState::cancel(TicketReservation*) {
     std::cout << "空席状態のためキャンセル不要です\n";
+}
+void AvailableState::hold(TicketReservation*) {
+    std::cout << "予約前のため保留できません\n";
+}
+void AvailableState::expire(TicketReservation*) {
+    std::cout << "保留状態ではありません\n";
 }
 
 void ReservedState::reserve(TicketReservation*) {
@@ -826,6 +903,13 @@ void ReservedState::cancel(TicketReservation* ctx) {
     std::cout << "予約をキャンセルしました\n";
     ctx->setState(availableState());
 }
+void ReservedState::hold(TicketReservation* ctx) {
+    std::cout << "予約を一時保留しました\n";
+    ctx->setState(heldState());
+}
+void ReservedState::expire(TicketReservation*) {
+    std::cout << "保留状態ではありません\n";
+}
 
 void PaidState::reserve(TicketReservation*) {
     std::cout << "支払い済みのため再予約できません\n";
@@ -835,6 +919,30 @@ void PaidState::pay(TicketReservation*) {
 }
 void PaidState::cancel(TicketReservation*) {
     std::cout << "支払い済みのためキャンセルできません\n";
+}
+void PaidState::hold(TicketReservation*) {
+    std::cout << "支払い済みのため保留できません\n";
+}
+void PaidState::expire(TicketReservation*) {
+    std::cout << "保留状態ではありません\n";
+}
+
+void HeldState::reserve(TicketReservation*) {
+    std::cout << "保留中のため再予約できません\n";
+}
+void HeldState::pay(TicketReservation* ctx) {
+    std::cout << "保留中の予約を支払いました\n";
+    ctx->setState(paidState());
+}
+void HeldState::cancel(TicketReservation*) {
+    std::cout << "保留中は手動キャンセルできません\n";
+}
+void HeldState::hold(TicketReservation*) {
+    std::cout << "既に保留中です\n";
+}
+void HeldState::expire(TicketReservation* ctx) {
+    std::cout << "保留期限が切れました\n";
+    ctx->setState(availableState());
 }
 ```
 
@@ -873,6 +981,19 @@ public:
         seat5.reserve();
         seat5.pay();
         seat5.reserve();
+
+        // 変更要求：Reserved → hold() → Held → pay() → Paid
+        TicketReservation seat6(availableState());
+        seat6.reserve();
+        seat6.hold();
+        seat6.pay();
+
+        // 変更要求：Reserved → hold() → Held → expire() → Available
+        TicketReservation seat7(availableState());
+        seat7.reserve();
+        seat7.hold();
+        seat7.expire();
+        seat7.reserve(); // Availableへ戻ったことを確認
     }
 };
 
@@ -897,9 +1018,16 @@ int main() {
 予約完了しました
 支払い完了しました
 支払い済みのため再予約できません
+予約完了しました
+予約を一時保留しました
+保留中の予約を支払いました
+予約完了しました
+予約を一時保留しました
+保留期限が切れました
+予約完了しました
 ```
 
-この実行結果は、フェーズ1の動作例テーブルの全6行の動作と一致しています。構造が変わっても、動作は変わっていません。
+この実行結果は、変更前の動作例テーブル全6行を保ちつつ、変更要求の `Reserved → Held → Paid` と `Reserved → Held → Available` も実現しています。
 
 ### 7-2：動作シーケンス図
 
@@ -939,9 +1067,12 @@ graph LR
     T1["新規状態追加"] --> F1["NewState + 状態取得関数"]
     T1 --> F2["遷移元Stateの遷移処理"]
     T1 -. "影響なし" .-> A["TicketReservation ✅"]
+    T2["新規操作追加"] --> I["IReservationState"]
+    T2 --> C["TicketReservation"]
+    T2 --> S["全Stateクラス"]
 ```
 
-フェーズ3の変更影響グラフと比較して、新しい状態を表すクラスと、その状態へ入る遷移処理へ変更箇所を絞れる設計になりました。`TicketReservation` の公開操作に状態名の条件分岐を追加する必要はありません。
+フェーズ3の変更影響グラフと比較して、**既存操作の範囲で状態を追加する変更**は、新しい状態クラスと遷移元へ寄せられます。一方、`hold()`・`expire()` のような**新しい操作の追加**は、インターフェース・コンテキスト・全状態クラスへ波及します。Stateは状態方向の拡張に強く、操作方向の拡張にはコストがある構造です。
 
 ### 7-4：変更シナリオ表
 
@@ -951,6 +1082,7 @@ graph LR
 |---|---|---|
 | 既存操作だけを使う新状態の追加 | 新しいState、状態取得関数、その状態へ遷移するState | `TicketReservation`、遷移に関係しないState |
 | 支払い済みからの返金対応 | `PaidState`（修正のみ） | `TicketReservation`、`ReservedState` |
+| 新しい操作 `hold()` / `expire()` の追加 | `IReservationState`、`TicketReservation`、全State | 既存操作のメソッド本体 |
 
 変更内容を、状態クラスと遷移関係へ局所化できることが、この設計で手に入れたものです。代わりに、状態ごとのクラスと遷移の組み立てを管理するコストを引き受けます。なお「変わらないクラス」の表記は「この変更シナリオの範囲では修正が不要」という意味であり、あらゆる変更に対して不変というわけではありません。
 
@@ -962,7 +1094,7 @@ graph LR
 
 | | 内容 |
 |---|---|
-| **問題** | 状態が1つ増えるたびに全操作メソッドの条件分岐を書き直さなければならず、ヒアリングで確定した追加頻度ではコストが合わない |
+| **問題** | 状態と操作の組み合わせが増えるたびに、`TicketReservation` 内の分岐を横断して許可・拒否と遷移を確認する必要があり、今後の変更頻度ではコストが合わない |
 | **原因** | 状態遷移ルール（企画担当）と操作フロー（開発チーム）が`TicketReservation`に混在し、状態変更時に関係する操作メソッドの確認が必要になる |
 | **課題** | 状態ごとの振る舞いを `TicketReservation` から切り離し、公開操作は現在の状態へ委譲する構造にする |
 | **解決策** | State パターン：`IReservationState` を境界として状態ごとの振る舞いを各クラスに分離し、`TicketReservation` はインターフェース経由で現在の状態に処理を委譲する |
@@ -975,7 +1107,7 @@ graph LR
 |---|---|
 | 🔵 フェーズ1：現状把握 | 予約ステータスが `TicketReservation` クラス内に直接記述され、条件分岐で管理されている現状を観察しました。 |
 | 🟣 フェーズ2：仮説立案 | 企画担当者へのヒアリングを通じ、今後「状態」の種類も「遷移ルール」も頻繁に変わるリスクを特定しました。 |
-| 🟣 フェーズ3：問題特定 | 新しい状態（一時保留など）の追加を試み、全メソッドの修正が不可避になる「痛み」を確認しました。 |
+| 🟣 フェーズ3：問題特定 | 一時保留という状態と新しい操作の追加を試み、状態×操作の条件を横断して確認する「痛み」を確認しました。 |
 | 🟠 フェーズ4：原因分析 | 状態管理のルールと業務ロジックが同じ場所に混在していることが、システムを脆くしている根本原因だと突き止めました。 |
 | 🟡 フェーズ5：課題定義 | 公開操作と状態固有の振る舞いの境界を定め、状態追加時に条件分岐を増やさない課題を定めた |
 | 🔴 フェーズ6：対策検討 | ステップ1〜3を比較し、状態の契約を導入して現在の状態へ委譲するステップ3を採用しました。 |
@@ -1040,7 +1172,7 @@ graph LR
 **Q3：** 今後も状態の種類やルールが増える見込みがありますか（ヒアリングまたは変更履歴から判断）？
 
 - **No →** 一時的な複雑さとして許容し、コメントで意図を明記する方が現実的です。
-- **Yes →** Stateパターンの適用を検討してください。状態ごとにクラスを切り出すことで、次の変更の影響を1クラスに閉じ込めることができます。
+- **Yes →** Stateパターンの適用を検討してください。既存操作の範囲で状態を追加する変更は、状態クラスと遷移元へ寄せられます。ただし新しい操作の追加は全状態クラスへ及ぶため、どちらの変更が多いかも確認してください。
 
 ---
 
@@ -1090,6 +1222,10 @@ classDiagram
         +reserve(ctx)
         +pay(ctx)
         +cancel(ctx)
+        +hold(ctx)
+        +expire(ctx)
+        +hold(ctx)
+        +expire(ctx)
     }
     class AvailableState {
         +reserve(ctx)
@@ -1105,11 +1241,23 @@ classDiagram
         +reserve(ctx)
         +pay(ctx)
         +cancel(ctx)
+        +hold(ctx)
+        +expire(ctx)
+        +hold(ctx)
+        +expire(ctx)
+    }
+    class HeldState {
+        +reserve(ctx)
+        +pay(ctx)
+        +cancel(ctx)
+        +hold(ctx)
+        +expire(ctx)
     }
     TicketReservation o--> IReservationState
     IReservationState <|.. AvailableState
     IReservationState <|.. ReservedState
     IReservationState <|.. PaidState
+    IReservationState <|.. HeldState
 ```
 
 抽象ロールである `IReservationState` が、現実の `ReservedState` などの具体クラスと結びついています。
@@ -1119,6 +1267,8 @@ classDiagram
 * **使うと良い状況：** 状態に応じてオブジェクトの振る舞いが劇的に変わる場合。また、状態の種類が将来的に増える見込みがある場合。
 
 * **使わない方が良い状況：** 状態が2〜3つ程度で、今後も増える可能性がほとんどない場合。状態が少なければ `if` 文1本で全パターンを見通せるため、クラスを分けるコスト（ファイル数の増加・クラス間の依存関係の把握）が得られる利点を上回ります。「状態が増えたときにどこを直すか」が1メソッド内で完結するうちは、パターンの導入は過剰設計になります。
+
+* **操作追加が多い場合の注意：** Stateは新しい状態を追加しやすい一方、状態インターフェースへ新しい操作を加えると全ConcreteStateの変更が必要です。状態より操作の種類が頻繁に増えるシステムでは、遷移表、Command、イベント駆動など別の表現とも比較します。
 
 【過剰コード：状態が固定で増えないのにパターン化した例】
 
