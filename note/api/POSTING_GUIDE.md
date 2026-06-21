@@ -1,6 +1,6 @@
 # note.com 記事投稿手順（最新版）
 
-最終更新: 2026-06-20
+最終更新: 2026-06-21
 
 ## 概要
 ブラウザ直接操作（Claude in Chrome）で投稿する。Pythonスクリプト不要。
@@ -73,27 +73,40 @@ await new Promise(r => setTimeout(r, 300));
 - ※ `file_upload` は start_task の `attachments` パラメータで画像を渡した子タスクでのみ有効
 
 ### 6. タグ設定
-- 「公開に進む」ボタン: テキスト一致で取得してJSクリック（タイトル・本文が空だとエラーモーダルが出るので先に入力すること）
-  ```javascript
-  [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '公開に進む').click();
-  ```
-- タグ入力はネイティブセッター方式（`form_input` より高速。シャープ記号なし）
+- 「公開に進む」ボタン: `fireFullClick` 関数でクリック（関数定義はステップ7参照。タイトル・本文が空だとエラーモーダルが出るので先に入力すること）
+  - ⚠️ **タイミング問題（未解決）**: 本文ペースト後は **1.5秒以上待機**してからクリックすること（React内部状態同期のため。DOM上の値は正しく入っているのに「タイトル、本文を入力してください」という誤検知ダイアログが出ることがある）。ダイアログが出た場合は閉じて再試行する
+- タグ入力はネイティブセッター方式 + KeyboardEventディスパッチ（`form_input` より高速。シャープ記号なし）
   ```javascript
   const tagEl = document.querySelector('input[placeholder="ハッシュタグを追加する"]');
   const tagSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-  tagSetter.call(tagEl, 'タグ名');
+  tagSetter.call(tagEl, TAG_TEXT);
   tagEl.dispatchEvent(new Event('input', { bubbles: true }));
+  await new Promise(r => setTimeout(r, 300));
+  tagEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
   ```
-  - ※ タグ入力後にEnterキーでのチップ確定が**必須**（article-016で確認）: ネイティブセッター方式だけではタグがチップ化されない。computerツールでtagElにフォーカスした状態でEnterキーを送ること
+  - **KeyboardEventのディスパッチでチップ化することを確認済み（article-022）。** computerツールでのEnterキー送信は基本的に不要
+  - チップ化したかはJSで確認（例: `document.querySelectorAll('[class*="tag"]').length > 0`）し、失敗時のみcomputerフォールバックを使う
   - ※ `#C#` などシャープ含むタグはnote側の制限で入力不可
 - 「キャンセル」でエディタに戻る
 
 ### 7. 公開
-- 「**投稿する**」ボタン: テキスト一致で取得してJSクリック（DOM調査で確認済み。「公開する」というボタンは存在しない）
+- 「**投稿する**」ボタン: `fireFullClick` 関数でクリック（単純な `.click()` では反応しなかった。article-022で確認）
   ```javascript
-  [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '投稿する').click();
+  function fireFullClick(el) {
+    const rect = el.getBoundingClientRect();
+    const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+    const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
+    el.dispatchEvent(new PointerEvent('pointerdown', opts));
+    el.dispatchEvent(new MouseEvent('mousedown', opts));
+    el.dispatchEvent(new PointerEvent('pointerup', opts));
+    el.dispatchEvent(new MouseEvent('mouseup', opts));
+    el.dispatchEvent(new MouseEvent('click', opts));
+  }
+  const publishBtn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '投稿する');
+  fireFullClick(publishBtn);
   ```
-  - computerツールでの視覚クリック不要
+  - computerツールでの視覚クリックはこの方式が失敗した場合のフォールバック
+  - 同じ `fireFullClick` 関数は「公開に進む」ボタン（ステップ6）にも使用する
   - 下書き保存ではなく即時公開されることを確認
 
 ## スクリーンショット方針
@@ -168,6 +181,8 @@ tagEl.dispatchEvent(new Event('input', { bubbles: true }));
 
 **方針**: 次回からはこのスクリプトをそのまま実行し、AIが毎回手順を考え直さない。`TITLE_TEXT`・`BODY_HTML`・`TAG_TEXT` を差し替えるだけでよい。`find` + `computer` へのフォールバックは要素が本当に見つからない場合のみに限定する。
 
+> **JS実行環境の注意**: ブラウザのJSツールでtop-levelの`await`を使うとエラーになる場合がある。複数の非同期処理をまとめて実行する際は `(async () => { /* 処理 */ })();` で全体をラップすること。
+
 ```javascript
 // ステップA: タイトル設定
 const titleEl = document.querySelector('textarea[placeholder="記事タイトル"]');
@@ -191,24 +206,39 @@ await new Promise(r => setTimeout(r, 300));
 // → find({cssSelector:'#note-editor-eyecatch-input'}) → file_upload → computerでスクリーンショット1回 → トリムダイアログの「保存」をクリック
 
 // ステップD: 公開フロー
-[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '公開に進む').click();
+// ⚠️ 本文ペースト後は1.5秒以上待機してから「公開に進む」をクリックすること（React内部状態同期のため）
+// 「タイトル、本文を入力してください」ダイアログが出た場合は閉じて再試行する
+
+function fireFullClick(el) {
+  const rect = el.getBoundingClientRect();
+  const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+  const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
+  el.dispatchEvent(new PointerEvent('pointerdown', opts));
+  el.dispatchEvent(new MouseEvent('mousedown', opts));
+  el.dispatchEvent(new PointerEvent('pointerup', opts));
+  el.dispatchEvent(new MouseEvent('mouseup', opts));
+  el.dispatchEvent(new MouseEvent('click', opts));
+}
+fireFullClick([...document.querySelectorAll('button')].find(b => b.textContent.trim() === '公開に進む'));
 await new Promise(r => setTimeout(r, 500));
 const tagEl = document.querySelector('input[placeholder="ハッシュタグを追加する"]');
 const tagSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
 tagSetter.call(tagEl, TAG_TEXT);
 tagEl.dispatchEvent(new Event('input', { bubbles: true }));
 await new Promise(r => setTimeout(r, 300));
-// ⚠️ ネイティブセッター方式だけではタグがチップ化されない（article-016で確認）。
-// 必ずEnterキー送信が必要（computerツールでtagElにフォーカスした状態でEnterキーを送る）
+tagEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+// ✅ KeyboardEventのディスパッチでタグがチップ化される（article-022で確認）
+// チップ化しなかった場合のみcomputerツールでEnterキーを送るフォールバックを使う
 // 最終公開（コメントアウトを解除して実行）:
-// [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '投稿する').click();
+// fireFullClick([...document.querySelectorAll('button')].find(b => b.textContent.trim() === '投稿する'));
 ```
 
-**確定事項（article-016）**: タグ入力後のEnterキーによるチップ確定は必須。ネイティブセッター + `input` イベントだけではタグがチップ化されない。computerツールでtagElにフォーカスした状態でEnterキーを送ること（`KeyboardEvent('keydown', { key: 'Enter' })` のJS dispatch では不十分な可能性があるため、computerツールのEnterキー操作を優先すること）。
+**確定事項（article-022更新）**: タグ入力後のKeyboardEventディスパッチでチップ化することを確認（article-022）。computerツールでのEnterキー操作はフォールバック。「投稿する」ボタンは単純な `.click()` では反応しないため `fireFullClick` を使う（article-022で確認）。同関数は「公開に進む」にも有効。
 
 ## テスト結果
 - 2026-05-27 手順テスト実施：本文プロンプト直接渡し方式で18ターン達成（タグなし）、公開フロー込みで20〜30ターン見込み
 - 2026-06-20 article-016：確定スクリプト方式で約20ターンで完了（前回article-014の約90ターンから大幅短縮）。タイトル設定・本文ペーストを1回のJS実行にまとめる方式が完全に機能。唯一フォールバックが必要だったのはタグ入力のEnterキー確定のみ。
+- 2026-06-21 article-022：ターン数削減実験により**17ターンで完了（過去最速）**。タグ確定をKeyboardEventディスパッチに、最終公開ボタンを`fireFullClick`に変更することでcomputerツール依存を排除。前回比（20〜36ターン）から大幅短縮。
 
 ## 投稿済み記事
 - n68088c41faf0（ソフトウェア設計・まず動かす）
