@@ -74,6 +74,10 @@
 
 ```mermaid
 classDiagram
+    class BatchTransferProcessor {
+        -TransferProcessor processor
+        +processPayroll(transfers)
+    }
     class TransferProcessor {
         -BankGateway gateway
         -SecurityAuthenticator auth
@@ -89,11 +93,12 @@ classDiagram
         +verifyOTP(token)
     }
 
+    BatchTransferProcessor --> TransferProcessor : 使う
     TransferProcessor --> BankGateway : 使う
     TransferProcessor --> SecurityAuthenticator : 使う
 ```
 
-`TransferProcessor` が `BankGateway` と `SecurityAuthenticator` の両方を直接保持し、それぞれのメソッドを順番に呼び出してフローを制御しています。
+`BatchTransferProcessor` は `TransferProcessor` を使って一括処理を行い、`TransferProcessor` が `BankGateway` と `SecurityAuthenticator` の両方を直接保持し、それぞれのメソッドを順番に呼び出してフローを制御しています。
 
 ---
 
@@ -103,11 +108,12 @@ classDiagram
 
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
-| TransferProcessor | 振り込みフロー進行 | 仕様全体 |
+| TransferProcessor | 個別振り込みフロー進行 | 仕様全体 |
+| BatchTransferProcessor | 一括振り込み（バッチ）進行 | 複数の振り込みの呼び出し |
 | BankGateway | 銀行API通信 | 仕様①、②、④ |
 | SecurityAuthenticator | 認証制御 | 仕様③ |
 
-データの流れ：TransferProcessor → BankGateway / SecurityAuthenticator → 外部API
+データの流れ：BatchTransferProcessor → TransferProcessor → BankGateway / SecurityAuthenticator → 外部API
 この章で注目するポイント：振り込み業務の流れと、銀行APIの呼び出し手順がどのように結びついているか
 
 
@@ -118,6 +124,8 @@ classDiagram
 ```cpp
 #include <iostream>
 #include <string>
+#include <vector>
+#include <utility>
 
 // 銀行との通信を担うクラス
 class BankGateway {
@@ -170,16 +178,41 @@ public:
         std::cout << "振り込み完了\n";
     }
 };
+
+// 給与振り込みなどの一括処理バッチ（もう1つの呼び出し元）
+class BatchTransferProcessor {
+private:
+    TransferProcessor processor;
+public:
+    void processPayroll(
+            const std::vector<std::pair<std::string, int>>& transfers) {
+        for (int i = 0; i < (int)transfers.size(); i++) {
+            const std::string& account = transfers[i].first;
+            int amount = transfers[i].second;
+            // 現在の仕様ではOTPをスキップできないため、ダミー値を渡す
+            processor.transfer(account, amount, "DUMMY");
+        }
+    }
+};
 ```
 
-このクラスが今章の中心です。`transfer` メソッドの中に「振り込みという業務フローの制御」と「銀行APIの具体的な呼び出し手順」が一緒に書かれていることを確認しておいてください。
+このクラス群が今章の中心です。`TransferProcessor` の `transfer` メソッドの中に「振り込みという業務フローの制御」と「銀行APIの具体的な呼び出し手順」が一緒に書かれていることを確認しておいてください。また、`BatchTransferProcessor` は一括処理を行いますが、現状ではOTPをスキップする手段がないため、ダミーのOTPを渡して `TransferProcessor` を呼び出しています。
 
 #### 呼び出し元と実行確認
 
 ```cpp
 int main() {
+    // 個別振り込み（動作例1）
     TransferProcessor processor;
     processor.transfer("12345678", 5000, "999999");
+
+    // バッチ振り込み（動作例5）
+    BatchTransferProcessor batch;
+    std::vector<std::pair<std::string, int>> payroll = {
+        {"87654321", 30000}
+    };
+    batch.processPayroll(payroll);
+
     return 0;
 }
 ```
@@ -193,13 +226,19 @@ int main() {
 認証コード検証
 送金実行: 5000円
 振り込み完了
+口座確認: 87654321
+残高確認
+認証コード発行
+認証コード検証
+送金実行: 30000円
+振り込み完了
 ```
 
 動作例テーブルの行1（12345678 / 5,000円 → 振り込み完了）と一致しています。
 
 行2〜4（口座なし・残高不足・認証失敗）については、現状コードの各メソッド（`verifyAccount`・`checkBalance`・`verifyOTP`）は `void` 型で処理を中止する仕組みを持っておらず、このコードでは表現していません。実際のシステムでは、これらのメソッドが例外またはエラーコードを返すことで後続処理を中止します。
 
-行5（バッチ処理・OTP不要）は、現状コードの `transfer` メソッドが常に `auth.requestOTP()` と `auth.verifyOTP()` を呼び出す構造のため、OTPをスキップする仕組みが存在しません。この動作はフェーズ7の改善後コードで実現されます。
+行5（バッチ処理・OTP不要）についても `BatchTransferProcessor` を通じて実行していますが、現状の `transfer` メソッドが常に `auth.requestOTP()` と `auth.verifyOTP()` を呼び出す構造のため、ダミーのOTPを渡して無理やり認証を通しており、不要なはずの認証処理が走ってしまっています。このバッチ処理でOTPをスキップする仕組みは、フェーズ7の改善後コードで実現されます。
 
 次のフェーズで変更が来たときに何が起きるかを確認します。
 
