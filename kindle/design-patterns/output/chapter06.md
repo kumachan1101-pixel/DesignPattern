@@ -836,6 +836,7 @@ IDrink* double_whip = new Whip(new Whip(new Coffee()));
 **IDrink インターフェース（契約）：**
 
 ```cpp
+#include <cassert>
 #include <iostream>
 #include <string>
 
