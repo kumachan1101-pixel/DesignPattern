@@ -53,7 +53,32 @@
 | SystemAClient / SystemBClient | 各連携先へのデータ送信 | 各外部システムに合わせたデータ送信 |
 | NotificationService | 連携完了の通知 | バッチ実行完了の通知 |
 
-### 1-3：実装コード（現状）
+### 1-3：クラス構成図
+
+現在のクラス構造です。`BatchExecutor` にすべてが依存していることが分かります。
+
+```mermaid
+classDiagram
+    class BatchExecutor {
+        +execute(targetId)
+    }
+    class SystemAClient {
+        +send(data)
+    }
+    class SystemBClient {
+        +send(data)
+    }
+    class NotificationService {
+        +notify(result)
+    }
+    BatchExecutor --> SystemAClient : uses
+    BatchExecutor --> SystemBClient : uses
+    BatchExecutor --> NotificationService : uses
+```
+
+---
+
+### 1-4：実装コード（現状）
 
 連携処理の起点となる `BatchExecutor` の様子です。
 
@@ -100,31 +125,6 @@ int main() {
 ```
 
 このコードから、`BatchExecutor` が各連携先の生成と送信、さらにはその後の通知処理までを一手に引き受けていることが分かります。
-
----
-
-### 1-4：クラス構成図
-
-現在のクラス構造です。`BatchExecutor` にすべてが依存していることが分かります。
-
-```mermaid
-classDiagram
-    class BatchExecutor {
-        +execute(targetId)
-    }
-    class SystemAClient {
-        +send(data)
-    }
-    class SystemBClient {
-        +send(data)
-    }
-    class NotificationService {
-        +notify(result)
-    }
-    BatchExecutor --> SystemAClient : uses
-    BatchExecutor --> SystemBClient : uses
-    BatchExecutor --> NotificationService : uses
-```
 
 ---
 

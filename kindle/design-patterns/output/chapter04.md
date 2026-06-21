@@ -67,7 +67,42 @@
 | EC店CSVファイル | カンマ区切り・ポイント列・会員ランク列あり | 正常データ100件（大量） | インポート成功、100件追加 |
 ---
 
-### 1-3：実装コード（現状）
+### 1-3：クラス構成図
+
+実装コードを踏まえて、クラスの関係性を可視化します。
+
+```mermaid
+classDiagram
+    class StoreDataImporter {
+        +import() void
+        -parseStoreCSV() void
+        -skipHeader() void
+        -splitByComma() void
+        -openFile() void
+        -saveToDB() void
+        -closeFile() void
+    }
+    class FCDataImporter {
+        +import() void
+        -parseFCCSV() void
+        -splitByTab() void
+        -skipInvalidRows() void
+        -openFile() void
+        -saveToDB() void
+        -closeFile() void
+    }
+    note for StoreDataImporter "手順もパースも自分の中に閉じている"
+    note for FCDataImporter "手順もパースも自分の中に閉じている"
+
+```
+
+→ `StoreDataImporter` と `FCDataImporter` の間に矢印はありません。両クラスは互いを知らず、それぞれが「ファイルを開く・パースする・保存する・閉じる」という手順全体を自分の中に独立して持っています。この「関係性がない」という事実こそが、後で問題となる重複の源です。
+
+これから検討するのは、同じ機能を保ちながら、変更に強い構造をどう作るかという点です。
+
+---
+
+### 1-4：実装コード（現状）
 
 コードを見る前に、このシステムに登場する主要なクラスと、その役割を整理しておきます。
 
@@ -121,41 +156,6 @@ private:
 ```
 
 このコードを見ると、`import` メソッドの中で「開く」「加工」「保存」「閉じる」という手順がどちらも同じ順序で記述されていることが分かります。一方で、加工ステップの中身（`parseStoreCSV` と `parseFCCSV`）は、区切り文字やエラー処理の方針が異なっています。「手順の骨格は共通で、詳細部分だけが違う」という構造が見て取れます。
----
-
-### 1-4：クラス構成図
-
-実装コードを踏まえて、クラスの関係性を可視化します。
-
-```mermaid
-classDiagram
-    class StoreDataImporter {
-        +import() void
-        -parseStoreCSV() void
-        -skipHeader() void
-        -splitByComma() void
-        -openFile() void
-        -saveToDB() void
-        -closeFile() void
-    }
-    class FCDataImporter {
-        +import() void
-        -parseFCCSV() void
-        -splitByTab() void
-        -skipInvalidRows() void
-        -openFile() void
-        -saveToDB() void
-        -closeFile() void
-    }
-    note for StoreDataImporter "手順もパースも自分の中に閉じている"
-    note for FCDataImporter "手順もパースも自分の中に閉じている"
-
-```
-
-→ `StoreDataImporter` と `FCDataImporter` の間に矢印はありません。両クラスは互いを知らず、それぞれが「ファイルを開く・パースする・保存する・閉じる」という手順全体を自分の中に独立して持っています。この「関係性がない」という事実こそが、後で問題となる重複の源です。
-
-これから検討するのは、同じ機能を保ちながら、変更に強い構造をどう作るかという点です。
-
 ---
 
 ### 1-5：変更要求
@@ -319,7 +319,7 @@ graph LR
 
 変更を試みたことで、2つの「痛み」が鮮明になりました。
 
-1つ目は、同じ修正の繰り返しです。具体的には、`openFile()` という1行が `StoreDataImporter`・`FCDataImporter`・`ECDataImporter` の3クラスそれぞれの `import()` メソッドに重複して存在しています（1-3節のコードで確認できます）。「バージョンチェックを追加してほしい」という1つの要求に対して、この同じ修正を3箇所で繰り返すことになります。今後インポート形式が4つ・5つと増えれば、修正箇所もその数だけ増えます。共通の手順であるはずのファイル操作やDB保存のコードが形式ごとに複製されているため、関連クラスを検索し、同じ修正を反映する必要があります。修正漏れを防ぐための確認範囲も広がります。
+1つ目は、同じ修正の繰り返しです。具体的には、`openFile()` という1行が `StoreDataImporter`・`FCDataImporter`・`ECDataImporter` の3クラスそれぞれの `import()` メソッドに重複して存在しています（1-4節のコードで確認できます）。「バージョンチェックを追加してほしい」という1つの要求に対して、この同じ修正を3箇所で繰り返すことになります。今後インポート形式が4つ・5つと増えれば、修正箇所もその数だけ増えます。共通の手順であるはずのファイル操作やDB保存のコードが形式ごとに複製されているため、関連クラスを検索し、同じ修正を反映する必要があります。修正漏れを防ぐための確認範囲も広がります。
 
 2つ目は、システムの「変更耐性の低さ」です。本来、ビジネスロジックである「店舗ごとのデータパース」だけを変えれば済むはずの状況で、ファイル操作やDB接続という「手順の骨格」まで修正対象になってしまっています。システム基盤側の知識が業務ロジックのクラスに漏れ出しているために、本来無関係な場所まで変更することになり、設計上の無駄が蓄積してしまいます。
 

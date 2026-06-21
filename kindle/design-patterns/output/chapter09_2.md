@@ -80,7 +80,31 @@ stateDiagram-v2
 | PriorityCalculator | 優先度の計算 | タイトルや顧客情報に基づく優先度の自動判定 |
 | Ticket | チケット情報の保持 | ID、タイトル、顧客名、優先度、状態などのデータ |
 
-### 1-3：実装コード（現状）
+### 1-3：クラス構成図
+
+現状のコード構造です。状態管理とルール判定が混在しており、拡張のたびに依存関係が深まっています。
+
+```mermaid
+classDiagram
+    class Ticket {
+        +status
+        +content
+    }
+    class TicketManager {
+        +updateStatus(status)
+    }
+    class PriorityCalculator {
+        +calculate(userType)
+    }
+    TicketManager --> Ticket : manages
+    TicketManager --> PriorityCalculator : uses
+```
+
+`TicketManager` クラスが、チケットの状態管理と、その遷移に伴う優先度計算という異なる責務を抱えています。
+
+---
+
+### 1-4：実装コード（現状）
 
 システムの現状の実装を確認します。コードを役割ごとに分けて読んでいきます。
 
@@ -131,30 +155,6 @@ int main() {
 ```
 
 このコードを見ると、`TicketManager` が優先度の計算ルール（`PriorityCalculator`）と、状態に応じたアクション（if-else）の両方を直接知っていることが分かります。
-
----
-
-### 1-4：クラス構成図
-
-現状のコード構造です。状態管理とルール判定が混在しており、拡張のたびに依存関係が深まっています。
-
-```mermaid
-classDiagram
-    class Ticket {
-        +status
-        +content
-    }
-    class TicketManager {
-        +updateStatus(status)
-    }
-    class PriorityCalculator {
-        +calculate(userType)
-    }
-    TicketManager --> Ticket : manages
-    TicketManager --> PriorityCalculator : uses
-```
-
-`TicketManager` クラスが、チケットの状態管理と、その遷移に伴う優先度計算という異なる責務を抱えています。
 
 ---
 

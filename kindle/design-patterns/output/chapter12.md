@@ -87,7 +87,29 @@ stateDiagram-v2
 | WorkflowManager | ワークフローの全体管理 | 状態遷移、通知処理、承認判定ロジックなどすべての業務ルール |
 | Approver | 承認者データの保持 | 役職や承認上限金額などのデータ保持 |
 
-### 1-3：実装コード（現状）
+### 1-3：クラス構成図
+
+コードを読んだところで、クラス間の関係を図で整理します。
+
+```mermaid
+classDiagram
+    class WorkflowManager {
+        +process(request)
+        +notifyStakeholders()
+        +checkApprovalRule()
+    }
+    class Approver {
+        +role
+        +limit
+    }
+    WorkflowManager --> Approver : manages
+```
+
+`WorkflowManager` クラスが、ワークフローの「状態遷移」、各担当者への「通知」、「承認可否のルール判定」という3つの重い責務をすべて握りしめています。
+
+---
+
+### 1-4：実装コード（現状）
 
 システムの現状の実装を確認します。コードを役割ごとに分けて読んでいきます。
 
@@ -155,28 +177,6 @@ int main() {
 これは意図的な不一致です。現状コードは「システムが起動して何かを出力できる」ことだけを確認するための骨格であり、詳細な状態名・通知先・緊急申請ルートはまだ実装されていません。動作例テーブルは「このシステムが最終的にどう動くべきか」という到達目標を示しています。フェーズ7の最終コードで、この表の全6行と実行結果が一致することを確認します。
 
 次のフェーズでは、この現状コードに変更を加えたときに何が起きるかを確認します。
-
----
-
-### 1-4：クラス構成図
-
-コードを読んだところで、クラス間の関係を図で整理します。
-
-```mermaid
-classDiagram
-    class WorkflowManager {
-        +process(request)
-        +notifyStakeholders()
-        +checkApprovalRule()
-    }
-    class Approver {
-        +role
-        +limit
-    }
-    WorkflowManager --> Approver : manages
-```
-
-`WorkflowManager` クラスが、ワークフローの「状態遷移」、各担当者への「通知」、「承認可否のルール判定」という3つの重い責務をすべて握りしめています。
 
 ---
 

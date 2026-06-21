@@ -68,7 +68,36 @@
 
 ---
 
-### 1-3：実装コード（現状）
+### 1-3：クラス構成図
+
+コードを読んだところで、クラス間の関係を図で整理します。
+
+```mermaid
+classDiagram
+    class TransferProcessor {
+        -BankGateway gateway
+        -SecurityAuthenticator auth
+        +transfer(toAccount, amount, otp)
+    }
+    class BankGateway {
+        +verifyAccount(account)
+        +checkBalance(account)
+        +executeTransfer(account, amount)
+    }
+    class SecurityAuthenticator {
+        +requestOTP()
+        +verifyOTP(token)
+    }
+
+    TransferProcessor --> BankGateway : 使う
+    TransferProcessor --> SecurityAuthenticator : 使う
+```
+
+`TransferProcessor` が `BankGateway` と `SecurityAuthenticator` の両方を直接保持し、それぞれのメソッドを順番に呼び出してフローを制御しています。
+
+---
+
+### 1-4：実装コード（現状）
 
 #### このシステムの登場クラス
 
@@ -173,35 +202,6 @@ int main() {
 行5（バッチ処理・OTP不要）は、現状コードの `transfer` メソッドが常に `auth.requestOTP()` と `auth.verifyOTP()` を呼び出す構造のため、OTPをスキップする仕組みが存在しません。この動作はフェーズ7の改善後コードで実現されます。
 
 次のフェーズで変更が来たときに何が起きるかを確認します。
-
----
-
-### 1-4：クラス構成図
-
-コードを読んだところで、クラス間の関係を図で整理します。
-
-```mermaid
-classDiagram
-    class TransferProcessor {
-        -BankGateway gateway
-        -SecurityAuthenticator auth
-        +transfer(toAccount, amount, otp)
-    }
-    class BankGateway {
-        +verifyAccount(account)
-        +checkBalance(account)
-        +executeTransfer(account, amount)
-    }
-    class SecurityAuthenticator {
-        +requestOTP()
-        +verifyOTP(token)
-    }
-
-    TransferProcessor --> BankGateway : 使う
-    TransferProcessor --> SecurityAuthenticator : 使う
-```
-
-`TransferProcessor` が `BankGateway` と `SecurityAuthenticator` の両方を直接保持し、それぞれのメソッドを順番に呼び出してフローを制御しています。
 
 ---
 

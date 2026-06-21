@@ -69,7 +69,28 @@
 | ReportSkeleton | レポートの全生成処理 | レポートのヘッダー・フッター生成と、グラフやロゴの追加制御 |
 | DataReader | データ読み込み | CSV等からの基本データ読み込み処理 |
 
-### 1-3：実装コード（現状）
+### 1-3：クラス構成図
+
+コードを読んだところで、クラス間の関係を図で整理します。
+
+```mermaid
+classDiagram
+    class ReportSkeleton {
+        +generate(format, addGraph, addLogo)
+    }
+    class DataReader {
+        +readCSV()
+    }
+    ReportSkeleton --> DataReader : uses
+```
+
+> **注記：** `addGraph` と `addLogo` は独立したメソッドではなく、`generate()` の引数として渡されるフラグです。グラフ追加・ロゴ追加の処理は `generate()` 内部の `if` 分岐で行われており、1-3節の実装コードで確認できます。
+
+`ReportSkeleton` クラスが、データの読み込み、レポート生成のステップ管理、そして個別のグラフィック追加処理という、異なる3つの責務をすべて抱えています。
+
+---
+
+### 1-4：実装コード（現状）
 
 システムの現状の実装を確認します。コードを役割ごとに分けて読んでいきます。
 
@@ -135,27 +156,6 @@ PDF形式でレポートのフッターを生成。
 ```
 
 動作例テーブルの行1（月次・PDF出力）と整合しています。次のフェーズで変更が来たときに何が起きるかを確認します。
-
----
-
-### 1-4：クラス構成図
-
-コードを読んだところで、クラス間の関係を図で整理します。
-
-```mermaid
-classDiagram
-    class ReportSkeleton {
-        +generate(format, addGraph, addLogo)
-    }
-    class DataReader {
-        +readCSV()
-    }
-    ReportSkeleton --> DataReader : uses
-```
-
-> **注記：** `addGraph` と `addLogo` は独立したメソッドではなく、`generate()` の引数として渡されるフラグです。グラフ追加・ロゴ追加の処理は `generate()` 内部の `if` 分岐で行われており、1-3節の実装コードで確認できます。
-
-`ReportSkeleton` クラスが、データの読み込み、レポート生成のステップ管理、そして個別のグラフィック追加処理という、異なる3つの責務をすべて抱えています。
 
 ---
 

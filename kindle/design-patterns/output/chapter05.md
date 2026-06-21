@@ -77,7 +77,57 @@
 
 この段階での注目ポイントは、呼び出し元である `UIButtons` が、どのマネージャのどのメソッドを呼ぶか（データの流れと実行の詳細）を直接知ってしまっている点です。
 
-### 1-3：実装コード（現状）
+### 1-3：クラス構成図
+
+現在の操作実行部分の構造です。
+
+```mermaid
+classDiagram
+    class UIButtons {
+        +onAddExpenseClick()
+        +onAddIncomeClick()
+    }
+    class ExpenseManager {
+        +addExpense()
+    }
+    class IncomeManager {
+        +addIncome()
+    }
+    UIButtons --> ExpenseManager
+    UIButtons --> IncomeManager
+
+```
+
+→ `UIButtons` クラスが `ExpenseManager` と `IncomeManager` を直接知り、ボタン押下時にそれぞれのメソッドを直接呼び出しています。
+---
+
+#### 補足：依存グラフ
+
+```mermaid
+graph TD
+    %% ユーザーインターフェースから各マネージャへ依存が向いています
+    UI --> EM["ExpenseManager"]
+    UI --> IM["IncomeManager"]
+
+```
+
+→ `UIButtons` クラス（UI）に、操作を実行する各マネージャクラスへの依存が集中していることが分かります。
+---
+
+#### 補足：現状コードの実行結果
+
+上記コードの実行結果：
+
+```text
+支出を追加しました：Food 1000円
+収入を追加しました：Salary 3000円
+```
+
+これから検討するのは、同じ機能を保ちながら、変更に強い構造をどう作るかという点です。
+
+---
+
+### 1-4：実装コード（現状）
 
 操作実行部分のコード例です。
 
@@ -126,56 +176,6 @@ public:
 ```
 
 このコードを見ると、ボタン押下という「操作」と、マネージャクラスによる「処理の実行」が密接に結びついていることが分かります。
----
-
-### 1-4：クラス構成図
-
-現在の操作実行部分の構造です。
-
-```mermaid
-classDiagram
-    class UIButtons {
-        +onAddExpenseClick()
-        +onAddIncomeClick()
-    }
-    class ExpenseManager {
-        +addExpense()
-    }
-    class IncomeManager {
-        +addIncome()
-    }
-    UIButtons --> ExpenseManager
-    UIButtons --> IncomeManager
-
-```
-
-→ `UIButtons` クラスが `ExpenseManager` と `IncomeManager` を直接知り、ボタン押下時にそれぞれのメソッドを直接呼び出しています。
----
-
-#### 補足：依存グラフ
-
-```mermaid
-graph TD
-    %% ユーザーインターフェースから各マネージャへ依存が向いています
-    UI --> EM["ExpenseManager"]
-    UI --> IM["IncomeManager"]
-
-```
-
-→ `UIButtons` クラス（UI）に、操作を実行する各マネージャクラスへの依存が集中していることが分かります。
----
-
-#### 補足：現状コードの実行結果
-
-上記コードの実行結果：
-
-```text
-支出を追加しました：Food 1000円
-収入を追加しました：Salary 3000円
-```
-
-これから検討するのは、同じ機能を保ちながら、変更に強い構造をどう作るかという点です。
-
 ---
 
 ### 1-5：変更要求

@@ -69,7 +69,7 @@
 
 このテーブルが示す通り、在庫が閾値以下になるたびに登録されているすべての通知先へメッセージが届き、閾値を超えていれば誰にも送らない、という動作が核心です。シナリオ1〜5については「どのステップを選ぶか」は実装の構造の話であって、動作結果は変わりません。ただしシナリオ6（通知先を動的に選択する動作）はフェーズ7のObserverパターン導入後にのみ実現できます。
 
-> **注：** フェーズ7の最終実装では Email・Chat・SMS（田中部長の変更要求）・ダッシュボードの4通知先が登録されており、シナリオ1〜5の「全通知先へ送信・更新」にはSMSも含まれます。また、シナリオ6（通知先をChatのみ登録した状態）は、フェーズ7の Observer パターン導入後にのみ実現できる動作です。現状コード（1-3節）では全通知先がハードコードされているため、このシナリオを再現することはできません。
+> **注：** フェーズ7の最終実装では Email・Chat・SMS（田中部長の変更要求）・ダッシュボードの4通知先が登録されており、シナリオ1〜5の「全通知先へ送信・更新」にはSMSも含まれます。また、シナリオ6（通知先をChatのみ登録した状態）は、フェーズ7の Observer パターン導入後にのみ実現できる動作です。現状コード（1-4節）では全通知先がハードコードされているため、このシナリオを再現することはできません。
 
 ---
 ---
@@ -91,7 +91,40 @@
 
 ---
 
-### 1-3：実装コード（現状）
+### 1-3：クラス構成図
+
+システムのクラス構成を可視化し、構造を確認します。
+
+```mermaid
+classDiagram
+    class InventoryManager {
+        -EmailNotifier email
+        -DashboardUpdater dashboard
+        -ChatNotifier chat
+        +reduceStock(productId, quantity)
+        -notifyAll(message)
+    }
+    class EmailNotifier {
+        +send(message)
+    }
+    class DashboardUpdater {
+        +update(message)
+    }
+    class ChatNotifier {
+        +send(message)
+    }
+    InventoryManager --> EmailNotifier
+    InventoryManager --> DashboardUpdater
+    InventoryManager --> ChatNotifier
+
+```
+
+この図が示す通り、InventoryManager という単一のクラスが、通知先であるすべてのクラス（メール、ダッシュボード、チャット）を直接保持している構成になっています。
+
+---
+---
+
+### 1-4：実装コード（現状）
 
 在庫が減った際に各通知先へメッセージを送る処理をシミュレートしています。
 
@@ -154,39 +187,6 @@ int main() {
 ```
 
 このコードを見ると、InventoryManager クラスがどの通知先クラスが存在し、どうやって通知を送るかをすべて直接知っていることが分かります。
-
----
----
-
-### 1-4：クラス構成図
-
-システムのクラス構成を可視化し、構造を確認します。
-
-```mermaid
-classDiagram
-    class InventoryManager {
-        -EmailNotifier email
-        -DashboardUpdater dashboard
-        -ChatNotifier chat
-        +reduceStock(productId, quantity)
-        -notifyAll(message)
-    }
-    class EmailNotifier {
-        +send(message)
-    }
-    class DashboardUpdater {
-        +update(message)
-    }
-    class ChatNotifier {
-        +send(message)
-    }
-    InventoryManager --> EmailNotifier
-    InventoryManager --> DashboardUpdater
-    InventoryManager --> ChatNotifier
-
-```
-
-この図が示す通り、InventoryManager という単一のクラスが、通知先であるすべてのクラス（メール、ダッシュボード、チャット）を直接保持している構成になっています。
 
 ---
 ---

@@ -73,7 +73,25 @@ stateDiagram-v2
 
 ---
 
-### 1-3：実装コード（現状）
+### 1-3：クラス構成図
+
+コードを読んだところで、クラス間の関係を図で整理します。
+
+```mermaid
+classDiagram
+    class TicketReservation {
+        -String status
+        +reserve()
+        +pay()
+        +cancel()
+    }
+```
+
+→ 1-4節のコードを見ると、`reserve()`・`pay()`・`cancel()` の各メソッドに `if (status == ...)` という条件分岐が散在しており、`TicketReservation` クラスがすべての予約状態と、状態ごとの処理ロジックを一手に抱え込んでいることが分かります。
+
+---
+
+### 1-4：実装コード（現状）
 
 #### このシステムの登場クラス
 
@@ -143,24 +161,6 @@ int main() {
 ```
 
 動作例テーブルの行1（Available → Reserved）と行2（Reserved → Paid）と一致しています。次のフェーズで変更が来たときに何が起きるかを確認します。
-
----
-
-### 1-4：クラス構成図
-
-コードを読んだところで、クラス間の関係を図で整理します。
-
-```mermaid
-classDiagram
-    class TicketReservation {
-        -String status
-        +reserve()
-        +pay()
-        +cancel()
-    }
-```
-
-→ 1-3節のコードを見ると、`reserve()`・`pay()`・`cancel()` の各メソッドに `if (status == ...)` という条件分岐が散在しており、`TicketReservation` クラスがすべての予約状態と、状態ごとの処理ロジックを一手に抱え込んでいることが分かります。
 
 ---
 

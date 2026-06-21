@@ -67,7 +67,7 @@
 | PayPay | 700円 | 正常 | 「PayPayで 700 円決済しました。」を出力し完了を返す |
 | クレジットカード | 980円 | 定期課金 | 月額課金ログを出力した後、クレジット決済を実行し完了を返す |
 
-このテーブルは最終実装（フェーズ7）が実現する動作の全シナリオを示しています。現状コード（1-3節）はクレジットカードとコンビニ払いの2種類のみ対応しており、PayPayと定期課金はフェーズ7で追加されます。「入力→出力」の期待される結果は段階が進んでも変わりません。この章で比べるのは「決済手段が増えたとき、どこを触れば済むか」という構造の違いです。
+このテーブルは最終実装（フェーズ7）が実現する動作の全シナリオを示しています。現状コード（1-4節）はクレジットカードとコンビニ払いの2種類のみ対応しており、PayPayと定期課金はフェーズ7で追加されます。「入力→出力」の期待される結果は段階が進んでも変わりません。この章で比べるのは「決済手段が増えたとき、どこを触れば済むか」という構造の違いです。
 
 コードを読む前に、このシステムが「何をする必要があるか」をこの表で確認できました。次は「どのように実装されているか」を見ていきます。
 
@@ -89,7 +89,30 @@
 
 ---
 
-### 1-3：実装コード（現状）
+### 1-3：クラス構成図
+
+コードを読んだところで、クラス間の関係を図で整理します。
+
+```mermaid
+classDiagram
+    class PaymentApplication {
+        +processPayment(type, amount)
+    }
+    class CreditCardProcessor {
+        +pay(amount)
+    }
+    class ConvenienceStoreProcessor {
+        +pay(amount)
+    }
+    PaymentApplication ..> CreditCardProcessor : uses
+    PaymentApplication ..> ConvenienceStoreProcessor : uses
+```
+
+この図が示す通り、`PaymentApplication` というクラスが、クレジットカードやコンビニ決済といった個別の決済プロセッサーを直接利用（依存）している構成になっています。
+
+---
+
+### 1-4：実装コード（現状）
 
 ```cpp
 #include <iostream>
@@ -145,29 +168,6 @@ int main() {
 ```
 
 このコードを見ると、`PaymentApplication` クラスが、どの決済手段のクラスを生成し、どう実行するかをすべて直接知っていることが分かります。次のフェーズで変更が来たときに何が起きるかを確認します。
-
----
-
-### 1-4：クラス構成図
-
-コードを読んだところで、クラス間の関係を図で整理します。
-
-```mermaid
-classDiagram
-    class PaymentApplication {
-        +processPayment(type, amount)
-    }
-    class CreditCardProcessor {
-        +pay(amount)
-    }
-    class ConvenienceStoreProcessor {
-        +pay(amount)
-    }
-    PaymentApplication ..> CreditCardProcessor : uses
-    PaymentApplication ..> ConvenienceStoreProcessor : uses
-```
-
-この図が示す通り、`PaymentApplication` というクラスが、クレジットカードやコンビニ決済といった個別の決済プロセッサーを直接利用（依存）している構成になっています。
 
 ---
 
