@@ -111,6 +111,8 @@ classDiagram
 #include <vector>
 #include <fstream>
 #include <cstdio>
+#include <memory>
+#include <utility>
 
 using namespace std;
 
@@ -536,21 +538,23 @@ public:
 
 ### ステップ5：Decorator を追加する ―― 機能を実行時に動的に重ねる
 
-ステップ4で骨格は固定できました。次は「どの装飾を重ねるか」を実行時に決められるようにします。`ReportFeature` は `ReportSkeleton` を継承しつつ、内部に別の `ReportSkeleton*` を保持してチェーンする Decorator 構造を使います。
+ステップ4で骨格は固定できました。次は「どの装飾を重ねるか」を実行時に決められるようにします。`ReportFeature` は `ReportSkeleton` を継承しつつ、内部に別の `ReportSkeleton` を所有してチェーンする Decorator 構造を使います。
 
 ```cpp
 // ReportFeature: 装飾機能の基底クラス（Decorator パターン基底）
 class ReportFeature : public ReportSkeleton {
 protected:
-    ReportSkeleton* wrapped; // ← 抽象基底クラス型 = 「抽象」の証拠
+    unique_ptr<ReportSkeleton> wrapped;
 public:
-    ReportFeature(ReportSkeleton* g) : wrapped(g) {}
+    explicit ReportFeature(unique_ptr<ReportSkeleton> g)
+        : wrapped(move(g)) {}
 };
 
 // GraphFeature: グラフ追加の装飾
 class GraphFeature : public ReportFeature {
 public:
-    GraphFeature(ReportSkeleton* g) : ReportFeature(g) {}
+    explicit GraphFeature(unique_ptr<ReportSkeleton> g)
+        : ReportFeature(move(g)) {}
     void renderBody() override {
         wrapped->renderBody();         // ← 内側の処理を先に呼ぶ
         cout << "グラフを追加。" << endl; // ← その後に自分の装飾を追加
@@ -560,7 +564,8 @@ public:
 // WatermarkFeature: 透かし追加の装飾
 class WatermarkFeature : public ReportFeature {
 public:
-    WatermarkFeature(ReportSkeleton* g) : ReportFeature(g) {}
+    explicit WatermarkFeature(unique_ptr<ReportSkeleton> g)
+        : ReportFeature(move(g)) {}
     void renderBody() override {
         wrapped->renderBody();
         cout << "透かしを追加。" << endl;
@@ -568,7 +573,7 @@ public:
 };
 ```
 
-`new WatermarkFeature(new GraphFeature(new MonthlyReport()))` のように入れ子にすることで、装飾を自由に重ねがけできます。組み合わせのパターンが増えても、新しいクラスを作らずに対応できます。
+`make_unique<WatermarkFeature>(make_unique<GraphFeature>(make_unique<MonthlyReport>()))` のように入れ子にすることで、装飾を自由に重ねがけできます。既存機能の組み合わせを増やすだけなら、組み合わせ専用のクラスを作る必要はありません。
 
 **この段階の評価：**
 骨格の固定（Template Method）と動的な装飾の組み合わせ（Decorator）が両立しました。しかし、「レポートを生成した」という操作を後から取り消せる形で記録する仕組みがまだありません。
@@ -679,6 +684,8 @@ flowchart TD
 #include <vector>
 #include <fstream>
 #include <cstdio>
+#include <memory>
+#include <utility>
 
 using namespace std;
 
@@ -751,9 +758,10 @@ public:
 // ReportFeature: 装飾機能の基底クラス（Decorator パターン基底）
 class ReportFeature : public ReportSkeleton {
 protected:
-    ReportSkeleton* wrapped; // ← 抽象基底クラス型 = 「抽象」の証拠
+    unique_ptr<ReportSkeleton> wrapped;
 public:
-    ReportFeature(ReportSkeleton* g) : wrapped(g) {}
+    explicit ReportFeature(unique_ptr<ReportSkeleton> g)
+        : wrapped(move(g)) {}
 };
 ```
 
@@ -761,7 +769,8 @@ public:
 // GraphFeature: グラフ追加の装飾
 class GraphFeature : public ReportFeature {
 public:
-    GraphFeature(ReportSkeleton* g) : ReportFeature(g) {}
+    explicit GraphFeature(unique_ptr<ReportSkeleton> g)
+        : ReportFeature(move(g)) {}
     void renderBody() override {
         wrapped->renderBody();         // ← 内側の処理を先に呼ぶ
         cout << "グラフを追加。" << endl; // ← その後に自分の装飾を追加
@@ -773,7 +782,8 @@ public:
 // WatermarkFeature: 透かし追加の装飾
 class WatermarkFeature : public ReportFeature {
 public:
-    WatermarkFeature(ReportSkeleton* g) : ReportFeature(g) {}
+    explicit WatermarkFeature(unique_ptr<ReportSkeleton> g)
+        : ReportFeature(move(g)) {}
     void renderBody() override {
         wrapped->renderBody();
         cout << "透かしを追加。" << endl;
@@ -781,7 +791,7 @@ public:
 };
 ```
 
-`GraphFeature` と `WatermarkFeature` は、どちらも `wrapped->renderBody()` を呼んだ後に自分の処理を追加します。入れ子にすることで、装飾を自由に重ねがけできます。
+`GraphFeature` と `WatermarkFeature` は、どちらも `wrapped->renderBody()` を呼んだ後に自分の処理を追加します。入れ子にすることで、装飾を自由に重ねがけできます。各Decoratorは内側の要素を`unique_ptr`で所有するため、最も外側の要素が破棄されるとチェーン全体も自動的に破棄されます。
 
 **4. コマンドクラス（Command の実装）**
 
@@ -795,15 +805,15 @@ string formatName(OutputFormat format) {
 }
 
 class GenerateReportAction : public IReportAction {
-    ReportSkeleton* generator;
+    unique_ptr<ReportSkeleton> generator;
     string outputPath;
     OutputFormat format;
 public:
     GenerateReportAction(
-        ReportSkeleton* g,
+        unique_ptr<ReportSkeleton> g,
         string path,
         OutputFormat f
-    ) : generator(g), outputPath(path), format(f) {}
+    ) : generator(move(g)), outputPath(move(path)), format(f) {}
 
     void execute() override {
         generator->generate();
@@ -831,69 +841,80 @@ public:
 
 **5. 組み立てと実行（BatchApplication + メイン関数）**
 
-具体的なクラス名（`MonthlyReport`等）を知っているのは、この組み立てを行う箇所だけです。
+具体的なクラス名（`MonthlyReport`等）を知っているのは、この組み立てを行う箇所だけです。生成したCommandは履歴が所有し、Commandはレポート生成器を所有します。これにより、履歴からCommandを取り除くと、そのDecoratorチェーンまでまとめて破棄されます。
 
 ```cpp
 // BatchApplication: 具体クラスを知っている唯一の場所
 class BatchApplication {
-    vector<IReportAction*> history; // ← 実行済みコマンドを積み上げる
+    vector<unique_ptr<IReportAction>> history;
+
+    void executeAndRemember(unique_ptr<IReportAction> action) {
+        action->execute();
+        history.push_back(move(action));
+    }
+
 public:
     void run() {
         // 行1: 月次レポートをPDF出力
         cout << "--- 行1: 月次レポートPDF出力 ---" << endl;
-        MonthlyReport monthly1;
-        IReportAction* a1 = new GenerateReportAction(
-            &monthly1, "monthly.pdf", OutputFormat::Pdf);
-        a1->execute();
-        history.push_back(a1);
+        executeAndRemember(make_unique<GenerateReportAction>(
+            make_unique<MonthlyReport>(),
+            "monthly.pdf",
+            OutputFormat::Pdf));
 
         // 行2: 月次レポートをExcel出力
         cout << "--- 行2: 月次レポートExcel出力 ---" << endl;
-        MonthlyReport monthly2;
-        IReportAction* a2 = new GenerateReportAction(
-            &monthly2, "monthly.xlsx", OutputFormat::Excel);
-        a2->execute();
-        history.push_back(a2);
+        executeAndRemember(make_unique<GenerateReportAction>(
+            make_unique<MonthlyReport>(),
+            "monthly.xlsx",
+            OutputFormat::Excel));
 
         // 行3: グラフ付き・透かし付きでPDF出力
         cout << "--- 行3: 装飾付きレポートPDF出力 ---" << endl;
-        ReportSkeleton* decorated =
-            new WatermarkFeature(new GraphFeature(new StandardReport()));
-        IReportAction* a3 = new GenerateReportAction(
-            decorated, "decorated.pdf", OutputFormat::Pdf);
-        a3->execute();
-        history.push_back(a3);
+        executeAndRemember(make_unique<GenerateReportAction>(
+            make_unique<WatermarkFeature>(
+                make_unique<GraphFeature>(
+                    make_unique<StandardReport>())),
+            "decorated.pdf",
+            OutputFormat::Pdf));
 
         // 行4: 月次レポートを生成し、直後にキャンセル
         cout << "--- 行4: 月次レポート生成後にキャンセル ---" << endl;
-        MonthlyReport cancelMonthly;
-        IReportAction* cancelAction = new GenerateReportAction(
-            &cancelMonthly, "cancel_monthly.pdf", OutputFormat::Pdf);
+        auto cancelAction = make_unique<GenerateReportAction>(
+            make_unique<MonthlyReport>(),
+            "cancel_monthly.pdf",
+            OutputFormat::Pdf);
         cancelAction->execute();
-        history.push_back(cancelAction);
+        history.push_back(move(cancelAction));
         history.back()->undo();
         history.pop_back();
 
         // 行5: バッチで3レポートを一括生成
         cout << "--- 行5: バッチで3レポート一括生成 ---" << endl;
-        WeeklyReport b1;
-        MonthlyReport b2;
-        ReportSkeleton* b3gen = new GraphFeature(new MonthlyReport());
-        IReportAction* ba1 = new GenerateReportAction(&b1, "weekly.pdf", OutputFormat::Pdf);
-        IReportAction* ba2 = new GenerateReportAction(&b2, "monthly.pdf", OutputFormat::Pdf);
-        IReportAction* ba3 = new GenerateReportAction(b3gen, "dept.pdf", OutputFormat::Pdf);
-        ba1->execute(); history.push_back(ba1);
-        ba2->execute(); history.push_back(ba2);
-        ba3->execute(); history.push_back(ba3);
+        executeAndRemember(make_unique<GenerateReportAction>(
+            make_unique<WeeklyReport>(),
+            "weekly.pdf",
+            OutputFormat::Pdf));
+        executeAndRemember(make_unique<GenerateReportAction>(
+            make_unique<MonthlyReport>(),
+            "monthly.pdf",
+            OutputFormat::Pdf));
+        executeAndRemember(make_unique<GenerateReportAction>(
+            make_unique<GraphFeature>(
+                make_unique<MonthlyReport>()),
+            "dept.pdf",
+            OutputFormat::Pdf));
         cout << "[この操作で3コマンドが履歴に追加されました。]" << endl;
 
         // 行6: グラフ付き月次レポートを生成してアンドゥ
         cout << "--- 行6: グラフ付き月次レポートを生成してアンドゥ ---" << endl;
-        ReportSkeleton* gm = new GraphFeature(new MonthlyReport());
-        IReportAction* a6 = new GenerateReportAction(
-            gm, "graph_monthly.pdf", OutputFormat::Pdf);
+        auto a6 = make_unique<GenerateReportAction>(
+            make_unique<GraphFeature>(
+                make_unique<MonthlyReport>()),
+            "graph_monthly.pdf",
+            OutputFormat::Pdf);
         a6->execute();
-        history.push_back(a6);
+        history.push_back(move(a6));
         history.back()->undo();
         history.pop_back();
     }
@@ -1071,7 +1092,7 @@ graph LR
 
 **原則2「実装ではなくインターフェースに対してプログラムせよ」の現れ**
 
-- 具体化された場所：`ReportFeature` が保持する `ReportSkeleton* wrapped`、`BatchApplication` が扱う `IReportAction*`
+- 具体化された場所：`ReportFeature` が所有する `unique_ptr<ReportSkeleton>`、`BatchApplication` が所有する `unique_ptr<IReportAction>`
 - 解説：骨格部は具体的な装飾クラスを知らず、抽象基底クラス型経由で機能を呼び出しています。操作履歴もインターフェース経由で扱い、具体実装を知りません。
 
 **原則3「継承よりコンポジションを優先せよ」の現れ**
