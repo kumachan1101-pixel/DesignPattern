@@ -566,7 +566,9 @@ public:
 ```cpp
 #include <deque>
 #include <iostream>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Commandが処理を委譲するReceiver
@@ -708,7 +710,9 @@ int main() {
 ```cpp
 #include <deque>
 #include <iostream>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Commandが処理を委譲するReceiver
@@ -797,31 +801,31 @@ public:
 ```cpp
 // 操作履歴を保持し、Undo/Redoを制御する仲介役
 class ActionHistory {
-    std::deque<IAction*> undoStack;  // ← 先頭（最古）を削除できるdequeを使う
-    std::deque<IAction*> redoStack;
+    std::deque<std::unique_ptr<IAction>> undoStack;
+    std::deque<std::unique_ptr<IAction>> redoStack;
     static const int MAX_HISTORY = 50;
 public:
-    void execute(IAction* cmd) {
+    void execute(std::unique_ptr<IAction> cmd) {
         cmd->execute();
-        undoStack.push_back(cmd);
+        undoStack.push_back(std::move(cmd));
         if ((int)undoStack.size() > MAX_HISTORY) {
-            undoStack.pop_front();  // ← 最古のコマンドを削除する
+            undoStack.pop_front();  // 所有する最古のCommandも破棄される
         }
-        while (!redoStack.empty()) redoStack.pop_back();
+        redoStack.clear();
     }
     void undo() {
         if (undoStack.empty()) return;
-        IAction* cmd = undoStack.back();
+        // undo()が失敗した場合は、CommandをundoStackに残す
+        undoStack.back()->undo();
+        redoStack.push_back(std::move(undoStack.back()));
         undoStack.pop_back();
-        cmd->undo(); // 具体的な取り消し処理はCommandへ委譲する
-        redoStack.push_back(cmd);
     }
     void redo() {
         if (redoStack.empty()) return;
-        IAction* cmd = redoStack.back();
+        // execute()が失敗した場合は、CommandをredoStackに残す
+        redoStack.back()->execute();
+        undoStack.push_back(std::move(redoStack.back()));
         redoStack.pop_back();
-        cmd->execute();
-        undoStack.push_back(cmd);
     }
     int historySize() const {
         return (int)undoStack.size();
@@ -830,7 +834,7 @@ public:
 
 ```
 
-`ActionHistory` は `IAction*` という抽象型だけを知っており、具体的な操作クラスを一切知らない。Undo/Redoのロジックがここに集約されているため、どの呼び出し元（BudgetAppやImportService）も履歴管理の詳細を知らなくてよい。
+`ActionHistory` は `std::unique_ptr<IAction>` としてCommandの所有権を受け取り、履歴に残っている間の寿命を保証します。具体的な操作クラスは知りません。Undo/Redoの実行に失敗した場合は、対象Commandを元のスタックに残す順序にしています。
 
 **最後に、呼び出し元と組み立てコードです。**
 
@@ -840,11 +844,11 @@ class BudgetApp {
     ActionHistory* history;
 public:
     BudgetApp(ActionHistory* h) : history(h) {}
-    void onAddExpenseClick(IAction* cmd) {
-        history->execute(cmd);
+    void onAddExpenseClick(std::unique_ptr<IAction> cmd) {
+        history->execute(std::move(cmd));
     }
-    void onAddIncomeClick(IAction* cmd) {
-        history->execute(cmd);
+    void onAddIncomeClick(std::unique_ptr<IAction> cmd) {
+        history->execute(std::move(cmd));
     }
     void onUndoClick() { history->undo(); }
     void onRedoClick() { history->redo(); }
@@ -855,11 +859,13 @@ class ImportService {
     ActionHistory* history;
 public:
     ImportService(ActionHistory* h) : history(h) {}
-    void importTransactions(std::vector<IAction*> cmds) {
-        for (auto* cmd : cmds) {
-            history->execute(cmd);
+    void importTransactions(
+            std::vector<std::unique_ptr<IAction>> cmds) {
+        const std::size_t count = cmds.size();
+        for (auto& cmd : cmds) {
+            history->execute(std::move(cmd));
         }
-        std::cout << cmds.size() << "件インポート完了"
+        std::cout << count << "件インポート完了"
                   << "（履歴: " << history->historySize()
                   << "件）" << std::endl;
     }
@@ -877,19 +883,23 @@ int main() {
     ActionHistory hist;
 
     BudgetApp app(&hist);
-    AddExpenseAction cmd1(em, 1000, "Food");
-    app.onAddExpenseClick(&cmd1);    // 支出1000円を登録
-    AddIncomeAction income(im, 5000, "Salary");
-    app.onAddIncomeClick(&income);   // 収入5000円を登録
+    app.onAddExpenseClick(
+        std::make_unique<AddExpenseAction>(em, 1000, "Food"));
+    app.onAddIncomeClick(
+        std::make_unique<AddIncomeAction>(im, 5000, "Salary"));
     app.onUndoClick();               // 直前の収入を取り消す
     app.onUndoClick();               // さらに支出も取り消す
     app.onRedoClick();               // 支出を再実行
 
     ImportService importer(&hist);
-    AddExpenseAction cmd2(em, 2000, "Rent");
-    AddExpenseAction cmd3(em, 300, "Water");
-    AddExpenseAction cmd4(em, 800, "Food");
-    importer.importTransactions({&cmd2, &cmd3, &cmd4}); // 一括登録（3件）
+    std::vector<std::unique_ptr<IAction>> imported;
+    imported.push_back(
+        std::make_unique<AddExpenseAction>(em, 2000, "Rent"));
+    imported.push_back(
+        std::make_unique<AddExpenseAction>(em, 300, "Water"));
+    imported.push_back(
+        std::make_unique<AddExpenseAction>(em, 800, "Food"));
+    importer.importTransactions(std::move(imported)); // 一括登録（3件）
     importer.rollback(3);            // 3件ロールバック
     return 0;
 }
@@ -915,7 +925,7 @@ int main() {
 
 フェーズ2で予告された「直前の操作を取り消すUndo機能」や、さらに高度な「インポートの一括ロールバック」のような要件が来ても、既存のクラスをほとんど触らずに対応できることが、このコードからもわかります。
 
-この実装により、UIはコマンドを履歴へ渡すだけでよくなり、支出・収入ごとの実行手順を知る必要がなくなりました。コマンドの生成と画面への割り当ては組み立て側に残ります。
+この実装により、UIはコマンドの所有権を履歴へ渡すだけでよくなり、支出・収入ごとの実行手順やCommandの寿命を管理する必要がなくなりました。コマンドの生成と画面への割り当ては組み立て側に残ります。
 
 ### 7-2：動作シーケンス図
 
@@ -928,12 +938,12 @@ sequenceDiagram
     Note over main: 具体型を組み立てる唯一の場所
     main->>CH: new ActionHistory
     main->>BA: new BudgetApp(history: ActionHistory*)
-    main->>AEC: new AddExpenseAction(...)
-    main->>BA: onAddExpenseClick(&cmd1)
-    BA->>CH: history->execute(cmd)
+    main->>AEC: make_unique AddExpenseAction(...)
+    main->>BA: onAddExpenseClick(move(cmd))
+    BA->>CH: history->execute(move(cmd))
     Note right of BA: ActionHistory*経由
     CH->>AEC: cmd->execute()
-    Note right of CH: IAction*経由で実行
+    Note right of CH: unique_ptr<IAction>を所有して実行
     AEC-->>CH: 完了
     CH-->>BA: 完了
     BA-->>main: 完了
@@ -963,7 +973,7 @@ graph LR
 | Undo/Redoの仕様変更 | `ActionHistory` (修正のみ) | `UIButtons`, 各 `Command` クラス |
 | 操作の上限件数変更 | `ActionHistory` 内の定数変更のみ | すべてのCommandクラス、UIクラス |
 
-操作の意図をオブジェクトとして独立させたことで、UIは操作の実行方法を知る必要がなくなりました——それがこの設計で手に入れたものです。諦めたものは、操作ごとにクラスを定義することによる、わずかなクラス数の増加です。
+操作の意図をオブジェクトとして独立させたことで、UIは操作の実行方法を知る必要がなくなりました。代わりに、操作ごとのクラス、Commandの所有権、履歴上限、失敗時の整合性を設計する必要があります。
 
 ### この章で定義したこと
 
