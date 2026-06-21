@@ -687,7 +687,7 @@ public:
     }
 };
 
-// ← 新手段はここに追加するだけ（ここだけ変わる）
+// 新しい決済手段の処理は新しいProcessorへ置き、生成側から選択する
 class PayPayProcessor : public IPaymentProcessor {
 public:
     void pay(int amount) override {
