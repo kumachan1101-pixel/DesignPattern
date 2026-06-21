@@ -51,10 +51,11 @@
 | 操作（入力） | 申請種別 | 結果の状態 | 通知先 |
 | --- | --- | --- | --- |
 | 申請書提出 | 通常申請 | 審査待ち状態へ移行 | 管理者に通知 |
-| 申請書提出 | 緊急申請 | 優先審査待ちへ移行 | 管理者に通知 |
-| 審査待ち + 承認操作 | — | 承認済み状態へ移行 | 申請者・次承認者に通知 |
+| 申請書提出 | 緊急申請 | 優先審査待ちへ移行 | 部長に通知 |
+| 審査待ち + 課長承認操作 | 通常申請 | 承認済み状態へ移行 | 申請者・部長に通知 |
+| 優先審査待ち + 部長承認操作 | 緊急申請 | 完了状態へ移行 | 申請者・部長・決済部門に通知 |
 | 審査待ち + 却下操作 | — | 却下状態へ移行 | 申請者に通知 |
-| 承認済み + 最終承認操作 | — | 完了状態へ移行 | 全関係者に通知 |
+| 承認済み + 部長承認操作 | 通常申請 | 完了状態へ移行 | 申請者・課長・部長・決済部門に通知 |
 | 却下状態 + 再申請操作 | — | 審査待ち状態に戻る | 管理者に通知 |
 
 変更後にこのシステムが「何をする必要があるか」を確認できました。次は、現行コードがどこまで実現しているかを見ていきます。
@@ -63,11 +64,11 @@
 
 受入条件を状態遷移として整理します。「優先審査待ち」は今回追加する緊急申請ルートの到達状態であり、現行コードにはまだ存在しません。
 
-| 現在の状態 | 承認 | 却下 | 最終承認 | 再申請 |
+| 現在の状態 | 課長承認 | 部長承認 | 却下 | 再申請 |
 | --- | --- | --- | --- | --- |
-| 審査待ち | → 承認済み | → 却下 | —— | —— |
-| 優先審査待ち | → 承認済み | → 却下 | —— | —— |
-| 承認済み | —— | —— | → 完了 | —— |
+| 審査待ち | → 承認済み | —— | → 却下 | —— |
+| 優先審査待ち | —— | → 完了 | → 却下 | —— |
+| 承認済み | —— | → 完了 | —— | —— |
 | 却下 | —— | —— | —— | → 審査待ち |
 | 完了 | —— | —— | —— | —— |
 
@@ -75,15 +76,15 @@
 stateDiagram-v2
     [*] --> 審査待ち : 申請（通常）
     [*] --> 優先審査待ち : 申請（緊急）
-    審査待ち --> 承認済み : 承認
+    審査待ち --> 承認済み : 課長承認
     審査待ち --> 却下 : 却下
-    優先審査待ち --> 承認済み : 承認
+    優先審査待ち --> 完了 : 部長承認
     優先審査待ち --> 却下 : 却下
-    承認済み --> 完了 : 最終承認
+    承認済み --> 完了 : 部長承認
     却下 --> 審査待ち : 再申請
 ```
 
-「審査待ち」と「優先審査待ち」という2つの入口を持ちながら、どちらも「承認」「却下」という同じ操作で次の状態に進みます。状態が増えるほど、各状態での振る舞いの違いを管理するコードも複雑になります。
+通常申請は課長承認を経て部長承認へ進みますが、緊急申請は課長承認を飛ばし、優先審査待ちから部長承認で完了します。同じ承認イベントでも、現在状態によって適用する判定ルールと次状態が変わります。
 
 ---
 
@@ -181,7 +182,7 @@ int main() {
 
 変更後の受入条件1行目（通常申請→審査待ち状態→管理者に通知）と比べると、状態名が「審査待ち」ではなく「承認待ち」、通知先が「管理者」ではなく「申請者」になっており、現行コードはまだ条件を満たしていません。
 
-現行コードは「システムが起動して何かを出力できる」ことだけを確認するための骨格であり、詳細な状態名・通知先・緊急申請ルートはまだ実装されていません。フェーズ7の最終コードで、受入条件の全6行と実行結果が一致することを確認します。
+現行コードは「システムが起動して何かを出力できる」ことだけを確認するための骨格であり、詳細な状態名・通知先・緊急申請ルートはまだ実装されていません。フェーズ7の最終コードで、受入条件の全7行と実行結果が一致することを確認します。
 
 次のフェーズでは、この現状コードに変更を加えたときに何が起きるかを確認します。
 
@@ -630,7 +631,7 @@ public:
 class ManagerNotifier : public INotificationListener {
 public:
     void onStatusChanged(string msg) override {
-        cout << "[管理者通知] " << msg << endl;
+        cout << "[課長通知] " << msg << endl;
     }
 };
 
@@ -775,6 +776,7 @@ flowchart TD
 
 ```cpp
 #include <iostream>
+#include <string>
 #include <vector>
 
 using namespace std;
@@ -852,7 +854,14 @@ public:
 class ManagerNotifier : public INotificationListener {
 public:
     void onStatusChanged(string msg) override {
-        cout << "[管理者通知] " << msg << endl;
+        cout << "[課長通知] " << msg << endl;
+    }
+};
+
+class DirectorNotifier : public INotificationListener {
+public:
+    void onStatusChanged(string msg) override {
+        cout << "[部長通知] " << msg << endl;
     }
 };
 
@@ -958,17 +967,23 @@ public:
 };
 
 class ApprovedPhase : public IWorkflowPhase {
+    IApprovalRule* rule;
     IWorkflowPhase* completed;
 public:
-    ApprovedPhase(IWorkflowPhase* c) : completed(c) {}
+    ApprovedPhase(IApprovalRule* r, IWorkflowPhase* c)
+        : rule(r), completed(c) {}
     string name() const override { return "承認済み"; }
     void handle(
         WorkflowManager* wm,
         WorkflowEvent event,
-        const ApprovalRequest&
+        const ApprovalRequest& request
     ) override {
         if (event == WorkflowEvent::FinalApprove) {
-            wm->transitionTo(completed, "最終承認が完了しました");
+            if (rule->canApprove(request.amount)) {
+                wm->transitionTo(completed, "部長承認が完了しました");
+            } else {
+                wm->notifyAll("部長の承認上限を超えています");
+            }
         }
     }
 };
@@ -1011,17 +1026,19 @@ class BatchApplication {
 public:
     void run() {
         ManagerApprovalRule managerRule;
+        DirectorApprovalRule directorRule;
         ApplicantNotifier applicant;
         ManagerNotifier manager;
+        DirectorNotifier director;
         FinanceNotifier finance;
 
         // 状態グラフを一度組み立てる
         CompletedPhase completed;
-        ApprovedPhase approved(&completed);
+        ApprovedPhase approved(&directorRule, &completed);
         RejectedPhase rejected;
         PendingPhase pending(&managerRule, &approved, &rejected);
         PriorityPendingPhase priorityPending(
-            &managerRule, &approved, &rejected);
+            &directorRule, &completed, &rejected);
         DraftPhase draft(&pending, &priorityPending);
         rejected.setPending(&pending);
 
@@ -1033,36 +1050,45 @@ public:
 
         cout << "--- 行2: 緊急申請書提出 ---" << endl;
         WorkflowManager wf2;
-        wf2.addListener(&manager);
+        wf2.addListener(&director);
         wf2.setPhase(&draft);
         wf2.process(WorkflowEvent::SubmitEmergency);
 
-        cout << "--- 行3: 審査待ち→承認操作 ---" << endl;
+        cout << "--- 行3: 審査待ち→課長承認操作 ---" << endl;
         WorkflowManager wf3;
         wf3.addListener(&applicant);
-        wf3.addListener(&manager);
+        wf3.addListener(&director);
         wf3.setPhase(&pending);
         wf3.process(WorkflowEvent::Approve, {50000});
 
-        cout << "--- 行4: 審査待ち→却下操作 ---" << endl;
+        cout << "--- 行4: 優先審査待ち→部長承認操作 ---" << endl;
         WorkflowManager wf4;
         wf4.addListener(&applicant);
-        wf4.setPhase(&pending);
-        wf4.process(WorkflowEvent::Reject);
+        wf4.addListener(&director);
+        wf4.addListener(&finance);
+        wf4.setPhase(&priorityPending);
+        wf4.process(WorkflowEvent::Approve, {500000});
 
-        cout << "--- 行5: 承認済み→最終承認操作 ---" << endl;
+        cout << "--- 行5: 審査待ち→却下操作 ---" << endl;
         WorkflowManager wf5;
         wf5.addListener(&applicant);
-        wf5.addListener(&manager);
-        wf5.addListener(&finance);
-        wf5.setPhase(&approved);
-        wf5.process(WorkflowEvent::FinalApprove);
+        wf5.setPhase(&pending);
+        wf5.process(WorkflowEvent::Reject);
 
-        cout << "--- 行6: 却下→再申請操作 ---" << endl;
+        cout << "--- 行6: 承認済み→部長承認操作 ---" << endl;
         WorkflowManager wf6;
+        wf6.addListener(&applicant);
         wf6.addListener(&manager);
-        wf6.setPhase(&rejected);
-        wf6.process(WorkflowEvent::Resubmit);
+        wf6.addListener(&director);
+        wf6.addListener(&finance);
+        wf6.setPhase(&approved);
+        wf6.process(WorkflowEvent::FinalApprove, {500000});
+
+        cout << "--- 行7: 却下→再申請操作 ---" << endl;
+        WorkflowManager wf7;
+        wf7.addListener(&manager);
+        wf7.setPhase(&rejected);
+        wf7.process(WorkflowEvent::Resubmit);
     }
 };
 
@@ -1078,28 +1104,34 @@ int main() {
 ```text
 --- 行1: 通常申請書提出 ---
 状態: 審査待ち
-[管理者通知] 申請を受け付けました
+[課長通知] 申請を受け付けました
 --- 行2: 緊急申請書提出 ---
 状態: 優先審査待ち
-[管理者通知] 緊急申請を受け付けました
---- 行3: 審査待ち→承認操作 ---
+[部長通知] 緊急申請を受け付けました
+--- 行3: 審査待ち→課長承認操作 ---
 状態: 承認済み
 [申請者通知] 承認されました
-[管理者通知] 承認されました
---- 行4: 審査待ち→却下操作 ---
+[部長通知] 承認されました
+--- 行4: 優先審査待ち→部長承認操作 ---
+状態: 完了
+[申請者通知] 承認されました
+[部長通知] 承認されました
+[決済部門通知] 承認されました
+--- 行5: 審査待ち→却下操作 ---
 状態: 却下
 [申請者通知] 申請が却下されました
---- 行5: 承認済み→最終承認操作 ---
+--- 行6: 承認済み→部長承認操作 ---
 状態: 完了
-[申請者通知] 最終承認が完了しました
-[管理者通知] 最終承認が完了しました
-[決済部門通知] 最終承認が完了しました
---- 行6: 却下→再申請操作 ---
+[申請者通知] 部長承認が完了しました
+[課長通知] 部長承認が完了しました
+[部長通知] 部長承認が完了しました
+[決済部門通知] 部長承認が完了しました
+--- 行7: 却下→再申請操作 ---
 状態: 審査待ち
-[管理者通知] 再申請を受け付けました
+[課長通知] 再申請を受け付けました
 ```
 
-変更後の受入条件6行と同じ順序で、各操作後の状態と通知先を確認できます。
+変更後の受入条件7行と同じ順序で、通常申請は課長承認を経由し、緊急申請は課長を飛ばして部長承認で完了することを確認できます。`ManagerApprovalRule`と`DirectorApprovalRule`は、それぞれ対応する審査状態へ注入されています。
 `WorkflowManager` は現在の `IWorkflowPhase` を保持し、操作イベントをその状態へ委譲します。各状態実装は許可するイベントを処理し、`transitionTo()` を通じてContextの現在状態を次の状態オブジェクトへ更新します。
 
 
@@ -1175,7 +1207,7 @@ graph LR
 
 | **フェーズ** | **この章でやったこと** |
 | --- | --- |
-| 🔵 フェーズ1：現状把握 | 背景と動作例テーブルを確認した後、コードをクラス単位で読んだ。クラス構成図と変更要求を把握した |
+| 🔵 フェーズ1：現状把握 | 背景と変更後の受入条件を確認した後、現行コードをクラス単位で読み、未実装の変更要求を把握した |
 | 🟣 フェーズ2：仮説立案 | 責任チェック表と変わる理由の分析で3つの変化軸を確認した。今回の確定変更とヒアリングで判明した将来リスクを分けて整理した |
 | 🟣 フェーズ3：問題特定 | 緊急ルート追加を試み、影響が全体に波及する「通知の二重送信バグ」が発生することを確認した |
 | 🟠 フェーズ4：原因分析 | 変わる理由が異なる3つのもの（状態遷移・通知・判定）が同じ場所にいることが痛みの根本と特定した |
