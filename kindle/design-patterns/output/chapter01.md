@@ -158,10 +158,10 @@ public:
 
         // 割引ルール：条件ごとに if で分岐している
         if (order.customerType == "Premium") {
-            total = static_cast<int>(total * 0.8);   // 20%引き
+            total = total * 80 / 100;   // 20%引き
         } else if (order.customerType == "Regular"
                    && order.isCampaignActive) {
-            total = static_cast<int>(total * 0.9);   // 10%引き
+            total = total * 90 / 100;   // 10%引き
         }
 
         return total;
@@ -348,10 +348,10 @@ Regular会員はサマーセール中に5%引きが新たに加わります。�
 
 ```cpp
 if (order.customerType == "Premium") {
-    total = static_cast<int>(total * 0.8);   // 20%引き
+    total = total * 80 / 100;   // 20%引き
 } else if (order.customerType == "Regular"
            && order.isCampaignActive) {
-    total = static_cast<int>(total * 0.9);   // 10%引き
+    total = total * 90 / 100;   // 10%引き
 }
 ```
 
@@ -360,13 +360,13 @@ if (order.customerType == "Premium") {
 ```cpp
 // サマーセール対応：Regular会員向けに条件を追加
 if (order.customerType == "Premium") {
-    total = static_cast<int>(total * 0.80);  // 20%引き（サマーセール対象外）
+    total = total * 80 / 100;  // 20%引き（サマーセール対象外）
 } else if (order.isSummerSale && order.isCampaignActive) {
-    total = static_cast<int>(total * 0.95 * 0.90); // 重ね掛け（Regular会員）
+    total = (total * 95 / 100) * 90 / 100; // 重ね掛け（Regular会員）
 } else if (order.isSummerSale) {
-    total = static_cast<int>(total * 0.95);  // 5%引き（Regular会員）
+    total = total * 95 / 100;  // 5%引き（Regular会員）
 } else if (order.isCampaignActive) {
-    total = static_cast<int>(total * 0.90);  // 10%引き
+    total = total * 90 / 100;  // 10%引き
 }
 ```
 
@@ -449,9 +449,9 @@ graph LR
 
 ```cpp
         if (order.customerType == "Premium") {
-            total = static_cast<int>(total * 0.8);   // 20%引き
+            total = total * 80 / 100;   // 20%引き
         } else if (order.isSummerSale && order.isCampaignActive) {
-            total = static_cast<int>(total * 0.95 * 0.90); // 複合割引
+            total = (total * 95 / 100) * 90 / 100; // 複合割引
         // ← 新しいキャンペーンが来るたびに、ここにelse ifが追加される
 ```
 
@@ -482,7 +482,7 @@ public:
         // ← 1-3で示した合算ループ（for + total += item.price）がここに入る
         // 割引ルール（具体）を、自分自身で直接判断して処理している
         if (order.customerType == "Premium") {
-            total = static_cast<int>(total * 0.8);
+            total = total * 80 / 100;
         }
         // ← 1-3で示した他のelse ifブロックがここに続く
     }
@@ -522,13 +522,13 @@ public:
 
         // ↓ 割引ルール（変わり続ける）
         if (order.customerType == "Premium") {
-            total = static_cast<int>(total * 0.8);
+            total = total * 80 / 100;
         } else if (order.isSummerSale && order.isCampaignActive) {
-            total = static_cast<int>(total * 0.95 * 0.90);
+            total = (total * 95 / 100) * 90 / 100;
         } else if (order.isSummerSale) {
-            total = static_cast<int>(total * 0.95);
+            total = total * 95 / 100;
         } else if (order.isCampaignActive) {
-            total = static_cast<int>(total * 0.90);
+            total = total * 90 / 100;
         }
         // ↑ ここまでが分離するターゲット
 
@@ -568,13 +568,13 @@ class PaymentCalculator {
     // 割引の条件と計算をプライベートメソッドに切り出す
     int applyDiscount(int total, const Order& order) {
         if (order.customerType == "Premium")
-            return static_cast<int>(total * 0.80);
+            return total * 80 / 100;
         if (order.isSummerSale && order.isCampaignActive)
-            return static_cast<int>(total * 0.95 * 0.90);
+            return (total * 95 / 100) * 90 / 100;
         if (order.isSummerSale)
-            return static_cast<int>(total * 0.95);
+            return total * 95 / 100;
         if (order.isCampaignActive)
-            return static_cast<int>(total * 0.90);
+            return total * 90 / 100;
         return total;
     }
 public:
@@ -602,17 +602,17 @@ public:
 // 割引ごとに別のクラスに分けた（インターフェースはまだない）
 class PremiumDiscount {
 public:
-    int apply(int total) { return static_cast<int>(total * 0.80); }
+    int apply(int total) { return total * 80 / 100; }
 };
 
 class SummerSaleDiscount {
 public:
-    int apply(int total) { return static_cast<int>(total * 0.95); }
+    int apply(int total) { return total * 95 / 100; }
 };
 
 class CampaignDiscount {
 public:
-    int apply(int total) { return static_cast<int>(total * 0.90); }
+    int apply(int total) { return total * 90 / 100; }
 };
 
 class PaymentCalculator {
@@ -661,17 +661,17 @@ public:
 
 class PremiumDiscount : public IDiscountRule {
 public:
-    int apply(int total) override { return static_cast<int>(total * 0.80); }
+    int apply(int total) override { return total * 80 / 100; }
 };
 
 class SummerSaleDiscount : public IDiscountRule {
 public:
-    int apply(int total) override { return static_cast<int>(total * 0.95); }
+    int apply(int total) override { return total * 95 / 100; }
 };
 
 class CampaignDiscount : public IDiscountRule {
 public:
-    int apply(int total) override { return static_cast<int>(total * 0.90); }
+    int apply(int total) override { return total * 90 / 100; }
 };
 
 class PaymentCalculator {
@@ -719,24 +719,24 @@ public:
 
 class PremiumDiscount : public IDiscountRule {
 public:
-    int apply(int total) override { return static_cast<int>(total * 0.80); }
+    int apply(int total) override { return total * 80 / 100; }
 };
 
 class SummerSaleDiscount : public IDiscountRule {
 public:
-    int apply(int total) override { return static_cast<int>(total * 0.95); }
+    int apply(int total) override { return total * 95 / 100; }
 };
 
 class SummerSaleAndCampaignDiscount : public IDiscountRule {
 public:
     int apply(int total) override {
-        return static_cast<int>(total * 0.95 * 0.90);
+        return (total * 95 / 100) * 90 / 100;
     }
 };
 
 class CampaignDiscount : public IDiscountRule {
 public:
-    int apply(int total) override { return static_cast<int>(total * 0.90); }
+    int apply(int total) override { return total * 90 / 100; }
 };
 
 class NoDiscount : public IDiscountRule {
@@ -787,6 +787,8 @@ void processOrder(const Order& order) {
 `PaymentCalculator` の中から割引種別を選ぶ `if` 文が消え、`IDiscountRule* rule` を受け取って計算を委譲する骨格になりました。
 
 **この段階の評価：** `PaymentCalculator` から割引種別の選択判断が消えました。新しい割引を追加するときは、ルールクラスと選択を担う組み立て箇所を変更します。`IDiscountRule` の契約が安定している限り、`PaymentCalculator` の計算フローへ条件分岐を追加せずに済みます。これが今回目指した「変わる理由の分離」の到達点です。
+
+ただし、Strategyは「実行するアルゴリズムの差し替え」を解決するもので、複数の割引を自由に重ねる問題まで自動的に解決するわけではありません。この例では重ね掛けを1つのStrategyとして表す `SummerSaleAndCampaignDiscount` を用意しています。独立した割引が増え、組み合わせごとのクラスが増え始めたら、割引のリストを順番に適用する仕組みや、第6章で扱うDecoratorのような構造を別途検討します。
 
 ---
 
@@ -855,28 +857,28 @@ public:
 class PremiumDiscount : public IDiscountRule {
 public:
     int apply(int total) override {
-        return static_cast<int>(total * 0.80);
+        return total * 80 / 100;
     }
 };
 
 class SummerSaleAndCampaignDiscount : public IDiscountRule {
 public:
     int apply(int total) override {
-        return static_cast<int>(total * 0.95 * 0.90);
+        return (total * 95 / 100) * 90 / 100;
     }
 };
 
 class SummerSaleDiscount : public IDiscountRule {
 public:
     int apply(int total) override {
-        return static_cast<int>(total * 0.95);
+        return total * 95 / 100;
     }
 };
 
 class CampaignDiscount : public IDiscountRule {
 public:
     int apply(int total) override {
-        return static_cast<int>(total * 0.90);
+        return total * 90 / 100;
     }
 };
 ```
@@ -936,24 +938,46 @@ public:
 };
 
 class BatchApplication {
+    void printCase(const std::string& label, const Order& order) {
+        IDiscountRule* rule = RuleFactory::create(order);
+        PaymentCalculator calculator(rule);
+        CartPreviewService preview(rule);
+
+        std::cout << label << "\n";
+        std::cout << "  支払金額: " << calculator.calculate(order) << " 円\n";
+        std::cout << "  プレビュー: " << preview.getEstimatedTotal(order) << " 円\n";
+    }
+
 public:
     void run() {
         Order order;
         order.items.push_back(Item("ワイヤレスイヤホン", 10000));
+
+        // 変更後の動作例をすべて確認する
         order.customerType = "Premium";
         order.isCampaignActive = false;
+        order.isSummerSale = false;
+        printCase("Premium", order);
 
-        // 組み立て役がif文でルールを選び、本体に注入する（DI）
-        IDiscountRule* rule = RuleFactory::create(order);
-        
-        PaymentCalculator calculator(rule);
-        CartPreviewService preview(rule);
+        order.customerType = "Premium";
+        order.isCampaignActive = true;
+        order.isSummerSale = true;
+        printCase("Premium + Campaign + Summer", order);
 
-        int finalPrice = calculator.calculate(order);
-        int previewPrice = preview.getEstimatedTotal(order);
+        order.customerType = "Regular";
+        order.isCampaignActive = true;
+        order.isSummerSale = true;
+        printCase("Regular + Campaign + Summer", order);
 
-        std::cout << "支払金額: " << finalPrice << " 円\n";
-        std::cout << "プレビュー: " << previewPrice << " 円\n";
+        order.customerType = "Regular";
+        order.isCampaignActive = false;
+        order.isSummerSale = true;
+        printCase("Regular + Summer", order);
+
+        order.customerType = "Regular";
+        order.isCampaignActive = false;
+        order.isSummerSale = false;
+        printCase("Regular", order);
     }
 };
 
@@ -964,16 +988,29 @@ int main() {
 }
 ```
 
-仕様変更後（サマーセール割引追加済み）のコードでの実行結果は、変更前と結果自体は変わりませんが、コードの構造は大きく変わっています。今回のルール追加では計算フローを変更せず、ルール実装と組み立て箇所の変更で対応できた点に注目してください。
+仕様変更後の主要ケースを実行し、既存の割引を保ちながら、サマーセール単独とキャンペーンとの重ね掛けが仕様どおりになることを確認します。今回のルール追加では、`PaymentCalculator` の計算フローを変更せず、ルール実装・選択箇所・入力モデルの変更で対応した点に注目してください。
 
 上記コードの実行結果：
 
 ```
-支払金額: 8000 円
-プレビュー: 8000 円
+Premium
+  支払金額: 8000 円
+  プレビュー: 8000 円
+Premium + Campaign + Summer
+  支払金額: 8000 円
+  プレビュー: 8000 円
+Regular + Campaign + Summer
+  支払金額: 8550 円
+  プレビュー: 8550 円
+Regular + Summer
+  支払金額: 9500 円
+  プレビュー: 9500 円
+Regular
+  支払金額: 10000 円
+  プレビュー: 10000 円
 ```
 
-動作例テーブルの行1（Premium / キャンペーンなし / 10,000円 → 8,000円）と一致しています。`PaymentCalculator` の中には、具体的な割引種別を選ぶ `if` 文がありません。
+変更前からあるPremium・Regularの結果と、変更後の動作例にあるサマーセール単独・重ね掛けの結果が一致しています。`PaymentCalculator` の中には、具体的な割引種別を選ぶ `if` 文がありません。
 
 ### 7-2：動作シーケンス図
 
@@ -1080,7 +1117,7 @@ graph LR
 **原則3「継承よりコンポジションを優先せよ」の現れ**
 
 - 具体化された場所：`PaymentCalculator` と割引ルールの接続
-- 解説：（もし継承を使って新しいルールを追加しようとすると）継承を使うとルールごとにクラス階層が深くなる。コンストラクタインジェクションによるコンポジション（オブジェクトを内部に保持して機能を借りる仕組み）は、複数ルールの組み合わせも将来的に可能にする。
+- 解説：コンストラクタインジェクションによるコンポジションで、計算本体と選択したルールを実行時に組み合わせる。複数の割引を重ねるには、組み合わせ用Strategy、ルールの列、Decoratorなど、別の構成方法が必要になる。
 
 ---
 
@@ -1134,6 +1171,7 @@ GoF（Gang of Four）とは、1994年に出版された書籍『Design Patterns�
 
 - **使うと良い：** 似たような振る舞いが複数あり、状況に応じて切り替えたい場合。または今後も新しいアルゴリズムが追加される可能性が高い場合。
 - **使わない方が良い：** ルールが1種類しかなく、今後増える見込みがない場合。ファイル数とクラス数が増えるコストが見合わない。
+- **別の構造も検討する：** 独立したルールを同時に複数適用し、組み合わせが増え続ける場合。Strategyを組み合わせ用クラスだけで表すとクラス数が増えるため、適用順序を持つルール列やDecoratorなどと比較する。
 
 ### この章のまとめ
 
