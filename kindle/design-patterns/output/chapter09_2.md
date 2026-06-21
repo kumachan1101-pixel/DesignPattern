@@ -1244,7 +1244,7 @@ int main() {
 
 動作テーブル全6行と一致しています。行6では、`EscalationEngine` が `strategy->getPriority("premium")` を呼び、判定結果の `High` を出力してからエスカレーションします。期待値である優先度と、条件成立後の処理をそれぞれ実行結果で確認できます。
 
-`TicketApplication` が具体クラスの組み立てを一手に引き受け、`main()` はキックするだけです。具体クラス名を知っているのは `TicketApplication` の1か所に集約されており、優先度ルールや状態クラスを差し替えるときもここだけを修正すれば済みます。
+`TicketApplication` は初期状態と優先度Strategyの組み立てを担当し、`main()` は起動だけを担います。ただし、具体状態への遷移先は各Phaseクラスにも記述されています。初期状態や注入するStrategyを替える変更は `TicketApplication`、状態遷移ルールを替える変更は関係するPhase、共通契約を替える変更は利用側も含めて修正します。
 
 ---
 
