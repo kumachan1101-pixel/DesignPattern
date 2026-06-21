@@ -542,19 +542,14 @@ int main() {
 「IDを文字列に変えたい」という要求が来ると、すべてのインターフェースのシグネチャが変わります。
 インターフェースを使っていても、この変更からは逃げられません。
 
-こういう状況に直面したとき、代表的な選択肢は次のとおりです。先に全体像を示します。
+こういう状況に直面したとき、代表的な選択肢は次のとおりです。
 
 - **①型を合意・固定する**：シンプルだが型が変われば全シグネチャが変わる
 - **②独自型でくるむ**：型の変更を独自型の内部に閉じ込め、シグネチャを守る
-- **③候補が有限なら`std::variant`を使う**：許可する型を列挙し、コンパイラの検査を残す
-- **④型消去を使う**：プラグイン境界など、型を隠す必要がある場所で専用のラッパーを設計する
-- **⑤`void*`を使う**：C APIとの相互運用などに限る低レベル手段。通常の業務コードでは原則として選ばない
 
 まず立てるべき問いは「なぜこのパターンでは守れないのか」ではなく、
 **「この型はどこまで安定していると言えるか？関係者と合意できているか？」** です。
 型を決める前に、その型を使う担当者に確認することが、最初の一手になります。
-
-まずは①と②を検討し、要件に応じて③と④を選びます。⑤は通常の設計案ではなく、制約の強い境界でだけ検討する例外です。
 
 **① 型を合意・固定する**
 シンプルですが、型が変われば全インターフェースのシグネチャが変わります。
@@ -580,43 +575,12 @@ public:
 };
 ```
 
-**③ 候補が有限なら `std::variant` を使う**
-受け付ける型を列挙できる場合は、型安全を保ったまま複数形式を扱えます。
+| 選択肢 | インターフェース変更 | 主な用途 |
+|---|---|---|
+| ①合意・固定 | 型が変われば変わる | 安定した単一の型 |
+| ②独自型でくるむ | 内部表現の変更を閉じ込めやすい | ドメイン上の意味を持つ値 |
 
-```cpp
-#include <string>
-#include <variant>
-
-using UserId = std::variant<int, std::string>;
-
-class IUserService {
-public:
-    virtual void process(const UserId& userId) = 0;
-};
-```
-
-**④ 専用の型消去ラッパーを使う**
-プラグイン境界などで具体型を隠す必要がある場合は、所有権と利用可能な操作を定義した型消去ラッパーを検討します。`std::any`を使う場合も、格納可能な型と失敗時の扱いを境界の契約として決めます。
-
-**⑤ `void*` で型情報をインターフェースに持たせない（原則非推奨）**
-これはC APIとの相互運用や、既存の低レベルAPIへ接続する場合に見かける手段です。コンパイラは実際の型、`nullptr`、オブジェクトの寿命、所有権を検査できません。誤ったキャストは未定義動作につながるため、初読者向けの通常の設計案としては推奨しません。
-
-```cpp
-class IUserService {
-public:
-    virtual void process(void* context) = 0;
-};
-```
-
-| 選択肢 | インターフェース変更 | 型安全 | 主な用途 |
-|---|---|---|---|
-| ①合意・固定 | 型が変われば変わる | ✅ 高い | 安定した単一の型 |
-| ②独自型でくるむ | 内部表現の変更を閉じ込めやすい | ✅ 高い | ドメイン上の意味を持つ値 |
-| ③`std::variant` | 候補追加時に変わる | ✅ 高い | 有限個の型候補 |
-| ④型消去ラッパー | 契約次第 | △ 設計次第 | プラグイン・汎用ライブラリ境界 |
-| ⑤`void*` | シグネチャは維持しやすい | ❌ 低い | C APIなどの低レベル境界 |
-
-実際には①が最も単純で、型変更リスクが見えている場合は②が有力です。複数型が必要でも、まず③または④で型と所有権の契約を表現できないか検討します。
+実際には①が最も単純で、型変更リスクが見えている場合は②が有力です。
 各章では、パターンが直面したこの問題と、関係者との確認を経て選んだ判断を示します。
 
 #### この原則を「あえて」外すとき
@@ -776,26 +740,6 @@ public:
 もし、「既存の通知クラスへ機能ごとの条件分岐を書き足さずに、後からリトライ機能やログ機能を追加したり外したりしたい」なら、もう一歩進んだコンポジションの形を使います。
 構造を先に示すと、**「同じインターフェース（`INotifier`）を実装し、かつ内部にも同じインターフェース（`INotifier`）を持つ」** クラスを作ります。外からは `INotifier` として見え、内側では別の `INotifier` を呼び出す——この二重の役割が「包む」の正体です。
 
-```cpp
-// リトライ機能を追加する「ラッパー（包む）」クラス
-// ① INotifier を実装（外から INotifier として使える）
-class RetryDecorator : public INotifier {
-    INotifier* inner_;  // ② 本物の通知クラスをメンバーとして持つ
-public:
-    RetryDecorator(INotifier* inner) : inner_(inner) {}
-
-    void notify(const std::string& msg) override {
-        // 自分の仕事（リトライ制御）をする
-        for (int i = 0; i < 3; ++i) {
-            try {
-                inner_->notify(msg); // 本物に委譲（実際の通知は inner_ がやる）
-                return;
-            } catch (...) {}
-        }
-    }
-};
-```
-
 「インターフェースを実装しているのになぜ、同じインターフェースを持つのか？」への答えは明確です。
 - **実装する理由**：外から `INotifier` として扱われるため（呼び出し元を変更しないため）
 - **持つ理由**：実際の処理を中身（`EmailNotifier`など）に委譲するため
@@ -831,77 +775,7 @@ classDiagram
 
 つまり `LoggingDecorator` から `INotifier` へは **2本の線** が出ています。点線三角は「私はINotifierとして振る舞える」、実線矢印は「私はINotifierを内部に持っている」という2つの異なる関係を表しています。
 
-**組み合わせ専用のサブクラスを増やさずに3機能を構成する**
-
-```cpp
-// インターフェース
-class INotifier {
-public:
-    virtual void notify(const std::string& msg) = 0;
-    virtual ~INotifier() {}
-};
-
-// 具体クラス：メール送信（smtpHost_ と port_ を内部状態として持つ）
-class EmailNotifier : public INotifier {
-    std::string smtpHost_;
-    int         port_;
-public:
-    EmailNotifier(const std::string& host, int port)
-        : smtpHost_(host), port_(port) {}
-    void notify(const std::string& msg) override {
-        std::cout << "[Email → " << smtpHost_ << ":" << port_
-                  << "] " << msg << "\n";
-    }
-};
-
-// ログを追加する「包み紙」（log_ を内部状態として持つ）
-class LoggingDecorator : public INotifier {
-    INotifier*    inner_;
-    std::ostream& log_;
-public:
-    LoggingDecorator(INotifier* inner, std::ostream& log)
-        : inner_(inner), log_(log) {}
-    void notify(const std::string& msg) override {
-        log_ << "[LOG] " << msg << "\n";
-        inner_->notify(msg);
-    }
-};
-
-// リトライを追加する「包み紙」（maxRetries_ を内部状態として持つ）
-class RetryDecorator : public INotifier {
-    INotifier* inner_;
-    int        maxRetries_;
-public:
-    RetryDecorator(INotifier* inner, int maxRetries)
-        : inner_(inner), maxRetries_(maxRetries) {}
-    void notify(const std::string& msg) override {
-        for (int attempt = 1; attempt <= maxRetries_; ++attempt) {
-            try {
-                inner_->notify(msg);
-                return;          // 送信成功 → 即リターン
-            } catch (...) {
-                std::cerr << "[Retry] 試行 "
-                          << attempt << "/" << maxRetries_ << " 失敗\n";
-            }
-        }
-    }
-};
-```
-
-各機能を表すDecoratorクラスを用意した後は、組み合わせごとの専用クラスを増やさず、外側の組み立てコードで「包む」順序を指定できます。
-
-```cpp
-// リトライ付き・ログ付きメール通知
-EmailNotifier    email("smtp.example.com", 587);
-RetryDecorator   retry(&email, 3);             // email を包む（最大3回リトライ）
-LoggingDecorator logging(&retry, std::cout);   // retry をさらに包む
-
-logging.notify("給与処理完了");
-// → [LOG] 給与処理完了
-// → [Email → smtp.example.com:587] 給与処理完了（リトライは成功時0回）
-```
-
-この「包む」構造——「インターフェースを実装しながら、同じインターフェースを内部に持ち、処理を委譲する」——を **Decoratorパターン** と呼びます。機能ごとのDecoratorクラスを追加し、それらを包んで組み合わせることで、組み合わせ専用のサブクラス増加を抑えるパターンです。
+この「包む」構造——「インターフェースを実装しながら、同じインターフェースを内部に持ち、処理を委譲する」——を **Decoratorパターン** と呼びます。機能ごとのDecoratorクラスを追加し、それらを包んで組み合わせることで、組み合わせ専用のサブクラス増加を抑えるパターンです。（コードを使った具体的な解説は第6章でじっくり行います）
 
 > [!INFO] Q：Decoratorは「原則1に反するのでは？」という疑問
 > Decoratorで機能を組み合わせると、それは結局「変わる理由の決定者が複数いる（＝NG）」という状態に戻ってしまうのでは？と思うかもしれません。
