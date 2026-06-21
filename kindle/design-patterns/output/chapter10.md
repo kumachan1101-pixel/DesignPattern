@@ -490,7 +490,7 @@ public:
 };
 ```
 
-クラスは分かれて処理を委ねるようになりました（間接）。しかし `BatchExecutor` は依然として `SystemAClient`、`SystemBClient`、`SystemCClient` という具体クラス名を直接知っています。
+クラスを分けて処理を委ねるようになりました。しかし `BatchExecutor` は依然として `SystemAClient`、`SystemBClient`、`SystemCClient` のクラス名と生成方法を知っているため、連携先の追加では `BatchExecutor` も修正します。
 
 **評価：** クラスの分離はできたが、`BatchExecutor` が全連携先の具体クラス名を知っている状況は変わっていない。`ManualTriggerController` のような別の呼び出し元ができると、同じ具体クラス名の知識が2か所に重複する。限界が見えてきた。
 
