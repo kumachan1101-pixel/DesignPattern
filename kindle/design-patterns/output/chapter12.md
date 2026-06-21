@@ -777,6 +777,8 @@ flowchart TD
 
 ```cpp
 #include <iostream>
+#include <algorithm>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -880,13 +882,30 @@ public:
 
 ```cpp
 class WorkflowManager {
-    IWorkflowPhase* phase = nullptr;
-    vector<INotificationListener*> listeners;
+    // StateグラフとListenerはBatchApplicationが所有し、
+    // WorkflowManagerより長く生存する
+    IWorkflowPhase* phase = nullptr;  // 非所有
+    vector<INotificationListener*> listeners;  // 非所有
 public:
-    void setPhase(IWorkflowPhase* p) { phase = p; }
+    void setPhase(IWorkflowPhase* p) {
+        if (!p) {
+            throw invalid_argument("状態にnullは設定できません。");
+        }
+        phase = p;
+    }
 
     void addListener(INotificationListener* listener) {
-        listeners.push_back(listener);
+        if (!listener) return;
+        if (find(listeners.begin(), listeners.end(), listener)
+                == listeners.end()) {
+            listeners.push_back(listener);
+        }
+    }
+
+    void removeListener(INotificationListener* listener) {
+        listeners.erase(
+            remove(listeners.begin(), listeners.end(), listener),
+            listeners.end());
     }
 
     void process(WorkflowEvent event, const ApprovalRequest& request = {0}) {
@@ -894,18 +913,22 @@ public:
     }
 
     void transitionTo(IWorkflowPhase* next, const string& message) {
-        phase = next;
+        setPhase(next);
         cout << "状態: " << phase->name() << endl;
         notifyAll(message);
     }
 
     void notifyAll(const string& msg) {
-        for (auto* listener : listeners) {
+        // 通知開始時点の登録先へ通知する
+        auto snapshot = listeners;
+        for (auto* listener : snapshot) {
             listener->onStatusChanged(msg);
         }
     }
 };
 ```
+
+この例では、状態グラフとListenerを`BatchApplication`のスタック上に作り、それらより後に各`WorkflowManager`を破棄します。そのためポインタは非所有参照として安全に利用できます。登録先を動的に破棄する実運用では、破棄前に`removeListener()`を呼ぶ契約が必要です。所有関係を共有する設計なら、`weak_ptr`による失効確認も検討します。重複登録と`null`は`addListener()`で拒否し、通知中の登録変更に左右されないよう通知開始時点のスナップショットを使います。
 
 **5. 状態クラスの具体実装（State × Strategy の組み合わせ）**
 
