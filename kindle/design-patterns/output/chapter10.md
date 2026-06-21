@@ -53,7 +53,7 @@
 | SystemAClient / SystemBClient | 各連携先へのデータ送信 | 各外部システムに合わせたデータ送信 |
 | NotificationService | 連携完了の通知 | バッチ実行完了の通知 |
 
-### 1-3：実装コード（現状）（現状）
+### 1-3：実装コード（現状）
 
 連携処理の起点となる `BatchExecutor` の様子です。
 
