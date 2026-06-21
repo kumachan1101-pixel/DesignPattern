@@ -203,15 +203,25 @@ classDiagram
 | Waitlisted（キャンセル待ち） | —— | —— | —— |
 | Held（一時保留） | —— | → Paid | —— |
 
-【表2：新規追加の操作】
+【表2a：キャンセル待ち系の操作】
 
-| 現在の状態 | waitlist登録 | 予約昇格 | 一時保留 | 期限切れ |
-|---|---|---|---|---|
-| Available（空席） | → Waitlisted | —— | —— | —— |
-| Reserved（予約済み） | —— | —— | → Held | —— |
-| Paid（支払済み） | —— | —— | —— | —— |
-| Waitlisted（キャンセル待ち） | —— | → Reserved | —— | —— |
-| Held（一時保留） | —— | —— | —— | → Available |
+| 現在の状態 | waitlist登録 | 予約昇格 |
+|---|---|---|
+| Available（空席） | → Waitlisted | —— |
+| Reserved（予約済み） | —— | —— |
+| Paid（支払済み） | —— | —— |
+| Waitlisted（キャンセル待ち） | —— | → Reserved |
+| Held（一時保留） | —— | —— |
+
+【表2b：一時保留系の操作】
+
+| 現在の状態 | 一時保留 | 期限切れ |
+|---|---|---|
+| Available（空席） | —— | —— |
+| Reserved（予約済み） | → Held | —— |
+| Paid（支払済み） | —— | —— |
+| Waitlisted（キャンセル待ち） | —— | —— |
+| Held（一時保留） | —— | → Available |
 
 ```mermaid
 stateDiagram-v2
