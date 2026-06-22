@@ -40,28 +40,13 @@
 
 ### 1-2：動作例テーブル
 
-コードを読む前に、このシステムがどんな入力に対してどんな出力を返すかを確認します。次の表は章全体で目指す動作です。途中ステップでは一部だけを確認し、フェーズ7では各操作が同じ履歴へ接続されることをサンプルコードと出力で確認します。
+コードを読む前に、変更要求が届く前のシステムがどんな入力に対して
+どんな出力を返すかを確認します。
 
 | 操作 | 入力 | 処理内容 | 残高の変化 |
 | --- | --- | --- | --- |
 | 支出登録 | 1,000円／食費 | 支出をDBに保存し画面を更新する | 残高が1,000円減る |
 | 収入登録 | 5,000円／給与 | 収入をDBに保存し画面を更新する | 残高が5,000円増える |
-| Undoを1回実行 | （直前は収入登録5,000円） | 直前の操作（収入登録）を取り消す | 残高が5,000円戻る（元の残高に戻る） |
-| Undoを2回連続実行 | （操作履歴：収入→支出の順） | 収入登録を取り消し、続けて支出登録も取り消す | 2段階前の残高に戻る |
-| Redoを1回実行 | （直前にUndoで取り消した操作あり） | 取り消した操作を再実行する | 取り消し前の残高に戻る |
-| CSVから一括インポート（3件） | 2,000円／家賃、300円／水道、800円／食費 | 3件を順に登録する | 残高が3,100円減る |
-
-途中ステップの目的は、機能を一度に完成させることではなく、設計上の責任を一つずつ移すことです。各段階で確認する範囲は次のとおりです。
-
-| 段階 | 確認する動作 |
-|---|---|
-| 現状コード | 支出登録・収入登録 |
-| ステップ1 | 直前の操作を1回取り消す |
-| ステップ2 | 複数回のUndo |
-| ステップ3 | 操作種別に依存しないUndo |
-| フェーズ7 | 支出・収入・複数Undo・Redo・CSV一括登録とロールバック |
-
-「最後に登録したデータを削除する」機能を将来追加する場合、それはUndoとは別のCommandとして設計します。Undoは「直前に実行した操作を取り消す」履歴機能であり、データの並び順を基準に削除する業務操作とは意味が異なります。
 
 次は仕様とクラスを対応づけます。
 
@@ -69,8 +54,8 @@
 
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
-| `ExpenseManager` | 支出データの追加・削除 | 支出をDBに保存し画面を更新する |
-| `IncomeManager` | 収入データの追加・削除 | 収入をDBに保存し画面を更新する |
+| `ExpenseManager` | 支出データの追加 | 支出をDBに保存し画面を更新する |
+| `IncomeManager` | 収入データの追加 | 収入をDBに保存し画面を更新する |
 | `UIButtons` | ユーザーの操作を受け取り、各マネージャを呼び出す | 支出・収入の各登録アクションを発火する |
 
 ---
@@ -114,49 +99,31 @@ graph TD
 
 ---
 
-#### 補足：現状コードの実行結果
-
-上記コードの実行結果：
-
-```text
-支出を追加しました：Food 1000円
-収入を追加しました：Salary 3000円
-```
-
-これから検討するのは、同じ機能を保ちながら、変更に強い構造をどう作るかという点です。
-
----
-
 ### 1-4：実装コード（現状）
 
 操作実行部分のコード例です。
 
 ```cpp
+#include <iostream>
+#include <string>
+
 class ExpenseManager {
 public:
-    void addExpense(int amount, std::string category) {
+    int addExpense(int amount, const std::string& category) {
         std::cout << "支出を追加しました：" << category
                   << " " << amount << "円" << std::endl;
         // DB保存・画面更新処理
-    }
-    void removeExpense(int amount, std::string category) {
-        std::cout << "支出を取り消しました：" << category
-                  << " " << amount << "円" << std::endl;
-        // DB削除・画面更新処理
+        return -amount;
     }
 };
 
 class IncomeManager {
 public:
-    void addIncome(int amount, std::string source) {
+    int addIncome(int amount, const std::string& source) {
         std::cout << "収入を追加しました：" << source
                   << " " << amount << "円" << std::endl;
         // DB保存・画面更新処理
-    }
-    void removeIncome(int amount, std::string source) {
-        std::cout << "収入を取り消しました：" << source
-                  << " " << amount << "円" << std::endl;
-        // DB削除・画面更新処理
+        return amount;
     }
 };
 
@@ -164,18 +131,49 @@ public:
 class UIButtons {
     ExpenseManager em;
     IncomeManager im;
+    int balance = 0;
 public:
-    void onAddExpenseClick() {
-        em.addExpense(1000, "Food");
+    void onAddExpenseClick(int amount, const std::string& category) {
+        balance += em.addExpense(amount, category);
+        std::cout << "現在残高：" << balance << "円\n";
     }
-    void onAddIncomeClick() {
-        im.addIncome(3000, "Salary");
+    void onAddIncomeClick(int amount, const std::string& source) {
+        balance += im.addIncome(amount, source);
+        std::cout << "現在残高：" << balance << "円\n";
     }
 };
-
 ```
 
 このコードを見ると、ボタン押下という「操作」と、マネージャクラスによる「処理の実行」が密接に結びついていることが分かります。
+
+#### 呼び出し元と実行確認
+
+```cpp
+int main() {
+    UIButtons buttons;
+
+    std::cout << "--- 行1: 支出登録 ---\n";
+    buttons.onAddExpenseClick(1000, "食費");
+
+    std::cout << "--- 行2: 収入登録 ---\n";
+    buttons.onAddIncomeClick(5000, "給与");
+    return 0;
+}
+```
+
+上記コードの実行結果：
+
+```text
+--- 行1: 支出登録 ---
+支出を追加しました：食費 1000円
+現在残高：-1000円
+--- 行2: 収入登録 ---
+収入を追加しました：給与 5000円
+現在残高：4000円
+```
+
+動作例テーブルの2行どおり、支出で1,000円減り、その後の収入で
+5,000円増えることを確認できました。現状にはUndoや削除の処理はありません。
 
 ---
 
