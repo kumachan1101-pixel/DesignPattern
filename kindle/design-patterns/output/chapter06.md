@@ -51,10 +51,6 @@
 | コーヒー + ミルク + ホイップ | `Coffee + Milk + Whip` | 420円（300 + 50 + 70） |
 | コーヒー + ホイップ×2 | `Coffee + Whip + Whip` | 440円（300 + 70 + 70） |
 | コーヒー + ミルク + シロップ + ホイップ | `Coffee + Milk + Syrup + Whip` | 450円（300 + 50 + 30 + 70） |
-| ↓ 変更要求による追加分（Matcha・Choco は1-5節で導入）↓ | | |
-| コーヒー + ミルク + シロップ + ホイップ + 抹茶 | `Coffee + Milk + Syrup + Whip + Matcha` | 510円（300 + 50 + 30 + 70 + 60） |
-| コーヒー + チョコ | `Coffee + Choco` | 340円（300 + 40） |
-| コーヒー + ミルク + 抹茶 + チョコ | `Coffee + Milk + Matcha + Choco` | 450円（300 + 50 + 60 + 40） |
 
 この表がこの章全体の動作の基準になります。フェーズ1からフェーズ7まで、構造がどれだけ違っても、この入出力の対応は変わりません。「何が同じで、何が違うのか」を意識しながらコードを読むと、各ステップの本質的な差異が見えやすくなります。
 
@@ -78,7 +74,7 @@ classDiagram
         -string baseName
         -int basePrice
         -bool hasMilk
-        -bool hasWhip
+        -int whipCount
         -bool hasSyrup
         +getPrice() int
         +getDescription() string
@@ -91,7 +87,7 @@ classDiagram
 
 ### 1-4：実装コード（現状）
 
-コーヒーにミルクとホイップを追加する注文をシミュレートしています。
+現在提供中の6つの代表的な組み合わせを実行します。
 
 ```cpp
 #include <iostream>
@@ -103,22 +99,23 @@ class CustomDrink {
 private:
     string baseName;
     int basePrice;
-    // トッピングごとの状態をフラグで管理している
+    // トッピングごとの有無・個数をメンバで管理している
     bool hasMilk;
-    bool hasWhip;
     bool hasSyrup;
+    int whipCount;
 
 public:
-    CustomDrink(string name, int price, bool milk, bool whip, bool syrup)
+    CustomDrink(
+        string name, int price, bool milk, bool syrup, int whip)
         : baseName(name), basePrice(price),
-          hasMilk(milk), hasWhip(whip), hasSyrup(syrup) {}
+          hasMilk(milk), hasSyrup(syrup), whipCount(whip) {}
 
     int getPrice() const {
         int total = basePrice;
         // トッピングごとの追加料金を計算
         if (hasMilk)  total += 50;
-        if (hasWhip)  total += 70;
         if (hasSyrup) total += 30;
+        total += 70 * whipCount;
         return total;
     }
 
@@ -126,25 +123,63 @@ public:
         string desc = baseName;
         // トッピングごとの名前を追加
         if (hasMilk)  desc += " + Milk";
-        if (hasWhip)  desc += " + Whip";
         if (hasSyrup) desc += " + Syrup";
+        for (int i = 0; i < whipCount; ++i) {
+            desc += " + Whip";
+        }
         return desc;
     }
 };
 
-// 呼び出し側のコード（モバイルアプリを想定）
+void printOrder(const string& label, const CustomDrink& order) {
+    cout << label << "\n";
+    cout << "注文内容: " << order.getDescription() << "\n";
+    cout << "合計金額: " << order.getPrice() << "円\n";
+}
+
 int main() {
-    // コーヒー(300円)、ミルクとホイップを追加、シロップはなし
-    CustomDrink order("Coffee", 300, true, true, false);
-
-    cout << "注文内容: " << order.getDescription() << endl;
-    cout << "合計金額: " << order.getPrice() << "円" << endl;
-
+    printOrder("--- 行1: ベースのみ ---",
+               CustomDrink("Coffee", 300, false, false, 0));
+    printOrder("--- 行2: ミルク ---",
+               CustomDrink("Coffee", 300, true, false, 0));
+    printOrder("--- 行3: ミルク + シロップ ---",
+               CustomDrink("Coffee", 300, true, true, 0));
+    printOrder("--- 行4: ミルク + ホイップ ---",
+               CustomDrink("Coffee", 300, true, false, 1));
+    printOrder("--- 行5: ホイップ2回 ---",
+               CustomDrink("Coffee", 300, false, false, 2));
+    printOrder("--- 行6: 全トッピング ---",
+               CustomDrink("Coffee", 300, true, true, 1));
     return 0;
 }
 ```
 
-`CustomDrink` がすべてのトッピングをフラグで持ち `if` 文で処理している。これが後に問題になる。
+上記コードの実行結果：
+
+```text
+--- 行1: ベースのみ ---
+注文内容: Coffee
+合計金額: 300円
+--- 行2: ミルク ---
+注文内容: Coffee + Milk
+合計金額: 350円
+--- 行3: ミルク + シロップ ---
+注文内容: Coffee + Milk + Syrup
+合計金額: 380円
+--- 行4: ミルク + ホイップ ---
+注文内容: Coffee + Milk + Whip
+合計金額: 420円
+--- 行5: ホイップ2回 ---
+注文内容: Coffee + Whip + Whip
+合計金額: 440円
+--- 行6: 全トッピング ---
+注文内容: Coffee + Milk + Syrup + Whip
+合計金額: 450円
+```
+
+動作例テーブルの全6行について、注文名称と合計金額が一致しています。
+`CustomDrink` がすべてのトッピングをメンバとして持ち、価格計算と名称生成で
+個別に処理している点が、後の変更で問題になります。
 
 このコードを見ると、`CustomDrink` クラスがどのトッピングがいくらで、どんな名前になるかをすべて直接知っていることが分かります。
 
