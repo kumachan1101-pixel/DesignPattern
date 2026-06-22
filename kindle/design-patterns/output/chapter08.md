@@ -642,7 +642,7 @@ public:
     }
 };
 
-// 実際の生成ロジックはここだけに閉じる
+// 主な生成ロジックはここに集中する
 class DefaultPaymentApplication : public PaymentApplication {
 protected:
     IPaymentProcessor* createProcessor(string type) override {

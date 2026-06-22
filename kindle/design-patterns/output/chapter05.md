@@ -1005,7 +1005,7 @@ sequenceDiagram
     participant CH as ActionHistory
     participant BA as BudgetApp
     participant AEC as AddExpenseAction
-    Note over main: 具体型を組み立てる唯一の場所
+    Note over main: 具体型を組み立てる主な組み立て場所
     main->>CH: new ActionHistory
     main->>BA: new BudgetApp(history: ActionHistory*)
     main->>AEC: make_unique AddExpenseAction(...)
@@ -1031,7 +1031,7 @@ graph LR
 
 ```
 
-→ **フェーズ3の変更影響グラフと比較して、新しい操作の追加という変更要求が、新規作成したコマンドクラスだけに閉じた設計になりました**。
+→ **フェーズ3の変更影響グラフと比較して、新しい操作の追加という変更要求が、主に新規コマンドクラス内に限定できる形になりました**。
 
 ### 7-4：変更シナリオ表
 
