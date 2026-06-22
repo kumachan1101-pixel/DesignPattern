@@ -881,23 +881,23 @@ chapter01/02縺ｧ螳夂ｾｩ貂医∩縺縺後∝ｾ後・遶縺ｧ蛻
 
 | ID | 分類 | 内容 | 対象ファイル | 状態 |
 |---|---|---|---|---|
-| A-05 | raw-ownership | 生ポインタ4箇所使用。所有・非所有・生存期間の明示が必要か確認 | chapter00_1.md:91 | [ ] |
-| A-06 | unverified-proof | 「動作例テーブルの全4行と一致」の検証が掲載コードで確認できるか | chapter01.md:235 | [ ] |
-| A-07 | unverified-proof | 「1-5の変更後の動作例と一致」の検証が掲載コードで確認できるか | chapter01.md:406 | [ ] |
-| A-08 | raw-ownership | 生ポインタ9箇所使用。所有・非所有・生存期間の明示が必要か確認 | chapter01.md:718 | [ ] |
-| A-09 | unverified-proof | 「変更前からあるPremium・Regularの結果と一致」の検証確認 | chapter01.md:1044 | [ ] |
-| A-10 | raw-ownership | 生ポインタ10箇所使用。所有・非所有・生存期間の明示が必要か確認 | chapter02.md:809 | [ ] |
-| A-11 | unverified-proof | フェーズ7の責任整理表で実行証拠が掲載コードと一致するか確認 | chapter02.md:1111 | [ ] |
+| A-05 | raw-ownership | 生ポインタ4箇所使用。所有・非所有・生存期間の明示が必要か確認 | chapter00_1.md:91 | ✅ 完了 |
+| A-06 | unverified-proof | 「動作例テーブルの全4行と一致」の検証が掲載コードで確認できるか | chapter01.md:235 | ✅ 完了 |
+| A-07 | unverified-proof | 「1-5の変更後の動作例と一致」の検証が掲載コードで確認できるか | chapter01.md:406 | ✅ 完了 |
+| A-08 | raw-ownership | 生ポインタ9箇所使用。所有・非所有・生存期間の明示が必要か確認 | chapter01.md:718 | ✅ 完了 |
+| A-09 | unverified-proof | 「変更前からあるPremium・Regularの結果と一致」の検証確認 | chapter01.md:1044 | ✅ 完了 |
+| A-10 | raw-ownership | 生ポインタ10箇所使用。所有・非所有・生存期間の明示が必要か確認 | chapter02.md:809 | ✅ 完了 |
+| A-11 | unverified-proof | フェーズ7の責任整理表で実行証拠が掲載コードと一致するか確認 | chapter02.md:1111 | ✅ 完了 |
 | A-12 | overclaim | 「外部システムとのやりとりを担う窓口クラス1つ」修正範囲の過小評価を修正 | chapter02.md:1163 | ✅ 完了 |
 | A-13 | overclaim | 「依存の組み立てを担う唯一の場所」という過剰な断定コメントを修正 | chapter03.md:1036 | ✅ 完了 |
 | A-14 | overclaim | 「状態と振る舞いを同じクラスに置く限り〜」の整理節で断定が過剰 | chapter03.md:1390 | ✅ 完了 |
 | A-15 | overclaim | 「具体型を組み立てる唯一の場所」コメントの過剰断定を修正 | chapter05.md:1008 | ✅ 完了 |
 | A-16 | overclaim | 「新規作成したコマンドクラスだけに閉じた設計」という過剰な断定を修正 | chapter05.md:1034 | ✅ 完了 |
-| A-17 | raw-ownership | 生ポインタ33箇所使用。所有・非所有・生存期間の明示が必要か確認 | chapter06.md:415 | [ ] |
+| A-17 | raw-ownership | 生ポインタ33箇所使用。所有・非所有・生存期間の明示が必要か確認 | chapter06.md:415 | ✅ 完了 |
 | A-18 | overclaim | 「抹茶パウダーの追加もチョコチップの追加も、クラスを1つ作るだけで完結」過剰断定 | chapter06.md:1031 | ✅ 完了 |
 | A-19 | overclaim | 「ミルクの価格変更はMilk（1行修正）」の変更範囲を再確認 | chapter06.md:1202 | ✅ 完了 |
 | A-20 | overclaim | 「実際の生成ロジックはここだけに閉じる」コメントの過剰断定を修正 | chapter08.md:645 | ✅ 完了 |
-| A-21 | raw-ownership | 生ポインタ38箇所使用。所有・非所有・生存期間の明示が必要か確認 | chapter09_2.md:809 | [ ] |
+| A-21 | raw-ownership | 生ポインタ38箇所使用。所有・非所有・生存期間の明示が必要か確認 | chapter09_2.md:809 | ✅ 完了 |
 | A-22 | overclaim | 「どの変化軸の変更も、対応する独立クラスだけで完結する」過剰断定を修正 | chapter09_2.md:1043 | ✅ 完了 |
 | A-23 | overclaim | 操作履歴の混入説明で「極めて不安定な状態」という過剰な表現を修正 | chapter11.md:373 | ✅ 完了 |
 | A-24 | overclaim | 切り離す塊の説明で変更範囲を過小評価していないか確認 | chapter11.md:507 | ✅ 完了 |
@@ -919,5 +919,6 @@ chapter01/02縺ｧ螳夂ｾｩ貂医∩縺縺後∝ｾ後・遶縺ｧ蛻
 | A-35 | wide-table | 5列テーブル（Kindle最大4列超過）を分割 | chapter09_2.md:63 | ✅ 完了 |
 | A-36 | wide-table | 5列テーブル（Kindle最大4列超過）を分割 | chapter10.md:59 | ✅ 完了 |
 | A-37 | wide-table | 5列テーブル（Kindle最大4列超過）を分割 | chapter12.md:87 | ✅ 完了 |
+
 
 
