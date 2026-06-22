@@ -252,6 +252,58 @@ public:
 };
 ```
 
+変更後のコードを実行すると、次のような結果になります。
+
+```cpp
+// 動作確認用のスタブ
+class SystemAClient {
+public:
+    void send(std::string data) {
+        std::cout << "[A社] " << data << std::endl;
+    }
+};
+class SystemCClient {
+public:
+    void send(std::string data) {
+        std::cout << "[C社] " << data << std::endl;
+    }
+};
+class NotificationService {
+public:
+    void notify(std::string msg) {
+        std::cout << "[メール通知] " << msg << std::endl;
+    }
+};
+class SlackNotifier {
+public:
+    void notify(std::string msg) {
+        std::cout << "[Slack通知] " << msg << std::endl;
+    }
+};
+
+int main() {
+    BatchExecutor executor;
+    executor.execute("A"); // A社連携
+    std::cout << "---" << std::endl;
+    executor.execute("C"); // C社連携（新規）
+    return 0;
+}
+```
+
+実行結果：
+
+```
+[A社] data
+[メール通知] Success
+[Slack通知] Success
+---
+[C社] data
+[メール通知] Success
+[Slack通知] Success
+```
+
+動作は正しくなっています。しかし A社のバッチを実行したときも Slack通知が走っており、C社追加のついでに Slack通知も全社に影響しています。
+
 このコードの何が問題か。「C社連携を追加したい」という要求と「Slack通知を追加したい」という要求は、本来まったく別の話のはずです。しかし `BatchExecutor` の `execute()` メソッドの中で両方が混在しているため、1つの変更を加えると、関係のない他の処理にも手が届いてしまいます。
 
 さらに、D社が追加されればまた `if-else` が伸びます。メール通知が追加されれば、また通知の行が増えます。このメソッドは変更要求のたびに肥大化し続ける構造になっています。

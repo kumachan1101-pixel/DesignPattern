@@ -256,6 +256,78 @@ PDF形式でレポートのフッターを生成。
 
 `generate` メソッドの中には、「レポート生成の骨格」「グラフ追加機能」「ロゴ追加機能」、さらに「履歴保存ロジック」という性質の異なるコードが集まっています。グラフの描画条件を変える際にも、履歴保存のタイミングまで影響を確認しなければなりません。変更箇所を検索し、関係する処理を読み解く負担が増え始めています。
 
+実際に変更を加えたコードは次のようになります。
+
+```cpp
+class DataReader {
+public:
+    void readCSV() {
+        std::cout << "CSVを読み込み" << std::endl;
+    }
+};
+
+class ReportHistoryManager {
+    std::vector<std::string> log;
+public:
+    void record(std::string op) {
+        log.push_back(op);
+        std::cout << "[履歴記録] " << op << std::endl;
+    }
+    void replay() {
+        for (int i = 0; i < (int)log.size(); i++) {
+            std::cout << "再実行: " << log[i]
+                      << std::endl;
+        }
+    }
+};
+
+// 変更後の ReportSkeleton（履歴管理を追加した状態）
+class ReportSkeleton {
+    DataReader reader;
+    ReportHistoryManager history; // ← 追加
+public:
+    void generate(std::string format,
+                  bool addGraph, bool addLogo) {
+        reader.readCSV();
+        std::cout << format << "形式でヘッダーを生成"
+                  << std::endl;
+        if (addGraph)
+            std::cout << "グラフを追加" << std::endl;
+        if (addLogo)
+            std::cout << "ロゴを追加" << std::endl;
+        std::cout << format << "形式でフッターを生成"
+                  << std::endl;
+        // 履歴記録がここに混在してしまっている
+        std::string rec = format;
+        if (addGraph) rec += "+Graph";
+        history.record(rec); // ← 追加
+    }
+    void replay() { history.replay(); }
+};
+
+int main() {
+    ReportSkeleton gen;
+    gen.generate("PDF", true, false);
+    std::cout << "---" << std::endl;
+    gen.replay();
+    return 0;
+}
+```
+
+実行結果：
+
+```
+CSVを読み込み
+PDF形式でヘッダーを生成
+グラフを追加
+PDF形式でフッターを生成
+[履歴記録] PDF+Graph
+---
+再実行: PDF+Graph
+```
+
+動作は正しくなっています。しかし `generate()` の末尾に履歴記録のコードが混入しており、レポート生成ロジックと操作履歴管理が同じメソッドに同居しています。
+
 ### 3-2：変更影響グラフ
 
 今の構造で変更を試みた際の、依存関係の飛び火を可視化します。

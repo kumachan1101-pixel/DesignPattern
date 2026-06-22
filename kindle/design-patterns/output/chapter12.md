@@ -285,6 +285,71 @@ int main() {
 
 すると、承認プロセスが「承認」なのか「却下」なのか、あるいは「緊急」なのかというフラグが大量に混在し、どのタイミングでどの通知が飛ぶのかを追うのが非常に困難になりました。 「あ、これ以上 `WorkflowManager` をいじると、既存の承認ルートまで壊れてしまいそうだ…」という不安が頭をよぎります。 実際に、緊急ルートを追加したことで、通常の承認ルートにおける通知が二重に送信されるバグが発生してしまいました。
 
+実際に変更を加えたコードを見てみましょう。
+
+```cpp
+// 変更後の WorkflowManager（緊急ルートと自動通知を追加）
+class WorkflowManager {
+public:
+    void process(std::string status, double amount,
+                 bool urgent) {
+        if (status == "SUBMITTED") {
+            std::cout << "承認待ち状態へ移行。" << std::endl;
+            notify("申請者に通知");
+            if (urgent) {           // ← 緊急ルートを追加
+                std::cout << "緊急：課長スキップ→部長へ。"
+                          << std::endl;
+                notify("部長へ緊急通知");
+            }
+        } else if (status == "APPROVED") {
+            std::cout << "承認完了状態へ移行。" << std::endl;
+            notify("関係者に通知");
+            notify("申請者に承認完了を通知"); // ← 自動通知追加
+            if (urgent) {
+                notify("部長へ完了報告");
+            }
+        }
+        if (amount > 100000)
+            std::cout << "役員承認が必要。" << std::endl;
+    }
+private:
+    void notify(std::string msg) {
+        std::cout << "[通知] " << msg << std::endl;
+    }
+};
+
+int main() {
+    WorkflowManager wm;
+    // 通常フロー（承認前）
+    wm.process("SUBMITTED", 50000, false);
+    std::cout << "---" << std::endl;
+    // 承認完了（通常）← 通知が2件になった
+    wm.process("APPROVED",  50000, false);
+    std::cout << "---" << std::endl;
+    // 承認完了（緊急）← 通知が3件になった
+    wm.process("APPROVED",  50000, true);
+    return 0;
+}
+```
+
+実行結果：
+
+```
+承認待ち状態へ移行。
+[通知] 申請者に通知
+---
+承認完了状態へ移行。
+[通知] 関係者に通知
+[通知] 申請者に承認完了を通知
+---
+承認完了状態へ移行。
+[通知] 関係者に通知
+[通知] 申請者に承認完了を通知
+[通知] 部長へ完了報告
+```
+
+通常の承認完了でも「申請者に承認完了を通知」が自動的に追加されており、変更前は1件だった通知が2件になっています。緊急ルートでは3件に増え、どのタイミングでどの通知が飛ぶかを追うのが困難になっています。
+
 ### 3-2：変更影響グラフ
 
 ```mermaid

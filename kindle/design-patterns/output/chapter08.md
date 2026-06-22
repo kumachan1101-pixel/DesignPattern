@@ -303,6 +303,60 @@ void processPayment(string type, int amount) {
 }
 ```
 
+変更後のコードを実行すると、次のような結果になります。
+
+```cpp
+// 動作確認用のスタブ
+class CreditCardProcessor {
+public:
+    void pay(int amount) {
+        std::cout << "[クレジット] " << amount
+                  << " 円" << std::endl;
+    }
+};
+class ConvenienceStoreProcessor {
+public:
+    void pay(int amount) {
+        std::cout << "[コンビニ] " << amount
+                  << " 円" << std::endl;
+    }
+};
+class PayPayProcessor {
+public:
+    void pay(int amount) {
+        std::cout << "[PayPay] " << amount
+                  << " 円" << std::endl;
+    }
+};
+
+void processPayment(std::string type, int amount) {
+    if (type == "credit") {
+        CreditCardProcessor p; p.pay(amount);
+    } else if (type == "cvs") {
+        ConvenienceStoreProcessor p; p.pay(amount);
+    } else if (type == "paypay") { // ← 追加
+        PayPayProcessor p; p.pay(amount);
+    }
+}
+
+int main() {
+    processPayment("credit",  5000);
+    processPayment("cvs",    10000);
+    processPayment("paypay",  3000); // ← 新規
+    return 0;
+}
+```
+
+実行結果：
+
+```
+[クレジット] 5000 円
+[コンビニ] 10000 円
+[PayPay] 3000 円
+```
+
+PayPay対応は正しく動いています。しかし `processPayment` の `if-else` に3行追加し、新クラスを作成する必要がありました。
+
 一見シンプルな追加ですが、問題が浮かび上がります。決済手段が増えるたびにこの `PaymentApplication` クラスがどんどん長くなり、修正のたびにクラス内の既存ロジックを触らなければならないという事実です。もし決済手段が10個、20個と増えたら、このクラスは管理不能なほど巨大な「神クラス」になってしまうでしょう。
 
 さらに、将来追加が想定される `SubscriptionService`（定期課金サービス）のような別の呼び出し元も同じ分岐ロジックを複製することになった場合、そちらも同様に修正必要があります。

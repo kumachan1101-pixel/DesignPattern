@@ -353,6 +353,71 @@ stateDiagram-v2
 }
 ```
 
+変更後のコードを動作確認してみます。
+
+```cpp
+// 変更後の TicketReservation（Held 状態追加後）
+class TicketReservation {
+    std::string status = "Available";
+public:
+    void reserve() {
+        if (status == "Available") {
+            status = "Reserved";
+            std::cout << "予約しました" << std::endl;
+        }
+    }
+    void hold() {
+        if (status == "Reserved") {
+            status = "Held";
+            std::cout << "保留にしました" << std::endl;
+        }
+    }
+    void pay() {
+        if (status == "Reserved") {
+            status = "Paid";
+            std::cout << "支払い完了しました" << std::endl;
+        } else if (status == "Held") {   // ← Held 対応を追加
+            status = "Paid";
+            std::cout << "保留から支払い完了しました" << std::endl;
+        }
+    }
+    void expire() {                      // ← 新規追加
+        if (status == "Held") {
+            status = "Available";
+            std::cout << "保留期限が切れました" << std::endl;
+        }
+    }
+};
+
+int main() {
+    // シナリオ1：予約 → 保留 → 支払い
+    TicketReservation t1;
+    t1.reserve(); t1.hold(); t1.pay();
+
+    std::cout << "---" << std::endl;
+
+    // シナリオ2：予約 → 保留 → 期限切れ → Available に戻る
+    TicketReservation t2;
+    t2.reserve(); t2.hold(); t2.expire();
+
+    return 0;
+}
+```
+
+実行結果：
+
+```
+予約しました
+保留にしました
+保留から支払い完了しました
+---
+予約しました
+保留にしました
+保留期限が切れました
+```
+
+コード自体は正しく動いています。しかし `pay()` にも `expire()` にも、状態を判定する `if-else` が増え続けている点に注目してください。
+
 状態遷移マトリクスで見ると、Held を追加するとは「行を1行増やす」ことに見えます。
 
 | 現在の状態 | `reserve()` | `pay()` | `cancel()` |

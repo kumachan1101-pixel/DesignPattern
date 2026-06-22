@@ -351,6 +351,51 @@ if (order.customerType == "Premium") {
 }
 ```
 
+変更後のコードを実行すると、次のような結果になります（1万円の注文で4ケースを確認）。
+
+```cpp
+// 変更後のif-elseを使った動作確認
+int apply(std::string type, bool summer, bool campaign) {
+    CampaignContext ctx;
+    ctx.isSummerSale     = summer;
+    ctx.isCampaignActive = campaign;
+    int total = 10000;
+    if (type == "Premium") {
+        total = total * 80 / 100;
+    } else if (ctx.isSummerSale && ctx.isCampaignActive) {
+        total = (total * 95 / 100) * 90 / 100;
+    } else if (ctx.isSummerSale) {
+        total = total * 95 / 100;
+    } else if (ctx.isCampaignActive) {
+        total = total * 90 / 100;
+    }
+    return total;
+}
+
+int main() {
+    std::cout << "[Premium+Summer+Camp] "
+              << apply("Premium", true,  true) << " 円" << std::endl;
+    std::cout << "[Regular+Summer+Camp] "
+              << apply("Regular", true,  true) << " 円" << std::endl;
+    std::cout << "[Regular+SummerOnly]  "
+              << apply("Regular", true,  false) << " 円" << std::endl;
+    std::cout << "[Regular+割引なし]    "
+              << apply("Regular", false, false) << " 円" << std::endl;
+    return 0;
+}
+```
+
+実行結果：
+
+```
+[Premium+Summer+Camp] 8000 円
+[Regular+Summer+Camp] 8550 円
+[Regular+SummerOnly]  9500 円
+[Regular+割引なし]    10000 円
+```
+
+1-5の変更後の動作例と一致しており、コードは正しく動いています。
+
 この変更後コードを見ると、問題が浮かび上がります。
 
 一見シンプルな追加に見えますが、サマーセールは「Regular会員のみ」「キャンペーンと重複した場合は重ね掛け」という複合条件を持っています。単純に `else if` を1行追加するだけでは済まず、`isSummerSale && isCampaignActive` の組み合わせを考慮した分岐も追加する必要があります。さらに、`Order` クラスに `isSummerSale` フラグを追加する作業が発生します。

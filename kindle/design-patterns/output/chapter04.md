@@ -294,6 +294,57 @@ private:
 
 ```
 
+変更後のコードを実行すると、次のような結果になります。
+
+```cpp
+// 動作確認（出力付きのスタブで手順の流れを確認）
+class ECDataImporter {
+public:
+    void import() {
+        openFile();
+        parseECData();
+        calcPointBonus();
+        saveToDB();
+        closeFile();
+    }
+private:
+    void openFile() {
+        std::cout << "ファイルを開く" << std::endl;
+    }
+    void parseECData() {
+        std::cout << "ECデータをパース（会員ランク・ポイント）"
+                  << std::endl;
+    }
+    void calcPointBonus() {
+        std::cout << "ポイント付与量を計算" << std::endl;
+    }
+    void saveToDB() {
+        std::cout << "DBに保存" << std::endl;
+    }
+    void closeFile() {
+        std::cout << "ファイルを閉じる" << std::endl;
+    }
+};
+
+int main() {
+    ECDataImporter importer;
+    importer.import();
+    return 0;
+}
+```
+
+実行結果：
+
+```
+ファイルを開く
+ECデータをパース（会員ランク・ポイント）
+ポイント付与量を計算
+DBに保存
+ファイルを閉じる
+```
+
+コードは正しく動いています。しかし `openFile()`・`saveToDB()`・`closeFile()` は、直営店・FC店のコードと全く同じ実装です。
+
 実装しながら、一つの違和感に気づきます。「あれ、`openFile()`・`saveToDB()`・`closeFile()` は直営店やFC店と全く同じなのに、また自分のクラスに書いているな」と。
 
 さて、ECサイト対応が完了した翌月、今度は別の要件が届きました。「直営店・FC店・EC店のすべてについて、CSVのフォーマットを新バージョンに切り替える。新フォーマットではヘッダー行の仕様が変わるため、ファイルを開いた直後にバージョンチェック処理を追加してほしい」という内容です。
