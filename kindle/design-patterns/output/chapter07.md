@@ -297,6 +297,78 @@ int main() {
 ここでふと、ある懸念が頭をよぎります。「この先、在庫通知の種類がもっと増えたらどうなるのだろう？」と。
 メール、ダッシュボード、チャットに続き、SMS、そして先ほど部長が言及した音声通知まで増えれば、InventoryManager クラスの notifyAll メソッドには何十行もの通知処理が並ぶことになります。さらに、通知先クラスが一つ増えるたびに、InventoryManager のメンバ変数を書き換え、コンストラクタを修正し、notifyAll を書き換えるという、同じような「掃除」を何度も繰り返すことになるのです。
 
+実際に SMSNotifier を追加した変更後のコードは次のようになります。
+
+```cpp
+// 既存の通知クラス（変更なし）
+class EmailNotifier {
+public:
+    void send(std::string msg) {
+        std::cout << "[Email] " << msg << std::endl;
+    }
+};
+class DashboardUpdater {
+public:
+    void update(std::string msg) {
+        std::cout << "[Dashboard] " << msg << std::endl;
+    }
+};
+class ChatNotifier {
+public:
+    void send(std::string msg) {
+        std::cout << "[Chat] " << msg << std::endl;
+    }
+};
+
+// 新規追加：SMS通知クラス
+class SMSNotifier {
+public:
+    void send(std::string msg) {
+        std::cout << "[SMS] " << msg << std::endl;
+    }
+};
+
+// 変更後の InventoryManager（3箇所を修正）
+class InventoryManager {
+    EmailNotifier    email;
+    DashboardUpdater dashboard;
+    ChatNotifier     chat;
+    SMSNotifier      sms; // ← ①メンバ変数を追加
+public:
+    void reduceStock(std::string id, int qty) {
+        std::cout << "在庫減少: " << id
+                  << " × " << qty << std::endl;
+        std::string msg = id + " の在庫が減少しました";
+        notifyAll(msg);
+    }
+private:
+    void notifyAll(std::string msg) {
+        email.send(msg);
+        dashboard.update(msg);
+        chat.send(msg);
+        sms.send(msg); // ← ②notifyAll 内にも追加
+    }
+};
+
+int main() {
+    InventoryManager mgr;
+    mgr.reduceStock("ITEM-001", 5);
+    return 0;
+}
+```
+
+実行結果：
+
+```
+在庫減少: ITEM-001 × 5
+[Email] ITEM-001 の在庫が減少しました
+[Dashboard] ITEM-001 の在庫が減少しました
+[Chat] ITEM-001 の在庫が減少しました
+[SMS] ITEM-001 の在庫が減少しました
+```
+
+SMS通知が正しく追加されています。しかし `SMSNotifier` を1つ追加するだけで、`InventoryManager` のメンバ変数と `notifyAll` の2箇所を修正しなければなりませんでした。
+
 ### 3-2：変更影響グラフ
 
 変更を試みた結果、コード内の依存関係がどうなっているかを図にしてみます。

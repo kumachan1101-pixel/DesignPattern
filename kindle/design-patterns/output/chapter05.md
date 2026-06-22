@@ -314,6 +314,57 @@ public:
 
 ```
 
+変更後のコードを実行すると、次のような結果になります。
+
+```cpp
+// 動作確認（Undoが不完全な状態）
+class ExpenseManager {
+public:
+    void addExpense(int amount, std::string cat) {
+        std::cout << "支出追加: " << amount
+                  << "円 [" << cat << "]" << std::endl;
+    }
+    // undoExpense() は存在しない
+};
+
+class UIButtons {
+    ExpenseManager em;
+    std::vector<std::string> history;
+public:
+    void onAddExpenseClick() {
+        em.addExpense(1000, "Food");
+        history.push_back("Expense");
+    }
+    void undo() {
+        if (history.empty()) return;
+        if (history.back() == "Expense") {
+            // em.undoExpense() が存在しないため何もできない
+            std::cout << "Undo失敗（取り消しメソッドがない）"
+                      << std::endl;
+        }
+        history.pop_back();
+    }
+};
+
+int main() {
+    UIButtons buttons;
+    buttons.onAddExpenseClick();
+    buttons.onAddExpenseClick();
+    buttons.undo(); // 取り消そうとするが…
+    return 0;
+}
+```
+
+実行結果：
+
+```
+支出追加: 1000円 [Food]
+支出追加: 1000円 [Food]
+Undo失敗（取り消しメソッドがない）
+```
+
+`undo()` を呼んでも実際には何も取り消せていません。`ExpenseManager` に取り消しメソッドがなく、履歴に金額やカテゴリも保存されていないためです。
+
 **これがステップ1の限界です。** コードに手を入れようとした瞬間に、「取り消すメソッドがない」「金額やカテゴリをどこに保存していたか分からない」という問題が次々と現れます。現在の構造のままUndoを追加することは、根本的な構造変更なしには実現できないのです。
 
 実装を始めてすぐに、ある重大な問題に気づきます。現在の `ExpenseManager` には「取り消し（Undo）」のためのメソッドが存在しないため、履歴を記録しても元に戻す手段がないのです。

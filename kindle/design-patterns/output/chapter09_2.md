@@ -276,6 +276,61 @@ int main() {
 
 作業を進める中で、すぐに気づきました。「状態ごとのアクションとルールの条件分岐が混在していて、どちらが変わったときにどこを直せばいいか分からない」という感覚です。ステータスが一つ増えるだけで、「遷移の可否」「担当者への通知」「優先度計算」という、それぞれ変更理由の異なるロジックを一つの大きなメソッドの中で同時に考慮する必要があります。「状態を足したのにSLAのロジックも壊れたかもしれない」という不安が、常について回ります。
 
+実際に変更を加えたコードを見てみましょう。
+
+```cpp
+// 優先度ルール（SLA改定を反映）
+class PriorityCalculator {
+public:
+    std::string calculate(std::string userType) {
+        if (userType == "premium")   return "High";
+        if (userType == "corporate") return "High"; // ← 追加
+        return "Normal";
+    }
+};
+
+// チケット管理（「保留中」状態を追加）
+class TicketManager {
+    PriorityCalculator calc;
+public:
+    void updateStatus(std::string userType,
+                      std::string status) {
+        std::string priority = calc.calculate(userType);
+        if (status == "Open") {
+            std::cout << "チケット受付中。優先度: "
+                      << priority << std::endl;
+        } else if (status == "InProgress"
+                   && priority == "High") {
+            std::cout << "緊急対応中。担当者を招集します。"
+                      << std::endl;
+        } else if (status == "Pending") { // ← 新規追加
+            std::cout << "保留中。理由を記録します。"
+                      << std::endl;
+        }
+    }
+};
+
+int main() {
+    TicketManager mgr;
+    mgr.updateStatus("premium",   "Open");
+    mgr.updateStatus("premium",   "InProgress");
+    mgr.updateStatus("corporate", "Open");    // SLA変更で High
+    mgr.updateStatus("general",   "Pending"); // 新規状態
+    return 0;
+}
+```
+
+実行結果：
+
+```
+チケット受付中。優先度: High
+緊急対応中。担当者を招集します。
+チケット受付中。優先度: High
+保留中。理由を記録します。
+```
+
+動作は正しくなっています。しかし `PriorityCalculator` と `TicketManager` の両方を修正しており、「状態追加」と「SLAルール変更」という2つの異なる変化が同じ `updateStatus` メソッド内に絡み合っています。
+
 ### 3-2：変更影響グラフ
 
 今のコードのまま変更を試みた際の影響範囲を可視化します。

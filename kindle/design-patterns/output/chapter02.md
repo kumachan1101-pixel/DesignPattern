@@ -375,6 +375,65 @@ void transfer(
 }
 ```
 
+変更後のコードを実行すると、次のような結果になります。
+
+```cpp
+// 動作確認用のスタブ（変更後の実行を確認）
+struct Auth {
+    std::string requestOTP() {
+        std::cout << "OTP発行 → 取引ID取得" << std::endl;
+        return "TX-9001";
+    }
+    void verifyOTP(const std::string& otp,
+                   const std::string& txId) {
+        std::cout << "OTP検証（txId=" << txId
+                  << "）" << std::endl;
+    }
+};
+
+struct Gateway {
+    void verifyAccount(const std::string& to) {
+        std::cout << "口座確認: " << to << std::endl;
+    }
+    void checkBalance(int amount) {
+        std::cout << "残高確認: " << amount << " 円"
+                  << std::endl;
+    }
+    void executeTransfer(const std::string& to,
+                         int amount,
+                         const std::string& txId) {
+        std::cout << "送金: " << to << " / "
+                  << amount << " 円（txId="
+                  << txId << "）" << std::endl;
+    }
+};
+
+int main() {
+    Auth auth;
+    Gateway gateway;
+    gateway.verifyAccount("987-654321");
+    gateway.checkBalance(50000);
+    std::string txId = auth.requestOTP();
+    auth.verifyOTP("123456", txId);
+    gateway.executeTransfer("987-654321", 50000, txId);
+    std::cout << "振り込み完了" << std::endl;
+    return 0;
+}
+```
+
+実行結果：
+
+```
+口座確認: 987-654321
+残高確認: 50000 円
+OTP発行 → 取引ID取得
+OTP検証（txId=TX-9001）
+送金: 987-654321 / 50000 円（txId=TX-9001）
+振り込み完了
+```
+
+コード自体は正しく動いていますが、`transactionId` という一時的な状態が `transfer` メソッドの中を流れていることが分かります。
+
 この変更を試みたとき、はじめに気づくのは `TransferProcessor` クラスが「銀行APIの細かな使い方」をあまりにも詳細に知りすぎているという点です。認証のステップが増えただけでメソッドのシグネチャを追いかける必要があり、ロジックの修正が連鎖的に発生してしまいます。
 
 「振り込みを実行する」という業務上の命令を処理しているはずの `TransferProcessor` が、銀行システム側から送られてくる「取引IDを保持する」といった一時的な状態管理まで背負わされています。銀行側のAPI仕様が一つ変わるたびに、私たちの業務フローを制御するクラスのコードを書き換え、その結果、振り込み処理全体のテストをやり直さなければならないのです。

@@ -290,6 +290,63 @@ string getDescription() const {
 }
 ```
 
+変更後のコードを実行すると、次のような結果になります。
+
+```cpp
+// 変更後の CustomDrink（抹茶フラグ追加後）
+class CustomDrink {
+    std::string baseName;
+    int basePrice;
+    bool hasMilk, hasWhip, hasSyrup, hasMatcha;
+public:
+    CustomDrink(std::string name, int price,
+                bool milk, bool whip,
+                bool syrup, bool matcha) // ← 引数が1つ増えた
+        : baseName(name), basePrice(price),
+          hasMilk(milk), hasWhip(whip),
+          hasSyrup(syrup), hasMatcha(matcha) {}
+
+    int getPrice() const {
+        int total = basePrice;
+        if (hasMilk)   total += 50;
+        if (hasWhip)   total += 70;
+        if (hasSyrup)  total += 30;
+        if (hasMatcha) total += 60;
+        return total;
+    }
+    std::string getDescription() const {
+        std::string desc = baseName;
+        if (hasMilk)   desc += " + Milk";
+        if (hasWhip)   desc += " + Whip";
+        if (hasSyrup)  desc += " + Syrup";
+        if (hasMatcha) desc += " + Matcha";
+        return desc;
+    }
+};
+
+int main() {
+    // 新しいコンストラクタ呼び出し（引数6個）
+    CustomDrink order("Coffee", 500,
+                      true, false, false, true);
+    std::cout << order.getDescription() << std::endl;
+    std::cout << order.getPrice() << " 円" << std::endl;
+
+    // 既存の呼び出しはコンパイルエラーになる
+    // CustomDrink old("Coffee", 500, true, false, false);
+    //                                              ↑ 引数不足
+    return 0;
+}
+```
+
+実行結果：
+
+```
+Coffee + Milk + Matcha
+610 円
+```
+
+新しい注文は正しく動いています（500円 + Milk 50円 + Matcha 60円 = 610円）。しかし既存の5引数のコンストラクタ呼び出しはコンパイルエラーになり、モバイルアプリ側の修正が必要です。
+
 これでクラスの修正は終わったと思い、コンパイルしてみると、コンストラクタの引数が増えたため、`main()` 内の `CustomDrink order(...)` でコンパイルエラーが発生しました。`CustomDrink` を生成しているモバイルアプリ側（呼び出し元）のコードです。コンストラクタの引数が増えたことで、既存の「コーヒーにミルクだけ」といった注文を生成しているすべての箇所が壊れてしまったのです。
 
 たった2つのトッピングを追加しようとしただけなのに、クラスの中をあちこち探し回って修正した上に、呼び出し側のコードまで直す必要に迫られます状況になっています。
