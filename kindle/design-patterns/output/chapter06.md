@@ -374,7 +374,7 @@ Coffee + Milk + Matcha
 
 これでクラスの修正は終わったと思い、コンパイルしてみると、コンストラクタの引数が増えたため、`main()` 内の `CustomDrink order(...)` でコンパイルエラーが発生しました。`CustomDrink` を生成しているモバイルアプリ側（呼び出し元）のコードです。コンストラクタの引数が増えたことで、既存の「コーヒーにミルクだけ」といった注文を生成しているすべての箇所が壊れてしまったのです。
 
-たった2つのトッピングを追加しようとしただけなのに、クラスの中をあちこち探し回って修正した上に、呼び出し側のコードまで直す必要に迫られます状況になっています。
+たった2つのトッピングを追加しようとしただけなのに、クラスの中をあちこち探し回って修正した上に、呼び出し側のコードまで直す必要に迫られる状況になっています。
 
 ---
 
@@ -408,7 +408,7 @@ graph LR
 
 ---
 > **📌 問題（確定）**
-> トッピングの種類が増えるたびに、`CustomDrink` のメンバ変数・コンストラクタ・`getPrice()`・`getDescription()` の4箇所を連動して修正必要が生じます。ヒアリングで「毎月のキャンペーンごとにトッピングが入れ替わる」と確認された今の変更頻度では、1種類追加するだけで呼び出し側のコードまで壊れるこのコストは合わない。
+> トッピングの種類が増えるたびに、`CustomDrink` のメンバ変数・コンストラクタ・`getPrice()`・`getDescription()` の4箇所を連動して修正が必要になります。ヒアリングで「毎月のキャンペーンごとにトッピングが入れ替わる」と確認された今の変更頻度では、1種類追加するだけで呼び出し側のコードまで壊れるこのコストは合わない。
 ---
 
 （トッピング追加のたびに複数箇所が連動して変わる問題が確認できました。次のフェーズ4では、なぜこの連鎖が起きるのかを構造的に分析します。）
@@ -427,7 +427,7 @@ graph LR
 
 | **観察した症状** | **構造的な原因** |
 |---|---|
-| トッピングを追加するたびにクラス内の複数の `if` 文を探して修正必要が生じます | `CustomDrink` が各トッピングの価格・名前という具体的な条件を直接知っているから |
+| トッピングを追加するたびにクラス内の複数の `if` 文を探して修正が必要になります | `CustomDrink` が各トッピングの価格・名前という具体的な条件を直接知っているから |
 | コンストラクタ引数が増えて呼び出し側まで壊れてしまう | 「基本ドリンク」と「トッピング」という変わる理由が異なるものが同じ場所に混在しているから |
 
 最初の頃、トッピングが「ミルク」と「ホイップ」だけだった時代は、一つのクラスを見ればすべての処理が追えるという大きなメリットがありました。当時の担当者が、素早く機能を提供するためにこの形を選んだのは、非常に合理的だったと思います。しかし、トッピングの種類が増えるにつれて、一つのクラスが「知りすぎている」状態になってしまったのではないでしょうか。「まずはフラグを足す」という判断は小規模な段階では有効でも、組み合わせが増えた後に変更箇所を見つけにくくすることがあります。
@@ -782,9 +782,12 @@ int main() {
 }
 ```
 
+> [!INFO] 生ポインタの使用について
+> このサンプルでは抽象インターフェース経由のトッピング設定を示すため、生ポインタ（`ITopping* milk` 等）を使用しています。実際のプロダクションコードでは `std::unique_ptr` などのスマートポインタや参照渡しを使用して、所有権を明確にすることをお勧めします。
+
 `CustomDrink` は具体クラス名（`Milk`, `Whip`）を知らなくなりました。コンストラクタ引数の爆発もなくなっています。
 
-**この段階の評価：** ミルクを `ITopping` を実装した別のクラスに差し替えても `CustomDrink` は変更不要になった。しかし、`Choco`（チョコチップ）を追加しようとすると、`CustomDrink` に `ITopping* choco = nullptr;` と `setChoco()` メソッドを追加し、`getPrice()` と `getDescription()` にも `if (choco)` を書き足す必要がある。トッピングの「枠（スロット）」が `CustomDrink` に固定されている限り、新しいトッピングを追加するたびに `CustomDrink` を修正必要が生じますという根本は変わっていない。また、「ホイップをダブルにする」という要望（`new Whip(new Whip(...))` のような連鎖）は、固定スロット方式では実現できない。
+**この段階の評価：** ミルクを `ITopping` を実装した別のクラスに差し替えても `CustomDrink` は変更不要になった。しかし、`Choco`（チョコチップ）を追加しようとすると、`CustomDrink` に `ITopping* choco = nullptr;` と `setChoco()` メソッドを追加し、`getPrice()` と `getDescription()` にも `if (choco)` を書き足す必要がある。トッピングの「枠（スロット）」が `CustomDrink` に固定されている限り、新しいトッピングを追加するたびに `CustomDrink` を修正が必要になるという根本は変わっていない。また、「ホイップをダブルにする」という要望（`new Whip(new Whip(...))` のような連鎖）は実現できない。この方式を**固定スロット方式**と呼ぶことにします。`CustomDrink` が「ミルク用」「ホイップ用」「シロップ用」という固定の枠（スロット）を持っており、新しいトッピングを追加するには枠自体を増やす必要があるためです。
 
 「`CustomDrink` にスロットを追加せずにトッピングを足したい」という問いが浮かぶ。
 
@@ -932,6 +935,7 @@ protected:
     IDrink* baseDrink;
 public:
     ToppingWrapper(IDrink* base) : baseDrink(base) {}
+    ~ToppingWrapper() override { delete baseDrink; }
 };
 ```
 
@@ -1018,48 +1022,59 @@ public:
         // 行1：コーヒーのみ
         IDrink* o1 = new Coffee();
         cout << o1->getDescription() << " → " << o1->getPrice() << "円" << endl;
+        delete o1;
 
         // 行2：コーヒー + ミルク
         IDrink* o2 = new Milk(new Coffee());
         cout << o2->getDescription() << " → " << o2->getPrice() << "円" << endl;
+        delete o2;
 
         // 行3：コーヒー + ミルク + シロップ
         IDrink* o3 = new Syrup(new Milk(new Coffee()));
         cout << o3->getDescription() << " → " << o3->getPrice() << "円" << endl;
+        delete o3;
 
         // 行4：コーヒー + ミルク + ホイップ
         IDrink* o4 = new Whip(new Milk(new Coffee()));
         cout << o4->getDescription() << " → " << o4->getPrice() << "円" << endl;
+        delete o4;
 
         // 行5：コーヒー + ホイップ × 2（ダブル）
         IDrink* o5 = new Whip(new Whip(new Coffee()));
         cout << o5->getDescription() << " → " << o5->getPrice() << "円" << endl;
+        delete o5;
 
         // 行6：コーヒー + ミルク + シロップ + ホイップ
         IDrink* o6 = new Whip(new Syrup(new Milk(new Coffee())));
         cout << o6->getDescription() << " → " << o6->getPrice() << "円" << endl;
+        delete o6;
 
         // 行7：コーヒー + ミルク + シロップ + ホイップ + 抹茶（全5種）
-        IDrink* o7 = new Matcha(new Whip(new Syrup(new Milk(new Coffee()))));
+        IDrink* o7 = new Matcha(
+            new Whip(new Syrup(new Milk(new Coffee()))));
         cout << o7->getDescription() << " → " << o7->getPrice() << "円" << endl;
+        delete o7;
 
         // 行8：コーヒー + チョコ（変更要求で追加されたトッピング）
         IDrink* o8 = new Choco(new Coffee());
         cout << o8->getDescription() << " → " << o8->getPrice() << "円" << endl;
+        delete o8;
 
         // 行9：コーヒー + ミルク + 抹茶 + チョコ（新トッピング2種の組み合わせ）
-        IDrink* o9 = new Choco(new Matcha(new Milk(new Coffee())));
+        IDrink* o9 = new Choco(
+            new Matcha(new Milk(new Coffee())));
         cout << o9->getDescription() << " → " << o9->getPrice() << "円" << endl;
-
-        // ※メモリ解放はサンプル簡略化のため省略
+        delete o9;
     }
 
     void testOrderCalculation() {
         IDrink* o1 = new Coffee();
         assert(o1->getPrice() == 300);  // ← Coffee のみ: 300円
+        delete o1;
 
         IDrink* o6 = new Whip(new Syrup(new Milk(new Coffee())));
         assert(o6->getPrice() == 450);  // ← 300 + 50 + 30 + 70 = 450円
+        delete o6;
     }
 };
 

@@ -489,7 +489,7 @@ graph LR
 | 状態の種類（キャンセル待ち、保留中などの追加） | 予約システムとしての基本的な業務フロー |
 | 各状態における振る舞い（状態ごとのアクション） | 状態を管理するという概念（状態があること自体） |
 
-私たちが守るべきは「予約管理」という概念であり、増え続ける「状態の種類」や「状態ごとの細かなルール」は、安定した業務フローから切り離す必要がある存在なのです。
+私たちが守りたいのは「予約管理」という概念であり、増え続ける「状態の種類」や「状態ごとの細かなルール」は、安定した業務フローから切り離す必要がある存在なのです。
 
 ### 4-3：接続点に漏れている状態の知識を確認する
 
@@ -677,6 +677,11 @@ public:
 ステップ2で「`TicketReservation` が全状態クラスを直接知っている」ことが問題だと分かった。解消するには `TicketReservation` が具体的なクラス名を知らなくてよい構造にすればいい。「どの状態クラスも `reserve()`・`pay()`・`cancel()` を持つ」という契約（インターフェース）を定め、`TicketReservation` はその契約だけを通じて現在の状態に処理を丸投げする。
 
 **状態インターフェース（IReservationState）：**
+
+> [!INFO] C++の「純粋仮想関数（`= 0`）」とは
+> `virtual void reserve(...) = 0;` の `= 0` は「このメソッドはサブクラスで必ず実装しなければならない」という宣言です。Java の `interface` メソッドや Python の `@abstractmethod` と同じ役割で、このクラス自体はインスタンス化できません。C++ にはJavaの `interface` キーワードがないため、すべてのメソッドを `= 0` にした抽象クラスがインターフェースの代わりを果たします。
+
+以下に状態インターフェースの定義を示します：
 
 ```cpp
 class TicketReservation;
@@ -996,8 +1001,8 @@ sequenceDiagram
 
     main->>BA: run()
     Note over BA: 具体クラスを組み立てる
-    BA->>AS: new AvailableState
-    BA->>TR: new TicketReservation(state)
+    BA->>AS: AvailableState 生成
+    BA->>TR: TicketReservation 生成（状態を注入）
 
     BA->>TR: reserve()
     Note right of TR: IReservationState*経由の呼び出し
@@ -1165,27 +1170,44 @@ classDiagram
         +reserve()
         +pay()
         +cancel()
+        +hold()
+        +expire()
     }
     class IReservationState {
         <<interface>>
         +reserve(ctx)
         +pay(ctx)
         +cancel(ctx)
+        +hold(ctx)
+        +expire(ctx)
     }
     class AvailableState {
         +reserve(ctx)
         +pay(ctx)
         +cancel(ctx)
+        +hold(ctx)
+        +expire(ctx)
     }
     class ReservedState {
         +reserve(ctx)
         +pay(ctx)
         +cancel(ctx)
+        +hold(ctx)
+        +expire(ctx)
     }
     class PaidState {
         +reserve(ctx)
         +pay(ctx)
         +cancel(ctx)
+        +hold(ctx)
+        +expire(ctx)
+    }
+    class HeldState {
+        +reserve(ctx)
+        +pay(ctx)
+        +cancel(ctx)
+        +hold(ctx)
+        +expire(ctx)
     }
     TicketReservation o--> IReservationState
     IReservationState <|.. AvailableState
