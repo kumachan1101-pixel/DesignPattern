@@ -84,8 +84,6 @@ classDiagram
         +reserve()
         +pay()
         +cancel()
-        +hold()
-        +expire()
     }
 ```
 
@@ -113,7 +111,9 @@ class TicketReservation {
 private:
     std::string status; // "Available", "Reserved", "Paid"
 public:
-    TicketReservation() : status("Available") {}
+    explicit TicketReservation(
+        const std::string& initialStatus = "Available")
+        : status(initialStatus) {}
 
     void reserve() {
         if (status == "Available") {
@@ -148,9 +148,30 @@ public:
 
 ```cpp
 int main() {
-    TicketReservation seat;
-    seat.reserve();  // Available → Reserved
-    seat.pay();      // Reserved  → Paid
+    std::cout << "--- 行1: Availableで予約 ---\n";
+    TicketReservation row1("Available");
+    row1.reserve();
+
+    std::cout << "--- 行2: Reservedで支払い ---\n";
+    TicketReservation row2("Reserved");
+    row2.pay();
+
+    std::cout << "--- 行3: Reservedでキャンセル ---\n";
+    TicketReservation row3("Reserved");
+    row3.cancel();
+
+    std::cout << "--- 行4: Paidでキャンセル ---\n";
+    TicketReservation row4("Paid");
+    row4.cancel();
+
+    std::cout << "--- 行5: Availableで支払い ---\n";
+    TicketReservation row5("Available");
+    row5.pay();
+
+    std::cout << "--- 行6: Paidで予約 ---\n";
+    TicketReservation row6("Paid");
+    row6.reserve();
+
     return 0;
 }
 ```
@@ -158,11 +179,24 @@ int main() {
 上記コードの実行結果：
 
 ```
+--- 行1: Availableで予約 ---
 予約完了しました
+--- 行2: Reservedで支払い ---
 支払い完了しました
+--- 行3: Reservedでキャンセル ---
+予約をキャンセルしました
+--- 行4: Paidでキャンセル ---
+キャンセルできません
+--- 行5: Availableで支払い ---
+支払いに適した状態ではありません
+--- 行6: Paidで予約 ---
+現在予約できません
 ```
 
-動作例テーブルの行1（Available → Reserved）と行2（Reserved → Paid）と一致しています。次のフェーズで変更が来たときに何が起きるかを確認します。
+実システムでは保存済みデータから現在状態を復元するため、ここでは各行の
+開始状態をコンストラクタへ渡しています。動作例テーブルの全6行について、
+許可された遷移と禁止操作のエラーが一致することを確認できました。
+次のフェーズで変更が来たときに何が起きるかを確認します。
 
 ---
 
