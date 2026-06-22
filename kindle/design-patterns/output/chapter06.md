@@ -39,6 +39,8 @@
 
 トッピングは複数追加できます。`getDescription()` の出力例：`Coffee + Milk + Syrup`
 
+---
+
 ### 1-2：動作例テーブル
 
 コードを読む前に、このシステムがどんな入力に対してどんな出力を返すかを確認します。以下の動作を基準とし、フェーズ7では掲載した組み合わせを実行結果で照合します。
@@ -51,16 +53,26 @@
 | コーヒー + ミルク + ホイップ | `Coffee + Milk + Whip` | 420円（300 + 50 + 70） |
 | コーヒー + ホイップ×2 | `Coffee + Whip + Whip` | 440円（300 + 70 + 70） |
 | コーヒー + ミルク + シロップ + ホイップ | `Coffee + Milk + Syrup + Whip` | 450円（300 + 50 + 30 + 70） |
+| ↓ 変更要求による追加分（Matcha・Choco は1-5節で導入）↓ | | |
+| コーヒー + ミルク + シロップ + ホイップ + 抹茶 | `Coffee + Milk + Syrup + Whip + Matcha` | 510円（300 + 50 + 30 + 70 + 60） |
+| コーヒー + チョコ | `Coffee + Choco` | 340円（300 + 40） |
+| コーヒー + ミルク + 抹茶 + チョコ | `Coffee + Milk + Matcha + Choco` | 450円（300 + 50 + 60 + 40） |
 
 この表がこの章全体の動作の基準になります。フェーズ1からフェーズ7まで、構造がどれだけ違っても、この入出力の対応は変わりません。「何が同じで、何が違うのか」を意識しながらコードを読むと、各ステップの本質的な差異が見えやすくなります。
 
-次は仕様とクラスを対応づけます。
+---
 
-**このシステムの登場クラス**
+### 1-2.5：クラス概要サマリー
+
+#### このシステムの登場クラス
 
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
 | `CustomDrink` | ドリンク1注文の全情報を保持し、合計金額と注文名称を返す | 基本ドリンク選択・トッピング組み合わせ・金額計算・名称生成 |
+
+**データの流れ：** `main()` → `CustomDrink`コンストラクタ（ベース名・価格・各トッピングフラグ） → `getPrice()` / `getDescription()` → 画面出力
+
+**注目ポイント：** 現在は `CustomDrink` という1クラスがすべての処理を担っています。フェーズ3〜6で「このクラスが知りすぎていること」が問題として浮かび上がってきます。
 
 ---
 
@@ -74,7 +86,7 @@ classDiagram
         -string baseName
         -int basePrice
         -bool hasMilk
-        -int whipCount
+        -bool hasWhip
         -bool hasSyrup
         +getPrice() int
         +getDescription() string
@@ -87,7 +99,7 @@ classDiagram
 
 ### 1-4：実装コード（現状）
 
-現在提供中の6つの代表的な組み合わせを実行します。
+コーヒーにミルクとホイップを追加する注文をシミュレートしています。
 
 ```cpp
 #include <iostream>
@@ -99,23 +111,22 @@ class CustomDrink {
 private:
     string baseName;
     int basePrice;
-    // トッピングごとの有無・個数をメンバで管理している
+    // トッピングごとの状態をフラグで管理している
     bool hasMilk;
+    bool hasWhip;
     bool hasSyrup;
-    int whipCount;
 
 public:
-    CustomDrink(
-        string name, int price, bool milk, bool syrup, int whip)
+    CustomDrink(string name, int price, bool milk, bool whip, bool syrup)
         : baseName(name), basePrice(price),
-          hasMilk(milk), hasSyrup(syrup), whipCount(whip) {}
+          hasMilk(milk), hasWhip(whip), hasSyrup(syrup) {}
 
     int getPrice() const {
         int total = basePrice;
         // トッピングごとの追加料金を計算
         if (hasMilk)  total += 50;
+        if (hasWhip)  total += 70;
         if (hasSyrup) total += 30;
-        total += 70 * whipCount;
         return total;
     }
 
@@ -123,63 +134,25 @@ public:
         string desc = baseName;
         // トッピングごとの名前を追加
         if (hasMilk)  desc += " + Milk";
+        if (hasWhip)  desc += " + Whip";
         if (hasSyrup) desc += " + Syrup";
-        for (int i = 0; i < whipCount; ++i) {
-            desc += " + Whip";
-        }
         return desc;
     }
 };
 
-void printOrder(const string& label, const CustomDrink& order) {
-    cout << label << "\n";
-    cout << "注文内容: " << order.getDescription() << "\n";
-    cout << "合計金額: " << order.getPrice() << "円\n";
-}
-
+// 呼び出し側のコード（モバイルアプリを想定）
 int main() {
-    printOrder("--- 行1: ベースのみ ---",
-               CustomDrink("Coffee", 300, false, false, 0));
-    printOrder("--- 行2: ミルク ---",
-               CustomDrink("Coffee", 300, true, false, 0));
-    printOrder("--- 行3: ミルク + シロップ ---",
-               CustomDrink("Coffee", 300, true, true, 0));
-    printOrder("--- 行4: ミルク + ホイップ ---",
-               CustomDrink("Coffee", 300, true, false, 1));
-    printOrder("--- 行5: ホイップ2回 ---",
-               CustomDrink("Coffee", 300, false, false, 2));
-    printOrder("--- 行6: 全トッピング ---",
-               CustomDrink("Coffee", 300, true, true, 1));
+    // コーヒー(300円)、ミルクとホイップを追加、シロップはなし
+    CustomDrink order("Coffee", 300, true, true, false);
+
+    cout << "注文内容: " << order.getDescription() << endl;
+    cout << "合計金額: " << order.getPrice() << "円" << endl;
+
     return 0;
 }
 ```
 
-上記コードの実行結果：
-
-```text
---- 行1: ベースのみ ---
-注文内容: Coffee
-合計金額: 300円
---- 行2: ミルク ---
-注文内容: Coffee + Milk
-合計金額: 350円
---- 行3: ミルク + シロップ ---
-注文内容: Coffee + Milk + Syrup
-合計金額: 380円
---- 行4: ミルク + ホイップ ---
-注文内容: Coffee + Milk + Whip
-合計金額: 420円
---- 行5: ホイップ2回 ---
-注文内容: Coffee + Whip + Whip
-合計金額: 440円
---- 行6: 全トッピング ---
-注文内容: Coffee + Milk + Syrup + Whip
-合計金額: 450円
-```
-
-動作例テーブルの全6行について、注文名称と合計金額が一致しています。
-`CustomDrink` がすべてのトッピングをメンバとして持ち、価格計算と名称生成で
-個別に処理している点が、後の変更で問題になります。
+`CustomDrink` がすべてのトッピングをフラグで持ち `if` 文で処理している。これが後に問題になる。
 
 このコードを見ると、`CustomDrink` クラスがどのトッピングがいくらで、どんな名前になるかをすべて直接知っていることが分かります。
 
@@ -219,18 +192,35 @@ int main() {
 
 フェーズ1でシステムの現状を観察しました。次のフェーズ2では、現場に届いた変更要求を起点にして「何が変わり、何が変わらないか」の仮説を立て、関係者とのヒアリングを通じてそれを確定させていきます。実装と責任が一致しない箇所こそが、のちの問題の発生源になります。
 
-### 2-1：`CustomDrink`に混在している知識と担当チーム
+### 2-1：責任チェック表
 
-`CustomDrink.getPrice()` と `CustomDrink.getDescription()` が現在抱えている知識と、それぞれを変更するチームを確認します。
+コードが実際に「知っていること」を一行ずつ照合し、その知識が**誰の判断で変わるのか**を観察します。これは「クラスが責任を果たしているかどうか」ではなく、「同じクラスの中に、異なる意思決定者の判断が混在していないか」を可視化するための確認です。
 
-| 知識（コードが直接持っているもの） | 変更を決めるチーム | 適切か |
-|---|---|---|
-| 基本ドリンクの名称と基本価格 | ドリンク開発チーム | ✅ |
-| ミルク追加の価格（50円）・表示名 | 商品企画部 / 店舗オペレーション設計部 | ❌ 混在 |
-| ホイップ追加の価格（70円） | 商品企画部 | ❌ 混在 |
-| シロップ追加の価格（30円） | 商品企画部 | ❌ 混在 |
+| **クラス名** | **責任（1文）** | **知るべきこと** |
+| --- | --- | --- |
+| `CustomDrink` | ドリンクの基本料金とトッピング料金を合算して提供する。 | 基本価格、ミルクの有無と価格、ホイップの有無と価格、シロップの有無と価格。 |
 
-❌が3つある。トッピング価格を商品企画部が変えるたびに、ドリンクの基本情報を持つクラスに手が入ります。`getPrice()` や `getDescription()` の中にトッピングごとの処理が `if` 文で書き連ねられているため、「後から追加される処理」と「基本となる処理」が同じ場所に混在しています。これが後の変更の痛みの予兆です。
+一見してシンプルに見えたコードですが、一行ずつ観察していくと、商品企画部門が決めるべき「トッピングの価格」や、店舗オペレーション部が関わる「表示名」という、**異なる意思決定者の判断**が一つのクラスの中に並んでいることが見えてきます。変わる理由の決定者が混在しているという事実を、ここで確認しておきます。
+
+---
+
+### 2-2：変わる理由の分析
+
+責任チェック表でクラスの責任が整理できました。次に、コードの各行が「誰の判断で変わる知識か」を確認することで、混在している責任をさらに細かく特定します。判断基準は、「このクラスの担当者（ここではドリンク開発チーム）とは別の人間が変更を決定するかどうか」です。別の人間が決定するなら、それは「責任外（❌）」と判断します。
+
+`CustomDrink.getPrice()` と `CustomDrink.getDescription()` の各行を見ると：
+
+| **コードの行** | **持っている知識** | **誰の判断で変わるか** | **責任内か** |
+|---|---|---|---|
+| `string baseName; int basePrice;` | 基本ドリンクの名称と基本価格 | ドリンク開発チームが決定 | ✅ |
+| `if (hasMilk) total += 50;` | ミルク追加の価格設定（50円） | 商品企画部が価格改定を決定 | ❌ 別担当者 |
+| `if (hasWhip) total += 70;` | ホイップ追加の価格設定（70円） | 商品企画部が価格改定を決定 | ❌ 別担当者 |
+| `if (hasSyrup) total += 30;` | シロップ追加の価格設定（30円） | 商品企画部が価格改定を決定 | ❌ 別担当者 |
+| `if (hasMilk) desc += " + Milk";` | ミルク追加時の表示名 | 店舗オペレーション設計部が決定 | ❌ 別担当者 |
+
+1つのクラスの中に、変える理由が異なる複数の知識が混在しています。今すぐ問題とは言えませんが、これが後の痛みの予兆です。
+
+要するに、`getPrice()` や `getDescription()` の中にトッピングごとの処理が `if` 文で書き連ねられているという観察から、「後から追加される処理（各種トッピング）」と「基本となる処理（ドリンク本体）」が同じ場所に混在しているという構造の問題が見えてくる。
 
 ### 2-3：今回の変更で確実に変わること
 
@@ -266,7 +256,7 @@ int main() {
 
 **開発者：** 「承知しました。価格も変動する要素ですね。他に、将来的に変わりそうなカスタマイズのルールや、お客様からの要望で実現したいことはありますか？ 今のうちにシステムの土台に備えをしておきたいので。」
 
-**佐藤マネージャー：** 「そうですね……熱心なお客様から『ホイップを通常の2倍（ダブル）にしてほしい』とか『チョコチップを3倍（トリプル）で』という要望がかなり来ています。今はシステム上できないとお断りしているんですが、将来的には『同じトッピングを複数回追加できる機能』はどうしても実現したいですね。」
+**佐藤マネージャー：** 「そうですね……熱心なお客様から『ホイップを通常の2倍（ダブル）にしてほしい』とか『チョコチップを3倍（トリプル）で』という要望がかなり来ています。今はシステム上できないとお断りしているんですが、将来的には『同じトッピングを複数回追加できる機能』は絶対に実現したいですね。」
 
 ヒアリングを通じて、当初の確定変更の裏側に、今の真偽値（booleanフラグ）の構造では到底太刀打ちできない将来の変化まで見えてきました。こうした未知の要件を初期段階で引き出せたことは、設計の見通しを立てる上で大きな前進です。
 
@@ -384,7 +374,7 @@ Coffee + Milk + Matcha
 
 これでクラスの修正は終わったと思い、コンパイルしてみると、コンストラクタの引数が増えたため、`main()` 内の `CustomDrink order(...)` でコンパイルエラーが発生しました。`CustomDrink` を生成しているモバイルアプリ側（呼び出し元）のコードです。コンストラクタの引数が増えたことで、既存の「コーヒーにミルクだけ」といった注文を生成しているすべての箇所が壊れてしまったのです。
 
-たった2つのトッピングを追加しようとしただけなのに、クラスの中をあちこち探し回って修正した上に、呼び出し側のコードまで直す必要に迫られます状況になっています。
+たった2つのトッピングを追加しようとしただけなのに、クラスの中をあちこち探し回って修正した上に、呼び出し側のコードまで直す必要に迫られる状況になっています。
 
 ---
 
@@ -418,7 +408,7 @@ graph LR
 
 ---
 > **📌 問題（確定）**
-> トッピングの種類が増えるたびに、`CustomDrink` のメンバ変数・コンストラクタ・`getPrice()`・`getDescription()` の4箇所を連動して修正必要が生じます。ヒアリングで「毎月のキャンペーンごとにトッピングが入れ替わる」と確認された今の変更頻度では、1種類追加するだけで呼び出し側のコードまで壊れるこのコストは合わない。
+> トッピングの種類が増えるたびに、`CustomDrink` のメンバ変数・コンストラクタ・`getPrice()`・`getDescription()` の4箇所を連動して修正が必要になります。ヒアリングで「毎月のキャンペーンごとにトッピングが入れ替わる」と確認された今の変更頻度では、1種類追加するだけで呼び出し側のコードまで壊れるこのコストは合わない。
 ---
 
 （トッピング追加のたびに複数箇所が連動して変わる問題が確認できました。次のフェーズ4では、なぜこの連鎖が起きるのかを構造的に分析します。）
@@ -437,7 +427,7 @@ graph LR
 
 | **観察した症状** | **構造的な原因** |
 |---|---|
-| トッピングを追加するたびにクラス内の複数の `if` 文を探して修正必要が生じます | `CustomDrink` が各トッピングの価格・名前という具体的な条件を直接知っているから |
+| トッピングを追加するたびにクラス内の複数の `if` 文を探して修正が必要になります | `CustomDrink` が各トッピングの価格・名前という具体的な条件を直接知っているから |
 | コンストラクタ引数が増えて呼び出し側まで壊れてしまう | 「基本ドリンク」と「トッピング」という変わる理由が異なるものが同じ場所に混在しているから |
 
 最初の頃、トッピングが「ミルク」と「ホイップ」だけだった時代は、一つのクラスを見ればすべての処理が追えるという大きなメリットがありました。当時の担当者が、素早く機能を提供するためにこの形を選んだのは、非常に合理的だったと思います。しかし、トッピングの種類が増えるにつれて、一つのクラスが「知りすぎている」状態になってしまったのではないでしょうか。「まずはフラグを足す」という判断は小規模な段階では有効でも、組み合わせが増えた後に変更箇所を見つけにくくすることがあります。
@@ -477,9 +467,6 @@ graph LR
 ### 4-3：接続点に漏れているトッピングの知識を確認する
 
 現在のシステムで、基本ドリンクとトッピングの境界にどの知識が漏れているかを確認します。
-
-> [!INFO] 「接続点」とは
-> この本では「分けるべき2つの責任が出会う境界」を「接続点」と呼んでいます。たとえば「基本ドリンクを担うクラス」と「トッピングを担うクラス」の間の境界がそれにあたります。接続点では「何を受け渡すか（価格・名前など）」だけが決まっていれば十分です。そこに余計な知識（トッピングの種類名や価格の具体的な値）が入り込んでいることを「知識が漏れている」と表現します。
 
 `CustomDrink`の中には、`hasMilk`・`hasWhip`・`hasSyrup`というフラグが並んでいます。基本ドリンク側が、追加できるトッピング名、価格、説明、個数の表現方法まで知っている状態です。
 
@@ -633,10 +620,7 @@ class CoffeeMilkWhipMatcha : public Coffee { };
 
 継承ツリーはメニューの「全組み合わせ」を型として持つことになります。
 
-**この段階の評価：** 順序を区別せず、各トッピングを0回または1回だけ選ぶ場合でも、3種類なら最大2³ = 8通り、5種類なら最大2⁵ = 32通りの組み合わせ候補があります。すべてを専用サブクラスで表せば、トッピング追加のたびに組み合わせクラスが増えます。順序を区別したり、ホイップ×2のような重ね掛けを許したりするなら候補数はさらに増えます。継承でも `DoubleWhipCoffee` のような専用クラスを作れば表現できますが、回数や組み合わせごとに型を増やす方法は現実的に管理しにくくなります。
-
-> [!INFO] コラム: クラスの「爆発」とは？
-> 「トッピングくらい継承で作ればいいのでは？」と思うかもしれません。しかし、トッピングが3種類なら組み合わせは 2^3=8 通りですが、5種類になれば32通りに増えます。さらに「ホイップを2回追加する」といった重複を許すと、もはや継承では表現しきれません。このように、機能の組み合わせによってクラス数が指数関数的に増えて破綻してしまう状態を、設計用語で「クラスの爆発」と呼びます。
+**この段階の評価：** トッピングが3種類なら 2³ = 8クラス、5種類なら 2⁵ = 32クラスが必要になる。「抹茶パウダー」1つを追加しようとしただけで、既存のすべての組み合わせに抹茶を足したクラスが一気に増える。また、ホイップ×2（ダブル）のような「同じトッピングを複数回」は、継承では原理的に表現できない。この方向はすぐに行き詰まる。
 
 「継承ではなく、トッピングを独立したクラスとして切り出せないか」という方向に思考が向く。
 
@@ -799,11 +783,11 @@ int main() {
 ```
 
 > [!INFO] 生ポインタの使用について
-> このサンプルでは抽象インターフェース経由のトッピング設定を示すため、生ポインタ（`ITopping* milk` 等）を使用しています。実際のプロダクションコードでは `std::unique_ptr` などのスマートポインタや参照渡しを使用して、所有権を明確にしてください。
+> このサンプルでは抽象インターフェース経由のトッピング設定を示すため、生ポインタ（`ITopping* milk` 等）を使用しています。実際のプロダクションコードでは `std::unique_ptr` などのスマートポインタや参照渡しを使用して、所有権を明確にすることをお勧めします。
 
 `CustomDrink` は具体クラス名（`Milk`, `Whip`）を知らなくなりました。コンストラクタ引数の爆発もなくなっています。
 
-**この段階の評価：** ミルクを `ITopping` を実装した別のクラスに差し替えても `CustomDrink` は変更不要になった。しかし、`Choco`（チョコチップ）を追加しようとすると、`CustomDrink` に `ITopping* choco = nullptr;` と `setChoco()` メソッドを追加し、`getPrice()` と `getDescription()` にも `if (choco)` を書き足す必要がある。トッピングの「枠（スロット）」が `CustomDrink` に固定されている限り、新しいトッピングを追加するたびに `CustomDrink` を修正必要が生じますという根本は変わっていない。また、「ホイップをダブルにする」という要望（`new Whip(new Whip(...))` のような連鎖）は実現できない。この方式を**固定スロット方式**と呼ぶことにします。`CustomDrink` が「ミルク用」「ホイップ用」「シロップ用」という固定の枠（スロット）を持っており、新しいトッピングを追加するには枠自体を増やす必要があるためです。
+**この段階の評価：** ミルクを `ITopping` を実装した別のクラスに差し替えても `CustomDrink` は変更不要になった。しかし、`Choco`（チョコチップ）を追加しようとすると、`CustomDrink` に `ITopping* choco = nullptr;` と `setChoco()` メソッドを追加し、`getPrice()` と `getDescription()` にも `if (choco)` を書き足す必要がある。トッピングの「枠（スロット）」が `CustomDrink` に固定されている限り、新しいトッピングを追加するたびに `CustomDrink` を修正が必要になるという根本は変わっていない。また、「ホイップをダブルにする」という要望（`new Whip(new Whip(...))` のような連鎖）は実現できない。この方式を**固定スロット方式**と呼ぶことにします。`CustomDrink` が「ミルク用」「ホイップ用」「シロップ用」という固定の枠（スロット）を持っており、新しいトッピングを追加するには枠自体を増やす必要があるためです。
 
 「`CustomDrink` にスロットを追加せずにトッピングを足したい」という問いが浮かぶ。
 
@@ -911,15 +895,9 @@ IDrink* double_whip = new Whip(new Whip(new Coffee()));
 
 **IDrink インターフェース（契約）：**
 
-> [!INFO] ここからスマートポインタ（`std::unique_ptr`）を使います
-> フェーズ3〜4の途中コードでは、説明をシンプルにするため生ポインタ（`IDrink*`）を使っていました。フェーズ7の最終コードでは、Decoratorの「外側が内側を所有する」という構造を表すために `std::unique_ptr<IDrink>` を使っています。`unique_ptr` は「このポインタが指すオブジェクトの所有者はここ1か所だけ」を型で表明するもので、スコープを外れると自動的にメモリを解放します。`new` / `delete` を手書きしなくてよい分、プロダクションコードでは生ポインタより安全です。
-
 ```cpp
-#include <cassert>
 #include <iostream>
-#include <memory>
 #include <string>
-#include <utility>
 
 using namespace std;
 
@@ -954,10 +932,10 @@ public:
 class ToppingWrapper : public IDrink {
 protected:
     // ← 中身（基本ドリンクや他のトッピング）を隠し持つ
-    std::unique_ptr<IDrink> baseDrink;
+    IDrink* baseDrink;
 public:
-    explicit ToppingWrapper(std::unique_ptr<IDrink> base)
-        : baseDrink(std::move(base)) {}
+    ToppingWrapper(IDrink* base) : baseDrink(base) {}
+    ~ToppingWrapper() override { delete baseDrink; }
 };
 ```
 
@@ -969,8 +947,7 @@ public:
 // 具体的なトッピング：ミルク
 class Milk : public ToppingWrapper {
 public:
-    explicit Milk(std::unique_ptr<IDrink> base)
-        : ToppingWrapper(std::move(base)) {}
+    Milk(IDrink* base) : ToppingWrapper(base) {}
     int getPrice() const override {
         // ← 中身が何であるかは知らなくていい。価格を上乗せするだけ
         return baseDrink->getPrice() + 50;
@@ -983,8 +960,7 @@ public:
 // 具体的なトッピング：ホイップ
 class Whip : public ToppingWrapper {
 public:
-    explicit Whip(std::unique_ptr<IDrink> base)
-        : ToppingWrapper(std::move(base)) {}
+    Whip(IDrink* base) : ToppingWrapper(base) {}
     int getPrice() const override {
         return baseDrink->getPrice() + 70;
     }
@@ -999,11 +975,10 @@ public:
 **Syrup クラス・Matcha クラス（新規追加トッピング）：**
 
 ```cpp
-// 新しいトッピングの振る舞いを追加し、組み立て側で利用する
+// ← 新しいトッピングを追加する場合は、クラスを1つ増やすだけ（ここだけ変わる）
 class Syrup : public ToppingWrapper {
 public:
-    explicit Syrup(std::unique_ptr<IDrink> base)
-        : ToppingWrapper(std::move(base)) {}
+    Syrup(IDrink* base) : ToppingWrapper(base) {}
     int getPrice() const override {
         return baseDrink->getPrice() + 30;
     }
@@ -1014,8 +989,7 @@ public:
 
 class Matcha : public ToppingWrapper {
 public:
-    explicit Matcha(std::unique_ptr<IDrink> base)
-        : ToppingWrapper(std::move(base)) {}
+    Matcha(IDrink* base) : ToppingWrapper(base) {}
     int getPrice() const override {
         return baseDrink->getPrice() + 60;
     }
@@ -1026,8 +1000,7 @@ public:
 
 class Choco : public ToppingWrapper {
 public:
-    explicit Choco(std::unique_ptr<IDrink> base)
-        : ToppingWrapper(std::move(base)) {}
+    Choco(IDrink* base) : ToppingWrapper(base) {}
     int getPrice() const override {
         return baseDrink->getPrice() + 40;
     }
@@ -1037,7 +1010,7 @@ public:
 };
 ```
 
-佐藤マネージャーが要求した「抹茶パウダーの追加」も「チョコチップの追加」も、それぞれのクラスを1つ追加することで対応できます。中心となる既存クラスは変更していません。
+佐藤マネージャーが要求した「抹茶パウダーの追加」も「チョコチップの追加」も、それぞれのクラスを1つ作るだけで完結します。中心となる既存クラスは変更していません。
 
 **OrderApplication クラス（組み立てと実行）：**
 
@@ -1047,71 +1020,61 @@ class OrderApplication {
 public:
     void run() {
         // 行1：コーヒーのみ
-        auto o1 = std::make_unique<Coffee>();
+        IDrink* o1 = new Coffee();
         cout << o1->getDescription() << " → " << o1->getPrice() << "円" << endl;
+        delete o1;
 
         // 行2：コーヒー + ミルク
-        auto o2 = std::make_unique<Milk>(
-            std::make_unique<Coffee>());
+        IDrink* o2 = new Milk(new Coffee());
         cout << o2->getDescription() << " → " << o2->getPrice() << "円" << endl;
+        delete o2;
 
         // 行3：コーヒー + ミルク + シロップ
-        auto o3 = std::make_unique<Syrup>(
-            std::make_unique<Milk>(
-                std::make_unique<Coffee>()));
+        IDrink* o3 = new Syrup(new Milk(new Coffee()));
         cout << o3->getDescription() << " → " << o3->getPrice() << "円" << endl;
+        delete o3;
 
         // 行4：コーヒー + ミルク + ホイップ
-        auto o4 = std::make_unique<Whip>(
-            std::make_unique<Milk>(
-                std::make_unique<Coffee>()));
+        IDrink* o4 = new Whip(new Milk(new Coffee()));
         cout << o4->getDescription() << " → " << o4->getPrice() << "円" << endl;
+        delete o4;
 
         // 行5：コーヒー + ホイップ × 2（ダブル）
-        auto o5 = std::make_unique<Whip>(
-            std::make_unique<Whip>(
-                std::make_unique<Coffee>()));
+        IDrink* o5 = new Whip(new Whip(new Coffee()));
         cout << o5->getDescription() << " → " << o5->getPrice() << "円" << endl;
+        delete o5;
 
         // 行6：コーヒー + ミルク + シロップ + ホイップ
-        auto o6 = std::make_unique<Whip>(
-            std::make_unique<Syrup>(
-                std::make_unique<Milk>(
-                    std::make_unique<Coffee>())));
+        IDrink* o6 = new Whip(new Syrup(new Milk(new Coffee())));
         cout << o6->getDescription() << " → " << o6->getPrice() << "円" << endl;
+        delete o6;
 
         // 行7：コーヒー + ミルク + シロップ + ホイップ + 抹茶（全5種）
-        auto o7 = std::make_unique<Matcha>(
-            std::make_unique<Whip>(
-                std::make_unique<Syrup>(
-                    std::make_unique<Milk>(
-                        std::make_unique<Coffee>()))));
+        IDrink* o7 = new Matcha(
+            new Whip(new Syrup(new Milk(new Coffee()))));
         cout << o7->getDescription() << " → " << o7->getPrice() << "円" << endl;
+        delete o7;
 
         // 行8：コーヒー + チョコ（変更要求で追加されたトッピング）
-        auto o8 = std::make_unique<Choco>(
-            std::make_unique<Coffee>());
+        IDrink* o8 = new Choco(new Coffee());
         cout << o8->getDescription() << " → " << o8->getPrice() << "円" << endl;
+        delete o8;
 
         // 行9：コーヒー + ミルク + 抹茶 + チョコ（新トッピング2種の組み合わせ）
-        auto o9 = std::make_unique<Choco>(
-            std::make_unique<Matcha>(
-                std::make_unique<Milk>(
-                    std::make_unique<Coffee>())));
+        IDrink* o9 = new Choco(
+            new Matcha(new Milk(new Coffee())));
         cout << o9->getDescription() << " → " << o9->getPrice() << "円" << endl;
-
-        // unique_ptrの連鎖により、外側の破棄時に内側も順に解放される
+        delete o9;
     }
 
     void testOrderCalculation() {
-        auto o1 = std::make_unique<Coffee>();
+        IDrink* o1 = new Coffee();
         assert(o1->getPrice() == 300);  // ← Coffee のみ: 300円
+        delete o1;
 
-        auto o6 = std::make_unique<Whip>(
-            std::make_unique<Syrup>(
-                std::make_unique<Milk>(
-                    std::make_unique<Coffee>())));
+        IDrink* o6 = new Whip(new Syrup(new Milk(new Coffee())));
         assert(o6->getPrice() == 450);  // ← 300 + 50 + 30 + 70 = 450円
+        delete o6;
     }
 };
 
@@ -1197,7 +1160,7 @@ graph LR
     T1 -. "影響なし" .-> B["Milk ✅"]
 ```
 
-フェーズ3のグラフと比較して、新しいトッピングを追加する変更が、トッピング実装クラスと利用時の組み立て部分だけに寄ったことを確認できます。既存の`Coffee`や`Milk`のコードは一切修正する必要がありません。これがDecoratorパターンが実現する「既存クラスを変えずに機能を追加できる」という恩恵です。
+フェーズ3のグラフと比較して、新しいトッピングを追加する変更が、トッピング実装と利用時の組み立てへ寄ったことを読み取れます。既存の`Coffee`や`Milk`には影響の矢印が向かっていません。
 
 ---
 
@@ -1208,10 +1171,10 @@ graph LR
 | **シナリオ** | **変わるクラス** | **変わらないクラス** |
 | --- | --- | --- |
 | 新しいトッピング「抹茶」を追加する | `Matcha`（新規追加）、`OrderApplication`（組み立て側） | `IDrink`, `Coffee`, `Milk`, `Whip` など既存のすべてのロジック |
-| ミルクの価格を50円から60円に値上げする | `Milk`（1行）および組み立てコード | `IDrink`, `Coffee`, 他のトッピング, `OrderApplication` |
+| ミルクの価格を50円から60円に値上げする | `Milk`（1行修正） | `IDrink`, `Coffee`, 他のトッピング, `OrderApplication` |
 | ホイップをダブル（2回追加）にする | `OrderApplication`（組み立て側で `Whip` を2回重ねるだけ） | `IDrink`, `Coffee`, `Whip` などのすべてのクラス |
 
-トッピング固有の価格・説明は各Decoratorへ置き、利用する組み合わせは `OrderApplication` で変更できます。基本ドリンクや既存トッピングへ新しい条件分岐を増やさずに済むことが、この設計で手に入れたものです。代わりに、小さなクラスと組み立てコードが増える複雑さを引き受けます。
+変更が来ても、触るのは1クラスだけ——それがこの設計で手に入れたものだ。諦めたものは、小さなクラスが複数生まれるというわずかな複雑さだ。
 
 ---
 
@@ -1283,9 +1246,9 @@ graph LR
 
 この章で辿った思考プロセスを、あなた自身のコードに当てはめてみましょう。
 
-1. **変動の兆候を探す：** あなたのコードに「機能の組み合わせが増えるたびに、既存クラスを継承した新しいサブクラスを作っている」箇所がありますか？
+1. **変動の兆候を探す：** あなたのコードに「機能の組み合わせが増えるたびに、既存クラスを継承した新しいサブクラスを作っている」パターンがありますか？
 2. **変える理由を問う：** その機能の組み合わせは、誰の判断で変わりますか？コンパイル時に決まるものですか、それとも実行時に動的に変わるものですか？
-3. **継承の限界を測る：** n種類を各0回または1回、順序なしで組み合わせるだけでも候補は2ⁿ通りです。実際に必要な組み合わせ、順序、重複回数を専用サブクラスで管理できる数に収まっていますか？
+3. **継承の限界を測る：** トッピングの種類が n 種類になったとき、継承で全組み合わせを表現すると 2ⁿ 個のサブクラスが必要になります。あなたのコードは現実的に管理できる数に収まっていますか？
 4. **包んだ後を想像する：** もし「機能を追加する層」をクラスとして独立させると、既存のクラスに触れずに新しい機能を加えられますか？組み合わせの数はどう変わりますか？
 
 ---

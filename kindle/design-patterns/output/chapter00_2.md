@@ -397,7 +397,8 @@ PaymentCalculator が customerType と campaignFlag を判定している。
 
 ```text
 例：
-- 接続点A：OrderProcessor.process() が DiscountRule.calculate(price, "Premium") を直接呼んでいる
+- 接続点A：OrderProcessor.process() が
+  DiscountRule.calculate(price, "Premium") を直接呼んでいる
   → 割引計算の引数の型・順序が変わるたびに、OrderProcessor の修正が必要になる
 - 接続点B：DiscountRule.calculate() が PricingService.getBasePrice(itemId) を直接呼んでいる
   → 価格取得の仕組みが変わるたびに、DiscountRule の修正が必要になる

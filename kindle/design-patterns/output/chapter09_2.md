@@ -855,7 +855,8 @@ class EscalationEngine {
 public:
     EscalationEngine(IPriorityRule* s) : strategy(s) {}
     void checkAndEscalate(string ticketId) {
-        string priority = strategy->getPriority("premium"); // EscalationEngineはPremium用途に限定して使うため
+        // EscalationEngineはPremium用途に限定して使うため
+        string priority = strategy->getPriority("premium");
         cout << "[EscalationEngine] 判定優先度: " << priority << endl;
         if (priority == "High") {
             cout << "[EscalationEngine] チケット " << ticketId
@@ -1034,7 +1035,8 @@ public:
     EscalationEngine(IPriorityRule* s, ITicketPhase* st)
         : strategy(s), state(st) {}
     void checkAndEscalate(string ticketId) {
-        string priority = strategy->getPriority("premium"); // EscalationEngineはPremium用途に限定して使うため
+        // EscalationEngineはPremium用途に限定して使うため
+        string priority = strategy->getPriority("premium");
         if (priority == "High") {
             cout << "[EscalationEngine] チケット " << ticketId
                  << " をエスカレーション。" << endl;
@@ -1245,7 +1247,8 @@ public:
     EscalationEngine(IPriorityRule* s, ITicketPhase* st)
         : strategy(s), state(st) {}
     void checkAndEscalate(string ticketId) {
-        string priority = strategy->getPriority("premium"); // EscalationEngineはPremium用途に限定して使うため
+        // EscalationEngineはPremium用途に限定して使うため
+        string priority = strategy->getPriority("premium");
         cout << "[EscalationEngine] 判定優先度: " << priority << endl;
         if (priority == "High") {
             cout << "[EscalationEngine] チケット " << ticketId
