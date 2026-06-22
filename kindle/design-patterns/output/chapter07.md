@@ -53,7 +53,8 @@
 
 ### 1-2：動作例テーブル
 
-コードを読む前に、このシステムがどんな入力に対してどんな出力を返すかを確認します。以下のテーブルは、この章の最終実装（フェーズ7）が実現する動作の全シナリオです。
+コードを読む前に、変更要求が届く前の在庫システムがどんな入力に対して
+どんな通知を行うか確認します。
 
 | シナリオ | 操作 | 通知・更新の結果 |
 | --- | --- | --- |
@@ -61,12 +62,9 @@
 | 在庫が閾値以下に減少（複数通知先） | パンツ-002の在庫を3減らす | 全通知先へ送信・更新 |
 | 在庫が補充された（閾値超え） | Tシャツ-001の在庫を20補充する | 送信されない・更新なし |
 | 在庫が閾値ちょうどに減少（境界値） | キャップ-003の在庫を1減らす | 全通知先へ送信・更新 |
-| 出荷完了イベント | ORDER-001の出荷完了を記録する | 全通知先へ送信・更新 |
-| 通知先をChatのみ登録した状態 | シューズ-004の在庫を2減らす | Chat通知のみ送信 |
 
-このテーブルが示す通り、在庫が閾値以下になるたびに登録されているすべての通知先へメッセージが届き、閾値を超えていれば誰にも送らない、という動作が核心です。シナリオ1〜5については「どのステップを選ぶか」は実装の構造の話であって、動作結果は変わりません。ただしシナリオ6（通知先を動的に選択する動作）はフェーズ7のObserverパターン導入後にのみ実現できます。
-
-> **注：** フェーズ7の最終実装では Email・Chat・SMS（田中部長の変更要求）・ダッシュボードの4通知先が登録されており、シナリオ1〜5の「全通知先へ送信・更新」にはSMSも含まれます。また、シナリオ6（通知先をChatのみ登録した状態）は、フェーズ7の Observer パターン導入後にのみ実現できる動作です。現状コード（1-4節）では全通知先がハードコードされているため、このシナリオを再現することはできません。
+在庫が閾値以下になったときは現在の3通知先すべてへ送り、閾値を超えて
+いるときは通知しないことが核心です。
 
 次は仕様とクラスを対応づけます。
 
@@ -91,7 +89,9 @@ classDiagram
         -EmailNotifier email
         -DashboardUpdater dashboard
         -ChatNotifier chat
+        -map stock
         +reduceStock(productId, quantity)
+        +replenishStock(productId, quantity)
         -notifyAll(message)
     }
     class EmailNotifier {
@@ -123,6 +123,7 @@ classDiagram
 ```cpp
 #include <iostream>
 #include <string>
+#include <unordered_map>
 
 using namespace std;
 
@@ -149,15 +150,32 @@ private:
     EmailNotifier email;
     DashboardUpdater dashboard;
     ChatNotifier chat;
+    unordered_map<string, int> stock;
+    const int threshold = 5;
 
 public:
+    void setStock(const string& productId, int quantity) {
+        stock[productId] = quantity;
+    }
+
     void reduceStock(string productId, int quantity) {
+        stock[productId] -= quantity;
         cout << "商品 " << productId
-             << " の在庫を " << quantity << " 減らしました。" << endl;
-        
-        // 在庫が減ったことを検知して通知する
-        string message = "商品 " + productId + " の在庫が減少しました。";
-        notifyAll(message);
+             << " の在庫を " << quantity << " 減らしました。残数: "
+             << stock[productId] << endl;
+
+        if (stock[productId] <= threshold) {
+            string message = "商品 " + productId
+                           + " の在庫が閾値以下です。";
+            notifyAll(message);
+        }
+    }
+
+    void replenishStock(string productId, int quantity) {
+        stock[productId] += quantity;
+        cout << "商品 " << productId
+             << " の在庫を " << quantity << " 補充しました。残数: "
+             << stock[productId] << endl;
     }
 
 private:
@@ -171,12 +189,52 @@ private:
 
 int main() {
     InventoryManager manager;
+
+    manager.setStock("T-shirt-001", 10);
+    manager.setStock("Pants-002", 8);
+    manager.setStock("Cap-003", 6);
+
+    cout << "--- 行1: Tシャツを5減らす ---" << endl;
     manager.reduceStock("T-shirt-001", 5);
+
+    cout << "--- 行2: パンツを3減らす ---" << endl;
+    manager.reduceStock("Pants-002", 3);
+
+    cout << "--- 行3: Tシャツを20補充する ---" << endl;
+    manager.replenishStock("T-shirt-001", 20);
+
+    cout << "--- 行4: キャップを1減らす ---" << endl;
+    manager.reduceStock("Cap-003", 1);
     return 0;
 }
 ```
 
-このコードを見ると、InventoryManager クラスがどの通知先クラスが存在し、どうやって通知を送るかをすべて直接知っていることが分かります。
+上記コードの実行結果：
+
+```text
+--- 行1: Tシャツを5減らす ---
+商品 T-shirt-001 の在庫を 5 減らしました。残数: 5
+Email: 商品 T-shirt-001 の在庫が閾値以下です。
+Dashboard: 商品 T-shirt-001 の在庫が閾値以下です。
+Chat: 商品 T-shirt-001 の在庫が閾値以下です。
+--- 行2: パンツを3減らす ---
+商品 Pants-002 の在庫を 3 減らしました。残数: 5
+Email: 商品 Pants-002 の在庫が閾値以下です。
+Dashboard: 商品 Pants-002 の在庫が閾値以下です。
+Chat: 商品 Pants-002 の在庫が閾値以下です。
+--- 行3: Tシャツを20補充する ---
+商品 T-shirt-001 の在庫を 20 補充しました。残数: 25
+--- 行4: キャップを1減らす ---
+商品 Cap-003 の在庫を 1 減らしました。残数: 5
+Email: 商品 Cap-003 の在庫が閾値以下です。
+Dashboard: 商品 Cap-003 の在庫が閾値以下です。
+Chat: 商品 Cap-003 の在庫が閾値以下です。
+```
+
+動作例テーブルの全4行について、閾値以下では3通知先へ送信され、
+補充後に閾値を超えている場合は通知されないことを確認できました。
+同時に、`InventoryManager` が通知先のクラス名と呼び出し方をすべて直接
+知っていることも分かります。
 
 ---
 ---

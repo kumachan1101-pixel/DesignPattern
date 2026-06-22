@@ -1,4 +1,4 @@
-﻿## 第11章 レポート生成エンジン ―― Template Method × Decorator × Command パターン
+## 第11章 レポート生成エンジン ―― Template Method × Decorator × Command パターン
 
 ―― 思考の型：処理の定型化と機能拡張、そして実行履歴をどう両立させるか
 
@@ -370,7 +370,7 @@ graph LR
 
 **1つ目：処理の手順が「固定化」されていることの限界。** グラフやロゴといった個別の装飾機能が、レポート生成という共通の骨格と同じ場所に記述されているため、装飾の有無や順序を変えるだけで、全体の生成フローをすべて書き換えなければなりません。
 
-**2つ目：操作履歴という「管理責務」の混入。** 本来、レポートの生成処理はデータをレポートにするだけで完結する必要があるのに、操作の履歴を取るという「管理機能」が、生成ロジックと密接に絡み合っています。これにより、生成ロジックをリファクタリングしようとすると、履歴管理の仕組みまで引きずり回されるという、極めて不安定な状態に陥っています。
+**2つ目：操作履歴という「管理責務」の混入。** 本来、レポートの生成処理はデータをレポートにするだけで完結する必要があるのに、操作の履歴を取るという「管理機能」が、生成ロジックと密接に絡み合っています。これにより、生成ロジックをリファクタリングしようとすると、履歴管理の仕組みまで引きずり回されるという、不安定になりがちです。
 
 フェーズ3で「変更が辛い」ことが確認できました。次のフェーズ4では、なぜ辛いのかを構造的に言語化します。
 
@@ -504,7 +504,7 @@ public:
 
 ---
 > **📌 課題（確定）**
-> `ReportSkeleton` から切り離す塊は2つある。1つ目は「どの装飾を加えるか（`if` 文の塊）」という装飾機能の知識で、これを `GraphFeature` や `WatermarkFeature` として骨格の外に独立させること。2つ目は「操作を誰が記録し、どう取り消すか」という履歴管理の知識で、これを `GenerateReportAction` として骨格とは別の層に分離すること。この2つを分離して初めて、骨格・装飾・履歴それぞれへの変更が互いに影響しない構造が実現できる。
+> `ReportSkeleton` から切り離す塊は2つある。1つ目は「どの装飾を加えるか（`if` 文の塊）」という装飾機能の知識で、これを `GraphFeature` や `WatermarkFeature` として骨格の外に独立させること。2つ目は「操作を誰が記録し、どう取り消すか」という履歴管理の知識で、これを `GenerateReportAction` として骨格とは別の層に分離すること。この2つを分離して初めて、骨格・装飾・履歴それぞれへの変更が互いに影響しない構造が実現できる。なお、これらの切り離しに伴い、具体クラスを組み立てる箇所（コンポジションコード）やテストコードにも対応する修正が必要になる点に注意すること。
 ---
 
 ターゲットが2つに絞られました。フェーズ6では、この分離をどのステップで・どの形で実現するかを段階的に検討します。
@@ -990,7 +990,7 @@ public:
 具体的なクラス名（`MonthlyReport`等）を知っているのは、この組み立てを行う箇所だけです。生成したCommandは履歴が所有し、Commandはレポート生成器を所有します。これにより、履歴からCommandを取り除くと、そのDecoratorチェーンまでまとめて破棄されます。
 
 ```cpp
-// BatchApplication: 具体クラスを知っている唯一の場所
+// BatchApplication: 具体クラスを知っている主な場所
 class BatchApplication {
     vector<unique_ptr<IReportAction>> history;
 
@@ -1143,7 +1143,7 @@ sequenceDiagram
     participant GRA as GenerateReportAction
     participant WF as WatermarkFeature
     participant SR as StandardReport
-    Note over BA: 具体型を組み立てる唯一の場所
+    Note over BA: 具体型を組み立てる主な場所
     BA->>SR: make_unique StandardReport
     BA->>WF: make_unique WatermarkFeature(StandardReport)
     BA->>GRA: make_unique GenerateReportAction(WatermarkFeature, path)

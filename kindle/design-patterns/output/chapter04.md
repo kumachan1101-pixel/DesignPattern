@@ -55,7 +55,9 @@
 
 ### 1-2：動作例テーブル
 
-コードを読む前に、このシステムがどんな入力に対してどんな出力を返すかを確認します。後半の簡略コードでは、直営店・FC店・EC店の代表的な成功シナリオをログで確認します。空ファイル・全行不正・大量データなど、実データの内容に依存するシナリオは仕様として残し、本番実装では別途テストする対象とします。
+コードを読む前に、変更要求が届く前のシステムがどんな入力に対して
+どんな出力を返すかを確認します。ここでは現在対応している直営店とFC店の
+正常系・境界ケースを基準にします。
 
 | 入力ファイル | フォーマット種別 | データの状態 | 期待する出力 |
 | --- | --- | --- | --- |
@@ -63,9 +65,6 @@
 | FC店CSVファイル | タブ区切り・不正行スキップ | 正常データ5件 | インポート成功、5件更新 |
 | 直営店CSVファイル | カンマ区切り・ヘッダー行あり | 空ファイル（ヘッダー行のみ） | 0件インポート、エラーなし |
 | FC店CSVファイル | タブ区切り・不正行スキップ | 全行不正データ | 0件インポート、エラー件数を報告 |
-| ↓ 変更要求による追加分（EC店対応は1-5節で導入）↓ | | | |
-| EC店CSVファイル | カンマ区切り・ポイント列・会員ランク列あり | 正常データ8件 + 不正データ行2件 | 正常行8件のみ処理、エラー行2件スキップ |
-| EC店CSVファイル | カンマ区切り・ポイント列・会員ランク列あり | 正常データ100件（大量） | インポート成功、100件追加 |
 ---
 
 ### 1-3：クラス構成図
@@ -118,117 +117,135 @@ classDiagram
 実際の処理コードを見てみましょう。直営店用とFC店用の2クラスが存在します。どちらも「開く→加工→保存→閉じる」という大きな流れは共通していますが、パースの中身は少し違っています。クラスごとにブロックを分けて確認します。
 
 ```cpp
+#include <iostream>
+
 // 直営店データのインポート（カンマ区切り・ヘッダー行あり）
 class StoreDataImporter {
+    int validRows;
 public:
+    explicit StoreDataImporter(int rows) : validRows(rows) {}
+
     void import() {
         // 手順：開く → 加工 → 保存
         openFile();
         parseStoreCSV(); // カンマ区切りでヘッダー行をスキップして読む
         saveToDB();
         closeFile();
+        std::cout << "インポート成功: " << validRows << "件追加\n";
     }
 private:
+    void openFile() { std::cout << "直営店CSVを開く\n"; }
     void parseStoreCSV() {
         // ヘッダー行をスキップし、カンマで各フィールドに分割する
         skipHeader();
         splitByComma();
     }
+    void skipHeader() { std::cout << "ヘッダーをスキップ\n"; }
+    void splitByComma() { std::cout << "カンマ区切りで解析\n"; }
+    void saveToDB() {
+        std::cout << validRows << "件をDBへ追加\n";
+    }
+    void closeFile() { std::cout << "ファイルを閉じる\n"; }
 };
 
 // FC店データのインポート（タブ区切り・エラー行は無視する）
 class FCDataImporter {
+    int validRows;
+    int invalidRows;
 public:
+    FCDataImporter(int valid, int invalid)
+        : validRows(valid), invalidRows(invalid) {}
+
     void import() {
         // 手順：開く → 加工 → 保存
         openFile();
         parseFCCSV(); // タブ区切りで不正行をスキップしながら読む
         saveToDB();
         closeFile();
+        std::cout << "インポート成功: " << validRows << "件更新";
+        if (invalidRows > 0) {
+            std::cout << "、エラー" << invalidRows << "件";
+        }
+        std::cout << "\n";
     }
 private:
+    void openFile() { std::cout << "FC店CSVを開く\n"; }
     void parseFCCSV() {
         // タブで各フィールドに分割し、不正な行は読み飛ばす
         splitByTab();
         skipInvalidRows();
     }
+    void splitByTab() { std::cout << "タブ区切りで解析\n"; }
+    void skipInvalidRows() {
+        std::cout << "不正行を" << invalidRows << "件スキップ\n";
+    }
+    void saveToDB() {
+        std::cout << validRows << "件をDBへ更新\n";
+    }
+    void closeFile() { std::cout << "ファイルを閉じる\n"; }
 };
-
 ```
 
 このコードを見ると、`import` メソッドの中で「開く」「加工」「保存」「閉じる」という手順がどちらも同じ順序で記述されていることが分かります。一方で、加工ステップの中身（`parseStoreCSV` と `parseFCCSV`）は、区切り文字やエラー処理の方針が異なっています。「手順の骨格は共通で、詳細部分だけが違う」という構造が見て取れます。
 
-動作確認用スタブで手順の流れを確認します（動作例テーブル行1・行2に対応）。
+#### 呼び出し元と実行確認
 
 ```cpp
-#include <iostream>
-using namespace std;
-
-class StoreDataImporter {
-public:
-    void import() {
-        openFile();
-        parseStoreCSV();
-        saveToDB();
-        closeFile();
-    }
-private:
-    void openFile()      { cout << "ファイルを開く" << endl; }
-    void skipHeader()    { cout << "ヘッダー行をスキップ" << endl; }
-    void splitByComma()  {
-        cout << "カンマ区切りで10件を読み込み" << endl;
-    }
-    void parseStoreCSV() { skipHeader(); splitByComma(); }
-    void saveToDB()      { cout << "DBに保存（10件追加）" << endl; }
-    void closeFile()     { cout << "ファイルを閉じる" << endl; }
-};
-
-class FCDataImporter {
-public:
-    void import() {
-        openFile();
-        parseFCCSV();
-        saveToDB();
-        closeFile();
-    }
-private:
-    void openFile()        { cout << "ファイルを開く" << endl; }
-    void splitByTab()      { cout << "タブ区切りで行を分割" << endl; }
-    void skipInvalidRows() { cout << "不正行をスキップ" << endl; }
-    void parseFCCSV()      { splitByTab(); skipInvalidRows(); }
-    void saveToDB()        { cout << "DBに保存（5件更新）" << endl; }
-    void closeFile()       { cout << "ファイルを閉じる" << endl; }
-};
-
 int main() {
-    cout << "--- 直営店インポート（正常10件） ---" << endl;
-    StoreDataImporter store;
-    store.import();
-    cout << "--- FC店インポート（正常5件） ---" << endl;
-    FCDataImporter fc;
-    fc.import();
+    std::cout << "--- 行1: 直営店10件 ---\n";
+    StoreDataImporter storeNormal(10);
+    storeNormal.import();
+
+    std::cout << "--- 行2: FC店5件 ---\n";
+    FCDataImporter fcNormal(5, 0);
+    fcNormal.import();
+
+    std::cout << "--- 行3: 直営店空ファイル ---\n";
+    StoreDataImporter storeEmpty(0);
+    storeEmpty.import();
+
+    std::cout << "--- 行4: FC店全行不正 ---\n";
+    FCDataImporter fcInvalid(0, 5);
+    fcInvalid.import();
     return 0;
 }
 ```
 
-実行結果：
+上記コードの実行結果：
 
-```
---- 直営店インポート（正常10件） ---
-ファイルを開く
-ヘッダー行をスキップ
-カンマ区切りで10件を読み込み
-DBに保存（10件追加）
+```text
+--- 行1: 直営店10件 ---
+直営店CSVを開く
+ヘッダーをスキップ
+カンマ区切りで解析
+10件をDBへ追加
 ファイルを閉じる
---- FC店インポート（正常5件） ---
-ファイルを開く
-タブ区切りで行を分割
-不正行をスキップ
-DBに保存（5件更新）
+インポート成功: 10件追加
+--- 行2: FC店5件 ---
+FC店CSVを開く
+タブ区切りで解析
+不正行を0件スキップ
+5件をDBへ更新
 ファイルを閉じる
+インポート成功: 5件更新
+--- 行3: 直営店空ファイル ---
+直営店CSVを開く
+ヘッダーをスキップ
+カンマ区切りで解析
+0件をDBへ追加
+ファイルを閉じる
+インポート成功: 0件追加
+--- 行4: FC店全行不正 ---
+FC店CSVを開く
+タブ区切りで解析
+不正行を5件スキップ
+0件をDBへ更新
+ファイルを閉じる
+インポート成功: 0件更新、エラー5件
 ```
 
-動作例テーブルの行1（直営店10件）と行2（FC店5件）の手順を確認できます。行3（空ファイル）・行4（全行不正）はエラー処理が必要なため、本番パーサーとテストデータで別途確認します。
+動作例テーブルの全4行について、処理順序、処理件数、不正行の報告が
+一致することを確認できました。
 
 ---
 

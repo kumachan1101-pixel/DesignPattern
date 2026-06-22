@@ -60,14 +60,14 @@ stateDiagram-v2
 
 コードを読む前に、このシステムがどんな入力に対してどんな出力を返すかを確認します。この章のどのステップも、以下の動作を実現します。
 
-| # | 現在の状態 | 操作 | 結果 | 備考 |
-|---|---|---|---|---|
-| 1 | Available（空席） | 予約する | Reserved（予約済み）へ遷移 | 通常の予約フロー |
-| 2 | Reserved（予約済み） | 支払う | Paid（支払い済み）へ遷移 | 支払い完了フロー |
-| 3 | Reserved（予約済み） | キャンセルする | Available（空席）へ戻る | 予約キャンセルフロー |
-| 4 | Paid（支払い済み） | キャンセルする | エラー（キャンセル不可） | 支払い後はキャンセルできない |
-| 5 | Available（空席） | 支払う | エラー（支払い不可） | 予約なしで支払いを試みた場合 |
-| 6 | Paid（支払い済み） | 予約する | エラー（予約不可） | 支払い済み座席には再予約できない |
+| 現在の状態 | 操作 | 結果 | 備考 |
+|---|---|---|---|
+| Available（空席） | 予約する | Reserved（予約済み）へ遷移 | 通常の予約フロー |
+| Reserved（予約済み） | 支払う | Paid（支払い済み）へ遷移 | 支払い完了フロー |
+| Reserved（予約済み） | キャンセルする | Available（空席）へ戻る | 予約キャンセルフロー |
+| Paid（支払い済み） | キャンセルする | エラー（キャンセル不可） | 支払い後はキャンセルできない |
+| Available（空席） | 支払う | エラー（支払い不可） | 予約なしで支払いを試みた場合 |
+| Paid（支払い済み） | 予約する | エラー（予約不可） | 支払い済み座席には再予約できない |
 
 この動作テーブルは、後のフェーズでステップを比較するときに「全ステップがこのテーブルと同じ出力を返すことで動作不変を確認する」ための基準として使います。ステップ1からステップ3まで、どれを採用しても上記の動作が変わってはいけません。違いはあくまで「変更が来たときにどこを触るか」という構造上の差だけです。
 
@@ -84,8 +84,6 @@ classDiagram
         +reserve()
         +pay()
         +cancel()
-        +hold()
-        +expire()
     }
 ```
 
@@ -113,7 +111,9 @@ class TicketReservation {
 private:
     std::string status; // "Available", "Reserved", "Paid"
 public:
-    TicketReservation() : status("Available") {}
+    explicit TicketReservation(
+        const std::string& initialStatus = "Available")
+        : status(initialStatus) {}
 
     void reserve() {
         if (status == "Available") {
@@ -148,9 +148,30 @@ public:
 
 ```cpp
 int main() {
-    TicketReservation seat;
-    seat.reserve();  // Available → Reserved
-    seat.pay();      // Reserved  → Paid
+    std::cout << "--- 行1: Availableで予約 ---\n";
+    TicketReservation row1("Available");
+    row1.reserve();
+
+    std::cout << "--- 行2: Reservedで支払い ---\n";
+    TicketReservation row2("Reserved");
+    row2.pay();
+
+    std::cout << "--- 行3: Reservedでキャンセル ---\n";
+    TicketReservation row3("Reserved");
+    row3.cancel();
+
+    std::cout << "--- 行4: Paidでキャンセル ---\n";
+    TicketReservation row4("Paid");
+    row4.cancel();
+
+    std::cout << "--- 行5: Availableで支払い ---\n";
+    TicketReservation row5("Available");
+    row5.pay();
+
+    std::cout << "--- 行6: Paidで予約 ---\n";
+    TicketReservation row6("Paid");
+    row6.reserve();
+
     return 0;
 }
 ```
@@ -158,11 +179,24 @@ int main() {
 上記コードの実行結果：
 
 ```
+--- 行1: Availableで予約 ---
 予約完了しました
+--- 行2: Reservedで支払い ---
 支払い完了しました
+--- 行3: Reservedでキャンセル ---
+予約をキャンセルしました
+--- 行4: Paidでキャンセル ---
+キャンセルできません
+--- 行5: Availableで支払い ---
+支払いに適した状態ではありません
+--- 行6: Paidで予約 ---
+現在予約できません
 ```
 
-動作例テーブルの行1（Available → Reserved）と行2（Reserved → Paid）と一致しています。次のフェーズで変更が来たときに何が起きるかを確認します。
+実システムでは保存済みデータから現在状態を復元するため、ここでは各行の
+開始状態をコンストラクタへ渡しています。動作例テーブルの全6行について、
+許可された遷移と禁止操作のエラーが一致することを確認できました。
+次のフェーズで変更が来たときに何が起きるかを確認します。
 
 ---
 
@@ -388,12 +422,23 @@ int main() {
 
 状態遷移マトリクスで見ると、Held を追加するとは「行を1行増やす」ことに見えます。
 
-| 現在の状態 | `reserve()` | `pay()` | `cancel()` | `hold()` | `expire()` |
-|---|---|---|---|---|---|
-| Available | → Reserved | —— | —— | —— | —— |
-| Reserved | —— | → Paid | → Available | → Held | —— |
-| Paid | —— | —— | —— | —— | —— |
-| **Held（新規）** | —— | → Paid | —— | —— | → Available |
+**状態遷移マトリクス（1）reserve / pay / cancel**
+
+| 現在の状態 | `reserve()` | `pay()` | `cancel()` |
+|---|---|---|---|
+| Available | → Reserved | —— | —— |
+| Reserved | —— | → Paid | → Available |
+| Paid | —— | —— | —— |
+| **Held（新規）** | —— | → Paid | —— |
+
+**状態遷移マトリクス（2）hold / expire**
+
+| 現在の状態 | `hold()` | `expire()` |
+|---|---|---|
+| Available | —— | —— |
+| Reserved | → Held | —— |
+| Paid | —— | —— |
+| **Held（新規）** | —— | → Available |
 
 しかし実装では、既存の `pay()` にHeldの分岐を追加し、`hold()` と `expire()` という操作も新設する必要があります。さらに、新しい2操作について、Available・Reserved・Paid・Heldの各状態で許可するか拒否するかを定義しなければなりません。状態の追加と操作の追加が同時に起きると、クラス内の条件分岐を縦横に確認する作業が発生します。
 
@@ -999,7 +1044,7 @@ void HeldState::expire(TicketReservation* ctx) {
 最後に、依存の組み立てと実行の責任を分離します。
 
 ```cpp
-// BatchApplication：依存の組み立てを担う唯一の場所
+// BatchApplication：依存の組み立てを担う主な場所
 class BatchApplication {
 public:
     void run() {
@@ -1353,7 +1398,7 @@ public:
 
 ### この章のまとめ
 
-チケット予約というドメインと Stateパターンの関係を一言で言うなら、状態と振る舞いを同じクラスに置く限り、状態が増えるたびにすべての条件分岐を開かなければならない、ということです。「仮予約」「確定」「キャンセル」という状態ごとに異なる振る舞いが `ReservationManager` の中に同居していた。その構造が条件分岐の爆発を生んでいた——そこまで分析できれば、「状態の追加を新しいクラスの作成だけで完結させる」という方向性は自然に見えてきます。
+チケット予約というドメインと Stateパターンの関係を一言で言うなら、状態と振る舞いを同じクラスに置く場合、状態が増えるたびに影響範囲が広がりやすい、ということです。「仮予約」「確定」「キャンセル」という状態ごとに異なる振る舞いが `ReservationManager` の中に同居していた。その構造が条件分岐の爆発を生んでいた——そこまで分析できれば、「状態の追加を新しいクラスの作成だけで完結させる」という方向性は自然に見えてきます。
 
 7つのフェーズを通じて、読者は `status` 文字列の直書きという観察から「誰の判断で変わるか」の分析へ、そして状態クラスへの分離という判断へと進みました。フェーズ2のヒアリングで「状態の種類は今後も増える」と確認した時点で変化軸が確定し、フェーズ4で「状態と振る舞いの混在」を接続点として特定した時点で解決の方向が定まる——その気づきの積み上げが、パターン名の暗記では得られない体験です。
 
