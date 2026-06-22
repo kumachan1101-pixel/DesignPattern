@@ -118,6 +118,10 @@ classDiagram
 はじめに注文のデータを保持するクラス群から見てみます。
 
 ```cpp
+#include <iostream>
+#include <string>
+#include <vector>
+
 // 商品クラス：商品名と単価を持つだけのシンプルなクラス
 class Item {
 public:
