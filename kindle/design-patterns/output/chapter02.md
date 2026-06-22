@@ -130,13 +130,23 @@ classDiagram
 // 銀行との通信を担うクラス
 class BankGateway {
 public:
-    void verifyAccount(const std::string& account) {
+    bool verifyAccount(const std::string& account) {
         std::cout << "口座確認: " << account << "\n";
+        if (account == "99999999") {
+            std::cout << "エラー: 口座なし\n";
+            return false;
+        }
+        return true;
     }
-    void checkBalance(int /*amount*/) {
+    bool checkBalance(int amount) {
         std::cout << "残高確認\n";
+        if (amount > 100000) {
+            std::cout << "エラー: 残高不足\n";
+            return false;
+        }
+        return true;
     }
-    void executeTransfer(const std::string& account, int amount) {
+    void executeTransfer(const std::string& /*account*/, int amount) {
         std::cout << "送金実行: " << amount << "円\n";
     }
 };
@@ -145,8 +155,13 @@ public:
 class SecurityAuthenticator {
 public:
     void requestOTP() { std::cout << "認証コード発行\n"; }
-    void verifyOTP(const std::string& token) {
+    bool verifyOTP(const std::string& token) {
         std::cout << "認証コード検証\n";
+        if (token == "INVALID") {
+            std::cout << "エラー: 認証失敗\n";
+            return false;
+        }
+        return true;
     }
 };
 ```
@@ -164,18 +179,29 @@ private:
     BankGateway gateway;
     SecurityAuthenticator auth;
 public:
-    void transfer(
+    bool transfer(
         const std::string& toAccount, int amount,
         const std::string& otp) {
         // 銀行システムの複雑な手順を直接制御している
-        gateway.verifyAccount(toAccount);
-        gateway.checkBalance(amount);
+        if (!gateway.verifyAccount(toAccount)) return false;
+        if (!gateway.checkBalance(amount)) return false;
 
         auth.requestOTP();
-        auth.verifyOTP(otp);
+        if (!auth.verifyOTP(otp)) return false;
 
         gateway.executeTransfer(toAccount, amount);
         std::cout << "振り込み完了\n";
+        return true;
+    }
+
+    bool transferApprovedBatch(
+        const std::string& toAccount, int amount) {
+        // 社内承認済みバッチ用。通常振込と手順が重複している
+        if (!gateway.verifyAccount(toAccount)) return false;
+        if (!gateway.checkBalance(amount)) return false;
+        gateway.executeTransfer(toAccount, amount);
+        std::cout << "振り込み完了（OTP不要）\n";
+        return true;
     }
 };
 
@@ -189,27 +215,37 @@ public:
         for (int i = 0; i < (int)transfers.size(); i++) {
             const std::string& account = transfers[i].first;
             int amount = transfers[i].second;
-            // 現在の仕様ではOTPをスキップできないため、ダミー値を渡す
-            processor.transfer(account, amount, "DUMMY");
+            processor.transferApprovedBatch(account, amount);
         }
     }
 };
 ```
 
-このクラス群が今章の中心です。`TransferProcessor` の `transfer` メソッドの中に「振り込みという業務フローの制御」と「銀行APIの具体的な呼び出し手順」が一緒に書かれていることを確認しておいてください。また、`BatchTransferProcessor` は一括処理を行いますが、現状ではOTPをスキップする手段がないため、ダミーのOTPを渡して `TransferProcessor` を呼び出しています。
-
-> [!INFO] コラム: なぜ「DUMMY」を渡しているの？
-> 既存の複雑なメソッドを使い回すために、ひとまず「DUMMY」などの値を入れて急場をしのぐコードは、実際の開発現場でもよく見かけます。しかし、これは「技術的負債」となり、後で外部APIの仕様が厳格化された際などにバグの原因になりがちです。Facadeパターンを適用して適切な窓口を再設計することは、こうした「無理な使い回し」を解消する有効な手段でもあります。
+このクラス群が今章の中心です。`TransferProcessor` の二つのメソッドには、
+「振り込みという業務フローの制御」と「銀行APIの具体的な呼び出し手順」が
+一緒に書かれています。バッチではOTPを省略できますが、口座確認・残高確認・
+送金という手順を通常振込とは別に記述しているため、銀行APIの手順変更では
+両方を修正する必要があります。
 
 #### 呼び出し元と実行確認
 
 ```cpp
 int main() {
-    // 個別振り込み（動作例1）
     TransferProcessor processor;
+
+    std::cout << "--- 行1: 正常な個別振り込み ---\n";
     processor.transfer("12345678", 5000, "999999");
 
-    // バッチ振り込み（動作例5）
+    std::cout << "--- 行2: 存在しない口座 ---\n";
+    processor.transfer("99999999", 5000, "999999");
+
+    std::cout << "--- 行3: 残高不足 ---\n";
+    processor.transfer("12345678", 1000000, "999999");
+
+    std::cout << "--- 行4: 認証失敗 ---\n";
+    processor.transfer("12345678", 5000, "INVALID");
+
+    std::cout << "--- 行5: 社内承認済みバッチ ---\n";
     BatchTransferProcessor batch;
     std::vector<std::pair<std::string, int>> payroll = {
         {"87654321", 30000}
@@ -223,25 +259,37 @@ int main() {
 上記コードの実行結果：
 
 ```
+--- 行1: 正常な個別振り込み ---
 口座確認: 12345678
 残高確認
 認証コード発行
 認証コード検証
 送金実行: 5000円
 振り込み完了
-口座確認: 87654321
+--- 行2: 存在しない口座 ---
+口座確認: 99999999
+エラー: 口座なし
+--- 行3: 残高不足 ---
+口座確認: 12345678
+残高確認
+エラー: 残高不足
+--- 行4: 認証失敗 ---
+口座確認: 12345678
 残高確認
 認証コード発行
 認証コード検証
+エラー: 認証失敗
+--- 行5: 社内承認済みバッチ ---
+口座確認: 87654321
+残高確認
 送金実行: 30000円
-振り込み完了
+振り込み完了（OTP不要）
 ```
 
-動作例テーブルの行1（12345678 / 5,000円 → 振り込み完了）と一致しています。
-
-行2〜4（口座なし・残高不足・認証失敗）については、現状コードの各メソッド（`verifyAccount`・`checkBalance`・`verifyOTP`）は `void` 型で処理を中止する仕組みを持っておらず、このコードでは表現していません。実際のシステムでは、これらのメソッドが例外またはエラーコードを返すことで後続処理を中止します。
-
-行5（バッチ処理・OTP不要）についても `BatchTransferProcessor` を通じて実行していますが、現状の `transfer` メソッドが常に `auth.requestOTP()` と `auth.verifyOTP()` を呼び出す構造のため、ダミーのOTPを渡して無理やり認証を通しており、不要なはずの認証処理が走ってしまっています。このバッチ処理でOTPをスキップする仕組みは、フェーズ7の改善後コードで実現されます。
+動作例テーブルの全5行について、成功時の処理順、失敗時の中止位置、
+バッチでOTPを実行しないことを確認できました。現状でも仕様は満たしています。
+問題は、通常振込とバッチ振込が銀行APIの手順をそれぞれ知り、同じ変更を
+複数のメソッドへ反映しなければならない構造にあります。
 
 次のフェーズで変更が来たときに何が起きるかを確認します。
 
