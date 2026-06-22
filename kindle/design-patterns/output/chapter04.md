@@ -158,6 +158,78 @@ private:
 
 このコードを見ると、`import` メソッドの中で「開く」「加工」「保存」「閉じる」という手順がどちらも同じ順序で記述されていることが分かります。一方で、加工ステップの中身（`parseStoreCSV` と `parseFCCSV`）は、区切り文字やエラー処理の方針が異なっています。「手順の骨格は共通で、詳細部分だけが違う」という構造が見て取れます。
 
+動作確認用スタブで手順の流れを確認します（動作例テーブル行1・行2に対応）。
+
+```cpp
+#include <iostream>
+using namespace std;
+
+class StoreDataImporter {
+public:
+    void import() {
+        openFile();
+        parseStoreCSV();
+        saveToDB();
+        closeFile();
+    }
+private:
+    void openFile()      { cout << "ファイルを開く" << endl; }
+    void skipHeader()    { cout << "ヘッダー行をスキップ" << endl; }
+    void splitByComma()  {
+        cout << "カンマ区切りで10件を読み込み" << endl;
+    }
+    void parseStoreCSV() { skipHeader(); splitByComma(); }
+    void saveToDB()      { cout << "DBに保存（10件追加）" << endl; }
+    void closeFile()     { cout << "ファイルを閉じる" << endl; }
+};
+
+class FCDataImporter {
+public:
+    void import() {
+        openFile();
+        parseFCCSV();
+        saveToDB();
+        closeFile();
+    }
+private:
+    void openFile()        { cout << "ファイルを開く" << endl; }
+    void splitByTab()      { cout << "タブ区切りで行を分割" << endl; }
+    void skipInvalidRows() { cout << "不正行をスキップ" << endl; }
+    void parseFCCSV()      { splitByTab(); skipInvalidRows(); }
+    void saveToDB()        { cout << "DBに保存（5件更新）" << endl; }
+    void closeFile()       { cout << "ファイルを閉じる" << endl; }
+};
+
+int main() {
+    cout << "--- 直営店インポート（正常10件） ---" << endl;
+    StoreDataImporter store;
+    store.import();
+    cout << "--- FC店インポート（正常5件） ---" << endl;
+    FCDataImporter fc;
+    fc.import();
+    return 0;
+}
+```
+
+実行結果：
+
+```
+--- 直営店インポート（正常10件） ---
+ファイルを開く
+ヘッダー行をスキップ
+カンマ区切りで10件を読み込み
+DBに保存（10件追加）
+ファイルを閉じる
+--- FC店インポート（正常5件） ---
+ファイルを開く
+タブ区切りで行を分割
+不正行をスキップ
+DBに保存（5件更新）
+ファイルを閉じる
+```
+
+動作例テーブルの行1（直営店10件）と行2（FC店5件）の手順を確認できます。行3（空ファイル）・行4（全行不正）はエラー処理が必要なため、本番パーサーとテストデータで別途確認します。
+
 ---
 
 ### 1-5：変更要求
