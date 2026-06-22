@@ -20,3 +20,5 @@ jobs:
           python-version: "3.12"
       - name: Validate chapter structure and residue
         run: python kindle/design-patterns/script/validate_book.py
+      - name: Detect new review risks and compile published C++ examples
+        run: python kindle/design-patterns/script/audit_book.py --check-baseline
