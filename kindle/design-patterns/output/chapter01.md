@@ -363,33 +363,37 @@ if (order.customerType == "Premium") {
 変更後のコードを実行すると、次のような結果になります（1万円の注文で4ケースを確認）。
 
 ```cpp
-// 変更後のif-elseを使った動作確認
-int apply(std::string type, bool summer, bool campaign) {
-    CampaignContext ctx;
-    ctx.isSummerSale     = summer;
-    ctx.isCampaignActive = campaign;
-    int total = 10000;
-    if (type == "Premium") {
-        total = total * 80 / 100;
-    } else if (ctx.isSummerSale && ctx.isCampaignActive) {
-        total = (total * 95 / 100) * 90 / 100;
-    } else if (ctx.isSummerSale) {
-        total = total * 95 / 100;
-    } else if (ctx.isCampaignActive) {
-        total = total * 90 / 100;
-    }
-    return total;
-}
-
+// 変更後のクラスを使った動作確認
 int main() {
-    std::cout << "[Premium+Summer+Camp] "
-              << apply("Premium", true,  true) << " 円" << std::endl;
-    std::cout << "[Regular+Summer+Camp] "
-              << apply("Regular", true,  true) << " 円" << std::endl;
-    std::cout << "[Regular+SummerOnly]  "
-              << apply("Regular", true,  false) << " 円" << std::endl;
-    std::cout << "[Regular+割引なし]    "
-              << apply("Regular", false, false) << " 円" << std::endl;
+    PaymentCalculator calculator;
+    Order order;
+    order.items.push_back(Item("ワイヤレスイヤホン", 10000));
+    CampaignContext context;
+
+    // Premium / キャンペーンあり / サマーセール中 → Premium優先（キャンペーン・サマーセール無効）
+    order.customerType = "Premium";
+    context.isSummerSale     = true;
+    context.isCampaignActive = true;
+    std::cout << "[Premium+Summer+Camp] " << calculator.calculate(order, context) << " 円" << std::endl;
+
+    // Regular / キャンペーンあり / サマーセール中 → 重ね掛け（10%引き ＋ 5%引き）
+    order.customerType = "Regular";
+    context.isSummerSale     = true;
+    context.isCampaignActive = true;
+    std::cout << "[Regular+Summer+Camp] " << calculator.calculate(order, context) << " 円" << std::endl;
+
+    // Regular / キャンペーンなし / サマーセール中 → 5%引き
+    order.customerType = "Regular";
+    context.isSummerSale     = true;
+    context.isCampaignActive = false;
+    std::cout << "[Regular+SummerOnly]  " << calculator.calculate(order, context) << " 円" << std::endl;
+
+    // Regular / キャンペーンなし / サマーセールなし → 割引なし
+    order.customerType = "Regular";
+    context.isSummerSale     = false;
+    context.isCampaignActive = false;
+    std::cout << "[Regular+割引なし]    " << calculator.calculate(order, context) << " 円" << std::endl;
+
     return 0;
 }
 ```
@@ -741,7 +745,7 @@ public:
 
 `PaymentCalculator` が持つ型は `IDiscountRule*` という抽象型になり、具体クラスのメソッドを直接呼ぶ行は消えた。
 
-**この段階の評価：** 型を抽象化できたのは前進です。しかし `PaymentCalculator` はまだ `PremiumDiscount` や `SummerSaleDiscount` という具体クラス名を知っており、if 文で生成を選んでいます。新しい割引クラスを追加するとき、`PaymentCalculator` の中の if 文も書き足さなければなりません。加えて、この `else if` の連鎖は、「Regular会員でSummerSale中かつキャンペーン中（重ね掛け：8,550円）」のケースを正しく表現できません。`isSummerSale` が真であれば `CampaignDiscount` は無視されるためです。この問題はステップ4で `SummerSaleAndCampaignDiscount` を追加することで解決します。型は抽象化できたが、どれを生成するかの判断はまだ if 文に残っている。「生成の選択」そのものを外に出せれば、`PaymentCalculator` から if 文が消えるはずです。
+**この段階の評価：** 型を抽象化できたのは前進です。しかし `PaymentCalculator` はまだ `PremiumDiscount` や `SummerSaleDiscount` という具体クラス名を知っており、if 文で生成を選んでいます。新しい割引クラスを追加するとき、`PaymentCalculator` の中の if 文も書き足さなければなりません。加えて、この `else if` の連鎖は、「Regular会員でSummerSale中かつキャンペーン中（重ね掛け：8,550円）」のケースを正しく表現できません。`isSummerSale` が真であれば `CampaignDiscount` は無視されるためです。この問題は、割引ルールの適用条件や優先順位を外側でどのように制御するかによって解決を図ります。型は抽象化できたが、どれを生成するかの判断はまだ if 文に残っている。「生成の選択」そのものを外に出せれば、`PaymentCalculator` から if 文が消えるはずです。
 
 ---
 
