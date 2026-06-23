@@ -284,9 +284,9 @@ int main() {
 
 佐藤マネージャーからの要求通り、「抹茶パウダー」と「チョコチップ」を既存のシステムに追加してみましょう。
 
-はじめには、トッピングの有無を管理している `CustomDrink` クラスを開きます。クラスのメンバ変数として、`bool hasMatcha;` と `bool hasChocoChip;` という2つのフラグを追加します。
+はじめに、トッピングの有無を管理している `CustomDrink` クラスを開きます。クラスのメンバ変数として、`bool hasMatcha;` と `bool hasChoco;` という2つのフラグを追加します。
 次に、初期化を行うためのコンストラクタの引数にも、この2つの真偽値（boolean）を追加する必要があります。
-そして、価格を計算する `getPrice` メソッドの中に `if (hasMatcha) total += 60;` のような計算ロジックを足し、同様に `getDescription` メソッドの中にも名前を組み立てる `if` 文を書き足します。
+そして、価格を計算する `getPrice` メソッドの中に `if (hasMatcha) total += 60;` および `if (hasChoco) total += 40;` の計算ロジックを足し、同様に `getDescription` メソッドの中にもトッピング名を組み立てる `if` 文を書き足します。
 
 抹茶を追加した後の `getPrice()` メソッド全体は、このようにif文が並ぶ形になります。
 
@@ -297,7 +297,7 @@ int getPrice() const {
     if (hasWhip)     total += 70;
     if (hasSyrup)    total += 30;
     if (hasMatcha)   total += 60; // ← 抹茶パウダーを追加
-    // if (hasChoco) total += 40; // ← チョコチップも同様に追加予定
+    if (hasChoco)    total += 40; // ← チョコチップを追加
     return total;
 }
 ```
@@ -311,6 +311,7 @@ string getDescription() const {
     if (hasWhip)     desc += " + Whip";
     if (hasSyrup)    desc += " + Syrup";
     if (hasMatcha)   desc += " + Matcha"; // ← 抹茶パウダーを追加
+    if (hasChoco)    desc += " + Choco";  // ← チョコチップを追加
     return desc;
 }
 ```
@@ -318,18 +319,18 @@ string getDescription() const {
 変更後のコードを実行すると、次のような結果になります。
 
 ```cpp
-// 変更後の CustomDrink（抹茶フラグ追加後）
+// 変更後の CustomDrink（抹茶・チョコチップフラグ追加後）
 class CustomDrink {
     std::string baseName;
     int basePrice;
-    bool hasMilk, hasWhip, hasSyrup, hasMatcha;
+    bool hasMilk, hasWhip, hasSyrup, hasMatcha, hasChoco;
 public:
     CustomDrink(std::string name, int price,
-                bool milk, bool whip,
-                bool syrup, bool matcha) // ← 引数が1つ増えた
+                bool milk, bool whip, bool syrup,
+                bool matcha, bool choco) // ← 引数が2つ増えた
         : baseName(name), basePrice(price),
-          hasMilk(milk), hasWhip(whip),
-          hasSyrup(syrup), hasMatcha(matcha) {}
+          hasMilk(milk), hasWhip(whip), hasSyrup(syrup),
+          hasMatcha(matcha), hasChoco(choco) {}
 
     int getPrice() const {
         int total = basePrice;
@@ -337,6 +338,7 @@ public:
         if (hasWhip)   total += 70;
         if (hasSyrup)  total += 30;
         if (hasMatcha) total += 60;
+        if (hasChoco)  total += 40;
         return total;
     }
     std::string getDescription() const {
@@ -345,19 +347,20 @@ public:
         if (hasWhip)   desc += " + Whip";
         if (hasSyrup)  desc += " + Syrup";
         if (hasMatcha) desc += " + Matcha";
+        if (hasChoco)  desc += " + Choco";
         return desc;
     }
 };
 
 int main() {
-    // 新しいコンストラクタ呼び出し（引数6個）
-    CustomDrink order("Coffee", 500,
-                      true, false, false, true);
+    // 新しいコンストラクタ呼び出し（引数7個）
+    CustomDrink order("Coffee", 300,
+                      true, false, false, true, true);
     std::cout << order.getDescription() << std::endl;
     std::cout << order.getPrice() << " 円" << std::endl;
 
-    // 既存の呼び出しはコンパイルエラーになる
-    // CustomDrink old("Coffee", 500, true, false, false);
+    // 既存の呼び出し（引数5個）はコンパイルエラーになるためコメントアウトして検証
+    // CustomDrink old("Coffee", 300, true, false, false);
     //                                              ↑ 引数不足
     return 0;
 }
@@ -365,14 +368,14 @@ int main() {
 
 実行結果：
 
-```
-Coffee + Milk + Matcha
-610 円
+```text
+Coffee + Milk + Matcha + Choco
+450 円
 ```
 
-新しい注文は正しく動いています（500円 + Milk 50円 + Matcha 60円 = 610円）。しかし既存の5引数のコンストラクタ呼び出しはコンパイルエラーになり、モバイルアプリ側の修正が必要です。
+新しい注文（order）は正しく動き、期待される出力（コーヒー 300円 + Milk 50円 + Matcha 60円 + Choco 40円 = 450円）が得られます。しかし、コメントアウトされている `old` のように、既存の5つの引数で呼び出している箇所は、コンストラクタの引数の数が合わないためすべてコンパイルエラーになります。
 
-これでクラスの修正は終わったと思い、コンパイルしてみると、コンストラクタの引数が増えたため、`main()` 内の `CustomDrink order(...)` でコンパイルエラーが発生しました。`CustomDrink` を生成しているモバイルアプリ側（呼び出し元）のコードです。コンストラクタの引数が増えたことで、既存の「コーヒーにミルクだけ」といった注文を生成しているすべての箇所が壊れてしまったのです。
+つまり、この新しいトッピングを追加したクラスを導入するには、既存の「コーヒーにミルクだけ」といった注文を生成しているモバイルアプリ側（呼び出し元）のコードをすべて探し出し、新しい引数（`false, false` など）を追加するように修正しなければならないのです。
 
 たった2つのトッピングを追加しようとしただけなのに、クラスの中をあちこち探し回って修正した上に、呼び出し側のコードまで直す必要に迫られる状況になっています。
 
