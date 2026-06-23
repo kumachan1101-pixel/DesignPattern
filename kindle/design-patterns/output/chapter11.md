@@ -740,10 +740,14 @@ public:
              << outputPath << " を生成して履歴に記録。" << endl;
     }
 
+    void handleNoFileToUndo() {
+        cout << "[コマンド] このCommandが生成したファイルはありません。"
+             << endl;
+    }
+
     void undo() override {
         if (!created) {
-            cout << "[コマンド] このCommandが生成したファイルはありません。"
-                 << endl;
+            handleNoFileToUndo();
             return;
         }
         if (remove(outputPath.c_str()) == 0) {
@@ -990,10 +994,14 @@ public:
              << outputPath << " を生成して履歴に記録。" << endl;
     }
 
+    void handleNoFileToUndo() {
+        cout << "[コマンド] このCommandが生成したファイルはありません。"
+             << endl;
+    }
+
     void undo() override {
         if (!created) {
-            cout << "[コマンド] このCommandが生成したファイルはありません。"
-                 << endl;
+            handleNoFileToUndo();
             return;
         }
         if (remove(outputPath.c_str()) == 0) {
