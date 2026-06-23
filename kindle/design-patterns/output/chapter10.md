@@ -395,8 +395,9 @@ graph LR
 
 | **観察した症状（痛み）** | **構造的な原因（痛みの根源）** |
 | --- | --- |
-| 新しい連携先を追加するたびに `BatchExecutor` の生成コードを修正する必要があるでしょう。また、複数の連携先（A社・B社・C社）との通信詳細が `BatchExecutor` 内に直接展開されており、連携先ごとの接続手順を全て把握する必要があるでしょう | 生成の混在（具体クラスの生成がビジネスロジックに混在）＋複雑さの露出（外部APIの詳細を `BatchExecutor` が直接知っている） |
+| 新しい連携先を追加するたびに `BatchExecutor` の生成コードを修正する必要があります。また、複数の連携先（A社・B社・C社）との通信詳細が `BatchExecutor` 内に直接展開されており、連携先ごとの接続手順を全て把握する必要があります | 生成の混在（具体クラスの生成がビジネスロジックに混在）＋複雑さの露出（外部APIの詳細を `BatchExecutor` が直接知っている） |
 | 転送結果の通知仕様を変えると、連携処理のフロー全体まで影響を受ける | 通知の密結合（通知先追加のたびに `BatchExecutor` の変更が必要） |
+
 
 これら3つの根本原因は**それぞれ独立した変化軸**です。
 
@@ -612,7 +613,7 @@ public:
 };
 ```
 
-D社が追加されると、`BatchExecutor` と `ManualTriggerController` の両方を修正する必要があるでしょう。この「知識の重複」が関数アプローチの壁です。
+D社が追加されると、`BatchExecutor` と `ManualTriggerController` の両方を修正する必要があります。この「知識の重複」が関数アプローチの壁です。
 
 3つの関心が今も混在しています。「どの連携先クライアントを生成するか（生成の関心）」「どう通信するか（通信の関心）」「誰に通知するか（通知の関心）」——これら3つは変わる理由がそれぞれ異なるにもかかわらず、同じ場所に同居し続けています。関数アプローチでは、この3つを独立して変更できる構造は作れません。次のステップから、インターフェースとパターンによる構造的な分離を検討します。
 
@@ -653,18 +654,20 @@ class BatchExecutor {
     IExternalClient* client; // ← 抽象：具体クラス名を知らない
 public:
     BatchExecutor(IExternalClient* c) : client(c) {}
-    void execute(string targetId) {
+    void execute() {
         client->send("data"); // ← 直接：インターフェース経由で呼び出す
         // 通知はまだ具体クラスを直接知っている
         NotificationService n;
         n.notify("Success");
     }
 };
+
 ```
 
 `BatchExecutor` の内部から具体クライアントクラス名が消えました。連携先の複雑さが `IExternalClient` というインターフェースの裏に隠れ、`BatchExecutor` は外部連携の窓口（Facade）として機能し始めています。
 
-**評価：** 連携先の詳細を隠すことができた。しかし通知処理（`NotificationService`）はまだ `BatchExecutor` の中で直接生成されている。「Slack以外への通知を追加したい」という変更要求が来ると、また `BatchExecutor` を修正する必要があるでしょう。通知の変化軸がまだ残っている。
+**評価：** 連携先の詳細を隠すことができた。しかし通知処理（`NotificationService`）はまだ `BatchExecutor` の中で直接生成されている。「Slack以外への通知を追加したい」という変更要求が来ると、また `BatchExecutor` を修正する必要があります。通知の変化軸がまだ残っている。
+
 
 ---
 
@@ -694,7 +697,7 @@ public:
     BatchExecutor(IExternalClient* c) : client(c) {}
     void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
 
-    void execute(string targetId) {
+    void execute() {
         client->send("data");
         // 全Observerに通知（通知先を知らない）
         for (int i = 0; i < notifiers.size(); i++) {
@@ -702,6 +705,7 @@ public:
         }
     }
 };
+
 ```
 
 通知先がリストで管理されるようになりました。Slack以外にメール通知やログ基盤への通知を追加したい場合は、`INotifier` を実装した新クラスを作り、`addNotifier()` で登録するだけです。`BatchExecutor`の実行フローは変更しません（組み立て箇所への登録は必要です）。

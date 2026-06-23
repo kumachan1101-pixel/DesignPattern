@@ -65,9 +65,9 @@
 | 受付中チケット | 担当者アサイン | ルール適用なし | → 対応中（InProgress）に遷移 |
 | 対応中チケット | 担当者が解決 | ルール適用なし | → 解決済み（Resolved）に遷移 |
 | 解決済みチケット | 一般ユーザーが再オープン | 標準優先度（Normal） | → 再受付中（Open）に遷移 |
-| 対応中チケット | プレミアムユーザーがエスカレーション | 高優先度（High）に切り替え | エスカレーション実行（状態遷移なし） |
 
-この6つの動作パターンが、このシステムが満たす必要がある動作の基準です。後でステップを比較するときも、「どのステップもこれと同じ動作を実現する」という前提で読んでください。
+この5つの動作パターンが、このシステムが満たす必要がある動作の基準です。後でステップを比較するときも、「どのステップもこれと同じ動作を実現する」という前提で読んでください。
+
 
 ### 1-2b：状態遷移表
 
@@ -100,7 +100,6 @@ stateDiagram-v2
 |---|---|---|
 | TicketManager | チケットの全体管理・状態遷移 | チケットの受付から完了までのステータス管理 |
 | PriorityCalculator | 優先度の計算 | タイトルや顧客情報に基づく優先度の自動判定 |
-| Ticket | チケット情報の保持 | ID、タイトル、顧客名、優先度、状態などのデータ |
 
 ---
 
@@ -110,17 +109,12 @@ stateDiagram-v2
 
 ```mermaid
 classDiagram
-    class Ticket {
-        +status
-        +content
-    }
     class TicketManager {
         +updateStatus(status)
     }
     class PriorityCalculator {
         +calculate(userType)
     }
-    TicketManager --> Ticket : manages
     TicketManager --> PriorityCalculator : uses
 ```
 
@@ -290,7 +284,7 @@ int main() {
 
 フェーズ2で確定した「状態遷移の増加」と「優先度判定ルールの変更」を、今のコードにそのまま実装してみることにしました。
 
-はじめに、新しいステータス「保留中」を追加するために `Ticket` クラスに定数を追加します。次に、`TicketManager` の `updateStatus` メソッド内にある膨大な `if-else` 分岐に、新しい状態の処理を書き足します。続いて、SLAルールの変更に対応するため、`PriorityCalculator` の `calculate` メソッドも修正します。
+はじめに、新しいステータス「保留中」に対応するために、`TicketManager` の `updateStatus` メソッド内にある条件分岐に新しい状態の処理を書き足します。続いて、SLAルールの変更に対応するため、`PriorityCalculator` の `calculate` メソッドも修正します。
 
 作業を進める中で、すぐに気づきました。「状態ごとのアクションとルールの条件分岐が混在していて、どちらが変わったときにどこを直せばいいか分からない」という感覚です。ステータスが一つ増えるだけで、「遷移の可否」「担当者への通知」「優先度計算」という、それぞれ変更理由の異なるロジックを一つの大きなメソッドの中で同時に考慮する必要があります。「状態を足したのにSLAのロジックも壊れたかもしれない」という不安が、常について回ります。
 
@@ -439,7 +433,7 @@ graph LR
 
 | **接続点** | **接続するデータ（型・値）** |
 | --- | --- |
-| 接続点A | `transition()` 内の `if (status == "Open")` / `"InProgress"` / `"Resolved"` 等の文字列定数 ― 状態名と遷移条件が `TicketManager` の条件分岐に直接埋め込まれている |
+| 接続点A | `updateStatus()` 内の `if (status == "Open")` / `"InProgress"` / `"Resolved"` 等の文字列定数 ― 状態名と遷移条件が `TicketManager` の条件分岐に直接埋め込まれている |
 | 接続点B | `calculatePriority()` 内の `calc.calculate(userType: string)` の引数・戻り値（`"High"` / `"Normal"` 等の文字列）― SLA基準と顧客区分の判定値が直接ハードコードされている |
 
 この表が埋まったことで、私たちが解くべき課題は「状態ごとの振る舞いをオブジェクトへ抽出すること」と「優先度判定ルールを独立したアルゴリズムとして分離すること」の2点に絞り込まれました。
@@ -457,7 +451,7 @@ graph LR
 
 フェーズ5で整理した「状態ごとの振る舞い」と「優先度判定ルール」という二つの課題に対し、どのように構造を分離するかを検討します。どちらの課題も「変わりやすさ」が特徴であるため、それぞれの接続点から不要な知識を移す必要があります。
 
-どのステップも、動作例テーブルで示した基本的な動作（行1〜3・6）を実現します。行4・5（Resolved遷移・再オープン）はフェーズ7の最終実装で初めて全カバーされます。違うのは「変更が来たときにどこを触ることになるか」です。
+どのステップも、動作例テーブルで示した基本的な動作（行1〜3）を実現します。行4・5（Resolved遷移・再オープン）はフェーズ7の最終実装で初めて全カバーされます。違うのは「変更が来たときにどこを触ることになるか」です。
 
 ---
 
@@ -476,20 +470,14 @@ classDiagram
         -handleOpen(priority)
         -handleInProgress(priority)
     }
-    class EscalationEngine {
-        <<同じ具体依存が重複>>
-        +checkAndEscalate(ticketId)
-        -escalateHigh(ticketId)
-        -holdNormal(ticketId)
-    }
     class PriorityCalculator {
         +calculate(userType) string
     }
     TicketManager --> PriorityCalculator : クラス名と条件を呼び出し元が知る
-    EscalationEngine --> PriorityCalculator : クラス名と条件を呼び出し元が知る
 ```
 
-両クラスとも`PriorityCalculator`というクラス名を知っており、ルール変更のたびに2か所を修正する必要がある点はフェーズ3と同じです。プライベートメソッドで読みやすくなりましたが、知識の置き場所は変わっていません。
+`TicketManager`が`PriorityCalculator`というクラス名を知っており、ルール変更のたびにコードを修正する必要がある点はフェーズ3と同じです。プライベートメソッドで読みやすくなりましたが、知識の置き場所は変わっていません。
+
 
 **PriorityCalculator クラス（ステップ1）：**
 
@@ -533,32 +521,9 @@ private:
 };
 ```
 
-**EscalationEngine クラスと main（ステップ1）：**
+**main 関数（ステップ1）：**
 
 ```cpp
-// ステップ1：EscalationEngineも同じ構造でプライベートメソッドに整理
-class EscalationEngine {
-public:
-    void checkAndEscalate(string ticketId) {
-        PriorityCalculator calc; // ← 具体：TicketManagerと同じ具体型を重複して保持
-        string priority = calc.calculate("premium");
-        if (priority == "High") {
-            escalateHigh(ticketId);
-            return;
-        }
-        holdNormal(ticketId);
-    }
-private:
-    void escalateHigh(string ticketId) {
-        cout << "[EscalationEngine] チケット " << ticketId
-             << " をエスカレーション。" << endl;
-    }
-    void holdNormal(string ticketId) {
-        cout << "[EscalationEngine] チケット " << ticketId
-             << " は通常優先度。対応待ち。" << endl;
-    }
-};
-
 int main() {
     TicketManager manager;
 
@@ -571,22 +536,19 @@ int main() {
     // 行3: 担当者アサイン（InProgressへ遷移）
     manager.updateStatus("normal", "InProgress");
 
-    // 行6: プレミアムユーザーがエスカレーション（このステップでは EscalationEngine が担当）
-    EscalationEngine engine;
-    engine.checkAndEscalate("T-001");
-
     // 行4・行5（Resolved／再オープン）はこのステップでは未実装
     return 0;
 }
 ```
 
-プライベートメソッドに整理したことで各分岐の意図は読みやすくなりましたが、両クラスともに `PriorityCalculator` という具体型を直接知っており、ルールが変わると2か所を修正する構造は変わっていません。
+プライベートメソッドに整理したことで各分岐の意図は読みやすくなりましたが、`TicketManager` が `PriorityCalculator` という具体型を直接知っており、ルールが変わると修正する構造は変わっていません。
 
 **このステップのトレードオフ：**
 
-* 変更容易性：低（ルール変更のたびに具体型を知る両クラスを修正する必要がある）
+* 変更容易性：低（ルール変更のたびに具体型を知る `TicketManager` を修正する必要がある）
 * テスト容易性：低（具体クラスへの依存が残り、切り離せない）
 * 実装コスト：低（プライベートメソッドへの抽出のみ）
+
 
 ---
 
@@ -602,9 +564,6 @@ classDiagram
     class TicketManager {
         +updateStatus(userType, status)
     }
-    class EscalationEngine {
-        +checkAndEscalate(ticketId)
-    }
     class PriorityCalculator {
         +calculate(userType) string
     }
@@ -616,9 +575,6 @@ classDiagram
     }
     TicketManager --> PriorityCalculator : 別クラスへ委譲するがクラス名を知る
     TicketManager --> OpenPhase : 別クラスへ委譲するがクラス名を知る
-    EscalationEngine --> PriorityCalculator : 別クラスへ委譲するがクラス名を知る
-    EscalationEngine --> InProgressPhase : 別クラスへ委譲するがクラス名を知る
-    EscalationEngine --> OpenPhase : 別クラスへ委譲するがクラス名を知る
 ```
 
 クラスは分離されて処理を委ねるようになりましたが、呼び出し元が各実装のクラス名と生成方法を知っています。状態やルールを差し替えるときは、処理クラスだけでなく呼び出し元も修正する構造です。
@@ -672,45 +628,24 @@ public:
 };
 ```
 
-**EscalationEngine クラスと main（ステップ2）：**
+**main 関数（ステップ2）：**
 
 ```cpp
-// ステップ2：EscalationEngineも同じ具体クラスを知り処理を委ねる
-class EscalationEngine {
-public:
-    void checkAndEscalate(string ticketId) {
-        PriorityCalculator calc; // ← 具体：TicketManagerと同じ型を重複して使用
-        string priority = calc.calculate("premium");
-        // ← 間接：優先度計算はcalcに委ねる
-        if (priority == "High") {
-            InProgressPhase inProg; // ← 具体：型名を直接書いている
-            inProg.activate();      // ← 間接：処理を委ねる
-            cout << "[EscalationEngine] チケット " << ticketId
-                 << " をエスカレーション。" << endl;
-            return;
-        }
-        OpenPhase open; // ← 具体：型名を直接書いている
-        open.activate();            // ← 間接：処理を委ねる
-    }
-};
-
 int main() {
     TicketManager manager;
     manager.updateStatus("premium", "InProgress");
-
-    EscalationEngine engine;
-    engine.checkAndEscalate("T-001");
     return 0;
 }
 ```
 
-処理を別クラスに委ねる形（間接）になりましたが、具体クラス名の知識が両クラスに重複しており、クラスを差し替えるには両方を修正する必要があるでしょう。
+処理を別クラスに委ねる形（間接）になりましたが、具体クラス名の知識が `TicketManager` に残っており、クラスを差し替えるには呼び出し元を修正する必要があるでしょう。
 
 **このステップのトレードオフ：**
 
-* 変更容易性：低〜中（クラスは分かれたが、具体クラス名の依存は両方に残る）
+* 変更容易性：低〜中（クラスは分かれたが、具体クラス名の依存は残る）
 * テスト容易性：低（依然として具体クラスを直接生成する必要がある）
 * 実装コスト：低（リファクタリングの範囲が限定的）
+
 
 ---
 
@@ -748,7 +683,6 @@ public:
 };
 ```
 
-なお、ステップ1・2で登場した `EscalationEngine` も同様に関数化できますが、ここでは `TicketManager` の関数化パターンに絞って確認します。`EscalationEngine` も同じ思考プロセスを経て同じ限界に突き当たります。
 
 関数化により各処理の意図は読みやすくなりました。しかしここで立ち止まって、抽出した関数群を観察してください。`calcPremiumPriority()` と `calcNormalPriority()` はどちらも「同じ引数を受け取り同じ型を返す」一貫した構造を持っています。`handleOpen()` と `handleInProgress()` も同様です。「一貫した構造（同じ形）を持つ関数が並んでいる」ことは「共通インターフェースとして抽象化できる」証拠です。
 
@@ -774,10 +708,6 @@ classDiagram
         -strategy IPriorityRule
         +update()
     }
-    class EscalationEngine {
-        -strategy IPriorityRule
-        +checkAndEscalate(ticketId)
-    }
     class PremiumPriority {
         +getPriority(userType) string
     }
@@ -787,7 +717,6 @@ classDiagram
     PremiumPriority ..|> IPriorityRule : 実装
     NormalPriority ..|> IPriorityRule : 実装
     TicketManager --> IPriorityRule : 共通の契約だけを知る
-    EscalationEngine --> IPriorityRule : 共通の契約だけを知る
 ```
 
 **インターフェースと優先度戦略クラス（ステップ4）：**
@@ -844,33 +773,13 @@ public:
 > [!INFO] 生ポインタの使用について
 > このサンプルでは依存性の注入パターンを示すため、生ポインタ（`IPriorityRule* strategy`）を使用しています。実際のプロダクションコードでは `std::unique_ptr` などのスマートポインタや参照渡しを使用して、所有権を明確にしてください。
 
-**EscalationEngine クラスと main（ステップ4）：**
+**main 関数（ステップ4）：**
 
 ```cpp
-// EscalationEngineもIPriorityRule*のみを知る
-class EscalationEngine {
-    IPriorityRule* strategy; // ← 抽象：外部から注入されたインターフェースのみ知っている
-public:
-    EscalationEngine(IPriorityRule* s) : strategy(s) {}
-    void checkAndEscalate(string ticketId) {
-        // EscalationEngineはPremium用途に限定して使うため
-        string priority = strategy->getPriority("premium");
-        cout << "[EscalationEngine] 判定優先度: " << priority << endl;
-        if (priority == "High") {
-            cout << "[EscalationEngine] チケット " << ticketId
-                 << " をエスカレーション。" << endl;
-        }
-    }
-};
-
 int main() {
     PremiumPriority strategy;            // ← 具体：呼び出し側だけが具体クラスを生成
     TicketManager manager(&strategy);
     manager.updateStatus("premium", "InProgress");
-
-    PremiumPriority esc_strategy;
-    EscalationEngine engine(&esc_strategy);
-    engine.checkAndEscalate("T-001");
     return 0;
 }
 ```
@@ -903,11 +812,6 @@ classDiagram
         -state ITicketPhase
         +execute()
     }
-    class EscalationEngine {
-        -strategy IPriorityRule
-        -state ITicketPhase
-        +checkAndEscalate(ticketId)
-    }
     class PremiumPriority {
         +getPriority(userType) string
     }
@@ -928,11 +832,10 @@ classDiagram
     InProgressPhase ..|> ITicketPhase : 実装
     TicketContext --> IPriorityRule : 共通の契約だけを知る
     TicketContext --> ITicketPhase : 共通の契約だけを知る
-    EscalationEngine --> IPriorityRule : 共通の契約だけを知る
-    EscalationEngine --> ITicketPhase : 共通の契約だけを知る
 ```
 
-`TicketContext` と `EscalationEngine` はどちらも2つのインターフェースのみを知り、具体クラスはmain()側だけが生成して注入する。
+`TicketContext` は2つのインターフェースのみを知り、具体クラスはmain()側だけが生成して注入する。
+
 
 **インターフェース定義（ステップ5）：**
 
@@ -1022,39 +925,14 @@ public:
 };
 ```
 
-**EscalationEngine クラスと main（ステップ5）：**
+**main 関数（ステップ5）：**
 
 ```cpp
-// EscalationEngineもインターフェースのみを知る
-class EscalationEngine {
-    IPriorityRule* strategy; // ← 抽象：外部から注入されたインターフェースのみ知っている
-    ITicketPhase* state;
-public:
-    EscalationEngine(IPriorityRule* s, ITicketPhase* st)
-        : strategy(s), state(st) {}
-    void checkAndEscalate(string ticketId) {
-        // EscalationEngineはPremium用途に限定して使うため
-        string priority = strategy->getPriority("premium");
-        if (priority == "High") {
-            cout << "[EscalationEngine] チケット " << ticketId
-                 << " をエスカレーション。" << endl;
-            // エスカレーションでは状態遷移を行わず、
-            // 現在状態の表示だけを安全に呼び出す
-            state->display(); // ← context不要の専用操作
-        }
-    }
-};
-
 int main() {
     PremiumPriority strategy;            // ← 具体：呼び出し側だけが具体クラスを生成
     InProgressPhase state;               // ← 具体：呼び出し側だけが具体クラスを生成
     TicketContext ctx(&state, &strategy);
     ctx.execute("premium");
-
-    PremiumPriority esc_strategy;
-    InProgressPhase esc_state;
-    EscalationEngine engine(&esc_strategy, &esc_state);
-    engine.checkAndEscalate("T-001");
     return 0;
 }
 ```
@@ -1234,35 +1112,8 @@ void ResolvedPhase::display() {
 }
 ```
 
-**EscalationEngine クラス**
+`handle(context)` は各状態が次の状態を選び、`TicketContext` を更新する通常処理で使います。`display()` は状態を変えずに現在の振る舞いだけを実行するときに使います。遷移先は組み立て時に `setNext()` で注入するため、`TicketContext` に状態名の条件分岐は戻りません。将来の状態クラスが `context` を参照する実装へ変わっても安全です。
 
-```cpp
-// EscalationEngineもインターフェースのみを知る
-class EscalationEngine {
-    IPriorityRule* strategy;
-    ITicketPhase* state;
-public:
-    EscalationEngine(IPriorityRule* s, ITicketPhase* st)
-        : strategy(s), state(st) {}
-    void checkAndEscalate(string ticketId) {
-        // EscalationEngineはPremium用途に限定して使うため
-        string priority = strategy->getPriority("premium");
-        cout << "[EscalationEngine] 判定優先度: " << priority << endl;
-        if (priority == "High") {
-            cout << "[EscalationEngine] チケット " << ticketId
-                 << " をエスカレーション。" << endl;
-            // エスカレーションでは状態遷移を行わず、
-            // 現在状態の表示だけを安全に呼び出す
-            state->display();
-        }
-    }
-};
-```
-
-`handle(context)` は各状態が次の状態を選び、`TicketContext` を更新する通常処理で使います。`display()` は
-状態を変えずに現在の振る舞いだけを実行するときに使います。遷移先は組み立て時に `setNext()` で注入するため、`TicketContext` に状態名の条件分岐は戻りません。
-`EscalationEngine` が `nullptr` を渡す必要がなくなり、将来の状態クラスが
-`context` を参照する実装へ変わっても安全です。
 
 **TicketApplication クラス（組み立て担当）**
 
@@ -1304,11 +1155,6 @@ public:
         cout << "--- 行5: 一般ユーザーが再オープン ---" << endl;
         ctx1.transition("normal");
 
-        // 行6: プレミアムユーザーがエスカレーション
-        cout << "--- 行6: プレミアムユーザーがエスカレーション ---" << endl;
-        InProgressPhase esc_state;
-        EscalationEngine engine(&premiumStrategy, &esc_state);
-        engine.checkAndEscalate("T-001");
     }
 };
 ```
@@ -1336,13 +1182,9 @@ int main() {
 優先度: Normal — チケット解決済み。クローズしました。
 --- 行5: 一般ユーザーが再オープン ---
 優先度: Normal — チケット受付中。
---- 行6: プレミアムユーザーがエスカレーション ---
-[EscalationEngine] 判定優先度: High
-[EscalationEngine] チケット T-001 をエスカレーション。
-チケット対応中。担当者に割り当て。
 ```
 
-動作テーブル全6行と一致しています。行6では、`EscalationEngine` が `strategy->getPriority("premium")` を呼び、判定結果の `High` を出力してからエスカレーションします。期待値である優先度と、条件成立後の処理をそれぞれ実行結果で確認できます。
+動作テーブル全5行と一致しています。期待値である優先度と、条件成立後の処理をそれぞれ実行結果で確認できます。
 
 `TicketApplication` は初期状態と優先度Strategyの組み立てを担当し、`main()` は起動だけを担います。ただし、具体状態への遷移先は各Phaseクラスにも記述されています。初期状態や注入するStrategyを替える変更は `TicketApplication`、状態遷移ルールを替える変更は関係するPhase、共通契約を替える変更は利用側も含めて修正します。
 
@@ -1356,14 +1198,12 @@ int main() {
 sequenceDiagram
     participant App as TicketApplication
     participant TM as TicketContext
-    participant EE as EscalationEngine
     participant IS as InProgressPhase
     participant PP as PremiumPriority
     Note over App: 組み立てと実行
     App->>IS: new InProgressPhase()
     App->>PP: new PremiumPriority()
     App->>TM: new TicketContext(&state, &strategy)
-    App->>EE: new EscalationEngine(&strategy, &state)
     App->>TM: execute(...)
     TM->>PP: strategy->getPriority(userType)
     Note right of TM: IPriorityRule* 経由
@@ -1372,12 +1212,6 @@ sequenceDiagram
     Note right of TM: ITicketPhase* 経由
     IS-->>TM: 完了
     TM-->>App: 完了
-    App->>EE: checkAndEscalate(...)
-    EE->>PP: strategy->getPriority(userType)
-    PP-->>EE: "High"
-    EE->>IS: state->display()
-    IS-->>EE: 完了
-    EE-->>App: 完了
 ```
 
 ---
@@ -1402,11 +1236,12 @@ graph LR
 
 | **シナリオ** | **現状コードでの影響** | **この設計での影響** |
 | --- | --- | --- |
-| 新しい状態（エスカレーション中）を追加 | `SupportTicket` の全メソッドに新条件分岐を追加 | `EscalatingState` クラスを新規作成するだけ |
-| プレミアム向け優先度ルールを変更 | `SupportTicket` の if-else ロジックを修正 | `PremiumPriorityStrategy` のみ修正 |
-| 状態遷移のルールを変更 | `SupportTicket` の遷移条件を修正 | 対象の State クラスのみ修正 |
+| 新しい状態（保留中）を追加 | `TicketManager` の条件分岐に新状態の処理を追加 | `PendingPhase` クラスを新規作成し、遷移ルールを設定するだけ |
+| プレミアム向け優先度ルールを変更 | `TicketManager` の if-else ロジックを修正 | `PremiumPriority` クラスのみ修正 |
+| 状態遷移のルールを変更 | `TicketManager` の遷移条件を修正 | 対象の Phase クラスのみ修正 |
 
-現状コードでは状態の追加や優先度ルールの変更のたびに `SupportTicket` 本体を直接修正する必要がありました。改善後は `SupportTicket` に触れず、対象の State クラスまたは Strategy クラスだけを変えれば済みます——それがこの設計で手に入れたものです。諦めたものは、インターフェースやクラスの増加というわずかな設計コストです。
+現状コードでは状態の追加や優先度ルールの変更のたびに `TicketManager` 本体を直接修正する必要がありました。改善後は `TicketContext` に触れず、対象の Phase クラスまたは Strategy（優先度ルール）クラスだけを変えれば済みます——それがこの設計で手に入れたものです。諦めたものは、インターフェースやクラスの増加というわずかな設計コストです。
+
 
 ---
 

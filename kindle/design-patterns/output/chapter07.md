@@ -861,17 +861,9 @@ public:
              << " の在庫を " << quantity << " 補充しました。（通知なし）" << endl;
     }
 
-    void notifyShipped(string orderId) {
-        cout << "注文 " << orderId << " の出荷が完了しました。" << endl;
-        notifyAll("注文 " + orderId + " の出荷が完了しました。");
-    }
-
 private:
     void notifyAll(string message) {
-        // 通知中のattach/detachが現在の反復を壊さないよう、
-        // この通知開始時点のスナップショットを使う
-        const auto snapshot = observers;
-        for (auto* o : snapshot) {
+        for (auto* o : observers) {
             o->send(message);
         }
     }
@@ -880,9 +872,12 @@ private:
 
 `InventoryManager` は `INotification*` のリストを持つだけで、`EmailNotifier` や `SMSNotifier` の名前を知りません。この例のポインタは非所有なので、登録中の通知先は `InventoryManager` が通知を終えるまで生存させ、破棄前に `detach()` します。所有期間を共有する必要がある設計では、`weak_ptr` など別の寿命管理も検討します。
 
+> [!NOTE] 応用：通知中の通知先リスト変更（再入可能性）について
+> 本書の実装では、`notifyAll` をシンプルなループで処理しています。もし「通知処理（`send`）を実行している最中に、ある通知先が自分自身を `detach`（登録解除）する」といった複雑な動的変更が発生する場合、反復子が破損してクラッシュする原因になります。実務の設計でそのような動的変更に対応する必要がある場合は、`notifyAll` 開始時にリストのコピー（スナップショット）を作成し、そのコピーに対してループを回すといった再入可能性への対策が必要になります。
+
 ```cpp
 int main() {
-    // 行1〜5: 全通知先を登録した状態
+    // 行1〜4: 全通知先を登録した状態
     InventoryManager manager;
     EmailNotifier email;
     DashboardUpdater dashboard;
@@ -905,11 +900,8 @@ int main() {
     cout << "--- 行4: 在庫が閾値ちょうどに減少（境界値） ---" << endl;
     manager.reduceStock("Cap-003", 1);
 
-    cout << "--- 行5: 出荷完了イベント ---" << endl;
-    manager.notifyShipped("ORDER-001");
-
-    // 行6: 既存managerから不要な通知先を解除し、Chatだけを残す
-    cout << "--- 行6: 通知先をChatのみ登録した状態 ---" << endl;
+    // 行5: 既存managerから不要な通知先を解除し、Chatだけを残す
+    cout << "--- 行5: 通知先をChatのみ登録した状態 ---" << endl;
     manager.detach(&email);
     manager.detach(&dashboard);
     manager.detach(&sms);
@@ -937,18 +929,12 @@ SMS: 商品 Pants-002 の在庫が減少しました。
 --- 行3: 在庫が補充された（閾値超え） ---
 商品 T-shirt-001 の在庫を 20 補充しました。（通知なし）
 --- 行4: 在庫が閾値ちょうどに減少（境界値） ---
-商品 Cap-003 の在庫を 1 減らしました。
+商品 Cap-003 の在庫を 1 減らしました.
 Email: 商品 Cap-003 の在庫が減少しました。
 Dashboard: 商品 Cap-003 の在庫が減少しました。
 Chat: 商品 Cap-003 の在庫が減少しました。
 SMS: 商品 Cap-003 の在庫が減少しました。
---- 行5: 出荷完了イベント ---
-注文 ORDER-001 の出荷が完了しました。
-Email: 注文 ORDER-001 の出荷が完了しました。
-Dashboard: 注文 ORDER-001 の出荷が完了しました。
-Chat: 注文 ORDER-001 の出荷が完了しました。
-SMS: 注文 ORDER-001 の出荷が完了しました。
---- 行6: 通知先をChatのみ登録した状態 ---
+--- 行5: 通知先をChatのみ登録した状態 ---
 商品 Shoes-004 の在庫を 2 減らしました。
 Chat: 商品 Shoes-004 の在庫が減少しました。
 ```

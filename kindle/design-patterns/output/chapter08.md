@@ -332,7 +332,7 @@ PayPay対応は正しく動いています。しかし `processPayment` の `if-
 
 一見シンプルな追加ですが、問題が浮かび上がります。決済手段が増えるたびにこの `PaymentApplication` クラスがどんどん長くなり、修正のたびにクラス内の既存ロジックを触らなければならないという事実です。もし決済手段が10個、20個と増えたら、このクラスは管理不能なほど巨大な「神クラス」になってしまうでしょう。
 
-さらに、将来追加が想定される `SubscriptionService`（定期課金サービス）のような別の呼び出し元も同じ分岐ロジックを複製することになった場合、そちらも同様に修正必要があります。
+さらに、将来的に別の画面やバッチ処理といった異なる呼び出し元からも決済処理を利用することになり、同じ分岐ロジックを複製しなければならなくなった場合、そちらでも同様の修正が必要になってしまいます。
 
 ### 3-2：変更影響グラフ
 
@@ -731,34 +731,38 @@ public:
 **3. 本体クラス（Factory Methodを持つCreator）**
 決済を行う本体クラスです。`PaymentApplication` が「振り分けフローの骨格」を担い、`DefaultPaymentApplication` が「どのクラスを生成するか」という判断を一手に引き受けます。利用側である `processPayment` はインターフェースを通じて結果を受け取るだけになります。
 
+> [!NOTE] 
+> このサンプルでは他言語との横断的な比較とコードの簡潔化のため、生ポインタを使用しています。実際のプロダクションコードでは `std::unique_ptr` などのスマートポインタや参照渡しを使用して、所有権を明確にすることをお勧めします。
+
 ```cpp
 // 振り分けフローの骨格（生成は知らない）
 class PaymentApplication {
 protected:
     // Factory Method：生成はサブクラスに委ねる
-    virtual unique_ptr<IPaymentProcessor>
+    virtual IPaymentProcessor*
     createProcessor(const string& type) = 0;
 
 public:
     virtual ~PaymentApplication() = default;
 
     void processPayment(const string& type, int amount) {
-        auto processor = createProcessor(type);
+        IPaymentProcessor* processor = createProcessor(type);
         processor->pay(amount); // ← 実装詳細を直接触らない
+        delete processor;       // インスタンスの破棄
     }
 };
 
 // 具体的な生成判断を、この具象Creatorへまとめる
 class DefaultPaymentApplication : public PaymentApplication {
 protected:
-    unique_ptr<IPaymentProcessor>
+    IPaymentProcessor*
     createProcessor(const string& type) override {
         if (type == "credit")
-            return make_unique<CreditCardProcessor>();
+            return new CreditCardProcessor();
         if (type == "cvs")
-            return make_unique<ConvenienceStoreProcessor>();
+            return new ConvenienceStoreProcessor();
         if (type == "paypay")
-            return make_unique<PayPayProcessor>();
+            return new PayPayProcessor();
         throw invalid_argument("未対応の決済種別: " + type);
     }
 };
@@ -769,20 +773,6 @@ protected:
 **4. 組み立てと実行（メイン関数）**
 
 ```cpp
-// 定期課金サービス：Factory Method経由でクレジット決済を行う
-class SubscriptionService {
-private:
-    PaymentApplication* app;
-public:
-    SubscriptionService(PaymentApplication* a) : app(a) {}
-    void chargeMonthly(int amount) {
-        cout << "[定期課金] 月額 " << amount
-             << " 円 課金ログを記録しました。" << endl;
-        // Factory Method経由で決済を実行（SubscriptionServiceはcreditしか使わない）
-        app->processPayment("credit", amount);
-    }
-};
-
 int main() {
     DefaultPaymentApplication app;  // ← 具体的な生成担当を選ぶのはここだけ
 
@@ -792,9 +782,6 @@ int main() {
     app.processPayment("paypay", 700);   // ← 新しい決済手段も呼び出せる
     // 行3：cvs / 500円
     app.processPayment("cvs", 500);
-    // 行4：定期課金（SubscriptionService経由でcredit/980円）
-    SubscriptionService sub(&app);
-    sub.chargeMonthly(980);
     return 0;
 }
 ```
@@ -805,11 +792,10 @@ int main() {
 クレジットで 1000 円決済しました。
 PayPayで 700 円決済しました。
 コンビニで 500 円の支払い番号を発行しました。
-[定期課金] 月額 980 円 課金ログを記録しました。
-クレジットで 980 円決済しました。
 ```
 
-掲載した実行結果は動作例テーブルの4行に対応しています。`SubscriptionService`は`PaymentApplication`を利用するため、今回の決済手段追加ではその処理を変更していません。`processPayment`の中から決済手段のクラス名がなくなりました。
+掲載した実行結果から、新しく追加したPayPay決済も含めて、すべての決済処理が正しく行われていることが確認できます。`processPayment` の中から具体的な決済手段のクラス名（`CreditCardProcessor` 等）は完全に排除されており、インターフェースを通じた決済の呼び出しに統一されました。
+
 
 ### 7-2：動作シーケンス図
 
@@ -827,9 +813,9 @@ sequenceDiagram
     main->>PA: processPayment("credit", 1000)
     PA->>CP: createProcessor("credit")
     Note right of PA: 生成をメソッドに委譲
-    CP->>CC: make_unique CreditCardProcessor()
+    CP->>CC: new CreditCardProcessor()
     CC-->>CP: インスタンス
-    CP-->>PA: unique_ptr IPaymentProcessor
+    CP-->>PA: IPaymentProcessor*
     PA->>CC: processor->pay(1000)
     Note right of PA: インターフェース経由（具体型を知らない）
     CC-->>PA: 完了
@@ -854,9 +840,10 @@ graph LR
 
 | **シナリオ** | **現状コードでの影響** | **この設計での影響** |
 |---|---|---|
-| PayPay決済を追加 | `PaymentApplication` の if-else に分岐を追加 | `PayPayCreator` と `PayPayProcessor` を新規作成するだけ |
+| PayPay決済を追加 | `PaymentApplication` の if-else に分岐を追加 | `PayPayProcessor` を新規作成し、`DefaultPaymentApplication` の生成分岐を追加するだけ |
 | クレジットカードの決済ロジックを変更 | `PaymentApplication` 内の生成・処理ロジックを修正 | `CreditCardProcessor` のみ修正 |
-| 決済後の共通処理（ログ等）を追加 | `PaymentApplication` の各 if 分岐に追記 | `PaymentApplication` の `process()` に1箇所追加 |
+| 決済後の共通処理（ログ等）を追加 | `PaymentApplication` の各 if 分岐に追記 | `PaymentApplication` の `processPayment()` に1箇所追加 |
+
 
 現状コードでは決済手段の追加・変更のたびに `PaymentApplication` の if-else を直接修正する必要がありました。改善後は `PaymentApplication` に触れず、対象の Creator または Processor クラスだけを変えれば済みます——それがこの設計で手に入れたものです。
 
@@ -871,7 +858,7 @@ graph LR
 | **問題** | 決済手段が変わるたびに `PaymentApplication` の分岐条件・生成コードが連動して変わる |
 | **原因** | `PaymentApplication` が具体的な決済プロセッサーのクラス名と生成方法を直接知っており、決済手段の追加コストが統括クラスの修正回数に直結している |
 | **課題** | 振り分けフローと生成ロジックを切り離し、`PaymentApplication` が具体クラスを知らずに決済を実行できる構造にする |
-| **解決策** | Factory Method パターン：`createProcessor` という抽象メソッドに生成の判断を委ね、`processPayment` は所有権付きの `unique_ptr<IPaymentProcessor>` を受け取って利用する |
+| **解決策** | Factory Method パターン：`createProcessor` という抽象メソッドに生成の判断を委ね、`processPayment` は `IPaymentProcessor` インターフェースのポインタ（またはインスタンス）を受け取って利用する |
 
 ### フェーズとこの章でやったこと
 
