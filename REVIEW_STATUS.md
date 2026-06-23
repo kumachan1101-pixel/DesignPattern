@@ -68,12 +68,12 @@
 - [x] 第1章・第2章の修正
   - [x] chapter01.md: 時系列とネタバレの修正
   - [x] chapter02.md: 議論から外れたバッチ処理要素の削除
-- [ ] 第3章・第4章の修正
-  - [ ] chapter03.md: WaitlistedとHeldの両方を反映、cancel()とexpire()の矛盾解消
-  - [ ] chapter04.md: バージョンチェック要件の後出しジャンケン解消、不要なtry-catchの削除
-- [ ] 第5章・第6章の修正
-  - [ ] chapter05.md: 時系列の逆転修正、ActionHistoryの登場と文章重複の整理
-  - [ ] chapter06.md: チョコチップ消失の修正、コンパイルエラーの時系列矛盾の修正
+- [x] 第3章・第4章の修正
+  - [x] chapter03.md: WaitlistedとHeldの両方を反映、cancel()とexpire()の矛盾解消
+  - [x] chapter04.md: バージョンチェック要件の後出しジャンケン解消、不要なtry-catch of 削除
+- [/] 第5章・第6章の修正
+  - [/] chapter05.md: 時系列の逆転修正、ActionHistoryの登場と文章重複の整理
+  - [/] chapter06.md: チョコチップ消失の修正、コンパイルエラーの時系列矛盾の修正
 - [ ] 第7章・第8章の修正
   - [ ] chapter07.md: 唐突な背景説明とSMS通知などの不要な仕様変更の削除、高度なC++実装への飛躍緩和
   - [ ] chapter08.md: 定期課金サービスの唐突な登場の削除、unique_ptrの急な登場への対処
