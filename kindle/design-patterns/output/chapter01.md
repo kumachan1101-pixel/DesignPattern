@@ -1090,7 +1090,7 @@ graph LR
 
 ### 7-4：変更シナリオ表
 
-| **シナリオ** | **現状コードでの影響** | **改善後の影響** |
+| **シナリオ** | **現状コードでの影響** | **この設計での影響** |
 |---|---|---|
 | サマーセール割引を追加 | `PaymentCalculator` の if 文を修正 | `SummerSaleDiscount` を新規作成、`RuleFactory` に1行追加 |
 | クーポン割引（定額）を追加 | `PaymentCalculator` の if 文を修正 | `CouponDiscount` を新規作成、`RuleFactory` に1行追加 |

@@ -852,7 +852,7 @@ graph LR
 
 現状コードと改善後で、変更の影響がどう変わるかを対比します。
 
-| **シナリオ** | **現状コードでの影響** | **改善後の影響** |
+| **シナリオ** | **現状コードでの影響** | **この設計での影響** |
 |---|---|---|
 | PayPay決済を追加 | `PaymentApplication` の if-else に分岐を追加 | `PayPayCreator` と `PayPayProcessor` を新規作成するだけ |
 | クレジットカードの決済ロジックを変更 | `PaymentApplication` 内の生成・処理ロジックを修正 | `CreditCardProcessor` のみ修正 |

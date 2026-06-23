@@ -1020,7 +1020,7 @@ graph LR
 
 現状コードと改善後で、変更の影響がどう変わるかを対比します。
 
-| **シナリオ** | **現状コードでの影響** | **改善後の影響** |
+| **シナリオ** | **現状コードでの影響** | **この設計での影響** |
 |---|---|---|
 | SMS通知を追加 | `InventoryManager` に `SMSNotifier` フィールドを追加し `notifyAll` を修正 | `SMSObserver` 実装クラスを新規作成し登録するだけ |
 | メール通知の送信先を変更 | `InventoryManager` 内の `EmailNotifier` 呼び出しを修正 | `EmailObserver` のみ修正 |
