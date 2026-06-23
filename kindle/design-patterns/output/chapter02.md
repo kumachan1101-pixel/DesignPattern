@@ -126,10 +126,16 @@ classDiagram
 // 銀行との通信を担うクラス
 class BankGateway {
 public:
+    void handleAccountNotFoundError() {
+        std::cout << "エラー: 口座なし\n";
+    }
+    void handleInsufficientBalanceError() {
+        std::cout << "エラー: 残高不足\n";
+    }
     bool verifyAccount(const std::string& account) {
         std::cout << "口座確認: " << account << "\n";
         if (account == "99999999") {
-            std::cout << "エラー: 口座なし\n";
+            handleAccountNotFoundError();
             return false;
         }
         return true;
@@ -137,12 +143,13 @@ public:
     bool checkBalance(int amount) {
         std::cout << "残高確認\n";
         if (amount > 100000) {
-            std::cout << "エラー: 残高不足\n";
+            handleInsufficientBalanceError();
             return false;
         }
         return true;
     }
-    void executeTransfer(const std::string& /*account*/, int amount) {
+    void executeTransfer(
+            const std::string& /*account*/, int amount) {
         std::cout << "送金実行: " << amount << "円\n";
     }
 };
@@ -150,11 +157,14 @@ public:
 // 認証を担うクラス
 class SecurityAuthenticator {
 public:
+    void handleAuthenticationFailed() {
+        std::cout << "エラー: 認証失敗\n";
+    }
     void requestOTP() { std::cout << "認証コード発行\n"; }
     bool verifyOTP(const std::string& token) {
         std::cout << "認証コード検証\n";
         if (token == "INVALID") {
-            std::cout << "エラー: 認証失敗\n";
+            handleAuthenticationFailed();
             return false;
         }
         return true;

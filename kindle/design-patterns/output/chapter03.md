@@ -68,6 +68,8 @@ stateDiagram-v2
 | 4 | Paid（支払い済み） | キャンセルする | エラー（キャンセル不可） | 支払い後はキャンセルできない |
 | 5 | Available（空席） | 支払う | エラー（支払い不可） | 予約なしで支払いを試みた場合 |
 | 6 | Paid（支払い済み） | 予約する | エラー（予約不可） | 支払い済み座席には再予約できない |
+| 7 | Reserved（予約済み） | 予約する | エラー（既に予約済み） | 予約済み座席への二重予約は不可 |
+| 8 | Available（空席） | キャンセルする | エラー（キャンセル不要） | 空席状態ではキャンセル操作は無効 |
 
 この動作テーブルは、後のフェーズでステップを比較するときに「全ステップがこのテーブルと同じ出力を返すことで動作不変を確認する」ための基準として使います。ステップ1からステップ3まで、どれを採用しても上記の動作が変わってはいけません。違いはあくまで「変更が来たときにどこを触るか」という構造上の差だけです。
 
@@ -110,6 +112,19 @@ classDiagram
 class TicketReservation {
 private:
     std::string status; // "Available", "Reserved", "Paid"
+
+    void handleReserveError() {
+        std::cout << "現在予約できません\n";
+    }
+
+    void handlePayError() {
+        std::cout << "支払いに適した状態ではありません\n";
+    }
+
+    void handleCancelError() {
+        std::cout << "キャンセルできません\n";
+    }
+
 public:
     TicketReservation() : status("Available") {}
 
@@ -118,7 +133,7 @@ public:
             status = "Reserved";
             std::cout << "予約完了しました\n";
         } else {
-            std::cout << "現在予約できません\n";
+            handleReserveError();
         }
     }
 
@@ -127,7 +142,7 @@ public:
             status = "Paid";
             std::cout << "支払い完了しました\n";
         } else {
-            std::cout << "支払いに適した状態ではありません\n";
+            handlePayError();
         }
     }
 
@@ -136,7 +151,7 @@ public:
             status = "Available";
             std::cout << "予約をキャンセルしました\n";
         } else {
-            std::cout << "キャンセルできません\n";
+            handleCancelError();
         }
     }
 };
@@ -342,13 +357,36 @@ stateDiagram-v2
 // 変更後の TicketReservation（Held および Waitlisted 状態追加後）
 class TicketReservation {
     std::string status = "Available";
+
+    void handleReserveError() {
+        std::cout << "現在予約できません\n";
+    }
+    void handleHoldError() {
+        std::cout << "保留できません\n";
+    }
+    void handlePayError() {
+        std::cout << "支払いに適した状態ではありません\n";
+    }
+    void handleCancelError() {
+        std::cout << "キャンセルできません\n";
+    }
+    void handleExpireError() {
+        std::cout << "期限切れ処理は行えません\n";
+    }
+    void handleWaitlistError() {
+        std::cout << "キャンセル待ちに登録できません\n";
+    }
+    void handleUpgradeError() {
+        std::cout << "予約に昇格できません\n";
+    }
+
 public:
     void reserve() {
         if (status == "Available") {
             status = "Reserved";
             std::cout << "予約完了しました\n";
         } else {
-            std::cout << "現在予約できません\n";
+            handleReserveError();
         }
     }
     void hold() {
@@ -356,7 +394,7 @@ public:
             status = "Held";
             std::cout << "保留にしました\n";
         } else {
-            std::cout << "保留できません\n";
+            handleHoldError();
         }
     }
     void pay() {
@@ -367,7 +405,7 @@ public:
             status = "Paid";
             std::cout << "保留から支払い完了しました\n";
         } else {
-            std::cout << "支払いに適した状態ではありません\n";
+            handlePayError();
         }
     }
     void cancel() {
@@ -378,7 +416,7 @@ public:
             status = "Available";
             std::cout << "保留からキャンセルしました\n";
         } else {
-            std::cout << "キャンセルできません\n";
+            handleCancelError();
         }
     }
     void expire() {                      // ← 新規追加
@@ -386,7 +424,7 @@ public:
             status = "Available";
             std::cout << "保留期限が切れました\n";
         } else {
-            std::cout << "期限切れ処理は行えません\n";
+            handleExpireError();
         }
     }
     void addToWaitlist() {               // ← 新規追加
@@ -394,7 +432,7 @@ public:
             status = "Waitlisted";
             std::cout << "キャンセル待ちに登録しました\n";
         } else {
-            std::cout << "キャンセル待ちに登録できません\n";
+            handleWaitlistError();
         }
     }
     void upgrade() {                     // ← 新規追加
@@ -402,7 +440,7 @@ public:
             status = "Reserved";
             std::cout << "予約に昇格しました\n";
         } else {
-            std::cout << "予約に昇格できません\n";
+            handleUpgradeError();
         }
     }
 };
@@ -599,6 +637,18 @@ private:
         std::cout << "予約をキャンセルしました\n";
     }
 
+    void handleReserveError() {
+        std::cout << "現在予約できません\n";
+    }
+
+    void handlePayError() {
+        std::cout << "支払いに適した状態ではありません\n";
+    }
+
+    void handleCancelError() {
+        std::cout << "キャンセルできません\n";
+    }
+
 public:
     TicketReservation() : status("Available") {}
 
@@ -607,21 +657,21 @@ public:
             reserveFromAvailable();
             return;
         }
-        std::cout << "現在予約できません\n";
+        handleReserveError();
     }
     void pay() {
         if (status == "Reserved") {
             payFromReserved();
             return;
         }
-        std::cout << "支払いに適した状態ではありません\n";
+        handlePayError();
     }
     void cancel() {
         if (status == "Reserved") {
             cancelFromReserved();
             return;
         }
-        std::cout << "キャンセルできません\n";
+        handleCancelError();
     }
 };
 ```
@@ -674,22 +724,32 @@ private:
     ReservedState  reserved;  // ← 具体クラスを直接保持
     PaidState      paid;      // ← 具体クラスを直接保持
 
+    void handleReserveError() {
+        std::cout << "現在予約できません\n";
+    }
+    void handlePayError() {
+        std::cout << "支払いに適した状態ではありません\n";
+    }
+    void handleCancelError() {
+        std::cout << "キャンセルできません\n";
+    }
+
 public:
     TicketReservation() : status("Available") {}
 
     void reserve() {
         if (status == "Available") { available.reserve(status); return; }
         if (status == "Paid")      { paid.errorReserve();       return; }
-        std::cout << "現在予約できません\n";
+        handleReserveError();
     }
     void pay() {
         if (status == "Reserved") { reserved.pay(status); return; }
-        std::cout << "支払いに適した状態ではありません\n";
+        handlePayError();
     }
     void cancel() {
         if (status == "Reserved") { reserved.cancel(status); return; }
         if (status == "Paid")     { paid.errorCancel();      return; }
-        std::cout << "キャンセルできません\n";
+        handleCancelError();
     }
 };
 ```
