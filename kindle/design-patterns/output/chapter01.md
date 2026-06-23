@@ -107,7 +107,7 @@ classDiagram
 ```
 
 `OrderProcessor` が `PaymentCalculator` を使い、`PaymentCalculator` が `Order` の属性を直接参照しています。
-`CartPreviewService` も同じ `PaymentCalculator` を使うため、割引計算の変更ではソース修正がなくても表示結果の回帰確認が必要です。
+`CartPreviewService` も同じ `PaymentCalculator` を使っています。
 
 ---
 
@@ -254,7 +254,7 @@ int main() {
 
 「来週から『サマーセール』を開始します。期間中はRegular会員を対象に5%オフを追加してください。プレミアム会員はすでに20%引きが適用されているため、今回のセールは対象外です。」
 
-リリースは来週末。既存の `if` 文の隙間に `else if` を追加すれば間に合うかもしれません。しかし少し立ち止まって、「これは1回限りの変更なのか、今後も続くのか」を確認しましょう。
+リリースは来週末。既存の `if` 文の隙間に `else if` を追加すれば間に合うかもしれません。
 
 
 **仕様変更の内容**
