@@ -1090,11 +1090,11 @@ graph LR
 
 ### 7-4：変更シナリオ表
 
-| **シナリオ** | **変わるクラス** | **変わらないクラス** |
+| **シナリオ** | **現状コードでの影響** | **改善後の影響** |
 |---|---|---|
-| サマーセール追加 | `SummerSaleDiscount`・重ね掛け用Strategy・`RuleFactory`・`CampaignContext::isSummerSale` | `PaymentCalculator`, `CartPreviewService` |
-| クーポン割引（定額）導入 | `CouponDiscount`・`RuleFactory`。クーポン情報を新たに持つなら`Order` | `PaymentCalculator`, `CartPreviewService` |
-| プレミアム割引率の変更 | `PremiumDiscount` の計算式 | `PaymentCalculator`, `CartPreviewService`, `RuleFactory` |
+| サマーセール割引を追加 | `PaymentCalculator` の if 文を修正 | `SummerSaleDiscount` を新規作成、`RuleFactory` に1行追加 |
+| クーポン割引（定額）を追加 | `PaymentCalculator` の if 文を修正 | `CouponDiscount` を新規作成、`RuleFactory` に1行追加 |
+| プレミアム割引率を変更 | `PaymentCalculator` の計算式を直接修正 | `PremiumDiscount` の計算式のみ修正 |
 
 ---
 

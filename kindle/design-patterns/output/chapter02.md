@@ -1076,12 +1076,11 @@ graph LR
 
 ### 7-4：変更シナリオ表
 
-| **シナリオ** | **変わるクラス** | **変わらないクラス** |
+| **シナリオ** | **現状コードでの影響** | **改善後の影響** |
 |---|---|---|
-| 認証フローの変更（2段階→3段階） | `SecurityAuthenticator` と、手順を調整する `BankTransferService` | `TransferProcessor`, `BatchTransferService` |
-| 送金APIのパラメータ追加 | `BankGateway` と、値を受け渡す `BankTransferService` | 窓口契約が保たれるなら `TransferProcessor`, `BatchTransferService` |
-| 生体認証の導入 | 認証サブシステムと `BankTransferService` | 窓口契約が保たれるなら業務側の呼び出し元 |
-| 送金リクエスト形式のJSON→XML移行 | 変換を担う `BankGateway`。Facade内の呼び出し方も変わるなら `BankTransferService` | `TransferProcessor`, `BatchTransferService` |
+| 銀行APIの手順が変わる（OTP方式など） | `TransferProcessor` の通常振込メソッドとバッチ振込メソッドを両方修正 | `BankTransferFacade` の内部のみ修正 |
+| バッチ振込に新しいチェックを追加 | `BatchTransferProcessor` を直接修正 | `BankTransferFacade` に1メソッド追加 |
+| 通知先（Slack等）を追加 | `TransferProcessor` に通知ロジックを追記 | `INotifier` 実装クラスを新規作成 |
 
 ---
 

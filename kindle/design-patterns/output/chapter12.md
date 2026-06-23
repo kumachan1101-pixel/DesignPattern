@@ -1283,12 +1283,13 @@ graph LR
 
 ### 7-4：変更シナリオ表
 
-| **シナリオ** | **変わるクラス（触る場所）** | **変わらないクラス** |
-| --- | --- | --- |
-| 緊急ルートを追加する | `PriorityPendingPhase`、`DraftPhase` の遷移分岐、組み立て箇所 | `WorkflowManager`、既存の承認・却下処理 |
-| 新しい承認ルールを追加する（部署別上限） | `DeptApprovalRule` と注入する組み立て箇所 | `WorkflowManager`、リスナークラス |
-| 却下時の通知先を増やす | `AlertNotifier` と登録する組み立て箇所 | `WorkflowManager`、判定ルールクラス |
-| 通常の承認上限金額を変更する | `ManagerApprovalRule`（1行）および設定箇所 | `WorkflowManager`、Phase クラス |
+現状コードでは `WorkflowManager` が状態遷移・通知・承認ルール判定を全て直接管理していたため、新しい承認フローの追加や通知要件の変化は `WorkflowManager` 本体の大規模な修正を意味していました。改善後は状態・通知・判定ルールの責任が分離されたため、変更の影響を対応する実装クラスに限定できます。
+
+| **シナリオ** | **現状コードでの影響** | **改善後の影響** |
+|---|---|---|
+| 新しい承認段階（二次承認等）を追加 | `WorkflowManager` の状態管理・通知・ルール判定を全て修正 | 新しい State クラスを追加するだけ |
+| 承認通知先（Teams等）を追加 | `WorkflowManager` に通知ロジックを直接追記 | `TeamsListener` 実装クラスを新規作成し登録するだけ |
+| 承認上限金額のルールを変更 | `WorkflowManager` の判定ロジックを修正 | `AmountLimitRule` 実装クラスのみ修正 |
 
 ---
 

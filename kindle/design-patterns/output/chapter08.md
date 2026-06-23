@@ -850,11 +850,15 @@ graph LR
 
 ### 7-4：変更シナリオ表
 
-| **シナリオ** | **変わるクラス** | **変わらないクラス** |
+現状コードと改善後で、変更の影響がどう変わるかを対比します。
+
+| **シナリオ** | **現状コードでの影響** | **改善後の影響** |
 |---|---|---|
-| 銀行系決済を追加する | 新しいProcessorと `DefaultPaymentApplication::createProcessor()` | `PaymentApplication::processPayment()`、他の決済クラス |
-| コンビニ決済の実装を変更する | `ConvenienceStoreProcessor`（1箇所修正） | `PaymentApplication`、他の決済クラス |
-| クレジット決済を廃止する | Creatorの生成分岐、呼び出し・設定箇所。不要ならProcessor定義も削除 | `PaymentApplication::processPayment()`、他の決済クラス |
+| PayPay決済を追加 | `PaymentApplication` の if-else に分岐を追加 | `PayPayCreator` と `PayPayProcessor` を新規作成するだけ |
+| クレジットカードの決済ロジックを変更 | `PaymentApplication` 内の生成・処理ロジックを修正 | `CreditCardProcessor` のみ修正 |
+| 決済後の共通処理（ログ等）を追加 | `PaymentApplication` の各 if 分岐に追記 | `PaymentApplication` の `process()` に1箇所追加 |
+
+現状コードでは決済手段の追加・変更のたびに `PaymentApplication` の if-else を直接修正する必要がありました。改善後は `PaymentApplication` に触れず、対象の Creator または Processor クラスだけを変えれば済みます——それがこの設計で手に入れたものです。
 
 ---
 

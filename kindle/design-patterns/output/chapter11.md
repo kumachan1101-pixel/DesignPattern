@@ -1170,13 +1170,13 @@ graph LR
 
 ### 7-4：変更シナリオ表
 
-| **シナリオ** | **変わるクラス（触る場所）** | **変わらないクラス** |
-| --- | --- | --- |
-| グラフの描画内容を変更する | `GraphFeature` | `ReportSkeleton`, `GenerateReportAction` |
-| 新しい装飾種類を追加して利用する | 新規の`ReportFeature`派生クラス、組み立て・設定箇所 | `ReportSkeleton`, `GenerateReportAction` |
-| 新しいレポート形式を追加する | 新規の `ReportSkeleton` サブクラス | `ReportFeature`, `IReportAction` |
-| 履歴保存のフォーマットを変える | `GenerateReportAction` | `ReportSkeleton`, `GraphFeature` |
-| 透かしの内容を変える | `WatermarkFeature` | `ReportSkeleton`, `GenerateReportAction` |
+現状コードでは `ReportSkeleton` が生成手順・機能拡張・操作履歴を全て直接管理していたため、新しいレポート形式の追加や機能の変更は `ReportSkeleton` 本体の修正を意味していました。改善後は手順・機能追加・操作の責任が分離されたため、変更の影響を対応する実装クラスに限定できます。
+
+| **シナリオ** | **現状コードでの影響** | **改善後の影響** |
+|---|---|---|
+| 新しいレポート形式（週次等）を追加 | `ReportSkeleton` に新しい生成手順を直接追記 | `WeeklyReportTemplate` を新規作成するだけ |
+| 透かし機能を全レポートに追加 | `ReportSkeleton` の各手順に透かし処理を追記 | `WatermarkFeature` Decorator クラスを新規作成するだけ |
+| Undo機能のある操作を追加 | `ReportSkeleton` に操作処理と取り消しロジックを追記 | `IReportAction` 実装クラスを新規作成するだけ |
 
 ---
 
