@@ -499,26 +499,7 @@ OTP検証（txId=TX-9001）
 
 「振り込みを実行する」という業務上の命令を処理しているはずの `TransferProcessor` が、銀行システム側から送られてくる「取引IDを保持する」といった一時的な状態管理まで背負わされています。銀行側のAPI仕様が一つ変わるたびに、私たちの業務フローを制御するクラスのコードを書き換え、その結果、振り込み処理全体のテストをやり直さなければならないのです。
 
-ヒアリングで「数ヶ月後に生体認証が導入される予定」と確認しました。現在の認証フロー変更が終わった直後のコードに、生体認証のステップも追加しようとするとどうなるか確認してみます。
-
-```cpp
-// 生体認証を追加しようとすると、TransferProcessor がさらに肥大化する
-void transfer(
-        const std::string& toAccount, int amount,
-        const std::string& otp,
-        const std::string& biometricToken) { // ← 引数も増える
-    gateway.verifyAccount(toAccount);
-    gateway.checkBalance(amount);
-    std::string transactionId = auth.requestOTP();
-    auth.verifyOTP(otp, transactionId);
-    auth.verifyBiometric(biometricToken);     // ← 生体認証ステップ追加
-    auth.confirmBiometricLink(transactionId); // ← さらに手順が増える
-    gateway.executeTransfer(toAccount, amount, transactionId);
-    std::cout << "振り込み完了\n";
-}
-```
-
-引数が増え、認証手順の順序管理も `TransferProcessor` に蓄積していきます。ヒアリングで「三段階認証化」「形式のXML移行」も予告されている以上、この構造での対応は限界が見えてきました。
+さらに、ヒアリングで予告された「生体認証の導入」も視野に入れると、`transfer()` の引数にバイオメトリクストークンが増え、`verifyBiometric()` と `confirmBiometricLink()` といった認証ステップが同じメソッドにさらに積み重なることが見えてきます。ヒアリング段階ではまだ仕様が固まっていないため全コードを書ける状況ではありませんが、認証手順が増えるたびに `TransferProcessor` の手順管理が肥大化する構造は変わりません。
 
 ### 3-2：変更影響グラフ
 
