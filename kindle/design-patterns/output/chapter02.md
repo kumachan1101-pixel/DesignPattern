@@ -843,7 +843,7 @@ int main() {
 ```
 
 > [!INFO] 生ポインタの使用について
-> このサンプルでは依存性の注入パターンを示すため、生ポインタ（`IBankTransferService* facade`）を使用しています。実際のプロダクションコードでは `std::unique_ptr` などのスマートポインタや参照渡しを使用して、所有権を明確にしてください。
+> このサンプルでは依存性の注入を示すため、生ポインタ（`IBankTransferService* facade`）を使用しています。本書では全章を通じて生ポインタを使い、所有権の議論よりも構造の変化に集中します。
 
 `TransferProcessor` は `BankGateway` や `SecurityAuthenticator` という具体クラスを直接参照せず、窓口となる `IBankTransferService* facade` だけを知る状態になりました。
 
