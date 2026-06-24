@@ -397,7 +397,8 @@ PaymentCalculator が customerType と campaignFlag を判定している。
 ```text
 例：
 - 接続点：PaymentCalculator が割引計算ロジック（DiscountRule）を呼び出す箇所
-  → 割引計算に必要な引数（customerType や isCampaignActive）の型や渡し方が変わるたびに、PaymentCalculator の修正が必要になる
+  → 引数（customerType, isCampaignActive）の型や渡し方が変わるたびに
+    PaymentCalculator の修正が必要になる
 ```
 
 接続点が複数ある場合、それぞれ独立に課題を定義します。

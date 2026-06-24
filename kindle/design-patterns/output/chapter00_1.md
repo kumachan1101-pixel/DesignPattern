@@ -273,7 +273,10 @@ public:
         std::cout << "[DB保存] 支払金額 " << finalPrice << " 円で注文を保存しました。\n";
 
         // 3. 通知送信（マーケティングチームが決める）
-        std::string emailBody = "ご購入ありがとうございます。支払金額: " + std::to_string(static_cast<int>(finalPrice)) + "円";
+        std::string emailBody =
+            "ご購入ありがとうございます。支払金額: "
+            + std::to_string(static_cast<int>(finalPrice))
+            + "円";
         std::cout << "[メール送信] " << emailBody << "\n";
     }
 };

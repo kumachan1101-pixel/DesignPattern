@@ -376,25 +376,33 @@ int main() {
     order.customerType = "Premium";
     context.isSummerSale     = true;
     context.isCampaignActive = true;
-    std::cout << "[Premium+Summer+Camp] " << calculator.calculate(order, context) << " 円" << std::endl;
+    std::cout << "[Premium+Summer+Camp] "
+              << calculator.calculate(order, context)
+              << " 円" << std::endl;
 
     // Regular / キャンペーンあり / サマーセール中 → 重ね掛け（10%引き ＋ 5%引き）
     order.customerType = "Regular";
     context.isSummerSale     = true;
     context.isCampaignActive = true;
-    std::cout << "[Regular+Summer+Camp] " << calculator.calculate(order, context) << " 円" << std::endl;
+    std::cout << "[Regular+Summer+Camp] "
+              << calculator.calculate(order, context)
+              << " 円" << std::endl;
 
     // Regular / キャンペーンなし / サマーセール中 → 5%引き
     order.customerType = "Regular";
     context.isSummerSale     = true;
     context.isCampaignActive = false;
-    std::cout << "[Regular+SummerOnly]  " << calculator.calculate(order, context) << " 円" << std::endl;
+    std::cout << "[Regular+SummerOnly]  "
+              << calculator.calculate(order, context)
+              << " 円" << std::endl;
 
     // Regular / キャンペーンなし / サマーセールなし → 割引なし
     order.customerType = "Regular";
     context.isSummerSale     = false;
     context.isCampaignActive = false;
-    std::cout << "[Regular+割引なし]    " << calculator.calculate(order, context) << " 円" << std::endl;
+    std::cout << "[Regular+割引なし]    "
+              << calculator.calculate(order, context)
+              << " 円" << std::endl;
 
     return 0;
 }
@@ -608,7 +616,8 @@ public:
 ```cpp
 class PaymentCalculator {
     // 割引の条件と計算をプライベートメソッドに切り出す
-    int applyDiscount(int total, const Order& order, const CampaignContext& context) {
+    int applyDiscount(int total, const Order& order,
+                      const CampaignContext& context) {
         if (order.customerType == "Premium")
             return total * 80 / 100;
         if (context.isSummerSale && context.isCampaignActive)
@@ -967,9 +976,12 @@ public:
 // ルールを選択するファクトリ（かつて本体にあったif文を隔離する場所）
 class RuleFactory {
 public:
-    static IDiscountRule* create(const Order& order, const CampaignContext& context) {
-        if (order.customerType == "Premium") return new PremiumDiscount();
-        if (context.isSummerSale && context.isCampaignActive) return new SummerSaleAndCampaignDiscount();
+    static IDiscountRule* create(const Order& order,
+                                 const CampaignContext& context) {
+        if (order.customerType == "Premium")
+            return new PremiumDiscount();
+        if (context.isSummerSale && context.isCampaignActive)
+            return new SummerSaleAndCampaignDiscount();
         if (context.isSummerSale) return new SummerSaleDiscount();
         if (context.isCampaignActive) return new CampaignDiscount();
         return new NoDiscount();
@@ -977,7 +989,8 @@ public:
 };
 
 class BatchApplication {
-    void printCase(const std::string& label, const Order& order, const CampaignContext& context) {
+    void printCase(const std::string& label, const Order& order,
+                   const CampaignContext& context) {
         IDiscountRule* rule = RuleFactory::create(order, context);
         PaymentCalculator calculator(rule);
         CartPreviewService preview(rule);
