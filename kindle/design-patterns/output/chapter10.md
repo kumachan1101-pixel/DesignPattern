@@ -108,7 +108,6 @@ classDiagram
 
 ```cpp
 #include <iostream>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -895,34 +894,34 @@ public:
 class IClientCreator {
 public:
     virtual ~IClientCreator() = default;
-    virtual unique_ptr<IExternalClient> createClient() = 0;
+    virtual IExternalClient* createClient() = 0;
 };
 
 class SystemAClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return make_unique<SystemAClient>();
+    IExternalClient* createClient() override {
+        return new SystemAClient();
     }
 };
 
 class SystemBClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return make_unique<SystemBClient>();
+    IExternalClient* createClient() override {
+        return new SystemBClient();
     }
 };
 
 class SystemCClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return make_unique<SystemCClient>();
+    IExternalClient* createClient() override {
+        return new SystemCClient();
     }
 };
 
 class SystemDClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return make_unique<SystemDClient>();
+    IExternalClient* createClient() override {
+        return new SystemDClient();
     }
 };
 ```
@@ -940,7 +939,7 @@ public:
 
     void execute(IClientCreator* creator, string completionMessage) {
         // Factory Methodを抽象Creator経由で呼び出す
-        auto client = creator->createClient();
+        IExternalClient* client = creator->createClient();
         client->send("data");
         for (auto* notifier : notifiers) {
             notifier->onComplete(completionMessage);
@@ -986,8 +985,8 @@ public:
         executorD.execute(&creatorD, "D社連携完了");
 
         cout << "--- 行4: B社手動トリガー ---" << endl;
-        auto bClient = creatorB.createClient();
-        ManualTriggerController manual(bClient.get());
+        IExternalClient* bClient = creatorB.createClient();
+        ManualTriggerController manual(bClient);
         manual.addNotifier(&slack);
         manual.triggerSync("B");
 
@@ -1038,22 +1037,22 @@ sequenceDiagram
     participant main
     participant BA as BatchApplication
     participant BE as BatchExecutor
-    participant CC as SystemCClientCreator
+    participant AC as SystemAClientCreator
     participant SN as SlackNotifier
-    participant SC as SystemCClient
+    participant SA as SystemAClient
     Note over main: BatchApplicationが全具体型を組み立て
     main->>BA: app.run()
     BA->>BE: new BatchExecutor
     BA->>SN: new SlackNotifier
     BA->>BE: addNotifier(&slackNotifier)
-    BA->>BE: execute(&creatorC, "C社連携完了")
-    BE->>CC: creator->createClient()
+    BA->>BE: execute(&creatorA, "A社連携完了")
+    BE->>AC: creator->createClient()
     Note right of BE: IExternalClient* 経由（抽象）
-    CC-->>BE: IExternalClient*
-    BE->>SC: client->send("data")
+    AC-->>BE: IExternalClient*
+    BE->>SA: client->send("data")
     Note right of BE: IExternalClient* 経由
-    SC-->>BE: 完了
-    BE->>SN: obs->onComplete("C社連携完了")
+    SA-->>BE: 完了
+    BE->>SN: obs->onComplete("A社連携完了")
     Note right of BE: INotifier* 経由（抽象）
     SN-->>BE: 完了
     BE-->>BA: 完了
