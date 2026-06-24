@@ -965,7 +965,6 @@ public:
 // 4. 組み立てと実行（メイン関数）
 // 最後に、必要な部品を組み立てて実行します。具体的なクラス名（`BankTransferService`）を知っているのは、この組み立てを行う箇所だけです。
 
-```cpp
 // 依存の組み立てを担うクラス（Composition Root）
 class Application {
 public:
