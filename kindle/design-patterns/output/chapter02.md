@@ -486,6 +486,27 @@ OTP検証（txId=TX-9001）
 
 「振り込みを実行する」という業務上の命令を処理しているはずの `TransferProcessor` が、銀行システム側から送られてくる「取引IDを保持する」といった一時的な状態管理まで背負わされています。銀行側のAPI仕様が一つ変わるたびに、私たちの業務フローを制御するクラスのコードを書き換え、その結果、振り込み処理全体のテストをやり直さなければならないのです。
 
+ヒアリングで「数ヶ月後に生体認証が導入される予定」と確認しました。現在の認証フロー変更が終わった直後のコードに、生体認証のステップも追加しようとするとどうなるか確認してみます。
+
+```cpp
+// 生体認証を追加しようとすると、TransferProcessor がさらに肥大化する
+void transfer(
+        const std::string& toAccount, int amount,
+        const std::string& otp,
+        const std::string& biometricToken) { // ← 引数も増える
+    gateway.verifyAccount(toAccount);
+    gateway.checkBalance(amount);
+    std::string transactionId = auth.requestOTP();
+    auth.verifyOTP(otp, transactionId);
+    auth.verifyBiometric(biometricToken);     // ← 生体認証ステップ追加
+    auth.confirmBiometricLink(transactionId); // ← さらに手順が増える
+    gateway.executeTransfer(toAccount, amount, transactionId);
+    std::cout << "振り込み完了\n";
+}
+```
+
+引数が増え、認証手順の順序管理も `TransferProcessor` に蓄積していきます。ヒアリングで「三段階認証化」「形式のXML移行」も予告されている以上、この構造での対応は限界が見えてきました。
+
 ### 3-2：変更影響グラフ
 
 ```mermaid
@@ -638,6 +659,16 @@ void transfer(
 呼び出し元（`TransferProcessor` 等）が知る必要があるのは、口座・金額・OTPを窓口へ渡す方法です。問題は「どのAPIをどの順番でどう呼ぶか」という**外部連携の手順**まで呼び出し元へ漏れていることです。
 
 **現状のままでよい場面**：銀行APIの手順が単純で、当面変更されず、利用箇所も1か所だけなら現状を保つ判断もあります。今回は認証と送金手順の変更が続くため、呼び出し元から手順を隠す窓口を検討します。
+
+### 変わるものを一緒に分離するか、分けて分離するか
+
+「銀行APIの呼び出し手順を分離する」と決めたとき、次に考えることがあります。認証（`SecurityAuthenticator`）と送金（`BankGateway`）を**別々の窓口に分けるか、1つの窓口にまとめるか**です。
+
+フェーズ4の分析で確認したように、認証フローと送金APIはどちらも同じ銀行ベンダーのAPI仕様に従って変わります。生体認証の導入や形式変更は、認証だけでなく送金フローにも連動して影響を与えます。2つを別々に管理すると、1つのAPI変更でも両方の窓口を修正しなければならない状況が生まれます。
+
+**変わる理由が同じ（同じ外部ベンダーの都合）→ 1つの窓口にまとめる。** これが今回の粒度の判断です。
+
+認証と送金をまとめて1つの `BankTransferFacade` として扱うことで、銀行API側の変更を窓口の内側に閉じ込めます。`TransferProcessor` はこの窓口だけを知れば十分になります。この構造がフェーズ6での設計方針になります。
 
 ---
 > **📌 課題（確定）**
