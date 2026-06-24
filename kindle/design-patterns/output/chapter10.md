@@ -250,9 +250,9 @@ B社へ送信: data
 
 ヒアリングにより、通信先（生成）の増殖と、通知処理（イベントの反応）の多様化が、それぞれ別個の変化軸であることが確実になりました。
 
-### 2-2：ヒアリングで判明した将来リスク
+### 2-3：ヒアリングで判明した将来リスク
 
-ヒアリングで判明した「将来起きるかもしれない」変化をまとめます。確定変更（2-3）とは別に管理することで、今回の設計判断と将来への備えを混在させずに済みます。
+ヒアリングで判明した「将来起きるかもしれない」変化をまとめます。確定変更（2-2）とは別に管理することで、今回の設計判断と将来への備えを混在させずに済みます。
 
 | **将来のリスク** | **変わる可能性がある箇所** | **根拠（誰が言ったか）** |
 | --- | --- | --- |
@@ -723,27 +723,27 @@ public:
 class IClientCreator {
 public:
     virtual ~IClientCreator() = default;
-    virtual unique_ptr<IExternalClient> createClient() = 0;
+    virtual IExternalClient* createClient() = 0;
 };
 
 class SystemAClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return make_unique<SystemAClient>();
+    IExternalClient* createClient() override {
+        return new SystemAClient();
     }
 };
 
 class SystemBClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return make_unique<SystemBClient>();
+    IExternalClient* createClient() override {
+        return new SystemBClient();
     }
 };
 
 class SystemCClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return make_unique<SystemCClient>();
+    IExternalClient* createClient() override {
+        return new SystemCClient();
     }
 };
 
@@ -759,7 +759,6 @@ public:
         for (auto* notifier : notifiers) {
             notifier->onComplete("Success");
         }
-        delete client;
     }
 };
 ```
@@ -806,7 +805,6 @@ public:
 
 ```cpp
 #include <iostream>
-#include <memory>
 #include <string>
 #include <vector>
 

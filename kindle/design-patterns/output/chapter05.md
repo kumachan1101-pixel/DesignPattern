@@ -754,9 +754,7 @@ int main() {
 ```cpp
 #include <deque>
 #include <iostream>
-#include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 // Commandが処理を委譲するReceiver
@@ -853,31 +851,33 @@ public:
 ```cpp
 // 操作履歴を保持し、Undo/Redoを制御する仲介役
 class ActionHistory {
-    std::deque<std::unique_ptr<IAction>> undoStack;
-    std::deque<std::unique_ptr<IAction>> redoStack;
+    std::deque<IAction*> undoStack;
+    std::deque<IAction*> redoStack;
     static const int MAX_HISTORY = 50;
 public:
-    void execute(std::unique_ptr<IAction> cmd) {
+    void execute(IAction* cmd) {
         cmd->execute();
-        undoStack.push_back(std::move(cmd));
+        undoStack.push_back(cmd);
         if ((int)undoStack.size() > MAX_HISTORY) {
-            undoStack.pop_front();  // 所有する最古のCommandも破棄される
+            undoStack.pop_front();  // 最古のCommandを削除する
         }
         redoStack.clear();
     }
     void undo() {
         if (undoStack.empty()) return;
         // undo()が失敗した場合は、CommandをundoStackに残す
-        undoStack.back()->undo();
-        redoStack.push_back(std::move(undoStack.back()));
+        IAction* cmd = undoStack.back();
         undoStack.pop_back();
+        cmd->undo();
+        redoStack.push_back(cmd);
     }
     void redo() {
         if (redoStack.empty()) return;
         // execute()が失敗した場合は、CommandをredoStackに残す
-        redoStack.back()->execute();
-        undoStack.push_back(std::move(redoStack.back()));
+        IAction* cmd = redoStack.back();
         redoStack.pop_back();
+        cmd->execute();
+        undoStack.push_back(cmd);
     }
     int historySize() const {
         return (int)undoStack.size();
@@ -898,11 +898,11 @@ class BudgetApp {
     ActionHistory* history;
 public:
     BudgetApp(ActionHistory* h) : history(h) {}
-    void onAddExpenseClick(std::unique_ptr<IAction> cmd) {
-        history->execute(std::move(cmd));
+    void onAddExpenseClick(IAction* cmd) {
+        history->execute(cmd);
     }
-    void onAddIncomeClick(std::unique_ptr<IAction> cmd) {
-        history->execute(std::move(cmd));
+    void onAddIncomeClick(IAction* cmd) {
+        history->execute(cmd);
     }
     void onUndoClick() { history->undo(); }
     void onRedoClick() { history->redo(); }
@@ -914,10 +914,10 @@ class ImportService {
 public:
     ImportService(ActionHistory* h) : history(h) {}
     void importTransactions(
-            std::vector<std::unique_ptr<IAction>> cmds) {
+            std::vector<IAction*> cmds) {
         const std::size_t count = cmds.size();
-        for (auto& cmd : cmds) {
-            history->execute(std::move(cmd));
+        for (IAction* cmd : cmds) {
+            history->execute(cmd);
         }
         std::cout << count << "件インポート完了"
                   << "（履歴: " << history->historySize()
