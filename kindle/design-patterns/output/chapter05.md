@@ -602,9 +602,7 @@ public:
 ```cpp
 #include <deque>
 #include <iostream>
-#include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 // Commandが処理を委譲するReceiver
@@ -886,7 +884,7 @@ public:
 
 ```
 
-`ActionHistory` は `std::unique_ptr<IAction>` としてCommandの所有権を受け取り、履歴に残っている間の寿命を保証します。具体的な操作クラスは知りません。Undo/Redoの実行に失敗した場合は、対象Commandを元のスタックに残す順序にしています。
+`ActionHistory` は `IAction*` としてCommandを受け取り、スタックで管理します。具体的な操作クラスは知りません。Undo/Redoの実行に失敗した場合は、対象Commandを元のスタックに残す順序にしています。
 
 **最後に、呼び出し元と組み立てコードです。**
 
@@ -937,10 +935,10 @@ int main() {
     ActionHistory hist;
 
     BudgetApp app(&hist);
-    app.onAddExpenseClick(
-        std::make_unique<AddExpenseAction>(em, 1000, "Food"));
-    app.onAddIncomeClick(
-        std::make_unique<AddIncomeAction>(im, 5000, "Salary"));
+    AddExpenseAction cmd1(em, 1000, "Food");
+    app.onAddExpenseClick(&cmd1);
+    AddIncomeAction cmd2(im, 5000, "Salary");
+    app.onAddIncomeClick(&cmd2);
     std::cout << "残高: "
               << im.totalIncome() - em.totalExpenses()
               << "円" << std::endl;
@@ -955,14 +953,14 @@ int main() {
               << "円" << std::endl;
 
     ImportService importer(&hist);
-    std::vector<std::unique_ptr<IAction>> imported;
-    imported.push_back(
-        std::make_unique<AddExpenseAction>(em, 2000, "Rent"));
-    imported.push_back(
-        std::make_unique<AddExpenseAction>(em, 300, "Water"));
-    imported.push_back(
-        std::make_unique<AddExpenseAction>(em, 800, "Food"));
-    importer.importTransactions(std::move(imported)); // 一括登録（3件）
+    AddExpenseAction imp1(em, 2000, "Rent");
+    AddExpenseAction imp2(em, 300, "Water");
+    AddExpenseAction imp3(em, 800, "Food");
+    std::vector<IAction*> imported;
+    imported.push_back(&imp1);
+    imported.push_back(&imp2);
+    imported.push_back(&imp3);
+    importer.importTransactions(imported); // 一括登録（3件）
     std::cout << "インポート後の残高: "
               << im.totalIncome() - em.totalExpenses()
               << "円" << std::endl;
@@ -999,7 +997,7 @@ Redo後の残高: -1000円
 
 支出1,000円と収入5,000円の登録後は残高4,000円、2回のUndo後は0円、Redo後は-1,000円になります。3件合計3,100円の支出をインポートすると-4,100円になり、3件をロールバックすると-1,000円へ戻ります。ログの順序だけでなく、Receiverが保持する集計状態も元へ戻ることを確認できます。
 
-この実装により、UIはコマンドの所有権を履歴へ渡すだけでよくなり、支出・収入ごとの実行手順やCommandの寿命を管理する必要がなくなりました。コマンドの生成と画面への割り当ては組み立て側に残ります。
+この実装により、UIはCommandのポインタを履歴へ渡すだけでよくなり、支出・収入ごとの実行手順を管理する必要がなくなりました。コマンドの生成と画面への割り当ては組み立て側に残ります。
 
 ### 7-2：動作シーケンス図
 
@@ -1012,12 +1010,12 @@ sequenceDiagram
     Note over main: 具体型を組み立てる主な組み立て場所
     main->>CH: new ActionHistory
     main->>BA: new BudgetApp(history: ActionHistory*)
-    main->>AEC: make_unique AddExpenseAction(...)
-    main->>BA: onAddExpenseClick(move(cmd))
-    BA->>CH: history->execute(move(cmd))
+    main->>AEC: AddExpenseAction cmd(...)
+    main->>BA: onAddExpenseClick(&cmd)
+    BA->>CH: history->execute(cmd)
     Note right of BA: ActionHistory*経由
     CH->>AEC: cmd->execute()
-    Note right of CH: unique_ptr<IAction>を所有して実行
+    Note right of CH: IAction*としてスタックに追加して実行
     AEC-->>CH: 完了
     CH-->>BA: 完了
     BA-->>main: 完了
