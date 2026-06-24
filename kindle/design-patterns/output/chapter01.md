@@ -657,7 +657,7 @@ public:
 
 class PaymentCalculator {
 public:
-    int calculate(const Order& order) {
+    int calculate(const Order& order, const CampaignContext& context) {
         int total = 0;
         for (const auto& item : order.items) total += item.price;
 
@@ -831,7 +831,7 @@ void processOrder(const Order& order) {
 
 **この段階の評価：** `PaymentCalculator` から割引種別の選択判断が消えました。新しい割引を追加するときは、ルールクラスと選択を担う組み立て箇所を変更します。`IDiscountRule` の契約が安定している限り、`PaymentCalculator` の計算フローへ条件分岐を追加せずに済みます。これが今回目指した「変わる理由の分離」の到達点です。
 
-ただし、Strategyは「実行するアルゴリズムの差し替え」を解決するもので、複数の割引を自由に重ねる問題まで自動的に解決するわけではありません。この例では重ね掛けを1つのStrategyとして表す `SummerSaleAndCampaignDiscount` を用意しています。独立した割引が増え、組み合わせごとのクラスが増え始めたら、割引のリストを順番に適用する仕組みや、第6章で扱うDecoratorのような構造を別途検討します。
+ただし、この設計は「実行するアルゴリズムの差し替え」を解決するもので、複数の割引を自由に重ねる問題まで自動的に解決するわけではありません。この例では重ね掛けを1つのルールとして表す `SummerSaleAndCampaignDiscount` を用意しています。独立した割引が増え、組み合わせごとのクラスが増え始めたら、割引のリストを順番に適用する仕組みや、ルールを入れ子にして重ねる構造を別途検討します。
 
 ---
 
@@ -846,8 +846,6 @@ void processOrder(const Order& order) {
 
 **今回の決断：**
 フェーズ2のヒアリングで、マーケティング責任者から「今後も毎月ルールが追加される」と明言されています。この変更頻度を重視し、今回は**ステップ4（インターフェース化・依存性の注入）まで進化させる**案を採用します。
-
-このように、変わるロジック（割引ルール）をインターフェースで分離し、呼び出し側から自由に差し替え可能にするこの設計構造を **Strategy（ストラテジー）パターン** と呼びます。
 
 フェーズ6で採用ステップが決まりました。次のフェーズ7では、この決断を最終的なコードに落とし込みます。
 
@@ -864,7 +862,6 @@ void processOrder(const Order& order) {
 #include <iostream>
 #include <string>
 #include <vector>
-#include <memory>
 
 class Item {
 public:
@@ -968,24 +965,25 @@ public:
 // ルールを選択するファクトリ（かつて本体にあったif文を隔離する場所）
 class RuleFactory {
 public:
-    static std::unique_ptr<IDiscountRule> create(const Order& order, const CampaignContext& context) {
-        if (order.customerType == "Premium") return std::make_unique<PremiumDiscount>();
-        if (context.isSummerSale && context.isCampaignActive) return std::make_unique<SummerSaleAndCampaignDiscount>();
-        if (context.isSummerSale) return std::make_unique<SummerSaleDiscount>();
-        if (context.isCampaignActive) return std::make_unique<CampaignDiscount>();
-        return std::make_unique<NoDiscount>();
+    static IDiscountRule* create(const Order& order, const CampaignContext& context) {
+        if (order.customerType == "Premium") return new PremiumDiscount();
+        if (context.isSummerSale && context.isCampaignActive) return new SummerSaleAndCampaignDiscount();
+        if (context.isSummerSale) return new SummerSaleDiscount();
+        if (context.isCampaignActive) return new CampaignDiscount();
+        return new NoDiscount();
     }
 };
 
 class BatchApplication {
     void printCase(const std::string& label, const Order& order, const CampaignContext& context) {
-        std::unique_ptr<IDiscountRule> rule = RuleFactory::create(order, context);
-        PaymentCalculator calculator(rule.get());
-        CartPreviewService preview(rule.get());
+        IDiscountRule* rule = RuleFactory::create(order, context);
+        PaymentCalculator calculator(rule);
+        CartPreviewService preview(rule);
 
         std::cout << label << "\n";
         std::cout << "  支払金額: " << calculator.calculate(order) << " 円\n";
         std::cout << "  プレビュー: " << preview.getEstimatedTotal(order) << " 円\n";
+        delete rule;
     }
 
 public:
