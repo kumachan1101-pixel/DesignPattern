@@ -27,7 +27,7 @@
 
 このシステムは、利用者が日々の**収入・支出を記録・管理**するアプリです。
 
-ボタン操作でデータを追加・削除でき、現在の残高（収入合計 − 支出合計）がリアルタイムで表示されます。
+ボタン操作で支出・収入を追加でき、現在の残高（収入合計 − 支出合計）がリアルタイムで表示されます。
 
 **利用できる操作**
 
@@ -35,48 +35,30 @@
 |---|---|---|---|
 | 支出登録 | 金額とカテゴリを入力し支出をDBに保存する | 指定金額だけ減る | ユーザー / プロダクトマネージャー |
 | 収入登録 | 金額とカテゴリを入力し収入をDBに保存する | 指定金額だけ増える | ユーザー / プロダクトマネージャー |
-| 最後を削除 | 最後に追加したデータを削除する | そのデータ分だけ元に戻る | ユーザー / プロダクトマネージャー |
 
-現時点では「取り消し（Undo）」機能はなく、削除は「最後に追加したデータを削除する」という操作として実装されています。
-
----
+現時点では「取り消し（Undo）」や「削除」機能はありません。
 
 ### 1-2：動作例テーブル
 
-コードを読む前に、このシステムがどんな入力に対してどんな出力を返すかを確認します。次の表は章全体で目指す動作です。途中ステップでは一部だけを確認し、フェーズ7では各操作が同じ履歴へ接続されることをサンプルコードと出力で確認します。
+コードを読む前に、変更要求が届く前のシステムがどんな入力に対して
+どんな出力を返すかを確認します。
 
 | 操作 | 入力 | 処理内容 | 残高の変化 |
 | --- | --- | --- | --- |
 | 支出登録 | 1,000円／食費 | 支出をDBに保存し画面を更新する | 残高が1,000円減る |
 | 収入登録 | 5,000円／給与 | 収入をDBに保存し画面を更新する | 残高が5,000円増える |
-| 最後を削除 | （直前に登録した1件） | 最後に追加したデータをDBから削除し画面を更新する | そのデータ分だけ残高が元に戻る |
-| Undoを1回実行 | （直前は収入登録5,000円） | 直前の操作（収入登録）を取り消す | 残高が5,000円戻る（元の残高に戻る） |
-| Undoを2回連続実行 | （操作履歴：収入→支出の順） | 収入登録を取り消し、続けて支出登録も取り消す | 2段階前の残高に戻る |
-| Redoを1回実行 | （直前にUndoで取り消した操作あり） | 取り消した操作を再実行する | 取り消し前の残高に戻る |
-| CSVから一括インポート（3件） | 2,000円／家賃、300円／水道、800円／食費 | 3件を順に登録する | 残高が3,100円減る |
 
-途中ステップの目的は、機能を一度に完成させることではなく、設計上の責任を一つずつ移すことです。各段階で確認する範囲は次のとおりです。
+次は仕様とクラスを対応づけます。
 
-| 段階 | 確認する動作 |
-|---|---|
-| 現状コード | 支出登録・収入登録 |
-| ステップ1 | 直前の操作を1回取り消す |
-| ステップ2 | 複数回のUndo |
-| ステップ3 | 操作種別に依存しないUndo |
-| フェーズ7 | 支出・収入・最後を削除・複数Undo・Redo・CSV一括登録とロールバック |
+**このシステムの登場クラス**
 
-既存の「最後を削除」ボタンは、履歴の末尾を1回取り消す操作として `ActionHistory::undo()` に対応づけます。新しいUndoボタンと内部処理は同じですが、画面上の入口は既存仕様に合わせて残せます。
-
----
-
-#### このシステムの登場クラス
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
-| `ExpenseManager` | 支出データの追加・削除 | 支出をDBに保存し画面を更新する |
-| `IncomeManager` | 収入データの追加・削除 | 収入をDBに保存し画面を更新する |
+| `ExpenseManager` | 支出データの追加 | 支出をDBに保存し画面を更新する |
+| `IncomeManager` | 収入データの追加 | 収入をDBに保存し画面を更新する |
 | `UIButtons` | ユーザーの操作を受け取り、各マネージャを呼び出す | 支出・収入の各登録アクションを発火する |
 
-この段階での注目ポイントは、呼び出し元である `UIButtons` が、どのマネージャのどのメソッドを呼ぶか（データの流れと実行の詳細）を直接知ってしまっている点です。
+---
 
 ### 1-3：クラス構成図
 
@@ -117,49 +99,31 @@ graph TD
 
 ---
 
-#### 補足：現状コードの実行結果
-
-上記コードの実行結果：
-
-```text
-支出を追加しました：Food 1000円
-収入を追加しました：Salary 3000円
-```
-
-これから検討するのは、同じ機能を保ちながら、変更に強い構造をどう作るかという点です。
-
----
-
 ### 1-4：実装コード（現状）
 
 操作実行部分のコード例です。
 
 ```cpp
+#include <iostream>
+#include <string>
+
 class ExpenseManager {
 public:
-    void addExpense(int amount, std::string category) {
+    int addExpense(int amount, const std::string& category) {
         std::cout << "支出を追加しました：" << category
                   << " " << amount << "円" << std::endl;
         // DB保存・画面更新処理
-    }
-    void removeExpense(int amount, std::string category) {
-        std::cout << "支出を取り消しました：" << category
-                  << " " << amount << "円" << std::endl;
-        // DB削除・画面更新処理
+        return -amount;
     }
 };
 
 class IncomeManager {
 public:
-    void addIncome(int amount, std::string source) {
+    int addIncome(int amount, const std::string& source) {
         std::cout << "収入を追加しました：" << source
                   << " " << amount << "円" << std::endl;
         // DB保存・画面更新処理
-    }
-    void removeIncome(int amount, std::string source) {
-        std::cout << "収入を取り消しました：" << source
-                  << " " << amount << "円" << std::endl;
-        // DB削除・画面更新処理
+        return amount;
     }
 };
 
@@ -167,18 +131,49 @@ public:
 class UIButtons {
     ExpenseManager em;
     IncomeManager im;
+    int balance = 0;
 public:
-    void onAddExpenseClick() {
-        em.addExpense(1000, "Food");
+    void onAddExpenseClick(int amount, const std::string& category) {
+        balance += em.addExpense(amount, category);
+        std::cout << "現在残高：" << balance << "円\n";
     }
-    void onAddIncomeClick() {
-        im.addIncome(3000, "Salary");
+    void onAddIncomeClick(int amount, const std::string& source) {
+        balance += im.addIncome(amount, source);
+        std::cout << "現在残高：" << balance << "円\n";
     }
 };
-
 ```
 
 このコードを見ると、ボタン押下という「操作」と、マネージャクラスによる「処理の実行」が密接に結びついていることが分かります。
+
+#### 呼び出し元と実行確認
+
+```cpp
+int main() {
+    UIButtons buttons;
+
+    std::cout << "--- 行1: 支出登録 ---\n";
+    buttons.onAddExpenseClick(1000, "食費");
+
+    std::cout << "--- 行2: 収入登録 ---\n";
+    buttons.onAddIncomeClick(5000, "給与");
+    return 0;
+}
+```
+
+上記コードの実行結果：
+
+```text
+--- 行1: 支出登録 ---
+支出を追加しました：食費 1000円
+現在残高：-1000円
+--- 行2: 収入登録 ---
+収入を追加しました：給与 5000円
+現在残高：4000円
+```
+
+動作例テーブルの2行どおり、支出で1,000円減り、その後の収入で
+5,000円増えることを確認できました。現状にはUndoや削除の処理はありません。
 
 ---
 
@@ -186,7 +181,7 @@ public:
 
 「利用者から、誤って登録したデータを簡単に取り消したいという要望が多く届いています。来週までに、直近の操作を取り消す『Undo機能』を実装してください」と、プロダクトマネージャーから連絡がありました。
 
-なるほど、ボタンクリックという「操作」を記録しておき、それを巻き戻す必要があるのですね。ただ、現状の `UIButtons` クラスの中に「操作を巻き戻すためのリスト」まで書いてしまうと、ボタンの数が増えるたびに管理ロジックがどんどん膨らんでしまいそうです。
+なるほど、ボタンクリックという「操作」を記録しておき、それを巻き戻す必要があるのですね。
 
 **仕様変更の内容**
 
@@ -196,10 +191,9 @@ public:
 |---|---|---|
 | 支出登録 | 支出をDBに保存し画面を更新 | **変更なし**（ただし操作履歴への記録が必要になる） |
 | 収入登録 | 収入をDBに保存し画面を更新 | **変更なし**（ただし操作履歴への記録が必要になる） |
-| 最後を削除 | 最後のデータをDBから削除し画面を更新 | **変更なし**（ただし操作履歴への記録が必要になる） |
 | **Undo実行（新規）** | —（なし） | **直前の操作を取り消し、残高を操作前に戻す** |
 
-「3つの操作が変更なし」という点に戸惑うかもしれません。操作そのものには影響なし——支出登録は今も、これからも「支出をDBに保存して画面を更新する」だけです。変わるのは「その操作をどう管理するか」という層であり、そこが新たに必要になる部分です。言い換えると、「何をする操作か」は変わらず、「操作の記録をどう扱うか」という責任層が加わるのです。
+支出登録と収入登録そのものの意味は変わりません。変わるのは「その操作をどう記録し、どう取り消すか」という管理層です。言い換えると、「何をする操作か」は保ちながら、「操作の記録をどう扱うか」という責任が加わります。
 
 **Undo動作の詳細**
 
@@ -207,7 +201,7 @@ public:
 - 収入登録の直後にUndoを実行 → その収入が取り消され、残高が元に戻る
 - Undoを連続実行 → 操作の順番を逆に遡って取り消しを繰り返す
 
-既存の3つの操作に「Undo対象として記録する」処理が追加される点と、新たに「Undo実行」操作が加わる点が、この変更の核心です。
+既存の2つの登録操作をUndo対象として記録し、新たに「Undo実行」という履歴操作を加える点が、この変更の核心です。
 
 ---
 
@@ -217,36 +211,21 @@ public:
 
 「操作」と「実行」は、変わる理由が異なります。たとえば、支出登録のDB保存方法が変わるのはシステム開発者の技術的判断（RDBからNoSQLへ移行など）によるものです。一方、「履歴管理が必要かどうか」は営業やプロダクトの判断（ユーザー要望・法令対応など）によるものです。変わる理由の担当者が異なる——それが「分けるべき」サインです。
 
-### 2-1：責任チェック表
+### 2-1：`UIButtons`に混在している知識と担当チーム
 
-設計を見直す際、私の場合は「このコードは誰の判断で変わるのか」を可視化することから始めます。変わる理由の決定者が誰かを知ることで、クラスが抱えすぎているものを整理しやすくなるからです。
+`UIButtons` が現在抱えている知識と、それぞれを変更するチームを確認します。
 
-| **クラス名** | **本来の責任** | **コード内に混在している知識** |
-| --- | --- | --- |
-| `UIButtons` | ユーザーの操作を受け取る | どのボタンが押されたか（UIデザイナー）、どのマネージャのどのメソッドを呼ぶか（システム開発） |
-| `ExpenseManager` | 支出データの管理 | 支出をどう保存するか（システム開発） |
-| `IncomeManager` | 収入データの管理 | 収入をどう保存するか（システム開発） |
+| 知識（コードが直接持っているもの） | 変更を決めるチーム | 適切か |
+|---|---|---|
+| ユーザーがどのボタンを押したか | UIデザイナー | ✅ |
+| `ExpenseManager.addExpense()` の呼び出し方 | バックエンド開発チーム | ❌ 混在 |
+| `IncomeManager.addIncome()` の呼び出し方 | バックエンド開発チーム | ❌ 混在 |
 
-この表から、`UIButtons` クラスの中に、操作の意図（UIデザイナー）と具体的な実行手段（システム開発）という、決定者が異なる知識が同居していることが見えてきます。
-
-### 2-2：変わる理由の分析
-
-コードの各行が「誰の判断で変わる知識か」をさらに細かく確認してみます。
-
-| **コードの行** | **持っている知識** | **変更の決定者** |
-| --- | --- | --- |
-| `em.addExpense(...)` | 支出追加の具体的なメソッドを知っている | 画面UIが操作内容と実行手段を混在させて管理している |
-| `im.addIncome(...)` | 収入追加の具体的なメソッドを知っている | 画面UIが操作内容と実行手段を混在させて管理している |
-
-> `UIButtons` クラスが「どの操作をする必要があるか」という意図だけでなく、「どうやって実行するか（具体的なメソッド呼び出し）」まで知ってしまっていることが観察できます。
-> 
-> 
-
-要するに、操作ボタンという呼び出し元が、処理を実行するマネージャクラスの具体的なメソッドを直接知っているという観察から、実行する必要がある操作の意図と、具体的な実行手段が同じ場所に混在しているという構造の問題が見えてきます。
+❌が2つある。UIデザイナーがボタンの見た目を変えたいときも、バックエンド開発チームがメソッドのシグネチャを変えたいときも、同じ `UIButtons` クラスに手が入ります。これが後の変更の痛みの予兆です。
 
 #### 補足：変動・不変の仮説テーブル
 
-フェーズ2の責任チェック表を材料に、Undo機能の実装に向けた仮説を立てます。
+フェーズ2の観察を材料に、Undo機能の実装に向けた仮説を立てます。
 
 | **分類** | **仮説** | **根拠（フェーズ2の観察から）** |
 | --- | --- | --- |
@@ -256,7 +235,7 @@ public:
 
 「操作」を今のまま「メソッド呼び出し」として直付けしていると、Undo機能のために、呼び出し元と実行先の両方を大掛かりに書き換える必要が出てきそうです。
 
-### 2-3：今回の変更で確実に変わること
+### 2-2：今回の変更で確実に変わること
 
 ここで2つのテーブルの違いを整理しておきます。上の「変動・不変の仮説テーブル（2-3）」は「将来的に変わりそうかどうか」という観点での仮説です。一方、次の「今回の確定変更テーブル」は「今回のUndo機能追加という変更要求によって、確実に変わる箇所はどこか」という確定事実の整理です。仮説は「将来」、確定変更は「今回」——この違いを意識して読み進めてください。
 
@@ -276,7 +255,7 @@ public:
 
 一見すると、このコードは各ボタンに対応するメソッドが綺麗に分かれており、直感的で読みやすい構造をしています。このシンプルな設計は当初の要件（記録のみ）には十分でした。ただ、操作履歴を管理するという新しい要件では、この設計の延長線上では解決しにくい構造的な課題が生まれます。
 
-### 2-4：関係者ヒアリング
+### 2-2：関係者ヒアリング
 
 確定変更の背景をさらに深掘りするため、UIデザイナーとシステム開発担当に確認を行いました。この会話が、次の「将来リスクテーブル」の根拠になります。
 
@@ -289,9 +268,7 @@ public:
 
 ヒアリングの結果、操作の「実行」と「取り消し」の仕組みは、将来的に複雑な操作が追加されても安定している必要があると分かりました。
 
-> **現実のヒアリングでは——** このシナリオでは相手がちょうど設計に役立つ情報を教えてくれています。現実には「変わるかどうか分からない」「たぶん変わらない」という答えが返ることも多いです。そのときは、コードの変更履歴（`git log`）や過去の障害記録を「ヒアリングの代わり」として使ってみるのも一つの考え方です。「過去に何度変わったか」が、「将来変わりやすいか」の最も正直な証拠になります。
-
-### 2-5：ヒアリングで判明した将来リスク
+### 2-2：ヒアリングで判明した将来リスク
 
 ヒアリングで明らかになった「今後変わるかもしれないリスク」を整理します。これは今回の変更で確実に起きることではなく、将来の拡張リスクです。
 
@@ -388,9 +365,9 @@ Undo失敗（取り消しメソッドがない）
 
 **これがステップ1の限界です。** コードに手を入れようとした瞬間に、「取り消すメソッドがない」「金額やカテゴリをどこに保存していたか分からない」という問題が次々と現れます。現在の構造のままUndoを追加することは、根本的な構造変更なしには実現できないのです。
 
-実装を始めてすぐに、ある重大な問題に気づきます。現在の `ExpenseManager` には「取り消し（Undo）」のためのメソッドが存在しないため、履歴を記録しても元に戻す手段がないのです。
+このように、単に操作履歴（文字列）を記録するだけでは、実際のアクションを取り消す（Undoする）ことができません。現在の `ExpenseManager` には「取り消し（Undo）」のためのメソッドが存在せず、履歴を記録したとしても元に戻す具体的な手段が提供されていないためです。
 
-結局、Undo機能を実装するには、すべてのマネージャクラスに `undo` メソッドを追加し、それを呼び出す巨大な条件分岐を `UIButtons` クラスに書き加えることになります。機能を追加するたびに、呼び出し元であるUIクラスが肥大化し、かつ、それぞれの業務ロジックの内部事情をさらに詳細に知らなければならないという、逃げ場のない状況に陥ってしまうのではないでしょうか。
+結局、このアプローチのままUndo機能を実装するには、すべてのマネージャクラスに `undo` メソッドを追加し、さらにそれを呼び出す巨大な条件分岐を `UIButtons` クラスに書き加えることになります。機能を追加するたびに、呼び出し元であるUIクラスが肥大化し、かつ、それぞれの業務ロジックの内部事情をさらに詳細に知らなければならないという、保守性の低い設計に陥ってしまうのです。
 
 ### 3-2：変更影響グラフ
 
@@ -615,11 +592,54 @@ public:
 
 では、逆転の発想を試してみましょう。「実行と取り消しの両方を操作クラス自身が知っている」ように設計すれば、履歴管理側は操作の中身を知る必要がなくなるはずです。
 
-ただし、`ActionHistory` が履歴に積まれた操作を `cmd->undo()` で呼び出すには、操作が `AddExpenseAction` であっても `AddIncomeAction` であっても、同じ型として扱える必要があります。そのために、すべての操作クラスに `execute()` と `undo()` の実装を強制する共通のインターフェース `IAction` を導入します。
+実行と取り消しの両方を操作クラス自身が知っているように設計すれば、履歴管理を担当するクラス（後述する `ActionHistory`）は操作の具体的な中身を知る必要がなくなるはずです。
 
-呼び出し元が `IAction*` を生成して渡す形にすることで、UIは操作の実行手段を知らなくて済む。その前提として、すべての操作クラスに `execute()` と `undo()` の実装を強制する共通インターフェース `IAction` を導入します。
+ただし、履歴に積まれた操作（`AddExpenseAction` や `AddIncomeAction` など）を共通の方法で呼び出すには、それらが同じ型として扱える必要があります。そのために、すべての操作クラスに `execute()`（実行）と `undo()`（取り消し）の実装を強制する共通のインターフェース `IAction` を導入します。これによって呼び出し側は、具体的な操作内容に関わらず `cmd->execute()` や `cmd->undo()` を呼ぶだけで済むようになります。
+
+> [!INFO] コラム: なぜわざわざ「操作」をクラスにするの？
+> 初学者のうちは、「操作の履歴を残すなら、配列に操作名を入れてif文で分岐すればいいのでは？」と思うかもしれません。しかし、その方法だと操作の種類（支出、収入、口座移動など）が増えるたびに、呼び出し側のif文が無限に長くなってしまいます。操作自体をオブジェクト（Command）にして execute() や undo() を持たせることで、呼び出し側は「中身を知らなくてもとにかく実行（または取り消し）できる」という状態を作れるのが最大のメリットです。
 
 ```cpp
+#include <deque>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+// Commandが処理を委譲するReceiver
+class ExpenseManager {
+    int total = 0;
+public:
+    void addExpense(int amount, const std::string& category) {
+        total += amount;
+        std::cout << "支出を追加しました：" << category
+                  << " " << amount << "円" << std::endl;
+    }
+    void removeExpense(int amount, const std::string& category) {
+        total -= amount;
+        std::cout << "支出を取り消しました：" << category
+                  << " " << amount << "円" << std::endl;
+    }
+    int totalExpenses() const { return total; }
+};
+
+class IncomeManager {
+    int total = 0;
+public:
+    void addIncome(int amount, const std::string& source) {
+        total += amount;
+        std::cout << "収入を追加しました：" << source
+                  << " " << amount << "円" << std::endl;
+    }
+    void removeIncome(int amount, const std::string& source) {
+        total -= amount;
+        std::cout << "収入を取り消しました：" << source
+                  << " " << amount << "円" << std::endl;
+    }
+    int totalIncome() const { return total; }
+};
+
 // 操作の契約：実行と取り消しをすべての操作クラスに強制する
 class IAction {
 public:
@@ -723,7 +743,7 @@ int main() {
 
 このパターンは「リクエストをオブジェクトとしてカプセル化し、呼び出し元から具体的な実行手段の知識を外す」という構造に、GoFがつけた名前です。フェーズ6でステップ3を選んだ理由を振り返ると、そのままCommandパターンを選ぶ理由に重なります。パターン名を先に知ってから「どこで使うか」を探すのではなく、問題を解いた結果としてこの構造にたどり着く——それがこのプロセスの意図です。
 
-この設計変更により、今後どれだけ操作の種類が増えようとも、UIクラスや履歴管理ロジックを壊すことなく、新しい操作クラスを追加するだけで安全に機能拡張ができる構造を手に入れました。
+この設計変更により、新しい操作はCommandクラスとして追加し、UIやバッチへ割り当てる組み立て箇所を変更できます。`ActionHistory` へ操作種別ごとの条件分岐を追加せずに、同じUndo/Redoの仕組みを利用できます。
 
 ### 7-1：解決後のコード（全体）
 
@@ -732,6 +752,46 @@ int main() {
 **はじめに、操作の契約となるインターフェースです。**
 
 ```cpp
+#include <deque>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+// Commandが処理を委譲するReceiver
+class ExpenseManager {
+    int total = 0;
+public:
+    void addExpense(int amount, const std::string& category) {
+        total += amount;
+        std::cout << "支出を追加しました：" << category
+                  << " " << amount << "円" << std::endl;
+    }
+    void removeExpense(int amount, const std::string& category) {
+        total -= amount;
+        std::cout << "支出を取り消しました：" << category
+                  << " " << amount << "円" << std::endl;
+    }
+    int totalExpenses() const { return total; }
+};
+
+class IncomeManager {
+    int total = 0;
+public:
+    void addIncome(int amount, const std::string& source) {
+        total += amount;
+        std::cout << "収入を追加しました：" << source
+                  << " " << amount << "円" << std::endl;
+    }
+    void removeIncome(int amount, const std::string& source) {
+        total -= amount;
+        std::cout << "収入を取り消しました：" << source
+                  << " " << amount << "円" << std::endl;
+    }
+    int totalIncome() const { return total; }
+};
+
 // 操作の契約：実行と取り消しをすべての操作クラスに強制する
 class IAction {
 public:
@@ -786,38 +846,38 @@ public:
 
 ```
 
-各操作クラスは「実行」と「取り消し」の両方を知っている。操作が増えても、このパターンで新しいクラスを追加するだけでよく、中心となる既存クラスは変更しない。
+各操作クラスは「実行」と「取り消し」の両方を知っています。操作を増やすときはCommandクラスを追加し、画面やバッチへ割り当てる組み立て箇所を変更します。`ActionHistory` の履歴管理ロジックには、操作種別ごとの分岐を増やさずに済みます。
 
 **次に、操作履歴を保持し、Undo/Redoを制御する仲介役クラスです。**
 
 ```cpp
 // 操作履歴を保持し、Undo/Redoを制御する仲介役
 class ActionHistory {
-    std::deque<IAction*> undoStack;  // ← 先頭（最古）を削除できるdequeを使う
-    std::deque<IAction*> redoStack;
+    std::deque<std::unique_ptr<IAction>> undoStack;
+    std::deque<std::unique_ptr<IAction>> redoStack;
     static const int MAX_HISTORY = 50;
 public:
-    void execute(IAction* cmd) {
+    void execute(std::unique_ptr<IAction> cmd) {
         cmd->execute();
-        undoStack.push_back(cmd);
+        undoStack.push_back(std::move(cmd));
         if ((int)undoStack.size() > MAX_HISTORY) {
-            undoStack.pop_front();  // ← 最古のコマンドを削除する
+            undoStack.pop_front();  // 所有する最古のCommandも破棄される
         }
-        while (!redoStack.empty()) redoStack.pop_back();
+        redoStack.clear();
     }
     void undo() {
         if (undoStack.empty()) return;
-        IAction* cmd = undoStack.back();
+        // undo()が失敗した場合は、CommandをundoStackに残す
+        undoStack.back()->undo();
+        redoStack.push_back(std::move(undoStack.back()));
         undoStack.pop_back();
-        cmd->undo(); // ← ここだけ変わる
-        redoStack.push_back(cmd);
     }
     void redo() {
         if (redoStack.empty()) return;
-        IAction* cmd = redoStack.back();
+        // execute()が失敗した場合は、CommandをredoStackに残す
+        redoStack.back()->execute();
+        undoStack.push_back(std::move(redoStack.back()));
         redoStack.pop_back();
-        cmd->execute();
-        undoStack.push_back(cmd);
     }
     int historySize() const {
         return (int)undoStack.size();
@@ -826,7 +886,7 @@ public:
 
 ```
 
-`ActionHistory` は `IAction*` という抽象型だけを知っており、具体的な操作クラスを一切知らない。Undo/Redoのロジックがここに集約されているため、どの呼び出し元（BudgetAppやImportService）も履歴管理の詳細を知らなくてよい。
+`ActionHistory` は `std::unique_ptr<IAction>` としてCommandの所有権を受け取り、履歴に残っている間の寿命を保証します。具体的な操作クラスは知りません。Undo/Redoの実行に失敗した場合は、対象Commandを元のスタックに残す順序にしています。
 
 **最後に、呼び出し元と組み立てコードです。**
 
@@ -838,14 +898,12 @@ class BudgetApp {
     ActionHistory* history;
 public:
     BudgetApp(ActionHistory* h) : history(h) {}
-    void onAddExpenseClick(IAction* cmd) {
-        history->execute(cmd);
+    void onAddExpenseClick(std::unique_ptr<IAction> cmd) {
+        history->execute(std::move(cmd));
     }
-    void onAddIncomeClick(IAction* cmd) {
-        history->execute(cmd);
+    void onAddIncomeClick(std::unique_ptr<IAction> cmd) {
+        history->execute(std::move(cmd));
     }
-    // 既存の「最後を削除」は、履歴末尾を1回取り消す
-    void onDeleteLastClick() { history->undo(); }
     void onUndoClick() { history->undo(); }
     void onRedoClick() { history->redo(); }
 };
@@ -855,11 +913,13 @@ class ImportService {
     ActionHistory* history;
 public:
     ImportService(ActionHistory* h) : history(h) {}
-    void importTransactions(std::vector<IAction*> cmds) {
-        for (auto* cmd : cmds) {
-            history->execute(cmd);
+    void importTransactions(
+            std::vector<std::unique_ptr<IAction>> cmds) {
+        const std::size_t count = cmds.size();
+        for (auto& cmd : cmds) {
+            history->execute(std::move(cmd));
         }
-        std::cout << cmds.size() << "件インポート完了"
+        std::cout << count << "件インポート完了"
                   << "（履歴: " << history->historySize()
                   << "件）" << std::endl;
     }
@@ -877,20 +937,39 @@ int main() {
     ActionHistory hist;
 
     BudgetApp app(&hist);
-    AddExpenseAction cmd1(em, 1000, "Food");
-    app.onAddExpenseClick(&cmd1);    // 支出1000円を登録
-    AddIncomeAction income(im, 5000, "Salary");
-    app.onAddIncomeClick(&income);   // 収入5000円を登録
-    app.onDeleteLastClick();         // 既存仕様：最後の収入を削除
+    app.onAddExpenseClick(
+        std::make_unique<AddExpenseAction>(em, 1000, "Food"));
+    app.onAddIncomeClick(
+        std::make_unique<AddIncomeAction>(im, 5000, "Salary"));
+    std::cout << "残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
+    app.onUndoClick();               // 直前の収入を取り消す
     app.onUndoClick();               // さらに支出も取り消す
+    std::cout << "Undo後の残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
     app.onRedoClick();               // 支出を再実行
+    std::cout << "Redo後の残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
 
     ImportService importer(&hist);
-    AddExpenseAction cmd2(em, 2000, "Rent");
-    AddExpenseAction cmd3(em, 300, "Water");
-    AddExpenseAction cmd4(em, 800, "Food");
-    importer.importTransactions({&cmd2, &cmd3, &cmd4}); // 一括登録（3件）
+    std::vector<std::unique_ptr<IAction>> imported;
+    imported.push_back(
+        std::make_unique<AddExpenseAction>(em, 2000, "Rent"));
+    imported.push_back(
+        std::make_unique<AddExpenseAction>(em, 300, "Water"));
+    imported.push_back(
+        std::make_unique<AddExpenseAction>(em, 800, "Food"));
+    importer.importTransactions(std::move(imported)); // 一括登録（3件）
+    std::cout << "インポート後の残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
     importer.rollback(3);            // 3件ロールバック
+    std::cout << "ロールバック後の残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
     return 0;
 }
 ```
@@ -900,22 +979,27 @@ int main() {
 ```text
 支出を追加しました：Food 1000円
 収入を追加しました：Salary 5000円
+残高: 4000円
 収入を取り消しました：Salary 5000円
 支出を取り消しました：Food 1000円
+Undo後の残高: 0円
 支出を追加しました：Food 1000円
+Redo後の残高: -1000円
 支出を追加しました：Rent 2000円
 支出を追加しました：Water 300円
 支出を追加しました：Food 800円
 3件インポート完了（履歴: 4件）
+インポート後の残高: -4100円
 支出を取り消しました：Food 800円
 支出を取り消しました：Water 300円
 支出を取り消しました：Rent 2000円
 3件ロールバック完了
+ロールバック後の残高: -1000円
 ```
 
-フェーズ2で予告された「直前の操作を取り消すUndo機能」や、さらに高度な「インポートの一括ロールバック」のような要件が来ても、既存のクラスをほとんど触らずに対応できることが、このコードからもわかります。
+支出1,000円と収入5,000円の登録後は残高4,000円、2回のUndo後は0円、Redo後は-1,000円になります。3件合計3,100円の支出をインポートすると-4,100円になり、3件をロールバックすると-1,000円へ戻ります。ログの順序だけでなく、Receiverが保持する集計状態も元へ戻ることを確認できます。
 
-この実装により、UIはコマンドを履歴へ渡すだけでよくなり、支出・収入ごとの実行手順を知る必要がなくなりました。コマンドの生成と画面への割り当ては組み立て側に残ります。
+この実装により、UIはコマンドの所有権を履歴へ渡すだけでよくなり、支出・収入ごとの実行手順やCommandの寿命を管理する必要がなくなりました。コマンドの生成と画面への割り当ては組み立て側に残ります。
 
 ### 7-2：動作シーケンス図
 
@@ -925,15 +1009,15 @@ sequenceDiagram
     participant CH as ActionHistory
     participant BA as BudgetApp
     participant AEC as AddExpenseAction
-    Note over main: 具体型を組み立てる唯一の場所
+    Note over main: 具体型を組み立てる主な組み立て場所
     main->>CH: new ActionHistory
     main->>BA: new BudgetApp(history: ActionHistory*)
-    main->>AEC: new AddExpenseAction(...)
-    main->>BA: onAddExpenseClick(&cmd1)
-    BA->>CH: history->execute(cmd)
+    main->>AEC: make_unique AddExpenseAction(...)
+    main->>BA: onAddExpenseClick(move(cmd))
+    BA->>CH: history->execute(move(cmd))
     Note right of BA: ActionHistory*経由
     CH->>AEC: cmd->execute()
-    Note right of CH: IAction*経由で実行
+    Note right of CH: unique_ptr<IAction>を所有して実行
     AEC-->>CH: 完了
     CH-->>BA: 完了
     BA-->>main: 完了
@@ -951,19 +1035,19 @@ graph LR
 
 ```
 
-→ **フェーズ3の変更影響グラフと比較して、新しい操作の追加という変更要求が、新規作成したコマンドクラスだけに閉じた設計になりました**。
+→ **フェーズ3の変更影響グラフと比較して、新しい操作の追加という変更要求が、主に新規コマンドクラス内に限定できる形になりました**。
 
 ### 7-4：変更シナリオ表
 
-この設計で手に入れたものと、諦めたものを整理します。
+現状コードと改善後コードで、変更要求への影響がどう変わるかを対比します。
 
-| **シナリオ** | **変わるクラス（触る場所）** | **変わらないクラス** |
-| --- | --- | --- |
-| 新しい操作（例：振込）の追加 | `TransferCommand` (新規作成) | `UIButtons`, `ActionHistory` |
-| Undo/Redoの仕様変更 | `ActionHistory` (修正のみ) | `UIButtons`, 各 `Command` クラス |
-| 操作の上限件数変更 | `ActionHistory` 内の定数変更のみ | すべてのCommandクラス、UIクラス |
+| **シナリオ** | **現状コードでの影響** | **この設計での影響** |
+|---|---|---|
+| 新しい操作（振替等）を追加 | `UIButtons` に新しい呼び出しと取り消しロジックを追記 | `TransferAction` 実装クラスを新規作成するだけ |
+| Undo/Redoの回数制限を変更 | `UIButtons` の履歴管理ロジックを修正 | `ActionHistory` のみ修正 |
+| 操作履歴をログ出力する機能を追加 | `UIButtons` の各操作呼び出し箇所に追記 | `ActionHistory` に1箇所追加 |
 
-操作の意図をオブジェクトとして独立させたことで、UIは操作の実行方法を知る必要がなくなりました——それがこの設計で手に入れたものです。諦めたものは、操作ごとにクラスを定義することによる、わずかなクラス数の増加です。
+操作の意図をオブジェクトとして独立させたことで、UIは操作の実行方法を知る必要がなくなりました。代わりに、操作ごとのクラス、Commandの所有権、履歴上限、失敗時の整合性を設計する必要があります。
 
 ### この章で定義したこと
 

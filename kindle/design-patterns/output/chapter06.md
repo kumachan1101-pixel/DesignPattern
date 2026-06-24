@@ -13,7 +13,7 @@
 この章のテーマは「機能の組み合わせが増えるたびにクラスが爆発する」という問題です。「継承で全部作ろうとしたら間に合わなくなった」という経験がある方は、この章が直撃します。
 
 * **得られること1：** 「機能の組み合わせ」という観点で、コードの変動箇所を識別できるようになる。「変わる機能」と「変わらない機能」を区別する問いを立てる習慣が、変動箇所を見抜く目を育てる。
-* **得られること2：** 接続点で基本ドリンク側がトッピングの種類・価格・組み合わせをどこまで知っているかを調べ、変更の痛みが生まれる理由を説明できるようになる。
+* **得られること2：** 接続点で基底となるオブジェクトが拡張機能の種類・コスト・組み合わせをどこまで知っているかを調べ、変更の痛みが生まれる理由を説明できるようになる。
 * **得られること3：** 接続点の約束をそろえると、トッピング追加の変更を実装クラスと組み立て箇所へ寄せられることを説明できるようになる。
 * **得られること4：** 基本機能と追加機能を同じインターフェースで扱うことで、呼び出し側に違いを意識させずに機能を何層でも重ねていく視点が身につく。「追加するたびに呼び出し側も変える必要が生じます」という痛みを経験したとき、この構造の必要性が実感として伝わってくる。
 
@@ -72,7 +72,7 @@
 
 **データの流れ：** `main()` → `CustomDrink`コンストラクタ（ベース名・価格・各トッピングフラグ） → `getPrice()` / `getDescription()` → 画面出力
 
-**注目ポイント：** 現在は `CustomDrink` という1クラスがすべての処理を担っています。フェーズ3〜6で「このクラスが知りすぎていること」が問題として浮かび上がってきます。
+**注目ポイント：** 現在は `CustomDrink` という1クラスがすべての処理を担っています。
 
 ---
 
@@ -152,7 +152,7 @@ int main() {
 }
 ```
 
-`CustomDrink` がすべてのトッピングをフラグで持ち `if` 文で処理している。これが後に問題になる。
+`CustomDrink` がすべてのトッピングをフラグで持ち `if` 文で処理している。
 
 このコードを見ると、`CustomDrink` クラスがどのトッピングがいくらで、どんな名前になるかをすべて直接知っていることが分かります。
 
@@ -284,9 +284,9 @@ int main() {
 
 佐藤マネージャーからの要求通り、「抹茶パウダー」と「チョコチップ」を既存のシステムに追加してみましょう。
 
-はじめには、トッピングの有無を管理している `CustomDrink` クラスを開きます。クラスのメンバ変数として、`bool hasMatcha;` と `bool hasChocoChip;` という2つのフラグを追加します。
+はじめに、トッピングの有無を管理している `CustomDrink` クラスを開きます。クラスのメンバ変数として、`bool hasMatcha;` と `bool hasChoco;` という2つのフラグを追加します。
 次に、初期化を行うためのコンストラクタの引数にも、この2つの真偽値（boolean）を追加する必要があります。
-そして、価格を計算する `getPrice` メソッドの中に `if (hasMatcha) total += 60;` のような計算ロジックを足し、同様に `getDescription` メソッドの中にも名前を組み立てる `if` 文を書き足します。
+そして、価格を計算する `getPrice` メソッドの中に `if (hasMatcha) total += 60;` および `if (hasChoco) total += 40;` の計算ロジックを足し、同様に `getDescription` メソッドの中にもトッピング名を組み立てる `if` 文を書き足します。
 
 抹茶を追加した後の `getPrice()` メソッド全体は、このようにif文が並ぶ形になります。
 
@@ -297,7 +297,7 @@ int getPrice() const {
     if (hasWhip)     total += 70;
     if (hasSyrup)    total += 30;
     if (hasMatcha)   total += 60; // ← 抹茶パウダーを追加
-    // if (hasChoco) total += 40; // ← チョコチップも同様に追加予定
+    if (hasChoco)    total += 40; // ← チョコチップを追加
     return total;
 }
 ```
@@ -311,6 +311,7 @@ string getDescription() const {
     if (hasWhip)     desc += " + Whip";
     if (hasSyrup)    desc += " + Syrup";
     if (hasMatcha)   desc += " + Matcha"; // ← 抹茶パウダーを追加
+    if (hasChoco)    desc += " + Choco";  // ← チョコチップを追加
     return desc;
 }
 ```
@@ -318,18 +319,18 @@ string getDescription() const {
 変更後のコードを実行すると、次のような結果になります。
 
 ```cpp
-// 変更後の CustomDrink（抹茶フラグ追加後）
+// 変更後の CustomDrink（抹茶・チョコチップフラグ追加後）
 class CustomDrink {
     std::string baseName;
     int basePrice;
-    bool hasMilk, hasWhip, hasSyrup, hasMatcha;
+    bool hasMilk, hasWhip, hasSyrup, hasMatcha, hasChoco;
 public:
     CustomDrink(std::string name, int price,
-                bool milk, bool whip,
-                bool syrup, bool matcha) // ← 引数が1つ増えた
+                bool milk, bool whip, bool syrup,
+                bool matcha, bool choco) // ← 引数が2つ増えた
         : baseName(name), basePrice(price),
-          hasMilk(milk), hasWhip(whip),
-          hasSyrup(syrup), hasMatcha(matcha) {}
+          hasMilk(milk), hasWhip(whip), hasSyrup(syrup),
+          hasMatcha(matcha), hasChoco(choco) {}
 
     int getPrice() const {
         int total = basePrice;
@@ -337,6 +338,7 @@ public:
         if (hasWhip)   total += 70;
         if (hasSyrup)  total += 30;
         if (hasMatcha) total += 60;
+        if (hasChoco)  total += 40;
         return total;
     }
     std::string getDescription() const {
@@ -345,18 +347,19 @@ public:
         if (hasWhip)   desc += " + Whip";
         if (hasSyrup)  desc += " + Syrup";
         if (hasMatcha) desc += " + Matcha";
+        if (hasChoco)  desc += " + Choco";
         return desc;
     }
 };
 
 int main() {
-    // 新しいコンストラクタ呼び出し（引数6個）
+    // 新しいコンストラクタ呼び出し（引数7個）
     CustomDrink order("Coffee", 300,
-                      true, false, false, true);
+                      true, false, false, true, true);
     std::cout << order.getDescription() << std::endl;
     std::cout << order.getPrice() << " 円" << std::endl;
 
-    // 既存の呼び出しはコンパイルエラーになる
+    // 既存の呼び出し（引数5個）はコンパイルエラーになるためコメントアウトして検証
     // CustomDrink old("Coffee", 300, true, false, false);
     //                                              ↑ 引数不足
     return 0;
@@ -365,14 +368,14 @@ int main() {
 
 実行結果：
 
-```
-Coffee + Milk + Matcha
-410 円
+```text
+Coffee + Milk + Matcha + Choco
+450 円
 ```
 
-新しい注文は正しく動いています（300円 + Milk 50円 + Matcha 60円 = 410円）。しかし既存の5引数のコンストラクタ呼び出しはコンパイルエラーになり、モバイルアプリ側の修正が必要です。
+新しい注文（order）は正しく動き、期待される出力（コーヒー 300円 + Milk 50円 + Matcha 60円 + Choco 40円 = 450円）が得られます。しかし、コメントアウトされている `old` のように、既存の5つの引数で呼び出している箇所は、コンストラクタの引数の数が合わないためすべてコンパイルエラーになります。
 
-これでクラスの修正は終わったと思い、コンパイルしてみると、コンストラクタの引数が増えたため、`main()` 内の `CustomDrink order(...)` でコンパイルエラーが発生しました。`CustomDrink` を生成しているモバイルアプリ側（呼び出し元）のコードです。コンストラクタの引数が増えたことで、既存の「コーヒーにミルクだけ」といった注文を生成しているすべての箇所が壊れてしまったのです。
+つまり、この新しいトッピングを追加したクラスを導入するには、既存の「コーヒーにミルクだけ」といった注文を生成しているモバイルアプリ側（呼び出し元）のコードをすべて探し出し、新しい引数（`false, false` など）を追加するように修正しなければならないのです。
 
 たった2つのトッピングを追加しようとしただけなのに、クラスの中をあちこち探し回って修正した上に、呼び出し側のコードまで直す必要に迫られる状況になっています。
 
@@ -575,7 +578,7 @@ public:
 
 **この段階の評価：** 読みやすくはなったが、問題の根本は何も変わっていない。新しいトッピングが来るたびに、フラグの追加・コンストラクタの変更・`calcToppingPrice` と `buildToppingDesc` の両方への追記・呼び出し元の修正という4箇所の修正が毎回必要になる。
 
-ここで自然と「フラグの増加を止めるには？」という問いが浮かびます。まず関数分割を試すと、処理の名前は明確になりますが、呼び出し側の修正やクラス内部の肥大化は防げません。そこで次の候補として、役割ごとにクラスを分け、その手始めに「組み合わせ全体をクラスで表現する」アプローチを検討します。
+ここで自然と「フラグの増加を止めるには？」という問いが浮かびます。関数分割を試すと、処理の名前は明確になりますが、呼び出し側の修正やクラス内部の肥大化は防げません。そこで次の候補として、役割ごとにクラスを分け、その手始めに「組み合わせ全体をクラスで表現する」アプローチを検討します。
 
 ---
 
@@ -1166,13 +1169,13 @@ graph LR
 
 ### 7-4：変更シナリオ表
 
-この設計で私たちが何を手に入れたのかを、考えられる変更シナリオごとに「触る場所」と「触らない場所」に分けて整理してみます。
+現状コードと改善後コードで、変更要求への影響がどう変わるかを対比します。
 
-| **シナリオ** | **変わるクラス** | **変わらないクラス** |
-| --- | --- | --- |
-| 新しいトッピング「抹茶」を追加する | `Matcha`（新規追加）、`OrderApplication`（組み立て側） | `IDrink`, `Coffee`, `Milk`, `Whip` など既存のすべてのロジック |
-| ミルクの価格を50円から60円に値上げする | `Milk`（1行修正） | `IDrink`, `Coffee`, 他のトッピング, `OrderApplication` |
-| ホイップをダブル（2回追加）にする | `OrderApplication`（組み立て側で `Whip` を2回重ねるだけ） | `IDrink`, `Coffee`, `Whip` などのすべてのクラス |
+| **シナリオ** | **現状コードでの影響** | **この設計での影響** |
+|---|---|---|
+| 新しいトッピング（抹茶パウダー等）を追加 | `CustomDrink` にフラグ追加・価格の if 文追加・説明の if 文追加（3箇所） | `MatchaPowder` クラスを新規作成するだけ |
+| トッピングの価格を変更 | `CustomDrink` の if 文内を修正 | 対象のトッピングクラスのみ修正 |
+| 同じトッピングを2回追加する仕様 | `CustomDrink` のフラグ管理を大幅に改修 | Decorator を2回重ねるだけ |
 
 変更が来ても、触るのは1クラスだけ——それがこの設計で手に入れたものだ。諦めたものは、小さなクラスが複数生まれるというわずかな複雑さだ。
 

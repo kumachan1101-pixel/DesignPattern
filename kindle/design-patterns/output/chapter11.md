@@ -22,19 +22,47 @@
 
 ## 🔵 フェーズ1：現状把握 ―― 仕様を整理し、システムと紐付ける
 
-この問題を解くために7つのフェーズを使います。はじめに現状把握から開始し、仮説立案・問題特定・原因分析・課題定義・対策検討・対策実施という順で進みます。
-
-変更要求が来る前のシステムの現状を事実として把握するところから始めます。はじめに背景と動作例で「このシステムが何をするか」を確認し、それからコードを読みます。
-
 ### 1-1：このシステムの仕様
 
 このシステムは、企業の売上データを分析し、経営層向けに週次レポートを自動生成する「レポート生成エンジン」です。現場の営業担当者が入力したCSV形式の売上データを取り込み、指定されたレイアウトでPDFやExcel形式のレポートを出力します。
 
 リリース当初は「基本統計（合計・平均）」を表示するシンプルなレポート機能のみでした。しかし、分析の深度が増すにつれ、「特定の部署ごとのグラフを追加してほしい」「レポートのヘッダーにロゴを埋め込んでほしい」「出力形式をHTMLにも対応させてほしい」といった要望が次々と舞い込むようになりました。
 
-担当者が「レポートの出力順序を変えるだけで、生成処理全体への影響確認が必要になる」と感じる構造です。処理の手順が `main` 相当のクラスにハードコードされているため、変更箇所の見通しを立てにくくなっています。一見するとレポート生成の「処理の骨格」は維持されていますが、機能拡張のたびに条件分岐が増え、責任の境界が曖昧になっています。
+現在の構造では、レポート生成の手順が `main` 相当のクラスにハードコードされています。
 
----
+**対応するレポート種別・出力形式**
+
+| レポート種別 | 内容 | 出力形式 |
+|---|---|---|
+| 週次レポート | 週ごとの売上集計 | PDF・Excel |
+| 月次レポート | 月ごとの売上集計 | PDF・Excel |
+| 部門別レポート | 部門ごとの売上集計 | PDF・Excel |
+
+**装飾機能の一覧**
+
+| 機能 | 内容 | 要件定義の担当 |
+|---|---|---|
+| グラフ追加 | 部署別・期間別のグラフをレポートに挿入する | 分析チーム |
+| ロゴ埋め込み | レポートのヘッダーにロゴ画像を挿入する | 広報チーム |
+| 透かし追加 | 「社外秘」等の透かしをページ全体に適用する | 広報チーム |
+
+装飾は複数を組み合わせて重ねることができます（例：グラフ＋透かし）。
+
+**レポート生成の処理ステップ**
+
+| ステップ | 処理内容 |
+|---|---|
+| ① データ取得 | CSV形式の売上データを読み込む |
+| ② 集計 | 合計・平均などの基本統計を算出する |
+| ③ 装飾適用 | グラフ・ロゴ・透かしを順に重ねる（組み合わせ自由） |
+| ④ 出力 | 指定の形式（PDF / Excel）でファイルを書き出す |
+
+**このシステムの関係者**
+
+| 役割 | 担当者 | 管轄する知識 |
+|---|---|---|
+| グラフ機能の要件定義 | 分析チーム | グラフの種類・表示条件・データ集計ルール |
+| ロゴ・透かし機能の要件定義 | 広報チーム | ブランドガイドライン・ロゴ配置・透かし仕様 |
 
 ### 1-2：動作例テーブル
 
@@ -60,18 +88,20 @@
 
 したがって、途中では未実装の行があっても構いません。最終コードで表の6動作が同じ構造上にそろうことを確認します。
 
----
+次は仕様とクラスを対応づけます。
 
-#### このシステムの登場クラス
+**このシステムの登場クラス**
 
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
 | ReportSkeleton | レポートの全生成処理 | レポートのヘッダー・フッター生成と、グラフやロゴの追加制御 |
 | DataReader | データ読み込み | CSV等からの基本データ読み込み処理 |
 
+---
+
 ### 1-3：クラス構成図
 
-コードを確認する前に、クラス間の関係を図で整理します。
+コードを読んだところで、クラス間の関係を図で整理します。
 
 ```mermaid
 classDiagram
@@ -104,6 +134,9 @@ classDiagram
 #include <vector>
 #include <fstream>
 #include <cstdio>
+#include <memory>
+#include <stdexcept>
+#include <utility>
 
 using namespace std;
 
@@ -166,7 +199,7 @@ PDF形式でレポートのフッターを生成。
 
 「お疲れ様。今度、役員向けに『月次レポート』を出力する機能を追加したいんだ。グラフやロゴの挿入といった既存の機能はそのまま使えるはずだけど、出力のステップを少し細かく制御したい。また、作成したレポートを後から『やり直し』ができるようにしたいという要望が営業部から出ていてね。レポートの生成履歴を保存して、特定の過去時点の状態を再実行したり、取り消したりすることはできるかな？」
 
-なるほど。今回は「処理のステップ制御」という新しい要件と、「操作履歴の保存・再実行」という二つの大きな軸が加わるわけですね。今の `ReportSkeleton` は、処理の流れが固定された上で、追加機能がハードコードされています。
+今回は「処理のステップ制御」という新しい要件と、「操作履歴の保存・再実行」という二つの大きな軸が加わるわけですね。今の `ReportSkeleton` は、処理の流れが固定された上で、追加機能がハードコードされています。
 
 **仕様変更の内容**
 
@@ -182,32 +215,19 @@ PDF形式でレポートのフッターを生成。
 
 ## 🟣 フェーズ2：仮説立案 ―― 何が変わるかを観察し、ヒアリングで裏付ける
 
-### 2-1：責任チェック表
+### 2-1：`ReportSkeleton`に混在している知識と担当チーム
 
-各クラスが「何を知るべきか」を整理します。
+`ReportSkeleton.generate()` が現在抱えている知識と、それぞれを変更するチームを確認します。
 
-| **クラス名** | **責任（1文）** | **知るべきこと** |
-| --- | --- | --- |
-| `ReportSkeleton` | レポート生成の全体フローを統括する | 読み込み手順、レポートの出力形式、装飾手順 |
-| `DataReader` | CSVファイルを読み込みデータ構造に変換する | CSVのフォーマット定義 |
+| 知識（コードが直接持っているもの） | 変更を決めるチーム | 適切か |
+|---|---|---|
+| レポートの生成手順（骨格） | 全体設計担当 | ✅ |
+| グラフ追加の条件と処理 | 分析チーム | ❌ 混在 |
+| ロゴ追加の条件と処理 | 広報チーム | ❌ 混在 |
 
-`ReportSkeleton` は、レポート生成の「手順」だけでなく、ロゴの配置やグラフ追加という「個別の機能」までをすべて把握する状態です。
+❌が2つある。分析チームがグラフの仕様を変えるたびに、レポートの骨格を持つクラスに手が入ります。これが後の変更の痛みの予兆です。
 
-### 2-2：変わる理由の分析
-
-責任チェック表でクラスの責任が整理できました。次に、コードの各行が「誰の判断で変わる知識か」を確認することで、混在している責任をさらに細かく特定します。判断基準は、「このクラスの担当者（ここでは全体設計担当）とは別の人間が変更を決定するかどうか」です。別の人間が決定するなら、それは「責任外（❌）」と判断します。
-
-`ReportSkeleton.generate()` の各行を見ると：
-
-| **コードの行** | **持っている知識** | **誰の判断で変わるか** | **責任内か** |
-|---|---|---|---|
-| `cout << ... << "ヘッダーを生成。" ...;` | レポートの固定手順 | 全体設計担当 | ✅ |
-| `if (addGraph) ...` | グラフ追加という個別機能の知識 | 分析チーム | ❌ 別担当者 |
-| `if (addLogo) ...` | ロゴ追加という個別機能の知識 | 広報チーム | ❌ 別担当者 |
-
-1つのメソッドの中に、変える理由が異なる3つの知識が混在しています。今すぐ問題とは言えませんが、これが後の痛みの予兆です。
-
-### 2-3：今回の変更で確実に変わること
+### 2-2：今回の変更で確実に変わること
 
 今回の変更要求から確定している変更は2点です。
 
@@ -218,21 +238,21 @@ PDF形式でレポートのフッターを生成。
 
 ### ヒアリングに向けた背景確認
 
-このシステムは、私たちが運用している中堅企業の経営分析レポートを担っています。数年前にサービスが立ち上がった当初は、売上合計と平均を表示するだけのシンプルなものでした。
+このシステムは、ある中堅企業の経営分析レポートを担っています。数年前にサービスが立ち上がった当初は、売上合計と平均を表示するだけのシンプルなものでした。
 
 しかし、経営層の分析ニーズが高まるにつれ、グラフや部署別内訳など、様々な装飾や追加機能が求められるようになりました。現在は機能ごとに `if` フラグで条件分岐を追加しており、コードは日々肥大化しています。
 
-### 2-4：関係者ヒアリング
+### 2-3：関係者ヒアリング
 
-> **現実のヒアリングでは——** 本書のヒアリングシーンでは設計判断を明確にするため、意図的に「理想的な回答」が返ってくるように描いています。これはシミュレーションです。現実には、「変わるかどうか分からない」「たぶん変わらない」という曖昧な答えが返ることも多いです。そのときは `git log` や過去の障害記録を「ヒアリングの代わり」として使ってみてください。「過去に何度変わったか」が最も正直な証拠です。
+> **現実のヒアリングでは——** 本書のヒアリングシーンでは設計判断を明確にするため、意図的に「理想的な回答」が返ってくるように描いています。これはシミュレーションです。現実には、「変わるかどうか分からない」「たぶん変わらない」という曖昧な答えが返ることも多いです。そのときは `git log` や過去 of 障害記録を「ヒアリングの代わり」として使ってみてください。「過去に何度変わったか」が最も正直な証拠です。
 
-- **開発者：** 「レポートの生成フローについてですが、今後、例えば『ロゴを先に出す』あるいは『グラフを省略する』といった順序の変更は発生しますか？」
+- **開発者：** 「レポートの生成フローについてですが、今後、例えば『ロゴを先に出す』あるいは『グラフを省略する』といった順序 of 変更は発生しますか？」
 - **運用担当者：** 「部署ごとにそのニーズはあるね。基本は同じ手順なんだけど、特定のレポートだけステップを変えたいケースがあるんだよ。」
 - **開発者：** 「操作履歴についても確認させてください。過去のレポート生成処理をやり直す際、当時使ったCSVデータも再読み込みする必要があるでしょうか？」
 - **運用担当者：** 「そうだな、当時のデータで再実行したい場合もあれば、最新データで再生成したい場合もある。つまり、生成の操作自体を『履歴』として保持し、必要に応じて『再発行』したいんだ。」
 - **開発者：** 「分かりました。生成フローの骨格は守りつつ、個別のステップや生成操作の履歴管理を独立して扱える構造が必要そうですね。」
 
-### 2-5：ヒアリングで判明した将来リスク
+### 2-4：ヒアリングで判明した将来リスク
 
 ヒアリングで浮かび上がった「確定ではないが、近い将来起こりうる変化」を記録します。これは今回の設計判断の材料です。
 
@@ -257,25 +277,6 @@ PDF形式でレポートのフッターを生成。
 `generate` メソッドの中には、「レポート生成の骨格」「グラフ追加機能」「ロゴ追加機能」、さらに「履歴保存ロジック」という性質の異なるコードが集まっています。グラフの描画条件を変える際にも、履歴保存のタイミングまで影響を確認しなければなりません。変更箇所を検索し、関係する処理を読み解く負担が増え始めています。
 
 実際に変更を加えたコードは次のようになります。
-
-もう一方の変更要求である処理のステップ制御（出力順序の外部指定）を現状コードに試みると、`ReportSkeleton` のメソッド呼び出し順序をパラメータで切り替える `if` 文が増殖します。
-
-```cpp
-// ステップ制御を現状コードに追加しようとした場合のイメージ
-void generate(string format, bool addGraph, bool addLogo,
-              bool headerFirst) {
-    if (headerFirst) {
-        cout << format << "形式でヘッダーを生成。" << endl;
-        if (addGraph) cout << "グラフを追加。" << endl;
-    } else {
-        if (addGraph) cout << "グラフを追加。" << endl;
-        cout << format << "形式でヘッダーを生成。" << endl;
-    }
-    // ← 順序パターンが増えるたびにここに if 文が積み重なる
-}
-```
-
-このように、出力順序の制御を `generate()` に押し込もうとすると、骨格の手順とステップ切り替えの条件が同じメソッドに混在し、コードの見通しが急速に悪くなります。次に、もう一つの変更要求である操作履歴の保存についても同様に試みます。
 
 ```cpp
 class DataReader {
@@ -365,7 +366,7 @@ graph LR
 
 **1つ目：処理の手順が「固定化」されていることの限界。** グラフやロゴといった個別の装飾機能が、レポート生成という共通の骨格と同じ場所に記述されているため、装飾の有無や順序を変えるだけで、全体の生成フローをすべて書き換えなければなりません。
 
-**2つ目：操作履歴という「管理責務」の混入。** 本来、レポートの生成処理はデータをレポートにするだけで完結する必要があるのに、操作の履歴を取るという「管理機能」が、生成ロジックと密接に絡み合っています。これにより、生成ロジックをリファクタリングしようとすると、履歴管理の仕組みまで引きずり回されるという、極めて不安定な状態に陥っています。
+**2つ目：操作履歴という「管理責務」の混入。** 本来、レポートの生成処理はデータをレポートにするだけで完結する必要があるのに、操作の履歴を取るという「管理機能」が、生成ロジックと密接に絡み合っています。これにより、生成ロジックをリファクタリングしようとすると、履歴管理の仕組みまで引きずり回されるという、不安定になりがちです。
 
 フェーズ3で「変更が辛い」ことが確認できました。次のフェーズ4では、なぜ辛いのかを構造的に言語化します。
 
@@ -447,12 +448,13 @@ public:
 };
 ```
 
-`ReportSkeleton`が、処理の順序だけでなく装飾の種類と履歴記録の方法まで知っています。専用の変換回路が内蔵されたハブに対して、各機能への専用ケーブルを直差ししているような状態と同じで、新しい機能を追加したり処理順序を変えようとしたりするたびに、ハブ内部の配線をいじり回さなければなりません。
+`ReportSkeleton`が、処理の順序だけでなく装飾の種類と履歴記録の方法まで知っています。接続点を「誰が相手の知識を持つか」という観点で見ると、骨格クラスが装飾名・適用条件・履歴記録のタイミングまで判断していることが分かります。
 
-|  | 直接（直差し） | 間接（アダプター経由） |
-|:---:|:---|:---|
-| **具体**（専用規格） | **← 現在地** ライトニング直生え → iPhone（直差し） | ライトニング直生え → ゲーム機専用アダプタを挟む → ゲーム機 |
-| **抽象**（汎用規格） | Type-C直生え → 各種機器（直差し） | ライトニング直生え → Type-C変換アダプタを挟む → 各種機器 |
+| 確認する接続点 | 現在の状態 | 変更時に起きること |
+|---|---|---|
+| 骨格 → 装飾 | `addGraph`や`addLogo`の条件と機能名を知る | 装飾追加のたびに骨格を変更する |
+| 骨格 → 履歴 | 生成処理の中で履歴記録のタイミングを知る | 履歴要件の変更が生成手順へ波及する |
+| 呼び出し側 → 骨格 | 書式・装飾条件を引数の組み合わせで渡す | 組み合わせが増えるほど呼び出し規約が複雑になる |
 
 「定型的なフロー」と「機能追加」、「操作の記録」という3つの責務は、それぞれ異なる理由で変更されます。一つのクラスで管理し続ける案と、責任を分ける案のコストを比較する価値があります。本章では、確認した変更頻度を踏まえて後者を選びます。
 
@@ -467,9 +469,9 @@ public:
 
 ## 🟡 フェーズ5：課題定義 ―― 接続点で何が流れているかを見る
 
-フェーズ4の分析により、問題の根本原因は「処理の骨格」「機能追加の装飾」「操作の記録」という、変わる理由が違う3つのものが混在していることだと分かりました。
+フェーズ4の分析により、問題の根本原因は「レポート生成の手順（骨格）」、「個別の装飾機能（グラフ・ロゴ）」、そして「操作履歴の記録と取り消し」という、変わる理由が違う3つの関心が `ReportSkeleton` の中で混在していることだと分かりました。
 
-したがって、今回私たちが解くべき課題は、`ReportSkeleton` の中にある **「個別の装飾機能（if文）」と「操作履歴の管理ロジック」を、それぞれ独立した塊として丸ごと外に分離すること** です。
+したがって、今回私たちが解くべき課題は、`ReportSkeleton` の中にある **「レポート形式（週次・月次など）ごとの本文生成処理」、「個別の装飾機能（if文の塊）」、そして「操作履歴の管理ロジック」を、それぞれ独立した部品として分離すること** です。
 
 ```cpp
 class ReportSkeleton {
@@ -479,31 +481,37 @@ public:
         reader.readCSV();
         cout << format << "形式でヘッダーを生成。" << endl;
 
-        // ↓↓↓ 分離ターゲット1：変わり続ける装飾機能の塊 ↓↓↓
+        // ↓↓↓ 分離ターゲット1：レポート形式ごとに変化する本文生成の塊 ↓↓↓
+        // （現在は直接書かれていないが、週次や月次の違いを吸収する部分）
+        // ↑↑↑ ここまで ↑↑↑
+
+        // ↓↓↓ 分離ターゲット2：変わり続ける装飾機能の塊 ↓↓↓
         if (addGraph) cout << "グラフを追加。" << endl;
         if (addLogo)  cout << "ロゴを追加。" << endl;
         // ↑↑↑ ここまで ↑↑↑
 
         cout << format << "形式でフッターを生成。" << endl;
-        // ↓↓↓ 分離ターゲット2：混入している操作履歴の管理ロジック ↓↓↓
+        // ↓↓↓ 分離ターゲット3：混入している操作履歴の管理ロジック ↓↓↓
         // （現時点ではないが、追加しようとするとここに入り込んでくる）
         // ↑↑↑ ここまで ↑↑↑
     }
 };
 ```
 
-最終的な目標は、この `ReportSkeleton` から「どの装飾を加えるか」「操作履歴をどう管理するか」という、処理手順とは別の知識を外すことです。骨格には、レポート生成の共通手順だけを残します。
-
-なお、フェーズ4の根本原因A（骨格処理の固定化）にも対応が必要です。根本原因Aに対応：処理の骨格（ステップ順序）を外部から差し替えられる形に分離することが、この章の3つ目の課題です。これは分離ターゲット3として、骨格クラス自体をサブクラスで差し替え可能な構造にすることで解消します。
+最終的な目標は、この `ReportSkeleton` から「どのようなレポート本文を生成するか」「どの装飾を加えるか」「操作履歴をどう管理するか」という、処理手順とは別の知識を外すことです。骨格には、レポート生成の共通手順だけを残します。
 
 フェーズ5でターゲットが明確になりました。次のフェーズ6では、これら3つの塊をどのように分離していくか、段階的に対策を検討していきます。
 
 ---
 > **📌 課題（確定）**
-> `ReportSkeleton` から切り離す塊は3つある。1つ目は「どの装飾を加えるか（`if` 文の塊）」という装飾機能の知識で、これを `GraphFeature` や `WatermarkFeature` として骨格の外に独立させること。2つ目は「操作を誰が記録し、どう取り消すか」という履歴管理の知識で、これを `GenerateReportAction` として骨格とは別の層に分離すること。3つ目は「処理の骨格（ステップ順序）をどう制御するか」という骨格処理の知識で、これをサブクラスに委ねられる抽象メソッドとして分離すること（根本原因Aへの対応）。この3つを分離して初めて、骨格・装飾・履歴それぞれへの変更が互いに影響しない構造が実現できる。
+> `ReportSkeleton` から切り離す塊は3つあります。
+> 1つ目は「レポートの種別（週次・月次など）による本文生成の処理」で、これを `renderBody()` という抽象メソッドを介して `MonthlyReport` や `WeeklyReport` といったサブクラスに逃がすこと（Template Methodの適用）。
+> 2つ目は「どの装飾を加えるか（`if` 文の塊）」という装飾機能の知識で、これを `GraphFeature` や `WatermarkFeature` として骨格の外に独立させること（Decoratorの適用）。
+> 3つ目は「操作を誰が記録し、どう取り消すか」という履歴管理の知識で、これを `GenerateReportAction` として骨格とは別の層に分離すること（Commandの適用）。
+> これら3つを分離して初めて、骨格・装飾・履歴それぞれへの変更が互いに影響しない構造が実現できます。なお、これらの切り離しに伴い、具体クラスを組み立てる箇所（コンポジションコード）やテストコードにも対応する修正が必要になる点に注意すること。
 ---
 
-ターゲットが3つに絞られました。フェーズ6では、この分離をどのステップで・どの形で実現するかを段階的に検討します。
+ターゲットが2つに絞られました。フェーズ6では、この分離をどのステップで・どの形で実現するかを段階的に検討します。
 
 ## 🔴 フェーズ6：対策検討 ―― 段階的な改善と決断
 
@@ -622,21 +630,26 @@ public:
 
 ### ステップ5：Decorator を追加する ―― 機能を実行時に動的に重ねる
 
-ステップ4で骨格は固定できました。次は「どの装飾を重ねるか」を実行時に決められるようにします。`ReportFeature` は `ReportSkeleton` を継承しつつ、内部に別の `ReportSkeleton*` を保持してチェーンする Decorator 構造を使います。
+ステップ4で骨格は固定できました。次は「どの装飾を重ねるか」を実行時に決められるようにします。`ReportFeature` は `ReportSkeleton` を継承しつつ、内部に別の `ReportSkeleton` を所有してチェーンする Decorator 構造を使います。
 
 ```cpp
 // ReportFeature: 装飾機能の基底クラス（Decorator パターン基底）
 class ReportFeature : public ReportSkeleton {
 protected:
-    ReportSkeleton* wrapped; // ← 抽象基底クラス型 = 「抽象」の証拠
+    ReportSkeleton* wrapped;
 public:
-    ReportFeature(ReportSkeleton* g) : wrapped(g) {}
+    explicit ReportFeature(ReportSkeleton* g)
+        : wrapped(g) {}
+    virtual ~ReportFeature() {
+        delete wrapped; // デストラクタで内側のインスタンスを再帰的に解放
+    }
 };
 
 // GraphFeature: グラフ追加の装飾
 class GraphFeature : public ReportFeature {
 public:
-    GraphFeature(ReportSkeleton* g) : ReportFeature(g) {}
+    explicit GraphFeature(ReportSkeleton* g)
+        : ReportFeature(g) {}
     void renderBody() override {
         wrapped->renderBody();         // ← 内側の処理を先に呼ぶ
         cout << "グラフを追加。" << endl; // ← その後に自分の装飾を追加
@@ -646,7 +659,8 @@ public:
 // WatermarkFeature: 透かし追加の装飾
 class WatermarkFeature : public ReportFeature {
 public:
-    WatermarkFeature(ReportSkeleton* g) : ReportFeature(g) {}
+    explicit WatermarkFeature(ReportSkeleton* g)
+        : ReportFeature(g) {}
     void renderBody() override {
         wrapped->renderBody();
         cout << "透かしを追加。" << endl;
@@ -654,7 +668,7 @@ public:
 };
 ```
 
-`new WatermarkFeature(new GraphFeature(new MonthlyReport()))` のように入れ子にすることで、装飾を自由に重ねがけできます。組み合わせのパターンが増えても、新しいクラスを作らずに対応できます。
+`new WatermarkFeature(new GraphFeature(new MonthlyReport()))` のように入れ子にすることで、装飾を自由に重ねがけできます。既存機能の組み合わせを増やすだけなら、組み合わせ専用のクラスを作る必要はありません。
 
 **この段階の評価：**
 骨格の固定（Template Method）と動的な装飾の組み合わせ（Decorator）が両立しました。しかし、「レポートを生成した」という操作を後から取り消せる形で記録する仕組みがまだありません。
@@ -672,6 +686,11 @@ string formatName(OutputFormat format) {
     return format == OutputFormat::Pdf ? "PDF" : "Excel";
 }
 
+bool fileExists(const string& path) {
+    ifstream input(path);
+    return input.good();
+}
+
 class IReportAction {
 public:
     virtual ~IReportAction() = default;
@@ -683,24 +702,56 @@ class GenerateReportAction : public IReportAction {
     ReportSkeleton* generator;
     string outputPath;
     OutputFormat format;
+    bool created = false;
 public:
     GenerateReportAction(
         ReportSkeleton* g,
         string path,
         OutputFormat f
-    ) : generator(g), outputPath(path), format(f) {}
+    ) : generator(g), outputPath(move(path)), format(f) {}
+
+    ~GenerateReportAction() override {
+        delete generator; // generatorを所有しているので解放する
+    }
 
     void execute() override {
+        if (created) {
+            throw logic_error("同じCommandは再実行できません。");
+        }
+        if (fileExists(outputPath)) {
+            throw runtime_error(
+                outputPath + " は既に存在するため上書きしません。");
+        }
+
         generator->generate();
         ofstream output(outputPath);
+        if (!output) {
+            throw runtime_error(outputPath + " を作成できません。");
+        }
         output << formatName(format) << " report" << endl;
         output.close();
+        if (!output) {
+            remove(outputPath.c_str());
+            throw runtime_error(outputPath + " の書き込みに失敗しました。");
+        }
+        created = true;
+
         cout << "[コマンド] " << formatName(format) << "形式で "
              << outputPath << " を生成して履歴に記録。" << endl;
     }
 
+    void handleNoFileToUndo() {
+        cout << "[コマンド] このCommandが生成したファイルはありません。"
+             << endl;
+    }
+
     void undo() override {
+        if (!created) {
+            handleNoFileToUndo();
+            return;
+        }
         if (remove(outputPath.c_str()) == 0) {
+            created = false;
             cout << "[コマンド] " << outputPath
                  << " を削除してアンドゥ完了。" << endl;
         } else {
@@ -712,7 +763,7 @@ public:
 ```
 
 **この段階の評価：**
-`GenerateReportAction`はレポート、出力形式、出力先を保持します。`execute()`はデモ用ファイルを実際に作成し、`undo()`はそのファイルを削除します。これにより、Commandの実行と取り消しをコード上でも確認できます。
+`GenerateReportAction`はレポート、出力形式、出力先を保持します。`execute()`は既存ファイルを上書きせず、デモ用ファイルを実際に作成します。`undo()`が削除するのは、このCommand自身が正常に作成したファイルだけです。これにより、別処理が先に作成していたファイルを誤って削除せずに、Commandの実行と取り消しを確認できます。
 
 ---
 
@@ -730,7 +781,7 @@ public:
 **今回の決断：**
 フェーズ2のヒアリングで「レポートの基本フォーマットは全社統一の順序で出力したい（骨格固定）」、「部署ごとに独自の透かしや装飾を自由に組み合わせたい（動的装飾）」、「誤操作時に元に戻したい（Undo）」という3つの独立した要件が求められています。3つの変更理由を別々に扱うため、今回は**ステップ6（Template Method × Decorator × Command の3パターン統合）まで進化させる**案を採用します。
 
-このように、処理骨格（Template Method）・機能装飾（Decorator）・操作履歴（Command）を3層に分離するこの設計構造を **Template Method パターン × Decorator パターン × Command パターン** の複合適用と呼びます。「パターンを学んで使い方を覚える」のではなく、「問題を分析した結果として自然に選ばれた構造」がこの3つのパターンの組み合わせだったという順序が大切です。
+このように、処理骨格・機能装飾・操作履歴を3層へ分けた構造は、第4章で学んだ **Template Method パターン**、第6章で学んだ **Decorator パターン**、第5章で学んだ **Command パターン** の役割に対応します。パターン名を先に決めたのではなく、三つの変更課題へ順に対策した結果として、この組み合わせになったという順序が大切です。
 
 ### どのパターンを使うかの判断基準
 
@@ -751,6 +802,11 @@ flowchart TD
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 
+> [!NOTE] C++での生ポインタとメモリ管理について
+> 本書では、C++特有の複雑なテンプレート構文（`std::unique_ptr` など）を避け、Java、C#、Goなどの他言語からでも直感的にコードを理解できるようにするため、意図的に生ポインタ（`*`）と `new` / `delete` を使用しています。
+> C++において生ポインタを扱う場合、メモリの二重解放やメモリリークを防ぐため、オブジェクトの所有権を持つクラス（ここでは `ReportFeature` や `GenerateReportAction`）のデストラクタで `delete` を呼び出す責任あるメモリ管理を行っています。
+> なお、ガベージコレクション（GC）を備える言語（Java、C#、Goなど）では、このような手動のメモリ解放（`delete`）は不要であり、言語ランタイムが自動的にメモリを管理します。
+
 ### 7-1：解決後のコード（全体）
 
 ステップ6で決断した構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて見ていきましょう。
@@ -765,6 +821,9 @@ flowchart TD
 #include <vector>
 #include <fstream>
 #include <cstdio>
+#include <memory>
+#include <stdexcept>
+#include <utility>
 
 using namespace std;
 
@@ -837,9 +896,13 @@ public:
 // ReportFeature: 装飾機能の基底クラス（Decorator パターン基底）
 class ReportFeature : public ReportSkeleton {
 protected:
-    ReportSkeleton* wrapped; // ← 抽象基底クラス型 = 「抽象」の証拠
+    ReportSkeleton* wrapped;
 public:
-    ReportFeature(ReportSkeleton* g) : wrapped(g) {}
+    explicit ReportFeature(ReportSkeleton* g)
+        : wrapped(g) {}
+    virtual ~ReportFeature() {
+        delete wrapped; // デストラクタで内側のインスタンスを再帰的に解放
+    }
 };
 ```
 
@@ -847,7 +910,8 @@ public:
 // GraphFeature: グラフ追加の装飾
 class GraphFeature : public ReportFeature {
 public:
-    GraphFeature(ReportSkeleton* g) : ReportFeature(g) {}
+    explicit GraphFeature(ReportSkeleton* g)
+        : ReportFeature(g) {}
     void renderBody() override {
         wrapped->renderBody();         // ← 内側の処理を先に呼ぶ
         cout << "グラフを追加。" << endl; // ← その後に自分の装飾を追加
@@ -859,7 +923,8 @@ public:
 // WatermarkFeature: 透かし追加の装飾
 class WatermarkFeature : public ReportFeature {
 public:
-    WatermarkFeature(ReportSkeleton* g) : ReportFeature(g) {}
+    explicit WatermarkFeature(ReportSkeleton* g)
+        : ReportFeature(g) {}
     void renderBody() override {
         wrapped->renderBody();
         cout << "透かしを追加。" << endl;
@@ -867,7 +932,7 @@ public:
 };
 ```
 
-`GraphFeature` と `WatermarkFeature` は、どちらも `wrapped->renderBody()` を呼んだ後に自分の処理を追加します。入れ子にすることで、装飾を自由に重ねがけできます。
+`GraphFeature` と `WatermarkFeature` は、どちらも `wrapped->renderBody()` を呼んだ後に自分の処理を追加します。入れ子にすることで、装飾を自由に重ねがけできます。各Decoratorはデストラクタにより内側の要素を再帰的に解放するため、最も外側の要素が破棄されるとチェーン全体も自動的に破棄されます。
 
 **4. コマンドクラス（Command の実装）**
 
@@ -880,31 +945,67 @@ string formatName(OutputFormat format) {
     return format == OutputFormat::Pdf ? "PDF" : "Excel";
 }
 
+bool fileExists(const string& path) {
+    ifstream input(path);
+    return input.good();
+}
+
 class GenerateReportAction : public IReportAction {
     ReportSkeleton* generator;
     string outputPath;
     OutputFormat format;
+    bool created = false;
 public:
     GenerateReportAction(
         ReportSkeleton* g,
         string path,
         OutputFormat f
-    ) : generator(g), outputPath(path), format(f) {}
+    ) : generator(g), outputPath(move(path)), format(f) {}
+
+    ~GenerateReportAction() override {
+        delete generator; // generatorを所有しているので解放する
+    }
 
     void execute() override {
+        if (created) {
+            throw logic_error("同じCommandは再実行できません。");
+        }
+        if (fileExists(outputPath)) {
+            throw runtime_error(
+                outputPath + " は既に存在するため上書きしません。");
+        }
+
         generator->generate();
 
         // サンプルでは形式名を記録したデモ用ファイルを実際に作成する
         ofstream output(outputPath);
+        if (!output) {
+            throw runtime_error(outputPath + " を作成できません。");
+        }
         output << formatName(format) << " report" << endl;
         output.close();
+        if (!output) {
+            remove(outputPath.c_str());
+            throw runtime_error(outputPath + " の書き込みに失敗しました。");
+        }
+        created = true;
 
         cout << "[コマンド] " << formatName(format) << "形式で "
              << outputPath << " を生成して履歴に記録。" << endl;
     }
 
+    void handleNoFileToUndo() {
+        cout << "[コマンド] このCommandが生成したファイルはありません。"
+             << endl;
+    }
+
     void undo() override {
+        if (!created) {
+            handleNoFileToUndo();
+            return;
+        }
         if (remove(outputPath.c_str()) == 0) {
+            created = false;
             cout << "[コマンド] " << outputPath
                  << " を削除してアンドゥ完了。" << endl;
         } else {
@@ -917,70 +1018,89 @@ public:
 
 **5. 組み立てと実行（BatchApplication + メイン関数）**
 
-具体的なクラス名（`MonthlyReport`等）を知っているのは、この組み立てを行う箇所だけです。
+具体的なクラス名（`MonthlyReport`等）を知っているのは、この組み立てを行う箇所だけです。生成したCommandは履歴が所有し、Commandはレポート生成器を所有します。これにより、履歴からCommandを取り除くと、そのDecoratorチェーンまでまとめて破棄されます。
 
 ```cpp
-// BatchApplication: 具体クラスを知っている唯一の場所
+// BatchApplication: 具体クラスを知っている主な場所
 class BatchApplication {
-    vector<IReportAction*> history; // ← 実行済みコマンドを積み上げる
+    vector<IReportAction*> history;
+
+    void executeAndRemember(IReportAction* action) {
+        action->execute();
+        history.push_back(action);
+    }
+
 public:
+    ~BatchApplication() {
+        for (auto* action : history) {
+            delete action;
+        }
+    }
+
     void run() {
         // 行1: 月次レポートをPDF出力
         cout << "--- 行1: 月次レポートPDF出力 ---" << endl;
-        MonthlyReport monthly1;
-        IReportAction* a1 = new GenerateReportAction(
-            &monthly1, "monthly.pdf", OutputFormat::Pdf);
-        a1->execute();
-        history.push_back(a1);
+        executeAndRemember(new GenerateReportAction(
+            new MonthlyReport(),
+            "monthly.pdf",
+            OutputFormat::Pdf));
 
         // 行2: 月次レポートをExcel出力
         cout << "--- 行2: 月次レポートExcel出力 ---" << endl;
-        MonthlyReport monthly2;
-        IReportAction* a2 = new GenerateReportAction(
-            &monthly2, "monthly.xlsx", OutputFormat::Excel);
-        a2->execute();
-        history.push_back(a2);
+        executeAndRemember(new GenerateReportAction(
+            new MonthlyReport(),
+            "monthly.xlsx",
+            OutputFormat::Excel));
 
         // 行3: グラフ付き・透かし付きでPDF出力
         cout << "--- 行3: 装飾付きレポートPDF出力 ---" << endl;
-        ReportSkeleton* decorated =
-            new WatermarkFeature(new GraphFeature(new StandardReport()));
-        IReportAction* a3 = new GenerateReportAction(
-            decorated, "decorated.pdf", OutputFormat::Pdf);
-        a3->execute();
-        history.push_back(a3);
+        executeAndRemember(new GenerateReportAction(
+            new WatermarkFeature(
+                new GraphFeature(
+                    new StandardReport())),
+            "decorated.pdf",
+            OutputFormat::Pdf));
 
         // 行4: 月次レポートを生成し、直後にキャンセル
         cout << "--- 行4: 月次レポート生成後にキャンセル ---" << endl;
-        MonthlyReport cancelMonthly;
-        IReportAction* cancelAction = new GenerateReportAction(
-            &cancelMonthly, "cancel_monthly.pdf", OutputFormat::Pdf);
+        auto* cancelAction = new GenerateReportAction(
+            new MonthlyReport(),
+            "cancel_monthly.pdf",
+            OutputFormat::Pdf);
         cancelAction->execute();
         history.push_back(cancelAction);
         history.back()->undo();
+        delete history.back();
         history.pop_back();
 
         // 行5: バッチで3レポートを一括生成
         cout << "--- 行5: バッチで3レポート一括生成 ---" << endl;
-        WeeklyReport b1;
-        MonthlyReport b2;
-        ReportSkeleton* b3gen = new GraphFeature(new MonthlyReport());
-        IReportAction* ba1 = new GenerateReportAction(&b1, "weekly.pdf", OutputFormat::Pdf);
-        IReportAction* ba2 = new GenerateReportAction(&b2, "monthly.pdf", OutputFormat::Pdf);
-        IReportAction* ba3 = new GenerateReportAction(b3gen, "dept.pdf", OutputFormat::Pdf);
-        ba1->execute(); history.push_back(ba1);
-        ba2->execute(); history.push_back(ba2);
-        ba3->execute(); history.push_back(ba3);
+        executeAndRemember(new GenerateReportAction(
+            new WeeklyReport(),
+            "weekly.pdf",
+            OutputFormat::Pdf));
+        executeAndRemember(new GenerateReportAction(
+            new MonthlyReport(),
+            "batch_monthly.pdf",
+            OutputFormat::Pdf));
+        executeAndRemember(new GenerateReportAction(
+            new GraphFeature(
+                new MonthlyReport()),
+            "dept.pdf",
+            OutputFormat::Pdf));
         cout << "[この操作で3コマンドが履歴に追加されました。]" << endl;
 
         // 行6: グラフ付き月次レポートを生成してアンドゥ
         cout << "--- 行6: グラフ付き月次レポートを生成してアンドゥ ---" << endl;
-        ReportSkeleton* gm = new GraphFeature(new MonthlyReport());
-        IReportAction* a6 = new GenerateReportAction(
-            gm, "graph_monthly.pdf", OutputFormat::Pdf);
+        auto* a6 = new GenerateReportAction(
+            new GraphFeature(
+                new MonthlyReport()),
+            "graph_monthly.pdf",
+            OutputFormat::Pdf);
         a6->execute();
         history.push_back(a6);
         history.back()->undo();
+        delete history.back();
         history.pop_back();
     }
 };
@@ -989,9 +1109,14 @@ public:
 ```cpp
 // main: BatchApplicationを起動するだけ
 int main() {
-    BatchApplication app;
-    app.run();
-    return 0;
+    try {
+        BatchApplication app;
+        app.run();
+        return 0;
+    } catch (const exception& e) {
+        cerr << "[エラー] " << e.what() << endl;
+        return 1;
+    }
 }
 ```
 
@@ -1029,7 +1154,7 @@ CSV読み込み
 CSV読み込み
 月次集計を本文として生成。
 フッター生成
-[コマンド] PDF形式で monthly.pdf を生成して履歴に記録。
+[コマンド] PDF形式で batch_monthly.pdf を生成して履歴に記録。
 CSV読み込み
 月次集計を本文として生成。
 グラフを追加。
@@ -1045,7 +1170,7 @@ CSV読み込み
 [コマンド] graph_monthly.pdf を削除してアンドゥ完了。
 ```
 
-掲載したデモでは、動作テーブルの6つのシナリオに対応する生成・一括実行・削除を確認しています。行5は並列処理ではなく、三つのCommandを順に実行する一括処理です。サンプル実行後にはPDF用またはExcel用のデモファイルが作成され、行4と行6ではそれぞれ直前に生成した対象ファイルが削除されます。装飾はDecoratorチェーンで組み合わされています。
+掲載したデモでは、動作テーブルの6つのシナリオに対応する生成・一括実行・削除を確認しています。行5は並列処理ではなく、三つのCommandを順に実行する一括処理です。サンプル実行後にはPDF用またはExcel用のデモファイルが作成され、行4と行6ではそれぞれ直前に生成した対象ファイルが削除されます。既存の出力先は上書きせず、UndoはCommand自身が作成したファイルだけを削除します。装飾はDecoratorチェーンで組み合わされています。
 
 ### 7-2：動作シーケンス図
 
@@ -1057,7 +1182,7 @@ sequenceDiagram
     participant GRA as GenerateReportAction
     participant WF as WatermarkFeature
     participant SR as StandardReport
-    Note over BA: 具体型を組み立てる唯一の場所
+    Note over BA: 具体型を組み立てる主な場所
     BA->>SR: new StandardReport
     BA->>WF: new WatermarkFeature(StandardReport)
     BA->>GRA: new GenerateReportAction(WatermarkFeature, path)
@@ -1078,21 +1203,23 @@ sequenceDiagram
 ```mermaid
 graph LR
     T1["変更要求：装飾機能の追加"] --> F1["Decorator派生クラス（新規作成） ✅"]
+    T1 --> C["組み立て・設定箇所で新しい装飾を選択 ✅"]
     T1 -. "影響なし" .-> A["ReportSkeleton骨格 ✅"]
     T2["変更要求：履歴管理の調整"] --> F2["GenerateReportAction ✅"]
     T2 -. "影響なし" .-> A
 ```
 
-フェーズ3の変更影響グラフと比べると、装飾機能の追加は Decorator クラスの実装だけで完結し、バッチ本体の生成骨格（`ReportSkeleton`）への飛び火がなくなりました。
+フェーズ3の変更影響グラフと比べると、新しい装飾機能の追加ではDecorator派生クラスに加えて、その装飾を使う組み立て・設定箇所を変更します。一方、バッチ本体の生成骨格（`ReportSkeleton`）へ装飾名や条件分岐を追加する必要はなくなりました。「変更が一箇所だけになる」のではなく、変更理由に対応する実装と構成へ影響を限定する設計です。
 
 ### 7-4：変更シナリオ表
 
-| **シナリオ** | **変わるクラス（触る場所）** | **変わらないクラス** |
-| --- | --- | --- |
-| グラフの描画内容を変更する | `GraphFeature` | `ReportSkeleton`, `GenerateReportAction` |
-| 新しいレポート形式を追加する | 新規の `ReportSkeleton` サブクラス | `ReportFeature`, `IReportAction` |
-| 履歴保存のフォーマットを変える | `GenerateReportAction` | `ReportSkeleton`, `GraphFeature` |
-| 透かしの内容を変える | `WatermarkFeature` | `ReportSkeleton`, `GenerateReportAction` |
+現状コードでは `ReportSkeleton` が生成手順・機能拡張・操作履歴を全て直接管理していたため、新しいレポート形式の追加や機能の変更は `ReportSkeleton` 本体の修正を意味していました。改善後は手順・機能追加・操作の責任が分離されたため、変更の影響を対応する実装クラスに限定できます。
+
+| **シナリオ** | **現状コードでの影響** | **この設計での影響** |
+|---|---|---|
+| 新しいレポート形式（週次等）を追加 | `ReportSkeleton` に新しい生成手順を直接追記 | `WeeklyReportTemplate` を新規作成するだけ |
+| 透かし機能を全レポートに追加 | `ReportSkeleton` の各手順に透かし処理を追記 | `WatermarkFeature` Decorator クラスを新規作成するだけ |
+| Undo機能のある操作を追加 | `ReportSkeleton` に操作処理と取り消しロジックを追記 | `IReportAction` 実装クラスを新規作成するだけ |
 
 ---
 
@@ -1105,7 +1232,7 @@ graph LR
 | **問題** | レポート生成エンジンで「処理の骨格」「装飾機能」「操作履歴」という変わる理由の異なる3つのものが、1つのクラスに混在している |
 | **原因** | `ReportSkeleton`が骨格・装飾・履歴の知識をすべて抱え込み、異なる変更理由が同じクラスへ集まっている |
 | **課題** | 「どの装飾を加えるか」という装飾機能と「操作を誰が記録・取り消すか」という履歴管理を、骨格クラスから独立した部品として外に切り出すこと |
-| **解決策** | Template Method × Decorator × Command：骨格の固定（Template Method）・装飾の動的重ねがけ（Decorator）・操作オブジェクトとしての履歴記録（Command）を3層に分けることで、各変化軸の変更が互いに影響しない構造にした |
+| **解決策** | Template Method × Decorator × Command：骨格の固定（Template Method）・装飾の動的重ねがけ（Decorator）・操作オブジェクトとしての履歴記録（Command）を3層に分け、変更の中心を対応する実装と構成箇所へ限定した |
 
 ### フェーズとこの章でやったこと
 
@@ -1124,8 +1251,11 @@ graph LR
 | **クラス名** | **責任（1文）** | **変わる理由** |
 | --- | --- | --- |
 | `ReportSkeleton` | レポート生成の「骨格（定型フロー）」を定義する | レポートの出力順序が変わる場合 |
-| `ReportFeature` | 個別の装飾機能（グラフ・ロゴ）を動的に追加する | 装飾のルールが変わる場合 |
-| `IReportAction` | レポート生成操作を履歴として保持・管理する | 履歴管理要件が変わる場合 |
+| `ReportFeature` | 内側のレポート要素を保持し、装飾を連結する共通構造を定義する | Decorator共通の連結・所有規約が変わる場合 |
+| `GraphFeature` / `WatermarkFeature` | 個別の装飾処理を追加する | 各装飾の内容が変わる場合 |
+| `IReportAction` | 実行と取消という操作の契約を定義する | 操作に共通して必要な契約が変わる場合 |
+| `GenerateReportAction` | レポート生成・出力と、その取消に必要な状態を管理する | 生成操作やUndoの要件が変わる場合 |
+| `BatchApplication` | 具体的なレポート・装飾・Commandを組み立て、実行履歴を所有する | 実行シナリオや構成が変わる場合 |
 
 ### 使ったパターン × 解消した根本原因
 
@@ -1157,7 +1287,7 @@ graph LR
 
 **原則2「実装ではなくインターフェースに対してプログラムせよ」の現れ**
 
-- 具体化された場所：`ReportFeature` が保持する `ReportSkeleton* wrapped`、`BatchApplication` が扱う `IReportAction*`
+- 具体化された場所：`ReportFeature` が所有する `unique_ptr<ReportSkeleton>`、`BatchApplication` が所有する `unique_ptr<IReportAction>`
 - 解説：骨格部は具体的な装飾クラスを知らず、抽象基底クラス型経由で機能を呼び出しています。操作履歴もインターフェース経由で扱い、具体実装を知りません。
 
 **原則3「継承よりコンポジションを優先せよ」の現れ**

@@ -56,3 +56,31 @@
 - PR #14（マージ済み）: https://github.com/kumachan1101-pixel/DesignPattern/pull/14
 - Gemini Mermaid図: `gemini_mermaid_diagrams.md`（ローカルoutputs/に保存済み）
 - 元の画像プロンプト: `image_prompts.md`（Midjourney/DALL-E用）
+
+## 📝 未対応（論理飛躍・構成の修正）
+
+読者視点での全章レビューによる指摘事項（AI抽出タスク）
+
+- [x] 全章共通の「2-2」欠落の修正（2-3 を 2-2 に修正するなど） ※対応済
+- [x] 第0章の修正
+  - [x] chapter00_1.md: 具体例のドメイン統一（注文処理に合わせる）、過度な技術解説の緩和
+  - [x] chapter00_2.md: 未定義用語「S0〜S8」の削除、具体例をPaymentCalculatorに統一
+- [x] 第1章・第2章の修正
+  - [x] chapter01.md: 時系列とネタバレの修正
+  - [x] chapter02.md: 議論から外れたバッチ処理要素の削除
+- [x] 第3章・第4章の修正
+  - [x] chapter03.md: WaitlistedとHeldの両方を反映、cancel()とexpire()の矛盾解消
+  - [x] chapter04.md: バージョンチェック要件の後出しジャンケン解消、不要なtry-catch of 削除
+- [x] 第5章・第6章の修正
+  - [x] chapter05.md: 時系列の逆転修正、ActionHistoryの登場と文章重複の整理
+  - [x] chapter06.md: チョコチップ消失の修正、コンパイルエラーの時系列矛盾の修正
+- [x] 第7章・第8章の修正
+  - [x] chapter07.md: 唐突な背景説明とSMS通知などの不要な仕様変更の削除、高度なC++実装への飛躍緩和
+  - [x] chapter08.md: 定期課金サービスの唐突な登場の削除、unique_ptrの急な登場への対処
+- [x] 第9章の修正
+  - [x] chapter09_2.md: Ticket定数、transitionメソッド、EscalationEngine、SupportTicketなど過去の残骸や存在しないコードの削除
+- [x] 第10章・第11章の修正
+  - [x] chapter10.md: 推測口調の修正、targetIdの振り分け丸投げの修正
+  - [x] chapter11.md: 月次レポート本文へのすり替えを削除し、装飾機能の分離に一貫させる
+- [x] 第12章・エピローグの修正
+  - [x] chapter12.md: 時系列の乱れ（未来→現在→過去）の修正、背景説明の重複削除、おわりにの二重配置解消
