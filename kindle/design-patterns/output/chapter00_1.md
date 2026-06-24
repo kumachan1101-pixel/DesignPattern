@@ -735,9 +735,7 @@ public:
     EmailNotifier(RetryExecutor* r) : retry_(r) {}
     void notify(const std::string& msg) override {
         // リトライ部品に実際の処理を依頼（委譲）する
-        retry_->execute([&]() {
-            std::cout << "[Email] " << msg << "\n";
-        });
+        retry_->execute("[Email] " + msg);
     }
 };
 ```
