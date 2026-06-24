@@ -350,7 +350,7 @@ public:
     }
 };
 
-// 変更後の InventoryManager（3箇所を修正）
+// 変更後の InventoryManager（2箇所を修正）
 class InventoryManager {
     EmailNotifier    email;
     DashboardUpdater dashboard;
