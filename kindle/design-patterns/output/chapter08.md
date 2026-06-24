@@ -594,7 +594,7 @@ public:
 **この段階の評価：**
 生成の責任を `PaymentApplication` から切り出せました。`PaymentApplication` は決済の振り分けフローに集中できるようになっています。しかし今度は `PaymentFactory` がすべての具体クラスを知っており、新しい決済手段を追加するたびに `PaymentFactory` を修正必要があります。「修正が必要なクラスが `PaymentApplication` から `PaymentFactory` に移っただけ」という見方もできます。
 
-もう少し深く考えると、`PaymentFactory` は固定された1つのクラスです。「テスト環境ではモック用のプロセッサーを使いたい」「本番とステージングで生成ロジックを変えたい」といった要求が来たとき、`PaymentFactory` ごと差し替える仕組みがありません。Factory クラスを分離したのに、その Factory 自体が固定されてしまっているのです。
+もう少し深く考えると、ステップ2では生成の知識がFactoryに移りましたが、`PaymentApplication` を継承してfactoryを差し替える仕組みがなく、決済種別が増えるたびに`PaymentFactory`を直接修正する構造は変わっていません。生成の責任がまだ固定されたクラスに縛られているのです。
 
 「Factory の生成ロジック自体を差し替え可能にできないか」という問いが見えてきます。
 
@@ -785,6 +785,8 @@ protected:
 
 **4. 組み立てと実行（メイン関数）**
 
+フェーズ1の動作例テーブルに示した定期課金を担う `SubscriptionService` も、今回のフェーズ7で `IPaymentProcessor` 経由で統合します。
+
 ```cpp
 // 定期課金サービス：Factory Method経由でクレジット決済を行う
 class SubscriptionService {
@@ -902,7 +904,7 @@ graph LR
 | **責任** | **変更前** | **変更後** |
 |---|---|---|
 | 決済の振り分けフローの進行 | `PaymentApplication` | `PaymentApplication`（変わらず） |
-| 決済種別に応じたプロセッサーの生成 | `PaymentApplication`（if-else + new 直書き） | `PaymentApplication.createProcessor()`（Factory Methodとして分離） |
+| 決済種別に応じたプロセッサーの生成 | `PaymentApplication`（if-else + new 直書き） | `DefaultPaymentApplication.createProcessor()`（Factory Methodとして分離） |
 | 各決済の具体的な処理 | `CreditCardProcessor` 等（変わらず） | `CreditCardProcessor` 等（`IPaymentProcessor`経由に） |
 | 決済処理の契約定義 | —（なし） | `IPaymentProcessor` |
 

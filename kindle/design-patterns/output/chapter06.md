@@ -351,13 +351,13 @@ public:
 
 int main() {
     // 新しいコンストラクタ呼び出し（引数6個）
-    CustomDrink order("Coffee", 500,
+    CustomDrink order("Coffee", 300,
                       true, false, false, true);
     std::cout << order.getDescription() << std::endl;
     std::cout << order.getPrice() << " 円" << std::endl;
 
     // 既存の呼び出しはコンパイルエラーになる
-    // CustomDrink old("Coffee", 500, true, false, false);
+    // CustomDrink old("Coffee", 300, true, false, false);
     //                                              ↑ 引数不足
     return 0;
 }
@@ -367,10 +367,10 @@ int main() {
 
 ```
 Coffee + Milk + Matcha
-610 円
+410 円
 ```
 
-新しい注文は正しく動いています（500円 + Milk 50円 + Matcha 60円 = 610円）。しかし既存の5引数のコンストラクタ呼び出しはコンパイルエラーになり、モバイルアプリ側の修正が必要です。
+新しい注文は正しく動いています（300円 + Milk 50円 + Matcha 60円 = 410円）。しかし既存の5引数のコンストラクタ呼び出しはコンパイルエラーになり、モバイルアプリ側の修正が必要です。
 
 これでクラスの修正は終わったと思い、コンパイルしてみると、コンストラクタの引数が増えたため、`main()` 内の `CustomDrink order(...)` でコンパイルエラーが発生しました。`CustomDrink` を生成しているモバイルアプリ側（呼び出し元）のコードです。コンストラクタの引数が増えたことで、既存の「コーヒーにミルクだけ」といった注文を生成しているすべての箇所が壊れてしまったのです。
 

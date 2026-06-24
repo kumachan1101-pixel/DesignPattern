@@ -324,6 +324,8 @@ gateway.executeTransfer(toAccount, amount);
 
 このコードに今回の変更を適用すると、以下のようになります。
 
+なお、`getTransactionId()` は認証ステップで発行されたtxIdを取り出すため、変更要求に伴い `SecurityAuthenticator` に追加するメソッドです。また、`generateTxId()` はトランザクションIDを発行するユーティリティ関数です（認証ライブラリが提供します）。変更後のコードではこれらを利用します。
+
 ```cpp
 void transfer(
         const std::string& toAccount, int amount,
