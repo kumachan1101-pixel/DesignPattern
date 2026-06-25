@@ -111,12 +111,13 @@ stateDiagram-v2
 ```mermaid
 classDiagram
     class TicketManager {
-        +updateStatus(status)
+        -calc: PriorityCalculator
+        +updateStatus(userType, status)
     }
     class PriorityCalculator {
-        +calculate(userType)
+        +calculate(userType) string
     }
-    TicketManager --> PriorityCalculator : uses
+    TicketManager *-- PriorityCalculator : 保持
 ```
 
 `TicketManager` クラスが、チケットの状態管理と、その遷移に伴う優先度計算という異なる責務を抱えています。
@@ -468,10 +469,10 @@ graph LR
 
 ---
 
-### ステップ1：プライベートメソッドで整理する
+### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
 
 **この形の考え方：**
-フェーズ3で示したコードを、接続点の設計は変えずにプライベートメソッドで整理した形です。各処理の意味がメソッド名で明確になります。`PriorityCalculator` を直接メンバに持ち、`if-else` 分岐もそのままですが、各分岐をプライベートメソッドに抽出して責任を整理します。
+フェーズ3で示したコードを、接続点の設計は変えずに各処理を独立したプライベートメソッドとして切り出した形です。`Open` 状態の処理と `InProgress` 状態の処理を、それぞれ独立したメソッドに分割します。`PriorityCalculator` を直接メンバに持ち、`if-else` 分岐もそのままですが、各分岐をプライベートメソッドに抽出して責任を整理します。
 
 **構造図：**
 
@@ -508,18 +509,18 @@ public:
 **TicketManager クラス（ステップ1）：**
 
 ```cpp
-// ステップ1：プライベートメソッドで各分岐の責任を整理
+// ステップ1：各処理を独立したプライベートメソッドに切り出す
 class TicketManager {
     PriorityCalculator calc; // ← 具体：PriorityCalculatorを直接保持
 public:
     void updateStatus(string userType, string status) {
         string priority = calc.calculate(userType);
         if (status == "Open") {
-            handleOpen(priority); // ← 処理の意図がメソッド名で明確になった
+            handleOpen(priority); // ← Open状態の処理を独立したメソッドへ
             return;
         }
         if (status == "InProgress") {
-            handleInProgress(priority);
+            handleInProgress(priority); // ← InProgress状態の処理を独立したメソッドへ
         }
     }
 private:
@@ -554,7 +555,13 @@ int main() {
 }
 ```
 
-プライベートメソッドに整理したことで各分岐の意図は読みやすくなりましたが、`TicketManager` が `PriorityCalculator` という具体型を直接知っており、ルールが変わると修正する構造は変わっていません。
+各処理を独立したプライベートメソッドへ切り出したことで、状態ごとの振る舞いがメソッド単位で分離されました。
+
+**この段階の評価：**
+
+`handleOpen(string priority)` と `handleInProgress(string priority)` を並べて見ると、どちらも「`priority` を引数に受け取り、何も返さない」という同じシグネチャを持っています。さらに `calc.calculate(userType)` と `handleXxx(priority)` という2つの処理のかたまりを観察すると、「優先度の計算」と「状態ごとのアクション実行」が `updateStatus()` の中で混在していることが見えてきます。「処理の実行（`handleXxx`）」と「どの処理を選ぶか（`if` の制御）」が同じメソッドにあるという構造の分離の必要性が浮かび上がります。
+
+この「複数のメソッドが同じシグネチャを持つ」という気づきは、次のステップでインターフェースへ抽象化するための足がかりになります。
 
 **このステップのトレードオフ：**
 

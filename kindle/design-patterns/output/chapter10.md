@@ -84,20 +84,20 @@
 ```mermaid
 classDiagram
     class BatchExecutor {
-        +execute(targetId)
+        +execute(string targetId)
     }
     class SystemAClient {
-        +send(data)
+        +send(string data)
     }
     class SystemBClient {
-        +send(data)
+        +send(string data)
     }
     class NotificationService {
-        +notify(result)
+        +notify(string result)
     }
-    BatchExecutor --> SystemAClient : uses
-    BatchExecutor --> SystemBClient : uses
-    BatchExecutor --> NotificationService : uses
+    BatchExecutor ..> SystemAClient : uses
+    BatchExecutor ..> SystemBClient : uses
+    BatchExecutor ..> NotificationService : uses
 ```
 
 ---
@@ -524,12 +524,12 @@ void execute(string targetId) {
 
 ---
 
-### ステップ1：外部API呼び出しを関数に切り出す（とりあえず分ける）
+### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
 
-はじめに最初に思いつく改善として、`execute()` の中身をプライベートメソッドに分けてみます。各処理の意図をメソッド名で表現することで、コードの読みやすさは向上します。
+はじめに最初に思いつく改善として、`execute()` の中身をプライベートメソッドに分けてみます。各連携先への送信処理と完了通知処理を、それぞれ独立したプライベートメソッドとして切り出すことで、各処理の意図をメソッド名で表現できます。
 
 ```cpp
-// ステップ1：プライベートメソッドで各分岐の責任を整理
+// ステップ1：各処理を独立したプライベートメソッドとして切り出す
 class BatchExecutor {
 public:
     void execute(string targetId) {
@@ -564,7 +564,11 @@ private:
 
 `execute()` が短くなり、各メソッドの意図は伝わりやすくなりました。しかし、各プライベートメソッドの中を見ると、依然として具体クラスを直接生成しています。知識の置き場所は変わっていません。
 
-**評価：** 読みやすさは向上したが、連携先が増えるたびに `BatchExecutor` に `sendToD()`、`sendToE()` と追加し続けなければならない。3つの関心（どのクライアントを生成するか・通信の詳細・通知の仕組み）は依然として混在している。
+**この段階の評価：** `sendToA()`・`sendToB()`・`sendToC()` はいずれも「クライアントを生成して `send("data")` を呼ぶ」という同じ構造を持っています。引数もなく、戻り値もなく、シグネチャが揃っています。この「複数のメソッドが同じシグネチャを持つ」という気づきは、次のステップで共通の抽象を見出す手がかりになります。また、`execute()` の制御フロー（どの連携先へ送るか）と、各メソッドの処理（実際の送信）が分離されてきており、「処理の実行と制御の判断を別のものとして扱える」という構造の芽が見えてきました。
+
+ただし、連携先が増えるたびに `BatchExecutor` に `sendToD()`・`sendToE()` と追加し続けなければならず、3つの関心（どのクライアントを生成するか・通信の詳細・通知の仕組み）は依然として混在しています。
+
+ここまでで「独立したメソッドに分けると共通の形が見えてくる」ことが確認できました。次のステップ2では、この共通構造をクラスレベルで整理し、依存の問題がどこに残るかを確認します。
 
 ---
 

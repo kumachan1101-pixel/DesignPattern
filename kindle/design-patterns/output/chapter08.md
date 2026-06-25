@@ -81,13 +81,13 @@
 ```mermaid
 classDiagram
     class PaymentApplication {
-        +processPayment(type, amount)
+        +processPayment(string type, int amount)
     }
     class CreditCardProcessor {
-        +pay(amount)
+        +pay(int amount)
     }
     class ConvenienceStoreProcessor {
-        +pay(amount)
+        +pay(int amount)
     }
     PaymentApplication ..> CreditCardProcessor : uses
     PaymentApplication ..> ConvenienceStoreProcessor : uses
@@ -523,36 +523,47 @@ void processPayment(string type, int amount) {
 
 フェーズ5で「変わるのは生成する具体クラスと選択条件であり、振り分けフローが使う操作インターフェースは安定している」ことが分かりました。ここでは、生成判断をどこへ移すと変更を局所化できるかを、段階を追って試します。それぞれの段階で「まだ何が残っているか」を確認し、その積み重ねの先で「どこまで進むべきか」を決断します。
 
-### ステップ1：生成ロジックをプライベートメソッドに切り出す
+### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
 
-`processPayment` の中を見ると、「どの種別か判断する if-else」と「具体クラスを生成して pay() を呼ぶ」が一体になっています。「とりあえず読みやすくしよう」と思ったとき、最初に思いつくのは「生成の部分だけをメソッドに切り出す」ことではないでしょうか。クラスは分けず、`PaymentApplication` の中に `createProcessor` というプライベートメソッドを作ります。なお、コード中の `IPaymentProcessor*` は、ステップ3で正式に定義するインターフェースです。ここでは「どのクラスを返すかを一か所にまとめる」という構造の変化に注目してください。
+`processPayment` の中を見ると、「どの種別か判断する if-else」と「具体クラスを生成して pay() を呼ぶ」が一体になっています。「とりあえず読みやすくしよう」と思ったとき、最初に思いつくのは「決済手段ごとの生成と実行を、それぞれ独立したプライベートメソッドとして切り出す」ことではないでしょうか。
+
+クラスは分けず、`PaymentApplication` の中に `payByCredit` / `payByCvs` / `payByPayPay` といった手段ごとのメソッドを作り、`processPayment` は種別の判断だけを担当します。
 
 ```cpp
 class PaymentApplication {
 private:
-    // 生成処理を切り出す（PaymentApplicationの中にとどまっている）
-    IPaymentProcessor* createProcessor(string type) {
-        if (type == "credit") return new CreditCardProcessor();
-        if (type == "paypay") return new PayPayProcessor();
-        if (type == "cvs")    return new ConvenienceStoreProcessor();
-        return nullptr;
+    // 各決済処理を独立したメソッドとして切り出す
+    void payByCredit(int amount) {
+        CreditCardProcessor processor;
+        processor.pay(amount);
+    }
+
+    void payByCvs(int amount) {
+        ConvenienceStoreProcessor processor;
+        processor.pay(amount);
+    }
+
+    void payByPayPay(int amount) {
+        PayPayProcessor processor;
+        processor.pay(amount);
     }
 
 public:
     void processPayment(string type, int amount) {
-        IPaymentProcessor* processor = createProcessor(type);
-        if (processor) {
-            processor->pay(amount);
-            delete processor;
-        }
+        // 種別の判断だけをここで行う
+        if (type == "credit")       payByCredit(amount);
+        else if (type == "cvs")     payByCvs(amount);
+        else if (type == "paypay")  payByPayPay(amount);
     }
 };
 ```
 
-`processPayment` が「生成→実行」という流れだけを担い、`createProcessor` が「どのクラスを生成するか」の判断を一手に引き受けた形になっています。
+`processPayment` が「どの手段を呼ぶか」という制御だけを担い、各決済の実行処理はそれぞれの専用メソッドへ分かれた形になっています。
 
 **この段階の評価：**
-`processPayment` の見通しが良くなり、生成処理がひとまとまりになりました。これは確かな一歩前進です。しかし `createProcessor` は `PaymentApplication` の中にあるため、新しい決済手段が増えるたびに `PaymentApplication` を開いて `if` を追加する必要があります。生成処理がまとまったことは良いのですが、`PaymentApplication` がすべての具体クラス（`CreditCardProcessor`・`PayPayProcessor`・`ConvenienceStoreProcessor`）を直接知っているという根本は変わっていません。
+切り出した3つのメソッド（`payByCredit` / `payByCvs` / `payByPayPay`）を並べてみると、いずれも「プロセッサーを生成して `pay(amount)` を呼ぶ」という同じシグネチャ・同じ構造を持っていることに気づきます。また、`processPayment` が「どれを呼ぶか」という制御を担い、各メソッドが「実際に処理する」という分離も見えてきました。
+
+この観察が、次の問いを生みます。「同じ構造を持つ複数のメソッドが並んでいるなら、その共通部分を一つに抽象化できないか。そして、処理の実行ではなく『どのクラスを生成するか』という判断だけを切り出す方法はないだろうか」。
 
 「生成の知識を `PaymentApplication` の外に出せないか」という問いが自然に湧いてきます。
 
