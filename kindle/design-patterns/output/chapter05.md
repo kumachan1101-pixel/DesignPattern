@@ -67,17 +67,18 @@
 ```mermaid
 classDiagram
     class UIButtons {
-        +onAddExpenseClick()
-        +onAddIncomeClick()
+        -balance: int
+        +onAddExpenseClick(amount: int, category: string)
+        +onAddIncomeClick(amount: int, source: string)
     }
     class ExpenseManager {
-        +addExpense()
+        +addExpense(amount: int, category: string) int
     }
     class IncomeManager {
-        +addIncome()
+        +addIncome(amount: int, source: string) int
     }
-    UIButtons --> ExpenseManager
-    UIButtons --> IncomeManager
+    UIButtons *-- ExpenseManager
+    UIButtons *-- IncomeManager
 
 ```
 
@@ -510,7 +511,7 @@ UIが「呼び出し先の具体的な知識」として保持しているのは
 
 ### ステップ1：直前の操作だけをフラグで覚える（最小限のUndo）
 
-「Undoボタンが押されたとき、直前の操作を1回だけ取り消したい」——この要件に対して、思い浮かぶ最もシンプルな実装は何でしょうか。直前に何をしたかを1つのフラグと値で覚えておく方法です。
+「Undoボタンが押されたとき、直前の操作を1回だけ取り消したい」——この要件に対して、思い浮かぶ最もシンプルな実装は何でしょうか。まず、各操作を独立したプライベートメソッドとして切り出し、そこから共通の構造を見つけていきましょう。
 
 なお、以降のステップでは `UIButtons` クラスの名称を `BudgetApp` に変更します。同じクラスの呼び方を変えただけで、責務は変わりません。
 
@@ -523,32 +524,47 @@ class BudgetApp {
     int lastAmount;
     std::string lastDetail;
 
-public:
-    void onAddExpenseClick(int amount, std::string cat) {
+    // 各操作を独立したプライベートメソッドとして切り出す
+    void recordExpense(int amount, const std::string& cat) {
         em.addExpense(amount, cat);
-        lastType   = "Expense";  // 直前の操作を上書き記憶
+        lastType   = "Expense";
         lastAmount = amount;
         lastDetail = cat;
     }
-    void onAddIncomeClick(int amount, std::string src) {
+    void recordIncome(int amount, const std::string& src) {
         im.addIncome(amount, src);
         lastType   = "Income";
         lastAmount = amount;
         lastDetail = src;
     }
-    void onUndoClick() {
+
+    // 判定（どの取り消し処理を選ぶか）も独立したメソッドとして切り出す
+    void undoLast() {
         if (lastType == "Expense")
             em.removeExpense(lastAmount, lastDetail);
         else if (lastType == "Income")
             im.removeIncome(lastAmount, lastDetail);
-        lastType = "";  // 取り消したら履歴をクリア
+        lastType = "";
+    }
+
+public:
+    void onAddExpenseClick(int amount, const std::string& cat) {
+        recordExpense(amount, cat);
+    }
+    void onAddIncomeClick(int amount, const std::string& src) {
+        recordIncome(amount, src);
+    }
+    void onUndoClick() {
+        undoLast();
     }
 };
 ```
 
-直前の操作を3つのメンバ変数に記憶するだけで1回のUndoは実現できる。
+各操作を独立したプライベートメソッドに切り出し、判定（undoLast）も別のメソッドとして分けることで、「実行の記録」と「どれを取り消すかの判定」が分離された。
 
-**この段階の評価：** 1回のUndoはできるようになった。しかし、「支出を登録→収入を登録→Undoを2回」という操作には対応できない。直前の1件しか覚えていないので、2回目のUndoで取り消す対象がない。1回のUndoはできるようになったが、複数操作の履歴には対応できない。
+**この段階の評価：** 1回のUndoはできるようになった。しかし、「支出を登録→収入を登録→Undoを2回」という操作には対応できない。直前の1件しか覚えていないので、2回目のUndoで取り消す対象がない。
+
+ここで気づくことがあります。`recordExpense` と `recordIncome` の2つは、引数の構成（`int amount, const std::string&`）も処理の構造（「操作を実行して、種別・金額・詳細を記憶する」）も同じです。同じシグネチャを持つメソッドが並んでいる——これが「共通の構造」の初めての兆候です。また、`undoLast` を独立させたことで、「各操作の記録」と「どれを取り消すかの判定」が別の関心事だということも見えてきました。次のステップでは、この記憶できる件数の制限を解消するために、履歴をスタックへ積む方法を試みます。
 
 ---
 

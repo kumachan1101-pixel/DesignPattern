@@ -89,7 +89,9 @@ classDiagram
         -EmailNotifier email
         -DashboardUpdater dashboard
         -ChatNotifier chat
-        -map stock
+        -unordered_map stock
+        -int threshold
+        +setStock(productId, quantity)
         +reduceStock(productId, quantity)
         +replenishStock(productId, quantity)
         -notifyAll(message)
@@ -588,39 +590,52 @@ graph LR
 
 フェーズ5で「変わるのは通知先の種類や数であり、通知元が渡すメッセージ（string）は安定している」ことが分かりました。ここでは、通知先をどのように登録・解除できる形へ変えるかを段階的に検討します。それぞれの段階（ステップ）でどこまで痛みが解消されるかを確認し、今回の要件において「どのステップで止めるべきか」を決断します。
 
-### ステップ1：通知処理をプライベートメソッドに切り出す（まず整理する）
+### ステップ1：各通知を独立したメソッドに切り出す（共通構造を発見する）
 
-新しい通知先（SMS）を追加するとき、`reduceStock` の中に通知処理が直書きされているのが気になります。「通知の呼び出しをひとつのメソッドにまとめれば、少なくとも変更箇所が一ヶ所になるはず」と考えて、プライベートメソッドに切り出してみます。
+新しい通知先（SMS）を追加するとき、`reduceStock` の中に通知処理が直書きされているのが気になります。「それぞれの通知処理を独立したメソッドに切り出して、整理してみよう」と考えるのが最初の一歩です。一つにまとめるのではなく、まず各処理をバラバラに切り出します。
 
 ```cpp
 class InventoryManager {
 private:
-    EmailNotifier email;
+    EmailNotifier    email;
     DashboardUpdater dashboard;
-    ChatNotifier chat;
+    ChatNotifier     chat;
 
-    // 通知処理をプライベートメソッドにまとめる
-    void notifyAll(string message) {
+    // 各通知を独立したメソッドとして切り出す
+    void notifyEmail(string message) {
         email.send(message);
+    }
+    void notifyDashboard(string message) {
         dashboard.update(message);
+    }
+    void notifyChat(string message) {
         chat.send(message);
-        // SMS通知を追加するにはここに1行書き足す
+    }
+
+    // 判定（どの通知先を呼ぶか）も独立したメソッドとして切り出す
+    void notifyAll(string message) {
+        notifyEmail(message);
+        notifyDashboard(message);
+        notifyChat(message);
     }
 
 public:
     void reduceStock(string productId, int quantity) {
         cout << "商品 " << productId
-             << " の在庫を " << quantity << " 減らしました。" << endl;
+             << " の在庫を " << quantity
+             << " 減らしました。" << endl;
         string message = "商品 " + productId
                        + " の在庫が減少しました。";
-        notifyAll(message);  // ← 呼び出しは1行にまとまった
+        notifyAll(message);
     }
 };
 ```
 
-`reduceStock` の見通しは改善され、通知ロジックが `notifyAll` に集約されたことが分かる。
+各通知先への呼び出しが独立したメソッドに分かれ、`reduceStock` の見通しが改善されたことが分かる。
 
-**この段階の評価：** 通知処理は整理できた。しかし、新しい通知先（SMSNotifier）を追加するには、InventoryManager を開いてメンバ変数・初期化・`notifyAll` 内の呼び出しの3箇所を修正する必要があります。通知先の数だけこの修正パターンが繰り返されるという根本は変わっていない。
+**この段階の評価：** ここで気づくことがあります。`notifyEmail`・`notifyDashboard`・`notifyChat` の3つは、引数も戻り値の型も同じです。`string` を受け取り、`void` を返す——同じシグネチャを持つメソッドが3つ並んでいる。これが「共通の構造」の最初の兆候です。また、呼び出しのとりまとめ（`notifyAll`）を独立させたことで、「各通知処理の実行」と「どれを呼ぶかの制御」が別の関心事として見えてきました。
+
+しかし問題は残っています。新しい通知先（SMSNotifier）を追加するには、InventoryManager を開いてメンバ変数・`notifySms` メソッド・`notifyAll` 内の呼び出しの3箇所を修正する必要があります。通知先の数だけこの修正パターンが繰り返されるという根本は変わっていない。次のステップでは、この共通構造を持つメソッドたちをどう扱うかを考えます。
 
 ---
 

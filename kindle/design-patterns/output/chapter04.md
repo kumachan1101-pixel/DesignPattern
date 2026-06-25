@@ -72,20 +72,25 @@
 ```mermaid
 classDiagram
     class StoreDataImporter {
+        -validRows: int
+        +StoreDataImporter(rows: int)
         +import() void
+        -openFile() void
         -parseStoreCSV() void
         -skipHeader() void
         -splitByComma() void
-        -openFile() void
         -saveToDB() void
         -closeFile() void
     }
     class FCDataImporter {
+        -validRows: int
+        -invalidRows: int
+        +FCDataImporter(valid: int, invalid: int)
         +import() void
+        -openFile() void
         -parseFCCSV() void
         -splitByTab() void
         -skipInvalidRows() void
-        -openFile() void
         -saveToDB() void
         -closeFile() void
     }
@@ -569,57 +574,69 @@ graph LR
 
 フェーズ5で「変わるのは形式ごとの `parseData()` の実装であり、骨格の呼び出し順序は安定している」ことが分かりました。ここでは、共通手順と形式別処理をどのように分けるかを段階的に検討します。それぞれの段階（ステップ）でどこまで痛みが解消されるかを確認し、今回の要件において「どのステップで止めるべきか」を決断します。
 
-### ステップ1：共通メソッドをユーティリティとして切り出し、両クラスから呼ぶ
+### ステップ1：各処理を独立したメソッドとして切り出し、共通構造に気づく
 
-「コピペをやめる」という第一歩として、`openFile()` / `saveToDB()` / `closeFile()` という共通処理を別クラス（ユーティリティ）に切り出し、`StoreDataImporter` と `FCDataImporter` の両方から呼び出す形を試してみる。これが「重複を消したい」という自然な最初の発想だ。
+「コピペをやめる」という第一歩として、まず各クラスの処理を整理することから始める。`import()` の中に混在している「開く・パースする・保存する・閉じる」を、それぞれ独立したプライベートメソッドとして切り出してみよう。
 
 ```cpp
-// 共通手順を切り出したユーティリティクラス
-class ImporterUtil {
-public:
-    static void openFile()  { /* 共通手順 */ }
-    static void saveToDB()  { /* 共通手順 */ }
-    static void closeFile() { /* 共通手順 */ }
-};
-
-// 直営店：ユーティリティを呼び出す
+// 直営店：各処理を独立したメソッドとして切り出す
 class StoreDataImporter {
 public:
     void import() {
-        ImporterUtil::openFile();
-        parse(); // ← パースは自分で担当
-        ImporterUtil::saveToDB();
-        ImporterUtil::closeFile();
+        openFile();
+        parse();
+        saveToDB();
+        closeFile();
     }
 private:
+    // ファイル操作（共通）
+    void openFile()  { /* 直営店CSVを開く */ }
+    void saveToDB()  { /* DBへ追加 */ }
+    void closeFile() { /* ファイルを閉じる */ }
+
+    // パース処理（直営店固有）
     void parse() {
         skipHeader();
         splitByComma();
     }
+    void skipHeader()   { /* ヘッダーをスキップ */ }
+    void splitByComma() { /* カンマで分割 */ }
 };
 
-// FC店：同じくユーティリティを呼び出す
+// FC店：同じく各処理を独立したメソッドとして切り出す
 class FCDataImporter {
 public:
     void import() {
-        ImporterUtil::openFile();
-        parse(); // ← パースは自分で担当
-        ImporterUtil::saveToDB();
-        ImporterUtil::closeFile();
+        openFile();
+        parse();
+        saveToDB();
+        closeFile();
     }
 private:
+    // ファイル操作（共通）
+    void openFile()  { /* FC店CSVを開く */ }
+    void saveToDB()  { /* DBへ更新 */ }
+    void closeFile() { /* ファイルを閉じる */ }
+
+    // パース処理（FC店固有）
     void parse() {
         splitByTab();
         skipInvalidRows();
     }
+    void splitByTab()      { /* タブで分割 */ }
+    void skipInvalidRows() { /* 不正行をスキップ */ }
 };
 ```
 
-`openFile()` / `saveToDB()` / `closeFile()` の実装は1箇所（`ImporterUtil`）にまとまり、コードの重複は減った。
+処理がメソッド単位で整理されたことで、コードの意図が読みやすくなった。
 
-**評価：** 重複は減らせたが、骨格（開く→パース→保存→閉じる）を変更するときには `StoreDataImporter::import()` と `FCDataImporter::import()` の両クラスを直さないといけない。「バージョンチェックをオープン直後に追加してほしい」という変更が来れば、2クラスの `import()` を両方開いて同じ行を追記することになる。呼び出し順序という「骨格」がまだ各クラスに分散しているのが原因だ。
+ここで気づくことがあります。2つのクラスを並べてみると、`parse()` というメソッドが両方に存在しています。引数なし、戻り値 `void`——シグネチャが完全に一致しています。さらに `openFile()` / `saveToDB()` / `closeFile()` も、両クラスで同じシグネチャを持ちながら、内容は形式ごとに実装されています。
 
-私の経験でも、最初は関数分割（ユーティリティの切り出し）から試すことが多いです。しかし、インポート対象が増えるにつれてユーティリティを呼び出すだけのクラスが膨大に増え、手順を変更するたびに全クラスを書き換える手間が限界を迎えました。そこで「手順という骨格そのものを1か所に集約し、クラスを分ける」という発想に至ったのです。
+**この段階の評価：** 処理がメソッド単位で独立したことで、各クラスの構造が見えやすくなりました。ここで重要な観察が2つあります。1つ目は、`parse()` が両クラスで同じシグネチャ（引数なし・戻り値 `void`）を持っているという点です。これが「共通の構造」の初めての兆候です。2つ目は、`import()` に書かれた呼び出し順序（`openFile` → `parse` → `saveToDB` → `closeFile`）が、両クラスで完全に同じだという点です。同じシグネチャの `parse()` が並んでいる——これは「2つのクラスが同じ契約を実装している」ことを示しています。次のステップでは、この共通構造を活かして骨格を1か所に集約します。
+
+ただし、骨格（呼び出し順序）を変更するときには `StoreDataImporter::import()` と `FCDataImporter::import()` の両クラスを直さないといけない点は変わっていません。「バージョンチェックをオープン直後に追加してほしい」という変更が来れば、2クラスの `import()` を両方開いて同じ行を追記することになります。呼び出し順序という「骨格」が各クラスに分散しているのが、まだ解消されていない問題です。
+
+私の経験でも、最初はメソッド分割から始めることが多いです。そうすると「同じシグネチャのメソッドが複数クラスに並んでいる」という光景が見えてくる。これが「骨格そのものを1か所に集約し、差分だけを委ねる」という次の発想へのきっかけになりました。
 
 > [!INFO] コラム: ヘルパークラスにまとめるだけではダメ？
 > openFileやsaveToDBを別のヘルパークラスに切り出して呼び出す方法（委譲・コンポジション）も、非常に有効な設計です。この設計のメリットは、「手順の骨格（順番）」そのものを強制できる点にあります。チーム開発などで「誰もが必ず同じステップ・同じ順序でインポート処理を実装するようにしたい」という場合には、親クラスで全体の流れを固定するこのパターンが力を発揮します。
