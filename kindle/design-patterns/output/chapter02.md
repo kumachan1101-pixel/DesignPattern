@@ -78,15 +78,19 @@ classDiagram
         -BankGateway gateway
         -SecurityAuthenticator auth
         +transfer(toAccount, amount, otp)
+        +transferApprovedBatch(toAccount, amount)
     }
     class BankGateway {
         +verifyAccount(account)
         +checkBalance(amount)
         +executeTransfer(account, amount)
+        +handleAccountNotFoundError()
+        +handleInsufficientBalanceError()
     }
     class SecurityAuthenticator {
         +requestOTP()
         +verifyOTP(token)
+        +handleAuthenticationFailed()
     }
 
     BatchTransferProcessor --> TransferProcessor : 使う
@@ -358,7 +362,6 @@ int main() {
 
 ### 2-3：関係者ヒアリング
 
-> **現実のヒアリングでは——** 本書のヒアリングシーンでは設計判断を明確にするため、意図的に「理想的な回答」が返ってくるように描いています。これはシミュレーションです。現実には、「変わるかどうか分からない」「たぶん変わらない」という曖昧な答えが返ることも多いです。そのときは `git log` や過去の障害記録を「ヒアリングの代わり」として使ってみてください。「過去に何度変わったか」が最も正直な証拠です。
 
 今回の変更が一時的なものか、将来も続くリスクがあるのかを確認するため、銀行のAPI担当者にヒアリングを行いました。
 
