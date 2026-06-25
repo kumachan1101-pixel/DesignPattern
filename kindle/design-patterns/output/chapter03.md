@@ -83,6 +83,9 @@ stateDiagram-v2
 classDiagram
     class TicketReservation {
         -String status
+        -handleReserveError()
+        -handlePayError()
+        -handleCancelError()
         +reserve()
         +pay()
         +cancel()

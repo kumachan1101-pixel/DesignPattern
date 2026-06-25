@@ -663,53 +663,72 @@ void transfer(
 
 フェーズ5で「変わるのは銀行APIの呼び出し手順であり、業務フローが窓口へ渡す引数の型は比較的安定している」ことが分かりました。ここでは、その手順をどのように窓口の内側へ閉じ込めるかを段階的に検討します。いきなり正解へ飛ぶのではなく、各ステップで「どこまで痛みが解消されるか」を確認しながら、今回の要件において「どのステップで止めるべきか」を決断します。
 
-### ステップ1：呼び出し元でヘルパーメソッドに切り出す（同じクラスの中で整理する）
+### ステップ1：各処理を独立したメソッドに切り出す（同じクラスの中で整理する）
 
-「API呼び出しが複雑に絡み合っているなら、意味のある単位でメソッドに切り出して整理しよう」というのが自然な最初の発想です。クラスを新しく作るのはコストがかかる。`TransferProcessor` の中で、各手順を意味のある単位にまとめてみます。
+「API呼び出しが複雑に絡み合っているなら、1つひとつの操作を独立したメソッドに切り出してみよう」というのが自然な最初の発想です。クラスを新しく作るのはコストがかかる。まずは `TransferProcessor` の中で、各API呼び出しをそれぞれ独立したメソッドとして切り出してみます。
 
 ```cpp
 class TransferProcessor {
     BankGateway gateway;
     SecurityAuthenticator auth;
 
-    // 口座の確認手順をまとめる
-    void checkAccount(const std::string& account, int amount) {
-        gateway.verifyAccount(account);
-        gateway.checkBalance(amount);
+    // 口座確認を独立したメソッドとして切り出す
+    bool checkAccountExists(const std::string& account) {
+        return gateway.verifyAccount(account);
     }
 
-    // 認証手順をまとめる
-    std::string authenticate(const std::string& otp) {
-        std::string txId = auth.requestOTP();
-        auth.verifyOTP(otp, txId);
-        return txId;
+    // 残高確認を独立したメソッドとして切り出す
+    bool checkBalanceSufficient(int amount) {
+        return gateway.checkBalance(amount);
     }
 
-    // 送金手順をまとめる
-    void sendMoney(const std::string& account, int amount,
-                   const std::string& txId) {
+    // 認証コード発行を独立したメソッドとして切り出す
+    std::string issueAuthCode() {
+        return auth.requestOTP();
+    }
+
+    // 認証コード検証を独立したメソッドとして切り出す
+    bool verifyAuthCode(
+            const std::string& otp,
+            const std::string& txId) {
+        return auth.verifyOTP(otp, txId);
+    }
+
+    // 送金実行を独立したメソッドとして切り出す
+    void executeTransfer(
+            const std::string& account, int amount,
+            const std::string& txId) {
         gateway.executeTransfer(account, amount, txId);
+    }
+
+    // 「どの処理をどの順序で実行するか」の判断を
+    // 独立したメソッドとして切り出す
+    bool conductTransfer(
+            const std::string& toAccount, int amount,
+            const std::string& otp) {
+        if (!checkAccountExists(toAccount))  return false;
+        if (!checkBalanceSufficient(amount)) return false;
+        std::string txId = issueAuthCode();
+        if (!verifyAuthCode(otp, txId))      return false;
+        executeTransfer(toAccount, amount, txId);
+        return true;
     }
 
 public:
     void transfer(
             const std::string& toAccount, int amount,
             const std::string& otp) {
-        checkAccount(toAccount, amount);  // ← 手順の意図が読めるようになった
-        std::string txId = authenticate(otp);
-        sendMoney(toAccount, amount, txId);
-        std::cout << "振り込み完了\n";
+        if (conductTransfer(toAccount, amount, otp))
+            std::cout << "振り込み完了\n";
     }
 };
 ```
 
-`transfer()` の本文が「振り込みの手順」として読めるようになり、各ステップの意図が伝わるようになった。
+`transfer()` の本文から銀行API呼び出しの詳細が消え、各操作が独立したメソッドとして名前を持つようになりました。
 
-**この段階の評価：** `transfer()` は格段に読みやすくなりました。しかし `checkAccount()`・`authenticate()`・`sendMoney()` はすべて TransferProcessor クラスの内部にあります。銀行側の認証仕様が変わるたびに、結局はこの TransferProcessor を開いて書き直す必要があるのではないでしょうか。呼び出し元がきれいになったが、銀行APIの手順という知識は呼び出し元に残ったままです。
+**この段階の評価：** 各API操作が独立したメソッドになったことで、`conductTransfer()` を読むだけで「何をどの順序でやるか」の判断ロジックが一目で追えます。ここで気づくことがあります。`checkAccountExists`・`checkBalanceSufficient`・`verifyAuthCode` の3つは、戻り値がいずれも `bool` です。「確認して成否を返す」という同じ形の処理が並んでいる——これが「共通の構造」の初めての兆候です。また、「実行」（`conductTransfer`）を独立させたことで、「個々のAPI操作」と「どれをどの順で呼ぶかの判断」が別の関心事だということも見えてきました。
 
-私が試みるのは、いきなりクラスを分けることではなく、まずはこのように処理を関数に切り出すことです。やってみると、それでも同じクラスの中に知識が残り続けることに気づき、クラスを分けるという発想に至ります。
-
-これを外に出すために「専用のクラスを作る」方向を試してみましょう。
+しかし、これらのメソッドはすべて `TransferProcessor` クラスの内部にあります。銀行側の認証仕様が変わるたびに、結局はこの `TransferProcessor` を開いて書き直す必要があるのではないでしょうか。銀行APIの手順という知識がクラスの中に残ったままです。次のステップでは、このAPI呼び出しの知識を別のクラスに移す方向を試してみましょう。
 
 ---
 
