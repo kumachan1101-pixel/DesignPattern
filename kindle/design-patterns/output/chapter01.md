@@ -370,29 +370,35 @@ int main() {
     order.items.push_back(Item("ワイヤレスイヤホン", 10000));
     CampaignContext context;
 
-    // Premium / キャンペーンあり / サマーセール中 → Premium優先（キャンペーン・サマーセール無効）
+    // Premium / キャンペーンあり / サマーセール中
+    // → Premium優先（キャンペーン・サマーセール無効）
     order.customerType = "Premium";
     context.isSummerSale     = true;
     context.isCampaignActive = true;
-    std::cout << "[Premium+Summer+Camp] " << calculator.calculate(order, context) << " 円" << std::endl;
+    std::cout << "[Premium+Summer+Camp] "
+              << calculator.calculate(order, context) << " 円" << std::endl;
 
-    // Regular / キャンペーンあり / サマーセール中 → 重ね掛け（10%引き ＋ 5%引き）
+    // Regular / キャンペーンあり / サマーセール中
+    // → 重ね掛け（10%引き ＋ 5%引き）
     order.customerType = "Regular";
     context.isSummerSale     = true;
     context.isCampaignActive = true;
-    std::cout << "[Regular+Summer+Camp] " << calculator.calculate(order, context) << " 円" << std::endl;
+    std::cout << "[Regular+Summer+Camp] "
+              << calculator.calculate(order, context) << " 円" << std::endl;
 
     // Regular / キャンペーンなし / サマーセール中 → 5%引き
     order.customerType = "Regular";
     context.isSummerSale     = true;
     context.isCampaignActive = false;
-    std::cout << "[Regular+SummerOnly]  " << calculator.calculate(order, context) << " 円" << std::endl;
+    std::cout << "[Regular+SummerOnly]  "
+              << calculator.calculate(order, context) << " 円" << std::endl;
 
     // Regular / キャンペーンなし / サマーセールなし → 割引なし
     order.customerType = "Regular";
     context.isSummerSale     = false;
     context.isCampaignActive = false;
-    std::cout << "[Regular+割引なし]    " << calculator.calculate(order, context) << " 円" << std::endl;
+    std::cout << "[Regular+割引なし]    "
+              << calculator.calculate(order, context) << " 円" << std::endl;
 
     return 0;
 }
@@ -431,9 +437,10 @@ public:
 
 ```mermaid
 graph LR
-    T1["変更要求：サマーセール追加"] -->|影響| A["PaymentCalculator<br>（既存の条件分岐全体）"]
+    T1["変更要求：サマーセール追加"]
+        -->|影響| A["PaymentCalculator<br>（既存の条件分岐全体）"]
     A -->|さらに影響| B["CampaignContext<br>（新しいフラグの追加）"]
-    A -.->|表示結果の回帰確認| C["CartPreviewService<br>（PaymentCalculatorの利用側）"]
+    A -.->|表示結果の回帰確認| C["CartPreviewService<br>（利用側）"]
 ```
 
 新しいルールを1つ追加するだけで、既存の計算ロジック全体とデータクラスを修正し、同じ計算結果を表示するカートプレビューも回帰確認する必要があります。ここでは、**ソースを修正する場所**と**動作を再確認する場所**を区別します。
@@ -606,7 +613,8 @@ public:
 ```cpp
 class PaymentCalculator {
     // 割引の条件と計算をプライベートメソッドに切り出す
-    int applyDiscount(int total, const Order& order, const CampaignContext& context) {
+    int applyDiscount(int total, const Order& order,
+                      const CampaignContext& context) {
         if (order.customerType == "Premium")
             return total * 80 / 100;
         if (context.isSummerSale && context.isCampaignActive)
@@ -965,9 +973,11 @@ public:
 // ルールを選択するファクトリ（かつて本体にあったif文を隔離する場所）
 class RuleFactory {
 public:
-    static IDiscountRule* create(const Order& order, const CampaignContext& context) {
+    static IDiscountRule* create(const Order& order,
+                                 const CampaignContext& context) {
         if (order.customerType == "Premium") return new PremiumDiscount();
-        if (context.isSummerSale && context.isCampaignActive) return new SummerSaleAndCampaignDiscount();
+        if (context.isSummerSale && context.isCampaignActive)
+            return new SummerSaleAndCampaignDiscount();
         if (context.isSummerSale) return new SummerSaleDiscount();
         if (context.isCampaignActive) return new CampaignDiscount();
         return new NoDiscount();
@@ -975,14 +985,16 @@ public:
 };
 
 class BatchApplication {
-    void printCase(const std::string& label, const Order& order, const CampaignContext& context) {
+    void printCase(const std::string& label, const Order& order,
+                   const CampaignContext& context) {
         IDiscountRule* rule = RuleFactory::create(order, context);
         PaymentCalculator calculator(rule);
         CartPreviewService preview(rule);
 
         std::cout << label << "\n";
         std::cout << "  支払金額: " << calculator.calculate(order) << " 円\n";
-        std::cout << "  プレビュー: " << preview.getEstimatedTotal(order) << " 円\n";
+        std::cout << "  プレビュー: "
+                  << preview.getEstimatedTotal(order) << " 円\n";
         delete rule;
     }
 

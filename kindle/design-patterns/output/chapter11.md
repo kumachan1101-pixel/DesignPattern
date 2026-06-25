@@ -354,7 +354,7 @@ PDF形式でフッターを生成
 
 ```mermaid
 graph LR
-    T1["変更要求：レポート生成順序変更"] -->|"ロジック修正"| B["ReportSkeleton.cpp"]
+    T1["変更要求：順序変更"] -->|"ロジック修正"| B["ReportSkeleton.cpp"]
     T2["変更要求：操作履歴の保存"] -->|"状態追加/メソッド呼び出し"| B
     B -->|"影響が飛び火"| C["CSV読み込み処理 ✅"]
     B -->|"影響が飛び火"| D["グラフ/ロゴ等の追加処理 ✅"]
@@ -441,7 +441,8 @@ public:
         // 骨格・装飾・履歴がすべて同じメソッドに混在
         reader.readCSV();
         cout << format << "形式でヘッダーを生成。" << endl;
-        if (addGraph) cout << "グラフを追加。" << endl; // ← 具体的な機能名を直接知っている
+        // ← 具体的な機能名を直接知っている
+        if (addGraph) cout << "グラフを追加。" << endl;
         if (addLogo)  cout << "ロゴを追加。" << endl;
         cout << format << "形式でフッターを生成。" << endl;
     }

@@ -756,7 +756,8 @@ public:
 ```cpp
 // ステップ4：TicketManagerはIPriorityRule*のみを知る（優先度ルールの軸が解決）
 class TicketManager {
-    IPriorityRule* strategy; // ← 抽象：外部から注入されたインターフェースのみ知っている
+    // ← 抽象：外部から注入されたインターフェースのみ知っている
+    IPriorityRule* strategy;
 public:
     TicketManager(IPriorityRule* s) : strategy(s) {}
     void updateStatus(string userType, string status) {
@@ -778,7 +779,8 @@ public:
 
 ```cpp
 int main() {
-    PremiumPriority strategy;            // ← 具体：呼び出し側だけが具体クラスを生成
+    // ← 具体：呼び出し側だけが具体クラスを生成
+    PremiumPriority strategy;
     TicketManager manager(&strategy);
     manager.updateStatus("premium", "InProgress");
     return 0;
@@ -930,8 +932,10 @@ public:
 
 ```cpp
 int main() {
-    PremiumPriority strategy;            // ← 具体：呼び出し側だけが具体クラスを生成
-    InProgressPhase state;               // ← 具体：呼び出し側だけが具体クラスを生成
+    // ← 具体：呼び出し側だけが具体クラスを生成
+    PremiumPriority strategy;
+    // ← 具体：呼び出し側だけが具体クラスを生成
+    InProgressPhase state;
     TicketContext ctx(&state, &strategy);
     ctx.execute("premium");
     return 0;

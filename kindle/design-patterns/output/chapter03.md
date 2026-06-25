@@ -1092,7 +1092,8 @@ public:
         seat4.hold();
         seat4.expire();
 
-        // シナリオ5：キャンセル待ちから昇格 (Available → Waitlisted → Reserved → Paid)
+        // シナリオ5：キャンセル待ちから昇格
+        // (Available → Waitlisted → Reserved → Paid)
         std::cout << "--- シナリオ5: キャンセル待ちから昇格 ---\n";
         TicketReservation seat5(availableState());
         seat5.addToWaitlist();

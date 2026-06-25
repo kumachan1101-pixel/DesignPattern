@@ -338,7 +338,8 @@ PayPay対応は正しく動いています。しかし `processPayment` の `if-
 
 ```mermaid
 graph LR
-    T1["変更要求：PayPay対応"] -->|"追記"| A["PaymentApplication<br>（既存の条件分岐全体）"]
+    T1["変更要求：PayPay対応"]
+        -->|"追記"| A["PaymentApplication<br>（既存の条件分岐全体）"]
     A -->|"新規クラス作成"| B["PayPayProcessor"]
 ```
 
@@ -398,12 +399,14 @@ graph LR
             PayPayProcessor processor;
             processor.pay(amount);
         }
-        // 銀行振込・Apple Pay など、決済手段を追加するたびに else if がここに増える
+        // 銀行振込・Apple Pay など、決済手段を追加するたびに
+        // else if がここに増える
 ```
 
 **【変わらない部分（不変の骨格）】**
 ```cpp
-        // どの決済手段であっても「種別を受け取り→実行する」という流れは変わらない
+        // どの決済手段であっても
+        // 「種別を受け取り→実行する」という流れは変わらない
         // (ここに変わる部分の生成ロジックが入っている状態)
 ```
 
@@ -418,7 +421,8 @@ public:
     void processPayment(string type, int amount) {
         // 具体クラスを直接知り、直接生成して呼び出している
         if (type == "credit") {
-            CreditCardProcessor processor;  // ← 利用処理が生成するクラス名を知っている
+            // ← 利用処理が生成するクラス名を知っている
+            CreditCardProcessor processor;
             processor.pay(amount);
         }
         // PayPay・銀行振込など、決済手段を追加するたびに else if がここに増える
@@ -611,7 +615,8 @@ public:
 class ConvenienceStoreProcessor : public IPaymentProcessor {
 public:
     void pay(int amount) override {
-        cout << "コンビニで " << amount << " 円の支払い番号を発行しました。" << endl;
+        cout << "コンビニで " << amount
+             << " 円の支払い番号を発行しました。" << endl;
     }
 };
 ```

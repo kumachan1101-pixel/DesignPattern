@@ -702,7 +702,8 @@ public:
             cout << "審査待ち状態へ移行。" << endl;
         // ← まだ通知先がハードコードされている
         cout << "申請者に通知" << endl;
-        // wm は次ステップのObserver通知のために受け取っているが、このステップではまだ使わない
+        // wm は次ステップのObserver通知のために受け取っているが、
+        // このステップではまだ使わない
         (void)wm;
     }
 };
@@ -712,7 +713,8 @@ public:
     void handle(WorkflowManager* wm) override {
         cout << "緊急承認ルートで処理。部長へ直接通知。" << endl;
         cout << "部長に通知" << endl;
-        // wm は次ステップのObserver通知のために受け取っているが、このステップではまだ使わない
+        // wm は次ステップのObserver通知のために受け取っているが、
+        // このステップではまだ使わない
         (void)wm;
     }
 };
@@ -1321,7 +1323,8 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    T1["変更要求：緊急ルート追加"] --> F1["PriorityPendingPhase + DraftPhase + 組み立て"]
+    T1["変更要求：緊急ルート追加"]
+        --> F1["PriorityPendingPhase + DraftPhase + 組み立て"]
     T1 -. "影響なし" .-> A["WorkflowManager本体 ✅"]
     T2["変更要求：新通知先追加"] --> F2["FinanceNotifier + 登録処理"]
     T2 -. "影響なし" .-> A

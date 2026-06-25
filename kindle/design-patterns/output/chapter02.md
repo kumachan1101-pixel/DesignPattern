@@ -963,7 +963,9 @@ public:
 };
 
 // 4. 組み立てと実行（メイン関数）
-// 最後に、必要な部品を組み立てて実行します。具体的なクラス名（`BankTransferService`）を知っているのは、この組み立てを行う箇所だけです。
+// 最後に、必要な部品を組み立てて実行します。
+// 具体的なクラス名（`BankTransferService`）を知っているのは、
+// この組み立てを行う箇所だけです。
 
 // 依存の組み立てを担うクラス（Composition Root）
 class Application {
@@ -1030,7 +1032,8 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    T1["変更要求：認証フロー変更"] --> F1["BankTransferService<br>（手順の調整）"]
+    T1["変更要求：認証フロー変更"]
+        --> F1["BankTransferService<br>（手順の調整）"]
     T1 --> S1["SecurityAuthenticator<br>（API追従）"]
     T1 -. "送金APIにも及ぶ場合" .-> S2["BankGateway<br>（API追従）"]
     T1 -. "影響なし" .-> A["TransferProcessor ✅"]
