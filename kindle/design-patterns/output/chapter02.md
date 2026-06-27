@@ -110,6 +110,7 @@ classDiagram
 
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
+| AccountDatabase | 口座データの保持・検索 | 口座存在確認・残高照会 |
 | TransferProcessor | 個別振り込みフロー進行 | 仕様全体 |
 | BatchTransferProcessor | 一括振り込み（バッチ）進行 | 複数の振り込みの呼び出し |
 | BankGateway | 銀行API通信 | 仕様①、②、④ |
@@ -123,37 +124,52 @@ classDiagram
 
 はじめに、銀行APIとの通信を担うクラスと認証を担うクラスを見てみます。
 
+このシステムには以下の3件の口座データがあらかじめ登録されています。
+
+| 口座ID | 名義 | 残高 |
+|---|---|---|
+| ACC001 | 田中 一郎 | 150,000円 |
+| ACC002 | 佐藤 花子 | 30,000円 |
+| ACC003 | 鈴木 次郎 | 500,000円 |
+
+コードを読む前に、どのIDがどの口座かを把握しておくと、動作結果と仕様の対応が追いやすくなります。
+
 ```cpp
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 #include <utility>
 
+// 口座情報を保持する構造体
+struct AccountInfo {
+    std::string ownerName;  // 口座名義
+    int balance;            // 残高（円）
+};
+
+// 口座データを管理するクラス
+class AccountDatabase {
+private:
+    std::map<std::string, AccountInfo> records;
+public:
+    AccountDatabase() {
+        records["ACC001"] = {"田中 一郎", 150000};
+        records["ACC002"] = {"佐藤 花子",  30000};
+        records["ACC003"] = {"鈴木 次郎", 500000};
+    }
+
+    bool exists(const std::string& id) const {
+        return records.count(id) > 0;
+    }
+
+    AccountInfo get(const std::string& id) const {
+        return records.at(id);
+    }
+};
+
 // 銀行との通信を担うクラス
 class BankGateway {
 public:
-    void handleAccountNotFoundError() {
-        std::cout << "エラー: 口座なし\n";
-    }
-    void handleInsufficientBalanceError() {
-        std::cout << "エラー: 残高不足\n";
-    }
-    bool verifyAccount(const std::string& account) {
-        std::cout << "口座確認: " << account << "\n";
-        if (account == "99999999") {
-            handleAccountNotFoundError();
-            return false;
-        }
-        return true;
-    }
-    bool checkBalance(int amount) {
-        std::cout << "残高確認\n";
-        if (amount > 100000) {
-            handleInsufficientBalanceError();
-            return false;
-        }
-        return true;
-    }
     void executeTransfer(
             const std::string& /*account*/, int amount) {
         std::cout << "送金実行: " << amount << "円\n";
@@ -188,16 +204,33 @@ public:
 // 振り込み処理クラス
 class TransferProcessor {
 private:
+    AccountDatabase& db;
     BankGateway gateway;
     SecurityAuthenticator auth;
 public:
+    TransferProcessor(AccountDatabase& database)
+        : db(database) {}
+
     bool transfer(
+        const std::string& fromAccount,
         const std::string& toAccount, int amount,
         const std::string& otp) {
         // 銀行システムの複雑な手順を直接制御している
-        if (!gateway.verifyAccount(toAccount)) return false;
-        if (!gateway.checkBalance(amount)) return false;
+        if (!db.exists(fromAccount)) {
+            std::cout << "エラー: 送金元口座なし\n";
+            return false;
+        }
+        if (!db.exists(toAccount)) {
+            std::cout << "エラー: 送金先口座なし\n";
+            return false;
+        }
+        if (db.get(fromAccount).balance < amount) {
+            std::cout << "エラー: 残高不足\n";
+            return false;
+        }
 
+        std::cout << "口座確認: " << toAccount << "\n";
+        std::cout << "残高確認\n";
         auth.requestOTP();
         if (!auth.verifyOTP(otp)) return false;
 
@@ -207,10 +240,24 @@ public:
     }
 
     bool transferApprovedBatch(
+        const std::string& fromAccount,
         const std::string& toAccount, int amount) {
         // 社内承認済みバッチ用。通常振込と手順が重複している
-        if (!gateway.verifyAccount(toAccount)) return false;
-        if (!gateway.checkBalance(amount)) return false;
+        if (!db.exists(fromAccount)) {
+            std::cout << "エラー: 送金元口座なし\n";
+            return false;
+        }
+        if (!db.exists(toAccount)) {
+            std::cout << "エラー: 送金先口座なし\n";
+            return false;
+        }
+        if (db.get(fromAccount).balance < amount) {
+            std::cout << "エラー: 残高不足\n";
+            return false;
+        }
+
+        std::cout << "口座確認: " << toAccount << "\n";
+        std::cout << "残高確認\n";
         gateway.executeTransfer(toAccount, amount);
         std::cout << "振り込み完了（OTP不要）\n";
         return true;
@@ -222,12 +269,18 @@ class BatchTransferProcessor {
 private:
     TransferProcessor processor;
 public:
+    BatchTransferProcessor(AccountDatabase& database)
+        : processor(database) {}
+
     void processPayroll(
-            const std::vector<std::pair<std::string, int>>& transfers) {
+            const std::string& fromAccount,
+            const std::vector<std::pair<std::string, int>>&
+                transfers) {
         for (int i = 0; i < (int)transfers.size(); i++) {
             const std::string& account = transfers[i].first;
             int amount = transfers[i].second;
-            processor.transferApprovedBatch(account, amount);
+            processor.transferApprovedBatch(
+                fromAccount, account, amount);
         }
     }
 };
@@ -242,26 +295,31 @@ public:
 
 ```cpp
 int main() {
-    TransferProcessor processor;
+    AccountDatabase db;
+    TransferProcessor processor(db);
 
+    // ACC001（田中 一郎、残高15万円）から ACC002（佐藤 花子）へ送金
     std::cout << "--- 行1: 正常な個別振り込み ---\n";
-    processor.transfer("12345678", 5000, "999999");
+    processor.transfer("ACC001", "ACC002", 5000, "999999");
 
+    // 存在しない送金先口座
     std::cout << "--- 行2: 存在しない口座 ---\n";
-    processor.transfer("99999999", 5000, "999999");
+    processor.transfer("ACC001", "UNKNOWN", 5000, "999999");
 
+    // 送金元残高（15万円）より多い額を送金しようとする
     std::cout << "--- 行3: 残高不足 ---\n";
-    processor.transfer("12345678", 1000000, "999999");
+    processor.transfer("ACC001", "ACC002", 1000000, "999999");
 
     std::cout << "--- 行4: 認証失敗 ---\n";
-    processor.transfer("12345678", 5000, "INVALID");
+    processor.transfer("ACC001", "ACC002", 5000, "INVALID");
 
+    // ACC003（鈴木 次郎、残高50万円）から ACC002 へバッチ送金
     std::cout << "--- 行5: 社内承認済みバッチ ---\n";
-    BatchTransferProcessor batch;
+    BatchTransferProcessor batch(db);
     std::vector<std::pair<std::string, int>> payroll = {
-        {"87654321", 30000}
+        {"ACC002", 30000}
     };
-    batch.processPayroll(payroll);
+    batch.processPayroll("ACC003", payroll);
 
     return 0;
 }
@@ -271,27 +329,24 @@ int main() {
 
 ```
 --- 行1: 正常な個別振り込み ---
-口座確認: 12345678
+口座確認: ACC002
 残高確認
 認証コード発行
 認証コード検証
 送金実行: 5000円
 振り込み完了
 --- 行2: 存在しない口座 ---
-口座確認: 99999999
-エラー: 口座なし
+エラー: 送金先口座なし
 --- 行3: 残高不足 ---
-口座確認: 12345678
-残高確認
 エラー: 残高不足
 --- 行4: 認証失敗 ---
-口座確認: 12345678
+口座確認: ACC002
 残高確認
 認証コード発行
 認証コード検証
 エラー: 認証失敗
 --- 行5: 社内承認済みバッチ ---
-口座確認: 87654321
+口座確認: ACC002
 残高確認
 送金実行: 30000円
 振り込み完了（OTP不要）
@@ -911,18 +966,39 @@ int main() {
 
 ```cpp
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
+
+// 口座情報を保持する構造体
+struct AccountInfo {
+    std::string ownerName;  // 口座名義
+    int balance;            // 残高（円）
+};
+
+// 口座データを管理するクラス
+class AccountDatabase {
+private:
+    std::map<std::string, AccountInfo> records;
+public:
+    AccountDatabase() {
+        records["ACC001"] = {"田中 一郎", 150000};
+        records["ACC002"] = {"佐藤 花子",  30000};
+        records["ACC003"] = {"鈴木 次郎", 500000};
+    }
+
+    bool exists(const std::string& id) const {
+        return records.count(id) > 0;
+    }
+
+    AccountInfo get(const std::string& id) const {
+        return records.at(id);
+    }
+};
 
 // 銀行との通信を担うクラス（サブシステム1）
 class BankGateway {
 public:
-    void verifyAccount(const std::string& account) {
-        std::cout << "口座確認: " << account << "\n";
-    }
-    void checkBalance(int /*amount*/) {
-        std::cout << "残高確認\n";
-    }
     void executeTransfer(const std::string& account, int amount,
                          const std::string& txId) {
         (void)account;
@@ -954,27 +1030,74 @@ public:
 // 業務フロー側に見せる窓口（インターフェース）
 class IBankTransferService {
 public:
-    virtual void performTransfer(
-        const std::string& account, int amount,
+    virtual bool performTransfer(
+        const std::string& fromAccount,
+        const std::string& toAccount, int amount,
         const std::string& otp) = 0;
+    virtual bool performApprovedBatchTransfer(
+        const std::string& fromAccount,
+        const std::string& toAccount, int amount) = 0;
     virtual ~IBankTransferService() = default;
 };
 
 // 銀行との複雑なやり取りをすべて隠蔽する窓口クラス（Facade）
 class BankTransferService : public IBankTransferService {
 private:
+    AccountDatabase& db;
     BankGateway gateway;
     SecurityAuthenticator auth;
 public:
-    void performTransfer(
-            const std::string& account, int amount,
+    BankTransferService(AccountDatabase& database)
+        : db(database) {}
+
+    bool performTransfer(
+            const std::string& fromAccount,
+            const std::string& toAccount, int amount,
             const std::string& otp) override {
         // 複雑な手順はすべてこの窓口の中に閉じる
-        gateway.verifyAccount(account);
-        gateway.checkBalance(amount);
+        if (!db.exists(fromAccount)) {
+            std::cout << "エラー: 送金元口座なし\n";
+            return false;
+        }
+        if (!db.exists(toAccount)) {
+            std::cout << "エラー: 送金先口座なし\n";
+            return false;
+        }
+        if (db.get(fromAccount).balance < amount) {
+            std::cout << "エラー: 残高不足\n";
+            return false;
+        }
+
+        std::cout << "口座確認: " << toAccount << "\n";
+        std::cout << "残高確認\n";
         std::string txId = auth.requestOTP();
         auth.verifyOTP(otp, txId);
-        gateway.executeTransfer(account, amount, txId);
+        gateway.executeTransfer(toAccount, amount, txId);
+        return true;
+    }
+
+    bool performApprovedBatchTransfer(
+            const std::string& fromAccount,
+            const std::string& toAccount,
+            int amount) override {
+        if (!db.exists(fromAccount)) {
+            std::cout << "エラー: 送金元口座なし\n";
+            return false;
+        }
+        if (!db.exists(toAccount)) {
+            std::cout << "エラー: 送金先口座なし\n";
+            return false;
+        }
+        if (db.get(fromAccount).balance < amount) {
+            std::cout << "エラー: 残高不足\n";
+            return false;
+        }
+
+        std::cout << "口座確認: " << toAccount << "\n";
+        std::cout << "残高確認\n";
+        gateway.executeTransfer(toAccount, amount,
+                                "APPROVED-BATCH");
+        return true;
     }
 };
 ```
@@ -990,11 +1113,34 @@ private:
 public:
     TransferProcessor(IBankTransferService* f) : facade(f) {}
     void transfer(
+            const std::string& fromAccount,
             const std::string& toAccount, int amount,
             const std::string& otp) {
         // 振り込みという業務プロセスに集中できる
-        facade->performTransfer(toAccount, amount, otp);
-        std::cout << "振り込み完了\n";
+        if (facade->performTransfer(
+                fromAccount, toAccount, amount, otp))
+            std::cout << "振り込み完了\n";
+    }
+};
+
+// 給与振り込みなどの一括処理バッチ
+class BatchTransferProcessor {
+private:
+    IBankTransferService* facade;
+public:
+    BatchTransferProcessor(IBankTransferService* f)
+        : facade(f) {}
+    void processPayroll(
+            const std::string& fromAccount,
+            const std::vector<std::pair<std::string, int>>&
+                transfers) {
+        for (int i = 0; i < (int)transfers.size(); i++) {
+            const std::string& account = transfers[i].first;
+            int amount = transfers[i].second;
+            if (facade->performApprovedBatchTransfer(
+                    fromAccount, account, amount))
+                std::cout << "振り込み完了（OTP不要）\n";
+        }
     }
 };
 
@@ -1007,10 +1153,24 @@ public:
 class Application {
 public:
     void run() {
-        BankTransferService facade;
+        AccountDatabase db;
+        BankTransferService facade(db);
         TransferProcessor processor(&facade);
 
-        processor.transfer("12345678", 5000, "999999");
+        // ACC001（田中 一郎）から ACC002（佐藤 花子）へ送金
+        processor.transfer(
+            "ACC001", "ACC002", 5000, "999999");
+
+        // 存在しない送金先口座
+        processor.transfer(
+            "ACC001", "UNKNOWN", 5000, "999999");
+
+        // ACC003（鈴木 次郎）から ACC002 へバッチ送金
+        BatchTransferProcessor batch(&facade);
+        std::vector<std::pair<std::string, int>> payroll = {
+            {"ACC002", 30000}
+        };
+        batch.processPayroll("ACC003", payroll);
     }
 };
 
@@ -1024,15 +1184,20 @@ int main() {
 上記コードの実行結果：
 
 ```
-口座確認: 12345678
+口座確認: ACC002
 残高確認
 認証コード発行
 認証コード検証
 送金実行: 5000円
 振り込み完了
+エラー: 送金先口座なし
+口座確認: ACC002
+残高確認
+送金実行: 30000円
+振り込み完了（OTP不要）
 ```
 
-動作例テーブルの行1（12345678 / 5,000円 → 振り込み完了）の動作を確認しました。行2〜4（口座なし・残高不足・認証失敗）は本番実装では各サブシステムがエラーを返すことで対応します。`TransferProcessor` は `BankGateway` や `SecurityAuthenticator` を直接参照せず、`IBankTransferService` という窓口に依存する形へ変わりました。
+動作例テーブルの行1（正常振り込み完了）、行2（存在しない送金先口座でのエラー中止）、行5（バッチ送金完了）の動作を確認しました。`AccountDatabase` による口座存在確認・残高確認が `BankTransferService` の窓口内に閉じ込められ、`TransferProcessor` は `IBankTransferService` という窓口に依存する形へ変わりました。
 
 ### 7-2：動作シーケンス図
 
@@ -1043,22 +1208,28 @@ sequenceDiagram
     participant App as Application
     participant T as TransferProcessor
     participant F as IBankTransferService<br/>(BankTransferService)
+    participant DB as AccountDatabase
     participant G as BankGateway
     participant A as SecurityAuthenticator
 
-    App->>F: 生成 (BankTransferService)
+    App->>DB: 生成 (AccountDatabase)
+    App->>F: 生成 (BankTransferService, db)
     App->>T: 生成 (facade を注入)
-    App->>T: transfer(account, amount, otp)
+    App->>T: transfer(from, to, amount, otp)
     activate T
-    T->>F: performTransfer(account, amount, otp)
+    T->>F: performTransfer(from, to, amount, otp)
     activate F
-    F->>G: verifyAccount(account)
-    F->>G: checkBalance(amount)
+    F->>DB: exists(from)
+    DB-->>F: true
+    F->>DB: exists(to)
+    DB-->>F: true
+    F->>DB: get(from).balance >= amount
+    DB-->>F: true
     F->>A: requestOTP()
     A-->>F: txId
     F->>A: verifyOTP(otp, txId)
-    F->>G: executeTransfer(account, amount, txId)
-    F-->>T: 処理完了
+    F->>G: executeTransfer(to, amount, txId)
+    F-->>T: true
     deactivate F
     T-->>App: 振り込み完了
     deactivate T

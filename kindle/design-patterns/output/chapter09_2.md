@@ -110,6 +110,7 @@ stateDiagram-v2
 |---|---|---|
 | TicketManager | チケットの全体管理・状態遷移 | チケットの受付から完了までのステータス管理 |
 | PriorityCalculator | 優先度の計算 | タイトルや顧客情報に基づく優先度の自動判定 |
+| UserDatabase | ユーザー情報の管理 | ユーザーIDからユーザー名・ティアを検索する |
 
 ---
 
@@ -137,19 +138,54 @@ classDiagram
 
 システムの現状の実装を確認します。コードを役割ごとに分けて読んでいきます。
 
-**PriorityCalculator クラス**
+**UserInfo / UserDatabase / PriorityCalculator クラス**
+
+このシステムには以下の3件のユーザーデータがあらかじめ登録されています。
+
+| ユーザーID | 氏名 | サポートティア |
+|---|---|---|
+| USR001 | 田中 一郎 | enterprise（最優先） |
+| USR002 | 佐藤 花子 | premium（優先） |
+| USR003 | 鈴木 次郎 | standard（通常） |
+
+ティアによって対応優先度と状態遷移の振る舞いが変わります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
 
 ```cpp
 #include <iostream>
 #include <string>
+#include <map>
 
 using namespace std;
+
+// ユーザー情報
+struct UserInfo {
+    string name; // 氏名
+    string tier; // "standard", "premium", "enterprise"
+};
+
+// ユーザーデータベース
+class UserDatabase {
+    map<string, UserInfo> records;
+public:
+    UserDatabase() {
+        records["USR001"] = {"田中 一郎", "enterprise"};
+        records["USR002"] = {"佐藤 花子", "premium"};
+        records["USR003"] = {"鈴木 次郎", "standard"};
+    }
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+    UserInfo get(const string& id) const {
+        return records.at(id);
+    }
+};
 
 // 優先度ルール（変わる可能性がある）
 class PriorityCalculator {
 public:
     string calculate(string userType) {
         if (userType == "premium") return "High"; // ← ルール判定を直書き
+        if (userType == "enterprise") return "High";
         return "Normal";
     }
 };
@@ -161,9 +197,16 @@ public:
 // チケット管理（状態とルールが混在）
 class TicketManager {
     PriorityCalculator calc;
+    UserDatabase db;
 public:
-    void updateStatus(string userType, string status) {
-        string priority = calc.calculate(userType); // ← ルール判定の知識が混在
+    void updateStatus(string userId, string status) {
+        if (!db.exists(userId)) {             // ← DBにないIDはエラー
+            cout << "エラー: ユーザーID "
+                 << userId << " は存在しません。" << endl;
+            return;
+        }
+        UserInfo user = db.get(userId);
+        string priority = calc.calculate(user.tier);
         if (status == "Open") {
             cout << "チケット受付中。優先度: " << priority << endl;
         } else if (status == "InProgress" && priority == "High") {
@@ -179,14 +222,17 @@ public:
 int main() {
     TicketManager manager;
 
-    // 行1: 一般ユーザーが新規チケットを登録（標準優先度 → 受付中）
-    manager.updateStatus("normal", "Open");
+    // 行1: 鈴木（standard）が新規チケットを登録（標準優先度 → 受付中）
+    manager.updateStatus("USR003", "Open");
 
-    // 行2: プレミアムユーザーが新規チケットを登録（高優先度 → 受付中）
-    manager.updateStatus("premium", "Open");
+    // 行2: 佐藤（premium）が新規チケットを登録（高優先度 → 受付中）
+    manager.updateStatus("USR002", "Open");
 
-    // 行6: プレミアムユーザーがエスカレーション（高優先度 → 緊急対応）
-    manager.updateStatus("premium", "InProgress");
+    // 行6: 佐藤（premium）がエスカレーション（高優先度 → 緊急対応）
+    manager.updateStatus("USR002", "InProgress");
+
+    // 存在しないユーザーIDを渡した場合
+    manager.updateStatus("USR999", "Open");
 
     return 0;
 }
@@ -198,6 +244,7 @@ int main() {
 チケット受付中。優先度: Normal
 チケット受付中。優先度: High
 緊急対応中。担当者を招集します。
+エラー: ユーザーID USR999 は存在しません。
 ```
 
 > [!NOTE]
@@ -1007,36 +1054,60 @@ int main() {
 
 優先度判定を `IPriorityRule`、状態管理を `ITicketPhase` へとそれぞれ分離しました。
 
-**IPriorityRule インターフェースと実装クラス**
+**UserInfo / UserDatabase / IPriorityRule インターフェースと実装クラス**
 
 ```cpp
 #include <iostream>
 #include <string>
 #include <vector>
+#include <map>
 
 using namespace std;
+
+// ユーザー情報
+struct UserInfo {
+    string name; // 氏名
+    string tier; // "standard", "premium", "enterprise"
+};
+
+// ユーザーデータベース
+class UserDatabase {
+    map<string, UserInfo> records;
+public:
+    UserDatabase() {
+        records["USR001"] = {"田中 一郎", "enterprise"};
+        records["USR002"] = {"佐藤 花子", "premium"};
+        records["USR003"] = {"鈴木 次郎", "standard"};
+    }
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+    UserInfo get(const string& id) const {
+        return records.at(id);
+    }
+};
 
 // Strategy: 優先度計算のインターフェース
 class IPriorityRule {
 public:
     virtual ~IPriorityRule() = default;
-    virtual string getPriority(string userType) = 0;
+    virtual string getPriority(string userTier) = 0;
 };
 ```
 
 **PremiumPriority と NormalPriority クラス**
 
 ```cpp
-// プレミアムユーザー向け優先度ルール
+// プレミアム／エンタープライズ向け優先度ルール
 class PremiumPriority : public IPriorityRule {
 public:
-    string getPriority(string userType) override { return "High"; }
+    string getPriority(string userTier) override { return "High"; }
 };
 
-// 一般ユーザー向け優先度ルール
+// 一般（standard）ユーザー向け優先度ルール
 class NormalPriority : public IPriorityRule {
 public:
-    string getPriority(string userType) override { return "Normal"; }
+    string getPriority(string userTier) override { return "Normal"; }
 };
 ```
 
@@ -1095,18 +1166,18 @@ public:
         : state(st), strategy(s) {}
     void setState(ITicketPhase* s) { state = s; }
     void setStrategy(IPriorityRule* s) { strategy = s; }
-    void execute(string userType) {
-        string priority = strategy->getPriority(userType); // ← 抽象経由
+    void execute(string userTier) {
+        string priority = strategy->getPriority(userTier); // ← 抽象経由
         cout << "優先度: " << priority << " — ";
         state->display();
     }
-    void transition(string userType) {
-        string priority = strategy->getPriority(userType);
+    void transition(string userTier) {
+        string priority = strategy->getPriority(userTier);
         cout << "優先度: " << priority << " — ";
         state->handle(this); // 現在の状態が次の状態を決める
     }
-    string calculatePriority(string userType) {
-        return strategy->getPriority(userType);
+    string calculatePriority(string userTier) {
+        return strategy->getPriority(userTier);
     }
 };
 ```
@@ -1155,6 +1226,25 @@ void ResolvedPhase::display() {
 ```cpp
 // TicketApplication：具体クラスの組み立てと実行を担当する
 class TicketApplication {
+    UserDatabase db;
+
+    // ユーザーIDからStrategyを選択するヘルパー
+    IPriorityRule* selectStrategy(
+            const string& userId,
+            NormalPriority& normal,
+            PremiumPriority& premium) {
+        if (!db.exists(userId)) {
+            cout << "エラー: ユーザーID "
+                 << userId << " は存在しません。" << endl;
+            return nullptr;
+        }
+        string tier = db.get(userId).tier;
+        if (tier == "premium" || tier == "enterprise") {
+            return &premium;
+        }
+        return &normal;
+    }
+
 public:
     void run() {
         NormalPriority normalStrategy;
@@ -1166,28 +1256,33 @@ public:
         inProgressPhase.setNext(&resolvedPhase);
         resolvedPhase.setNext(&openPhase);
 
-        // 行1: 一般ユーザーが新規登録
-        cout << "--- 行1: 一般ユーザーが新規登録 ---" << endl;
-        TicketContext ctx1(&openPhase, &normalStrategy);
-        ctx1.execute("normal");
+        // 行1: 鈴木（standard）が新規登録
+        cout << "--- 行1: 鈴木（standard）が新規登録 ---" << endl;
+        IPriorityRule* s1 =
+            selectStrategy("USR003", normalStrategy, premiumStrategy);
+        if (!s1) return;
+        TicketContext ctx1(&openPhase, s1);
+        ctx1.execute(db.get("USR003").tier);
 
-        // 行2: プレミアムユーザーが新規登録
-        cout << "--- 行2: プレミアムユーザーが新規登録 ---" << endl;
-        TicketContext ctx2(&openPhase, &premiumStrategy);
-        ctx2.execute("premium");
+        // 行2: 佐藤（premium）が新規登録
+        cout << "--- 行2: 佐藤（premium）が新規登録 ---" << endl;
+        IPriorityRule* s2 =
+            selectStrategy("USR002", normalStrategy, premiumStrategy);
+        if (!s2) return;
+        TicketContext ctx2(&openPhase, s2);
+        ctx2.execute(db.get("USR002").tier);
 
         // 行3: 受付中チケットに担当者をアサイン（Open→InProgress）
         cout << "--- 行3: 担当者アサイン ---" << endl;
-        ctx1.transition("normal");
+        ctx1.transition(db.get("USR003").tier);
 
         // 行4: 担当者が解決（InProgress→Resolved）
         cout << "--- 行4: 担当者が解決 ---" << endl;
-        ctx1.transition("normal");
+        ctx1.transition(db.get("USR003").tier);
 
-        // 行5: 解決済みを一般ユーザーが再オープン（Resolved→Open）
-        cout << "--- 行5: 一般ユーザーが再オープン ---" << endl;
-        ctx1.transition("normal");
-
+        // 行5: 解決済みを鈴木が再オープン（Resolved→Open）
+        cout << "--- 行5: 鈴木が再オープン ---" << endl;
+        ctx1.transition(db.get("USR003").tier);
     }
 };
 ```
@@ -1205,15 +1300,15 @@ int main() {
 **実行結果：**
 
 ```
---- 行1: 一般ユーザーが新規登録 ---
+--- 行1: 鈴木（standard）が新規登録 ---
 優先度: Normal — チケット受付中。
---- 行2: プレミアムユーザーが新規登録 ---
+--- 行2: 佐藤（premium）が新規登録 ---
 優先度: High — チケット受付中。
 --- 行3: 担当者アサイン ---
 優先度: Normal — チケット対応中。担当者に割り当て。
 --- 行4: 担当者が解決 ---
 優先度: Normal — チケット解決済み。クローズしました。
---- 行5: 一般ユーザーが再オープン ---
+--- 行5: 鈴木が再オープン ---
 優先度: Normal — チケット受付中。
 ```
 

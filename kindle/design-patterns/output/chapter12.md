@@ -127,6 +127,7 @@ stateDiagram-v2
 |---|---|---|
 | WorkflowManager | ワークフローの全体管理 | 状態遷移、通知処理、承認判定ロジックなどすべての業務ルール |
 | Approver | 承認者データの保持 | 役職や承認上限金額などのデータ保持 |
+| ApproverDatabase | 承認者マスターデータの管理 | 承認者IDによる存在確認・情報取得・承認権限額の検証 |
 
 ---
 
@@ -154,15 +155,62 @@ classDiagram
 
 システムの現状の実装を確認します。コードを役割ごとに分けて読んでいきます。
 
-**Approver クラス**
+**ApproverInfo 構造体 と ApproverDatabase クラス**
+
+このシステムには以下の3件の承認者データがあらかじめ登録されています。
+
+| 承認者ID | 氏名 | 役職 | 承認可能額上限 |
+|---|---|---|---|
+| APR001 | 田中 部長 | manager | 100,000円 |
+| APR002 | 佐藤 取締役 | director | 1,000,000円 |
+| APR003 | 鈴木 代表 | executive | 上限なし（99,999,999円） |
+
+承認可能額を超える申請や未登録のIDを指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
 
 ```cpp
 #include <iostream>
+#include <map>
 #include <string>
 
 using namespace std;
 
-// 承認者クラス
+// 承認者情報
+struct ApproverInfo {
+    string name;         // 氏名
+    string role;         // "manager", "director", "executive"
+    int approvalLimit;   // 承認可能な申請金額上限（円）
+};
+
+// 承認者マスターデータ
+class ApproverDatabase {
+    map<string, ApproverInfo> records;
+public:
+    ApproverDatabase() {
+        records["APR001"] = {"田中 部長",   "manager",   100000};
+        records["APR002"] = {"佐藤 取締役", "director",  1000000};
+        records["APR003"] = {"鈴木 代表",   "executive", 99999999};
+    }
+
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+
+    ApproverInfo get(const string& id) const {
+        return records.at(id);
+    }
+
+    bool canApprove(const string& id, int amount) const {
+        return records.at(id).approvalLimit >= amount;
+    }
+};
+```
+
+`ApproverDatabase` は `std::map` で承認者IDと `ApproverInfo` を対応付けたマスターデータです。`exists()` でIDの存在確認、`get()` で情報取得、`canApprove()` で権限額の検証を行います。
+
+**Approver クラス**
+
+```cpp
+// 承認者クラス（役職・上限額を保持するデータクラス）
 class Approver {
 public:
     string role;
@@ -177,8 +225,28 @@ public:
 ```cpp
 // ワークフロー管理クラス（状態遷移、通知、ルール判定が混在）
 class WorkflowManager {
+    ApproverDatabase db;
 public:
-    void process(string status, double amount) {
+    void process(
+        string status,
+        int amount,
+        const string& approverId
+    ) {
+        // 承認者IDの存在確認
+        if (!db.exists(approverId)) {
+            cout << "エラー：承認者ID " << approverId
+                 << " はデータベースに存在しません。" << endl;
+            return;
+        }
+        // 承認権限額チェック
+        if (!db.canApprove(approverId, amount)) {
+            ApproverInfo info = db.get(approverId);
+            cout << "エラー：" << info.name
+                 << " の承認上限（"
+                 << info.approvalLimit
+                 << "円）を超えています。" << endl;
+            return;
+        }
         if (status == "SUBMITTED") {
             cout << "承認待ち状態へ移行。" << endl;
             notify("申請者に通知");
@@ -186,22 +254,27 @@ public:
             cout << "承認完了状態へ移行。" << endl;
             notify("関係者に通知");
         }
-        // 判定ルール（ハードコード）
-        if (amount > 100000) cout << "役員承認が必要。" << endl;
     }
 private:
     void notify(string msg) { cout << msg << endl; }
 };
 ```
 
-このクラスが今章の中心です。`process` メソッドの中に「状態の遷移処理」「通知の仕組み」「金額による判定ルール」のすべてが直接記述されていることを確認しておいてください。
+このクラスが今章の中心です。`process` メソッドの中に「状態の遷移処理」「通知の仕組み」「金額による判定ルール」のすべてが直接記述されていることを確認しておいてください。`ApproverDatabase` によるデータ駆動の検証は加わりましたが、依然として3つの責務が同居しています。
 
 **main()**
 
 ```cpp
 int main() {
     WorkflowManager wm;
-    wm.process("SUBMITTED", 50000);
+    // 正常ケース：田中 部長（APR001）が5万円申請を処理
+    wm.process("SUBMITTED", 50000, "APR001");
+    cout << "---" << endl;
+    // エラー：存在しないID
+    wm.process("SUBMITTED", 50000, "APR999");
+    cout << "---" << endl;
+    // エラー：田中 部長の上限（10万円）を超える申請
+    wm.process("SUBMITTED", 200000, "APR001");
     return 0;
 }
 ```
@@ -211,6 +284,10 @@ int main() {
 ```
 承認待ち状態へ移行。
 申請者に通知
+---
+エラー：承認者ID APR999 はデータベースに存在しません。
+---
+エラー：田中 部長 の承認上限（100000円）を超えています。
 ```
 
 変更後の受入条件1行目（通常申請→審査待ち状態→管理者に通知）と比べると、状態名が「審査待ち」ではなく「承認待ち」、通知先が「管理者」ではなく「申請者」になっており、現行コードはまだ条件を満たしていません。これは現行実装と変更後の受入条件との差分であり、フェーズ7で解消します。
@@ -926,16 +1003,56 @@ flowchart TD
 
 ステップ6で決断した構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて見ていきましょう。
 
-**1. インターフェース定義（3つの変化軸）**
+**0. 承認者マスターデータ（ApproverDatabase）**
+
+`BatchApplication` が組み立てを開始する前に、承認者IDと権限情報を持つマスターデータを定義します。これによって、承認者IDが不正な場合や権限額を超えた場合にエラーを早期に検出できます。
 
 ```cpp
 #include <iostream>
 #include <algorithm>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 using namespace std;
+
+// 承認者情報
+struct ApproverInfo {
+    string name;         // 氏名
+    string role;         // "manager", "director", "executive"
+    int approvalLimit;   // 承認可能な申請金額上限（円）
+};
+
+// 承認者マスターデータ
+class ApproverDatabase {
+    map<string, ApproverInfo> records;
+public:
+    ApproverDatabase() {
+        records["APR001"] = {"田中 部長",   "manager",   100000};
+        records["APR002"] = {"佐藤 取締役", "director",  1000000};
+        records["APR003"] = {"鈴木 代表",   "executive", 99999999};
+    }
+
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+
+    ApproverInfo get(const string& id) const {
+        return records.at(id);
+    }
+
+    bool canApprove(const string& id, int amount) const {
+        return records.at(id).approvalLimit >= amount;
+    }
+};
+```
+
+`ApproverDatabase` は `BatchApplication` が唯一のインスタンスを保持し、`WorkflowManager` を組み立てる前にIDと権限額の検証に使います。
+
+**1. インターフェース定義（3つの変化軸）**
+
+```cpp
 
 // 判定ルールの契約（変わる理由：経理ルール変更・部署別上限制度）
 class IApprovalRule {
@@ -1200,6 +1317,29 @@ public:
 
 ```cpp
 class BatchApplication {
+    ApproverDatabase db;
+
+    // 承認者IDを検証し、問題があれば処理を中断する
+    bool validateApprover(
+        const string& id, int amount
+    ) {
+        if (!db.exists(id)) {
+            cout << "エラー：承認者ID " << id
+                 << " はデータベースに存在しません。"
+                 << endl;
+            return false;
+        }
+        if (!db.canApprove(id, amount)) {
+            ApproverInfo info = db.get(id);
+            cout << "エラー：" << info.name
+                 << " の承認上限（"
+                 << info.approvalLimit
+                 << "円）を超えています。" << endl;
+            return false;
+        }
+        return true;
+    }
+
 public:
     void run() {
         ManagerApprovalRule managerRule;
@@ -1219,53 +1359,80 @@ public:
         DraftPhase draft(&pending, &priorityPending);
         rejected.setPending(&pending);
 
+        // 受入条件 行1：APR001（田中 部長）が5万円の通常申請を提出
         cout << "--- 行1: 通常申請書提出 ---" << endl;
-        WorkflowManager wf1;
-        wf1.addListener(&manager);
-        wf1.setPhase(&draft);
-        wf1.process(WorkflowEvent::SubmitNormal);
+        if (validateApprover("APR001", 50000)) {
+            WorkflowManager wf1;
+            wf1.addListener(&manager);
+            wf1.setPhase(&draft);
+            wf1.process(WorkflowEvent::SubmitNormal);
+        }
 
+        // 受入条件 行2：APR002（佐藤 取締役）が50万円の緊急申請を提出
         cout << "--- 行2: 緊急申請書提出 ---" << endl;
-        WorkflowManager wf2;
-        wf2.addListener(&director);
-        wf2.setPhase(&draft);
-        wf2.process(WorkflowEvent::SubmitEmergency);
+        if (validateApprover("APR002", 500000)) {
+            WorkflowManager wf2;
+            wf2.addListener(&director);
+            wf2.setPhase(&draft);
+            wf2.process(WorkflowEvent::SubmitEmergency);
+        }
 
+        // 受入条件 行3：APR001（田中 部長）が5万円申請を課長承認
         cout << "--- 行3: 審査待ち→課長承認操作 ---" << endl;
-        WorkflowManager wf3;
-        wf3.addListener(&applicant);
-        wf3.addListener(&director);
-        wf3.setPhase(&pending);
-        wf3.process(WorkflowEvent::Approve, {50000});
+        if (validateApprover("APR001", 50000)) {
+            WorkflowManager wf3;
+            wf3.addListener(&applicant);
+            wf3.addListener(&director);
+            wf3.setPhase(&pending);
+            wf3.process(WorkflowEvent::Approve, {50000});
+        }
 
+        // 受入条件 行4：APR002（佐藤 取締役）が50万円申請を部長承認
         cout << "--- 行4: 優先審査待ち→部長承認操作 ---" << endl;
-        WorkflowManager wf4;
-        wf4.addListener(&applicant);
-        wf4.addListener(&director);
-        wf4.addListener(&finance);
-        wf4.setPhase(&priorityPending);
-        wf4.process(WorkflowEvent::Approve, {500000});
+        if (validateApprover("APR002", 500000)) {
+            WorkflowManager wf4;
+            wf4.addListener(&applicant);
+            wf4.addListener(&director);
+            wf4.addListener(&finance);
+            wf4.setPhase(&priorityPending);
+            wf4.process(WorkflowEvent::Approve, {500000});
+        }
 
+        // 受入条件 行5：APR001（田中 部長）が5万円申請を却下
         cout << "--- 行5: 審査待ち→却下操作 ---" << endl;
-        WorkflowManager wf5;
-        wf5.addListener(&applicant);
-        wf5.setPhase(&pending);
-        wf5.process(WorkflowEvent::Reject);
+        if (validateApprover("APR001", 50000)) {
+            WorkflowManager wf5;
+            wf5.addListener(&applicant);
+            wf5.setPhase(&pending);
+            wf5.process(WorkflowEvent::Reject);
+        }
 
+        // 受入条件 行6：APR002（佐藤 取締役）が50万円申請を部長最終承認
         cout << "--- 行6: 承認済み→部長承認操作 ---" << endl;
-        WorkflowManager wf6;
-        wf6.addListener(&applicant);
-        wf6.addListener(&manager);
-        wf6.addListener(&director);
-        wf6.addListener(&finance);
-        wf6.setPhase(&approved);
-        wf6.process(WorkflowEvent::FinalApprove, {500000});
+        if (validateApprover("APR002", 500000)) {
+            WorkflowManager wf6;
+            wf6.addListener(&applicant);
+            wf6.addListener(&manager);
+            wf6.addListener(&director);
+            wf6.addListener(&finance);
+            wf6.setPhase(&approved);
+            wf6.process(WorkflowEvent::FinalApprove, {500000});
+        }
 
+        // 受入条件 行7：再申請（金額検証なし）
         cout << "--- 行7: 却下→再申請操作 ---" << endl;
         WorkflowManager wf7;
         wf7.addListener(&manager);
         wf7.setPhase(&rejected);
         wf7.process(WorkflowEvent::Resubmit);
+
+        // エラーケース：存在しないID
+        cout << "--- エラー例1: 不正な承認者ID ---" << endl;
+        validateApprover("APR999", 50000);
+
+        // エラーケース：上限超過（APR001の上限は10万円）
+        cout << "--- エラー例2: 承認上限超過 ---" << endl;
+        validateApprover("APR001", 200000);
     }
 };
 
@@ -1306,9 +1473,13 @@ int main() {
 --- 行7: 却下→再申請操作 ---
 状態: 審査待ち
 [課長通知] 再申請を受け付けました
+--- エラー例1: 不正な承認者ID ---
+エラー：承認者ID APR999 はデータベースに存在しません。
+--- エラー例2: 承認上限超過 ---
+エラー：田中 部長 の承認上限（100000円）を超えています。
 ```
 
-変更後の受入条件7行と同じ順序で、通常申請は課長承認を経由し、緊急申請は課長を飛ばして部長承認で完了することを確認できます。`ManagerApprovalRule`と`DirectorApprovalRule`は、それぞれ対応する審査状態へ注入されています。
+変更後の受入条件7行と同じ順序で、通常申請は課長承認を経由し、緊急申請は課長を飛ばして部長承認で完了することを確認できます。`ManagerApprovalRule`と`DirectorApprovalRule`は、それぞれ対応する審査状態へ注入されています。エラーケースでは、`ApproverDatabase` による承認者IDの存在確認と権限額の検証が機能し、処理を中断していることも確認できます。
 `WorkflowManager` は現在の `IWorkflowPhase` を保持し、操作イベントをその状態へ委譲します。各状態実装は許可するイベントを処理し、`transitionTo()` を通じてContextの現在状態を次の状態オブジェクトへ更新します。
 
 
@@ -1407,6 +1578,7 @@ graph LR
 | **クラス名** | **責任（1文）** | **変わる理由** |
 | --- | --- | --- |
 | `WorkflowManager` | 承認ワークフローの実行フローを統括する | 承認プロセスの基本骨格が変わる場合 |
+| `ApproverDatabase` | 承認者マスターデータを保持し、IDと権限額を検証する | 承認者情報・権限制度が変わる場合 |
 | `IWorkflowPhase` | 現在の承認状態に応じた振る舞いを管理する | 承認の状態遷移ルールが変わる場合 |
 | `IApprovalRule` | 承認の可否判定ロジックを管理する | 金額や役職による判定ルールが変わる場合 |
 | `INotificationListener` | 承認結果に基づいた通知を実行する | 通知先や通知要件が変わる場合 |

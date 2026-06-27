@@ -56,6 +56,7 @@
 
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
+| `CategoryDatabase` | カテゴリIDから名称・種別を引く | カテゴリIDの存在確認と情報取得 |
 | `ExpenseManager` | 支出データの追加 | 支出をDBに保存し画面を更新する |
 | `IncomeManager` | 収入データの追加 | 収入をDBに保存し画面を更新する |
 | `UIButtons` | ユーザーの操作を受け取り、各マネージャを呼び出す | 支出・収入の各登録アクションを発火する |
@@ -106,14 +107,61 @@ graph TD
 
 操作実行部分のコード例です。
 
+このシステムには以下の4件のカテゴリデータがあらかじめ登録されています。
+
+| カテゴリID | カテゴリ名 | 種別 |
+|---|---|---|
+| CAT001 | 給与 | 収入（income） |
+| CAT002 | 食費 | 支出（expense） |
+| CAT003 | 交通費 | 支出（expense） |
+| CAT004 | 副収入 | 収入（income） |
+
+登録されていないIDを指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
+
 ```cpp
 #include <iostream>
+#include <map>
 #include <string>
 
-class ExpenseManager {
+struct Category {
+    std::string name;  // カテゴリ名
+    std::string type;  // "income"（収入）または "expense"（支出）
+};
+
+class CategoryDatabase {
+    std::map<std::string, Category> records;
 public:
-    int addExpense(int amount, const std::string& category) {
-        std::cout << "支出を追加しました：" << category
+    CategoryDatabase() {
+        records["CAT001"] = {"給与",   "income"};
+        records["CAT002"] = {"食費",   "expense"};
+        records["CAT003"] = {"交通費", "expense"};
+        records["CAT004"] = {"副収入", "income"};
+    }
+    bool exists(const std::string& id) const {
+        return records.count(id) > 0;
+    }
+    Category get(const std::string& id) const {
+        return records.at(id);
+    }
+};
+
+class ExpenseManager {
+    CategoryDatabase& db;
+public:
+    ExpenseManager(CategoryDatabase& db) : db(db) {}
+    int addExpense(int amount, const std::string& categoryId) {
+        if (!db.exists(categoryId)) {
+            std::cout << "エラー：カテゴリID「" << categoryId
+                      << "」は存在しません" << std::endl;
+            return 0;
+        }
+        if (amount <= 0) {
+            std::cout << "エラー：金額は1円以上を指定してください"
+                      << std::endl;
+            return 0;
+        }
+        Category cat = db.get(categoryId);
+        std::cout << "支出を追加しました：" << cat.name
                   << " " << amount << "円" << std::endl;
         // DB保存・画面更新処理
         return -amount;
@@ -121,9 +169,22 @@ public:
 };
 
 class IncomeManager {
+    CategoryDatabase& db;
 public:
-    int addIncome(int amount, const std::string& source) {
-        std::cout << "収入を追加しました：" << source
+    IncomeManager(CategoryDatabase& db) : db(db) {}
+    int addIncome(int amount, const std::string& categoryId) {
+        if (!db.exists(categoryId)) {
+            std::cout << "エラー：カテゴリID「" << categoryId
+                      << "」は存在しません" << std::endl;
+            return 0;
+        }
+        if (amount <= 0) {
+            std::cout << "エラー：金額は1円以上を指定してください"
+                      << std::endl;
+            return 0;
+        }
+        Category cat = db.get(categoryId);
+        std::cout << "収入を追加しました：" << cat.name
                   << " " << amount << "円" << std::endl;
         // DB保存・画面更新処理
         return amount;
@@ -136,12 +197,13 @@ class UIButtons {
     IncomeManager im;
     int balance = 0;
 public:
-    void onAddExpenseClick(int amount, const std::string& category) {
-        balance += em.addExpense(amount, category);
+    UIButtons(CategoryDatabase& db) : em(db), im(db) {}
+    void onAddExpenseClick(int amount, const std::string& categoryId) {
+        balance += em.addExpense(amount, categoryId);
         std::cout << "現在残高：" << balance << "円\n";
     }
-    void onAddIncomeClick(int amount, const std::string& source) {
-        balance += im.addIncome(amount, source);
+    void onAddIncomeClick(int amount, const std::string& categoryId) {
+        balance += im.addIncome(amount, categoryId);
         std::cout << "現在残高：" << balance << "円\n";
     }
 };
@@ -153,13 +215,14 @@ public:
 
 ```cpp
 int main() {
-    UIButtons buttons;
+    CategoryDatabase db;
+    UIButtons buttons(db);
 
     std::cout << "--- 行1: 支出登録 ---\n";
-    buttons.onAddExpenseClick(1000, "食費");
+    buttons.onAddExpenseClick(1000, "CAT002");  // 食費
 
     std::cout << "--- 行2: 収入登録 ---\n";
-    buttons.onAddIncomeClick(5000, "給与");
+    buttons.onAddIncomeClick(5000, "CAT001");   // 給与
     return 0;
 }
 ```
@@ -783,21 +846,59 @@ int main() {
 ```cpp
 #include <deque>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
+
+struct Category {
+    std::string name;  // カテゴリ名
+    std::string type;  // "income"（収入）または "expense"（支出）
+};
+
+class CategoryDatabase {
+    std::map<std::string, Category> records;
+public:
+    CategoryDatabase() {
+        records["CAT001"] = {"給与",   "income"};
+        records["CAT002"] = {"食費",   "expense"};
+        records["CAT003"] = {"交通費", "expense"};
+        records["CAT004"] = {"副収入", "income"};
+    }
+    bool exists(const std::string& id) const {
+        return records.count(id) > 0;
+    }
+    Category get(const std::string& id) const {
+        return records.at(id);
+    }
+};
 
 // Commandが処理を委譲するReceiver
 class ExpenseManager {
     int total = 0;
+    CategoryDatabase& db;
 public:
-    void addExpense(int amount, const std::string& category) {
+    ExpenseManager(CategoryDatabase& db) : db(db) {}
+    bool addExpense(int amount, const std::string& categoryId) {
+        if (!db.exists(categoryId)) {
+            std::cout << "エラー：カテゴリID「" << categoryId
+                      << "」は存在しません" << std::endl;
+            return false;
+        }
+        if (amount <= 0) {
+            std::cout << "エラー：金額は1円以上を指定してください"
+                      << std::endl;
+            return false;
+        }
+        Category cat = db.get(categoryId);
         total += amount;
-        std::cout << "支出を追加しました：" << category
+        std::cout << "支出を追加しました：" << cat.name
                   << " " << amount << "円" << std::endl;
+        return true;
     }
-    void removeExpense(int amount, const std::string& category) {
+    void removeExpense(int amount, const std::string& categoryId) {
+        Category cat = db.get(categoryId);
         total -= amount;
-        std::cout << "支出を取り消しました：" << category
+        std::cout << "支出を取り消しました：" << cat.name
                   << " " << amount << "円" << std::endl;
     }
     int totalExpenses() const { return total; }
@@ -805,15 +906,30 @@ public:
 
 class IncomeManager {
     int total = 0;
+    CategoryDatabase& db;
 public:
-    void addIncome(int amount, const std::string& source) {
+    IncomeManager(CategoryDatabase& db) : db(db) {}
+    bool addIncome(int amount, const std::string& categoryId) {
+        if (!db.exists(categoryId)) {
+            std::cout << "エラー：カテゴリID「" << categoryId
+                      << "」は存在しません" << std::endl;
+            return false;
+        }
+        if (amount <= 0) {
+            std::cout << "エラー：金額は1円以上を指定してください"
+                      << std::endl;
+            return false;
+        }
+        Category cat = db.get(categoryId);
         total += amount;
-        std::cout << "収入を追加しました：" << source
+        std::cout << "収入を追加しました：" << cat.name
                   << " " << amount << "円" << std::endl;
+        return true;
     }
-    void removeIncome(int amount, const std::string& source) {
+    void removeIncome(int amount, const std::string& categoryId) {
+        Category cat = db.get(categoryId);
         total -= amount;
-        std::cout << "収入を取り消しました：" << source
+        std::cout << "収入を取り消しました：" << cat.name
                   << " " << amount << "円" << std::endl;
     }
     int totalIncome() const { return total; }
@@ -838,16 +954,16 @@ public:
 class AddExpenseAction : public IAction {
     ExpenseManager& em;
     int amount;
-    std::string category;
+    std::string categoryId;
 public:
     AddExpenseAction(ExpenseManager& em,
-                      int amount, std::string category)
-        : em(em), amount(amount), category(category) {}
+                      int amount, std::string categoryId)
+        : em(em), amount(amount), categoryId(categoryId) {}
     void execute() override {
-        em.addExpense(amount, category);
+        em.addExpense(amount, categoryId);
     }
     void undo() override {
-        em.removeExpense(amount, category);
+        em.removeExpense(amount, categoryId);
     }
 };
 
@@ -858,16 +974,16 @@ public:
 class AddIncomeAction : public IAction {
     IncomeManager& im;
     int amount;
-    std::string source;
+    std::string categoryId;
 public:
     AddIncomeAction(IncomeManager& im,
-                     int amount, std::string source)
-        : im(im), amount(amount), source(source) {}
+                     int amount, std::string categoryId)
+        : im(im), amount(amount), categoryId(categoryId) {}
     void execute() override {
-        im.addIncome(amount, source);
+        im.addIncome(amount, categoryId);
     }
     void undo() override {
-        im.removeIncome(amount, source);
+        im.removeIncome(amount, categoryId);
     }
 };
 
@@ -961,14 +1077,15 @@ public:
 
 // 依存の組み立ては main() に集約する
 int main() {
-    ExpenseManager em;
-    IncomeManager im;
+    CategoryDatabase db;
+    ExpenseManager em(db);
+    IncomeManager im(db);
     ActionHistory hist;
 
     BudgetApp app(&hist);
-    AddExpenseAction cmd1(em, 1000, "Food");
+    AddExpenseAction cmd1(em, 1000, "CAT002");  // 食費
     app.onAddExpenseClick(&cmd1);
-    AddIncomeAction cmd2(im, 5000, "Salary");
+    AddIncomeAction cmd2(im, 5000, "CAT001");   // 給与
     app.onAddIncomeClick(&cmd2);
     std::cout << "残高: "
               << im.totalIncome() - em.totalExpenses()
@@ -984,9 +1101,9 @@ int main() {
               << "円" << std::endl;
 
     ImportService importer(&hist);
-    AddExpenseAction imp1(em, 2000, "Rent");
-    AddExpenseAction imp2(em, 300, "Water");
-    AddExpenseAction imp3(em, 800, "Food");
+    AddExpenseAction imp1(em, 2000, "CAT003");  // 交通費
+    AddExpenseAction imp2(em, 300,  "CAT002");  // 食費
+    AddExpenseAction imp3(em, 800,  "CAT002");  // 食費
     std::vector<IAction*> imported;
     imported.push_back(&imp1);
     imported.push_back(&imp2);
@@ -1006,22 +1123,22 @@ int main() {
 上記の組み立てコードを実行すると、動作例の入口が同じ履歴へ接続されていることを確認できます。
 
 ```text
-支出を追加しました：Food 1000円
-収入を追加しました：Salary 5000円
+支出を追加しました：食費 1000円
+収入を追加しました：給与 5000円
 残高: 4000円
-収入を取り消しました：Salary 5000円
-支出を取り消しました：Food 1000円
+収入を取り消しました：給与 5000円
+支出を取り消しました：食費 1000円
 Undo後の残高: 0円
-支出を追加しました：Food 1000円
+支出を追加しました：食費 1000円
 Redo後の残高: -1000円
-支出を追加しました：Rent 2000円
-支出を追加しました：Water 300円
-支出を追加しました：Food 800円
+支出を追加しました：交通費 2000円
+支出を追加しました：食費 300円
+支出を追加しました：食費 800円
 3件インポート完了（履歴: 4件）
 インポート後の残高: -4100円
-支出を取り消しました：Food 800円
-支出を取り消しました：Water 300円
-支出を取り消しました：Rent 2000円
+支出を取り消しました：食費 800円
+支出を取り消しました：食費 300円
+支出を取り消しました：交通費 2000円
 3件ロールバック完了
 ロールバック後の残高: -1000円
 ```

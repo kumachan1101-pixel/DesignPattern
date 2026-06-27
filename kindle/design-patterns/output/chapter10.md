@@ -89,6 +89,7 @@
 | BatchExecutor | 全体のバッチ実行・処理の制御 | 対象システムへのデータ送信処理と結果通知の統括 |
 | SystemAClient / SystemBClient | 各連携先へのデータ送信 | 各外部システムに合わせたデータ送信 |
 | NotificationService | 連携完了の通知 | バッチ実行完了の通知 |
+| PartnerDatabase | パートナー設定の管理 | パートナーIDの存在確認・有効フラグ・設定情報の提供 |
 
 ---
 
@@ -121,12 +122,52 @@ classDiagram
 
 連携処理の起点となる `BatchExecutor` の様子です。
 
+このシステムには以下の3件のパートナーデータがあらかじめ登録されています。
+
+| パートナーID | 名称 | 有効 |
+|---|---|---|
+| PARTNER_A | 物流会社A | ✓ |
+| PARTNER_B | 決済会社B | ✓ |
+| PARTNER_C | 分析会社C | ✗（無効） |
+
+無効なパートナーや未登録のIDを指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
+
 ```cpp
 #include <iostream>
 #include <string>
 #include <vector>
+#include <map>
 
 using namespace std;
+
+struct PartnerConfig {
+    string name;      // パートナー名
+    string endpoint;  // エンドポイント（概念上）
+    bool isEnabled;   // 連携有効フラグ
+};
+
+class PartnerDatabase {
+private:
+    map<string, PartnerConfig> records;
+public:
+    PartnerDatabase() {
+        records["PARTNER_A"] = {"物流会社A", "logistics-a.example",  true};
+        records["PARTNER_B"] = {"決済会社B", "payment-b.example",    true};
+        records["PARTNER_C"] = {"分析会社C", "analytics-c.example",  false}; // 無効
+    }
+
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+
+    bool isEnabled(const string& id) const {
+        return records.at(id).isEnabled;
+    }
+
+    PartnerConfig get(const string& id) const {
+        return records.at(id);
+    }
+};
 
 class SystemAClient {
 public:
@@ -142,17 +183,30 @@ public:
 };
 
 class BatchExecutor {
+    PartnerDatabase db;
 public:
-    void execute(string targetId) {
-        if (targetId == "A") {
+    void execute(string partnerId) {
+        if (!db.exists(partnerId)) {
+            cout << "エラー: パートナーID [" << partnerId
+                 << "] はデータベースに登録されていません。" << endl;
+            return;
+        }
+        if (!db.isEnabled(partnerId)) {
+            PartnerConfig cfg = db.get(partnerId);
+            cout << "エラー: パートナー [" << cfg.name
+                 << "] は現在無効です。処理を中断します。" << endl;
+            return;
+        }
+        PartnerConfig cfg = db.get(partnerId);
+        if (partnerId == "PARTNER_A") {
             SystemAClient client; // ← 生成と利用が混在
             client.send("data");
-        } else if (targetId == "B") {
+        } else if (partnerId == "PARTNER_B") {
             SystemBClient client; // ← 生成と利用が混在
             client.send("data");
         }
         NotificationService notifier; // ← 処理ごとに通知の知識も混在
-        notifier.notify("Success");
+        notifier.notify(cfg.name + " 連携完了");
     }
 };
 
@@ -160,10 +214,16 @@ int main() {
     BatchExecutor executor;
 
     // 行1: A社向け月次バッチを実行する
-    executor.execute("A");
+    executor.execute("PARTNER_A");
 
     // 行4: B社向けデータ同期を手動で実行する
-    executor.execute("B");
+    executor.execute("PARTNER_B");
+
+    // 無効パートナーの実行（C社は isEnabled==false）
+    executor.execute("PARTNER_C");
+
+    // 未登録パートナーの実行
+    executor.execute("PARTNER_X");
 
     return 0;
 }
@@ -173,9 +233,11 @@ int main() {
 
 ```
 A社へ送信: data
-完了通知: Success
+完了通知: 物流会社A 連携完了
 B社へ送信: data
-完了通知: Success
+完了通知: 決済会社B 連携完了
+エラー: パートナー [分析会社C] は現在無効です。処理を中断します。
+エラー: パートナーID [PARTNER_X] はデータベースに登録されていません。
 ```
 
 > [!NOTE]
@@ -855,8 +917,38 @@ public:
 #include <iostream>
 #include <string>
 #include <vector>
+#include <map>
 
 using namespace std;
+
+struct PartnerConfig {
+    string name;      // パートナー名
+    string endpoint;  // エンドポイント（概念上）
+    bool isEnabled;   // 連携有効フラグ
+};
+
+class PartnerDatabase {
+private:
+    map<string, PartnerConfig> records;
+public:
+    PartnerDatabase() {
+        records["PARTNER_A"] = {"物流会社A", "logistics-a.example",  true};
+        records["PARTNER_B"] = {"決済会社B", "payment-b.example",    true};
+        records["PARTNER_C"] = {"分析会社C", "analytics-c.example",  false}; // 無効
+    }
+
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+
+    bool isEnabled(const string& id) const {
+        return records.at(id).isEnabled;
+    }
+
+    PartnerConfig get(const string& id) const {
+        return records.at(id);
+    }
+};
 
 // 通知のインターフェース（Observer パターンの契約）
 class INotifier {
@@ -1015,6 +1107,23 @@ public:
 };
 
 class BatchApplication {
+    PartnerDatabase db;
+
+    bool validate(const string& partnerId) {
+        if (!db.exists(partnerId)) {
+            cout << "エラー: パートナーID [" << partnerId
+                 << "] はデータベースに登録されていません。" << endl;
+            return false;
+        }
+        if (!db.isEnabled(partnerId)) {
+            PartnerConfig cfg = db.get(partnerId);
+            cout << "エラー: パートナー [" << cfg.name
+                 << "] は現在無効です。処理を中断します。" << endl;
+            return false;
+        }
+        return true;
+    }
+
 public:
     void run() {
         SlackNotifier slack;
@@ -1024,26 +1133,41 @@ public:
         SystemDClientCreator creatorD;
 
         cout << "--- 行1: A社月次バッチ ---" << endl;
-        BatchExecutor executorA;
-        executorA.addNotifier(&slack);
-        executorA.execute(&creatorA, "A社連携完了");
+        if (validate("PARTNER_A")) {
+            PartnerConfig cfgA = db.get("PARTNER_A");
+            BatchExecutor executorA;
+            executorA.addNotifier(&slack);
+            executorA.execute(&creatorA, cfgA.name + " 連携完了");
+        }
 
         cout << "--- 行3: D社日次バッチ（新規連携先） ---" << endl;
-        BatchExecutor executorD;
-        executorD.addNotifier(&slack);
-        executorD.execute(&creatorD, "D社連携完了");
+        // D社はPartnerDatabaseに未登録のためエラーになる例として示す
+        if (validate("PARTNER_D")) {
+            BatchExecutor executorD;
+            executorD.addNotifier(&slack);
+            executorD.execute(&creatorD, "D社連携完了");
+        }
 
         cout << "--- 行4: B社手動トリガー ---" << endl;
-        IExternalClient* bClient = creatorB.createClient();
-        ManualTriggerController manual(bClient);
-        manual.addNotifier(&slack);
-        manual.triggerSync("B");
+        if (validate("PARTNER_B")) {
+            PartnerConfig cfgB = db.get("PARTNER_B");
+            IExternalClient* bClient = creatorB.createClient();
+            ManualTriggerController manual(bClient);
+            manual.addNotifier(&slack);
+            manual.triggerSync("B");
+        }
 
         cout << "--- 行6: B社バッチ（Slack＋ログ基盤） ---" << endl;
-        BatchExecutor executorB;
-        executorB.addNotifier(&slack);
-        executorB.addNotifier(&log);
-        executorB.execute(&creatorB, "B社連携完了");
+        if (validate("PARTNER_B")) {
+            PartnerConfig cfgB = db.get("PARTNER_B");
+            BatchExecutor executorB;
+            executorB.addNotifier(&slack);
+            executorB.addNotifier(&log);
+            executorB.execute(&creatorB, cfgB.name + " 連携完了");
+        }
+
+        cout << "--- 無効パートナーC社の実行試行 ---" << endl;
+        validate("PARTNER_C"); // isEnabled==false のためエラー
     }
 };
 
@@ -1059,18 +1183,19 @@ int main() {
 ```
 --- 行1: A社月次バッチ ---
 A社へ転送: data
-Slack通知: A社連携完了
+Slack通知: 物流会社A 連携完了
 --- 行3: D社日次バッチ（新規連携先） ---
-D社へ転送: data
-Slack通知: D社連携完了
+エラー: パートナーID [PARTNER_D] はデータベースに登録されていません。
 --- 行4: B社手動トリガー ---
 [ManualTrigger] B への手動同期を実行。
 B社へ転送: manualData
 Slack通知: B社手動連携完了
 --- 行6: B社バッチ（Slack＋ログ基盤） ---
 B社へ転送: data
-Slack通知: B社連携完了
-ログ基盤へ記録: B社連携完了
+Slack通知: 決済会社B 連携完了
+ログ基盤へ記録: 決済会社B 連携完了
+--- 無効パートナーC社の実行試行 ---
+エラー: パートナー [分析会社C] は現在無効です。処理を中断します。
 ```
 
 基本シナリオの行1・3・4・6と一致しています。`BatchExecutor` と `ManualTriggerController` はどちらも `INotifier` を登録できるため、実行経路が異なっても同じ通知契約を利用できます。行2（タイムアウト・リトライ）と行5（API障害）は、ここでは外部APIの失敗実装を省略しているため動作仕様として残します。

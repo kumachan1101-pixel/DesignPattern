@@ -107,6 +107,7 @@
 |---|---|---|
 | ReportSkeleton | レポートの全生成処理 | レポートのヘッダー・フッター生成と、グラフやロゴの追加制御 |
 | DataReader | データ読み込み | CSV等からの基本データ読み込み処理 |
+| TemplateRegistry | テンプレートIDの登録・検索 | レポートテンプレートの名称・出力形式をIDで管理し、バリデーションに使う |
 
 ---
 
@@ -144,6 +145,7 @@ classDiagram
 #include <iostream>
 #include <string>
 #include <vector>
+#include <map>
 #include <fstream>
 #include <cstdio>
 #include <memory>
@@ -159,6 +161,47 @@ public:
 ```
 
 `DataReader` は純粋なデータ読み込みの入れ物です。レポート生成ロジックは一切ありません。
+
+#### テンプレートレジストリ
+
+レポートの種別・出力形式をIDで管理するデータ層を追加します。
+
+このシステムには以下の3種類のレポートテンプレートがあらかじめ登録されています。
+
+| テンプレートID | レポート名 | 出力形式 |
+|---|---|---|
+| SALES_MONTHLY | 月次売上レポート | PDF |
+| INVENTORY_WEEKLY | 週次在庫レポート | CSV |
+| ACCESS_LOG | アクセスログ | HTML |
+
+登録されていないIDを指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
+
+```cpp
+struct ReportTemplate {
+    string name;    // レポート名
+    string format;  // "csv", "pdf", "html"
+};
+
+class TemplateRegistry {
+    map<string, ReportTemplate> templates;
+public:
+    TemplateRegistry() {
+        templates["SALES_MONTHLY"]    = {"月次売上レポート", "pdf"};
+        templates["INVENTORY_WEEKLY"] = {"週次在庫レポート", "csv"};
+        templates["ACCESS_LOG"]       = {"アクセスログ",     "html"};
+    }
+
+    bool exists(const string& id) const {
+        return templates.count(id) > 0;
+    }
+
+    ReportTemplate get(const string& id) const {
+        return templates.at(id);
+    }
+};
+```
+
+`TemplateRegistry` は、テンプレートIDの存在確認（`exists()`）と定義の取得（`get()`）だけを担います。ハードコードされたレポート種別チェックを、このレジストリ検索に置き換えることで、新しいテンプレートの追加が `TemplateRegistry` のコンストラクタ1箇所の変更で済むようになります。
 
 #### レポート生成統括クラス
 
@@ -183,10 +226,25 @@ public:
 
 #### 呼び出し元と実行確認
 
+`TemplateRegistry` でテンプレートIDの存在を確認してから処理を開始します。登録されていないIDが渡された場合はエラーを出力して中断します。
+
 ```cpp
 int main() {
+    TemplateRegistry registry;
+    string templateId = "SALES_MONTHLY";
+
+    if (!registry.exists(templateId)) {
+        cerr << "[エラー] テンプレートID '"
+             << templateId << "' は登録されていません。" << endl;
+        return 1;
+    }
+
+    ReportTemplate tmpl = registry.get(templateId);
+    cout << "テンプレート: " << tmpl.name
+         << " (形式: " << tmpl.format << ")" << endl;
+
     ReportSkeleton gen;
-    gen.generate("PDF", true, false);
+    gen.generate(tmpl.format, true, false);
     return 0;
 }
 ```
@@ -194,10 +252,11 @@ int main() {
 上記コードの実行結果：
 
 ```
+テンプレート: 月次売上レポート (形式: pdf)
 CSVデータ読み込み完了。
-PDF形式でレポートのヘッダーを生成。
+pdf形式でレポートのヘッダーを生成。
 グラフを追加。
-PDF形式でレポートのフッターを生成。
+pdf形式でレポートのフッターを生成。
 ```
 
 動作例テーブルの行1（月次・PDF出力）と整合しています。次のフェーズで変更が来たときに何が起きるかを確認します。
@@ -845,6 +904,7 @@ flowchart TD
 #include <iostream>
 #include <string>
 #include <vector>
+#include <map>
 #include <fstream>
 #include <cstdio>
 #include <memory>
@@ -852,6 +912,29 @@ flowchart TD
 #include <utility>
 
 using namespace std;
+
+struct ReportTemplate {
+    string name;    // レポート名
+    string format;  // "csv", "pdf", "html"
+};
+
+class TemplateRegistry {
+    map<string, ReportTemplate> templates;
+public:
+    TemplateRegistry() {
+        templates["SALES_MONTHLY"]    = {"月次売上レポート", "pdf"};
+        templates["INVENTORY_WEEKLY"] = {"週次在庫レポート", "csv"};
+        templates["ACCESS_LOG"]       = {"アクセスログ",     "html"};
+    }
+
+    bool exists(const string& id) const {
+        return templates.count(id) > 0;
+    }
+
+    ReportTemplate get(const string& id) const {
+        return templates.at(id);
+    }
+};
 
 // IReportAction: 操作履歴のインターフェース（Command パターン）
 class IReportAction {
@@ -1044,16 +1127,29 @@ public:
 
 **5. 組み立てと実行（BatchApplication + メイン関数）**
 
-具体的なクラス名（`MonthlyReport`等）を知っているのは、この組み立てを行う箇所だけです。生成したCommandは履歴が所有し、Commandはレポート生成器を所有します。これにより、履歴からCommandを取り除くと、そのDecoratorチェーンまでまとめて破棄されます。
+具体的なクラス名（`MonthlyReport`等）を知っているのは、この組み立てを行う箇所だけです。生成したCommandは履歴が所有し、Commandはレポート生成器を所有します。これにより、履歴からCommandを取り除くと、そのDecoratorチェーンまでまとめて破棄されます。また、`BatchApplication` は `TemplateRegistry` を保持し、各レポート生成の前にテンプレートIDの存在確認を行います。登録されていないIDが渡された場合はエラーを出力して処理を中断します。
 
 ```cpp
 // BatchApplication: 具体クラスを知っている主な場所
 class BatchApplication {
     vector<IReportAction*> history;
+    TemplateRegistry registry; // ← テンプレートIDの検証に使う
 
     void executeAndRemember(IReportAction* action) {
         action->execute();
         history.push_back(action);
+    }
+
+    // テンプレートIDが登録済みか確認し、未登録ならエラーを出力して nullptr を返す
+    ReportTemplate* validateTemplate(const string& id,
+                                     ReportTemplate& out) {
+        if (!registry.exists(id)) {
+            cerr << "[エラー] テンプレートID '"
+                 << id << "' は登録されていません。" << endl;
+            return nullptr;
+        }
+        out = registry.get(id);
+        return &out;
     }
 
 public:
@@ -1064,8 +1160,12 @@ public:
     }
 
     void run() {
+        ReportTemplate tmpl;
+
         // 行1: 月次レポートをPDF出力
         cout << "--- 行1: 月次レポートPDF出力 ---" << endl;
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        cout << "テンプレート: " << tmpl.name << endl;
         executeAndRemember(new GenerateReportAction(
             new MonthlyReport(),
             "monthly.pdf",
@@ -1073,6 +1173,8 @@ public:
 
         // 行2: 月次レポートをExcel出力
         cout << "--- 行2: 月次レポートExcel出力 ---" << endl;
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        cout << "テンプレート: " << tmpl.name << endl;
         executeAndRemember(new GenerateReportAction(
             new MonthlyReport(),
             "monthly.xlsx",
@@ -1080,6 +1182,8 @@ public:
 
         // 行3: グラフ付き・透かし付きでPDF出力
         cout << "--- 行3: 装飾付きレポートPDF出力 ---" << endl;
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        cout << "テンプレート: " << tmpl.name << endl;
         executeAndRemember(new GenerateReportAction(
             new WatermarkFeature(
                 new GraphFeature(
@@ -1089,6 +1193,8 @@ public:
 
         // 行4: 月次レポートを生成し、直後にキャンセル
         cout << "--- 行4: 月次レポート生成後にキャンセル ---" << endl;
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        cout << "テンプレート: " << tmpl.name << endl;
         auto* cancelAction = new GenerateReportAction(
             new MonthlyReport(),
             "cancel_monthly.pdf",
@@ -1101,14 +1207,18 @@ public:
 
         // 行5: バッチで3レポートを一括生成
         cout << "--- 行5: バッチで3レポート一括生成 ---" << endl;
+        if (!validateTemplate("INVENTORY_WEEKLY", tmpl)) return;
+        cout << "テンプレート: " << tmpl.name << endl;
         executeAndRemember(new GenerateReportAction(
             new WeeklyReport(),
             "weekly.pdf",
             OutputFormat::Pdf));
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
         executeAndRemember(new GenerateReportAction(
             new MonthlyReport(),
             "batch_monthly.pdf",
             OutputFormat::Pdf));
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
         executeAndRemember(new GenerateReportAction(
             new GraphFeature(
                 new MonthlyReport()),
@@ -1117,7 +1227,10 @@ public:
         cout << "[この操作で3コマンドが履歴に追加されました。]" << endl;
 
         // 行6: グラフ付き月次レポートを生成してアンドゥ
-        cout << "--- 行6: グラフ付き月次レポートを生成してアンドゥ ---" << endl;
+        cout << "--- 行6: グラフ付き月次レポートを生成してアンドゥ ---"
+             << endl;
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        cout << "テンプレート: " << tmpl.name << endl;
         auto* a6 = new GenerateReportAction(
             new GraphFeature(
                 new MonthlyReport()),
@@ -1150,16 +1263,19 @@ int main() {
 
 ```
 --- 行1: 月次レポートPDF出力 ---
+テンプレート: 月次売上レポート
 CSV読み込み
 月次集計を本文として生成。
 フッター生成
 [コマンド] PDF形式で monthly.pdf を生成して履歴に記録。
 --- 行2: 月次レポートExcel出力 ---
+テンプレート: 月次売上レポート
 CSV読み込み
 月次集計を本文として生成。
 フッター生成
 [コマンド] Excel形式で monthly.xlsx を生成して履歴に記録。
 --- 行3: 装飾付きレポートPDF出力 ---
+テンプレート: 月次売上レポート
 CSV読み込み
 本文を生成。
 グラフを追加。
@@ -1167,12 +1283,14 @@ CSV読み込み
 フッター生成
 [コマンド] PDF形式で decorated.pdf を生成して履歴に記録。
 --- 行4: 月次レポート生成後にキャンセル ---
+テンプレート: 月次売上レポート
 CSV読み込み
 月次集計を本文として生成。
 フッター生成
 [コマンド] PDF形式で cancel_monthly.pdf を生成して履歴に記録。
 [コマンド] cancel_monthly.pdf を削除してアンドゥ完了。
 --- 行5: バッチで3レポート一括生成 ---
+テンプレート: 週次在庫レポート
 CSV読み込み
 週次集計を本文として生成。
 フッター生成
@@ -1188,6 +1306,7 @@ CSV読み込み
 [コマンド] PDF形式で dept.pdf を生成して履歴に記録。
 [この操作で3コマンドが履歴に追加されました。]
 --- 行6: グラフ付き月次レポートを生成してアンドゥ ---
+テンプレート: 月次売上レポート
 CSV読み込み
 月次集計を本文として生成。
 グラフを追加。
@@ -1281,6 +1400,7 @@ graph LR
 | `GraphFeature` / `WatermarkFeature` | 個別の装飾処理を追加する | 各装飾の内容が変わる場合 |
 | `IReportAction` | 実行と取消という操作の契約を定義する | 操作に共通して必要な契約が変わる場合 |
 | `GenerateReportAction` | レポート生成・出力と、その取消に必要な状態を管理する | 生成操作やUndoの要件が変わる場合 |
+| `TemplateRegistry` | テンプレートIDの登録と存在確認を担う | テンプレートの種別・出力形式定義が変わる場合 |
 | `BatchApplication` | 具体的なレポート・装飾・Commandを組み立て、実行履歴を所有する | 実行シナリオや構成が変わる場合 |
 
 ### 使ったパターン × 解消した根本原因

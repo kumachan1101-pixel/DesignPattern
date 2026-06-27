@@ -79,6 +79,7 @@
 | PaymentApplication | 決済手段に応じた処理を呼び出す | 決済処理の分岐と実行 |
 | CreditCardProcessor | クレジットカード決済の処理 | クレジットカード決済 |
 | ConvenienceStoreProcessor | コンビニ決済の処理 | コンビニ決済 |
+| ProcessorRegistry | 決済方法の設定を保持するデータストア | 決済方法の存在確認・有効フラグの参照 |
 
 ---
 
@@ -107,13 +108,57 @@ classDiagram
 
 ### 1-4：実装コード（現状）
 
+このシステムには以下の4種類の決済方法があらかじめ登録されています。
+
+| 決済方法ID | 名称 | 有効 | 手数料率 |
+|---|---|---|---|
+| credit_card | クレジットカード | ✓ | 3.0% |
+| bank_transfer | 銀行振込 | ✓ | 0.5% |
+| convenience | コンビニ払い | ✓ | 0% |
+| crypto | 暗号通貨 | ✗（無効） | 1.0% |
+
+無効な決済方法や未登録のIDを指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
+
 ```cpp
 #include <iostream>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
 
 using namespace std;
+
+// 決済方法の設定を保持するデータ構造
+struct ProcessorConfig {
+    string name;      // 決済方法名
+    bool isActive;    // 有効フラグ
+    double feeRate;   // 手数料率
+};
+
+// 決済方法の設定を一元管理するレジストリ
+class ProcessorRegistry {
+private:
+    map<string, ProcessorConfig> registry;
+public:
+    ProcessorRegistry() {
+        registry["credit_card"]   = {"クレジットカード", true,  0.030};
+        registry["bank_transfer"] = {"銀行振込",        true,  0.005};
+        registry["convenience"]   = {"コンビニ払い",    true,  0.000};
+        registry["crypto"]        = {"暗号通貨",        false, 0.010};
+    }
+
+    bool exists(const string& method) const {
+        return registry.count(method) > 0;
+    }
+
+    bool isActive(const string& method) const {
+        return registry.at(method).isActive;
+    }
+
+    ProcessorConfig get(const string& method) const {
+        return registry.at(method);
+    }
+};
 
 // 各決済手段の具体的な処理
 class CreditCardProcessor {
@@ -134,13 +179,26 @@ public:
 
 // 決済を統括するクラス
 class PaymentApplication {
+    ProcessorRegistry registry;
 public:
-    void processPayment(string type, int amount) {
+    void processPayment(const string& type, int amount) {
+        // レジストリで存在確認
+        if (!registry.exists(type)) {
+            cout << "エラー：未登録の決済方法です: " << type << endl;
+            return;
+        }
+        // レジストリで有効フラグを確認
+        if (!registry.isActive(type)) {
+            ProcessorConfig cfg = registry.get(type);
+            cout << "エラー：" << cfg.name
+                 << " は現在無効です。" << endl;
+            return;
+        }
         // ← 生成と利用が混在している箇所
-        if (type == "credit") {
+        if (type == "credit_card") {
             CreditCardProcessor processor;
             processor.pay(amount);
-        } else if (type == "cvs") {
+        } else if (type == "convenience") {
             ConvenienceStoreProcessor processor;
             processor.pay(amount);
         }
@@ -149,8 +207,10 @@ public:
 
 int main() {
     PaymentApplication app;
-    app.processPayment("credit", 1000);
-    app.processPayment("cvs", 500);
+    app.processPayment("credit_card", 1000);   // 正常
+    app.processPayment("convenience", 500);    // 正常
+    app.processPayment("crypto", 300);         // エラー：無効
+    app.processPayment("unknown", 200);        // エラー：未登録
     return 0;
 }
 ```
@@ -160,6 +220,8 @@ int main() {
 ```
 クレジットで 1000 円決済しました。
 コンビニで 500 円の支払い番号を発行しました。
+エラー：暗号通貨 は現在無効です。
+エラー：未登録の決済方法です: unknown
 ```
 
 このコードを見ると、`PaymentApplication` クラスが、どの決済手段のクラスを生成し、どう実行するかをすべて直接知っていることが分かります。
@@ -728,6 +790,7 @@ protected:
 
 ```cpp
 #include <iostream>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -743,6 +806,45 @@ public:
 ```
 
 `IPaymentProcessor` は「決済を実行するために持つべきメソッドと戻り値の約束」を定義します。具体クラスが何であれ、このインターフェースさえ実装していれば、利用側はそのまま使えます。
+
+**1-b. レジストリ（データ層）の定義**
+決済方法の設定を `std::map` で一元管理します。Factory Methodが生成を判断する前に、レジストリで「登録されているか」「有効か」を確認します。
+
+```cpp
+// 決済方法の設定を保持するデータ構造
+struct ProcessorConfig {
+    string name;      // 決済方法名
+    bool isActive;    // 有効フラグ
+    double feeRate;   // 手数料率
+};
+
+// 決済方法の設定を一元管理するレジストリ
+class ProcessorRegistry {
+private:
+    map<string, ProcessorConfig> registry;
+public:
+    ProcessorRegistry() {
+        registry["credit_card"]   = {"クレジットカード", true,  0.030};
+        registry["bank_transfer"] = {"銀行振込",        true,  0.005};
+        registry["convenience"]   = {"コンビニ払い",    true,  0.000};
+        registry["crypto"]        = {"暗号通貨",        false, 0.010};
+    }
+
+    bool exists(const string& method) const {
+        return registry.count(method) > 0;
+    }
+
+    bool isActive(const string& method) const {
+        return registry.at(method).isActive;
+    }
+
+    ProcessorConfig get(const string& method) const {
+        return registry.at(method);
+    }
+};
+```
+
+`ProcessorRegistry` はデータ層として機能します。決済手段の有効・無効や手数料率の変更はこのクラスだけを修正すれば済み、Factory Methodの生成ロジックには影響しません。
 
 **2. 個別の決済プロセッサーの実装（具体）**
 インターフェースを満たす具体的な決済クラスを作成します。本体コードに触れることなく、このクラス群だけを自由に追加・変更できます。
@@ -799,12 +901,24 @@ public:
 
 // 具体的な生成判断を、この具象Creatorへまとめる
 class DefaultPaymentApplication : public PaymentApplication {
+    ProcessorRegistry registry;  // ← データ層でバリデーション
 protected:
     IPaymentProcessor*
     createProcessor(const string& type) override {
-        if (type == "credit")
+        // レジストリで存在確認
+        if (!registry.exists(type)) {
+            throw invalid_argument(
+                "未登録の決済方法です: " + type);
+        }
+        // レジストリで有効フラグを確認
+        if (!registry.isActive(type)) {
+            ProcessorConfig cfg = registry.get(type);
+            throw invalid_argument(
+                cfg.name + " は現在無効です。");
+        }
+        if (type == "credit_card")
             return new CreditCardProcessor();
-        if (type == "cvs")
+        if (type == "convenience")
             return new ConvenienceStoreProcessor();
         if (type == "paypay")
             return new PayPayProcessor();
@@ -813,7 +927,7 @@ protected:
 };
 ```
 
-この例は、1つの具象Creatorが引数に応じてProductを選ぶ**引数付きFactory Method**です。生成と利用は分離できますが、新しい種別の追加では新しいProcessorに加えて `DefaultPaymentApplication::createProcessor()` の分岐も変更します。種別ごとに具象Creatorを分ける設計なら中央の分岐は減らせますが、Creatorのクラス数と組み立て設定が増えます。
+この例は、1つの具象Creatorが引数に応じてProductを選ぶ**引数付きFactory Method**です。レジストリによるバリデーションを生成の前段に置くことで、「登録されていない」「無効である」という2種類のエラーを生成ロジックと分けて表現できます。生成と利用は分離できますが、新しい種別の追加では新しいProcessorに加えて `DefaultPaymentApplication::createProcessor()` の分岐も変更します。種別ごとに具象Creatorを分ける設計なら中央の分岐は減らせますが、Creatorのクラス数と組み立て設定が増えます。
 
 **4. 組み立てと実行（メイン関数）**
 
@@ -821,12 +935,25 @@ protected:
 int main() {
     DefaultPaymentApplication app;  // ← 具体的な生成担当を選ぶのはここだけ
 
-    // 行1：credit / 1000円
-    app.processPayment("credit", 1000);
-    // 行2：paypay / 700円
-    app.processPayment("paypay", 700);   // ← 新しい決済手段も呼び出せる
-    // 行3：cvs / 500円
-    app.processPayment("cvs", 500);
+    // 正常ケース
+    app.processPayment("credit_card", 1000);
+    app.processPayment("paypay", 700);     // ← 新しい決済手段も呼び出せる
+    app.processPayment("convenience", 500);
+
+    // エラーケース：無効な決済方法
+    try {
+        app.processPayment("crypto", 300); // isActive == false
+    } catch (const invalid_argument& e) {
+        cout << "エラー：" << e.what() << endl;
+    }
+
+    // エラーケース：未登録の決済方法
+    try {
+        app.processPayment("unknown", 200);
+    } catch (const invalid_argument& e) {
+        cout << "エラー：" << e.what() << endl;
+    }
+
     return 0;
 }
 ```
@@ -837,9 +964,11 @@ int main() {
 クレジットで 1000 円決済しました。
 PayPayで 700 円決済しました。
 コンビニで 500 円の支払い番号を発行しました。
+エラー：暗号通貨 は現在無効です。
+エラー：未登録の決済方法です: unknown
 ```
 
-掲載した実行結果から、新しく追加したPayPay決済も含めて、すべての決済処理が正しく行われていることが確認できます。`processPayment` の中から具体的な決済手段のクラス名（`CreditCardProcessor` 等）は完全に排除されており、インターフェースを通じた決済の呼び出しに統一されました。
+掲載した実行結果から、新しく追加したPayPay決済も含めて、すべての正常ケースが正しく処理されています。さらにレジストリを通じた2種類のエラー条件——無効な決済方法と未登録の決済方法——が `processPayment` の骨格に手を加えることなく表現できています。`processPayment` の中から具体的な決済手段のクラス名（`CreditCardProcessor` 等）は完全に排除されており、インターフェースを通じた決済の呼び出しに統一されました。
 
 
 ### 7-2：動作シーケンス図

@@ -82,6 +82,7 @@
 
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
+| ProductDatabase | 商品マスタを保持し、在庫数・アラート閾値を提供する | 商品IDの存在確認、在庫数と閾値の参照 |
 | InventoryManager | 在庫の増減を管理し、一定値を下回ったら通知を送る | 在庫数の監視、各通知先へのメッセージ送信 |
 | EmailNotifier | メール送信を担当 | メール通知 |
 | DashboardUpdater | ダッシュボード更新を担当 | ダッシュボードへの反映 |
@@ -132,12 +133,55 @@ classDiagram
 
 はじめに、各通知先クラスの定義です。それぞれが独立した実装を持ち、InventoryManager から直接呼び出されています。
 
+このシステムには以下の3件の商品データがあらかじめ登録されています。
+
+| 商品ID | 商品名 | 在庫数 | アラート閾値 |
+|---|---|---|---|
+| PRD001 | ワイヤレスマウス | 50 | 10（閾値以上） |
+| PRD002 | USBハブ | 3 | 5（閾値以下→アラート発火） |
+| PRD003 | キーボード | 0 | 5（在庫なし） |
+
+在庫数がアラート閾値以下になるとObserverへの通知が発火します。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
+
 ```cpp
 #include <iostream>
 #include <string>
+#include <map>
 #include <unordered_map>
 
 using namespace std;
+
+// 商品マスタの1件分
+struct ProductInfo {
+    string name;         // 商品名
+    int    stock;        // 在庫数
+    int    alertThreshold; // アラート閾値
+};
+
+// 商品マスタ（データ駆動バリデーション用）
+class ProductDatabase {
+private:
+    map<string, ProductInfo> records;
+public:
+    ProductDatabase() {
+        records["PRD001"] = {"ワイヤレスマウス", 50, 10};
+        records["PRD002"] = {"USBハブ",           3,  5}; // 閾値以下
+        records["PRD003"] = {"キーボード",         0,  5}; // 在庫なし
+    }
+
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+
+    ProductInfo get(const string& id) const {
+        return records.at(id);
+    }
+
+    bool isBelowThreshold(const string& id) const {
+        const auto& p = records.at(id);
+        return p.stock <= p.alertThreshold;
+    }
+};
 
 // 各通知先の具体的な実装
 class EmailNotifier {
@@ -154,29 +198,46 @@ public:
 };
 ```
 
-通知先クラスはそれぞれ独立した送信メソッドを持っていますが、メソッド名が `send` と `update` で統一されていないことに気づきます。次に、これらを直接呼び出す InventoryManager の実装を見てみましょう。
+`ProductDatabase` が商品マスタを保持し、`InventoryManager` は商品IDの存在確認と閾値判定をデータベース経由で行います。通知先クラスはそれぞれ独立した送信メソッドを持っていますが、メソッド名が `send` と `update` で統一されていないことに気づきます。次に、これらを直接呼び出す InventoryManager の実装を見てみましょう。
 
 ```cpp
 class InventoryManager {
 private:
-    EmailNotifier email;
+    EmailNotifier    email;
     DashboardUpdater dashboard;
-    ChatNotifier chat;
+    ChatNotifier     chat;
+    ProductDatabase  db;
     unordered_map<string, int> stock;
-    const int threshold = 5;
 
 public:
     void setStock(const string& productId, int quantity) {
+        if (!db.exists(productId)) {
+            cout << "[エラー] 商品ID " << productId
+                 << " はマスタに存在しません。" << endl;
+            return;
+        }
         stock[productId] = quantity;
     }
 
     void reduceStock(string productId, int quantity) {
+        if (!db.exists(productId)) {
+            cout << "[エラー] 商品ID " << productId
+                 << " はマスタに存在しません。処理を中断します。"
+                 << endl;
+            return;
+        }
+        if (stock[productId] <= 0) {
+            cout << "[エラー] 商品 " << productId
+                 << " の在庫が0です。出庫できません。" << endl;
+            return;
+        }
+
         stock[productId] -= quantity;
         cout << "商品 " << productId
              << " の在庫を " << quantity << " 減らしました。残数: "
              << stock[productId] << endl;
 
-        if (stock[productId] <= threshold) {
+        if (db.isBelowThreshold(productId)) {
             string message = "商品 " + productId
                            + " の在庫が閾値以下です。";
             notifyAll(message);
@@ -184,6 +245,12 @@ public:
     }
 
     void replenishStock(string productId, int quantity) {
+        if (!db.exists(productId)) {
+            cout << "[エラー] 商品ID " << productId
+                 << " はマスタに存在しません。処理を中断します。"
+                 << endl;
+            return;
+        }
         stock[productId] += quantity;
         cout << "商品 " << productId
              << " の在庫を " << quantity << " 補充しました。残数: "
@@ -202,21 +269,24 @@ private:
 int main() {
     InventoryManager manager;
 
-    manager.setStock("T-shirt-001", 10);
-    manager.setStock("Pants-002", 8);
-    manager.setStock("Cap-003", 6);
+    manager.setStock("PRD001", 10); // ワイヤレスマウス
+    manager.setStock("PRD002", 8);  // USBハブ
+    manager.setStock("PRD003", 6);  // キーボード
 
-    cout << "--- 行1: Tシャツを5減らす ---" << endl;
-    manager.reduceStock("T-shirt-001", 5);
+    cout << "--- 行1: PRD001を5減らす ---" << endl;
+    manager.reduceStock("PRD001", 5);
 
-    cout << "--- 行2: パンツを3減らす ---" << endl;
-    manager.reduceStock("Pants-002", 3);
+    cout << "--- 行2: PRD002を3減らす ---" << endl;
+    manager.reduceStock("PRD002", 3);
 
-    cout << "--- 行3: Tシャツを20補充する ---" << endl;
-    manager.replenishStock("T-shirt-001", 20);
+    cout << "--- 行3: PRD001を20補充する ---" << endl;
+    manager.replenishStock("PRD001", 20);
 
-    cout << "--- 行4: キャップを1減らす ---" << endl;
-    manager.reduceStock("Cap-003", 1);
+    cout << "--- 行4: PRD003を1減らす ---" << endl;
+    manager.reduceStock("PRD003", 1);
+
+    cout << "--- 行5: 存在しない商品IDを操作する ---" << endl;
+    manager.reduceStock("PRD999", 1);
     return 0;
 }
 ```
@@ -224,23 +294,19 @@ int main() {
 上記コードの実行結果：
 
 ```text
---- 行1: Tシャツを5減らす ---
-商品 T-shirt-001 の在庫を 5 減らしました。残数: 5
-Email: 商品 T-shirt-001 の在庫が閾値以下です。
-Dashboard: 商品 T-shirt-001 の在庫が閾値以下です。
-Chat: 商品 T-shirt-001 の在庫が閾値以下です。
---- 行2: パンツを3減らす ---
-商品 Pants-002 の在庫を 3 減らしました。残数: 5
-Email: 商品 Pants-002 の在庫が閾値以下です。
-Dashboard: 商品 Pants-002 の在庫が閾値以下です。
-Chat: 商品 Pants-002 の在庫が閾値以下です。
---- 行3: Tシャツを20補充する ---
-商品 T-shirt-001 の在庫を 20 補充しました。残数: 25
---- 行4: キャップを1減らす ---
-商品 Cap-003 の在庫を 1 減らしました。残数: 5
-Email: 商品 Cap-003 の在庫が閾値以下です。
-Dashboard: 商品 Cap-003 の在庫が閾値以下です。
-Chat: 商品 Cap-003 の在庫が閾値以下です。
+--- 行1: PRD001を5減らす ---
+商品 PRD001 の在庫を 5 減らしました。残数: 5
+--- 行2: PRD002を3減らす ---
+商品 PRD002 の在庫を 3 減らしました。残数: 5
+Email: 商品 PRD002 の在庫が閾値以下です。
+Dashboard: 商品 PRD002 の在庫が閾値以下です。
+Chat: 商品 PRD002 の在庫が閾値以下です。
+--- 行3: PRD001を20補充する ---
+商品 PRD001 の在庫を 20 補充しました。残数: 25
+--- 行4: PRD003を1減らす ---
+[エラー] 商品 PRD003 の在庫が0です。出庫できません。
+--- 行5: 存在しない商品IDを操作する ---
+[エラー] 商品ID PRD999 はマスタに存在しません。処理を中断します。
 ```
 
 動作例テーブルの全4行について、閾値以下では3通知先へ送信され、
@@ -813,9 +879,42 @@ int main() {
 #include <iostream>
 #include <vector>
 #include <string>
+#include <map>
 #include <algorithm>
 
 using namespace std;
+
+// 商品マスタの1件分
+struct ProductInfo {
+    string name;           // 商品名
+    int    stock;          // 在庫数
+    int    alertThreshold; // アラート閾値
+};
+
+// 商品マスタ（データ駆動バリデーション用）
+class ProductDatabase {
+private:
+    map<string, ProductInfo> records;
+public:
+    ProductDatabase() {
+        records["PRD001"] = {"ワイヤレスマウス", 50, 10};
+        records["PRD002"] = {"USBハブ",           3,  5}; // 閾値以下
+        records["PRD003"] = {"キーボード",         0,  5}; // 在庫なし
+    }
+
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+
+    ProductInfo get(const string& id) const {
+        return records.at(id);
+    }
+
+    bool isBelowThreshold(const string& id) const {
+        const auto& p = records.at(id);
+        return p.stock <= p.alertThreshold;
+    }
+};
 
 // 通知先が満たする必要がある契約（インターフェース）
 class INotification {
@@ -825,7 +924,7 @@ public:
 };
 ```
 
-`INotification` がすべての通知先クラスが守るべき「契約」を定義します。次に、この契約を実装する具体的な通知先クラスを個別に見てみましょう。
+`ProductDatabase` が商品マスタを保持し、`INotification` がすべての通知先クラスが守るべき「契約」を定義します。次に、この契約を実装する具体的な通知先クラスを個別に見てみましょう。
 
 ```cpp
 // 通知先1：メール通知
@@ -876,6 +975,8 @@ class InventoryManager {
 private:
     // 非所有ポインタ。登録中のObserverはInventoryManagerより長く生存すること。
     vector<INotification*> observers;
+    ProductDatabase         db;
+    map<string, int>        stock;
 
 public:
     // nullと重複登録を拒否する
@@ -897,13 +998,36 @@ public:
     }
 
     void reduceStock(string productId, int quantity) {
+        if (!db.exists(productId)) {
+            cout << "[エラー] 商品ID " << productId
+                 << " はマスタに存在しません。処理を中断します。"
+                 << endl;
+            return;
+        }
+        if (stock[productId] <= 0) {
+            cout << "[エラー] 商品 " << productId
+                 << " の在庫が0です。出庫できません。" << endl;
+            return;
+        }
+
+        stock[productId] -= quantity;
         cout << "商品 " << productId
              << " の在庫を " << quantity << " 減らしました。" << endl;
-        notifyAll("商品 " + productId + " の在庫が減少しました。");
+
+        if (db.isBelowThreshold(productId)) {
+            notifyAll("商品 " + productId + " の在庫が閾値以下です。");
+        }
     }
 
     void restoreStock(string productId, int quantity) {
+        if (!db.exists(productId)) {
+            cout << "[エラー] 商品ID " << productId
+                 << " はマスタに存在しません。処理を中断します。"
+                 << endl;
+            return;
+        }
         // 補充は閾値を超えるため通知しない
+        stock[productId] += quantity;
         cout << "商品 " << productId
              << " の在庫を " << quantity
              << " 補充しました。（通知なし）" << endl;
@@ -918,42 +1042,49 @@ private:
 };
 ```
 
-`InventoryManager` は `INotification*` のリストを持つだけで、`EmailNotifier` や `SMSNotifier` の名前を知りません。この例のポインタは非所有なので、登録中の通知先は `InventoryManager` が通知を終えるまで生存させ、破棄前に `detach()` します。
+`InventoryManager` は `INotification*` のリストと `ProductDatabase` を持ちます。商品IDの存在確認と閾値判定はデータベース経由で行うため、マスタに存在しないIDや在庫0の出庫操作はエラーとして中断されます。`EmailNotifier` や `SMSNotifier` の名前は知りません。この例のポインタは非所有なので、登録中の通知先は `InventoryManager` が通知を終えるまで生存させ、破棄前に `detach()` します。
 
 > [!NOTE] 応用：通知中の通知先リスト変更（再入可能性）について
 > 本書の実装では、`notifyAll` をシンプルなループで処理しています。もし「通知処理（`send`）を実行している最中に、ある通知先が自分自身を `detach`（登録解除）する」といった複雑な動的変更が発生する場合、反復子が破損してクラッシュする原因になります。実務の設計でそのような動的変更に対応する必要がある場合は、`notifyAll` 開始時にリストのコピー（スナップショット）を作成し、そのコピーに対してループを回すといった再入可能性への対策が必要になります。
 
 ```cpp
 int main() {
-    // 行1〜4: 全通知先を登録した状態
+    // 行1〜5: 全通知先を登録した状態
     InventoryManager manager;
-    EmailNotifier email;
+    EmailNotifier    email;
     DashboardUpdater dashboard;
-    ChatNotifier chat;
-    SMSNotifier sms;
+    ChatNotifier     chat;
+    SMSNotifier      sms;
     manager.attach(&email);
     manager.attach(&dashboard);
     manager.attach(&chat);
     manager.attach(&sms);
 
+    // PRD001: 在庫50、閾値10 → 5減らしても閾値超えのまま
     cout << "--- 行1: 在庫が閾値以下に減少（通常） ---" << endl;
-    manager.reduceStock("T-shirt-001", 5);
+    manager.reduceStock("PRD001", 5);
 
+    // PRD002: 在庫3、閾値5 → 最初から閾値以下
     cout << "--- 行2: 在庫が閾値以下に減少（複数通知先） ---" << endl;
-    manager.reduceStock("Pants-002", 3);
+    manager.reduceStock("PRD002", 1);
 
     cout << "--- 行3: 在庫が補充された（閾値超え） ---" << endl;
-    manager.restoreStock("T-shirt-001", 20);
+    manager.restoreStock("PRD001", 20);
 
-    cout << "--- 行4: 在庫が閾値ちょうどに減少（境界値） ---" << endl;
-    manager.reduceStock("Cap-003", 1);
+    // PRD003: 在庫0 → 出庫エラー
+    cout << "--- 行4: 在庫0の出庫操作 ---" << endl;
+    manager.reduceStock("PRD003", 1);
 
-    // 行5: 既存managerから不要な通知先を解除し、Chatだけを残す
-    cout << "--- 行5: 通知先をChatのみ登録した状態 ---" << endl;
+    // 行5: 存在しない商品IDのエラー確認
+    cout << "--- 行5: 存在しない商品IDを操作する ---" << endl;
+    manager.reduceStock("PRD999", 1);
+
+    // 行6: 既存managerから不要な通知先を解除し、Chatだけを残す
+    cout << "--- 行6: 通知先をChatのみ登録した状態 ---" << endl;
     manager.detach(&email);
     manager.detach(&dashboard);
     manager.detach(&sms);
-    manager.reduceStock("Shoes-004", 2);
+    manager.reduceStock("PRD002", 1);
 
     return 0;
 }
@@ -963,28 +1094,22 @@ int main() {
 
 ```
 --- 行1: 在庫が閾値以下に減少（通常） ---
-商品 T-shirt-001 の在庫を 5 減らしました。
-Email: 商品 T-shirt-001 の在庫が減少しました。
-Dashboard: 商品 T-shirt-001 の在庫が減少しました。
-Chat: 商品 T-shirt-001 の在庫が減少しました。
-SMS: 商品 T-shirt-001 の在庫が減少しました。
+商品 PRD001 の在庫を 5 減らしました。
 --- 行2: 在庫が閾値以下に減少（複数通知先） ---
-商品 Pants-002 の在庫を 3 減らしました。
-Email: 商品 Pants-002 の在庫が減少しました。
-Dashboard: 商品 Pants-002 の在庫が減少しました。
-Chat: 商品 Pants-002 の在庫が減少しました。
-SMS: 商品 Pants-002 の在庫が減少しました。
+商品 PRD002 の在庫を 1 減らしました。
+Email: 商品 PRD002 の在庫が閾値以下です。
+Dashboard: 商品 PRD002 の在庫が閾値以下です。
+Chat: 商品 PRD002 の在庫が閾値以下です。
+SMS: 商品 PRD002 の在庫が閾値以下です。
 --- 行3: 在庫が補充された（閾値超え） ---
-商品 T-shirt-001 の在庫を 20 補充しました。（通知なし）
---- 行4: 在庫が閾値ちょうどに減少（境界値） ---
-商品 Cap-003 の在庫を 1 減らしました.
-Email: 商品 Cap-003 の在庫が減少しました。
-Dashboard: 商品 Cap-003 の在庫が減少しました。
-Chat: 商品 Cap-003 の在庫が減少しました。
-SMS: 商品 Cap-003 の在庫が減少しました。
---- 行5: 通知先をChatのみ登録した状態 ---
-商品 Shoes-004 の在庫を 2 減らしました。
-Chat: 商品 Shoes-004 の在庫が減少しました。
+商品 PRD001 の在庫を 20 補充しました。（通知なし）
+--- 行4: 在庫0の出庫操作 ---
+[エラー] 商品 PRD003 の在庫が0です。出庫できません。
+--- 行5: 存在しない商品IDを操作する ---
+[エラー] 商品ID PRD999 はマスタに存在しません。処理を中断します。
+--- 行6: 通知先をChatのみ登録した状態 ---
+商品 PRD002 の在庫を 1 減らしました。
+Chat: 商品 PRD002 の在庫が閾値以下です。
 ```
 
 掲載した実行結果で、動作テーブルの4つのシナリオに対応する通知を確認しました。

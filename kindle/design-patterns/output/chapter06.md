@@ -75,10 +75,11 @@
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
 | `CustomDrink` | ドリンク1注文の全情報を保持し、合計金額と注文名称を返す | 基本ドリンク選択・トッピング組み合わせ・金額計算・名称生成 |
+| `MenuDatabase` | メニューIDから商品名と基本価格を検索する | メニューIDの存在確認・商品情報の取得 |
 
-**データの流れ：** `main()` → `CustomDrink`コンストラクタ（ベース名・価格・各トッピングフラグ） → `getPrice()` / `getDescription()` → 画面出力
+**データの流れ：** `main()` → `MenuDatabase`でIDを検索 → `CustomDrink`コンストラクタ（ベース名・価格・各トッピングフラグ） → `getPrice()` / `getDescription()` → 画面出力
 
-**注目ポイント：** 現在は `CustomDrink` という1クラスがすべての処理を担っています。
+**注目ポイント：** 現在は `CustomDrink` という1クラスがすべての処理を担っています。`MenuDatabase` はメニューIDから商品情報を引き出すためのデータ層として機能しています。
 
 ---
 
@@ -107,11 +108,48 @@ classDiagram
 
 コーヒーにミルクとホイップを追加する注文をシミュレートしています。
 
+このシステムには以下の4件のメニューデータがあらかじめ登録されています。
+
+| メニューID | 商品名 | 基本価格 |
+|---|---|---|
+| DRINK001 | ホットコーヒー | 400円 |
+| DRINK002 | アイスコーヒー | 450円 |
+| FOOD001 | サンドイッチ | 600円 |
+| FOOD002 | スコーン | 300円 |
+
+登録されていないIDを指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
+
 ```cpp
 #include <iostream>
 #include <string>
+#include <map>
 
 using namespace std;
+
+struct MenuItem {
+    string name;      // 商品名
+    int basePrice;    // 基本価格（円）
+};
+
+class MenuDatabase {
+private:
+    map<string, MenuItem> items;
+public:
+    MenuDatabase() {
+        items["DRINK001"] = {"ホットコーヒー", 400};
+        items["DRINK002"] = {"アイスコーヒー", 450};
+        items["FOOD001"]  = {"サンドイッチ",   600};
+        items["FOOD002"]  = {"スコーン",        300};
+    }
+
+    bool exists(const string& id) const {
+        return items.count(id) > 0;
+    }
+
+    MenuItem get(const string& id) const {
+        return items.at(id);
+    }
+};
 
 class CustomDrink {
 private:
@@ -148,8 +186,19 @@ public:
 
 // 呼び出し側のコード（モバイルアプリを想定）
 int main() {
-    // コーヒー(300円)、ミルクとホイップを追加、シロップはなし
-    CustomDrink order("Coffee", 300, true, true, false);
+    MenuDatabase db;
+
+    // メニューIDでドリンクを検索してから注文を生成する
+    string itemId = "DRINK001";
+    if (!db.exists(itemId)) {
+        cout << "エラー：メニューID " << itemId
+             << " は存在しません" << endl;
+        return 1;
+    }
+    MenuItem item = db.get(itemId);
+
+    // ミルクとホイップを追加、シロップはなし
+    CustomDrink order(item.name, item.basePrice, true, true, false);
 
     cout << "注文内容: " << order.getDescription() << endl;
     cout << "合計金額: " << order.getPrice() << "円" << endl;
@@ -937,8 +986,34 @@ IDrink* double_whip = new Whip(new Whip(new Coffee()));
 ```cpp
 #include <iostream>
 #include <string>
+#include <map>
 
 using namespace std;
+
+struct MenuItem {
+    string name;      // 商品名
+    int basePrice;    // 基本価格（円）
+};
+
+class MenuDatabase {
+private:
+    map<string, MenuItem> items;
+public:
+    MenuDatabase() {
+        items["DRINK001"] = {"ホットコーヒー", 400};
+        items["DRINK002"] = {"アイスコーヒー", 450};
+        items["FOOD001"]  = {"サンドイッチ",   600};
+        items["FOOD002"]  = {"スコーン",        300};
+    }
+
+    bool exists(const string& id) const {
+        return items.count(id) > 0;
+    }
+
+    MenuItem get(const string& id) const {
+        return items.at(id);
+    }
+};
 
 // ドリンクとしてのビジネス上の責任（契約）を示すインターフェース
 class IDrink {
@@ -1056,9 +1131,28 @@ public:
 ```cpp
 // 依存の組み立てと実行を担うアプリケーションクラス
 class OrderApplication {
+private:
+    MenuDatabase db;
+
+    // メニューIDを検証する。存在しない場合はエラーを出力して false を返す
+    bool validateMenu(const string& itemId) {
+        if (!db.exists(itemId)) {
+            cout << "エラー：メニューID " << itemId
+                 << " は存在しません" << endl;
+            return false;
+        }
+        return true;
+    }
+
 public:
     void run() {
-        // 行1：コーヒーのみ
+        // 存在しないメニューIDを指定した場合のエラー処理
+        if (!validateMenu("DRINK999")) {
+            // ← ここで処理を中断するか、次の注文に進むかを判断できる
+        }
+
+        // 行1：コーヒーのみ（MenuDatabase でメニューIDの存在を確認してから生成）
+        if (!validateMenu("DRINK001")) return;
         IDrink* o1 = new Coffee();
         cout << o1->getDescription() << " → " << o1->getPrice() << "円" << endl;
         delete o1;

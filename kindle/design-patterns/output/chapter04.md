@@ -120,13 +120,50 @@ classDiagram
 |---|---|---|
 | `StoreDataImporter` | 直営店CSVファイルのインポート処理全体 | カンマ区切り、ヘッダーありのCSVを処理する |
 | `FCDataImporter` | FC店CSVファイルのインポート処理全体 | タブ区切り、不正行スキップでCSVを処理する |
+| `SchemaRegistry` | インポートスキーマの登録・参照 | インポートタイプごとの必須カラム定義を保持し、タイプの存在確認と取得を担う |
 
 この段階での注目ポイントは、どちらのクラスも「ファイルを開く」「データを加工する」「保存する」「閉じる」というデータの流れ（処理の手順）を、それぞれのクラス内に独立して持っている点です。
 
 実際の処理コードを見てみましょう。直営店用とFC店用の2クラスが存在します。どちらも「開く→加工→保存→閉じる」という大きな流れは共通していますが、パースの中身は少し違っています。クラスごとにブロックを分けて確認します。
 
+このシステムには以下の3種類のインポートスキーマがあらかじめ登録されています。
+
+| タイプ | スキーマ名 | 必須カラム |
+|---|---|---|
+| customer | 顧客データ | id, name, email |
+| product | 商品データ | id, name, price |
+| order | 注文データ | id, customerId, amount |
+
+登録されていないタイプ（例：`"online"`）を指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
+
 ```cpp
 #include <iostream>
+#include <map>
+#include <vector>
+
+// インポートスキーマ（タイプごとの必須カラム定義）
+struct ImportSchema {
+    std::string name;                         // スキーマ名
+    std::vector<std::string> requiredColumns; // 必須カラム
+};
+
+// インポートスキーマの登録・参照を担うクラス
+class SchemaRegistry {
+    std::map<std::string, ImportSchema> schemas;
+public:
+    SchemaRegistry() {
+        schemas["store"]  = {"直営店データ", {"id", "name", "amount"}};
+        schemas["fc"]     = {"FC店データ",   {"id", "name", "amount"}};
+    }
+
+    bool exists(const std::string& type) const {
+        return schemas.count(type) > 0;
+    }
+
+    ImportSchema get(const std::string& type) const {
+        return schemas.at(type);
+    }
+};
 
 // 直営店データのインポート（カンマ区切り・ヘッダー行あり）
 class StoreDataImporter {
@@ -201,11 +238,29 @@ private:
 
 ```cpp
 int main() {
-    std::cout << "--- 行1: 直営店10件 ---\n";
+    SchemaRegistry registry;
+
+    // タイプ "store" はレジストリに登録済み
+    std::string type1 = "store";
+    if (!registry.exists(type1)) {
+        std::cout << "[エラー] 未登録のインポートタイプ: "
+                  << type1 << "\n";
+        return 1;
+    }
+    ImportSchema s1 = registry.get(type1);
+    std::cout << "--- 行1: " << s1.name << " 10件 ---\n";
     StoreDataImporter storeNormal(10);
     storeNormal.import();
 
-    std::cout << "--- 行2: FC店5件 ---\n";
+    // タイプ "fc" はレジストリに登録済み
+    std::string type2 = "fc";
+    if (!registry.exists(type2)) {
+        std::cout << "[エラー] 未登録のインポートタイプ: "
+                  << type2 << "\n";
+        return 1;
+    }
+    ImportSchema s2 = registry.get(type2);
+    std::cout << "--- 行2: " << s2.name << " 5件 ---\n";
     FCDataImporter fcNormal(5, 0);
     fcNormal.import();
 
@@ -216,6 +271,14 @@ int main() {
     std::cout << "--- 行4: FC店全行不正 ---\n";
     FCDataImporter fcInvalid(0, 5);
     fcInvalid.import();
+
+    // タイプ "online" は未登録 → エラーで中断
+    std::string type5 = "online";
+    if (!registry.exists(type5)) {
+        std::cout << "[エラー] 未登録のインポートタイプ: "
+                  << type5 << " — 処理を中断します\n";
+        return 1;
+    }
     return 0;
 }
 ```
@@ -223,14 +286,14 @@ int main() {
 上記コードの実行結果：
 
 ```text
---- 行1: 直営店10件 ---
+--- 行1: 直営店データ 10件 ---
 直営店CSVを開く
 ヘッダーをスキップ
 カンマ区切りで解析
 10件をDBへ追加
 ファイルを閉じる
 インポート成功: 10件追加
---- 行2: FC店5件 ---
+--- 行2: FC店データ 5件 ---
 FC店CSVを開く
 タブ区切りで解析
 不正行を0件スキップ
@@ -251,10 +314,12 @@ FC店CSVを開く
 0件をDBへ更新
 ファイルを閉じる
 インポート成功: 0件更新、エラー5件
+[エラー] 未登録のインポートタイプ: online — 処理を中断します
 ```
 
 動作例テーブルの全4行について、処理順序、処理件数、不正行の報告が
-一致することを確認できました。
+一致することを確認できました。未登録タイプ（"online"）はレジストリの
+チェックで処理を中断し、エラーメッセージを出力します。
 
 ---
 
@@ -731,13 +796,46 @@ public:
 
 新しい設計では、共通の手順を親クラスで定義し、形式ごとのパース処理と任意の後処理をサブクラスに委譲します。各役割ごとにコードを分けて見ていきましょう。
 
-**AbstractImporterクラス（骨格の定義）：**
+**スキーマ定義とSchemaRegistryクラス：**
 
 ```cpp
 #include <iostream>
+#include <map>
+#include <vector>
 
 using namespace std;
 
+// インポートスキーマ（タイプごとの必須カラム定義）
+struct ImportSchema {
+    string name;                         // スキーマ名
+    vector<string> requiredColumns;      // 必須カラム
+};
+
+// インポートスキーマの登録・参照を担うクラス
+class SchemaRegistry {
+    map<string, ImportSchema> schemas;
+public:
+    SchemaRegistry() {
+        schemas["customer"] = {"顧客データ", {"id", "name", "email"}};
+        schemas["product"]  = {"商品データ", {"id", "name", "price"}};
+        schemas["order"]    = {"注文データ", {"id", "customerId", "amount"}};
+    }
+
+    bool exists(const string& type) const {
+        return schemas.count(type) > 0;
+    }
+
+    ImportSchema get(const string& type) const {
+        return schemas.at(type);
+    }
+};
+```
+
+`SchemaRegistry` はコンストラクタで3種類のスキーマを登録しています。`exists()` でタイプの存在確認、`get()` でスキーマの取得を行います。未登録タイプは `exists()` が `false` を返すため、呼び出し元で処理を中断できます。
+
+**AbstractImporterクラス（骨格の定義）：**
+
+```cpp
 // 共通の骨格を持つ基底クラス
 class AbstractImporter {
 public:
@@ -838,23 +936,31 @@ public:
 ```cpp
 // 依存関係の組み立てを担うクラス
 class BatchApplication {
+    SchemaRegistry registry;
 public:
     void run() {
-        StoreDataImporter store;
-        FCDataImporter fc;
-        ECDataImporter ec;
-
+        runImport("customer", new StoreDataImporter());
+        runImport("product",  new FCDataImporter());
+        runImport("order",    new ECDataImporter());
+        // 未登録タイプの場合はエラーで中断する
+        runImport("unknown",  nullptr);
+    }
+private:
+    void runImport(const string& type, AbstractImporter* importer) {
+        if (!registry.exists(type)) {
+            cout << "[エラー] 未登録のインポートタイプ: "
+                 << type << " — 処理を中断します" << endl;
+            return;
+        }
+        ImportSchema schema = registry.get(type);
+        cout << "--- " << schema.name << "インポート ---" << endl;
         BatchImportJob batch;
-        cout << "--- 直営店インポート（正常10件） ---" << endl;
-        batch.run(&store);
-        cout << "--- FC店インポート（正常5件） ---" << endl;
-        batch.run(&fc);
-        cout << "--- EC店インポート（正常8件・不正2件） ---" << endl;
-        batch.run(&ec);
+        batch.run(importer);
     }
 };
-
 ```
+
+`BatchApplication` は `SchemaRegistry` を保持し、`runImport()` の中でタイプの存在確認を行います。未登録タイプは `exists()` が `false` を返すため、インポーターを呼び出す前にエラーメッセージを出力して処理を中断します。登録済みタイプは `get()` でスキーマを取得し、スキーマ名をログに使います。
 
 **main関数：**
 
@@ -869,21 +975,21 @@ int main() {
 **実行結果：**
 
 ```
---- 直営店インポート（正常10件） ---
+--- 顧客データインポート ---
 ファイルをオープンしました。
 [全共通] ファイルメタデータの形式バージョンを確認しました。
 [直営店] ヘッダー行をスキップしました。
 [直営店] カンマ区切りで10件のデータを読み込みました。
 DBへの保存が完了しました。
 ファイルをクローズしました。
---- FC店インポート（正常5件） ---
+--- 商品データインポート ---
 ファイルをオープンしました。
 [全共通] ファイルメタデータの形式バージョンを確認しました。
 [FC店] タブ区切りで行を分割しました。
 [FC店] 5件のデータを更新しました（不正行スキップ）。
 DBへの保存が完了しました。
 ファイルをクローズしました。
---- EC店インポート（正常8件・不正2件） ---
+--- 注文データインポート ---
 ファイルをオープンしました。
 [全共通] ファイルメタデータの形式バージョンを確認しました。
 [EC店] カンマ区切りで行を分割しました。
@@ -892,13 +998,14 @@ DBへの保存が完了しました。
 [EC店] ポイントボーナスを計算しました（8件処理、2件スキップ）。
 DBへの保存が完了しました。
 ファイルをクローズしました。
+[エラー] 未登録のインポートタイプ: unknown — 処理を中断します
 ```
 
-フェーズ2で予告された共通の「バージョンチェック」は基底クラスへ1回追加し、EC店だけの計算処理は `afterParse()` へ置きました。変更理由の異なる2つの処理が、それぞれ対応する場所へ分かれています。
+フェーズ2で予告された共通の「バージョンチェック」は基底クラスへ1回追加し、EC店だけの計算処理は `afterParse()` へ置きました。変更理由の異なる2つの処理が、それぞれ対応する場所へ分かれています。未登録タイプ（"unknown"）は `SchemaRegistry.exists()` で検出し、インポーター呼び出し前にエラーを出力して処理を中断します。
 
-このコードは実ファイルを解析する代わりに、直営店10件・FC店5件・EC店8件処理/2件スキップという代表シナリオをログで模擬しています。空ファイル・全行不正・大量データを含む全仕様を実証するコードではないため、それらは実際のパーサーとデータを使うテストで確認します。
+このコードは実ファイルを解析する代わりに、顧客・商品・注文データという代表シナリオをログで模擬しています。空ファイル・全行不正・大量データを含む全仕様を実証するコードではないため、それらは実際のパーサーとデータを使うテストで確認します。
 
-`main()` はキックするだけで、具体クラスの知識は `BatchApplication` に閉じています。
+`main()` はキックするだけで、具体クラスの知識と `SchemaRegistry` の参照は `BatchApplication` に閉じています。
 
 ### 7-2：動作シーケンス図
 
