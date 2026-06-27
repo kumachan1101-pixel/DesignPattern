@@ -1002,13 +1002,15 @@ void processOrder(const Order& order) {
 
 ステップ4で決断した構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて見ていきましょう。
 
-**1. データの定義とインターフェース（契約）**
-計算に必要なデータクラスと、すべての割引ルールが守るべき共通のインターフェースを定義します。
+**1. データの定義とインフラ（CustomerDatabase・OrderHistory）**
+注文データ・顧客情報・履歴管理クラスはリファクタリング前後で変わりません。割引ロジックの分離が、これらのクラスに影響しないことを確認してください。
 
 ```cpp
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <vector>
+#include <map>
 
 class Item {
 public:
@@ -1025,8 +1027,47 @@ public:
 
 class Order {
 public:
+    std::string customerId;
     std::vector<Item> items;
-    std::string customerType;
+};
+
+struct CustomerInfo {
+    std::string name;
+    std::string memberType;
+};
+
+class CustomerDatabase {
+private:
+    std::map<std::string, CustomerInfo> records;
+public:
+    CustomerDatabase() {
+        records["C001"] = {"田中 一郎", "Premium"};
+        records["C002"] = {"佐藤 花子", "Regular"};
+        records["C003"] = {"鈴木 次郎", "Regular"};
+    }
+
+    bool exists(const std::string& id) const { return records.count(id) > 0; }
+    CustomerInfo get(const std::string& id) const { return records.at(id); }
+};
+
+class OrderHistory {
+private:
+    std::vector<std::string> history;
+    std::ofstream logFile;
+public:
+    OrderHistory() : logFile("orders_log.txt", std::ios::app) {}
+
+    void record(const std::string& customerId,
+                const std::string& name, int amount) {
+        std::string entry = customerId + " (" + name + "): "
+                          + std::to_string(amount) + "円";
+        history.push_back(entry);
+        if (logFile.is_open()) logFile << entry << "\n";
+    }
+
+    void printAll() const {
+        for (const auto& e : history) std::cout << e << "\n";
+    }
 };
 
 // 割引ルールの共通インターフェース（Strategy）
@@ -1092,7 +1133,6 @@ public:
     }
 };
 
-// カートプレビュー機能は、同じPaymentCalculatorを利用する
 class CartPreviewService {
 private:
     PaymentCalculator calculator;
@@ -1105,75 +1145,106 @@ public:
 };
 ```
 
-**4. 組み立てと実行（メイン関数）**
-最後に、必要な部品を組み立てて実行します。具体的なクラス名（`PremiumDiscount`等）を知っているのは、この組み立てを行う箇所だけです。
+**4. ルール選択と組み立て（RuleFactory・OrderProcessor）**
+具体的なクラス名（`PremiumDiscount`等）を知っているのは `RuleFactory` だけです。`OrderProcessor` は CustomerDatabase・RuleFactory・PaymentCalculator・OrderHistory を組み合わせて注文処理全体を担います。
 
 ```cpp
-// ルールを選択するファクトリ（かつて本体にあったif文を隔離する場所）
 class RuleFactory {
 public:
-    static IDiscountRule* create(const Order& order,
+    static IDiscountRule* create(const std::string& memberType,
                                  const CampaignContext& context) {
-        if (order.customerType == "Premium") return new PremiumDiscount();
+        if (memberType == "Premium") return new PremiumDiscount();
         if (context.isSummerSale && context.isCampaignActive)
             return new SummerSaleAndCampaignDiscount();
-        if (context.isSummerSale) return new SummerSaleDiscount();
+        if (context.isSummerSale)  return new SummerSaleDiscount();
         if (context.isCampaignActive) return new CampaignDiscount();
         return new NoDiscount();
     }
 };
 
-class BatchApplication {
-    void printCase(const std::string& label, const Order& order,
-                   const CampaignContext& context) {
-        IDiscountRule* rule = RuleFactory::create(order, context);
+class OrderProcessor {
+private:
+    CustomerDatabase& db;
+    OrderHistory& history;
+public:
+    OrderProcessor(CustomerDatabase& db, OrderHistory& history)
+        : db(db), history(history) {}
+
+    void process(const Order& order, const CampaignContext& context) {
+        if (!db.exists(order.customerId)) {
+            std::cerr << "エラー: 顧客ID " << order.customerId
+                      << " は登録されていません\n";
+            return;
+        }
+        if (order.items.empty()) {
+            std::cerr << "エラー: 注文が空です\n";
+            return;
+        }
+
+        CustomerInfo customer = db.get(order.customerId);
+        IDiscountRule* rule = RuleFactory::create(customer.memberType, context);
         PaymentCalculator calculator(rule);
         CartPreviewService preview(rule);
 
-        std::cout << label << "\n";
-        std::cout << "  支払金額: " << calculator.calculate(order) << " 円\n";
-        std::cout << "  プレビュー: "
-                  << preview.getEstimatedTotal(order) << " 円\n";
+        int finalPrice = calculator.calculate(order);
+        history.record(order.customerId, customer.name, finalPrice);
+
+        std::cout << customer.name << " の支払金額は " << finalPrice << " 円\n";
+        std::cout << "  プレビュー: " << preview.getEstimatedTotal(order) << " 円\n";
+
         delete rule;
-    }
-
-public:
-    void run() {
-        Order order;
-        CampaignContext context;
-        order.items.push_back(Item("ワイヤレスイヤホン", 10000));
-
-        // 変更後の動作例をすべて確認する
-        order.customerType = "Premium";
-        context.isCampaignActive = false;
-        context.isSummerSale = false;
-        printCase("Premium", order, context);
-
-        order.customerType = "Premium";
-        context.isCampaignActive = true;
-        context.isSummerSale = true;
-        printCase("Premium + Campaign + Summer", order, context);
-
-        order.customerType = "Regular";
-        context.isCampaignActive = true;
-        context.isSummerSale = true;
-        printCase("Regular + Campaign + Summer", order, context);
-
-        order.customerType = "Regular";
-        context.isCampaignActive = false;
-        context.isSummerSale = true;
-        printCase("Regular + Summer", order, context);
-
-        order.customerType = "Regular";
-        context.isCampaignActive = false;
-        context.isSummerSale = false;
-        printCase("Regular", order, context);
     }
 };
 
 int main() {
-    BatchApplication app;
-    app.run();
+    CustomerDatabase db;
+    OrderHistory history;
+    OrderProcessor processor(db, history);
+    CampaignContext context;
+
+    // C001（Premium）/ キャンペーンなし / サマーセールなし → 20%引き
+    Order order1;
+    order1.customerId = "C001";
+    order1.items.push_back(Item("ワイヤレスイヤホン", 10000));
+    context.isCampaignActive = false;
+    context.isSummerSale = false;
+    processor.process(order1, context);
+
+    // C001（Premium）/ キャンペーンあり / サマーセール中 → Premium優先
+    Order order2;
+    order2.customerId = "C001";
+    order2.items.push_back(Item("ワイヤレスイヤホン", 10000));
+    context.isCampaignActive = true;
+    context.isSummerSale = true;
+    processor.process(order2, context);
+
+    // C002（Regular）/ キャンペーンあり / サマーセール中 → 重ね掛け
+    Order order3;
+    order3.customerId = "C002";
+    order3.items.push_back(Item("ワイヤレスイヤホン", 10000));
+    context.isCampaignActive = true;
+    context.isSummerSale = true;
+    processor.process(order3, context);
+
+    // C002（Regular）/ サマーセールのみ → 5%引き
+    Order order4;
+    order4.customerId = "C002";
+    order4.items.push_back(Item("ワイヤレスイヤホン", 10000));
+    context.isCampaignActive = false;
+    context.isSummerSale = true;
+    processor.process(order4, context);
+
+    // C003（Regular）/ 割引なし
+    Order order5;
+    order5.customerId = "C003";
+    order5.items.push_back(Item("スマホケース", 3000));
+    context.isCampaignActive = false;
+    context.isSummerSale = false;
+    processor.process(order5, context);
+
+    std::cout << "\n--- 注文履歴 ---\n";
+    history.printAll();
+
     return 0;
 }
 ```
@@ -1183,24 +1254,24 @@ int main() {
 上記コードの実行結果：
 
 ```
-Premium
-  支払金額: 8000 円
+田中 一郎 の支払金額は 8000 円
   プレビュー: 8000 円
-Premium + Campaign + Summer
-  支払金額: 8000 円
+田中 一郎 の支払金額は 8000 円
   プレビュー: 8000 円
-Regular + Campaign + Summer
-  支払金額: 8550 円
+佐藤 花子 の支払金額は 8550 円
   プレビュー: 8550 円
-Regular + Summer
-  支払金額: 9500 円
+佐藤 花子 の支払金額は 9500 円
   プレビュー: 9500 円
-Regular
-  支払金額: 10000 円
-  プレビュー: 10000 円
-```
+鈴木 次郎 の支払金額は 3000 円
+  プレビュー: 3000 円
 
-変更前からあるPremium・Regularの結果と、変更後の動作例にあるサマーセール単独・重ね掛けの結果が対応しています。`PaymentCalculator` の中には、具体的な割引種別を選ぶ `if` 文がありません。
+--- 注文履歴 ---
+C001 (田中 一郎): 8000円
+C001 (田中 一郎): 8000円
+C002 (佐藤 花子): 8550円
+C002 (佐藤 花子): 9500円
+C003 (鈴木 次郎): 3000円
+```
 
 > [!NOTE]
 > 上記は代表的な実行ケースを示したものです。全ケースの検証は別途テストで行ってください。
@@ -1211,21 +1282,29 @@ Regular
 
 ```mermaid
 sequenceDiagram
-    participant B as BatchApplication
+    participant M as main / OrderProcessor
+    participant DB as CustomerDatabase
+    participant F as RuleFactory
     participant P as PaymentCalculator
     participant I as IDiscountRule<br/>(PremiumDiscount)
+    participant H as OrderHistory
 
-    B->>B: 注文データ作成
-    B->>I: 生成 (RuleFactory::create)
-    B->>P: 生成 (rule を注入)
-    B->>P: calculate(order)
+    M->>DB: exists(customerId)
+    DB-->>M: true
+    M->>DB: get(customerId)
+    DB-->>M: CustomerInfo
+    M->>F: create(memberType, context)
+    F-->>M: rule
+    M->>P: 生成 (rule を注入)
+    M->>P: calculate(order)
     activate P
     P->>I: apply(total)
     activate I
-    I-->>P: 計算結果を返す
+    I-->>P: 割引後金額
     deactivate I
-    P-->>B: finalPrice を返す
+    P-->>M: finalPrice
     deactivate P
+    M->>H: record(customerId, name, finalPrice)
 ```
 
 ### 7-3：変更影響グラフ（改善後）
