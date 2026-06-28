@@ -935,7 +935,37 @@ public:
         return templates.at(id);
     }
 };
+```
 
+レポート生成ログ（`ReportLog`）はシステム起動時は空で、レポートが生成・キャンセル・失敗するたびに1件追記されます。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
+
+```cpp
+struct ReportRecord {
+    std::string templateId;    // "SALES_MONTHLY", "INVENTORY_WEEKLY", "ACCESS_LOG"
+    std::string templateName;  // "月次売上", "週次在庫", "アクセスログ"
+    std::string format;        // "pdf", "csv", "html"
+    std::string status;        // "成功", "キャンセル", "失敗"
+};
+
+// レポート生成ログを管理するクラス
+class ReportLog {
+    std::vector<ReportRecord> records;
+public:
+    void add(const std::string& templateId, const std::string& templateName,
+             const std::string& format, const std::string& status) {
+        records.push_back({templateId, templateName, format, status});
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << "[" << r.templateId << "] " << r.templateName
+                      << " (" << r.format << ") -> " << r.status << std::endl;
+        }
+    }
+    int size() const { return (int)records.size(); }
+};
+```
+
+```cpp
 // IReportAction: 操作履歴のインターフェース（Command パターン）
 class IReportAction {
 public:
@@ -1161,6 +1191,7 @@ public:
 
     void run() {
         ReportTemplate tmpl;
+        ReportLog reportLog;
 
         // 行1: 月次レポートをPDF出力
         cout << "--- 行1: 月次レポートPDF出力 ---" << endl;
@@ -1170,6 +1201,7 @@ public:
             new MonthlyReport(),
             "monthly.pdf",
             OutputFormat::Pdf));
+        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "成功");
 
         // 行2: 月次レポートをExcel出力
         cout << "--- 行2: 月次レポートExcel出力 ---" << endl;
@@ -1179,6 +1211,7 @@ public:
             new MonthlyReport(),
             "monthly.xlsx",
             OutputFormat::Excel));
+        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "成功");
 
         // 行3: グラフ付き・透かし付きでPDF出力
         cout << "--- 行3: 装飾付きレポートPDF出力 ---" << endl;
@@ -1190,6 +1223,7 @@ public:
                     new StandardReport())),
             "decorated.pdf",
             OutputFormat::Pdf));
+        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "成功");
 
         // 行4: 月次レポートを生成し、直後にキャンセル
         cout << "--- 行4: 月次レポート生成後にキャンセル ---" << endl;
@@ -1204,6 +1238,7 @@ public:
         history.back()->undo();
         delete history.back();
         history.pop_back();
+        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "キャンセル");
 
         // 行5: バッチで3レポートを一括生成
         cout << "--- 行5: バッチで3レポート一括生成 ---" << endl;
@@ -1213,17 +1248,20 @@ public:
             new WeeklyReport(),
             "weekly.pdf",
             OutputFormat::Pdf));
+        reportLog.add("INVENTORY_WEEKLY", tmpl.name, tmpl.format, "成功");
         if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
         executeAndRemember(new GenerateReportAction(
             new MonthlyReport(),
             "batch_monthly.pdf",
             OutputFormat::Pdf));
+        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "成功");
         if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
         executeAndRemember(new GenerateReportAction(
             new GraphFeature(
                 new MonthlyReport()),
             "dept.pdf",
             OutputFormat::Pdf));
+        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "成功");
         cout << "[この操作で3コマンドが履歴に追加されました。]" << endl;
 
         // 行6: グラフ付き月次レポートを生成してアンドゥ
@@ -1241,6 +1279,10 @@ public:
         history.back()->undo();
         delete history.back();
         history.pop_back();
+        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "キャンセル");
+
+        cout << "\n--- レポート生成ログ ---\n";
+        reportLog.printAll();
     }
 };
 ```

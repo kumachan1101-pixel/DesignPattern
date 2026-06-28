@@ -833,6 +833,34 @@ public:
 
 `SchemaRegistry` はコンストラクタで3種類のスキーマを登録しています。`exists()` でタイプの存在確認、`get()` でスキーマの取得を行います。未登録タイプは `exists()` が `false` を返すため、呼び出し元で処理を中断できます。
 
+インポート結果ログ（`ImportResultLog`）はシステム起動時は空で、インポート処理が実行されるたびに結果を1件追記します。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
+
+```cpp
+struct ImportResult {
+    string schemaType;  // "customer", "product", "order"
+    string schemaName;  // "顧客データ", "商品データ", "注文データ"
+    int rowCount;
+    string status;      // "成功", "失敗"
+};
+
+// インポート結果ログを管理するクラス
+class ImportResultLog {
+    vector<ImportResult> records;
+public:
+    void add(const string& schemaType, const string& schemaName,
+             int rowCount, const string& status) {
+        records.push_back({schemaType, schemaName, rowCount, status});
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            cout << "[" << r.schemaType << "] " << r.schemaName
+                 << " " << r.rowCount << "行 -> " << r.status << endl;
+        }
+    }
+    int size() const { return (int)records.size(); }
+};
+```
+
 **AbstractImporterクラス（骨格の定義）：**
 
 ```cpp
@@ -937,16 +965,21 @@ public:
 // 依存関係の組み立てを担うクラス
 class BatchApplication {
     SchemaRegistry registry;
+    ImportResultLog log;
 public:
     void run() {
-        runImport("customer", new StoreDataImporter());
-        runImport("product",  new FCDataImporter());
-        runImport("order",    new ECDataImporter());
+        runImport("customer", new StoreDataImporter(), 10);
+        runImport("product",  new FCDataImporter(),    5);
+        runImport("order",    new ECDataImporter(),    8);
         // 未登録タイプの場合はエラーで中断する
-        runImport("unknown",  nullptr);
+        runImport("unknown",  nullptr,                 0);
+
+        cout << "\n--- インポート結果ログ ---\n";
+        log.printAll();
     }
 private:
-    void runImport(const string& type, AbstractImporter* importer) {
+    void runImport(const string& type, AbstractImporter* importer,
+                  int rowCount) {
         if (!registry.exists(type)) {
             cout << "[エラー] 未登録のインポートタイプ: "
                  << type << " — 処理を中断します" << endl;
@@ -956,6 +989,7 @@ private:
         cout << "--- " << schema.name << "インポート ---" << endl;
         BatchImportJob batch;
         batch.run(importer);
+        log.add(type, schema.name, rowCount, "成功");
     }
 };
 ```
@@ -999,6 +1033,11 @@ DBへの保存が完了しました。
 DBへの保存が完了しました。
 ファイルをクローズしました。
 [エラー] 未登録のインポートタイプ: unknown — 処理を中断します
+
+--- インポート結果ログ ---
+[customer] 顧客データ 10行 -> 成功
+[product] 商品データ 5行 -> 成功
+[order] 注文データ 8行 -> 成功
 ```
 
 フェーズ2で予告された共通の「バージョンチェック」は基底クラスへ1回追加し、EC店だけの計算処理は `afterParse()` へ置きました。変更理由の異なる2つの処理が、それぞれ対応する場所へ分かれています。未登録タイプ（"unknown"）は `SchemaRegistry.exists()` で検出し、インポーター呼び出し前にエラーを出力して処理を中断します。

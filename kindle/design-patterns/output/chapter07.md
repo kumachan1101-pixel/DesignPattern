@@ -924,7 +924,39 @@ public:
 };
 ```
 
-`ProductDatabase` が商品マスタを保持し、`INotification` がすべての通知先クラスが守るべき「契約」を定義します。次に、この契約を実装する具体的な通知先クラスを個別に見てみましょう。
+`ProductDatabase` が商品マスタを保持し、`INotification` がすべての通知先クラスが守るべき「契約」を定義します。次に、在庫変動の履歴を記録するログクラスを追加します。
+
+在庫変動ログ（`StockEventLog`）はシステム起動時は空で、在庫の入荷・出荷・閾値警告が発生するたびに1件追記されます。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
+
+```cpp
+struct StockEvent {
+    std::string productId;
+    std::string productName;
+    std::string eventType;  // "入荷", "出荷", "閾値警告"
+    int amount;
+    int stockAfter;
+};
+
+// 在庫変動ログを管理するクラス
+class StockEventLog {
+    std::vector<StockEvent> records;
+public:
+    void add(const std::string& productId, const std::string& productName,
+             const std::string& eventType, int amount, int stockAfter) {
+        records.push_back({productId, productName, eventType, amount, stockAfter});
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << "[" << r.productId << "] " << r.productName
+                      << " " << r.eventType << " " << r.amount
+                      << "個 (残:" << r.stockAfter << ")" << std::endl;
+        }
+    }
+    int size() const { return (int)records.size(); }
+};
+```
+
+`StockEventLog` を使うことで、実行中に発生した全在庫変動を後から一覧できます。次に、この契約を実装する具体的な通知先クラスを個別に見てみましょう。
 
 ```cpp
 // 通知先1：メール通知
@@ -1049,7 +1081,7 @@ private:
 
 ```cpp
 int main() {
-    // 行1〜5: 全通知先を登録した状態
+    // 行1〜6: 全通知先を登録した状態
     InventoryManager manager;
     EmailNotifier    email;
     DashboardUpdater dashboard;
@@ -1060,16 +1092,22 @@ int main() {
     manager.attach(&chat);
     manager.attach(&sms);
 
+    StockEventLog eventLog;
+
     // PRD001: 在庫50、閾値10 → 5減らしても閾値超えのまま
     cout << "--- 行1: 在庫が閾値以下に減少（通常） ---" << endl;
     manager.reduceStock("PRD001", 5);
+    eventLog.add("PRD001", "ワイヤレスマウス", "出荷", 5, 45);
 
     // PRD002: 在庫3、閾値5 → 最初から閾値以下
     cout << "--- 行2: 在庫が閾値以下に減少（複数通知先） ---" << endl;
     manager.reduceStock("PRD002", 1);
+    eventLog.add("PRD002", "USBハブ", "出荷", 1, 2);
+    eventLog.add("PRD002", "USBハブ", "閾値警告", 1, 2);
 
     cout << "--- 行3: 在庫が補充された（閾値超え） ---" << endl;
     manager.restoreStock("PRD001", 20);
+    eventLog.add("PRD001", "ワイヤレスマウス", "入荷", 20, 65);
 
     // PRD003: 在庫0 → 出庫エラー
     cout << "--- 行4: 在庫0の出庫操作 ---" << endl;
@@ -1085,6 +1123,11 @@ int main() {
     manager.detach(&dashboard);
     manager.detach(&sms);
     manager.reduceStock("PRD002", 1);
+    eventLog.add("PRD002", "USBハブ", "出荷", 1, 1);
+    eventLog.add("PRD002", "USBハブ", "閾値警告", 1, 1);
+
+    cout << "\n--- 在庫変動ログ ---\n";
+    eventLog.printAll();
 
     return 0;
 }
@@ -1110,6 +1153,14 @@ SMS: 商品 PRD002 の在庫が閾値以下です。
 --- 行6: 通知先をChatのみ登録した状態 ---
 商品 PRD002 の在庫を 1 減らしました。
 Chat: 商品 PRD002 の在庫が閾値以下です。
+
+--- 在庫変動ログ ---
+[PRD001] ワイヤレスマウス 出荷 5個 (残:45)
+[PRD002] USBハブ 出荷 1個 (残:2)
+[PRD002] USBハブ 閾値警告 1個 (残:2)
+[PRD001] ワイヤレスマウス 入荷 20個 (残:65)
+[PRD002] USBハブ 出荷 1個 (残:1)
+[PRD002] USBハブ 閾値警告 1個 (残:1)
 ```
 
 掲載した実行結果で、動作テーブルの4つのシナリオに対応する通知を確認しました。

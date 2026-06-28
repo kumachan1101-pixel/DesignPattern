@@ -941,6 +941,7 @@ public:
     virtual ~IAction() {}
     virtual void execute() = 0;
     virtual void undo() = 0;
+    virtual std::string describe() const = 0;
 };
 
 ```
@@ -965,6 +966,10 @@ public:
     void undo() override {
         em.removeExpense(amount, categoryId);
     }
+    std::string describe() const override {
+        return "支出登録: " + categoryId + " "
+               + std::to_string(amount) + "円";
+    }
 };
 
 ```
@@ -985,6 +990,10 @@ public:
     void undo() override {
         im.removeIncome(amount, categoryId);
     }
+    std::string describe() const override {
+        return "収入登録: " + categoryId + " "
+               + std::to_string(amount) + "円";
+    }
 };
 
 ```
@@ -993,16 +1002,20 @@ public:
 
 **次に、操作履歴を保持し、Undo/Redoを制御する仲介役クラスです。**
 
+実行ログ（`executionLog`）はシステム起動時は空で、操作が実行・取り消しされるたびに1件追記されます。`undoStack` とは異なり、削除されることなく全操作の記録として保持します。
+
 ```cpp
 // 操作履歴を保持し、Undo/Redoを制御する仲介役
 class ActionHistory {
     std::deque<IAction*> undoStack;
+    std::vector<std::string> executionLog;  // 実行ログ（追記のみ）
     std::deque<IAction*> redoStack;
     static const int MAX_HISTORY = 50;
 public:
     void execute(IAction* cmd) {
         cmd->execute();
         undoStack.push_back(cmd);
+        executionLog.push_back(cmd->describe());
         if ((int)undoStack.size() > MAX_HISTORY) {
             undoStack.pop_front();  // 最古のCommandを削除する
         }
@@ -1014,6 +1027,7 @@ public:
         IAction* cmd = undoStack.back();
         undoStack.pop_back();
         cmd->undo();
+        executionLog.push_back("取り消し: " + cmd->describe());
         redoStack.push_back(cmd);
     }
     void redo() {
@@ -1023,6 +1037,11 @@ public:
         redoStack.pop_back();
         cmd->execute();
         undoStack.push_back(cmd);
+    }
+    void printLog() const {
+        for (const auto& entry : executionLog) {
+            std::cout << entry << std::endl;
+        }
     }
     int historySize() const {
         return (int)undoStack.size();
@@ -1116,6 +1135,8 @@ int main() {
     std::cout << "ロールバック後の残高: "
               << im.totalIncome() - em.totalExpenses()
               << "円" << std::endl;
+    std::cout << "\n--- 操作履歴 ---\n";
+    hist.printLog();
     return 0;
 }
 ```

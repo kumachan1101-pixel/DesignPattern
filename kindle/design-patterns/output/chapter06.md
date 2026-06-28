@@ -983,10 +983,13 @@ IDrink* double_whip = new Whip(new Whip(new Coffee()));
 
 **IDrink インターフェース（契約）：**
 
+注文ログ（`OrderLog`）はシステム起動時は空で、注文が確定するたびに1件追記されます。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
+
 ```cpp
 #include <iostream>
 #include <string>
 #include <map>
+#include <vector>
 
 using namespace std;
 
@@ -1013,6 +1016,29 @@ public:
     MenuItem get(const string& id) const {
         return items.at(id);
     }
+};
+
+struct OrderRecord {
+    string itemId;
+    string description;  // 注文の説明（e.g. "ホットコーヒー + ミルク + シロップ"）
+    int totalPrice;
+};
+
+// 注文ログを管理するクラス
+class OrderLog {
+    vector<OrderRecord> records;
+public:
+    void add(const string& itemId, const string& description,
+             int totalPrice) {
+        records.push_back({itemId, description, totalPrice});
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            cout << "[" << r.itemId << "] " << r.description
+                 << " " << r.totalPrice << "円" << endl;
+        }
+    }
+    int size() const { return (int)records.size(); }
 };
 
 // ドリンクとしてのビジネス上の責任（契約）を示すインターフェース
@@ -1146,6 +1172,8 @@ private:
 
 public:
     void run() {
+        OrderLog log;
+
         // 存在しないメニューIDを指定した場合のエラー処理
         if (!validateMenu("DRINK999")) {
             // ← ここで処理を中断するか、次の注文に進むかを判断できる
@@ -1155,49 +1183,61 @@ public:
         if (!validateMenu("DRINK001")) return;
         IDrink* o1 = new Coffee();
         cout << o1->getDescription() << " → " << o1->getPrice() << "円" << endl;
+        log.add("DRINK001", o1->getDescription(), o1->getPrice());
         delete o1;
 
         // 行2：コーヒー + ミルク
         IDrink* o2 = new Milk(new Coffee());
         cout << o2->getDescription() << " → " << o2->getPrice() << "円" << endl;
+        log.add("DRINK001", o2->getDescription(), o2->getPrice());
         delete o2;
 
         // 行3：コーヒー + ミルク + シロップ
         IDrink* o3 = new Syrup(new Milk(new Coffee()));
         cout << o3->getDescription() << " → " << o3->getPrice() << "円" << endl;
+        log.add("DRINK001", o3->getDescription(), o3->getPrice());
         delete o3;
 
         // 行4：コーヒー + ミルク + ホイップ
         IDrink* o4 = new Whip(new Milk(new Coffee()));
         cout << o4->getDescription() << " → " << o4->getPrice() << "円" << endl;
+        log.add("DRINK001", o4->getDescription(), o4->getPrice());
         delete o4;
 
         // 行5：コーヒー + ホイップ × 2（ダブル）
         IDrink* o5 = new Whip(new Whip(new Coffee()));
         cout << o5->getDescription() << " → " << o5->getPrice() << "円" << endl;
+        log.add("DRINK001", o5->getDescription(), o5->getPrice());
         delete o5;
 
         // 行6：コーヒー + ミルク + シロップ + ホイップ
         IDrink* o6 = new Whip(new Syrup(new Milk(new Coffee())));
         cout << o6->getDescription() << " → " << o6->getPrice() << "円" << endl;
+        log.add("DRINK001", o6->getDescription(), o6->getPrice());
         delete o6;
 
         // 行7：コーヒー + ミルク + シロップ + ホイップ + 抹茶（全5種）
         IDrink* o7 = new Matcha(
             new Whip(new Syrup(new Milk(new Coffee()))));
         cout << o7->getDescription() << " → " << o7->getPrice() << "円" << endl;
+        log.add("DRINK001", o7->getDescription(), o7->getPrice());
         delete o7;
 
         // 行8：コーヒー + チョコ（変更要求で追加されたトッピング）
         IDrink* o8 = new Choco(new Coffee());
         cout << o8->getDescription() << " → " << o8->getPrice() << "円" << endl;
+        log.add("DRINK001", o8->getDescription(), o8->getPrice());
         delete o8;
 
         // 行9：コーヒー + ミルク + 抹茶 + チョコ（新トッピング2種の組み合わせ）
         IDrink* o9 = new Choco(
             new Matcha(new Milk(new Coffee())));
         cout << o9->getDescription() << " → " << o9->getPrice() << "円" << endl;
+        log.add("DRINK001", o9->getDescription(), o9->getPrice());
         delete o9;
+
+        cout << "\n--- 注文ログ ---\n";
+        log.printAll();
     }
 
     void testOrderCalculation() {

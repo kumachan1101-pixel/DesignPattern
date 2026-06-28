@@ -1095,6 +1095,34 @@ public:
 };
 ```
 
+チケットイベントログ（`TicketEventLog`）はシステム起動時は空で、チケットの作成・エスカレーション・解決・クローズのたびに1件追記されます。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
+
+```cpp
+struct TicketEvent {
+    std::string userId;
+    std::string userName;
+    std::string eventType;   // "チケット作成", "エスカレーション", "解決", "クローズ"
+    std::string priority;    // "low", "medium", "high", "critical"
+};
+
+// チケットイベントログを管理するクラス
+class TicketEventLog {
+    std::vector<TicketEvent> records;
+public:
+    void add(const std::string& userId, const std::string& userName,
+             const std::string& eventType, const std::string& priority) {
+        records.push_back({userId, userName, eventType, priority});
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << "[" << r.userId << "] " << r.userName
+                      << " " << r.eventType << " (" << r.priority << ")" << std::endl;
+        }
+    }
+    int size() const { return (int)records.size(); }
+};
+```
+
 **PremiumPriority と NormalPriority クラス**
 
 ```cpp
@@ -1255,6 +1283,7 @@ public:
         openPhase.setNext(&inProgressPhase);
         inProgressPhase.setNext(&resolvedPhase);
         resolvedPhase.setNext(&openPhase);
+        TicketEventLog ticketLog;
 
         // 行1: 鈴木（standard）が新規登録
         cout << "--- 行1: 鈴木（standard）が新規登録 ---" << endl;
@@ -1263,6 +1292,8 @@ public:
         if (!s1) return;
         TicketContext ctx1(&openPhase, s1);
         ctx1.execute(db.get("USR003").tier);
+        ticketLog.add("USR003", db.get("USR003").name,
+                      "チケット作成", "Normal");
 
         // 行2: 佐藤（premium）が新規登録
         cout << "--- 行2: 佐藤（premium）が新規登録 ---" << endl;
@@ -1271,18 +1302,29 @@ public:
         if (!s2) return;
         TicketContext ctx2(&openPhase, s2);
         ctx2.execute(db.get("USR002").tier);
+        ticketLog.add("USR002", db.get("USR002").name,
+                      "チケット作成", "High");
 
         // 行3: 受付中チケットに担当者をアサイン（Open→InProgress）
         cout << "--- 行3: 担当者アサイン ---" << endl;
         ctx1.transition(db.get("USR003").tier);
+        ticketLog.add("USR003", db.get("USR003").name,
+                      "エスカレーション", "Normal");
 
         // 行4: 担当者が解決（InProgress→Resolved）
         cout << "--- 行4: 担当者が解決 ---" << endl;
         ctx1.transition(db.get("USR003").tier);
+        ticketLog.add("USR003", db.get("USR003").name,
+                      "解決", "Normal");
 
         // 行5: 解決済みを鈴木が再オープン（Resolved→Open）
         cout << "--- 行5: 鈴木が再オープン ---" << endl;
         ctx1.transition(db.get("USR003").tier);
+        ticketLog.add("USR003", db.get("USR003").name,
+                      "クローズ", "Normal");
+
+        cout << "\n--- チケットイベントログ ---\n";
+        ticketLog.printAll();
     }
 };
 ```

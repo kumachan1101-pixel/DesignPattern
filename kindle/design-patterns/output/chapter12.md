@@ -1050,6 +1050,34 @@ public:
 
 `ApproverDatabase` は `BatchApplication` が唯一のインスタンスを保持し、`WorkflowManager` を組み立てる前にIDと権限額の検証に使います。
 
+承認ログ（`ApprovalLog`）はシステム起動時は空で、承認・却下・差し戻しが行われるたびに1件追記されます。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
+
+```cpp
+struct ApprovalRecord {
+    std::string approverId;    // "APR001", "APR002", "APR003"
+    std::string approverName;  // "田中部長", "佐藤取締役", "鈴木代表"
+    int amount;
+    std::string decision;      // "承認", "却下", "差し戻し"
+};
+
+// 承認ログを管理するクラス
+class ApprovalLog {
+    std::vector<ApprovalRecord> records;
+public:
+    void add(const std::string& approverId, const std::string& approverName,
+             int amount, const std::string& decision) {
+        records.push_back({approverId, approverName, amount, decision});
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << "[" << r.approverId << "] " << r.approverName
+                      << " " << r.amount << "円 -> " << r.decision << std::endl;
+        }
+    }
+    int size() const { return (int)records.size(); }
+};
+```
+
 **1. インターフェース定義（3つの変化軸）**
 
 ```cpp
@@ -1342,6 +1370,7 @@ class BatchApplication {
 
 public:
     void run() {
+        ApprovalLog approvalLog;
         ManagerApprovalRule managerRule;
         DirectorApprovalRule directorRule;
         ApplicantNotifier applicant;
@@ -1366,6 +1395,7 @@ public:
             wf1.addListener(&manager);
             wf1.setPhase(&draft);
             wf1.process(WorkflowEvent::SubmitNormal);
+            approvalLog.add("APR001", "田中 部長", 50000, "承認");
         }
 
         // 受入条件 行2：APR002（佐藤 取締役）が50万円の緊急申請を提出
@@ -1375,6 +1405,7 @@ public:
             wf2.addListener(&director);
             wf2.setPhase(&draft);
             wf2.process(WorkflowEvent::SubmitEmergency);
+            approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
         }
 
         // 受入条件 行3：APR001（田中 部長）が5万円申請を課長承認
@@ -1385,6 +1416,7 @@ public:
             wf3.addListener(&director);
             wf3.setPhase(&pending);
             wf3.process(WorkflowEvent::Approve, {50000});
+            approvalLog.add("APR001", "田中 部長", 50000, "承認");
         }
 
         // 受入条件 行4：APR002（佐藤 取締役）が50万円申請を部長承認
@@ -1396,6 +1428,7 @@ public:
             wf4.addListener(&finance);
             wf4.setPhase(&priorityPending);
             wf4.process(WorkflowEvent::Approve, {500000});
+            approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
         }
 
         // 受入条件 行5：APR001（田中 部長）が5万円申請を却下
@@ -1405,6 +1438,7 @@ public:
             wf5.addListener(&applicant);
             wf5.setPhase(&pending);
             wf5.process(WorkflowEvent::Reject);
+            approvalLog.add("APR001", "田中 部長", 50000, "却下");
         }
 
         // 受入条件 行6：APR002（佐藤 取締役）が50万円申請を部長最終承認
@@ -1417,6 +1451,7 @@ public:
             wf6.addListener(&finance);
             wf6.setPhase(&approved);
             wf6.process(WorkflowEvent::FinalApprove, {500000});
+            approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
         }
 
         // 受入条件 行7：再申請（金額検証なし）
@@ -1425,6 +1460,7 @@ public:
         wf7.addListener(&manager);
         wf7.setPhase(&rejected);
         wf7.process(WorkflowEvent::Resubmit);
+        approvalLog.add("APR001", "田中 部長", 0, "差し戻し");
 
         // エラーケース：存在しないID
         cout << "--- エラー例1: 不正な承認者ID ---" << endl;
@@ -1433,6 +1469,9 @@ public:
         // エラーケース：上限超過（APR001の上限は10万円）
         cout << "--- エラー例2: 承認上限超過 ---" << endl;
         validateApprover("APR001", 200000);
+
+        cout << "\n--- 承認ログ ---\n";
+        approvalLog.printAll();
     }
 };
 

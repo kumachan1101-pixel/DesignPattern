@@ -846,6 +846,34 @@ public:
 
 `ProcessorRegistry` はデータ層として機能します。決済手段の有効・無効や手数料率の変更はこのクラスだけを修正すれば済み、Factory Methodの生成ロジックには影響しません。
 
+決済ログ（`PaymentLog`）はシステム起動時は空で、決済処理が実行されるたびに結果を1件追記します。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
+
+```cpp
+struct PaymentRecord {
+    std::string method;       // "credit_card", "bank_transfer", etc.
+    std::string methodName;   // "クレジットカード", "銀行振込", etc.
+    int amount;
+    std::string status;       // "成功", "失敗"
+};
+
+// 決済ログを管理するクラス
+class PaymentLog {
+    std::vector<PaymentRecord> records;
+public:
+    void add(const std::string& method, const std::string& methodName,
+             int amount, const std::string& status) {
+        records.push_back({method, methodName, amount, status});
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << "[" << r.method << "] " << r.methodName
+                      << " " << r.amount << "円 -> " << r.status << std::endl;
+        }
+    }
+    int size() const { return (int)records.size(); }
+};
+```
+
 **2. 個別の決済プロセッサーの実装（具体）**
 インターフェースを満たす具体的な決済クラスを作成します。本体コードに触れることなく、このクラス群だけを自由に追加・変更できます。
 
@@ -934,17 +962,24 @@ protected:
 ```cpp
 int main() {
     DefaultPaymentApplication app;  // ← 具体的な生成担当を選ぶのはここだけ
+    PaymentLog payLog;
 
     // 正常ケース
     app.processPayment("credit_card", 1000);
+    payLog.add("credit_card", "クレジットカード", 1000, "成功");
+
     app.processPayment("paypay", 700);     // ← 新しい決済手段も呼び出せる
+    payLog.add("paypay", "PayPay", 700, "成功");
+
     app.processPayment("convenience", 500);
+    payLog.add("convenience", "コンビニ払い", 500, "成功");
 
     // エラーケース：無効な決済方法
     try {
         app.processPayment("crypto", 300); // isActive == false
     } catch (const invalid_argument& e) {
         cout << "エラー：" << e.what() << endl;
+        payLog.add("crypto", "暗号通貨", 300, "失敗");
     }
 
     // エラーケース：未登録の決済方法
@@ -952,7 +987,11 @@ int main() {
         app.processPayment("unknown", 200);
     } catch (const invalid_argument& e) {
         cout << "エラー：" << e.what() << endl;
+        payLog.add("unknown", "不明", 200, "失敗");
     }
+
+    cout << "\n--- 決済ログ ---\n";
+    payLog.printAll();
 
     return 0;
 }
@@ -966,6 +1005,13 @@ PayPayで 700 円決済しました。
 コンビニで 500 円の支払い番号を発行しました。
 エラー：暗号通貨 は現在無効です。
 エラー：未登録の決済方法です: unknown
+
+--- 決済ログ ---
+[credit_card] クレジットカード 1000円 -> 成功
+[paypay] PayPay 700円 -> 成功
+[convenience] コンビニ払い 500円 -> 成功
+[crypto] 暗号通貨 300円 -> 失敗
+[unknown] 不明 200円 -> 失敗
 ```
 
 掲載した実行結果から、新しく追加したPayPay決済も含めて、すべての正常ケースが正しく処理されています。さらにレジストリを通じた2種類のエラー条件——無効な決済方法と未登録の決済方法——が `processPayment` の骨格に手を加えることなく表現できています。`processPayment` の中から具体的な決済手段のクラス名（`CreditCardProcessor` 等）は完全に排除されており、インターフェースを通じた決済の呼び出しに統一されました。

@@ -982,6 +982,33 @@ public:
 };
 ```
 
+バッチ実行ログ（`BatchLog`）はシステム起動時は空で、バッチが実行されるたびに結果を1件追記します。無効パートナーのスキップも記録します。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
+
+```cpp
+struct BatchRecord {
+    std::string partnerId;
+    std::string partnerName;
+    std::string status;   // "成功", "失敗", "スキップ（無効）"
+};
+
+// バッチ実行ログを管理するクラス
+class BatchLog {
+    std::vector<BatchRecord> records;
+public:
+    void add(const std::string& partnerId, const std::string& partnerName,
+             const std::string& status) {
+        records.push_back({partnerId, partnerName, status});
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << "[" << r.partnerId << "] " << r.partnerName
+                      << " -> " << r.status << std::endl;
+        }
+    }
+    int size() const { return (int)records.size(); }
+};
+```
+
 `INotifier` を定義することで、通知先ごとの送信方法を個別クラスへ分けられます。新しい通知先を利用するときは、このインターフェースを実装したクラスを追加し、組み立て箇所で登録します。
 
 次に、連携先クライアントのインターフェースと実装を定義します。
@@ -1126,6 +1153,7 @@ class BatchApplication {
 
 public:
     void run() {
+        BatchLog batchLog;
         SlackNotifier slack;
         LogNotifier log;
         SystemAClientCreator creatorA;
@@ -1138,6 +1166,9 @@ public:
             BatchExecutor executorA;
             executorA.addNotifier(&slack);
             executorA.execute(&creatorA, cfgA.name + " 連携完了");
+            batchLog.add("PARTNER_A", cfgA.name, "成功");
+        } else {
+            batchLog.add("PARTNER_A", "物流会社A", "失敗");
         }
 
         cout << "--- 行3: D社日次バッチ（新規連携先） ---" << endl;
@@ -1146,6 +1177,9 @@ public:
             BatchExecutor executorD;
             executorD.addNotifier(&slack);
             executorD.execute(&creatorD, "D社連携完了");
+            batchLog.add("PARTNER_D", "D社", "成功");
+        } else {
+            batchLog.add("PARTNER_D", "D社", "失敗");
         }
 
         cout << "--- 行4: B社手動トリガー ---" << endl;
@@ -1155,6 +1189,9 @@ public:
             ManualTriggerController manual(bClient);
             manual.addNotifier(&slack);
             manual.triggerSync("B");
+            batchLog.add("PARTNER_B", cfgB.name, "成功");
+        } else {
+            batchLog.add("PARTNER_B", "決済会社B", "失敗");
         }
 
         cout << "--- 行6: B社バッチ（Slack＋ログ基盤） ---" << endl;
@@ -1164,10 +1201,19 @@ public:
             executorB.addNotifier(&slack);
             executorB.addNotifier(&log);
             executorB.execute(&creatorB, cfgB.name + " 連携完了");
+            batchLog.add("PARTNER_B", cfgB.name, "成功");
+        } else {
+            batchLog.add("PARTNER_B", "決済会社B", "失敗");
         }
 
         cout << "--- 無効パートナーC社の実行試行 ---" << endl;
-        validate("PARTNER_C"); // isEnabled==false のためエラー
+        if (!validate("PARTNER_C")) {
+            PartnerConfig cfgC = db.get("PARTNER_C");
+            batchLog.add("PARTNER_C", cfgC.name, "スキップ（無効）");
+        }
+
+        cout << "\n--- バッチ実行ログ ---\n";
+        batchLog.printAll();
     }
 };
 

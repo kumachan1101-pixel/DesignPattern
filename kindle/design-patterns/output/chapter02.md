@@ -54,13 +54,13 @@
 
 仕様を定義したところで、実際にどのような入力に対してどのような結果が返るかを確認します。このテーブルは「このシステムが正しく動いているとはどういう状態か」の基準になります。後で設計の改善（リファクタリング）を段階的に進めるときも、この表に立ち返ります。
 
-| 振り込み先口座 | 送金金額 | 結果 | 適用ルール |
-|---|---|---|---|
-| 12345678（有効） | 5,000円（残高十分） | 振り込み完了 | 口座確認→残高確認→認証→送金 |
-| 99999999（存在しない） | 5,000円 | エラー：口座なし | 口座確認で中止 |
-| 12345678（有効） | 1,000,000円（残高不足） | エラー：残高不足 | 残高確認で中止 |
-| 12345678（有効） | 5,000円（残高十分） | エラー：認証失敗 | 認証コード検証で中止 |
-| 87654321（有効・バッチ） | 30,000円（残高十分） | 振り込み完了（OTP不要） | 口座確認→残高確認→送金（バッチ処理は事前に社内承認が完了しているため、OTPによる追加認証が不要） |
+| 送金元口座 | 振り込み先口座 | 送金金額 | 結果 | 適用ルール |
+|---|---|---|---|---|
+| ACC001 田中一郎（残高150,000円） | ACC002 佐藤花子（有効） | 5,000円 | 振り込み完了 | 口座確認→残高確認→認証→送金 |
+| ACC001 田中一郎（残高150,000円） | UNKNOWN（存在しない） | 5,000円 | エラー：口座なし | 口座確認で中止 |
+| ACC001 田中一郎（残高150,000円） | ACC002 佐藤花子（有効） | 1,000,000円 | エラー：残高不足 | 残高150,000円 < 1,000,000円のため残高確認で中止 |
+| ACC001 田中一郎（残高150,000円） | ACC002 佐藤花子（有効） | 5,000円 | エラー：認証失敗 | 認証コード検証で中止 |
+| ACC003 鈴木次郎（残高500,000円）【バッチ】 | ACC002 佐藤花子（有効） | 30,000円 | 振り込み完了（OTP不要） | 口座確認→残高確認→送金（バッチは事前承認済みのためOTP不要） |
 
 コードを読む前に、このシステムが「何をする必要があるか」をこの表で確認できました。次は「どのように実装されているか」を見ていきます。
 
@@ -68,7 +68,22 @@
 
 ### 1-3：クラス構成図
 
-コードを読んだところで、クラス間の関係を図で整理します。
+#### このシステムの登場クラス
+
+| クラス名 | 役割 | 担当する仕様 |
+|---|---|---|
+| AccountDatabase | 口座データの保持・検索・残高更新 | 口座存在確認・残高照会・入出金 |
+| TransferRecord | 振り込み1件分のデータ | 振り込み履歴の1レコード |
+| TransferHistory | 振り込み履歴の管理 | 成功した振り込みの記録・一覧表示 |
+| TransferProcessor | 個別振り込みフロー進行 | 仕様全体 |
+| BatchTransferProcessor | 一括振り込み（バッチ）進行 | 複数の振り込みの呼び出し |
+| BankGateway | 銀行API通信 | 仕様①、②、④ |
+| SecurityAuthenticator | 認証制御 | 仕様③ |
+
+データの流れ：BatchTransferProcessor → TransferProcessor → BankGateway / SecurityAuthenticator → 外部API
+この章で注目するポイント：振り込み業務の流れと、銀行APIの呼び出し手順がどのように結びついているか
+
+各クラスの役割を把握したところで、クラス間の関係を図で整理します。
 
 ```mermaid
 classDiagram
@@ -105,19 +120,6 @@ classDiagram
 ---
 
 ### 1-4：実装コード（現状）
-
-#### このシステムの登場クラス
-
-| クラス名 | 役割 | 担当する仕様 |
-|---|---|---|
-| AccountDatabase | 口座データの保持・検索 | 口座存在確認・残高照会 |
-| TransferProcessor | 個別振り込みフロー進行 | 仕様全体 |
-| BatchTransferProcessor | 一括振り込み（バッチ）進行 | 複数の振り込みの呼び出し |
-| BankGateway | 銀行API通信 | 仕様①、②、④ |
-| SecurityAuthenticator | 認証制御 | 仕様③ |
-
-データの流れ：BatchTransferProcessor → TransferProcessor → BankGateway / SecurityAuthenticator → 外部API
-この章で注目するポイント：振り込み業務の流れと、銀行APIの呼び出し手順がどのように結びついているか
 
 
 #### 銀行システムと通信するクラス群
@@ -165,6 +167,14 @@ public:
     AccountInfo get(const std::string& id) const {
         return records.at(id);
     }
+
+    void withdraw(const std::string& id, int amount) {
+        records[id].balance -= amount;
+    }
+
+    void deposit(const std::string& id, int amount) {
+        records[id].balance += amount;
+    }
 };
 
 // 銀行との通信を担うクラス
@@ -196,6 +206,45 @@ public:
 
 `BankGateway` と `SecurityAuthenticator` は、それぞれ銀行APIとの通信・認証の詳細を担う専門クラスです。
 
+次に、振り込み履歴を管理するクラスを見ます。
+
+振り込み履歴はシステム起動時は空で、振り込みが成功するたびに1件追記されます。
+
+```cpp
+// 振り込み1件分のデータを保持する構造体
+struct TransferRecord {
+    std::string fromId;
+    std::string fromName;
+    std::string toId;
+    std::string toName;
+    int amount;
+};
+
+// 振り込み履歴を管理するクラス
+class TransferHistory {
+private:
+    std::vector<TransferRecord> records;
+public:
+    void add(const std::string& fromId,
+             const std::string& fromName,
+             const std::string& toId,
+             const std::string& toName,
+             int amount) {
+        records.push_back(
+            {fromId, fromName, toId, toName, amount});
+    }
+
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << r.fromName << " → " << r.toName
+                      << " : " << r.amount << "円\n";
+        }
+    }
+};
+```
+
+`TransferHistory` は振り込みが成功するたびに `add()` で1件追記され、`printAll()` で全履歴を出力します。
+
 #### 振り込み処理クラス
 
 次に、振り込みの全体フローを管理するクラスを見ます。
@@ -205,11 +254,13 @@ public:
 class TransferProcessor {
 private:
     AccountDatabase& db;
+    TransferHistory& history;
     BankGateway gateway;
     SecurityAuthenticator auth;
 public:
-    TransferProcessor(AccountDatabase& database)
-        : db(database) {}
+    TransferProcessor(AccountDatabase& database,
+                      TransferHistory& hist)
+        : db(database), history(hist) {}
 
     bool transfer(
         const std::string& fromAccount,
@@ -235,6 +286,13 @@ public:
         if (!auth.verifyOTP(otp)) return false;
 
         gateway.executeTransfer(toAccount, amount);
+        db.withdraw(fromAccount, amount);
+        db.deposit(toAccount, amount);
+        history.add(fromAccount,
+                    db.get(fromAccount).ownerName,
+                    toAccount,
+                    db.get(toAccount).ownerName,
+                    amount);
         std::cout << "振り込み完了\n";
         return true;
     }
@@ -259,6 +317,13 @@ public:
         std::cout << "口座確認: " << toAccount << "\n";
         std::cout << "残高確認\n";
         gateway.executeTransfer(toAccount, amount);
+        db.withdraw(fromAccount, amount);
+        db.deposit(toAccount, amount);
+        history.add(fromAccount,
+                    db.get(fromAccount).ownerName,
+                    toAccount,
+                    db.get(toAccount).ownerName,
+                    amount);
         std::cout << "振り込み完了（OTP不要）\n";
         return true;
     }
@@ -269,8 +334,9 @@ class BatchTransferProcessor {
 private:
     TransferProcessor processor;
 public:
-    BatchTransferProcessor(AccountDatabase& database)
-        : processor(database) {}
+    BatchTransferProcessor(AccountDatabase& database,
+                           TransferHistory& hist)
+        : processor(database, hist) {}
 
     void processPayroll(
             const std::string& fromAccount,
@@ -296,7 +362,8 @@ public:
 ```cpp
 int main() {
     AccountDatabase db;
-    TransferProcessor processor(db);
+    TransferHistory history;
+    TransferProcessor processor(db, history);
 
     // ACC001（田中 一郎、残高15万円）から ACC002（佐藤 花子）へ送金
     std::cout << "--- 行1: 正常な個別振り込み ---\n";
@@ -315,11 +382,14 @@ int main() {
 
     // ACC003（鈴木 次郎、残高50万円）から ACC002 へバッチ送金
     std::cout << "--- 行5: 社内承認済みバッチ ---\n";
-    BatchTransferProcessor batch(db);
+    BatchTransferProcessor batch(db, history);
     std::vector<std::pair<std::string, int>> payroll = {
         {"ACC002", 30000}
     };
     batch.processPayroll("ACC003", payroll);
+
+    std::cout << "\n--- 振り込み履歴 ---\n";
+    history.printAll();
 
     return 0;
 }
@@ -350,6 +420,10 @@ int main() {
 残高確認
 送金実行: 30000円
 振り込み完了（OTP不要）
+
+--- 振り込み履歴 ---
+田中 一郎 → 佐藤 花子 : 5000円
+鈴木 次郎 → 佐藤 花子 : 30000円
 ```
 
 動作例テーブルの全5行について、成功時の処理順、失敗時の中止位置、
@@ -994,6 +1068,14 @@ public:
     AccountInfo get(const std::string& id) const {
         return records.at(id);
     }
+
+    void withdraw(const std::string& id, int amount) {
+        records[id].balance -= amount;
+    }
+
+    void deposit(const std::string& id, int amount) {
+        records[id].balance += amount;
+    }
 };
 
 // 銀行との通信を担うクラス（サブシステム1）
@@ -1023,7 +1105,43 @@ public:
 };
 ```
 
-**2. 窓口となるインターフェースとFacade実装**
+**2. 振り込み履歴**
+振り込み履歴はシステム起動時は空で、振り込みが成功するたびに1件追記されます。
+
+```cpp
+// 振り込み1件分のデータを保持する構造体
+struct TransferRecord {
+    std::string fromId;
+    std::string fromName;
+    std::string toId;
+    std::string toName;
+    int amount;
+};
+
+// 振り込み履歴を管理するクラス
+class TransferHistory {
+private:
+    std::vector<TransferRecord> records;
+public:
+    void add(const std::string& fromId,
+             const std::string& fromName,
+             const std::string& toId,
+             const std::string& toName,
+             int amount) {
+        records.push_back(
+            {fromId, fromName, toId, toName, amount});
+    }
+
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << r.fromName << " → " << r.toName
+                      << " : " << r.amount << "円\n";
+        }
+    }
+};
+```
+
+**3. 窓口となるインターフェースとFacade実装**
 業務フロー側に見せる窓口インターフェースと、銀行APIの複雑な手順を隠蔽するFacade実装です。契約が保たれる別実装やテスト用実装は、組み立て箇所で差し替えられます。
 
 ```cpp
@@ -1044,11 +1162,13 @@ public:
 class BankTransferService : public IBankTransferService {
 private:
     AccountDatabase& db;
+    TransferHistory& history;
     BankGateway gateway;
     SecurityAuthenticator auth;
 public:
-    BankTransferService(AccountDatabase& database)
-        : db(database) {}
+    BankTransferService(AccountDatabase& database,
+                        TransferHistory& hist)
+        : db(database), history(hist) {}
 
     bool performTransfer(
             const std::string& fromAccount,
@@ -1073,6 +1193,13 @@ public:
         std::string txId = auth.requestOTP();
         auth.verifyOTP(otp, txId);
         gateway.executeTransfer(toAccount, amount, txId);
+        db.withdraw(fromAccount, amount);
+        db.deposit(toAccount, amount);
+        history.add(fromAccount,
+                    db.get(fromAccount).ownerName,
+                    toAccount,
+                    db.get(toAccount).ownerName,
+                    amount);
         return true;
     }
 
@@ -1097,6 +1224,13 @@ public:
         std::cout << "残高確認\n";
         gateway.executeTransfer(toAccount, amount,
                                 "APPROVED-BATCH");
+        db.withdraw(fromAccount, amount);
+        db.deposit(toAccount, amount);
+        history.add(fromAccount,
+                    db.get(fromAccount).ownerName,
+                    toAccount,
+                    db.get(toAccount).ownerName,
+                    amount);
         return true;
     }
 };
