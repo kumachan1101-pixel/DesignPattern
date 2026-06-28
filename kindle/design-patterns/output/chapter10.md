@@ -26,16 +26,22 @@
 
 当初は単一の外部連携先に対してデータを転送するだけのシンプルな構成でしたが、現在は連携先が3社に増え、それぞれが独自のデータフォーマットと接続認証を要求しています。加えて、データの転送完了後に在庫管理システムや社内通知サービスへ「処理完了」を通知する機能も追加されました。
 
-バッチ処理の中枢となるクラスが、すべての連携先との通信制御、データ変換、完了後の通知処理をすべて抱え込んでいます。連携先が増えるたびにその処理が追加されています。このコードがこれまで事業を支えてきた事実は尊重しつつ、現状を整理していきましょう。
+バッチ処理の中枢となる部分が、すべての連携先との通信制御、データ変換、完了後の通知処理をすべて抱え込んでいます。連携先が増えるたびにその処理が追加されています。この仕組みがこれまで事業を支えてきた事実は尊重しつつ、現状を整理していきましょう。
 
 **現在の連携先システム一覧**
+
+連携先ごとに接続方式や認証方法が異なるのは、外部企業との連携では珍しくありません。各社がそれぞれ独自のAPIを持っており、こちら側がその仕様に合わせる必要があるためです。バッチ種別（月次・手動）も、業務の性質によって決まります。月次バッチは「月末締め処理」、手動トリガーは「緊急の在庫修正」など、業務上の都合を反映したものです。
 
 | 連携先 | 役割 | バッチ種別 | 接続方式 |
 |---|---|---|---|
 | A社（物流管理） | 注文データの同期 | 月次バッチ | REST API（トークン認証） |
 | B社（在庫管理） | 在庫情報の同期 | 手動トリガー | REST API（APIキー認証） |
 
+連携先が2社だと管理しやすく見えますが、ビジネスの拡大に伴って「C社も追加」「D社とも連携」という要求は現実によく起きます。最初に設計の境界を引かないまま追加していくと、処理が複雑になっていく典型的な例です。
+
 **バッチ処理の流れ**
+
+「認証→取得→送信→通知」という4ステップの流れは、外部API連携では一般的な構成です。認証を毎回行うのは、セキュリティ上の理由からセッションを使い捨てにする設計が外部連携では多いためです。完了通知のステップは「転送が成功したかどうかを関係者が知る手段」として存在しており、運用上の監視や障害対応に欠かせません。
 
 | ステップ | 処理内容 |
 |---|---|
@@ -44,13 +50,22 @@
 | ③ データ送信 | 連携先のフォーマットに変換してAPIへ送信する |
 | ④ 完了通知 | 処理完了を在庫管理システム・社内通知サービスへ通知する |
 
-**このシステムの関係者**
+このフロー自体はどの連携先でも変わらない「不変の骨格」です。一方、各ステップの中身（どの会社のAPIに接続するか、どのサービスへ通知するか）は連携先ごとに変わります。この「変わらない流れ」と「変わる中身」の分離が、この章の核心になります。
 
-| 役割 | 担当者 | 管轄する知識 |
-|---|---|---|
-| 連携先との窓口・通信仕様 | インフラ担当・A社窓口担当 | 各連携先のAPIプロトコル・認証方式 |
-| システム全体の構成管理 | 全体設計者 | 通知サービスの選定・生成方針 |
-| 通知先・通知内容の決定 | 通知先担当チーム | 通知先の一覧・通知文面のルール |
+**変化の軸と業務機能**
+
+変化の軸が複数あるのは、「どの業務機能が何の知識を持つか」が分かれているからです。インフラ・システム管理の領域はAPIのプロトコルを知っており、通知・連携管理の領域は通知文面のルールを知っています。この知識の分散は業務上自然なことですが、それぞれの業務機能の判断が変わるたびに同じ箇所を修正することになると、設計上の問題になります。
+
+**変化の軸**
+| 業務機能 | 変わりやすいルール |
+|---|---|
+| インフラ・システム管理 | 各連携先のAPIプロトコル・認証方式 |
+| システム設計・生成管理 | 通知サービスの選定・生成方針 |
+| 通知・連携管理 | 通知先の一覧・通知文面のルール |
+
+変化の軸が3つに分かれているということは、変更の理由も3つの異なる方向から来るということです。「A社のAPI仕様が変わった（インフラ・システム管理の領域）」「Slackを通知先に追加したい（通知・連携管理の領域）」「新しいC社を連携先に追加する（システム設計・生成管理の領域）」——これらは互いに無関係な変更です。この事実が、後のフェーズで「3つの変化軸」として問題の核心になります。
+
+後のフェーズで「どの業務機能に属する知識か」を確認するとき、この変化の軸が基準になります。
 
 ### 1-2：動作例テーブル
 
@@ -74,6 +89,7 @@
 | BatchExecutor | 全体のバッチ実行・処理の制御 | 対象システムへのデータ送信処理と結果通知の統括 |
 | SystemAClient / SystemBClient | 各連携先へのデータ送信 | 各外部システムに合わせたデータ送信 |
 | NotificationService | 連携完了の通知 | バッチ実行完了の通知 |
+| PartnerDatabase | パートナー設定の管理 | パートナーIDの存在確認・有効フラグ・設定情報の提供 |
 
 ---
 
@@ -84,20 +100,20 @@
 ```mermaid
 classDiagram
     class BatchExecutor {
-        +execute(targetId)
+        +execute(string targetId)
     }
     class SystemAClient {
-        +send(data)
+        +send(string data)
     }
     class SystemBClient {
-        +send(data)
+        +send(string data)
     }
     class NotificationService {
-        +notify(result)
+        +notify(string result)
     }
-    BatchExecutor --> SystemAClient : uses
-    BatchExecutor --> SystemBClient : uses
-    BatchExecutor --> NotificationService : uses
+    BatchExecutor ..> SystemAClient : uses
+    BatchExecutor ..> SystemBClient : uses
+    BatchExecutor ..> NotificationService : uses
 ```
 
 ---
@@ -106,13 +122,52 @@ classDiagram
 
 連携処理の起点となる `BatchExecutor` の様子です。
 
+このシステムには以下の3件のパートナーデータがあらかじめ登録されています。
+
+| パートナーID | 名称 | 有効 |
+|---|---|---|
+| PARTNER_A | 物流会社A | ✓ |
+| PARTNER_B | 決済会社B | ✓ |
+| PARTNER_C | 分析会社C | ✗（無効） |
+
+無効なパートナーや未登録のIDを指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
+
 ```cpp
 #include <iostream>
-#include <memory>
 #include <string>
 #include <vector>
+#include <map>
 
 using namespace std;
+
+struct PartnerConfig {
+    string name;      // パートナー名
+    string endpoint;  // エンドポイント（概念上）
+    bool isEnabled;   // 連携有効フラグ
+};
+
+class PartnerDatabase {
+private:
+    map<string, PartnerConfig> records;
+public:
+    PartnerDatabase() {
+        records["PARTNER_A"] = {"物流会社A", "logistics-a.example",  true};
+        records["PARTNER_B"] = {"決済会社B", "payment-b.example",    true};
+        records["PARTNER_C"] = {"分析会社C", "analytics-c.example",  false}; // 無効
+    }
+
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+
+    bool isEnabled(const string& id) const {
+        return records.at(id).isEnabled;
+    }
+
+    PartnerConfig get(const string& id) const {
+        return records.at(id);
+    }
+};
 
 class SystemAClient {
 public:
@@ -128,17 +183,30 @@ public:
 };
 
 class BatchExecutor {
+    PartnerDatabase db;
 public:
-    void execute(string targetId) {
-        if (targetId == "A") {
+    void execute(string partnerId) {
+        if (!db.exists(partnerId)) {
+            cout << "エラー: パートナーID [" << partnerId
+                 << "] はデータベースに登録されていません。" << endl;
+            return;
+        }
+        if (!db.isEnabled(partnerId)) {
+            PartnerConfig cfg = db.get(partnerId);
+            cout << "エラー: パートナー [" << cfg.name
+                 << "] は現在無効です。処理を中断します。" << endl;
+            return;
+        }
+        PartnerConfig cfg = db.get(partnerId);
+        if (partnerId == "PARTNER_A") {
             SystemAClient client; // ← 生成と利用が混在
             client.send("data");
-        } else if (targetId == "B") {
+        } else if (partnerId == "PARTNER_B") {
             SystemBClient client; // ← 生成と利用が混在
             client.send("data");
         }
         NotificationService notifier; // ← 処理ごとに通知の知識も混在
-        notifier.notify("Success");
+        notifier.notify(cfg.name + " 連携完了");
     }
 };
 
@@ -146,10 +214,16 @@ int main() {
     BatchExecutor executor;
 
     // 行1: A社向け月次バッチを実行する
-    executor.execute("A");
+    executor.execute("PARTNER_A");
 
     // 行4: B社向けデータ同期を手動で実行する
-    executor.execute("B");
+    executor.execute("PARTNER_B");
+
+    // 無効パートナーの実行（C社は isEnabled==false）
+    executor.execute("PARTNER_C");
+
+    // 未登録パートナーの実行
+    executor.execute("PARTNER_X");
 
     return 0;
 }
@@ -159,9 +233,11 @@ int main() {
 
 ```
 A社へ送信: data
-完了通知: Success
+完了通知: 物流会社A 連携完了
 B社へ送信: data
-完了通知: Success
+完了通知: 決済会社B 連携完了
+エラー: パートナー [分析会社C] は現在無効です。処理を中断します。
+エラー: パートナーID [PARTNER_X] はデータベースに登録されていません。
 ```
 
 > [!NOTE]
@@ -204,18 +280,18 @@ B社へ送信: data
 
 フェーズ1で、`BatchExecutor` が連携先クライアントの生成・通信・通知処理をすべて直接保持している現状を把握しました。届いた変更要求を踏まえ、この設計における変動と不変を整理します。
 
-### 2-1：`BatchExecutor`に混在している知識と担当チーム
+### 2-1：変わりそうな仕様の見当をつける
 
-`BatchExecutor.execute()` が現在抱えている知識と、それぞれを変更する担当者を確認します。
+フェーズ1の仕様表を振り返ります。このバッチシステムには「外部連携」「通知」「バッチ制御フロー」という3つの側面があります。このうち変化が予想される仕様があります。
 
-| 知識（コードが直接持っているもの） | 変更を決める担当者 | 適切か |
-|---|---|---|
-| バッチ実行の全体制御フロー | バッチシステム開発チーム | ✅ |
-| A社連携先の識別・クライアント生成 | インフラ担当・A社窓口担当 | ❌ 混在 |
-| A社特有の通信プロトコル知識 | A社窓口担当 | ❌ 混在 |
-| 通知サービスの生成・通知内容 | 全体設計者 / 通知先担当チーム | ❌ 混在 |
+- **外部連携先の種類と通信仕様**（A社・B社・C社、それぞれのAPIプロトコル）：ビジネス拡大に伴い新しい連携先が追加されることがあります。今回のC社追加がその例です
+- **通知先の種類**（メール・Slack・ログ収集基盤など）：業務の運用方法が変わるにつれて、通知先も追加・変更されます
 
-❌が3つある。「連携先の生成」「通信の詳細」「通知の仕組み」——それぞれが独立した変化軸で、異なる担当者が変更を決めます。これが後の変更の痛みの予兆です。
+一方、「バッチを実行して結果を通知する」という全体制御フローは、バッチ処理の基本として安定している部分です。
+
+**仮説：外部連携先の種類と通知先の種類は、今後も追加・変更が続く可能性がある。**
+
+この仮説をヒアリングで確認します。
 
 ### 2-2：今回の変更で確実に変わること
 
@@ -234,7 +310,7 @@ B社へ送信: data
 
 今回の変更要求もその延長線上にあります。「今回はC社とSlack」で終わるかどうか——それをヒアリングで確認します。
 
-### 2-2：関係者ヒアリング
+### 2-3：関係者ヒアリング
 
 仮説を携え、運用担当者と協議を行いました。
 
@@ -250,9 +326,9 @@ B社へ送信: data
 
 ヒアリングにより、通信先（生成）の増殖と、通知処理（イベントの反応）の多様化が、それぞれ別個の変化軸であることが確実になりました。
 
-### 2-2：ヒアリングで判明した将来リスク
+### 2-4：ヒアリングで判明した将来リスク
 
-ヒアリングで判明した「将来起きるかもしれない」変化をまとめます。確定変更（2-3）とは別に管理することで、今回の設計判断と将来への備えを混在させずに済みます。
+ヒアリングで判明した「将来起きるかもしれない」変化をまとめます。確定変更（2-2）とは別に管理することで、今回の設計判断と将来への備えを混在させずに済みます。
 
 | **将来のリスク** | **変わる可能性がある箇所** | **根拠（誰が言ったか）** |
 | --- | --- | --- |
@@ -261,6 +337,21 @@ B社へ送信: data
 | バッチの実行フロー自体は変わらない | 不変 | 運用担当者「仕組み自体は変わらない」 |
 
 フェーズ2で「何が変わり、何が変わらないか」が確定しました。次のフェーズ3では、この変更要求を現在のコードで実行しようとすると何が起きるか、その痛みを確認します。
+
+### 2-5：将来の変更仕様の見通し
+
+ヒアリングで「D社・E社連携」と「メール・ログ基盤通知」の追加が予告されました。この変更が来たとき、仕様がどう変わるかを整理しておきます。
+
+| 変更内容 | 現在 | 将来（数ヶ月後） |
+|---|---|---|
+| SystemAClient（A社連携） | 対応済み | 変更なし |
+| SystemBClient（B社連携） | 対応済み | 変更なし |
+| SystemCClient（C社連携） | 今回追加 | 変更なし |
+| D社・E社連携 | —（なし） | 追加予定 |
+| Slack通知 | 今回追加 | 変更なし |
+| メール・ログ基盤通知 | —（なし） | 追加予定 |
+
+連携先と通知先が同時に増えると、`BatchExecutor` の 1 クラスに複数の変更軸が積み重なることになります。この痛みをフェーズ3で確認します。
 
 ---
 
@@ -378,8 +469,10 @@ graph LR
 
 ---
 > **📌 問題（確定）**
-> 外部連携バッチシステムでは、「連携先の追加」「通知先の追加」「生成方法の変更」という3つの変化が、それぞれ異なる担当者の判断で独立して発生する。どの変化が来ても `BatchExecutor` を開かなければならず、関係のない他の連携先ロジックや通知処理まで再テストを強いられる。
+> 外部連携バッチシステムでは、「連携先の追加」「通知先の追加」「生成方法の変更」という3つの変化が、それぞれ異なる業務機能によって独立して発生する。どの変化が来ても `BatchExecutor` を開かなければならず、関係のない他の連携先ロジックや通知処理まで再テストを強いられる。
 ---
+
+さらに、ヒアリングで予告された D社・E社の連携追加やログ基盤への通知も加わると、`BatchExecutor` の条件分岐がさらに増え、「連携」「通知」「生成」という 3 つの変更軸が 1 クラスにさらに積み重なることが見えてきます。ヒアリング段階ではまだ仕様が固まっていないため全コードを書ける状況ではありませんが、複数の変更軸が同じクラスに混在する構造は変わりません。
 
 フェーズ3で「今の構造では変更が辛い」という事実が確認できました。次のフェーズ4では、この痛みの原因を構造的に分析します。
 
@@ -482,6 +575,20 @@ void execute(string targetId) {
 > 解くべき課題は3つある。接続点Aでは、連携先クライアントの通信詳細（`SystemAClient` 等が持つ固有の送信処理）を `BatchExecutor` から切り離し、連携先が増えても `BatchExecutor` を変更しなくて済む構造にすること。接続点Bでは、通知先（`NotificationService` 等）を `BatchExecutor` から切り離し、通知先が増えても `BatchExecutor` を変更しなくて済む仕組みを持つこと。接続点Cでは、連携先クライアントの生成ロジックを `BatchExecutor` から切り離し、どのクライアントを生成するかを1か所で管理できるようにすること。
 ---
 
+### 変わるものを一緒に分離するか、分けて分離するか
+
+3 つの接続点がそれぞれ独立して変わることを確認します。
+
+| 変更軸 | 変わる理由 |
+|---|---|
+| A（通信）：SystemA/B/C との API | 各外部システムのAPI仕様変更（各社担当者） |
+| B（通知）：Slack / メール / ログ基盤 | 通知先の追加・変更（運用チーム） |
+| C（生成）：クライアントの生成ロジック | 連携先の増減（同じ開発チーム） |
+
+接続点Aでは各連携先が独立して変わります（A社のAPI変更がB社の処理に影響しない）。接続点Bでは各通知チャンネルが独立して変わります（Slack追加がメール通知に影響しない）。接続点Cの生成ロジックは連携先追加のたびに変わりますが、生成の仕組み自体は共通です。
+
+→ **接続点ごとに別パターンで分離し、3 軸が独立して変更できる構造にする**
+
 フェーズ5で「何を解くか」が確定しました。次のフェーズ6では、これらの課題に対して具体的にどのような構造が最適か、コストの観点からステップを検討します。
 
 ---
@@ -494,12 +601,12 @@ void execute(string targetId) {
 
 ---
 
-### ステップ1：外部API呼び出しを関数に切り出す（とりあえず分ける）
+### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
 
-はじめに最初に思いつく改善として、`execute()` の中身をプライベートメソッドに分けてみます。各処理の意図をメソッド名で表現することで、コードの読みやすさは向上します。
+はじめに最初に思いつく改善として、`execute()` の中身をプライベートメソッドに分けてみます。各連携先への送信処理と完了通知処理を、それぞれ独立したプライベートメソッドとして切り出すことで、各処理の意図をメソッド名で表現できます。
 
 ```cpp
-// ステップ1：プライベートメソッドで各分岐の責任を整理
+// ステップ1：各処理を独立したプライベートメソッドとして切り出す
 class BatchExecutor {
 public:
     void execute(string targetId) {
@@ -534,7 +641,11 @@ private:
 
 `execute()` が短くなり、各メソッドの意図は伝わりやすくなりました。しかし、各プライベートメソッドの中を見ると、依然として具体クラスを直接生成しています。知識の置き場所は変わっていません。
 
-**評価：** 読みやすさは向上したが、連携先が増えるたびに `BatchExecutor` に `sendToD()`、`sendToE()` と追加し続けなければならない。3つの関心（どのクライアントを生成するか・通信の詳細・通知の仕組み）は依然として混在している。
+**この段階の評価：** `sendToA()`・`sendToB()`・`sendToC()` はいずれも「クライアントを生成して `send("data")` を呼ぶ」という同じ構造を持っています。引数もなく、戻り値もなく、シグネチャが揃っています。この「複数のメソッドが同じシグネチャを持つ」という気づきは、次のステップで共通の抽象を見出す手がかりになります。また、`execute()` の制御フロー（どの連携先へ送るか）と、各メソッドの処理（実際の送信）が分離されてきており、「処理の実行と制御の判断を別のものとして扱える」という構造の芽が見えてきました。
+
+ただし、連携先が増えるたびに `BatchExecutor` に `sendToD()`・`sendToE()` と追加し続けなければならず、3つの関心（どのクライアントを生成するか・通信の詳細・通知の仕組み）は依然として混在しています。
+
+ここまでで「独立したメソッドに分けると共通の形が見えてくる」ことが確認できました。次のステップ2では、この共通構造をクラスレベルで整理し、依存の問題がどこに残るかを確認します。
 
 ---
 
@@ -723,27 +834,27 @@ public:
 class IClientCreator {
 public:
     virtual ~IClientCreator() = default;
-    virtual unique_ptr<IExternalClient> createClient() = 0;
+    virtual IExternalClient* createClient() = 0;
 };
 
 class SystemAClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return make_unique<SystemAClient>();
+    IExternalClient* createClient() override {
+        return new SystemAClient();
     }
 };
 
 class SystemBClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return make_unique<SystemBClient>();
+    IExternalClient* createClient() override {
+        return new SystemBClient();
     }
 };
 
 class SystemCClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return make_unique<SystemCClient>();
+    IExternalClient* createClient() override {
+        return new SystemCClient();
     }
 };
 
@@ -759,7 +870,6 @@ public:
         for (auto* notifier : notifiers) {
             notifier->onComplete("Success");
         }
-        delete client;
     }
 };
 ```
@@ -788,7 +898,6 @@ public:
 
 今回の決断はステップ6まで進めることです。フェーズ2のヒアリングで「外部連携先の追加（D社・E社）」と「通知方法の多様化（ログ基盤）」が確認されています。変更の決定者と頻度が異なる3つの責務について、外部連携の窓口、通知先の登録、Client生成の境界をそれぞれ明示する構造を採用します。
 
-> 実は、この章で選んだステップ6の各構造には名前があります。外部連携の窓口は **Facade パターン**、通知先の登録は **Observer パターン**、生成責任の分離は **Factory Method パターン** に対応します。パターン名を先に決めたのではなく、三つの問題へ別々に対策した結果として、この組み合わせになったという順序が大切です。
 
 ---
 
@@ -806,11 +915,40 @@ public:
 
 ```cpp
 #include <iostream>
-#include <memory>
 #include <string>
 #include <vector>
+#include <map>
 
 using namespace std;
+
+struct PartnerConfig {
+    string name;      // パートナー名
+    string endpoint;  // エンドポイント（概念上）
+    bool isEnabled;   // 連携有効フラグ
+};
+
+class PartnerDatabase {
+private:
+    map<string, PartnerConfig> records;
+public:
+    PartnerDatabase() {
+        records["PARTNER_A"] = {"物流会社A", "logistics-a.example",  true};
+        records["PARTNER_B"] = {"決済会社B", "payment-b.example",    true};
+        records["PARTNER_C"] = {"分析会社C", "analytics-c.example",  false}; // 無効
+    }
+
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+
+    bool isEnabled(const string& id) const {
+        return records.at(id).isEnabled;
+    }
+
+    PartnerConfig get(const string& id) const {
+        return records.at(id);
+    }
+};
 
 // 通知のインターフェース（Observer パターンの契約）
 class INotifier {
@@ -841,6 +979,33 @@ public:
     void onComplete(string result) {
         cout << "ログ基盤へ記録: " << result << endl;
     }
+};
+```
+
+バッチ実行ログ（`BatchLog`）はシステム起動時は空で、バッチが実行されるたびに結果を1件追記します。無効パートナーのスキップも記録します。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
+
+```cpp
+struct BatchRecord {
+    std::string partnerId;
+    std::string partnerName;
+    std::string status;   // "成功", "失敗", "スキップ（無効）"
+};
+
+// バッチ実行ログを管理するクラス
+class BatchLog {
+    std::vector<BatchRecord> records;
+public:
+    void add(const std::string& partnerId, const std::string& partnerName,
+             const std::string& status) {
+        records.push_back({partnerId, partnerName, status});
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << "[" << r.partnerId << "] " << r.partnerName
+                      << " -> " << r.status << std::endl;
+        }
+    }
+    int size() const { return (int)records.size(); }
 };
 ```
 
@@ -897,34 +1062,34 @@ public:
 class IClientCreator {
 public:
     virtual ~IClientCreator() = default;
-    virtual unique_ptr<IExternalClient> createClient() = 0;
+    virtual IExternalClient* createClient() = 0;
 };
 
 class SystemAClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return make_unique<SystemAClient>();
+    IExternalClient* createClient() override {
+        return new SystemAClient();
     }
 };
 
 class SystemBClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return make_unique<SystemBClient>();
+    IExternalClient* createClient() override {
+        return new SystemBClient();
     }
 };
 
 class SystemCClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return make_unique<SystemCClient>();
+    IExternalClient* createClient() override {
+        return new SystemCClient();
     }
 };
 
 class SystemDClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return make_unique<SystemDClient>();
+    IExternalClient* createClient() override {
+        return new SystemDClient();
     }
 };
 ```
@@ -942,7 +1107,7 @@ public:
 
     void execute(IClientCreator* creator, string completionMessage) {
         // Factory Methodを抽象Creator経由で呼び出す
-        auto client = creator->createClient();
+        IExternalClient* client = creator->createClient();
         client->send("data");
         for (auto* notifier : notifiers) {
             notifier->onComplete(completionMessage);
@@ -969,8 +1134,26 @@ public:
 };
 
 class BatchApplication {
+    PartnerDatabase db;
+
+    bool validate(const string& partnerId) {
+        if (!db.exists(partnerId)) {
+            cout << "エラー: パートナーID [" << partnerId
+                 << "] はデータベースに登録されていません。" << endl;
+            return false;
+        }
+        if (!db.isEnabled(partnerId)) {
+            PartnerConfig cfg = db.get(partnerId);
+            cout << "エラー: パートナー [" << cfg.name
+                 << "] は現在無効です。処理を中断します。" << endl;
+            return false;
+        }
+        return true;
+    }
+
 public:
     void run() {
+        BatchLog batchLog;
         SlackNotifier slack;
         LogNotifier log;
         SystemAClientCreator creatorA;
@@ -978,26 +1161,59 @@ public:
         SystemDClientCreator creatorD;
 
         cout << "--- 行1: A社月次バッチ ---" << endl;
-        BatchExecutor executorA;
-        executorA.addNotifier(&slack);
-        executorA.execute(&creatorA, "A社連携完了");
+        if (validate("PARTNER_A")) {
+            PartnerConfig cfgA = db.get("PARTNER_A");
+            BatchExecutor executorA;
+            executorA.addNotifier(&slack);
+            executorA.execute(&creatorA, cfgA.name + " 連携完了");
+            batchLog.add("PARTNER_A", cfgA.name, "成功");
+        } else {
+            batchLog.add("PARTNER_A", "物流会社A", "失敗");
+        }
 
         cout << "--- 行3: D社日次バッチ（新規連携先） ---" << endl;
-        BatchExecutor executorD;
-        executorD.addNotifier(&slack);
-        executorD.execute(&creatorD, "D社連携完了");
+        // D社はPartnerDatabaseに未登録のためエラーになる例として示す
+        if (validate("PARTNER_D")) {
+            BatchExecutor executorD;
+            executorD.addNotifier(&slack);
+            executorD.execute(&creatorD, "D社連携完了");
+            batchLog.add("PARTNER_D", "D社", "成功");
+        } else {
+            batchLog.add("PARTNER_D", "D社", "失敗");
+        }
 
         cout << "--- 行4: B社手動トリガー ---" << endl;
-        auto bClient = creatorB.createClient();
-        ManualTriggerController manual(bClient.get());
-        manual.addNotifier(&slack);
-        manual.triggerSync("B");
+        if (validate("PARTNER_B")) {
+            PartnerConfig cfgB = db.get("PARTNER_B");
+            IExternalClient* bClient = creatorB.createClient();
+            ManualTriggerController manual(bClient);
+            manual.addNotifier(&slack);
+            manual.triggerSync("B");
+            batchLog.add("PARTNER_B", cfgB.name, "成功");
+        } else {
+            batchLog.add("PARTNER_B", "決済会社B", "失敗");
+        }
 
         cout << "--- 行6: B社バッチ（Slack＋ログ基盤） ---" << endl;
-        BatchExecutor executorB;
-        executorB.addNotifier(&slack);
-        executorB.addNotifier(&log);
-        executorB.execute(&creatorB, "B社連携完了");
+        if (validate("PARTNER_B")) {
+            PartnerConfig cfgB = db.get("PARTNER_B");
+            BatchExecutor executorB;
+            executorB.addNotifier(&slack);
+            executorB.addNotifier(&log);
+            executorB.execute(&creatorB, cfgB.name + " 連携完了");
+            batchLog.add("PARTNER_B", cfgB.name, "成功");
+        } else {
+            batchLog.add("PARTNER_B", "決済会社B", "失敗");
+        }
+
+        cout << "--- 無効パートナーC社の実行試行 ---" << endl;
+        if (!validate("PARTNER_C")) {
+            PartnerConfig cfgC = db.get("PARTNER_C");
+            batchLog.add("PARTNER_C", cfgC.name, "スキップ（無効）");
+        }
+
+        cout << "\n--- バッチ実行ログ ---\n";
+        batchLog.printAll();
     }
 };
 
@@ -1013,18 +1229,19 @@ int main() {
 ```
 --- 行1: A社月次バッチ ---
 A社へ転送: data
-Slack通知: A社連携完了
+Slack通知: 物流会社A 連携完了
 --- 行3: D社日次バッチ（新規連携先） ---
-D社へ転送: data
-Slack通知: D社連携完了
+エラー: パートナーID [PARTNER_D] はデータベースに登録されていません。
 --- 行4: B社手動トリガー ---
 [ManualTrigger] B への手動同期を実行。
 B社へ転送: manualData
 Slack通知: B社手動連携完了
 --- 行6: B社バッチ（Slack＋ログ基盤） ---
 B社へ転送: data
-Slack通知: B社連携完了
-ログ基盤へ記録: B社連携完了
+Slack通知: 決済会社B 連携完了
+ログ基盤へ記録: 決済会社B 連携完了
+--- 無効パートナーC社の実行試行 ---
+エラー: パートナー [分析会社C] は現在無効です。処理を中断します。
 ```
 
 基本シナリオの行1・3・4・6と一致しています。`BatchExecutor` と `ManualTriggerController` はどちらも `INotifier` を登録できるため、実行経路が異なっても同じ通知契約を利用できます。行2（タイムアウト・リトライ）と行5（API障害）は、ここでは外部APIの失敗実装を省略しているため動作仕様として残します。
@@ -1040,22 +1257,22 @@ sequenceDiagram
     participant main
     participant BA as BatchApplication
     participant BE as BatchExecutor
-    participant CC as SystemCClientCreator
+    participant AC as SystemAClientCreator
     participant SN as SlackNotifier
-    participant SC as SystemCClient
+    participant SA as SystemAClient
     Note over main: BatchApplicationが全具体型を組み立て
     main->>BA: app.run()
     BA->>BE: new BatchExecutor
     BA->>SN: new SlackNotifier
     BA->>BE: addNotifier(&slackNotifier)
-    BA->>BE: execute(&creatorC, "C社連携完了")
-    BE->>CC: creator->createClient()
+    BA->>BE: execute(&creatorA, "A社連携完了")
+    BE->>AC: creator->createClient()
     Note right of BE: IExternalClient* 経由（抽象）
-    CC-->>BE: IExternalClient*
-    BE->>SC: client->send("data")
+    AC-->>BE: IExternalClient*
+    BE->>SA: client->send("data")
     Note right of BE: IExternalClient* 経由
-    SC-->>BE: 完了
-    BE->>SN: obs->onComplete("C社連携完了")
+    SA-->>BE: 完了
+    BE->>SN: obs->onComplete("A社連携完了")
     Note right of BE: INotifier* 経由（抽象）
     SN-->>BE: 完了
     BE-->>BA: 完了
@@ -1092,6 +1309,16 @@ graph LR
 
 ## 整理
 
+
+### 問題・原因・課題・解決策
+
+| | 内容 |
+|---|---|
+| **問題** | 外部連携バッチで「連携先の追加」「通知先の追加」「生成方法の変更」という変わる理由が異なる3つの変化が、同じ `BatchExecutor` に混在している |
+| **原因** | `BatchExecutor` が各連携先クライアントと通知サービスを生成方法と呼び出し手順を知っているため、どの変化が来ても `BatchExecutor` 全体への影響確認が必要になる |
+| **課題** | 通信の詳細（接続点A）・通知先の仕組み（接続点B）・連携先クライアントの生成（接続点C）を、それぞれ独立して差し替えられる構造に切り離すこと |
+| **解決策** | Facade × Observer × Factory Method：`IExternalClient`（通信の複雑さを隠す）・`INotifier`リスト（通知先を登録する）・`IClientCreator`と具象Creator（生成方法を分ける）を組み合わせ、`BatchExecutor` の実行フローへ具象クラスごとの分岐を増やさない設計にする |
+
 ### フェーズとこの章でやったこと
 
 | **フェーズ** | **この章でやったこと** |
@@ -1112,7 +1339,7 @@ graph LR
 | Observer | 通知の密結合（新通知先追加でBatchExecutor本体の修正が必要だった問題） |
 | Factory Method | 生成の混在（具体クラスの生成がビジネスロジックと同居していた問題） |
 
-### 各クラスの最終的な責任
+### 責任の移動
 
 | **クラス名** | **責任（1文）** | **変わる理由** |
 | --- | --- | --- |
@@ -1134,7 +1361,7 @@ graph LR
 | 得られること1：各パターンがどの「変化」に対応するかを識別できる | フェーズ6のステップ4〜6で、各パターンが登場する順序と理由を段階的に示した。 |
 | 得られること2：複数の接続点をどこで分離するか判断できる | フェーズ5で、通信境界（接続点A）・通知境界（接続点B）・生成境界（接続点C）の3点を特定した。 |
 | 得られること3：疎結合な連携アーキテクチャの構築方法を説明できる | フェーズ7の変更シナリオ表で、変更の局所化を実証した。 |
-| 得られること4：「生成・通知・統合」の3つの責務が混在するコードを整理できる | フェーズ2の責任チェック表と変わる理由の分析で、3つの変化軸を可視化した。 |
+| 得られること4：「生成・通知・統合」の3つの責務が混在するコードを整理できる | フェーズ2の仮説立案とヒアリングで、外部連携先と通知先という変動する仕様を特定した。 |
 
 ### 3つの設計原則はどう適用されたか
 
@@ -1229,17 +1456,8 @@ public:
 
 外部連携バッチ処理というドメインと Facade × Observer × Factory Method の組み合わせの関係を一言で言うなら、「通信の窓口・通知・生成」という3種類の責務はそれぞれ変わる理由が異なり、どの責務がどう変わるかを先に分析することが複合適用の出発点になる、ということです。`BatchExecutor` の各行から変化軸を読み解き、必要な境界を作った結果が三つのパターンの役割に対応した——その順序が、この章の最も重要なメッセージです。
 
-7つのフェーズを通じて、読者は `BatchExecutor` が連携先・通知先・生成方法のすべてを知っているという観察から始まり、3種類の接続点を識別する分析を経て、それぞれの境界に合うパターンを当てるという判断へと進みました。フェーズ2の責任チェック表で「3つの責務が混在している」と確認した時点で問題の輪郭が見え、フェーズ5で通信境界・通知境界・生成境界という3つの接続点を特定した時点で、それぞれに異なる解が必要なことが見えました。1つのパターンで解決しきれないという気づきが、次のパターンへ進む根拠になります。
+7つのフェーズを通じて、読者は `BatchExecutor` が連携先・通知先・生成方法のすべてを知っているという観察から始まり、3種類の接続点を識別する分析を経て、それぞれの境界に合うパターンを当てるという判断へと進みました。フェーズ2の仮説立案とヒアリングで「外部連携先と通知先は今後も追加・変更が続く」と確認した時点で問題の輪郭が見え、フェーズ5で通信境界・通知境界・生成境界という3つの接続点を特定した時点で、それぞれに異なる解が必要なことが見えました。1つのパターンで解決しきれないという気づきが、次のパターンへ進む根拠になります。
 
-あなたのコードの中にも、1つのクラスが複数の外部サービスの生成・呼び出し・通知をまとめて担っている箇所があるはずです。「それぞれの責務は誰の判断で変わるか」を問うことが、どの境界にどのパターンを当てるかを見つける入口になります。
+あなたのコードの中にも、1つのクラスが複数の外部サービスの生成・呼び出し・通知をまとめて担っている箇所があるはずです。「それぞれの責務はどの業務機能に属するか」を問うことが、どの境界にどのパターンを当てるかを見つける入口になります。
 
 ---
-
-### この章で定義したこと
-
-| | 内容 |
-|---|---|
-| **問題** | 外部連携バッチで「連携先の追加」「通知先の追加」「生成方法の変更」という変わる理由が異なる3つの変化が、同じ `BatchExecutor` に混在している |
-| **原因** | `BatchExecutor` が各連携先クライアントと通知サービスを生成方法と呼び出し手順を知っているため、どの変化が来ても `BatchExecutor` 全体への影響確認が必要になる |
-| **課題** | 通信の詳細（接続点A）・通知先の仕組み（接続点B）・連携先クライアントの生成（接続点C）を、それぞれ独立して差し替えられる構造に切り離すこと |
-| **解決策** | Facade × Observer × Factory Method：`IExternalClient`（通信の複雑さを隠す）・`INotifier`リスト（通知先を登録する）・`IClientCreator`と具象Creator（生成方法を分ける）を組み合わせ、`BatchExecutor` の実行フローへ具象クラスごとの分岐を増やさない設計にする |

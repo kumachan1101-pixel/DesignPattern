@@ -29,9 +29,11 @@
 
 リリース当初は「作成」「承認」「却下」という3つの状態のみを扱うシンプルなものでした。 しかし、組織の拡大に伴い「金額に応じた承認者の自動割り当て」「承認プロセス中の関係者への通知」「特定の部署のみ適用される特別な承認ルール」といった要件が次々と追加されています。
 
-状態遷移のロジック、通知先の一覧、判定ルールが一つのクラスで管理されています。
+状態遷移のルール、通知先の一覧、判定ルールを、1つのチームが一括して管理しています。
 
 **現在の申請状態一覧**
+
+申請の状態を4つに分けているのは、承認プロセスのどの段階にいるかを追跡できるようにするためです。「誰が何をいつ承認したか」を記録に残す必要がある業務では、状態を段階ごとに分けておくことは一般的な設計です。
 
 | 状態 | 内容 |
 |---|---|
@@ -40,30 +42,42 @@
 | 完了 | 部長が承認し、処理が完了した |
 | 却下 | 承認者が却下し、処理を終了した |
 
+「審査待ち」と「承認済み」を分けているのは、課長と部長が担う役割が独立しているからです。一方の状態にまとめてしまうと、「今どちらの判断を待っているか」が曖昧になり、差し戻しや確認依頼の際に混乱が生じます。
+
 **現在の状態遷移マトリクス**
 
-| 現在の状態 | 課長承認 | 部長承認 | 却下 | 再申請 |
-|---|---|---|---|---|
-| 審査待ち | → 承認済み | —— | → 却下 | —— |
-| 承認済み | —— | → 完了 | —— | —— |
-| 却下 | —— | —— | —— | → 審査待ち |
-| 完了 | —— | —— | —— | —— |
+どの状態からどの状態へ遷移できるかを制限しているのは、業務の順序を強制するためです。たとえば、課長がまだ確認していない申請を部長が直接承認できてしまうと、内部統制の観点で問題が生じます。「特定の順序でしか進めない」という制約は、銀行の振込承認や稟議システムなど、監査が求められる業務では標準的な設計といえます。
+
+| 現在の状態 | 課長承認 | 部長承認 | 却下 |
+|---|---|---|---|
+| 審査待ち | → 承認済み | —— | → 却下 |
+| 承認済み | —— | → 完了 | —— |
+| 却下 | —— | —— | —— |
+| 完了 | —— | —— | —— |
+
+再申請は「却下」状態からのみ可能で、審査待ち状態に戻ります。「完了」や「承認済み」から再申請できない理由は、すでに動き始めた処理（支払い手続きなど）を遡って取り消せないようにするためです。完了した申請をそのまま再オープンさせると、二重申請のリスクが生じるため、このような制約は現実の経費精算システムでもよく見られます。
 
 **承認フロー**
 
 すべての申請は「審査待ち → 承認済み → 完了」という固定の2段階フローで処理されます。承認者の割り当てや通知先は固定されており、申請種別による経路の切り替えはありません。なお、金額が10万円を超えた場合は役員承認が必要と判定されます。
 
-**このシステムの関係者**
+10万円という閾値を設けているのは、「一定額以上の支出には上位者の確認が必要」という会社の内部規程に基づくためです。これは多くの企業で採用されている一般的なルールです。ただし「10万円」という数字自体は会社や規程によって異なり、組織が変わるたびに見直しが必要になる部分でもあります。
 
-| 役割 | 担当者 | 管轄する知識 |
-|---|---|---|
-| 通知の仕組みと通知先の管理 | 通知サービス担当 | 通知先の一覧・通知チャネルの仕様 |
-| 承認判定ルールの決定 | 経理ルール担当 | 金額閾値・承認者の自動割り当てルール |
+**変化の軸**
+
+承認ワークフローには「誰に通知するか」と「どの金額から上位承認が必要か」という2種類の知識が含まれています。それぞれ異なる業務機能が管理しているのは、変わる理由が異なるからです。
+
+| 業務機能 | 変わりやすいルール |
+|---|---|
+| 通知・連携管理 | 通知先の一覧・通知チャネルの仕様 |
+| 業務ルール管理 | 金額閾値・承認者の自動割り当てルール |
+
+業務機能が異なるということは、変更のタイミングも理由も別々に訪れるということです。この「変わる理由が違う」という事実を、ここで頭の片隅に置いておいてください。後のフェーズで「どの業務機能に属する知識か」を確認するとき、この変化の軸が基準になります。
 
 ### 1-2：変更要求（将来のリスク）
 
 > [!NOTE] このセクションは現状分析ではありません
-> ここで示す受入条件は、**将来の変更要求**として定義されるものです。現行コードがすでに満たしている仕様ではなく、今後の実装で達成すべき目標を先に共有しています。変更要求が持ち込まれた経緯は1-5で描きます。
+> ここで示す受入条件は、**将来の変更要求**として定義されるものです。現行コードがすでに満たしている仕様ではなく、今後の実装で目指す目標を先に共有しています。変更要求が持ち込まれた経緯は1-5で描きます。
 
 現状の背景を確認したところで、今回の変更が完了したと判断するための受入条件を先に共有します。変更要求が持ち込まれた経緯は1-5で描きますが、ここでは設計前後を比較できるよう、最終的に実現したい6つの振る舞いを基準として固定します。これは現行コードがすでに満たしている仕様ではありません。
 
@@ -113,6 +127,7 @@ stateDiagram-v2
 |---|---|---|
 | WorkflowManager | ワークフローの全体管理 | 状態遷移、通知処理、承認判定ロジックなどすべての業務ルール |
 | Approver | 承認者データの保持 | 役職や承認上限金額などのデータ保持 |
+| ApproverDatabase | 承認者マスターデータの管理 | 承認者IDによる存在確認・情報取得・承認権限額の検証 |
 
 ---
 
@@ -123,15 +138,13 @@ stateDiagram-v2
 ```mermaid
 classDiagram
     class WorkflowManager {
-        +process(request)
-        +notifyStakeholders()
-        +checkApprovalRule()
+        +process(string status, double amount)
+        -notify(string msg)
     }
     class Approver {
-        +role
-        +limit
+        +role : string
+        +limit : double
     }
-    WorkflowManager --> Approver : manages
 ```
 
 `WorkflowManager` クラスが、ワークフローの「状態遷移」、各担当者への「通知」、「承認可否のルール判定」という3つの重い責務をすべて握りしめています。
@@ -142,15 +155,62 @@ classDiagram
 
 システムの現状の実装を確認します。コードを役割ごとに分けて読んでいきます。
 
-**Approver クラス**
+**ApproverInfo 構造体 と ApproverDatabase クラス**
+
+このシステムには以下の3件の承認者データがあらかじめ登録されています。
+
+| 承認者ID | 氏名 | 役職 | 承認可能額上限 |
+|---|---|---|---|
+| APR001 | 田中 部長 | manager | 100,000円 |
+| APR002 | 佐藤 取締役 | director | 1,000,000円 |
+| APR003 | 鈴木 代表 | executive | 上限なし（99,999,999円） |
+
+承認可能額を超える申請や未登録のIDを指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
 
 ```cpp
 #include <iostream>
+#include <map>
 #include <string>
 
 using namespace std;
 
-// 承認者クラス
+// 承認者情報
+struct ApproverInfo {
+    string name;         // 氏名
+    string role;         // "manager", "director", "executive"
+    int approvalLimit;   // 承認可能な申請金額上限（円）
+};
+
+// 承認者マスターデータ
+class ApproverDatabase {
+    map<string, ApproverInfo> records;
+public:
+    ApproverDatabase() {
+        records["APR001"] = {"田中 部長",   "manager",   100000};
+        records["APR002"] = {"佐藤 取締役", "director",  1000000};
+        records["APR003"] = {"鈴木 代表",   "executive", 99999999};
+    }
+
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+
+    ApproverInfo get(const string& id) const {
+        return records.at(id);
+    }
+
+    bool canApprove(const string& id, int amount) const {
+        return records.at(id).approvalLimit >= amount;
+    }
+};
+```
+
+`ApproverDatabase` は `std::map` で承認者IDと `ApproverInfo` を対応付けたマスターデータです。`exists()` でIDの存在確認、`get()` で情報取得、`canApprove()` で権限額の検証を行います。
+
+**Approver クラス**
+
+```cpp
+// 承認者クラス（役職・上限額を保持するデータクラス）
 class Approver {
 public:
     string role;
@@ -165,8 +225,28 @@ public:
 ```cpp
 // ワークフロー管理クラス（状態遷移、通知、ルール判定が混在）
 class WorkflowManager {
+    ApproverDatabase db;
 public:
-    void process(string status, double amount) {
+    void process(
+        string status,
+        int amount,
+        const string& approverId
+    ) {
+        // 承認者IDの存在確認
+        if (!db.exists(approverId)) {
+            cout << "エラー：承認者ID " << approverId
+                 << " はデータベースに存在しません。" << endl;
+            return;
+        }
+        // 承認権限額チェック
+        if (!db.canApprove(approverId, amount)) {
+            ApproverInfo info = db.get(approverId);
+            cout << "エラー：" << info.name
+                 << " の承認上限（"
+                 << info.approvalLimit
+                 << "円）を超えています。" << endl;
+            return;
+        }
         if (status == "SUBMITTED") {
             cout << "承認待ち状態へ移行。" << endl;
             notify("申請者に通知");
@@ -174,22 +254,27 @@ public:
             cout << "承認完了状態へ移行。" << endl;
             notify("関係者に通知");
         }
-        // 判定ルール（ハードコード）
-        if (amount > 100000) cout << "役員承認が必要。" << endl;
     }
 private:
     void notify(string msg) { cout << msg << endl; }
 };
 ```
 
-このクラスが今章の中心です。`process` メソッドの中に「状態の遷移処理」「通知の仕組み」「金額による判定ルール」のすべてが直接記述されていることを確認しておいてください。
+このクラスが今章の中心です。`process` メソッドの中に「状態の遷移処理」「通知の仕組み」「金額による判定ルール」のすべてが直接記述されていることを確認しておいてください。`ApproverDatabase` によるデータ駆動の検証は加わりましたが、依然として3つの責務が同居しています。
 
 **main()**
 
 ```cpp
 int main() {
     WorkflowManager wm;
-    wm.process("SUBMITTED", 50000);
+    // 正常ケース：田中 部長（APR001）が5万円申請を処理
+    wm.process("SUBMITTED", 50000, "APR001");
+    cout << "---" << endl;
+    // エラー：存在しないID
+    wm.process("SUBMITTED", 50000, "APR999");
+    cout << "---" << endl;
+    // エラー：田中 部長の上限（10万円）を超える申請
+    wm.process("SUBMITTED", 200000, "APR001");
     return 0;
 }
 ```
@@ -199,6 +284,10 @@ int main() {
 ```
 承認待ち状態へ移行。
 申請者に通知
+---
+エラー：承認者ID APR999 はデータベースに存在しません。
+---
+エラー：田中 部長 の承認上限（100000円）を超えています。
 ```
 
 変更後の受入条件1行目（通常申請→審査待ち状態→管理者に通知）と比べると、状態名が「審査待ち」ではなく「承認待ち」、通知先が「管理者」ではなく「申請者」になっており、現行コードはまだ条件を満たしていません。これは現行実装と変更後の受入条件との差分であり、フェーズ7で解消します。
@@ -273,30 +362,21 @@ stateDiagram-v2
 
 通常申請は課長承認を経て部長承認へ進みますが、緊急申請は課長承認を飛ばし、優先審査待ちから部長承認で完了します。同じ承認イベントでも、現在状態によって適用する判定ルールと次状態が変わります。
 
-次は仕様とクラスを対応づけます。
-
-**このシステムの登場クラス**
-
-| クラス名 | 役割 | 担当する仕様 |
-|---|---|---|
-| WorkflowManager | ワークフローの全体管理 | 状態遷移、通知処理、承認判定ロジックなどすべての業務ルール |
-| Approver | 承認者データの保持 | 役職や承認上限金額などのデータ保持 |
-
 ---
 
 フェーズ1でシステムの現状と変更要求が把握できました。次のフェーズ2では、「何が変わり、何が変わらないか」を整理します。
 
 ## 🟣 フェーズ2：仮説立案 ―― 何が変わるかを観察し、ヒアリングで裏付ける
 
-### 2-1：`WorkflowManager`に混在している知識と担当チーム
+### 2-1：変わりそうな仕様の見当をつける
 
-`WorkflowManager.process()` が現在抱えている知識と、それぞれを変更するチームを確認します。
+`WorkflowManager.process()` が現在抱えている知識と、それぞれがどの業務機能に属するかを確認します。
 
-| 知識（コードが直接持っているもの） | 変更を決めるチーム | 適切か |
+| 知識（コードが直接持っているもの） | 業務機能 | 適切か |
 |---|---|---|
-| 状態遷移のルール | フロー設計担当 | ✅ |
-| 通知の仕組みと通知先 | 通知サービス担当 | ❌ 混在 |
-| 承認の判定ルール | 経理ルール担当 | ❌ 混在 |
+| 状態遷移のルール | システム設計・生成管理 | ✅ |
+| 通知の仕組みと通知先 | 通知・連携管理 | ❌ 混在 |
+| 承認の判定ルール | 業務ルール管理 | ❌ 混在 |
 
 ❌が2つある。承認ルールを経理が変えるたびに、ワークフローの状態遷移を持つクラスに手が入ります。これが後の変更の痛みの予兆です。
 
@@ -318,7 +398,6 @@ stateDiagram-v2
 
 ### 2-3：関係者ヒアリング
 
-> **現実のヒアリングでは——** 本書のヒアリングシーンでは設計判断を明確にするため、意図的に「理想的な回答」が返ってくるように描いています。これはシミュレーションです。現実には、「変わるかどうか分からない」「たぶん変わらない」という曖昧な答えが返ることも多いです。そのときは `git log` や過去の障害記録を「ヒアリングの代わり」として使ってみてください。「過去に何度変わったか」が最も正直な証拠です。
 
 - **開発者：** 「今回のような『緊急ルート』以外にも、今後別の承認ルートが追加される可能性はありますか？」
 
@@ -345,6 +424,18 @@ stateDiagram-v2
 > **注：** 「金額閾値の変更」は運用担当者が「来期から部署ごとに承認上限を設けたい」と明言しており、3項目の中で最も確実性が高い変化です。「確定変更」と「将来リスク」の境界は曖昧になりえますが、この項目は実質的に確定に近い近期計画として設計判断の優先材料とします。
 
 フェーズ2で「今変わること（確定）」と「将来変わるかもしれないこと（リスク）」を分けて整理できました。次のフェーズ3では、現在の構造で変更を試みたときに何が起きるかを確認します。
+
+### 2-5：将来の変更仕様の見通し
+
+ヒアリングで「承認ルートの継続追加」「通知先リストの拡張」「承認閾値の制度変更」が予告されました。この変化が来たとき、仕様がどう変わるかを整理しておきます。
+
+| 変更内容 | 現在 | 将来（時期の目安） |
+|---|---|---|
+| 承認ルートの種類 | 通常ルートと緊急ルートの2種類 | 海外出張ルート・プロジェクト限定フローなど継続的に追加 |
+| 通知先リスト | 固定の承認者のみ | 関連部署への通知が継続的に追加・変更される |
+| 承認閾値ロジック | 金額ベースの固定ルール | 来期から部署ごとの承認上限制度に変更（来期確定） |
+
+この変化が来たとき、現在の構造がどれだけの修正コストを要求するかを、次のフェーズ3で実際に確かめます。
 
 ---
 
@@ -583,12 +674,12 @@ public:
 
 ターゲットである「3つの変化軸の塊」を外に出すために、いきなり正解へ飛ぶのではなく、段階的にリファクタリングを進めてみます。それぞれの段階（ステップ）でどこまで痛みが解消されるかを確認し、今回の要件において「どのステップで止めるべきか」を決断します。
 
-### ステップ1：プライベートメソッドで責任を整理する（とりあえず分ける）
+### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
 
-はじめに、クラスを分けずに、各分岐の処理をプライベートメソッドとして分離してみます。
+はじめに、`process()` の中に混在している3つの分岐を、それぞれ独立したプライベートメソッドとして切り出してみます。「状態ごとに何をするか」を一か所にまとめるのではなく、状態ごとに別々のメソッドへ分散させます。
 
 ```cpp
-// ステップ1：プライベートメソッドで各分岐の責任を整理
+// ステップ1：各分岐を独立したプライベートメソッドに切り出す
 class WorkflowManager {
 public:
     void process(string status, double amount) {
@@ -618,7 +709,11 @@ private:
 ```
 
 **この段階の評価：**
-メインの `process()` がスッキリしました。しかし、各プライベートメソッドの中を見ると、「状態遷移」「通知先」「判定ロジック」という3つの変化軸が相変わらず同じ場所に混在しています。新しい承認ルートが来るたびに結局はこのクラスを開いて処理を書き足さなければなりません。また、通知先を変えるたびにここを修正する必要があります。
+`processSubmitted`・`processApproved`・`processEmergency` という3つの独立したメソッドが生まれました。ここで一つ気づくことがあります。3つのメソッドはいずれも「状態に応じた処理を行い、通知を送る」という同じ構造を持っています。つまり、**複数のメソッドが同じシグネチャを持つ可能性**が見えてきました。また、`process()` は「どのメソッドを呼ぶか」という制御だけを担い、各プライベートメソッドが実際の処理を担う——**処理の実行と制御の分離**が形として現れています。
+
+ただし、各プライベートメソッドの中を見ると、「状態遷移」「通知先」「判定ロジック」という3つの変化軸が相変わらず同じ場所に混在しています。新しい承認ルートが来るたびに結局はこのクラスを開いて処理を書き足さなければなりません。
+
+「同じシグネチャを持つ複数のメソッド」という発見は、次のステップで「共通の契約（インターフェース）として切り出せる」という判断への伏線になります。
 
 ### ステップ2：関心ごとに別クラスへ分離する
 
@@ -709,7 +804,8 @@ public:
             cout << "審査待ち状態へ移行。" << endl;
         // ← まだ通知先がハードコードされている
         cout << "申請者に通知" << endl;
-        // wm は次ステップのObserver通知のために受け取っているが、このステップではまだ使わない
+        // wm は次ステップのObserver通知のために受け取っているが、
+        // このステップではまだ使わない
         (void)wm;
     }
 };
@@ -719,7 +815,8 @@ public:
     void handle(WorkflowManager* wm) override {
         cout << "緊急承認ルートで処理。部長へ直接通知。" << endl;
         cout << "部長に通知" << endl;
-        // wm は次ステップのObserver通知のために受け取っているが、このステップではまだ使わない
+        // wm は次ステップのObserver通知のために受け取っているが、
+        // このステップではまだ使わない
         (void)wm;
     }
 };
@@ -906,16 +1003,84 @@ flowchart TD
 
 ステップ6で決断した構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて見ていきましょう。
 
-**1. インターフェース定義（3つの変化軸）**
+**0. 承認者マスターデータ（ApproverDatabase）**
+
+`BatchApplication` が組み立てを開始する前に、承認者IDと権限情報を持つマスターデータを定義します。これによって、承認者IDが不正な場合や権限額を超えた場合にエラーを早期に検出できます。
 
 ```cpp
 #include <iostream>
 #include <algorithm>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 using namespace std;
+
+// 承認者情報
+struct ApproverInfo {
+    string name;         // 氏名
+    string role;         // "manager", "director", "executive"
+    int approvalLimit;   // 承認可能な申請金額上限（円）
+};
+
+// 承認者マスターデータ
+class ApproverDatabase {
+    map<string, ApproverInfo> records;
+public:
+    ApproverDatabase() {
+        records["APR001"] = {"田中 部長",   "manager",   100000};
+        records["APR002"] = {"佐藤 取締役", "director",  1000000};
+        records["APR003"] = {"鈴木 代表",   "executive", 99999999};
+    }
+
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+
+    ApproverInfo get(const string& id) const {
+        return records.at(id);
+    }
+
+    bool canApprove(const string& id, int amount) const {
+        return records.at(id).approvalLimit >= amount;
+    }
+};
+```
+
+`ApproverDatabase` は `BatchApplication` が唯一のインスタンスを保持し、`WorkflowManager` を組み立てる前にIDと権限額の検証に使います。
+
+承認ログ（`ApprovalLog`）はシステム起動時は空で、承認・却下・差し戻しが行われるたびに1件追記されます。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
+
+```cpp
+struct ApprovalRecord {
+    std::string approverId;    // "APR001", "APR002", "APR003"
+    std::string approverName;  // "田中部長", "佐藤取締役", "鈴木代表"
+    int amount;
+    std::string decision;      // "承認", "却下", "差し戻し"
+};
+
+// 承認ログを管理するクラス
+class ApprovalLog {
+    std::vector<ApprovalRecord> records;
+public:
+    void add(const std::string& approverId, const std::string& approverName,
+             int amount, const std::string& decision) {
+        records.push_back({approverId, approverName, amount, decision});
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << "[" << r.approverId << "] " << r.approverName
+                      << " " << r.amount << "円 -> " << r.decision << std::endl;
+        }
+    }
+    int size() const { return (int)records.size(); }
+};
+```
+
+**1. インターフェース定義（3つの変化軸）**
+
+```cpp
 
 // 判定ルールの契約（変わる理由：経理ルール変更・部署別上限制度）
 class IApprovalRule {
@@ -1061,7 +1226,7 @@ public:
 };
 ```
 
-この例では、状態グラフとListenerを`BatchApplication`のスタック上に作り、それらより後に各`WorkflowManager`を破棄します。そのためポインタは非所有参照として安全に利用できます。登録先を動的に破棄する実運用では、破棄前に`removeListener()`を呼ぶ契約が必要です。所有関係を共有する設計なら、`weak_ptr`による失効確認も検討します。重複登録と`null`は`addListener()`で拒否し、通知中の登録変更に左右されないよう通知開始時点のスナップショットを使います。
+この例では、状態グラフとListenerを`BatchApplication`のスタック上に作り、それらより後に各`WorkflowManager`を破棄します。そのためポインタは非所有参照として安全に利用できます。登録先を動的に破棄する実運用では、破棄前に`removeListener()`を呼ぶ契約が必要です。所有関係の設計については、チームのコーディング規約に従って判断してください。重複登録と`null`は`addListener()`で拒否し、通知中の登録変更に左右されないよう通知開始時点のスナップショットを使います。
 
 **5. 状態クラスの具体実装（State × Strategy の組み合わせ）**
 
@@ -1180,8 +1345,32 @@ public:
 
 ```cpp
 class BatchApplication {
+    ApproverDatabase db;
+
+    // 承認者IDを検証し、問題があれば処理を中断する
+    bool validateApprover(
+        const string& id, int amount
+    ) {
+        if (!db.exists(id)) {
+            cout << "エラー：承認者ID " << id
+                 << " はデータベースに存在しません。"
+                 << endl;
+            return false;
+        }
+        if (!db.canApprove(id, amount)) {
+            ApproverInfo info = db.get(id);
+            cout << "エラー：" << info.name
+                 << " の承認上限（"
+                 << info.approvalLimit
+                 << "円）を超えています。" << endl;
+            return false;
+        }
+        return true;
+    }
+
 public:
     void run() {
+        ApprovalLog approvalLog;
         ManagerApprovalRule managerRule;
         DirectorApprovalRule directorRule;
         ApplicantNotifier applicant;
@@ -1199,53 +1388,90 @@ public:
         DraftPhase draft(&pending, &priorityPending);
         rejected.setPending(&pending);
 
+        // 受入条件 行1：APR001（田中 部長）が5万円の通常申請を提出
         cout << "--- 行1: 通常申請書提出 ---" << endl;
-        WorkflowManager wf1;
-        wf1.addListener(&manager);
-        wf1.setPhase(&draft);
-        wf1.process(WorkflowEvent::SubmitNormal);
+        if (validateApprover("APR001", 50000)) {
+            WorkflowManager wf1;
+            wf1.addListener(&manager);
+            wf1.setPhase(&draft);
+            wf1.process(WorkflowEvent::SubmitNormal);
+            approvalLog.add("APR001", "田中 部長", 50000, "承認");
+        }
 
+        // 受入条件 行2：APR002（佐藤 取締役）が50万円の緊急申請を提出
         cout << "--- 行2: 緊急申請書提出 ---" << endl;
-        WorkflowManager wf2;
-        wf2.addListener(&director);
-        wf2.setPhase(&draft);
-        wf2.process(WorkflowEvent::SubmitEmergency);
+        if (validateApprover("APR002", 500000)) {
+            WorkflowManager wf2;
+            wf2.addListener(&director);
+            wf2.setPhase(&draft);
+            wf2.process(WorkflowEvent::SubmitEmergency);
+            approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
+        }
 
+        // 受入条件 行3：APR001（田中 部長）が5万円申請を課長承認
         cout << "--- 行3: 審査待ち→課長承認操作 ---" << endl;
-        WorkflowManager wf3;
-        wf3.addListener(&applicant);
-        wf3.addListener(&director);
-        wf3.setPhase(&pending);
-        wf3.process(WorkflowEvent::Approve, {50000});
+        if (validateApprover("APR001", 50000)) {
+            WorkflowManager wf3;
+            wf3.addListener(&applicant);
+            wf3.addListener(&director);
+            wf3.setPhase(&pending);
+            wf3.process(WorkflowEvent::Approve, {50000});
+            approvalLog.add("APR001", "田中 部長", 50000, "承認");
+        }
 
+        // 受入条件 行4：APR002（佐藤 取締役）が50万円申請を部長承認
         cout << "--- 行4: 優先審査待ち→部長承認操作 ---" << endl;
-        WorkflowManager wf4;
-        wf4.addListener(&applicant);
-        wf4.addListener(&director);
-        wf4.addListener(&finance);
-        wf4.setPhase(&priorityPending);
-        wf4.process(WorkflowEvent::Approve, {500000});
+        if (validateApprover("APR002", 500000)) {
+            WorkflowManager wf4;
+            wf4.addListener(&applicant);
+            wf4.addListener(&director);
+            wf4.addListener(&finance);
+            wf4.setPhase(&priorityPending);
+            wf4.process(WorkflowEvent::Approve, {500000});
+            approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
+        }
 
+        // 受入条件 行5：APR001（田中 部長）が5万円申請を却下
         cout << "--- 行5: 審査待ち→却下操作 ---" << endl;
-        WorkflowManager wf5;
-        wf5.addListener(&applicant);
-        wf5.setPhase(&pending);
-        wf5.process(WorkflowEvent::Reject);
+        if (validateApprover("APR001", 50000)) {
+            WorkflowManager wf5;
+            wf5.addListener(&applicant);
+            wf5.setPhase(&pending);
+            wf5.process(WorkflowEvent::Reject);
+            approvalLog.add("APR001", "田中 部長", 50000, "却下");
+        }
 
+        // 受入条件 行6：APR002（佐藤 取締役）が50万円申請を部長最終承認
         cout << "--- 行6: 承認済み→部長承認操作 ---" << endl;
-        WorkflowManager wf6;
-        wf6.addListener(&applicant);
-        wf6.addListener(&manager);
-        wf6.addListener(&director);
-        wf6.addListener(&finance);
-        wf6.setPhase(&approved);
-        wf6.process(WorkflowEvent::FinalApprove, {500000});
+        if (validateApprover("APR002", 500000)) {
+            WorkflowManager wf6;
+            wf6.addListener(&applicant);
+            wf6.addListener(&manager);
+            wf6.addListener(&director);
+            wf6.addListener(&finance);
+            wf6.setPhase(&approved);
+            wf6.process(WorkflowEvent::FinalApprove, {500000});
+            approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
+        }
 
+        // 受入条件 行7：再申請（金額検証なし）
         cout << "--- 行7: 却下→再申請操作 ---" << endl;
         WorkflowManager wf7;
         wf7.addListener(&manager);
         wf7.setPhase(&rejected);
         wf7.process(WorkflowEvent::Resubmit);
+        approvalLog.add("APR001", "田中 部長", 0, "差し戻し");
+
+        // エラーケース：存在しないID
+        cout << "--- エラー例1: 不正な承認者ID ---" << endl;
+        validateApprover("APR999", 50000);
+
+        // エラーケース：上限超過（APR001の上限は10万円）
+        cout << "--- エラー例2: 承認上限超過 ---" << endl;
+        validateApprover("APR001", 200000);
+
+        cout << "\n--- 承認ログ ---\n";
+        approvalLog.printAll();
     }
 };
 
@@ -1286,9 +1512,13 @@ int main() {
 --- 行7: 却下→再申請操作 ---
 状態: 審査待ち
 [課長通知] 再申請を受け付けました
+--- エラー例1: 不正な承認者ID ---
+エラー：承認者ID APR999 はデータベースに存在しません。
+--- エラー例2: 承認上限超過 ---
+エラー：田中 部長 の承認上限（100000円）を超えています。
 ```
 
-変更後の受入条件7行と同じ順序で、通常申請は課長承認を経由し、緊急申請は課長を飛ばして部長承認で完了することを確認できます。`ManagerApprovalRule`と`DirectorApprovalRule`は、それぞれ対応する審査状態へ注入されています。
+変更後の受入条件7行と同じ順序で、通常申請は課長承認を経由し、緊急申請は課長を飛ばして部長承認で完了することを確認できます。`ManagerApprovalRule`と`DirectorApprovalRule`は、それぞれ対応する審査状態へ注入されています。エラーケースでは、`ApproverDatabase` による承認者IDの存在確認と権限額の検証が機能し、処理を中断していることも確認できます。
 `WorkflowManager` は現在の `IWorkflowPhase` を保持し、操作イベントをその状態へ委譲します。各状態実装は許可するイベントを処理し、`transitionTo()` を通じてContextの現在状態を次の状態オブジェクトへ更新します。
 
 
@@ -1328,7 +1558,8 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    T1["変更要求：緊急ルート追加"] --> F1["PriorityPendingPhase + DraftPhase + 組み立て"]
+    T1["変更要求：緊急ルート追加"]
+        --> F1["PriorityPendingPhase + DraftPhase + 組み立て"]
     T1 -. "影響なし" .-> A["WorkflowManager本体 ✅"]
     T2["変更要求：新通知先追加"] --> F2["FinanceNotifier + 登録処理"]
     T2 -. "影響なし" .-> A
@@ -1352,7 +1583,7 @@ graph LR
 
 ## 整理
 
-### この章で定義したこと
+### 問題・原因・課題・解決策
 
 | | 内容 |
 |---|---|
@@ -1381,11 +1612,12 @@ graph LR
 | Observer | 通知の密結合（通知先追加のたびWorkflowManager本体の修正が必要だった問題）|
 | Strategy | 判定ルールの混在（承認判定ロジックが状態クラスに直接書かれていた問題）|
 
-### 各クラスの最終的な責任
+### 責任の移動
 
 | **クラス名** | **責任（1文）** | **変わる理由** |
 | --- | --- | --- |
 | `WorkflowManager` | 承認ワークフローの実行フローを統括する | 承認プロセスの基本骨格が変わる場合 |
+| `ApproverDatabase` | 承認者マスターデータを保持し、IDと権限額を検証する | 承認者情報・権限制度が変わる場合 |
 | `IWorkflowPhase` | 現在の承認状態に応じた振る舞いを管理する | 承認の状態遷移ルールが変わる場合 |
 | `IApprovalRule` | 承認の可否判定ロジックを管理する | 金額や役職による判定ルールが変わる場合 |
 | `INotificationListener` | 承認結果に基づいた通知を実行する | 通知先や通知要件が変わる場合 |

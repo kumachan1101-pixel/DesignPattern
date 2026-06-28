@@ -26,33 +26,42 @@
 
 リリース当初は、チケットの受付から完了までのステータスも単純で、ルールの変更もほとんどありませんでした。しかし、サービスの拡大に伴い、チケットの分類ごとに詳細な対応フローが求められるようになり、さらに重要度や顧客ごとの優先順位設定など、業務ルールの種類が増えています。
 
-一つのクラスでチケットの状態遷移とビジネスルールを管理しています。
+チケットの状態遷移と業務ルールが、一箇所にまとめて管理されています。
 
 **チケットの状態と実行できる操作**
+
+チケットに「状態」を持たせるのは、「今このチケットに対して何をしてよいか」を制御するためです。担当者が未アサインのチケットを勝手に解決済みにしてしまう、といったミスを防ぐために、状態ごとに許可される操作を絞る設計はヘルプデスク系システムでは広く使われています。
 
 | 状態 | 状態名（英語） | 実行できる操作 |
 |---|---|---|
 | 受付中 | Open | 担当者アサイン |
-| 対応中 | InProgress | 解決・エスカレーション |
+| 対応中 | In Progress | 解決・エスカレーション |
 | 解決済み | Resolved | 再受付 |
 
-基本の流れは「Open → InProgress → Resolved」の一方向です。解決済みチケットを再度受け付ける「Resolved → Open」という逆流もあります。
+基本の流れは「Open → InProgress → Resolved」の一方向です。解決済みチケットを再度受け付ける「Resolved → Open」という逆流もあります。「一度解決したのにまた同じ問題が起きた」というケースは現実にもよくあるため、この逆流ルートを持つシステムは珍しくありません。
 
 **優先度ルール**
 
+ユーザー種別によって優先度を変えるのは、契約上の取り決めや対応時間の保証（SLA）を守るためです。プレミアムユーザーには「〇時間以内に一次回答する」といった約束があり、それをシステム側で自動的に反映させる仕組みがこのルールの背景にあります。エスカレーション時にも優先度を適用するのは、「急ぎの対応が必要になった瞬間」にすぐ担当者を動かせるようにするためです。
+
 | ユーザー種別 | 設定される優先度 | 適用タイミング |
 |---|---|---|
-| 一般ユーザー | Normal（標準） | チケット登録時・再受付時 |
-| プレミアムユーザー | High（高優先度） | チケット登録時・再受付時・エスカレーション時 |
+| 一般ユーザー | 標準（Normal） | チケット登録時・再受付時 |
+| プレミアムユーザー | 高優先度（High） | チケット登録時・再受付時・エスカレーション時 |
+
+このルールは現時点では2区分しかありませんが、SLAの内容はビジネス上の契約によって変わるため、今後区分が増える可能性があります。この「変わりやすさ」が、後のフェーズで設計上の問題として浮かび上がってきます。
 
 **このシステムの関係者**
 
-| 役割 | 担当者 | 管轄する知識 |
-|---|---|---|
-| 状態遷移ルールの管理 | 運用チーム | 状態の追加・変更・遷移条件 |
-| 優先度判定ルールの管理 | 品質管理チーム | ユーザー種別と優先度の基準 |
+どの知識がどの業務機能に属するかを把握しておくのは、設計判断において重要な手がかりになります。「どの業務機能に属するか」が違えば、それは別々に管理できるようにしておくべき知識かもしれないからです。
 
-後のフェーズで「誰の判断で変わる知識か」を確認するとき、この関係者表が基準になります。
+**変化の軸**
+| 業務機能 | 変わりやすいルール |
+|---|---|
+| 運用・状態管理 | 状態の追加・変更・遷移条件 |
+| 品質・評価管理 | ユーザー種別と優先度の基準 |
+
+後のフェーズで「どの業務機能に属する知識か」を確認するとき、この変化の軸が基準になります。
 
 ### 1-2：動作例テーブル
 
@@ -101,6 +110,7 @@ stateDiagram-v2
 |---|---|---|
 | TicketManager | チケットの全体管理・状態遷移 | チケットの受付から完了までのステータス管理 |
 | PriorityCalculator | 優先度の計算 | タイトルや顧客情報に基づく優先度の自動判定 |
+| UserDatabase | ユーザー情報の管理 | ユーザーIDからユーザー名・ティアを検索する |
 
 ---
 
@@ -111,12 +121,13 @@ stateDiagram-v2
 ```mermaid
 classDiagram
     class TicketManager {
-        +updateStatus(status)
+        -calc: PriorityCalculator
+        +updateStatus(userType, status)
     }
     class PriorityCalculator {
-        +calculate(userType)
+        +calculate(userType) string
     }
-    TicketManager --> PriorityCalculator : uses
+    TicketManager *-- PriorityCalculator : 保持
 ```
 
 `TicketManager` クラスが、チケットの状態管理と、その遷移に伴う優先度計算という異なる責務を抱えています。
@@ -127,19 +138,54 @@ classDiagram
 
 システムの現状の実装を確認します。コードを役割ごとに分けて読んでいきます。
 
-**PriorityCalculator クラス**
+**UserInfo / UserDatabase / PriorityCalculator クラス**
+
+このシステムには以下の3件のユーザーデータがあらかじめ登録されています。
+
+| ユーザーID | 氏名 | サポートティア |
+|---|---|---|
+| USR001 | 田中 一郎 | enterprise（最優先） |
+| USR002 | 佐藤 花子 | premium（優先） |
+| USR003 | 鈴木 次郎 | standard（通常） |
+
+ティアによって対応優先度と状態遷移の振る舞いが変わります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
 
 ```cpp
 #include <iostream>
 #include <string>
+#include <map>
 
 using namespace std;
+
+// ユーザー情報
+struct UserInfo {
+    string name; // 氏名
+    string tier; // "standard", "premium", "enterprise"
+};
+
+// ユーザーデータベース
+class UserDatabase {
+    map<string, UserInfo> records;
+public:
+    UserDatabase() {
+        records["USR001"] = {"田中 一郎", "enterprise"};
+        records["USR002"] = {"佐藤 花子", "premium"};
+        records["USR003"] = {"鈴木 次郎", "standard"};
+    }
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+    UserInfo get(const string& id) const {
+        return records.at(id);
+    }
+};
 
 // 優先度ルール（変わる可能性がある）
 class PriorityCalculator {
 public:
     string calculate(string userType) {
         if (userType == "premium") return "High"; // ← ルール判定を直書き
+        if (userType == "enterprise") return "High";
         return "Normal";
     }
 };
@@ -151,9 +197,16 @@ public:
 // チケット管理（状態とルールが混在）
 class TicketManager {
     PriorityCalculator calc;
+    UserDatabase db;
 public:
-    void updateStatus(string userType, string status) {
-        string priority = calc.calculate(userType); // ← ルール判定の知識が混在
+    void updateStatus(string userId, string status) {
+        if (!db.exists(userId)) {             // ← DBにないIDはエラー
+            cout << "エラー: ユーザーID "
+                 << userId << " は存在しません。" << endl;
+            return;
+        }
+        UserInfo user = db.get(userId);
+        string priority = calc.calculate(user.tier);
         if (status == "Open") {
             cout << "チケット受付中。優先度: " << priority << endl;
         } else if (status == "InProgress" && priority == "High") {
@@ -169,14 +222,17 @@ public:
 int main() {
     TicketManager manager;
 
-    // 行1: 一般ユーザーが新規チケットを登録（標準優先度 → 受付中）
-    manager.updateStatus("normal", "Open");
+    // 行1: 鈴木（standard）が新規チケットを登録（標準優先度 → 受付中）
+    manager.updateStatus("USR003", "Open");
 
-    // 行2: プレミアムユーザーが新規チケットを登録（高優先度 → 受付中）
-    manager.updateStatus("premium", "Open");
+    // 行2: 佐藤（premium）が新規チケットを登録（高優先度 → 受付中）
+    manager.updateStatus("USR002", "Open");
 
-    // 行6: プレミアムユーザーがエスカレーション（高優先度 → 緊急対応）
-    manager.updateStatus("premium", "InProgress");
+    // 行6: 佐藤（premium）がエスカレーション（高優先度 → 緊急対応）
+    manager.updateStatus("USR002", "InProgress");
+
+    // 存在しないユーザーIDを渡した場合
+    manager.updateStatus("USR999", "Open");
 
     return 0;
 }
@@ -188,6 +244,7 @@ int main() {
 チケット受付中。優先度: Normal
 チケット受付中。優先度: High
 緊急対応中。担当者を招集します。
+エラー: ユーザーID USR999 は存在しません。
 ```
 
 > [!NOTE]
@@ -223,17 +280,17 @@ int main() {
 
 フェーズ1で、`TicketManager` がチケットの状態遷移と優先度計算ロジックを直接保持している現状を把握しました。届いた変更要求を踏まえ、この設計における変動と不変を整理します。
 
-### 2-1：`TicketManager`に混在している知識と担当チーム
+### 2-1：変わりそうな仕様の見当をつける
 
 `TicketManager.updateStatus()` が現在抱えている知識と、それぞれを変更するチームを確認します。
 
-| 知識（コードが直接持っているもの） | 変更を決めるチーム | 適切か |
+| 知識（コードが直接持っているもの） | 業務機能 | 適切か |
 |---|---|---|
-| 優先度計算ルールの呼び出し | SLA管理チーム（四半期改定） | ❌ 混在 |
-| Open状態での振る舞いの条件 | 運用プロセスチーム | ❌ 混在 |
-| 対応中かつ高優先度の条件と振る舞い | 運用プロセスチーム＋SLA管理チーム | ❌ 混在（複数担当者） |
+| 優先度計算ルールの呼び出し | 品質・評価管理（四半期改定） | ❌ 混在 |
+| Open状態での振る舞いの条件 | 運用・状態管理 | ❌ 混在 |
+| 対応中かつ高優先度の条件と振る舞い | 運用・状態管理＋品質・評価管理 | ❌ 混在（複数の業務機能） |
 
-❌が3つある。しかも1行が複数チームにまたがっています。「変わる理由」が2つの軸（優先度ルールと状態遷移）に分かれており、それぞれ異なる担当者が変更を決定することがヒアリングで確認されています。
+❌が3つある。しかも1行が複数の業務機能にまたがっています。「変わる理由」が2つの軸（優先度ルールと状態遷移）に分かれており、それぞれ異なる業務機能が変更を決定することがヒアリングで確認されています。
 
 ### 2-2：今回の変更で確実に変わること
 
@@ -251,7 +308,7 @@ int main() {
 
 このシステムは、社内のITヘルプデスク部門が運用するサポートチケット管理を担っています。サービスが拡大するにつれて、対応フローの複雑さが増し、特に重要顧客向けのSLA（サービスレベル合意）の厳格化が求められるようになっています。変更の主な関係者は、ビジネスルールを管理するSLA管理チームと、業務プロセスを設計する運用プロセスチームの2者です。この2者が独立して変更を決定している点が、この章の設計判断の核心になります。
 
-### 2-2：関係者ヒアリング
+### 2-3：関係者ヒアリング
 
 仮説を持って、ヘルプデスクの運用担当者と話し合いを持ちました。
 
@@ -265,7 +322,7 @@ int main() {
 
 ヒアリングの結果、「チケットの状態ごとの振る舞い」と「優先度判定ルール」は、変更のタイミングと決定者が異なることが分かりました。SLAは四半期ごと、状態の種類追加は半年単位です。実装上は組み合わせて使う場面がありますが、変更理由は分けて扱う価値がある二つの軸です。
 
-### 2-2：ヒアリングで判明した将来リスク
+### 2-4：ヒアリングで判明した将来リスク
 
 ヒアリングで「今すぐではないが将来起こりうる」と判明したリスクを確定変更とは分けて記録します。
 
@@ -275,7 +332,19 @@ int main() {
 | 複数担当者による同時操作 | 「複数のヘルプデスク担当者が同じチケットを同時に見ることがある」 | 高（日常的に発生） |
 | 新状態の追加（保留中・ベンダー確認中） | 「今後はこうした状態も増える予定」 | 確定（半期以内） |
 
-「状態遷移」という変更軸と「優先度ルール」という変更軸を、今の混沌とした `TicketManager` から切り離す必要がありそうです。フェーズ2で「何が変わり、何が変わらないか」が確定しました。次のフェーズ3では、この変更要求を実際に今のコードで試みて、具体的にどのような問題が起きるかをおのずとします。
+「状態遷移」という変更軸と「優先度ルール」という変更軸を、今の混沌とした `TicketManager` から切り離す必要がありそうです。フェーズ2で「何が変わり、何が変わらないか」が確定しました。次のフェーズ3では、この変更要求を実際に今のコードで試みて、具体的にどのような問題が起きるかを明らかにします。
+
+### 2-5：将来の変更仕様の見通し
+
+2-4のヒアリング結果をもとに、将来起こりうる変更を現在の状態と対比して整理します。
+
+| 変更内容 | 現在 | 将来（時期の目安） |
+| --- | --- | --- |
+| ユーザー区分と優先度の対応 | 一般→Normal、プレミアム→High の2区分 | プレミアム内にさらに細かい区分が加わる（次の契約改定時） |
+| 同一チケットへの同時アクセス | 担当者は1人を前提とした設計 | 複数担当者が同じチケットを同時に操作するケースが発生（日常的） |
+| チケット状態の種類 | Open / InProgress / Resolved の3種類 | 保留中・ベンダー確認中などの状態が追加される（半期以内、確定） |
+
+この変化が来たとき、状態の追加と優先度ルールの変更が別々のタイミングで到着することは確認済みです。次のフェーズ3では、現状のコードにこれらの変化を当ててみて、どこが痛みになるかを確認します。
 
 ---
 
@@ -383,10 +452,10 @@ graph LR
 
 フェーズ3でのシミュレーションから見えてきた観察事実と、その根本にある構造的な原因を対応させます。「根本原因（構造で言語化）」の列には、「なぜ変更が辛いのか」をコードの構造として表現した原因を記載します。観察事実から「症状」ではなく「構造上の欠陥」を言語化することが、このステップの目的です。
 
-| **根本原因（構造で言語化）** | **観察** | **変わる理由** | **必要なパターン** |
+| **根本原因（構造で言語化）** | **観察** | **変わる理由** | **分離の方向性** |
 | --- | --- | --- | --- |
-| **根本原因A：優先度ルールの混在** | 優先度計算ルールが変わると、チケットの状態遷移ロジックまで再テストが必要になる | ビジネスルールの変更（SLA改定・顧客区分の細分化） | Strategyが必要 |
-| **根本原因B：状態遷移ロジックの混在** | 新しいチケット状態を追加するたびに、管理クラスが修正される | 状態の種類の追加（保留中・ベンダー確認中など） | Stateが必要 |
+| **根本原因A：優先度ルールの混在** | 優先度計算ルールが変わると、チケットの状態遷移ロジックまで再テストが必要になる | ビジネスルールの変更（SLA改定・顧客区分の細分化） | ルールを差し替え可能にする分離 |
+| **根本原因B：状態遷移ロジックの混在** | 新しいチケット状態を追加するたびに、管理クラスが修正される | 状態の種類の追加（保留中・ベンダー確認中など） | 状態ごとの振る舞いをオブジェクト化する分離 |
 
 これら2つの根本原因は**互いに独立した変化軸**です。優先度ルールが変わっても状態遷移は変わりません。状態の種類が増えても優先度ルールは変わりません。独立しているからこそ、1つのパターンだけでは解決しきれません。
 
@@ -456,10 +525,10 @@ graph LR
 
 ---
 
-### ステップ1：プライベートメソッドで整理する
+### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
 
 **この形の考え方：**
-フェーズ3で示したコードを、接続点の設計は変えずにプライベートメソッドで整理した形です。各処理の意味がメソッド名で明確になります。`PriorityCalculator` を直接メンバに持ち、`if-else` 分岐もそのままですが、各分岐をプライベートメソッドに抽出して責任を整理します。
+フェーズ3で示したコードを、接続点の設計は変えずに各処理を独立したプライベートメソッドとして切り出した形です。`Open` 状態の処理と `InProgress` 状態の処理を、それぞれ独立したメソッドに分割します。`PriorityCalculator` を直接メンバに持ち、`if-else` 分岐もそのままですが、各分岐をプライベートメソッドに抽出して責任を整理します。
 
 **構造図：**
 
@@ -496,18 +565,18 @@ public:
 **TicketManager クラス（ステップ1）：**
 
 ```cpp
-// ステップ1：プライベートメソッドで各分岐の責任を整理
+// ステップ1：各処理を独立したプライベートメソッドに切り出す
 class TicketManager {
     PriorityCalculator calc; // ← 具体：PriorityCalculatorを直接保持
 public:
     void updateStatus(string userType, string status) {
         string priority = calc.calculate(userType);
         if (status == "Open") {
-            handleOpen(priority); // ← 処理の意図がメソッド名で明確になった
+            handleOpen(priority); // ← Open状態の処理を独立したメソッドへ
             return;
         }
         if (status == "InProgress") {
-            handleInProgress(priority);
+            handleInProgress(priority); // ← InProgress状態の処理を独立したメソッドへ
         }
     }
 private:
@@ -542,7 +611,13 @@ int main() {
 }
 ```
 
-プライベートメソッドに整理したことで各分岐の意図は読みやすくなりましたが、`TicketManager` が `PriorityCalculator` という具体型を直接知っており、ルールが変わると修正する構造は変わっていません。
+各処理を独立したプライベートメソッドへ切り出したことで、状態ごとの振る舞いがメソッド単位で分離されました。
+
+**この段階の評価：**
+
+`handleOpen(string priority)` と `handleInProgress(string priority)` を並べて見ると、どちらも「`priority` を引数に受け取り、何も返さない」という同じシグネチャを持っています。さらに `calc.calculate(userType)` と `handleXxx(priority)` という2つの処理のかたまりを観察すると、「優先度の計算」と「状態ごとのアクション実行」が `updateStatus()` の中で混在していることが見えてきます。「処理の実行（`handleXxx`）」と「どの処理を選ぶか（`if` の制御）」が同じメソッドにあるという構造の分離の必要性が浮かび上がります。
+
+この「複数のメソッドが同じシグネチャを持つ」という気づきは、次のステップでインターフェースへ抽象化するための足がかりになります。
 
 **このステップのトレードオフ：**
 
@@ -756,7 +831,8 @@ public:
 ```cpp
 // ステップ4：TicketManagerはIPriorityRule*のみを知る（優先度ルールの軸が解決）
 class TicketManager {
-    IPriorityRule* strategy; // ← 抽象：外部から注入されたインターフェースのみ知っている
+    // ← 抽象：外部から注入されたインターフェースのみ知っている
+    IPriorityRule* strategy;
 public:
     TicketManager(IPriorityRule* s) : strategy(s) {}
     void updateStatus(string userType, string status) {
@@ -772,13 +848,14 @@ public:
 ```
 
 > [!INFO] 生ポインタの使用について
-> このサンプルでは依存性の注入パターンを示すため、生ポインタ（`IPriorityRule* strategy`）を使用しています。実際のプロダクションコードでは `std::unique_ptr` などのスマートポインタや参照渡しを使用して、所有権を明確にしてください。
+> このサンプルでは依存性の注入を示すため、生ポインタ（`IPriorityRule* strategy`）を使用しています。本書では全章を通じて生ポインタを使い、所有権の議論よりも構造の変化に集中します。
 
 **main 関数（ステップ4）：**
 
 ```cpp
 int main() {
-    PremiumPriority strategy;            // ← 具体：呼び出し側だけが具体クラスを生成
+    // ← 具体：呼び出し側だけが具体クラスを生成
+    PremiumPriority strategy;
     TicketManager manager(&strategy);
     manager.updateStatus("premium", "InProgress");
     return 0;
@@ -930,8 +1007,10 @@ public:
 
 ```cpp
 int main() {
-    PremiumPriority strategy;            // ← 具体：呼び出し側だけが具体クラスを生成
-    InProgressPhase state;               // ← 具体：呼び出し側だけが具体クラスを生成
+    // ← 具体：呼び出し側だけが具体クラスを生成
+    PremiumPriority strategy;
+    // ← 具体：呼び出し側だけが具体クラスを生成
+    InProgressPhase state;
     TicketContext ctx(&state, &strategy);
     ctx.execute("premium");
     return 0;
@@ -975,36 +1054,88 @@ int main() {
 
 優先度判定を `IPriorityRule`、状態管理を `ITicketPhase` へとそれぞれ分離しました。
 
-**IPriorityRule インターフェースと実装クラス**
+**UserInfo / UserDatabase / IPriorityRule インターフェースと実装クラス**
 
 ```cpp
 #include <iostream>
 #include <string>
 #include <vector>
+#include <map>
 
 using namespace std;
+
+// ユーザー情報
+struct UserInfo {
+    string name; // 氏名
+    string tier; // "standard", "premium", "enterprise"
+};
+
+// ユーザーデータベース
+class UserDatabase {
+    map<string, UserInfo> records;
+public:
+    UserDatabase() {
+        records["USR001"] = {"田中 一郎", "enterprise"};
+        records["USR002"] = {"佐藤 花子", "premium"};
+        records["USR003"] = {"鈴木 次郎", "standard"};
+    }
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+    UserInfo get(const string& id) const {
+        return records.at(id);
+    }
+};
 
 // Strategy: 優先度計算のインターフェース
 class IPriorityRule {
 public:
     virtual ~IPriorityRule() = default;
-    virtual string getPriority(string userType) = 0;
+    virtual string getPriority(string userTier) = 0;
+};
+```
+
+チケットイベントログ（`TicketEventLog`）はシステム起動時は空で、チケットの作成・エスカレーション・解決・クローズのたびに1件追記されます。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
+
+```cpp
+struct TicketEvent {
+    std::string userId;
+    std::string userName;
+    std::string eventType;   // "チケット作成", "エスカレーション", "解決", "クローズ"
+    std::string priority;    // "low", "medium", "high", "critical"
+};
+
+// チケットイベントログを管理するクラス
+class TicketEventLog {
+    std::vector<TicketEvent> records;
+public:
+    void add(const std::string& userId, const std::string& userName,
+             const std::string& eventType, const std::string& priority) {
+        records.push_back({userId, userName, eventType, priority});
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << "[" << r.userId << "] " << r.userName
+                      << " " << r.eventType << " (" << r.priority << ")" << std::endl;
+        }
+    }
+    int size() const { return (int)records.size(); }
 };
 ```
 
 **PremiumPriority と NormalPriority クラス**
 
 ```cpp
-// プレミアムユーザー向け優先度ルール
+// プレミアム／エンタープライズ向け優先度ルール
 class PremiumPriority : public IPriorityRule {
 public:
-    string getPriority(string userType) override { return "High"; }
+    string getPriority(string userTier) override { return "High"; }
 };
 
-// 一般ユーザー向け優先度ルール
+// 一般（standard）ユーザー向け優先度ルール
 class NormalPriority : public IPriorityRule {
 public:
-    string getPriority(string userType) override { return "Normal"; }
+    string getPriority(string userTier) override { return "Normal"; }
 };
 ```
 
@@ -1063,18 +1194,18 @@ public:
         : state(st), strategy(s) {}
     void setState(ITicketPhase* s) { state = s; }
     void setStrategy(IPriorityRule* s) { strategy = s; }
-    void execute(string userType) {
-        string priority = strategy->getPriority(userType); // ← 抽象経由
+    void execute(string userTier) {
+        string priority = strategy->getPriority(userTier); // ← 抽象経由
         cout << "優先度: " << priority << " — ";
         state->display();
     }
-    void transition(string userType) {
-        string priority = strategy->getPriority(userType);
+    void transition(string userTier) {
+        string priority = strategy->getPriority(userTier);
         cout << "優先度: " << priority << " — ";
         state->handle(this); // 現在の状態が次の状態を決める
     }
-    string calculatePriority(string userType) {
-        return strategy->getPriority(userType);
+    string calculatePriority(string userTier) {
+        return strategy->getPriority(userTier);
     }
 };
 ```
@@ -1123,6 +1254,25 @@ void ResolvedPhase::display() {
 ```cpp
 // TicketApplication：具体クラスの組み立てと実行を担当する
 class TicketApplication {
+    UserDatabase db;
+
+    // ユーザーIDからStrategyを選択するヘルパー
+    IPriorityRule* selectStrategy(
+            const string& userId,
+            NormalPriority& normal,
+            PremiumPriority& premium) {
+        if (!db.exists(userId)) {
+            cout << "エラー: ユーザーID "
+                 << userId << " は存在しません。" << endl;
+            return nullptr;
+        }
+        string tier = db.get(userId).tier;
+        if (tier == "premium" || tier == "enterprise") {
+            return &premium;
+        }
+        return &normal;
+    }
+
 public:
     void run() {
         NormalPriority normalStrategy;
@@ -1133,29 +1283,48 @@ public:
         openPhase.setNext(&inProgressPhase);
         inProgressPhase.setNext(&resolvedPhase);
         resolvedPhase.setNext(&openPhase);
+        TicketEventLog ticketLog;
 
-        // 行1: 一般ユーザーが新規登録
-        cout << "--- 行1: 一般ユーザーが新規登録 ---" << endl;
-        TicketContext ctx1(&openPhase, &normalStrategy);
-        ctx1.execute("normal");
+        // 行1: 鈴木（standard）が新規登録
+        cout << "--- 行1: 鈴木（standard）が新規登録 ---" << endl;
+        IPriorityRule* s1 =
+            selectStrategy("USR003", normalStrategy, premiumStrategy);
+        if (!s1) return;
+        TicketContext ctx1(&openPhase, s1);
+        ctx1.execute(db.get("USR003").tier);
+        ticketLog.add("USR003", db.get("USR003").name,
+                      "チケット作成", "Normal");
 
-        // 行2: プレミアムユーザーが新規登録
-        cout << "--- 行2: プレミアムユーザーが新規登録 ---" << endl;
-        TicketContext ctx2(&openPhase, &premiumStrategy);
-        ctx2.execute("premium");
+        // 行2: 佐藤（premium）が新規登録
+        cout << "--- 行2: 佐藤（premium）が新規登録 ---" << endl;
+        IPriorityRule* s2 =
+            selectStrategy("USR002", normalStrategy, premiumStrategy);
+        if (!s2) return;
+        TicketContext ctx2(&openPhase, s2);
+        ctx2.execute(db.get("USR002").tier);
+        ticketLog.add("USR002", db.get("USR002").name,
+                      "チケット作成", "High");
 
         // 行3: 受付中チケットに担当者をアサイン（Open→InProgress）
         cout << "--- 行3: 担当者アサイン ---" << endl;
-        ctx1.transition("normal");
+        ctx1.transition(db.get("USR003").tier);
+        ticketLog.add("USR003", db.get("USR003").name,
+                      "エスカレーション", "Normal");
 
         // 行4: 担当者が解決（InProgress→Resolved）
         cout << "--- 行4: 担当者が解決 ---" << endl;
-        ctx1.transition("normal");
+        ctx1.transition(db.get("USR003").tier);
+        ticketLog.add("USR003", db.get("USR003").name,
+                      "解決", "Normal");
 
-        // 行5: 解決済みを一般ユーザーが再オープン（Resolved→Open）
-        cout << "--- 行5: 一般ユーザーが再オープン ---" << endl;
-        ctx1.transition("normal");
+        // 行5: 解決済みを鈴木が再オープン（Resolved→Open）
+        cout << "--- 行5: 鈴木が再オープン ---" << endl;
+        ctx1.transition(db.get("USR003").tier);
+        ticketLog.add("USR003", db.get("USR003").name,
+                      "クローズ", "Normal");
 
+        cout << "\n--- チケットイベントログ ---\n";
+        ticketLog.printAll();
     }
 };
 ```
@@ -1173,15 +1342,15 @@ int main() {
 **実行結果：**
 
 ```
---- 行1: 一般ユーザーが新規登録 ---
+--- 行1: 鈴木（standard）が新規登録 ---
 優先度: Normal — チケット受付中。
---- 行2: プレミアムユーザーが新規登録 ---
+--- 行2: 佐藤（premium）が新規登録 ---
 優先度: High — チケット受付中。
 --- 行3: 担当者アサイン ---
 優先度: Normal — チケット対応中。担当者に割り当て。
 --- 行4: 担当者が解決 ---
 優先度: Normal — チケット解決済み。クローズしました。
---- 行5: 一般ユーザーが再オープン ---
+--- 行5: 鈴木が再オープン ---
 優先度: Normal — チケット受付中。
 ```
 
@@ -1248,7 +1417,7 @@ graph LR
 
 ## 整理
 
-### この章で定義したこと
+### 問題・原因・課題・解決策
 
 | | 内容 |
 |---|---|
@@ -1466,4 +1635,4 @@ void updateStatus(string status) {
 
 7つのフェーズを通じて、読者は1つのクラスに混在する2つの変化軸という観察から始まり、「変わる速度と担当者が違うならば分けるべき」という分析を経て、軸ごとに異なるパターンを当てるという判断へと進みました。フェーズ4で「優先度ルール」と「状態遷移」が独立した接続点を持つことが確認された時点で、1つのパターンでは解決しきれないことが見えました。その「解決しきれない」という気づきこそが、2つ目のパターンへ進む根拠になります。フェーズ6の5ステップで段階的に進化させた思考の流れは、複合問題に直面したときの手順として、このまま現場で使えると思っています。
 
-あなたのコードの中にも、「誰の判断で変わるか」が異なる2つのロジックが同じクラスに同居している箇所があるはずです。それぞれの変化軸を問うことが、どのパターンをどこに当てるかを見つける入口になります。
+あなたのコードの中にも、「どの業務機能に属するか」が異なる2つのロジックが同じクラスに同居している箇所があるはずです。それぞれの変化軸を問うことが、どのパターンをどこに当てるかを見つける入口になります。

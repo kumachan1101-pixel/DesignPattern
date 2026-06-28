@@ -27,27 +27,35 @@
 
 **現在対応している決済手段**
 
+決済種別を文字列（"credit" や "cvs" のような文字列）で受け取る仕様は、ECサイトではごく一般的な設計です。お客様が選択肢を選んだ瞬間に識別子がフロントエンドから送られてくるため、バックエンド側では「この文字列が来たら、この処理を呼ぶ」という対応が必要になります。言わば「メニューの番号を渡すと、対応する料理が届く」イメージです。
+
 | 決済種別 | 入力値 | 処理内容 |
 |---|---|---|
-| クレジットカード決済 | `"credit"` | クレジットカードの認証と決済を実行する |
-| コンビニ決済 | `"cvs"` | コンビニ払いの支払い番号を発行する |
+| クレジットカード決済 | credit | クレジットカードの認証と決済を実行する |
+| コンビニ決済 | cvs | コンビニ払いの支払い番号を発行する |
+
+クレジットカードは「その場で認証・即時決済」、コンビニ払いは「支払い番号を発行して後日支払い」という点で、処理の性質が大きく異なります。この違いが、後のフェーズで「なぜ決済手段ごとに異なる処理が必要になるか」を理解する鍵になります。
 
 **決済の実行フロー**
+
+このフローは、どのECサイトでもほぼ共通して採用されている標準的な手順です。「種別を受け取って→対応する処理を選んで→実行して→結果を返す」という流れ自体は、決済手段が何種類になっても変わりません。「変わらない骨格」と「変わる中身（決済手段）」を区別して読んでおくと、後のフェーズで役立ちます。
 
 1. 決済アプリケーションが決済種別を受け取る
 2. 種別に応じた決済手段を選択する
 3. 選択した決済手段で処理を実行する
 4. 処理結果（成功／失敗）を返す
 
-**このシステムの関係者**
+**このシステムの変化の軸**
 
-| 役割 | 担当者 | 管轄する知識 |
-|---|---|---|
-| 決済基盤開発チーム | 自チーム | 決済フロー・共通インターフェース保守 |
-| 事業側（ビジネス担当） | 商品・事業企画部門 | どの決済手段を追加・廃止するかの判断 |
-| 各決済手段の開発チーム | 担当開発チーム | 各決済プロセッサーの実装 |
+決済システムでは、「どの決済手段を採用するか」という判断と、「その決済手段をどう実装するか」という判断は、属する業務機能が異なることが一般的です。前者は事業上の契約や戦略が絡む業務機能の判断であり、後者は技術的な詳細に属する設計判断です。この分離が設計に直接影響するため、変化の軸を整理しておきます。
 
-後のフェーズで「誰の判断で変わる知識か」を確認するとき、この関係者表が基準になります。
+**変化の軸**
+| 業務機能 | 変わりやすいルール |
+|---|---|
+| 決済手段・サービス管理 | どの決済手段を追加・廃止するか |
+| 処理の骨格（開発設計判断） | 決済フロー・共通仕様の構造 |
+
+後のフェーズで「どの業務機能に属する知識か」を確認するとき、この変化の軸が基準になります。
 
 ### 1-2：動作例テーブル
 
@@ -71,23 +79,24 @@
 | PaymentApplication | 決済手段に応じた処理を呼び出す | 決済処理の分岐と実行 |
 | CreditCardProcessor | クレジットカード決済の処理 | クレジットカード決済 |
 | ConvenienceStoreProcessor | コンビニ決済の処理 | コンビニ決済 |
+| ProcessorRegistry | 決済方法の設定を保持するデータストア | 決済方法の存在確認・有効フラグの参照 |
 
 ---
 
 ### 1-3：クラス構成図
 
-コードを読んだところで、クラス間の関係を図で整理します。
+仕様と動作例が確認できたところで、クラス間の関係を図で整理します。
 
 ```mermaid
 classDiagram
     class PaymentApplication {
-        +processPayment(type, amount)
+        +processPayment(string type, int amount)
     }
     class CreditCardProcessor {
-        +pay(amount)
+        +pay(int amount)
     }
     class ConvenienceStoreProcessor {
-        +pay(amount)
+        +pay(int amount)
     }
     PaymentApplication ..> CreditCardProcessor : uses
     PaymentApplication ..> ConvenienceStoreProcessor : uses
@@ -99,13 +108,57 @@ classDiagram
 
 ### 1-4：実装コード（現状）
 
+このシステムには以下の4種類の決済方法があらかじめ登録されています。
+
+| 決済方法ID | 名称 | 有効 | 手数料率 |
+|---|---|---|---|
+| credit_card | クレジットカード | ✓ | 3.0% |
+| bank_transfer | 銀行振込 | ✓ | 0.5% |
+| convenience | コンビニ払い | ✓ | 0% |
+| crypto | 暗号通貨 | ✗（無効） | 1.0% |
+
+無効な決済方法や未登録のIDを指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
+
 ```cpp
 #include <iostream>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
 
 using namespace std;
+
+// 決済方法の設定を保持するデータ構造
+struct ProcessorConfig {
+    string name;      // 決済方法名
+    bool isActive;    // 有効フラグ
+    double feeRate;   // 手数料率
+};
+
+// 決済方法の設定を一元管理するレジストリ
+class ProcessorRegistry {
+private:
+    map<string, ProcessorConfig> registry;
+public:
+    ProcessorRegistry() {
+        registry["credit_card"]   = {"クレジットカード", true,  0.030};
+        registry["bank_transfer"] = {"銀行振込",        true,  0.005};
+        registry["convenience"]   = {"コンビニ払い",    true,  0.000};
+        registry["crypto"]        = {"暗号通貨",        false, 0.010};
+    }
+
+    bool exists(const string& method) const {
+        return registry.count(method) > 0;
+    }
+
+    bool isActive(const string& method) const {
+        return registry.at(method).isActive;
+    }
+
+    ProcessorConfig get(const string& method) const {
+        return registry.at(method);
+    }
+};
 
 // 各決済手段の具体的な処理
 class CreditCardProcessor {
@@ -126,13 +179,26 @@ public:
 
 // 決済を統括するクラス
 class PaymentApplication {
+    ProcessorRegistry registry;
 public:
-    void processPayment(string type, int amount) {
+    void processPayment(const string& type, int amount) {
+        // レジストリで存在確認
+        if (!registry.exists(type)) {
+            cout << "エラー：未登録の決済方法です: " << type << endl;
+            return;
+        }
+        // レジストリで有効フラグを確認
+        if (!registry.isActive(type)) {
+            ProcessorConfig cfg = registry.get(type);
+            cout << "エラー：" << cfg.name
+                 << " は現在無効です。" << endl;
+            return;
+        }
         // ← 生成と利用が混在している箇所
-        if (type == "credit") {
+        if (type == "credit_card") {
             CreditCardProcessor processor;
             processor.pay(amount);
-        } else if (type == "cvs") {
+        } else if (type == "convenience") {
             ConvenienceStoreProcessor processor;
             processor.pay(amount);
         }
@@ -141,8 +207,10 @@ public:
 
 int main() {
     PaymentApplication app;
-    app.processPayment("credit", 1000);
-    app.processPayment("cvs", 500);
+    app.processPayment("credit_card", 1000);   // 正常
+    app.processPayment("convenience", 500);    // 正常
+    app.processPayment("crypto", 300);         // エラー：無効
+    app.processPayment("unknown", 200);        // エラー：未登録
     return 0;
 }
 ```
@@ -152,6 +220,8 @@ int main() {
 ```
 クレジットで 1000 円決済しました。
 コンビニで 500 円の支払い番号を発行しました。
+エラー：暗号通貨 は現在無効です。
+エラー：未登録の決済方法です: unknown
 ```
 
 このコードを見ると、`PaymentApplication` クラスが、どの決済手段のクラスを生成し、どう実行するかをすべて直接知っていることが分かります。
@@ -160,7 +230,7 @@ int main() {
 
 ### 1-5：変更要求
 
-**変更要求の発生チーム：** 今回の変更要求は決済プラットフォームチームから届いています。新しい決済手段の導入を推進するチームです。この点をフェーズ2の「誰の判断で変わるか」への伏線として覚えておきます。
+**変更要求の発生背景：** 今回の変更要求は決済プラットフォームチームから届いています。新しい決済手段の導入を推進するチームです。この点をフェーズ2の「どの業務機能による変化か」への伏線として覚えておきます。
 
 
 ある週の火曜日、決済プラットフォームチームのリーダーからチャットで連絡が入りました。
@@ -187,15 +257,15 @@ PayPay決済の動作：`"paypay"` を受け取ると、PayPay用のプロセッ
 
 ## 🟣 フェーズ2：仮説立案 ―― 何が変わるかを観察し、ヒアリングで裏付ける
 
-### 2-1：`PaymentApplication`に混在している知識と担当チーム
+### 2-1：変わりそうな仕様の見当をつける
 
-`PaymentApplication.processPayment()` が現在抱えている知識と、それぞれを変更するチームを確認します。
+`PaymentApplication.processPayment()` が現在抱えている知識と、それぞれが属する業務機能を確認します。
 
-| 知識（コードが直接持っているもの） | 変更を決めるチーム | 適切か |
+| 知識（コードが直接持っているもの） | 業務機能 | 適切か |
 |---|---|---|
-| 決済処理の実行フロー全体 | 決済基盤開発チーム | ✅ |
-| クレジットカード決済クラスの生成条件と具体型名 | 事業側（決済手段の採用判断） | ❌ 混在 |
-| コンビニ決済クラスの生成条件と具体型名 | 事業側（決済手段の採用判断） | ❌ 混在 |
+| 決済処理の実行フロー全体 | 処理の骨格（開発設計判断） | ✅ |
+| クレジットカード決済クラスの生成条件と具体型名 | 決済手段・サービス管理 | ❌ 混在 |
+| コンビニ決済クラスの生成条件と具体型名 | 決済手段・サービス管理 | ❌ 混在 |
 
 ❌が2つある。決済手段が1つ増えるたびに、決済フローを管理するクラスに手が入ります。これが後の変更の痛みの予兆です。
 
@@ -216,9 +286,8 @@ PayPay決済の動作：`"paypay"` を受け取ると、PayPay用のプロセッ
 
 コードを眺めてみると、`PaymentApplication` クラスという決済処理を統括するクラスの中で、`CreditCardProcessor` や `ConvenienceStoreProcessor` といった各決済手段の具体クラスを直接 `new` して利用する構成になっています。新しい決済手段が増えるたびに、この `PaymentApplication` クラスに新しい `else if` 文が追加され、利用するクラスが増え続けてきました。
 
-### 2-2：関係者ヒアリング
+### 2-3：関係者ヒアリング
 
-> **現実のヒアリングでは——** 本書のヒアリングシーンでは設計判断を明確にするため、意図的に「理想的な回答」が返ってくるように描いています。これはシミュレーションです。現実には、「変わるかどうか分からない」「たぶん変わらない」という曖昧な答えが返ることも多いです。そのときは `git log` や過去の障害記録を「ヒアリングの代わり」として使ってみてください。「過去に何度変わったか」が最も正直な証拠です。
 
 仮説を持って、決済プラットフォームチームの担当者と話し合いを持ちました。
 
@@ -228,7 +297,7 @@ PayPay決済の動作：`"paypay"` を受け取ると、PayPay用のプロセッ
 - **決済担当者：** 「そこは固定だよ。どの手段でも『金額を受け取って決済する』という手続き自体は同じだからね。」
 - **開発者：** 「分かりました。決済の実行ルールは固定だけれど、生成する対象（プロセッサーの種類）はどんどん増えていくということですね。」
 
-### 2-2：ヒアリングで判明した将来リスク
+### 2-4：ヒアリングで判明した将来リスク
 
 ヒアリングで浮かび上がった「確定ではないが、近い将来起こりうる変化」を記録します。これは今回の設計判断の材料です。
 
@@ -238,6 +307,28 @@ PayPay決済の動作：`"paypay"` を受け取ると、PayPay用のプロセッ
 | 決済手段を特定するための識別子と具体クラスの紐付け | 新しい決済手段の追加ごと | 識別子と生成が現在直結しており、追加のたびに修正が必要 |
 
 フェーズ2で「今変わること（確定）」と「将来変わるかもしれないこと（リスク）」を分けて整理できました。次のフェーズ3では、現在の構造で変更を試みたときに何が起きるかを確認します。
+
+### 2-5：将来の変更仕様の見通し
+
+2-4のヒアリング結果をもとに、将来起こりうる変更仕様を整理します。
+
+| 変更内容 | 現在 | 将来（時期の目安） |
+|---|---|---|
+| 対応する決済手段の種類 | クレジット・コンビニの2種類 | 銀行系・後払いサービスなど、追加ごとに増加 |
+| 決済種別と具体クラスの紐付け箇所 | `PaymentApplication` 内の `if-else` に直書き | 追加のたびに紐付け条件が増え続ける |
+
+この変化が来たとき、現在の構造では `PaymentApplication` を毎回開いて修正することになります。次のフェーズ3では、実際にその修正を試みて何が起きるかを確認します。
+
+### 2-5：将来の変更仕様の見通し
+
+ヒアリングで「決済手段の継続的な追加」が予告されました。この変化が来たとき、仕様がどう変わるかを整理しておきます。
+
+| 変更内容 | 現在 | 将来（時期の目安） |
+|---|---|---|
+| 決済手段の種類 | クレジットカード・コンビニ払いの2種類 | 銀行系・後払い・PayPayなど新決済手段がハイペースで追加 |
+| 決済手段の識別子と生成クラスの対応 | `if-else` で直結（1か所） | 手段が増えるたびに識別子の紐付けコードを修正必要 |
+
+この変化が来たとき、現在の構造がどれだけの修正コストを要求するかを、次のフェーズ3で実際に確かめます。
 
 ---
 
@@ -338,11 +429,12 @@ PayPay対応は正しく動いています。しかし `processPayment` の `if-
 
 ```mermaid
 graph LR
-    T1["変更要求：PayPay対応"] -->|"追記"| A["PaymentApplication<br>（既存の条件分岐全体）"]
+    T1["変更要求：PayPay対応"]
+        -->|"追記"| A["PaymentApplication<br>（既存の条件分岐全体）"]
     A -->|"新規クラス作成"| B["PayPayProcessor"]
 ```
 
-新しい決済手段という「ビジネス上の変化」を実装するたびに、本来は決済手段の振り分けだけを担うべき `PaymentApplication` クラスが必ず修正対象として矢印を向けられていることが分かります。
+新しい決済手段という「ビジネス上の変化」を実装するたびに、本来は決済手段の振り分けだけを担う役割を持つ `PaymentApplication` クラスが必ず修正対象として矢印を向けられていることが分かります。
 
 ### 3-3：痛みの言語化
 
@@ -354,7 +446,7 @@ graph LR
 
 ---
 > **📌 問題（確定）**
-> 決済手段が変わるたびに、利用側の `PaymentApplication` クラスの分岐条件・生成コードが連動して変わる。決済手段という「管理者が異なる知識」が、決済の振り分けフローと同じクラスに混在しているため、決済手段の追加・変更が統括クラスへの修正を引き起こし続ける。
+> 決済手段が変わるたびに、利用側の `PaymentApplication` クラスの分岐条件・生成コードが連動して変わる。決済手段という「属する業務機能が異なる知識」が、決済の振り分けフローと同じクラスに混在しているため、決済手段の追加・変更が統括クラスへの修正を引き起こし続ける。
 ---
 
 ここまでで「何が痛いか」が事実として確認できました。次のフェーズ4では、その痛みが「なぜ起きているか」を構造の言葉で言語化します。
@@ -398,12 +490,14 @@ graph LR
             PayPayProcessor processor;
             processor.pay(amount);
         }
-        // 銀行振込・Apple Pay など、決済手段を追加するたびに else if がここに増える
+        // 銀行振込・Apple Pay など、決済手段を追加するたびに
+        // else if がここに増える
 ```
 
 **【変わらない部分（不変の骨格）】**
 ```cpp
-        // どの決済手段であっても「種別を受け取り→実行する」という流れは変わらない
+        // どの決済手段であっても
+        // 「種別を受け取り→実行する」という流れは変わらない
         // (ここに変わる部分の生成ロジックが入っている状態)
 ```
 
@@ -418,7 +512,8 @@ public:
     void processPayment(string type, int amount) {
         // 具体クラスを直接知り、直接生成して呼び出している
         if (type == "credit") {
-            CreditCardProcessor processor;  // ← 利用処理が生成するクラス名を知っている
+            // ← 利用処理が生成するクラス名を知っている
+            CreditCardProcessor processor;
             processor.pay(amount);
         }
         // PayPay・銀行振込など、決済手段を追加するたびに else if がここに増える
@@ -498,36 +593,47 @@ void processPayment(string type, int amount) {
 
 フェーズ5で「変わるのは生成する具体クラスと選択条件であり、振り分けフローが使う操作インターフェースは安定している」ことが分かりました。ここでは、生成判断をどこへ移すと変更を局所化できるかを、段階を追って試します。それぞれの段階で「まだ何が残っているか」を確認し、その積み重ねの先で「どこまで進むべきか」を決断します。
 
-### ステップ1：生成ロジックをプライベートメソッドに切り出す
+### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
 
-`processPayment` の中を見ると、「どの種別か判断する if-else」と「具体クラスを生成して pay() を呼ぶ」が一体になっています。「とりあえず読みやすくしよう」と思ったとき、最初に思いつくのは「生成の部分だけをメソッドに切り出す」ことではないでしょうか。クラスは分けず、`PaymentApplication` の中に `createProcessor` というプライベートメソッドを作ります。なお、コード中の `IPaymentProcessor*` は、ステップ3で正式に定義するインターフェースです。ここでは「どのクラスを返すかを一か所にまとめる」という構造の変化に注目してください。
+`processPayment` の中を見ると、「どの種別か判断する if-else」と「具体クラスを生成して pay() を呼ぶ」が一体になっています。「とりあえず読みやすくしよう」と思ったとき、最初に思いつくのは「決済手段ごとの生成と実行を、それぞれ独立したプライベートメソッドとして切り出す」ことではないでしょうか。
+
+クラスは分けず、`PaymentApplication` の中に `payByCredit` / `payByCvs` / `payByPayPay` といった手段ごとのメソッドを作り、`processPayment` は種別の判断だけを担当します。
 
 ```cpp
 class PaymentApplication {
 private:
-    // 生成処理を切り出す（PaymentApplicationの中にとどまっている）
-    IPaymentProcessor* createProcessor(string type) {
-        if (type == "credit") return new CreditCardProcessor();
-        if (type == "paypay") return new PayPayProcessor();
-        if (type == "cvs")    return new ConvenienceStoreProcessor();
-        return nullptr;
+    // 各決済処理を独立したメソッドとして切り出す
+    void payByCredit(int amount) {
+        CreditCardProcessor processor;
+        processor.pay(amount);
+    }
+
+    void payByCvs(int amount) {
+        ConvenienceStoreProcessor processor;
+        processor.pay(amount);
+    }
+
+    void payByPayPay(int amount) {
+        PayPayProcessor processor;
+        processor.pay(amount);
     }
 
 public:
     void processPayment(string type, int amount) {
-        IPaymentProcessor* processor = createProcessor(type);
-        if (processor) {
-            processor->pay(amount);
-            delete processor;
-        }
+        // 種別の判断だけをここで行う
+        if (type == "credit")       payByCredit(amount);
+        else if (type == "cvs")     payByCvs(amount);
+        else if (type == "paypay")  payByPayPay(amount);
     }
 };
 ```
 
-`processPayment` が「生成→実行」という流れだけを担い、`createProcessor` が「どのクラスを生成するか」の判断を一手に引き受けた形になっています。
+`processPayment` が「どの手段を呼ぶか」という制御だけを担い、各決済の実行処理はそれぞれの専用メソッドへ分かれた形になっています。
 
 **この段階の評価：**
-`processPayment` の見通しが良くなり、生成処理がひとまとまりになりました。これは確かな一歩前進です。しかし `createProcessor` は `PaymentApplication` の中にあるため、新しい決済手段が増えるたびに `PaymentApplication` を開いて `if` を追加する必要があります。生成処理がまとまったことは良いのですが、`PaymentApplication` がすべての具体クラス（`CreditCardProcessor`・`PayPayProcessor`・`ConvenienceStoreProcessor`）を直接知っているという根本は変わっていません。
+切り出した3つのメソッド（`payByCredit` / `payByCvs` / `payByPayPay`）を並べてみると、いずれも「プロセッサーを生成して `pay(amount)` を呼ぶ」という同じシグネチャ・同じ構造を持っていることに気づきます。また、`processPayment` が「どれを呼ぶか」という制御を担い、各メソッドが「実際に処理する」という分離も見えてきました。
+
+この観察が、次の問いを生みます。「同じ構造を持つ複数のメソッドが並んでいるなら、その共通部分を一つに抽象化できないか。そして、処理の実行ではなく『どのクラスを生成するか』という判断だけを切り出す方法はないだろうか」。
 
 「生成の知識を `PaymentApplication` の外に出せないか」という問いが自然に湧いてきます。
 
@@ -571,12 +677,12 @@ public:
 
 「Factory の生成ロジック自体を差し替え可能にできないか」という問いが見えてきます。
 
-### ステップ3：生成メソッドを抽象化し、具体クラスに委ねる（Factory Method）
+### ステップ3：生成メソッドを抽象化し、具体クラスに委ねる
 
 ステップ2の `PaymentFactory` は、「どの具体クラスを生成するか」という知識を一手に持つ固定されたクラスでした。この発想を逆転させてみます。`PaymentApplication` 自体に `createProcessor` という抽象メソッドを宣言し、「生成の仕方は自分では決めない、サブクラスに任せる」という構造にします。
 
-> [!INFO] コラム: ただの生成メソッドとFactory Methodの違い
-> 「生成するだけの別メソッド（関数）を作れば十分では？」と思うかもしれません。しかし、それだけでは「そのメソッドを持つクラス」が全ての具体クラスを知っている状態は変わりません。Factory Method パターンの核心は、「具体的な生成処理をサブクラスに委ねる」ことです。これにより、呼び出し側のコードを一切変えずに、テスト用のモックに差し替えたり、環境ごとに生成するクラスを切り替えたりすることが可能になります。
+> [!INFO] コラム: ただの生成メソッドと抽象化された生成の違い
+> 「生成するだけの別メソッド（関数）を作れば十分では？」と思うかもしれません。しかし、それだけでは「そのメソッドを持つクラス」が全ての具体クラスを知っている状態は変わりません。この生成の抽象化パターンの核心は、「具体的な生成処理をサブクラスに委ねる」ことです。これにより、呼び出し側のコードを一切変えずに、テスト用のモックに差し替えたり、環境ごとに生成するクラスを切り替えたりすることが可能になります。
 
 はじめに、すべての決済プロセッサーが従う共通のインターフェースを定義します。
 
@@ -611,7 +717,8 @@ public:
 class ConvenienceStoreProcessor : public IPaymentProcessor {
 public:
     void pay(int amount) override {
-        cout << "コンビニで " << amount << " 円の支払い番号を発行しました。" << endl;
+        cout << "コンビニで " << amount
+             << " 円の支払い番号を発行しました。" << endl;
     }
 };
 ```
@@ -663,16 +770,16 @@ protected:
 
 *   **ステップ1（プライベートメソッド化）で止めるケース：** 決済手段が2〜3種類で今後増える予定が全くない場合。生成処理がひとまとまりになるだけで、読みやすさは十分改善されます。
 *   **ステップ2（具体ファクトリへの分離）で止めるケース：** 生成ロジックを `PaymentApplication` から切り出したいが、抽象化とサブクラスを増やすコストをまだかけたくない場合の「中間策」です。変更の主体が `PaymentFactory` に移るため、`PaymentApplication` への修正は不要になります。
-*   **ステップ3（Factory Method）まで進むケース：** 「今後も新しい決済手段が追加される」と確定しており、かつ「生成の仕方そのものを差し替えたい（テスト・環境別設定など）」という要求が見込まれる場合。今すぐ初期投資コストを払ってでも、将来の変更コストを最小化するのが適切です。
+*   **ステップ3（抽象化ファクトリ）まで進むケース：** 「今後も新しい決済手段が追加される」と確定しており、かつ「生成の仕方そのものを差し替えたい（テスト・環境別設定など）」という要求が見込まれる場合。今すぐ初期投資コストを払ってでも、将来の変更コストを最小化するのが適切です。
 
 **今回の決断：**
-フェーズ2のヒアリングで、決済担当者から「かなりハイペースで追加していく予定」と明言されています。したがって、今回は**ステップ3（Factory Method）まで進化させる**決断を下します。
-
-生成するオブジェクトの種類（決済手段）を、利用側から隠蔽するメソッドに集約し、利用側がインターフェースを通じてインスタンスを得る構造——これが **Factory Method（ファクトリーメソッド）パターン** と呼ばれています。
+フェーズ2のヒアリングで、決済担当者から「かなりハイペースで追加していく予定」と明言されています。したがって、今回は**ステップ3（抽象化ファクトリ）まで進化させる**決断を下します。
 
 フェーズ6で採用ステップが決まりました。次のフェーズ7では、この決断を最終的なコードに落とし込みます。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
+
+生成するオブジェクトの種類（決済手段）を、利用側から隠蔽するメソッドに集約し、利用側がインターフェースを通じてインスタンスを得る構造——これが **Factory Method（ファクトリーメソッド）パターン** と呼ばれています。
 
 ### 7-1：解決後のコード（全体）
 
@@ -683,6 +790,7 @@ protected:
 
 ```cpp
 #include <iostream>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -698,6 +806,73 @@ public:
 ```
 
 `IPaymentProcessor` は「決済を実行するために持つべきメソッドと戻り値の約束」を定義します。具体クラスが何であれ、このインターフェースさえ実装していれば、利用側はそのまま使えます。
+
+**1-b. レジストリ（データ層）の定義**
+決済方法の設定を `std::map` で一元管理します。Factory Methodが生成を判断する前に、レジストリで「登録されているか」「有効か」を確認します。
+
+```cpp
+// 決済方法の設定を保持するデータ構造
+struct ProcessorConfig {
+    string name;      // 決済方法名
+    bool isActive;    // 有効フラグ
+    double feeRate;   // 手数料率
+};
+
+// 決済方法の設定を一元管理するレジストリ
+class ProcessorRegistry {
+private:
+    map<string, ProcessorConfig> registry;
+public:
+    ProcessorRegistry() {
+        registry["credit_card"]   = {"クレジットカード", true,  0.030};
+        registry["bank_transfer"] = {"銀行振込",        true,  0.005};
+        registry["convenience"]   = {"コンビニ払い",    true,  0.000};
+        registry["crypto"]        = {"暗号通貨",        false, 0.010};
+    }
+
+    bool exists(const string& method) const {
+        return registry.count(method) > 0;
+    }
+
+    bool isActive(const string& method) const {
+        return registry.at(method).isActive;
+    }
+
+    ProcessorConfig get(const string& method) const {
+        return registry.at(method);
+    }
+};
+```
+
+`ProcessorRegistry` はデータ層として機能します。決済手段の有効・無効や手数料率の変更はこのクラスだけを修正すれば済み、Factory Methodの生成ロジックには影響しません。
+
+決済ログ（`PaymentLog`）はシステム起動時は空で、決済処理が実行されるたびに結果を1件追記します。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
+
+```cpp
+struct PaymentRecord {
+    std::string method;       // "credit_card", "bank_transfer", etc.
+    std::string methodName;   // "クレジットカード", "銀行振込", etc.
+    int amount;
+    std::string status;       // "成功", "失敗"
+};
+
+// 決済ログを管理するクラス
+class PaymentLog {
+    std::vector<PaymentRecord> records;
+public:
+    void add(const std::string& method, const std::string& methodName,
+             int amount, const std::string& status) {
+        records.push_back({method, methodName, amount, status});
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << "[" << r.method << "] " << r.methodName
+                      << " " << r.amount << "円 -> " << r.status << std::endl;
+        }
+    }
+    int size() const { return (int)records.size(); }
+};
+```
 
 **2. 個別の決済プロセッサーの実装（具体）**
 インターフェースを満たす具体的な決済クラスを作成します。本体コードに触れることなく、このクラス群だけを自由に追加・変更できます。
@@ -732,7 +907,7 @@ public:
 決済を行う本体クラスです。`PaymentApplication` が「振り分けフローの骨格」を担い、`DefaultPaymentApplication` が「どのクラスを生成するか」という判断を一手に引き受けます。利用側である `processPayment` はインターフェースを通じて結果を受け取るだけになります。
 
 > [!NOTE] 
-> このサンプルでは他言語との横断的な比較とコードの簡潔化のため、生ポインタを使用しています。実際のプロダクションコードでは `std::unique_ptr` などのスマートポインタや参照渡しを使用して、所有権を明確にすることをお勧めします。
+> このサンプルでは他言語との横断的な比較とコードの簡潔化のため、生ポインタを使用しています。本書では全章を通じて生ポインタを使い、所有権の議論よりも構造の変化に集中します。
 
 ```cpp
 // 振り分けフローの骨格（生成は知らない）
@@ -754,12 +929,24 @@ public:
 
 // 具体的な生成判断を、この具象Creatorへまとめる
 class DefaultPaymentApplication : public PaymentApplication {
+    ProcessorRegistry registry;  // ← データ層でバリデーション
 protected:
     IPaymentProcessor*
     createProcessor(const string& type) override {
-        if (type == "credit")
+        // レジストリで存在確認
+        if (!registry.exists(type)) {
+            throw invalid_argument(
+                "未登録の決済方法です: " + type);
+        }
+        // レジストリで有効フラグを確認
+        if (!registry.isActive(type)) {
+            ProcessorConfig cfg = registry.get(type);
+            throw invalid_argument(
+                cfg.name + " は現在無効です。");
+        }
+        if (type == "credit_card")
             return new CreditCardProcessor();
-        if (type == "cvs")
+        if (type == "convenience")
             return new ConvenienceStoreProcessor();
         if (type == "paypay")
             return new PayPayProcessor();
@@ -768,20 +955,44 @@ protected:
 };
 ```
 
-この例は、1つの具象Creatorが引数に応じてProductを選ぶ**引数付きFactory Method**です。生成と利用は分離できますが、新しい種別の追加では新しいProcessorに加えて `DefaultPaymentApplication::createProcessor()` の分岐も変更します。種別ごとに具象Creatorを分ける設計なら中央の分岐は減らせますが、Creatorのクラス数と組み立て設定が増えます。
+この例は、1つの具象Creatorが引数に応じてProductを選ぶ**引数付きFactory Method**です。レジストリによるバリデーションを生成の前段に置くことで、「登録されていない」「無効である」という2種類のエラーを生成ロジックと分けて表現できます。生成と利用は分離できますが、新しい種別の追加では新しいProcessorに加えて `DefaultPaymentApplication::createProcessor()` の分岐も変更します。種別ごとに具象Creatorを分ける設計なら中央の分岐は減らせますが、Creatorのクラス数と組み立て設定が増えます。
 
 **4. 組み立てと実行（メイン関数）**
 
 ```cpp
 int main() {
     DefaultPaymentApplication app;  // ← 具体的な生成担当を選ぶのはここだけ
+    PaymentLog payLog;
 
-    // 行1：credit / 1000円
-    app.processPayment("credit", 1000);
-    // 行2：paypay / 700円
-    app.processPayment("paypay", 700);   // ← 新しい決済手段も呼び出せる
-    // 行3：cvs / 500円
-    app.processPayment("cvs", 500);
+    // 正常ケース
+    app.processPayment("credit_card", 1000);
+    payLog.add("credit_card", "クレジットカード", 1000, "成功");
+
+    app.processPayment("paypay", 700);     // ← 新しい決済手段も呼び出せる
+    payLog.add("paypay", "PayPay", 700, "成功");
+
+    app.processPayment("convenience", 500);
+    payLog.add("convenience", "コンビニ払い", 500, "成功");
+
+    // エラーケース：無効な決済方法
+    try {
+        app.processPayment("crypto", 300); // isActive == false
+    } catch (const invalid_argument& e) {
+        cout << "エラー：" << e.what() << endl;
+        payLog.add("crypto", "暗号通貨", 300, "失敗");
+    }
+
+    // エラーケース：未登録の決済方法
+    try {
+        app.processPayment("unknown", 200);
+    } catch (const invalid_argument& e) {
+        cout << "エラー：" << e.what() << endl;
+        payLog.add("unknown", "不明", 200, "失敗");
+    }
+
+    cout << "\n--- 決済ログ ---\n";
+    payLog.printAll();
+
     return 0;
 }
 ```
@@ -792,9 +1003,18 @@ int main() {
 クレジットで 1000 円決済しました。
 PayPayで 700 円決済しました。
 コンビニで 500 円の支払い番号を発行しました。
+エラー：暗号通貨 は現在無効です。
+エラー：未登録の決済方法です: unknown
+
+--- 決済ログ ---
+[credit_card] クレジットカード 1000円 -> 成功
+[paypay] PayPay 700円 -> 成功
+[convenience] コンビニ払い 500円 -> 成功
+[crypto] 暗号通貨 300円 -> 失敗
+[unknown] 不明 200円 -> 失敗
 ```
 
-掲載した実行結果から、新しく追加したPayPay決済も含めて、すべての決済処理が正しく行われていることが確認できます。`processPayment` の中から具体的な決済手段のクラス名（`CreditCardProcessor` 等）は完全に排除されており、インターフェースを通じた決済の呼び出しに統一されました。
+掲載した実行結果から、新しく追加したPayPay決済も含めて、すべての正常ケースが正しく処理されています。さらにレジストリを通じた2種類のエラー条件——無効な決済方法と未登録の決済方法——が `processPayment` の骨格に手を加えることなく表現できています。`processPayment` の中から具体的な決済手段のクラス名（`CreditCardProcessor` 等）は完全に排除されており、インターフェースを通じた決済の呼び出しに統一されました。
 
 
 ### 7-2：動作シーケンス図
@@ -851,7 +1071,7 @@ graph LR
 
 ## 整理
 
-### この章で定義したこと
+### 問題・原因・課題・解決策
 
 | | 内容 |
 |---|---|
@@ -916,7 +1136,7 @@ graph LR
 ## あなたのコードで考えてみてください
 
 1. **変動の兆候を探す：** あなたのコードに「使う具体クラスが条件によって変わる」`if-else` や `switch` があり、新しい種類が増えるたびにそこを書き換えている箇所がありますか？
-2. **変える理由を問う：** 「どのクラスを生成するか」という判断は、誰の決定で変わりますか？それは業務ルールの変化ですか、それとも技術的な都合ですか？
+2. **変える理由を問う：** 「どのクラスを生成するか」という判断は、どの業務機能に属しますか？それは業務ルールの変化ですか、それとも技術的な都合ですか？
 3. **結合の強さを測る：** 利用側が具体クラスの名前を直接知っていると、「別の実装に切り替える」ときに利用側も変更する必要がありますか？その変更はどのくらい広がりますか？
 4. **分けた後を想像する：** もし「生成の知識」を1か所に集めると、新しい実装を追加するとき変わるファイルはどこだけになりますか？利用側は本当に何も変えなくて済みますか？
 
@@ -997,6 +1217,6 @@ public:
 
 決済処理というドメインと Factory Methodパターンの関係を一言で言うなら、「生成」と「利用」を分離することで、「どの具体クラスを使うか」の決定を呼び出し側から引き剥がせる、ということです。`processPayment` がクレジットカード・銀行振り込み・電子マネーという具体クラス名と生成方法を直接知っていた限り、新しい決済手段が来るたびに決済処理フロー全体を触る必要がありました。生成の判断を `createProcessor` へ移した瞬間、利用側は何が来るかを知らなくてよくなりました。
 
-7つのフェーズを通じて、読者は決済処理クラスが具体クラスを知りすぎているという観察から始まり、「誰の判断で決済手段が決まるか」の分析を経て、生成責任を分離するという判断へと進みました。フェーズ2のヒアリングで「決済手段は今後も追加される」と確認した時点で生成の変動軸が確定し、フェーズ4で利用処理が生成知識を持っていることを接続点として特定した時点で、生成と利用を切り分ける方向性が定まりました。`processPayment` の中からif文が消えた瞬間が、この章の到達点です。
+7つのフェーズを通じて、読者は決済処理クラスが具体クラスを知りすぎているという観察から始まり、「どの業務機能によって決済手段が決まるか」の分析を経て、生成責任を分離するという判断へと進みました。フェーズ2のヒアリングで「決済手段は今後も追加される」と確認した時点で生成の変動軸が確定し、フェーズ4で利用処理が生成知識を持っていることを接続点として特定した時点で、生成と利用を切り分ける方向性が定まりました。`processPayment` の中からif文が消えた瞬間が、この章の到達点です。
 
-あなたのコードの中にも、処理ロジックの中で具体クラスを生成し、そのクラス名や生成条件を呼び出し元が知っている箇所があるはずです。「この生成ロジックは誰の判断で変わるか」を問うことが、Factory Methodを使う理由を見つける入口になります。
+あなたのコードの中にも、処理ロジックの中で具体クラスを生成し、そのクラス名や生成条件を呼び出し元が知っている箇所があるはずです。「この生成ロジックはどの業務機能によるか」を問うことが、Factory Methodを使う理由を見つける入口になります。

@@ -23,7 +23,9 @@
 
 このシステムは、ネット銀行の**振り込み処理を実行**します。
 
-「振込先口座番号」「送金金額」を入力として受け取り、銀行のAPIを通じて以下の手順で振り込みを完了させます。
+「振込先口座番号」「送金金額」を入力として受け取り、銀行の外部システムを通じて以下の手順で振り込みを完了させます。
+
+この手順の順番には業務上の理由があります。「口座が存在しない相手に送金しようとする」「残高が足りないのに認証コードを発行する」といった無駄なコストを避けるため、安価な確認（口座・残高）を先に行い、コストのかかる認証・送金を後回しにするのが一般的な設計です。ネットバンキングのシステムでは、この順番はほぼ業界標準として定着しています。
 
 **振り込みの処理手順**
 
@@ -32,19 +34,19 @@
 | ① 口座確認 | 振込先口座が存在し有効であることを確認する | エラーで中止 |
 | ② 残高確認 | 送金元の残高が十分あることを確認する | エラーで中止 |
 | ③ OTP認証 | ワンタイムパスワードで本人確認を行う | エラーで中止 |
-| ④ 送金実行 | 銀行APIへ送金指示を送信する | エラーで中止 |
+| ④ 送金実行 | 銀行の外部システムへ送金指示を送信する | エラーで中止 |
 
-この4つの手順は必ず順番通りに実行される必要があります。どこかで失敗すれば後続の手順は実行されません。
+「失敗したら中止」というルールは、途中まで実行した状態で処理が止まることによる不整合（お金は引き落とされたのに振込先に届かない、など）を防ぐためです。料理のレシピと同じで、前の工程が成立していないと次の工程が意味をなさないため、どのステップが失敗しても後続の手順は実行しません。この「前提が崩れたら即中止」という設計は、金融系システムでは特に一般的な安全策です。
 
-**このシステムの関係者**
+**変化の軸**
 
-| 役割 | 担当者 | 管轄する知識 |
-|---|---|---|
-| 振り込みシステム開発チーム | 自チーム | 振り込みの処理フロー全体 |
-| 銀行側のシステム担当者 | 銀行API管理部門 | 口座確認・残高確認・送金APIの仕様 |
-| 銀行側のセキュリティ担当者 | 銀行セキュリティ部門 | OTP認証の手順・認証方式 |
+| 業務機能 | 変わりやすいルール |
+|---|---|
+| インフラ・システム管理（銀行API） | 口座確認・残高確認・送金APIの仕様 |
+| インフラ・システム管理（認証） | OTP認証の手順・認証方式 |
+| 処理の骨格（開発設計判断） | 振り込みの処理フロー全体 |
 
-後のフェーズで「誰の判断で変わる知識か」を確認するとき、この関係者表が基準になります。
+後のフェーズで「どの業務機能に属する知識か」を確認するとき、この変化の軸が基準になります。
 
 ---
 
@@ -78,15 +80,19 @@ classDiagram
         -BankGateway gateway
         -SecurityAuthenticator auth
         +transfer(toAccount, amount, otp)
+        +transferApprovedBatch(toAccount, amount)
     }
     class BankGateway {
         +verifyAccount(account)
         +checkBalance(amount)
         +executeTransfer(account, amount)
+        +handleAccountNotFoundError()
+        +handleInsufficientBalanceError()
     }
     class SecurityAuthenticator {
         +requestOTP()
         +verifyOTP(token)
+        +handleAuthenticationFailed()
     }
 
     BatchTransferProcessor --> TransferProcessor : 使う
@@ -104,6 +110,9 @@ classDiagram
 
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
+| AccountDatabase | 口座データの保持・検索・残高更新 | 口座存在確認・残高照会・入出金 |
+| TransferRecord | 振り込み1件分のデータ | 振り込み履歴の1レコード |
+| TransferHistory | 振り込み履歴の管理 | 成功した振り込みの記録・一覧表示 |
 | TransferProcessor | 個別振り込みフロー進行 | 仕様全体 |
 | BatchTransferProcessor | 一括振り込み（バッチ）進行 | 複数の振り込みの呼び出し |
 | BankGateway | 銀行API通信 | 仕様①、②、④ |
@@ -117,37 +126,60 @@ classDiagram
 
 はじめに、銀行APIとの通信を担うクラスと認証を担うクラスを見てみます。
 
+このシステムには以下の3件の口座データがあらかじめ登録されています。
+
+| 口座ID | 名義 | 残高 |
+|---|---|---|
+| ACC001 | 田中 一郎 | 150,000円 |
+| ACC002 | 佐藤 花子 | 30,000円 |
+| ACC003 | 鈴木 次郎 | 500,000円 |
+
+コードを読む前に、どのIDがどの口座かを把握しておくと、動作結果と仕様の対応が追いやすくなります。
+
 ```cpp
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 #include <utility>
 
+// 口座情報を保持する構造体
+struct AccountInfo {
+    std::string ownerName;  // 口座名義
+    int balance;            // 残高（円）
+};
+
+// 口座データを管理するクラス
+class AccountDatabase {
+private:
+    std::map<std::string, AccountInfo> records;
+public:
+    AccountDatabase() {
+        records["ACC001"] = {"田中 一郎", 150000};
+        records["ACC002"] = {"佐藤 花子",  30000};
+        records["ACC003"] = {"鈴木 次郎", 500000};
+    }
+
+    bool exists(const std::string& id) const {
+        return records.count(id) > 0;
+    }
+
+    AccountInfo get(const std::string& id) const {
+        return records.at(id);
+    }
+
+    void withdraw(const std::string& id, int amount) {
+        records[id].balance -= amount;
+    }
+
+    void deposit(const std::string& id, int amount) {
+        records[id].balance += amount;
+    }
+};
+
 // 銀行との通信を担うクラス
 class BankGateway {
 public:
-    void handleAccountNotFoundError() {
-        std::cout << "エラー: 口座なし\n";
-    }
-    void handleInsufficientBalanceError() {
-        std::cout << "エラー: 残高不足\n";
-    }
-    bool verifyAccount(const std::string& account) {
-        std::cout << "口座確認: " << account << "\n";
-        if (account == "99999999") {
-            handleAccountNotFoundError();
-            return false;
-        }
-        return true;
-    }
-    bool checkBalance(int amount) {
-        std::cout << "残高確認\n";
-        if (amount > 100000) {
-            handleInsufficientBalanceError();
-            return false;
-        }
-        return true;
-    }
     void executeTransfer(
             const std::string& /*account*/, int amount) {
         std::cout << "送金実行: " << amount << "円\n";
@@ -174,6 +206,45 @@ public:
 
 `BankGateway` と `SecurityAuthenticator` は、それぞれ銀行APIとの通信・認証の詳細を担う専門クラスです。
 
+次に、振り込み履歴を管理するクラスを見ます。
+
+振り込み履歴はシステム起動時は空で、振り込みが成功するたびに1件追記されます。
+
+```cpp
+// 振り込み1件分のデータを保持する構造体
+struct TransferRecord {
+    std::string fromId;
+    std::string fromName;
+    std::string toId;
+    std::string toName;
+    int amount;
+};
+
+// 振り込み履歴を管理するクラス
+class TransferHistory {
+private:
+    std::vector<TransferRecord> records;
+public:
+    void add(const std::string& fromId,
+             const std::string& fromName,
+             const std::string& toId,
+             const std::string& toName,
+             int amount) {
+        records.push_back(
+            {fromId, fromName, toId, toName, amount});
+    }
+
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << r.fromName << " → " << r.toName
+                      << " : " << r.amount << "円\n";
+        }
+    }
+};
+```
+
+`TransferHistory` は振り込みが成功するたびに `add()` で1件追記され、`printAll()` で全履歴を出力します。
+
 #### 振り込み処理クラス
 
 次に、振り込みの全体フローを管理するクラスを見ます。
@@ -182,30 +253,77 @@ public:
 // 振り込み処理クラス
 class TransferProcessor {
 private:
+    AccountDatabase& db;
+    TransferHistory& history;
     BankGateway gateway;
     SecurityAuthenticator auth;
 public:
+    TransferProcessor(AccountDatabase& database,
+                      TransferHistory& hist)
+        : db(database), history(hist) {}
+
     bool transfer(
+        const std::string& fromAccount,
         const std::string& toAccount, int amount,
         const std::string& otp) {
         // 銀行システムの複雑な手順を直接制御している
-        if (!gateway.verifyAccount(toAccount)) return false;
-        if (!gateway.checkBalance(amount)) return false;
+        if (!db.exists(fromAccount)) {
+            std::cout << "エラー: 送金元口座なし\n";
+            return false;
+        }
+        if (!db.exists(toAccount)) {
+            std::cout << "エラー: 送金先口座なし\n";
+            return false;
+        }
+        if (db.get(fromAccount).balance < amount) {
+            std::cout << "エラー: 残高不足\n";
+            return false;
+        }
 
+        std::cout << "口座確認: " << toAccount << "\n";
+        std::cout << "残高確認\n";
         auth.requestOTP();
         if (!auth.verifyOTP(otp)) return false;
 
         gateway.executeTransfer(toAccount, amount);
+        db.withdraw(fromAccount, amount);
+        db.deposit(toAccount, amount);
+        history.add(fromAccount,
+                    db.get(fromAccount).ownerName,
+                    toAccount,
+                    db.get(toAccount).ownerName,
+                    amount);
         std::cout << "振り込み完了\n";
         return true;
     }
 
     bool transferApprovedBatch(
+        const std::string& fromAccount,
         const std::string& toAccount, int amount) {
         // 社内承認済みバッチ用。通常振込と手順が重複している
-        if (!gateway.verifyAccount(toAccount)) return false;
-        if (!gateway.checkBalance(amount)) return false;
+        if (!db.exists(fromAccount)) {
+            std::cout << "エラー: 送金元口座なし\n";
+            return false;
+        }
+        if (!db.exists(toAccount)) {
+            std::cout << "エラー: 送金先口座なし\n";
+            return false;
+        }
+        if (db.get(fromAccount).balance < amount) {
+            std::cout << "エラー: 残高不足\n";
+            return false;
+        }
+
+        std::cout << "口座確認: " << toAccount << "\n";
+        std::cout << "残高確認\n";
         gateway.executeTransfer(toAccount, amount);
+        db.withdraw(fromAccount, amount);
+        db.deposit(toAccount, amount);
+        history.add(fromAccount,
+                    db.get(fromAccount).ownerName,
+                    toAccount,
+                    db.get(toAccount).ownerName,
+                    amount);
         std::cout << "振り込み完了（OTP不要）\n";
         return true;
     }
@@ -216,12 +334,19 @@ class BatchTransferProcessor {
 private:
     TransferProcessor processor;
 public:
+    BatchTransferProcessor(AccountDatabase& database,
+                           TransferHistory& hist)
+        : processor(database, hist) {}
+
     void processPayroll(
-            const std::vector<std::pair<std::string, int>>& transfers) {
+            const std::string& fromAccount,
+            const std::vector<std::pair<std::string, int>>&
+                transfers) {
         for (int i = 0; i < (int)transfers.size(); i++) {
             const std::string& account = transfers[i].first;
             int amount = transfers[i].second;
-            processor.transferApprovedBatch(account, amount);
+            processor.transferApprovedBatch(
+                fromAccount, account, amount);
         }
     }
 };
@@ -236,26 +361,35 @@ public:
 
 ```cpp
 int main() {
-    TransferProcessor processor;
+    AccountDatabase db;
+    TransferHistory history;
+    TransferProcessor processor(db, history);
 
+    // ACC001（田中 一郎、残高15万円）から ACC002（佐藤 花子）へ送金
     std::cout << "--- 行1: 正常な個別振り込み ---\n";
-    processor.transfer("12345678", 5000, "999999");
+    processor.transfer("ACC001", "ACC002", 5000, "999999");
 
+    // 存在しない送金先口座
     std::cout << "--- 行2: 存在しない口座 ---\n";
-    processor.transfer("99999999", 5000, "999999");
+    processor.transfer("ACC001", "UNKNOWN", 5000, "999999");
 
+    // 送金元残高（15万円）より多い額を送金しようとする
     std::cout << "--- 行3: 残高不足 ---\n";
-    processor.transfer("12345678", 1000000, "999999");
+    processor.transfer("ACC001", "ACC002", 1000000, "999999");
 
     std::cout << "--- 行4: 認証失敗 ---\n";
-    processor.transfer("12345678", 5000, "INVALID");
+    processor.transfer("ACC001", "ACC002", 5000, "INVALID");
 
+    // ACC003（鈴木 次郎、残高50万円）から ACC002 へバッチ送金
     std::cout << "--- 行5: 社内承認済みバッチ ---\n";
-    BatchTransferProcessor batch;
+    BatchTransferProcessor batch(db, history);
     std::vector<std::pair<std::string, int>> payroll = {
-        {"87654321", 30000}
+        {"ACC002", 30000}
     };
-    batch.processPayroll(payroll);
+    batch.processPayroll("ACC003", payroll);
+
+    std::cout << "\n--- 振り込み履歴 ---\n";
+    history.printAll();
 
     return 0;
 }
@@ -265,30 +399,31 @@ int main() {
 
 ```
 --- 行1: 正常な個別振り込み ---
-口座確認: 12345678
+口座確認: ACC002
 残高確認
 認証コード発行
 認証コード検証
 送金実行: 5000円
 振り込み完了
 --- 行2: 存在しない口座 ---
-口座確認: 99999999
-エラー: 口座なし
+エラー: 送金先口座なし
 --- 行3: 残高不足 ---
-口座確認: 12345678
-残高確認
 エラー: 残高不足
 --- 行4: 認証失敗 ---
-口座確認: 12345678
+口座確認: ACC002
 残高確認
 認証コード発行
 認証コード検証
 エラー: 認証失敗
 --- 行5: 社内承認済みバッチ ---
-口座確認: 87654321
+口座確認: ACC002
 残高確認
 送金実行: 30000円
 振り込み完了（OTP不要）
+
+--- 振り込み履歴 ---
+田中 一郎 → 佐藤 花子 : 5000円
+鈴木 次郎 → 佐藤 花子 : 30000円
 ```
 
 動作例テーブルの全5行について、成功時の処理順、失敗時の中止位置、
@@ -310,7 +445,7 @@ int main() {
 
 **仕様変更の内容**
 
-変更要求を受けて、認証と送金の手順がどう変わるかを整理します。（これらの変更はすべて「銀行側のシステム担当者・セキュリティ担当者」の判断で発生した要求です）
+変更要求を受けて、認証と送金の手順がどう変わるかを整理します。（この変更は「インフラ・システム管理の業務機能」に属する要求です）
 
 
 | 手順 | 変更前 | 変更後 |
@@ -328,16 +463,16 @@ int main() {
 
 ## 🟣 フェーズ2：仮説立案 ―― 何が変わるかを観察し、ヒアリングで裏付ける
 
-### 2-1：`TransferProcessor`に混在している知識と担当チーム
+### 2-1：変わりそうな仕様の見当をつける
 
-`TransferProcessor.transfer()` が現在抱えている知識と、それぞれを変更する担当者を確認します。
+`TransferProcessor.transfer()` が現在抱えている知識と、それぞれが属する業務機能を確認します。
 
-| 知識（コードが直接持っているもの） | 変更を決める担当者 | 適切か |
+| 知識（コードが直接持っているもの） | 業務機能 | 適切か |
 |---|---|---|
-| 振り込みフローの全体手順 | 振り込みシステム開発チーム | ✅ |
-| 銀行APIの口座確認・残高確認手順 | 銀行側のシステム担当者 | ❌ 混在 |
-| OTP認証の手順・検証方法 | 銀行側のセキュリティ担当者 | ❌ 混在 |
-| 送金APIの呼び出し方法 | 銀行側のシステム担当者 | ❌ 混在 |
+| 振り込みフローの全体手順 | 処理の骨格（開発設計判断） | ✅ |
+| 銀行APIの口座確認・残高確認手順 | インフラ・システム管理（銀行API） | ❌ 混在 |
+| OTP認証の手順・検証方法 | インフラ・システム管理（認証） | ❌ 混在 |
+| 送金APIの呼び出し方法 | インフラ・システム管理（銀行API） | ❌ 混在 |
 
 ❌が3つある。このメソッドに手を入れるたびに、銀行側の複数の担当者の仕様変更が影響します。これが後の変更の痛みの予兆です。
 
@@ -356,9 +491,8 @@ int main() {
 
 開発チームは、この銀行のAPIを直接叩いて振り込みを行うプログラムをメンテナンスしています。当初は単純な送金機能だけでしたが、最近では、振り込み先に応じた送金限度額の確認や、二要素認証の呼び出しなど、銀行側から求められるセキュリティ要件が年々厳しくなってきました。
 
-### 2-2：関係者ヒアリング
+### 2-3：関係者ヒアリング
 
-> **現実のヒアリングでは——** 本書のヒアリングシーンでは設計判断を明確にするため、意図的に「理想的な回答」が返ってくるように描いています。これはシミュレーションです。現実には、「変わるかどうか分からない」「たぶん変わらない」という曖昧な答えが返ることも多いです。そのときは `git log` や過去の障害記録を「ヒアリングの代わり」として使ってみてください。「過去に何度変わったか」が最も正直な証拠です。
 
 今回の変更が一時的なものか、将来も続くリスクがあるのかを確認するため、銀行のAPI担当者にヒアリングを行いました。
 
@@ -369,7 +503,7 @@ int main() {
 - **開発者：** 「分かりました。かなり頻繁に接続仕様が変わりそうですね。今回の認証フローの変更についても、将来的にさらに手順が増えるリスクはありますか？」
 - **銀行API担当者：** 「おっしゃる通りです。現在は二段階認証ですが、将来的には三段階になるかもしれません。現時点での固定的な手順に縛られない設計にしておいた方が、お互いのためかもしれませんね。」
 
-### 2-2：ヒアリングで判明した将来リスク
+### 2-4：ヒアリングで判明した将来リスク
 
 ヒアリングで浮かび上がった「確定ではないが、近い将来起こりうる変化」を記録します。これは今回の設計判断の材料です。
 
@@ -380,6 +514,18 @@ int main() {
 | 生体認証の導入 | 数ヶ月後の予定 | 銀行API担当者との確認 |
 
 フェーズ2で「今変わること（確定）」と「将来変わるかもしれないこと（リスク）」を分けて整理できました。次のフェーズ3では、現在の構造で変更を試みたときに何が起きるかを確認します。
+
+### 2-5：将来の変更仕様の見通し
+
+2-4で把握した将来リスクを、「現在の状態」と「将来起こりうる変化」の対比で整理します。設計判断の根拠を一覧にしておくことで、フェーズ6でどこまで設計を進めるかの判断基準になります。
+
+| 変更内容 | 現在 | 将来（時期の目安） |
+|---|---|---|
+| 認証ステップ数 | OTP 1ステップ（発行→検証） | 三段階認証へ拡張（銀行セキュリティ強化時） |
+| 認証方式 | OTP（ワンタイムパスワード） | 生体認証の追加（数ヶ月後の予定） |
+| 送金リクエスト形式 | JSON 形式 | XML 形式へ移行（来年以降の基幹システム連携時） |
+
+この変化が来たとき、現在の `TransferProcessor` がどこまで影響を受けるかを次のフェーズ3で確認します。
 
 ---
 
@@ -586,7 +732,7 @@ public:
 
 「振り込み業務」と「銀行APIの仕様」は、変わる理由が全く異なります。これらが同じ場所に混在していることが、根本原因として確認できました。
 
-今回見直すべき接続点は、「振込依頼」と「振込結果」の境界です。銀行APIの手順は、その境界の向こう側へ移せます。
+今回着目する接続点は、「振込依頼」と「振込結果」の境界です。銀行APIの手順は、その境界の向こう側へ移せます。
 
 ---
 > **📌 原因（確定）**
@@ -648,62 +794,81 @@ void transfer(
 
 フェーズ5で「変わるのは銀行APIの呼び出し手順であり、業務フローが窓口へ渡す引数の型は比較的安定している」ことが分かりました。ここでは、その手順をどのように窓口の内側へ閉じ込めるかを段階的に検討します。いきなり正解へ飛ぶのではなく、各ステップで「どこまで痛みが解消されるか」を確認しながら、今回の要件において「どのステップで止めるべきか」を決断します。
 
-### ステップ1：呼び出し元でヘルパーメソッドに切り出す（同じクラスの中で整理する）
+### ステップ1：各処理を独立したメソッドに切り出す（同じクラスの中で整理する）
 
-「API呼び出しが複雑に絡み合っているなら、意味のある単位でメソッドに切り出して整理しよう」というのが自然な最初の発想です。クラスを新しく作るのはコストがかかる。`TransferProcessor` の中で、各手順を意味のある単位にまとめてみます。
+「API呼び出しが複雑に絡み合っているなら、1つひとつの操作を独立したメソッドに切り出してみよう」というのが自然な最初の発想です。クラスを新しく作るのはコストがかかる。まずは `TransferProcessor` の中で、各API呼び出しをそれぞれ独立したメソッドとして切り出してみます。
 
 ```cpp
 class TransferProcessor {
     BankGateway gateway;
     SecurityAuthenticator auth;
 
-    // 口座の確認手順をまとめる
-    void checkAccount(const std::string& account, int amount) {
-        gateway.verifyAccount(account);
-        gateway.checkBalance(amount);
+    // 口座確認を独立したメソッドとして切り出す
+    bool checkAccountExists(const std::string& account) {
+        return gateway.verifyAccount(account);
     }
 
-    // 認証手順をまとめる
-    std::string authenticate(const std::string& otp) {
-        std::string txId = auth.requestOTP();
-        auth.verifyOTP(otp, txId);
-        return txId;
+    // 残高確認を独立したメソッドとして切り出す
+    bool checkBalanceSufficient(int amount) {
+        return gateway.checkBalance(amount);
     }
 
-    // 送金手順をまとめる
-    void sendMoney(const std::string& account, int amount,
-                   const std::string& txId) {
+    // 認証コード発行を独立したメソッドとして切り出す
+    std::string issueAuthCode() {
+        return auth.requestOTP();
+    }
+
+    // 認証コード検証を独立したメソッドとして切り出す
+    bool verifyAuthCode(
+            const std::string& otp,
+            const std::string& txId) {
+        return auth.verifyOTP(otp, txId);
+    }
+
+    // 送金実行を独立したメソッドとして切り出す
+    void executeTransfer(
+            const std::string& account, int amount,
+            const std::string& txId) {
         gateway.executeTransfer(account, amount, txId);
+    }
+
+    // 「どの処理をどの順序で実行するか」の判断を
+    // 独立したメソッドとして切り出す
+    bool conductTransfer(
+            const std::string& toAccount, int amount,
+            const std::string& otp) {
+        if (!checkAccountExists(toAccount))  return false;
+        if (!checkBalanceSufficient(amount)) return false;
+        std::string txId = issueAuthCode();
+        if (!verifyAuthCode(otp, txId))      return false;
+        executeTransfer(toAccount, amount, txId);
+        return true;
     }
 
 public:
     void transfer(
             const std::string& toAccount, int amount,
             const std::string& otp) {
-        checkAccount(toAccount, amount);  // ← 手順の意図が読めるようになった
-        std::string txId = authenticate(otp);
-        sendMoney(toAccount, amount, txId);
-        std::cout << "振り込み完了\n";
+        if (conductTransfer(toAccount, amount, otp))
+            std::cout << "振り込み完了\n";
     }
 };
 ```
 
-`transfer()` の本文が「振り込みの手順」として読めるようになり、各ステップの意図が伝わるようになった。
+`transfer()` の本文から銀行API呼び出しの詳細が消え、各操作が独立したメソッドとして名前を持つようになりました。
 
-**この段階の評価：** `transfer()` は格段に読みやすくなりました。しかし `checkAccount()`・`authenticate()`・`sendMoney()` はすべて TransferProcessor クラスの内部にあります。銀行側の認証仕様が変わるたびに、結局はこの TransferProcessor を開いて書き直す必要があるのではないでしょうか。呼び出し元がきれいになったが、銀行APIの手順という知識は呼び出し元に残ったままです。
+**この段階の評価：** 各API操作が独立したメソッドになったことで、`conductTransfer()` を読むだけで「何をどの順序でやるか」の判断ロジックが一目で追えます。ここで気づくことがあります。`checkAccountExists`・`checkBalanceSufficient`・`verifyAuthCode` の3つは、戻り値がいずれも `bool` です。「確認して成否を返す」という同じ形の処理が並んでいる——これが「共通の構造」の初めての兆候です。また、「実行」（`conductTransfer`）を独立させたことで、「個々のAPI操作」と「どれをどの順で呼ぶかの判断」が別の関心事だということも見えてきました。
 
-私が試みるのは、いきなりクラスを分けることではなく、まずはこのように処理を関数に切り出すことです。やってみると、それでも同じクラスの中に知識が残り続けることに気づき、クラスを分けるという発想に至ります。
-
-これを外に出すために「専用のクラスを作る」方向を試してみましょう。
+しかし、これらのメソッドはすべて `TransferProcessor` クラスの内部にあります。銀行側の認証仕様が変わるたびに、結局はこの `TransferProcessor` を開いて書き直す必要があるのではないでしょうか。銀行APIの手順という知識がクラスの中に残ったままです。次のステップでは、このAPI呼び出しの知識を別のクラスに移す方向を試してみましょう。
 
 ---
 
-### ステップ2：銀行API手順を専用の窓口へ集約する（Facadeの基本形）
+### ステップ2：銀行API手順を専用の窓口へ集約する（銀行操作の窓口クラス）
 
 「銀行APIとのやり取りをすべて別のクラスに任せてしまえば、`TransferProcessor` は呼ぶだけでよくなる」という発想です。手順全体を担当するクラスを新しく作り、呼び出し元はそのクラスを1つ呼ぶだけにします。
 
 ```cpp
-// 銀行APIとのやり取りをすべて担う専用の窓口（Facade）
+// 銀行APIとのやり取りをすべて担う専用の窓口（銀行操作の窓口クラス）
 class BankTransferHelper {
     BankGateway gateway;         // ← 具体クラスを直接保持
     SecurityAuthenticator auth;  // ← 具体クラスを直接保持
@@ -755,15 +920,15 @@ public:
 
 `TransferProcessor` も `BatchTransferProcessor` も `helper->execute()` の1行を呼ぶだけになり、呼び出し元は大幅にシンプルになった。
 
-**この段階の評価：** 呼び出し元はシンプルになり、銀行APIの複雑な手順が `BankTransferHelper` に集まりました。これはすでにFacadeの基本形です。`BankTransferHelper` の公開メソッドを保ったまま内部のAPI呼び出しを変える限り、`TransferProcessor` と `BatchTransferProcessor` の修正は不要です。
+**この段階の評価：** 呼び出し元はシンプルになり、銀行APIの複雑な手順が `BankTransferHelper` に集まりました。これはすでに単一の窓口クラスとしての基本形です。`BankTransferHelper` の公開メソッドを保ったまま内部のAPI呼び出しを変える限り、`TransferProcessor` と `BatchTransferProcessor` の修正は不要です。
 
-一方、呼び出し元は具体型 `BankTransferHelper` に依存しています。別銀行向けの実装やテスト用の偽物へ差し替えたい場合、または業務側が所有する安定した契約を明示したい場合には、抽象インターフェースを追加する価値があります。次のステップはFacadeを成立させるためではなく、**窓口の差し替え可能性とテスト容易性を追加するため**の設計です。
+一方、呼び出し元は具体型 `BankTransferHelper` に依存しています。別銀行向けの実装やテスト用の偽物へ差し替えたい場合、または業務側が所有する安定した契約を明示したい場合には、抽象インターフェースを追加する価値があります。次のステップは窓口クラスを完成させるためではなく、**窓口の差し替え可能性とテスト容易性を追加するため**の設計です。
 
 ---
 
-### ステップ3：Facadeの前に抽象インターフェースを置く
+### ステップ3：窓口クラスの前に抽象インターフェースを置く
 
-「呼び出し元には業務側が所有する抽象インターフェースを見せ、具体的なFacadeを組み立て時に注入しよう」という発想です。Facadeは `BankTransferService` であり、`IBankTransferService` はその差し替えを可能にする契約です。
+「呼び出し元には業務側が所有する抽象インターフェースを見せ、具体的な窓口クラスを組み立て時に注入しよう」という発想です。窓口クラスは `BankTransferService` であり、`IBankTransferService` はその差し替えを可能にする契約です。
 
 ```cpp
 // 業務フロー側に見せる窓口（インターフェース）
@@ -843,11 +1008,11 @@ int main() {
 ```
 
 > [!INFO] 生ポインタの使用について
-> このサンプルでは依存性の注入パターンを示すため、生ポインタ（`IBankTransferService* facade`）を使用しています。実際のプロダクションコードでは `std::unique_ptr` などのスマートポインタや参照渡しを使用して、所有権を明確にしてください。
+> このサンプルでは依存性の注入を示すため、生ポインタ（`IBankTransferService* facade`）を使用しています。本書では全章を通じて生ポインタを使い、所有権の議論よりも構造の変化に集中します。
 
 `TransferProcessor` は `BankGateway` や `SecurityAuthenticator` という具体クラスを直接参照せず、窓口となる `IBankTransferService* facade` だけを知る状態になりました。
 
-**この段階の評価：** `TransferProcessor` と `BatchTransferProcessor` は、銀行APIの具体的な呼び出し順序を知らず、窓口へ必要な値を渡すだけになりました。認証手順など窓口の内側の変更は `BankTransferService` へ局所化できます。一方、送金パラメータや戻り値など窓口の契約自体が変わる場合は、インターフェースと呼び出し元の変更も必要です。Facadeは、安定させたい窓口と変わりやすい内部手順の境界を作るパターンです。
+**この段階の評価：** `TransferProcessor` と `BatchTransferProcessor` は、銀行APIの具体的な呼び出し順序を知らず、窓口へ必要な値を渡すだけになりました。認証手順など窓口の内側の変更は `BankTransferService` へ局所化できます。一方、送金パラメータや戻り値など窓口の契約自体が変わる場合は、インターフェースと呼び出し元の変更も必要です。この構造は、安定させたい窓口と変わりやすい内部手順の境界を作る設計です。
 
 ---
 
@@ -856,13 +1021,11 @@ int main() {
 それぞれのステップには一長一短があります。ステップ3のインターフェース化は強力ですが、ファイル数や型が増えるという「初期投資コスト」もかかります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
 
 *   **ステップ1（ヘルパーメソッド化）で止めるケース：** 「銀行APIの仕様変更が過去5年で一度も起きていない」場合。現在のコードを整理するだけで十分です。
-*   **ステップ2（具体Facadeへの集約）で止めるケース：** 呼び出し元から複雑な手順を隠すことが目的で、窓口実装の差し替えやテスト用実装が不要な場合。内部APIの変更は、この段階でもFacade内へ集約できます。
-*   **ステップ3（Facadeの抽象化）まで進むケース：** 別銀行向け実装への差し替え、外部通信を行わない単体テスト、複数の呼び出し元で共有する安定契約が必要な場合。インターフェース導入のコストを払う根拠は、外部APIの変更頻度だけではなく、窓口を交換する必要性です。
+*   **ステップ2（具体的な窓口クラスへの集約）で止めるケース：** 呼び出し元から複雑な手順を隠すことが目的で、窓口実装の差し替えやテスト用実装が不要な場合。内部APIの変更は、この段階でも窓口クラス内へ集約できます。
+*   **ステップ3（窓口クラスの抽象化）まで進むケース：** 別銀行向け実装への差し替え、外部通信を行わない単体テスト、複数の呼び出し元で共有する安定契約が必要な場合。インターフェース導入のコストを払う根拠は、外部APIの変更頻度だけではなく、窓口を交換する必要性です。
 
 **今回の決断：**
-フェーズ2のヒアリングで、銀行APIの変更が続くと確認できたため、まず具体Facadeへの集約が必要です。さらに本章には通常振込と給与バッチという複数の呼び出し元があり、外部通信を切り離した単体テストにも価値があります。そこで今回は、具体Facadeに加えて**ステップ3（窓口インターフェースの導入）まで進める**案を採用します。
-
-このように、銀行APIとの複雑なやり取りを単一の窓口クラスへ集約し、呼び出し元へ単純な操作を提供する構造を **Facade（ファサード）パターン** と呼びます。窓口の前にインターフェースを置くかどうかは、差し替えやテストの要件に応じた追加判断です。
+フェーズ2のヒアリングで、銀行APIの変更が続くと確認できたため、まず具体的な窓口クラスへの集約が必要です。さらに本章には通常振込と給与バッチという複数の呼び出し元があり、外部通信を切り離した単体テストにも価値があります。そこで今回は、具体的な窓口クラスに加えて**ステップ3（窓口インターフェースの導入）まで進める**案を採用します。
 
 フェーズ6で採用ステップが決まりました。次のフェーズ7では、この決断を最終的なコードに落とし込みます。
 
@@ -877,18 +1040,47 @@ int main() {
 
 ```cpp
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
+
+// 口座情報を保持する構造体
+struct AccountInfo {
+    std::string ownerName;  // 口座名義
+    int balance;            // 残高（円）
+};
+
+// 口座データを管理するクラス
+class AccountDatabase {
+private:
+    std::map<std::string, AccountInfo> records;
+public:
+    AccountDatabase() {
+        records["ACC001"] = {"田中 一郎", 150000};
+        records["ACC002"] = {"佐藤 花子",  30000};
+        records["ACC003"] = {"鈴木 次郎", 500000};
+    }
+
+    bool exists(const std::string& id) const {
+        return records.count(id) > 0;
+    }
+
+    AccountInfo get(const std::string& id) const {
+        return records.at(id);
+    }
+
+    void withdraw(const std::string& id, int amount) {
+        records[id].balance -= amount;
+    }
+
+    void deposit(const std::string& id, int amount) {
+        records[id].balance += amount;
+    }
+};
 
 // 銀行との通信を担うクラス（サブシステム1）
 class BankGateway {
 public:
-    void verifyAccount(const std::string& account) {
-        std::cout << "口座確認: " << account << "\n";
-    }
-    void checkBalance(int /*amount*/) {
-        std::cout << "残高確認\n";
-    }
     void executeTransfer(const std::string& account, int amount,
                          const std::string& txId) {
         (void)account;
@@ -913,34 +1105,133 @@ public:
 };
 ```
 
-**2. 窓口となるインターフェースとFacade実装**
+**2. 振り込み履歴**
+振り込み履歴はシステム起動時は空で、振り込みが成功するたびに1件追記されます。
+
+```cpp
+// 振り込み1件分のデータを保持する構造体
+struct TransferRecord {
+    std::string fromId;
+    std::string fromName;
+    std::string toId;
+    std::string toName;
+    int amount;
+};
+
+// 振り込み履歴を管理するクラス
+class TransferHistory {
+private:
+    std::vector<TransferRecord> records;
+public:
+    void add(const std::string& fromId,
+             const std::string& fromName,
+             const std::string& toId,
+             const std::string& toName,
+             int amount) {
+        records.push_back(
+            {fromId, fromName, toId, toName, amount});
+    }
+
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << r.fromName << " → " << r.toName
+                      << " : " << r.amount << "円\n";
+        }
+    }
+};
+```
+
+**3. 窓口となるインターフェースとFacade実装**
 業務フロー側に見せる窓口インターフェースと、銀行APIの複雑な手順を隠蔽するFacade実装です。契約が保たれる別実装やテスト用実装は、組み立て箇所で差し替えられます。
 
 ```cpp
 // 業務フロー側に見せる窓口（インターフェース）
 class IBankTransferService {
 public:
-    virtual void performTransfer(
-        const std::string& account, int amount,
+    virtual bool performTransfer(
+        const std::string& fromAccount,
+        const std::string& toAccount, int amount,
         const std::string& otp) = 0;
+    virtual bool performApprovedBatchTransfer(
+        const std::string& fromAccount,
+        const std::string& toAccount, int amount) = 0;
     virtual ~IBankTransferService() = default;
 };
 
 // 銀行との複雑なやり取りをすべて隠蔽する窓口クラス（Facade）
 class BankTransferService : public IBankTransferService {
 private:
+    AccountDatabase& db;
+    TransferHistory& history;
     BankGateway gateway;
     SecurityAuthenticator auth;
 public:
-    void performTransfer(
-            const std::string& account, int amount,
+    BankTransferService(AccountDatabase& database,
+                        TransferHistory& hist)
+        : db(database), history(hist) {}
+
+    bool performTransfer(
+            const std::string& fromAccount,
+            const std::string& toAccount, int amount,
             const std::string& otp) override {
         // 複雑な手順はすべてこの窓口の中に閉じる
-        gateway.verifyAccount(account);
-        gateway.checkBalance(amount);
+        if (!db.exists(fromAccount)) {
+            std::cout << "エラー: 送金元口座なし\n";
+            return false;
+        }
+        if (!db.exists(toAccount)) {
+            std::cout << "エラー: 送金先口座なし\n";
+            return false;
+        }
+        if (db.get(fromAccount).balance < amount) {
+            std::cout << "エラー: 残高不足\n";
+            return false;
+        }
+
+        std::cout << "口座確認: " << toAccount << "\n";
+        std::cout << "残高確認\n";
         std::string txId = auth.requestOTP();
         auth.verifyOTP(otp, txId);
-        gateway.executeTransfer(account, amount, txId);
+        gateway.executeTransfer(toAccount, amount, txId);
+        db.withdraw(fromAccount, amount);
+        db.deposit(toAccount, amount);
+        history.add(fromAccount,
+                    db.get(fromAccount).ownerName,
+                    toAccount,
+                    db.get(toAccount).ownerName,
+                    amount);
+        return true;
+    }
+
+    bool performApprovedBatchTransfer(
+            const std::string& fromAccount,
+            const std::string& toAccount,
+            int amount) override {
+        if (!db.exists(fromAccount)) {
+            std::cout << "エラー: 送金元口座なし\n";
+            return false;
+        }
+        if (!db.exists(toAccount)) {
+            std::cout << "エラー: 送金先口座なし\n";
+            return false;
+        }
+        if (db.get(fromAccount).balance < amount) {
+            std::cout << "エラー: 残高不足\n";
+            return false;
+        }
+
+        std::cout << "口座確認: " << toAccount << "\n";
+        std::cout << "残高確認\n";
+        gateway.executeTransfer(toAccount, amount,
+                                "APPROVED-BATCH");
+        db.withdraw(fromAccount, amount);
+        db.deposit(toAccount, amount);
+        history.add(fromAccount,
+                    db.get(fromAccount).ownerName,
+                    toAccount,
+                    db.get(toAccount).ownerName,
+                    amount);
+        return true;
     }
 };
 ```
@@ -956,26 +1247,64 @@ private:
 public:
     TransferProcessor(IBankTransferService* f) : facade(f) {}
     void transfer(
+            const std::string& fromAccount,
             const std::string& toAccount, int amount,
             const std::string& otp) {
         // 振り込みという業務プロセスに集中できる
-        facade->performTransfer(toAccount, amount, otp);
-        std::cout << "振り込み完了\n";
+        if (facade->performTransfer(
+                fromAccount, toAccount, amount, otp))
+            std::cout << "振り込み完了\n";
+    }
+};
+
+// 給与振り込みなどの一括処理バッチ
+class BatchTransferProcessor {
+private:
+    IBankTransferService* facade;
+public:
+    BatchTransferProcessor(IBankTransferService* f)
+        : facade(f) {}
+    void processPayroll(
+            const std::string& fromAccount,
+            const std::vector<std::pair<std::string, int>>&
+                transfers) {
+        for (int i = 0; i < (int)transfers.size(); i++) {
+            const std::string& account = transfers[i].first;
+            int amount = transfers[i].second;
+            if (facade->performApprovedBatchTransfer(
+                    fromAccount, account, amount))
+                std::cout << "振り込み完了（OTP不要）\n";
+        }
     }
 };
 
 // 4. 組み立てと実行（メイン関数）
-// 最後に、必要な部品を組み立てて実行します。具体的なクラス名（`BankTransferService`）を知っているのは、この組み立てを行う箇所だけです。
+// 最後に、必要な部品を組み立てて実行します。
+// 具体的なクラス名（`BankTransferService`）を知っているのは、
+// この組み立てを行う箇所だけです。
 
-```cpp
 // 依存の組み立てを担うクラス（Composition Root）
 class Application {
 public:
     void run() {
-        BankTransferService facade;
+        AccountDatabase db;
+        BankTransferService facade(db);
         TransferProcessor processor(&facade);
 
-        processor.transfer("12345678", 5000, "999999");
+        // ACC001（田中 一郎）から ACC002（佐藤 花子）へ送金
+        processor.transfer(
+            "ACC001", "ACC002", 5000, "999999");
+
+        // 存在しない送金先口座
+        processor.transfer(
+            "ACC001", "UNKNOWN", 5000, "999999");
+
+        // ACC003（鈴木 次郎）から ACC002 へバッチ送金
+        BatchTransferProcessor batch(&facade);
+        std::vector<std::pair<std::string, int>> payroll = {
+            {"ACC002", 30000}
+        };
+        batch.processPayroll("ACC003", payroll);
     }
 };
 
@@ -989,15 +1318,20 @@ int main() {
 上記コードの実行結果：
 
 ```
-口座確認: 12345678
+口座確認: ACC002
 残高確認
 認証コード発行
 認証コード検証
 送金実行: 5000円
 振り込み完了
+エラー: 送金先口座なし
+口座確認: ACC002
+残高確認
+送金実行: 30000円
+振り込み完了（OTP不要）
 ```
 
-動作例テーブルの行1（12345678 / 5,000円 → 振り込み完了）の動作を確認しました。行2〜4（口座なし・残高不足・認証失敗）は本番実装では各サブシステムがエラーを返すことで対応します。`TransferProcessor` は `BankGateway` や `SecurityAuthenticator` を直接参照せず、`IBankTransferService` という窓口に依存する形へ変わりました。
+動作例テーブルの行1（正常振り込み完了）、行2（存在しない送金先口座でのエラー中止）、行5（バッチ送金完了）の動作を確認しました。`AccountDatabase` による口座存在確認・残高確認が `BankTransferService` の窓口内に閉じ込められ、`TransferProcessor` は `IBankTransferService` という窓口に依存する形へ変わりました。
 
 ### 7-2：動作シーケンス図
 
@@ -1008,22 +1342,28 @@ sequenceDiagram
     participant App as Application
     participant T as TransferProcessor
     participant F as IBankTransferService<br/>(BankTransferService)
+    participant DB as AccountDatabase
     participant G as BankGateway
     participant A as SecurityAuthenticator
 
-    App->>F: 生成 (BankTransferService)
+    App->>DB: 生成 (AccountDatabase)
+    App->>F: 生成 (BankTransferService, db)
     App->>T: 生成 (facade を注入)
-    App->>T: transfer(account, amount, otp)
+    App->>T: transfer(from, to, amount, otp)
     activate T
-    T->>F: performTransfer(account, amount, otp)
+    T->>F: performTransfer(from, to, amount, otp)
     activate F
-    F->>G: verifyAccount(account)
-    F->>G: checkBalance(amount)
+    F->>DB: exists(from)
+    DB-->>F: true
+    F->>DB: exists(to)
+    DB-->>F: true
+    F->>DB: get(from).balance >= amount
+    DB-->>F: true
     F->>A: requestOTP()
     A-->>F: txId
     F->>A: verifyOTP(otp, txId)
-    F->>G: executeTransfer(account, amount, txId)
-    F-->>T: 処理完了
+    F->>G: executeTransfer(to, amount, txId)
+    F-->>T: true
     deactivate F
     T-->>App: 振り込み完了
     deactivate T
@@ -1033,7 +1373,8 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    T1["変更要求：認証フロー変更"] --> F1["BankTransferService<br>（手順の調整）"]
+    T1["変更要求：認証フロー変更"]
+        --> F1["BankTransferService<br>（手順の調整）"]
     T1 --> S1["SecurityAuthenticator<br>（API追従）"]
     T1 -. "送金APIにも及ぶ場合" .-> S2["BankGateway<br>（API追従）"]
     T1 -. "影響なし" .-> A["TransferProcessor ✅"]
@@ -1052,7 +1393,7 @@ graph LR
 
 ## 整理
 
-### この章で定義したこと
+### 問題・原因・課題・解決策
 
 | | 内容 |
 |---|---|
@@ -1092,10 +1433,10 @@ graph LR
 
 | **得られること** | **この章のどこで示したか** |
 |---|---|
-| 1. 依存の広がりを識別 | フェーズ2の変わる理由の分析で、`TransferProcessor` のほぼ全行が外部担当者の判断で変わる知識であることを発見した |
+| 1. 依存の広がりを識別 | フェーズ2の変わる理由の分析で、`TransferProcessor` のほぼ全行がインフラ・システム管理の業務機能に属する知識であることを発見した |
 | 2. 接続点の診断 | フェーズ4で、銀行APIのクラス名と呼び出し順序が業務側へ漏れている状態を確認した |
 | 3. 変更局所化の説明 | フェーズ7の変更シナリオ表で、変更がFacadeとその内側のサブシステムへ集まり、業務側へ波及しにくい構造を示した |
-| 4. 境界線の引き方 | フェーズ5の課題定義とフェーズ2のヒアリングを通じて、「誰の判断で変わるか」を境界線の根拠にする原則を体験した |
+| 4. 境界線の引き方 | フェーズ5の課題定義とフェーズ2のヒアリングを通じて、「どの業務機能に属するか」を境界線の根拠にする原則を体験した |
 
 ### 3つの設計原則はどう適用されたか
 
@@ -1119,7 +1460,7 @@ graph LR
 ## あなたのコードで考えてみてください
 
 1. **変動の兆候を探す：** あなたのコードに「外部APIやライブラリの呼び出し手順（認証→接続→送信→確認など）を、ビジネスロジックと同じ場所に書いている」箇所がありますか？
-2. **変える理由を問う：** そのコードの各行は、誰の判断で変わりますか？同じチームで完結していますか、それとも外部の担当者が絡んでいますか？
+2. **変える理由を問う：** そのコードの各行は、どの業務機能に属しますか？同じ業務機能の中で完結していますか、それとも異なる業務機能が混在していますか？
 3. **知りすぎを測る：** ビジネスロジックのコードが、外部システムの「エラーコードの体系」や「接続パラメータの名前」を直接知っていますか？
 4. **窓口を想像する：** もし「外部システムとのやりとりをすべて担う窓口クラス」を1つ置いたとすると、外部仕様が変わったときの修正は主にどこに絞られるようになりますか？（Facade内部の実装も含む場合があります）
 
@@ -1183,6 +1524,6 @@ public:
 
 振り込み処理というドメインと Facadeパターンの関係を一言で言うなら、外部システムの詳細な呼び出し手順を業務コードが直接知ることが「依存の広がり」を生む、ということです。銀行APIのセッション管理・認証・エラーハンドリングを窓口クラスの後ろへ集めることで、サブシステム側の変更が業務クラスへ直接波及する連鎖を抑えられます。
 
-7つのフェーズを通じて、読者は「動いているコード」の観察から「誰の判断で変わるか」の分析へ、そして「どこまでを窓口の後ろに隠すか」という境界線の決断へと進みました。フェーズ2のヒアリングで銀行API仕様の変更頻度が分かった時点で隠すべき範囲の輪郭が見え、フェーズ4で接続点を特定した時点で窓口クラスの責任が確定する——その順序で判断が積み上がっていくことを体験できたはずです。「実装の都合」ではなく「誰の判断で変わるか」で境界線を引くという原則は、この章の核心でした。
+7つのフェーズを通じて、読者は「動いているコード」の観察から「どの業務機能に属するか」の分析へ、そして「どこまでを窓口の後ろに隠すか」という境界線の決断へと進みました。フェーズ2のヒアリングで銀行API仕様の変更頻度が分かった時点で隠す対象の輪郭が見え、フェーズ4で接続点を特定した時点で窓口クラスの責任が確定する——その順序で判断が積み上がっていくことを体験できたはずです。「実装の都合」ではなく「どの業務機能に属するか」で境界線を引くという原則は、この章の核心でした。
 
-あなたのコードの中にも、外部システムの呼び出し手順が業務ロジックの中に直書きされている箇所があるはずです。その呼び出し手順が「誰の判断で変わるか」を問うことが、窓口クラスを設ける理由を見つける入口になります。
+あなたのコードの中にも、外部システムの呼び出し手順が業務ロジックの中に直書きされている箇所があるはずです。その呼び出し手順が「どの業務機能に属するか」を問うことが、窓口クラスを設ける理由を見つける入口になります。
