@@ -13,8 +13,9 @@
 5. `rules/writing-rules.md`
 6. `rules/connection-point-review.md`
 7. `rules/design-decision-guide.md`
-8. `templates/chapter-template.md`
-9. `agents/chapter-agent.md`
+8. `rules/phase-consistency-check.md`
+9. `templates/chapter-template.md`
+10. `agents/chapter-agent.md`
 
 ## 本の目的
 

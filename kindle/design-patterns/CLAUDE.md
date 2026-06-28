@@ -35,8 +35,9 @@
 4. `rules/writing-rules.md`
 5. `rules/connection-point-review.md`
 6. `rules/design-decision-guide.md`
-7. `templates/chapter-template.md`
-8. `rules/checklist.md`
+7. `rules/phase-consistency-check.md`
+8. `templates/chapter-template.md`
+9. `rules/checklist.md`
 
 ## 7フェーズ
 
@@ -79,6 +80,13 @@
 図の後には、図から読み取るべき結論を1〜3文で回収する。
 図だけで新しい仕様や判断を初出ししない。
 
+## フェーズ間整合
+
+各フェーズ単体の達成基準を満たしていても、フェーズ間で対象がずれていれば不合格とする。
+仕様、動作例、コード、実行結果、クラス構成図、変更要求、変更影響グラフ、最終コードは同じ対象を追う。
+
+詳細な照合基準は `rules/phase-consistency-check.md` を参照する。
+
 ## 執筆ルール
 
 - 既存コードを否定しない。
@@ -103,6 +111,7 @@ Agent の記載が `AI_HANDOFF.md`、`templates/chapter-template.md`、`rules/ch
 
 1. `templates/chapter-template.md` と第0章が矛盾していない。
 2. `rules/checklist.md` が同じ基準を持っている。
-3. `agents/` と `skills/` に古い構成名や古い判断基準が残っていない。
-4. `script/audit_book.py --write-baseline` が0件で通る。
-5. `git diff --check` が通る。
+3. `rules/phase-consistency-check.md` の照合ラインを満たしている。
+4. `agents/` と `skills/` に古い構成名や古い判断基準が残っていない。
+5. `script/audit_book.py --write-baseline` が0件で通る。
+6. `git diff --check` が通る。
