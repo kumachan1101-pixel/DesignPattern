@@ -126,5 +126,7 @@ Agent の記載が `AI_HANDOFF.md`、`templates/chapter-template.md`、`rules/ch
 5. 掲載コードの簡略化範囲が本文または図で説明されている。
 6. 論点から外す処理の実際の動き、代替表現、割愛理由、設計論点への影響が補足されている。
 7. `agents/` と `skills/` に古い構成名や古い判断基準が残っていない。
-8. `script/audit_book.py --write-baseline` が0件で通る。
-9. `git diff --check` が通る。
+8. 修正の原因を分析し、再発しうるなら正本（テンプレート・ルール・Agent・検証スクリプト）を見直し、`rules/recurrence-prevention.md` に記録した（詳細は同ファイル）。
+9. `script/validate_book.py` が通る。
+10. `script/audit_book.py --write-baseline` が0件で通る。
+11. `git diff --check` が通る。

@@ -142,12 +142,25 @@
 - `★` 指摘を、記録なしに削除する。
 - AIへの指示文、引用マーカー、作業メモを本文へ混入させる。
 
+## 修正したら原因分析と再発防止
+
+その場を直して終わりにしない。同じ指摘が他章や次回に再発しないよう、原因を正本側へ反映する。
+正本は `rules/recurrence-prevention.md` とし、修正のたびに次を行う。
+
+1. 症状と原因を1行ずつ書く。原因が正本（テンプレート・ルール・チェックリスト・Agent・検証スクリプト）の不足／矛盾／陳腐化から来ていないかを必ず疑う。
+2. 正本側に原因があるなら、章だけでなく正本を直す。機械的に判定できるものは `validate_book.py` / `audit_book.py` のチェックへ落とす。
+3. `rules/recurrence-prevention.md` のログ表に1行記録する。
+
+テンプレートの見出し・フェーズ名・項目を変えたら、`validate_book.py` の必須見出しと `rules/checklist.md` の対応行も一緒に更新する（片方だけ直すと全章が誤判定される）。
+
 ## 修正完了前の確認
 
 作業後は次を確認する。
 
 1. `rg -n "S0|S1|S2|S3|S4|S5|S6|S7|S8|9ステップ|移す知識|接続点に漏れている知識|変動/不変|1-3：クラス構成図" kindle/design-patterns/agents kindle/design-patterns/rules kindle/design-patterns/skills kindle/design-patterns/templates kindle/design-patterns/CLAUDE.md kindle/design-patterns/ai-context.md`
-2. `python kindle/design-patterns/script/audit_book.py --report kindle/design-patterns/audit-report.md --write-baseline`
-3. `git diff --check`
+2. `python kindle/design-patterns/script/validate_book.py`
+3. `python kindle/design-patterns/script/audit_book.py --report kindle/design-patterns/audit-report.md --write-baseline`
+4. `git diff --check`
+5. 修正があれば `rules/recurrence-prevention.md` のログを更新したか。
 
 既存章の未移行により `validate_book.py` が失敗する場合は、失敗内容を隠さず報告する。

@@ -21,6 +21,7 @@
 11. `architecture-review-agent` で設計判断を確認する。
 12. `review-agent` で総合レビューを行う。
 13. `consistency-agent` でテンプレート、第0章、ルール、Agent の整合を確認する。
+14. 修正があれば原因を分析し、再発しうるなら正本（テンプレート・ルール・Agent・検証スクリプト）を見直し、`rules/recurrence-prevention.md` に記録する。
 
 ## 完了条件
 
@@ -29,5 +30,7 @@
 - 仕様がコードに出る値・状態・判定条件・出力名へ紐づく粒度になっている。
 - 掲載コードの簡略化範囲が本文または図で説明されている。
 - 論点から外す処理の実際の動き、代替表現、割愛理由、設計論点への影響が補足されている。
+- 修正の原因を分析し、再発しうる場合は正本を見直して `rules/recurrence-prevention.md` に記録した。
+- `script/validate_book.py` が通る。
 - `script/audit_book.py --write-baseline` が0件で通る。
 - `git diff --check` が通る。
