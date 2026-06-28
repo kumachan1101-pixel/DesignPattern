@@ -87,6 +87,14 @@
 
 詳細な照合基準は `rules/phase-consistency-check.md` を参照する。
 
+## 仕様粒度と簡略化
+
+仕様は、コードを読むための地図である。
+入力→加工→出力の図は分かりやすいだけでなく、後続コードに出る値、状態名、フラグ、判定条件、出力名、エラー条件へ紐づいていなければならない。
+
+掲載コードで `print`、固定データ、スタブ、簡略化した `main()` を使う場合は、実システムの画面、DB、外部API、ファイル出力、通知などの何を代替しているかを本文または図で示す。
+省略した要素は、存在しないものとして扱わず、この章の設計論点では扱わない範囲として明示する。
+
 ## 執筆ルール
 
 - 既存コードを否定しない。
@@ -112,6 +120,8 @@ Agent の記載が `AI_HANDOFF.md`、`templates/chapter-template.md`、`rules/ch
 1. `templates/chapter-template.md` と第0章が矛盾していない。
 2. `rules/checklist.md` が同じ基準を持っている。
 3. `rules/phase-consistency-check.md` の照合ラインを満たしている。
-4. `agents/` と `skills/` に古い構成名や古い判断基準が残っていない。
-5. `script/audit_book.py --write-baseline` が0件で通る。
-6. `git diff --check` が通る。
+4. 仕様がコードに出る値・状態・判定条件・出力名へ紐づく粒度になっている。
+5. 掲載コードの簡略化範囲が本文または図で説明されている。
+6. `agents/` と `skills/` に古い構成名や古い判断基準が残っていない。
+7. `script/audit_book.py --write-baseline` が0件で通る。
+8. `git diff --check` が通る。
