@@ -212,26 +212,57 @@ public:
 ```cpp
 int main() {
     EventDatabase db;
-    std::string eventId = "EVT001";
 
-    if (!db.exists(eventId)) {
-        std::cout << "エラー：イベントID " << eventId
-                  << " は存在しません\n";
-        return 1;
+    // 行1: 正常な予約から支払いまで
+    std::cout << "--- 行1: EVT001 予約 → 支払い ---\n";
+    if (!db.exists("EVT001")) {
+        std::cout << "エラー：イベントが存在しません\n";
+    } else if (!db.hasCapacity("EVT001")) {
+        std::cout << "エラー：" << db.get("EVT001").title << " は満席です\n";
+    } else {
+        std::cout << "予約対象：" << db.get("EVT001").title << "\n";
+        TicketReservation seat;
+        seat.reserve();  // Available → Reserved
+        seat.pay();      // Reserved  → Paid
     }
-    if (!db.hasCapacity(eventId)) {
-        EventInfo info = db.get(eventId);
-        std::cout << "エラー：" << info.title
-                  << " は満席です\n";
-        return 1;
+
+    // 行2: 予約からキャンセルまで
+    std::cout << "\n--- 行2: EVT001 予約 → キャンセル ---\n";
+    {
+        std::cout << "予約対象：" << db.get("EVT001").title << "\n";
+        TicketReservation seat;
+        seat.reserve();  // Available → Reserved
+        seat.cancel();   // Reserved  → Available
     }
 
-    EventInfo info = db.get(eventId);
-    std::cout << "予約対象：" << info.title << "\n";
+    // 行3: 満席イベントへの予約試み
+    std::cout << "\n--- 行3: EVT003 満席イベントへの予約 ---\n";
+    if (!db.hasCapacity("EVT003")) {
+        std::cout << "エラー：" << db.get("EVT003").title << " は満席です\n";
+    }
 
-    TicketReservation seat;
-    seat.reserve();  // Available → Reserved
-    seat.pay();      // Reserved  → Paid
+    // 行4: 存在しないイベントへの予約試み
+    std::cout << "\n--- 行4: UNKNOWN 存在しないイベントへの予約 ---\n";
+    if (!db.exists("UNKNOWN")) {
+        std::cout << "エラー：イベントID UNKNOWN は存在しません\n";
+    }
+
+    // 行5: 状態エラー — 予約前に支払いを試みる
+    std::cout << "\n--- 行5: 予約なしで支払いを試みる ---\n";
+    {
+        TicketReservation seat;  // Available
+        seat.pay();              // エラー
+    }
+
+    // 行6: 状態エラー — 支払い済みをキャンセルしようとする
+    std::cout << "\n--- 行6: 支払い済みをキャンセルしようとする ---\n";
+    {
+        TicketReservation seat;
+        seat.reserve();  // Available → Reserved
+        seat.pay();      // Reserved  → Paid
+        seat.cancel();   // エラー
+    }
+
     return 0;
 }
 ```
@@ -239,12 +270,32 @@ int main() {
 上記コードの実行結果：
 
 ```
+--- 行1: EVT001 予約 → 支払い ---
 予約対象：春の音楽祭
 予約完了しました
 支払い完了しました
+
+--- 行2: EVT001 予約 → キャンセル ---
+予約対象：春の音楽祭
+予約完了しました
+予約をキャンセルしました
+
+--- 行3: EVT003 満席イベントへの予約 ---
+エラー：秋の映画会 は満席です
+
+--- 行4: UNKNOWN 存在しないイベントへの予約 ---
+エラー：イベントID UNKNOWN は存在しません
+
+--- 行5: 予約なしで支払いを試みる ---
+支払いに適した状態ではありません
+
+--- 行6: 支払い済みをキャンセルしようとする ---
+予約完了しました
+支払い完了しました
+キャンセルできません
 ```
 
-動作例テーブルの行1（Available → Reserved）と行2（Reserved → Paid）と一致しています。`EventDatabase` がイベントIDの存在と空き席を検証してから `TicketReservation` に処理を渡す流れになっています。次のフェーズで変更が来たときに何が起きるかを確認します。
+行1・2が正常フロー、行3・4がEventDatabaseによる入力検証エラー、行5・6がTicketReservationの状態エラーです。次のフェーズで変更が来たときに何が起きるかを確認します。
 
 ---
 
