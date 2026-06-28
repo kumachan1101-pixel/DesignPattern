@@ -45,13 +45,14 @@ REQUIRED_PHASES = [
 REQUIRED_NUMBERED_SECTIONS = [
     "### 1-1：",
     "### 1-2：",
-    "### 1-3：クラス構成図",
+    "### 1-3：登場クラスとクラス構成図",
     "### 1-4：実装コード（現状）",
     "### 1-5：変更要求",
     "### 2-1：",
-    "### 2-3：今回の変更で確実に変わること",
-    "### 2-4：関係者ヒアリング",
-    "### 2-5：ヒアリングで判明した将来リスク",
+    "### 2-2：今回の変更で確実に変わること",
+    "### 2-3：関係者ヒアリング",
+    "### 2-4：ヒアリングで判明した将来リスク",
+    "### 2-5：変わるもの/変わらないものの確定",
     "### 3-1：変更を試みる",
     "### 3-2：変更影響グラフ",
     "### 3-3：痛みの言語化",
@@ -87,6 +88,14 @@ BANNED_PATTERNS = [
     (
         re.compile(r"★第[一二三四五六七八九十0-9]"),
         "編集メモが本文に残っています",
+    ),
+    (
+        re.compile(r"ステップ\s*S[0-8]|S[0-8]\s*ステップ|S[0-8][：:]"),
+        "旧9ステップ表記が本文に残っています",
+    ),
+    (
+        re.compile(r"別途\s*テスト.{0,12}(?:ください|お願いします)"),
+        "読者にテストを丸投げする表現が残っています",
     ),
 ]
 
@@ -171,15 +180,6 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
     if core:
         issues.extend(find_in_order(text, REQUIRED_PHASES, path))
         issues.extend(find_in_order(text, REQUIRED_NUMBERED_SECTIONS, path))
-        if "### 2-2：" in text:
-            offset = text.index("### 2-2：")
-            issues.append(
-                Issue(
-                    path,
-                    line_number(text, offset),
-                    "フェーズ2の責任確認は2-1へ統合済みです",
-                )
-            )
     return issues
 
 

@@ -1,85 +1,36 @@
-# agents/orchestrator.md
-# 全体を指揮するエージェント
-
----
+# orchestrator
 
 ## 役割
 
-本プロジェクト全体を指揮する。
-第0章を先行完成させ、第1章以降を並列生成する。
+章生成・修正・レビューの順序を管理する。
+正本は `templates/chapter-template.md`、全体思想は第0章 `output/chapter00_2.md` とする。
+別のAIへ作業を渡す場合は、最初に `AI_HANDOFF.md` を読ませる。
 
----
+## 推奨フロー
 
-## 実行手順
+1. `AI_HANDOFF.md`、`ai-context.md`、`CLAUDE.md` を読む。
+2. `templates/chapter-template.md` で、対象章の目的・達成基準・標準見出しを確認する。
+3. `output/chapter00_2.md` とテンプレートに矛盾がないか確認する。
+4. `rules/phase-consistency-check.md` で、章内で追う仕様・クラス・変更要求の照合ラインを確認する。
+5. 仕様がコードへ紐づく粒度になっているか、簡略化した入出力の省略範囲が説明されているか確認する。
+6. 論点から外す処理について、実際の動き、代替表現、割愛理由、設計論点への影響が補足されているか確認する。
+7. `chapter-agent` で章本文を生成または修正する。
+8. `logic-check-agent` で論理の飛躍を確認する。
+9. `clarity-agent` で曖昧語を具体化する。
+10. `readability-agent` で読者が迷う箇所を直す。
+11. `architecture-review-agent` で設計判断を確認する。
+12. `review-agent` で総合レビューを行う。
+13. `consistency-agent` でテンプレート、第0章、ルール、Agent の整合を確認する。
+14. 修正があれば原因を分析し、再発しうるなら正本（テンプレート・ルール・Agent・検証スクリプト）を見直し、`rules/recurrence-prevention.md` に記録する。
 
-### フェーズ1：準備確認
+## 完了条件
 
-1. CLAUDE.mdを読む
-2. `../../shared/skills/author-voice.md` を読む
-3. patterns/*.yaml を一覧して生成章リストを作る
-4. templates/ のテンプレートファイルが存在することを確認する
-
-### フェーズ2：第0章の生成（先行・必須）
-
-1. structure-agent を呼び出して第0章を生成する
-2. review-agent を呼び出して第0章をレビューする
-3. 問題があれば structure-agent に修正を依頼する
-4. 承認されたらフェーズ3へ進む
-
-※ 第0章は全章の土台。必ず最初に完成させること。
-
-### フェーズ3：各章の並列生成
-
-第0章が完成したら、全パターンを並列で処理する。
-各章は互いに依存しない。前章の完成を待たずに開始してよい。
-
-各パターンに対して並列で以下を実行する：
-```
-1. chapter-agent を呼び出して章を生成
-2. 以下のエージェントを並列でレビュー実行：
-   ├── review-agent              （フォーマット・構造・著者の人格）
-   ├── logic-check-agent         （論理の流れ）
-   ├── readability-agent         （テキストの読みやすさ）
-   ├── clarity-agent             （概念の伝わりやすさ・図表の充足）
-   ├── architecture-review-agent （設計の質・DIP・SRP・命名・型安定性）
-   └── design-expert-agent       （教えている設計手法の妥当性）
-3. 上記全エージェントの結果を統合した後、devils-advocate-agent を実行：
-   └── devils-advocate-agent     （反面教師・前提の妥当性・代案の提示）
-4. 全結果を統合する：
-   - architecture-review-agent の error → 最優先で chapter-agent に修正依頼
-   - devils-advocate-agent の critical → 著者に提示して判断を仰ぐ
-   - いずれかに error → chapter-agent に全問題を一度に伝えて再生成
-   - warning のみ → 著者に提示して判断を仰ぐ
-   - 全 ok → 完了
-5. 完了したら status を報告
-```
-
-### フェーズ4：横断チェック
-
-全章が完成したら以下を実行する：
-1. consistency-agent に従って全章を横断チェック
-2. 用語・コードラベル・ステップ番号の一貫性を確認
-3. 「原則1」「原則2」「原則3」の参照が全章で統一されているか確認
-4. 章の独立性（他章への言及がないか）を確認
-5. 問題があれば該当章の chapter-agent に修正を依頼する
-
-### フェーズ5：完了報告
-
-```json
-{
-  "status": "complete",
-  "chapters": [
-    {"chapter": 0, "status": "complete", "file": "output/chapter00.md"},
-    {"chapter": 1, "status": "complete", "file": "output/chapter01.md"}
-  ],
-  "quality_check": "passed"
-}
-```
-
----
-
-## ブロック時の対応
-
-chapter-agent が2回修正しても問題が解消しない場合は、
-具体的な問題箇所を列挙して人間に確認を求める。
-自己判断で構造を変えない。
+- `rules/checklist.md` の該当項目を満たしている。
+- `rules/phase-consistency-check.md` の照合ラインを満たしている。
+- 仕様がコードに出る値・状態・判定条件・出力名へ紐づく粒度になっている。
+- 掲載コードの簡略化範囲が本文または図で説明されている。
+- 論点から外す処理の実際の動き、代替表現、割愛理由、設計論点への影響が補足されている。
+- 修正の原因を分析し、再発しうる場合は正本を見直して `rules/recurrence-prevention.md` に記録した。
+- `script/validate_book.py` が通る。
+- `script/audit_book.py --write-baseline` が0件で通る。
+- `git diff --check` が通る。
