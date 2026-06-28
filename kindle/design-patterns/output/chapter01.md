@@ -281,6 +281,7 @@ public:
 int main() {
     CustomerDatabase db;
     OrderProcessor processor(db);
+    CartPreviewService preview;
     CampaignContext context;
 
     // 行1：C001（Premium）/ キャンペーンなし → 20%引き
@@ -296,6 +297,9 @@ int main() {
     order2.items.push_back(Item("ワイヤレスイヤホン", 10000));
     context.isCampaignActive = true;
     processor.process(order2, context);
+    std::cout << "カートプレビュー: "
+              << preview.getEstimatedTotal(order2, "Regular", context)
+              << " 円です。\n";
 
     // 行3：C003（Regular）/ キャンペーンなし → 割引なし
     Order order3;
@@ -319,14 +323,15 @@ int main() {
 ```
 田中 一郎 の支払金額は 8000 円です。
 佐藤 花子 の支払金額は 9000 円です。
+カートプレビュー: 9000 円です。
 鈴木 次郎 の支払金額は 3000 円です。
 エラー: 顧客ID UNKNOWN は登録されていません
 ```
 
 > [!NOTE]
-> 上記は代表的な実行ケースを示したものです。全ケースの検証は別途テストで行ってください。
+> 上記は代表的な実行ケースを示したものです。この章では、掲載した動作例と出力が対応していることを確認しながら読み進めます。
 
-`CustomerDatabase` からの情報を使ってバリデーションと計算を行います。次のフェーズで変更が来たときに何が起きるかを確認します。
+`OrderProcessor` は `CustomerDatabase` からの情報を使ってバリデーションと計算を行います。`CartPreviewService` も同じ `PaymentCalculator` を使うため、注文確定前のプレビュー表示でも同じ金額になります。次のフェーズで割引ルールの変更が来たとき、この共有された計算がどこまで影響を受けるかを確認します。
 
 ---
 
