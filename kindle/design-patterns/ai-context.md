@@ -2,17 +2,19 @@
 
 ## このファイルの位置づけ
 
-このファイルは、章を生成・修正するAIが最初に読む入口である。
+このファイルは、章を生成・修正するAIが読む入口である。
+別のAIへ作業を渡す場合は、最初に `AI_HANDOFF.md` を読む。
 詳細ルールを重複して収録せず、次の正本を順に読む。
 
-1. `CLAUDE.md`
-2. `design-philosophy.md`
-3. `shared/skills/author-voice.md`
-4. `rules/writing-rules.md`
-5. `rules/connection-point-review.md`
-6. `rules/design-decision-guide.md`
-7. `templates/chapter-template.md`
-8. `agents/chapter-agent.md`
+1. `AI_HANDOFF.md`
+2. `CLAUDE.md`
+3. `design-philosophy.md`
+4. `shared/skills/author-voice.md`
+5. `rules/writing-rules.md`
+6. `rules/connection-point-review.md`
+7. `rules/design-decision-guide.md`
+8. `templates/chapter-template.md`
+9. `agents/chapter-agent.md`
 
 ## 本の目的
 

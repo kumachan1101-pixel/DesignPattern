@@ -22,19 +22,21 @@
 
 ## 正本
 
+別のAIが作業する場合は、まず `AI_HANDOFF.md` を読む。
 章構成の正本は `templates/chapter-template.md` である。
 第0章 `output/chapter00_2.md` は、その思想と読み方を読者へ説明する章である。
 両者が食い違う場合は、テンプレートと第0章を一緒に見直す。
 
 章生成・レビュー・修正では、次を順に読む。
 
-1. `ai-context.md`
-2. `design-philosophy.md`
-3. `rules/writing-rules.md`
-4. `rules/connection-point-review.md`
-5. `rules/design-decision-guide.md`
-6. `templates/chapter-template.md`
-7. `rules/checklist.md`
+1. `AI_HANDOFF.md`
+2. `ai-context.md`
+3. `design-philosophy.md`
+4. `rules/writing-rules.md`
+5. `rules/connection-point-review.md`
+6. `rules/design-decision-guide.md`
+7. `templates/chapter-template.md`
+8. `rules/checklist.md`
 
 ## 7フェーズ
 
@@ -93,6 +95,7 @@
 `agents/` 配下の各 Agent は、テンプレートを正本として使う。
 過去章や古いステップ番号を正本にしてはならない。
 Agent が章をレビューするときは、`rules/checklist.md` の読者体験、図解、フェーズ別の基準を必ず確認する。
+Agent の記載が `AI_HANDOFF.md`、`templates/chapter-template.md`、`rules/checklist.md` と食い違う場合は、Agent 側を疑い、正本へ合わせる。
 
 ## 完了条件
 
