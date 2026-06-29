@@ -217,7 +217,7 @@ public:
 **TicketManager クラス**
 
 ```cpp
-// チケット管理（状態とルールが混在）
+// チケット管理（優先度計算と状態更新を行う）
 class TicketManager {
     PriorityCalculator calc;
     UserDatabase db;

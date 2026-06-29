@@ -225,7 +225,7 @@ public:
                  << " は現在無効です。" << endl;
             return;
         }
-        // ← 生成と利用が混在している箇所
+        // 決済方法に応じてプロセッサを生成して実行
         if (type == "credit_card") {
             CreditCardProcessor processor;
             processor.pay(amount);

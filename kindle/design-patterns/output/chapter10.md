@@ -222,13 +222,13 @@ public:
         }
         PartnerConfig cfg = db.get(partnerId);
         if (partnerId == "PARTNER_A") {
-            SystemAClient client; // ← 生成と利用が混在
+            SystemAClient client; // A社向けクライアントを生成
             client.send("data");
         } else if (partnerId == "PARTNER_B") {
-            SystemBClient client; // ← 生成と利用が混在
+            SystemBClient client; // B社向けクライアントを生成
             client.send("data");
         }
-        NotificationService notifier; // ← 処理ごとに通知の知識も混在
+        NotificationService notifier; // 連携完了を通知
         notifier.notify(cfg.name + " 連携完了");
     }
 };
