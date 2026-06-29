@@ -808,7 +808,7 @@ public:
     int historySize() const { return (int)undoStack.size(); }
 };
 
-// BudgetApp：ActionHistory*だけを知り、具体操作クラスを一切知らない
+// BudgetApp：ActionHistory*だけを知り、具体操作クラスへ直接依存しない
 class BudgetApp {
     ActionHistory* history;
 public:
@@ -832,7 +832,7 @@ int main() {
 
 `ActionHistory` は `cmd->undo()` を呼ぶだけで、取り消す対象が支出なのか収入なのかを知る必要がない。操作が増えても `ActionHistory` は変わらない。
 
-**この段階の評価：** `BudgetApp` も `ActionHistory` も具体クラス名はどこにも登場しない。新しい操作（口座移動・一括削除）が来ても、新しい操作クラスを追加し、組み立て箇所へ登録すれば、`BudgetApp`と`ActionHistory`の実行ロジックは変更せずに済む。操作の実行・取り消し知識が操作クラス自身に閉じ込められたことで、履歴管理の責任が純粋に「スタックを管理する」だけに絞られた。
+**この段階の評価：** `BudgetApp` も `ActionHistory` も具体クラス名はどこにも登場しない。新しい操作（口座移動・一括削除）が来たときも、新しい操作クラスを追加し、組み立て箇所へ登録する形に寄せられるため、`BudgetApp`と`ActionHistory`の実行ロジックへの変更を抑えやすい。操作の実行・取り消し知識が操作クラス自身に閉じ込められたことで、履歴管理の責任を「スタックを管理する」方向へ絞り込めた。
 
 ---
 

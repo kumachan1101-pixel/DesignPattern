@@ -1088,7 +1088,7 @@ void processOrder(const Order& order, const std::string& memberType,
     NoDiscount none;
 
     // かつてPaymentCalculatorの中にあったif文がここに移動した
-    // 実行結果は一切変わらず、判断の責任だけが外側に押し出された
+    // 外から見える実行結果を保ったまま、判断の責任を外側に押し出した
     IDiscountRule* rule = &none;
     if (memberType == "Premium") {
         rule = &premium;
@@ -1189,7 +1189,7 @@ public:
 };
 ```
 
-- `Item`〜`CustomerDatabase` は1-4と同じデータ群です。割引の分離はこれらに影響しません。
+- `Item`〜`CustomerDatabase` は1-4と同じデータ群です。割引の分離では、これらを主な修正対象にしていません。
 - `CampaignContext` には1-5で追加した `isSummerSale` が入っています。
 - `IDiscountRule` が割引ルールの共通の契約（`apply` だけ）で、Strategyの差し替え口になります。
 
