@@ -1,4 +1,4 @@
-## 第10章 外部連携バッチシステム ―― Facade × Observer × Factory Method パターン
+﻿## 第10章 外部連携バッチシステム ―― Facade × Observer × Factory Method パターン
 
 ―― 思考の型：複数の「変わる理由」が複雑に絡み合うシステムをどう解くか
 
@@ -159,6 +159,16 @@ classDiagram
     BatchExecutor ..> SystemBClient : uses
     BatchExecutor ..> NotificationService : uses
 ```
+
+**クラス図に出てくる主な操作**
+
+| クラス | 操作 | 何ができるか |
+|---|---|---|
+| `BatchExecutor` | `execute()` | 連携先IDを受け取り、送信処理と通知処理を進める |
+| `SystemAClient` | `send()` | A社向けの形式でデータを送信する |
+| `SystemBClient` | `send()` | B社向けの形式でデータを送信する |
+| `NotificationService` | `notify()` | 外部連携の結果を通知する |
+
 
 ---
 

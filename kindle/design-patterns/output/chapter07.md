@@ -1,4 +1,4 @@
-## 第7章 通知先への依存を切る ―― Observer パターン
+﻿## 第7章 通知先への依存を切る ―― Observer パターン
 
 ―― 思考の型：一つの変化を、複数の相手にどう伝えるか
 
@@ -165,6 +165,18 @@ classDiagram
     InventoryManager --> ChatNotifier
 
 ```
+
+**クラス図に出てくる主なメンバーと操作**
+
+| クラス | メンバー・操作 | 何ができるか |
+|---|---|---|
+| `InventoryManager` | `stock` / `threshold` | 商品ごとの在庫数と通知しきい値を保持する |
+| `InventoryManager` | `setStock()` / `reduceStock()` / `replenishStock()` | 在庫数の初期設定、減少、補充を行う |
+| `InventoryManager` | `notifyAll()` | 在庫がしきい値を下回ったとき、各通知先へ通知する |
+| `EmailNotifier` | `send()` | メール通知を送る |
+| `DashboardUpdater` | `update()` | ダッシュボード表示を更新する |
+| `ChatNotifier` | `send()` | チャット通知を送る |
+
 
 この図が示す通り、InventoryManager という単一のクラスが、通知先であるすべてのクラス（メール、ダッシュボード、チャット）を直接保持している構成になっています。
 

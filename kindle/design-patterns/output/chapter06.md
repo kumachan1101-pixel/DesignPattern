@@ -1,4 +1,4 @@
-## 第6章 機能を重ねて追加する ―― Decorator パターン
+﻿## 第6章 機能を重ねて追加する ―― Decorator パターン
 
 ―― 思考の型：基本の処理と追加の処理が混在している
 
@@ -126,6 +126,17 @@ flowchart LR
     Main --> Drink
     Drink --> Output
 ```
+
+**図に出てくる主なデータと操作**
+
+| 要素 | データ・操作 | 何ができるか |
+|---|---|---|
+| `main()` | メニューID、トッピング指定 | 注文入力を組み立て、必要なクラスを呼び出す |
+| `MenuDatabase` | `exists()` / `get()` | メニューIDの存在確認と、商品名・基本価格の取得を行う |
+| `CustomDrink` | `baseName` / `basePrice` | 基本ドリンク名と基本価格を保持する |
+| `CustomDrink` | `hasMilk` / `hasWhip` / `hasSyrup` | どのトッピングを追加するかをフラグで保持する |
+| `CustomDrink` | `getPrice()` / `getDescription()` | 合計金額と注文名称を返す |
+
 
 この図が示す通り、`main()` は `MenuDatabase` から商品情報を取り出し、その値を使って `CustomDrink` を組み立てています。`CustomDrink` は、ドリンクの基本情報とすべてのトッピング情報を受け取り、注文名と合計金額を返す構成になっています。
 

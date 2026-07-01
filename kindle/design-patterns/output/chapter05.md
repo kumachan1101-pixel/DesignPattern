@@ -1,4 +1,4 @@
-## 第5章 操作をオブジェクトにする ―― Command パターン
+﻿## 第5章 操作をオブジェクトにする ―― Command パターン
 
 ―― 思考の型：「操作（アクション）」と「それを実行するロジック」が混在している
 
@@ -108,6 +108,17 @@ classDiagram
     UIButtons *-- IncomeManager
 
 ```
+
+**クラス図に出てくる主なメンバーと操作**
+
+| クラス | メンバー・操作 | 何ができるか |
+|---|---|---|
+| `UIButtons` | `balance` | 現在の残高を保持する |
+| `UIButtons` | `onAddExpenseClick()` | 支出登録ボタンの操作を受け取り、支出処理を呼び出す |
+| `UIButtons` | `onAddIncomeClick()` | 収入登録ボタンの操作を受け取り、収入処理を呼び出す |
+| `ExpenseManager` | `addExpense()` | 支出金額を残高から差し引いた結果を返す |
+| `IncomeManager` | `addIncome()` | 収入金額を残高へ加算した結果を返す |
+
 
 → `UIButtons` クラスが `ExpenseManager` と `IncomeManager` を直接知り、ボタン押下時にそれぞれのメソッドを直接呼び出しています。
 

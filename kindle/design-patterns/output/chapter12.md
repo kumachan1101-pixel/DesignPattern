@@ -1,4 +1,4 @@
-## 第12章 承認ワークフローシステム ―― State × Observer × Strategy パターン
+﻿## 第12章 承認ワークフローシステム ―― State × Observer × Strategy パターン
 
 ―― 思考の型：複雑な承認プロセスと変化し続ける通知ルールをどう疎結合にするか
 
@@ -164,6 +164,17 @@ classDiagram
     }
     WorkflowManager --> ApproverDatabase : 承認者確認に使う
 ```
+
+**クラス図に出てくる主なメンバーと操作**
+
+| クラス | メンバー・操作 | 何ができるか |
+|---|---|---|
+| `WorkflowManager` | `db` | 承認者確認に使う `ApproverDatabase` を保持する |
+| `WorkflowManager` | `process()` | 現在状態、金額、承認者IDを受け取り、承認処理を進める |
+| `WorkflowManager` | `notify()` | 状態変化や承認結果を関係者へ通知する |
+| `ApproverDatabase` | `exists()` / `get()` / `canApprove()` | 承認者IDの確認、承認者情報の取得、承認上限額の検証を行う |
+| `Approver` | `role` / `limit` | 承認者の役職と承認上限額を保持する |
+
 
 `WorkflowManager` は `ApproverDatabase` を使って承認者IDの存在確認と承認上限額の確認を行います。そのうえで、ワークフローの「状態遷移」、各担当者への「通知」、「承認可否のルール判定」を同じクラス内で扱っています。`Approver` は承認者データを表す補助的なデータクラスです。
 

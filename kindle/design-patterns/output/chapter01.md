@@ -1,4 +1,4 @@
-## 第1章 変わるものをカプセル化する ―― Strategy パターン
+﻿## 第1章 変わるものをカプセル化する ―― Strategy パターン
 
 ### この章の核心
 
@@ -177,6 +177,18 @@ classDiagram
     PaymentCalculator ..> CampaignContext : 参照する
     Order o-- Item : 持つ
 ```
+
+**クラス図に出てくる主なメンバーと操作**
+
+| クラス | メンバー・操作 | 何ができるか |
+|---|---|---|
+| `CustomerDatabase` | `records` | 顧客IDと顧客情報を保持する |
+| `CustomerDatabase` | `exists()` / `get()` | 顧客IDが登録済みか確認し、会員種別を取り出す |
+| `OrderProcessor` | `db` / `calculator` | 顧客情報の取得と支払金額計算を呼び出す |
+| `PaymentCalculator` | `calculate()` | 注文、会員種別、キャンペーン状態から支払金額を計算する |
+| `CartPreviewService` | `getEstimatedTotal()` | 注文確定前に同じ計算結果をプレビュー用に返す |
+| `Order` / `Item` / `CampaignContext` | データ項目 | 計算に必要な顧客ID、商品、キャンペーン状態を渡す |
+
 
 `OrderProcessor` が `CustomerDatabase` で顧客情報を取得し、`PaymentCalculator` で支払金額を計算します。`CartPreviewService` は同じ `PaymentCalculator` を利用します。
 

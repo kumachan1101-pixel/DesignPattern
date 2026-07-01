@@ -1,4 +1,4 @@
-## 第11章 レポート生成エンジン ―― Template Method × Decorator × Command パターン
+﻿## 第11章 レポート生成エンジン ―― Template Method × Decorator × Command パターン
 
 ―― 思考の型：処理の定型化と機能拡張、そして実行履歴をどう両立させるか
 
@@ -165,6 +165,15 @@ classDiagram
     }
     ReportSkeleton *-- DataReader : owns
 ```
+
+**クラス図に出てくる主なメンバーと操作**
+
+| クラス | メンバー・操作 | 何ができるか |
+|---|---|---|
+| `ReportSkeleton` | `reader` | CSV読み込みを行う `DataReader` を保持する |
+| `ReportSkeleton` | `generate()` | 出力形式と装飾フラグを受け取り、レポート生成を進める |
+| `DataReader` | `readCSV()` | 売上データCSVを読み込む |
+
 
 > **注記：** `addGraph` と `addLogo` は独立したメソッドではなく、`generate()` の引数として渡されるフラグです。これらのフラグで実際に何をしているかは、次の実装コードで確認します。
 

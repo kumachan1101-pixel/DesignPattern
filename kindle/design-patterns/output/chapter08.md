@@ -1,4 +1,4 @@
-## 第8章 生成と利用を分ける ―― Factory Method パターン
+﻿## 第8章 生成と利用を分ける ―― Factory Method パターン
 
 ―― 思考の型：インスタンスを生成する責任を、どこに置くか
 
@@ -139,6 +139,15 @@ classDiagram
     PaymentApplication ..> CreditCardProcessor : uses
     PaymentApplication ..> ConvenienceStoreProcessor : uses
 ```
+
+**クラス図に出てくる主な操作**
+
+| クラス | 操作 | 何ができるか |
+|---|---|---|
+| `PaymentApplication` | `processPayment()` | 決済種別と金額を受け取り、対応する決済処理を呼び出す |
+| `CreditCardProcessor` | `pay()` | クレジットカード決済を実行する |
+| `ConvenienceStoreProcessor` | `pay()` | コンビニ決済の支払い番号発行などを実行する |
+
 
 この図が示す通り、`PaymentApplication` というクラスが、クレジットカードやコンビニ決済といった個別の決済プロセッサーを直接利用（依存）している構成になっています。
 

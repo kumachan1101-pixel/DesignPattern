@@ -1,4 +1,4 @@
-## 第3章 状態ごとの振る舞いを分離する ―― State パターン
+﻿## 第3章 状態ごとの振る舞いを分離する ―― State パターン
 
 ―― 思考の型：状態によって振る舞いが変わる処理が、条件分岐で混在している
 
@@ -127,6 +127,17 @@ flowchart LR
     D --> T
     T --> R
 ```
+
+**クラス図に出てくる主なメンバーと操作**
+
+| クラス | メンバー・操作 | 何ができるか |
+|---|---|---|
+| `EventDatabase` | `records` | イベントIDごとの情報を保持する |
+| `EventDatabase` | `exists()` / `get()` / `hasCapacity()` | 対象イベントの存在確認、情報取得、満席判定を行う |
+| `TicketReservation` | `db` / `eventId` / `status` | 予約対象イベントと現在状態を保持する |
+| `TicketReservation` | `reserve()` / `pay()` / `cancel()` | 現在状態に応じて予約、支払い、キャンセルを実行する |
+| `TicketReservation` | `handleReserveError()` など | 操作できない状態のエラーを返す |
+
 
 各クラスの役割を把握したところで、クラス間の関係を図で整理します。
 

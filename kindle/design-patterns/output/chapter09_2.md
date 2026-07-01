@@ -1,4 +1,4 @@
-## 第9章 変わるルールと状態の連鎖 ―― Strategy × State パターン
+﻿## 第9章 変わるルールと状態の連鎖 ―― Strategy × State パターン
 
 ―― 思考の型：複雑なビジネスルールと状態遷移が絡み合う場所をどう解くか
 
@@ -169,6 +169,15 @@ classDiagram
     }
     TicketManager *-- PriorityCalculator : 保持
 ```
+
+**クラス図に出てくる主なメンバーと操作**
+
+| クラス | メンバー・操作 | 何ができるか |
+|---|---|---|
+| `TicketManager` | `calc` | 優先度計算を行う `PriorityCalculator` を保持する |
+| `TicketManager` | `updateStatus()` | ユーザー種別と状態を受け取り、状態更新と優先度計算を進める |
+| `PriorityCalculator` | `calculate()` | ユーザー種別から優先度を返す |
+
 
 `TicketManager` クラスが、チケットの状態管理と、その遷移に伴う優先度計算という異なる責務を抱えています。
 

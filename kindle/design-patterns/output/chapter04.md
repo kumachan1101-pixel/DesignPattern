@@ -1,4 +1,4 @@
-## 第4章 処理の骨格を固定する ―― Template Method パターン
+﻿## 第4章 処理の骨格を固定する ―― Template Method パターン
 
 ―― 思考の型：手順の骨格は同じなのに、詳細部分が異なる処理が複数存在している
 
@@ -170,6 +170,18 @@ classDiagram
     note for FCDataImporter "手順もパースも自分の中に閉じている"
 
 ```
+
+**クラス図に出てくる主なメンバーと操作**
+
+| クラス | メンバー・操作 | 何ができるか |
+|---|---|---|
+| `StoreDataImporter` | `validRows` | 直営店CSVで取り込める行数を保持する |
+| `StoreDataImporter` | `import()` | 直営店CSVを開き、カンマ区切りで解析し、DB保存まで進める |
+| `StoreDataImporter` | `skipHeader()` / `splitByComma()` | ヘッダー行を読み飛ばし、カンマで各項目に分ける |
+| `FCDataImporter` | `validRows` / `invalidRows` | 取り込める行数とスキップする不正行数を保持する |
+| `FCDataImporter` | `import()` | FC店CSVを開き、タブ区切りで解析し、不正行を除いて保存する |
+| `FCDataImporter` | `splitByTab()` / `skipInvalidRows()` | タブで各項目に分け、不正行を読み飛ばす |
+
 
 → `StoreDataImporter` と `FCDataImporter` の間に矢印はありません。両クラスは互いを知らず、それぞれが「ファイルを開く・パースする・保存する・閉じる」という手順全体を自分の中に独立して持っています。
 

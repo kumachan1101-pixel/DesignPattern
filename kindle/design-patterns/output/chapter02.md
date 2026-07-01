@@ -1,4 +1,4 @@
-## 第2章 窓口を一本化する ―― Facade パターン
+﻿## 第2章 窓口を一本化する ―― Facade パターン
 
 ### この章の核心
 
@@ -148,6 +148,18 @@ classDiagram
     TransferProcessor --> BankGateway : 使う
     TransferProcessor --> SecurityAuthenticator : 使う
 ```
+
+**クラス図に出てくる主なメンバーと操作**
+
+| クラス | メンバー・操作 | 何ができるか |
+|---|---|---|
+| `BatchTransferProcessor` | `processor` | 複数の振り込みを個別処理へ渡す |
+| `BatchTransferProcessor` | `processPayroll()` | 給与振込などの一括処理を進める |
+| `TransferProcessor` | `gateway` / `auth` | 銀行APIと認証処理を直接呼び出す |
+| `TransferProcessor` | `transfer()` | 口座確認、残高確認、認証、送金を順に実行する |
+| `BankGateway` | `verifyAccount()` / `checkBalance()` / `executeTransfer()` | 口座・残高・送金APIを扱う |
+| `SecurityAuthenticator` | `requestOTP()` / `verifyOTP()` | OTP認証を要求し、入力された認証情報を検証する |
+
 
 `BatchTransferProcessor` は `TransferProcessor` を使って一括処理を行い、`TransferProcessor` が `BankGateway` と `SecurityAuthenticator` の両方を直接保持し、それぞれのメソッドを順番に呼び出してフローを制御しています。
 
