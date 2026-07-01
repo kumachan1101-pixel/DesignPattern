@@ -1324,7 +1324,7 @@ void ResolvedPhase::display() {
 class TicketApplication {
     UserDatabase db;
 
-    // ユーザーIDからルール差し替え構造を選択するヘルパー
+    // ユーザーIDからルール差し替え構造を選択する補助メソッド
     IPriorityRule* selectStrategy(
             const string& userId,
             NormalPriority& normal,
