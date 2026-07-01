@@ -34,18 +34,21 @@
 
 ```mermaid
 flowchart LR
-    A["CSVファイル"] --> B["ファイルを開く"]
-    C["フォーマット種別"] --> D["パース方法を選ぶ"]
-    E["データ行"] --> F["形式ごとにパース"]
-    B --> F
-    D --> F
-    F --> G["保存用データに変換"]
-    G --> H["DBへ保存"]
-    H --> I["処理件数を集計"]
-    I --> J["インポート結果"]
-    B --> K["ファイルエラー"]
-    F --> L["パースエラー"]
-    H --> M["保存エラー"]
+    A[/入力ファイル/]:::input --> B{ファイルを読めるか}:::decision
+    C[/フォーマット種別/]:::input --> D{対応形式か}:::decision
+    B -->|Yes| E[共通手順を開始]:::process
+    D -->|Yes| F[形式ごとに解析]:::process
+    E --> F
+    F --> G[保存用データへ変換]:::process
+    G --> H([正常出力<br>取り込み完了]):::normal
+    B -->|No| I([異常出力<br>ファイルエラー]):::error
+    D -->|No| J([異常出力<br>未対応形式エラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 このシステムは、**システム基盤担当**と**業務担当者**の2つの立場で保守されています。システム基盤担当はファイルの開閉やDBへの保存といったインフラ寄りの処理を管理し、業務担当者は店舗形態ごとのデータパースルールや計算ロジックを管理します。この2立場の存在は、後で「変わる理由がどの業務機能によるか」を見極める際の参考になります。

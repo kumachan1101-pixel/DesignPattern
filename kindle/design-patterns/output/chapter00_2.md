@@ -221,12 +221,18 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    A["入力A<br>利用者操作"] --> B["判定1<br>受付可能か"]
-    C["入力B<br>現在状態"] --> B
-    B --> D["加工1<br>計算・変換"]
-    D --> E["加工2<br>保存・通知"]
-    E --> F["正常出力<br>表示・状態変化"]
-    B --> G["エラー出力<br>受付不可"]
+    A[/入力A<br>利用者操作/]:::input --> B{判定1<br>受付可能か}:::decision
+    C[/入力B<br>現在状態/]:::input --> B
+    B -->|Yes| D[加工1<br>計算・変換]:::process
+    D --> E[加工2<br>保存・通知]:::process
+    E --> F([正常出力<br>表示・状態変化]):::normal
+    B -->|No| G([異常出力<br>受付不可]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図は、システムを評価するための図ではありません。

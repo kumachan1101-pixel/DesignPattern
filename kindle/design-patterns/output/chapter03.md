@@ -30,17 +30,21 @@
 
 ```mermaid
 flowchart LR
-    A["イベントID"] --> B["イベント存在確認"]
-    C["現在の予約状態"] --> D["状態ごとの操作可否判定"]
-    E["操作<br>予約・支払い・キャンセル"] --> D
-    B --> F["満席判定"]
-    F --> D
-    D --> G["予約状態を更新"]
-    G --> H["成功メッセージ"]
-    G --> I["更新後の予約状態"]
-    B --> J["イベントなしエラー"]
-    F --> K["満席エラー"]
-    D --> L["操作不可エラー"]
+    A[/現在状態<br>Available / Reserved / Paid/]:::input --> B{操作は現在状態で可能か}:::decision
+    C[/操作<br>予約・支払い・キャンセル/]:::input --> B
+    D[/チケットID/]:::input --> E{対象チケットは存在するか}:::decision
+    E -->|Yes| B
+    B -->|Yes| F[状態ごとの処理を実行]:::process
+    F --> G[次の状態を決める]:::process
+    G --> H([正常出力<br>状態更新・結果表示]):::normal
+    E -->|No| I([異常出力<br>対象なしエラー]):::error
+    B -->|No| J([異常出力<br>操作不可エラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。

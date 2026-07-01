@@ -32,17 +32,22 @@
 
 ```mermaid
 flowchart LR
-    A["売上データ"] --> B["レポート内容を生成"]
-    C["出力形式"] --> D["形式を選ぶ"]
-    E["追加オプション"] --> F["装飾・追加機能を適用"]
-    G["実行要求"] --> H["実行履歴を記録"]
-    B --> D
-    D --> F
+    A[/レポート種別/]:::input --> B{テンプレートは登録済みか}:::decision
+    C[/出力形式/]:::input --> D{対応形式か}:::decision
+    E[/装飾オプション/]:::input --> F[装飾を組み合わせる]:::process
+    B -->|Yes| G[本文を生成]:::process
+    D -->|Yes| H[ファイルへ出力]:::process
     F --> H
-    F --> I["レポート"]
-    F --> J["装飾結果"]
-    H --> K["実行履歴"]
-    D --> L["未対応形式エラー"]
+    G --> H
+    H --> I([正常出力<br>生成ファイル・履歴]):::normal
+    B -->|No| J([異常出力<br>未登録テンプレートエラー]):::error
+    D -->|No| K([異常出力<br>未対応形式エラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。

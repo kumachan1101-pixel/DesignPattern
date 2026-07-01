@@ -31,15 +31,20 @@
 
 ```mermaid
 flowchart LR
-    A["基本ドリンク"] --> B["基本名を決める"]
-    A --> C["基本価格を決める"]
-    D["選択されたトッピング"] --> E["トッピング名を追加"]
-    D --> F["追加料金を合算"]
-    B --> G["表示用の注文名称"]
-    E --> G
-    C --> H["合計金額"]
-    F --> H
-    D --> I["未対応トッピングエラー"]
+    A[/基本ドリンク/]:::input --> B{商品は選択済みか}:::decision
+    C[/追加トッピング/]:::input --> D{トッピングは有効か}:::decision
+    B -->|Yes| E[基本価格を決める]:::process
+    D -->|Yes| F[トッピング価格を重ねる]:::process
+    E --> F
+    F --> G([正常出力<br>合計金額・注文内容]):::normal
+    B -->|No| H([異常出力<br>商品未選択エラー]):::error
+    D -->|No| I([異常出力<br>未対応トッピングエラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。

@@ -33,19 +33,25 @@
 
 ```mermaid
 flowchart LR
-    A["申請内容"] --> B["現在状態を確認"]
-    C["金額"] --> D["承認条件を判定"]
-    E["部署"] --> D
-    F["承認操作"] --> G["状態遷移を判定"]
+    A[/申請内容/]:::input --> B[現在状態を取得]:::process
+    C[/金額/]:::input --> D{承認条件を満たすか}:::decision
+    E[/部署/]:::input --> D
+    F[/承認操作/]:::input --> G{現在状態で操作可能か}:::decision
     B --> G
-    D --> G
-    G --> H["申請状態を更新"]
-    H --> I["関係者へ通知"]
-    H --> J["申請状態"]
-    H --> K["承認結果"]
-    I --> L["通知結果"]
-    D --> M["承認不可"]
-    G --> N["操作不可エラー"]
+    D -->|Yes| G
+    G -->|Yes| H[申請状態を更新]:::process
+    H --> I[関係者へ通知]:::process
+    H --> J([正常出力<br>申請状態]):::normal
+    H --> K([正常出力<br>承認結果]):::normal
+    I --> L([正常出力<br>通知結果]):::normal
+    D -->|No| M([異常出力<br>承認不可]):::error
+    G -->|No| N([異常出力<br>操作不可エラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。

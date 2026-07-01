@@ -30,16 +30,23 @@
 
 ```mermaid
 flowchart LR
-    A["チケット情報"] --> B["現在状態を確認"]
-    C["優先度判定条件"] --> D["優先度を判定"]
-    E["状態操作"] --> F["状態遷移を判定"]
-    B --> F
-    D --> G["優先度を更新"]
-    F --> H["チケット状態を更新"]
-    G --> I["優先度"]
-    H --> J["チケット状態"]
-    F --> K["操作結果"]
-    F --> L["操作不可エラー"]
+    A[/チケットID/]:::input --> B{チケットは存在するか}:::decision
+    C[/現在状態/]:::input --> D{操作は可能か}:::decision
+    E[/ユーザー種別/]:::input --> F[優先度ルールを選ぶ]:::process
+    G[/操作<br>担当者アサイン・解決など/]:::input --> D
+    B -->|Yes| D
+    D -->|Yes| H[状態ごとの処理を実行]:::process
+    F --> I[優先度を計算]:::process
+    H --> J([正常出力<br>状態更新・優先度表示]):::normal
+    I --> J
+    B -->|No| K([異常出力<br>ユーザーIDエラー]):::error
+    D -->|No| L([異常出力<br>操作不可エラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。

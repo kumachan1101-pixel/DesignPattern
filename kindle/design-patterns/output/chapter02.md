@@ -29,18 +29,24 @@
 
 ```mermaid
 flowchart LR
-    A["送金元口座"] --> B["残高確認"]
-    C["振込先口座"] --> D["口座確認"]
-    E["送金金額"] --> B
-    F["認証情報"] --> G["OTP認証"]
-    D --> H["送金実行"]
-    B --> H
-    G --> H
-    H --> I["履歴記録"]
-    I --> J["振り込み完了"]
-    D --> K["口座エラー"]
-    B --> L["残高不足エラー"]
-    G --> M["認証エラー"]
+    A[/送金元口座/]:::input --> B{残高は足りるか}:::decision
+    C[/振込先口座/]:::input --> D{口座は有効か}:::decision
+    E[/送金金額/]:::input --> B
+    F[/認証情報/]:::input --> G{OTP認証に成功するか}:::decision
+    D -->|Yes| H[送金を実行]:::process
+    B -->|Yes| H
+    G -->|Yes| H
+    H --> I[履歴を記録]:::process
+    I --> J([正常出力<br>振り込み完了]):::normal
+    D -->|No| K([異常出力<br>口座エラー]):::error
+    B -->|No| L([異常出力<br>残高不足エラー]):::error
+    G -->|No| M([異常出力<br>認証エラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。

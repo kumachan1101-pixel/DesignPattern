@@ -30,18 +30,25 @@
 
 ```mermaid
 flowchart LR
-    A["連携先"] --> B["連携先を確認"]
-    C["同期対象データ"] --> D["送信用形式へ変換"]
-    E["実行要求"] --> F["実行条件を確認"]
-    B --> G["認証する"]
-    D --> H["外部へ送信"]
-    F --> H
+    A[/連携先/]:::input --> B{連携先は有効か}:::decision
+    C[/同期対象データ/]:::input --> D[送信用形式へ変換]:::process
+    E[/実行要求/]:::input --> F{実行条件を満たすか}:::decision
+    B -->|Yes| G[認証する]:::process
+    D --> H[外部へ送信]:::process
+    F -->|Yes| H
     G --> H
-    H --> I["関係先へ通知"]
-    H --> J["同期結果"]
-    I --> K["通知結果"]
-    B --> L["連携先エラー"]
-    H --> M["送信エラー"]
+    H -->|成功| I[関係先へ通知]:::process
+    H -->|成功| J([正常出力<br>同期結果]):::normal
+    I --> K([正常出力<br>通知結果]):::normal
+    B -->|No| L([異常出力<br>連携先エラー]):::error
+    F -->|No| M([異常出力<br>実行条件エラー]):::error
+    H -->|失敗| N([異常出力<br>送信エラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。

@@ -29,13 +29,20 @@
 
 ```mermaid
 flowchart LR
-    A["決済種別"] --> B["対応する決済手段を選ぶ"]
-    C["金額"] --> D["決済条件を確認"]
-    B --> E["決済を実行"]
-    D --> E
-    E --> F["決済成功メッセージ"]
-    B --> G["未対応決済エラー"]
-    D --> H["金額エラー"]
+    A[/決済種別/]:::input --> B{対応する決済手段か}:::decision
+    C[/金額/]:::input --> D{金額は有効か}:::decision
+    B -->|Yes| E[決済プロセッサーを選ぶ]:::process
+    D -->|Yes| F[決済を実行]:::process
+    E --> F
+    F --> G([正常出力<br>決済成功メッセージ]):::normal
+    B -->|No| H([異常出力<br>未対応決済エラー]):::error
+    D -->|No| I([異常出力<br>金額エラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。

@@ -34,17 +34,18 @@
 
 ```mermaid
 flowchart LR
-    A["利用者の操作<br>収入・支出"] --> B["操作内容を判定"]
-    C["金額"] --> D["収支データを登録"]
-    E["現在の残高"] --> F["残高を更新"]
-    B --> D
-    D --> F
-    F --> G["操作履歴を保存"]
-    G --> H["更新後の残高"]
-    G --> I["収支一覧"]
-    G --> J["履歴状態"]
-    B --> K["不正操作エラー"]
-    C --> L["金額エラー"]
+    A[/操作要求<br>追加・削除・Undo/]:::input --> B{操作は実行可能か}:::decision
+    C[/金額・対象ID/]:::input --> B
+    B -->|Yes| D[操作を実行]:::process
+    D --> E[履歴へ記録]:::process
+    E --> F([正常出力<br>残高・履歴更新]):::normal
+    B -->|No| G([異常出力<br>操作不可エラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。

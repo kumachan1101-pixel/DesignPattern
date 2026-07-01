@@ -33,17 +33,22 @@
 
 ```mermaid
 flowchart LR
-    A["商品リスト<br>名前・単価"] --> B["空注文か確認"]
-    C["顧客ID"] --> D["会員種別を取得"]
-    E["キャンペーンフラグ"] --> F["適用条件をそろえる"]
-    B --> G["小計を合算"]
-    D --> H["割引ルールを選ぶ"]
-    F --> H
-    G --> I["割引額を計算"]
+    A[/商品リスト<br>名前・単価/]:::input --> B{商品が空か}:::decision
+    C[/顧客ID/]:::input --> D{顧客IDは登録済みか}:::decision
+    E[/キャンペーンフラグ/]:::input --> H[割引ルールを選ぶ]:::process
+    B -->|No| G[小計を合算]:::process
+    D -->|Yes| H
+    G --> I[割引額を計算]:::process
     H --> I
-    I --> J["支払金額を出力"]
-    B --> K["空注文エラー"]
-    D --> L["未登録顧客エラー"]
+    I --> J([正常出力<br>支払金額]):::normal
+    B -->|Yes| K([異常出力<br>空注文エラー]):::error
+    D -->|No| L([異常出力<br>未登録顧客エラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。

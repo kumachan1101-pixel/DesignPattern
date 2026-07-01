@@ -29,16 +29,24 @@
 
 ```mermaid
 flowchart LR
-    A["商品ID"] --> B["対象商品を特定"]
-    C["在庫数の変化"] --> D["在庫を更新"]
-    E["通知閾値"] --> F["閾値を判定"]
-    B --> D
-    D --> F
-    F --> G["通知が必要か判断"]
-    G --> H["通知先へ連絡"]
-    D --> I["在庫状態"]
-    H --> J["通知メッセージ"]
-    B --> K["商品なしエラー"]
+    A[/商品ID/]:::input --> B{商品は存在するか}:::decision
+    C[/出庫数/]:::input --> D{在庫は足りるか}:::decision
+    E[/通知先リスト/]:::input --> F[通知先を準備]:::process
+    B -->|Yes| D
+    D -->|Yes| G[在庫数を更新]:::process
+    G --> H{しきい値を下回るか}:::decision
+    H -->|Yes| I[通知を送る]:::process
+    F --> I
+    H -->|No| J([正常出力<br>在庫更新のみ]):::normal
+    I --> K([正常出力<br>在庫更新・通知完了]):::normal
+    B -->|No| L([異常出力<br>商品IDエラー]):::error
+    D -->|No| M([異常出力<br>在庫不足エラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。
