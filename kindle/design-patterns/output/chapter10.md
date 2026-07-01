@@ -1449,6 +1449,8 @@ classDiagram
     class Factory {
         +create()
     }
+    Facade ..> Factory : 生成を委ねる
+    Facade --> Observer : 完了を通知する
 ```
 
 Facade はバッチ実行部の複雑な連携フローを隠蔽し、Factory Method は連携先の増殖に対応する生成の窓口となり、Observer は通知先変更の波及を遮断します。

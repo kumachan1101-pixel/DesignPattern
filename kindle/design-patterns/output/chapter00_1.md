@@ -231,14 +231,16 @@ GoFの23のデザイン構造は、一見バラバラに見えます。
 下の図で、問題のある構造と解決後の構造を比べてみてください。
 
 ```mermaid
-classDiagram
-    class OrderService_before["OrderService（問題あり）"] {
-        +processOrder()
-        +calcDiscount()
-        +sendEmail()
-        +saveToDb()
-    }
-    note for OrderService_before "変わる理由が3つある<br>営業/マーケ/インフラ"
+flowchart TB
+    subgraph O["OrderService（問題あり）"]
+        P["processOrder()<br>注文処理の流れ"]
+        D["calcDiscount()<br>割引ルール"]
+        M["sendEmail()<br>通知文面"]
+        S["saveToDb()<br>保存方式"]
+    end
+    D -.-> R1["価格・販促ルールで変わる"]
+    M -.-> R2["通知内容・顧客接点で変わる"]
+    S -.-> R3["保存方式・技術基盤で変わる"]
 ```
 
 ```mermaid

@@ -136,21 +136,28 @@ flowchart LR
 
 ### 1-3：登場クラスとクラス構成図
 
-コードを読んだところで、クラス間の関係を図で整理します。
+コードへ入る前に、クラス間の関係を図で整理します。
 
 ```mermaid
 classDiagram
     class WorkflowManager {
-        +process(string status, double amount)
+        -ApproverDatabase db
+        +process(string status, int amount, string approverId)
         -notify(string msg)
+    }
+    class ApproverDatabase {
+        +exists(string id) bool
+        +get(string id) ApproverInfo
+        +canApprove(string id, int amount) bool
     }
     class Approver {
         +role : string
         +limit : double
     }
+    WorkflowManager --> ApproverDatabase : 承認者確認に使う
 ```
 
-`WorkflowManager` クラスが、ワークフローの「状態遷移」、各担当者への「通知」、「承認可否のルール判定」という3つの重い責務をすべて握りしめています。
+`WorkflowManager` は `ApproverDatabase` を使って承認者IDの存在確認と承認上限額の確認を行います。そのうえで、ワークフローの「状態遷移」、各担当者への「通知」、「承認可否のルール判定」を同じクラス内で扱っています。`Approver` は承認者データを表す補助的なデータクラスです。
 
 
 **この章での簡略化**
@@ -1690,6 +1697,8 @@ classDiagram
     class Phase { <<状態管理>> }
     class Listener { <<通知>> }
     class Rule { <<判定ルール>> }
+    Phase ..> Rule : 承認可否を確認する
+    Phase --> Listener : 状態変更を通知する
 ```
 
 状態管理の仕組みが「今の状態での振る舞い」を整理し、判定ルールの仕組みが「承認の可否」を判定し、通知の仕組みが「変更の伝搬」を担うことで、複雑なワークフローを整理しています。
@@ -1776,4 +1785,3 @@ private:
 7つのフェーズを通じて、読者は `WorkflowManager` が状態遷移・通知・判定のすべてを直書きしているという観察から始まり、3つの変化軸が独立していることの確認を経て、軸ごとに異なるパターンを当てるという判断へと進みました。フェーズ6で「1つのパターンでは解決しきれない」と気づくたびに次の軸の分析へ進む——その繰り返しの中に、パターン選択の本質的なプロセスがあります。この章の体験が、12章を通じた思考の型の集大成になっていると思っています。
 
 あなたの現場のコードの中にも、修正のたびに「他の部分への影響を確認しなければ」という不安が生じる箇所があるはずです。「変わる理由が何種類あるか、それぞれ誰の判断か」を問うことが、その不安の根本を解消する入口になります。
-

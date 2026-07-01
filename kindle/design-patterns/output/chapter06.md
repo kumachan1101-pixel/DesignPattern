@@ -112,22 +112,22 @@ flowchart LR
 
 #### 補足：クラス構成図
 
-システムのクラス構成を可視化し、構造を確認します。
+システムのクラス構成を可視化し、呼び出し元がどのクラスを使っているかを確認します。
 
 ```mermaid
-classDiagram
-    class CustomDrink {
-        -string baseName
-        -int basePrice
-        -bool hasMilk
-        -bool hasWhip
-        -bool hasSyrup
-        +getPrice() int
-        +getDescription() string
-    }
+flowchart LR
+    Main["main()<br>注文入力を組み立てる"]
+    DB["MenuDatabase<br>メニューIDから商品名・基本価格を取得"]
+    Drink["CustomDrink<br>注文名・合計金額を計算"]
+    Output["画面出力<br>注文内容・合計金額"]
+
+    Main --> DB
+    DB --> Main
+    Main --> Drink
+    Drink --> Output
 ```
 
-この図が示す通り、`CustomDrink` という単一のクラスが、ドリンクの基本情報とすべてのトッピング情報を一手に引き受けている構成になっています。
+この図が示す通り、`main()` は `MenuDatabase` から商品情報を取り出し、その値を使って `CustomDrink` を組み立てています。`CustomDrink` は、ドリンクの基本情報とすべてのトッピング情報を受け取り、注文名と合計金額を返す構成になっています。
 
 
 **この章での簡略化**

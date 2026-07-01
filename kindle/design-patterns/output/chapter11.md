@@ -1540,6 +1540,8 @@ classDiagram
     class TemplateMethod { <<骨格>> }
     class Decorator { <<装飾>> }
     class Command { <<履歴>> }
+    Command --> TemplateMethod : 実行対象にする
+    Decorator --> TemplateMethod : 機能を重ねる
 ```
 
 Template Method が処理の共通手順を管理し、Decorator が追加機能を組み合わせ、Command が実行履歴を管理します。各責務の境界を分けることで、変更時に確認する範囲を絞りやすくしています。ただし、各層をつなぐインターフェースや組み立てコードは共有する接続点として残ります。
