@@ -10,7 +10,7 @@
 
 ### この章を読むと得られること
 
-この章が問うのは「作る」ことの設計です——オブジェクトを生成している場所が、利用している場所と同居していると何が起きるか。「決済プロセッサーを切り替えたいだけなのに、なぜこんなにコードを変える必要が生じますのか」という問いが出てきたことがあるなら、この章に答えがあります。
+この章が問うのは「作る」ことの設計です——オブジェクトを生成している場所が、利用している場所と同居していると何が起きるか。「決済プロセッサーを切り替えたいだけなのに、なぜこんなにコードを変える必要があるのか」という問いが出てきたことがあるなら、この章に答えがあります。
 
 * **得られること1：** 「オブジェクトを生成する」という観点で、コードの変動箇所を識別できるようになる
 * **得られること2：** 利用処理が決済手段のクラス名と生成方法をどこまで知っているかを接続点から調べ、生成と利用の混在による痛みを説明できるようになる
@@ -57,12 +57,12 @@ flowchart LR
 
 **現在対応している決済手段**
 
-決済種別を文字列（"credit" や "cvs" のような文字列）で受け取る仕様は、ECサイトではごく一般的な設計です。お客様が選択肢を選んだ瞬間に識別子がフロントエンドから送られてくるため、バックエンド側では「この文字列が来たら、この処理を呼ぶ」という対応が必要になります。言わば「メニューの番号を渡すと、対応する料理が届く」イメージです。
+決済種別を文字列（"credit_card" や "convenience" のような識別子）で受け取る仕様は、ECサイトではごく一般的な設計です。お客様が選択肢を選んだ瞬間に識別子がフロントエンドから送られてくるため、バックエンド側では「この文字列が来たら、この処理を呼ぶ」という対応が必要になります。言わば「メニューの番号を渡すと、対応する料理が届く」イメージです。
 
 | 決済種別 | 入力値 | 処理内容 |
 |---|---|---|
-| クレジットカード決済 | credit | クレジットカードの認証と決済を実行する |
-| コンビニ決済 | cvs | コンビニ払いの支払い番号を発行する |
+| クレジットカード決済 | credit_card | クレジットカードの認証と決済を実行する |
+| コンビニ決済 | convenience | コンビニ払いの支払い番号を発行する |
 
 クレジットカードは「その場で認証・即時決済」、コンビニ払いは「支払い番号を発行して後日支払い」という点で、処理の性質が大きく異なります。この違いが、後のフェーズで「なぜ決済手段ごとに異なる処理が必要になるか」を理解する鍵になります。
 
@@ -100,16 +100,7 @@ flowchart LR
 比べるのは、同じ動作を保ちながら、決済手段が増えたときにどこを変更する
 構造になるかという違いです。
 
-コードを読む前に、このシステムが「何をする必要があるか」をこの表で確認できました。次は仕様とクラスを対応づけます。
-
-**このシステムの登場クラス**
-
-| クラス名 | 役割 | 担当する仕様 |
-|---|---|---|
-| PaymentApplication | 決済手段に応じた処理を呼び出す | 決済処理の分岐と実行 |
-| CreditCardProcessor | クレジットカード決済の処理 | クレジットカード決済 |
-| ConvenienceStoreProcessor | コンビニ決済の処理 | コンビニ決済 |
-| ProcessorRegistry | 決済方法の設定を保持するデータストア | 決済方法の存在確認・有効フラグの参照 |
+コードを読む前に、このシステムが「何をする必要があるか」をこの表で確認できました。次は、この仕様を担うクラスの顔ぶれと責任を確認します。
 
 ---
 
@@ -122,6 +113,7 @@ flowchart LR
 | `PaymentApplication` | 決済種別を受け取り、対応する決済処理を呼び出す | 決済手段の選択と実行 |
 | `CreditCardProcessor` | クレジットカード決済を実行する | クレジットカード決済 |
 | `ConvenienceStoreProcessor` | コンビニ決済を実行する | コンビニ決済 |
+| `ProcessorRegistry` | 決済方法の設定を保持するデータストア | 決済方法の存在確認・有効フラグの参照 |
 
 各クラスの責任を把握したところで、クラス間の関係を図で整理します。
 
@@ -136,8 +128,14 @@ classDiagram
     class ConvenienceStoreProcessor {
         +pay(int amount)
     }
+    class ProcessorRegistry {
+        +exists(method)
+        +isActive(method)
+        +get(method)
+    }
     PaymentApplication ..> CreditCardProcessor : uses
     PaymentApplication ..> ConvenienceStoreProcessor : uses
+    PaymentApplication --> ProcessorRegistry : 存在・有効確認
 ```
 
 **クラス図に出てくる主な操作**
@@ -304,8 +302,8 @@ int main() {
 
 | 決済手段 | 変更前 | 変更後 |
 |---|---|---|
-| クレジットカード（`"credit"`） | 対応済み | 変更なし |
-| コンビニ払い（`"cvs"`） | 対応済み | 変更なし |
+| クレジットカード（`"credit_card"`） | 対応済み | 変更なし |
+| コンビニ払い（`"convenience"`） | 対応済み | 変更なし |
 | **PayPay（`"paypay"`）** | 未対応 | **新規追加** |
 
 PayPay決済が追加されても、決済の実行フロー（「種別を受け取り→プロセッサーを選択→処理を実行→結果を返す」）は変わりません。変わるのは「対応できる種別が1つ増える」という点だけです。
@@ -391,14 +389,14 @@ PayPay決済の動作：`"paypay"` を受け取ると、PayPay用のプロセッ
 ## 🟣 フェーズ3：問題特定 ―― 変更の痛みを発見する
 ### 3-1：変更を試みる
 
-「PayPay対応」の要求を、今のコードで実装しようと試みます。変更前のコードはこうでした。
+「PayPay対応」の要求を、今のコードで実装しようと試みます。変更前のコードの中心部分はこうでした（レジストリによる存在・有効チェックは今回の変更で変わらないため、この抜粋では省略しています）。
 
 ```cpp
 void processPayment(string type, int amount) {
-    if (type == "credit") {
+    if (type == "credit_card") {
         CreditCardProcessor processor;
         processor.pay(amount);
-    } else if (type == "cvs") {
+    } else if (type == "convenience") {
         ConvenienceStoreProcessor processor;
         processor.pay(amount);
     }
@@ -409,10 +407,10 @@ void processPayment(string type, int amount) {
 
 ```cpp
 void processPayment(string type, int amount) {
-    if (type == "credit") {
+    if (type == "credit_card") {
         CreditCardProcessor processor;
         processor.pay(amount);
-    } else if (type == "cvs") {
+    } else if (type == "convenience") {
         ConvenienceStoreProcessor processor;
         processor.pay(amount);
     } else if (type == "paypay") {  // ← 追加
@@ -425,7 +423,8 @@ void processPayment(string type, int amount) {
 変更後のコードを実行すると、次のような結果になります。
 
 ```cpp
-// 動作確認用のスタブ
+// スタブ：本物の決済処理の代わりに表示だけを行う差し替えクラス
+// （変更後の実行確認用）
 class CreditCardProcessor {
 public:
     void pay(int amount) {
@@ -449,9 +448,9 @@ public:
 };
 
 void processPayment(std::string type, int amount) {
-    if (type == "credit") {
+    if (type == "credit_card") {
         CreditCardProcessor p; p.pay(amount);
-    } else if (type == "cvs") {
+    } else if (type == "convenience") {
         ConvenienceStoreProcessor p; p.pay(amount);
     } else if (type == "paypay") { // ← 追加
         PayPayProcessor p; p.pay(amount);
@@ -459,9 +458,9 @@ void processPayment(std::string type, int amount) {
 }
 
 int main() {
-    processPayment("credit",  5000);
-    processPayment("cvs",    10000);
-    processPayment("paypay",  3000); // ← 新規
+    processPayment("credit_card",  5000);
+    processPayment("convenience", 10000);
+    processPayment("paypay",       3000); // ← 新規
     return 0;
 }
 ```
@@ -499,7 +498,7 @@ graph LR
 
 **1つ目：修正のたびに「決済の統括者」が汚染される辛さ。** このクラスは本来、どの決済手段を使うかを判断するだけで良いはずなのに、個別のプロセッサーの生成方法や詳細な使い方までを直接握りしめています。決済手段が増えるたびにこのクラスを書き直す必要があるため、変更のたびにバグを混入させるリスクが付きまといます。
 
-**2つ目：決済手段という「変わるもの」と、決済の振り分けという「変わらない構造」が同じ場所に混在している辛さ。** 決済プロセッサーが増えるたびに `if-else` のジャングルが深まり、コードの見通しが悪くなります。新しい決済手段を一つ足すだけで、既存の無関係な決済手段のコードまで巻き込んでテストをやり直す必要に迫られます状況は、開発のスピードを著しく低下させる要因になっています。
+**2つ目：決済手段という「変わるもの」と、決済の振り分けという「変わらない構造」が同じ場所に混在している辛さ。** 決済プロセッサーが増えるたびに `if-else` のジャングルが深まり、コードの見通しが悪くなります。新しい決済手段を一つ足すだけで、既存の無関係な決済手段のコードまで巻き込んでテストをやり直す必要に迫られる状況は、開発のスピードを著しく低下させる要因になっています。
 
 フェーズ3で「変更のたびに決済統括クラスが書き換わる」という痛みが確認できました。次のフェーズ4では、利用処理と生成処理の接続点に漏れている知識を確認します。
 
@@ -541,7 +540,7 @@ graph LR
 
 **【変わる部分（変わり続ける生成コード）】**
 ```cpp
-        if (type == "credit") {
+        if (type == "credit_card") {
             CreditCardProcessor processor;
             processor.pay(amount);
         } else if (type == "paypay") {
@@ -573,7 +572,7 @@ class PaymentApplication {
 public:
     void processPayment(string type, int amount) {
         // 具体クラスを直接知り、直接生成して呼び出している
-        if (type == "credit") {
+        if (type == "credit_card") {
             // ← 利用処理が生成するクラス名を知っている
             CreditCardProcessor processor;
             processor.pay(amount);
@@ -614,10 +613,10 @@ public:
 ```cpp
 void processPayment(string type, int amount) {
     // ↓ 具体クラスを選んで生成する判断（変わり続ける）
-    if (type == "credit") {
+    if (type == "credit_card") {
         CreditCardProcessor processor;
         processor.pay(amount);
-    } else if (type == "cvs") {
+    } else if (type == "convenience") {
         ConvenienceStoreProcessor processor;
         processor.pay(amount);
     } else if (type == "paypay") {
@@ -685,9 +684,9 @@ private:
 public:
     void processPayment(string type, int amount) {
         // 種別の判断だけをここで行う
-        if (type == "credit")       payByCredit(amount);
-        else if (type == "cvs")     payByCvs(amount);
-        else if (type == "paypay")  payByPayPay(amount);
+        if (type == "credit_card")       payByCredit(amount);
+        else if (type == "convenience")  payByCvs(amount);
+        else if (type == "paypay")       payByPayPay(amount);
     }
 };
 ```
@@ -703,16 +702,17 @@ public:
 
 ### ステップ2：生成ロジックを専用の PaymentFactory クラスに分離する
 
-ステップ1で気になったのは「生成の知識が `PaymentApplication` に留まっている」という点でした。「では、生成の担当クラスを別に作ろう」という次の一手を試してみます。`createProcessor` の中身をそのまま `PaymentFactory` という独立したクラスに移します。
+ステップ1で気になったのは「生成の知識が `PaymentApplication` に留まっている」という点でした。「では、生成の担当クラスを別に作ろう」という次の一手を試してみます。生成した各プロセッサーを共通の型で受け渡すため、`pay(int)` だけを約束する共通インターフェース `IPaymentProcessor` をここで導入します（定義と各クラスの実装コードはステップ3の冒頭で示します）。
 
 ```cpp
 // 生成の責任を専用クラスに分離する
 class PaymentFactory {
 public:
     IPaymentProcessor* create(string type) {
-        if (type == "credit") return new CreditCardProcessor();
-        if (type == "paypay") return new PayPayProcessor();
-        if (type == "cvs")    return new ConvenienceStoreProcessor();
+        if (type == "credit_card") return new CreditCardProcessor();
+        if (type == "paypay")      return new PayPayProcessor();
+        if (type == "convenience")
+            return new ConvenienceStoreProcessor();
         return nullptr;
     }
 };
@@ -735,7 +735,7 @@ public:
 `PaymentApplication` は `PaymentFactory` に生成を依頼するだけになり、具体クラスの名前（`CreditCardProcessor` など）を直接知らなくなっています。
 
 **この段階の評価：**
-生成の責任を `PaymentApplication` から切り出せました。`PaymentApplication` は決済の振り分けフローに集中できるようになっています。しかし今度は `PaymentFactory` がすべての具体クラスを知っており、新しい決済手段を追加するたびに `PaymentFactory` を修正必要があります。「修正が必要なクラスが `PaymentApplication` から `PaymentFactory` に移っただけ」という見方もできます。
+生成の責任を `PaymentApplication` から切り出せました。`PaymentApplication` は決済の振り分けフローに集中できるようになっています。しかし今度は `PaymentFactory` がすべての具体クラスを知っており、新しい決済手段を追加するたびに `PaymentFactory` を修正する必要があります。「修正が必要なクラスが `PaymentApplication` から `PaymentFactory` に移っただけ」という見方もできます。
 
 もう少し深く考えると、`PaymentFactory` は固定された1つのクラスです。「テスト環境ではモック用のプロセッサーを使いたい」「本番とステージングで生成ロジックを変えたい」といった要求が来たとき、`PaymentFactory` ごと差し替える仕組みがありません。Factory クラスを分離したのに、その Factory 自体が固定されてしまっているのです。
 
@@ -813,9 +813,10 @@ public:
 class DefaultPaymentApplication : public PaymentApplication {
 protected:
     IPaymentProcessor* createProcessor(string type) override {
-        if (type == "credit") return new CreditCardProcessor();
-        if (type == "paypay") return new PayPayProcessor();
-        if (type == "cvs")    return new ConvenienceStoreProcessor();
+        if (type == "credit_card") return new CreditCardProcessor();
+        if (type == "paypay")      return new PayPayProcessor();
+        if (type == "convenience")
+            return new ConvenienceStoreProcessor();
         return nullptr;
     }
 };
@@ -842,7 +843,7 @@ protected:
 フェーズ6で採用する形が決まりました。次のフェーズ7では、この決断を最終的なコードに落とし込みます。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
-生成するオブジェクトの種類（決済手段）を、利用側から隠蔽するメソッドに集約し、利用側がインターフェースを通じてインスタンスを得る構造——これが **生成分離構造（ファクトリーメソッド）構造** と呼ばれています。
+生成するオブジェクトの種類（決済手段）を、利用側から隠蔽するメソッドに集約し、利用側がインターフェースを通じてインスタンスを得る構造——これが **生成分離構造（ファクトリーメソッド）** と呼ばれています。
 
 ### 7-1：解決後のコード（全体）
 
@@ -872,7 +873,7 @@ public:
 `IPaymentProcessor` は「決済を実行するために持つべきメソッドと戻り値の約束」を定義します。具体クラスが何であれ、このインターフェースさえ実装していれば、利用側はそのまま使えます。
 
 **1-b. レジストリ（データ層）の定義**
-決済方法の設定を `std::map` で一元管理します。生成分離構造が生成を判断する前に、レジストリで「登録されているか」「有効か」を確認します。
+決済方法の設定を `std::map` で一元管理します。生成メソッドがプロセッサーを生成する前に、レジストリで「登録されているか」「有効か」を確認します。
 
 ```cpp
 // 決済方法の設定を保持するデータ構造
@@ -1098,8 +1099,8 @@ sequenceDiagram
     participant CP as createProcessor
     participant CC as CreditCardProcessor
 
-    main->>PA: processPayment("credit", 1000)
-    PA->>CP: createProcessor("credit")
+    main->>PA: processPayment("credit_card", 1000)
+    PA->>CP: createProcessor("credit_card")
     Note right of PA: 生成をメソッドに委譲
     CP->>CC: new CreditCardProcessor()
     CC-->>CP: インスタンス

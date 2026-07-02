@@ -111,17 +111,7 @@ flowchart LR
 在庫が閾値以下になったときは現在の3通知先すべてへ送り、閾値を超えて
 いるときは通知しないことが核心です。
 
-次は仕様とクラスを対応づけます。
-
-**このシステムの登場クラス**
-
-| クラス名 | 役割 | 担当する仕様 |
-|---|---|---|
-| ProductDatabase | 商品マスタを保持し、在庫数・アラート閾値を提供する | 商品IDの存在確認、在庫数と閾値の参照 |
-| InventoryManager | 在庫の増減を管理し、一定値を下回ったら通知を送る | 在庫数の監視、各通知先へのメッセージ送信 |
-| EmailNotifier | メール送信を担当 | メール通知 |
-| DashboardUpdater | ダッシュボード更新を担当 | ダッシュボードへの反映 |
-| ChatNotifier | チャットツールへの送信を担当 | チャット通知 |
+次は、この仕様を担うクラスの顔ぶれと責任を確認します。
 
 ---
 
@@ -131,6 +121,7 @@ flowchart LR
 
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
+| `ProductDatabase` | 商品マスタを保持し、在庫数・アラート閾値を提供する | 商品IDの存在確認、在庫数と閾値の参照 |
 | `InventoryManager` | 在庫数を管理し、必要な通知を呼び出す | 在庫更新、閾値判定、通知実行 |
 | `EmailNotifier` | メール通知を送る | メール通知 |
 | `DashboardUpdater` | ダッシュボード表示を更新する | 管理画面への反映 |
@@ -160,9 +151,15 @@ classDiagram
     class ChatNotifier {
         +send(message)
     }
+    class ProductDatabase {
+        +exists(id)
+        +get(id)
+        +isBelowThreshold(id)
+    }
     InventoryManager --> EmailNotifier
     InventoryManager --> DashboardUpdater
     InventoryManager --> ChatNotifier
+    InventoryManager --> ProductDatabase : 存在確認・閾値判定
 
 ```
 
@@ -173,6 +170,7 @@ classDiagram
 | `InventoryManager` | `stock` / `threshold` | 商品ごとの在庫数と通知しきい値を保持する |
 | `InventoryManager` | `setStock()` / `reduceStock()` / `replenishStock()` | 在庫数の初期設定、減少、補充を行う |
 | `InventoryManager` | `notifyAll()` | 在庫がしきい値を下回ったとき、各通知先へ通知する |
+| `ProductDatabase` | `exists()` / `isBelowThreshold()` | 商品IDの存在確認と、しきい値判定を行う |
 | `EmailNotifier` | `send()` | メール通知を送る |
 | `DashboardUpdater` | `update()` | ダッシュボード表示を更新する |
 | `ChatNotifier` | `send()` | チャット通知を送る |
@@ -204,7 +202,7 @@ classDiagram
 | PRD002 | USBハブ | 3 | 5（閾値以下→アラート発火） |
 | PRD003 | キーボード | 0 | 5（在庫なし） |
 
-在庫数がアラート閾値以下になると通知分離構造への通知が発火します。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
+在庫数がアラート閾値以下になると、登録済みの通知先への通知が発火します。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
 
 ```cpp
 #include <iostream>
@@ -933,9 +931,9 @@ int main() {
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 フェーズ6のステップ3を実装し、通知元が通知先の種類を知らなくてよい構造へ変えます。`InventoryManager`は登録済みの通知先へ同じ操作を呼び出します。
 
-**この構造は、通知分離構造（オブザーバー）構造と呼ばれています。**
+**この構造は、通知分離構造（オブザーバー）と呼ばれています。**
 
-名前の由来は、Subject（被観察者・通知を送る側）が通知分離構造（観察者・通知先）に通知する仕組みだから、通知分離構造と呼ばれています。通知を「受け取る側」の役割名が、この構造の名称になっています。
+名前の由来は、Subject（被観察者・通知を送る側）がオブザーバー（観察者・通知先）へ通知する仕組みだからです。通知を「受け取る側」の役割名が、この構造の名称になっています。
 
 通知を送る側（Subject）がオブザーバーのリストを保持し、状態が変化したときに一斉に通知を送るという構造が、私たちが選んだステップ3そのものです。フェーズ1から積み上げてきた思考の結果、たどり着いた構造に名前があった——というのが本書の伝えたいことです。
 
@@ -986,7 +984,7 @@ public:
     }
 };
 
-// 通知先が満たする必要がある契約（インターフェース）
+// 通知先が満たす必要がある契約（インターフェース）
 class INotification {
 public:
     virtual ~INotification() = default;
@@ -1075,7 +1073,7 @@ public:
 // 通知元クラス（Subject に相当）
 class InventoryManager {
 private:
-    // 非所有ポインタ。登録中の通知分離構造はInventoryManagerより長く生存すること。
+    // 非所有ポインタ。登録中の通知先はInventoryManagerより長く生存すること。
     vector<INotification*> observers;
     ProductDatabase         db;
     map<string, int>        stock;
@@ -1263,7 +1261,7 @@ sequenceDiagram
     M->>IM: attach(&dashboard)
     M->>IM: attach(&chat)
     M->>IM: attach(&sms)
-    M->>IM: reduceStock("T-shirt-001", 5)
+    M->>IM: reduceStock("PRD002", 1)
     activate IM
     IM->>IM: notifyAll(message)
     IM->>E: send(message)
@@ -1306,11 +1304,11 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
-| SMS通知を追加 | `InventoryManager` に `SMSNotifier` フィールドを追加し `notifyAll` を修正 | `SMSObserver` 実装クラスを新規作成し登録するだけ |
-| メール通知の送信先を変更 | `InventoryManager` 内の `EmailNotifier` 呼び出しを修正 | `EmailObserver` のみ修正 |
-| 特定条件でのみ通知する仕様を追加 | `InventoryManager` の通知ロジック全体を修正 | 対象の通知先クラスの `update()` に条件を追加するだけ |
+| SMS通知を追加 | `InventoryManager` に `SMSNotifier` フィールドを追加し `notifyAll` を修正 | `SMSNotifier` 実装クラスを新規作成し登録するだけ |
+| メール通知の送信先を変更 | `InventoryManager` 内の `EmailNotifier` 呼び出しを修正 | `EmailNotifier` のみ修正 |
+| 特定条件でのみ通知する仕様を追加 | `InventoryManager` の通知ロジック全体を修正 | 対象の通知先クラスの `send()` に条件を追加するだけ |
 
-フェーズ1の現状コードでは通知先の追加・変更のたびに `InventoryManager` を直接修正する必要がありました。改善後は `InventoryManager` に触れず、通知先のクラスだけを変えれば済みます——それがこの設計で手に入れたものです。諦めたものは、通知のたびにインターフェースを経由するというわずかな間接性と、通知分離構造の登録・解除を管理するクラス数の増加です。
+フェーズ1の現状コードでは通知先の追加・変更のたびに `InventoryManager` を直接修正する必要がありました。改善後は `InventoryManager` に触れず、通知先のクラスだけを変えれば済みます——それがこの設計で手に入れたものです。諦めたものは、通知のたびにインターフェースを経由するというわずかな間接性と、通知先の登録・解除を管理する手間、クラス数の増加です。
 
 ---
 
@@ -1331,7 +1329,7 @@ graph LR
 | --- | --- |
 | 🔵 フェーズ1：現状把握 | 在庫管理システムにおいて、通知元と複数の通知先クラスが密接に結合している構造を観察した。 |
 | 🟣 フェーズ2：仮説立案 | 在庫通知の運用担当者へのヒアリングを通じ、通知先が今後も頻繁に入れ替わることを「変動要因」として確定した。 |
-| 🟣 フェーズ3：問題特定 | 新しい通知手段を追加しようとすると、既存の通知元クラスを毎回修正必要が生じますという「痛み」を確認した。 |
+| 🟣 フェーズ3：問題特定 | 新しい通知手段を追加しようとすると、既存の通知元クラスを毎回修正する必要が生じるという「痛み」を確認した。 |
 | 🟠 フェーズ4：原因分析 | 通知元が、通知先の具体的な実装を直接知っていることが、影響範囲を広げる根本原因だと特定した。 |
 | 🟡 フェーズ5：課題定義 | string 型メッセージを共通の接続点とし、変わる通知先を登録・解除できる課題を定めた |
 | 🔴 フェーズ6：対策検討 | 3ステップを比較し、通知操作の契約を統一して外部から登録できるステップ3を採用した。 |
