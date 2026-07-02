@@ -512,6 +512,41 @@ int main() {
 
 現行の認証では発行と検証の間に識別子を受け渡していませんでした。新仕様では `requestOTP()` の応答から取引IDを受け取り、`verifyOTP(authCode, transactionId)` で検証します。検証済みの同じ取引IDを、`executeTransfer(account, amount, transactionId)` にも渡します。
 
+**変更後の入力・加工・出力**
+
+変更後の仕様を、1-1と同じ入力・判定・加工・出力の流れとして図で確認します。1-1の図との差分は、認証が「発行」と「照合」の2ステップになることと、発行時に受け取る「取引ID」が送金実行にも受け渡されることの2点です。
+
+```mermaid
+flowchart LR
+    A[/送金元口座/]:::input --> B{残高は足りるか}:::decision
+    C[/振込先口座/]:::input --> D{口座は有効か}:::decision
+    E[/送金金額/]:::input --> B
+    F[/認証情報/]:::input --> P[認証コードの発行を要求し<br>取引IDを受け取る]:::process
+    P --> G{取引IDと認証コードの<br>照合に成功するか}:::decision
+    D -->|Yes| H[取引IDを添えて送金を実行]:::process
+    B -->|Yes| H
+    G -->|Yes| H
+    H --> I[履歴を記録]:::process
+    I --> J([正常出力<br>振り込み完了]):::normal
+    D -->|No| K([異常出力<br>口座エラー]):::error
+    B -->|No| L([異常出力<br>残高不足エラー]):::error
+    G -->|No| M([異常出力<br>認証エラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
+```
+
+この図から読み取ることは、次の3点です。
+
+- 口座確認・残高確認と、送金後の履歴記録は1-1のまま変わらない。
+- 認証が「認証コードの発行」と「取引IDと認証コードの照合」の2ステップになり、発行の応答で受け取る「取引ID」という新しい値が加わる。
+- 取引IDは認証の中で完結せず、送金実行にも必須の値として受け渡される。
+
+図に加わった「取引ID」の受け渡しが実際にコードのどこへ書かれるかは、フェーズ3で変更を試すコードと、フェーズ7の最終コード・実行結果で追います。
+
 フェーズ1でシステムの現状と変更要求が把握できました。次のフェーズ2では、「何を変え、何を守るか」を整理します。
 
 ---

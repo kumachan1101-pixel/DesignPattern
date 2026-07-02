@@ -446,6 +446,39 @@ stateDiagram-v2
     Held --> Available : 期限切れ
 ```
 
+**変更後の入力・加工・出力**
+
+変更後の仕様を、1-1と同じ入力・判定・加工・出力の流れとして図で確認します。1-1の図との差分は、入力の「現在状態」が3種類から5種類へ、「操作」が3種類から7種類へ増えることです。判定・加工・出力の流れ自体は変わりません。
+
+```mermaid
+flowchart LR
+    A[/現在状態<br>Available / Reserved / Paid<br>Waitlisted / Held/]:::input --> B{操作は現在状態で可能か}:::decision
+    C[/操作<br>予約・支払い・キャンセル<br>waitlist登録・予約昇格・一時保留・期限切れ/]:::input --> B
+    D[/チケットID/]:::input --> E{対象チケットは存在するか}:::decision
+    E -->|Yes| K{空きはあるか<br>（予約時のみ）}:::decision
+    K -->|Yes| B
+    B -->|Yes| F[状態ごとの処理を実行]:::process
+    F --> G[次の状態を決める]:::process
+    G --> H([正常出力<br>状態更新・結果表示]):::normal
+    E -->|No| I([異常出力<br>対象なしエラー]):::error
+    K -->|No| L([異常出力<br>満席エラー]):::error
+    B -->|No| J([異常出力<br>操作不可エラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
+```
+
+この図から読み取ることは、次の3点です。
+
+- 新しい入力は「Waitlisted・Held」の2状態と「waitlist登録・予約昇格・一時保留・期限切れ」の4操作で、図の箱そのものは増えていない。
+- 増えるのは「操作は現在状態で可能か」で受け付ける組み合わせと、「次の状態を決める」の行き先である。
+- 受け付けられない組み合わせは、変更後も既存の「操作不可エラー」として終わり、エラーの種類は増えない。
+
+増えた状態と操作の組み合わせが実際にコードのどこへ書かれるかは、フェーズ3で変更を試すコードと、フェーズ7の最終コード・実行結果で追います。
+
 フェーズ1でシステムの現状と変更要求が把握できました。次のフェーズ2では、「何を変え、何を守るか」を整理します。
 
 ---
