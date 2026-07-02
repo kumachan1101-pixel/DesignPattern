@@ -131,15 +131,7 @@ flowchart LR
 
 したがって、途中では未実装の行があっても構いません。最終コードで表の6動作が同じ構造上にそろうことを確認します。
 
-次は仕様とクラスを対応づけます。
-
-**このシステムの登場クラス**
-
-| クラス名 | 役割 | 担当する仕様 |
-|---|---|---|
-| ReportSkeleton | レポートの全生成処理 | レポートのヘッダー・フッター生成と、グラフやロゴの追加制御 |
-| DataReader | データ読み込み | CSV等からの基本データ読み込み処理 |
-| TemplateRegistry | テンプレートIDの登録・検索 | レポートテンプレートの名称・出力形式をIDで管理し、バリデーションに使う |
+次は、この仕様を担うクラスの顔ぶれと責任を確認します。
 
 ---
 
@@ -151,8 +143,9 @@ flowchart LR
 |---|---|---|
 | `ReportSkeleton` | レポート生成の流れを進める | データ読み込み、本文生成、装飾指定、出力 |
 | `DataReader` | CSVデータを読み込む | 売上データの取得 |
+| `TemplateRegistry` | テンプレートIDの登録・検索 | レポートテンプレートの名称・出力形式をIDで管理し、バリデーションに使う |
 
-各クラスの責任を把握したところで、クラス間の関係を図で整理します。
+各クラスの責任を把握したところで、クラス間の関係を図で整理します。`TemplateRegistry` は `ReportSkeleton` からは使われず、呼び出し元（`main()`）がレポート生成前の検証に使います。
 
 ```mermaid
 classDiagram
@@ -162,6 +155,10 @@ classDiagram
     }
     class DataReader {
         +readCSV() void
+    }
+    class TemplateRegistry {
+        +exists(id) bool
+        +get(id) ReportTemplate
     }
     ReportSkeleton *-- DataReader : owns
 ```
@@ -216,27 +213,27 @@ public:
 
 このシステムには以下の3種類のレポートテンプレートがあらかじめ登録されています。
 
-| テンプレートID | レポート名 | 出力形式 |
+| テンプレートID | レポート名 | 既定の出力形式 |
 |---|---|---|
+| SALES_WEEKLY | 週次売上レポート | PDF |
 | SALES_MONTHLY | 月次売上レポート | PDF |
-| INVENTORY_WEEKLY | 週次在庫レポート | CSV |
-| ACCESS_LOG | アクセスログ | HTML |
+| SALES_DEPT | 部門別売上レポート | PDF |
 
 登録されていないIDを指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
 
 ```cpp
 struct ReportTemplate {
     string name;    // レポート名
-    string format;  // "csv", "pdf", "html"
+    string format;  // "pdf", "excel"
 };
 
 class TemplateRegistry {
     map<string, ReportTemplate> templates;
 public:
     TemplateRegistry() {
-        templates["SALES_MONTHLY"]    = {"月次売上レポート", "pdf"};
-        templates["INVENTORY_WEEKLY"] = {"週次在庫レポート", "csv"};
-        templates["ACCESS_LOG"]       = {"アクセスログ",     "html"};
+        templates["SALES_WEEKLY"]  = {"週次売上レポート",   "pdf"};
+        templates["SALES_MONTHLY"] = {"月次売上レポート",   "pdf"};
+        templates["SALES_DEPT"]    = {"部門別売上レポート", "pdf"};
     }
 
     bool exists(const string& id) const {
@@ -660,7 +657,7 @@ public:
 > 1つ目は「レポートの種別（週次・月次など）による本文生成の処理」で、これを `renderBody()` という抽象メソッドを介して `MonthlyReport` や `WeeklyReport` といったサブクラスに逃がすこと（骨格固定構造の適用）。
 > 2つ目は「どの装飾を加えるか（`if` 文の塊）」という装飾機能の知識で、これを `GraphFeature` や `WatermarkFeature` として骨格の外に独立させること（装飾連結構造の適用）。
 > 3つ目は「操作を誰が記録し、どう取り消すか」という履歴管理の知識で、これを `GenerateReportAction` として骨格とは別の層に分離すること（操作記録構造の適用）。
-> これら3つを分離すると、骨格・装飾・履歴それぞれへの変更の中心を別々のクラスへ寄せられます。なお、これらの切り離しに伴い、具体クラスを組み立てる箇所（コンポジションコード）やテストコードにも対応する修正が必要になる点に注意すること。
+> これら3つを分離すると、骨格・装飾・履歴それぞれへの変更の中心を別々のクラスへ寄せられます。なお、これらの切り離しに伴い、具体クラスを組み立てる箇所（組み立てコード）やテストコードにも対応する修正が必要になる点に注意すること。
 ---
 
 ターゲットが3つに絞られました。フェーズ6では、この分離をどのステップで・どの形で実現するかを段階的に検討します。
@@ -787,7 +784,7 @@ public:
 
 ステップ4で骨格は固定できました。次は「どの装飾を重ねるか」を実行時に決められるようにします。`ReportFeature` は `ReportSkeleton` を継承しつつ、内部に別の `ReportSkeleton` を所有してチェーンする 装飾連結構造を使います。
 
-このサンプルでは、説明を短くするために生ポインタで所有権を表しています。最も外側の `ReportSkeleton*` を破棄すると、各装飾連結構造のデストラクタが内側の要素を順に破棄し、チェーン全体の生存期間もそこで終わります。実務コードでは、同じ所有関係を `std::unique_ptr<ReportSkeleton>` で表すのが自然です。
+このサンプルでは、説明を短くするために生ポインタで所有権を表しています。最も外側の `ReportSkeleton*` を破棄すると、各装飾クラスのデストラクタが内側の要素を順に破棄し、チェーン全体の生存期間もそこで終わります。実務コードでは、同じ所有関係を `std::unique_ptr<ReportSkeleton>` で表すのが自然です。
 
 ```cpp
 // ReportFeature: 装飾機能の基底クラス（装飾連結構造基底）
@@ -873,7 +870,7 @@ public:
 
     void execute() override {
         if (created) {
-            throw logic_error("同じ操作記録構造は再実行できません。");
+            throw logic_error("同じ操作は再実行できません。");
         }
         if (fileExists(outputPath)) {
             throw runtime_error(
@@ -898,7 +895,7 @@ public:
     }
 
     void handleNoFileToUndo() {
-        cout << "[コマンド] この操作記録構造が生成したファイルはありません。"
+        cout << "[コマンド] この操作が生成したファイルはありません。"
              << endl;
     }
 
@@ -920,7 +917,7 @@ public:
 ```
 
 **この段階の評価：**
-`GenerateReportAction`はレポート、出力形式、出力先を保持します。`execute()`は既存ファイルを上書きせず、デモ用ファイルを実際に作成します。`undo()`が削除するのは、この操作記録構造自身が正常に作成したファイルだけです。これにより、別処理が先に作成していたファイルを誤って削除せずに、操作記録構造の実行と取り消しを確認できます。
+`GenerateReportAction`はレポート、出力形式、出力先を保持します。`execute()`は既存ファイルを上書きせず、デモ用ファイルを実際に作成します。`undo()`が削除するのは、この操作オブジェクト自身が正常に作成したファイルだけです。これにより、別処理が先に作成していたファイルを誤って削除せずに、操作の実行と取り消しを確認できます。
 
 ---
 
@@ -981,16 +978,16 @@ using namespace std;
 
 struct ReportTemplate {
     string name;    // レポート名
-    string format;  // "csv", "pdf", "html"
+    string format;  // "pdf", "excel"
 };
 
 class TemplateRegistry {
     map<string, ReportTemplate> templates;
 public:
     TemplateRegistry() {
-        templates["SALES_MONTHLY"]    = {"月次売上レポート", "pdf"};
-        templates["INVENTORY_WEEKLY"] = {"週次在庫レポート", "csv"};
-        templates["ACCESS_LOG"]       = {"アクセスログ",     "html"};
+        templates["SALES_WEEKLY"]  = {"週次売上レポート",   "pdf"};
+        templates["SALES_MONTHLY"] = {"月次売上レポート",   "pdf"};
+        templates["SALES_DEPT"]    = {"部門別売上レポート", "pdf"};
     }
 
     bool exists(const string& id) const {
@@ -1007,9 +1004,9 @@ public:
 
 ```cpp
 struct ReportRecord {
-    std::string templateId;    // "SALES_MONTHLY", "INVENTORY_WEEKLY", "ACCESS_LOG"
-    std::string templateName;  // "月次売上", "週次在庫", "アクセスログ"
-    std::string format;        // "pdf", "csv", "html"
+    std::string templateId;    // "SALES_WEEKLY", "SALES_MONTHLY", "SALES_DEPT"
+    std::string templateName;  // "週次売上", "月次売上", "部門別売上"
+    std::string format;        // "pdf", "excel"
     std::string status;        // "成功", "キャンセル", "失敗"
 };
 
@@ -1089,6 +1086,14 @@ public:
         cout << "週次集計を本文として生成。" << endl;
     }
 };
+
+// DeptReport: 部門別レポートの本体
+class DeptReport : public ReportSkeleton {
+public:
+    void renderBody() override {
+        cout << "部門別集計を本文として生成。" << endl;
+    }
+};
 ```
 
 ここで重要な設計の意図を確認しておきます。**「レポートの種別（月次・週次・部門別）」は`ReportSkeleton`の派生クラスで区別し、「出力形式（PDF・Excel）」は`OutputFormat`として操作記録構造へ渡します。**サンプルでは形式名を書いたデモ用ファイルを生成します。実運用で本物のPDF・Excelを生成する場合は、`IOutputFormatter`の実装へ置き換える想定です。
@@ -1137,7 +1142,7 @@ public:
 };
 ```
 
-`GraphFeature` と `WatermarkFeature` は、どちらも `wrapped->renderBody()` を呼んだ後に自分の処理を追加します。入れ子にすることで、装飾を自由に重ねがけできます。各装飾連結構造はデストラクタにより内側の要素を再帰的に解放するため、最も外側の要素が破棄されるとチェーン全体も自動的に破棄されます。
+`GraphFeature` と `WatermarkFeature` は、どちらも `wrapped->renderBody()` を呼んだ後に自分の処理を追加します。入れ子にすることで、装飾を自由に重ねがけできます。各装飾クラスはデストラクタにより内側の要素を再帰的に解放するため、最も外側の要素が破棄されるとチェーン全体も自動的に破棄されます。
 
 **4. コマンドクラス（操作記録構造の実装）**
 
@@ -1173,7 +1178,7 @@ public:
 
     void execute() override {
         if (created) {
-            throw logic_error("同じ操作記録構造は再実行できません。");
+            throw logic_error("同じ操作は再実行できません。");
         }
         if (fileExists(outputPath)) {
             throw runtime_error(
@@ -1200,7 +1205,7 @@ public:
     }
 
     void handleNoFileToUndo() {
-        cout << "[コマンド] この操作記録構造が生成したファイルはありません。"
+        cout << "[コマンド] この操作が生成したファイルはありません。"
              << endl;
     }
 
@@ -1223,7 +1228,7 @@ public:
 
 **5. 組み立てと実行（BatchApplication + メイン関数）**
 
-具体的なクラス名（`MonthlyReport`等）を知っているのは、この組み立てを行う箇所だけです。生成した操作記録構造は履歴が所有し、操作記録構造はレポート生成器を所有します。これにより、履歴から操作記録構造を取り除くと、その装飾連結構造チェーンまでまとめて破棄されます。また、`BatchApplication` は `TemplateRegistry` を保持し、各レポート生成の前にテンプレートIDの存在確認を行います。登録されていないIDが渡された場合はエラーを出力して処理を中断します。
+具体的なクラス名（`MonthlyReport`等）を知っているのは、この組み立てを行う箇所だけです。生成した操作オブジェクトは履歴が所有し、操作オブジェクトはレポート生成器を所有します。これにより、履歴から操作オブジェクトを取り除くと、その装飾のチェーンまでまとめて破棄されます。また、`BatchApplication` は `TemplateRegistry` を保持し、各レポート生成の前にテンプレートIDの存在確認を行います。登録されていないIDが渡された場合はエラーを出力して処理を中断します。
 
 ```cpp
 // BatchApplication: 具体クラスを知っている主な場所
@@ -1277,7 +1282,7 @@ public:
             new MonthlyReport(),
             "monthly.xlsx",
             OutputFormat::Excel));
-        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "成功");
+        reportLog.add("SALES_MONTHLY", tmpl.name, "excel", "成功");
 
         // 行3: グラフ付き・透かし付きでPDF出力
         cout << "--- 行3: 装飾付きレポートPDF出力 ---" << endl;
@@ -1306,28 +1311,27 @@ public:
         history.pop_back();
         reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "キャンセル");
 
-        // 行5: バッチで3レポートを一括生成
+        // 行5: バッチで3レポート（週次・月次・部門別）を一括生成
         cout << "--- 行5: バッチで3レポート一括生成 ---" << endl;
-        if (!validateTemplate("INVENTORY_WEEKLY", tmpl)) return;
+        if (!validateTemplate("SALES_WEEKLY", tmpl)) return;
         cout << "テンプレート: " << tmpl.name << endl;
         executeAndRemember(new GenerateReportAction(
             new WeeklyReport(),
             "weekly.pdf",
             OutputFormat::Pdf));
-        reportLog.add("INVENTORY_WEEKLY", tmpl.name, tmpl.format, "成功");
+        reportLog.add("SALES_WEEKLY", tmpl.name, tmpl.format, "成功");
         if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
         executeAndRemember(new GenerateReportAction(
             new MonthlyReport(),
             "batch_monthly.pdf",
             OutputFormat::Pdf));
         reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "成功");
-        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        if (!validateTemplate("SALES_DEPT", tmpl)) return;
         executeAndRemember(new GenerateReportAction(
-            new GraphFeature(
-                new MonthlyReport()),
+            new DeptReport(),
             "dept.pdf",
             OutputFormat::Pdf));
-        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "成功");
+        reportLog.add("SALES_DEPT", tmpl.name, tmpl.format, "成功");
         cout << "[この操作で3コマンドが履歴に追加されました。]" << endl;
 
         // 行6: グラフ付き月次レポートを生成してアンドゥ
@@ -1402,7 +1406,7 @@ CSV読み込み
 [コマンド] PDF形式で cancel_monthly.pdf を生成して履歴に記録。
 [コマンド] cancel_monthly.pdf を削除してアンドゥ完了。
 --- 行5: バッチで3レポート一括生成 ---
-テンプレート: 週次在庫レポート
+テンプレート: 週次売上レポート
 CSV読み込み
 週次集計を本文として生成。
 フッター生成
@@ -1412,8 +1416,7 @@ CSV読み込み
 フッター生成
 [コマンド] PDF形式で batch_monthly.pdf を生成して履歴に記録。
 CSV読み込み
-月次集計を本文として生成。
-グラフを追加。
+部門別集計を本文として生成。
 フッター生成
 [コマンド] PDF形式で dept.pdf を生成して履歴に記録。
 [この操作で3コマンドが履歴に追加されました。]
@@ -1425,9 +1428,19 @@ CSV読み込み
 フッター生成
 [コマンド] PDF形式で graph_monthly.pdf を生成して履歴に記録。
 [コマンド] graph_monthly.pdf を削除してアンドゥ完了。
+
+--- レポート生成ログ ---
+[SALES_MONTHLY] 月次売上レポート (pdf) -> 成功
+[SALES_MONTHLY] 月次売上レポート (excel) -> 成功
+[SALES_MONTHLY] 月次売上レポート (pdf) -> 成功
+[SALES_MONTHLY] 月次売上レポート (pdf) -> キャンセル
+[SALES_WEEKLY] 週次売上レポート (pdf) -> 成功
+[SALES_MONTHLY] 月次売上レポート (pdf) -> 成功
+[SALES_DEPT] 部門別売上レポート (pdf) -> 成功
+[SALES_MONTHLY] 月次売上レポート (pdf) -> キャンセル
 ```
 
-掲載したデモでは、動作テーブルの6つのシナリオに対応する生成・一括実行・削除を確認しています。行5は並列処理ではなく、三つの操作記録構造を順に実行する一括処理です。サンプル実行後にはPDF用またはExcel用のデモファイルが作成され、行4と行6ではそれぞれ直前に生成した対象ファイルが削除されます。既存の出力先は上書きせず、Undoは操作記録構造自身が作成したファイルだけを削除します。装飾は装飾連結構造チェーンで組み合わされています。
+掲載したデモでは、動作テーブルの6つのシナリオに対応する生成・一括実行・削除を確認しています。行5は並列処理ではなく、三つの操作を順に実行する一括処理です。サンプル実行後にはPDF用またはExcel用のデモファイルが作成され、行4と行6ではそれぞれ直前に生成した対象ファイルが削除されます。既存の出力先は上書きせず、Undoは操作オブジェクト自身が作成したファイルだけを削除します。装飾は装飾クラスのチェーンで組み合わされています。
 
 ### 7-2：動作シーケンス図
 
@@ -1475,7 +1488,7 @@ graph LR
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
 | 新しいレポート形式（週次等）を追加 | `ReportSkeleton` に新しい生成手順を直接追記 | `WeeklyReport` を新規作成するだけ |
-| 透かし機能を全レポートに追加 | `ReportSkeleton` の各手順に透かし処理を追記 | `WatermarkFeature` 装飾連結構造 クラスを新規作成するだけ |
+| 透かし機能を全レポートに追加 | `ReportSkeleton` の各手順に透かし処理を追記 | `WatermarkFeature` 装飾クラスを新規作成し、組み立てへ登録 |
 | Undo機能のある操作を追加 | `ReportSkeleton` に操作処理と取り消しロジックを追記 | `IReportAction` 実装クラスを新規作成するだけ |
 
 ---
@@ -1540,7 +1553,7 @@ graph LR
 
 **原則1「変わるものをカプセル化せよ」の現れ**
 
-- 具体化された場所：各 `装飾連結構造` クラスと `IReportAction` の実装クラス
+- 具体化された場所：各装飾クラス（`GraphFeature` 等）と `IReportAction` の実装クラス
 - 解説：個別の装飾機能や操作履歴ロジックを、生成骨格とは別のクラスにカプセル化しました。新しい装飾が追加されても `ReportSkeleton` は無影響。
 
 **原則2「実装ではなくインターフェースに対してプログラムせよ」の現れ**
