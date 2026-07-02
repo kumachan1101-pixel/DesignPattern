@@ -289,9 +289,9 @@ int main() {
 
 | 注文内容 | getDescription() | getPrice() |
 |---|---|---|
-| コーヒー + 抹茶パウダー | `Coffee + Matcha` | 360円（300 + 60） |
-| コーヒー + チョコチップ | `Coffee + Choco` | 340円（300 + 40） |
-| コーヒー + ミルク + 抹茶パウダー + チョコチップ | `Coffee + Milk + Matcha + Choco` | 450円（300 + 50 + 60 + 40） |
+| コーヒー + 抹茶パウダー | `Coffee + Matcha` | 460円（400 + 60） |
+| コーヒー + チョコチップ | `Coffee + Choco` | 440円（400 + 40） |
+| コーヒー + ミルク + 抹茶パウダー + チョコチップ | `Coffee + Milk + Matcha + Choco` | 550円（400 + 50 + 60 + 40） |
 
 ベースドリンクの価格と既存トッピング（Milk・Syrup・Whip）の価格・名称は変更なしです。新しいトッピングを追加しても、既存の組み合わせ構造の動作は変わりません。
 
@@ -485,14 +485,14 @@ public:
 
 int main() {
     // 新しいコンストラクタ呼び出し（引数7個）
-    CustomDrink order("Coffee", 300,
+    CustomDrink order("Coffee", 400,
                       true, false, false, true, true);
     std::cout << order.getDescription() << std::endl;
     std::cout << order.getPrice() << " 円" << std::endl;
 
     // 既存の呼び出し（引数5個）はコンパイルエラーになるため
     // コメントアウトして検証
-    // CustomDrink old("Coffee", 300, true, false, false);
+    // CustomDrink old("Coffee", 400, true, false, false);
     //                                              ↑ 引数不足
     return 0;
 }
@@ -506,10 +506,10 @@ int main() {
 
 ```text
 Coffee + Milk + Matcha + Choco
-450 円
+550 円
 ```
 
-新しい注文（order）は正しく動き、期待される出力（コーヒー 300円 + Milk 50円 + Matcha 60円 + Choco 40円 = 450円）が得られます。しかし、コメントアウトされている `old` のように、既存の5つの引数で呼び出している箇所は、コンストラクタの引数の数が合わないためすべてコンパイルエラーになります。
+新しい注文（order）は正しく動き、期待される出力（コーヒー 400円 + Milk 50円 + Matcha 60円 + Choco 40円 = 550円）が得られます。しかし、コメントアウトされている `old` のように、既存の5つの引数で呼び出している箇所は、コンストラクタの引数の数が合わないためすべてコンパイルエラーになります。
 
 つまり、この新しいトッピングを追加したクラスを導入するには、既存の「コーヒーにミルクだけ」といった注文を生成しているモバイルアプリ側（呼び出し元）のコードをすべて探し出し、新しい引数（`false, false` など）を追加するように修正しなければならないのです。
 
@@ -555,7 +555,7 @@ graph LR
 ## 🟠 フェーズ4：原因分析 ―― なぜ辛いのかを構造で言語化する
 ### 4-1：痛みの根源を探る（観察と原因）
 
-フェーズ3で確認した「変更箇所が散らばっていて見落としやすい」「呼び出し側が壊れてしまう」という2つの痛みを発見しました。この痛みがなぜ発生するのか、コードを注意深く観察するとことで根源が見えてきます。
+フェーズ3で確認した「変更箇所が散らばっていて見落としやすい」「呼び出し側が壊れてしまう」という2つの痛みを発見しました。この痛みがなぜ発生するのか、コードを注意深く観察することで根源が見えてきます。
 
 第一に、新しいトッピングを追加するとき、なぜ毎回 `CustomDrink` を開かなければならないのでしょうか。それは、このクラス自身が「ミルクなら50円」「ホイップなら70円」といった具体的なトッピングの条件をすべて直接知ってしまっている（抱え込んでいる）からです。
 
@@ -667,7 +667,7 @@ graph LR
 フェーズ6では、第0章の段階的進化アプローチを標準フローとして使います。ただし、ここでのステップは一本道の作業手順ではなく、対策案を比較するための候補です。まず小さな整理で何が見えるかを確認し、次に責任の移動、契約、窓口、組み合わせ、生成責任の移動のうち、この章の課題に必要な案だけを比べます。章の題材に合わない案を省略したり、順序を入れ替えたり、接続点ごとに分岐させたりする場合は、論点外・効果不足・導入コスト過多・接続点が別であるなどの理由を本文中で説明します。
 フェーズ5で「変わるのはトッピングの種類・組み合わせであり、`getPrice()` / `getDescription()` という操作は安定している」ことが分かりました。ここでは、各トッピングをどのように同じ操作で組み合わせられる形へ変えるかを段階的に検討します。それぞれの段階（ステップ）でどこまで痛みが解消されるかを確認し、今回の要件において「どのステップで止めるべきか」を決断します。
 
-どのステップも、フェーズ1の動作基準テーブルの動作を実現します（ホイップ×2はステップ5以降で対応可能になります）。違うのは「変更が来たときにどこを触ることになるか」です。
+どのステップも、フェーズ1の動作例テーブルの動作を実現します（ホイップ×2はステップ5以降で対応可能になります）。違うのは「変更が来たときにどこを触ることになるか」です。
 
 ---
 
@@ -747,28 +747,28 @@ public:
 ```cpp
 class Coffee {
 public:
-    int getPrice() const { return 300; }
+    int getPrice() const { return 400; }
     string getDescription() const { return "Coffee"; }
 };
 
 // コーヒー + ミルク
 class CoffeeMilk : public Coffee {
 public:
-    int getPrice() const { return 350; }  // 300 + 50
+    int getPrice() const { return 450; }  // 400 + 50
     string getDescription() const { return "Coffee + Milk"; }
 };
 
 // コーヒー + ホイップ
 class CoffeeWhip : public Coffee {
 public:
-    int getPrice() const { return 370; }  // 300 + 70
+    int getPrice() const { return 470; }  // 400 + 70
     string getDescription() const { return "Coffee + Whip"; }
 };
 
 // コーヒー + ミルク + ホイップ
 class CoffeeMilkWhip : public Coffee {
 public:
-    int getPrice() const { return 420; }  // 300 + 50 + 70
+    int getPrice() const { return 520; }  // 400 + 50 + 70
     string getDescription() const { return "Coffee + Milk + Whip"; }
 };
 
@@ -850,11 +850,11 @@ public:
 
 // 使い方
 int main() {
-    CustomDrink order("Coffee", 300);
+    CustomDrink order("Coffee", 400);
     order.addMilk();
     order.addWhip();
     cout << order.getDescription() << endl; // Coffee + Milk + Whip
-    cout << order.getPrice() << "円" << endl; // 420円
+    cout << order.getPrice() << "円" << endl; // 520円
     return 0;
 }
 ```
@@ -932,13 +932,13 @@ public:
 
 // 使い方
 int main() {
-    CustomDrink order("Coffee", 300);
+    CustomDrink order("Coffee", 400);
     Milk  m;
     Whip  w;
     order.setMilk(&m);
     order.setWhip(&w);
     cout << order.getDescription() << endl; // Coffee + Milk + Whip
-    cout << order.getPrice() << "円" << endl; // 420円
+    cout << order.getPrice() << "円" << endl; // 520円
     return 0;
 }
 ```
@@ -974,7 +974,7 @@ public:
 // 基本ドリンク
 class Coffee : public IDrink {
 public:
-    int getPrice() const override { return 300; }
+    int getPrice() const override { return 400; }
     string getDescription() const override { return "Coffee"; }
 };
 
@@ -1027,7 +1027,7 @@ IDrink* double_whip = new Whip(new Whip(new Coffee()));
 
 `Matcha` クラスへ抹茶固有の価格と説明をまとめ、利用する組み立てコードで `Matcha` を追加すれば要件を満たせます。既存の `Coffee`、`Milk`、`ToppingWrapper` の実装へ抹茶の条件分岐を加える必要はありません。
 
-**この段階の評価：** 新しいトッピングの振る舞いは新しいラッパークラスへ置き、提供メニューや生成処理などの組み立て箇所へ登録します。「ホイップをダブルにする」は `new Whip(new Whip(new Coffee()))` のように同じ部品を重ねて表現できます。ステップ4の「スロットを追加するたびに `CustomDrink` の条件分岐を増やす」という問題が解消されました。
+**この段階の評価：** 新しいトッピングの振る舞いは新しいラッパー（別のドリンクを包む側の）クラスへ置き、提供メニューや生成処理などの組み立て箇所へ登録します。「ホイップをダブルにする」は `new Whip(new Whip(new Coffee()))` のように同じ部品を重ねて表現できます。ステップ4の「スロットを追加するたびに `CustomDrink` の条件分岐を増やす」という問題が解消されました。
 
 ---
 
@@ -1048,7 +1048,7 @@ IDrink* double_whip = new Whip(new Whip(new Coffee()));
 ---
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
-このように、基本機能（ドリンク）と追加機能（トッピング）を同じインターフェースで統一し、追加機能が内部に別の機能を包む形で機能を動的に重ね合わせるこの設計構造を **装飾連結構造（デコレーター）構造** と呼びます。
+このように、基本機能（ドリンク）と追加機能（トッピング）を同じインターフェースで統一し、追加機能が内部に別の機能を包む形で機能を動的に重ね合わせるこの設計構造を **装飾連結構造（デコレーター）** と呼びます。
 
 ### 7-1：解決後のコード（全体）
 
@@ -1132,7 +1132,7 @@ public:
 // 変わらない処理の骨格：基本のドリンク
 class Coffee : public IDrink {
 public:
-    int getPrice() const override { return 300; }
+    int getPrice() const override { return 400; }
     string getDescription() const override { return "Coffee"; }
 };
 ```
@@ -1316,11 +1316,11 @@ public:
 
     void testOrderCalculation() {
         IDrink* o1 = new Coffee();
-        assert(o1->getPrice() == 300);  // ← Coffee のみ: 300円
+        assert(o1->getPrice() == 400);  // ← Coffee のみ: 400円
         delete o1;
 
         IDrink* o6 = new Whip(new Syrup(new Milk(new Coffee())));
-        assert(o6->getPrice() == 450);  // ← 300 + 50 + 30 + 70 = 450円
+        assert(o6->getPrice() == 550);  // ← 400 + 50 + 30 + 70 = 550円
         delete o6;
     }
 };
@@ -1341,15 +1341,15 @@ int main() {
 実行結果：
 
 ```
-Coffee → 300円
-Coffee + Milk → 350円
-Coffee + Milk + Syrup → 380円
-Coffee + Milk + Whip → 420円
-Coffee + Whip + Whip → 440円
-Coffee + Milk + Syrup + Whip → 450円
-Coffee + Milk + Syrup + Whip + Matcha → 510円
-Coffee + Choco → 340円
-Coffee + Milk + Matcha + Choco → 450円
+Coffee → 400円
+Coffee + Milk → 450円
+Coffee + Milk + Syrup → 480円
+Coffee + Milk + Whip → 520円
+Coffee + Whip + Whip → 540円
+Coffee + Milk + Syrup + Whip → 550円
+Coffee + Milk + Syrup + Whip + Matcha → 610円
+Coffee + Choco → 440円
+Coffee + Milk + Matcha + Choco → 550円
 ```
 
 掲載した実行結果は、フェーズ1の現状動作例と1-5の変更後出力例に対応しています。`Syrup`・`Matcha`・`Choco`は追加クラスとして定義し、利用する組み合わせを組み立てコードへ追加しています。
@@ -1384,15 +1384,15 @@ sequenceDiagram
     activate Mi
     Mi->>C: baseDrink->getPrice()
     activate C
-    C-->>Mi: 300
+    C-->>Mi: 400
     deactivate C
-    Mi-->>Sy: 350（300+50）
+    Mi-->>Sy: 450（400+50）
     deactivate Mi
-    Sy-->>Wh: 380（350+30）
+    Sy-->>Wh: 480（450+30）
     deactivate Sy
-    Wh-->>Ma: 450（380+70）
+    Wh-->>Ma: 550（480+70）
     deactivate Wh
-    Ma-->>OA: 510（450+60）
+    Ma-->>OA: 610（550+60）
     deactivate Ma
 ```
 
@@ -1421,11 +1421,11 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
-| 新しいトッピング（抹茶パウダー等）を追加 | `CustomDrink` にフラグ追加・価格の if 文追加・説明の if 文追加（3箇所） | `MatchaPowder` クラスを新規作成するだけ |
+| 新しいトッピング（抹茶パウダー等）を追加 | `CustomDrink` にフラグ追加・価格の if 文追加・説明の if 文追加（3箇所） | `Matcha` クラスを新規作成し、組み立てへ登録 |
 | トッピングの価格を変更 | `CustomDrink` の if 文内を修正 | 対象のトッピングクラスのみ修正 |
 | 同じトッピングを2回追加する仕様 | `CustomDrink` のフラグ管理を大幅に改修 | 装飾連結構造 を2回重ねるだけ |
 
-変更が来ても、触るのは1クラスだけ——それがこの設計で手に入れたものだ。諦めたものは、小さなクラスが複数生まれるというわずかな複雑さだ。
+変更が来ても、修正の中心を1つのトッピングクラスと組み立てコードへ寄せられる——それがこの設計で手に入れたものだ。諦めたものは、小さなクラスが複数生まれるというわずかな複雑さだ。
 
 ---
 
