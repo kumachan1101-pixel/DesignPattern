@@ -181,8 +181,8 @@ classDiagram
 | パートナーID | 名称 | 有効 |
 |---|---|---|
 | PARTNER_A | 物流会社A | ✓ |
-| PARTNER_B | 決済会社B | ✓ |
-| PARTNER_C | 分析会社C | ✗（無効） |
+| PARTNER_B | 在庫会社B | ✓ |
+| PARTNER_Z | 分析会社Z | ✗（無効：過去に連携を停止） |
 
 無効なパートナーや未登録のIDを指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
 
@@ -206,8 +206,8 @@ private:
 public:
     PartnerDatabase() {
         records["PARTNER_A"] = {"物流会社A", "logistics-a.example",  true};
-        records["PARTNER_B"] = {"決済会社B", "payment-b.example",    true};
-        records["PARTNER_C"] = {"分析会社C", "analytics-c.example",  false}; // 無効
+        records["PARTNER_B"] = {"在庫会社B", "stock-b.example",      true};
+        records["PARTNER_Z"] = {"分析会社Z", "analytics-z.example",  false}; // 無効
     }
 
     bool exists(const string& id) const {
@@ -273,8 +273,8 @@ int main() {
     // 行4: B社向けデータ同期を手動で実行する
     executor.execute("PARTNER_B");
 
-    // 無効パートナーの実行（C社は isEnabled==false）
-    executor.execute("PARTNER_C");
+    // 無効パートナーの実行（Z社は isEnabled==false）
+    executor.execute("PARTNER_Z");
 
     // 未登録パートナーの実行
     executor.execute("PARTNER_X");
@@ -293,13 +293,13 @@ int main() {
 A社へ送信: data
 完了通知: 物流会社A 連携完了
 B社へ送信: data
-完了通知: 決済会社B 連携完了
-エラー: パートナー [分析会社C] は現在無効です。処理を中断します。
+完了通知: 在庫会社B 連携完了
+エラー: パートナー [分析会社Z] は現在無効です。処理を中断します。
 エラー: パートナーID [PARTNER_X] はデータベースに登録されていません。
 ```
 
 > [!NOTE]
-> 上記はフェーズ1の現状コードで確認できる代表的なケースです。行2（C社タイムアウト）・行3（D社追加後）・行5（API障害）・行6（通知先追加後）は、リトライ・新規クライアント・複数通知先といった機能がフェーズ1の現状コードに未実装のため、フェーズ7の最終実装で対応されます。
+> 上記はフェーズ1の現状コードで確認できる代表的なケースです。行3（D社追加後）・行6（通知先追加後）は、新規クライアント・複数通知先の機能がフェーズ1の現状コードに未実装のため、フェーズ7の最終実装で対応します。行2（C社タイムアウト）・行5（API障害）は、リトライ・障害処理の実装が必要なため、本章の掲載コードでは扱わない範囲として残します（実運用では通信失敗時のリトライとログ記録が必要です）。
 
 このコードから、`BatchExecutor` が各連携先の生成と送信、さらにはその後の通知処理までを一手に引き受けていることが分かります。
 
@@ -426,7 +426,7 @@ B社へ送信: data
 
 フェーズ2で確定した変更を、既存の `BatchExecutor` にそのまま組み込もうとします。「C社連携の追加」と「Slack通知の追加」——どちらもシンプルに聞こえますが、実際にコードを変えようとすると何が起きるかを確認します。
 
-変更を試みると、次のようなコードになります。
+変更を試みると、次のようなコードになります。なお、この変更試行コードでは `PartnerDatabase` による存在・有効チェックを省略し、パートナーIDを "A"・"B"・"C" と略記しています。どちらも今回の変更の論点ではないためです。
 
 ```cpp
 // C社連携を追加しようとすると...
@@ -1008,8 +1008,10 @@ private:
 public:
     PartnerDatabase() {
         records["PARTNER_A"] = {"物流会社A", "logistics-a.example",  true};
-        records["PARTNER_B"] = {"決済会社B", "payment-b.example",    true};
-        records["PARTNER_C"] = {"分析会社C", "analytics-c.example",  false}; // 無効
+        records["PARTNER_B"] = {"在庫会社B", "stock-b.example",      true};
+        records["PARTNER_C"] = {"配送会社C", "delivery-c.example",   true};  // 今回追加
+        records["PARTNER_D"] = {"配送会社D", "delivery-d.example",   true};  // D社追加後
+        records["PARTNER_Z"] = {"分析会社Z", "analytics-z.example",  false}; // 無効
     }
 
     bool exists(const string& id) const {
@@ -1233,6 +1235,7 @@ public:
         LogNotifier log;
         SystemAClientCreator creatorA;
         SystemBClientCreator creatorB;
+        SystemCClientCreator creatorC;
         SystemDClientCreator creatorD;
 
         cout << "--- 行1: A社月次バッチ ---" << endl;
@@ -1242,19 +1245,24 @@ public:
             executorA.addNotifier(&slack);
             executorA.execute(&creatorA, cfgA.name + " 連携完了");
             batchLog.add("PARTNER_A", cfgA.name, "成功");
-        } else {
-            batchLog.add("PARTNER_A", "物流会社A", "失敗");
         }
 
-        cout << "--- 行3: D社日次バッチ（新規連携先） ---" << endl;
-        // D社はPartnerDatabaseに未登録のためエラーになる例として示す
+        cout << "--- 変更要求: C社月次バッチ（今回追加） ---" << endl;
+        if (validate("PARTNER_C")) {
+            PartnerConfig cfgC = db.get("PARTNER_C");
+            BatchExecutor executorC;
+            executorC.addNotifier(&slack);
+            executorC.execute(&creatorC, cfgC.name + " 連携完了");
+            batchLog.add("PARTNER_C", cfgC.name, "成功");
+        }
+
+        cout << "--- 行3: D社日次バッチ（新規D社追加後） ---" << endl;
         if (validate("PARTNER_D")) {
+            PartnerConfig cfgD = db.get("PARTNER_D");
             BatchExecutor executorD;
             executorD.addNotifier(&slack);
-            executorD.execute(&creatorD, "D社連携完了");
-            batchLog.add("PARTNER_D", "D社", "成功");
-        } else {
-            batchLog.add("PARTNER_D", "D社", "失敗");
+            executorD.execute(&creatorD, cfgD.name + " 連携完了");
+            batchLog.add("PARTNER_D", cfgD.name, "成功");
         }
 
         cout << "--- 行4: B社手動トリガー ---" << endl;
@@ -1265,8 +1273,6 @@ public:
             manual.addNotifier(&slack);
             manual.triggerSync("B");
             batchLog.add("PARTNER_B", cfgB.name, "成功");
-        } else {
-            batchLog.add("PARTNER_B", "決済会社B", "失敗");
         }
 
         cout << "--- 行6: B社バッチ（Slack＋ログ基盤） ---" << endl;
@@ -1277,14 +1283,12 @@ public:
             executorB.addNotifier(&log);
             executorB.execute(&creatorB, cfgB.name + " 連携完了");
             batchLog.add("PARTNER_B", cfgB.name, "成功");
-        } else {
-            batchLog.add("PARTNER_B", "決済会社B", "失敗");
         }
 
-        cout << "--- 無効パートナーC社の実行試行 ---" << endl;
-        if (!validate("PARTNER_C")) {
-            PartnerConfig cfgC = db.get("PARTNER_C");
-            batchLog.add("PARTNER_C", cfgC.name, "スキップ（無効）");
+        cout << "--- 無効パートナーZ社の実行試行 ---" << endl;
+        if (!validate("PARTNER_Z")) {
+            PartnerConfig cfgZ = db.get("PARTNER_Z");
+            batchLog.add("PARTNER_Z", cfgZ.name, "スキップ（無効）");
         }
 
         cout << "\n--- バッチ実行ログ ---\n";
@@ -1309,21 +1313,33 @@ int main() {
 --- 行1: A社月次バッチ ---
 A社へ転送: data
 Slack通知: 物流会社A 連携完了
---- 行3: D社日次バッチ（新規連携先） ---
-エラー: パートナーID [PARTNER_D] はデータベースに登録されていません。
+--- 変更要求: C社月次バッチ（今回追加） ---
+C社へ転送: data
+Slack通知: 配送会社C 連携完了
+--- 行3: D社日次バッチ（新規D社追加後） ---
+D社へ転送: data
+Slack通知: 配送会社D 連携完了
 --- 行4: B社手動トリガー ---
 [ManualTrigger] B への手動同期を実行。
 B社へ転送: manualData
 Slack通知: B社手動連携完了
 --- 行6: B社バッチ（Slack＋ログ基盤） ---
 B社へ転送: data
-Slack通知: 決済会社B 連携完了
-ログ基盤へ記録: 決済会社B 連携完了
---- 無効パートナーC社の実行試行 ---
-エラー: パートナー [分析会社C] は現在無効です。処理を中断します。
+Slack通知: 在庫会社B 連携完了
+ログ基盤へ記録: 在庫会社B 連携完了
+--- 無効パートナーZ社の実行試行 ---
+エラー: パートナー [分析会社Z] は現在無効です。処理を中断します。
+
+--- バッチ実行ログ ---
+[PARTNER_A] 物流会社A -> 成功
+[PARTNER_C] 配送会社C -> 成功
+[PARTNER_D] 配送会社D -> 成功
+[PARTNER_B] 在庫会社B -> 成功
+[PARTNER_B] 在庫会社B -> 成功
+[PARTNER_Z] 分析会社Z -> スキップ（無効）
 ```
 
-基本シナリオの行1・3・4・6と一致しています。`BatchExecutor` と `ManualTriggerController` はどちらも `INotifier` を登録できるため、実行経路が異なっても同じ通知契約を利用できます。行2（タイムアウト・リトライ）と行5（API障害）は、ここでは外部APIの失敗実装を省略しているため動作仕様として残します。
+基本シナリオの行1・3・4・6と、変更要求で追加したC社連携のケースに一致しています。`BatchExecutor` と `ManualTriggerController` はどちらも `INotifier` を登録できるため、実行経路が異なっても同じ通知契約を利用できます。行2（タイムアウト・リトライ）と行5（API障害）は、ここでは外部APIの失敗実装を省略しているため動作仕様として残します。
 
 この実装により、`BatchExecutor` は通信の詳細や通知の仕組みを知ることなく、フローの統括のみに専念できるようになりました。
 
@@ -1378,7 +1394,7 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
-| 新しい連携先（システムD等）を追加 | `BatchExecutor` に新しい接続ロジックと通知処理を追記 | `SystemDClient` と `SystemDCreator` を新規作成するだけ |
+| 新しい連携先（システムD等）を追加 | `BatchExecutor` に新しい接続ロジックと通知処理を追記 | `SystemDClient` と `SystemDClientCreator` を新規作成し、組み立てへ登録 |
 | 完了通知先（Teams等）を追加 | `BatchExecutor` に通知ロジックを直接追記 | `TeamsNotifier` 実装クラスを新規作成し登録するだけ |
 | 外部APIの接続手順が変わる | `BatchExecutor` の接続ロジックを修正 | 対象の `IExternalClient` 実装クラスのみ修正 |
 
