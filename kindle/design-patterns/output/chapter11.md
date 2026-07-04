@@ -35,9 +35,9 @@
 | レポート種別 | 週次・月次・部門別 | SALES_MONTHLY: 月次売上レポート | 読み込む売上CSVと本文の見せ方を決める |
 | 出力形式 | PDF・Excel | pdf、excel | 配布用か分析用かに応じて出力形式を決める |
 | 装飾オプション | グラフ・ロゴ・透かし | グラフあり、ロゴなし | 生成されたレポートへ追加する装飾を決める |
-| 本文生成 | ヘッダー、売上集計の本文、フッター | 月次売上の集計本文 | 掲載コードでは `cout` で生成手順を代替する |
+| 本文生成 | ヘッダー、売上集計の本文、フッター | 月次売上の集計本文 | 掲載コードでは描画APIスタブを呼び、その先を `cout` で代替する |
 
-利用者が「月次レポートをPDFで、グラフ付き」と指定した場合、システムは月次用の売上CSVを読み込み、月次売上の集計本文を作り、その本文にグラフを加え、最後にPDFとして出力します。CSVをどのストレージから取得するか、グラフ描画ライブラリでどのように画像を生成するか、実際のPDF/Excelファイルをどう書き出すかは、この章の設計論点ではありません。掲載コードでは、それらの外部処理を `cout` の出力に置き換え、生成手順と責任の集まり方だけを見ます。
+利用者が「月次レポートをPDFで、グラフ付き」と指定した場合、システムは月次用の売上CSVを読み込み、月次売上の集計本文を作り、その本文にグラフを加え、最後にPDFとして出力します。CSVをどのストレージから取得するか、グラフ描画ライブラリでどのように画像を生成するか、実際のPDF/Excelファイルをどう書き出すかは、この章の設計論点ではありません。掲載コードでは、外部処理の入口を `ReportRenderingApi` などの境界として残し、その先の処理だけを `cout` スタブに置き換え、生成手順と責任の集まり方を見ます。
 
 上の文章と表で仕様を一通り確認したので、最後に入力・判定・加工・出力の流れとして整理します。
 
@@ -87,7 +87,7 @@ flowchart LR
 
 「グラフ追加」「ロゴ埋め込み」「透かし追加」という3種類の装飾が用意されています。グラフは集計済みの売上データを図表として本文へ挿入する処理、ロゴはヘッダーへ画像を配置する処理、透かしはページ全体へ「社外秘」などの表示を重ねる処理です。
 
-実際のシステムでは、これらの装飾はPDF/Excel生成ライブラリや画像処理ライブラリを呼び出して行います。この章の掲載コードでは、装飾そのものの描画ロジックは論点から外し、`cout` の出力で「ここでグラフを追加する」「ここでロゴを追加する」という処理位置だけを表します。
+実際のシステムでは、これらの装飾はPDF/Excel生成ライブラリや画像処理ライブラリを呼び出して行います。この章の掲載コードでは、`ReportRenderingApi` という描画API境界を呼び、その先の実装だけを `cout` の出力で代替します。見たいのは「グラフを描くアルゴリズム」ではなく、「装飾処理を組み合わせ可能な部品として接続する境界」です。
 
 | 機能 | 内容 | 要件定義の担当 |
 |---|---|---|
@@ -273,19 +273,40 @@ public:
 
 次に、レポートの全生成処理を担うクラスを見ます。
 
-実際のシステムでは、CSVから集計した値を中間のレポート文書データへ変換し、そのデータをPDFライブラリまたはExcelライブラリへ渡してファイルを書き出します。グラフも、集計済みデータを元に描画用データを作り、ライブラリで本文へ挿入します。この章ではファイル生成ライブラリそのものは扱わないため、ヘッダー生成、グラフ追加、ロゴ追加、フッター生成、ファイル出力に相当する箇所を `cout` で表します。
+実際のシステムでは、CSVから集計した値を中間のレポート文書データへ変換し、そのデータをPDFライブラリまたはExcelライブラリへ渡してファイルを書き出します。グラフも、集計済みデータを元に描画用データを作り、ライブラリで本文へ挿入します。この章ではファイル生成ライブラリそのものは扱わないため、`ReportRenderingApi` という境界を呼び、その先のライブラリ処理だけを `cout` で代替します。
 
 ```cpp
+// 実システムではPDF/Excel/画像生成ライブラリを呼ぶ境界。
+// 掲載コードでは、その先のライブラリ処理だけをcoutで代替する。
+class ReportRenderingApi {
+public:
+    void addHeader(const string& format) {
+        cout << "[ReportRenderingApi] " << format
+             << "形式でヘッダー生成APIを呼び出し。" << endl;
+    }
+    void addGraph() {
+        cout << "[ReportRenderingApi] グラフ描画APIを呼び出し。" << endl;
+    }
+    void addLogo() {
+        cout << "[ReportRenderingApi] ロゴ配置APIを呼び出し。" << endl;
+    }
+    void addFooter(const string& format) {
+        cout << "[ReportRenderingApi] " << format
+             << "形式でフッター生成APIを呼び出し。" << endl;
+    }
+};
+
 // レポート生成統括
 class ReportSkeleton {
     DataReader reader;
+    ReportRenderingApi renderer;
 public:
     void generate(string format, bool addGraph, bool addLogo) {
         reader.readCSV();
-        cout << format << "形式でレポートのヘッダーを生成。" << endl;
-        if (addGraph) cout << "グラフを追加。" << endl;
-        if (addLogo) cout << "ロゴを追加。" << endl;
-        cout << format << "形式でレポートのフッターを生成。" << endl;
+        renderer.addHeader(format);
+        if (addGraph) renderer.addGraph();
+        if (addLogo) renderer.addLogo();
+        renderer.addFooter(format);
     }
 };
 ```
@@ -334,9 +355,9 @@ int main() {
 ```
 テンプレート: 月次売上レポート (指定形式: pdf)
 CSVデータ読み込み完了。
-pdf形式でレポートのヘッダーを生成。
-グラフを追加。
-pdf形式でレポートのフッターを生成。
+[ReportRenderingApi] pdf形式でヘッダー生成APIを呼び出し。
+[ReportRenderingApi] グラフ描画APIを呼び出し。
+[ReportRenderingApi] pdf形式でフッター生成APIを呼び出し。
 ```
 
 動作例テーブルの行1（月次・PDF出力）と整合しています。次のフェーズで変更が来たときに何が起きるかを確認します。
@@ -516,18 +537,17 @@ public:
 class ReportSkeleton {
     DataReader reader;
     ReportHistoryManager history; // ← 追加
+    ReportRenderingApi renderer;
 public:
     void generate(std::string format,
                   bool addGraph, bool addLogo) {
         reader.readCSV();
-        std::cout << format << "形式でヘッダーを生成"
-                  << std::endl;
+        renderer.addHeader(format);
         if (addGraph)
-            std::cout << "グラフを追加" << std::endl;
+            renderer.addGraph();
         if (addLogo)
-            std::cout << "ロゴを追加" << std::endl;
-        std::cout << format << "形式でフッターを生成"
-                  << std::endl;
+            renderer.addLogo();
+        renderer.addFooter(format);
         // 履歴記録がここに混在してしまっている
         std::string rec = format;
         if (addGraph) rec += "+Graph";
@@ -553,9 +573,9 @@ int main() {
 
 ```
 CSVを読み込み
-PDF形式でヘッダーを生成
-グラフを追加
-PDF形式でフッターを生成
+[ReportRenderingApi] PDF形式でヘッダー生成APIを呼び出し。
+[ReportRenderingApi] グラフ描画APIを呼び出し。
+[ReportRenderingApi] PDF形式でフッター生成APIを呼び出し。
 [履歴記録] PDF+Graph
 ---
 再実行: PDF+Graph
@@ -630,17 +650,17 @@ graph LR
 
 **【変わる部分（変わり続けるif文と装飾フラグ）】**
 ```cpp
-        if (addGraph) cout << "グラフを追加。" << endl;
-        if (addLogo)  cout << "ロゴを追加。" << endl;
+        if (addGraph) renderer.addGraph();
+        if (addLogo)  renderer.addLogo();
         // ← 装飾が増えるたびにここにコードが追加される
 ```
 
 **【変わってほしくない部分（守りたい骨格）】**
 ```cpp
         reader.readCSV();                              // 常に最初
-        cout << format << "形式でヘッダーを生成。" << endl;
+        renderer.addHeader(format);
         // ... (ここに変わる部分が入る) ...
-        cout << format << "形式でフッターを生成。" << endl; // 常に最後
+        renderer.addFooter(format); // 常に最後
 ```
 
 ### 4-3：接続点に漏れている3つの知識を確認する
@@ -654,15 +674,16 @@ graph LR
 **【骨格へ装飾と履歴の知識が漏れているコード】**
 ```cpp
 class ReportSkeleton {
+    ReportRenderingApi renderer;
 public:
     void generate(string format, bool addGraph, bool addLogo) {
         // 骨格・装飾・履歴がすべて同じメソッドに混在
         reader.readCSV();
-        cout << format << "形式でヘッダーを生成。" << endl;
+        renderer.addHeader(format);
         // ← 具体的な機能名を直接知っている
-        if (addGraph) cout << "グラフを追加。" << endl;
-        if (addLogo)  cout << "ロゴを追加。" << endl;
-        cout << format << "形式でフッターを生成。" << endl;
+        if (addGraph) renderer.addGraph();
+        if (addLogo)  renderer.addLogo();
+        renderer.addFooter(format);
     }
 };
 ```
@@ -697,22 +718,23 @@ public:
 
 ```cpp
 class ReportSkeleton {
+    ReportRenderingApi renderer;
     DataReader reader;
 public:
     void generate(string format, bool addGraph, bool addLogo) {
         reader.readCSV();
-        cout << format << "形式でヘッダーを生成。" << endl;
+        renderer.addHeader(format);
 
         // ↓↓↓ 分離ターゲット1：レポート形式ごとに変化する本文生成の塊 ↓↓↓
         // （現在は直接書かれていないが、週次や月次の違いを吸収する部分）
         // ↑↑↑ ここまで ↑↑↑
 
         // ↓↓↓ 分離ターゲット2：変わり続ける装飾機能の塊 ↓↓↓
-        if (addGraph) cout << "グラフを追加。" << endl;
-        if (addLogo)  cout << "ロゴを追加。" << endl;
+        if (addGraph) renderer.addGraph();
+        if (addLogo)  renderer.addLogo();
         // ↑↑↑ ここまで ↑↑↑
 
-        cout << format << "形式でフッターを生成。" << endl;
+        renderer.addFooter(format);
         // ↓↓↓ 分離ターゲット3：混入している操作履歴の管理ロジック ↓↓↓
         // （現時点ではないが、追加しようとするとここに入り込んでくる）
         // ↑↑↑ ここまで ↑↑↑
@@ -767,6 +789,7 @@ public:
 // ステップ1：各処理を独立したプライベートメソッドとして切り出す
 class ReportSkeleton {
     DataReader reader;
+    ReportRenderingApi renderer;
 public:
     void generate(bool addGraph, bool addLogo) {
         reader.readCSV();
@@ -780,8 +803,8 @@ public:
         cout << "レポートのフッターを生成。" << endl;
     }
 private:
-    void applyGraph() { cout << "グラフを追加。" << endl; }
-    void applyLogo()  { cout << "ロゴを追加。" << endl; }
+    void applyGraph() { renderer.addGraph(); }
+    void applyLogo()  { renderer.addLogo(); }
 };
 ```
 
@@ -891,6 +914,18 @@ public:
     }
 };
 
+// ReportRenderingApi: 実システムではPDF/Excel/画像生成ライブラリを呼ぶ境界。
+// 掲載コードでは、その先のライブラリ処理だけをcoutで代替する。
+class ReportRenderingApi {
+public:
+    void addGraph() {
+        cout << "[ReportRenderingApi] グラフ描画APIを呼び出し。" << endl;
+    }
+    void addWatermark() {
+        cout << "[ReportRenderingApi] 透かし描画APIを呼び出し。" << endl;
+    }
+};
+
 // GraphFeature: グラフ追加の装飾
 class GraphFeature : public ReportFeature {
 public:
@@ -898,7 +933,8 @@ public:
         : ReportFeature(g) {}
     void renderBody() override {
         wrapped->renderBody();         // ← 内側の処理を先に呼ぶ
-        cout << "グラフを追加。" << endl; // ← その後に自分の装飾を追加
+        ReportRenderingApi api;
+        api.addGraph(); // ← 実システムでは描画ライブラリ/APIを呼ぶ
     }
 };
 
@@ -909,12 +945,13 @@ public:
         : ReportFeature(g) {}
     void renderBody() override {
         wrapped->renderBody();
-        cout << "透かしを追加。" << endl;
+        ReportRenderingApi api;
+        api.addWatermark();
     }
 };
 ```
 
-`new WatermarkFeature(new GraphFeature(new MonthlyReport()))` のように入れ子にすることで、装飾を自由に重ねがけできます。既存機能の組み合わせを増やすだけなら、組み合わせ専用のクラスを作る必要はありません。
+`new WatermarkFeature(new GraphFeature(new MonthlyReport()))` のように入れ子にすることで、装飾を自由に重ねがけできます。既存機能の組み合わせを増やすだけなら、組み合わせ専用のクラスを作る必要はありません。`GraphFeature` や `WatermarkFeature` は装飾の順序と接続を担い、実際の描画は `ReportRenderingApi` に渡します。この章ではAPIの先を `cout` で代替しています。
 
 **この段階の評価：**
 骨格の固定（骨格固定構造）と動的な装飾の組み合わせ（装飾連結構造）が両立しました。しかし、「レポートを生成した」という操作を後から取り消せる形で記録する仕組みがまだありません。
@@ -1218,6 +1255,18 @@ public:
 ```
 
 ```cpp
+// ReportRenderingApi: 実システムではPDF/Excel/画像生成ライブラリを呼ぶ境界。
+// 掲載コードでは、その先のライブラリ処理だけをcoutで代替する。
+class ReportRenderingApi {
+public:
+    void addGraph() {
+        cout << "[ReportRenderingApi] グラフ描画APIを呼び出し。" << endl;
+    }
+    void addWatermark() {
+        cout << "[ReportRenderingApi] 透かし描画APIを呼び出し。" << endl;
+    }
+};
+
 // GraphFeature: グラフ追加の装飾
 class GraphFeature : public ReportFeature {
 public:
@@ -1225,7 +1274,8 @@ public:
         : ReportFeature(g) {}
     void renderBody() override {
         wrapped->renderBody();         // ← 内側の処理を先に呼ぶ
-        cout << "グラフを追加。" << endl; // ← その後に自分の装飾を追加
+        ReportRenderingApi api;
+        api.addGraph(); // ← 実システムでは描画ライブラリ/APIを呼ぶ
     }
 };
 ```
@@ -1238,12 +1288,13 @@ public:
         : ReportFeature(g) {}
     void renderBody() override {
         wrapped->renderBody();
-        cout << "透かしを追加。" << endl;
+        ReportRenderingApi api;
+        api.addWatermark();
     }
 };
 ```
 
-`GraphFeature` と `WatermarkFeature` は、どちらも `wrapped->renderBody()` を呼んだ後に自分の処理を追加します。入れ子にすることで、装飾を自由に重ねがけできます。各装飾クラスはデストラクタにより内側の要素を再帰的に解放するため、最も外側の要素が破棄されるとチェーン全体も自動的に破棄されます。
+`GraphFeature` と `WatermarkFeature` は、どちらも `wrapped->renderBody()` を呼んだ後に自分の処理を追加します。装飾の中では `ReportRenderingApi` を呼びます。実運用ではここがPDF/Excel生成ライブラリや画像生成APIへの呼び出しになり、掲載コードではその先だけを `cout` で代替しています。入れ子にすることで、装飾を自由に重ねがけできます。各装飾クラスはデストラクタにより内側の要素を再帰的に解放するため、最も外側の要素が破棄されるとチェーン全体も自動的に破棄されます。
 
 **4. コマンドクラス（操作記録構造の実装）**
 
@@ -1495,8 +1546,8 @@ CSV読み込み
 テンプレート: 月次売上レポート
 CSV読み込み
 本文を生成。
-グラフを追加。
-透かしを追加。
+[ReportRenderingApi] グラフ描画APIを呼び出し。
+[ReportRenderingApi] 透かし描画APIを呼び出し。
 フッター生成
 [コマンド] PDF形式で decorated.pdf を生成して履歴に記録。
 --- 行4: 月次レポート生成後にキャンセル ---
@@ -1525,7 +1576,7 @@ CSV読み込み
 テンプレート: 月次売上レポート
 CSV読み込み
 月次集計を本文として生成。
-グラフを追加。
+[ReportRenderingApi] グラフ描画APIを呼び出し。
 フッター生成
 [コマンド] PDF形式で graph_monthly.pdf を生成して履歴に記録。
 [コマンド] graph_monthly.pdf を削除してアンドゥ完了。
@@ -1552,6 +1603,7 @@ sequenceDiagram
     participant BA as BatchApplication
     participant GRA as GenerateReportAction
     participant WF as WatermarkFeature
+    participant RRA as ReportRenderingApi
     participant SR as StandardReport
     Note over BA: 具体型を組み立てる主な場所
     BA->>SR: new StandardReport
@@ -1561,7 +1613,8 @@ sequenceDiagram
     GRA->>WF: generator->generate()
     WF->>SR: wrapped->renderBody()
     SR-->>WF: 本文を生成。
-    WF-->>GRA: 透かしを追加。
+    WF->>RRA: addWatermark()
+    RRA-->>WF: 透かし描画APIの呼び出し完了
     GRA-->>BA: 出力して履歴に記録。
     BA->>GRA: history.back()->undo()
     GRA-->>BA: ファイルを削除してアンドゥ完了。
