@@ -1000,9 +1000,35 @@ int main() {
 
 **ステップ4の別案：トッピングをリストで保持する**
 
-固定スロットが問題なら、`CustomDrink` にトッピングのリスト（配列）を持たせ、価格も説明もリストをループで合成すればよい――これは多くの人が最初に思いつく、とても自然な案です。ステップ4の `ITopping` 契約はそのまま使い、`CustomDrink` の持ち方だけをスロットからリストへ変えます。
+固定スロットが問題なら、`CustomDrink` にトッピングのリスト（配列）を持たせ、価格も説明もリストをループで合成すればよい――これは多くの人が最初に思いつく、とても自然な案です。ステップ4の `ITopping` 契約と各トッピングクラスはそのまま使い、`CustomDrink` の持ち方だけをスロットからリストへ変えます。この案の全体構造（契約→トッピング→リストを持つ本体→組み立てと出力）を、1つのまとまったコードで確認します。
 
 ```cpp
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+// 契約：ステップ4と同じ ITopping をそのまま使う
+class ITopping {
+public:
+    virtual ~ITopping() = default;
+    virtual int getPrice() const = 0;
+    virtual string getName() const = 0;
+};
+
+// 具体トッピング：ステップ4と同じ（価格・名前の知識は各クラスが持つ）
+class Milk : public ITopping {
+public:
+    int getPrice() const override { return 50; }
+    string getName() const override { return " + Milk"; }
+};
+class Whip : public ITopping {
+public:
+    int getPrice() const override { return 70; }
+    string getName() const override { return " + Whip"; }
+};
+
+// 変えるのはここだけ：固定スロットではなくトッピングのリストを持つ
 class CustomDrink {
     string baseName;
     int basePrice;
@@ -1022,6 +1048,25 @@ public:
         return desc;
     }
 };
+
+// 組み立てと実行：Whipを2回積んでダブルにできる
+int main() {
+    CustomDrink order("Coffee", 400);
+    Milk m; Whip w1; Whip w2;
+    order.add(&m);
+    order.add(&w1);
+    order.add(&w2); // ← ホイップ×2も「積むだけ」
+    cout << order.getDescription() << endl;
+    cout << order.getPrice() << "円" << endl;
+    return 0;
+}
+```
+
+実行結果：
+
+```
+Coffee + Milk + Whip + Whip
+590円
 ```
 
 **この案の評価：**

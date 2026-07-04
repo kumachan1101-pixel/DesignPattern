@@ -774,7 +774,14 @@ public:
 
 「今この状態でこの操作が来たら次はこの状態」という遷移を表に持ち、本体は表を引くだけにすればよい、という発想です。
 
+この案の全体構造（状態と操作の定義→遷移表を持つ本体→組み立てと出力）を、1つのまとまったコードで確認します。
+
 ```cpp
+#include <iostream>
+#include <map>
+#include <utility>
+using namespace std;
+
 enum class Phase { Submitted, Approved, Completed, Emergency };
 enum class Action { Approve, Reject, Escalate };
 
@@ -793,6 +800,23 @@ public:
         cout << "状態を更新しました\n";
     }
 };
+
+// 組み立てと実行：操作を順に渡すだけ
+int main() {
+    WorkflowManager wm;
+    wm.handle(Action::Approve); // Submitted → Approved
+    wm.handle(Action::Approve); // Approved → Completed
+    wm.handle(Action::Reject);  // Completedからは遷移が無い
+    return 0;
+}
+```
+
+実行結果：
+
+```
+状態を更新しました
+状態を更新しました
+その操作はできません
 ```
 
 **この案の評価と残る課題：**

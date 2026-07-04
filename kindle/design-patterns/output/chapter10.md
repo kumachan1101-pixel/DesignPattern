@@ -716,9 +716,33 @@ void execute(string targetId) {
 
 **読者が思いつく案：連携先ID→生成関数のマップに登録する**
 
-`if (targetId == "A") ... else if ...` の連なりを、IDと生成関数（ラムダ）のマップに置き換え、連携先の追加は登録1行で済ませる、という発想です。
+`if (targetId == "A") ... else if ...` の連なりを、IDと生成関数（ラムダ）のマップに置き換え、連携先の追加は登録1行で済ませる、という発想です。この案の全体構造（連携先の契約→具体クライアント→登録マップ→組み立てと出力）を、1つのまとまったコードで確認します。
 
 ```cpp
+#include <iostream>
+#include <string>
+#include <map>
+#include <functional>
+using namespace std;
+
+// 連携先クライアントの契約
+class IClient {
+public:
+    virtual ~IClient() = default;
+    virtual void send(string data) = 0;
+};
+
+// 具体クライアント（連携先ごと）
+class SystemAClient : public IClient {
+public:
+    void send(string data) override { cout << "A社へ送信: " << data << endl; }
+};
+class SystemBClient : public IClient {
+public:
+    void send(string data) override { cout << "B社へ送信: " << data << endl; }
+};
+
+// 生成の分岐を「ID→生成関数」のマップに置き換えたレジストリ
 class ClientRegistry {
     map<string, function<IClient*()>> creators;
 public:
@@ -730,7 +754,26 @@ public:
         return it == creators.end() ? nullptr : it->second();
     }
 };
-// 組み立て側：reg.registerClient("A", []{ return new SystemAClient(); });
+
+// 組み立てと実行：連携先を登録し、IDで生成して送信する
+int main() {
+    ClientRegistry registry;
+    registry.registerClient("A", [] { return new SystemAClient(); });
+    registry.registerClient("B", [] { return new SystemBClient(); }); // 追加は登録1行
+
+    IClient* client = registry.create("A");
+    if (client) {
+        client->send("data");
+        delete client;
+    }
+    return 0;
+}
+```
+
+実行結果：
+
+```
+A社へ送信: data
 ```
 
 **この案の評価と残る課題：**

@@ -633,9 +633,14 @@ graph LR
 
 **読者が思いつく案：優先度ルールをテーブル（マップ）で持つ**
 
-優先度が「ユーザー種別→優先度」の対応だけなら、次のように表で持てば、コードではなくデータの改定で済みそうです。
+優先度が「ユーザー種別→優先度」の対応だけなら、次のように表で持てば、コードではなくデータの改定で済みそうです。この案の全体構造（優先度表を持つ本体→組み立てと出力）を、1つのまとまったコードで確認します。
 
 ```cpp
+#include <iostream>
+#include <string>
+#include <map>
+using namespace std;
+
 class TicketManager {
     // ユーザー種別 → 優先度。ルール改定はこの表を直すだけ
     map<string, string> priorityTable = {
@@ -648,6 +653,21 @@ public:
         return it == priorityTable.end() ? "Normal" : it->second;
     }
 };
+
+// 組み立てと実行：種別を渡して優先度を引くだけ
+int main() {
+    TicketManager manager;
+    cout << "premium: " << manager.priorityOf("premium") << endl;
+    cout << "normal:  " << manager.priorityOf("normal")  << endl;
+    return 0;
+}
+```
+
+実行結果：
+
+```
+premium: High
+normal:  Normal
 ```
 
 **この案の評価と残る課題：**

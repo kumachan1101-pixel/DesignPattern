@@ -864,12 +864,16 @@ private:
 
 **案A：1つの `import()` 関数に形式の種別を渡し、内部分岐で差分を吸収する**
 
-クラスを分けず、共通の骨格を1つの関数に書き、変わるパース部分だけを種別（引数）で切り替えればよい、という発想です。
+クラスを分けず、共通の骨格を1つの関数に書き、変わるパース部分だけを種別（引数）で切り替えればよい、という発想です。この案の全体構造（骨格と分岐を持つ1クラス→組み立てと出力）を、1つのまとまったコードで確認します。
 
 ```cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
 class DataImporter {
 public:
-    void import(const std::string& type) {
+    void import(const string& type) {
         openFile();
         // 変わるのはパース部分。種別で分岐する
         if (type == "store") {
@@ -883,17 +887,44 @@ public:
         closeFile();
     }
 private:
-    void openFile()  { /* 共通手順 */ }
-    void saveToDB()  { /* 共通手順 */ }
-    void closeFile() { /* 共通手順 */ }
-    void skipHeader()      { /* 直営店固有 */ }
-    void splitByComma()    { /* 直営店固有 */ }
-    void splitByTab()      { /* FC店固有 */ }
-    void skipInvalidRows() { /* FC店固有 */ }
+    void openFile()  { cout << "ファイルを開く" << endl; }
+    void saveToDB()  { cout << "DBへ保存" << endl; }
+    void closeFile() { cout << "ファイルを閉じる" << endl; }
+    void skipHeader()      { cout << "  ヘッダーをスキップ（直営店）" << endl; }
+    void splitByComma()    { cout << "  カンマで分割（直営店）" << endl; }
+    void splitByTab()      { cout << "  タブで分割（FC店）" << endl; }
+    void skipInvalidRows() { cout << "  不正行をスキップ（FC店）" << endl; }
 };
+
+// 組み立てと実行：種別を渡すだけ
+int main() {
+    DataImporter importer;
+    cout << "--- 直営店 ---" << endl;
+    importer.import("store");
+    cout << "--- FC店 ---" << endl;
+    importer.import("fc");
+    return 0;
+}
 ```
 
 - 骨格（`openFile` → パース → `saveToDB` → `closeFile`）が `import()` の1か所へ集まりました。ステップ1で各クラスへ散らばっていた呼び出し順序が、1つの関数に固定されています。
+
+実行結果：
+
+```
+--- 直営店 ---
+ファイルを開く
+  ヘッダーをスキップ（直営店）
+  カンマで分割（直営店）
+DBへ保存
+ファイルを閉じる
+--- FC店 ---
+ファイルを開く
+  タブで分割（FC店）
+  不正行をスキップ（FC店）
+DBへ保存
+ファイルを閉じる
+```
 
 **案Aの評価：**
 骨格の変更（オープン直後にバージョンチェックを追加、など）は、この `import()` を1回直すだけで全形式に反映されます。骨格を1か所へ集めるという目的は、この時点で達成できています。**形式が2〜3種類で当面増えないと確認できているなら、この案で止める判断は十分あり得ます。**

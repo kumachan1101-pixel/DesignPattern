@@ -948,9 +948,13 @@ public:
 
 **案A：状態遷移をテーブル（マップ）のデータとして持つ**
 
-状態機械なら、「今この状態でこの操作が来たら次はこの状態」という遷移の表を1か所に持ち、本体はその表を引くだけにすればよい、という発想です。
+状態機械なら、「今この状態でこの操作が来たら次はこの状態」という遷移の表を1か所に持ち、本体はその表を引くだけにすればよい、という発想です。この案の全体構造（状態と操作の定義→遷移表を持つ本体→組み立てと出力）を、1つのまとまったコードで確認します。
 
 ```cpp
+#include <iostream>
+#include <map>
+#include <utility>
+
 enum class State { Available, Reserved, Paid };
 enum class Event { Reserve, Pay, Cancel };
 
@@ -973,6 +977,23 @@ public:
         std::cout << "状態を更新しました\n";
     }
 };
+
+// 組み立てと実行：操作を順に渡すだけ
+int main() {
+    TicketReservation ticket;
+    ticket.handle(Event::Reserve); // Available → Reserved
+    ticket.handle(Event::Pay);     // Reserved → Paid
+    ticket.handle(Event::Cancel);  // Paidからは遷移が無い
+    return 0;
+}
+```
+
+実行結果：
+
+```
+状態を更新しました
+状態を更新しました
+その操作はできません
 ```
 
 - `transitions` が「(現在状態, 操作) → 次状態」の対応表です。どの状態からどの状態へ進めるかという遷移ルールが、コードの分岐から1か所のデータへ集まりました。

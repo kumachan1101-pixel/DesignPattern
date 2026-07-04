@@ -875,7 +875,15 @@ public:
 
 **案A：装飾処理のリストを外から注入する**
 
+この案の全体構造（装飾リストを持つ骨格→本文を差し替える具体レポート→組み立てと出力）を、1つのまとまったコードで確認します。
+
 ```cpp
+#include <iostream>
+#include <string>
+#include <vector>
+#include <functional>
+using namespace std;
+
 // 案A：骨格は注入された装飾リストを順に実行するだけ
 class ReportSkeleton {
     vector<function<void()>> decorations; // 組み立て側から注入される
@@ -894,14 +902,33 @@ public:
     }
     virtual void renderBody() = 0;
 };
+
+// 本文の中身だけを差し替える具体レポート
+class MonthlyReport : public ReportSkeleton {
+public:
+    void renderBody() override {
+        cout << "月次集計を本文として生成。" << endl;
+    }
+};
+
+// 組み立てと実行：装飾をリストへ詰めるだけで、骨格には手を入れない
+int main() {
+    MonthlyReport report;
+    report.addDecoration([] { cout << "グラフを追加。" << endl; });
+    report.addDecoration([] { cout << "透かしを追加。" << endl; });
+    report.generate();
+    return 0;
+}
 ```
 
-```cpp
-// 組み立て側：装飾をリストへ詰めるだけで、骨格には手を入れない
-MonthlyReport report;
-report.addDecoration([] { cout << "グラフを追加。" << endl; });
-report.addDecoration([] { cout << "透かしを追加。" << endl; });
-report.generate();
+実行結果：
+
+```
+CSV読み込み
+月次集計を本文として生成。
+グラフを追加。
+透かしを追加。
+フッター生成
 ```
 
 **案Aの評価：**

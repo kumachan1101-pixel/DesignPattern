@@ -784,9 +784,37 @@ public:
 
 **ステップ2の別案：種別→生成関数のマップに登録する**
 
-`PaymentFactory` の中の `if` の連なりも、データにできそうです。種別と「生成する関数（ラムダ）」の対応をマップに持ち、手段の追加は表への登録1行で済ませる――これは「生成の分岐をコードからデータへ」と考えたとき、多くの人が思いつく案です。
+`PaymentFactory` の中の `if` の連なりも、データにできそうです。種別と「生成する関数（ラムダ）」の対応をマップに持ち、手段の追加は表への登録1行で済ませる――これは「生成の分岐をコードからデータへ」と考えたとき、多くの人が思いつく案です。この案の全体構造（契約→具体プロセッサー→登録マップを持つファクトリ→組み立てと出力）を、1つのまとまったコードで確認します。
 
 ```cpp
+#include <iostream>
+#include <string>
+#include <map>
+#include <functional>
+using namespace std;
+
+// 契約：ステップ3で導入する IPaymentProcessor と同じ役割
+class IPaymentProcessor {
+public:
+    virtual ~IPaymentProcessor() {}
+    virtual void pay(int amount) = 0;
+};
+
+// 具体プロセッサー（決済手段ごと）
+class CreditCardProcessor : public IPaymentProcessor {
+public:
+    void pay(int amount) override {
+        cout << "クレジットで " << amount << " 円決済しました。" << endl;
+    }
+};
+class PayPayProcessor : public IPaymentProcessor {
+public:
+    void pay(int amount) override {
+        cout << "PayPayで " << amount << " 円決済しました。" << endl;
+    }
+};
+
+// 生成の分岐を「種別→生成関数」のマップに置き換えたファクトリ
 class PaymentFactory {
     map<string, function<IPaymentProcessor*()>> creators;
 public:
@@ -800,9 +828,27 @@ public:
     }
 };
 
-// 組み立て側：どの種別で何を生成するかを登録するだけ
-// factory.registerType("credit_card", []{ return new CreditCardProcessor(); });
-// factory.registerType("paypay",      []{ return new PayPayProcessor(); });
+// 組み立てと実行：どの種別で何を生成するかを登録し、生成して使う
+int main() {
+    PaymentFactory factory;
+    factory.registerType("credit_card",
+                         [] { return new CreditCardProcessor(); });
+    factory.registerType("paypay",
+                         [] { return new PayPayProcessor(); }); // ← 追加は登録1行
+
+    IPaymentProcessor* processor = factory.create("paypay");
+    if (processor) {
+        processor->pay(500);
+        delete processor;
+    }
+    return 0;
+}
+```
+
+実行結果：
+
+```
+PayPayで 500 円決済しました。
 ```
 
 **この案の評価：**
