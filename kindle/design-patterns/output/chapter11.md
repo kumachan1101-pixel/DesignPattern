@@ -139,7 +139,7 @@ flowchart LR
 | 現状〜ステップ3 | 基本的なレポート生成と、本文生成・装飾を分けた場合の限界 |
 | ステップ4 | PDF・Excelなど、骨格を共有した出力形式の追加 |
 | ステップ5 | グラフ・透かしなど、装飾の動的な組み合わせ |
-| ステップ6〜フェーズ7 | Undo、バッチ実行を含む6動作すべて |
+| ステップ6〜フェーズ7 | Undo、バッチ実行を含む、1-2の生成動作と1-5の履歴操作のすべて |
 
 したがって、フェーズ1では現状の生成動作だけを見ます。履歴や取り消しは、変更要求を受けた後に「どこへ入れようとすると困るか」を確認してから扱います。
 
@@ -361,6 +361,18 @@ pdf形式でレポートのフッターを生成。
 | レポートの生成ステップ | `generate()` に固定ハードコード | ステップを外から制御できるようにする |
 | 機能の装飾（グラフ・ロゴ等） | `if` フラグで生成メソッドに混在 | 実行時に動的に組み合わせられるようにする |
 | **操作履歴（新規）** | — （なし） | **生成操作をオブジェクトとして記録・取り消し可能にする** |
+
+**変更後の動作例テーブル**
+
+1-2で予告した履歴操作を、1-2と同じ形式の別表で確認します。1-2の生成動作はそのまま残り、変更要求の実現後に次の操作が加わります。
+
+| 操作 | 入力・条件 | 期待される出力・結果 |
+| --- | --- | --- |
+| レポート生成後にキャンセル操作 | 月次レポートを生成→直後にアンドゥ実行 | アンドゥが走り、生成されたファイルが削除される |
+| バッチで3レポートを一括生成 | 週次・月次・部門別の3種を順に一括実行 | 3ファイルが生成され、履歴に3操作が追加される |
+| グラフ含むレポート生成全体をアンドゥ | グラフ付き月次レポートを生成→直後にアンドゥ実行 | アンドゥが走り、生成されたファイル（グラフ含む）が削除される |
+
+1-2の生成動作3件（月次PDF・月次Excel・装飾付きPDF）と、この表の履歴操作3件を合わせた6動作を、フェーズ7の最終コード（7-1の行1〜行6）で確認します。
 
 **変更後の入力・加工・出力**
 
@@ -898,7 +910,7 @@ public:
 `new WatermarkFeature(new GraphFeature(new MonthlyReport()))` のように入れ子にすることで、装飾を自由に重ねがけできます。既存機能の組み合わせを増やすだけなら、組み合わせ専用のクラスを作る必要はありません。
 
 **この段階の評価：**
-骨格の固定（骨格固定構造）と動的な装飾の組み合わせ（装飾連結構造）が両立しました。しかし、「レポートを生成した」という操作を後から取り消せる形で記録する仕組みがまだありません。
+骨格の固定（骨格固定構造）と動的な装飾の組み合わせ（装飾連結構造）が両立しました。フェーズ6の冒頭で挙げた「装飾をリストに入れて順に実行する」案（装飾のリスト化）は、この入れ子と同じ効果を持ちます。選んだ装飾を並べた順に適用するという点は共通で、ここでは各装飾を骨格と同じ型で扱うことで、装飾済みレポートを装飾なしのレポートと同じ手順で生成できるようにしています。ただし、リスト化でも入れ子でも扱えるのは装飾の組み合わせまでで、「レポートを生成した」という操作を後から取り消せる形で記録する仕組みがまだありません。
 
 **残課題：** 操作記録がない。`undo()` 機能が実現できない。
 
@@ -1050,17 +1062,17 @@ flowchart TD
 using namespace std;
 
 struct ReportTemplate {
-    string name;    // レポート名
-    string format;  // "pdf", "excel"
+    string name;                    // レポート名
+    vector<string> supportedFormats; // "pdf", "excel"
 };
 
 class TemplateRegistry {
     map<string, ReportTemplate> templates;
 public:
     TemplateRegistry() {
-        templates["SALES_WEEKLY"]  = {"週次売上レポート",   "pdf"};
-        templates["SALES_MONTHLY"] = {"月次売上レポート",   "pdf"};
-        templates["SALES_DEPT"]    = {"部門別売上レポート", "pdf"};
+        templates["SALES_WEEKLY"]  = {"週次売上レポート",   {"pdf", "excel"}};
+        templates["SALES_MONTHLY"] = {"月次売上レポート",   {"pdf", "excel"}};
+        templates["SALES_DEPT"]    = {"部門別売上レポート", {"pdf", "excel"}};
     }
 
     bool exists(const string& id) const {
@@ -1070,8 +1082,17 @@ public:
     ReportTemplate get(const string& id) const {
         return templates.at(id);
     }
+
+    bool supportsFormat(const string& id, const string& format) const {
+        for (const string& supported : templates.at(id).supportedFormats) {
+            if (supported == format) return true;
+        }
+        return false;
+    }
 };
 ```
+
+`ReportTemplate` と `TemplateRegistry` は、1-4の現状コードと同じ構造です。出力形式は利用者が指定する値なので、テンプレートは「対応している形式」のリストを持ち、指定された形式に対応しているかを `supportsFormat()` で確認します。
 
 レポート生成ログ（`ReportLog`）はシステム起動時は空で、レポートが生成・キャンセル・失敗するたびに1件追記されます。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
 
@@ -1301,7 +1322,7 @@ public:
 
 **5. 組み立てと実行（BatchApplication + メイン関数）**
 
-具体的なクラス名（`MonthlyReport`等）を知っているのは、この組み立てを行う箇所だけです。生成した操作オブジェクトは履歴が所有し、操作オブジェクトはレポート生成器を所有します。これにより、履歴から操作オブジェクトを取り除くと、その装飾のチェーンまでまとめて破棄されます。また、`BatchApplication` は `TemplateRegistry` を保持し、各レポート生成の前にテンプレートIDの存在確認を行います。登録されていないIDが渡された場合はエラーを出力して処理を中断します。
+具体的なクラス名（`MonthlyReport`等）を知っているのは、この組み立てを行う箇所だけです。生成した操作オブジェクトは履歴が所有し、操作オブジェクトはレポート生成器を所有します。これにより、履歴から操作オブジェクトを取り除くと、その装飾のチェーンまでまとめて破棄されます。また、`BatchApplication` は `TemplateRegistry` を保持し、各レポート生成の前にテンプレートIDの存在確認と、利用者が指定した出力形式への対応確認を行います。登録されていないIDや未対応の形式が渡された場合はエラーを出力して処理を中断します。
 
 ```cpp
 // BatchApplication: 具体クラスを知っている主な場所
@@ -1314,12 +1335,20 @@ class BatchApplication {
         history.push_back(action);
     }
 
-    // テンプレートIDが登録済みか確認し、未登録ならエラーを出力して nullptr を返す
+    // テンプレートIDの登録と出力形式の対応を確認し、
+    // 問題があればエラーを出力して nullptr を返す
     ReportTemplate* validateTemplate(const string& id,
+                                     const string& format,
                                      ReportTemplate& out) {
         if (!registry.exists(id)) {
             cerr << "[エラー] テンプレートID '"
                  << id << "' は登録されていません。" << endl;
+            return nullptr;
+        }
+        if (!registry.supportsFormat(id, format)) {
+            cerr << "[エラー] テンプレートID '"
+                 << id << "' は "
+                 << format << " 形式に対応していません。" << endl;
             return nullptr;
         }
         out = registry.get(id);
@@ -1339,17 +1368,17 @@ public:
 
         // 行1: 月次レポートをPDF出力
         cout << "--- 行1: 月次レポートPDF出力 ---" << endl;
-        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        if (!validateTemplate("SALES_MONTHLY", "pdf", tmpl)) return;
         cout << "テンプレート: " << tmpl.name << endl;
         executeAndRemember(new GenerateReportAction(
             new MonthlyReport(),
             "monthly.pdf",
             OutputFormat::Pdf));
-        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "成功");
+        reportLog.add("SALES_MONTHLY", tmpl.name, "pdf", "成功");
 
         // 行2: 月次レポートをExcel出力
         cout << "--- 行2: 月次レポートExcel出力 ---" << endl;
-        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        if (!validateTemplate("SALES_MONTHLY", "excel", tmpl)) return;
         cout << "テンプレート: " << tmpl.name << endl;
         executeAndRemember(new GenerateReportAction(
             new MonthlyReport(),
@@ -1359,7 +1388,7 @@ public:
 
         // 行3: グラフ付き・透かし付きでPDF出力
         cout << "--- 行3: 装飾付きレポートPDF出力 ---" << endl;
-        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        if (!validateTemplate("SALES_MONTHLY", "pdf", tmpl)) return;
         cout << "テンプレート: " << tmpl.name << endl;
         executeAndRemember(new GenerateReportAction(
             new WatermarkFeature(
@@ -1367,11 +1396,11 @@ public:
                     new StandardReport())),
             "decorated.pdf",
             OutputFormat::Pdf));
-        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "成功");
+        reportLog.add("SALES_MONTHLY", tmpl.name, "pdf", "成功");
 
         // 行4: 月次レポートを生成し、直後にキャンセル
         cout << "--- 行4: 月次レポート生成後にキャンセル ---" << endl;
-        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        if (!validateTemplate("SALES_MONTHLY", "pdf", tmpl)) return;
         cout << "テンプレート: " << tmpl.name << endl;
         auto* cancelAction = new GenerateReportAction(
             new MonthlyReport(),
@@ -1382,35 +1411,35 @@ public:
         history.back()->undo();
         delete history.back();
         history.pop_back();
-        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "キャンセル");
+        reportLog.add("SALES_MONTHLY", tmpl.name, "pdf", "キャンセル");
 
         // 行5: バッチで3レポート（週次・月次・部門別）を一括生成
         cout << "--- 行5: バッチで3レポート一括生成 ---" << endl;
-        if (!validateTemplate("SALES_WEEKLY", tmpl)) return;
+        if (!validateTemplate("SALES_WEEKLY", "pdf", tmpl)) return;
         cout << "テンプレート: " << tmpl.name << endl;
         executeAndRemember(new GenerateReportAction(
             new WeeklyReport(),
             "weekly.pdf",
             OutputFormat::Pdf));
-        reportLog.add("SALES_WEEKLY", tmpl.name, tmpl.format, "成功");
-        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        reportLog.add("SALES_WEEKLY", tmpl.name, "pdf", "成功");
+        if (!validateTemplate("SALES_MONTHLY", "pdf", tmpl)) return;
         executeAndRemember(new GenerateReportAction(
             new MonthlyReport(),
             "batch_monthly.pdf",
             OutputFormat::Pdf));
-        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "成功");
-        if (!validateTemplate("SALES_DEPT", tmpl)) return;
+        reportLog.add("SALES_MONTHLY", tmpl.name, "pdf", "成功");
+        if (!validateTemplate("SALES_DEPT", "pdf", tmpl)) return;
         executeAndRemember(new GenerateReportAction(
             new DeptReport(),
             "dept.pdf",
             OutputFormat::Pdf));
-        reportLog.add("SALES_DEPT", tmpl.name, tmpl.format, "成功");
+        reportLog.add("SALES_DEPT", tmpl.name, "pdf", "成功");
         cout << "[この操作で3コマンドが履歴に追加されました。]" << endl;
 
         // 行6: グラフ付き月次レポートを生成してアンドゥ
         cout << "--- 行6: グラフ付き月次レポートを生成してアンドゥ ---"
              << endl;
-        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        if (!validateTemplate("SALES_MONTHLY", "pdf", tmpl)) return;
         cout << "テンプレート: " << tmpl.name << endl;
         auto* a6 = new GenerateReportAction(
             new GraphFeature(
@@ -1422,7 +1451,7 @@ public:
         history.back()->undo();
         delete history.back();
         history.pop_back();
-        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "キャンセル");
+        reportLog.add("SALES_MONTHLY", tmpl.name, "pdf", "キャンセル");
 
         cout << "\n--- レポート生成ログ ---\n";
         reportLog.printAll();
@@ -1445,7 +1474,7 @@ int main() {
 ```
 
 実行対象コード：7-1の解決後コード
-対応する動作例：1-2の動作例テーブル、および変更要求後の代表ケース
+対応する動作例：1-2の動作例テーブル（生成動作）と1-5の変更後の動作例テーブル（履歴操作）
 確認したいこと：外部から見える結果を保ちながら、変更理由ごとの責任が分離されていること
 
 **実行結果：**
@@ -1513,7 +1542,7 @@ CSV読み込み
 [SALES_MONTHLY] 月次売上レポート (pdf) -> キャンセル
 ```
 
-掲載したデモでは、動作テーブルの6つのシナリオに対応する生成・一括実行・削除を確認しています。行5は並列処理ではなく、三つの操作を順に実行する一括処理です。サンプル実行後にはPDF用またはExcel用のデモファイルが作成され、行4と行6ではそれぞれ直前に生成した対象ファイルが削除されます。既存の出力先は上書きせず、Undoは操作オブジェクト自身が作成したファイルだけを削除します。装飾は装飾クラスのチェーンで組み合わされています。
+掲載したデモでは、1-2の生成動作3件と1-5の履歴操作3件を合わせた6つのシナリオに対応する生成・一括実行・削除を確認しています。行5は並列処理ではなく、三つの操作を順に実行する一括処理です。サンプル実行後にはPDF用またはExcel用のデモファイルが作成され、行4と行6ではそれぞれ直前に生成した対象ファイルが削除されます。既存の出力先は上書きせず、Undoは操作オブジェクト自身が作成したファイルだけを削除します。装飾は装飾クラスのチェーンで組み合わされています。
 
 ### 7-2：動作シーケンス図
 
@@ -1574,7 +1603,7 @@ graph LR
 |---|---|
 | **問題** | レポート生成エンジンで「処理の骨格」「装飾機能」「操作履歴」という変わる理由の異なる3つのものが、1つのクラスに混在している |
 | **原因** | `ReportSkeleton`が骨格・装飾・履歴の知識をすべて抱え込み、異なる変更理由が同じクラスへ集まっている |
-| **課題** | 「どの装飾を加えるか」という装飾機能と「操作を誰が記録・取り消すか」という履歴管理を、骨格クラスから独立した部品として外に切り出すこと |
+| **課題** | レポート種別ごとの本文生成、「どの装飾を加えるか」という装飾機能、「操作を誰が記録・取り消すか」という履歴管理を、骨格クラスから独立した部品として外に切り出すこと |
 | **解決策** | 骨格固定構造 × 装飾連結構造 × 操作記録構造：骨格の固定（骨格固定構造）・装飾の動的重ねがけ（装飾連結構造）・操作オブジェクトとしての履歴記録（操作記録構造）を3層に分け、変更の中心を対応する実装と構成箇所へ限定した |
 
 ### フェーズとこの章でやったこと
@@ -1582,10 +1611,10 @@ graph LR
 | **フェーズ** | **この章でやったこと** |
 | --- | --- |
 | 🔵 フェーズ1：現状把握 | 背景と動作例テーブルを確認した後、コードをクラス単位で読んだ。クラス構成図と変更要求を把握した |
-| 🟣 フェーズ2：仮説立案 | 業務機能の所在表でクラスごとの変わる理由を確認した。今回の確定変更とヒアリングで判明した将来リスクを分けて整理した |
+| 🟣 フェーズ2：仮説立案 | 変わりそうな仕様候補の表で、本文生成・出力形式・装飾・操作履歴という検討対象の見当をつけた。今回の確定変更とヒアリングで判明した将来リスクを分けて整理した |
 | 🟣 フェーズ3：問題特定 | 骨格・装飾・履歴を同時に変えようとして影響が飛び火することを確認した |
 | 🟠 フェーズ4：原因分析 | 変わる理由が異なる3つのものが同じ場所にいることが痛みの根本と特定した |
-| 🟡 フェーズ5：課題定義 | 装飾機能と履歴管理という2つの分離ターゲットを特定した |
+| 🟡 フェーズ5：課題定義 | 本文生成・装飾機能・履歴管理という3つの分離ターゲットを特定した |
 | 🔴 フェーズ6：対策検討 | 6ステップの段階的進化でそれぞれの限界を確認し、ステップ6（骨格固定構造 × 装飾連結構造 × 操作記録構造）まで進化させる決断を下した |
 | 🟢 フェーズ7：対策実施 | 最終コードを実装し、変更影響グラフで変更の局所化を確認した |
 
@@ -1598,7 +1627,8 @@ graph LR
 | `GraphFeature` / `WatermarkFeature` | 個別の装飾処理を追加する | 各装飾の内容が変わる場合 |
 | `IReportAction` | 実行と取消という操作の契約を定義する | 操作に共通して必要な契約が変わる場合 |
 | `GenerateReportAction` | レポート生成・出力と、その取消に必要な状態を管理する | 生成操作やUndoの要件が変わる場合 |
-| `TemplateRegistry` | テンプレートIDの登録と存在確認を担う | テンプレートの種別・出力形式定義が変わる場合 |
+| `TemplateRegistry` | テンプレートIDの登録・存在確認と、出力形式の対応確認を担う | テンプレートの種別・対応形式の定義が変わる場合 |
+| `ReportLog` | 生成・キャンセルなどの結果を記録して一覧表示する | 記録する項目や表示形式が変わる場合 |
 | `BatchApplication` | 具体的なレポート・装飾・操作記録構造を組み立て、実行履歴を所有する | 実行シナリオや構成が変わる場合 |
 
 ### 使った構造 × 解消した根本原因
@@ -1617,7 +1647,7 @@ graph LR
 
 | **得られること** | **この章のどこで示したか** |
 | --- | --- |
-| 1. 変動箇所の識別 | フェーズ2の業務機能の所在表で、変わる理由の異なる知識の混在を発見した |
+| 1. 変動箇所の識別 | フェーズ2の仕様候補表で変わりそうな箇所の見当をつけ、フェーズ4で変わる理由の異なる知識の混在を特定した |
 | 2. 接続点の診断 | フェーズ4で、装飾と履歴の知識が処理の骨格へ漏れている状態を確認した |
 | 3. 複数構造の組み合わせ | フェーズ6で6ステップを経て3構造統合の構造を段階的に導いた |
 | 4. 現場の難しさの理解 | フェーズ3で「骨格・装飾・履歴が同時に変わる」という複合問題の痛みを体感した |
