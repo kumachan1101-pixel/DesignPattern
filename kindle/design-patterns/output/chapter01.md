@@ -315,13 +315,17 @@ public:
     CustomerInfo get(const std::string& id) const {
         return records.at(id);          // IDから顧客情報を取り出す
     }
+
+    void save(const std::string& id, const CustomerInfo& info) {
+        records[id] = info;             // 実行中の登録表へ顧客を追加
+    }
 };
 ```
 
 - `CustomerInfo` は顧客1人分の情報で、`memberType` が割引判定に使う会員種別です。
 - `CustomerDatabase` は「ID→顧客情報」の対応表（`std::map`）で、コンストラクタで3件を登録しています。
 - `exists()` はIDが登録済みかを返し、エラー条件「顧客IDが存在しない」の判定に使います。
-- `get()` はIDから会員種別と氏名を取り出します。実システムのDB問い合わせを、この章では固定データで代替しています。
+- `get()` はIDから会員種別と氏名を取り出します。`save()` は実行中に顧客を追加する入口です。実システムのDB問い合わせを、この章では実行終了まで覚えているインメモリの登録表で代替しています。`main()` で `db.save(...)` を呼べば、追加した顧客の割引もその場で計算できます。
 
 #### ③ 支払金額を計算するクラス（PaymentCalculator）
 
@@ -538,6 +542,9 @@ int main() {
 | 3 | カートプレビュー | 同上 | 9000（同じ計算を共有） |
 | 4 | Regular・なし | ケース(3000円) | 3000 → 3000（割引なし） |
 | 異常 | 未登録ID | ケーブル(1000円) | 「登録されていません」 |
+
+> **手元で動かすには**
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter01.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。たとえば `db.save("C010", {"高橋 三郎", "Premium"});` で顧客を足し、その顧客IDで `process()` を呼べば、追加した顧客の割引計算がその場の実行結果に表れます。登録はプロセス実行中だけ有効で、終了すると消えます（DBのような永続化はこの章の論点ではありません）。
 
 `OrderProcessor` は `CustomerDatabase` からの情報を使ってバリデーションと計算を行います。`CartPreviewService` も同じ `PaymentCalculator` を使うため、注文確定前のプレビュー表示でも同じ金額になります。
 
