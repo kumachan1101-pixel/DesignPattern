@@ -165,7 +165,7 @@ classDiagram
 
 1-3でクラス構成を確認したので、掲載コードで何を代替しているかを整理してからフェーズ1の現状コードへ進みます。
 
-この章では、実際の決済API、カード情報、セキュリティ処理を扱わず、決済種別ごとの処理を `std::cout` で表します。論点は「生成する決済プロセッサーの種類が増えたとき、生成責任をどこに置くか」です。決済認証、返金、通信エラー処理は本章では扱いません。
+この章では、実際の決済API、カード情報、セキュリティ処理を扱わず、`PaymentGatewayClient` という決済API境界スタブを呼ぶ形で表します。スタブの内部だけが `std::cout` を使います。論点は「生成する決済プロセッサーの種類が増えたとき、生成責任をどこに置くか」です。決済認証、返金、通信エラー処理は本章では扱いません。
 
 ---
 
@@ -1012,27 +1012,47 @@ public:
 インターフェースを満たす具体的な決済クラスを作成します。本体コードに触れることなく、このクラス群だけを自由に追加・変更できます。
 
 ```cpp
-class CreditCardProcessor : public IPaymentProcessor {
+class PaymentGatewayClient {
 public:
+    void chargeCreditCard(int amount) {
+        cout << "[PaymentGateway] クレジットで "
+             << amount << " 円決済しました。" << endl;
+    }
+    void issueConvenienceStoreCode(int amount) {
+        cout << "[PaymentGateway] コンビニで " << amount
+             << " 円の支払い番号を発行しました。" << endl;
+    }
+    void chargePayPay(int amount) {
+        cout << "[PaymentGateway] PayPayで "
+             << amount << " 円決済しました。" << endl;
+    }
+};
+
+class CreditCardProcessor : public IPaymentProcessor {
+    PaymentGatewayClient& client;
+public:
+    CreditCardProcessor(PaymentGatewayClient& client) : client(client) {}
     void pay(int amount) override {
-        cout << "クレジットで " << amount
-             << " 円決済しました。" << endl;
+        client.chargeCreditCard(amount);
     }
 };
 
 class ConvenienceStoreProcessor : public IPaymentProcessor {
+    PaymentGatewayClient& client;
 public:
+    ConvenienceStoreProcessor(PaymentGatewayClient& client) : client(client) {}
     void pay(int amount) override {
-        cout << "コンビニで " << amount
-             << " 円の支払い番号を発行しました。" << endl;
+        client.issueConvenienceStoreCode(amount);
     }
 };
 
 // 新しい決済手段の処理は新しいProcessorへ置き、生成側から選択する
 class PayPayProcessor : public IPaymentProcessor {
+    PaymentGatewayClient& client;
 public:
+    PayPayProcessor(PaymentGatewayClient& client) : client(client) {}
     void pay(int amount) override {
-        cout << "PayPayで " << amount << " 円決済しました。" << endl;
+        client.chargePayPay(amount);
     }
 };
 ```
@@ -1064,6 +1084,7 @@ public:
 // 具体的な生成判断を、この具象Creatorへまとめる
 class DefaultPaymentApplication : public PaymentApplication {
     ProcessorRegistry registry;  // ← データ層でバリデーション
+    PaymentGatewayClient gatewayClient;
 protected:
     IPaymentProcessor*
     createProcessor(const string& type) override {
@@ -1079,11 +1100,11 @@ protected:
                 cfg.name + " は現在無効です。");
         }
         if (type == "credit_card")
-            return new CreditCardProcessor();
+            return new CreditCardProcessor(gatewayClient);
         if (type == "convenience")
-            return new ConvenienceStoreProcessor();
+            return new ConvenienceStoreProcessor(gatewayClient);
         if (type == "paypay")
-            return new PayPayProcessor();
+            return new PayPayProcessor(gatewayClient);
         throw invalid_argument("未対応の決済種別: " + type);
     }
 };

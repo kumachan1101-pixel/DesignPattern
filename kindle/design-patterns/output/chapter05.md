@@ -164,7 +164,7 @@ graph TD
 
 1-3でクラス構成を確認したので、掲載コードで何を代替しているかを整理してからフェーズ1の現状コードへ進みます。
 
-この章では、画面操作、永続化、実際の家計簿データ保存を `main()` とメモリ上のオブジェクト、`std::cout` で簡略化します。論点は「操作そのものをオブジェクトとして履歴に残し、Undo/Redoできるようにすること」です。UIイベント、ファイル保存、ユーザー認証は実運用では必要ですが、本章では設計論点から外れるため扱いません。
+この章では、画面操作は `main()` の操作呼び出しで、永続化は `LedgerRepository` の境界スタブで、画面表示は `BalanceViewRenderer` の境界スタブで簡略化します。スタブの内部だけが `std::cout` を使います。論点は「操作そのものをオブジェクトとして履歴に残し、Undo/Redoできるようにすること」です。UIイベント、ファイル保存、ユーザー認証は実運用では必要ですが、本章では設計論点から外れるため扱いません。
 
 ---
 
@@ -1032,34 +1032,58 @@ public:
     }
 };
 
+class LedgerRepository {
+public:
+    void saveExpense(const Category& category, int amount) {
+        std::cout << "[LedgerRepository] 支出を保存: "
+                  << category.name << " " << amount << "円" << std::endl;
+    }
+    void saveIncome(const Category& category, int amount) {
+        std::cout << "[LedgerRepository] 収入を保存: "
+                  << category.name << " " << amount << "円" << std::endl;
+    }
+};
+
+class BalanceViewRenderer {
+public:
+    void showMessage(const std::string& message) {
+        std::cout << message << std::endl;
+    }
+};
+
 // 操作オブジェクトから処理を委ねられる実行先（Receiver）
 class ExpenseManager {
     int total = 0;
     CategoryDatabase& db;
+    LedgerRepository& repository;
+    BalanceViewRenderer& renderer;
 public:
-    ExpenseManager(CategoryDatabase& db) : db(db) {}
+    ExpenseManager(CategoryDatabase& db,
+                   LedgerRepository& repository,
+                   BalanceViewRenderer& renderer)
+        : db(db), repository(repository), renderer(renderer) {}
     bool addExpense(int amount, const std::string& categoryId) {
         if (!db.exists(categoryId)) {
-            std::cout << "エラー：カテゴリID「" << categoryId
-                      << "」は存在しません" << std::endl;
+            renderer.showMessage("エラー：カテゴリID「" + categoryId
+                                 + "」は存在しません");
             return false;
         }
         if (amount <= 0) {
-            std::cout << "エラー：金額は1円以上を指定してください"
-                      << std::endl;
+            renderer.showMessage("エラー：金額は1円以上を指定してください");
             return false;
         }
         Category cat = db.get(categoryId);
         total += amount;
-        std::cout << "支出を追加しました：" << cat.name
-                  << " " << amount << "円" << std::endl;
+        repository.saveExpense(cat, amount);
+        renderer.showMessage("支出を追加しました：" + cat.name
+                             + " " + std::to_string(amount) + "円");
         return true;
     }
     void removeExpense(int amount, const std::string& categoryId) {
         Category cat = db.get(categoryId);
         total -= amount;
-        std::cout << "支出を取り消しました：" << cat.name
-                  << " " << amount << "円" << std::endl;
+        renderer.showMessage("支出を取り消しました：" + cat.name
+                             + " " + std::to_string(amount) + "円");
     }
     int totalExpenses() const { return total; }
 };
@@ -1067,30 +1091,35 @@ public:
 class IncomeManager {
     int total = 0;
     CategoryDatabase& db;
+    LedgerRepository& repository;
+    BalanceViewRenderer& renderer;
 public:
-    IncomeManager(CategoryDatabase& db) : db(db) {}
+    IncomeManager(CategoryDatabase& db,
+                  LedgerRepository& repository,
+                  BalanceViewRenderer& renderer)
+        : db(db), repository(repository), renderer(renderer) {}
     bool addIncome(int amount, const std::string& categoryId) {
         if (!db.exists(categoryId)) {
-            std::cout << "エラー：カテゴリID「" << categoryId
-                      << "」は存在しません" << std::endl;
+            renderer.showMessage("エラー：カテゴリID「" + categoryId
+                                 + "」は存在しません");
             return false;
         }
         if (amount <= 0) {
-            std::cout << "エラー：金額は1円以上を指定してください"
-                      << std::endl;
+            renderer.showMessage("エラー：金額は1円以上を指定してください");
             return false;
         }
         Category cat = db.get(categoryId);
         total += amount;
-        std::cout << "収入を追加しました：" << cat.name
-                  << " " << amount << "円" << std::endl;
+        repository.saveIncome(cat, amount);
+        renderer.showMessage("収入を追加しました：" + cat.name
+                             + " " + std::to_string(amount) + "円");
         return true;
     }
     void removeIncome(int amount, const std::string& categoryId) {
         Category cat = db.get(categoryId);
         total -= amount;
-        std::cout << "収入を取り消しました：" << cat.name
-                  << " " << amount << "円" << std::endl;
+        renderer.showMessage("収入を取り消しました：" + cat.name
+                             + " " + std::to_string(amount) + "円");
     }
     int totalIncome() const { return total; }
 };
@@ -1257,8 +1286,10 @@ public:
 // 依存の組み立ては main() に集約する
 int main() {
     CategoryDatabase db;
-    ExpenseManager em(db);
-    IncomeManager im(db);
+    LedgerRepository repository;
+    BalanceViewRenderer renderer;
+    ExpenseManager em(db, repository, renderer);
+    IncomeManager im(db, repository, renderer);
     ActionHistory hist;
 
     BudgetApp app(&hist);

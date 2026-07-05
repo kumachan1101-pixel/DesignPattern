@@ -211,15 +211,15 @@ classDiagram
 
 | 実システムでの動き | 掲載コードでの表現 | 割愛する理由 |
 |---|---|---|
-| 顧客情報をDBから取得 | `CustomerDatabase` の固定データ | 永続化は本章の論点ではない |
-| 金額を画面・帳票へ表示 | `std::cout` への出力 | 表示方式は本章の論点ではない |
+| 顧客情報をDBから取得 | `CustomerDatabase` を顧客情報Repositoryスタブとして使い、固定データを返す | 永続化は本章の論点ではない |
+| 金額を画面・帳票へ表示 | `CheckoutResultRenderer` を呼び、Rendererスタブ内で表示内容を出す | 表示方式は本章の論点ではない |
 | 注文を購入フォームで受け取る | `main()` で組み立てる `Order` | 入力経路は本章の論点ではない |
 
 これらを省略しても、割引計算へ渡るデータと「割引ルールが変わるたびにどこを直すか」という本章の論点は変わりません。省略した処理は存在しないのではなく、この章では扱わない範囲として扱います。
 
 #### 補足：省略した外部I/Oのエラー処理と非同期
 
-簡略化した外部I/O（顧客DB＝`CustomerDatabase`、結果表示＝`std::cout`）は、実運用では失敗することがあります。DB接続やAPI呼び出しは、接続失敗・タイムアウト・データ不整合で例外を返しえます。
+簡略化した外部I/O（顧客DB＝`CustomerDatabase`、結果表示＝`CheckoutResultRenderer`）は、実運用では失敗することがあります。DB接続やAPI呼び出しは、接続失敗・タイムアウト・データ不整合で例外を返しえます。
 
 掲載コードでも、この外部I/Oの失敗をどこで扱うかを1-4で確認します。本番ではさらに、リトライ、タイムアウト、エラー戻り値、ログ記録などを加えます。
 
@@ -373,12 +373,33 @@ public:
 `OrderProcessor` は、エラー条件のチェック → 会員種別の取得 → 計算 → 表示、という一連の流れを担います。
 
 ```cpp
+class CheckoutResultRenderer {
+public:
+    void showOrderResult(const CustomerInfo& customer,
+                         const Order& order,
+                         const CampaignContext& context,
+                         int subtotal,
+                         int finalPrice) {
+        std::cout << customer.name << " さんの注文:";
+        for (const auto& item : order.items) {
+            std::cout << " " << item.name << " " << item.price << "円";
+        }
+        std::cout << "\n  条件: 会員=" << customer.memberType
+                  << ", キャンペーン="
+                  << (context.isCampaignActive ? "あり" : "なし");
+        std::cout << "\n  小計 " << subtotal << "円 → 支払金額 "
+                  << finalPrice << "円\n";
+    }
+};
+
 class OrderProcessor {
 private:
     CustomerDatabase& db;
+    CheckoutResultRenderer& renderer;
     PaymentCalculator calculator;
 public:
-    OrderProcessor(CustomerDatabase& db) : db(db) {}
+    OrderProcessor(CustomerDatabase& db, CheckoutResultRenderer& renderer)
+        : db(db), renderer(renderer) {}
 
     void process(const Order& order, const CampaignContext& context) {
         // エラー条件1：顧客IDが存在しない
@@ -405,18 +426,13 @@ public:
         int finalPrice =
             calculator.calculate(order, customer.memberType, context);
 
-        // 「誰が・何を・割引条件・小計→支払金額」を表示
+        // 表示形式はRenderer境界へ委ねる
         int subtotal = 0;
-        std::cout << customer.name << " さんの注文:";
         for (const auto& item : order.items) {
-            std::cout << " " << item.name << " " << item.price << "円";
             subtotal += item.price;
         }
-        std::cout << "\n  条件: 会員=" << customer.memberType
-                  << ", キャンペーン="
-                  << (context.isCampaignActive ? "あり" : "なし");
-        std::cout << "\n  小計 " << subtotal << "円 → 支払金額 "
-                  << finalPrice << "円\n";
+        renderer.showOrderResult(customer, order, context,
+                                 subtotal, finalPrice);
     }
 };
 ```
@@ -432,7 +448,8 @@ public:
 ```cpp
 int main() {
     CustomerDatabase db;
-    OrderProcessor processor(db);
+    CheckoutResultRenderer renderer;
+    OrderProcessor processor(db, renderer);
     CartPreviewService preview;
     CampaignContext context;
 
@@ -716,7 +733,8 @@ if (memberType == "Premium") {
 // 変更後のクラスを使った動作確認
 int main() {
     CustomerDatabase db;
-    OrderProcessor processor(db);
+    CheckoutResultRenderer renderer;
+    OrderProcessor processor(db, renderer);
     CampaignContext context;
     Order order;
     order.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -1431,11 +1449,37 @@ public:
     }
 };
 
+class CheckoutResultRenderer {
+public:
+    void showOrderResult(const CustomerInfo& customer,
+                         const Order& order,
+                         const CampaignContext& context,
+                         int subtotal,
+                         int finalPrice,
+                         int previewPrice) {
+        std::cout << customer.name << " さんの注文:";
+        for (const auto& item : order.items) {
+            std::cout << " " << item.name << " " << item.price << "円";
+        }
+        std::cout << "\n  条件: 会員=" << customer.memberType
+                  << ", キャンペーン="
+                  << (context.isCampaignActive ? "あり" : "なし")
+                  << ", サマーセール="
+                  << (context.isSummerSale ? "あり" : "なし");
+        std::cout << "\n  小計 " << subtotal << "円 → 支払金額 "
+                  << finalPrice << "円\n";
+        std::cout << "  カートプレビュー: "
+                  << previewPrice << "円\n";
+    }
+};
+
 class OrderProcessor {
 private:
     CustomerDatabase& db;
+    CheckoutResultRenderer& renderer;
 public:
-    OrderProcessor(CustomerDatabase& db) : db(db) {}
+    OrderProcessor(CustomerDatabase& db, CheckoutResultRenderer& renderer)
+        : db(db), renderer(renderer) {}
 
     void process(const Order& order, const CampaignContext& context) {
         if (!db.exists(order.customerId)) {
@@ -1462,20 +1506,12 @@ public:
 
         int finalPrice = calculator.calculate(order);
         int subtotal = 0;
-        std::cout << customer.name << " さんの注文:";
         for (const auto& item : order.items) {
-            std::cout << " " << item.name << " " << item.price << "円";
             subtotal += item.price;
         }
-        std::cout << "\n  条件: 会員=" << customer.memberType
-                  << ", キャンペーン="
-                  << (context.isCampaignActive ? "あり" : "なし")
-                  << ", サマーセール="
-                  << (context.isSummerSale ? "あり" : "なし");
-        std::cout << "\n  小計 " << subtotal << "円 → 支払金額 "
-                  << finalPrice << "円\n";
-        std::cout << "  カートプレビュー: "
-                  << preview.getEstimatedTotal(order) << "円\n";
+        renderer.showOrderResult(customer, order, context,
+                                 subtotal, finalPrice,
+                                 preview.getEstimatedTotal(order));
 
         delete rule;
     }
@@ -1492,7 +1528,8 @@ public:
 ```cpp
 int main() {
     CustomerDatabase db;
-    OrderProcessor processor(db);
+    CheckoutResultRenderer renderer;
+    OrderProcessor processor(db, renderer);
     CampaignContext context;
 
     // C001（Premium）/ キャンペーンなし / サマーセールなし → 20%引き

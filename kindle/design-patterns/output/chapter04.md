@@ -204,7 +204,7 @@ classDiagram
 
 1-3でクラス構成を確認したので、掲載コードで何を代替しているかを整理してからフェーズ1の現状コードへ進みます。
 
-実際のファイルI/OやDB接続は、掲載コードでは `std::cout` と件数の固定値で簡略化します。論点は「開く→変換する→保存する→閉じる」という手順の骨格と、形式ごとに変わるパース処理をどこで分けるかです。ファイルの読み取り失敗、DBトランザクション、文字コード変換は実運用では必要ですが、本章では設計論点から外れるため扱いません。
+実際のファイルI/OやDB接続は、掲載コードでは `ImportFileGateway` と `SalesImportRepository` の境界スタブで簡略化します。スタブの内部だけが `std::cout` と件数の固定値を使います。論点は「開く→変換する→保存する→閉じる」という手順の骨格と、形式ごとに変わるパース処理をどこで分けるかです。ファイルの読み取り失敗、DBトランザクション、文字コード変換は実運用では必要ですが、本章では設計論点から外れるため扱いません。
 
 ---
 
@@ -1029,12 +1029,37 @@ public:
 };
 ```
 
+実ファイルとDB接続は本章の論点ではないため、次の2クラスを境界スタブとして置きます。実システムでは、この内側でファイルAPIやDBドライバを呼びます。
+
+```cpp
+class ImportFileGateway {
+public:
+    void open()  { cout << "ファイルをオープンしました。" << endl; }
+    void close() { cout << "ファイルをクローズしました。" << endl; }
+    void checkFormatVersion() {
+        cout << "[全共通] ファイルメタデータの"
+             << "形式バージョンを確認しました。" << endl;
+    }
+};
+
+class SalesImportRepository {
+public:
+    void save() { cout << "DBへの保存が完了しました。" << endl; }
+};
+```
+
 **AbstractImporterクラス（骨格の定義）：**
 
 ```cpp
 // 共通の骨格を持つ基底クラス
 class AbstractImporter {
+    ImportFileGateway& fileGateway;
+    SalesImportRepository& repository;
 public:
+    AbstractImporter(ImportFileGateway& fileGateway,
+                     SalesImportRepository& repository)
+        : fileGateway(fileGateway), repository(repository) {}
+
     virtual ~AbstractImporter() = default;
 
     // 手順の骨格を定義するメソッド。
@@ -1050,13 +1075,10 @@ public:
 protected:
     virtual void parseData() = 0;
     virtual void afterParse() {} // 既定では何もしない任意フック
-    void openFile()  { cout << "ファイルをオープンしました。" << endl; }
-    void checkFormatVersion() {
-        cout << "[全共通] ファイルメタデータの"
-             << "形式バージョンを確認しました。" << endl;
-    }
-    void saveToDB()  { cout << "DBへの保存が完了しました。" << endl; }
-    void closeFile() { cout << "ファイルをクローズしました。" << endl; }
+    void openFile()  { fileGateway.open(); }
+    void checkFormatVersion() { fileGateway.checkFormatVersion(); }
+    void saveToDB()  { repository.save(); }
+    void closeFile() { fileGateway.close(); }
 };
 
 ```
@@ -1068,6 +1090,10 @@ protected:
 ```cpp
 // 直営店用インポート：パース処理だけを実装する
 class StoreDataImporter : public AbstractImporter {
+public:
+    StoreDataImporter(ImportFileGateway& fileGateway,
+                      SalesImportRepository& repository)
+        : AbstractImporter(fileGateway, repository) {}
 protected:
     void parseData() override {
         cout << "[直営店] ヘッダー行をスキップしました。" << endl;
@@ -1077,6 +1103,10 @@ protected:
 
 // FC店用インポート：パース処理だけを実装する
 class FCDataImporter : public AbstractImporter {
+public:
+    FCDataImporter(ImportFileGateway& fileGateway,
+                   SalesImportRepository& repository)
+        : AbstractImporter(fileGateway, repository) {}
 protected:
     void parseData() override {
         cout << "[FC店] タブ区切りで行を分割しました。" << endl;
@@ -1086,6 +1116,10 @@ protected:
 
 // EC店用インポート：パース処理とEC固有の後処理を実装する
 class ECDataImporter : public AbstractImporter {
+public:
+    ECDataImporter(ImportFileGateway& fileGateway,
+                   SalesImportRepository& repository)
+        : AbstractImporter(fileGateway, repository) {}
 protected:
     void parseData() override {
         cout << "[EC店] カンマ区切りで行を分割しました。" << endl;
@@ -1134,11 +1168,16 @@ public:
 class BatchApplication {
     SchemaRegistry registry;
     ImportResultLog log;
+    ImportFileGateway fileGateway;
+    SalesImportRepository repository;
 public:
     void run() {
-        runImport("store", new StoreDataImporter(), 10);
-        runImport("fc",    new FCDataImporter(),    5);
-        runImport("ec",    new ECDataImporter(),    8);
+        runImport("store",
+                  new StoreDataImporter(fileGateway, repository), 10);
+        runImport("fc",
+                  new FCDataImporter(fileGateway, repository),    5);
+        runImport("ec",
+                  new ECDataImporter(fileGateway, repository),    8);
         // 未登録タイプの場合はエラーで中断する
         runImport("online", nullptr,                0);
 
