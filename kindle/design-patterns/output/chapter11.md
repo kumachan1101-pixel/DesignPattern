@@ -39,28 +39,48 @@
 
 利用者が「月次レポートをPDFで、グラフ付き」と指定した場合、システムは月次用の売上CSVを読み込み、月次売上の集計本文を作り、その本文にグラフを加え、最後にPDFとして出力します。CSVをどのストレージから取得するか、グラフ描画ライブラリでどのように画像を生成するか、実際のPDF/Excelファイルをどう書き出すかは、この章の設計論点ではありません。掲載コードでは、外部処理の入口を `ReportRenderingApi` などの境界として残し、その先の処理だけを `cout` スタブに置き換え、生成手順と責任の集まり方を見ます。
 
-上の文章と表で仕様を一通り確認したので、最後に入力・判定・加工・出力の流れとして整理します。
+`cout` はレポートそのものではなく、外部境界の先にある処理を簡略表示するためのスタブです。実際のシステムでは、売上CSVの取得、グラフ描画、PDF/Excelファイルの書き出しが別のライブラリやAPIで行われます。
 
-**仕様整理図：入力・判定・加工・出力**
+**仕様整理図：保存データと外部境界**
 
 ```mermaid
 flowchart LR
-    A[/レポート種別/]:::input --> B{テンプレートは登録済みか}:::decision
-    C[/出力形式/]:::input --> D{対応形式か}:::decision
-    E[/装飾オプション/]:::input --> F[装飾を組み合わせる]:::process
+    U["利用者<br>種別・形式・装飾を指定"] --> E["ReportEngine<br>生成手順を進行"]
+    E --> T["TemplateRepository<br>レポートテンプレート"]
+    E --> D["SalesDataSource<br>売上CSV"]
+    E --> R["ReportRenderingApi<br>グラフ・ロゴ・透かし描画"]
+    E --> F["FileExporter<br>PDF/Excel出力"]
+    F --> O["生成ファイル"]
+
+    classDef actor fill:#f8fafc,stroke:#64748b,color:#111827;
+    classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef boundary fill:#eef2ff,stroke:#4f46e5,color:#111827;
+    class U actor;
+    class T,D data;
+    class E process;
+    class R,F,O boundary;
+```
+
+上の文章と表で仕様を一通り確認したので、まず正常にレポートを生成できる場合の入力・判定・加工・出力の流れとして整理します。
+
+**仕様整理図：正常系の入力・判定・加工・出力**
+
+```mermaid
+flowchart LR
+    A[/レポート種別<br>SALES_MONTHLY/]:::input --> B{テンプレートは登録済みか}:::decision
+    C[/出力形式<br>pdf/]:::input --> D{対応形式か}:::decision
+    E[/装飾オプション<br>グラフあり/]:::input --> F[装飾を組み合わせる]:::process
     B -->|Yes| G[本文を生成]:::process
     D -->|Yes| H[ファイルへ出力]:::process
     F --> H
     G --> H
     H --> I([正常出力<br>生成ファイル]):::normal
-    B -->|No| J([異常出力<br>未登録テンプレートエラー]):::error
-    D -->|No| K([異常出力<br>未対応形式エラー]):::error
 
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。
@@ -68,6 +88,16 @@ flowchart LR
 - レポートは、レポート種別、出力形式、装飾オプションを入力として生成される。
 - レポート種別と出力形式は、処理を続けてよいかを判定する材料になる。
 - 本文生成と装飾適用が終わってから、指定形式のファイルとして出力される。
+
+**エラー条件**
+
+正常系の生成へ進めない入力や外部境界の懸念は、次のように分けて扱います。
+
+| エラー条件 | どこで分かるか | 出力 | 保存・通知などの副作用 |
+|---|---|---|---|
+| レポート種別に対応するテンプレートがない | テンプレート取得時 | 未登録テンプレートエラー | ファイル出力なし |
+| 出力形式に対応していない | 出力形式確認時 | 未対応形式エラー | ファイル出力なし |
+| 描画APIやファイル出力に失敗する | `ReportRenderingApi` / `FileExporter` 呼び出し時 | この章の1-1では詳細扱いなし | 実システムでは失敗ログ、再試行、生成ジョブの失敗状態を記録する |
 
 リリース当初は「基本統計（合計・平均）」を表示するシンプルなレポート機能のみでした。しかし、分析の深度が増すにつれ、「特定の部署ごとのグラフを追加してほしい」「レポートのヘッダーにロゴを埋め込んでほしい」「出力形式をHTMLにも対応させてほしい」といった要望が次々と舞い込むようになりました。
 
@@ -412,7 +442,6 @@ flowchart LR
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。

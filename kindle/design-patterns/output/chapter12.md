@@ -142,7 +142,6 @@ flowchart TD
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。
@@ -170,7 +169,7 @@ flowchart TD
 | 申請を提出 / 50,000円 | 未登録の承認者 | 承認者IDが存在しないエラー |
 | 申請を提出 / 200,000円 | 上限100,000円の承認者 | 承認上限を超えるエラー |
 
-この表を見れば、現状の仕様が「現在状態」「申請金額」「承認者」を受け取り、状態遷移・通知・承認額チェックをまとめて処理していることが分かります。緊急申請ルートや決済部門通知は、変更要求で扱います。
+この表を見れば、現状の仕様が申請IDから保存済み状態を取得し、申請金額と承認者情報を使って、状態遷移・通知・承認額チェックをまとめて処理していることが分かります。緊急申請ルートや決済部門通知は、変更要求で扱います。
 
 次は仕様とクラスを対応づけます。
 
@@ -541,7 +540,6 @@ flowchart TD
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。

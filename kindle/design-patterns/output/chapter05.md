@@ -43,15 +43,34 @@
 
 ここで確認する対象は、どの入力で残高が変わり、どの入力で止まるかです。
 
-上の文章と表で仕様を一通り確認したので、最後に入力・判定・加工・出力の流れとして整理します。
+この章では、収支データは `LedgerRepository` に保存され、画面は `BalanceViewRenderer` が表示を担当する想定で簡略化します。利用者が残高を直接入力するのではなく、保存済みの収支データから残高が計算されます。
 
-**仕様整理図：入力・判定・加工・出力**
+**仕様整理図：保存データとアクセス関係**
+
+```mermaid
+flowchart LR
+    U["利用者<br>支出/収入ボタンを押す"] --> B["UIButtons<br>操作を受け取る"]
+    B --> C["CategoryRepository<br>カテゴリIDを確認"]
+    B --> L["LedgerRepository<br>収支データを保存"]
+    L --> R["BalanceViewRenderer<br>残高と収支一覧を表示"]
+
+    classDef actor fill:#f8fafc,stroke:#64748b,color:#111827;
+    classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
+    classDef boundary fill:#eef2ff,stroke:#4f46e5,color:#111827;
+    class U actor;
+    class C,L data;
+    class B,R boundary;
+```
+
+上の文章と表で仕様を一通り確認したので、まず正常に登録できる場合の入力・判定・加工・出力の流れとして整理します。
+
+**仕様整理図：正常系の入力・判定・加工・出力**
 
 ```mermaid
 flowchart LR
     A[/操作の種類<br>支出登録・収入登録/]:::input --> F{支出か収入か}:::decision
-    C[/金額/]:::input --> D{金額は1円以上か}:::decision
-    E[/カテゴリID/]:::input --> B{カテゴリIDは登録済みか}:::decision
+    C[/金額<br>1,000円/]:::input --> D{金額は1円以上か}:::decision
+    E[/カテゴリID<br>CAT002/]:::input --> B{カテゴリIDは登録済みか}:::decision
     B -->|Yes| D
     D -->|Yes| F
     F -->|支出登録| G[残高から金額を差し引く]:::process
@@ -59,21 +78,27 @@ flowchart LR
     G --> K[収支をDBに保存し残高を表示]:::process
     H --> K
     K --> L([正常出力<br>残高・収支一覧の更新]):::normal
-    B -->|No| M([異常出力<br>カテゴリ不存在エラー]):::error
-    D -->|No| N([異常出力<br>金額エラー]):::error
 
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。
 
 - 支出登録と収入登録は「操作の種類」という入力であり、残高から差し引くか、残高へ加算するかという加工の分かれ目になる。
 - カテゴリIDの確認と金額の確認を通過した操作だけが、残高の更新と収支の保存へ進む。
-- カテゴリが未登録、または金額が1円未満の場合は、残高を変えずにエラーとして終わる。
+- 正常系では、収支を保存したあと、残高と収支一覧を更新する。
+
+**エラー条件**
+
+正常系の登録へ進めない入力は、次のように分けて扱います。
+
+| エラー条件 | どこで分かるか | 出力 | 保存・通知などの副作用 |
+|---|---|---|---|
+| カテゴリIDが登録されていない | カテゴリ確認時 | カテゴリ不存在エラー | 収支保存なし、残高変更なし |
+| 金額が1円未満 | 金額確認時 | 金額エラー | 収支保存なし、残高変更なし |
 
 なお、取り消し（Undo）や操作履歴の保存は現状仕様に含まれないため、この図には描いていません。これらは1-5の変更要求で扱います。
 
@@ -365,7 +390,22 @@ int main() {
 
 **変更後の入力・加工・出力**
 
-変更後の仕様を、1-1と同じ入力・判定・加工・出力の流れとして図で確認します。1-1の図との差分は、操作の種類に「Undo」が加わることと、支出・収入の実行後に「履歴へ記録」という加工が挟まることの2点です。
+変更後は、収支データに加えて操作履歴を保存します。履歴には「どの操作を、どの金額・カテゴリで実行したか」と「取り消すときに何を戻すか」が残ります。
+
+```mermaid
+flowchart LR
+    B["UIButtons<br>支出/収入/Undoを受け取る"] --> L["LedgerRepository<br>収支データ"]
+    B --> H["ActionHistory<br>実行済み操作のスタック"]
+    H --> L
+    L --> R["BalanceViewRenderer<br>残高表示"]
+
+    classDef boundary fill:#eef2ff,stroke:#4f46e5,color:#111827;
+    classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
+    class B,R boundary;
+    class L,H data;
+```
+
+変更後の仕様を、1-1と同じ粒度で、正常系の入力・判定・加工・出力として確認します。1-1の図との差分は、操作の種類に「Undo」が加わることと、支出・収入の実行後に「履歴へ記録」という加工が挟まることの2点です。
 
 ```mermaid
 flowchart LR
@@ -383,7 +423,6 @@ flowchart LR
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。

@@ -37,36 +37,62 @@
 
 ここで確認する対象は、どの状態でどの操作が許可され、どの結果になるかです。
 
-上の文章と表で仕様を一通り確認したので、最後に入力・判定・加工・出力の流れとして整理します。
+この章では、利用者が「現在状態」を毎回指定するのではありません。現在状態は `TicketReservation` が保持し、利用者はイベントIDと操作を指定します。状態は操作のたびにシステム内部で読み出され、更新されます。
 
-**仕様整理図：入力・判定・加工・出力**
+**仕様整理図：保存データとアクセス関係**
 
 ```mermaid
 flowchart LR
-    A[/現在状態<br>Available / Reserved / Paid/]:::input --> B{操作は現在状態で可能か}:::decision
+    U["利用者<br>イベントIDと操作を指定"] --> T["TicketReservation<br>eventId / status を保持"]
+    T --> D["EventDatabase<br>イベント存在確認・空席確認"]
+    D --> T
+    T --> R["実行結果<br>状態更新・結果表示"]
+
+    classDef actor fill:#f8fafc,stroke:#64748b,color:#111827;
+    classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
+    classDef result fill:#dcfce7,stroke:#16a34a,color:#111827;
+    class U actor;
+    class T,D data;
+    class R result;
+```
+
+上の文章と表で仕様を一通り確認したので、まず正常に状態更新できる場合の入力・判定・加工・出力の流れとして整理します。
+
+**仕様整理図：正常系の入力・判定・加工・出力**
+
+```mermaid
+flowchart LR
+    A[(TicketReservation.status<br>Available / Reserved / Paid)]:::data --> B{操作は現在状態で可能か}:::decision
     C[/操作<br>予約・支払い・キャンセル/]:::input --> B
-    D[/チケットID/]:::input --> E{対象チケットは存在するか}:::decision
+    D[/イベントID<br>EVT001/]:::input --> E{対象イベントは存在するか}:::decision
     E -->|Yes| K{空きはあるか<br>（予約時のみ）}:::decision
-    K -->|Yes| B
+    K -->|Yesまたは予約以外| B
     B -->|Yes| F[状態ごとの処理を実行]:::process
     F --> G[次の状態を決める]:::process
     G --> H([正常出力<br>状態更新・結果表示]):::normal
-    E -->|No| I([異常出力<br>対象なしエラー]):::error
-    K -->|No| L([異常出力<br>満席エラー]):::error
-    B -->|No| J([異常出力<br>操作不可エラー]):::error
 
+    classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。
 
 - 同じ操作でも、現在の予約状態によって受け付けられるかどうかが変わる。
-- 状態更新へ進む前に、イベントの存在、満席、操作可否を順に確認する必要がある。
-- 出力は成功メッセージだけではなく、操作不可や満席など、状態を変えない結果も含む。
+- 状態更新へ進む前に、イベントの存在、空席、操作可否を順に確認する必要がある。
+- 正常系では、現在状態と操作から次の状態を決め、状態更新と結果表示を行う。
+
+**エラー条件**
+
+正常系の状態更新へ進めない入力や操作は、次のように分けて扱います。
+
+| エラー条件 | どこで分かるか | 出力 | 状態保存・通知 |
+|---|---|---|---|
+| イベントIDが存在しない | `EventDatabase` の存在確認時 | 対象なしエラー | `TicketReservation.status` は変更しない |
+| 予約時に空席がない | `EventDatabase` の空席確認時 | 満席エラー | `TicketReservation.status` は変更しない |
+| 現在状態では操作できない | `TicketReservation.status` と操作の組み合わせ確認時 | 操作不可エラー | `TicketReservation.status` は変更しない |
 
 **状態遷移マトリクス**
 
@@ -463,41 +489,46 @@ stateDiagram-v2
 
 | 要素 | 変更前（1-1の現状仕様） | 変更後（今回の要求） | 差分として追うもの |
 |---|---|---|---|
-| 入力 | イベントID、操作、現在の予約状態 | イベントID、操作、現在の予約状態、キャンセル待ち/一時保留に関わる操作 | 操作と状態の種類が増える |
+| 入力 | イベントID、操作、内部に保持している現在の予約状態 | イベントID、操作、内部に保持している現在の予約状態、キャンセル待ち/一時保留に関わる操作 | 操作と状態の種類が増える |
 | 判定 | 現在状態で操作可能か | 新状態を含めて操作可能か、保留期限内か | 状態ごとの判定が増える |
 | 加工 | 予約・支払・キャンセルに応じて状態を更新 | キャンセル待ち登録、予約昇格、一時保留、期限切れを処理 | 状態遷移ルールが増える |
 | 出力 | 操作結果と更新後状態 | 操作結果、Waitlisted/Heldを含む更新後状態 | 新状態の出力を追う |
 
 **変更後の入力・加工・出力**
 
-変更後の仕様を、1-1と同じ入力・判定・加工・出力の流れとして図で確認します。1-1の図との差分は、入力の「現在状態」が3種類から5種類へ、「操作」が3種類から7種類へ増えることです。判定・加工・出力の流れ自体は変わりません。
+変更後の仕様を、1-1と同じ粒度で、正常系の入力・判定・加工・出力として確認します。1-1の図との差分は、内部に保持する「現在状態」が3種類から5種類へ、「操作」が3種類から7種類へ増えることです。判定・加工・出力の流れ自体は変わりません。
 
 ```mermaid
 flowchart LR
-    A[/現在状態<br>Available / Reserved / Paid<br>Waitlisted / Held/]:::input --> B{操作は現在状態で可能か}:::decision
+    A[(TicketReservation.status<br>Available / Reserved / Paid<br>Waitlisted / Held)]:::data --> B{操作は現在状態で可能か}:::decision
     C[/操作<br>予約・支払い・キャンセル<br>waitlist登録・予約昇格・一時保留・期限切れ/]:::input --> B
-    D[/チケットID/]:::input --> E{対象チケットは存在するか}:::decision
+    D[/イベントID<br>EVT001/]:::input --> E{対象イベントは存在するか}:::decision
     E -->|Yes| K{空きはあるか<br>（予約時のみ）}:::decision
-    K -->|Yes| B
+    K -->|Yesまたは予約以外| B
     B -->|Yes| F[状態ごとの処理を実行]:::process
     F --> G[次の状態を決める]:::process
     G --> H([正常出力<br>状態更新・結果表示]):::normal
-    E -->|No| I([異常出力<br>対象なしエラー]):::error
-    K -->|No| L([異常出力<br>満席エラー]):::error
-    B -->|No| J([異常出力<br>操作不可エラー]):::error
 
+    classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。
 
 - 新しい入力は「Waitlisted・Held」の2状態と「waitlist登録・予約昇格・一時保留・期限切れ」の4操作で、図の箱そのものは増えていない。
 - 増えるのは「操作は現在状態で可能か」で受け付ける組み合わせと、「次の状態を決める」の行き先である。
-- 受け付けられない組み合わせは、変更後も既存の「操作不可エラー」として終わり、エラーの種類は増えない。
+- 受け付けられない組み合わせは、変更後も既存の「操作不可エラー」として扱う。
+
+変更後も、失敗条件は正常系図へ混ぜずに別で確認します。
+
+| エラー条件 | どこで分かるか | 出力 | 状態保存・通知 |
+|---|---|---|---|
+| イベントIDが存在しない | `EventDatabase` の存在確認時 | 対象なしエラー | `TicketReservation.status` は変更しない |
+| 予約時に空席がない | `EventDatabase` の空席確認時 | 満席エラー。必要ならキャンセル待ち登録へ進む | `Waitlisted` へ変える場合は変更要求側の仕様として扱う |
+| 現在状態では操作できない | `TicketReservation.status` と操作の組み合わせ確認時 | 操作不可エラー | `TicketReservation.status` は変更しない |
 
 増えた状態と操作の組み合わせが実際にコードのどこへ書かれるかは、フェーズ3で変更を試すコードと、フェーズ7の最終コード・実行結果で追います。
 

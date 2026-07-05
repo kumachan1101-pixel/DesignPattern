@@ -38,15 +38,37 @@
 
 ここで確認する対象は、どの在庫変動で通知が発生するかです。
 
-上の文章と表で仕様を一通り確認したので、最後に入力・判定・加工・出力の流れとして整理します。
+通知先リストは、利用者が在庫操作のたびに入力する値ではありません。商品マスタと通知先設定としてシステム側に登録され、在庫更新時に読み出されます。
 
-**仕様整理図：入力・判定・加工・出力**
+**仕様整理図：保存データとアクセス関係**
 
 ```mermaid
 flowchart LR
-    A[/商品ID/]:::input --> B{商品は存在するか}:::decision
-    C[/出庫数/]:::input --> D{在庫は足りるか}:::decision
-    E[/通知先リスト/]:::input --> F[通知先を準備]:::process
+    U["担当者<br>商品IDと出庫数を入力"] --> M["InventoryManager<br>在庫更新を実行"]
+    M --> P["ProductDatabase<br>現在在庫・閾値"]
+    M --> N["NotificationRegistry<br>通知先リスト"]
+    N --> G["通知境界<br>メール・ダッシュボード・チャット"]
+    M --> R["実行結果<br>在庫更新・通知結果"]
+
+    classDef actor fill:#f8fafc,stroke:#64748b,color:#111827;
+    classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef boundary fill:#eef2ff,stroke:#4f46e5,color:#111827;
+    class U actor;
+    class P,N data;
+    class M process;
+    class G,R boundary;
+```
+
+上の文章と表で仕様を一通り確認したので、まず正常に在庫更新できる場合の入力・判定・加工・出力の流れとして整理します。
+
+**仕様整理図：正常系の入力・判定・加工・出力**
+
+```mermaid
+flowchart LR
+    A[/商品ID<br>PRD002/]:::input --> B{商品は存在するか}:::decision
+    C[/出庫数<br>3個/]:::input --> D{在庫は足りるか}:::decision
+    E[(登録済み通知先<br>メール・ダッシュボード・チャット)]:::data --> F[通知先を準備]:::process
     B -->|Yes| D
     D -->|Yes| G[在庫数を更新]:::process
     G --> H{しきい値を下回るか}:::decision
@@ -54,14 +76,12 @@ flowchart LR
     F --> I
     H -->|No| J([正常出力<br>在庫更新のみ]):::normal
     I --> K([正常出力<br>在庫更新・通知完了]):::normal
-    B -->|No| L([異常出力<br>商品IDエラー]):::error
-    D -->|No| M([異常出力<br>在庫不足エラー]):::error
 
+    classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。
@@ -69,6 +89,16 @@ flowchart LR
 - 通知は在庫更新そのものではなく、更新後の在庫が閾値を下回ったときに発生する。
 - 商品の特定、在庫更新、閾値判定、通知は順番に依存している。
 - 出力には在庫状態と通知メッセージがあり、通知先が増えると影響を受けるのは後者である。
+
+**エラー条件**
+
+正常系の在庫更新へ進めない入力や外部境界の懸念は、次のように分けて扱います。
+
+| エラー条件 | どこで分かるか | 出力 | 保存・通知などの副作用 |
+|---|---|---|---|
+| 商品IDが商品マスタに存在しない | 商品確認時 | 商品IDエラー | 在庫更新なし、通知なし |
+| 出庫数が現在在庫を超えている | 在庫確認時 | 在庫不足エラー | 在庫更新なし、通知なし |
+| 通知送信に失敗する | 通知境界での送信時 | この章の現状コードでは詳細扱いなし | 実システムでは送信ログ、リトライ、失敗通知を検討する |
 
 **通知の動作ルール**
 
@@ -432,13 +462,13 @@ Chat: 商品 PRD002 の在庫が閾値以下です。
 
 **変更後の入力・加工・出力**
 
-変更後の仕様を、1-1と同じ入力・判定・加工・出力の流れとして図で確認します。1-1の図との差分は、入力の「通知先リスト」にSMSが加わることだけで、判定・加工・出力の流れ自体は変わりません。
+変更後の仕様を、1-1と同じ粒度で、正常系の入力・判定・加工・出力として確認します。1-1の図との差分は、登録済み通知先にSMSが加わることだけで、判定・加工・出力の流れ自体は変わりません。
 
 ```mermaid
 flowchart LR
-    A[/商品ID/]:::input --> B{商品は存在するか}:::decision
-    C[/出庫数/]:::input --> D{在庫は足りるか}:::decision
-    E[/通知先リスト<br>メール・ダッシュボード<br>チャット・SMS/]:::input --> F[通知先を準備]:::process
+    A[/商品ID<br>PRD002/]:::input --> B{商品は存在するか}:::decision
+    C[/出庫数<br>3個/]:::input --> D{在庫は足りるか}:::decision
+    E[(登録済み通知先<br>メール・ダッシュボード<br>チャット・SMS)]:::data --> F[通知先を準備]:::process
     B -->|Yes| D
     D -->|Yes| G[在庫数を更新]:::process
     G --> H{しきい値を下回るか}:::decision
@@ -446,21 +476,27 @@ flowchart LR
     F --> I
     H -->|No| J([正常出力<br>在庫更新のみ]):::normal
     I --> K([正常出力<br>在庫更新・通知完了]):::normal
-    B -->|No| L([異常出力<br>商品IDエラー]):::error
-    D -->|No| M([異常出力<br>在庫不足エラー]):::error
 
+    classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。
 
-- 図の箱は1つも増えておらず、変わるのは「通知先リスト」の中身（SMSが加わり4件になる）だけである。
+- 図の箱は1つも増えておらず、変わるのは登録済み通知先の中身（SMSが加わり4件になる）だけである。
 - 在庫更新・しきい値判定・「通知を送る」という加工の流れは、通知先が増えても変わらない。
 - 通知先が1件増えるという入力の変化を、「通知を送る」がそのまま受け止められるかが、フェーズ3で確認する点になる。
+
+変更後も、失敗条件は正常系図へ混ぜずに別で確認します。
+
+| エラー条件 | どこで分かるか | 出力 | 保存・通知などの副作用 |
+|---|---|---|---|
+| 商品IDが商品マスタに存在しない | 商品確認時 | 商品IDエラー | 在庫更新なし、通知なし |
+| 出庫数が現在在庫を超えている | 在庫確認時 | 在庫不足エラー | 在庫更新なし、通知なし |
+| SMS送信に失敗する | SMS通知境界での送信時 | この章のコードでは送信失敗の詳細を省略 | 実システムでは送信ログ、リトライ、代替通知を検討する |
 
 通知先が1つ増えるだけの変更が、実際のコードではどれだけの修正になるかを、フェーズ3で変更を試すコードで確認します。
 

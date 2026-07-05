@@ -38,33 +38,62 @@
 
 ここで確認する対象は、決済種別からどの処理へ進むかです。
 
-上の文章と表で仕様を一通り確認したので、最後に入力・判定・加工・出力の流れとして整理します。
+決済設定は、利用者が毎回入力する値ではありません。利用者が選ぶのは決済種別と金額であり、システムは登録済みの決済設定を見て、どの決済処理を呼ぶかを決めます。
 
-**仕様整理図：入力・判定・加工・出力**
+**仕様整理図：保存データとアクセス関係**
 
 ```mermaid
 flowchart LR
-    A[/決済種別/]:::input --> B{対応する決済手段か}:::decision
-    C[/金額/]:::input --> D{金額は有効か}:::decision
+    U["購入者<br>決済種別と金額を指定"] --> A["PaymentApplication<br>決済処理を進行"]
+    A --> R["PaymentRegistry<br>登録済み決済設定"]
+    R --> A
+    A --> G["PaymentGatewayClient<br>外部決済API境界"]
+    G --> O["決済結果<br>成功/エラー"]
+
+    classDef actor fill:#f8fafc,stroke:#64748b,color:#111827;
+    classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef boundary fill:#eef2ff,stroke:#4f46e5,color:#111827;
+    class U actor;
+    class R data;
+    class A process;
+    class G,O boundary;
+```
+
+上の文章と表で仕様を一通り確認したので、まず正常に決済できる場合の入力・判定・加工・出力の流れとして整理します。
+
+**仕様整理図：正常系の入力・判定・加工・出力**
+
+```mermaid
+flowchart LR
+    A[/決済種別<br>credit_card/]:::input --> B{対応する決済手段か}:::decision
+    C[/金額<br>5,000円/]:::input --> D{金額は有効か}:::decision
     B -->|Yes| E[決済プロセッサーを選ぶ]:::process
     D -->|Yes| F[決済を実行]:::process
     E --> F
     F --> G([正常出力<br>決済成功メッセージ]):::normal
-    B -->|No| H([異常出力<br>未対応決済エラー]):::error
-    D -->|No| I([異常出力<br>金額エラー]):::error
 
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。
 
 - 決済種別は、どの決済処理を使うかを決める入力である。
 - 金額確認と決済手段の選択がそろって、初めて決済実行へ進む。
-- 未対応の決済種別や不正な金額は、成功メッセージではなくエラーとして終わる。
+- 正常系では、登録済みの決済処理を選んで外部決済API境界へ処理を渡し、成功メッセージを返す。
+
+**エラー条件**
+
+正常系の決済実行へ進めない入力や外部境界の懸念は、次のように分けて扱います。
+
+| エラー条件 | どこで分かるか | 出力 | 保存・通知などの副作用 |
+|---|---|---|---|
+| 決済種別が未登録 | 決済設定の検索時 | 未対応決済エラー | 決済API呼び出しなし |
+| 金額が1円未満 | 金額確認時 | 金額エラー | 決済API呼び出しなし |
+| 決済APIが失敗する | `PaymentGatewayClient` 呼び出し時 | この章の1-1では詳細扱いなし | 実システムでは失敗ログ、再試行、決済状態の照会を検討する |
 
 **現在対応している決済手段**
 
@@ -334,24 +363,21 @@ PayPay決済の動作：`"paypay"` を受け取ると、PayPay用のプロセッ
 
 **変更後の入力・加工・出力**
 
-変更後の仕様を、1-1と同じ入力・判定・加工・出力の流れとして図で確認します。1-1の図との差分は、入力の「決済種別」に `"paypay"` が加わることだけで、判定・加工・出力の流れ自体は変わりません。
+変更後の仕様を、1-1と同じ粒度で、正常系の入力・判定・加工・出力として確認します。1-1の図との差分は、入力の「決済種別」に `"paypay"` が加わることだけで、判定・加工・出力の流れ自体は変わりません。
 
 ```mermaid
 flowchart LR
     A[/決済種別<br>credit_card・convenience・paypay/]:::input --> B{対応する決済手段か}:::decision
-    C[/金額/]:::input --> D{金額は有効か}:::decision
+    C[/金額<br>5,000円/]:::input --> D{金額は有効か}:::decision
     B -->|Yes| E[決済プロセッサーを選ぶ]:::process
     D -->|Yes| F[決済を実行]:::process
     E --> F
     F --> G([正常出力<br>決済成功メッセージ]):::normal
-    B -->|No| H([異常出力<br>未対応決済エラー]):::error
-    D -->|No| I([異常出力<br>金額エラー]):::error
 
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。
@@ -359,6 +385,14 @@ flowchart LR
 - 図の箱は1つも増えておらず、変わるのは「決済種別」の選択肢に `"paypay"` が加わることだけである。
 - 「対応する決済手段か」の判定と「決済プロセッサーを選ぶ」の加工が、新しい種別を受け付けられるようになる必要がある。
 - 金額の確認と、決済成功メッセージ・エラーという出力の形は変わらない。
+
+変更後も、失敗条件は正常系図へ混ぜずに別で確認します。
+
+| エラー条件 | どこで分かるか | 出力 | 保存・通知などの副作用 |
+|---|---|---|---|
+| 決済種別が未登録 | 決済設定の検索時 | 未対応決済エラー | 決済API呼び出しなし |
+| 金額が1円未満 | 金額確認時 | 金額エラー | 決済API呼び出しなし |
+| PayPay APIが失敗する | `PaymentGatewayClient` 呼び出し時 | この章のコードでは詳細を省略 | 実システムでは失敗ログ、再試行、決済状態の照会を検討する |
 
 種別が1つ増えるだけの変更が、実際のコードではどれだけの修正になるかを、フェーズ3で変更を試すコードで確認します。
 

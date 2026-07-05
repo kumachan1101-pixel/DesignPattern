@@ -37,14 +37,37 @@
 
 ここで確認する対象は、バッチが何を受け取り、どこへ送り、どの結果を返すかです。
 
-上の文章と表で仕様を一通り確認したので、最後に入力・判定・加工・出力の流れとして整理します。
+外部連携先の認証方式や通知先は、バッチ実行時に毎回手入力する値ではありません。連携先設定と通知先設定としてシステムに登録され、実行要求に応じて読み出されます。
 
-**仕様整理図：入力・判定・加工・出力**
+**仕様整理図：保存データと外部境界**
 
 ```mermaid
 flowchart LR
-    A[/連携先/]:::input --> B{連携先は有効か}:::decision
-    C[/同期対象データ/]:::input --> D[送信用形式へ変換]:::process
+    U["バッチ実行要求"] --> B["IntegrationBatch<br>同期処理を進行"]
+    B --> C["PartnerConfigRepository<br>連携先・認証方式"]
+    B --> D["InternalDataRepository<br>注文・在庫データ"]
+    B --> A["PartnerApiClient<br>外部API境界"]
+    A --> N["NotificationGateway<br>通知境界"]
+    N --> R["同期結果・通知結果"]
+
+    classDef actor fill:#f8fafc,stroke:#64748b,color:#111827;
+    classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef boundary fill:#eef2ff,stroke:#4f46e5,color:#111827;
+    class U actor;
+    class C,D data;
+    class B process;
+    class A,N,R boundary;
+```
+
+上の文章と表で仕様を一通り確認したので、まず正常に同期できる場合の入力・判定・加工・出力の流れとして整理します。
+
+**仕様整理図：正常系の入力・判定・加工・出力**
+
+```mermaid
+flowchart LR
+    A[/連携先<br>PARTNER_A/]:::input --> B{連携先は有効か}:::decision
+    C[/同期対象データ<br>注文・在庫/]:::input --> D[送信用形式へ変換]:::process
     E[/実行要求/]:::input --> F{実行条件を満たすか}:::decision
     B -->|Yes| G[認証する]:::process
     D --> H[外部へ送信]:::process
@@ -53,22 +76,28 @@ flowchart LR
     H -->|成功| I[関係先へ通知]:::process
     H -->|成功| J([正常出力<br>同期結果]):::normal
     I --> K([正常出力<br>通知結果]):::normal
-    B -->|No| L([異常出力<br>連携先エラー]):::error
-    F -->|No| M([異常出力<br>実行条件エラー]):::error
-    H -->|失敗| N([異常出力<br>送信エラー]):::error
 
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。
 
 - 外部連携は、連携先の確認、形式変換、認証、送信、通知という複数の手順で成立する。
 - 連携先が変わると、認証や送信形式など、送信前後の複数箇所に影響が出る。
-- 出力には同期結果と通知結果があり、送信に失敗した場合は通知まで進まない。
+- 正常系では、外部APIへの送信に成功したあと、関係先へ通知して同期結果と通知結果を返す。
+
+**エラー条件**
+
+正常系の送信へ進めない条件や外部API失敗は、次のように分けて扱います。
+
+| エラー条件 | どこで分かるか | 出力 | 保存・通知などの副作用 |
+|---|---|---|---|
+| 連携先が未登録、または無効 | 連携先設定の確認時 | 連携先エラー | 外部送信なし、通知なし |
+| 実行条件を満たさない | 実行要求の確認時 | 実行条件エラー | 外部送信なし、通知なし |
+| 外部API送信に失敗する | `PartnerApiClient` 呼び出し時 | 送信エラー | 実システムでは失敗通知、リトライ、再実行キューを検討する |
 
 当初は単一の外部連携先に対してデータを転送するだけのシンプルな構成でしたが、現在は連携先が3社に増え、それぞれが独自のデータフォーマットと接続認証を要求しています。加えて、データの転送完了後に在庫管理システムや社内通知サービスへ「処理完了」を通知する機能も追加されました。
 
@@ -356,12 +385,12 @@ B社へ送信: data
 
 **変更後の入力・加工・出力**
 
-変更後の仕様を、1-1と同じ入力・判定・加工・出力の流れとして図で確認します。1-1の図との差分は、入力の「連携先」にC社が加わることと、「関係先へ通知」の通知先にSlackが加わることの2点です。判定・加工の流れ自体は変わりません。
+変更後の仕様を、1-1と同じ粒度で、正常系の入力・判定・加工・出力として確認します。1-1の図との差分は、入力の「連携先」にC社が加わることと、「関係先へ通知」の通知先にSlackが加わることの2点です。判定・加工の流れ自体は変わりません。
 
 ```mermaid
 flowchart LR
     A[/連携先<br>A社・B社・C社/]:::input --> B{連携先は有効か}:::decision
-    C[/同期対象データ/]:::input --> D[送信用形式へ変換]:::process
+    C[/同期対象データ<br>注文・在庫/]:::input --> D[送信用形式へ変換]:::process
     E[/実行要求/]:::input --> F{実行条件を満たすか}:::decision
     B -->|Yes| G[認証する]:::process
     D --> H[外部へ送信]:::process
@@ -370,15 +399,11 @@ flowchart LR
     H -->|成功| I[関係先へ通知<br>在庫管理・社内通知＋Slack]:::process
     H -->|成功| J([正常出力<br>同期結果]):::normal
     I --> K([正常出力<br>通知結果]):::normal
-    B -->|No| L([異常出力<br>連携先エラー]):::error
-    F -->|No| M([異常出力<br>実行条件エラー]):::error
-    H -->|失敗| N([異常出力<br>送信エラー]):::error
 
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
 ```
 
 この図から読み取ることは、次の3点です。
@@ -386,6 +411,15 @@ flowchart LR
 - 「C社の追加」は入力の「連携先」と、その先の認証・形式変換・送信に現れる。
 - 「Slack通知の追加」は送信成功後の「関係先へ通知」だけに現れる。
 - 2つの変更は図の上でも別々の箱に現れ、独立した変化軸だという整理と一致する。
+
+変更後も、失敗条件は正常系図へ混ぜずに別で確認します。
+
+| エラー条件 | どこで分かるか | 出力 | 保存・通知などの副作用 |
+|---|---|---|---|
+| 連携先が未登録、または無効 | 連携先設定の確認時 | 連携先エラー | 外部送信なし、通知なし |
+| 実行条件を満たさない | 実行要求の確認時 | 実行条件エラー | 外部送信なし、通知なし |
+| C社API送信に失敗する | `PartnerApiClient` 呼び出し時 | 送信エラー | Slackには失敗通知を送る要求があるため、フェーズ3以降で扱う |
+| Slack通知に失敗する | `NotificationGateway` 呼び出し時 | 通知エラーまたはログ記録 | 本章の中心は連携先・通知先の分離であり、詳細な再送制御は扱わない |
 
 Slack通知は成功・失敗を問わず送る要求のため、送信失敗時の通知の扱いはフェーズ3で変更を試すときに確認します。C社の追加とSlack通知が実際のコードでどこに現れるかも、フェーズ3の変更途中コードとフェーズ7の最終コード・実行結果で追います。
 
