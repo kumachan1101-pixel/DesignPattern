@@ -1214,6 +1214,31 @@ public:
 };
 ```
 
+**コードで使う値の対応表**
+
+この章のコードでは `#define` は使いませんが、列挙値、ID文字列、金額閾値、Phaseクラス名が仕様上の値として登場します。コードを読む前に、どの値が何を表すかを整理します。
+
+| 種類 | コード上の値 | 仕様上の意味 | 使われる場所 |
+|---|---|---|---|
+| 申請ID | `REQ001` など | 1件の申請を識別するID | `WorkflowCaseRepository` が現在状態を保存・取得するキー |
+| 承認者ID | `APR001` | 田中 部長。承認上限100,000円 | `ApproverDatabase` の存在確認・上限額チェック |
+| 承認者ID | `APR002` | 佐藤 取締役。承認上限1,000,000円 | 緊急申請や部長承認の正常ケース |
+| 承認者ID | `APR999` | 登録されていない承認者ID | 未登録IDエラーの確認 |
+| 金額閾値 | `100000` | 課長承認ルールの上限額 | `ManagerApprovalRule` と `ApproverDatabase` の検証 |
+| 金額閾値 | `1000000` | 部長承認ルールの上限額 | `DirectorApprovalRule` と `ApproverDatabase` の検証 |
+| イベント | `SubmitNormal` | 通常申請を提出する操作 | `DraftPhase` が審査待ちへ進める |
+| イベント | `SubmitEmergency` | 緊急申請を提出する操作 | `DraftPhase` が優先審査待ちへ進める |
+| イベント | `Approve` | 現在状態で承認する操作 | `PendingPhase` / `PriorityPendingPhase` が処理する |
+| イベント | `Reject` | 現在状態で却下する操作 | `PendingPhase` が却下へ進める |
+| イベント | `FinalApprove` | 承認済み申請を最終承認する操作 | `ApprovedPhase` が完了へ進める |
+| イベント | `Resubmit` | 却下された申請を再申請する操作 | `RejectedPhase` が審査待ちへ戻す |
+| Phase名 | `DraftPhase` | 作成中の状態 | Repositoryから現在状態として取得され、提出イベントを処理する |
+| Phase名 | `PendingPhase` | 審査待ちの状態 | 課長承認・却下を処理する |
+| Phase名 | `PriorityPendingPhase` | 緊急申請の優先審査待ち状態 | 緊急申請の承認を処理する |
+| Phase名 | `ApprovedPhase` | 承認済みの状態 | 部長の最終承認を処理する |
+| Phase名 | `RejectedPhase` | 却下状態 | 再申請を処理する |
+| Phase名 | `CompletedPhase` | 完了状態 | この章の仕様では後続遷移を持たない |
+
 **1. インターフェース定義（3つの変化軸）**
 
 ```cpp
