@@ -194,7 +194,7 @@ classDiagram
 
 1-3でクラス構成を確認したので、掲載コードで何を代替しているかを整理してからフェーズ1の現状コードへ進みます。
 
-この章では、実際のワークフローDBは `ApproverDatabase` とメモリ上の履歴で、メール・チャット通知は `ApplicantNotifier`、`ManagerNotifier` などの通知境界スタブで簡略化します。スタブの内部だけが `std::cout` を使います。論点は「承認状態」「通知」「判定ルール」という異なる変更理由を分けることです。監査ログの永続化、承認者マスタ連携、通知失敗時の再送は本章では扱いません。
+この章では、実際のワークフローDBは `ApproverDatabase`、`WorkflowCaseRepository`、`NotificationTargetRepository` とメモリ上の履歴で簡略化します。メール・チャット通知は `EmailNotifier`、`ChatNotifier` などの通知境界スタブで表し、スタブの内部だけが `std::cout` を使います。論点は「承認状態」「通知」「判定ルール」という異なる変更理由を分けることです。監査ログの永続化、承認者マスタ連携、通知失敗時の再送は本章では扱いません。
 
 ---
 
@@ -966,38 +966,84 @@ public:
 
 ### ステップ5：第7章で学んだ 通知分離構造を追加する ―― 通知を分離する
 
-次に「通知の混在」という問題を解決します。通知先をリストとして管理し、`WorkflowManager` が状態変化を登録済みのリスナー全員に伝搬させる形にします。
+次に「通知の混在」という問題を解決します。通知先をコードに直接書くのではなく、申請IDごとの通知先データとして管理します。`WorkflowManager` は状態変化が起きたら通知先データを読み出し、登録済みの送信スタブへ渡します。
 
 > [!INFO] コラム: 状態クラスに「誰に通知するか」を教えない理由
 > もし状態クラスの中で「課長に通知する」と直接書いてしまうと、後から「関連部署にも通知したい」という要望が出たときに、状態遷移のロジックまで修正しなければならなくなります。通知分離構造を使って「状態が変わったよ！」と伝える仕組みにすると、状態ロジックと通知ルールの依存を弱められます。
 
 ```cpp
-// 通知リスナーの契約（インターフェース）
-class INotificationListener {
-public:
-    virtual void onStatusChanged(string msg) = 0;
-    virtual ~INotificationListener() = default;
+struct NotificationTarget {
+    string recipientName;
+    string channel; // "email", "chat"
 };
 
-// 通知リスナーの実装例
-class ApplicantNotifier : public INotificationListener {
+class NotificationTargetRepository {
+    map<string, vector<NotificationTarget>> targetsByRequestId;
 public:
-    void onStatusChanged(string msg) override {
-        cout << "[申請者通知] " << msg << endl;
+    void setTargets(
+        const string& requestId,
+        const vector<NotificationTarget>& targets
+    ) {
+        targetsByRequestId[requestId] = targets;
+    }
+    vector<NotificationTarget> loadTargets(const string& requestId) const {
+        auto it = targetsByRequestId.find(requestId);
+        if (it == targetsByRequestId.end()) return {};
+        return it->second;
     }
 };
 
-class ManagerNotifier : public INotificationListener {
+// 通知リスナーの契約（送信手段のインターフェース）
+class INotificationListener {
 public:
-    void onStatusChanged(string msg) override {
-        cout << "[課長通知] " << msg << endl;
+    virtual bool supports(const string& channel) const = 0;
+    virtual void onStatusChanged(
+        const NotificationTarget& target,
+        string msg
+    ) = 0;
+    virtual ~INotificationListener() = default;
+};
+
+// 通知送信スタブの実装例
+class EmailNotifier : public INotificationListener {
+public:
+    bool supports(const string& channel) const override {
+        return channel == "email";
+    }
+    void onStatusChanged(
+        const NotificationTarget& target,
+        string msg
+    ) override {
+        cout << "[メール送信] To:" << target.recipientName
+             << " / " << msg << endl;
+    }
+};
+
+class ChatNotifier : public INotificationListener {
+public:
+    bool supports(const string& channel) const override {
+        return channel == "chat";
+    }
+    void onStatusChanged(
+        const NotificationTarget& target,
+        string msg
+    ) override {
+        cout << "[チャット通知] To:" << target.recipientName
+             << " / " << msg << endl;
     }
 };
 
 class WorkflowManager {
     IWorkflowPhase* state;
-    vector<INotificationListener*> listeners;  // ← 通知リスナーのリスト
+    NotificationTargetRepository& notificationTargets;
+    string requestId;
+    vector<INotificationListener*> listeners;  // ← 送信手段のリスト
 public:
+    WorkflowManager(
+        NotificationTargetRepository& notificationTargets,
+        const string& requestId
+    ) : notificationTargets(notificationTargets), requestId(requestId) {}
+
     void setState(IWorkflowPhase* s) { state = s; }
 
     void addListener(INotificationListener* l) {
@@ -1009,9 +1055,13 @@ public:
     }
 
     void notifyAll(string msg) {
-        // ← 登録済みリスナー全員に伝搬。WorkflowManagerは通知先を知らない
-        for (int i = 0; i < (int)listeners.size(); i++) {
-            listeners[i]->onStatusChanged(msg);
+        auto targets = notificationTargets.loadTargets(requestId);
+        for (const auto& target : targets) {
+            for (int i = 0; i < (int)listeners.size(); i++) {
+                if (listeners[i]->supports(target.channel)) {
+                    listeners[i]->onStatusChanged(target, msg);
+                }
+            }
         }
     }
 };
@@ -1033,7 +1083,7 @@ public:
 ```
 
 **この段階の評価：**
-通知先の管理が `WorkflowManager` から切り離されました。新しい通知先を追加するときは、`INotificationListener` を実装した新しいクラスを作成して `addListener` で登録するだけです。既存の Phase クラスも `WorkflowManager` 本体も触れずに済みます。
+通知先の管理が `WorkflowManager` の分岐から切り離されました。新しい通知先を追加するときは `NotificationTargetRepository` のデータを増やします。新しい送信手段が必要なときだけ、`INotificationListener` を実装した送信スタブを追加して登録します。既存の Phase クラスは触れずに済みます。
 
 しかし、まだ承認判定ロジック（`amount > 100000`）が Phase クラスに直書きされており、部署ごとの承認上限制度に対応するためには Phase クラスを修正する必要があるでしょう。
 
@@ -1238,6 +1288,8 @@ public:
 | Phase名 | `ApprovedPhase` | 承認済みの状態 | 部長の最終承認を処理する |
 | Phase名 | `RejectedPhase` | 却下状態 | 再申請を処理する |
 | Phase名 | `CompletedPhase` | 完了状態 | この章の仕様では後続遷移を持たない |
+| 通知チャネル | `email` | メール通知として送る | `EmailNotifier` が処理する |
+| 通知チャネル | `chat` | チャット通知として送る | `ChatNotifier` が処理する |
 
 **1. インターフェース定義（3つの変化軸）**
 
@@ -1250,10 +1302,19 @@ public:
     virtual ~IApprovalRule() = default;
 };
 
-// 通知リスナーの契約（変わる理由：通知先変更・通知手段の追加）
+struct NotificationTarget {
+    string recipientName; // "申請者", "課長", "部長", "決済部門"
+    string channel;       // "email", "chat"
+};
+
+// 通知リスナーの契約（変わる理由：通知手段の追加）
 class INotificationListener {
 public:
-    virtual void onStatusChanged(string msg) = 0;
+    virtual bool supports(const string& channel) const = 0;
+    virtual void onStatusChanged(
+        const NotificationTarget& target,
+        string msg
+    ) = 0;
     virtual ~INotificationListener() = default;
 };
 
@@ -1307,6 +1368,29 @@ public:
 };
 ```
 
+通知先も同じように、コードの呼び出し側が毎回手で選ぶものではありません。申請や状態に応じて「誰へ、どのチャネルで通知するか」をデータとして保持し、通知時に読み出します。この章では `NotificationTargetRepository` を境界スタブとして置きます。
+
+```cpp
+class NotificationTargetRepository {
+    map<string, vector<NotificationTarget>> targetsByRequestId;
+public:
+    void setTargets(
+        const string& requestId,
+        const vector<NotificationTarget>& targets
+    ) {
+        targetsByRequestId[requestId] = targets;
+    }
+
+    vector<NotificationTarget> loadTargets(const string& requestId) const {
+        auto it = targetsByRequestId.find(requestId);
+        if (it == targetsByRequestId.end()) {
+            return {};
+        }
+        return it->second;
+    }
+};
+```
+
 **2. 承認判定ルールの具体実装（ルール差し替え構造）**
 
 ```cpp
@@ -1330,31 +1414,31 @@ public:
 **3. 通知リスナーの具体実装（通知分離構造）**
 
 ```cpp
-class ApplicantNotifier : public INotificationListener {
+class EmailNotifier : public INotificationListener {
 public:
-    void onStatusChanged(string msg) override {
-        cout << "[申請者通知] " << msg << endl;
+    bool supports(const string& channel) const override {
+        return channel == "email";
+    }
+    void onStatusChanged(
+        const NotificationTarget& target,
+        string msg
+    ) override {
+        cout << "[メール送信] To:" << target.recipientName
+             << " / " << msg << endl;
     }
 };
 
-class ManagerNotifier : public INotificationListener {
+class ChatNotifier : public INotificationListener {
 public:
-    void onStatusChanged(string msg) override {
-        cout << "[課長通知] " << msg << endl;
+    bool supports(const string& channel) const override {
+        return channel == "chat";
     }
-};
-
-class DirectorNotifier : public INotificationListener {
-public:
-    void onStatusChanged(string msg) override {
-        cout << "[部長通知] " << msg << endl;
-    }
-};
-
-class FinanceNotifier : public INotificationListener {
-public:
-    void onStatusChanged(string msg) override {
-        cout << "[決済部門通知] " << msg << endl;
+    void onStatusChanged(
+        const NotificationTarget& target,
+        string msg
+    ) override {
+        cout << "[チャット通知] To:" << target.recipientName
+             << " / " << msg << endl;
     }
 };
 ```
@@ -1368,12 +1452,18 @@ class WorkflowManager {
     // 状態グラフとListenerはBatchApplicationが所有し、
     // WorkflowManagerより長く生存する
     WorkflowCaseRepository& cases;
+    NotificationTargetRepository& notificationTargets;
     string requestId;
     IWorkflowPhase* phase = nullptr;  // 非所有
     vector<INotificationListener*> listeners;  // 非所有
 public:
-    WorkflowManager(WorkflowCaseRepository& cases, const string& requestId)
-        : cases(cases), requestId(requestId) {
+    WorkflowManager(
+        WorkflowCaseRepository& cases,
+        NotificationTargetRepository& notificationTargets,
+        const string& requestId
+    ) : cases(cases),
+        notificationTargets(notificationTargets),
+        requestId(requestId) {
         phase = cases.loadPhase(requestId);
     }
 
@@ -1406,16 +1496,21 @@ public:
     }
 
     void notifyAll(const string& msg) {
-        // 通知開始時点の登録先へ通知する
+        // 通知開始時点の送信手段と通知先データを使う
         auto snapshot = listeners;
-        for (auto* listener : snapshot) {
-            listener->onStatusChanged(msg);
+        auto targets = notificationTargets.loadTargets(requestId);
+        for (const auto& target : targets) {
+            for (auto* listener : snapshot) {
+                if (listener->supports(target.channel)) {
+                    listener->onStatusChanged(target, msg);
+                }
+            }
         }
     }
 };
 ```
 
-この例では、状態グラフ、Repository、Listenerを`BatchApplication`の中で組み立てます。利用側は現在状態を直接指定せず、申請IDを指定して処理を実行します。登録先を動的に破棄する実運用では、破棄前に`removeListener()`を呼ぶ契約が必要です。所有関係の設計については、チームのコーディング規約に従って判断してください。重複登録と`null`は`addListener()`で拒否し、通知中の登録変更に左右されないよう通知開始時点のスナップショットを使います。
+この例では、状態グラフ、申請状態Repository、通知先Repository、通知送信スタブを`BatchApplication`の中で組み立てます。利用側は現在状態も通知先も直接指定せず、申請IDを指定して処理を実行します。通知送信スタブを動的に破棄する実運用では、破棄前に`removeListener()`を呼ぶ契約が必要です。所有関係の設計については、チームのコーディング規約に従って判断してください。重複登録と`null`は`addListener()`で拒否し、通知中の登録変更に左右されないよう通知開始時点のスナップショットを使います。
 
 **5. 状態クラスの具体実装（状態分離構造 × ルール差し替え構造の組み合わせ）**
 
@@ -1573,10 +1668,8 @@ public:
         ApprovalLog approvalLog;
         ManagerApprovalRule managerRule;
         DirectorApprovalRule directorRule;
-        ApplicantNotifier applicant;
-        ManagerNotifier manager;
-        DirectorNotifier director;
-        FinanceNotifier finance;
+        EmailNotifier email;
+        ChatNotifier chat;
 
         // 状態グラフを一度組み立てる
         CompletedPhase completed;
@@ -1588,13 +1681,17 @@ public:
         DraftPhase draft(&pending, &priorityPending);
         rejected.setPending(&pending);
         WorkflowCaseRepository cases;
+        NotificationTargetRepository notificationTargets;
 
         // 受入条件 行1：REQ001を作成中として登録し、通常申請を提出
         cout << "--- 行1: 通常申請書提出 ---" << endl;
         if (validateApprover("APR001", 50000)) {
             cases.create("REQ001", &draft);
-            WorkflowManager wf1(cases, "REQ001");
-            wf1.addListener(&manager);
+            notificationTargets.setTargets(
+                "REQ001", {{"課長", "email"}});
+            WorkflowManager wf1(cases, notificationTargets, "REQ001");
+            wf1.addListener(&email);
+            wf1.addListener(&chat);
             wf1.process(WorkflowEvent::SubmitNormal);
             approvalLog.add("APR001", "田中 部長", 50000, "承認");
         }
@@ -1603,8 +1700,11 @@ public:
         cout << "--- 行2: 緊急申請書提出 ---" << endl;
         if (validateApprover("APR002", 500000)) {
             cases.create("REQ002", &draft);
-            WorkflowManager wf2(cases, "REQ002");
-            wf2.addListener(&director);
+            notificationTargets.setTargets(
+                "REQ002", {{"部長", "chat"}});
+            WorkflowManager wf2(cases, notificationTargets, "REQ002");
+            wf2.addListener(&email);
+            wf2.addListener(&chat);
             wf2.process(WorkflowEvent::SubmitEmergency);
             approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
         }
@@ -1613,9 +1713,11 @@ public:
         cout << "--- 行3: 審査待ち→課長承認操作 ---" << endl;
         if (validateApprover("APR001", 50000)) {
             cases.create("REQ003", &pending);
-            WorkflowManager wf3(cases, "REQ003");
-            wf3.addListener(&applicant);
-            wf3.addListener(&director);
+            notificationTargets.setTargets(
+                "REQ003", {{"申請者", "email"}, {"部長", "chat"}});
+            WorkflowManager wf3(cases, notificationTargets, "REQ003");
+            wf3.addListener(&email);
+            wf3.addListener(&chat);
             wf3.process(WorkflowEvent::Approve, {50000});
             approvalLog.add("APR001", "田中 部長", 50000, "承認");
         }
@@ -1624,10 +1726,13 @@ public:
         cout << "--- 行4: 優先審査待ち→部長承認操作 ---" << endl;
         if (validateApprover("APR002", 500000)) {
             cases.create("REQ004", &priorityPending);
-            WorkflowManager wf4(cases, "REQ004");
-            wf4.addListener(&applicant);
-            wf4.addListener(&director);
-            wf4.addListener(&finance);
+            notificationTargets.setTargets(
+                "REQ004",
+                {{"申請者", "email"}, {"部長", "chat"},
+                 {"決済部門", "email"}});
+            WorkflowManager wf4(cases, notificationTargets, "REQ004");
+            wf4.addListener(&email);
+            wf4.addListener(&chat);
             wf4.process(WorkflowEvent::Approve, {500000});
             approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
         }
@@ -1636,8 +1741,11 @@ public:
         cout << "--- 行5: 審査待ち→却下操作 ---" << endl;
         if (validateApprover("APR001", 50000)) {
             cases.create("REQ005", &pending);
-            WorkflowManager wf5(cases, "REQ005");
-            wf5.addListener(&applicant);
+            notificationTargets.setTargets(
+                "REQ005", {{"申請者", "email"}});
+            WorkflowManager wf5(cases, notificationTargets, "REQ005");
+            wf5.addListener(&email);
+            wf5.addListener(&chat);
             wf5.process(WorkflowEvent::Reject);
             approvalLog.add("APR001", "田中 部長", 50000, "却下");
         }
@@ -1646,11 +1754,13 @@ public:
         cout << "--- 行6: 承認済み→部長承認操作 ---" << endl;
         if (validateApprover("APR002", 500000)) {
             cases.create("REQ006", &approved);
-            WorkflowManager wf6(cases, "REQ006");
-            wf6.addListener(&applicant);
-            wf6.addListener(&manager);
-            wf6.addListener(&director);
-            wf6.addListener(&finance);
+            notificationTargets.setTargets(
+                "REQ006",
+                {{"申請者", "email"}, {"課長", "email"},
+                 {"部長", "chat"}, {"決済部門", "email"}});
+            WorkflowManager wf6(cases, notificationTargets, "REQ006");
+            wf6.addListener(&email);
+            wf6.addListener(&chat);
             wf6.process(WorkflowEvent::FinalApprove, {500000});
             approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
         }
@@ -1658,8 +1768,11 @@ public:
         // 受入条件 行7：REQ007は却下として保存済み
         cout << "--- 行7: 却下→再申請操作 ---" << endl;
         cases.create("REQ007", &rejected);
-        WorkflowManager wf7(cases, "REQ007");
-        wf7.addListener(&manager);
+        notificationTargets.setTargets(
+            "REQ007", {{"課長", "email"}});
+        WorkflowManager wf7(cases, notificationTargets, "REQ007");
+        wf7.addListener(&email);
+        wf7.addListener(&chat);
         wf7.process(WorkflowEvent::Resubmit);
         approvalLog.add("APR001", "田中 部長", 0, "差し戻し");
 
@@ -1692,31 +1805,31 @@ int main() {
 ```text
 --- 行1: 通常申請書提出 ---
 状態: 審査待ち
-[課長通知] 申請を受け付けました
+[メール送信] To:課長 / 申請を受け付けました
 --- 行2: 緊急申請書提出 ---
 状態: 優先審査待ち
-[部長通知] 緊急申請を受け付けました
+[チャット通知] To:部長 / 緊急申請を受け付けました
 --- 行3: 審査待ち→課長承認操作 ---
 状態: 承認済み
-[申請者通知] 承認されました
-[部長通知] 承認されました
+[メール送信] To:申請者 / 承認されました
+[チャット通知] To:部長 / 承認されました
 --- 行4: 優先審査待ち→部長承認操作 ---
 状態: 完了
-[申請者通知] 承認されました
-[部長通知] 承認されました
-[決済部門通知] 承認されました
+[メール送信] To:申請者 / 承認されました
+[チャット通知] To:部長 / 承認されました
+[メール送信] To:決済部門 / 承認されました
 --- 行5: 審査待ち→却下操作 ---
 状態: 却下
-[申請者通知] 申請が却下されました
+[メール送信] To:申請者 / 申請が却下されました
 --- 行6: 承認済み→部長承認操作 ---
 状態: 完了
-[申請者通知] 部長承認が完了しました
-[課長通知] 部長承認が完了しました
-[部長通知] 部長承認が完了しました
-[決済部門通知] 部長承認が完了しました
+[メール送信] To:申請者 / 部長承認が完了しました
+[メール送信] To:課長 / 部長承認が完了しました
+[チャット通知] To:部長 / 部長承認が完了しました
+[メール送信] To:決済部門 / 部長承認が完了しました
 --- 行7: 却下→再申請操作 ---
 状態: 審査待ち
-[課長通知] 再申請を受け付けました
+[メール送信] To:課長 / 再申請を受け付けました
 --- エラー例1: 不正な承認者ID ---
 エラー：承認者ID APR999 はデータベースに存在しません。
 --- エラー例2: 承認上限超過 ---
@@ -1733,7 +1846,7 @@ int main() {
 ```
 
 変更後の受入条件7行と同じ順序で、通常申請は課長承認を経由し、緊急申請は課長を飛ばして部長承認で完了することを確認できます。`ManagerApprovalRule`と`DirectorApprovalRule`は、それぞれ対応する審査状態へ注入されています。エラーケースでは、`ApproverDatabase` による承認者IDの存在確認と権限額の検証が機能し、処理を中断していることも確認できます。
-`WorkflowManager` は申請IDから現在の `IWorkflowPhase` を読み込み、操作イベントをその状態へ委譲します。各状態実装は許可するイベントを処理し、`transitionTo()` を通じてRepository上の現在状態を次の状態オブジェクトへ更新します。
+`WorkflowManager` は申請IDから現在の `IWorkflowPhase` と通知先データを読み込みます。状態実装は許可するイベントを処理し、`transitionTo()` を通じてRepository上の現在状態を更新します。その後、保存済みの通知先データを読み出し、`email` や `chat` に対応する通知スタブが送信します。
 
 
 ### 7-2：動作シーケンス図
@@ -1744,6 +1857,7 @@ int main() {
 sequenceDiagram
     participant B as BatchApplication
     participant C as WorkflowCaseRepository
+    participant N as NotificationTargetRepository
     participant WM as WorkflowManager
     participant P as PendingPhase<br/>(IWorkflowPhase)
     participant A as ApprovedPhase<br/>(IWorkflowPhase)
@@ -1753,10 +1867,11 @@ sequenceDiagram
     B->>R: 生成（ManagerApprovalRule）
     B->>P: 生成（rule と遷移先を注入）
     B->>C: create("REQ003", pending)
-    B->>WM: new WorkflowManager(cases, "REQ003")
+    B->>N: setTargets("REQ003", 申請者/部長)
+    B->>WM: new WorkflowManager(cases, notificationTargets, "REQ003")
     WM->>C: loadPhase("REQ003")
     C-->>WM: PendingPhase
-    B->>WM: addListener（申請者・次承認者）
+    B->>WM: addListener（メール送信・チャット送信）
     B->>WM: process(Approve, {50000})
     activate WM
     WM->>P: handle(wm, Approve, request)
@@ -1768,7 +1883,9 @@ sequenceDiagram
     P->>WM: transitionTo(approved, "承認されました")
     WM->>C: savePhase("REQ003", approved)
     WM->>A: 次回の現在状態になる
-    WM->>L: onStatusChanged（登録先に伝搬）
+    WM->>N: loadTargets("REQ003")
+    N-->>WM: 申請者(email), 部長(chat)
+    WM->>L: onStatusChanged（通知先データに従って送信）
     deactivate P
     deactivate WM
 ```
@@ -1780,7 +1897,7 @@ graph LR
     T1["変更要求：緊急ルート追加"]
         --> F1["PriorityPendingPhase + DraftPhase + 組み立て"]
     T1 -. "影響なし" .-> A["WorkflowManager本体 ✅"]
-    T2["変更要求：新通知先追加"] --> F2["FinanceNotifier + 登録処理"]
+    T2["変更要求：新通知先追加"] --> F2["NotificationTargetRepositoryのデータ + 必要なら送信スタブ"]
     T2 -. "影響なし" .-> A
     T3["変更要求：部署別承認上限"] --> F3["DeptApprovalRule + 注入箇所"]
     T3 -. "影響なし" .-> A
@@ -1858,7 +1975,7 @@ graph LR
 
 **原則1「変わるものをカプセル化せよ」の現れ**
 
-- 具体化された場所：各状態実装クラス（`DraftPhase`、`PendingPhase` 等）、判定ルール実装クラス（`ManagerApprovalRule` 等）、通知リスナー実装クラス（`ApplicantNotifier` 等）
+- 具体化された場所：各状態実装クラス（`DraftPhase`、`PendingPhase` 等）、判定ルール実装クラス（`ManagerApprovalRule` 等）、通知先データ（`NotificationTargetRepository`）と通知送信スタブ（`EmailNotifier` 等）
 - 解説：変化の理由が異なる「状態遷移」「判定ルール」「通知」を個別のクラスにカプセル化しました。既存のインターフェースで表現できる承認ルートや通知先であれば、実装クラスと組み立て箇所を中心に変更できます。
 
 **原則2「実装ではなくインターフェースに対してプログラムせよ」の現れ**
@@ -1868,7 +1985,7 @@ graph LR
 
 **原則3「継承よりコンポジションを優先せよ」の現れ**
 
-- 具体化された場所：`WorkflowManager` が現在状態とリスナーを保持する構成、`PendingPhase` が `IApprovalRule` と遷移先をコンストラクタで受け取る構成
+- 具体化された場所：`WorkflowManager` が現在状態と通知先データをRepositoryから読み、通知送信スタブへ委譲する構成、`PendingPhase` が `IApprovalRule` と遷移先をコンストラクタで受け取る構成
 - 解説：承認ルールを継承による拡張ではなく、コンポジション（保持・委譲）による差し替え可能な構成にしました。
 
 ---
@@ -1946,7 +2063,7 @@ classDiagram
 | State / Context | `WorkflowManager` |
 | State / ConcreteState | `DraftPhase` / `PendingPhase` / `PriorityPendingPhase` / `ApprovedPhase` / `RejectedPhase` / `CompletedPhase` |
 | Observer / Subject | `WorkflowManager`（`notifyAll` を担う）|
-| Observer / Observer | `INotificationListener`（`ApplicantNotifier` 等）|
+| Observer / Observer | `INotificationListener`（`EmailNotifier` 等の通知送信スタブ）|
 | Strategy / Context | `PendingPhase` / `PriorityPendingPhase`（`IApprovalRule` を使う）|
 | Strategy / Strategy | `IApprovalRule`（`ManagerApprovalRule` 等）|
 
