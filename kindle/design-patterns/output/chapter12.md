@@ -38,40 +38,7 @@
 | 承認判定 | 金額・承認者・申請種別 | 100,000円以下は課長承認 | 次の状態へ進めるかを決める |
 | 出力 | 更新後状態と通知 | Approved、申請者へ通知 | 状態変更の結果と通知を照合する |
 
-この時点では、状態・通知・判定ルールをどう分けるかは判断しません。まず、申請がどの条件で次の状態へ進むかを確認します.
-
-上の文章と表で仕様を一通り確認したので、最後に入力・判定・加工・出力の流れとして整理します。
-
-**仕様整理図：入力・判定・加工・出力**
-
-```mermaid
-flowchart LR
-    A[/申請内容/]:::input --> B[現在状態を取得]:::process
-    C[/金額/]:::input --> D{承認条件を満たすか}:::decision
-    E[/部署/]:::input --> D
-    F[/承認操作/]:::input --> G{現在状態で操作可能か}:::decision
-    B --> G
-    D -->|Yes| G
-    G -->|Yes| H[申請状態を更新]:::process
-    H --> I[関係者へ通知]:::process
-    H --> J([正常出力<br>申請状態]):::normal
-    H --> K([正常出力<br>承認結果]):::normal
-    I --> L([正常出力<br>通知結果]):::normal
-    D -->|No| M([異常出力<br>承認不可]):::error
-    G -->|No| N([異常出力<br>操作不可エラー]):::error
-
-    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
-    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
-    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
-    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
-```
-
-この図から読み取ることは、次の3点です。
-
-- 承認結果は、申請内容、金額、部署、現在状態、承認操作を組み合わせて決まる。
-- 承認条件判定と状態遷移が成立した後に、関係者への通知が発生する。
-- 出力には申請状態、承認結果、通知結果があり、判定不可や操作不可は別の結果として扱う。
+この時点では、状態・通知・判定ルールをどう分けるかは判断しません。まず、申請がどの条件で次の状態へ進むかを確認します。
 
 リリース当初は「作成」「承認」「却下」という3つの状態のみを扱うシンプルなものでした。 しかし、組織の拡大に伴い「金額に応じた承認者の自動割り当て」「承認プロセス中の関係者への通知」「特定の部署のみ適用される特別な承認ルール」といった要件が次々と追加されています。
 
@@ -119,6 +86,39 @@ flowchart LR
 | 業務ルール管理 | 金額閾値・承認者の自動割り当てルール |
 
 業務機能が異なるということは、変更のタイミングも理由も別々に訪れるということです。この「変わる理由が違う」という事実を、ここで頭の片隅に置いておいてください。後のフェーズで変更要求を扱うとき、どの業務機能の知識なのかを確認するための名前として使います。
+
+ここまでで、状態の種類、状態遷移、承認上限、通知先の意味を説明しました。最後に、これらを入力・判定・加工・出力の流れとして整理します。この図は仕様の初出ではなく、上で説明した仕様を俯瞰するためのものです。
+
+**仕様整理図：入力・判定・加工・出力**
+
+```mermaid
+flowchart LR
+    A[/申請ID・申請内容/]:::input --> B[保存済みの現在状態を取得]:::process
+    C[/金額/]:::input --> D{承認者の上限額内か}:::decision
+    E[/承認者ID/]:::input --> D
+    F[/操作<br>提出・課長承認・部長承認・却下/]:::input --> G{現在状態で操作可能か}:::decision
+    B --> G
+    D -->|Yes| G
+    G -->|Yes| H[申請状態を保存し直す]:::process
+    H --> I[関係者へ通知]:::process
+    H --> J([正常出力<br>更新後の申請状態]):::normal
+    H --> K([正常出力<br>承認結果]):::normal
+    I --> L([正常出力<br>通知結果]):::normal
+    D -->|No| M([異常出力<br>承認不可]):::error
+    G -->|No| N([異常出力<br>操作不可エラー]):::error
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#111827;
+```
+
+この図から読み取ることは、次の3点です。
+
+- 利用者が毎回「今の状態」を指定するのではなく、システムが申請IDから保存済み状態を取得し、その状態に対して操作を適用する。
+- 承認者IDと金額は承認可否の判定に使い、現在状態と操作は状態遷移の可否判定に使う。
+- 状態更新が成立した後に通知が発生する。承認不可と操作不可は、状態を更新しない異常出力として分けて扱う。
 
 ### 1-2：動作例テーブル
 
@@ -314,8 +314,11 @@ private:
 ```cpp
 int main() {
     WorkflowManager wm;
-    // 正常ケース：田中 部長（APR001）が5万円申請を処理
+    // 正常ケース1：5万円の申請を提出する
     wm.process("SUBMITTED", 50000, "APR001");
+    cout << "---" << endl;
+    // 正常ケース2：承認済みの5万円申請を最終承認する
+    wm.process("APPROVED", 50000, "APR001");
     cout << "---" << endl;
     // エラー：存在しないID
     wm.process("SUBMITTED", 50000, "APR999");
@@ -336,12 +339,15 @@ int main() {
 審査待ち状態へ移行。
 申請者に通知
 ---
+完了状態へ移行。
+関係者に通知
+---
 エラー：承認者ID APR999 はデータベースに存在しません。
 ---
 エラー：田中 部長 の承認上限（100000円）を超えています。
 ```
 
-動作例テーブルの「正常ケース」「未登録ID」「承認上限超過」に対応しています。現行コードを読む段階で確認すべきことは、`WorkflowManager` が状態文字列・通知文・承認額チェックをまとめて扱っている、という事実です。
+動作例テーブルの「申請提出」「最終承認」「未登録ID」「承認上限超過」に対応しています。現行コードを読む段階で確認すべきことは、`WorkflowManager` が状態文字列・通知文・承認額チェックをまとめて扱っている、という事実です。
 
 次のフェーズでは、このフェーズ1の現状コードに変更を加えたときに何が起きるかを確認します。
 
@@ -1127,7 +1133,7 @@ flowchart TD
 - `PendingPhase` / `PriorityPendingPhase`：承認・却下のイベントを受け、判定ルールを使って次状態を選ぶ。
 - `ApprovedPhase` / `RejectedPhase` / `CompletedPhase`：それぞれの状態で許可されたイベントだけを処理する。
 
-`WorkflowManager` は現在の `IWorkflowPhase` を保持し、イベントを現在状態へ渡します。各状態オブジェクトが次状態を選び、Contextの `phase` を更新するため、「状態によって振る舞いが変わる」という状態分離構造の性質をコード上でも確認できます。
+`WorkflowManager` は申請IDから現在状態を読み込み、イベントを現在状態へ渡します。各状態オブジェクトが次状態を選び、ContextがRepositoryへ保存し直すため、「状態によって振る舞いが変わる」という状態分離構造の性質をコード上でも確認できます。
 
 ### 7-1：解決後のコード（全体）
 
@@ -1252,6 +1258,30 @@ public:
 };
 ```
 
+申請ごとの現在状態は、利用側が毎回指定するものではありません。実システムではDBに保存されている申請状態を読み込み、処理後に更新します。この章では `WorkflowCaseRepository` を境界スタブとして置き、申請IDと現在状態の対応をメモリ上に保持します。
+
+```cpp
+class WorkflowCaseRepository {
+    map<string, IWorkflowPhase*> currentPhaseByRequestId;
+public:
+    void create(const string& requestId, IWorkflowPhase* initialPhase) {
+        currentPhaseByRequestId[requestId] = initialPhase;
+    }
+
+    IWorkflowPhase* loadPhase(const string& requestId) const {
+        auto it = currentPhaseByRequestId.find(requestId);
+        if (it == currentPhaseByRequestId.end()) {
+            throw invalid_argument("申請IDが存在しません: " + requestId);
+        }
+        return it->second;
+    }
+
+    void savePhase(const string& requestId, IWorkflowPhase* phase) {
+        currentPhaseByRequestId[requestId] = phase;
+    }
+};
+```
+
 **2. 承認判定ルールの具体実装（ルール差し替え構造）**
 
 ```cpp
@@ -1312,14 +1342,14 @@ public:
 class WorkflowManager {
     // 状態グラフとListenerはBatchApplicationが所有し、
     // WorkflowManagerより長く生存する
+    WorkflowCaseRepository& cases;
+    string requestId;
     IWorkflowPhase* phase = nullptr;  // 非所有
     vector<INotificationListener*> listeners;  // 非所有
 public:
-    void setPhase(IWorkflowPhase* p) {
-        if (!p) {
-            throw invalid_argument("状態にnullは設定できません。");
-        }
-        phase = p;
+    WorkflowManager(WorkflowCaseRepository& cases, const string& requestId)
+        : cases(cases), requestId(requestId) {
+        phase = cases.loadPhase(requestId);
     }
 
     void addListener(INotificationListener* listener) {
@@ -1341,7 +1371,11 @@ public:
     }
 
     void transitionTo(IWorkflowPhase* next, const string& message) {
-        setPhase(next);
+        if (!next) {
+            throw invalid_argument("状態にnullは設定できません。");
+        }
+        phase = next;
+        cases.savePhase(requestId, phase);
         cout << "状態: " << phase->name() << endl;
         notifyAll(message);
     }
@@ -1356,7 +1390,7 @@ public:
 };
 ```
 
-この例では、状態グラフとListenerを`BatchApplication`のスタック上に作り、それらより後に各`WorkflowManager`を破棄します。そのためポインタは非所有参照として安全に利用できます。登録先を動的に破棄する実運用では、破棄前に`removeListener()`を呼ぶ契約が必要です。所有関係の設計については、チームのコーディング規約に従って判断してください。重複登録と`null`は`addListener()`で拒否し、通知中の登録変更に左右されないよう通知開始時点のスナップショットを使います。
+この例では、状態グラフ、Repository、Listenerを`BatchApplication`の中で組み立てます。利用側は現在状態を直接指定せず、申請IDを指定して処理を実行します。登録先を動的に破棄する実運用では、破棄前に`removeListener()`を呼ぶ契約が必要です。所有関係の設計については、チームのコーディング規約に従って判断してください。重複登録と`null`は`addListener()`で拒否し、通知中の登録変更に左右されないよう通知開始時点のスナップショットを使います。
 
 **5. 状態クラスの具体実装（状態分離構造 × ルール差し替え構造の組み合わせ）**
 
@@ -1469,6 +1503,17 @@ public:
 };
 ```
 
+状態クラスは、単独で呼び出されるのではありません。`WorkflowManager` がRepositoryから現在状態として取得し、その状態オブジェクトの `handle()` を呼びます。各Phaseの使われ方は次の通りです。
+
+| Phaseクラス | Repositoryに保存される状態 | 呼ばれるタイミング | 次に決めること |
+|---|---|---|---|
+| `DraftPhase` | 作成中 | 申請提出イベントを受けたとき | 通常なら審査待ち、緊急なら優先審査待ちへ進める |
+| `PendingPhase` | 審査待ち | 課長承認または却下イベントを受けたとき | 承認済みに進めるか、却下へ進めるか |
+| `PriorityPendingPhase` | 優先審査待ち | 緊急申請の部長承認イベントを受けたとき | 完了へ進めるか、却下へ進めるか |
+| `ApprovedPhase` | 承認済み | 部長の最終承認イベントを受けたとき | 完了へ進めるか |
+| `RejectedPhase` | 却下 | 再申請イベントを受けたとき | 審査待ちへ戻すか |
+| `CompletedPhase` | 完了 | 完了済み申請に操作が来たとき | この章の仕様では遷移しない |
+
 **6. 組み立てと実行（BatchApplication と main）**
 
 具体的なクラス名を知っているのは、この組み立てを行う箇所だけです。
@@ -1517,78 +1562,79 @@ public:
             &directorRule, &completed, &rejected);
         DraftPhase draft(&pending, &priorityPending);
         rejected.setPending(&pending);
+        WorkflowCaseRepository cases;
 
-        // 受入条件 行1：APR001（田中 部長）が5万円の通常申請を提出
+        // 受入条件 行1：REQ001を作成中として登録し、通常申請を提出
         cout << "--- 行1: 通常申請書提出 ---" << endl;
         if (validateApprover("APR001", 50000)) {
-            WorkflowManager wf1;
+            cases.create("REQ001", &draft);
+            WorkflowManager wf1(cases, "REQ001");
             wf1.addListener(&manager);
-            wf1.setPhase(&draft);
             wf1.process(WorkflowEvent::SubmitNormal);
             approvalLog.add("APR001", "田中 部長", 50000, "承認");
         }
 
-        // 受入条件 行2：APR002（佐藤 取締役）が50万円の緊急申請を提出
+        // 受入条件 行2：REQ002を作成中として登録し、緊急申請を提出
         cout << "--- 行2: 緊急申請書提出 ---" << endl;
         if (validateApprover("APR002", 500000)) {
-            WorkflowManager wf2;
+            cases.create("REQ002", &draft);
+            WorkflowManager wf2(cases, "REQ002");
             wf2.addListener(&director);
-            wf2.setPhase(&draft);
             wf2.process(WorkflowEvent::SubmitEmergency);
             approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
         }
 
-        // 受入条件 行3：APR001（田中 部長）が5万円申請を課長承認
+        // 受入条件 行3：REQ003は審査待ちとして保存済み
         cout << "--- 行3: 審査待ち→課長承認操作 ---" << endl;
         if (validateApprover("APR001", 50000)) {
-            WorkflowManager wf3;
+            cases.create("REQ003", &pending);
+            WorkflowManager wf3(cases, "REQ003");
             wf3.addListener(&applicant);
             wf3.addListener(&director);
-            wf3.setPhase(&pending);
             wf3.process(WorkflowEvent::Approve, {50000});
             approvalLog.add("APR001", "田中 部長", 50000, "承認");
         }
 
-        // 受入条件 行4：APR002（佐藤 取締役）が50万円申請を部長承認
+        // 受入条件 行4：REQ004は優先審査待ちとして保存済み
         cout << "--- 行4: 優先審査待ち→部長承認操作 ---" << endl;
         if (validateApprover("APR002", 500000)) {
-            WorkflowManager wf4;
+            cases.create("REQ004", &priorityPending);
+            WorkflowManager wf4(cases, "REQ004");
             wf4.addListener(&applicant);
             wf4.addListener(&director);
             wf4.addListener(&finance);
-            wf4.setPhase(&priorityPending);
             wf4.process(WorkflowEvent::Approve, {500000});
             approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
         }
 
-        // 受入条件 行5：APR001（田中 部長）が5万円申請を却下
+        // 受入条件 行5：REQ005は審査待ちとして保存済み
         cout << "--- 行5: 審査待ち→却下操作 ---" << endl;
         if (validateApprover("APR001", 50000)) {
-            WorkflowManager wf5;
+            cases.create("REQ005", &pending);
+            WorkflowManager wf5(cases, "REQ005");
             wf5.addListener(&applicant);
-            wf5.setPhase(&pending);
             wf5.process(WorkflowEvent::Reject);
             approvalLog.add("APR001", "田中 部長", 50000, "却下");
         }
 
-        // 受入条件 行6：APR002（佐藤 取締役）が50万円申請を部長最終承認
+        // 受入条件 行6：REQ006は承認済みとして保存済み
         cout << "--- 行6: 承認済み→部長承認操作 ---" << endl;
         if (validateApprover("APR002", 500000)) {
-            WorkflowManager wf6;
+            cases.create("REQ006", &approved);
+            WorkflowManager wf6(cases, "REQ006");
             wf6.addListener(&applicant);
             wf6.addListener(&manager);
             wf6.addListener(&director);
             wf6.addListener(&finance);
-            wf6.setPhase(&approved);
             wf6.process(WorkflowEvent::FinalApprove, {500000});
             approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
         }
 
-        // 受入条件 行7：再申請（金額検証なし）
+        // 受入条件 行7：REQ007は却下として保存済み
         cout << "--- 行7: 却下→再申請操作 ---" << endl;
-        WorkflowManager wf7;
+        cases.create("REQ007", &rejected);
+        WorkflowManager wf7(cases, "REQ007");
         wf7.addListener(&manager);
-        wf7.setPhase(&rejected);
         wf7.process(WorkflowEvent::Resubmit);
         approvalLog.add("APR001", "田中 部長", 0, "差し戻し");
 
@@ -1662,7 +1708,7 @@ int main() {
 ```
 
 変更後の受入条件7行と同じ順序で、通常申請は課長承認を経由し、緊急申請は課長を飛ばして部長承認で完了することを確認できます。`ManagerApprovalRule`と`DirectorApprovalRule`は、それぞれ対応する審査状態へ注入されています。エラーケースでは、`ApproverDatabase` による承認者IDの存在確認と権限額の検証が機能し、処理を中断していることも確認できます。
-`WorkflowManager` は現在の `IWorkflowPhase` を保持し、操作イベントをその状態へ委譲します。各状態実装は許可するイベントを処理し、`transitionTo()` を通じてContextの現在状態を次の状態オブジェクトへ更新します。
+`WorkflowManager` は申請IDから現在の `IWorkflowPhase` を読み込み、操作イベントをその状態へ委譲します。各状態実装は許可するイベントを処理し、`transitionTo()` を通じてRepository上の現在状態を次の状態オブジェクトへ更新します。
 
 
 ### 7-2：動作シーケンス図
@@ -1672,6 +1718,7 @@ int main() {
 ```mermaid
 sequenceDiagram
     participant B as BatchApplication
+    participant C as WorkflowCaseRepository
     participant WM as WorkflowManager
     participant P as PendingPhase<br/>(IWorkflowPhase)
     participant A as ApprovedPhase<br/>(IWorkflowPhase)
@@ -1680,7 +1727,10 @@ sequenceDiagram
 
     B->>R: 生成（ManagerApprovalRule）
     B->>P: 生成（rule と遷移先を注入）
-    B->>WM: setPhase(pending)
+    B->>C: create("REQ003", pending)
+    B->>WM: new WorkflowManager(cases, "REQ003")
+    WM->>C: loadPhase("REQ003")
+    C-->>WM: PendingPhase
     B->>WM: addListener（申請者・次承認者）
     B->>WM: process(Approve, {50000})
     activate WM
@@ -1691,7 +1741,8 @@ sequenceDiagram
     R-->>P: true（承認可能）
     deactivate R
     P->>WM: transitionTo(approved, "承認されました")
-    WM->>A: 現在状態を更新
+    WM->>C: savePhase("REQ003", approved)
+    WM->>A: 次回の現在状態になる
     WM->>L: onStatusChanged（登録先に伝搬）
     deactivate P
     deactivate WM
