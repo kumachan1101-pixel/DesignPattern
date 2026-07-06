@@ -268,6 +268,9 @@ public:
     UserInfo get(const string& id) const {
         return records.at(id);
     }
+    void save(const string& id, const UserInfo& info) {
+        records[id] = info;           // 実行中のユーザー表へ追加
+    }
 };
 
 // 優先度ルール（変わる可能性がある）
@@ -347,6 +350,9 @@ int main() {
 このコードを見ると、`TicketManager` が優先度の計算ルール（`PriorityCalculator`）と、状態に応じたアクション（if-else）の両方を直接知っていることが分かります。
 
 ---
+
+> **手元で動かすには**
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter09.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。`manager.updateStatus("USR002", "Open");` の呼び出しを増減させれば、ユーザー種別（standard/premium/enterprise）ごとの優先度判定と状態遷移がその場の実行結果に表れます。新しいユーザーを試すときは `UserDatabase` の登録へ `records["USR010"] = {"高橋 三郎", "enterprise"};` を足す（または `save()` を呼ぶ）と、そのユーザーでも同じ処理を実行できます。データはプロセス実行中だけ有効で、終了すると消えます。
 
 ### 1-5：変更要求
 
@@ -1287,6 +1293,9 @@ public:
     }
     UserInfo get(const string& id) const {
         return records.at(id);
+    }
+    void save(const string& id, const UserInfo& info) {
+        records[id] = info;           // 実行中のユーザー表へ追加
     }
 };
 

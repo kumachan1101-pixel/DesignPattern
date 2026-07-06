@@ -263,6 +263,10 @@ public:
     PartnerConfig get(const string& id) const {
         return records.at(id);
     }
+
+    void save(const string& id, const PartnerConfig& cfg) {
+        records[id] = cfg;            // 実行中の連携先表へ追加
+    }
 };
 
 class SystemAClient {
@@ -346,6 +350,9 @@ B社へ送信: data
 このコードから、`BatchExecutor` が各連携先の生成と送信、さらにはその後の通知処理までを一手に引き受けていることが分かります。
 
 ---
+
+> **手元で動かすには**
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter10.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。`executor.execute("PARTNER_A");` の呼び出しを増減させれば、連携先ごとの実行と通知がその場の実行結果に表れます。新しい連携先を試すときは `PartnerDatabase` の登録へ `records["PARTNER_C"] = {"決済会社C", "pay-c.example", true};` を足す（または `save()` を呼ぶ）と、その連携先でも同じバッチを実行できます。データはプロセス実行中だけ有効で、終了すると消えます（外部APIや通知の実送信は境界スタブで簡略化しています）。
 
 ### 1-5：変更要求
 
@@ -1165,6 +1172,10 @@ public:
 
     PartnerConfig get(const string& id) const {
         return records.at(id);
+    }
+
+    void save(const string& id, const PartnerConfig& cfg) {
+        records[id] = cfg;            // 実行中の連携先表へ追加
     }
 };
 
