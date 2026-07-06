@@ -232,6 +232,10 @@ public:
     MenuItem get(const string& id) const {
         return items.at(id);
     }
+
+    void save(const string& id, const MenuItem& item) {
+        items[id] = item;             // 実行中のメニュー表へ追加
+    }
 };
 
 class CustomDrink {
@@ -308,6 +312,9 @@ int main() {
 このコードを見ると、`CustomDrink` クラスがどのトッピングがいくらで、どんな名前になるかをすべて直接知っていることが分かります。
 
 ---
+
+> **手元で動かすには**
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter06.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。たとえば `db.save("DRINK003", {"抹茶ラテ", 500});` で基本ドリンクを足し、その `DRINK003` を注文の基本ドリンクにしてトッピングを重ねれば、追加した商品の注文名と合計金額がその場の実行結果に表れます。メニューデータはプロセス実行中だけ有効で、終了すると消えます（永続化はこの章の論点ではありません）。
 
 ### 1-5：変更要求
 
@@ -1203,6 +1210,10 @@ public:
 
     MenuItem get(const string& id) const {
         return items.at(id);
+    }
+
+    void save(const string& id, const MenuItem& item) {
+        items[id] = item;             // 実行中のメニュー表へ追加
     }
 };
 

@@ -233,6 +233,9 @@ public:
     Category get(const std::string& id) const {
         return records.at(id);
     }
+    void save(const std::string& id, const Category& c) {
+        records[id] = c;                // 実行中のカテゴリ表へ追加
+    }
 };
 
 class ExpenseManager {
@@ -351,6 +354,9 @@ int main() {
 ここでは開始残高を0円とした簡略例なので、1行目の支出直後は残高が-1,000円になります。実際の家計簿では初期残高や口座残高を別に持つこともありますが、この章では操作の実行と取り消しの構造に話を絞るため、残高計算を単純化しています。
 
 ---
+
+> **手元で動かすには**
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter05.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。たとえば `db.save("CAT005", {"娯楽費", "expense"});` でカテゴリを足し、そのカテゴリIDで支出登録を呼べば、追加したカテゴリの収支計上がその場の実行結果に表れます。カテゴリと収支データはプロセス実行中だけ有効で、終了すると消えます（永続化はこの章の論点ではありません）。
 
 ### 1-5：変更要求
 
@@ -1107,6 +1113,9 @@ public:
     }
     Category get(const std::string& id) const {
         return records.at(id);
+    }
+    void save(const std::string& id, const Category& c) {
+        records[id] = c;                // 実行中のカテゴリ表へ追加
     }
 };
 
