@@ -274,6 +274,10 @@ public:
     ImportSchema get(const std::string& type) const {
         return schemas.at(type);
     }
+
+    void save(const std::string& type, const ImportSchema& schema) {
+        schemas[type] = schema;         // 実行中の形式表へ追加
+    }
 };
 
 // 直営店データのインポート（カンマ区切り・ヘッダー行あり）
@@ -437,6 +441,9 @@ FC店CSVを開く
 チェックで処理を中断し、エラーメッセージを出力します。
 
 ---
+
+> **手元で動かすには**
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter04.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。たとえば `registry.save("pos", {"POSレジデータ", {"id", "name", "amount"}});` で新しい取込形式を登録し、その形式を取込対象に足せば、追加した形式の存在確認・スキーマ取得がその場の実行結果に表れます。形式データはプロセス実行中だけ有効で、終了すると消えます（実ファイルI/OやDB保存はこの章の論点ではないため、`ImportFileGateway`／`SalesImportRepository` 境界の先で簡略化しています）。
 
 ### 1-5：変更要求
 
