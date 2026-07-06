@@ -259,6 +259,10 @@ public:
         const auto& e = records.at(id);
         return e.reserved < e.capacity;
     }
+
+    void save(const std::string& id, const EventInfo& info) {
+        records[id] = info;             // 実行中のイベント表へ追加
+    }
 };
 
 class TicketReservation {
@@ -398,7 +402,12 @@ int main() {
 キャンセルできません
 ```
 
-`main()` はイベントIDと操作の組み合わせを指示するだけで、存在確認・満席判定・状態チェックはすべて `TicketReservation` 内部で行っています。次のフェーズで変更が来たときに何が起きるかを確認します。
+`main()` はイベントIDと操作の組み合わせを指示するだけで、存在確認・満席判定・状態チェックはすべて `TicketReservation` 内部で行っています。
+
+> **手元で動かすには**
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter03.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。たとえば `db.save("EVT010", {"冬の演劇祭", 80, 0});` でイベントを足し、`TicketReservation seat(db, "EVT010");` を作って `reserve()` や `pay()` を呼べば、追加したイベントの予約と状態遷移がその場の実行結果に表れます。イベントデータはプロセス実行中だけ有効で、終了すると消えます（DBのような永続化はこの章の論点ではありません）。
+
+次のフェーズで変更が来たときに何が起きるかを確認します。
 
 ---
 
@@ -1248,6 +1257,10 @@ public:
     bool hasCapacity(const std::string& id) const {
         const auto& e = records.at(id);
         return e.reserved < e.capacity;
+    }
+
+    void save(const std::string& id, const EventInfo& info) {
+        records[id] = info;             // 実行中のイベント表へ追加
     }
 };
 ```
