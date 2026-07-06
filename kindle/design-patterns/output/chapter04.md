@@ -1035,10 +1035,21 @@ public:
 
 ```cpp
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <map>
 #include <vector>
 
 using namespace std;
+
+// 1行を区切り文字で分割する小さなヘルパー
+static vector<string> splitLine(const string& line, char delim) {
+    vector<string> cols;
+    string cur;
+    istringstream iss(line);
+    while (getline(iss, cur, delim)) cols.push_back(cur);
+    return cols;
+}
 
 // インポートスキーマ（タイプごとの必須カラム定義）
 struct ImportSchema {
@@ -1097,22 +1108,47 @@ public:
 };
 ```
 
-実ファイルとDB接続は本章の論点ではないため、次の2クラスを境界スタブとして置きます。実システムでは、この内側でファイルAPIやDBドライバを呼びます。
+ファイルの読み書きとDB接続は本章の設計論点ではありませんが、手元でそのまま動かせるように、`ImportFileGateway` は実際にサンプルCSVを書き出して読み込みます。DB保存は `SalesImportRepository` が実行中に件数を覚えるスタブで表します。実システムでは、この内側で本物のファイルAPIやDBドライバを呼びます。
 
 ```cpp
 class ImportFileGateway {
+    vector<string> currentLines;   // 実行中に読み込んだ行を保持
 public:
-    void open()  { cout << "ファイルをオープンしました。" << endl; }
-    void close() { cout << "ファイルをクローズしました。" << endl; }
+    // サンプルCSVを実際に書き出す（永続化ではなく実行時の生成）
+    void writeSample(const string& path, const string& content) {
+        ofstream ofs(path.c_str());
+        ofs << content;
+    }
+    void open(const string& path) {
+        currentLines.clear();
+        ifstream ifs(path.c_str());
+        string line;
+        while (getline(ifs, line)) {
+            if (!line.empty() && line[line.size() - 1] == '\r')
+                line.erase(line.size() - 1);
+            if (!line.empty()) currentLines.push_back(line);
+        }
+        cout << "ファイルをオープンしました。" << endl;
+    }
+    void close() {
+        currentLines.clear();
+        cout << "ファイルをクローズしました。" << endl;
+    }
     void checkFormatVersion() {
         cout << "[全共通] ファイルメタデータの"
              << "形式バージョンを確認しました。" << endl;
     }
+    const vector<string>& lines() const { return currentLines; }
 };
 
 class SalesImportRepository {
+    int total = 0;                 // 実行中に保存した合計件数
 public:
-    void save() { cout << "DBへの保存が完了しました。" << endl; }
+    void save(int rows) {
+        total += rows;
+        cout << "DBへの保存が完了しました。" << endl;
+    }
+    int savedTotal() const { return total; }
 };
 ```
 
@@ -1123,6 +1159,7 @@ public:
 class AbstractImporter {
     ImportFileGateway& fileGateway;
     SalesImportRepository& repository;
+    int savedRows = 0;               // 検証を通った保存件数
 public:
     AbstractImporter(ImportFileGateway& fileGateway,
                      SalesImportRepository& repository)
@@ -1141,13 +1178,17 @@ public:
         saveToDB();
         closeFile();
     }
+    int savedCount() const { return savedRows; }
 protected:
+    virtual string filePath() const = 0;  // 形式ごとに読むファイル
     virtual void parseData() = 0;
     virtual void validateRows() = 0;
     virtual void afterParse() {} // 既定では何もしない任意フック
-    void openFile()  { fileGateway.open(); }
+    const vector<string>& lines() const { return fileGateway.lines(); }
+    void setSavedRows(int n) { savedRows = n; }
+    void openFile()  { fileGateway.open(filePath()); }
     void checkFormatVersion() { fileGateway.checkFormatVersion(); }
-    void saveToDB()  { repository.save(); }
+    void saveToDB()  { repository.save(savedRows); }
     void closeFile() { fileGateway.close(); }
 };
 
@@ -1160,54 +1201,82 @@ protected:
 ```cpp
 // 直営店用インポート：形式ごとの差分を実装する
 class StoreDataImporter : public AbstractImporter {
+    int dataRows = 0;
 public:
     StoreDataImporter(ImportFileGateway& fileGateway,
                       SalesImportRepository& repository)
         : AbstractImporter(fileGateway, repository) {}
 protected:
+    string filePath() const override { return "store_sales.csv"; }
     void parseData() override {
+        dataRows = (int)lines().size() - 1;  // ヘッダー1行を除く
         cout << "[直営店] ヘッダー行をスキップしました。" << endl;
-        cout << "[直営店] カンマ区切りで10件のデータを読み込みました。" << endl;
+        cout << "[直営店] カンマ区切りで" << dataRows
+             << "件のデータを読み込みました。" << endl;
     }
     void validateRows() override {
-        cout << "[直営店] 必須列を検証しました（エラー0件）。" << endl;
+        int errors = 0;
+        for (size_t i = 1; i < lines().size(); ++i)
+            if (splitLine(lines()[i], ',').size() < 3) ++errors;
+        setSavedRows(dataRows - errors);
+        cout << "[直営店] 必須列を検証しました（エラー"
+             << errors << "件）。" << endl;
     }
 };
 
 // FC店用インポート：形式ごとの差分を実装する
 class FCDataImporter : public AbstractImporter {
+    int dataRows = 0;
 public:
     FCDataImporter(ImportFileGateway& fileGateway,
                    SalesImportRepository& repository)
         : AbstractImporter(fileGateway, repository) {}
 protected:
+    string filePath() const override { return "fc_sales.csv"; }
     void parseData() override {
+        dataRows = (int)lines().size() - 1;
         cout << "[FC店] タブ区切りで行を分割しました。" << endl;
-        cout << "[FC店] 5件のデータを読み込みました。" << endl;
+        cout << "[FC店] " << dataRows
+             << "件のデータを読み込みました。" << endl;
     }
     void validateRows() override {
-        cout << "[FC店] 不正行を検証し、0件をスキップしました。" << endl;
+        int skipped = 0;
+        for (size_t i = 1; i < lines().size(); ++i)
+            if (splitLine(lines()[i], '\t').size() < 3) ++skipped;
+        setSavedRows(dataRows - skipped);
+        cout << "[FC店] 不正行を検証し、" << skipped
+             << "件をスキップしました。" << endl;
     }
 };
 
 // EC店用インポート：パース処理とEC固有の後処理を実装する
 class ECDataImporter : public AbstractImporter {
+    int dataRows = 0;
+    int skipped = 0;
 public:
     ECDataImporter(ImportFileGateway& fileGateway,
                    SalesImportRepository& repository)
         : AbstractImporter(fileGateway, repository) {}
 protected:
+    string filePath() const override { return "ec_sales.csv"; }
     void parseData() override {
+        dataRows = (int)lines().size() - 1;
         cout << "[EC店] カンマ区切りで行を分割しました。" << endl;
         cout << "[EC店] 会員ランクを読み込みました。" << endl;
         cout << "[EC店] ポイント列を読み込みました。" << endl;
     }
     void validateRows() override {
-        cout << "[EC店] 不正行を検証し、2件をスキップしました。" << endl;
+        skipped = 0;
+        for (size_t i = 1; i < lines().size(); ++i)
+            if (splitLine(lines()[i], ',').size() < 5) ++skipped;
+        setSavedRows(dataRows - skipped);
+        cout << "[EC店] 不正行を検証し、" << skipped
+             << "件をスキップしました。" << endl;
     }
     void afterParse() override {
-        cout << "[EC店] ポイントボーナスを計算しました"
-             << "（8件処理、2件スキップ）。" << endl;
+        cout << "[EC店] ポイントボーナスを計算しました（"
+             << (dataRows - skipped) << "件処理、" << skipped
+             << "件スキップ）。" << endl;
     }
 };
 
@@ -1251,21 +1320,25 @@ class BatchApplication {
     SalesImportRepository repository;
 public:
     void run() {
-        runImport("store",
-                  new StoreDataImporter(fileGateway, repository), 10);
-        runImport("fc",
-                  new FCDataImporter(fileGateway, repository),    5);
-        runImport("ec",
-                  new ECDataImporter(fileGateway, repository),    8);
+        // 実行のたびにサンプルCSVを書き出す（永続DBの代わり）
+        fileGateway.writeSample("store_sales.csv", storeCsv());
+        fileGateway.writeSample("fc_sales.csv", fcCsv());
+        fileGateway.writeSample("ec_sales.csv", ecCsv());
+
+        StoreDataImporter store(fileGateway, repository);
+        runImport("store", &store);
+        FCDataImporter fc(fileGateway, repository);
+        runImport("fc", &fc);
+        ECDataImporter ec(fileGateway, repository);
+        runImport("ec", &ec);
         // 未登録タイプの場合はエラーで中断する
-        runImport("online", nullptr,                0);
+        runImport("online", nullptr);
 
         cout << "\n--- インポート結果ログ ---\n";
         log.printAll();
     }
 private:
-    void runImport(const string& type, AbstractImporter* importer,
-                  int rowCount) {
+    void runImport(const string& type, AbstractImporter* importer) {
         if (!registry.exists(type)) {
             cout << "[エラー] 未登録のインポートタイプ: "
                  << type << " — 処理を中断します" << endl;
@@ -1275,7 +1348,42 @@ private:
         cout << "--- " << schema.name << "インポート ---" << endl;
         BatchImportJob batch;
         batch.run(importer);
-        log.add(type, schema.name, rowCount, "成功");
+        // 保存件数は検証を通った行数（実データから算出）
+        log.add(type, schema.name, importer->savedCount(), "成功");
+    }
+    // サンプルCSVの中身（直営店=10件、FC店=5件、EC店=10件中2件不正）
+    string storeCsv() {
+        string s = "id,name,amount\n";
+        for (int i = 1; i <= 10; ++i) {
+            ostringstream o;
+            o << "S" << (i < 10 ? "00" : "0") << i
+              << ",商品" << i << ",1000\n";
+            s += o.str();
+        }
+        return s;
+    }
+    string fcCsv() {
+        string s = "id\tname\tamount\n";
+        for (int i = 1; i <= 5; ++i) {
+            ostringstream o;
+            o << "F00" << i << "\t商品" << i << "\t2000\n";
+            s += o.str();
+        }
+        return s;
+    }
+    string ecCsv() {
+        string s = "id,name,amount,rank,points\n";
+        for (int i = 1; i <= 10; ++i) {
+            ostringstream o;
+            if (i == 4 || i == 9)   // 2件は列不足（不正行）
+                o << "E" << (i < 10 ? "00" : "0") << i
+                  << ",商品" << i << ",3000\n";
+            else
+                o << "E" << (i < 10 ? "00" : "0") << i
+                  << ",商品" << i << ",3000,gold,50\n";
+            s += o.str();
+        }
+        return s;
     }
 };
 ```
@@ -1335,7 +1443,7 @@ DBへの保存が完了しました。
 
 フェーズ2で予告された共通の「バージョンチェック」は基底クラスへ1回追加し、形式ごとの行検証は `validateRows()` へ置き、EC店だけの計算処理は `afterParse()` へ置きました。変更理由の異なる処理が、それぞれ対応する場所へ分かれています。未登録タイプ（"online"）は `SchemaRegistry.exists()` で検出し、インポーター呼び出し前にエラーを出力して処理を中断します。
 
-このコードは実ファイルを解析する代わりに、顧客・商品・注文データという代表シナリオをログで模擬しています。空ファイル・全行不正・大量データを含む全仕様を実証するコードではないため、それらは実際のパーサーとデータを使うテストで確認します。
+このコードは `BatchApplication` が実行時に `store_sales.csv`・`fc_sales.csv`・`ec_sales.csv` を書き出し、それを読み込んで件数を数えます。上の実行結果の「10件」「5件」「2件スキップ」は、生成されたCSVの実データから算出した値です。空ファイル・大量データなど全仕様を網羅するコードではないため、それらは実際のデータを使うテストで確認します。
 
 `main()` はキックするだけで、具体クラスの知識と `SchemaRegistry` の参照は `BatchApplication` に閉じています。
 
