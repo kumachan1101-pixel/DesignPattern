@@ -281,6 +281,10 @@ public:
         return records.at(id);
     }
 
+    void save(const string& id, const ProductInfo& info) {
+        records[id] = info;           // 実行中の商品マスタへ追加
+    }
+
     bool isBelowThreshold(const string& id) const {
         const auto& p = records.at(id);
         return p.stock <= p.alertThreshold;
@@ -424,6 +428,9 @@ Chat: 商品 PRD002 の在庫が閾値以下です。
 
 ---
 ---
+
+> **手元で動かすには**
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter07.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。たとえば `manager.setStock("PRD010", 12);` で商品と在庫を足し、`manager.reduceStock("PRD010", 8);` を呼べば、追加した商品が閾値を下回ったときの全通知先への通知がその場の実行結果に表れます。在庫データはプロセス実行中だけ有効で、終了すると消えます（通知先への実送信は通知境界スタブで簡略化しています）。
 
 ### 1-5：変更要求
 
@@ -1119,6 +1126,10 @@ public:
 
     ProductInfo get(const string& id) const {
         return records.at(id);
+    }
+
+    void save(const string& id, const ProductInfo& info) {
+        records[id] = info;           // 実行中の商品マスタへ追加
     }
 
     bool isBelowThreshold(const string& id) const {
