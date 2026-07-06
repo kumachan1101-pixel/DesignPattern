@@ -297,6 +297,10 @@ public:
         return records.at(id);
     }
 
+    void save(const string& id, const ApproverInfo& info) {
+        records[id] = info;           // 実行中の承認者マスタへ追加
+    }
+
     bool canApprove(const string& id, int amount) const {
         return records.at(id).approvalLimit >= amount;
     }
@@ -403,6 +407,9 @@ int main() {
 次のフェーズでは、このフェーズ1の現状コードに変更を加えたときに何が起きるかを確認します。
 
 ---
+
+> **手元で動かすには**
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter12.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。`wm.process("SUBMITTED", 50000, "APR001");` の申請金額・承認者IDを変えれば、承認可否の判定と状態遷移・通知がその場の実行結果に表れます。新しい承認者を試すときは `ApproverDatabase` の登録へ `records["APR010"] = {"高橋 課長", "manager", 300000};` を足す（または `save()` を呼ぶ）と、その承認者でも同じ処理を実行できます。状態・通知先データはプロセス実行中だけ有効で、終了すると消えます（メール・チャット通知は通知境界スタブで簡略化しています）。
 
 ### 1-5：変更要求
 
@@ -1348,6 +1355,10 @@ public:
 
     ApproverInfo get(const string& id) const {
         return records.at(id);
+    }
+
+    void save(const string& id, const ApproverInfo& info) {
+        records[id] = info;           // 実行中の承認者マスタへ追加
     }
 
     bool canApprove(const string& id, int amount) const {

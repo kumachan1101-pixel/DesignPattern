@@ -291,6 +291,10 @@ public:
         return templates.at(id);
     }
 
+    void save(const string& id, const ReportTemplate& tpl) {
+        templates[id] = tpl;          // 実行中のテンプレート表へ追加
+    }
+
     bool supportsFormat(const string& id, const string& format) const {
         for (const string& supported : templates.at(id).supportedFormats) {
             if (supported == format) return true;
@@ -396,6 +400,9 @@ CSVデータ読み込み完了。
 動作例テーブルの行1（月次・PDF出力）と整合しています。次のフェーズで変更が来たときに何が起きるかを確認します。
 
 ---
+
+> **手元で動かすには**
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter11.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。たとえば `registry.save("SALES_QUARTERLY", {"四半期売上レポート", {"pdf", "excel"}});` でレポート種別を足し、`templateId` をそれに変えて実行すれば、追加した種別の生成手順がその場の実行結果に表れます。テンプレートデータはプロセス実行中だけ有効で、終了すると消えます（描画・ファイル出力は `ReportRenderingApi` 境界の先で簡略化しています）。
 
 ### 1-5：変更要求
 
