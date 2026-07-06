@@ -251,6 +251,10 @@ public:
     void deposit(const std::string& id, int amount) {
         records[id].balance += amount;
     }
+
+    void save(const std::string& id, const AccountInfo& info) {
+        records[id] = info;             // 実行中の口座表へ追加
+    }
 };
 
 // 銀行との通信を担うクラス
@@ -516,6 +520,9 @@ int main() {
 
 動作例テーブルの全5行について、成功時の処理順、失敗時の中止位置、
 バッチでOTPを実行しないことを確認できました。現状でも仕様は満たしています。
+
+> **手元で動かすには**
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter02.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。たとえば `db.save("ACC010", {"高橋 三郎", 80000});` で口座を足し、その口座を送金元にして `processor.transfer("ACC010", "ACC002", 20000, "999999");` を呼べば、追加した口座からの送金の成否や残高変化がその場の実行結果に表れます。口座データはプロセス実行中だけ有効で、終了すると消えます（DBのような永続化はこの章の論点ではありません）。
 
 次のフェーズで変更が来たときに何が起きるかを確認します。
 
@@ -1255,6 +1262,10 @@ public:
 
     void deposit(const std::string& id, int amount) {
         records[id].balance += amount;
+    }
+
+    void save(const std::string& id, const AccountInfo& info) {
+        records[id] = info;             // 実行中の口座表へ追加
     }
 };
 
