@@ -1132,9 +1132,9 @@ public:
 
 ### 7-1：解決後のコード（全体）
 
-フェーズ6で選んだ構造を実装します。連携先クライアントの生成を`IClientCreator`と具象Creatorに、通知処理を`INotifier`として分離しました。
+フェーズ6で選んだ構造を実装します。連携先クライアントの生成を`IClientCreator`と具象Creatorに、通知処理を`INotifier`として分離しました。あわせて、1-4では簡略化のため `void` にしていた送信処理を、1件ごとの成否を表す `DeliveryResult` を返す形に改めます。これにより、`BatchExecutor` は送信の成功・失敗を実際の結果から受け取り、失敗しても記録して次のジョブへ進めます（1-4の動作仕様に残していた「行5：API障害」を、この最終コードで実際に再現します）。
 
-はじめに、通知のインターフェースと具体的な通知クラスを定義します。
+はじめに、通知のインターフェースと送信結果の型、具体的な通知クラスを定義します。
 
 ```cpp
 #include <iostream>
@@ -1177,6 +1177,13 @@ public:
     void save(const string& id, const PartnerConfig& cfg) {
         records[id] = cfg;            // 実行中の連携先表へ追加
     }
+};
+
+// 送信1件分の結果（void をやめ、成否・メッセージを返す）
+struct DeliveryResult {
+    string status;   // "成功" または "失敗"
+    bool success;
+    string message;  // 送信の詳細（バイト数、失敗理由など）
 };
 
 // 通知のインターフェース（通知契約）
@@ -1243,46 +1250,55 @@ public:
 次に、連携先クライアントのインターフェースと実装を定義します。
 
 ```cpp
-// 連携先クライアントのインターフェース（窓口構造の内部で使われる）
+// 連携先クライアントのインターフェース（送信結果 DeliveryResult を返す）
+// apiHealthy は外部APIの健全性をスタブで表す（false=API障害）
 class IExternalClient {
 public:
     virtual ~IExternalClient() {}
-    virtual void send(string data) = 0;
+    virtual DeliveryResult send(string data, bool apiHealthy) = 0;
 };
 
 // A社向け実装
 class SystemAClient : public IExternalClient {
 public:
-    void send(string data) {
+    DeliveryResult send(string data, bool apiHealthy) {
         cout << "A社へ転送: " << data << endl;
+        if (!apiHealthy) return {"失敗", false, "A社: API障害"};
+        return {"成功", true, "A社: 連携完了"};
     }
 };
 
 // B社向け実装（以降、連携先が増えるたびにこの形で追加する）
 class SystemBClient : public IExternalClient {
 public:
-    void send(string data) {
+    DeliveryResult send(string data, bool apiHealthy) {
         cout << "B社へ転送: " << data << endl;
+        if (!apiHealthy) return {"失敗", false, "B社: API障害"};
+        return {"成功", true, "B社: 連携完了"};
     }
 };
 
 class SystemCClient : public IExternalClient {
 public:
-    void send(string data) {
+    DeliveryResult send(string data, bool apiHealthy) {
         cout << "C社へ転送: " << data << endl;
+        if (!apiHealthy) return {"失敗", false, "C社: API障害"};
+        return {"成功", true, "C社: 連携完了"};
     }
 };
 
 // D社向け実装（新規追加）
 class SystemDClient : public IExternalClient {
 public:
-    void send(string data) {
+    DeliveryResult send(string data, bool apiHealthy) {
         cout << "D社へ転送: " << data << endl;
+        if (!apiHealthy) return {"失敗", false, "D社: API障害"};
+        return {"成功", true, "D社: 連携完了"};
     }
 };
 ```
 
-各連携先クライアントは`IExternalClient`を実装します。D社を追加するときは、クライアントと対応するCreatorを追加します。
+各連携先クライアントは`IExternalClient`を実装し、送信の成否を `DeliveryResult` として返します。D社を追加するときは、クライアントと対応するCreatorを追加します。`apiHealthy` は外部APIの健全性をスタブで表し、`false`（API障害）のときは失敗結果を返します。これで動作例テーブルの行5（A社のAPI障害）を、次の `BatchExecutor` から再現できます。
 
 生成メソッドの契約と、連携先ごとの具象Creatorを定義します。
 
@@ -1334,13 +1350,18 @@ class BatchExecutor {
 public:
     void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
 
-    void execute(IClientCreator* creator, string completionMessage) {
+    // 送信結果を受け取り、通知内容へ反映して DeliveryResult を返す
+    DeliveryResult execute(IClientCreator* creator, string partnerName,
+                           bool apiHealthy = true) {
         // 生成分離構造を抽象Creator経由で呼び出す
         IExternalClient* client = creator->createClient();
-        client->send("data");
+        DeliveryResult r = client->send("data", apiHealthy);
+        string note = r.success ? (partnerName + " 連携完了")
+                                : (partnerName + " 連携失敗: " + r.message);
         for (auto* notifier : notifiers) {
-            notifier->onComplete(completionMessage);
+            notifier->onComplete(note);
         }
+        return r;
     }
 };
 
@@ -1352,13 +1373,16 @@ public:
     void addNotifier(INotifier* notifier) {
         notifiers.push_back(notifier);
     }
-    void triggerSync(string targetId) {
+    DeliveryResult triggerSync(string targetId, bool apiHealthy = true) {
         cout << "[ManualTrigger] " << targetId
              << " への手動同期を実行。" << endl;
-        client->send("manualData");
+        DeliveryResult r = client->send("manualData", apiHealthy);
+        string note = r.success ? (targetId + "社手動連携完了")
+                                : (targetId + "社手動連携失敗: " + r.message);
         for (auto* notifier : notifiers) {
-            notifier->onComplete(targetId + "社手動連携完了");
+            notifier->onComplete(note);
         }
+        return r;
     }
 };
 
@@ -1384,6 +1408,7 @@ public:
     void run() {
         BatchLog batchLog;
         SlackNotifier slack;
+        EmailNotifier email;
         LogNotifier log;
         SystemAClientCreator creatorA;
         SystemBClientCreator creatorB;
@@ -1395,8 +1420,8 @@ public:
             PartnerConfig cfgA = db.get("PARTNER_A");
             BatchExecutor executorA;
             executorA.addNotifier(&slack);
-            executorA.execute(&creatorA, cfgA.name + " 連携完了");
-            batchLog.add("PARTNER_A", cfgA.name, "成功");
+            DeliveryResult r = executorA.execute(&creatorA, cfgA.name);
+            batchLog.add("PARTNER_A", cfgA.name, r.status);
         }
 
         cout << "--- 変更要求: C社月次バッチ（今回追加） ---" << endl;
@@ -1404,8 +1429,8 @@ public:
             PartnerConfig cfgC = db.get("PARTNER_C");
             BatchExecutor executorC;
             executorC.addNotifier(&slack);
-            executorC.execute(&creatorC, cfgC.name + " 連携完了");
-            batchLog.add("PARTNER_C", cfgC.name, "成功");
+            DeliveryResult r = executorC.execute(&creatorC, cfgC.name);
+            batchLog.add("PARTNER_C", cfgC.name, r.status);
         }
 
         cout << "--- 行3: D社日次バッチ（新規D社追加後） ---" << endl;
@@ -1413,8 +1438,8 @@ public:
             PartnerConfig cfgD = db.get("PARTNER_D");
             BatchExecutor executorD;
             executorD.addNotifier(&slack);
-            executorD.execute(&creatorD, cfgD.name + " 連携完了");
-            batchLog.add("PARTNER_D", cfgD.name, "成功");
+            DeliveryResult r = executorD.execute(&creatorD, cfgD.name);
+            batchLog.add("PARTNER_D", cfgD.name, r.status);  // 失敗を記録し次へ進む
         }
 
         cout << "--- 行4: B社手動トリガー ---" << endl;
@@ -1423,8 +1448,19 @@ public:
             IExternalClient* bClient = creatorB.createClient();
             ManualTriggerController manual(bClient);
             manual.addNotifier(&slack);
-            manual.triggerSync("B");
-            batchLog.add("PARTNER_B", cfgB.name, "成功");
+            DeliveryResult r = manual.triggerSync("B");
+            batchLog.add("PARTNER_B", cfgB.name, r.status);
+        }
+
+        cout << "--- 行5: A社月次バッチ（API障害・Slack＋メール通知） ---" << endl;
+        if (validate("PARTNER_A")) {
+            PartnerConfig cfgA = db.get("PARTNER_A");
+            BatchExecutor executorFail;
+            executorFail.addNotifier(&slack);
+            executorFail.addNotifier(&email);
+            // 外部APIが障害中（apiHealthy=false）。失敗を記録し次のジョブへ進む
+            DeliveryResult r = executorFail.execute(&creatorA, cfgA.name, false);
+            batchLog.add("PARTNER_A", cfgA.name, r.status);
         }
 
         cout << "--- 行6: B社バッチ（Slack＋ログ基盤） ---" << endl;
@@ -1433,8 +1469,8 @@ public:
             BatchExecutor executorB;
             executorB.addNotifier(&slack);
             executorB.addNotifier(&log);
-            executorB.execute(&creatorB, cfgB.name + " 連携完了");
-            batchLog.add("PARTNER_B", cfgB.name, "成功");
+            DeliveryResult r = executorB.execute(&creatorB, cfgB.name);
+            batchLog.add("PARTNER_B", cfgB.name, r.status);
         }
 
         cout << "--- 無効パートナーZ社の実行試行 ---" << endl;
@@ -1475,6 +1511,10 @@ Slack通知: 配送会社D 連携完了
 [ManualTrigger] B への手動同期を実行。
 B社へ転送: manualData
 Slack通知: B社手動連携完了
+--- 行5: A社月次バッチ（API障害・Slack＋メール通知） ---
+A社へ転送: data
+Slack通知: 物流会社A 連携失敗: A社: API障害
+Email通知: 物流会社A 連携失敗: A社: API障害
 --- 行6: B社バッチ（Slack＋ログ基盤） ---
 B社へ転送: data
 Slack通知: 在庫会社B 連携完了
@@ -1487,13 +1527,14 @@ Slack通知: 在庫会社B 連携完了
 [PARTNER_C] 配送会社C -> 成功
 [PARTNER_D] 配送会社D -> 成功
 [PARTNER_B] 在庫会社B -> 成功
+[PARTNER_A] 物流会社A -> 失敗
 [PARTNER_B] 在庫会社B -> 成功
 [PARTNER_Z] 分析会社Z -> スキップ（無効）
 ```
 
-基本シナリオの行1・3・4・6と、変更要求で追加したC社連携のケースに一致しています。`BatchExecutor` と `ManualTriggerController` はどちらも `INotifier` を登録できるため、実行経路が異なっても同じ通知契約を利用できます。行2（タイムアウト・リトライ）と行5（API障害）は、ここでは外部APIの失敗実装を省略しているため動作仕様として残します。
+基本シナリオの行1・3・4・6と、変更要求で追加したC社連携のケースに一致しています。行5ではA社の外部APIが障害中（`apiHealthy=false`）で、送信が `DeliveryResult` で失敗（API障害）を返します。その結果が通知メッセージ（Slack＋メール両方）とバッチ実行ログの「失敗」に反映され、処理は中断せず次のジョブへ進んでいます。`send()` の戻り値を `void` から `DeliveryResult` に変えたことで、成否がハードコードではなく実際の送信結果から決まり、失敗を記録して次へ進む動作仕様（行5）を実コードで再現できるようになりました。`BatchExecutor` と `ManualTriggerController` はどちらも `INotifier` を登録できるため、実行経路が異なっても同じ通知契約を利用できます。行2（タイムアウト・リトライ）は、リトライ制御そのものが論点外のため動作仕様として残します。
 
-この実装により、`BatchExecutor` は通信の詳細や通知の仕組みを知ることなく、フローの統括のみに専念できるようになりました。
+この実装により、`BatchExecutor` は通信の詳細や通知の仕組みを知ることなく、送信結果の受け取りとフローの統括に専念できるようになりました。
 
 ### 7-2：動作シーケンス図
 
@@ -1512,14 +1553,14 @@ sequenceDiagram
     BA->>BE: new BatchExecutor
     BA->>SN: new SlackNotifier
     BA->>BE: addNotifier(&slackNotifier)
-    BA->>BE: execute(&creatorA, "A社連携完了")
+    BA->>BE: execute(&creatorA, "物流会社A")
     BE->>AC: creator->createClient()
     Note right of BE: IExternalClient* 経由（抽象）
     AC-->>BE: IExternalClient*
-    BE->>SA: client->send("data")
+    BE->>SA: client->send("data", apiHealthy)
     Note right of BE: IExternalClient* 経由
-    SA-->>BE: 完了
-    BE->>SN: obs->onComplete("A社連携完了")
+    SA-->>BE: DeliveryResult
+    BE->>SN: obs->onComplete("物流会社A 連携完了")
     Note right of BE: INotifier* 経由（抽象）
     SN-->>BE: 完了
     BE-->>BA: 完了
