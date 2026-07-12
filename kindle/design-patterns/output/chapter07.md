@@ -390,7 +390,7 @@ int main() {
 
     manager.setStock("PRD001", 10); // ワイヤレスマウス
     manager.setStock("PRD002", 8);  // USBハブ
-    manager.setStock("PRD003", 6);  // キーボード
+    manager.setStock("PRD003", 0);  // キーボード
 
     cout << "--- 行1: PRD001を5減らす ---" << endl;
     manager.reduceStock("PRD001", 5);
