@@ -235,9 +235,9 @@
 | DEEP-04 | 🟡 | chapter04 | Template Method / CSV取込 | Gateway/Repository境界・形式差分は有。不正行・文字コード等の失敗系をR4で補強 | 完了（確認：ImportResult/ValidationResult・不正行skip+reasons+件数報告でR4充足。文字コードは理由明記で論点外） |
 | DEEP-05 | 🟡 | chapter05 | Command / 家計簿Undo | Repository/Renderer境界は有。操作を要求オブジェクト化しUndo副作用をR1/R3で補強 | 完了（Undoの副作用をLedgerRepositoryのdeleteExpense/Incomeへ到達させR3補強。操作は既にIAction要求オブジェクト） |
 | DEEP-11 | 🟡 | chapter11 | Template Method / レポート | `ReportRenderingApi`境界は有。生成ジョブの失敗状態・非同期をR4で補強 | 未着手 |
-| DEEP-09 | 🟢 | chapter09_2 | Strategy×State / チケット | 状態＋優先度データは有。R1〜R5の充足確認と不足補完 | 未着手 |
-| DEEP-10 | 🟢 | chapter10 | Facade / 外部連携 | 境界豊富。R1〜R5の充足確認と不足補完 | 未着手 |
-| DEEP-12 | 🟢 | chapter12 | State+Observer+Strategy / 承認 | 直近で大改修済み。R1〜R5の充足確認のみ | 未着手 |
+| DEEP-09 | 🟢 | chapter09_2 | Strategy×State / チケット | 状態＋優先度データは有。R1〜R5の充足確認と不足補完 | 完了（確認：IPriorityRule/ITicketPhase・UserDatabase・TicketEventLogでR1〜R5充足） |
+| DEEP-10 | 🟢 | chapter10 | Facade / 外部連携 | 境界豊富。R1〜R5の充足確認と不足補完 | 完了（確認：DeliveryResult・PartnerConfig・各Notifier境界・部分失敗でR1〜R5充足） |
+| DEEP-12 | 🟢 | chapter12 | State+Observer+Strategy / 承認 | 直近で大改修済み。R1〜R5の充足確認のみ | 完了（確認：ApprovalRequest/Record・各Repository・WorkflowEventでR1〜R5充足） |
 
 #### 共通 実施ルール（各サブエージェントへ渡す）
 
