@@ -250,7 +250,7 @@
 | ID | 対象 | 作業 | 状態 |
 |---|---|---|---|
 | DEEP-00 | rules/checklist.md, chapter-template.md, agents | R1〜R5を正本へ具体化（改修後に反映） | 完了（checklistへR1〜R5ルーブリック節を追加、templateから参照。agentsはchecklist参照） |
-| DEEP-99 | 検証 / Git | `validate_book.py`、`audit_book.py --write-baseline`、`git diff --check`、`recurrence-prevention.md`記録、mainへpush | 未着手 |
+| DEEP-99 | 検証 / Git | `validate_book.py`、`audit_book.py --write-baseline`、`git diff --check`、`recurrence-prevention.md`記録、mainへpush | 完了（validate/audit 0件・git diff --check clean・recurrence-prevention記録・mainへpush済み） |
 
 ### 2026-07-05 アーキテクチャ構成の多様化（イベント駆動、別スレッド等）
 
