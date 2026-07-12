@@ -226,6 +226,8 @@ classDiagram
 
 コードを読む前に、どのIDが満席でどのIDに空きがあるかを把握しておくと、動作結果と仕様の対応が追いやすくなります。予約が成功するとメモリ上の `reserved` を1増やし、予約済み状態でキャンセルすると1減らします。たとえばEVT002は499件から予約すると500件で満席になり、その予約をキャンセルすると499件へ戻ります。
 
+このコードの `std::map` はイベントIDから `EventInfo` を引くメモリ上のイベント表です。`at(id)` は存在確認済みのIDに対応するデータを取得します。`throw std::runtime_error(...)` は、満席という前提違反を呼び出し元へ例外として通知する記法です。通常の満席判定は先に `hasCapacity()` で行い、例外は確認を飛ばして更新しようとした場合の安全網として使います。
+
 ```cpp
 #include <iostream>
 #include <string>
@@ -259,6 +261,15 @@ public:
     bool hasCapacity(const std::string& id) const {
         const auto& e = records.at(id);
         return e.reserved < e.capacity;
+    }
+
+    void reserveSeat(const std::string& id) {
+        ++records.at(id).reserved;
+    }
+
+    void cancelSeat(const std::string& id) {
+        auto& e = records.at(id);
+        if (e.reserved > 0) --e.reserved;
     }
 
     void reserveSeat(const std::string& id) {
@@ -1517,6 +1528,7 @@ public:
             std::cout << "予約対象：" << i1.title << "\n";
             TicketReservation seat1(availableState());
             seat1.reserve();
+            db.reserveSeat("EVT001");
             history.add("EVT001", i1.title, "予約");
             seat1.pay();
             history.add("EVT001", i1.title, "決済");
@@ -1528,8 +1540,10 @@ public:
             EventInfo i2 = db.get("EVT001");
             TicketReservation seat2(availableState());
             seat2.reserve();
+            db.reserveSeat("EVT001");
             history.add("EVT001", i2.title, "予約");
             seat2.cancel();
+            db.cancelSeat("EVT001");
             history.add("EVT001", i2.title, "キャンセル");
         }
 
@@ -1540,6 +1554,7 @@ public:
             std::cout << "予約対象：" << i3.title << "\n";
             TicketReservation seat3(availableState());
             seat3.reserve();
+            db.reserveSeat("EVT002");
             history.add("EVT002", i3.title, "予約");
             seat3.hold();
             seat3.pay();
@@ -1548,14 +1563,16 @@ public:
 
         // シナリオ4：保留期限切れ (Available → Reserved → Held → Available)
         std::cout << "--- シナリオ4: 保留期限切れ ---\n";
-        if (validate("EVT002")) {
-            EventInfo i4 = db.get("EVT002");
+        if (validate("EVT001")) {
+            EventInfo i4 = db.get("EVT001");
             TicketReservation seat4(availableState());
             seat4.reserve();
-            history.add("EVT002", i4.title, "予約");
+            db.reserveSeat("EVT001");
+            history.add("EVT001", i4.title, "予約");
             seat4.hold();
             seat4.expire();
-            history.add("EVT002", i4.title, "キャンセル");
+            db.cancelSeat("EVT001");
+            history.add("EVT001", i4.title, "キャンセル");
         }
 
         // シナリオ5：キャンセル待ちから昇格
@@ -1566,6 +1583,7 @@ public:
             TicketReservation seat5(availableState());
             seat5.addToWaitlist();
             seat5.upgrade();
+            db.reserveSeat("EVT001");
             history.add("EVT001", i5.title, "予約");
             seat5.pay();
             history.add("EVT001", i5.title, "決済");
@@ -1639,8 +1657,8 @@ int main() {
 [EVT001] 春の音楽祭 -> キャンセル
 [EVT002] 夏のフェス -> 予約
 [EVT002] 夏のフェス -> 決済
-[EVT002] 夏のフェス -> 予約
-[EVT002] 夏のフェス -> キャンセル
+[EVT001] 春の音楽祭 -> 予約
+[EVT001] 春の音楽祭 -> キャンセル
 [EVT001] 春の音楽祭 -> 予約
 [EVT001] 春の音楽祭 -> 決済
 ```
@@ -1675,8 +1693,10 @@ classDiagram
         +reserveSeat(eventId)
         +cancelSeat(eventId)
     }
+    class BatchApplication
     TicketReservation o--> IReservationState
-    TicketReservation --> EventDatabase
+    BatchApplication --> TicketReservation
+    BatchApplication --> EventDatabase
     IReservationState <|.. AvailableState
     IReservationState <|.. ReservedState
     IReservationState <|.. PaidState
@@ -1684,7 +1704,7 @@ classDiagram
     IReservationState <|.. HeldState
 ```
 
-章末のState骨格図では `TicketReservation` がContext、`IReservationState` がState、5つの状態クラスがConcreteStateに対応します。イベントの予約数は状態オブジェクト自身に複製せず、`EventDatabase` を通じて成功時に増減します。
+章末のState骨格図では `TicketReservation` がContext、`IReservationState` がState、5つの状態クラスがConcreteStateに対応します。イベントの予約数は状態オブジェクト自身に複製せず、ユースケースを組み立てる `BatchApplication` が状態遷移の成功後に `EventDatabase` へ増減を保存します。状態の振る舞いと座席在庫の永続化は別の責任として扱います。
 
 ### 7-2：動作シーケンス図
 
