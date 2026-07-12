@@ -183,7 +183,7 @@ flowchart LR
 
 1-3でクラス構成を確認したので、掲載コードで何を代替しているかを整理してからフェーズ1の現状コードへ進みます。
 
-この章では、注文画面とレシート発行を省略し、注文名と金額の計算結果を中心に確認します。実システムなら画面表示やレシート発行は `OrderViewRenderer` や `ReceiptPrinter` のような境界へ渡します。在庫の引当処理までは扱いませんが、販売停止・在庫切れのような「このトッピングを重ねてよいか」の判定は、`ToppingAvailability` という境界スタブで簡略化します。
+この章では、注文画面とレシート発行を省略し、注文名と金額の計算結果を中心に確認します。実システムなら画面表示やレシート発行は `OrderViewRenderer` や `ReceiptPrinter` のような境界へ渡します。在庫の引当処理までは扱いませんが、販売停止・在庫切れのような「このトッピングを重ねてよいか」の判定は、`ToppingCatalog`（トッピングの価格と販売可否を持つ保存データ）の販売可否フラグで簡略化します。
 
 ---
 
@@ -1175,6 +1175,8 @@ IDrink* double_whip = new Whip(new Whip(new Coffee()));
 **今回の決断：**
 フェーズ2のヒアリングで、商品企画部の佐藤マネージャーから「毎月のキャンペーンごとにトッピングが入れ替わる」「ホイップのダブル・チョコチップのトリプルも将来実現したい」と明言されています。この組み合わせ要件を重視し、今回は**ステップ5（トッピング自体がドリンクを包む）まで進化させる**案を採用します。
 
+同じトッピングを複数回重ねる要望に応えるため、注文は「基本ドリンクと、トッピングID・個数の並び」というデータ（要求オブジェクト）として受け取る形にします。価格や販売可否は各トッピングクラスに散らさず、商品企画部が管理するカタログ（保存データ）へ寄せ、組み立て役が販売可否を確認してから包みます。こうすると、包む構造はそのままに、個数や価格改定を要求データとカタログの側で扱えます。
+
 フェーズ6で採用する形が決まりました。次のフェーズ7では、この決断を最終的なコードに落とし込みます。
 
 ---
@@ -1184,7 +1186,7 @@ IDrink* double_whip = new Whip(new Whip(new Coffee()));
 
 ### 7-1：解決後のコード（全体）
 
-ステップ5で決断した構造を、実行可能な完全なコードとして組み上げます。トッピングの種類を管理していたフラグや `if` 文をなくし、基本ドリンクとトッピングを同じ `IDrink` というインターフェース（契約）で統一して扱えるように変更しています。また、オブジェクトの組み立ての責任は `OrderApplication` に集約しています。
+ステップ5で決断した構造を、実行可能な完全なコードとして組み上げます。トッピングの種類を管理していたフラグや `if` 文をなくし、基本ドリンクとトッピングを同じ `IDrink` というインターフェース（契約）で統一して扱えるように変更しています。トッピングの価格・表示名・販売可否は各クラスに散らさず、`ToppingCatalog`（保存データ）へ寄せました。注文は `OrderRequest`（トッピングIDと個数のデータ）として受け取り、`OrderAssembler` が販売可否を確認してから組み立てます。オブジェクトの組み立ての責任は、この `OrderAssembler` と `OrderApplication` に集約しています。
 
 **IDrink インターフェース（契約）：**
 
@@ -1228,23 +1230,32 @@ public:
     }
 };
 
-class ToppingAvailability {
-private:
-    map<string, bool> available;
-public:
-    ToppingAvailability() {
-        available["Milk"] = true;
-        available["Syrup"] = true;
-        available["Whip"] = true;
-        available["Matcha"] = true;
-        available["Choco"] = true;
-        available["SeasonalMint"] = false;
-    }
+// トッピングの表示名・追加料金・販売可否を保持する保存データ（境界）
+struct ToppingSpec {
+    string label;   // 表示名（スタッフ向け作業指示に使う）
+    int price;      // 追加料金（円）
+    bool onSale;    // 販売可否（販売停止・在庫切れはfalse）
+};
 
-    bool canUse(const string& toppingName) const {
-        auto it = available.find(toppingName);
-        return it != available.end() && it->second;
+class ToppingCatalog {
+private:
+    map<string, ToppingSpec> specs;
+public:
+    ToppingCatalog() {
+        specs["Milk"]         = {"Milk",   50, true};
+        specs["Syrup"]        = {"Syrup",  30, true};
+        specs["Whip"]         = {"Whip",   70, true};
+        specs["Matcha"]       = {"Matcha", 60, true};
+        specs["Choco"]        = {"Choco",  40, true};
+        specs["SeasonalMint"] = {"SeasonalMint", 80, false};
     }
+    bool exists(const string& id) const { return specs.count(id) > 0; }
+    bool onSale(const string& id) const {
+        auto it = specs.find(id);
+        return it != specs.end() && it->second.onSale;
+    }
+    int priceOf(const string& id) const { return specs.at(id).price; }
+    string labelOf(const string& id) const { return specs.at(id).label; }
 };
 
 struct OrderRecord {
@@ -1281,6 +1292,17 @@ public:
 
 このインターフェースが基本ドリンクとトッピングの両方が守る「契約」です。呼び出し側はこの型だけを知れば済みます。
 
+`ToppingCatalog` は、トッピングの追加料金と販売可否を保持する保存データです。上のコードに登録した全トッピングを、代表ケースの図とは別に一覧で示します。価格は商品企画部が、販売可否は在庫・販売停止の状況が決めるデータで、各トッピングクラスはこの表の値を読みます。
+
+| トッピングID | 表示名 | 追加料金 | 販売可否 |
+|---|---|---|---|
+| Milk | Milk | +50円 | 販売中 |
+| Syrup | Syrup | +30円 | 販売中 |
+| Whip | Whip | +70円 | 販売中 |
+| Matcha | Matcha | +60円 | 販売中 |
+| Choco | Choco | +40円 | 販売中 |
+| SeasonalMint | SeasonalMint | +80円 | 販売停止 |
+
 **Coffee クラス（基本ドリンク）：**
 
 ```cpp
@@ -1300,11 +1322,22 @@ public:
 // 変わる部分を繋ぐ仲介役：トッピングの基底クラス
 class ToppingWrapper : public IDrink {
 protected:
-    // ← 中身（基本ドリンクや他のトッピング）を隠し持つ
-    IDrink* baseDrink;
+    IDrink* baseDrink;             // 中身（基本ドリンクや他のトッピング）
+    const ToppingCatalog* catalog; // 価格・表示名の保存データ
+    string toppingId;              // 自分がどのトッピングか
 public:
-    ToppingWrapper(IDrink* base) : baseDrink(base) {}
+    ToppingWrapper(IDrink* base, const ToppingCatalog* cat,
+                   const string& id)
+        : baseDrink(base), catalog(cat), toppingId(id) {}
     ~ToppingWrapper() override { delete baseDrink; }
+    int getPrice() const override {
+        // 価格は自分で持たず、カタログ（保存データ）から読む
+        return baseDrink->getPrice() + catalog->priceOf(toppingId);
+    }
+    string getDescription() const override {
+        return baseDrink->getDescription()
+             + " + " + catalog->labelOf(toppingId);
+    }
 };
 ```
 
@@ -1313,33 +1346,22 @@ public:
 **Milk クラス・Whip クラス（具体的なトッピング）：**
 
 ```cpp
-// 具体的なトッピング：ミルク
+// 具体的なトッピング：自分の識別子だけを名乗る
 class Milk : public ToppingWrapper {
 public:
-    Milk(IDrink* base) : ToppingWrapper(base) {}
-    int getPrice() const override {
-        // ← 中身が何であるかは知らなくていい。価格を上乗せするだけ
-        return baseDrink->getPrice() + 50;
-    }
-    string getDescription() const override {
-        return baseDrink->getDescription() + " + Milk";
-    }
+    Milk(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Milk") {}
 };
 
 // 具体的なトッピング：ホイップ
 class Whip : public ToppingWrapper {
 public:
-    Whip(IDrink* base) : ToppingWrapper(base) {}
-    int getPrice() const override {
-        return baseDrink->getPrice() + 70;
-    }
-    string getDescription() const override {
-        return baseDrink->getDescription() + " + Whip";
-    }
+    Whip(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Whip") {}
 };
 ```
 
-各トッピングクラスは「中身の価格に自分の価格を足す」だけです。中身が何層に重なっているかを知る必要はありません。
+各トッピングクラスは、自分がどのトッピングかを名乗るだけになりました。価格や表示名は自分では持たず、基底の `ToppingWrapper` が `ToppingCatalog`（保存データ）から読みます。中身が何層に重なっているかを知る必要もありません。
 
 **Syrup クラス・Matcha クラス（新規追加トッピング）：**
 
@@ -1347,151 +1369,145 @@ public:
 // ← 新しいトッピングを追加する場合は、クラスを1つ増やすだけ（ここだけ変わる）
 class Syrup : public ToppingWrapper {
 public:
-    Syrup(IDrink* base) : ToppingWrapper(base) {}
-    int getPrice() const override {
-        return baseDrink->getPrice() + 30;
-    }
-    string getDescription() const override {
-        return baseDrink->getDescription() + " + Syrup";
-    }
+    Syrup(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Syrup") {}
 };
 
 class Matcha : public ToppingWrapper {
 public:
-    Matcha(IDrink* base) : ToppingWrapper(base) {}
-    int getPrice() const override {
-        return baseDrink->getPrice() + 60;
-    }
-    string getDescription() const override {
-        return baseDrink->getDescription() + " + Matcha";
-    }
+    Matcha(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Matcha") {}
 };
 
 class Choco : public ToppingWrapper {
 public:
-    Choco(IDrink* base) : ToppingWrapper(base) {}
-    int getPrice() const override {
-        return baseDrink->getPrice() + 40;
-    }
-    string getDescription() const override {
-        return baseDrink->getDescription() + " + Choco";
-    }
+    Choco(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Choco") {}
 };
 ```
 
 佐藤マネージャーが要求した「抹茶パウダーの追加」も「チョコチップの追加」も、変更の中心はそれぞれの追加クラスと組み立てコードに移ります。中心となる既存クラスには、抹茶やチョコの条件分岐を追加していません。
 
-**OrderApplication クラス（組み立てと実行）：**
+**注文要求・組み立て・アプリケーション：**
+
+注文は `OrderRequest`（基本ドリンクIDと、トッピングID・個数の並び）という要求オブジェクトで表します。`OrderAssembler` はメニューとトッピングの販売可否を先に確認し、通ったものだけを選択順・個数ぶんだけ包んで、`OrderResult`（注文名・金額、または失敗理由）を返します。個数や種類は `new Whip(new Whip(...))` のような入れ子ではなく、要求データとして持ちます。
 
 ```cpp
+// 注文明細（要求オブジェクト）：トッピングIDと個数をデータで持つ
+struct ToppingLine {
+    string toppingId;
+    int quantity;
+};
+
+struct OrderRequest {
+    string baseItemId;
+    vector<ToppingLine> toppings;
+};
+
+// 注文結果（結果オブジェクト）：成功可否・注文名・金額・エラー理由
+struct OrderResult {
+    bool ok;
+    string description;
+    int totalPrice;
+    string error;
+};
+
+// 依存の組み立てと検証を担うクラス
+class OrderAssembler {
+private:
+    MenuDatabase& db;
+    ToppingCatalog& catalog;
+
+    IDrink* wrapOne(const string& id, IDrink* base) {
+        if (id == "Milk")   return new Milk(base, &catalog);
+        if (id == "Syrup")  return new Syrup(base, &catalog);
+        if (id == "Whip")   return new Whip(base, &catalog);
+        if (id == "Matcha") return new Matcha(base, &catalog);
+        if (id == "Choco")  return new Choco(base, &catalog);
+        return base;
+    }
+public:
+    OrderAssembler(MenuDatabase& d, ToppingCatalog& c)
+        : db(d), catalog(c) {}
+
+    OrderResult assemble(const OrderRequest& req) {
+        if (!db.exists(req.baseItemId)) {
+            return {false, "", 0,
+                    "メニューID " + req.baseItemId + " は存在しません"};
+        }
+        // 手順1：全トッピングの登録と販売可否を先に確認する
+        for (const auto& line : req.toppings) {
+            if (!catalog.exists(line.toppingId)) {
+                return {false, "", 0,
+                        "トッピング " + line.toppingId + " は未対応です"};
+            }
+            if (!catalog.onSale(line.toppingId)) {
+                return {false, "", 0, "トッピング " + line.toppingId
+                        + " は販売停止または在庫切れです"};
+            }
+        }
+        // 手順2：検証を通ったので、選択順・個数だけ基本ドリンクへ重ねる
+        IDrink* drink = new Coffee();
+        for (const auto& line : req.toppings) {
+            for (int i = 0; i < line.quantity; ++i) {
+                drink = wrapOne(line.toppingId, drink);
+            }
+        }
+        OrderResult r{true, drink->getDescription(),
+                      drink->getPrice(), ""};
+        delete drink;
+        return r;
+    }
+};
+
 // 依存の組み立てと実行を担うアプリケーションクラス
 class OrderApplication {
 private:
     MenuDatabase db;
-    ToppingAvailability availability;
-
-    // メニューIDを検証する。存在しない場合はエラーを出力して false を返す
-    bool validateMenu(const string& itemId) {
-        if (!db.exists(itemId)) {
-            cout << "エラー：メニューID " << itemId
-                 << " は存在しません" << endl;
-            return false;
-        }
-        return true;
-    }
-
-    bool validateTopping(const string& toppingName) {
-        if (!availability.canUse(toppingName)) {
-            cout << "エラー：トッピング " << toppingName
-                 << " は販売停止または在庫切れです" << endl;
-            return false;
-        }
-        return true;
-    }
-
+    ToppingCatalog catalog;
 public:
     void run() {
+        OrderAssembler assembler(db, catalog);
         OrderLog log;
 
-        // 存在しないメニューIDを指定した場合のエラー処理
-        if (!validateMenu("DRINK999")) {
-            // ← ここで処理を中断するか、次の注文に進むかを判断できる
+        vector<OrderRequest> requests = {
+            {"DRINK001", {}},
+            {"DRINK001", {{"Milk", 1}}},
+            {"DRINK001", {{"Milk", 1}, {"Syrup", 1}}},
+            {"DRINK001", {{"Milk", 1}, {"Whip", 1}}},
+            {"DRINK001", {{"Whip", 2}}},
+            {"DRINK001", {{"Milk", 1}, {"Syrup", 1}, {"Whip", 1}}},
+            {"DRINK001", {{"Milk", 1}, {"Syrup", 1},
+                          {"Whip", 1}, {"Matcha", 1}}},
+            {"DRINK001", {{"Choco", 1}}},
+            {"DRINK001", {{"Milk", 1}, {"Matcha", 1}, {"Choco", 1}}},
+            {"DRINK999", {{"Milk", 1}}},
+            {"DRINK001", {{"SeasonalMint", 1}}},
+        };
+
+        for (const auto& req : requests) {
+            OrderResult res = assembler.assemble(req);
+            if (res.ok) {
+                cout << res.description << " → " << res.totalPrice
+                     << "円" << endl;
+                log.add(req.baseItemId, res.description,
+                        res.totalPrice);
+            } else {
+                cout << "エラー：" << res.error << endl;
+            }
         }
-
-        // 販売停止トッピングを指定した場合のエラー処理
-        if (!validateTopping("SeasonalMint")) {
-            // ← 実システムなら注文を作らず、画面へ理由を返す
-        }
-
-        // 行1：コーヒーのみ（MenuDatabase でメニューIDの存在を確認してから生成）
-        if (!validateMenu("DRINK001")) return;
-        IDrink* o1 = new Coffee();
-        cout << o1->getDescription() << " → " << o1->getPrice() << "円" << endl;
-        log.add("DRINK001", o1->getDescription(), o1->getPrice());
-        delete o1;
-
-        // 行2：コーヒー + ミルク
-        IDrink* o2 = new Milk(new Coffee());
-        cout << o2->getDescription() << " → " << o2->getPrice() << "円" << endl;
-        log.add("DRINK001", o2->getDescription(), o2->getPrice());
-        delete o2;
-
-        // 行3：コーヒー + ミルク + シロップ
-        IDrink* o3 = new Syrup(new Milk(new Coffee()));
-        cout << o3->getDescription() << " → " << o3->getPrice() << "円" << endl;
-        log.add("DRINK001", o3->getDescription(), o3->getPrice());
-        delete o3;
-
-        // 行4：コーヒー + ミルク + ホイップ
-        IDrink* o4 = new Whip(new Milk(new Coffee()));
-        cout << o4->getDescription() << " → " << o4->getPrice() << "円" << endl;
-        log.add("DRINK001", o4->getDescription(), o4->getPrice());
-        delete o4;
-
-        // 行5：コーヒー + ホイップ × 2（ダブル）
-        IDrink* o5 = new Whip(new Whip(new Coffee()));
-        cout << o5->getDescription() << " → " << o5->getPrice() << "円" << endl;
-        log.add("DRINK001", o5->getDescription(), o5->getPrice());
-        delete o5;
-
-        // 行6：コーヒー + ミルク + シロップ + ホイップ
-        IDrink* o6 = new Whip(new Syrup(new Milk(new Coffee())));
-        cout << o6->getDescription() << " → " << o6->getPrice() << "円" << endl;
-        log.add("DRINK001", o6->getDescription(), o6->getPrice());
-        delete o6;
-
-        // 行7：コーヒー + ミルク + シロップ + ホイップ + 抹茶（全5種）
-        IDrink* o7 = new Matcha(
-            new Whip(new Syrup(new Milk(new Coffee()))));
-        cout << o7->getDescription() << " → " << o7->getPrice() << "円" << endl;
-        log.add("DRINK001", o7->getDescription(), o7->getPrice());
-        delete o7;
-
-        // 行8：コーヒー + チョコ（変更要求で追加されたトッピング）
-        IDrink* o8 = new Choco(new Coffee());
-        cout << o8->getDescription() << " → " << o8->getPrice() << "円" << endl;
-        log.add("DRINK001", o8->getDescription(), o8->getPrice());
-        delete o8;
-
-        // 行9：コーヒー + ミルク + 抹茶 + チョコ（新トッピング2種の組み合わせ）
-        IDrink* o9 = new Choco(
-            new Matcha(new Milk(new Coffee())));
-        cout << o9->getDescription() << " → " << o9->getPrice() << "円" << endl;
-        log.add("DRINK001", o9->getDescription(), o9->getPrice());
-        delete o9;
 
         cout << "\n--- 注文ログ ---\n";
         log.printAll();
     }
 
     void testOrderCalculation() {
-        IDrink* o1 = new Coffee();
-        assert(o1->getPrice() == 400);  // ← Coffee のみ: 400円
-        delete o1;
-
-        IDrink* o6 = new Whip(new Syrup(new Milk(new Coffee())));
-        assert(o6->getPrice() == 550);  // ← 400 + 50 + 30 + 70 = 550円
-        delete o6;
+        OrderAssembler assembler(db, catalog);
+        OrderResult r1 = assembler.assemble({"DRINK001", {}});
+        assert(r1.totalPrice == 400);
+        OrderResult r6 = assembler.assemble(
+            {"DRINK001", {{"Milk", 1}, {"Syrup", 1}, {"Whip", 1}}});
+        assert(r6.totalPrice == 550);
     }
 };
 
@@ -1511,8 +1527,6 @@ int main() {
 実行結果：
 
 ```
-エラー：メニューID DRINK999 は存在しません
-エラー：トッピング SeasonalMint は販売停止または在庫切れです
 Coffee → 400円
 Coffee + Milk → 450円
 Coffee + Milk + Syrup → 480円
@@ -1522,6 +1536,8 @@ Coffee + Milk + Syrup + Whip → 550円
 Coffee + Milk + Syrup + Whip + Matcha → 610円
 Coffee + Choco → 440円
 Coffee + Milk + Matcha + Choco → 550円
+エラー：メニューID DRINK999 は存在しません
+エラー：トッピング SeasonalMint は販売停止または在庫切れです
 
 --- 注文ログ ---
 [DRINK001] Coffee 400円
@@ -1535,7 +1551,7 @@ Coffee + Milk + Matcha + Choco → 550円
 [DRINK001] Coffee + Milk + Matcha + Choco 550円
 ```
 
-掲載した実行結果は、フェーズ1の現状動作例、1-5の変更後出力例、販売停止トッピングの拒否ケースに対応しています。`Syrup`・`Matcha`・`Choco`は追加クラスとして定義し、利用する組み合わせを組み立てコードへ追加しています。`SeasonalMint` は `ToppingAvailability` で販売停止として扱い、トッピングを包む前に注文作成を止めています。
+各注文は `OrderRequest`（基本ドリンクIDとトッピングID・個数の並び）として渡し、`OrderAssembler` がメニューとトッピングの販売可否を確認してから、選択順・個数ぶんだけドリンクを包みます。5行目の「Coffee + Whip + Whip」は、ホイップを個数2で頼んだ結果です。`Whip` を二重に書くのではなく、要求データの個数として表しています。価格と表示名は各トッピングクラスが持たず、`ToppingCatalog`（保存データ）から読みます。`DRINK999` は未登録メニュー、`SeasonalMint` は `ToppingCatalog` で販売停止としているため、どちらも注文結果を作らずエラー理由だけを返しています。
 
 ---
 
@@ -1549,15 +1565,20 @@ classDiagram
     class Milk
     class Whip
     class Matcha
+    class ToppingCatalog
+    class OrderAssembler
     IDrink <|.. Coffee
     IDrink <|.. ToppingWrapper
     ToppingWrapper o--> IDrink
     ToppingWrapper <|-- Milk
     ToppingWrapper <|-- Whip
     ToppingWrapper <|-- Matcha
+    ToppingWrapper ..> ToppingCatalog
+    OrderAssembler ..> ToppingCatalog
+    OrderAssembler ..> IDrink
 ```
 
-章末のDecorator骨格図では、`IDrink` がComponent、`Coffee` がConcreteComponent、`ToppingWrapper` がDecorator、各トッピングがConcreteDecoratorに対応します。
+この図は、装飾の連結（`IDrink` を軸にした包む構造）に加え、価格・販売可否を持つ `ToppingCatalog` と、要求から組み立てる `OrderAssembler` を示しています。章末のDecorator骨格図では、`IDrink` がComponent、`Coffee` がConcreteComponent、`ToppingWrapper` がDecorator、各トッピングがConcreteDecoratorに対応します。`ToppingCatalog` と `OrderAssembler` は、Decorator本体の外側で価格データと組み立てを支える役割です。
 
 ### 7-2：動作シーケンス図
 
@@ -1626,7 +1647,7 @@ graph LR
 |---|---|---|
 | 新しいトッピング（抹茶パウダー等）を追加 | `CustomDrink` にフラグ追加・価格の if 文追加・説明の if 文追加（3箇所） | `Matcha` クラスを新規作成し、組み立てへ登録 |
 | トッピングの価格を変更 | `CustomDrink` の if 文内を修正 | 対象のトッピングクラスのみ修正 |
-| トッピングを販売停止にする | `CustomDrink` または呼び出し側へ個別判定を追加 | `ToppingAvailability` の販売状態を更新 |
+| トッピングを販売停止にする | `CustomDrink` または呼び出し側へ個別判定を追加 | `ToppingCatalog` の販売状態を更新 |
 | 表示順を選択順にする | `if` 文の並び順に依存し、順序変更の意図が読みにくい | 組み立て順がそのまま表示名と価格加算の順序になる |
 | 同じトッピングを2回追加する仕様 | `CustomDrink` のフラグ管理を大幅に改修 | 装飾連結構造を2回重ねるだけ |
 
@@ -1641,7 +1662,7 @@ graph LR
 | **問題** | トッピングの種類が増えるたびに、`CustomDrink` のメンバ変数・コンストラクタ・価格計算・名称生成の4箇所と呼び出し側が連動して変わる |
 | **原因** | 基本ドリンクの骨格と、各トッピングの価格・名前・販売可否・表示順という変わる理由が異なるものが同じ場所に混在している |
 | **課題** | 各トッピングが価格と名前の知識を持ち、販売可否は組み立て前に確認し、基本ドリンク側の条件分岐を増やさず組み合わせられる形にする |
-| **解決策** | 装飾連結構造：基本ドリンクとトッピングを同じ `IDrink` インターフェースで統一し、トッピング自身が別のドリンクを包む `ToppingWrapper` 構造で機能を動的に重ね合わせる。販売可否は `ToppingAvailability` で確認してから包む |
+| **解決策** | 装飾連結構造：基本ドリンクとトッピングを同じ `IDrink` インターフェースで統一し、トッピング自身が別のドリンクを包む `ToppingWrapper` 構造で機能を動的に重ね合わせる。販売可否は `ToppingCatalog` で確認してから包む |
 
 ## 整理
 
@@ -1663,7 +1684,7 @@ graph LR
 | --- | --- | --- |
 | ドリンクの価格・名前の提供 | `CustomDrink`（全組み合わせをif-elseで直書き） | `Coffee` / `Milk` / `Matcha` 等の個別クラス |
 | トッピングの連鎖的な価格加算 | `CustomDrink`（フラグで直書き） | `Milk` / `Matcha` 等のラッパークラス |
-| トッピングの販売可否 | 未整理、または呼び出し側の個別判定 | `ToppingAvailability` |
+| トッピングの販売可否 | 未整理、または呼び出し側の個別判定 | `ToppingCatalog` |
 | トッピングの表示順 | `CustomDrink` 内の `if` 文の並び | `OrderApplication` の組み立て順 |
 | ドリンク契約の定義 | —（なし） | `IDrink` |
 | トッピング連鎖の仲介役定義 | —（なし） | `ToppingWrapper` |
@@ -1675,7 +1696,7 @@ graph LR
 | 追加した複雑さ | 見えた原因 | 定めた課題 | 採用した扱い |
 |---|---|---|---|
 | トッピングの重ね順 | `if` 文の並びが表示順を決めている | 選択順を組み立て順として表せるようにする | ラッパーを包む順序で価格と表示名を再計算する |
-| 在庫/販売停止 | 注文へ重ねてよいかの判定が基本ドリンク側へ入りそうになる | 包む前の境界で販売可否を確認する | `ToppingAvailability` で拒否し、注文を作らない |
+| 在庫/販売停止 | 注文へ重ねてよいかの判定が基本ドリンク側へ入りそうになる | 包む前の境界で販売可否を確認する | `ToppingCatalog` で拒否し、注文を作らない |
 | 価格再計算 | 価格知識が `CustomDrink` の条件分岐へ集まる | 価格差分をトッピング側へ寄せる | 各トッピングクラスの `getPrice()` に閉じる |
 | 表示名再計算 | 表示名の知識も `CustomDrink` に集まる | 価格と同じ契約で表示名も重ねる | 各トッピングクラスの `getDescription()` に閉じる |
 
