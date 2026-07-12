@@ -1254,10 +1254,16 @@ public:
 
 ```cpp
 // IReportAction: 操作履歴のインターフェース（操作記録構造）
+// 生成ジョブの結果（結果オブジェクト）：成功可否と理由
+struct JobResult {
+    bool success;
+    std::string message;
+};
+
 class IReportAction {
 public:
     virtual ~IReportAction() = default;
-    virtual void execute() = 0;
+    virtual JobResult execute() = 0;
     virtual void undo() = 0;  // ← 取り消し操作も契約に含める
 };
 ```
@@ -1355,11 +1361,15 @@ public:
 
 // GraphFeature: グラフ追加の装飾
 class GraphFeature : public ReportFeature {
+    bool* available;  // 外部描画基盤が使えるか（nullptrなら常に可）
 public:
-    explicit GraphFeature(ReportSkeleton* g)
-        : ReportFeature(g) {}
+    explicit GraphFeature(ReportSkeleton* g, bool* avail = nullptr)
+        : ReportFeature(g), available(avail) {}
     void renderBody() override {
         wrapped->renderBody();         // ← 内側の処理を先に呼ぶ
+        if (available && !*available) {
+            throw runtime_error("グラフ描画APIが一時的に失敗しました");
+        }
         ReportRenderingApi api;
         api.addGraph(); // ← 実システムでは描画ライブラリ/APIを呼ぶ
     }
@@ -1414,32 +1424,38 @@ public:
         delete generator; // generatorを所有しているので解放する
     }
 
-    void execute() override {
+    JobResult execute() override {
         if (created) {
-            throw logic_error("同じ操作は再実行できません。");
+            return {false, "同じ操作は再実行できません。"};
         }
         if (fileExists(outputPath)) {
-            throw runtime_error(
-                outputPath + " は既に存在するため上書きしません。");
+            return {false,
+                    outputPath + " は既に存在するため上書きしません。"};
         }
 
-        generator->generate();
+        // 装飾途中の失敗はここで生成ジョブの失敗として受け取る
+        try {
+            generator->generate();
+        } catch (const exception& e) {
+            return {false, string("生成失敗: ") + e.what()};
+        }
 
         // サンプルでは形式名を記録したデモ用ファイルを実際に作成する
         ofstream output(outputPath);
         if (!output) {
-            throw runtime_error(outputPath + " を作成できません。");
+            return {false, outputPath + " を作成できません。"};
         }
         output << formatName(format) << " report" << endl;
         output.close();
         if (!output) {
             remove(outputPath.c_str());
-            throw runtime_error(outputPath + " の書き込みに失敗しました。");
+            return {false, outputPath + " の書き込みに失敗しました。"};
         }
         created = true;
 
         cout << "[コマンド] " << formatName(format) << "形式で "
              << outputPath << " を生成して履歴に記録。" << endl;
+        return {true, "生成完了"};
     }
 
     void handleNoFileToUndo() {
@@ -1589,6 +1605,30 @@ public:
         history.pop_back();
         reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "キャンセル");
 
+        // 行7: グラフ描画が一時的に失敗し、復旧後に同じ操作を再実行
+        cout << "--- 行7: グラフ描画失敗と再実行 ---" << endl;
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        cout << "テンプレート: " << tmpl.name << endl;
+        bool graphAvailable = false;   // 外部描画基盤が一時停止
+        auto* a7 = new GenerateReportAction(
+            new GraphFeature(new MonthlyReport(), &graphAvailable),
+            "retry_monthly.pdf",
+            OutputFormat::Pdf);
+        JobResult r7 = a7->execute();
+        if (!r7.success) {
+            cout << "[ジョブ] 失敗: " << r7.message << endl;
+            reportLog.add("SALES_MONTHLY", tmpl.name,
+                          tmpl.format, "失敗");
+            graphAvailable = true;     // 描画基盤が復旧
+            cout << "[ジョブ] 同じ生成操作を再実行します。" << endl;
+            r7 = a7->execute();
+        }
+        if (r7.success) {
+            reportLog.add("SALES_MONTHLY", tmpl.name,
+                          tmpl.format, "成功");
+        }
+        history.push_back(a7);
+
         cout << "\n--- レポート生成ログ ---\n";
         reportLog.printAll();
     }
@@ -1666,6 +1706,17 @@ CSV読み込み
 フッター生成
 [コマンド] PDF形式で graph_monthly.pdf を生成して履歴に記録。
 [コマンド] graph_monthly.pdf を削除してアンドゥ完了。
+--- 行7: グラフ描画失敗と再実行 ---
+テンプレート: 月次売上レポート
+CSV読み込み
+月次集計を本文として生成。
+[ジョブ] 失敗: 生成失敗: グラフ描画APIが一時的に失敗しました
+[ジョブ] 同じ生成操作を再実行します。
+CSV読み込み
+月次集計を本文として生成。
+[ReportRenderingApi] グラフ描画APIを呼び出し。
+フッター生成
+[コマンド] PDF形式で retry_monthly.pdf を生成して履歴に記録。
 
 --- レポート生成ログ ---
 [SALES_MONTHLY] 月次売上レポート (pdf) -> 成功
@@ -1676,6 +1727,8 @@ CSV読み込み
 [SALES_MONTHLY] 月次売上レポート (pdf) -> 成功
 [SALES_DEPT] 部門別売上レポート (pdf) -> 成功
 [SALES_MONTHLY] 月次売上レポート (pdf) -> キャンセル
+[SALES_MONTHLY] 月次売上レポート (pdf) -> 失敗
+[SALES_MONTHLY] 月次売上レポート (pdf) -> 成功
 ```
 
 掲載したデモでは、動作テーブルの6つのシナリオに対応する生成・一括実行・削除を確認しています。行5は並列処理ではなく、三つの操作を順に実行する一括処理です。サンプル実行後にはPDF用またはExcel用のデモファイルが作成され、行4と行6ではそれぞれ直前に生成した対象ファイルが削除されます。既存の出力先は上書きせず、Undoは操作オブジェクト自身が作成したファイルだけを削除します。装飾は装飾クラスのチェーンで組み合わされています。
