@@ -1185,7 +1185,8 @@ class StockEventLog {
 public:
     void add(const std::string& productId, const std::string& productName,
              const std::string& eventType, int amount, int stockAfter) {
-        records.push_back({productId, productName, eventType, amount, stockAfter});
+        records.push_back({productId, productName,
+                           eventType, amount, stockAfter});
     }
     void printAll() const {
         for (const auto& r : records) {

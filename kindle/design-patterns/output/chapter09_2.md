@@ -1339,7 +1339,8 @@ public:
     void printAll() const {
         for (const auto& r : records) {
             std::cout << "[" << r.userId << "] " << r.userName
-                      << " " << r.eventType << " (" << r.priority << ")" << std::endl;
+                      << " " << r.eventType
+                      << " (" << r.priority << ")" << std::endl;
         }
     }
     int size() const { return (int)records.size(); }

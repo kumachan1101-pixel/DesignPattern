@@ -1169,7 +1169,7 @@ public:
         records["PARTNER_A"] = {"物流会社A", "logistics-a.example",  true};
         records["PARTNER_B"] = {"在庫会社B", "stock-b.example",      true};
         records["PARTNER_C"] = {"配送会社C", "delivery-c.example",   true};  // 今回追加
-        records["PARTNER_D"] = {"配送会社D", "delivery-d.example",   true};  // D社追加後
+        records["PARTNER_D"] = {"配送会社D", "delivery-d.example",   true};  // D社追加
         records["PARTNER_Z"] = {"分析会社Z", "analytics-z.example",  false}; // 無効
     }
 
@@ -1470,7 +1470,8 @@ public:
             executorFail.addNotifier(&slack);
             executorFail.addNotifier(&email);
             // 外部APIが障害中（apiHealthy=false）。失敗を記録し次のジョブへ進む
-            DeliveryResult r = executorFail.execute(&creatorA, cfgA.name, false);
+            DeliveryResult r =
+                executorFail.execute(&creatorA, cfgA.name, false);
             batchLog.add("PARTNER_A", cfgA.name, r.status);
         }
 
