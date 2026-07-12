@@ -1461,12 +1461,14 @@ classDiagram
     class InventoryManager
     class INotification { <<interface>> }
     class EmailNotifier
-    class SlackNotifier
-    class LogNotifier
+    class DashboardUpdater
+    class ChatNotifier
+    class SMSNotifier
     InventoryManager o--> INotification
     INotification <|.. EmailNotifier
-    INotification <|.. SlackNotifier
-    INotification <|.. LogNotifier
+    INotification <|.. DashboardUpdater
+    INotification <|.. ChatNotifier
+    INotification <|.. SMSNotifier
 ```
 
 章末のObserver骨格図では、`InventoryManager` がSubject、`INotification` がObserver、各通知クラスがConcreteObserverに対応します。
