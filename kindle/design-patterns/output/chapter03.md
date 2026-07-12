@@ -283,21 +283,6 @@ public:
         if (e.reserved > 0) --e.reserved;
     }
 
-    void reserveSeat(const std::string& id) {
-        auto& e = records.at(id);
-        if (e.reserved >= e.capacity) {
-            throw std::runtime_error("満席です");
-        }
-        ++e.reserved;
-    }
-
-    void cancelSeat(const std::string& id) {
-        auto& e = records.at(id);
-        if (e.reserved > 0) {
-            --e.reserved;
-        }
-    }
-
     void save(const std::string& id, const EventInfo& info) {
         records[id] = info;             // 実行中のイベント表へ追加
     }
@@ -1301,6 +1286,15 @@ public:
         return e.reserved < e.capacity;
     }
 
+    void reserveSeat(const std::string& id) {
+        ++records.at(id).reserved;
+    }
+
+    void cancelSeat(const std::string& id) {
+        auto& e = records.at(id);
+        if (e.reserved > 0) --e.reserved;
+    }
+
     void save(const std::string& id, const EventInfo& info) {
         records[id] = info;             // 実行中のイベント表へ追加
     }
@@ -2029,3 +2023,4 @@ public:
 7つのフェーズを通じて、読者は `status` 文字列の直書きという観察から「どの業務機能によるか」の分析へ、そして状態クラスへの分離という判断へと進みました。フェーズ2のヒアリングで「状態の種類は今後も増える」と確認した時点で変化軸が確定し、フェーズ4で「状態と振る舞いの混在」を接続点として特定した時点で解決の方向が定まる——その気づきの積み上げが、パターン名の暗記では得られない体験です。
 
 あなたのコードの中にも、ステータス文字列や状態フラグで分岐している箇所があるはずです。それぞれの分岐が「どの業務機能によるか」を問うことが、状態をクラスとして分離する理由を見つける入口になります。
+                                                                                                                                                     
