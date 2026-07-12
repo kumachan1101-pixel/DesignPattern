@@ -1357,11 +1357,11 @@ public:
         std::cout << "認証コード発行\n";
         return "TXN12345"; // 銀行APIの応答で返る取引ID
     }
-    void verifyOTP(const std::string& token,
+    bool verifyOTP(const std::string& token,
                    const std::string& txId) {
-        (void)token;
         (void)txId;
         std::cout << "認証コード検証\n";
+        return token == "999999"; // 正しいOTPだけ通す
     }
 };
 ```
@@ -1407,13 +1407,25 @@ public:
 
 ```cpp
 // 業務フロー側に見せる窓口（インターフェース）
+// 振り込み要求（要求オブジェクト）：1件の振込に必要な入力をまとめる
+struct TransferRequest {
+    std::string fromAccount;
+    std::string toAccount;
+    int amount;
+    std::string otp;
+};
+
+// 振り込み結果（結果オブジェクト）：成功可否と理由
+struct TransferResult {
+    bool success;
+    std::string message; // 完了、または失敗理由
+};
+
 class IBankTransferService {
 public:
-    virtual bool performTransfer(
-        const std::string& fromAccount,
-        const std::string& toAccount, int amount,
-        const std::string& otp) = 0;
-    virtual bool performApprovedBatchTransfer(
+    virtual TransferResult performTransfer(
+        const TransferRequest& req) = 0;
+    virtual TransferResult performApprovedBatchTransfer(
         const std::string& fromAccount,
         const std::string& toAccount, int amount) = 0;
     virtual ~IBankTransferService() = default;
@@ -1431,54 +1443,55 @@ public:
                         TransferHistory& hist)
         : db(database), history(hist) {}
 
-    bool performTransfer(
-            const std::string& fromAccount,
-            const std::string& toAccount, int amount,
-            const std::string& otp) override {
+    TransferResult performTransfer(
+            const TransferRequest& req) override {
         // 複雑な手順はすべてこの窓口の中に閉じる
-        if (!db.exists(fromAccount)) {
+        if (!db.exists(req.fromAccount)) {
             std::cout << "エラー: 送金元口座なし\n";
-            return false;
+            return {false, "送金元口座なし"};
         }
-        if (!db.exists(toAccount)) {
+        if (!db.exists(req.toAccount)) {
             std::cout << "エラー: 送金先口座なし\n";
-            return false;
+            return {false, "送金先口座なし"};
         }
-        if (db.get(fromAccount).balance < amount) {
+        if (db.get(req.fromAccount).balance < req.amount) {
             std::cout << "エラー: 残高不足\n";
-            return false;
+            return {false, "残高不足"};
         }
 
-        gateway.verifyAccount(toAccount);
-        gateway.checkBalance(amount);
+        gateway.verifyAccount(req.toAccount);
+        gateway.checkBalance(req.amount);
         std::string txId = auth.requestOTP();
-        auth.verifyOTP(otp, txId);
-        gateway.executeTransfer(toAccount, amount, txId);
-        db.withdraw(fromAccount, amount);
-        db.deposit(toAccount, amount);
-        history.add(fromAccount,
-                    db.get(fromAccount).ownerName,
-                    toAccount,
-                    db.get(toAccount).ownerName,
-                    amount);
-        return true;
+        if (!auth.verifyOTP(req.otp, txId)) {
+            std::cout << "エラー: 認証失敗\n";
+            return {false, "認証失敗"};
+        }
+        gateway.executeTransfer(req.toAccount, req.amount, txId);
+        db.withdraw(req.fromAccount, req.amount);
+        db.deposit(req.toAccount, req.amount);
+        history.add(req.fromAccount,
+                    db.get(req.fromAccount).ownerName,
+                    req.toAccount,
+                    db.get(req.toAccount).ownerName,
+                    req.amount);
+        return {true, "振り込み完了"};
     }
 
-    bool performApprovedBatchTransfer(
+    TransferResult performApprovedBatchTransfer(
             const std::string& fromAccount,
             const std::string& toAccount,
             int amount) override {
         if (!db.exists(fromAccount)) {
             std::cout << "エラー: 送金元口座なし\n";
-            return false;
+            return {false, "送金元口座なし"};
         }
         if (!db.exists(toAccount)) {
             std::cout << "エラー: 送金先口座なし\n";
-            return false;
+            return {false, "送金先口座なし"};
         }
         if (db.get(fromAccount).balance < amount) {
             std::cout << "エラー: 残高不足\n";
-            return false;
+            return {false, "残高不足"};
         }
 
         gateway.verifyAccount(toAccount);
@@ -1492,7 +1505,7 @@ public:
                     toAccount,
                     db.get(toAccount).ownerName,
                     amount);
-        return true;
+        return {true, "振り込み完了"};
     }
 };
 ```
@@ -1507,13 +1520,10 @@ private:
     IBankTransferService* facade;
 public:
     TransferProcessor(IBankTransferService* f) : facade(f) {}
-    void transfer(
-            const std::string& fromAccount,
-            const std::string& toAccount, int amount,
-            const std::string& otp) {
+    void transfer(const TransferRequest& req) {
         // 振り込みという業務プロセスに集中できる
-        if (facade->performTransfer(
-                fromAccount, toAccount, amount, otp))
+        TransferResult result = facade->performTransfer(req);
+        if (result.success)
             std::cout << "振り込み完了\n";
     }
 };
@@ -1532,8 +1542,10 @@ public:
         for (int i = 0; i < (int)transfers.size(); i++) {
             const std::string& account = transfers[i].first;
             int amount = transfers[i].second;
-            if (facade->performApprovedBatchTransfer(
-                    fromAccount, account, amount))
+            TransferResult result =
+                facade->performApprovedBatchTransfer(
+                    fromAccount, account, amount);
+            if (result.success)
                 std::cout << "振り込み完了（OTP不要）\n";
         }
     }
@@ -1555,19 +1567,19 @@ public:
 
         // ACC001（田中 一郎）から ACC002（佐藤 花子）へ送金
         processor.transfer(
-            "ACC001", "ACC002", 5000, "999999");
+            {"ACC001", "ACC002", 5000, "999999"});
 
         // 存在しない送金先口座
         processor.transfer(
-            "ACC001", "UNKNOWN", 5000, "999999");
+            {"ACC001", "UNKNOWN", 5000, "999999"});
 
         // 残高不足
         processor.transfer(
-            "ACC001", "ACC002", 1000000, "999999");
+            {"ACC001", "ACC002", 1000000, "999999"});
 
         // 認証失敗
         processor.transfer(
-            "ACC001", "ACC002", 5000, "INVALID");
+            {"ACC001", "ACC002", 5000, "INVALID"});
 
         // ACC003（鈴木 次郎）から ACC002 へバッチ送金
         BatchTransferProcessor batch(&facade);
@@ -1637,7 +1649,7 @@ classDiagram
     class BatchTransferProcessor
     class IBankTransferService {
         <<interface>>
-        +transfer(fromId, toId, amount, otp) bool
+        +performTransfer(request) TransferResult
     }
     class BankTransferService
     class AccountDatabase
