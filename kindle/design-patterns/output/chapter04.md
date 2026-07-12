@@ -386,7 +386,8 @@ int main() {
     // 直営店：ヘッダー行 + 正常10件
     vector<string> storeLines = {"商品ID,商品名,金額"};
     for (int i = 1; i <= 10; ++i)
-        storeLines.push_back("100" + to_string(i) + ",商品" + to_string(i) + ",3000");
+        storeLines.push_back("100" + to_string(i)
+            + ",商品" + to_string(i) + ",3000");
 
     string type1 = "store";
     if (!registry.exists(type1)) {
@@ -400,7 +401,8 @@ int main() {
     // FC店：タブ区切り・正常5件
     vector<string> fcLines;
     for (int i = 1; i <= 5; ++i)
-        fcLines.push_back("200" + to_string(i) + "\t商品" + to_string(i) + "\t5200");
+        fcLines.push_back("200" + to_string(i)
+            + "\t商品" + to_string(i) + "\t5200");
 
     string type2 = "fc";
     if (!registry.exists(type2)) {
@@ -730,9 +732,11 @@ int main() {
     vector<string> ecLines = {"id,name,amount,rank,points"};
     for (int i = 1; i <= 10; ++i) {
         if (i == 4 || i == 9)   // 2件は列不足（不正行）
-            ecLines.push_back("E00" + to_string(i) + ",商品" + to_string(i) + ",3000");
+            ecLines.push_back("E00" + to_string(i)
+                + ",商品" + to_string(i) + ",3000");
         else
-            ecLines.push_back("E00" + to_string(i) + ",商品" + to_string(i) + ",3000,gold,50");
+            ecLines.push_back("E00" + to_string(i) + ",商品"
+                + to_string(i) + ",3000,gold,50");
     }
     ECDataImporter importer(ecLines);
     ImportResult r = importer.import();
@@ -912,7 +916,11 @@ graph LR
 //（まだ継承は使わない。共通項を「発見」するのが目的）
 
 struct ParsedRow { SalesRow row; bool wellFormed; };
-struct ValidationResult { vector<SalesRow> validRows; int skipped; vector<string> reasons; };
+struct ValidationResult {
+    vector<SalesRow> validRows;
+    int skipped;
+    vector<string> reasons;
+};
 
 // 直営店
 class StoreDataImporter {
@@ -932,8 +940,8 @@ private:
     void checkFormatVersion() { /* 形式バージョンを確認 */ }      // ← FC/ECと同一コピー
     void saveToDB(const vector<SalesRow>&) { /* DBへ追加 */ }     // ← FC/ECと同一コピー
     void closeFile()          { /* ファイルを閉じる */ }         // ← FC/ECと同一コピー
-    vector<ParsedRow> parseData()                       { /* ヘッダー除去＋カンマ分割 */ } // 固有
-    ValidationResult validateRows(const vector<ParsedRow>&) { /* 必須列を検証 */ }         // 固有
+    vector<ParsedRow> parseData() { /*ヘッダー除去＋カンマ分割*/ } // 固有
+    ValidationResult validateRows(const vector<ParsedRow>&) {/*必須列を検証*/} // 固有
 };
 
 // FC店（skeleton の4メソッドは直営店と一字一句同じコピー）
@@ -954,8 +962,8 @@ private:
     void checkFormatVersion() { /* 形式バージョンを確認 */ }      // ← 直営店の完全コピー
     void saveToDB(const vector<SalesRow>&) { /* DBへ更新 */ }
     void closeFile()          { /* ファイルを閉じる */ }
-    vector<ParsedRow> parseData()                       { /* タブ分割 */ }             // 固有
-    ValidationResult validateRows(const vector<ParsedRow>&) { /* 不正行をスキップ */ } // 固有
+    vector<ParsedRow> parseData() { /*タブ分割*/ } // 固有
+    ValidationResult validateRows(const vector<ParsedRow>&){/*不正行をスキップ*/}// 固有
 };
 
 // EC店も同じ抽出をすると、openFile / checkFormatVersion / saveToDB / closeFile は
@@ -1005,7 +1013,9 @@ protected:
     // 共通手順（1か所に集約）
     vector<string> openFile()               { /* 開いて行を返す */ return {}; }
     void checkFormatVersion()               { /* 形式バージョンを確認 */ }
-    int  saveToDB(const vector<SalesRow>& r){ /* DBへ保存 */ return (int)r.size(); }
+    int  saveToDB(const vector<SalesRow>& r) {
+        /* DBへ保存 */ return (int)r.size();
+    }
     void closeFile()                        { /* 閉じる */ }
 };
 
@@ -1097,8 +1107,18 @@ static vector<string> splitLine(const string& line, char delim) {
 // ---- ドメインデータ型（void をやめ、実データを受け渡す）----
 struct SalesRow { string id; string name; long amount; };
 struct ParsedRow { SalesRow row; bool wellFormed; };
-struct ValidationResult { vector<SalesRow> validRows; int skipped; vector<string> reasons; };
-struct ImportResult { string schemaType; string schemaName; int saved; int skipped; bool success; };
+struct ValidationResult {
+    vector<SalesRow> validRows;
+    int skipped;
+    vector<string> reasons;
+};
+struct ImportResult {
+    string schemaType;
+    string schemaName;
+    int saved;
+    int skipped;
+    bool success;
+};
 
 // ---- スキーマ ----
 struct ImportSchema { string name; vector<string> requiredColumns; };
@@ -1108,7 +1128,8 @@ public:
     SchemaRegistry() {
         schemas["store"] = {"直営店データ", {"id","name","amount"}};
         schemas["fc"]    = {"FC店データ",   {"id","name","amount"}};
-        schemas["ec"]    = {"EC店データ",   {"id","name","amount","memberRank","point"}};
+        schemas["ec"]    = {"EC店データ",
+            {"id","name","amount","memberRank","point"}};
     }
     bool exists(const string& t) const { return schemas.count(t) > 0; }
     ImportSchema get(const string& t) const { return schemas.at(t); }
@@ -1165,7 +1186,8 @@ class AbstractImporter {
     ImportFileGateway& gateway;
     SalesImportRepository& repo;
 public:
-    AbstractImporter(ImportFileGateway& g, SalesImportRepository& r) : gateway(g), repo(r) {}
+    AbstractImporter(ImportFileGateway& g, SalesImportRepository& r)
+        : gateway(g), repo(r) {}
     virtual ~AbstractImporter() = default;
 
     // テンプレートメソッド。戻り値は ImportResult（void をやめる）。
@@ -1271,7 +1293,8 @@ protected:
         vector<ParsedRow> out;
         for (size_t i = 1; i < lines.size(); ++i) {          // 1行目=ヘッダー
             vector<string> c = splitLine(lines[i], ',');
-            bool ok = (c.size() >= 5);                        // id,name,amount,rank,point
+            // id,name,amount,rank,point
+            bool ok = (c.size() >= 5);
             SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
             out.push_back({r, ok});
         }
@@ -1418,7 +1441,8 @@ private:
             if (i == 4 || i == 9)   // 2件は列不足（不正行）
                 s += "E00" + to_string(i) + ",商品" + to_string(i) + ",3000\n";
             else
-                s += "E00" + to_string(i) + ",商品" + to_string(i) + ",3000,gold,50\n";
+                s += "E00" + to_string(i) + ",商品"
+                    + to_string(i) + ",3000,gold,50\n";
         }
         return s;
     }
