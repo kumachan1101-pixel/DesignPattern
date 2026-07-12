@@ -35,7 +35,7 @@
 |---|---|---|---|
 | 振込先口座番号 | 送金先の口座ID | ACC002 | 口座が存在するかを確認する |
 | 送金金額 | 1円以上の金額 | 10,000円 | 残高確認と送金実行に使う |
-| 認証コード | 銀行側が発行するOTP | 123456 | 口座と残高が確認できた後に検証する |
+| 認証コード | 利用者が入力するOTP | 999999 | 口座と残高が確認できた後に検証する |
 | 口座残高 | 送金元と送金先の現在残高 | ACC001: 150,000円 | 成功時だけ送金額を減算・加算する |
 | 振込履歴 | 成功した振り込みの記録 | ACC001→ACC002: 5,000円 | 送金元・送金先・金額を後から確認する |
 | 出力 | 成功 / 失敗 | 振り込み完了、口座エラー、残高不足、認証エラー | どの確認で止まったかを動作例で照合する |
@@ -76,9 +76,9 @@ flowchart LR
 |---|---|---|
 | ① 口座確認 | 振込先口座ID | 有効な振込先口座 |
 | ② 残高確認 | 送金元口座ID・送金額 | 送金可能という確認結果 |
-| ③ OTP認証 | 認証コード | 検証済み取引ID |
-| ④ 送金実行 | 口座・金額・取引ID | 受付済み取引ID |
-| ⑤ 送金結果照会 | 受付済み取引ID | 確定した送金結果 |
+| ③ OTP認証 | 利用者が入力した認証コード | 本人確認済みという結果 |
+| ④ 送金実行 | 口座・金額 | 送金受付結果 |
+| ⑤ 送金結果照会 | 送金受付結果 | 確定した送金結果 |
 | ⑥ 保存 | 確定した送金結果 | 更新後残高・振込履歴 |
 
 「失敗したら中止」というルールは、途中まで実行した状態で処理が止まることによる不整合（お金は引き落とされたのに振込先に届かない、など）を防ぐためです。料理のレシピと同じで、前の工程が成立していないと次の工程が意味をなさないため、この章のフェーズ1の現状コードではどのステップが失敗しても後続の手順を実行しません。
@@ -101,7 +101,7 @@ flowchart LR
 | 複雑さ | 実際の仕様 | 掲載コードでの表現 |
 | ---------- | ------------------------------ | ----------------------------- |
 | 順次API実行 | 口座確認→残高確認→認証→送金→結果照会の順で進める | 各境界メソッドを同じ順序で呼ぶ |
-| 一時値の受け渡し | 認証発行で得た取引IDを検証と送金へ渡す | 文字列の取引IDを戻り値と引数で渡す |
+| 認証入力 | 利用者が入力したOTPを1回検証する | OTP文字列を認証境界へ渡す。取引IDはまだ存在しない |
 | タイムアウト・再試行 | 結果が確定しなければ照会を再試行し、上限後は保留にする | 通信待ち時間は省略し、境界から失敗・保留結果を返す |
 
 送金結果照会は、掲載コードでは `executeTransfer()` の成功応答と履歴記録で簡略化しています。実際の銀行APIで照会APIや再試行制御が必要になっても、この章の判断は変わりません。呼び出し元は「振込を依頼し、結果を受け取る」ことだけを知り、細かい順次APIや再試行は窓口の内側へ閉じ込めます。
@@ -132,6 +132,8 @@ flowchart LR
 | 残高不足 | ACC001→ACC002へ1,000,000円 | 150,000円、30,000円のまま | 残高不足、履歴0件 |
 | 認証失敗 | ACC001→ACC002へ5,000円 | 150,000円、30,000円のまま | 認証エラー、履歴0件 |
 | バッチ成功 | ACC003（500,000円）→ACC002（30,000円）へ30,000円 | ACC003: 470,000円、ACC002: 60,000円 | 完了、履歴0→1件 |
+
+この表の各行は、口座残高と履歴を初期状態へ戻して1ケースずつ実行した場合の期待値です。1-4の `main()` は同じDBで行1〜5を連続実行するため、行1の5,000円入金後に行5の30,000円入金が続き、最後のACC002残高は65,000円、履歴は2件になります。
 
 コードを読む前に、このシステムが「何をする必要があるか」をこの表で確認できました。次は「どのように実装されているか」を確認します。
 
@@ -178,14 +180,26 @@ classDiagram
         +executeTransfer(account, amount)
     }
     class SecurityAuthenticator {
-        +requestOTP()
+        +promptOTP()
         +verifyOTP(token)
         +handleAuthenticationFailed()
+    }
+    class AccountDatabase {
+        +exists(id) bool
+        +get(id) AccountInfo
+        +withdraw(id, amount)
+        +deposit(id, amount)
+    }
+    class TransferHistory {
+        +add(from, to, amount)
+        +printAll()
     }
 
     BatchTransferProcessor --> TransferProcessor : 使う
     TransferProcessor --> BankGateway : 使う
     TransferProcessor --> SecurityAuthenticator : 使う
+    TransferProcessor --> AccountDatabase : 残高を読む・更新する
+    TransferProcessor --> TransferHistory : 成功履歴を追加する
 ```
 
 **クラス図に出てくる主なメンバーと操作**
@@ -197,7 +211,7 @@ classDiagram
 | `TransferProcessor` | `gateway` / `auth` | 銀行APIと認証処理を直接呼び出す |
 | `TransferProcessor` | `transfer()` | 口座確認、残高確認、認証、送金を順に実行する |
 | `BankGateway` | `verifyAccount()` / `checkBalance()` / `executeTransfer()` | 口座・残高・送金APIを扱う |
-| `SecurityAuthenticator` | `requestOTP()` / `verifyOTP()` | OTP認証を要求し、入力された認証情報を検証する |
+| `SecurityAuthenticator` | `promptOTP()` / `verifyOTP()` | OTP入力を受け付け、入力された認証情報を検証する |
 
 | 実システムの処理 | 掲載コードでの代替 | この章で確認すること |
 |---|---|---|
@@ -220,7 +234,7 @@ classDiagram
 | `AccountDatabase` | 口座IDで検索し成功時に残高を増減する | 更新後残高 | `std::map`を口座DBとして使う |
 | `TransferHistory` | 成功した送金から1レコードを受け取る | 履歴件数が増える | `std::vector`へ順番に追記する |
 | `BankGateway` / 認証 | 口座・金額・OTPを外部へ渡す | 成功、失敗、取引ID | 固定応答と`std::cout`でAPIを代替する |
-| `std::move` | 一時的な値の所有内容を移す | 不要なコピーを避ける | 移動後の元変数は使わない |
+| `std::pair` / `std::vector` | バッチの振込先IDと金額を1組にし、複数件を順番に持つ | 給与振込を先頭から実行する | `first`が口座ID、`second`が金額 |
 
 DB保存、銀行API、OTPサービスは別の境界です。掲載コードは通信時間を待たずに結果を返しますが、失敗・保留時に残高と履歴を更新しない契約は実システムと同じです。
 
@@ -308,7 +322,7 @@ public:
     void handleAuthenticationFailed() {
         std::cout << "エラー: 認証失敗\n";
     }
-    void requestOTP() { std::cout << "認証コード発行\n"; }
+    void promptOTP() { std::cout << "認証コード入力受付\n"; }
     bool verifyOTP(const std::string& token) {
         std::cout << "認証コード検証\n";
         if (token == "INVALID") {
@@ -398,7 +412,7 @@ public:
 
         gateway.verifyAccount(toAccount);
         gateway.checkBalance(amount);
-        auth.requestOTP();
+        auth.promptOTP();
         if (!auth.verifyOTP(otp)) return false;
 
         gateway.executeTransfer(toAccount, amount);
@@ -504,6 +518,10 @@ int main() {
     };
     batch.processPayroll("ACC003", payroll);
 
+    std::cout << "\n--- 最終残高 ---\n";
+    std::cout << "ACC001: " << db.get("ACC001").balance << "円\n";
+    std::cout << "ACC002: " << db.get("ACC002").balance << "円\n";
+    std::cout << "ACC003: " << db.get("ACC003").balance << "円\n";
     std::cout << "\n--- 振り込み履歴 ---\n";
     history.printAll();
 
@@ -521,7 +539,7 @@ int main() {
 --- 行1: 正常な個別振り込み ---
 口座確認: ACC002
 残高確認
-認証コード発行
+認証コード入力受付
 認証コード検証
 送金実行: 5000円
 振り込み完了
@@ -532,7 +550,7 @@ int main() {
 --- 行4: 認証失敗 ---
 口座確認: ACC002
 残高確認
-認証コード発行
+認証コード入力受付
 認証コード検証
 エラー: 認証失敗
 --- 行5: 社内承認済みバッチ ---
@@ -540,6 +558,11 @@ int main() {
 残高確認
 送金実行: 30000円
 振り込み完了（OTP不要）
+
+--- 最終残高 ---
+ACC001: 145000円
+ACC002: 65000円
+ACC003: 470000円
 
 --- 振り込み履歴 ---
 田中 一郎 → 佐藤 花子 : 5000円
@@ -653,7 +676,7 @@ flowchart LR
 | 仕様候補 | 仕様上の場所 | フェーズ1の現状コードでの場所 | 見立て |
 |---|---|---|---|
 | 口座確認・残高確認 | 判定、外部API呼び出し | `transfer()` 冒頭の `verifyAccount` / `checkBalance` 呼び出し | 銀行APIの入力や確認順序が変わる可能性がある |
-| OTP認証 | 判定、認証手順 | `transfer()` 中盤の `requestOTP` / `verifyOTP` 呼び出し | 取引IDの追加や認証方式変更で引数と順序が変わる |
+| OTP認証 | 判定、認証手順 | `transfer()` 中盤の `promptOTP` / `verifyOTP` 呼び出し | 新仕様では`requestOTP`が取引IDを返すため、戻り値・引数・順序が変わる |
 | 送金実行 | 加工、外部API呼び出し | `transfer()` 後半の `executeTransfer` 呼び出し | 送金APIが取引IDや冪等キーを要求すると変わる |
 | 残高更新・履歴 | 保存 | `transfer()` 成功分岐の `db.transfer` / `history.add` | 外部送金確定後だけ行うという条件は維持したい |
 | 振り込みの大枠 | 入力から確認・認証・送金へ進む順序 | `TransferProcessor.transfer()` | この章の変更要求では、順序の大枠は当面維持する前提で見る |
@@ -1538,12 +1561,27 @@ public:
         processor.transfer(
             "ACC001", "UNKNOWN", 5000, "999999");
 
+        // 残高不足
+        processor.transfer(
+            "ACC001", "ACC002", 1000000, "999999");
+
+        // 認証失敗
+        processor.transfer(
+            "ACC001", "ACC002", 5000, "INVALID");
+
         // ACC003（鈴木 次郎）から ACC002 へバッチ送金
         BatchTransferProcessor batch(&facade);
         std::vector<std::pair<std::string, int>> payroll = {
             {"ACC002", 30000}
         };
         batch.processPayroll("ACC003", payroll);
+
+        std::cout << "--- 最終残高 ---\n";
+        std::cout << "ACC001: " << db.get("ACC001").balance << "円\n";
+        std::cout << "ACC002: " << db.get("ACC002").balance << "円\n";
+        std::cout << "ACC003: " << db.get("ACC003").balance << "円\n";
+        std::cout << "--- 振り込み履歴 ---\n";
+        history.printAll();
     }
 };
 
@@ -1555,7 +1593,7 @@ int main() {
 ```
 
 実行対象コード：7-1の解決後コード
-対応する動作例：1-2の動作例テーブルの行1、行2、行5
+対応する動作例：1-2の動作例テーブル全5ケース
 確認したいこと：外部から見える振り込み結果を保ちながら、銀行APIの具体手順が窓口構造の窓口内に閉じていること
 
 実行結果：
@@ -1568,13 +1606,26 @@ int main() {
 送金実行: 5000円
 振り込み完了
 エラー: 送金先口座なし
+エラー: 残高不足
+口座確認: ACC002
+残高確認
+認証コード発行
+認証コード検証
+エラー: 認証失敗
 口座確認: ACC002
 残高確認
 送金実行: 30000円
 振り込み完了（OTP不要）
+--- 最終残高 ---
+ACC001: 145000円
+ACC002: 65000円
+ACC003: 470000円
+--- 振り込み履歴 ---
+田中 一郎 → 佐藤 花子 : 5000円
+鈴木 次郎 → 佐藤 花子 : 30000円
 ```
 
-動作例テーブルの行1（正常振り込み完了）、行2（存在しない送金先口座でのエラー中止）、行5（バッチ送金完了）の動作を確認しました。`AccountDatabase` による口座存在確認・残高確認が `BankTransferService` の窓口内に閉じ込められ、`TransferProcessor` は `IBankTransferService` という窓口に依存する形へ変わりました。
+動作例テーブルの全5ケースについて、正常振込、存在しない口座、残高不足、認証失敗、バッチ送金を確認しました。成功2件だけが残高と履歴を更新し、失敗2件は更新しません。`AccountDatabase` による口座存在確認・残高確認が `BankTransferService` の窓口内に閉じ込められ、`TransferProcessor` は `IBankTransferService` という窓口に依存する形へ変わりました。
 
 #### 解決後のクラス構成
 
