@@ -1645,7 +1645,40 @@ int main() {
 
 小計→支払金額を1-5「変更後の動作例」と照らすと、リファクタリング後も同じ金額になることを確認できます。カートプレビューも同じ計算を共有するため支払金額と一致します。
 
-★コード完成後のクラス図はないの？デザインパターンのクラス図と比較して記載できるような形で記載していた認識。
+#### 解決後のクラス構成
+
+完成コードのクラスを、章末のStrategyパターンの骨格と同じ向きで並べます。`PaymentCalculator` と `CartPreviewService` がContext、`IDiscountRule` がStrategy、各割引クラスがConcreteStrategyに対応します。`RuleFactory` は、実行時に使うルールを選んで組み立てる、このシステム固有の役割です。
+
+```mermaid
+classDiagram
+    class PaymentCalculator {
+        -IDiscountRule* rule
+        +calculate(order) int
+    }
+    class CartPreviewService {
+        -IDiscountRule* rule
+        +preview(order) int
+    }
+    class IDiscountRule {
+        <<interface>>
+        +apply(total) int
+    }
+    class PremiumDiscount
+    class CampaignDiscount
+    class SummerSaleDiscount
+    class RuleFactory {
+        +create(memberType, context) IDiscountRule*
+    }
+    PaymentCalculator o--> IDiscountRule
+    CartPreviewService o--> IDiscountRule
+    IDiscountRule <|.. PremiumDiscount
+    IDiscountRule <|.. CampaignDiscount
+    IDiscountRule <|.. SummerSaleDiscount
+    RuleFactory ..> IDiscountRule : creates
+```
+
+現状のクラス図では、割引条件と計算式が `PaymentCalculator` の内部に集まっていました。完成後は、計算を依頼する2つのContextが同じStrategyの契約を参照し、個別の計算式は各具象ルールへ移っています。章末の抽象図と見比べると、パターン上の役割と、この章の実クラス名を1対1で対応づけられます。
+
 ### 7-2：動作シーケンス図
 
 ステップ4で到達したルール差し替え構造の実行時のオブジェクト間のやり取りを可視化します。`main()` が依存関係を注入し、`PaymentCalculator` が具象クラスを知らずに抽象インターフェース経由で処理を委譲する流れが確認できます。
