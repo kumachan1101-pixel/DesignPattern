@@ -1153,6 +1153,17 @@ public:
                   << category.name << " " << amount << "円" << std::endl;
         return true;
     }
+    // Undoの副作用：保存済みの収支データを取り消す
+    bool deleteExpense(const Category& category, int amount) {
+        std::cout << "[LedgerRepository] 支出を取消: "
+                  << category.name << " " << amount << "円" << std::endl;
+        return true;
+    }
+    bool deleteIncome(const Category& category, int amount) {
+        std::cout << "[LedgerRepository] 収入を取消: "
+                  << category.name << " " << amount << "円" << std::endl;
+        return true;
+    }
 };
 
 class BalanceViewRenderer {
@@ -1195,6 +1206,7 @@ public:
     }
     bool removeExpense(int amount, const std::string& categoryId) {
         Category cat = db.get(categoryId);
+        repository.deleteExpense(cat, amount);
         total -= amount;
         renderer.showMessage("支出を取り消しました：" + cat.name
                              + " " + std::to_string(amount) + "円");
@@ -1235,6 +1247,7 @@ public:
     }
     bool removeIncome(int amount, const std::string& categoryId) {
         Category cat = db.get(categoryId);
+        repository.deleteIncome(cat, amount);
         total -= amount;
         renderer.showMessage("収入を取り消しました：" + cat.name
                              + " " + std::to_string(amount) + "円");
@@ -1510,7 +1523,7 @@ int main() {
 取り消し: 支出登録: CAT003 2000円
 ```
 
-支出1,000円と収入5,000円の登録後は残高4,000円、2回のUndo後は0円、Redo後は-1,000円になります。3件合計3,100円の支出をインポートすると-4,100円になり、3件をロールバックすると-1,000円へ戻ります。ログの順序だけでなく、実行先（Receiver）が保持する集計状態も元へ戻ることを確認できます。
+支出1,000円と収入5,000円の登録後は残高4,000円、2回のUndo後は0円、Redo後は-1,000円になります。3件合計3,100円の支出をインポートすると-4,100円になり、3件をロールバックすると-1,000円へ戻ります。ログの順序だけでなく、実行先（Receiver）が保持する集計状態も元へ戻ることを確認できます。Undoの取り消しは `ExpenseManager` の集計だけでなく、`LedgerRepository`（保存データ）に対しても `deleteExpense`／`deleteIncome` を呼び、保存済みの収支データを取り消します。操作の取り消しが、画面表示・集計・保存先のすべてへ副作用として届きます。
 
 この実装により、UIは操作オブジェクトのポインタを履歴へ渡すだけでよくなり、支出・収入ごとの実行手順を管理する必要がなくなりました。操作オブジェクトの生成と画面への割り当ては組み立て側に残ります。
 
