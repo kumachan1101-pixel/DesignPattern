@@ -1669,6 +1669,30 @@ CSV読み込み
 
 掲載したデモでは、動作テーブルの6つのシナリオに対応する生成・一括実行・削除を確認しています。行5は並列処理ではなく、三つの操作を順に実行する一括処理です。サンプル実行後にはPDF用またはExcel用のデモファイルが作成され、行4と行6ではそれぞれ直前に生成した対象ファイルが削除されます。既存の出力先は上書きせず、Undoは操作オブジェクト自身が作成したファイルだけを削除します。装飾は装飾クラスのチェーンで組み合わされています。
 
+#### 解決後のクラス構成
+
+```mermaid
+classDiagram
+    class ReportSkeleton
+    class StandardReport
+    class MonthlyReport
+    class ReportFeature
+    class GraphFeature
+    class WatermarkFeature
+    class IReportAction { <<interface>> }
+    class GenerateReportAction
+    ReportSkeleton <|-- StandardReport
+    ReportSkeleton <|-- MonthlyReport
+    ReportSkeleton <|-- ReportFeature
+    ReportFeature o--> ReportSkeleton
+    ReportFeature <|-- GraphFeature
+    ReportFeature <|-- WatermarkFeature
+    IReportAction <|.. GenerateReportAction
+    GenerateReportAction --> ReportSkeleton
+```
+
+完成後はTemplate Methodが帳票生成順序、Decoratorが追加機能、Commandが生成操作の履歴化を担当します。3構造が同じ責任を重複して持たないことを図で確認できます。
+
 ### 7-2：動作シーケンス図
 
 ステップ6で到達した3構造複合の実行時のオブジェクト間のやり取りを可視化します。`BatchApplication` が依存関係を注入し、`GenerateReportAction` → `WatermarkFeature` → `StandardReport` とチェーンが繋がる流れが確認できます。

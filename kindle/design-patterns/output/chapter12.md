@@ -1984,6 +1984,29 @@ int main() {
 `WorkflowManager` は申請IDから現在の `IWorkflowPhase` と通知先データを読み込みます。状態実装は許可するイベントを処理し、`transitionTo()` を通じてRepository上の現在状態を更新します。その後、保存済みの通知先データを読み出し、`email` や `chat` に対応する通知スタブが送信します。
 
 
+#### 解決後のクラス構成
+
+```mermaid
+classDiagram
+    class WorkflowManager
+    class IWorkflowPhase { <<interface>> }
+    class PendingPhase
+    class PriorityPendingPhase
+    class IApprovalRule { <<interface>> }
+    class ManagerApprovalRule
+    class INotificationListener { <<interface>> }
+    class EmailNotifier
+    WorkflowManager o--> IWorkflowPhase
+    IWorkflowPhase <|.. PendingPhase
+    PendingPhase <|-- PriorityPendingPhase
+    PendingPhase --> IApprovalRule
+    IApprovalRule <|.. ManagerApprovalRule
+    WorkflowManager --> INotificationListener
+    INotificationListener <|.. EmailNotifier
+```
+
+完成後はStateが状態遷移、Strategyが承認判定、Observerが通知を担当します。状態保存と通知先取得はRepository境界に残り、パターンの役割へ混ぜません。
+
 ### 7-2：動作シーケンス図
 
 ステップ6で到達した3構造複合設計の実行時のオブジェクト間のやり取りを可視化します。`BatchApplication` が依存関係を注入し、`WorkflowManager` が具象クラスを知らずに抽象インターフェース経由で処理を委譲する流れが確認できます。

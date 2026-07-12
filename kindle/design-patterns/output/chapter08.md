@@ -2067,6 +2067,25 @@ int main() {
 
 新しく追加したPayPay決済も含めて、同期決済（カード）は即座に成功し、非同期決済（銀行振込・コンビニ・PayPay）は保留→完了確認→成功の流れが動いています。カードAPI失敗、入力不足、無効・未登録の各エラーも `processPayment` の骨格に手を加えることなく表現できています。
 
+#### 解決後のクラス構成
+
+```mermaid
+classDiagram
+    class PaymentApplication
+    class IPaymentProcessor { <<interface>> }
+    class CreditCardProcessor
+    class BankTransferProcessor
+    class ConvenienceStoreProcessor
+    class PayPayProcessor
+    PaymentApplication --> IPaymentProcessor : createProcessor
+    IPaymentProcessor <|.. CreditCardProcessor
+    IPaymentProcessor <|.. BankTransferProcessor
+    IPaymentProcessor <|.. ConvenienceStoreProcessor
+    IPaymentProcessor <|.. PayPayProcessor
+```
+
+章末のFactory Method骨格図では、`PaymentApplication` がCreator、`createProcessor` がFactory Method、`IPaymentProcessor` と各実装がProduct群に対応します。
+
 ### 7-2：動作シーケンス図
 
 ステップ3で到達した生成分離構造の実行時のオブジェクト間のやり取りを可視化します。

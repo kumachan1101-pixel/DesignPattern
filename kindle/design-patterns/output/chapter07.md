@@ -1442,6 +1442,23 @@ SMS: 受付失敗（後で再送対象）
 
 このコードにより、`InventoryManager` は通知先の具体的な実装ではなく `INotification` という契約へ依存します。契約が安定している限り、新しい通知方法や、同期・非同期・部分失敗の違いは通知クラス側と `DeliveryResult` に閉じ、`InventoryManager` の通知ループへ分岐を増やさずに済みます。
 
+#### 解決後のクラス構成
+
+```mermaid
+classDiagram
+    class InventoryManager
+    class INotification { <<interface>> }
+    class EmailNotifier
+    class SlackNotifier
+    class LogNotifier
+    InventoryManager o--> INotification
+    INotification <|.. EmailNotifier
+    INotification <|.. SlackNotifier
+    INotification <|.. LogNotifier
+```
+
+章末のObserver骨格図では、`InventoryManager` がSubject、`INotification` がObserver、各通知クラスがConcreteObserverに対応します。
+
 ### 7-2：動作シーケンス図
 
 ステップ3で到達した通知分離構造の実行時のオブジェクト間のやり取りを可視化します。main() が依存関係を注入し、InventoryManager が具象クラスを知らずに抽象インターフェース経由で通知を送る流れが確認できます。

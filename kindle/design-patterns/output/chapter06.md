@@ -1528,6 +1528,26 @@ Coffee + Milk + Matcha + Choco → 550円
 
 ---
 
+#### 解決後のクラス構成
+
+```mermaid
+classDiagram
+    class IDrink { <<interface>> }
+    class Coffee
+    class ToppingWrapper
+    class Milk
+    class Whip
+    class Matcha
+    IDrink <|.. Coffee
+    IDrink <|.. ToppingWrapper
+    ToppingWrapper o--> IDrink
+    ToppingWrapper <|-- Milk
+    ToppingWrapper <|-- Whip
+    ToppingWrapper <|-- Matcha
+```
+
+章末のDecorator骨格図では、`IDrink` がComponent、`Coffee` がConcreteComponent、`ToppingWrapper` がDecorator、各トッピングがConcreteDecoratorに対応します。
+
 ### 7-2：動作シーケンス図
 
 装飾連結構造の実行時のオブジェクト間のやり取りを可視化します。`OrderApplication` がオブジェクトを組み立て、`getPrice()` の呼び出しがデコレータチェーンを連鎖していく様子が確認できます。

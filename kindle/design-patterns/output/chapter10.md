@@ -1536,6 +1536,27 @@ Slack通知: 在庫会社B 連携完了
 
 この実装により、`BatchExecutor` は通信の詳細や通知の仕組みを知ることなく、送信結果の受け取りとフローの統括に専念できるようになりました。
 
+#### 解決後のクラス構成
+
+```mermaid
+classDiagram
+    class BatchExecutor
+    class IExternalClient { <<interface>> }
+    class IClientCreator { <<interface>> }
+    class INotifier { <<interface>> }
+    class SystemAClientCreator
+    class SystemAClient
+    class SlackNotifier
+    BatchExecutor --> IClientCreator
+    BatchExecutor --> INotifier
+    IClientCreator <|.. SystemAClientCreator
+    IExternalClient <|.. SystemAClient
+    SystemAClientCreator --> SystemAClient
+    INotifier <|.. SlackNotifier
+```
+
+完成後はCreatorが外部Clientを生成し、`BatchExecutor` が統合窓口として実行し、Observer契約で完了を通知します。章末の複合骨格図と同じ依存方向です。
+
 ### 7-2：動作シーケンス図
 
 実行時にオブジェクト間でどのようなメッセージが流れるかを示します。`BatchApplication` が全具体型を組み立て、`BatchExecutor` はインターフェース経由でのみ各オブジェクトと通信していることが分かります。

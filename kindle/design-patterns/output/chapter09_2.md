@@ -1583,6 +1583,29 @@ int main() {
 
 ---
 
+#### 解決後のクラス構成
+
+```mermaid
+classDiagram
+    class TicketContext
+    class ITicketPhase { <<interface>> }
+    class OpenPhase
+    class InProgressPhase
+    class ResolvedPhase
+    class IPriorityRule { <<interface>> }
+    class PremiumPriority
+    class NormalPriority
+    TicketContext o--> ITicketPhase
+    ITicketPhase <|.. OpenPhase
+    ITicketPhase <|.. InProgressPhase
+    ITicketPhase <|.. ResolvedPhase
+    TicketContext --> IPriorityRule
+    IPriorityRule <|.. PremiumPriority
+    IPriorityRule <|.. NormalPriority
+```
+
+完成後はStateで進行状態を、Strategyで優先度判定を分離します。章末の抽象図と比べると、`TicketContext` が両構造のContextを担うことが分かります。
+
 ### 7-2：動作シーケンス図
 
 ステップ5で到達したルール差し替え構造 × 状態分離構造の実行時のオブジェクト間のやり取りを可視化します。`TicketApplication` が依存関係を注入し、`TicketContext` が具象クラスを知らずに抽象インターフェース経由で処理を委譲する流れが確認できます。
