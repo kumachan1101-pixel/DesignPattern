@@ -234,7 +234,7 @@ classDiagram
 
 この章では、実際のワークフローDBは `ApproverDatabase`、`WorkflowCaseRepository`、`NotificationTargetRepository` とメモリ上の履歴で簡略化します。メール・チャット通知は `EmailNotifier`、`ChatNotifier` などの通知境界スタブで表し、スタブの内部だけが `std::cout` を使います。
 
-通知は、状態が変わったその場で相手へ届くとは限りません。実システムでは、状態更新の直後に通知を「送信キューへ積む」だけで処理を返し、キューを受け取る側が後から送信します。送信先が一時的に落ちていれば失敗することもあります。ただしこの章の掲載コードでは、状態保存の後に通知を同期的に呼ぶ `std::cout` スタブで表し、キュー化・送信可否・再送は基盤側の関心として扱いません。本章で扱うのは、通知を状態保存と切り離し、通知先をコード分岐から外すことです。
+通知は、状態が変わったその場で相手へ届くとは限りません。実システムでは、状態更新の直後に通知を「送信キューへ積む」だけで処理を返し、キューを受け取る側が後から送信します。送信先が一時的に落ちていれば失敗することもあります。この章の掲載コードでは、状態保存の後に通知を同期的に呼びます。1件ごとの送信可否は `DeliveryResult` で表し、失敗しても状態保存を巻き戻さず、失敗した通知だけを記録して残りを続けます。ただしキュー化・後送り・再送のスケジューリングは基盤側の関心として扱いません。本章で扱うのは、通知を状態保存と切り離し、通知先と送信可否の扱いをコード分岐から外すことです。
 
 | 実システムで起きること | 掲載コードでの表現 | 本章での扱い |
 |---|---|---|
@@ -243,7 +243,7 @@ classDiagram
 | 通知先データを保存し、申請IDで読み出す | `NotificationTargetRepository` が通知先とチャネルを返す | 扱う。通知先をコード分岐から切り離すため |
 | 通知を送信キューへ積み、後から送る | 掲載コードでは状態保存の後に `notifyAll()` を同期的に呼ぶ（キューは使わない） | 状態保存と通知を分けて呼ぶ順序は扱う。キュー化・後送りは論点外 |
 | メール・チャットを実際に送信する | `EmailNotifier` / `ChatNotifier` のスタブが `std::cout` で送信内容を表示する | 送信境界だけ扱う。SMTP、チャットAPI、認証は論点外 |
-| タイムアウト、リトライ回数、非同期ジョブ基盤 | 掲載コードの通知は成功前提の `std::cout` スタブで、失敗・再送は表さない | 本章の中心は状態・通知・判定ルールの責任分離なので、外部基盤の信頼性設計は扱わない |
+| タイムアウト、リトライ回数、非同期ジョブ基盤 | 掲載コードは送信可否を `DeliveryResult` で表し失敗を1件ずつ記録するが、再送のスケジューリングは省略する | 本章の中心は状態・通知・判定ルールの責任分離なので、外部基盤の信頼性設計は扱わない |
 
 つまり、`std::cout` は業務ロジックそのものではなく、外部通知境界の先にあるスタブ実装です。通知はキューへ積む形にし、送信の成否だけを `DeliveryResult` で扱いますが、リトライのスケジューリングやタイムアウト値の調整といった基盤側の信頼性設計は、この章では状態遷移・通知先データ・承認判定をどの責任へ分けるかへ集中するため扱いません。
 
@@ -1451,11 +1451,17 @@ struct NotificationTarget {
     string channel;       // "email", "chat"
 };
 
+// 通知の送信結果（結果オブジェクト）：送信可否と対象チャネル
+struct DeliveryResult {
+    bool success;
+    string channel;
+};
+
 // 通知リスナーの契約（変わる理由：通知手段の追加）
 class INotificationListener {
 public:
     virtual bool supports(const string& channel) const = 0;
-    virtual void onStatusChanged(
+    virtual DeliveryResult onStatusChanged(
         const NotificationTarget& target,
         string msg
     ) = 0;
@@ -1563,26 +1569,33 @@ public:
     bool supports(const string& channel) const override {
         return channel == "email";
     }
-    void onStatusChanged(
+    DeliveryResult onStatusChanged(
         const NotificationTarget& target,
         string msg
     ) override {
         cout << "[メール送信] To:" << target.recipientName
              << " / " << msg << endl;
+        return {true, "email"};
     }
 };
 
 class ChatNotifier : public INotificationListener {
+    bool willFail;  // チャット基盤が不調の状況を再現する
 public:
+    ChatNotifier(bool fail = false) : willFail(fail) {}
     bool supports(const string& channel) const override {
         return channel == "chat";
     }
-    void onStatusChanged(
+    DeliveryResult onStatusChanged(
         const NotificationTarget& target,
         string msg
     ) override {
+        if (willFail) {
+            return {false, "chat"};
+        }
         cout << "[チャット通知] To:" << target.recipientName
              << " / " << msg << endl;
+        return {true, "chat"};
     }
 };
 ```
@@ -1646,7 +1659,15 @@ public:
         for (const auto& target : targets) {
             for (auto* listener : snapshot) {
                 if (listener->supports(target.channel)) {
-                    listener->onStatusChanged(target, msg);
+                    DeliveryResult r =
+                        listener->onStatusChanged(target, msg);
+                    if (!r.success) {
+                        // 状態保存は済んでおり巻き戻さない。
+                        // 失敗した通知だけ記録し、他は続行する
+                        cout << "[通知失敗] channel=" << r.channel
+                             << "（状態は保持、他の通知は継続）"
+                             << endl;
+                    }
                 }
             }
         }
@@ -1656,7 +1677,7 @@ public:
 
 この例では、状態グラフ、申請状態Repository、通知先Repository、通知送信スタブを`BatchApplication`の中で組み立てます。利用側は現在状態も通知先も直接指定せず、申請IDを指定して処理を実行します。通知送信スタブを動的に破棄する実運用では、破棄前に`removeListener()`を呼ぶ契約が必要です。所有関係の設計については、チームのコーディング規約に従って判断してください。重複登録と`null`は`addListener()`で拒否し、通知中の登録変更に左右されないよう通知開始時点のスナップショットを使います。
 
-`notifyAll()` は、状態保存（`transitionTo()` 内の `savePhase()`）が済んだ後に呼ばれます。掲載コードでは送信スタブが `std::cout` で表示して成功を前提にしていますが、実システムでは `onStatusChanged()` が通知を `NotificationQueue` へ積み、送信の可否を `DeliveryResult` として返します。1件の送信が失敗しても、状態保存は巻き戻さず、失敗した通知だけを記録して残りの通知を続けます。この「通知失敗を状態遷移から切り離す」振る舞いは、通知の責任が `INotificationListener` 側にあるからこそ、`WorkflowManager` の実行骨格へ染み出さずに済みます。キュー化・再送のスケジューリングは基盤側の関心なので、この章のコードには含めません。
+`notifyAll()` は、状態保存（`transitionTo()` 内の `savePhase()`）が済んだ後に呼ばれます。掲載コードでは `onStatusChanged()` が送信可否を `DeliveryResult` で返し、成功時はスタブが `std::cout` で送信内容を表示します。1件の送信が失敗しても、状態保存は巻き戻さず、失敗した通知だけを記録して残りの通知を続けます。実システムではさらに通知を `NotificationQueue` へ積んで後から送りますが、この「通知失敗を状態遷移から切り離す」振る舞いは、通知の責任が `INotificationListener` 側にあるからこそ、`WorkflowManager` の実行骨格へ染み出さずに済みます。キュー化・再送のスケジューリングは基盤側の関心なので、この章のコードには含めません。
 
 **5. 状態クラスの具体実装（状態分離構造 × ルール差し替え構造の組み合わせ）**
 
@@ -1922,6 +1943,17 @@ public:
         wf7.process(WorkflowEvent::Resubmit);
         approvalLog.add("APR001", "田中 部長", 0, "差し戻し");
 
+        // 行8: チャット通知が失敗しても状態保存は保たれ、他は続く
+        cout << "--- 行8: 通知失敗と状態保持 ---" << endl;
+        cases.create("REQ008", &draft);
+        notificationTargets.setTargets(
+            "REQ008", {{"申請者", "email"}, {"課長", "chat"}});
+        WorkflowManager wf8(cases, notificationTargets, "REQ008");
+        ChatNotifier chatDown(true);   // チャット基盤が不調
+        wf8.addListener(&email);
+        wf8.addListener(&chatDown);
+        wf8.process(WorkflowEvent::SubmitNormal);
+
         // エラーケース：存在しないID
         cout << "--- エラー例1: 不正な承認者ID ---" << endl;
         validateApprover("APR999", 50000);
@@ -1976,6 +2008,10 @@ int main() {
 --- 行7: 却下→再申請操作 ---
 状態: 審査待ち
 [メール送信] To:課長 / 再申請を受け付けました
+--- 行8: 通知失敗と状態保持 ---
+状態: 審査待ち
+[メール送信] To:申請者 / 申請を受け付けました
+[通知失敗] channel=chat（状態は保持、他の通知は継続）
 --- エラー例1: 不正な承認者ID ---
 エラー：承認者ID APR999 はデータベースに存在しません。
 --- エラー例2: 承認上限超過 ---
