@@ -828,12 +828,12 @@ int main() {
 [決済API] 振込先発行 order=ORD-1002 amount=2000 payer=山田太郎 bank=0001
 結果: bank_transfer -> 保留 (振込先発行済み 口座=mizuho-1234567)
   完了確認中... id=BT-ORD-1002
-  [状態確認API] id=BT-ORD-1002
+[状態確認API] id=BT-ORD-1002
   完了結果: 成功 (入金確認済み)
 [決済API] コンビニ番号発行 order=ORD-1003 amount=500 phone=09012345678 store=seven
 結果: convenience -> 保留 (支払い番号発行済み 番号=CVS-98765)
   完了確認中... id=CVS-ORD-1003
-  [状態確認API] id=CVS-ORD-1003
+[状態確認API] id=CVS-ORD-1003
   完了結果: 成功 (コンビニ入金確認済み)
 [決済API] カード認証 order=ORD-1004 amount=800 token=ERROR_DECLINED holder=SUZUKI
 結果: credit_card -> 失敗 (カード認証失敗: 残高不足)
@@ -1449,6 +1449,7 @@ public:
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <queue>
 
 using namespace std;
 
@@ -1906,6 +1907,8 @@ protected:
 
 `processPayment` は `IPaymentProcessor*` を取得して `pay(request)` を呼ぶだけです。手段固有の入力検証、API呼び出し手順、エラー対処は各Processorの内部で完結しています。同期/非同期の違いも結果のステータス（「成功」か「保留」か）として自然に表れ、利用側は区別する必要がありません。完了確認は `checkCompletion()` で汎用的に処理できます。
 
+この構成は、利用側が同期ループで呼ぶ形に限りません。掲載コードの末尾では、決済会社から届くWebフックを受け取る `WebhookController`（署名を検証し、正しいものだけをジョブキューへ積む）と、キューを取り出して同じ `processPayment` を呼ぶ `PaymentWorker` を追加しています。イベント駆動（Webhook）で受け取り、ワーカーがキューから非同期に処理する構成でも、決済手段ごとの生成・処理は同じ Factory Method の裏に隠れたままです。実運用ではワーカーは別スレッドで動きますが、掲載コードでは実スレッドを使わず、キューを同期的に空にして投入順・処理順を確認します。
+
 > [!NOTE] ポーリング以外のアーキテクチャ（Webhook等）への応用
 > 本章では、コードを1つの関数内で上から下へ流して確認できるよう、非同期決済の結果を「自ら状態確認APIへ問い合わせる（ポーリングする）」システム構成として記述しています。
 > しかし現実のシステムでは、決済会社から結果がHTTPリクエストで通知される**イベント駆動（Webhook）方式**や、非同期キューを使って**別スレッドのワーカー**で結果を処理する構成も一般的です。
@@ -1915,6 +1918,52 @@ protected:
 **5. 組み立てと実行（メイン関数）**
 
 ```cpp
+// 外部（決済会社）から届くWebフックイベント
+struct WebhookEvent {
+    string methodId;
+    string signature;   // 署名。"valid" 以外は不正として拒否する
+    PaymentRequest payload;
+};
+
+// Webフックを受け取り、署名を検証してジョブキューへ積む入口
+class WebhookController {
+    queue<PaymentRequest>& jobs;
+public:
+    explicit WebhookController(queue<PaymentRequest>& q)
+        : jobs(q) {}
+    bool receive(const WebhookEvent& ev) {
+        if (ev.signature != "valid") {
+            cout << "[Webhook] 署名検証に失敗: "
+                 << ev.methodId << endl;
+            return false;
+        }
+        cout << "[Webhook] 受理してキューへ: "
+             << ev.methodId << endl;
+        jobs.push(ev.payload);
+        return true;
+    }
+};
+
+// キューからジョブを取り出し、Factory経由で処理するワーカー
+// 実運用では別スレッドで動くが、ここでは同期的にキューを空にする
+class PaymentWorker {
+    PaymentApplication& app;
+    queue<PaymentRequest>& jobs;
+public:
+    PaymentWorker(PaymentApplication& a,
+                  queue<PaymentRequest>& q)
+        : app(a), jobs(q) {}
+    void drain() {
+        while (!jobs.empty()) {
+            PaymentRequest req = jobs.front();
+            jobs.pop();
+            PaymentResult r = app.processPayment(req);
+            cout << "[ワーカー] " << req.methodId
+                 << " -> " << r.status << endl;
+        }
+    }
+};
+
 int main() {
     DefaultPaymentApplication app;
     PaymentLog payLog;
@@ -2028,6 +2077,17 @@ int main() {
         }
     }
 
+    // イベント駆動（Webhook）＋ワーカーで同じFactoryを再利用する
+    cout << "\n--- Webhook + ワーカー ---\n";
+    queue<PaymentRequest> jobs;
+    WebhookController controller(jobs);
+    PaymentWorker worker(app, jobs);
+    WebhookEvent e1{"credit_card", "valid", r1};
+    WebhookEvent e2{"paypay", "bad", r4};
+    controller.receive(e1);   // 署名OK→キューへ
+    controller.receive(e2);   // 署名NG→拒否
+    worker.drain();           // キューを取り出しFactoryで処理
+
     cout << "\n--- 決済ログ ---\n";
     payLog.printAll();
 
@@ -2047,23 +2107,29 @@ int main() {
 [PaymentGateway] 振込先発行 order=ORD-1002 amount=2000 payer=山田太郎
 結果: bank_transfer -> 保留 (振込先発行済み 口座=mizuho-1234567)
   完了確認中... id=BT-ORD-1002
-  [状態確認API] id=BT-ORD-1002
+[状態確認API] id=BT-ORD-1002
   完了結果: 成功 (入金確認済み)
 [PaymentGateway] コンビニ番号発行 order=ORD-1003 amount=500 phone=09012345678
 結果: convenience -> 保留 (番号発行済み 番号=CVS-98765)
   完了確認中... id=CVS-ORD-1003
-  [状態確認API] id=CVS-ORD-1003
+[状態確認API] id=CVS-ORD-1003
   完了結果: 成功 (コンビニ入金確認済み)
 [PaymentGateway] PayPay決済 order=ORD-2001 amount=3000 token=pp_token_123
 結果: paypay -> 保留 (PayPayセッション作成済み)
   完了確認中... id=PP-ORD-2001
-  [状態確認API] id=PP-ORD-2001
+[状態確認API] id=PP-ORD-2001
   完了結果: 成功 (PayPay決済確認済み)
 [PaymentGateway] カード認証 order=ORD-1004 amount=800 token=ERROR_DECLINED
 結果: credit_card -> 失敗 (カード認証失敗: 残高不足)
 結果: credit_card -> 失敗 (カード名義が不足しています)
 結果: crypto -> 失敗 (暗号通貨 は現在無効です。)
 結果: unknown -> 失敗 (未登録の決済方法です: unknown)
+
+--- Webhook + ワーカー ---
+[Webhook] 受理してキューへ: credit_card
+[Webhook] 署名検証に失敗: paypay
+[PaymentGateway] カード認証 order=ORD-1001 amount=1000 token=tok_abc
+[ワーカー] credit_card -> 成功
 
 --- 決済ログ ---
 [credit_card] 1000円 -> 成功
