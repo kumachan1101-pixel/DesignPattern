@@ -1415,12 +1415,28 @@ public:
 class TicketReservation {
 private:
     IReservationState* state;
+    EventDatabase* db;           // 在庫の保存データ（境界）
+    ReservationHistory* history; // 予約履歴
+    std::string eventId;
+    std::string title;
 public:
-    TicketReservation(IReservationState* initialState)
-        : state(initialState) {}
+    TicketReservation(IReservationState* initialState,
+                      EventDatabase* db,
+                      ReservationHistory* history,
+                      const std::string& eventId,
+                      const std::string& title)
+        : state(initialState), db(db), history(history),
+          eventId(eventId), title(title) {}
 
     // 状態遷移時に呼ばれる
     void setState(IReservationState* s) { state = s; }
+
+    // 状態遷移の副作用：在庫の増減と履歴の記録
+    void reserveSeat() { db->reserveSeat(eventId); }
+    void cancelSeat()  { db->cancelSeat(eventId); }
+    void record(const std::string& action) {
+        history->add(eventId, title, action);
+    }
 
     // 操作を現在の状態に委譲するだけ
     void reserve()         { state->reserve(this); }
@@ -1438,6 +1454,8 @@ public:
 ```cpp
 // 各状態クラスのメソッド実装
 void AvailableState::reserve(TicketReservation* ctx) {
+    ctx->reserveSeat();
+    ctx->record("予約");
     std::cout << "予約完了しました\n";
     ctx->setState(reservedState());
 }
@@ -1447,10 +1465,13 @@ void AvailableState::addToWaitlist(TicketReservation* ctx) {
 }
 
 void ReservedState::pay(TicketReservation* ctx) {
+    ctx->record("決済");
     std::cout << "支払い完了しました\n";
     ctx->setState(paidState());
 }
 void ReservedState::cancel(TicketReservation* ctx) {
+    ctx->cancelSeat();
+    ctx->record("キャンセル");
     std::cout << "予約をキャンセルしました\n";
     ctx->setState(availableState());
 }
@@ -1460,19 +1481,26 @@ void ReservedState::hold(TicketReservation* ctx) {
 }
 
 void WaitlistedState::upgrade(TicketReservation* ctx) {
+    ctx->reserveSeat();
+    ctx->record("予約");
     std::cout << "予約に昇格しました\n";
     ctx->setState(reservedState());
 }
 
 void HeldState::pay(TicketReservation* ctx) {
+    ctx->record("決済");
     std::cout << "保留から支払い完了しました\n";
     ctx->setState(paidState());
 }
 void HeldState::cancel(TicketReservation* ctx) {
+    ctx->cancelSeat();
+    ctx->record("キャンセル");
     std::cout << "保留からキャンセルしました\n";
     ctx->setState(availableState());
 }
 void HeldState::expire(TicketReservation* ctx) {
+    ctx->cancelSeat();
+    ctx->record("キャンセル");
     std::cout << "保留期限が切れました\n";
     ctx->setState(availableState());
 }
@@ -1531,25 +1559,20 @@ public:
         if (validate("EVT001")) {
             EventInfo i1 = db.get("EVT001");
             std::cout << "予約対象：" << i1.title << "\n";
-            TicketReservation seat1(availableState());
+            TicketReservation seat1(availableState(), &db,
+                                    &history, "EVT001", i1.title);
             seat1.reserve();
-            db.reserveSeat("EVT001");
-            history.add("EVT001", i1.title, "予約");
             seat1.pay();
-            history.add("EVT001", i1.title, "決済");
         }
 
         // シナリオ2：通常キャンセル (Available → Reserved → Available)
         std::cout << "--- シナリオ2: 通常キャンセル ---\n";
         if (validate("EVT001")) {
             EventInfo i2 = db.get("EVT001");
-            TicketReservation seat2(availableState());
+            TicketReservation seat2(availableState(), &db,
+                                    &history, "EVT001", i2.title);
             seat2.reserve();
-            db.reserveSeat("EVT001");
-            history.add("EVT001", i2.title, "予約");
             seat2.cancel();
-            db.cancelSeat("EVT001");
-            history.add("EVT001", i2.title, "キャンセル");
         }
 
         // シナリオ3：保留と支払い (Available → Reserved → Held → Paid)
@@ -1557,27 +1580,22 @@ public:
         if (validate("EVT002")) {
             EventInfo i3 = db.get("EVT002");
             std::cout << "予約対象：" << i3.title << "\n";
-            TicketReservation seat3(availableState());
+            TicketReservation seat3(availableState(), &db,
+                                    &history, "EVT002", i3.title);
             seat3.reserve();
-            db.reserveSeat("EVT002");
-            history.add("EVT002", i3.title, "予約");
             seat3.hold();
             seat3.pay();
-            history.add("EVT002", i3.title, "決済");
         }
 
         // シナリオ4：保留期限切れ (Available → Reserved → Held → Available)
         std::cout << "--- シナリオ4: 保留期限切れ ---\n";
         if (validate("EVT001")) {
             EventInfo i4 = db.get("EVT001");
-            TicketReservation seat4(availableState());
+            TicketReservation seat4(availableState(), &db,
+                                    &history, "EVT001", i4.title);
             seat4.reserve();
-            db.reserveSeat("EVT001");
-            history.add("EVT001", i4.title, "予約");
             seat4.hold();
             seat4.expire();
-            db.cancelSeat("EVT001");
-            history.add("EVT001", i4.title, "キャンセル");
         }
 
         // シナリオ5：キャンセル待ちから昇格
@@ -1585,19 +1603,19 @@ public:
         std::cout << "--- シナリオ5: キャンセル待ちから昇格 ---\n";
         if (validate("EVT001")) {
             EventInfo i5 = db.get("EVT001");
-            TicketReservation seat5(availableState());
+            TicketReservation seat5(availableState(), &db,
+                                    &history, "EVT001", i5.title);
             seat5.addToWaitlist();
             seat5.upgrade();
-            db.reserveSeat("EVT001");
-            history.add("EVT001", i5.title, "予約");
             seat5.pay();
-            history.add("EVT001", i5.title, "決済");
         }
 
         // シナリオ6：無効な操作の拒否 (Available → pay)
         std::cout << "--- シナリオ6: 無効な操作の拒否 ---\n";
         if (validate("EVT001")) {
-            TicketReservation seat6(availableState());
+            EventInfo i6 = db.get("EVT001");
+            TicketReservation seat6(availableState(), &db,
+                                    &history, "EVT001", i6.title);
             seat6.pay();
         }
 
