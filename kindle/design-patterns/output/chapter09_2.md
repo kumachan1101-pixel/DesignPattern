@@ -1786,6 +1786,24 @@ graph LR
 > [!INFO] コラム: StrategyとState、似ているけれど何が違う？
 > どちらのパターンも「インターフェースを使って具体的な振る舞いを切り替える」という構造は同じです。しかし、目的（意図）が異なります。Strategyは「優先度計算」のような特定のアルゴリズムを差し替えるためのものですが、Stateは「受付中」「対応中」といったオブジェクトのライフサイクル（状態）を表現するためのものです。構造が同じでも、変更理由の種類が違うため別々に扱う必要があります。
 
+### 抽象骨格の実行シーケンス
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant X as Context
+    participant S as State
+    participant R as Strategy
+    C->>X: event(input)
+    X->>S: handle(Context, input)
+    S->>R: evaluate(input)
+    R-->>S: 判定結果
+    S->>X: setState(next)
+    X-->>C: 状態・優先度
+```
+
+Stateが状態固有の処理を選び、その中の独立して変わる判定をStrategyへ委譲します。
+
 ### この章の実装との対応
 
 GoF（Gang of Four）とは、1994年に出版された書籍『Design Patterns』の4人の著者の総称です。彼らが整理した23のパターンは、現在も設計の共通言語として広く使われています。

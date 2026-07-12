@@ -1687,6 +1687,23 @@ classDiagram
 
 ```
 
+### 抽象骨格の実行シーケンス
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant T as AbstractTemplate
+    participant H as ConcreteHooks
+    C->>T: templateMethod()
+    T->>T: commonStep()
+    T->>H: variableStep()
+    H-->>T: ステップ結果
+    T->>T: commonFinish()
+    T-->>C: 結果
+```
+
+処理順序は基底クラスが固定し、変わるステップだけを具象クラスへ問い合わせます。
+
 ### この章の実装との対応
 
 GoF（Gang of Four）とは、1994年に出版された書籍『Design Patterns』の4人の著者の総称です。彼らが整理した23のパターンは、現在も設計の共通言語として広く使われています。

@@ -1758,6 +1758,26 @@ classDiagram
 
 Facade はバッチ実行部の複雑な連携フローを隠蔽し、Factory Method は連携先の増殖に対応する生成の窓口となり、Observer は通知先変更の波及を遮断します。
 
+### 抽象骨格の実行シーケンス
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant F as Facade
+    participant CR as Creator
+    participant P as Product
+    participant O as Observer
+    C->>F: execute(type, input)
+    F->>CR: create(type)
+    CR-->>F: Product
+    F->>P: send(input)
+    P-->>F: Result
+    F->>O: update(Result)
+    F-->>C: Result
+```
+
+Facadeが処理全体を受け、生成をCreatorへ、外部連携をProductへ、通知をObserverへ分担します。
+
 ### 使いどころと限界
 
 * **使いどころ**：外部システム連携、イベント駆動型のバッチ、設定によって振る舞いが動的に変わるシステム。

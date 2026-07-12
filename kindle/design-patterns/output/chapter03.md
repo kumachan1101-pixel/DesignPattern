@@ -1906,6 +1906,22 @@ classDiagram
     State <|.. ConcreteState
 ```
 
+### 抽象骨格の実行シーケンス
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant X as Context
+    participant S as CurrentState
+    participant N as NextState
+    C->>X: event()
+    X->>S: handle(Context)
+    S->>X: setState(NextState)
+    X-->>C: 更新後状態
+```
+
+Clientは現在状態を指定せず、Contextが保持するStateへイベントを委譲します。
+
 ### この章の実装との対応
 
 | GoFの名前 | この章での対応 |

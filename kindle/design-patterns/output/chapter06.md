@@ -1767,6 +1767,24 @@ classDiagram
     Decorator <|-- ConcreteDecorator
 ```
 
+### 抽象骨格の実行シーケンス
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant D2 as OuterDecorator
+    participant D1 as InnerDecorator
+    participant B as Component
+    C->>D2: operation()
+    D2->>D1: operation()
+    D1->>B: operation()
+    B-->>D1: 基本結果
+    D1-->>D2: 機能1を加えた結果
+    D2-->>C: 機能2を加えた結果
+```
+
+外側から内側へ同じ契約を呼び、戻りながら各Decoratorの機能を重ねます。
+
 ### この章の実装との対応
 
 GoF（Gang of Four）とは、1994年に出版された書籍『Design Patterns』の4人の著者の総称です。彼らが整理した23のパターンは、現在も設計の共通言語として広く使われています。

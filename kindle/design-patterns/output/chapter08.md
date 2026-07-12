@@ -2254,6 +2254,23 @@ classDiagram
     ConcreteProduct ..|> Product
 ```
 
+### 抽象骨格の実行シーケンス
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant CR as Creator
+    participant P as Product
+    C->>CR: operation(type, input)
+    CR->>CR: factoryMethod(type)
+    CR-->>CR: Productを生成
+    CR->>P: use(input)
+    P-->>CR: 結果
+    CR-->>C: 結果
+```
+
+Creatorは生成をfactoryMethodへ集め、利用処理はProduct契約だけを通じて進めます。
+
 ### この章の実装との対応
 
 GoF（Gang of Four）とは、1994年に出版された書籍『Design Patterns』の4人の著者の総称です。彼らが整理した23のパターンは、現在も設計の共通言語として広く使われています。

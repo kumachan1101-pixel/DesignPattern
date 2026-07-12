@@ -1783,6 +1783,24 @@ classDiagram
     Facade --> SubsystemB
 ```
 
+### 抽象骨格の実行シーケンス
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant F as Facade
+    participant A as SubsystemA
+    participant B as SubsystemB
+    C->>F: operation(input)
+    F->>A: 手順1
+    A-->>F: 中間結果
+    F->>B: 手順2(中間結果)
+    B-->>F: 結果
+    F-->>C: 統合結果
+```
+
+Clientはサブシステムの順序や中間値を知らず、Facadeの1操作だけを呼びます。
+
 ### この章の実装との対応
 
 GoF（Gang of Four）とは、1994年に出版された書籍『Design Patterns』の4人の著者の総称です。彼らが整理した23のパターンは、現在も設計の共通言語として広く使われています。

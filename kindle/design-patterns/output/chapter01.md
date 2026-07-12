@@ -1864,6 +1864,22 @@ classDiagram
     ConcreteStrategyB ..|> Strategy
 ```
 
+### 抽象骨格の実行シーケンス
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant X as Context
+    participant S as Strategy
+    C->>X: Strategyを注入
+    C->>X: 処理を依頼
+    X->>S: algorithm(input)
+    S-->>X: 計算結果
+    X-->>C: 結果
+```
+
+Contextは具体Strategy名を判断せず、注入された契約へ計算を委譲します。
+
 ### この章の実装との対応
 
 GoF（Gang of Four）とは、1994年に出版された書籍『Design Patterns』の4人の著者の総称です。彼らが整理した23のパターンは、現在も設計の共通言語として広く使われています。

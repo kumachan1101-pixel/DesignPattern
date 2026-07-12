@@ -1878,6 +1878,24 @@ classDiagram
 
 Template Method が処理の共通手順を管理し、Decorator が追加機能を組み合わせ、Command が実行履歴を管理します。各責務の境界を分けることで、変更時に確認する範囲を絞りやすくしています。ただし、各層をつなぐインターフェースや組み立てコードは共有する接続点として残ります。
 
+### 抽象骨格の実行シーケンス
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant CMD as Command
+    participant D as Decorator
+    participant T as Template
+    C->>CMD: execute()
+    CMD->>D: generate()
+    D->>T: templateMethod()
+    T-->>D: 基本帳票
+    D-->>CMD: 機能追加済み帳票
+    CMD-->>C: 生成結果・履歴
+```
+
+Commandが生成操作を記録し、Decoratorが機能を重ね、Template Methodが生成順序を守ります。
+
 ### 使いどころと限界
 
 - **使いどころ**：生成順序が厳格な処理、機能追加の組み合わせが膨大なレポート・ドキュメント生成エンジンなど。

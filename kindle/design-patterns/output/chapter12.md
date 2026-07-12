@@ -2210,6 +2210,26 @@ classDiagram
 
 状態管理の仕組みが「今の状態での振る舞い」を整理し、判定ルールの仕組みが「承認の可否」を判定し、通知の仕組みが「変更の伝搬」を担うことで、複雑なワークフローを整理しています。
 
+### 抽象骨格の実行シーケンス
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant X as Context
+    participant S as State
+    participant R as Strategy
+    participant O as Observer
+    C->>X: event(request)
+    X->>S: handle(Context, request)
+    S->>R: canApprove(request)
+    R-->>S: 判定結果
+    S->>X: transition(next)
+    X->>O: update(status)
+    X-->>C: 更新結果
+```
+
+状態固有処理、承認判定、通知を別の契約へ分け、Contextはそれらを実行順に接続します。
+
 ### この章の実装との対応
 
 ```mermaid

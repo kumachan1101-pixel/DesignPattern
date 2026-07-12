@@ -1676,6 +1676,24 @@ classDiagram
 
 ```
 
+### 抽象骨格の実行シーケンス
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Subject
+    participant O1 as Observer1
+    participant O2 as Observer2
+    C->>S: 状態を更新
+    S->>O1: update(event)
+    S->>O2: update(event)
+    O1-->>S: 通知結果
+    O2-->>S: 通知結果
+    S-->>C: 更新結果
+```
+
+Subjectは具象通知先ではなくObserver契約の登録一覧だけを走査します。
+
 ### この章の実装との対応
 
 `InventoryManager` が `Subject`（通知を送る側）、`INotification` が `Observer`（抽象ロール）、`EmailNotifier` 等が `ConcreteObserver`（具象観察者）に対応します。
