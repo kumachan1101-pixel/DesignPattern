@@ -1385,9 +1385,17 @@ public:
 };
 
 // 割引ルールの共通インターフェース（ルール差し替え構造）
+// 支払計算の結果オブジェクト：小計・適用ルール名・支払金額
+struct PaymentResult {
+    int subtotal;
+    int finalPrice;
+    std::string appliedRule;
+};
+
 class IDiscountRule {
 public:
     virtual int apply(int total) = 0;
+    virtual std::string name() const = 0;
     virtual ~IDiscountRule() = default;
 };
 ```
@@ -1403,6 +1411,7 @@ public:
 class NoDiscount : public IDiscountRule {
 public:
     int apply(int total) override { return total; }
+    std::string name() const override { return "割引なし"; }
 };
 
 class PremiumDiscount : public IDiscountRule {
@@ -1410,12 +1419,16 @@ public:
     int apply(int total) override {
         return total * 80 / 100;
     }
+    std::string name() const override { return "プレミアム割引"; }
 };
 
 class SummerSaleAndCampaignDiscount : public IDiscountRule {
 public:
     int apply(int total) override {
         return (total * 90 / 100) * 95 / 100;
+    }
+    std::string name() const override {
+        return "サマーセール+キャンペーン";
     }
 };
 
@@ -1424,6 +1437,7 @@ public:
     int apply(int total) override {
         return total * 95 / 100;
     }
+    std::string name() const override { return "サマーセール割引"; }
 };
 
 class CampaignDiscount : public IDiscountRule {
@@ -1431,6 +1445,7 @@ public:
     int apply(int total) override {
         return total * 90 / 100;
     }
+    std::string name() const override { return "キャンペーン割引"; }
 };
 ```
 
@@ -1448,10 +1463,14 @@ private:
 public:
     PaymentCalculator(IDiscountRule* r) : rule(r) {}
 
-    int calculate(const Order& order) {
-        int total = 0;
-        for (const auto& item : order.items) total += item.price;
-        return rule->apply(total);
+    PaymentResult calculate(const Order& order) {
+        int subtotal = 0;
+        for (const auto& item : order.items) subtotal += item.price;
+        PaymentResult result;
+        result.subtotal = subtotal;
+        result.finalPrice = rule->apply(subtotal);
+        result.appliedRule = rule->name();
+        return result;
     }
 };
 
@@ -1461,7 +1480,7 @@ private:
 public:
     CartPreviewService(IDiscountRule* r) : calculator(r) {}
 
-    int getEstimatedTotal(const Order& order) {
+    PaymentResult getEstimatedTotal(const Order& order) {
         return calculator.calculate(order);
     }
 };
@@ -1492,8 +1511,7 @@ public:
     void showOrderResult(const CustomerInfo& customer,
                          const Order& order,
                          const CampaignContext& context,
-                         int subtotal,
-                         int finalPrice,
+                         const PaymentResult& result,
                          int previewPrice) {
         std::cout << customer.name << " さんの注文:";
         for (const auto& item : order.items) {
@@ -1504,8 +1522,9 @@ public:
                   << (context.isCampaignActive ? "あり" : "なし")
                   << ", サマーセール="
                   << (context.isSummerSale ? "あり" : "なし");
-        std::cout << "\n  小計 " << subtotal << "円 → 支払金額 "
-                  << finalPrice << "円\n";
+        std::cout << "\n  小計 " << result.subtotal
+                  << "円 → 適用 " << result.appliedRule
+                  << " → 支払金額 " << result.finalPrice << "円\n";
         std::cout << "  カートプレビュー: "
                   << previewPrice << "円\n";
     }
@@ -1542,14 +1561,10 @@ public:
         PaymentCalculator calculator(rule);
         CartPreviewService preview(rule);
 
-        int finalPrice = calculator.calculate(order);
-        int subtotal = 0;
-        for (const auto& item : order.items) {
-            subtotal += item.price;
-        }
-        renderer.showOrderResult(customer, order, context,
-                                 subtotal, finalPrice,
-                                 preview.getEstimatedTotal(order));
+        PaymentResult result = calculator.calculate(order);
+        renderer.showOrderResult(
+            customer, order, context, result,
+            preview.getEstimatedTotal(order).finalPrice);
 
         delete rule;
     }
@@ -1643,31 +1658,31 @@ int main() {
 --- シナリオ1: Premium割引 ---
 田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Premium, キャンペーン=なし, サマーセール=なし
-  小計 10000円 → 支払金額 8000円
+  小計 10000円 → 適用 プレミアム割引 → 支払金額 8000円
   カートプレビュー: 8000円
 
 --- シナリオ2: Premium排他 ---
 田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Premium, キャンペーン=あり, サマーセール=あり
-  小計 10000円 → 支払金額 8000円
+  小計 10000円 → 適用 プレミアム割引 → 支払金額 8000円
   カートプレビュー: 8000円
 
 --- シナリオ3: 逐次割引 ---
 佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Regular, キャンペーン=あり, サマーセール=あり
-  小計 10000円 → 支払金額 8550円
+  小計 10000円 → 適用 サマーセール+キャンペーン → 支払金額 8550円
   カートプレビュー: 8550円
 
 --- シナリオ4: サマーセール単独 ---
 佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Regular, キャンペーン=なし, サマーセール=あり
-  小計 10000円 → 支払金額 9500円
+  小計 10000円 → 適用 サマーセール割引 → 支払金額 9500円
   カートプレビュー: 9500円
 
 --- シナリオ5: 割引なし ---
 鈴木 次郎 さんの注文: スマホケース 3000円
   条件: 会員=Regular, キャンペーン=なし, サマーセール=なし
-  小計 3000円 → 支払金額 3000円
+  小計 3000円 → 適用 割引なし → 支払金額 3000円
   カートプレビュー: 3000円
 
 --- シナリオ6: 未登録顧客 ---
@@ -1699,7 +1714,7 @@ int main() {
 classDiagram
     class PaymentCalculator {
         -IDiscountRule* rule
-        +calculate(order) int
+        +calculate(order) PaymentResult
     }
     class CartPreviewService {
         -IDiscountRule* rule
