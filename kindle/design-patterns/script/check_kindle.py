@@ -81,6 +81,18 @@ def check_table_columns(name: str, text: str) -> list[Finding]:
     return findings
 
 
+def check_control_bytes(name: str, raw: bytes) -> list[Finding]:
+    findings: list[Finding] = []
+    for i, b in enumerate(raw):
+        if b == 0 or (b < 32 and b not in (9, 10, 13)):
+            findings.append(
+                Finding(name, 0, "binary",
+                        f"制御バイト 0x{b:02x} が位置 {i} にある（NUL等の混入）")
+            )
+            break
+    return findings
+
+
 def main() -> int:
     files = sorted(OUTPUT_DIR.glob("chapter*.md"))
     if not files:
@@ -88,6 +100,8 @@ def main() -> int:
         return 1
     findings: list[Finding] = []
     for path in files:
+        raw = path.read_bytes()
+        findings.extend(check_control_bytes(path.name, raw))
         text = path.read_text(encoding="utf-8")
         findings.extend(check_code_line_length(path.name, text))
         findings.extend(check_table_columns(path.name, text))
