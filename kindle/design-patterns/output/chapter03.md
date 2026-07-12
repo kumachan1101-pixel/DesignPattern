@@ -30,7 +30,7 @@
 
 | 仕様項目   | この章で扱う値        | 具体例                | 何に使うか                                                                               |
 | ------ | -------------- | ------------------ | ----------------------------------------------------------------------------------- |
-| イベントID | 予約対象のイベント      | EVT001             | イベントの存在と空席を確認する★イベントの種類別にIDが割当たるのでは？イベントは現状で３つあるのですよね？それを記載しないとシステムの仕様の説明になっていないです。 |
+| イベントID | 予約対象のイベント | EVT001=春の音楽祭、EVT002=夏のフェス、EVT003=秋の映画会 | イベントの存在と空席を確認する |
 | 操作     | 予約・支払・キャンセル    | 予約する、支払う、キャンセルする   | 現在状態で許可される操作かを判定する                                                                  |
 | 予約状態   | 予約可能・予約済み・支払済み | 予約可能から予約済みへ変わる     | 操作後に次の状態へ遷移する                                                                       |
 | 出力     | 操作結果と状態変化      | 予約完了、満席エラー、操作不可エラー | 状態が変わる結果と変わらない結果を照合する                                                               |
@@ -224,12 +224,13 @@ classDiagram
 | EVT002 | 夏のフェス | 500 | 499（残り1席） |
 | EVT003 | 秋の映画会 | 50 | 50（満席） |
 
-コードを読む前に、どのIDが満席でどのIDに空きがあるかを把握しておくと、動作結果と仕様の対応が追いやすくなります。★予約したら現在の予約数を更新していないの？RAMに持っていても、正確に対応して。満席になっていても、キャンセルしたら減るのですよね。
+コードを読む前に、どのIDが満席でどのIDに空きがあるかを把握しておくと、動作結果と仕様の対応が追いやすくなります。予約が成功するとメモリ上の `reserved` を1増やし、予約済み状態でキャンセルすると1減らします。たとえばEVT002は499件から予約すると500件で満席になり、その予約をキャンセルすると499件へ戻ります。
 
 ```cpp
 #include <iostream>
 #include <string>
 #include <map>
+#include <stdexcept>
 
 struct EventInfo {
     std::string title;   // イベント名
@@ -258,6 +259,21 @@ public:
     bool hasCapacity(const std::string& id) const {
         const auto& e = records.at(id);
         return e.reserved < e.capacity;
+    }
+
+    void reserveSeat(const std::string& id) {
+        auto& e = records.at(id);
+        if (e.reserved >= e.capacity) {
+            throw std::runtime_error("満席です");
+        }
+        ++e.reserved;
+    }
+
+    void cancelSeat(const std::string& id) {
+        auto& e = records.at(id);
+        if (e.reserved > 0) {
+            --e.reserved;
+        }
     }
 
     void save(const std::string& id, const EventInfo& info) {
@@ -297,6 +313,7 @@ public:
             return;
         }
         if (status == "Available") {
+            db.reserveSeat(eventId);
             status = "Reserved";
             std::cout << "予約対象：" << db.get(eventId).title << "\n";
             std::cout << "予約完了しました\n";
@@ -316,6 +333,7 @@ public:
 
     void cancel() {
         if (status == "Reserved") {
+            db.cancelSeat(eventId);
             status = "Available";
             std::cout << "予約をキャンセルしました\n";
         } else {
@@ -462,7 +480,8 @@ int main() {
 この表は、既存の3状態に「キャンセル待ち」と「一時保留」を追加した後、各操作でどの状態へ進むかを整理したものです。状態と操作の組み合わせが増えたため、列数の都合で表を2つに分けています。「——」は、その状態では操作を受け付けず、エラーメッセージを出力して終了することを表します。
 
 【表1：従来の操作】
-★キャンセル待ちの状態があるが、全てハイフンなのはどういう意味？従来はどうやってやっていたの？
+
+`Waitlisted` は変更要求で初めて追加される状態です。従来は満席なら予約エラーで終了し、キャンセル待ちとして保存する機能自体がありませんでした。そのため従来の「予約する・支払う・キャンセルする」を `Waitlisted` に直接適用する欄は「——」です。キャンセル待ちからの操作は、直後の表2aにある専用イベント（登録・予約昇格）として扱います。
 
 | 現在の状態 | 予約する | 支払う | キャンセルする |
 |---|---|---|---|
@@ -520,13 +539,13 @@ stateDiagram-v2
 
 **変更後の入力・加工・出力**
 
-変更後の仕様を、1-1と同じ粒度で、正常系の入力・判定・加工・出力として確認します。1-1の図との差分は、内部に保持する「現在状態」が3種類から5種類へ、「操作・イベント」が3種類から8種類へ増えることです。判定・加工・出力の流れ自体は変わりません。★以下の流れでもイベントIDすべて記載して。それ以外はすべてのパターンを記載しているよね。
+変更後の仕様を、1-1と同じ粒度で、正常系の入力・判定・加工・出力として確認します。1-1の図との差分は、内部に保持する「現在状態」が3種類から5種類へ、「操作・イベント」が3種類から8種類へ増えることです。判定・加工・出力の流れ自体は変わりません。図中のイベントIDも、現状データに存在する3件を省略せず示します。
 
 ```mermaid
 flowchart LR
     A[(TicketReservation.status<br>Available / Reserved / Paid<br>Waitlisted / Held)]:::data --> B{操作は現在状態で可能か}:::decision
     C[/操作・イベント<br>予約・支払い・キャンセル<br>waitlist登録・予約昇格・一時保留・期限切れ・決済失敗/]:::input --> B
-    D[/イベントID<br>EVT001/]:::input --> E{対象イベントは存在するか}:::decision
+    D[/イベントID<br>EVT001: 春の音楽祭<br>EVT002: 夏のフェス<br>EVT003: 秋の映画会/]:::input --> E{対象イベントは存在するか}:::decision
     E -->|Yes| K{空きはあるか<br>（予約時のみ）}:::decision
     K -->|Yesまたは予約以外| B
     B -->|Yes| F[状態ごとの処理を実行]:::process
@@ -1628,6 +1647,44 @@ int main() {
 
 この実行結果は、フェーズ1の動作例テーブルと、フェーズ1-5で追加した仕様遷移の代表ケースに対応しています。構造が分離され、`TicketReservation` に状態ごとの条件分岐を増やさずに状態を追加・管理できるようになりました。
 
+
+#### 解決後のクラス構成
+
+```mermaid
+classDiagram
+    class TicketReservation {
+        -IReservationState* state
+        -EventDatabase& db
+        -string eventId
+        +reserve()
+        +pay()
+        +cancel()
+    }
+    class IReservationState {
+        <<interface>>
+        +reserve(ctx)
+        +pay(ctx)
+        +cancel(ctx)
+    }
+    class AvailableState
+    class ReservedState
+    class PaidState
+    class WaitlistedState
+    class HeldState
+    class EventDatabase {
+        +reserveSeat(eventId)
+        +cancelSeat(eventId)
+    }
+    TicketReservation o--> IReservationState
+    TicketReservation --> EventDatabase
+    IReservationState <|.. AvailableState
+    IReservationState <|.. ReservedState
+    IReservationState <|.. PaidState
+    IReservationState <|.. WaitlistedState
+    IReservationState <|.. HeldState
+```
+
+章末のState骨格図では `TicketReservation` がContext、`IReservationState` がState、5つの状態クラスがConcreteStateに対応します。イベントの予約数は状態オブジェクト自身に複製せず、`EventDatabase` を通じて成功時に増減します。
 
 ### 7-2：動作シーケンス図
 
