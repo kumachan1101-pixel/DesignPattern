@@ -1487,7 +1487,8 @@ public:
 ```
 
 - `PaymentCalculator` は具体的な割引を知らず、受け取った `rule` の `apply()` に計算を委ねます。割引を選ぶ `if` はありません。
-- `CartPreviewService` も同じ `rule` を受け取り、決済と同じ金額を返します。
+- 戻り値は金額だけの `int` ではなく、小計・適用したルール名・支払金額をまとめた `PaymentResult`（結果オブジェクト）です。会員種別やキャンペーンによって「どの割引が効いたか」を、金額とあわせて呼び出し側へ返せます。
+- `CartPreviewService` も同じ `rule` を受け取り、決済と同じ `PaymentResult` を返します。
 
 **4. ルール選択と組み立て（RuleFactory・OrderProcessor）**
 具体的なクラス名（`PremiumDiscount`等）を知っているのは `RuleFactory` だけです。`OrderProcessor` は CustomerDatabase・RuleFactory・PaymentCalculator を組み合わせて注文処理全体を担います。

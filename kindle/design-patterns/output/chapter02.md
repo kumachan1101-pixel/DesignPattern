@@ -1428,6 +1428,10 @@ public:
     virtual TransferResult performApprovedBatchTransfer(
         const std::string& fromAccount,
         const std::string& toAccount, int amount) = 0;
+    // 補償：完了済みの振込を逆仕訳で取り消す（ロールバック）
+    virtual void compensate(
+        const std::string& fromAccount,
+        const std::string& toAccount, int amount) = 0;
     virtual ~IBankTransferService() = default;
 };
 
@@ -1507,11 +1511,32 @@ public:
                     amount);
         return {true, "振り込み完了"};
     }
+
+    void compensate(
+            const std::string& fromAccount,
+            const std::string& toAccount,
+            int amount) override {
+        // 逆仕訳：送金先から引き、送金元へ戻す
+        db.withdraw(toAccount, amount);
+        db.deposit(fromAccount, amount);
+        history.add(toAccount,
+                    db.get(toAccount).ownerName,
+                    fromAccount,
+                    db.get(fromAccount).ownerName,
+                    amount);
+        std::cout << "補償: " << toAccount << " から "
+                  << fromAccount << " へ " << amount
+                  << "円を戻しました\n";
+    }
 };
 ```
 
 **3. 本体クラス（コンテキスト）**
 振り込みという業務フローを担うクラスです。具体的なAPIの呼び出し手順を知らず、インターフェースだけを通じて処理を委譲します。銀行APIへの依存自体が消えるのではなく、窓口構造の背後へ間接化され、業務クラスから技術的な手順が見えなくなります。
+
+窓口へ渡す入力は、送金元・送金先・金額・認証コードをまとめた `TransferRequest`（要求オブジェクト）で、戻り値は成功可否と理由を持つ `TransferResult`（結果オブジェクト）です。認証コードは `verifyOTP` が実際に検証し、正しくない場合は送金へ進まず「認証失敗」の結果を返します。呼び出し側は引数を並べ替える必要がなく、結果の `success` だけを見て次を判断できます。
+
+一括送金（`BatchTransferProcessor`）では、複数の振込を順に実行する途中で1件でも失敗すると、それより前に完了した振込を安全に取り消す必要があります。ここでは窓口へ `compensate` を用意し、失敗した時点で完了済みの振込を逆順に逆仕訳（送金先から引き、送金元へ戻す）します。残高は元へ戻り、履歴には元の振込と反対仕訳の両方が残ります。処理の途中失敗で「すでに完了した状態」を戻す流れ（補償・ロールバック）も、窓口の1メソッドとして業務クラスから隠せます。
 
 ```cpp
 // 振り込み処理クラス：銀行APIの詳細を直接扱わない
@@ -1539,14 +1564,29 @@ public:
             const std::string& fromAccount,
             const std::vector<std::pair<std::string, int>>&
                 transfers) {
+        // 完了済みを覚えておき、途中失敗したら逆順で取り消す
+        std::vector<std::pair<std::string, int>> completed;
         for (int i = 0; i < (int)transfers.size(); i++) {
             const std::string& account = transfers[i].first;
             int amount = transfers[i].second;
             TransferResult result =
                 facade->performApprovedBatchTransfer(
                     fromAccount, account, amount);
-            if (result.success)
+            if (result.success) {
                 std::cout << "振り込み完了（OTP不要）\n";
+                completed.push_back({account, amount});
+            } else {
+                std::cout << "一括処理を中断し、完了済み"
+                          << (int)completed.size()
+                          << "件を取り消します\n";
+                for (int j = (int)completed.size() - 1;
+                     j >= 0; j--) {
+                    facade->compensate(fromAccount,
+                                       completed[j].first,
+                                       completed[j].second);
+                }
+                return;
+            }
         }
     }
 };
@@ -1588,6 +1628,14 @@ public:
         };
         batch.processPayroll("ACC003", payroll);
 
+        // 一括送金の途中失敗と補償（ロールバック）
+        // 2件目がACC003の残高を超えるため、1件目を取り消す
+        std::vector<std::pair<std::string, int>> payroll2 = {
+            {"ACC002", 20000},
+            {"ACC001", 600000}
+        };
+        batch.processPayroll("ACC003", payroll2);
+
         std::cout << "--- 最終残高 ---\n";
         std::cout << "ACC001: " << db.get("ACC001").balance << "円\n";
         std::cout << "ACC002: " << db.get("ACC002").balance << "円\n";
@@ -1628,6 +1676,13 @@ int main() {
 残高確認
 送金実行: 30000円
 振り込み完了（OTP不要）
+口座確認: ACC002
+残高確認
+送金実行: 20000円
+振り込み完了（OTP不要）
+エラー: 残高不足
+一括処理を中断し、完了済み1件を取り消します
+補償: ACC002 から ACC003 へ 20000円を戻しました
 --- 最終残高 ---
 ACC001: 145000円
 ACC002: 65000円
@@ -1635,6 +1690,8 @@ ACC003: 470000円
 --- 振り込み履歴 ---
 田中 一郎 → 佐藤 花子 : 5000円
 鈴木 次郎 → 佐藤 花子 : 30000円
+鈴木 次郎 → 佐藤 花子 : 20000円
+佐藤 花子 → 鈴木 次郎 : 20000円
 ```
 
 動作例テーブルの全5ケースについて、正常振込、存在しない口座、残高不足、認証失敗、バッチ送金を確認しました。成功2件だけが残高と履歴を更新し、失敗2件は更新しません。`AccountDatabase` による口座存在確認・残高確認が `BankTransferService` の窓口内に閉じ込められ、`TransferProcessor` は `IBankTransferService` という窓口に依存する形へ変わりました。
