@@ -239,6 +239,12 @@ classDiagram
 
 このコードの `std::map` はイベントIDから `EventInfo` を引くメモリ上のイベント表です。`at(id)` は存在確認済みのIDに対応するデータを取得します。`throw std::runtime_error(...)` は、満席という前提違反を呼び出し元へ例外として通知する記法です。通常の満席判定は先に `hasCapacity()` で行い、例外は確認を飛ばして更新しようとした場合の安全網として使います。
 
+コードは責任の固まりごとに分けて読みます。
+
+**① イベント在庫を表すクラス（EventInfo / EventDatabase）**
+
+最初に、1-1の「イベント」にあたるデータと在庫を持つ部分です。イベントIDから定員・予約数を引き、予約成功で件数を増やし、キャンセルで減らす在庫の役割を担います。エラー条件「存在しないID」「満席」もここで判定します。
+
 ```cpp
 #include <iostream>
 #include <string>
@@ -287,7 +293,15 @@ public:
         records[id] = info;             // 実行中のイベント表へ追加
     }
 };
+```
 
+`EventDatabase` は `std::map` でイベントIDと `EventInfo` を対応付けた在庫データです。`exists()` でIDの存在確認、`hasCapacity()` で空席判定、`reserveSeat()` / `cancelSeat()` で予約数を増減します。実システムのDBを、この章では実行終了まで覚えているインメモリの登録表で代替しています。
+
+**② 予約操作をまとめるクラス（TicketReservation）**
+
+この章の中心です。1-1の「予約・支払い・キャンセル」という利用者操作を受け取り、現在の状態（Available / Reserved / Paid）に応じて可否を判定してから在庫を更新します。
+
+```cpp
 class TicketReservation {
 private:
     EventDatabase& db;
@@ -350,7 +364,11 @@ public:
 };
 ```
 
-このコードを見ると、`reserve`、`pay`、`cancel` の各メソッドの中に、現在の `status` を判定する条件分岐が散らばっていることが分かります。実際の動作を確認するために、このクラスを呼び出す `main` 関数と実行結果を合わせて示します。
+このコードを見ると、`reserve`、`pay`、`cancel` の各メソッドの中に、現在の `status` を判定する条件分岐が散らばっていることが分かります。
+
+**③ 実行して動作例と照合する（main）**
+
+このクラスを呼び出す `main` 関数と実行結果を合わせて示します。
 
 ```cpp
 int main() {
