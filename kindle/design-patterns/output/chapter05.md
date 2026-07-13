@@ -1127,7 +1127,11 @@ int main() {
 
 操作を抽象化するためのインターフェースと、それを実行する履歴管理クラスを定義します。コードはクラスごとに分割して示します。
 
-**はじめに、操作の契約となるインターフェースです。**
+解決後のコードも、責任の固まりごとに分けて読みます。
+
+**① データとインフラ（Category / CategoryDatabase / LedgerRepository / BalanceViewRenderer）**
+
+まず、カテゴリデータと、保存・表示を担う境界クラスです。
 
 ```cpp
 #include <deque>
@@ -1194,7 +1198,15 @@ public:
         std::cout << message << std::endl;
     }
 };
+```
 
+`CategoryDatabase` はカテゴリのマスタ、`LedgerRepository` は収支の保存・取消を担う境界スタブ、`BalanceViewRenderer` は画面表示の境界です。`LedgerRepository` の `deleteExpense` / `deleteIncome` が、Undo時に保存済みデータを取り消す副作用にあたります。
+
+**② 実行先クラス（ExpenseManager / IncomeManager）**
+
+操作オブジェクトから処理を委ねられる実行先（Receiver）です。収支の登録・取消と残高の増減を担います。
+
+```cpp
 // 操作オブジェクトから処理を委ねられる実行先（Receiver）
 class ExpenseManager {
     int total = 0;
@@ -1277,7 +1289,15 @@ public:
     }
     int totalIncome() const { return total; }
 };
+```
 
+`ExpenseManager` と `IncomeManager` は、それぞれ支出・収入の登録と取消を担います。カテゴリIDと金額を検証し、`LedgerRepository` へ保存してから残高を増減します。
+
+**③ 操作の契約（IAction インターフェース）**
+
+実行と取り消しを、すべての操作クラスに強制する契約です。
+
+```cpp
 // 操作の契約：実行と取り消しをすべての操作クラスに強制する
 class IAction {
 public:
@@ -1286,12 +1306,11 @@ public:
     virtual bool undo() = 0;
     virtual std::string describe() const = 0;
 };
-
 ```
 
 `IAction` を定めることで、履歴管理クラスはどの具体的な操作クラスが来ても同じ方法で扱える。この「型の統一」と「成否の統一」が、Undo/Redoと失敗時補償を汎用的に実現する鍵になる。
 
-**次に、具体的な操作クラスです。**
+**④ 具体的な操作クラス（AddExpenseAction / AddIncomeAction）**
 
 ```cpp
 // 支出追加の操作をカプセル化したクラス
@@ -1343,7 +1362,7 @@ public:
 
 各操作クラスは「実行」と「取り消し」の両方を知っています。操作を増やすときは操作クラスを追加し、画面やバッチへ割り当てる組み立て箇所を変更します。`ActionHistory` の履歴管理ロジックには、操作種別ごとの分岐を増やさずに済みます。
 
-**次に、操作履歴を保持し、Undo/Redoを制御する仲介役クラスです。**
+**⑤ 操作履歴を保持しUndo/Redoを制御する仲介役クラス**
 
 実行ログ（`executionLog`）はシステム起動時は空で、操作が実行・取り消しされるたびに1件追記されます。`undoStack` とは異なり、削除されることなく全操作の記録として保持します。
 
@@ -1408,7 +1427,7 @@ public:
 
 `ActionHistory` は `IAction*` として操作オブジェクトを受け取り、スタックで管理します。具体的な操作クラスは知りません。Undo/Redoの実行に失敗した場合は、対象の操作を元のスタックに残す順序にしています。
 
-**最後に、呼び出し元と組み立てコードです。**
+**⑥ 呼び出し元と組み立て（main）**
 
 UI以外の呼び出し元の例として、複数の操作をまとめて実行する `ImportService` を追加します。ヒアリング（2-3）で「一括削除のような複数データへの操作もあり得る」と予告されていた種類の呼び出し元です。UIと同じ `IAction` インターフェースを通じて操作を実行するため、履歴とUndoの仕組みをそのまま共有できます。
 
