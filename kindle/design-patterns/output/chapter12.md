@@ -162,10 +162,10 @@ flowchart TD
 
 | 入力 | 承認者 | 結果 |
 | --- | --- | --- |
-| 申請を提出 / 50,000円 | 登録済みの承認者 | 審査待ち状態へ移行 / 申請者に通知 |
-| 承認済みの申請を最終承認 / 50,000円 | 登録済みの承認者 | 完了状態へ移行 / 関係者に通知 |
-| 申請を提出 / 50,000円 | 未登録の承認者 | 承認者IDが存在しないエラー |
-| 申請を提出 / 200,000円 | 上限100,000円の承認者 | 承認上限を超えるエラー |
+| REQ001（作成中）を提出 / 50,000円 | 登録済みの承認者 | 審査待ちへ移行 / 課長へ通知 |
+| REQ002（審査待ち）を承認 / 50,000円 | 登録済みの承認者 | 完了へ移行 / 部長へ通知 |
+| REQ001を提出 / 50,000円 | 未登録の承認者 | 承認者IDが存在しないエラー |
+| REQ001を提出 / 200,000円 | 上限100,000円の承認者 | 承認上限を超えるエラー |
 
 この表を見れば、現状の仕様が申請IDから保存済み状態を取得し、申請金額と承認者情報を使って、状態遷移・通知・承認額チェックをまとめて処理していることが分かります。緊急申請ルートや決済部門通知は、変更要求で扱います。
 
@@ -178,6 +178,8 @@ flowchart TD
 | WorkflowManager | ワークフローの全体管理 | 状態遷移、通知処理、承認判定ロジックなどすべての業務ルール |
 | ApproverInfo | 承認者1件分のデータ | 氏名・役職・承認上限額を保持する |
 | ApproverDatabase | 承認者マスターデータの管理 | 承認者IDによる存在確認・情報取得・承認権限額の検証 |
+| WorkflowCaseRepository | 申請状態の保存・取得 | 申請IDごとの現在状態を読み書きする |
+| NotificationTargetRepository | 通知先の保存・取得 | 申請IDごとの通知先を読み出す |
 
 ---
 
@@ -188,6 +190,8 @@ flowchart TD
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
 | `WorkflowManager` | 承認ワークフロー全体を進める | 状態遷移、通知、承認者確認の呼び出し |
+| `WorkflowCaseRepository` | 申請状態を保存・取得する | 申請IDから現在状態を読み書きする |
+| `NotificationTargetRepository` | 通知先を保存・取得する | 申請IDから通知先を読み出す |
 | `ApproverDatabase` | 承認者マスターデータを管理する | 承認者IDの存在確認、承認上限額の確認 |
 | `ApproverInfo` | 承認者1件分のデータを表す | 氏名・役職・承認上限額を保持する |
 
@@ -196,9 +200,19 @@ flowchart TD
 ```mermaid
 classDiagram
     class WorkflowManager {
-        -ApproverDatabase db
-        +process(string status, int amount, string approverId)
-        -notify(string msg)
+        -ApproverDatabase approvers
+        -WorkflowCaseRepository cases
+        -NotificationTargetRepository targets
+        +process(string requestId, string operation, int amount, string approverId)
+        -notify(string requestId)
+    }
+    class WorkflowCaseRepository {
+        +exists(string id) bool
+        +getState(string id) string
+        +saveState(string id, string s)
+    }
+    class NotificationTargetRepository {
+        +getTarget(string id) string
     }
     class ApproverDatabase {
         +exists(string id) bool
@@ -210,6 +224,8 @@ classDiagram
         +role : string
         +approvalLimit : int
     }
+    WorkflowManager --> WorkflowCaseRepository : 状態を読み書き
+    WorkflowManager --> NotificationTargetRepository : 通知先を読む
     WorkflowManager --> ApproverDatabase : 承認者確認に使う
     ApproverDatabase --> ApproverInfo : 承認者情報を返す
 ```
@@ -218,14 +234,15 @@ classDiagram
 
 | クラス | メンバー・操作 | 何ができるか |
 |---|---|---|
-| `WorkflowManager` | `db` | 承認者確認に使う `ApproverDatabase` を保持する |
-| `WorkflowManager` | `process()` | 現在状態、金額、承認者IDを受け取り、承認処理を進める |
-| `WorkflowManager` | `notify()` | 状態変化や承認結果を関係者へ通知する |
+| `WorkflowManager` | `process()` | 申請IDと操作、金額、承認者IDを受け取り、保存済み状態を読んで承認処理を進める |
+| `WorkflowManager` | `notify()` | 申請IDから通知先を読み出し、状態変化を通知する |
+| `WorkflowCaseRepository` | `exists()` / `getState()` / `saveState()` | 申請IDの存在確認、現在状態の取得・保存を行う |
+| `NotificationTargetRepository` | `getTarget()` | 申請IDから通知先を取得する |
 | `ApproverDatabase` | `exists()` / `get()` / `canApprove()` | 承認者IDの確認、承認者情報の取得、承認上限額の検証を行う |
 | `ApproverInfo` | `name` / `role` / `approvalLimit` | 承認者1件分の氏名・役職・承認上限額を保持する |
 
 
-`WorkflowManager` は `ApproverDatabase` を使って承認者IDの存在確認と承認上限額の確認を行います。そのうえで、ワークフローの「状態遷移」、各担当者への「通知」、「承認可否のルール判定」を同じクラス内で扱っています。`ApproverInfo` は承認者1件分のデータ（氏名・役職・承認上限額）を表します。
+`WorkflowManager` は `WorkflowCaseRepository` から申請IDで現在状態を読み、`ApproverDatabase` で承認者IDの存在確認と承認上限額の確認を行います。そのうえで、ワークフローの「状態遷移」、各担当者への「通知」（通知先は `NotificationTargetRepository` から取得）、「承認可否のルール判定」を同じクラス内で扱っています。`ApproverInfo` は承認者1件分のデータ（氏名・役職・承認上限額）を表します。
 
 
 **この章での簡略化**
@@ -320,64 +337,109 @@ public:
 
 `ApproverDatabase` は `std::map` で承認者IDと `ApproverInfo` を対応付けたマスターデータです。`exists()` でIDの存在確認、`get()` で情報取得、`canApprove()` で権限額の検証を行います。
 
+**申請状態と通知先を保存するクラス（WorkflowCaseRepository / NotificationTargetRepository）**
+
+1-1の仕様図のとおり、申請の現在状態と通知先は利用側が毎回指定するのではなく、申請IDをキーに保存データから読み出します。実システムのDBを、この章では実行終了まで覚えるインメモリの境界スタブで代替します。
+
+```cpp
+// 申請ごとの現在状態を保持するリポジトリ（申請ID→状態）
+class WorkflowCaseRepository {
+    map<string, string> states;
+public:
+    WorkflowCaseRepository() {
+        states["REQ001"] = "作成中";
+        states["REQ002"] = "審査待ち";
+    }
+    bool exists(const string& id) const { return states.count(id) > 0; }
+    string getState(const string& id) const { return states.at(id); }
+    void saveState(const string& id, const string& s) { states[id] = s; }
+};
+
+// 申請ごとの通知先を保持するリポジトリ（申請ID→通知先）
+class NotificationTargetRepository {
+    map<string, string> targets;
+public:
+    NotificationTargetRepository() {
+        targets["REQ001"] = "課長";
+        targets["REQ002"] = "部長";
+    }
+    string getTarget(const string& id) const { return targets.at(id); }
+};
+```
+
+`WorkflowCaseRepository` は申請IDから現在状態を読み書きし、`NotificationTargetRepository` は申請IDから通知先を引きます。利用側は申請IDと操作を渡すだけで、状態や通知先を直接指定しません。
+
 **WorkflowManager クラス**
 
 ```cpp
-// ワークフロー管理クラス
+// ワークフロー管理クラス（状態遷移・承認判定・通知をすべて抱える）
 class WorkflowManager {
-    ApproverDatabase db;
+    ApproverDatabase approvers;
+    WorkflowCaseRepository cases;
+    NotificationTargetRepository targets;
 public:
-    void process(
-        string status,
-        int amount,
-        const string& approverId
-    ) {
+    void process(const string& requestId, const string& operation,
+                 int amount, const string& approverId) {
+        // 申請の存在確認
+        if (!cases.exists(requestId)) {
+            cout << "エラー：申請ID " << requestId
+                 << " は存在しません。" << endl;
+            return;
+        }
         // 承認者IDの存在確認
-        if (!db.exists(approverId)) {
+        if (!approvers.exists(approverId)) {
             cout << "エラー：承認者ID " << approverId
                  << " はデータベースに存在しません。" << endl;
             return;
         }
         // 承認権限額チェック
-        if (!db.canApprove(approverId, amount)) {
-            ApproverInfo info = db.get(approverId);
-            cout << "エラー：" << info.name
-                 << " の承認上限（"
-                 << info.approvalLimit
-                 << "円）を超えています。" << endl;
+        if (!approvers.canApprove(approverId, amount)) {
+            ApproverInfo info = approvers.get(approverId);
+            cout << "エラー：" << info.name << " の承認上限（"
+                 << info.approvalLimit << "円）を超えています。" << endl;
             return;
         }
-        if (status == "SUBMITTED") {
-            cout << "審査待ち状態へ移行。" << endl;
-            notify("申請者に通知");
-        } else if (status == "APPROVED") {
-            cout << "完了状態へ移行。" << endl;
-            notify("関係者に通知");
+        // 保存済みの現在状態を読み出す
+        string current = cases.getState(requestId);
+        // 現在状態 × 操作 で次状態を決める
+        if (current == "作成中" && operation == "提出") {
+            cases.saveState(requestId, "審査待ち");
+            cout << requestId << "：作成中 → 審査待ち" << endl;
+            notify(requestId);
+        } else if (current == "審査待ち" && operation == "承認") {
+            cases.saveState(requestId, "完了");
+            cout << requestId << "：審査待ち → 完了" << endl;
+            notify(requestId);
+        } else {
+            cout << "エラー：現在状態「" << current
+                 << "」で操作「" << operation << "」はできません。" << endl;
         }
     }
 private:
-    void notify(string msg) { cout << msg << endl; }
+    void notify(const string& requestId) {
+        cout << targets.getTarget(requestId) << "へ通知" << endl;
+    }
 };
 ```
 
-このクラスが今章の中心です。`process` メソッドは、承認者IDの存在確認、承認上限額のチェック、申請状態に応じた状態遷移表示と通知を順に実行します。
+このクラスが今章の中心です。`process` メソッドは、申請IDから保存済み状態を読み出し、承認者IDの存在確認・承認上限額のチェックを行い、現在状態と操作の組み合わせで次状態を決めて保存し、通知先を読み出して通知するまでを順に実行します。
 
 **main()**
 
 ```cpp
 int main() {
     WorkflowManager wm;
-    // 正常ケース1：5万円の申請を提出する
-    wm.process("SUBMITTED", 50000, "APR001");
+    // 正常ケース1：REQ001（作成中）を5万円で提出する
+    wm.process("REQ001", "提出", 50000, "APR001");
     cout << "---" << endl;
-    // 正常ケース2：承認済みの5万円申請を最終承認する
-    wm.process("APPROVED", 50000, "APR001");
+    // 正常ケース2：REQ002（審査待ち）を5万円で承認する
+    wm.process("REQ002", "承認", 50000, "APR001");
     cout << "---" << endl;
-    // エラー：存在しないID
-    wm.process("SUBMITTED", 50000, "APR999");
+    // エラー：存在しない承認者ID
+    wm.process("REQ001", "提出", 50000, "APR999");
     cout << "---" << endl;
     // エラー：田中 部長の上限（10万円）を超える申請
-    wm.process("SUBMITTED", 200000, "APR001");
+    wm.process("REQ001", "提出", 200000, "APR001");
     return 0;
 }
 ```
@@ -389,11 +451,11 @@ int main() {
 実行結果：
 
 ```
-審査待ち状態へ移行。
-申請者に通知
+REQ001：作成中 → 審査待ち
+課長へ通知
 ---
-完了状態へ移行。
-関係者に通知
+REQ002：審査待ち → 完了
+部長へ通知
 ---
 エラー：承認者ID APR999 はデータベースに存在しません。
 ---
@@ -407,7 +469,7 @@ int main() {
 ---
 
 > **手元で動かすには**
-> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter12.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。`wm.process("SUBMITTED", 50000, "APR001");` の申請金額・承認者IDを変えれば、承認可否の判定と状態遷移・通知がその場の実行結果に表れます。新しい承認者を試すときは `ApproverDatabase` の登録へ `records["APR010"] = {"高橋 課長", "manager", 300000};` を足す（または `save()` を呼ぶ）と、その承認者でも同じ処理を実行できます。状態・通知先データはプロセス実行中だけ有効で、終了すると消えます（メール・チャット通知は通知境界スタブで簡略化しています）。
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter12.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。`wm.process("REQ001", "提出", 50000, "APR001");` の申請ID・操作・金額・承認者IDを変えれば、保存済み状態の読み出しと承認可否の判定、状態遷移・通知がその場の実行結果に表れます。新しい申請を試すときは `WorkflowCaseRepository` の登録へ `states["REQ010"] = "作成中";` を、その通知先を `NotificationTargetRepository` の `targets["REQ010"] = "課長";` を足すと、その申請でも同じ処理を実行できます。状態・通知先データはプロセス実行中だけ有効で、終了すると消えます（メール・チャット通知は通知境界スタブで簡略化しています）。
 
 ### 1-5：変更要求
 
