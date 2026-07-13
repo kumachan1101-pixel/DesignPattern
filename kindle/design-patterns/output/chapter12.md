@@ -176,7 +176,7 @@ flowchart TD
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
 | WorkflowManager | ワークフローの全体管理 | 状態遷移、通知処理、承認判定ロジックなどすべての業務ルール |
-| Approver | 承認者データの保持 | 役職や承認上限金額などのデータ保持 |
+| ApproverInfo | 承認者1件分のデータ | 氏名・役職・承認上限額を保持する |
 | ApproverDatabase | 承認者マスターデータの管理 | 承認者IDによる存在確認・情報取得・承認権限額の検証 |
 
 ---
@@ -189,7 +189,7 @@ flowchart TD
 |---|---|---|
 | `WorkflowManager` | 承認ワークフロー全体を進める | 状態遷移、通知、承認者確認の呼び出し |
 | `ApproverDatabase` | 承認者マスターデータを管理する | 承認者IDの存在確認、承認上限額の確認 |
-| `Approver` | 承認者の役職と承認上限額を保持する | 承認者データ |
+| `ApproverInfo` | 承認者1件分のデータを表す | 氏名・役職・承認上限額を保持する |
 
 各クラスの責任を把握したところで、クラス間の関係を図で整理します。
 
@@ -205,11 +205,13 @@ classDiagram
         +get(string id) ApproverInfo
         +canApprove(string id, int amount) bool
     }
-    class Approver {
+    class ApproverInfo {
+        +name : string
         +role : string
-        +limit : double
+        +approvalLimit : int
     }
     WorkflowManager --> ApproverDatabase : 承認者確認に使う
+    ApproverDatabase --> ApproverInfo : 承認者情報を返す
 ```
 
 **クラス図に出てくる主なメンバーと操作**
@@ -220,10 +222,10 @@ classDiagram
 | `WorkflowManager` | `process()` | 現在状態、金額、承認者IDを受け取り、承認処理を進める |
 | `WorkflowManager` | `notify()` | 状態変化や承認結果を関係者へ通知する |
 | `ApproverDatabase` | `exists()` / `get()` / `canApprove()` | 承認者IDの確認、承認者情報の取得、承認上限額の検証を行う |
-| `Approver` | `role` / `limit` | 承認者の役職と承認上限額を保持する |
+| `ApproverInfo` | `name` / `role` / `approvalLimit` | 承認者1件分の氏名・役職・承認上限額を保持する |
 
 
-`WorkflowManager` は `ApproverDatabase` を使って承認者IDの存在確認と承認上限額の確認を行います。そのうえで、ワークフローの「状態遷移」、各担当者への「通知」、「承認可否のルール判定」を同じクラス内で扱っています。`Approver` は承認者データを表す補助的なデータクラスです。
+`WorkflowManager` は `ApproverDatabase` を使って承認者IDの存在確認と承認上限額の確認を行います。そのうえで、ワークフローの「状態遷移」、各担当者への「通知」、「承認可否のルール判定」を同じクラス内で扱っています。`ApproverInfo` は承認者1件分のデータ（氏名・役職・承認上限額）を表します。
 
 
 **この章での簡略化**
@@ -317,19 +319,6 @@ public:
 ```
 
 `ApproverDatabase` は `std::map` で承認者IDと `ApproverInfo` を対応付けたマスターデータです。`exists()` でIDの存在確認、`get()` で情報取得、`canApprove()` で権限額の検証を行います。
-
-**Approver クラス**
-
-```cpp
-// 承認者クラス（役職・上限額を保持するデータクラス）
-class Approver {
-public:
-    string role;
-    double limit;
-};
-```
-
-`Approver` は承認者の役職と承認上限額を保持するだけのシンプルなデータクラスです。
 
 **WorkflowManager クラス**
 
