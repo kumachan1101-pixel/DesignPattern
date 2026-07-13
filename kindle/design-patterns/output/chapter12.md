@@ -905,21 +905,26 @@ graph LR
 
 **【変わる部分（状態遷移・通知・判定が混在した if 文）】**
 ```cpp
-        if (status == "SUBMITTED") {
-            cout << "審査待ち状態へ移行。" << endl;
-            notify("申請者に通知");
-        } else if (status == "APPROVED") {
-            cout << "完了状態へ移行。" << endl;
-            notify("関係者に通知");
+        string current = cases.getState(requestId);
+        if (current == "作成中" && operation == "提出") {
+            cases.saveState(requestId, "審査待ち");
+            cout << requestId << "：作成中 → 審査待ち" << endl;
+            notify(requestId);
+        } else if (current == "審査待ち" && operation == "承認") {
+            cases.saveState(requestId, "承認済み");
+            cout << requestId << "：審査待ち → 承認済み" << endl;
+            notify(requestId);
         }
-        if (amount > 100000) cout << "役員承認が必要。" << endl;
+        if (!approvers.canApprove(approverId, amount))
+            cout << "承認上限を超えています。" << endl;
 ```
 
 **【変わってほしくない部分（守りたい骨格）】**
 ```cpp
-        // ワークフローを実行する → 状態に応じた処理を行う → 通知を出す
+        // 状態を読む → 状態と操作に応じた処理 → 状態保存 → 通知
         // この「流れ」自体は変わらない
-        void process(string status, int amount) {
+        void process(const string& requestId, const string& operation,
+                     int amount, const string& approverId) {
             // ... (ここに変わる部分が入る) ...
         }
 ```
@@ -936,14 +941,18 @@ graph LR
 ```cpp
 class WorkflowManager {
 public:
-    void process(string status, int amount) {
+    void process(const string& requestId, const string& operation,
+                 int amount, const string& approverId) {
+        string current = cases.getState(requestId);
         // 状態遷移を、自分自身で判断して処理している
-        if (status == "SUBMITTED") {
-            cout << "審査待ち状態へ移行。" << endl;
-            notify("申請者に通知"); // 通知先も知っている
+        if (current == "作成中" && operation == "提出") {
+            cases.saveState(requestId, "審査待ち");
+            cout << requestId << "：作成中 → 審査待ち" << endl;
+            notify(requestId); // 通知先も知っている
         }
         // 判定ルールも、自分自身で持っている
-        if (amount > 100000) cout << "役員承認が必要。" << endl;
+        if (!approvers.canApprove(approverId, amount))
+            cout << "承認上限を超えています。" << endl;
     }
 };
 ```
@@ -986,15 +995,18 @@ public:
 ```cpp
 class WorkflowManager {
 public:
-    void process(string status, int amount) {
+    void process(const string& requestId, const string& operation,
+                 int amount, const string& approverId) {
+        string current = cases.getState(requestId);
         // ↓↓↓ 分離ターゲット①：状態遷移のルール ↓↓↓
-        if (status == "SUBMITTED") {
-            cout << "審査待ち状態へ移行。" << endl;
+        if (current == "作成中" && operation == "提出") {
+            cases.saveState(requestId, "審査待ち");
         // ↓↓↓ 分離ターゲット②：通知の仕組みと通知先 ↓↓↓
-            notify("申請者に通知");
+            notify(requestId);
         }
         // ↓↓↓ 分離ターゲット③：承認判定ロジック ↓↓↓
-        if (amount > 100000) cout << "役員承認が必要。" << endl;
+        if (!approvers.canApprove(approverId, amount))
+            cout << "承認上限を超えています。" << endl;
     }
 };
 ```
@@ -1031,22 +1043,29 @@ public:
 
 ```cpp
 // フェーズ3の変更途中コード（対策前）の要点
-void WorkflowManager::process(string status, int amount,
-                              bool urgent) {
-    if (status == "SUBMITTED") {
-        cout << "審査待ち状態へ移行。" << endl;
-        notify("申請者に通知");
-        if (urgent) {
-            cout << "緊急：課長スキップ→部長へ。" << endl;
-            notify("部長へ緊急通知");
-        }
-    } else if (status == "APPROVED") {
-        cout << "完了状態へ移行。" << endl;
-        notify("関係者に通知");
-        notify("申請者に承認完了を通知");
-        if (urgent) notify("部長へ完了報告");
+void WorkflowManager::process(const string& requestId,
+        const string& operation, int amount,
+        const string& approverId) {
+    // 承認者検証は省略（フェーズ3参照）
+    string current = cases.getState(requestId);
+    if (current == "作成中" && operation == "提出") {
+        cases.saveState(requestId, "審査待ち");
+        cout << requestId << "：作成中 → 審査待ち" << endl;
+        notify(requestId);
+    } else if (current == "作成中" && operation == "緊急提出") {
+        cases.saveState(requestId, "優先審査待ち");
+        cout << requestId << "：作成中 → 優先審査待ち" << endl;
+        notify(requestId);
+    } else if (current == "審査待ち" && operation == "承認") {
+        cases.saveState(requestId, "承認済み");
+        cout << requestId << "：審査待ち → 承認済み" << endl;
+        notify(requestId);
+    } else if (current == "優先審査待ち" && operation == "承認") {
+        cases.saveState(requestId, "完了");
+        cout << requestId << "：優先審査待ち → 完了" << endl;
+        notify(requestId);
+        cout << "決済部門へ通知" << endl;
     }
-    if (amount > 100000) cout << "役員承認が必要。" << endl;
 }
 ```
 
@@ -1057,39 +1076,55 @@ void WorkflowManager::process(string status, int amount,
 はじめに、`process()` の中に混在している3つの分岐を、それぞれ独立したプライベートメソッドとして切り出してみます。「状態ごとに何をするか」を一か所にまとめるのではなく、状態ごとに別々のメソッドへ分散させます。
 
 ```cpp
-// ステップ1：各分岐を独立したプライベートメソッドに切り出す
+// ステップ1：状態ごとの処理を独立したプライベートメソッドへ切り出す
 class WorkflowManager {
 public:
-    void process(string status, int amount, bool urgent) {
-        if (status == "SUBMITTED") {
-            processSubmitted(urgent);
-        } else if (status == "APPROVED") {
-            processApproved(urgent);
+    void process(const string& requestId, const string& operation,
+                 int amount, const string& approverId) {
+        if (!approvers.canApprove(approverId, amount)) {
+            cout << "承認上限を超えています。" << endl;
+            return;
         }
-        if (amount > 100000)
-            cout << "役員承認が必要。" << endl;
+        string current = cases.getState(requestId);
+        if (current == "作成中")            handleDraft(requestId, operation);
+        else if (current == "審査待ち")     handlePending(requestId, operation);
+        else if (current == "優先審査待ち") handlePriority(requestId, operation);
     }
 private:
-    void processSubmitted(bool urgent) {
-        cout << "審査待ち状態へ移行。" << endl;
-        notify("申請者に通知");
-        if (urgent) {
-            cout << "緊急：課長スキップ→部長へ。" << endl;
-            notify("部長へ緊急通知");
+    void handleDraft(const string& id, const string& op) {
+        if (op == "提出") {
+            cases.saveState(id, "審査待ち");
+            cout << id << "：作成中 → 審査待ち" << endl;
+            notify(id);
+        } else if (op == "緊急提出") {
+            cases.saveState(id, "優先審査待ち");
+            cout << id << "：作成中 → 優先審査待ち" << endl;
+            notify(id);
         }
     }
-    void processApproved(bool urgent) {
-        cout << "完了状態へ移行。" << endl;
-        notify("関係者に通知");
-        notify("申請者に承認完了を通知");
-        if (urgent) notify("部長へ完了報告");
+    void handlePending(const string& id, const string& op) {
+        if (op == "承認") {
+            cases.saveState(id, "承認済み");
+            cout << id << "：審査待ち → 承認済み" << endl;
+            notify(id);
+        }
     }
-    void notify(string msg) { cout << msg << endl; }
+    void handlePriority(const string& id, const string& op) {
+        if (op == "承認") {
+            cases.saveState(id, "完了");
+            cout << id << "：優先審査待ち → 完了" << endl;
+            notify(id);
+            cout << "決済部門へ通知" << endl;
+        }
+    }
+    void notify(const string& id) {
+        cout << targets.getTarget(id) << "へ通知" << endl;
+    }
 };
 ```
 
 **この段階の評価：**
-`processSubmitted`・`processApproved` という状態別メソッドが生まれ、緊急ルートは仕様どおり `urgent` の差分として残りました。どちらも「状態に応じた処理を行い、通知を送る」という共通構造を持っています。また、`process()` は「どのメソッドを呼ぶか」という制御だけを担い、各プライベートメソッドが実際の処理を担う——**処理の実行と制御の分離**が形として現れています。
+`handleDraft`・`handlePending`・`handlePriority` という状態別メソッドが生まれ、緊急ルート（緊急提出）は仕様どおり分岐として残りました。どれも「状態に応じて次状態を保存し、通知を送る」という共通構造を持っています。また、`process()` は「現在状態からどのメソッドを呼ぶか」という制御だけを担い、各プライベートメソッドが実際の処理を担う——**処理の実行と制御の分離**が形として現れています。
 
 ただし、各プライベートメソッドの中を見ると、「状態遷移」「通知先」「判定ロジック」という3つの変化軸が相変わらず同じ場所に混在しています。新しい承認ルートが来るたびに結局はこのクラスを開いて処理を書き足さなければなりません。
 
@@ -1106,15 +1141,15 @@ private:
 // 判定ルールを独立したクラスに切り出した
 class RuleChecker {
 public:
-    bool requiresExecutiveApproval(int amount) {
-        return amount > 100000;
+    bool canApprove(int approvalLimit, int amount) {
+        return approvalLimit >= amount;
     }
 };
 
 // 通知処理を独立したクラスに切り出した
 class NotificationService {
 public:
-    void notify(string msg) { cout << msg << endl; }
+    void notify(const string& target) { cout << target << "へ通知" << endl; }
 };
 
 // WorkflowManagerが具体クラスを知り、処理を委ねる
@@ -1125,28 +1160,30 @@ public:
     WorkflowManager(RuleChecker* c, NotificationService* n)
         : checker(c), notifier(n) {}
 
-    void process(string status, int amount, bool urgent) {
-        if (status == "SUBMITTED") {
-            cout << "審査待ち状態へ移行。" << endl;
-            notifier->notify("申請者に通知");  // ← 間接：委ねる
-            if (urgent) {
-                cout << "緊急：課長スキップ→部長へ。" << endl;
-                notifier->notify("部長へ緊急通知");
-            }
-        } else if (status == "APPROVED") {
-            cout << "完了状態へ移行。" << endl;
-            notifier->notify("関係者に通知");
-            notifier->notify("申請者に承認完了を通知");
-            if (urgent) notifier->notify("部長へ完了報告");
+    void process(const string& requestId, const string& operation,
+                 int amount, const string& approverId) {
+        int limit = approvers.get(approverId).approvalLimit;
+        if (!checker->canApprove(limit, amount)) {
+            cout << "承認上限を超えています。" << endl;
+            return;
         }
-        if (checker->requiresExecutiveApproval(amount))
-            cout << "役員承認が必要。" << endl;
+        string current = cases.getState(requestId);
+        if (current == "作成中" && operation == "提出") {
+            cases.saveState(requestId, "審査待ち");
+            cout << requestId << "：作成中 → 審査待ち" << endl;
+            notifier->notify(targets.getTarget(requestId)); // ← 間接：委ねる
+        } else if (current == "審査待ち" && operation == "承認") {
+            cases.saveState(requestId, "承認済み");
+            cout << requestId << "：審査待ち → 承認済み" << endl;
+            notifier->notify(targets.getTarget(requestId));
+        }
+        // 緊急提出・優先審査待ち承認（決済部門通知）・却下も同様に続く
     }
 };
 ```
 
 **この段階の評価：**
-判定処理と通知処理が別クラスに委ねる形（間接）になりましたが、`RuleChecker` と `NotificationService` という具体クラス名の知識が `WorkflowManager` に残っています。また、通知先（「申請者に通知」「関係者に通知」）が `WorkflowManager` の中にまだハードコードされており、新しい承認ルートが来るたびにこのクラスを開かなければなりません。状態遷移の「if の塊」問題は解消されていません。
+判定処理と通知処理が別クラスに委ねる形（間接）になりましたが、`RuleChecker` と `NotificationService` という具体クラス名の知識が `WorkflowManager` に残っています。また、通知先（`targets.getTarget(...)`）を読んで渡す判断が `WorkflowManager` の中にまだ残っており、新しい承認ルートが来るたびにこのクラスを開かなければなりません。状態遷移の「if の塊」問題は解消されていません。
 
 ### ステップ3：単一クラスアプローチの限界 ――3つの関心事が今もひとつのクラスに
 
@@ -1156,11 +1193,11 @@ public:
 
 これが、この章の変更要求に対するシングルクラスアプローチの限界です。「状態遷移」「通知」「判定ルール」は変更の決定者と頻度が異なるため、それぞれの境界をインターフェースで表し、組み立て箇所で連携させる構造を検討します。インターフェース化そのものが目的ではなく、確認した変更シナリオの影響範囲を分けることが目的です。
 
-ステップ2で維持した `urgent` の緊急ルートと「申請者に承認完了を通知」は、以降も削除しません。ステップ4以降の短いコードは、各変化軸をどこへ移すかを示す差分抜粋として読みます。
+ステップ2で維持した緊急提出ルートと決済部門通知は、以降も削除しません。ステップ4以降の短いコードは、各変化軸をどこへ移すかを示す差分抜粋として読みます。
 
 ### ステップ4：第3章で学んだ 状態分離構造を適用する ―― 状態遷移を分離する
 
-**ステップ3との差：** 単一クラスへ状態名の分岐が残る限界を受け、状態ごとの処理を `IWorkflowPhase` 実装へ移します。
+**ステップ3との差：** 単一クラスへ状態名の分岐が残る限界を受け、状態ごとの処理を `IWorkflowPhase` 実装へ移します。緊急提出ルートと決済部門通知は各 Phase の分岐として維持します。
 
 はじめに「状態遷移の混在」という最も根本的な問題から解決します。各状態の振る舞いをオブジェクトとして切り出し、`WorkflowManager` が状態を切り替えるだけの形にします。
 
@@ -1168,55 +1205,47 @@ public:
 // 状態遷移の契約（インターフェース）
 class IWorkflowPhase {
 public:
-    virtual void handle(class WorkflowManager* wm) = 0;
+    virtual void handle(class WorkflowManager* wm,
+                        const string& operation, int amount) = 0;
     virtual ~IWorkflowPhase() = default;
 };
 
 // 各状態の実装
-class SubmittedPhase : public IWorkflowPhase {
-    int amount;
-    bool urgent;
+class DraftPhase : public IWorkflowPhase {
 public:
-    SubmittedPhase(int a, bool u) : amount(a), urgent(u) {}
-    void handle(WorkflowManager* wm) override {
+    void handle(WorkflowManager* wm, const string& operation,
+                int amount) override {
         // ← 状態遷移の知識がここに封じ込められた
-        if (amount > 100000)
-            cout << "役員承認が必要。" << endl;
-        else
-            cout << "審査待ち状態へ移行。" << endl;
-        // ← まだ通知先がハードコードされている
-        cout << "申請者に通知" << endl;
-        if (urgent) {
-            cout << "緊急：課長スキップ→部長へ。" << endl;
-            cout << "部長へ緊急通知" << endl;
+        if (operation == "提出") {
+            if (amount > 100000) cout << "役員承認が必要。" << endl;
+            cout << "作成中 → 審査待ち" << endl;
+            cout << "課長へ通知" << endl;   // ← まだ通知先がハードコード
+        } else if (operation == "緊急提出") {
+            cout << "作成中 → 優先審査待ち（課長スキップ）" << endl;
+            cout << "部長へ通知" << endl;
         }
-        // wm は次ステップで導入するリスナーへの通知のために
-        // 受け取っているが、このステップではまだ使わない
-        (void)wm;
+        (void)wm; // 次ステップで通知リスナーへ渡すために受け取る
     }
 };
 
-class ApprovedPhase : public IWorkflowPhase {
-    bool urgent;
+class PendingPhase : public IWorkflowPhase {
 public:
-    explicit ApprovedPhase(bool u) : urgent(u) {}
-    void handle(WorkflowManager* wm) override {
-        cout << "完了状態へ移行。" << endl;
-        cout << "関係者に通知" << endl;
-        cout << "申請者に承認完了を通知" << endl;
-        if (urgent) cout << "部長へ完了報告" << endl;
-        // wm は次ステップで導入するリスナーへの通知のために
-        // 受け取っているが、このステップではまだ使わない
-        (void)wm;
+    void handle(WorkflowManager* wm, const string& operation,
+                int amount) override {
+        if (operation == "承認") {
+            cout << "審査待ち → 承認済み" << endl;
+            cout << "部長へ通知" << endl;
+        }
+        (void)wm; (void)amount;
     }
 };
 
 class WorkflowManager {
-    IWorkflowPhase* state;  // ← 抽象型のみ知る
+    IWorkflowPhase* phase;  // ← 抽象型のみ知る
 public:
-    void setState(IWorkflowPhase* s) { state = s; }
-    void process() {
-        state->handle(this);  // ← if文がなくなった！
+    void setPhase(IWorkflowPhase* p) { phase = p; }
+    void process(const string& operation, int amount) {
+        phase->handle(this, operation, amount);  // ← if文がなくなった！
     }
 };
 ```
@@ -1224,7 +1253,7 @@ public:
 **この段階の評価：**
 `WorkflowManager` から具体的な状態名を判定する `if` 文がなくなりました。新しい承認ルートは `IWorkflowPhase` を実装したPhaseクラスを追加し、組み立て箇所へ登録することで対応できます。既存の状態インターフェースで表現できる限り、`WorkflowManager` の委譲ロジックは保てます。
 
-しかし、まだ2つの問題が残っています。通知先（「申請者に通知」「部長に通知」）が各 Phase クラスにハードコードされており、通知先を変えるたびに Phase クラスを修正する必要があるでしょう。また、判定ロジック（`amount > 100000`）も Phase クラスの中に直書きされています。判定ロジックは `WorkflowManager` から `SubmittedPhase` に移動しただけで、「承認上限金額のルールが変わったら `SubmittedPhase` を開いて書き換える」という問題は残っています。
+しかし、まだ2つの問題が残っています。通知先（「課長へ通知」「部長へ通知」）が各 Phase クラスにハードコードされており、通知先を変えるたびに Phase クラスを修正する必要があるでしょう。また、判定ロジック（`amount > 100000`）も Phase クラスの中に直書きされています。判定ロジックは `WorkflowManager` から `DraftPhase` に移動しただけで、「承認上限金額のルールが変わったら `DraftPhase` を開いて書き換える」という問題は残っています。
 
 ### ステップ5：第7章で学んだ 通知分離構造を追加する ―― 通知を分離する
 
@@ -1300,7 +1329,7 @@ public:
 };
 
 class WorkflowManager {
-    IWorkflowPhase* state;
+    IWorkflowPhase* phase;
     NotificationTargetRepository& notificationTargets;
     string requestId;
     vector<INotificationListener*> listeners;  // ← 送信手段のリスト
@@ -1310,14 +1339,14 @@ public:
         const string& requestId
     ) : notificationTargets(notificationTargets), requestId(requestId) {}
 
-    void setState(IWorkflowPhase* s) { state = s; }
+    void setPhase(IWorkflowPhase* p) { phase = p; }
 
     void addListener(INotificationListener* l) {
         listeners.push_back(l);
     }
 
-    void process() {
-        state->handle(this);
+    void process(const string& operation, int amount) {
+        phase->handle(this, operation, amount);
     }
 
     void notifyAll(string msg) {
@@ -1333,25 +1362,28 @@ public:
 };
 
 // 状態クラスは WorkflowManager の notifyAll を呼ぶだけでよくなった
-class SubmittedPhase : public IWorkflowPhase {
-    int amount;
+class DraftPhase : public IWorkflowPhase {
 public:
-    SubmittedPhase(int a) : amount(a) {}
-    void handle(WorkflowManager* wm) override {
-        if (amount > 100000)
-            cout << "役員承認が必要。" << endl;
-        else
-            cout << "審査待ち状態へ移行。" << endl;
+    void handle(WorkflowManager* wm, const string& operation,
+                int amount) override {
+        if (operation == "提出") {
+            if (amount > 100000) cout << "役員承認が必要。" << endl;
+            cout << "作成中 → 審査待ち" << endl;
+        } else if (operation == "緊急提出") {
+            cout << "作成中 → 優先審査待ち（課長スキップ）" << endl;
+        }
         // ← 通知先を知らずに済む
         wm->notifyAll("申請が受理されました");
     }
 };
 
-class ApprovedPhase : public IWorkflowPhase {
+class PendingPhase : public IWorkflowPhase {
 public:
-    void handle(WorkflowManager* wm) override {
-        cout << "完了状態へ移行。" << endl;
-        wm->notifyAll("申請者に承認完了を通知");
+    void handle(WorkflowManager* wm, const string& operation,
+                int amount) override {
+        if (operation == "承認") cout << "審査待ち → 承認済み" << endl;
+        (void)amount;
+        wm->notifyAll("申請が承認されました");
     }
 };
 ```
@@ -1365,7 +1397,7 @@ public:
 
 ステップ4で状態分離構造により状態遷移を分離し、ステップ5で通知分離構造によって通知先を切り離しました。しかし、まだ「判定ルール」の問題が残っています。この限界から、3つ目のパターンとしてルール差し替え構造を追加し、承認判定ロジックをインターフェースで切り出して外部から差し替え可能にします。
 
-このステップは承認判定軸の差分です。ステップ5の `ApprovedPhase`、「申請者に承認完了を通知」という通知内容、緊急申請の通知先データ、`urgent` に対応する組み立てはそのまま維持します。
+このステップは承認判定軸の差分です。ステップ5の `PendingPhase`、通知内容、緊急申請の通知先データ（決済部門を含む）、緊急提出に対応する組み立てはそのまま維持します。
 
 ```cpp
 // 承認判定ルールの契約（インターフェース）
@@ -1391,17 +1423,19 @@ public:
 };
 
 // Phase クラスは判定ルールを外部から受け取る（ルール差し替え構造 を使う）
-class SubmittedPhase : public IWorkflowPhase {
-    int amount;
+class DraftPhase : public IWorkflowPhase {
     IApprovalRule* rule;  // ← 判定ルールを注入される
 public:
-    SubmittedPhase(int a, IApprovalRule* r) : amount(a), rule(r) {}
-    void handle(WorkflowManager* wm) override {
-        if (rule->canApprove(amount))  // ← 判定を外部ルールに委ねる
-            cout << "審査待ち：承認可能。承認済み状態へ移行。" << endl;
-        else
-            cout << "審査待ち：上位承認者へエスカレーション。" << endl;
-        wm->notifyAll("申請が受理されました");
+    explicit DraftPhase(IApprovalRule* r) : rule(r) {}
+    void handle(WorkflowManager* wm, const string& operation,
+                int amount) override {
+        if (operation == "提出") {
+            if (rule->canApprove(amount))  // ← 判定を外部ルールに委ねる
+                cout << "作成中 → 審査待ち（承認可能）" << endl;
+            else
+                cout << "作成中：上位承認者へエスカレーション。" << endl;
+            wm->notifyAll("申請が受理されました");
+        }
     }
 };
 ```
@@ -1453,7 +1487,7 @@ flowchart TD
 フェーズ6で採用する形が決まりました。次のフェーズ7では、この決断を最終的なコードに落とし込みます。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
-フェーズ6の短い例では、`SubmittedPhase` が申請受付と承認判定をまとめていました。フェーズ7では状態分離構造の役割を明確にするため、クラスを「操作名」ではなく「現在状態」で分けます。
+フェーズ6の短い例では、`DraftPhase` が申請受付と承認判定をまとめていました。フェーズ7では状態分離構造の役割を明確にするため、状態を作成中・審査待ち・優先審査待ち・承認済み・却下・完了へ細かく分け、承認イベントを列挙型（`WorkflowEvent`）で表します。
 
 - `DraftPhase`：通常申請・緊急申請のイベントを受け、審査待ちへ遷移する。
 - `PendingPhase` / `PriorityPendingPhase`：承認・却下のイベントを受け、判定ルールを使って次状態を選ぶ。
@@ -2467,8 +2501,8 @@ class INotificationListener { /* ... */ };
 class SimpleApproval {
 public:
     void approve() {
-        if (status == "PENDING") {
-            status = "APPROVED";
+        if (status == "審査待ち") {
+            status = "承認済み";
             sendMail();  // 通知先は固定で1件だけ
         }
     }

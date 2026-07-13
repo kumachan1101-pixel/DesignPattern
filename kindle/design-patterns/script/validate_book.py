@@ -83,7 +83,7 @@ PHASE6_CONTINUITY_TOKENS = {
     "chapter09_2.md": ["corporate", "Pending"],
     "chapter10.md": ["SystemC", "Slack"],
     "chapter11.md": ["履歴", "replay"],
-    "chapter12.md": ["urgent", "承認完了"],
+    "chapter12.md": ["緊急", "決済部門"],
 }
 
 # Phase 3の変更途中コードで追加した代表要素が、採用後の完成コードと
