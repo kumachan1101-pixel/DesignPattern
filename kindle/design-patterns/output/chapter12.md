@@ -686,7 +686,7 @@ flowchart TD
 // 変更後の WorkflowManager（緊急ルートと自動通知を追加）
 class WorkflowManager {
 public:
-    void process(std::string status, double amount,
+    void process(std::string status, int amount,
                  bool urgent) {
         if (status == "SUBMITTED") {
             std::cout << "審査待ち状態へ移行。" << std::endl;
@@ -828,7 +828,7 @@ graph LR
 ```cpp
         // ワークフローを実行する → 状態に応じた処理を行う → 通知を出す
         // この「流れ」自体は変わらない
-        void process(string status, double amount) {
+        void process(string status, int amount) {
             // ... (ここに変わる部分が入る) ...
         }
 ```
@@ -845,7 +845,7 @@ graph LR
 ```cpp
 class WorkflowManager {
 public:
-    void process(string status, double amount) {
+    void process(string status, int amount) {
         // 状態遷移を、自分自身で判断して処理している
         if (status == "SUBMITTED") {
             cout << "審査待ち状態へ移行。" << endl;
@@ -895,7 +895,7 @@ public:
 ```cpp
 class WorkflowManager {
 public:
-    void process(string status, double amount) {
+    void process(string status, int amount) {
         // ↓↓↓ 分離ターゲット①：状態遷移のルール ↓↓↓
         if (status == "SUBMITTED") {
             cout << "審査待ち状態へ移行。" << endl;
@@ -940,7 +940,7 @@ public:
 
 ```cpp
 // フェーズ3の変更途中コード（対策前）の要点
-void WorkflowManager::process(string status, double amount,
+void WorkflowManager::process(string status, int amount,
                               bool urgent) {
     if (status == "SUBMITTED") {
         cout << "審査待ち状態へ移行。" << endl;
@@ -969,7 +969,7 @@ void WorkflowManager::process(string status, double amount,
 // ステップ1：各分岐を独立したプライベートメソッドに切り出す
 class WorkflowManager {
 public:
-    void process(string status, double amount, bool urgent) {
+    void process(string status, int amount, bool urgent) {
         if (status == "SUBMITTED") {
             processSubmitted(urgent);
         } else if (status == "APPROVED") {
@@ -1015,7 +1015,7 @@ private:
 // 判定ルールを独立したクラスに切り出した
 class RuleChecker {
 public:
-    bool requiresExecutiveApproval(double amount) {
+    bool requiresExecutiveApproval(int amount) {
         return amount > 100000;
     }
 };
@@ -1034,7 +1034,7 @@ public:
     WorkflowManager(RuleChecker* c, NotificationService* n)
         : checker(c), notifier(n) {}
 
-    void process(string status, double amount, bool urgent) {
+    void process(string status, int amount, bool urgent) {
         if (status == "SUBMITTED") {
             cout << "審査待ち状態へ移行。" << endl;
             notifier->notify("申請者に通知");  // ← 間接：委ねる
@@ -1083,10 +1083,10 @@ public:
 
 // 各状態の実装
 class SubmittedPhase : public IWorkflowPhase {
-    double amount;
+    int amount;
     bool urgent;
 public:
-    SubmittedPhase(double a, bool u) : amount(a), urgent(u) {}
+    SubmittedPhase(int a, bool u) : amount(a), urgent(u) {}
     void handle(WorkflowManager* wm) override {
         // ← 状態遷移の知識がここに封じ込められた
         if (amount > 100000)
@@ -1243,9 +1243,9 @@ public:
 
 // 状態クラスは WorkflowManager の notifyAll を呼ぶだけでよくなった
 class SubmittedPhase : public IWorkflowPhase {
-    double amount;
+    int amount;
 public:
-    SubmittedPhase(double a) : amount(a) {}
+    SubmittedPhase(int a) : amount(a) {}
     void handle(WorkflowManager* wm) override {
         if (amount > 100000)
             cout << "役員承認が必要。" << endl;
@@ -1280,31 +1280,31 @@ public:
 // 承認判定ルールの契約（インターフェース）
 class IApprovalRule {
 public:
-    virtual bool canApprove(double amount) = 0;
+    virtual bool canApprove(int amount) = 0;
     virtual ~IApprovalRule() = default;
 };
 
 // 判定ルールの実装例
 class ManagerApprovalRule : public IApprovalRule {
 public:
-    bool canApprove(double amount) override {
+    bool canApprove(int amount) override {
         return amount <= 100000;  // 課長は10万円以下を承認可能
     }
 };
 
 class DirectorApprovalRule : public IApprovalRule {
 public:
-    bool canApprove(double amount) override {
+    bool canApprove(int amount) override {
         return amount <= 1000000;  // 部長は100万円以下を承認可能
     }
 };
 
 // Phase クラスは判定ルールを外部から受け取る（ルール差し替え構造 を使う）
 class SubmittedPhase : public IWorkflowPhase {
-    double amount;
+    int amount;
     IApprovalRule* rule;  // ← 判定ルールを注入される
 public:
-    SubmittedPhase(double a, IApprovalRule* r) : amount(a), rule(r) {}
+    SubmittedPhase(int a, IApprovalRule* r) : amount(a), rule(r) {}
     void handle(WorkflowManager* wm) override {
         if (rule->canApprove(amount))  // ← 判定を外部ルールに委ねる
             cout << "審査待ち：承認可能。承認済み状態へ移行。" << endl;
@@ -1487,7 +1487,7 @@ public:
 // 判定ルールの契約（変わる理由：経理ルール変更・部署別上限制度）
 class IApprovalRule {
 public:
-    virtual bool canApprove(double amount) = 0;
+    virtual bool canApprove(int amount) = 0;
     virtual ~IApprovalRule() = default;
 };
 
@@ -1523,7 +1523,7 @@ enum class WorkflowEvent {
 };
 
 struct ApprovalRequest {
-    double amount;
+    int amount;
 };
 
 // 状態遷移の契約（変わる理由：承認フロー変更・新ルート追加）
@@ -1592,7 +1592,7 @@ public:
 // 課長承認ルール：10万円以下を承認可能
 class ManagerApprovalRule : public IApprovalRule {
 public:
-    bool canApprove(double amount) override {
+    bool canApprove(int amount) override {
         return amount <= 100000;
     }
 };
@@ -1600,7 +1600,7 @@ public:
 // 部長承認ルール：100万円以下を承認可能
 class DirectorApprovalRule : public IApprovalRule {
 public:
-    bool canApprove(double amount) override {
+    bool canApprove(int amount) override {
         return amount <= 1000000;
     }
 };
