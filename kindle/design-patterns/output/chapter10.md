@@ -1,4 +1,4 @@
-﻿## 第10章 外部連携バッチシステム ―― Facade × Observer × Factory Method パターン
+## 第10章 外部連携バッチシステム ―― Facade × Observer × Factory Method パターン
 
 ―― 思考の型：複数の「変わる理由」が複雑に絡み合うシステムをどう解くか
 
