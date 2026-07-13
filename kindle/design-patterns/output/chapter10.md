@@ -1172,7 +1172,11 @@ public:
 
 フェーズ6で選んだ構造を実装します。連携先クライアントの生成を`IClientCreator`と具象Creatorに、通知処理を`INotifier`として分離しました。あわせて、1-4では簡略化のため `void` にしていた送信処理を、1件ごとの成否を表す `DeliveryResult` を返す形に改めます。これにより、`BatchExecutor` は送信の成功・失敗を実際の結果から受け取り、失敗しても記録して次のジョブへ進めます（1-4の動作仕様に残していた「行5：API障害」を、この最終コードで実際に再現します）。
 
-はじめに、通知のインターフェースと送信結果の型、具体的な通知クラスを定義します。
+解決後のコードも、責任の固まりごとに分けて読みます。
+
+**① 連携先マスタと送信結果の型（PartnerConfig / PartnerDatabase / DeliveryResult）**
+
+まず、連携先マスタと、送信1件ごとの成否を表す結果型を定義します。
 
 ```cpp
 #include <iostream>
@@ -1223,7 +1227,15 @@ struct DeliveryResult {
     bool success;
     string message;  // 送信の詳細（バイト数、失敗理由など）
 };
+```
 
+`PartnerDatabase` は1-4と同じ連携先マスタで、今回追加のC社・D社を含みます。`DeliveryResult` は、1-4で `void` にしていた送信処理を、1件ごとの成否・メッセージを返す形へ改めた結果型です。
+
+**② 通知のインターフェースと実装（INotifier / SlackNotifier / EmailNotifier / LogNotifier）**
+
+次に、通知先ごとの送信方法を個別クラスへ分けるためのインターフェースと、その実装を定義します。
+
+```cpp
 // 通知のインターフェース（通知契約）
 class INotifier {
 public:
@@ -1256,6 +1268,8 @@ public:
 };
 ```
 
+**③ バッチ実行ログ（BatchRecord / BatchLog）**
+
 バッチ実行ログ（`BatchLog`）はシステム起動時は空で、バッチが実行されるたびに結果を1件追記します。無効パートナーのスキップも記録します。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
 
 ```cpp
@@ -1283,9 +1297,9 @@ public:
 };
 ```
 
-`INotifier` を定義することで、通知先ごとの送信方法を個別クラスへ分けられます。新しい通知先を利用するときは、このインターフェースを実装したクラスを追加し、組み立て箇所で登録します。
+**④ 連携先クライアントの抽象と実装（IExternalClient / SystemAClient ほか）**
 
-次に、連携先クライアントのインターフェースと実装を定義します。
+次に、連携先クライアントのインターフェースと実装を定義します。新しい連携先を利用するときは、このインターフェースを実装したクラスを追加します。
 
 ```cpp
 // 連携先クライアントのインターフェース（送信結果 DeliveryResult を返す）
@@ -1338,6 +1352,8 @@ public:
 
 各連携先クライアントは`IExternalClient`を実装し、送信の成否を `DeliveryResult` として返します。D社を追加するときは、クライアントと対応するCreatorを追加します。`apiHealthy` は外部APIの健全性をスタブで表し、`false`（API障害）のときは失敗結果を返します。これで動作例テーブルの行5（A社のAPI障害）を、次の `BatchExecutor` から再現できます。
 
+**⑤ クライアント生成の抽象と実装（IClientCreator / SystemAClientCreator ほか）**
+
 生成メソッドの契約と、連携先ごとの具象Creatorを定義します。
 
 ```cpp
@@ -1379,7 +1395,9 @@ public:
 
 各具象Creatorが、自分に対応するクライアントの生成だけを知ります。`BatchExecutor`は`IClientCreator`だけを知り、生成する具体型を知りません。
 
-最後に、フローを統括する `BatchExecutor` と組み立てを示します。
+**⑥ フローを統括するクラス（BatchExecutor）**
+
+バッチ全体のフローを統括する窓口です。`IClientCreator` 経由でクライアントを生成し、送信結果を通知先へ反映します。生成する具体型も通知先の具体型も知りません。
 
 ```cpp
 // バッチ全体のフローを統括するクラス（窓口構造）
@@ -1402,7 +1420,15 @@ public:
         return r;
     }
 };
+```
 
+`execute()` は、生成分離構造（Creator）を抽象 `IClientCreator` 経由で呼び、送信し、登録済みの全通知先へ結果を届けます。
+
+**⑦ 手動トリガーのクラス（ManualTriggerController）**
+
+手動同期の起点となるクラスです。指定した連携先へ同期を実行し、結果を通知先へ届けます。
+
+```cpp
 class ManualTriggerController {
     IExternalClient* client;
     vector<INotifier*> notifiers;
@@ -1423,7 +1449,15 @@ public:
         return r;
     }
 };
+```
 
+`ManualTriggerController` も `BatchExecutor` と同様に、送信結果を登録済みの通知先へ届けます。
+
+**⑧ 組み立てと実行（BatchApplication / main）**
+
+各クラスを組み立て、動作例テーブルの代表ケースを順に実行します。どの連携先にどの通知先を組み合わせるかは、この組み立て箇所だけで決めます。
+
+```cpp
 class BatchApplication {
     PartnerDatabase db;
 
