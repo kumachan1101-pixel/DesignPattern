@@ -228,6 +228,12 @@ DBトランザクションと画面フレームワークは省略します。成
 | `IncomeManager` | `UIButtons` から金額・カテゴリID | IDと金額を検証し収入を登録する | 残高へ加える正の金額。エラー時は0 |
 | `UIButtons` | `main()` からボタン操作 | 対応Managerを呼び、戻り値を残高へ加える | 更新後残高を画面境界として表示する |
 
+上の表の順に、コードを責任の固まりごとに分けて読みます。
+
+**① カテゴリデータを表すクラス（Category / CategoryDatabase）**
+
+最初に、カテゴリIDからカテゴリ名・種別を引く部分です。エラー条件「登録されていないID」もここで判定します。
+
 ```cpp
 #include <iostream>
 #include <map>
@@ -257,7 +263,15 @@ public:
         records[id] = c;                // 実行中のカテゴリ表へ追加
     }
 };
+```
 
+`CategoryDatabase` は `std::map` でカテゴリIDと `Category` を対応付けたマスターデータです。`exists()` で存在確認、`get()` で取得を行い、実システムのDBを実行中のインメモリ表で代替しています。
+
+**② 収支を登録するクラス（ExpenseManager / IncomeManager）**
+
+この章の中心の一つです。1-1の「支出登録」「収入登録」に対応し、カテゴリIDと金額を検証してから、残高へ加える正負の金額を返します。
+
+```cpp
 class ExpenseManager {
     CategoryDatabase& db;
 public:
@@ -303,7 +317,15 @@ public:
         return amount;
     }
 };
+```
 
+`ExpenseManager` と `IncomeManager` は、それぞれ支出・収入を登録します。どちらもカテゴリIDの存在確認と金額のチェックを行い、`ExpenseManager` は負の金額、`IncomeManager` は正の金額を返します。
+
+**③ UI層のクラス（UIButtons）**
+
+1-1の「画面操作」にあたる部分です。ボタン操作を対応するManagerへ渡し、戻り値を残高へ加えて表示します。
+
+```cpp
 // ユーザーインターフェース層（上記2クラスを直接呼び出す）
 class UIButtons {
     ExpenseManager em;
