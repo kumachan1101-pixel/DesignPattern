@@ -739,7 +739,12 @@ graph LR
 
 ---
 > **📌 原因（確定）**
-> `BatchExecutor` が各連携先クライアント（`SystemAClient` 等）と通知サービス（`NotificationService`）を生成方法と呼び出し手順を知っていることが根本原因である。連携先の追加・通知先の変更・生成方法の見直しという変わる理由がそれぞれ異なる頻度で発生するため、変化のたびに `BatchExecutor` 全体への影響確認コストが発生し続ける。
+> 以下の3つの独立した根本原因が重なっている：
+> 1. **外部手順の知識の漏出**：連携先ごとの通信詳細と順次実行の骨格が密結合している。
+> 2. **通知先の知識の漏出**：通知サービスが増えるたびにバッチ本体の修正が必要になっている。
+> 3. **生成の知識の漏出**：クライアントの生成条件・具象クラス名への依存がバッチ本体に残っている。
+>
+> これらの変更理由（通信手段、通知先、生成条件）はそれぞれ異なる頻度で発生するため、1つのクラスに混在していることで影響確認コストが発生し続ける。
 ---
 
 フェーズ4で根本原因が言語化できました。次のフェーズ5では、解決する課題を具体的に定義していきます。
@@ -959,28 +964,44 @@ D社が追加されると、`BatchExecutor` と `ManualTriggerController` の両
 ステップ3で見えた限界を受けて、連携先クライアントにインターフェースを導入します。`BatchExecutor` はインターフェース型だけを知り、具体的なクライアントクラスへの依存をなくします。
 
 ```cpp
+// 送信結果の契約は、以降のステップでも変えない
+struct DeliveryResult {
+    bool success;
+    string message;
+};
+
 // 連携先クライアントのインターフェースを定義
 class IExternalClient {
 public:
-    virtual void send(string data) = 0;
+    virtual DeliveryResult send(string data,
+                                bool apiHealthy = true) = 0;
 };
 
 class SystemAClient : public IExternalClient {
 public:
-    void send(string data) override {
+    DeliveryResult send(string data,
+                        bool apiHealthy = true) override {
+        if (!apiHealthy) return {false, "API障害"};
         cout << "A社へ送信: " << data << endl;
+        return {true, "送信成功"};
     }
 };
 class SystemBClient : public IExternalClient {
 public:
-    void send(string data) override {
+    DeliveryResult send(string data,
+                        bool apiHealthy = true) override {
+        if (!apiHealthy) return {false, "API障害"};
         cout << "B社へ送信: " << data << endl;
+        return {true, "送信成功"};
     }
 };
 class SystemCClient : public IExternalClient {
 public:
-    void send(string data) override {
+    DeliveryResult send(string data,
+                        bool apiHealthy = true) override {
+        if (!apiHealthy) return {false, "API障害"};
         cout << "C社へ送信: " << data << endl;
+        return {true, "送信成功"};
     }
 };
 
@@ -989,11 +1010,12 @@ class BatchExecutor {
     IExternalClient* client; // ← 抽象：具体クラス名を知らない
 public:
     BatchExecutor(IExternalClient* c) : client(c) {}
-    void execute() {
-        client->send("data"); // ← 直接：インターフェース経由で呼び出す
+    DeliveryResult execute(bool apiHealthy = true) {
+        DeliveryResult r = client->send("data", apiHealthy);
         // 通知はまだ具体クラスを直接知っている
         NotificationService n;
-        n.notify("Success");
+        n.notify(r.success ? "Success" : r.message);
+        return r;
     }
 };
 
@@ -1032,12 +1054,14 @@ public:
     BatchExecutor(IExternalClient* c) : client(c) {}
     void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
 
-    void execute() {
-        client->send("data");
+    DeliveryResult execute(bool apiHealthy = true) {
+        DeliveryResult r = client->send("data", apiHealthy);
+        string note = r.success ? "Success" : r.message;
         // 全通知先に通知（通知先を知らない）
         for (int i = 0; i < notifiers.size(); i++) {
-            notifiers[i]->onComplete("Success");
+            notifiers[i]->onComplete(note);
         }
+        return r;
     }
 };
 
@@ -1051,7 +1075,7 @@ public:
 
 ### ステップ6：生成分離構造を加える ―― 生成を一か所に集める（完全解）
 
-ステップ5に残った「生成の分散」を解消します。生成メソッドを`IClientCreator::createClient()`として定義し、連携先ごとのCreatorがオーバーライドします。`BatchExecutor` はCreatorの抽象型だけを受け取り、どのクライアントを生成するかを知りません。
+ステップ4で外部手順を窓口構造で分離し、ステップ5で通知分離構造によって通知先を分離しましたが、まだ「連携先クライアントの生成」の知識が残っています。この「生成の分散」という限界から、3つ目のパターンとして生成分離構造を追加し解消します。生成メソッドを`IClientCreator::createClient()`として定義し、連携先ごとのCreatorがオーバーライドします。`BatchExecutor` はCreatorの抽象型だけを受け取り、どのクライアントを生成するかを知りません。
 
 ```cpp
 // Creatorの契約。createClient()が生成を分離する接続点になる
@@ -1088,12 +1112,16 @@ class BatchExecutor {
 public:
     void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
 
-    void execute(IClientCreator* creator) {
+    DeliveryResult execute(IClientCreator* creator, string partnerName,
+                           bool apiHealthy = true) {
         IExternalClient* client = creator->createClient();
-        client->send("data");
+        DeliveryResult r = client->send("data", apiHealthy);
+        string note = r.success ? (partnerName + " 連携完了")
+                                : (partnerName + " 連携失敗: " + r.message);
         for (auto* notifier : notifiers) {
-            notifier->onComplete("Success");
+            notifier->onComplete(note);
         }
+        return r;
     }
 };
 ```

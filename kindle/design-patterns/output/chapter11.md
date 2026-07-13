@@ -784,7 +784,12 @@ public:
 
 ---
 > **📌 原因（確定）**
-> `ReportSkeleton` が「処理の骨格」「装飾の判定（if文）」「操作の記録」という3つの知識をすべて直接抱え込んでいる。骨格の変更頻度・装飾の変更頻度・履歴要件の変更頻度はそれぞれ異なるため、この変化の速度差が噛み合わない状況でこの依存関係を維持するコストが膨らみ続ける。1つのクラスに複数の変化速度が混在していることが、修正の痛みの根本原因である。
+> 以下の3つの独立した根本原因が重なっている：
+> 1. **本文生成差分の埋め込み**：レポート種別ごとに変わる本文生成が共通手順へ埋め込まれている。
+> 2. **装飾機能の直接知識**：どの装飾を適用するかの分岐（if文）が骨格内に直接書かれている。
+> 3. **履歴管理の混在**：操作の記録や取り消しの知識が生成処理に混在している。
+>
+> これらの変更理由（出力フォーマット、装飾の組み合わせ、履歴要件）はそれぞれ異なる頻度で発生するため、1つのクラスに混在していることで影響確認コストが発生し続ける。
 ---
 
 変化の速度が違う3つのものが同居していることは分かりました。フェーズ5では「では何を外に出すか」というターゲットを具体的に特定します。
@@ -1046,7 +1051,7 @@ public:
 
 ### ステップ6：操作記録構造 を追加して完全解を得る
 
-装飾の問題は解決しましたが、「操作履歴」の問題はまだ残っています。レポート生成という操作自体をオブジェクトとして扱える仕組みを加えます。
+ステップ4で骨格固定構造により本文差分を分離し、ステップ5で装飾連結構造によって機能の組み合わせを外へ出しました。しかし、まだ「操作履歴」の問題が残っています。この限界から、3つ目のパターンとして操作記録構造を追加し、レポート生成という操作自体をオブジェクトとして扱える仕組みを加えます。
 
 ```cpp
 enum class OutputFormat { Pdf, Excel };
@@ -1060,10 +1065,16 @@ bool fileExists(const string& path) {
     return input.good();
 }
 
+// 生成ジョブの結果（結果オブジェクト）：成功可否と理由
+struct JobResult {
+    bool success;
+    std::string message;
+};
+
 class IReportAction {
 public:
     virtual ~IReportAction() = default;
-    virtual void execute() = 0;
+    virtual JobResult execute() = 0;
     virtual void undo() = 0;
 };
 
@@ -1083,30 +1094,36 @@ public:
         delete generator; // generatorを所有しているので解放する
     }
 
-    void execute() override {
+    JobResult execute() override {
         if (created) {
-            throw logic_error("同じ操作は再実行できません。");
+            return {false, "同じ操作は再実行できません。"};
         }
         if (fileExists(outputPath)) {
-            throw runtime_error(
-                outputPath + " は既に存在するため上書きしません。");
+            return {false,
+                    outputPath + " は既に存在するため上書きしません。"};
         }
 
-        generator->generate();
+        try {
+            generator->generate();
+        } catch (const exception& e) {
+            return {false, string("生成失敗: ") + e.what()};
+        }
+
         ofstream output(outputPath);
         if (!output) {
-            throw runtime_error(outputPath + " を作成できません。");
+            return {false, outputPath + " を作成できません。"};
         }
         output << formatName(format) << " report" << endl;
         output.close();
         if (!output) {
             remove(outputPath.c_str());
-            throw runtime_error(outputPath + " の書き込みに失敗しました。");
+            return {false, outputPath + " の書き込みに失敗しました。"};
         }
         created = true;
 
         cout << "[コマンド] " << formatName(format) << "形式で "
              << outputPath << " を生成して履歴に記録。" << endl;
+        return {true, "成功"};
     }
 
     void handleNoFileToUndo() {
