@@ -738,6 +738,32 @@ graph LR
 
 ---
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+比較元は、法人ユーザーの優先度変更と `Pending` 状態を同時に追加したフェーズ3の変更途中コードです。2つの変更要求を残したまま、状態処理と優先度判定を分けます。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）の要点
+string PriorityCalculator::calculate(string userType) {
+    if (userType == "premium")   return "High";
+    if (userType == "corporate") return "High";
+    return "Normal";
+}
+
+void TicketManager::updateStatus(string userType, string status) {
+    string priority = calc.calculate(userType);
+    if (status == "Open") {
+        cout << "チケット受付中。優先度: " << priority << endl;
+    } else if (status == "InProgress" && priority == "High") {
+        cout << "緊急対応中。担当者を招集します。" << endl;
+    } else if (status == "Pending") {
+        cout << "保留中。理由を記録します。" << endl;
+    }
+}
+```
+
+ステップ1は法人ルールと `Pending` を維持してメソッドへ分けます。ステップ2以降は、直前ステップから状態分岐と優先度ルールの知識がどこへ移ったかを比べます。
+
 ### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
 
 **この形の考え方：**
@@ -752,6 +778,7 @@ classDiagram
         +updateStatus(userType, status)
         -handleOpen(priority)
         -handleInProgress(priority)
+        -handlePending()
     }
     class PriorityCalculator {
         +calculate(userType) string
@@ -769,7 +796,8 @@ classDiagram
 class PriorityCalculator {
 public:
     string calculate(string userType) {
-        if (userType == "premium") return "High"; // ← 具体：文字列を直書き
+        if (userType == "premium")   return "High"; // ← 具体：文字列を直書き
+        if (userType == "corporate") return "High"; // SLA変更を維持
         return "Normal";
     }
 };
@@ -790,6 +818,10 @@ public:
         }
         if (status == "InProgress") {
             handleInProgress(priority); // ← InProgress状態の処理を独立したメソッドへ
+            return;
+        }
+        if (status == "Pending") {
+            handlePending(); // ← 追加済み状態も独立したメソッドへ
         }
     }
 private:
@@ -800,6 +832,9 @@ private:
         if (priority == "High") {
             cout << "緊急対応中。担当者を招集します。" << endl;
         }
+    }
+    void handlePending() {
+        cout << "保留中。理由を記録します。" << endl;
     }
 };
 ```
@@ -818,6 +853,10 @@ int main() {
 
     // 行3: 担当者アサイン（InProgressへ遷移）
     manager.updateStatus("normal", "InProgress");
+
+    // フェーズ3で追加した2要件も維持
+    manager.updateStatus("corporate", "Open");
+    manager.updateStatus("normal", "Pending");
 
     // 行4・行5（Resolved／再オープン）はこのステップでは未実装
     return 0;

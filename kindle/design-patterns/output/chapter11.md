@@ -872,6 +872,33 @@ public:
 
 今回足した「装飾の途中失敗」と「失敗した生成操作の再実行」も、この分け方の判断材料になります。装飾失敗は装飾のリスト化の側（装飾を包む部品）で扱い、再実行は生成操作の単位化の側（記録できる操作オブジェクト）で扱う——このように、生成骨格・装飾・操作履歴を別軸として分けておくと、装飾失敗を骨格へ持ち込まずに済み、再実行は記録した生成操作を材料に扱えます。組み立てや結果の受け渡しには変更が残りますが、骨格そのものへ手を入れる必要は減ります。
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+比較元は、生成手順へ履歴記録と再実行を直接追加したフェーズ3の変更途中コードです。履歴要求を消さずに、骨格・装飾・履歴を段階的に分けます。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）の要点
+class ReportSkeleton {
+    DataReader reader;
+    ReportHistoryManager history;
+    ReportRenderingApi renderer;
+public:
+    void generate(string format, bool addGraph, bool addLogo) {
+        reader.readCSV();
+        renderer.addHeader(format);
+        if (addGraph) renderer.addGraph();
+        if (addLogo)  renderer.addLogo();
+        renderer.addFooter(format);
+        string rec = format;
+        if (addGraph) rec += "+Graph";
+        history.record(rec);
+    }
+    void replay() { history.replay(); }
+};
+```
+
+ステップ1は形式・装飾・履歴を維持して処理へ名前を付けます。ステップ2以降は、直前ステップから本文生成、装飾選択、履歴管理がどこへ移ったかを比べます。
+
 ### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
 
 はじめに、クラスを分けずに、各処理をプライベートメソッドとして分離してみます。「どの処理が変わるのか」を明確にするために、まず処理を独立した名前のついた単位に切り出すことが出発点です。
@@ -880,29 +907,38 @@ public:
 // ステップ1：各処理を独立したプライベートメソッドとして切り出す
 class ReportSkeleton {
     DataReader reader;
+    ReportHistoryManager history;
     ReportRenderingApi renderer;
 public:
-    void generate(bool addGraph, bool addLogo) {
+    void generate(string format, bool addGraph, bool addLogo) {
         reader.readCSV();
-        cout << "レポートのヘッダーを生成。" << endl;
+        renderer.addHeader(format);
         if (addGraph) {
             applyGraph(); // ← 処理の意図がメソッド名で明確になった
         }
         if (addLogo) {
             applyLogo();
         }
-        cout << "レポートのフッターを生成。" << endl;
+        renderer.addFooter(format);
+        recordHistory(format, addGraph, addLogo);
     }
+    void replay() { history.replay(); }
 private:
     void applyGraph() { renderer.addGraph(); }
     void applyLogo()  { renderer.addLogo(); }
+    void recordHistory(string format, bool addGraph, bool addLogo) {
+        string rec = format;
+        if (addGraph) rec += "+Graph";
+        if (addLogo)  rec += "+Logo";
+        history.record(rec);
+    }
 };
 ```
 
 **この段階の評価：**
 `applyGraph()` と `applyLogo()` は、どちらも「引数なし・戻り値なし」という同じシグネチャを持つことが見えてきました。これは「処理の本体は独立できる」という構造の兆候です。また、`generate()` が「どの処理を呼ぶかを決める制御」と「実際の処理の実行」を両方担っていることが浮き彫りになりました。処理の実行と制御の分離が、次のステップで考えるべき課題として見えてきています。
 
-**残課題：** 骨格と装飾の分離が不完全。新しい装飾でクラス修正が必要。
+**残課題：** 仕様変更後の履歴機能は保てたが、骨格と装飾、履歴の分離は不完全。新しい装飾や履歴形式の変更で同じクラスの修正が必要。
 
 このステップで「独立した処理として切り出せること」と「処理の制御と実行が同居していること」が確認できました。次のステップでは、この処理をクラスとして独立させることで、その限界がどこにあるかを確かめます。
 

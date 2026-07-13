@@ -972,6 +972,48 @@ graph LR
 
 ---
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+比較元は、`Held` と `Waitlisted` を追加した結果、公開操作ごとに状態分岐が増えたフェーズ3の変更途中コードです。新しい状態と操作を消さず、この分岐を整理します。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）の要点
+void pay() {
+    if (status == "Reserved") {
+        status = "Paid";
+    } else if (status == "Held") {
+        status = "Paid";
+    } else {
+        handlePayError();
+    }
+}
+void cancel() {
+    if (status == "Reserved" || status == "Held") {
+        status = "Available";
+    } else {
+        handleCancelError();
+    }
+}
+void hold() {
+    if (status == "Reserved") status = "Held";
+    else handleHoldError();
+}
+void expire() {
+    if (status == "Held") status = "Available";
+    else handleExpireError();
+}
+void addToWaitlist() {
+    if (status == "Available") status = "Waitlisted";
+    else handleWaitlistError();
+}
+void upgrade() {
+    if (status == "Waitlisted") status = "Reserved";
+    else handleUpgradeError();
+}
+```
+
+ステップ1ではこの操作集合と遷移を保ったまま、同じクラス内で状態別処理へ名前を付けます。ステップ2以降は、直前ステップから状態知識がどこへ移ったかを比べます。
+
 ### ステップ1：各状態処理をプライベートメソッドへ切り出す
 
 フェーズ3で確認した痛みは「状態ごとの分岐が複数メソッドに散らばっている」でした。一番最小限の改善として、`reserve()` の中に直接書かれていたロジックを `reserveFromAvailable()` などの専用プライベートメソッドへ移してみます。
@@ -996,6 +1038,36 @@ private:
         std::cout << "予約をキャンセルしました\n";
     }
 
+    void holdFromReserved() {
+        status = "Held";
+        std::cout << "保留にしました\n";
+    }
+
+    void payFromHeld() {
+        status = "Paid";
+        std::cout << "保留から支払い完了しました\n";
+    }
+
+    void cancelFromHeld() {
+        status = "Available";
+        std::cout << "保留からキャンセルしました\n";
+    }
+
+    void expireFromHeld() {
+        status = "Available";
+        std::cout << "保留期限が切れました\n";
+    }
+
+    void waitlistFromAvailable() {
+        status = "Waitlisted";
+        std::cout << "キャンセル待ちに登録しました\n";
+    }
+
+    void upgradeFromWaitlisted() {
+        status = "Reserved";
+        std::cout << "予約に昇格しました\n";
+    }
+
     void handleReserveError() {
         std::cout << "現在予約できません\n";
     }
@@ -1006,6 +1078,22 @@ private:
 
     void handleCancelError() {
         std::cout << "キャンセルできません\n";
+    }
+
+    void handleHoldError() {
+        std::cout << "保留できません\n";
+    }
+
+    void handleExpireError() {
+        std::cout << "期限切れ処理は行えません\n";
+    }
+
+    void handleWaitlistError() {
+        std::cout << "キャンセル待ちに登録できません\n";
+    }
+
+    void handleUpgradeError() {
+        std::cout << "予約に昇格できません\n";
     }
 
 public:
@@ -1023,6 +1111,10 @@ public:
             payFromReserved();
             return;
         }
+        if (status == "Held") {
+            payFromHeld();
+            return;
+        }
         handlePayError();
     }
     void cancel() {
@@ -1030,14 +1122,46 @@ public:
             cancelFromReserved();
             return;
         }
+        if (status == "Held") {
+            cancelFromHeld();
+            return;
+        }
         handleCancelError();
+    }
+    void hold() {
+        if (status == "Reserved") {
+            holdFromReserved();
+            return;
+        }
+        handleHoldError();
+    }
+    void expire() {
+        if (status == "Held") {
+            expireFromHeld();
+            return;
+        }
+        handleExpireError();
+    }
+    void addToWaitlist() {
+        if (status == "Available") {
+            waitlistFromAvailable();
+            return;
+        }
+        handleWaitlistError();
+    }
+    void upgrade() {
+        if (status == "Waitlisted") {
+            upgradeFromWaitlisted();
+            return;
+        }
+        handleUpgradeError();
     }
 };
 ```
 
 各状態での処理が名前つきのメソッドとして読めるようになり、`reserve()` などの本文が短くなりました。
 
-**評価：** 見通しは良くなったが、新しい状態（キャンセル待ち等）を追加するときには `reserve()`・`pay()`・`cancel()` の全メソッドに新しい分岐を書き足すことに変わりはない。`TicketReservation` が「どの状態のときに何をするか」をすべて知っている構造が続く限り、状態が増えるたびにこのクラスを触り続けることになる。
+**評価：** `Held` と `Waitlisted` を含む仕様変更後の操作は保ったまま、見通しは良くなった。しかし、さらに新しい状態を追加するときには、関係する公開操作へ分岐と専用メソッドを書き足すことに変わりはない。`TicketReservation` が「どの状態のときに何をするか」をすべて知っている構造が続く限り、状態が増えるたびにこのクラスを触り続けることになる。
 
 ---
 

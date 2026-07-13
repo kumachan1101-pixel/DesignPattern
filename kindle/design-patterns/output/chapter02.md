@@ -1033,6 +1033,25 @@ void transfer(
 | 銀行ごとに呼び出し順や必要な確認が変わる | 業務フローは「振込を依頼する」だけにし、手順差分を窓口の内側へ閉じ込める | 銀行ごとの窓口クラスを作り、共通の振込操作で呼べるかを見る |
 | 失敗条件が増えると呼び出し元の分岐も増える | 成功・失敗の扱いを、呼び出し元が銀行別に判断しなくて済む形にする | 窓口の戻り値とエラー表現をそろえ、採用コストと効果を比べる |
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+上の表だけでなく、ステップ1が実際に書き換えるコードも再掲します。比較元は、取引IDを発行・検証・送金へ引き回すフェーズ3の変更途中コードです。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）
+void transfer(const std::string& toAccount, int amount,
+              const std::string& otp) {
+    gateway.verifyAccount(toAccount);
+    gateway.checkBalance(amount);
+    std::string transactionId = auth.requestOTP();
+    auth.verifyOTP(otp, transactionId);
+    gateway.executeTransfer(toAccount, amount, transactionId);
+    std::cout << "振り込み完了\n";
+}
+```
+
+ステップ1では取引IDを含む要求を保ったまま、このコードの処理に名前を付けます。ステップ2以降は、直前ステップから銀行APIの知識がどこへ移ったかを比べます。
+
 ### ステップ1：各処理を独立したメソッドに切り出す（同じクラスの中で整理する）
 
 「API呼び出しが複雑に絡み合っているなら、1つひとつの操作を独立したメソッドに切り出してみよう」というのが自然な最初の発想です。クラスを新しく作るのはコストがかかる。まずは `TransferProcessor` の中で、各API呼び出しをそれぞれ独立したメソッドとして切り出してみます。

@@ -1257,6 +1257,31 @@ PaymentResult processPayment(
 | 具体クラスの生成と選択条件が呼び出し元に集まっている | 呼び出し元から具体クラス名と生成条件を切り離す | 生成処理を関数化し、選択条件がどこに残るかを見る |
 | 手段ごとの入力検証・処理モード・エラー対処も混在 | 手段固有の知識をProcessorへ閉じる | 共通インターフェースで手段固有の差分を隠蔽する |
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+比較元は、PayPay対応を7か所へ追加したフェーズ3の変更途中コードです。ステップ1では `PayPayInput`、API境界、完了確認、マスター登録を維持したまま、利用側に残った生成と分岐を整理します。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）の代表箇所
+struct PaymentRequest {
+    // 既存のカード・振込・コンビニ入力
+    PayPayInput payPay;
+};
+
+PaymentResult processPayment(const PaymentRequest& request) {
+    const string& type = request.methodId;
+    // 既存3手段の分岐
+    if (type == "paypay") {
+        PayPayProcessor proc(gatewayClient);
+        return proc.pay(request);
+    }
+    return {"失敗", "未対応の決済種別", false,
+            "UNSUPPORTED", {}};
+}
+```
+
+ステップ1はPayPay要求を残して決済手段ごとの生成・実行に名前を付けます。ステップ2以降は、直前ステップから具体Processor名、生成条件、手段固有のエラー対処がどこへ移ったかを比べます。
+
 ### ステップ1：各処理を独立した関数として切り出す
 
 `processPayment` の中を見ると、「どの決済方法IDか判断する if-else」と「具体クラスを生成して要求を渡す」が一体になっています。最初に考えやすい案は、決済手段ごとの生成と実行を独立したプライベートメソッドとして切り出すことです。

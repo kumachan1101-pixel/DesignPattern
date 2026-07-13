@@ -1046,6 +1046,26 @@ public:
 | 新しい割引が増えるたびに `calculate()` の条件分岐が増える | ルール追加時に既存の小計計算や他の割引へ触らない接続点を作る | 共通の割引契約を作り、複数ルールを同じ形で扱えるかを見る |
 | 今回は逐次割引、将来は定額割引もありうる | 割引の種類が増えても、支払金額を返す形は守る | ルール一覧へ登録して順に適用する形まで進める必要があるか判断する |
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+ステップ1で最初に直すのは、フェーズ1の変更前コードではありません。フェーズ3でサマーセールとキャンペーンの逐次割引を追加し、分岐が増えた次のコードです。仕様変更は残したまま、ここから処理を切り出します。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）
+if (memberType == "Premium") {
+    total = total * 80 / 100;
+} else if (context.isSummerSale
+           && context.isCampaignActive) {
+    total = (total * 90 / 100) * 95 / 100;
+} else if (context.isSummerSale) {
+    total = total * 95 / 100;
+} else if (context.isCampaignActive) {
+    total = total * 90 / 100;
+}
+```
+
+比較点は、逐次割引を消さずに、`calculate()` が直接知る条件と計算式をどこまで外へ移せるかです。ステップ1はこのコードとの比較、ステップ2以降は直前ステップとの比較として読み進めます。
+
 ### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
 
 「if-else が乱立しているなら、まずそれをメソッドに切り出して整理しよう」というのが自然な最初の発想です。クラスを新しく作るのはコストがかかる。同じクラスの中で、割引の計算を種類ごとに独立したプライベートメソッドとして分離してみます。
@@ -1071,7 +1091,7 @@ class PaymentCalculator {
         if (memberType == "Premium")
             return applyPremiumRule(total);
         if (ctx.isSummerSale && ctx.isCampaignActive)
-            return applyCampaignRule(applySummerRule(total));
+            return applySummerRule(applyCampaignRule(total));
         if (ctx.isSummerSale)
             return applySummerRule(total);
         if (ctx.isCampaignActive)

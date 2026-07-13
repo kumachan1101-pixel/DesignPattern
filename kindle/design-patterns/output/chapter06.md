@@ -794,6 +794,36 @@ graph LR
 
 ---
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+比較元は、抹茶とチョコチップを追加したことで、フラグ・コンストラクタ・価格・説明のすべてが増えたフェーズ3の変更途中コードです。2種類とも残したまま整理します。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）の要点
+bool hasMilk, hasWhip, hasSyrup, hasMatcha, hasChoco;
+
+int getPrice() const {
+    int total = basePrice;
+    if (hasMilk)   total += 50;
+    if (hasWhip)   total += 70;
+    if (hasSyrup)  total += 30;
+    if (hasMatcha) total += 60;
+    if (hasChoco)  total += 40;
+    return total;
+}
+string getDescription() const {
+    string desc = baseName;
+    if (hasMilk)   desc += " + Milk";
+    if (hasWhip)   desc += " + Whip";
+    if (hasSyrup)  desc += " + Syrup";
+    if (hasMatcha) desc += " + Matcha";
+    if (hasChoco)  desc += " + Choco";
+    return desc;
+}
+```
+
+ステップ1はこの5種類を維持して処理へ名前を付けます。ステップ2以降は、直前ステップからフラグ、具体クラス名、固定スロットがどこまで減ったかを比べます。
+
 ### ステップ1：各トッピング処理を独立した関数として切り出す
 
 手始めに、クラスを分けずに、各トッピングの処理を独立したプライベートメソッドとして切り出してみます。全部を1つのメソッドにまとめるのではなく、トッピングごとに関数を作るのがポイントです。
@@ -807,12 +837,14 @@ private:
     bool hasWhip;
     bool hasSyrup;
     bool hasMatcha;
+    bool hasChoco;
 
     // 各トッピングの価格計算を独立した関数として切り出す
     int applyMilkPrice(int total)   const { return total + 50; }
     int applyWhipPrice(int total)   const { return total + 70; }
     int applySyrupPrice(int total)  const { return total + 30; }
     int applyMatchaPrice(int total) const { return total + 60; }
+    int applyChocoPrice(int total)  const { return total + 40; }
 
     // 各トッピングの説明を独立した関数として切り出す
     string applyMilkDesc(string desc) const {
@@ -827,13 +859,18 @@ private:
     string applyMatchaDesc(string desc) const {
         return desc + " + Matcha";
     }
+    string applyChocoDesc(string desc) const {
+        return desc + " + Choco";
+    }
 
 public:
     CustomDrink(string name, int price,
-                bool milk, bool whip, bool syrup, bool matcha)
+                bool milk, bool whip, bool syrup,
+                bool matcha, bool choco)
         : baseName(name), basePrice(price),
           hasMilk(milk), hasWhip(whip),
-          hasSyrup(syrup), hasMatcha(matcha) {}
+          hasSyrup(syrup), hasMatcha(matcha),
+          hasChoco(choco) {}
 
     int getPrice() const {
         int total = basePrice;
@@ -841,6 +878,7 @@ public:
         if (hasWhip)   total = applyWhipPrice(total);
         if (hasSyrup)  total = applySyrupPrice(total);
         if (hasMatcha) total = applyMatchaPrice(total);
+        if (hasChoco)  total = applyChocoPrice(total);
         return total;
     }
 
@@ -850,6 +888,7 @@ public:
         if (hasWhip)   desc = applyWhipDesc(desc);
         if (hasSyrup)  desc = applySyrupDesc(desc);
         if (hasMatcha) desc = applyMatchaDesc(desc);
+        if (hasChoco)  desc = applyChocoDesc(desc);
         return desc;
     }
 };
@@ -857,7 +896,7 @@ public:
 
 各トッピングの処理が独立した関数として切り出され、`getPrice()` と `getDescription()` の役割が見通しやすくなりました。
 
-**この段階の評価：** ここで気づくことがあります。`applyMilkPrice`・`applyWhipPrice`・`applySyrupPrice`・`applyMatchaPrice` の4つは、引数も戻り値の型も同じです（`int` を受け取り `int` を返す）。同じシグネチャを持つ関数が並んでいる——これが「共通の構造」の初めての兆候です。同様に、説明系の関数（`applyMilkDesc` 等）も `string` を受け取り `string` を返す、同じシグネチャを持っています。しかし問題の根本は変わっていない。新しいトッピングが来るたびに、フラグの追加・コンストラクタの変更・価格関数と説明関数の両追加・`getPrice()` と `getDescription()` 内への `if` 文追加・呼び出し元の修正という複数箇所の修正が毎回必要になる。次のステップでは、この「同じシグネチャを持つ関数たち」をクラスに昇格させることを試みます。
+**この段階の評価：** ここで気づくことがあります。`applyMilkPrice`・`applyWhipPrice`・`applySyrupPrice`・`applyMatchaPrice`・`applyChocoPrice` の5つは、引数も戻り値の型も同じです（`int` を受け取り `int` を返す）。同じシグネチャを持つ関数が並んでいる——これが「共通の構造」の初めての兆候です。同様に、説明系の関数（`applyMilkDesc` 等）も `string` を受け取り `string` を返す、同じシグネチャを持っています。しかし問題の根本は変わっていない。新しいトッピングが来るたびに、フラグの追加・コンストラクタの変更・価格関数と説明関数の両追加・`getPrice()` と `getDescription()` 内への `if` 文追加・呼び出し元の修正という複数箇所の修正が毎回必要になる。次のステップでは、この「同じシグネチャを持つ関数たち」をクラスに昇格させることを試みます。
 
 ここで自然と「フラグの増加を止めるには？」という問いが浮かびます。クラス内部の肥大化を止めるために、次の候補として、役割ごとにクラスを分け、その手始めに「組み合わせ全体をクラスで表現する」アプローチを検討します。
 

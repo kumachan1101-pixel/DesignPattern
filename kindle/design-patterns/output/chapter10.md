@@ -830,6 +830,32 @@ void execute(string targetId) {
 
 ---
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+比較元は、C社連携とSlack通知を `BatchExecutor` へ直接追加したフェーズ3の変更途中コードです。どちらも残したまま、通信・通知・生成を少しずつ分けます。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）の要点
+void BatchExecutor::execute(string targetId) {
+    if (targetId == "A") {
+        SystemAClient client;
+        client.send("data");
+    } else if (targetId == "B") {
+        SystemBClient client;
+        client.send("data");
+    } else if (targetId == "C") {
+        SystemCClient client;
+        client.send("data");
+    }
+    NotificationService notifier;
+    notifier.notify("Success");
+    SlackNotifier slack;
+    slack.notify("Success");
+}
+```
+
+ステップ1はC社とSlackを維持して処理へ名前を付けます。ステップ2以降は、直前ステップから具体クライアント、送信詳細、通知先の知識がどこへ移ったかを比べます。
+
 ### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
 
 はじめに最初に思いつく改善として、`execute()` の中身をプライベートメソッドに分けてみます。各連携先への送信処理と完了通知処理を、それぞれ独立したプライベートメソッドとして切り出すことで、各処理の意図をメソッド名で表現できます。
@@ -864,6 +890,8 @@ private:
     void notifyComplete() {
         NotificationService n; // ← 具体：NotificationServiceを直接生成
         n.notify("Success");
+        SlackNotifier slack;    // ← フェーズ3で追加した通知を維持
+        slack.notify("Success");
     }
 };
 ```

@@ -65,6 +65,10 @@ REQUIRED_NUMBERED_SECTIONS = [
     "### 7-4：変更シナリオ表",
 ]
 
+PHASE6_BASELINE_HEADING = (
+    "#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする"
+)
+
 BANNED_PATTERNS = [
     (
         re.compile(r"直接（直差し）|間接（アダプター経由）"),
@@ -188,6 +192,29 @@ def check_banned_patterns(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def check_phase6_baseline(text: str, path: Path) -> list[Issue]:
+    """Require a visible code baseline before phase 6 step 1.
+
+    An introductory sentence saying that phase 6 starts from the phase 3
+    code is insufficient: readers must be able to compare the actual code.
+    """
+    issues: list[Issue] = []
+    phase6 = text.find("## 🔴 フェーズ6：対策検討")
+    baseline = text.find(PHASE6_BASELINE_HEADING, phase6)
+    step1 = text.find("### ステップ1：", phase6)
+    if baseline < 0:
+        return [Issue(path, line_number(text, phase6), "フェーズ6のステップ1前に、仕様変更後の痛みコードのおさらいがありません")]
+    if step1 < 0 or not (phase6 < baseline < step1):
+        issues.append(Issue(path, line_number(text, baseline), "痛みコードのおさらいはフェーズ6のステップ1直前に置いてください"))
+        return issues
+    recap = text[baseline:step1]
+    if "フェーズ3の変更途中コード（対策前）" not in recap:
+        issues.append(Issue(path, line_number(text, baseline), "比較元がフェーズ3の変更途中コードだと明記されていません"))
+    if "```cpp" not in recap:
+        issues.append(Issue(path, line_number(text, baseline), "ステップ1の比較元となるC++コードが再掲されていません"))
+    return issues
+
+
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
@@ -196,6 +223,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
     if core:
         issues.extend(find_in_order(text, REQUIRED_PHASES, path))
         issues.extend(find_in_order(text, REQUIRED_NUMBERED_SECTIONS, path))
+        issues.extend(check_phase6_baseline(text, path))
     return issues
 
 

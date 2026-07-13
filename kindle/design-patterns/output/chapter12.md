@@ -947,6 +947,33 @@ public:
 | 承認判定の条件が金額・申請種別・承認者・部署別上限で変わる | 承認ルールを状態遷移とは別に差し替えられるようにする | 承認判定を独立したアルゴリズムとして扱う案を見る |
 | 通知先の増減と送信失敗の扱いが、状態や判定とは別の理由で変わる | 状態保存後の副作用として本体から切り離し、失敗を局所化する | 通知先を登録式にし、送信可否は通知側で扱う案を見る |
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+比較元は、緊急ルートと承認後通知を `WorkflowManager` へ直接追加したフェーズ3の変更途中コードです。追加済みのルートと通知件数を保ったまま、3つの変化軸を分けます。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）の要点
+void WorkflowManager::process(string status, double amount,
+                              bool urgent) {
+    if (status == "SUBMITTED") {
+        cout << "審査待ち状態へ移行。" << endl;
+        notify("申請者に通知");
+        if (urgent) {
+            cout << "緊急：課長スキップ→部長へ。" << endl;
+            notify("部長へ緊急通知");
+        }
+    } else if (status == "APPROVED") {
+        cout << "完了状態へ移行。" << endl;
+        notify("関係者に通知");
+        notify("申請者に承認完了を通知");
+        if (urgent) notify("部長へ完了報告");
+    }
+    if (amount > 100000) cout << "役員承認が必要。" << endl;
+}
+```
+
+ステップ1は緊急ルートと追加通知を維持して状態別メソッドへ分けます。ステップ2以降は、直前ステップから状態遷移、通知先、承認判定の知識がどこへ移ったかを比べます。
+
 ### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
 
 はじめに、`process()` の中に混在している3つの分岐を、それぞれ独立したプライベートメソッドとして切り出してみます。「状態ごとに何をするか」を一か所にまとめるのではなく、状態ごとに別々のメソッドへ分散させます。
@@ -955,34 +982,36 @@ public:
 // ステップ1：各分岐を独立したプライベートメソッドに切り出す
 class WorkflowManager {
 public:
-    void process(string status, double amount) {
-        if (status == "SUBMITTED")  { processSubmitted(amount); return; }
-        if (status == "APPROVED")   { processApproved();         return; }
-        if (status == "EMERGENCY")  { processEmergency();        return; }
-    }
-private:
-    void processSubmitted(double amount) {
-        // ← 直接：判定ロジックをこのメソッド内で自分で実行する
+    void process(string status, double amount, bool urgent) {
+        if (status == "SUBMITTED") {
+            processSubmitted(urgent);
+        } else if (status == "APPROVED") {
+            processApproved(urgent);
+        }
         if (amount > 100000)
             cout << "役員承認が必要。" << endl;
-        else
-            cout << "審査待ち状態へ移行。" << endl;
-        notify("申請者に通知");
     }
-    void processApproved() {
+private:
+    void processSubmitted(bool urgent) {
+        cout << "審査待ち状態へ移行。" << endl;
+        notify("申請者に通知");
+        if (urgent) {
+            cout << "緊急：課長スキップ→部長へ。" << endl;
+            notify("部長へ緊急通知");
+        }
+    }
+    void processApproved(bool urgent) {
         cout << "完了状態へ移行。" << endl;
         notify("関係者に通知");
-    }
-    void processEmergency() {
-        cout << "緊急承認ルートで処理。部長へ直接通知。" << endl;
-        notify("部長に通知");
+        notify("申請者に承認完了を通知");
+        if (urgent) notify("部長へ完了報告");
     }
     void notify(string msg) { cout << msg << endl; }
 };
 ```
 
 **この段階の評価：**
-`processSubmitted`・`processApproved`・`processEmergency` という3つの独立したメソッドが生まれました。ここで一つ気づくことがあります。3つのメソッドはいずれも「状態に応じた処理を行い、通知を送る」という同じ構造を持っています。つまり、**複数のメソッドが同じシグネチャを持つ可能性**が見えてきました。また、`process()` は「どのメソッドを呼ぶか」という制御だけを担い、各プライベートメソッドが実際の処理を担う——**処理の実行と制御の分離**が形として現れています。
+`processSubmitted`・`processApproved` という状態別メソッドが生まれ、緊急ルートは仕様どおり `urgent` の差分として残りました。どちらも「状態に応じた処理を行い、通知を送る」という共通構造を持っています。また、`process()` は「どのメソッドを呼ぶか」という制御だけを担い、各プライベートメソッドが実際の処理を担う——**処理の実行と制御の分離**が形として現れています。
 
 ただし、各プライベートメソッドの中を見ると、「状態遷移」「通知先」「判定ロジック」という3つの変化軸が相変わらず同じ場所に混在しています。新しい承認ルートが来るたびに結局はこのクラスを開いて処理を書き足さなければなりません。
 
