@@ -340,7 +340,7 @@ int main() {
 | トッピングの種類 | Milk・Syrup・Whip（3種） | **Milk・Syrup・Whip・Matcha・Choco（5種）** |
 | 抹茶パウダー（Matcha） | 選択不可 | **+60円で追加可能** |
 | チョコチップ（Choco） | 選択不可 | **+40円で追加可能** |
-| 重ね順 | 入力された順に表示 | **入力順のまま価格と表示名へ反映** |
+| 重ね順 | フラグの判定順（Milk → Whip → Syrup）に表示 | **注文で指定した順のまま価格と表示名へ反映** |
 | 販売可否 | 未対応 | **販売停止・在庫切れのトッピングは注文作成前に拒否** |
 
 **複雑度ストレス条件**
@@ -1475,6 +1475,7 @@ public:
             {"DRINK001", {{"Milk", 1}}},
             {"DRINK001", {{"Milk", 1}, {"Syrup", 1}}},
             {"DRINK001", {{"Milk", 1}, {"Whip", 1}}},
+            {"DRINK001", {{"Syrup", 1}, {"Whip", 1}}},
             {"DRINK001", {{"Whip", 2}}},
             {"DRINK001", {{"Milk", 1}, {"Syrup", 1}, {"Whip", 1}}},
             {"DRINK001", {{"Milk", 1}, {"Syrup", 1},
@@ -1522,7 +1523,7 @@ int main() {
 
 実行対象コード：7-1の解決後コード
 対応する動作例：1-2の動作例テーブル、および変更要求後の代表ケース
-確認したいこと：外部から見える結果を保ちながら、変更理由ごとの責任が分離されていること
+確認したいこと：既存ケースの価格とエラー条件を保ちつつ、重ね順は変更要求どおり注文で指定した順へ変わり、変更理由ごとの責任が分離されていること
 
 実行結果：
 
@@ -1531,6 +1532,7 @@ Coffee → 400円
 Coffee + Milk → 450円
 Coffee + Milk + Syrup → 480円
 Coffee + Milk + Whip → 520円
+Coffee + Syrup + Whip → 500円
 Coffee + Whip + Whip → 540円
 Coffee + Milk + Syrup + Whip → 550円
 Coffee + Milk + Syrup + Whip + Matcha → 610円
@@ -1544,6 +1546,7 @@ Coffee + Milk + Matcha + Choco → 550円
 [DRINK001] Coffee + Milk 450円
 [DRINK001] Coffee + Milk + Syrup 480円
 [DRINK001] Coffee + Milk + Whip 520円
+[DRINK001] Coffee + Syrup + Whip 500円
 [DRINK001] Coffee + Whip + Whip 540円
 [DRINK001] Coffee + Milk + Syrup + Whip 550円
 [DRINK001] Coffee + Milk + Syrup + Whip + Matcha 610円
@@ -1551,7 +1554,7 @@ Coffee + Milk + Matcha + Choco → 550円
 [DRINK001] Coffee + Milk + Matcha + Choco 550円
 ```
 
-各注文は `OrderRequest`（基本ドリンクIDとトッピングID・個数の並び）として渡し、`OrderAssembler` がメニューとトッピングの販売可否を確認してから、選択順・個数ぶんだけドリンクを包みます。5行目の「Coffee + Whip + Whip」は、ホイップを個数2で頼んだ結果です。`Whip` を二重に書くのではなく、要求データの個数として表しています。価格と表示名は各トッピングクラスが持たず、`ToppingCatalog`（保存データ）から読みます。`DRINK999` は未登録メニュー、`SeasonalMint` は `ToppingCatalog` で販売停止としているため、どちらも注文結果を作らずエラー理由だけを返しています。
+各注文は `OrderRequest`（基本ドリンクIDとトッピングID・個数の並び）として渡し、`OrderAssembler` がメニューとトッピングの販売可否を確認してから、選択順・個数ぶんだけドリンクを包みます。5行目の「Coffee + Syrup + Whip」は、フェーズ1ではフラグの判定順によって「Coffee + Whip + Syrup」と表示されていたケースです。変更後は注文で指定した Syrup → Whip の順が表示名に反映され、価格500円は変わりません。6行目の「Coffee + Whip + Whip」は、ホイップを個数2で頼んだ結果です。`Whip` を二重に書くのではなく、要求データの個数として表しています。価格と表示名は各トッピングクラスが持たず、`ToppingCatalog`（保存データ）から読みます。`DRINK999` は未登録メニュー、`SeasonalMint` は `ToppingCatalog` で販売停止としているため、どちらも注文結果を作らずエラー理由だけを返しています。
 
 ---
 
