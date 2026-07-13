@@ -1402,8 +1402,8 @@ public:
 };
 ```
 
-**3. 窓口となるインターフェースと窓口構造実装**
-業務フロー側に見せる窓口インターフェースと、銀行APIの複雑な手順を隠蔽する窓口構造実装です。契約が保たれる別実装やテスト用実装は、組み立て箇所で差し替えられます。
+**3. 振り込み要求・結果の型と窓口インターフェース（TransferRequest / TransferResult / IBankTransferService）**
+業務フロー側に見せる窓口インターフェースと、振り込みの要求・結果を表す型です。契約が保たれる別実装やテスト用実装は、組み立て箇所で差し替えられます。
 
 ```cpp
 // 業務フロー側に見せる窓口（インターフェース）
@@ -1434,7 +1434,15 @@ public:
         const std::string& toAccount, int amount) = 0;
     virtual ~IBankTransferService() = default;
 };
+```
 
+`IBankTransferService` が業務フロー側に見せる窓口の契約です。要求・結果の型もここで定義しています。
+
+**4. 窓口構造の実装（BankTransferService）**
+
+銀行APIの複雑な手順（認証・実行・補償）をすべて隠蔽する窓口実装です。
+
+```cpp
 // 銀行との複雑なやり取りをすべて隠蔽する窓口クラス（窓口構造）
 class BankTransferService : public IBankTransferService {
 private:
@@ -1531,7 +1539,7 @@ public:
 };
 ```
 
-**3. 本体クラス（コンテキスト）**
+**5. 振り込み処理のコンテキスト（TransferProcessor / BatchTransferProcessor）**
 振り込みという業務フローを担うクラスです。具体的なAPIの呼び出し手順を知らず、インターフェースだけを通じて処理を委譲します。銀行APIへの依存自体が消えるのではなく、窓口構造の背後へ間接化され、業務クラスから技術的な手順が見えなくなります。
 
 窓口へ渡す入力は、送金元・送金先・金額・認証コードをまとめた `TransferRequest`（要求オブジェクト）で、戻り値は成功可否と理由を持つ `TransferResult`（結果オブジェクト）です。認証コードは `verifyOTP` が実際に検証し、正しくない場合は送金へ進まず「認証失敗」の結果を返します。呼び出し側は引数を並べ替える必要がなく、結果の `success` だけを見て次を判断できます。
@@ -1590,12 +1598,15 @@ public:
         }
     }
 };
+```
 
-// 4. 組み立てと実行（メイン関数）
-// 最後に、必要な部品を組み立てて実行します。
-// 具体的なクラス名（`BankTransferService`）を知っているのは、
-// この組み立てを行う箇所だけです。
+`TransferProcessor` は1件の振込、`BatchTransferProcessor` は一括送金を担い、どちらも `IBankTransferService` だけを通じて処理します。銀行APIの具体名は知りません。
 
+**6. 組み立てと実行（Application / main）**
+
+必要な部品を組み立てて実行します。具体的なクラス名（`BankTransferService`）を知っているのは、この組み立てを行う箇所だけです。
+
+```cpp
 // 依存の組み立てを担うクラス（Composition Root）
 class Application {
 public:
