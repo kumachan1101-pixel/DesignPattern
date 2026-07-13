@@ -2013,7 +2013,7 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
-| キャンセル待ち状態を追加 | `TicketReservation` の全メソッドに新条件分岐を追加 | `WaitlistedState` を追加し、組み立て側へ登録 |
+| キャンセル待ちと一時保留を追加 | `TicketReservation` の各操作へ `Waitlisted` / `Held` の条件分岐を追加 | `WaitlistedState` / `HeldState` と遷移の組み立てを追加。既存状態クラスは保つ |
 | 支払済みからの返金対応 | `TicketReservation` の `pay()` `cancel()` を修正 | `IReservationState` と `TicketReservation` に返金操作を追加し、`PaidState` に振る舞いを実装する |
 | 有効期限切れ処理を追加 | `TicketReservation` に新メソッドと全状態への分岐を追加 | 対象状態へ `expire()` を追加し、必要な遷移を登録 |
 | 決済失敗後に再試行可能にする | `pay()` の成功/失敗分岐と状態ごとの戻り先を修正 | `ReservedState` / `HeldState` に失敗時の扱いを置く |

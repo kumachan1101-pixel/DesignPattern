@@ -1800,7 +1800,7 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
-| 銀行APIの手順が変わる（OTP方式など） | `TransferProcessor` の振込メソッドを修正 | `BankTransferService` の内部のみ修正 |
+| OTP発行で受け取った取引IDを照合・送金へ渡す | `TransferProcessor` に発行・照合・送金の手順と取引IDの受け渡しを追加 | `BankTransferService` 内の `requestOTP()` から送金までを修正。`TransferProcessor` の契約は保つ |
 | 生体認証を追加（2-4の将来リスク） | `TransferProcessor` の認証手順を修正し全体を再テスト | `BankTransferService` の内部と `SecurityAuthenticator` を修正 |
 | 送金リクエスト形式がJSON→XMLへ変わる | `TransferProcessor` の送金呼び出しを修正 | `BankGateway` と `BankTransferService` の内部のみ修正 |
 | 送金後の結果照会APIが追加される | `TransferProcessor` に照会・保留・再試行分岐を追加 | `BankTransferService` の内部に照会手順を追加 |

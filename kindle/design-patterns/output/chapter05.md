@@ -1623,6 +1623,7 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
+| Undo / Redoを追加 | `UIButtons` に操作別の履歴、取消、再実行の分岐を追加 | 各 `IAction` が `execute()` / `undo()` を持ち、`ActionHistory` が履歴とRedoを管理する |
 | 新しい操作（振替等）を追加 | `UIButtons` に新しい呼び出しと取り消しロジックを追記 | `TransferAction` と必要な実行先処理を追加し、UIやバッチの組み立てへ割り当てる。`ActionHistory` は保つ |
 | Undo/Redoの回数制限を変更 | `UIButtons` の履歴管理ロジックを修正 | `ActionHistory` のみ修正 |
 | 操作履歴をログ出力する機能を追加 | `UIButtons` の各操作呼び出し箇所に追記 | `ActionHistory` に1箇所追加 |

@@ -1901,6 +1901,9 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
+| 月次レポートの生成手順を固定し、装飾を選ぶ | `ReportSkeleton` に月次固有の本文と装飾分岐を追記 | `MonthlyReport` を骨格へ接続し、`GraphFeature` / `WatermarkFeature` を組み立てる |
+| 生成操作を取り消し・再実行する | `ReportSkeleton` に履歴、取消、再実行の処理を追記 | `IReportAction` と履歴が同じ生成操作を `undo()` し、記録した操作の `execute()` を再度呼ぶ。骨格と装飾は保つ |
+| 装飾失敗後に同じ操作を再実行する | 装飾分岐と生成手順の両方で失敗状態を管理 | `JobResult` で失敗を記録し、履歴に残した生成操作を再実行する |
 | 新しいレポート種別（週次等）を追加 | `ReportSkeleton` に新しい生成手順を直接追記 | `WeeklyReport`、`TemplateRegistry` の定義、組み立てを追加。既存の骨格とレポート種別は保つ |
 | 透かし機能を全レポートに追加 | `ReportSkeleton` の各手順に透かし処理を追記 | `WatermarkFeature` 装飾クラスを新規作成し、組み立てへ登録 |
 | Undo機能のある操作を追加 | `ReportSkeleton` に操作処理と取り消しロジックを追記 | `IReportAction` 実装クラスを追加し、組み立て側から履歴へ渡す |

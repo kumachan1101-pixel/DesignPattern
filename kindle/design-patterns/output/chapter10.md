@@ -1706,6 +1706,8 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
+| C社連携を追加 | `BatchExecutor` にC社クライアントの生成・通信分岐を追記 | `SystemCClient` と `SystemCClientCreator` を追加し、組み立てへ登録。実行本体は保つ |
+| Slack完了通知を追加 | `BatchExecutor` の成功・失敗処理へ通知呼び出しを追記 | `SlackNotifier` を追加し、通知先の組み立てへ登録。連携先クライアントは保つ |
 | 新しい連携先（システムD等）を追加 | `BatchExecutor` に新しい接続ロジックと通知処理を追記 | `SystemDClient` と `SystemDClientCreator` を新規作成し、組み立てへ登録 |
 | 完了通知先（Teams等）を追加 | `BatchExecutor` に通知ロジックを直接追記 | `TeamsNotifier` 実装クラスを新規作成し登録するだけ |
 | 外部APIの接続手順が変わる | `BatchExecutor` の接続ロジックを修正 | 対象の `IExternalClient` 実装クラスのみ修正 |

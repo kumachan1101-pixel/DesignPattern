@@ -86,6 +86,29 @@ PHASE6_CONTINUITY_TOKENS = {
     "chapter12.md": ["urgent", "承認完了"],
 }
 
+# Phase 3の変更途中コードで追加した代表要素が、採用後の完成コードと
+# 変更シナリオ表まで同じ対象として追われていることを確認する。
+PHASE7_SCENARIO_TOKENS = {
+    "chapter01.md": ["サマーセール", "逐次"],
+    "chapter02.md": ["取引ID"],
+    "chapter03.md": ["キャンセル待ち", "一時保留"],
+    "chapter04.md": ["EC", "形式バージョン"],
+    "chapter05.md": ["Undo", "Redo"],
+    "chapter06.md": ["Matcha", "Choco"],
+    "chapter07.md": ["SMS", "非同期"],
+    "chapter08.md": ["PayPay", "PaymentResult"],
+    "chapter09_2.md": ["保留中", "法人"],
+    "chapter10.md": ["C社", "Slack"],
+    "chapter11.md": ["月次", "再実行"],
+    "chapter12.md": ["緊急申請", "決済部門", "却下"],
+}
+
+PHASE7_CODE_TOKENS = {
+    **PHASE6_CONTINUITY_TOKENS,
+    "chapter11.md": ["履歴", "再実行"],
+    "chapter12.md": ["SubmitEmergency", "決済部門"],
+}
+
 BANNED_PATTERNS = [
     (
         re.compile(r"直接（直差し）|間接（アダプター経由）"),
@@ -283,6 +306,38 @@ def check_phase6_step_chain(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def check_phase7_continuity(text: str, path: Path) -> list[Issue]:
+    """Keep the changed specification through final code and 7-4."""
+    code_tokens = PHASE7_CODE_TOKENS.get(path.name, [])
+    scenario_tokens = PHASE7_SCENARIO_TOKENS.get(path.name, [])
+    phase7 = text.find("## 🟢 フェーズ7：対策実施")
+    section72 = text.find("### 7-2：", phase7)
+    section74 = text.find("### 7-4：変更シナリオ表", phase7)
+    after74 = text.find("\n---", section74)
+    code = text[phase7:section72]
+    scenarios = text[section74:after74]
+    issues: list[Issue] = []
+    for token in code_tokens:
+        if token not in code:
+            issues.append(
+                Issue(
+                    path,
+                    line_number(text, phase7),
+                    f"フェーズ7の最終コードで仕様変更要素「{token}」が消えています",
+                )
+            )
+    for token in scenario_tokens:
+        if token not in scenarios:
+            issues.append(
+                Issue(
+                    path,
+                    line_number(text, section74),
+                    f"7-4で今回の変更要求「{token}」を再評価していません",
+                )
+            )
+    return issues
+
+
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
@@ -294,6 +349,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase6_baseline(text, path))
         issues.extend(check_phase6_continuity(text, path))
         issues.extend(check_phase6_step_chain(text, path))
+        issues.extend(check_phase7_continuity(text, path))
     return issues
 
 

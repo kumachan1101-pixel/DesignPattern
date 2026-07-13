@@ -1628,8 +1628,9 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
-| 新しいファイル形式（XML等）を追加 | 全クラスを参考に新しいクラスをゼロから作成 | `AbstractImporter` の新サブクラス、`SchemaRegistry` の定義、サンプル入力と組み立てを追加。既存Importerと骨格は保つ |
-| 全形式共通の前処理（ログ等）を追加 | StoreDataImporter・FCDataImporter・ECDataImporter 全クラスを修正 | `AbstractImporter` の `import()` に1箇所追加 |
+| EC形式とEC固有の計算を追加 | 既存Importerを参考に取得・解析・検証・保存を複製し、EC計算を差し込む | `ECDataImporter`、`SchemaRegistry` の定義、サンプル入力と組み立てを追加。骨格は保つ |
+| 全形式へ形式バージョン確認を追加 | StoreDataImporter・FCDataImporter・ECDataImporter 全クラスへ同じ手順を追加 | `AbstractImporter::import()` の `checkFormatVersion()` 呼び出しを1か所に置く |
+| 新しいファイル形式（XML等）を追加 | 全クラスを参考に新しいクラスをゼロから作成 | `AbstractImporter` の新サブクラス、スキーマ定義、入力と組み立てを追加 |
 | 特定形式の変換ロジックを変更 | 対象クラスを直接修正（他との差分が不明確） | 対象のサブクラスのみ修正 |
 | 行単位検証のルールを形式ごとに変える | 各 `import()` の保存前処理を探して修正 | 対象サブクラスの `validateRows()` を修正 |
 | 取込結果にスキップ件数を追加 | 各クラスの出力処理を個別に修正 | 骨格の結果記録に項目を追加し、形式別件数はサブクラスから渡す |

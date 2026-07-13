@@ -2174,6 +2174,9 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
+| 緊急申請で課長を飛ばして部長承認へ進む | `WorkflowManager` に `urgent` 分岐と専用の遷移条件を追記 | `DraftPhase` から `PriorityPendingPhase` へ遷移する組み立てを追加。通常ルートは保つ |
+| 部長承認後に決済部門へ通知する | `WorkflowManager` の完了分岐へ通知先を追記 | `NotificationTargetRepository` に決済部門を登録し、既存の通知契約で送る |
+| 却下時に申請者へ通知する | `WorkflowManager` の却下分岐へ通知処理を追記 | `RejectedPhase` への遷移後、Repositoryから申請者を読み、既存Listenerで通知する |
 | 新しい承認段階（二次承認等）を追加 | `WorkflowManager` の状態管理・通知・ルール判定を全て修正 | 新しいPhaseクラスを追加し、遷移の組み立てを更新 |
 | 承認通知先（Teams等）を追加 | `WorkflowManager` に通知ロジックを直接追記 | `TeamsListener` 実装クラスを新規作成し登録するだけ |
 | 承認上限金額のルールを変更 | `WorkflowManager` の判定ロジックを修正 | 対象の `IApprovalRule` 実装クラスのみ修正 |

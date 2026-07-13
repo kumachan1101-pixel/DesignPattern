@@ -1811,7 +1811,7 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
-| サマーセール割引を追加 | `PaymentCalculator` の if 文を修正 | `SummerSaleDiscount` を新規作成、`RuleFactory` に1行追加 |
+| サマーセール5%を既存割引後へ逐次適用 | `PaymentCalculator` の if 文と適用順を修正 | `SummerSaleDiscount` を新規作成し、逐次適用する組み合わせと `RuleFactory` の選択を追加 |
 | クーポン割引（定額）を追加 | `PaymentCalculator` の if 文を修正 | `CouponDiscount` を新規作成、`RuleFactory` に1行追加 |
 | プレミアム割引率を変更 | `PaymentCalculator` の計算式を直接修正 | `PremiumDiscount` の計算式のみ修正 |
 | 割引の適用順序を変更 | `PaymentCalculator` の分岐順序を修正し、既存ケースを広く再確認 | 組み合わせルールまたは `RuleFactory` の選択だけを見直す |
