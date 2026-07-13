@@ -360,7 +360,7 @@ int main() {
 | トッピングの種類 | Milk・Syrup・Whip（3種） | **Milk・Syrup・Whip・Matcha・Choco（5種）** |
 | 抹茶パウダー（Matcha） | 選択不可 | **+60円で追加可能** |
 | チョコチップ（Choco） | 選択不可 | **+40円で追加可能** |
-| 重ね順 | 入力された順に表示 | **入力順のまま価格と表示名へ反映** |
+| 重ね順 | フラグの判定順（Milk → Whip → Syrup）に表示 | **注文で指定した順のまま価格と表示名へ反映** |
 | 販売可否 | 未対応 | **販売停止・在庫切れのトッピングは注文作成前に拒否** |
 
 **複雑度ストレス条件**
@@ -814,6 +814,36 @@ graph LR
 
 ---
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+比較元は、抹茶とチョコチップを追加したことで、フラグ・コンストラクタ・価格・説明のすべてが増えたフェーズ3の変更途中コードです。2種類とも残したまま整理します。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）の要点
+bool hasMilk, hasWhip, hasSyrup, hasMatcha, hasChoco;
+
+int getPrice() const {
+    int total = basePrice;
+    if (hasMilk)   total += 50;
+    if (hasWhip)   total += 70;
+    if (hasSyrup)  total += 30;
+    if (hasMatcha) total += 60;
+    if (hasChoco)  total += 40;
+    return total;
+}
+string getDescription() const {
+    string desc = baseName;
+    if (hasMilk)   desc += " + Milk";
+    if (hasWhip)   desc += " + Whip";
+    if (hasSyrup)  desc += " + Syrup";
+    if (hasMatcha) desc += " + Matcha";
+    if (hasChoco)  desc += " + Choco";
+    return desc;
+}
+```
+
+ステップ1はこの5種類を維持して処理へ名前を付けます。ステップ2以降は、直前ステップからフラグ、具体クラス名、固定スロットがどこまで減ったかを比べます。
+
 ### ステップ1：各トッピング処理を独立した関数として切り出す
 
 手始めに、クラスを分けずに、各トッピングの処理を独立したプライベートメソッドとして切り出してみます。全部を1つのメソッドにまとめるのではなく、トッピングごとに関数を作るのがポイントです。
@@ -827,12 +857,14 @@ private:
     bool hasWhip;
     bool hasSyrup;
     bool hasMatcha;
+    bool hasChoco;
 
     // 各トッピングの価格計算を独立した関数として切り出す
     int applyMilkPrice(int total)   const { return total + 50; }
     int applyWhipPrice(int total)   const { return total + 70; }
     int applySyrupPrice(int total)  const { return total + 30; }
     int applyMatchaPrice(int total) const { return total + 60; }
+    int applyChocoPrice(int total)  const { return total + 40; }
 
     // 各トッピングの説明を独立した関数として切り出す
     string applyMilkDesc(string desc) const {
@@ -847,13 +879,18 @@ private:
     string applyMatchaDesc(string desc) const {
         return desc + " + Matcha";
     }
+    string applyChocoDesc(string desc) const {
+        return desc + " + Choco";
+    }
 
 public:
     CustomDrink(string name, int price,
-                bool milk, bool whip, bool syrup, bool matcha)
+                bool milk, bool whip, bool syrup,
+                bool matcha, bool choco)
         : baseName(name), basePrice(price),
           hasMilk(milk), hasWhip(whip),
-          hasSyrup(syrup), hasMatcha(matcha) {}
+          hasSyrup(syrup), hasMatcha(matcha),
+          hasChoco(choco) {}
 
     int getPrice() const {
         int total = basePrice;
@@ -861,6 +898,7 @@ public:
         if (hasWhip)   total = applyWhipPrice(total);
         if (hasSyrup)  total = applySyrupPrice(total);
         if (hasMatcha) total = applyMatchaPrice(total);
+        if (hasChoco)  total = applyChocoPrice(total);
         return total;
     }
 
@@ -870,6 +908,7 @@ public:
         if (hasWhip)   desc = applyWhipDesc(desc);
         if (hasSyrup)  desc = applySyrupDesc(desc);
         if (hasMatcha) desc = applyMatchaDesc(desc);
+        if (hasChoco)  desc = applyChocoDesc(desc);
         return desc;
     }
 };
@@ -877,13 +916,15 @@ public:
 
 各トッピングの処理が独立した関数として切り出され、`getPrice()` と `getDescription()` の役割が見通しやすくなりました。
 
-**この段階の評価：** ここで気づくことがあります。`applyMilkPrice`・`applyWhipPrice`・`applySyrupPrice`・`applyMatchaPrice` の4つは、引数も戻り値の型も同じです（`int` を受け取り `int` を返す）。同じシグネチャを持つ関数が並んでいる——これが「共通の構造」の初めての兆候です。同様に、説明系の関数（`applyMilkDesc` 等）も `string` を受け取り `string` を返す、同じシグネチャを持っています。しかし問題の根本は変わっていない。新しいトッピングが来るたびに、フラグの追加・コンストラクタの変更・価格関数と説明関数の両追加・`getPrice()` と `getDescription()` 内への `if` 文追加・呼び出し元の修正という複数箇所の修正が毎回必要になる。次のステップでは、この「同じシグネチャを持つ関数たち」をクラスに昇格させることを試みます。
+**この段階の評価：** ここで気づくことがあります。`applyMilkPrice`・`applyWhipPrice`・`applySyrupPrice`・`applyMatchaPrice`・`applyChocoPrice` の5つは、引数も戻り値の型も同じです（`int` を受け取り `int` を返す）。同じシグネチャを持つ関数が並んでいる——これが「共通の構造」の初めての兆候です。同様に、説明系の関数（`applyMilkDesc` 等）も `string` を受け取り `string` を返す、同じシグネチャを持っています。しかし問題の根本は変わっていない。新しいトッピングが来るたびに、フラグの追加・コンストラクタの変更・価格関数と説明関数の両追加・`getPrice()` と `getDescription()` 内への `if` 文追加・呼び出し元の修正という複数箇所の修正が毎回必要になる。次のステップでは、この「同じシグネチャを持つ関数たち」をクラスに昇格させることを試みます。
 
 ここで自然と「フラグの増加を止めるには？」という問いが浮かびます。クラス内部の肥大化を止めるために、次の候補として、役割ごとにクラスを分け、その手始めに「組み合わせ全体をクラスで表現する」アプローチを検討します。
 
 ---
 
 ### ステップ2：継承で全組み合わせを表現する（最初の直感）
+
+**ステップ1との差：** 1クラス内のフラグ分岐を減らすため、抹茶とチョコを含む組み合わせ全体をサブクラスとして表す案へ移ります。
 
 「フラグではなく、組み合わせごとにサブクラスを作ればいい」という発想を試してみます。継承を使えば、各組み合わせを型として表現できます。
 
@@ -920,6 +961,12 @@ class CoffeeMatcha : public Coffee { };
 class CoffeeMilkMatcha : public Coffee { };
 class CoffeeWhipMatcha : public Coffee { };
 class CoffeeMilkWhipMatcha : public Coffee { };
+
+// 同時に追加したチョコでも、同じ数の組み合わせクラスが増える
+class CoffeeChoco : public Coffee { };
+class CoffeeMilkChoco : public Coffee { };
+class CoffeeWhipChoco : public Coffee { };
+class CoffeeMilkWhipChoco : public Coffee { };
 ```
 
 継承ツリーはメニューの「全組み合わせ」を型として持つことになります。
@@ -931,6 +978,8 @@ class CoffeeMilkWhipMatcha : public Coffee { };
 ---
 
 ### ステップ3：トッピングをクラスに切り出す
+
+**ステップ2との差：** 組み合わせごとのクラス爆発を避けるため、組み合わせ全体ではなく各トッピングを独立したクラスへ移します。
 
 「継承で組み合わせを表現するのではなく、トッピングを独立したクラスとして持てばいい」という発想を試してみます。
 
@@ -954,6 +1003,12 @@ public:
     string getName() const { return " + Matcha"; }
 };
 
+class Choco {
+public:
+    int getPrice() const { return 40; }
+    string getName() const { return " + Choco"; }
+};
+
 class CustomDrink {
 private:
     string baseName;
@@ -962,9 +1017,11 @@ private:
     Milk  milk;
     Whip  whip;
     Matcha matcha;
+    Choco choco;
     bool hasMilk  = false;
     bool hasWhip  = false;
     bool hasMatcha = false;
+    bool hasChoco = false;
 
 public:
     CustomDrink(string name, int price)
@@ -973,12 +1030,14 @@ public:
     void addMilk()   { hasMilk  = true; }
     void addWhip()   { hasWhip  = true; }
     void addMatcha() { hasMatcha = true; }
+    void addChoco()  { hasChoco = true; }
 
     int getPrice() const {
         int total = basePrice;
         if (hasMilk)   total += milk.getPrice();
         if (hasWhip)   total += whip.getPrice();
         if (hasMatcha) total += matcha.getPrice();
+        if (hasChoco)  total += choco.getPrice();
         return total;
     }
 
@@ -987,6 +1046,7 @@ public:
         if (hasMilk)   desc += milk.getName();
         if (hasWhip)   desc += whip.getName();
         if (hasMatcha) desc += matcha.getName();
+        if (hasChoco)  desc += choco.getName();
         return desc;
     }
 };
@@ -1009,6 +1069,8 @@ int main() {
 ---
 
 ### ステップ4：共通の契約を導入するが、スロットは固定のまま
+
+**ステップ3との差：** 個別クラスへの分離は保ち、`CustomDrink` が具体トッピング名を直接持つ接続を `ITopping` 契約へ置き換えます。
 
 「`CustomDrink` が具体クラスを直接知っているのが問題なら、インターフェースを挟もう」という方向を試してみます。
 
@@ -1039,6 +1101,12 @@ public:
     string getName() const override { return " + Matcha"; }
 };
 
+class Choco : public ITopping {
+public:
+    int getPrice() const override { return 40; }
+    string getName() const override { return " + Choco"; }
+};
+
 class CustomDrink {
 private:
     string baseName;
@@ -1047,6 +1115,7 @@ private:
     ITopping* milk   = nullptr;
     ITopping* whip   = nullptr;
     ITopping* matcha = nullptr;
+    ITopping* choco  = nullptr;
 
 public:
     CustomDrink(string name, int price)
@@ -1055,12 +1124,14 @@ public:
     void setMilk(ITopping* t)   { milk   = t; }
     void setWhip(ITopping* t)   { whip   = t; }
     void setMatcha(ITopping* t) { matcha = t; }
+    void setChoco(ITopping* t)  { choco = t; }
 
     int getPrice() const {
         int total = basePrice;
         if (milk)   total += milk->getPrice();
         if (whip)   total += whip->getPrice();
         if (matcha) total += matcha->getPrice();
+        if (choco)  total += choco->getPrice();
         return total;
     }
 
@@ -1069,6 +1140,7 @@ public:
         if (milk)   desc += milk->getName();
         if (whip)   desc += whip->getName();
         if (matcha) desc += matcha->getName();
+        if (choco)  desc += choco->getName();
         return desc;
     }
 };
@@ -1152,6 +1224,15 @@ public:
     }
 };
 
+class Choco : public ToppingWrapper {
+public:
+    Choco(IDrink* base) : ToppingWrapper(base) {}
+    int getPrice() const override { return baseDrink->getPrice() + 40; }
+    string getDescription() const override {
+        return baseDrink->getDescription() + " + Choco";
+    }
+};
+
 // WhipもSyrupも同じ構造で定義できる（Milkのコピーで価格だけ変える）
 class Whip : public ToppingWrapper {
 public:
@@ -1163,12 +1244,12 @@ public:
 };
 
 // 組み立て
-IDrink* order = new Matcha(new Milk(new Coffee()));
+IDrink* order = new Choco(new Matcha(new Milk(new Coffee())));
 // ホイップ×2（ダブル）は、同じ型を2回包むだけ
 IDrink* double_whip = new Whip(new Whip(new Coffee()));
 ```
 
-`Matcha` クラスへ抹茶固有の価格と説明をまとめ、利用する組み立てコードで `Matcha` を追加すれば要件を満たせます。既存の `Coffee`、`Milk`、`ToppingWrapper` の実装へ抹茶の条件分岐を加える必要はありません。
+`Matcha` と `Choco` へそれぞれ固有の価格と説明をまとめ、利用する組み立てコードで両方を追加すれば、フェーズ3の変更要求を保ったまま要件を満たせます。既存の `Coffee`、`Milk`、`ToppingWrapper` の実装へ抹茶やチョコの条件分岐を加える必要はありません。
 
 **この段階の評価：** 新しいトッピングの振る舞いは新しいラッパー（別のドリンクを包む側の）クラスへ置き、提供メニューや生成処理などの組み立て箇所へ登録します。「ホイップをダブルにする」は `new Whip(new Whip(new Coffee()))` のように同じ部品を重ねて表現できます。ステップ4の「スロットを追加するたびに `CustomDrink` の条件分岐を増やす」という問題が解消されました。
 
@@ -1386,7 +1467,7 @@ public:
 **Syrup クラス・Matcha クラス（新規追加トッピング）：**
 
 ```cpp
-// ← 新しいトッピングを追加する場合は、クラスを1つ増やすだけ（ここだけ変わる）
+// 新しいトッピングでは、この識別クラスに加えてカタログ登録と組み立て登録を行う
 class Syrup : public ToppingWrapper {
 public:
     Syrup(IDrink* base, const ToppingCatalog* cat)
@@ -1513,6 +1594,7 @@ public:
             {"DRINK001", {{"Milk", 1}}},
             {"DRINK001", {{"Milk", 1}, {"Syrup", 1}}},
             {"DRINK001", {{"Milk", 1}, {"Whip", 1}}},
+            {"DRINK001", {{"Syrup", 1}, {"Whip", 1}}},
             {"DRINK001", {{"Whip", 2}}},
             {"DRINK001", {{"Milk", 1}, {"Syrup", 1}, {"Whip", 1}}},
             {"DRINK001", {{"Milk", 1}, {"Syrup", 1},
@@ -1560,7 +1642,7 @@ int main() {
 
 実行対象コード：7-1の解決後コード
 対応する動作例：1-2の動作例テーブル、および変更要求後の代表ケース
-確認したいこと：外部から見える結果を保ちながら、変更理由ごとの責任が分離されていること
+確認したいこと：既存ケースの価格とエラー条件を保ちつつ、重ね順は変更要求どおり注文で指定した順へ変わり、変更理由ごとの責任が分離されていること
 
 実行結果：
 
@@ -1569,6 +1651,7 @@ Coffee → 400円
 Coffee + Milk → 450円
 Coffee + Milk + Syrup → 480円
 Coffee + Milk + Whip → 520円
+Coffee + Syrup + Whip → 500円
 Coffee + Whip + Whip → 540円
 Coffee + Milk + Syrup + Whip → 550円
 Coffee + Milk + Syrup + Whip + Matcha → 610円
@@ -1582,6 +1665,7 @@ Coffee + Milk + Matcha + Choco → 550円
 [DRINK001] Coffee + Milk 450円
 [DRINK001] Coffee + Milk + Syrup 480円
 [DRINK001] Coffee + Milk + Whip 520円
+[DRINK001] Coffee + Syrup + Whip 500円
 [DRINK001] Coffee + Whip + Whip 540円
 [DRINK001] Coffee + Milk + Syrup + Whip 550円
 [DRINK001] Coffee + Milk + Syrup + Whip + Matcha 610円
@@ -1589,7 +1673,7 @@ Coffee + Milk + Matcha + Choco → 550円
 [DRINK001] Coffee + Milk + Matcha + Choco 550円
 ```
 
-各注文は `OrderRequest`（基本ドリンクIDとトッピングID・個数の並び）として渡し、`OrderAssembler` がメニューとトッピングの販売可否を確認してから、選択順・個数ぶんだけドリンクを包みます。5行目の「Coffee + Whip + Whip」は、ホイップを個数2で頼んだ結果です。`Whip` を二重に書くのではなく、要求データの個数として表しています。価格と表示名は各トッピングクラスが持たず、`ToppingCatalog`（保存データ）から読みます。`DRINK999` は未登録メニュー、`SeasonalMint` は `ToppingCatalog` で販売停止としているため、どちらも注文結果を作らずエラー理由だけを返しています。
+各注文は `OrderRequest`（基本ドリンクIDとトッピングID・個数の並び）として渡し、`OrderAssembler` がメニューとトッピングの販売可否を確認してから、選択順・個数ぶんだけドリンクを包みます。5行目の「Coffee + Syrup + Whip」は、フェーズ1ではフラグの判定順によって「Coffee + Whip + Syrup」と表示されていたケースです。変更後は注文で指定した Syrup → Whip の順が表示名に反映され、価格500円は変わりません。6行目の「Coffee + Whip + Whip」は、ホイップを個数2で頼んだ結果です。`Whip` を二重に書くのではなく、要求データの個数として表しています。価格と表示名は各トッピングクラスが持たず、`ToppingCatalog`（保存データ）から読みます。`DRINK999` は未登録メニュー、`SeasonalMint` は `ToppingCatalog` で販売停止としているため、どちらも注文結果を作らずエラー理由だけを返しています。
 
 ---
 
@@ -1683,8 +1767,8 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
-| 新しいトッピング（抹茶パウダー等）を追加 | `CustomDrink` にフラグ追加・価格の if 文追加・説明の if 文追加（3箇所） | `Matcha` クラスを新規作成し、組み立てへ登録 |
-| トッピングの価格を変更 | `CustomDrink` の if 文内を修正 | 対象のトッピングクラスのみ修正 |
+| Matcha / Chocoトッピングを追加 | `CustomDrink` にフラグ追加・価格の if 文追加・説明の if 文追加（種類ごとに3箇所） | `Matcha` / `Choco` クラスを作成し、組み立てへ登録 |
+| トッピングの価格を変更 | `CustomDrink` の if 文内を修正 | `ToppingCatalog` の対象データのみ更新 |
 | トッピングを販売停止にする | `CustomDrink` または呼び出し側へ個別判定を追加 | `ToppingCatalog` の販売状態を更新 |
 | 表示順を選択順にする | `if` 文の並び順に依存し、順序変更の意図が読みにくい | 組み立て順がそのまま表示名と価格加算の順序になる |
 | 同じトッピングを2回追加する仕様 | `CustomDrink` のフラグ管理を大幅に改修 | 装飾連結構造を2回重ねるだけ |
@@ -1699,7 +1783,7 @@ graph LR
 |---|---|
 | **問題** | トッピングの種類が増えるたびに、`CustomDrink` のメンバ変数・コンストラクタ・価格計算・名称生成の4箇所と呼び出し側が連動して変わる |
 | **原因** | 基本ドリンクの骨格と、各トッピングの価格・名前・販売可否・表示順という変わる理由が異なるものが同じ場所に混在している |
-| **課題** | 各トッピングが価格と名前の知識を持ち、販売可否は組み立て前に確認し、基本ドリンク側の条件分岐を増やさず組み合わせられる形にする |
+| **課題** | 各トッピングは識別子と包む責任を持ち、価格・表示名・販売可否は `ToppingCatalog` から取得する。基本ドリンク側の条件分岐を増やさず、注文で指定した順に組み合わせられる形にする |
 | **解決策** | 装飾連結構造：基本ドリンクとトッピングを同じ `IDrink` インターフェースで統一し、トッピング自身が別のドリンクを包む `ToppingWrapper` 構造で機能を動的に重ね合わせる。販売可否は `ToppingCatalog` で確認してから包む |
 
 ## 整理

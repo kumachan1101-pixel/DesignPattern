@@ -909,6 +909,29 @@ graph LR
 | SMSの非同期や部分失敗の扱いが在庫更新へ入り込もうとする | 通知操作の契約に受付結果（`DeliveryResult`）を含め、同期・非同期・失敗を通知先側へ寄せる | 契約を `DeliveryResult` 返しに揃え、通知元は結果を数えるだけにする案を見る |
 | メール・Slack・ログなど通知先は独立して変わる | 通知先追加が既存通知や在庫更新へ波及しない接続点を作る | 複数の購読者を登録・解除できる形まで進めるか判断する |
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+比較元は、SMS通知を追加するために `InventoryManager` のメンバと通知処理を直接増やしたフェーズ3の変更途中コードです。SMSを消さずに、通知元が知る詳細を段階的に減らします。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）の要点
+class InventoryManager {
+    EmailNotifier email;
+    DashboardUpdater dashboard;
+    ChatNotifier chat;
+    SMSNotifier sms;
+private:
+    void notifyAll(string message) {
+        email.send(message);
+        dashboard.update(message);
+        chat.send(message);
+        sms.send(message);
+    }
+};
+```
+
+ステップ1は4通知先を維持したまま呼び出しへ名前を付けます。ステップ2以降は、直前ステップから通知先の一覧と具体クラス名がどこへ移ったかを比べます。
+
 ### ステップ1：各通知を独立したメソッドに切り出す（共通構造を発見する）
 
 新しい通知先（SMS）を追加するとき、`reduceStock` の中に通知処理が直書きされているのが気になります。「それぞれの通知処理を独立したメソッドに切り出して、整理してみよう」と考えるのが最初の一歩です。一つにまとめるのではなく、まず各処理をバラバラに切り出します。
@@ -919,6 +942,7 @@ private:
     EmailNotifier    email;
     DashboardUpdater dashboard;
     ChatNotifier     chat;
+    SMSNotifier      sms;
 
     // 各通知を独立したメソッドとして切り出す
     void notifyEmail(string message) {
@@ -930,12 +954,16 @@ private:
     void notifyChat(string message) {
         chat.send(message);
     }
+    void notifySms(string message) {
+        sms.send(message);
+    }
 
     // 判定（どの通知先を呼ぶか）も独立したメソッドとして切り出す
     void notifyAll(string message) {
         notifyEmail(message);
         notifyDashboard(message);
         notifyChat(message);
+        notifySms(message);
     }
 
 public:
@@ -952,9 +980,9 @@ public:
 
 各通知先への呼び出しが独立したメソッドに分かれ、`reduceStock` の見通しが改善されたことが分かる。
 
-**この段階の評価：** ここで気づくことがあります。`notifyEmail`・`notifyDashboard`・`notifyChat` の3つは、引数も戻り値の型も同じです。`string` を受け取り、`void` を返す——同じシグネチャを持つメソッドが3つ並んでいる。これが「共通の構造」の最初の兆候です。また、呼び出しのとりまとめ（`notifyAll`）を独立させたことで、「各通知処理の実行」と「どれを呼ぶかの制御」が別の関心事として見えてきました。
+**この段階の評価：** ここで気づくことがあります。`notifyEmail`・`notifyDashboard`・`notifyChat`・`notifySms` の4つは、引数も戻り値の型も同じです。`string` を受け取り、`void` を返す——同じシグネチャを持つメソッドが4つ並んでいる。これが「共通の構造」の最初の兆候です。また、呼び出しのとりまとめ（`notifyAll`）を独立させたことで、「各通知処理の実行」と「どれを呼ぶかの制御」が別の関心事として見えてきました。
 
-しかし問題は残っています。新しい通知先（SMSNotifier）を追加するには、InventoryManager を開いてメンバ変数・`notifySms` メソッド・`notifyAll` 内の呼び出しの3箇所を修正する必要があります。通知先の数だけこの修正構造が繰り返されるという根本は変わっていない。次のステップでは、この共通構造を持つメソッドたちをどう扱うかを考えます。
+しかし問題は残っています。今回のSMS追加でも、`InventoryManager` を開いてメンバ変数・`notifySms` メソッド・`notifyAll` 内の呼び出しの3箇所を修正しました。次の通知先でも同じ修正構造が繰り返されるという根本は変わっていません。次のステップでは、この共通構造を持つメソッドたちをどう扱うかを考えます。
 
 ---
 
@@ -970,19 +998,21 @@ private:
     vector<ChatNotifier*>      chatList;
     // ← update() 型なので別リストが必要
     vector<DashboardUpdater*>  dashboardList;
-    // SMSを追加するには vector<SMSNotifier*> smsListも必要になる
+    // フェーズ3で追加したSMSにも専用リストが必要
+    vector<SMSNotifier*>       smsList;
 
     void notifyAll(string message) {
         for (auto* n : emailList)     n->send(message);
         for (auto* n : chatList)      n->send(message);
         for (auto* n : dashboardList) n->update(message); // ← メソッド名が違う
-        // SMS用のループも追加する必要が生じます
+        for (auto* n : smsList)       n->send(message);
     }
 
 public:
     void attachEmail(EmailNotifier* n)       { emailList.push_back(n); }
     void attachChat(ChatNotifier* n)         { chatList.push_back(n); }
     void attachDashboard(DashboardUpdater* n){ dashboardList.push_back(n); }
+    void attachSms(SMSNotifier* n)           { smsList.push_back(n); }
 
     void reduceStock(string productId, int quantity) {
         string message = "商品 " + productId
@@ -994,7 +1024,7 @@ public:
 
 リストで管理することで同種の通知先を複数登録できるようになったことが分かる。
 
-**この段階の評価：** リストで管理することで通知先の追加はしやすくなった。しかし、リストに格納できる型が固定されている。新しい通知先（SMSNotifier）を追加するには `vector<SMSNotifier*>` という新しいリストを追加し、`notifyAll` にもループを追加する必要が生じます。通知先の種類が増えるたびに `InventoryManager` を修正する必要があるという根本は解決していない。
+**この段階の評価：** リストで管理することで同種の通知先は追加しやすくなりました。しかし、今回のSMS対応でも `vector<SMSNotifier*>`、専用ループ、登録メソッドを追加しました。次の新しい通知種別でも、型ごとのリストを増やして `InventoryManager` を修正する必要があるという根本は解決していません。
 
 ---
 

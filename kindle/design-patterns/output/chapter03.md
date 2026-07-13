@@ -989,6 +989,48 @@ graph LR
 
 ---
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+比較元は、`Held` と `Waitlisted` を追加した結果、公開操作ごとに状態分岐が増えたフェーズ3の変更途中コードです。新しい状態と操作を消さず、この分岐を整理します。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）の要点
+void pay() {
+    if (status == "Reserved") {
+        status = "Paid";
+    } else if (status == "Held") {
+        status = "Paid";
+    } else {
+        handlePayError();
+    }
+}
+void cancel() {
+    if (status == "Reserved" || status == "Held") {
+        status = "Available";
+    } else {
+        handleCancelError();
+    }
+}
+void hold() {
+    if (status == "Reserved") status = "Held";
+    else handleHoldError();
+}
+void expire() {
+    if (status == "Held") status = "Available";
+    else handleExpireError();
+}
+void addToWaitlist() {
+    if (status == "Available") status = "Waitlisted";
+    else handleWaitlistError();
+}
+void upgrade() {
+    if (status == "Waitlisted") status = "Reserved";
+    else handleUpgradeError();
+}
+```
+
+ステップ1ではこの操作集合と遷移を保ったまま、同じクラス内で状態別処理へ名前を付けます。ステップ2以降は、直前ステップから状態知識がどこへ移ったかを比べます。
+
 ### ステップ1：各状態処理をプライベートメソッドへ切り出す
 
 フェーズ3で確認した痛みは「状態ごとの分岐が複数メソッドに散らばっている」でした。一番最小限の改善として、`reserve()` の中に直接書かれていたロジックを `reserveFromAvailable()` などの専用プライベートメソッドへ移してみます。
@@ -1013,6 +1055,36 @@ private:
         std::cout << "予約をキャンセルしました\n";
     }
 
+    void holdFromReserved() {
+        status = "Held";
+        std::cout << "保留にしました\n";
+    }
+
+    void payFromHeld() {
+        status = "Paid";
+        std::cout << "保留から支払い完了しました\n";
+    }
+
+    void cancelFromHeld() {
+        status = "Available";
+        std::cout << "保留からキャンセルしました\n";
+    }
+
+    void expireFromHeld() {
+        status = "Available";
+        std::cout << "保留期限が切れました\n";
+    }
+
+    void waitlistFromAvailable() {
+        status = "Waitlisted";
+        std::cout << "キャンセル待ちに登録しました\n";
+    }
+
+    void upgradeFromWaitlisted() {
+        status = "Reserved";
+        std::cout << "予約に昇格しました\n";
+    }
+
     void handleReserveError() {
         std::cout << "現在予約できません\n";
     }
@@ -1023,6 +1095,22 @@ private:
 
     void handleCancelError() {
         std::cout << "キャンセルできません\n";
+    }
+
+    void handleHoldError() {
+        std::cout << "保留できません\n";
+    }
+
+    void handleExpireError() {
+        std::cout << "期限切れ処理は行えません\n";
+    }
+
+    void handleWaitlistError() {
+        std::cout << "キャンセル待ちに登録できません\n";
+    }
+
+    void handleUpgradeError() {
+        std::cout << "予約に昇格できません\n";
     }
 
 public:
@@ -1040,6 +1128,10 @@ public:
             payFromReserved();
             return;
         }
+        if (status == "Held") {
+            payFromHeld();
+            return;
+        }
         handlePayError();
     }
     void cancel() {
@@ -1047,20 +1139,52 @@ public:
             cancelFromReserved();
             return;
         }
+        if (status == "Held") {
+            cancelFromHeld();
+            return;
+        }
         handleCancelError();
+    }
+    void hold() {
+        if (status == "Reserved") {
+            holdFromReserved();
+            return;
+        }
+        handleHoldError();
+    }
+    void expire() {
+        if (status == "Held") {
+            expireFromHeld();
+            return;
+        }
+        handleExpireError();
+    }
+    void addToWaitlist() {
+        if (status == "Available") {
+            waitlistFromAvailable();
+            return;
+        }
+        handleWaitlistError();
+    }
+    void upgrade() {
+        if (status == "Waitlisted") {
+            upgradeFromWaitlisted();
+            return;
+        }
+        handleUpgradeError();
     }
 };
 ```
 
 各状態での処理が名前つきのメソッドとして読めるようになり、`reserve()` などの本文が短くなりました。
 
-**評価：** 見通しは良くなったが、新しい状態（キャンセル待ち等）を追加するときには `reserve()`・`pay()`・`cancel()` の全メソッドに新しい分岐を書き足すことに変わりはない。`TicketReservation` が「どの状態のときに何をするか」をすべて知っている構造が続く限り、状態が増えるたびにこのクラスを触り続けることになる。
+**評価：** `Held` と `Waitlisted` を含む仕様変更後の操作は保ったまま、見通しは良くなった。しかし、さらに新しい状態を追加するときには、関係する公開操作へ分岐と専用メソッドを書き足すことに変わりはない。`TicketReservation` が「どの状態のときに何をするか」をすべて知っている構造が続く限り、状態が増えるたびにこのクラスを触り続けることになる。
 
 ---
 
 ### ステップ2：状態ごとにクラスを作る
 
-ステップ1の限界を確認したところで、「状態ごとのロジックを別クラスに切り出せば整理できるのでは」という自然な発想が浮かぶ。`ReservedState`・`AvailableState`・`PaidState` という3つのクラスを作り、`TicketReservation` がそれぞれを直接フィールドとして持つ形を試してみる。
+ステップ1の限界を確認したところで、「状態ごとのロジックを別クラスに切り出せば整理できるのでは」という自然な発想が浮かぶ。仕様変更後の5状態をクラスに分け、`TicketReservation` がそれぞれを直接フィールドとして持つ形を試してみる。
 
 ```cpp
 class AvailableState {
@@ -1068,6 +1192,10 @@ public:
     void reserve(std::string& status) {
         status = "Reserved";
         std::cout << "予約完了しました\n";
+    }
+    void addToWaitlist(std::string& status) {
+        status = "Waitlisted";
+        std::cout << "キャンセル待ちに登録しました\n";
     }
 };
 
@@ -1080,6 +1208,34 @@ public:
     void cancel(std::string& status) {
         status = "Available";
         std::cout << "予約をキャンセルしました\n";
+    }
+    void hold(std::string& status) {
+        status = "Held";
+        std::cout << "保留にしました\n";
+    }
+};
+
+class HeldState {
+public:
+    void pay(std::string& status) {
+        status = "Paid";
+        std::cout << "保留から支払い完了しました\n";
+    }
+    void cancel(std::string& status) {
+        status = "Available";
+        std::cout << "保留からキャンセルしました\n";
+    }
+    void expire(std::string& status) {
+        status = "Available";
+        std::cout << "保留期限が切れました\n";
+    }
+};
+
+class WaitlistedState {
+public:
+    void upgrade(std::string& status) {
+        status = "Reserved";
+        std::cout << "予約に昇格しました\n";
     }
 };
 
@@ -1099,6 +1255,8 @@ private:
     AvailableState available; // ← 具体クラスを直接保持
     ReservedState  reserved;  // ← 具体クラスを直接保持
     PaidState      paid;      // ← 具体クラスを直接保持
+    HeldState      held;
+    WaitlistedState waitlisted;
 
     void handleReserveError() {
         std::cout << "現在予約できません\n";
@@ -1109,6 +1267,10 @@ private:
     void handleCancelError() {
         std::cout << "キャンセルできません\n";
     }
+    void handleHoldError() { std::cout << "保留できません\n"; }
+    void handleExpireError() { std::cout << "期限切れ処理は行えません\n"; }
+    void handleWaitlistError() { std::cout << "キャンセル待ちに登録できません\n"; }
+    void handleUpgradeError() { std::cout << "予約に昇格できません\n"; }
 
 public:
     TicketReservation() : status("Available") {}
@@ -1120,19 +1282,37 @@ public:
     }
     void pay() {
         if (status == "Reserved") { reserved.pay(status); return; }
+        if (status == "Held")     { held.pay(status);     return; }
         handlePayError();
     }
     void cancel() {
         if (status == "Reserved") { reserved.cancel(status); return; }
+        if (status == "Held")     { held.cancel(status);     return; }
         if (status == "Paid")     { paid.errorCancel();      return; }
         handleCancelError();
+    }
+    void hold() {
+        if (status == "Reserved") { reserved.hold(status); return; }
+        handleHoldError();
+    }
+    void expire() {
+        if (status == "Held") { held.expire(status); return; }
+        handleExpireError();
+    }
+    void addToWaitlist() {
+        if (status == "Available") { available.addToWaitlist(status); return; }
+        handleWaitlistError();
+    }
+    void upgrade() {
+        if (status == "Waitlisted") { waitlisted.upgrade(status); return; }
+        handleUpgradeError();
     }
 };
 ```
 
 状態ごとのロジックが `TicketReservation` から別クラスに移り、クラスを見ただけで「これがAvailable状態のふるまい」と分かるようになった。
 
-**評価：** 状態ごとのロジックは分離できたが、`TicketReservation`が全状態クラス名と選択条件を知っている。新しい状態（`WaitlistedState`）が必要になったとき、新クラスを追加するだけでなく、`reserve()`・`pay()`・`cancel()`の分岐も追記しなければならない。
+**評価：** `HeldState` と `WaitlistedState` を含む状態ごとのロジックは分離できたが、`TicketReservation` が全状態クラス名と選択条件を知っています。さらに新しい状態が必要になったとき、新クラスだけでなく、関係する公開操作の分岐も追記しなければなりません。
 
 ---
 
@@ -1155,6 +1335,18 @@ public:
     virtual void reserve(TicketReservation* ctx) = 0;
     virtual void pay(TicketReservation* ctx) = 0;
     virtual void cancel(TicketReservation* ctx) = 0;
+    virtual void hold(TicketReservation* ctx) {
+        std::cout << "保留できません\n";
+    }
+    virtual void expire(TicketReservation* ctx) {
+        std::cout << "期限切れ処理は行えません\n";
+    }
+    virtual void addToWaitlist(TicketReservation* ctx) {
+        std::cout << "キャンセル待ちに登録できません\n";
+    }
+    virtual void upgrade(TicketReservation* ctx) {
+        std::cout << "予約に昇格できません\n";
+    }
     virtual ~IReservationState() = default;
 };
 
@@ -1162,6 +1354,8 @@ public:
 IReservationState* availableState();
 IReservationState* reservedState();
 IReservationState* paidState();
+IReservationState* heldState();
+IReservationState* waitlistedState();
 ```
 
 メソッド引数に `TicketReservation* ctx` を受け取るのは、各状態クラスが遷移後の状態を `ctx->setState()` でセットするためにコンテキストへのポインタが必要だからだ。
@@ -1181,6 +1375,9 @@ public:
     void cancel(TicketReservation* ctx) override {
         std::cout << "予約可能状態のためキャンセル不要です\n";
     }
+    void addToWaitlist(TicketReservation* ctx) override {
+        std::cout << "キャンセル待ちに登録しました\n";
+    }
 };
 
 class ReservedState : public IReservationState {
@@ -1193,6 +1390,41 @@ public:
     }
     void cancel(TicketReservation* ctx) override {
         std::cout << "予約をキャンセルしました\n";
+    }
+    void hold(TicketReservation* ctx) override {
+        std::cout << "保留にしました\n";
+    }
+};
+
+class HeldState : public IReservationState {
+public:
+    void reserve(TicketReservation* ctx) override {
+        std::cout << "保留中のため予約できません\n";
+    }
+    void pay(TicketReservation* ctx) override {
+        std::cout << "保留から支払い完了しました\n";
+    }
+    void cancel(TicketReservation* ctx) override {
+        std::cout << "保留からキャンセルしました\n";
+    }
+    void expire(TicketReservation* ctx) override {
+        std::cout << "保留期限が切れました\n";
+    }
+};
+
+class WaitlistedState : public IReservationState {
+public:
+    void reserve(TicketReservation* ctx) override {
+        std::cout << "キャンセル待ちから直接予約できません\n";
+    }
+    void pay(TicketReservation* ctx) override {
+        std::cout << "キャンセル待ち中は支払いできません\n";
+    }
+    void cancel(TicketReservation* ctx) override {
+        std::cout << "キャンセル待ちを解除しました\n";
+    }
+    void upgrade(TicketReservation* ctx) override {
+        std::cout << "予約に昇格しました\n";
     }
 };
 
@@ -1224,10 +1456,14 @@ public:
     void reserve() { state->reserve(this); }
     void pay()     { state->pay(this); }
     void cancel()  { state->cancel(this); }
+    void hold() { state->hold(this); }
+    void expire() { state->expire(this); }
+    void addToWaitlist() { state->addToWaitlist(this); }
+    void upgrade() { state->upgrade(this); }
 };
 ```
 
-`TicketReservation` から状態名を判定する `if` 文がなくなりました。新しい状態 `WaitlistedState` を追加するときは、`IReservationState` を実装するクラスを作り、遷移関係を組み立てる箇所へ登録します。公開操作を委譲する `TicketReservation` の条件分岐は増やさずに済みます。
+`TicketReservation` から状態名を判定する `if` 文がなくなりました。仕様変更で追加した `HeldState` と `WaitlistedState` も同じ契約で扱います。さらに新しい状態を追加するときは、`IReservationState` を実装するクラスを作り、遷移関係を組み立てる箇所へ登録します。公開操作を委譲する `TicketReservation` の条件分岐は増やさずに済みます。
 
 **評価：** 状態ごとの振る舞いを新しい状態クラスへ置けるようになりました。実際の追加時には、新クラスに加えて遷移先の設定や組み立て箇所の登録が必要です。なお、このコードはまだ状態遷移処理を省いているため、動作例テーブルの全構造は再現できません。完成版はフェーズ7で示します。
 
@@ -1812,8 +2048,8 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
-| キャンセル待ち状態を追加 | `TicketReservation` の全メソッドに新条件分岐を追加 | `WaitlistedState` を追加し、組み立て側へ登録 |
-| 支払済みからの返金対応 | `TicketReservation` の `pay()` `cancel()` を修正 | `PaidState` のみ修正 |
+| キャンセル待ちと一時保留を追加 | `TicketReservation` の各操作へ `Waitlisted` / `Held` の条件分岐を追加 | `WaitlistedState` / `HeldState` と遷移の組み立てを追加。既存状態クラスは保つ |
+| 支払済みからの返金対応 | `TicketReservation` の `pay()` `cancel()` を修正 | `IReservationState` と `TicketReservation` に返金操作を追加し、`PaidState` に振る舞いを実装する |
 | 有効期限切れ処理を追加 | `TicketReservation` に新メソッドと全状態への分岐を追加 | 対象状態へ `expire()` を追加し、必要な遷移を登録 |
 | 決済失敗後に再試行可能にする | `pay()` の成功/失敗分岐と状態ごとの戻り先を修正 | `ReservedState` / `HeldState` に失敗時の扱いを置く |
 
@@ -1984,6 +2220,8 @@ classDiagram
         +reserve()
         +pay()
         +cancel()
+        +addToWaitlist()
+        +upgrade()
         +hold()
         +expire()
     }
@@ -1992,42 +2230,35 @@ classDiagram
         +reserve(ctx)
         +pay(ctx)
         +cancel(ctx)
+        +addToWaitlist(ctx)
+        +upgrade(ctx)
         +hold(ctx)
         +expire(ctx)
     }
     class AvailableState {
         +reserve(ctx)
-        +pay(ctx)
-        +cancel(ctx)
-        +hold(ctx)
-        +expire(ctx)
+        +addToWaitlist(ctx)
     }
     class ReservedState {
-        +reserve(ctx)
         +pay(ctx)
         +cancel(ctx)
         +hold(ctx)
-        +expire(ctx)
     }
-    class PaidState {
-        +reserve(ctx)
-        +pay(ctx)
-        +cancel(ctx)
-        +hold(ctx)
-        +expire(ctx)
-    }
+    class PaidState
     class HeldState {
-        +reserve(ctx)
         +pay(ctx)
         +cancel(ctx)
-        +hold(ctx)
         +expire(ctx)
+    }
+    class WaitlistedState {
+        +upgrade(ctx)
     }
     TicketReservation o--> IReservationState
     IReservationState <|.. AvailableState
     IReservationState <|.. ReservedState
     IReservationState <|.. PaidState
     IReservationState <|.. HeldState
+    IReservationState <|.. WaitlistedState
 ```
 
 抽象ロールである `IReservationState` が、現実の `ReservedState` などの具体クラスと結びついています。

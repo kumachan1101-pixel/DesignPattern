@@ -1046,6 +1046,26 @@ public:
 | 新しい割引が増えるたびに `calculate()` の条件分岐が増える | ルール追加時に既存の小計計算や他の割引へ触らない接続点を作る | 共通の割引契約を作り、複数ルールを同じ形で扱えるかを見る |
 | 今回は逐次割引、将来は定額割引もありうる | 割引の種類が増えても、支払金額を返す形は守る | ルール一覧へ登録して順に適用する形まで進める必要があるか判断する |
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+ステップ1で最初に直すのは、フェーズ1の変更前コードではありません。フェーズ3でサマーセールとキャンペーンの逐次割引を追加し、分岐が増えた次のコードです。仕様変更は残したまま、ここから処理を切り出します。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）
+if (memberType == "Premium") {
+    total = total * 80 / 100;
+} else if (context.isSummerSale
+           && context.isCampaignActive) {
+    total = (total * 90 / 100) * 95 / 100;
+} else if (context.isSummerSale) {
+    total = total * 95 / 100;
+} else if (context.isCampaignActive) {
+    total = total * 90 / 100;
+}
+```
+
+比較点は、逐次割引を消さずに、`calculate()` が直接知る条件と計算式をどこまで外へ移せるかです。ステップ1はこのコードとの比較、ステップ2以降は直前ステップとの比較として読み進めます。
+
 ### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
 
 「if-else が乱立しているなら、まずそれをメソッドに切り出して整理しよう」というのが自然な最初の発想です。クラスを新しく作るのはコストがかかる。同じクラスの中で、割引の計算を種類ごとに独立したプライベートメソッドとして分離してみます。
@@ -1071,7 +1091,7 @@ class PaymentCalculator {
         if (memberType == "Premium")
             return applyPremiumRule(total);
         if (ctx.isSummerSale && ctx.isCampaignActive)
-            return applyCampaignRule(applySummerRule(total));
+            return applySummerRule(applyCampaignRule(total));
         if (ctx.isSummerSale)
             return applySummerRule(total);
         if (ctx.isCampaignActive)
@@ -1158,6 +1178,8 @@ public:
 
 ### ステップ3：共通の契約を導入するが、生成は自分で行う
 
+**ステップ2との差：** 割引ごとのクラス分離は保ち、`PaymentCalculator` が具体クラス別に呼んでいた部分を共通の割引契約へ置き換えます。
+
 「全クラスを直接知っているのが問題なら、共通のインターフェースを作ってそれだけを知ればいい」という発想です。`IDiscountRule` インターフェースを導入し、`PaymentCalculator` はそれだけを知るようにします。ただし、どの具体クラスを生成するかはまだ `PaymentCalculator` 自身が if 文で判断します。
 
 ```cpp
@@ -1221,6 +1243,8 @@ public:
 ---
 
 ### ステップ4：ルールを外から受け取る（依存性の注入）
+
+**ステップ3との差：** 共通契約は保ち、`PaymentCalculator` 内に残っていた具体ルールの生成を組み立て側へ移します。
 
 「`PaymentCalculator` が自分でルールを生成するから if 文が必要になる。なら、外からルールを渡してもらえばいい」という発想です。どのルールを使うかを決める責任を呼び出し側に移し、`PaymentCalculator` はただ受け取って使うだけにします。
 
@@ -1787,7 +1811,7 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
-| サマーセール割引を追加 | `PaymentCalculator` の if 文を修正 | `SummerSaleDiscount` を新規作成、`RuleFactory` に1行追加 |
+| サマーセール5%を既存割引後へ逐次適用 | `PaymentCalculator` の if 文と適用順を修正 | `SummerSaleDiscount` を新規作成し、逐次適用する組み合わせと `RuleFactory` の選択を追加 |
 | クーポン割引（定額）を追加 | `PaymentCalculator` の if 文を修正 | `CouponDiscount` を新規作成、`RuleFactory` に1行追加 |
 | プレミアム割引率を変更 | `PaymentCalculator` の計算式を直接修正 | `PremiumDiscount` の計算式のみ修正 |
 | 割引の適用順序を変更 | `PaymentCalculator` の分岐順序を修正し、既存ケースを広く再確認 | 組み合わせルールまたは `RuleFactory` の選択だけを見直す |

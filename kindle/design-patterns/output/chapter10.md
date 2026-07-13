@@ -14,7 +14,7 @@
 
 * **得られること3：** 構造の複合適用を通じて、疎結合（クラス間の依存を弱め、変更の影響が広がりにくい状態）な連携アーキテクチャを構築する方法を説明できるようになる。
 
-* **得られること4：** 「生成」と「通知」と「インターフェース統合」という、異なる3つの責務が混在するコードを整理する視点。
+* **得られること4：** 「通信」と「通知」と「生成」という、異なる3つの責務が混在するコードを整理する視点。
 
 ---
 
@@ -284,7 +284,7 @@ public:
 
 `PartnerDatabase` は `std::map` で連携先IDと `PartnerConfig` を対応付けたマスターデータです。`exists()` でIDの存在確認、`isEnabled()` で有効・無効の判定、`get()` で設定取得を行います。実システムのDB問い合わせを、この章では実行終了まで覚えているインメモリの登録表で代替しています。
 
-**② 外部連携クライアントと通知クラス（SystemAClient / SystemBClient / NotificationService）**
+**② 外部連携クライアントと通知クラス（SystemAClient / SystemBClient / NotificationService / SlackNotifier）**
 
 次に、1-1の「データ送信」「完了通知」ステップにあたる部分です。各連携先へデータを送るクライアントと、処理完了を通知するクラスです。
 
@@ -300,6 +300,10 @@ public:
 class NotificationService {
 public:
     void notify(string r) { cout << "完了通知: " << r << endl; }
+};
+class SlackNotifier {
+public:
+    void notify(string result) { cout << "Slack通知: " << result << endl; }
 };
 ```
 
@@ -383,7 +387,7 @@ B社へ送信: data
 ```
 
 > [!NOTE]
-> 上記はフェーズ1の現状コードで確認できる代表的なケースです。行3（D社追加後）・行6（通知先追加後）は、新規クライアント・複数通知先の機能がフェーズ1の現状コードに未実装のため、フェーズ7の最終実装で対応します。行2（C社タイムアウト）・行5（API障害）は、リトライ・障害処理の実装が必要なため、本章の掲載コードでは扱わない範囲として残します（実運用では通信失敗時のリトライとログ記録が必要です）。
+> 上記はフェーズ1の現状コードで確認できる代表的なケースです。行3（D社追加後）・行5（API障害）・行6（通知先追加後）は、フェーズ1の現状コードに未実装のため、フェーズ7の最終実装で対応します。行5では送信結果を成功／失敗として受け取り、失敗を通知と実行ログへ反映して後続ジョブを継続するところまで扱います。行2（C社タイムアウト）は、リトライ制御そのものが本章の論点外であるため、動作仕様として残します（実運用では通信失敗時のリトライとログ記録が必要です）。
 
 このコードから、`BatchExecutor` が各連携先の生成と送信、さらにはその後の通知処理までを一手に引き受けていることが分かります。
 
@@ -766,7 +770,12 @@ graph LR
 
 ---
 > **📌 原因（確定）**
-> `BatchExecutor` が各連携先クライアント（`SystemAClient` 等）と通知サービス（`NotificationService`）を生成方法と呼び出し手順を知っていることが根本原因である。連携先の追加・通知先の変更・生成方法の見直しという変わる理由がそれぞれ異なる頻度で発生するため、変化のたびに `BatchExecutor` 全体への影響確認コストが発生し続ける。
+> 以下の3つの独立した根本原因が重なっている：
+> 1. **外部手順の知識の漏出**：連携先ごとの通信詳細と順次実行の骨格が密結合している。
+> 2. **通知先の知識の漏出**：通知サービスが増えるたびにバッチ本体の修正が必要になっている。
+> 3. **生成の知識の漏出**：クライアントの生成条件・具象クラス名への依存がバッチ本体に残っている。
+>
+> これらの変更理由（通信手段、通知先、生成条件）はそれぞれ異なる頻度で発生するため、1つのクラスに混在していることで影響確認コストが発生し続ける。
 ---
 
 フェーズ4で根本原因が言語化できました。次のフェーズ5では、解決する課題を具体的に定義していきます。
@@ -852,6 +861,32 @@ void execute(string targetId) {
 
 ---
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+比較元は、C社連携とSlack通知を `BatchExecutor` へ直接追加したフェーズ3の変更途中コードです。どちらも残したまま、通信・通知・生成を少しずつ分けます。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）の要点
+void BatchExecutor::execute(string targetId) {
+    if (targetId == "A") {
+        SystemAClient client;
+        client.send("data");
+    } else if (targetId == "B") {
+        SystemBClient client;
+        client.send("data");
+    } else if (targetId == "C") {
+        SystemCClient client;
+        client.send("data");
+    }
+    NotificationService notifier;
+    notifier.notify("Success");
+    SlackNotifier slack;
+    slack.notify("Success");
+}
+```
+
+ステップ1はC社とSlackを維持して処理へ名前を付けます。ステップ2以降は、直前ステップから具体クライアント、送信詳細、通知先の知識がどこへ移ったかを比べます。
+
 ### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
 
 はじめに最初に思いつく改善として、`execute()` の中身をプライベートメソッドに分けてみます。各連携先への送信処理と完了通知処理を、それぞれ独立したプライベートメソッドとして切り出すことで、各処理の意図をメソッド名で表現できます。
@@ -886,6 +921,8 @@ private:
     void notifyComplete() {
         NotificationService n; // ← 具体：NotificationServiceを直接生成
         n.notify("Success");
+        SlackNotifier slack;    // ← フェーズ3で追加した通知を維持
+        slack.notify("Success");
     }
 };
 ```
@@ -939,6 +976,8 @@ public:
         }
         NotificationService n;
         n.notify("Success");
+        SlackNotifier slack;
+        slack.notify("Success");
     }
 };
 ```
@@ -971,6 +1010,7 @@ public:
             SystemCClient client; client.send("manualData");
         }
         NotificationService n; n.notify("手動同期完了");
+        SlackNotifier slack; slack.notify("手動同期完了");
     }
 };
 ```
@@ -986,28 +1026,44 @@ D社が追加されると、`BatchExecutor` と `ManualTriggerController` の両
 ステップ3で見えた限界を受けて、連携先クライアントにインターフェースを導入します。`BatchExecutor` はインターフェース型だけを知り、具体的なクライアントクラスへの依存をなくします。
 
 ```cpp
+// 送信結果の契約は、以降のステップでも変えない
+struct DeliveryResult {
+    bool success;
+    string message;
+};
+
 // 連携先クライアントのインターフェースを定義
 class IExternalClient {
 public:
-    virtual void send(string data) = 0;
+    virtual DeliveryResult send(string data,
+                                bool apiHealthy = true) = 0;
 };
 
 class SystemAClient : public IExternalClient {
 public:
-    void send(string data) override {
+    DeliveryResult send(string data,
+                        bool apiHealthy = true) override {
+        if (!apiHealthy) return {false, "API障害"};
         cout << "A社へ送信: " << data << endl;
+        return {true, "送信成功"};
     }
 };
 class SystemBClient : public IExternalClient {
 public:
-    void send(string data) override {
+    DeliveryResult send(string data,
+                        bool apiHealthy = true) override {
+        if (!apiHealthy) return {false, "API障害"};
         cout << "B社へ送信: " << data << endl;
+        return {true, "送信成功"};
     }
 };
 class SystemCClient : public IExternalClient {
 public:
-    void send(string data) override {
+    DeliveryResult send(string data,
+                        bool apiHealthy = true) override {
+        if (!apiHealthy) return {false, "API障害"};
         cout << "C社へ送信: " << data << endl;
+        return {true, "送信成功"};
     }
 };
 
@@ -1016,11 +1072,14 @@ class BatchExecutor {
     IExternalClient* client; // ← 抽象：具体クラス名を知らない
 public:
     BatchExecutor(IExternalClient* c) : client(c) {}
-    void execute() {
-        client->send("data"); // ← 直接：インターフェース経由で呼び出す
+    DeliveryResult execute(bool apiHealthy = true) {
+        DeliveryResult r = client->send("data", apiHealthy);
         // 通知はまだ具体クラスを直接知っている
         NotificationService n;
-        n.notify("Success");
+        n.notify(r.success ? "Success" : r.message);
+        SlackNotifier slack;
+        slack.notify(r.success ? "Success" : r.message);
+        return r;
     }
 };
 
@@ -1051,6 +1110,13 @@ public:
     }
 };
 
+class EmailNotifier : public INotifier {
+public:
+    void onComplete(string result) override {
+        cout << "完了通知: " << result << endl;
+    }
+};
+
 // BatchExecutorはINotifierのリストを持ち、通知先を直接知らない
 class BatchExecutor {
     IExternalClient* client;          // ← 抽象：連携先を知らない
@@ -1059,16 +1125,20 @@ public:
     BatchExecutor(IExternalClient* c) : client(c) {}
     void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
 
-    void execute() {
-        client->send("data");
+    DeliveryResult execute(bool apiHealthy = true) {
+        DeliveryResult r = client->send("data", apiHealthy);
+        string note = r.success ? "Success" : r.message;
         // 全通知先に通知（通知先を知らない）
         for (int i = 0; i < notifiers.size(); i++) {
-            notifiers[i]->onComplete("Success");
+            notifiers[i]->onComplete(note);
         }
+        return r;
     }
 };
 
 ```
+
+このステップは通知軸だけの差分を示しています。`SystemCClient` を含む `IExternalClient` の実装はステップ4から変更せず、そのまま利用します。組み立て側では `EmailNotifier` と `SlackNotifier` の両方を登録するため、フェーズ3で追加したC社連携とSlack通知は失われません。
 
 通知先がリストで管理されるようになりました。Slack以外にメール通知やログ基盤への通知を追加したい場合は、`INotifier` を実装した新クラスを作り、`addNotifier()` で登録するだけです。`BatchExecutor`の実行フローは変更しません（組み立て箇所への登録は必要です）。
 
@@ -1078,7 +1148,7 @@ public:
 
 ### ステップ6：生成分離構造を加える ―― 生成を一か所に集める（完全解）
 
-ステップ5に残った「生成の分散」を解消します。生成メソッドを`IClientCreator::createClient()`として定義し、連携先ごとのCreatorがオーバーライドします。`BatchExecutor` はCreatorの抽象型だけを受け取り、どのクライアントを生成するかを知りません。
+ステップ4で外部手順を窓口構造で分離し、ステップ5で通知分離構造によって通知先を分離しましたが、まだ「連携先クライアントの生成」の知識が残っています。この「生成の分散」という限界から、3つ目のパターンとして生成分離構造を追加し解消します。生成メソッドを`IClientCreator::createClient()`として定義し、連携先ごとのCreatorがオーバーライドします。`BatchExecutor` はCreatorの抽象型だけを受け取り、どのクライアントを生成するかを知りません。
 
 ```cpp
 // Creatorの契約。createClient()が生成を分離する接続点になる
@@ -1115,14 +1185,30 @@ class BatchExecutor {
 public:
     void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
 
-    void execute(IClientCreator* creator) {
+    DeliveryResult execute(IClientCreator* creator, string partnerName,
+                           bool apiHealthy = true) {
         IExternalClient* client = creator->createClient();
-        client->send("data");
+        DeliveryResult r = client->send("data", apiHealthy);
+        string note = r.success ? (partnerName + " 連携完了")
+                                : (partnerName + " 連携失敗: " + r.message);
         for (auto* notifier : notifiers) {
-            notifier->onComplete("Success");
+            notifier->onComplete(note);
         }
+        return r;
     }
 };
+```
+
+組み立て側では、ステップ5の通知登録をそのまま引き継ぎます。
+
+```cpp
+SystemCClientCreator creator;
+EmailNotifier email;
+SlackNotifier slack;
+BatchExecutor executor;
+executor.addNotifier(&email);
+executor.addNotifier(&slack);
+executor.execute(&creator, "C社");
 ```
 
 `BatchExecutor` は`IClientCreator`だけを知り、具体的なCreatorやクライアントには依存しません。新しい連携先には新しい具象Creatorを追加し、組み立て箇所で選択します。生成方法の変更が実行フローへ波及しない点が、生成分離構造を導入した効果です。
@@ -1681,6 +1767,8 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
+| C社連携を追加 | `BatchExecutor` にC社クライアントの生成・通信分岐を追記 | `SystemCClient` と `SystemCClientCreator` を追加し、組み立てへ登録。実行本体は保つ |
+| Slack完了通知を追加 | `BatchExecutor` の成功・失敗処理へ通知呼び出しを追記 | `SlackNotifier` を追加し、通知先の組み立てへ登録。連携先クライアントは保つ |
 | 新しい連携先（システムD等）を追加 | `BatchExecutor` に新しい接続ロジックと通知処理を追記 | `SystemDClient` と `SystemDClientCreator` を新規作成し、組み立てへ登録 |
 | 完了通知先（Teams等）を追加 | `BatchExecutor` に通知ロジックを直接追記 | `TeamsNotifier` 実装クラスを新規作成し登録するだけ |
 | 外部APIの接続手順が変わる | `BatchExecutor` の接続ロジックを修正 | 対象の `IExternalClient` 実装クラスのみ修正 |
@@ -1756,7 +1844,7 @@ graph LR
 | 得られること1：各構造がどの「変化」に対応するかを識別できる | フェーズ6のステップ4〜6で、各構造が登場する順序と理由を段階的に示した。 |
 | 得られること2：複数の接続点をどこで分離するか判断できる | フェーズ5で、通信境界（接続点A）・通知境界（接続点B）・生成境界（接続点C）の3点を特定した。 |
 | 得られること3：疎結合な連携アーキテクチャの構築方法を説明できる | フェーズ7の変更シナリオ表で、変更の局所化を実証した。 |
-| 得られること4：「生成・通知・統合」の3つの責務が混在するコードを整理できる | フェーズ2の仮説立案とヒアリングで、外部連携先と通知先という変動する仕様を特定した。 |
+| 得られること4：「通信・通知・生成」の3つの責務が混在するコードを整理できる | フェーズ2の仮説立案とヒアリングで、外部連携先の通信詳細・通知先・クライアント生成という変動する仕様を特定した。 |
 
 ### 3つの設計原則はどう適用されたか
 

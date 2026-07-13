@@ -1033,6 +1033,25 @@ void transfer(
 | 銀行ごとに呼び出し順や必要な確認が変わる | 業務フローは「振込を依頼する」だけにし、手順差分を窓口の内側へ閉じ込める | 銀行ごとの窓口クラスを作り、共通の振込操作で呼べるかを見る |
 | 失敗条件が増えると呼び出し元の分岐も増える | 成功・失敗の扱いを、呼び出し元が銀行別に判断しなくて済む形にする | 窓口の戻り値とエラー表現をそろえ、採用コストと効果を比べる |
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+上の表だけでなく、ステップ1が実際に書き換えるコードも再掲します。比較元は、取引IDを発行・検証・送金へ引き回すフェーズ3の変更途中コードです。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）
+void transfer(const std::string& toAccount, int amount,
+              const std::string& otp) {
+    gateway.verifyAccount(toAccount);
+    gateway.checkBalance(amount);
+    std::string transactionId = auth.requestOTP();
+    auth.verifyOTP(otp, transactionId);
+    gateway.executeTransfer(toAccount, amount, transactionId);
+    std::cout << "振り込み完了\n";
+}
+```
+
+ステップ1では取引IDを含む要求を保ったまま、このコードの処理に名前を付けます。ステップ2以降は、直前ステップから銀行APIの知識がどこへ移ったかを比べます。
+
 ### ステップ1：各処理を独立したメソッドに切り出す（同じクラスの中で整理する）
 
 「API呼び出しが複雑に絡み合っているなら、1つひとつの操作を独立したメソッドに切り出してみよう」というのが自然な最初の発想です。クラスを新しく作るのはコストがかかる。まずは `TransferProcessor` の中で、各API呼び出しをそれぞれ独立したメソッドとして切り出してみます。
@@ -1104,6 +1123,8 @@ public:
 
 ### ステップ2：銀行API手順を専用の窓口へ集約する（銀行操作の窓口クラス）
 
+**ステップ1との差：** メソッドへ名前を付けただけの状態から、口座確認・認証・送金の手順一式を専用の窓口クラスへ移します。取引IDの受け渡しは維持します。
+
 「銀行APIとのやり取りをすべて別のクラスに任せてしまえば、`TransferProcessor` は呼ぶだけでよくなる」という発想です。手順全体を担当するクラスを新しく作り、呼び出し元はそのクラスを1つ呼ぶだけにします。
 
 ここで使う `Helper` は、「補助役として、複雑な処理をまとめるクラス」という意味の仮名です。設計用語として特別な構造を指しているわけではありません。この段階では、銀行APIの細かい手順を `TransferProcessor` から外へ出すための一時的な置き場所として見てください。
@@ -1168,6 +1189,8 @@ public:
 ---
 
 ### ステップ3：窓口クラスの前に抽象インターフェースを置く
+
+**ステップ2との差：** 具体的な銀行窓口へ直接依存していた接続を共通インターフェースへ変え、窓口の実装を外から差し替えられるようにします。
 
 「呼び出し元には業務側が所有する抽象インターフェースを見せ、具体的な窓口クラスを組み立て時に注入しよう」という発想です。窓口クラスは `BankTransferService` であり、`IBankTransferService` はその差し替えを可能にする契約です。
 
@@ -1788,7 +1811,7 @@ graph LR
 
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
-| 銀行APIの手順が変わる（OTP方式など） | `TransferProcessor` の振込メソッドを修正 | `BankTransferService` の内部のみ修正 |
+| OTP発行で受け取った取引IDを照合・送金へ渡す | `TransferProcessor` に発行・照合・送金の手順と取引IDの受け渡しを追加 | `BankTransferService` 内の `requestOTP()` から送金までを修正。`TransferProcessor` の契約は保つ |
 | 生体認証を追加（2-4の将来リスク） | `TransferProcessor` の認証手順を修正し全体を再テスト | `BankTransferService` の内部と `SecurityAuthenticator` を修正 |
 | 送金リクエスト形式がJSON→XMLへ変わる | `TransferProcessor` の送金呼び出しを修正 | `BankGateway` と `BankTransferService` の内部のみ修正 |
 | 送金後の結果照会APIが追加される | `TransferProcessor` に照会・保留・再試行分岐を追加 | `BankTransferService` の内部に照会手順を追加 |

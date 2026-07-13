@@ -1269,6 +1269,31 @@ PaymentResult processPayment(
 | 具体クラスの生成と選択条件が呼び出し元に集まっている | 呼び出し元から具体クラス名と生成条件を切り離す | 生成処理を関数化し、選択条件がどこに残るかを見る |
 | 手段ごとの入力検証・処理モード・エラー対処も混在 | 手段固有の知識をProcessorへ閉じる | 共通インターフェースで手段固有の差分を隠蔽する |
 
+#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+
+比較元は、PayPay対応を7か所へ追加したフェーズ3の変更途中コードです。ステップ1では `PayPayInput`、API境界、完了確認、マスター登録を維持したまま、利用側に残った生成と分岐を整理します。
+
+```cpp
+// フェーズ3の変更途中コード（対策前）の代表箇所
+struct PaymentRequest {
+    // 既存のカード・振込・コンビニ入力
+    PayPayInput payPay;
+};
+
+PaymentResult processPayment(const PaymentRequest& request) {
+    const string& type = request.methodId;
+    // 既存3手段の分岐
+    if (type == "paypay") {
+        PayPayProcessor proc(gatewayClient);
+        return proc.pay(request);
+    }
+    return {"失敗", "未対応の決済種別", false,
+            "UNSUPPORTED", {}};
+}
+```
+
+ステップ1はPayPay要求を残して決済手段ごとの生成・実行に名前を付けます。ステップ2以降は、直前ステップから具体Processor名、生成条件、手段固有のエラー対処がどこへ移ったかを比べます。
+
 ### ステップ1：各処理を独立した関数として切り出す
 
 `processPayment` の中を見ると、「どの決済方法IDか判断する if-else」と「具体クラスを生成して要求を渡す」が一体になっています。最初に考えやすい案は、決済手段ごとの生成と実行を独立したプライベートメソッドとして切り出すことです。
@@ -1331,6 +1356,8 @@ public:
 
 ### ステップ2：生成ロジックを専用の PaymentFactory クラスに分離する
 
+**ステップ1との差：** 決済手段ごとの生成メソッドを `PaymentApplication` 内に置く形から、PayPayを含む生成判断を専用のFactoryへ移します。
+
 生成した各プロセッサーを共通の型で受け渡すため、`PaymentRequest` を受け取り `PaymentResult` を返す共通インターフェース `IPaymentProcessor` をここで導入します。
 
 ```cpp
@@ -1389,6 +1416,8 @@ public:
 
 ### ステップ3：生成メソッドを抽象化し、具体クラスに委ねる
 
+**ステップ2との差：** すべての具体Processorを知る単一Factoryから、共通の生成メソッドだけを骨格に残し、具体的な生成をサブクラスへ移します。
+
 `PaymentApplication` 自体に `createProcessor` という抽象メソッドを宣言し、「生成の仕方は自分では決めない、サブクラスに任せる」という構造にします。
 
 > [!INFO] コラム: ただの生成メソッドと抽象化された生成の違い
@@ -1420,6 +1449,25 @@ public:
         delete proc;
         return result;
     }
+};
+```
+
+フェーズ3で追加したPayPayは、具体的な生成だけを担うサブクラス側へ残します。
+
+```cpp
+class PayPayPaymentApplication : public PaymentApplication {
+    PaymentGatewayClient& gatewayClient;
+protected:
+    IPaymentProcessor* createProcessor(
+            const string& type) override {
+        if (type == "paypay")
+            return new PayPayProcessor(gatewayClient);
+        return nullptr;
+    }
+public:
+    explicit PayPayPaymentApplication(
+            PaymentGatewayClient& gateway)
+        : gatewayClient(gateway) {}
 };
 ```
 
@@ -2228,7 +2276,7 @@ graph LR
 
 | シナリオ | フェーズ1の現状コードでの影響 | この設計での影響 |
 |---|---|---|
-| PayPay決済を追加 | 7か所に修正が広がる | PayPayProcessorと生成分岐を追加し、processPaymentは保つ |
+| PayPay決済を追加（非同期結果を `PaymentResult` で返す） | 7か所に修正が広がる | `PayPayInput`・決済API境界・マスター設定・`PayPayProcessor`・生成分岐を追加する。`processPayment` と既存Processorは保つ |
 | カードの認証ロジック変更 | PaymentApplication内の生成・エラー処理を修正 | CreditCardProcessorだけを確認する |
 | 新しい非同期決済を追加 | processPaymentに分岐追加、main()に完了確認追加 | 新Processorと生成分岐を追加。完了確認は汎用のため変更不要 |
 | 決済後の共通処理を追加 | PaymentApplicationの各分岐に追記 | processPayment()に1箇所追加 |
