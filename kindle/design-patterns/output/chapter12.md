@@ -745,46 +745,78 @@ flowchart TD
 実際に変更を加えたコードを見てみましょう。
 
 ```cpp
-// 変更後の WorkflowManager（緊急ルートと自動通知を追加）
+// 変更後の WorkflowManager（緊急ルート・却下通知・決済部門通知を追加）
 class WorkflowManager {
+    ApproverDatabase approvers;
+    WorkflowCaseRepository cases;
+    NotificationTargetRepository targets;
 public:
-    void process(std::string status, int amount,
-                 bool urgent) {
-        if (status == "SUBMITTED") {
-            std::cout << "審査待ち状態へ移行。" << std::endl;
-            notify("申請者に通知");
-            if (urgent) {           // ← 緊急ルートを追加
-                std::cout << "緊急：課長スキップ→部長へ。"
-                          << std::endl;
-                notify("部長へ緊急通知");
-            }
-        } else if (status == "APPROVED") {
-            std::cout << "完了状態へ移行。" << std::endl;
-            notify("関係者に通知");
-            notify("申請者に承認完了を通知"); // ← 自動通知追加
-            if (urgent) {
-                notify("部長へ完了報告");
-            }
+    void process(const string& requestId, const string& operation,
+                 int amount, const string& approverId) {
+        if (!cases.exists(requestId)) {
+            cout << "エラー：申請ID " << requestId << " は存在しません。" << endl;
+            return;
         }
-        if (amount > 100000)
-            std::cout << "役員承認が必要。" << std::endl;
+        if (!approvers.exists(approverId)) {
+            cout << "エラー：承認者ID " << approverId
+                 << " はデータベースに存在しません。" << endl;
+            return;
+        }
+        if (!approvers.canApprove(approverId, amount)) {
+            ApproverInfo info = approvers.get(approverId);
+            cout << "エラー：" << info.name << " の承認上限（"
+                 << info.approvalLimit << "円）を超えています。" << endl;
+            return;
+        }
+        string current = cases.getState(requestId);
+        // ↓ 状態遷移・通知・判定が同じif/elseに次々と積み重なる
+        if (current == "作成中" && operation == "提出") {
+            cases.saveState(requestId, "審査待ち");
+            cout << requestId << "：作成中 → 審査待ち" << endl;
+            notify(requestId);
+        } else if (current == "作成中" && operation == "緊急提出") { // 緊急ルート追加
+            cases.saveState(requestId, "優先審査待ち");
+            cout << requestId << "：作成中 → 優先審査待ち（課長スキップ）" << endl;
+            notify(requestId);
+        } else if (current == "審査待ち" && operation == "承認") {
+            cases.saveState(requestId, "承認済み");
+            cout << requestId << "：審査待ち → 承認済み" << endl;
+            notify(requestId);
+        } else if (current == "審査待ち" && operation == "却下") { // 却下通知追加
+            cases.saveState(requestId, "却下");
+            cout << requestId << "：審査待ち → 却下" << endl;
+            notify(requestId);
+        } else if (current == "優先審査待ち" && operation == "承認") {
+            cases.saveState(requestId, "完了");
+            cout << requestId << "：優先審査待ち → 完了" << endl;
+            notify(requestId);
+            cout << "決済部門へ通知" << endl; // 自動通知追加
+        } else if (current == "承認済み" && operation == "承認") {
+            cases.saveState(requestId, "完了");
+            cout << requestId << "：承認済み → 完了" << endl;
+            notify(requestId);
+            cout << "決済部門へ通知" << endl;
+        } else {
+            cout << "エラー：現在状態「" << current
+                 << "」で操作「" << operation << "」はできません。" << endl;
+        }
     }
 private:
-    void notify(std::string msg) {
-        std::cout << "[通知] " << msg << std::endl;
+    void notify(const string& requestId) {
+        cout << targets.getTarget(requestId) << "へ通知" << endl;
     }
 };
 
 int main() {
     WorkflowManager wm;
-    // 通常フロー（承認前）
-    wm.process("SUBMITTED", 50000, false);
-    std::cout << "---" << std::endl;
-    // 承認完了（通常）← 通知が2件になった
-    wm.process("APPROVED",  50000, false);
-    std::cout << "---" << std::endl;
-    // 承認完了（緊急）← 通知が3件になった
-    wm.process("APPROVED",  50000, true);
+    // 通常申請の提出
+    wm.process("REQ001", "提出", 50000, "APR001");
+    cout << "---" << endl;
+    // 緊急申請の提出（課長スキップ）
+    wm.process("REQ003", "緊急提出", 50000, "APR001");
+    cout << "---" << endl;
+    // 通常申請の課長承認
+    wm.process("REQ002", "承認", 50000, "APR001");
     return 0;
 }
 ```
@@ -796,17 +828,14 @@ int main() {
 実行結果：
 
 ```
-審査待ち状態へ移行。
-[通知] 申請者に通知
+REQ001：作成中 → 審査待ち
+課長へ通知
 ---
-完了状態へ移行。
-[通知] 関係者に通知
-[通知] 申請者に承認完了を通知
+REQ003：作成中 → 優先審査待ち（課長スキップ）
+部長へ通知
 ---
-完了状態へ移行。
-[通知] 関係者に通知
-[通知] 申請者に承認完了を通知
-[通知] 部長へ完了報告
+REQ002：審査待ち → 承認済み
+部長へ通知
 ```
 
 通常の完了移行でも「申請者に承認完了を通知」が自動的に追加されており、変更前は1件だった通知が2件になっています。緊急ルートでは3件に増え、どのタイミングでどの通知が飛ぶかを追うのが困難になっています。
@@ -845,7 +874,7 @@ graph LR
 
 フェーズ3で確認した「変更の辛さ」は、コードのどこから来ているのでしょうか。コードを注意深く観察すると、痛みを引き起こしている3つの事実が浮かび上がってきます。
 
-第一に、新しい承認ルートを追加するとき、なぜ毎回 `WorkflowManager` を開かなければならないのでしょうか？ それは、このクラス自身が「SUBMITTED なら承認待ちへ移行」「APPROVED なら完了へ移行」といった**具体的な状態遷移のルールをすべて直接知ってしまっている（抱え込んでいる）**からです。
+第一に、新しい承認ルートを追加するとき、なぜ毎回 `WorkflowManager` を開かなければならないのでしょうか？ それは、このクラス自身が「作成中で提出なら審査待ちへ移行」「審査待ちで承認なら承認済みへ移行」といった**具体的な状態遷移のルールをすべて直接知ってしまっている（抱え込んでいる）**からです。
 
 第二に、なぜ通知先を追加するだけで既存の承認フローが壊れるリスクを感じるのでしょうか？ それは、「誰に通知するか」という情報と「どの状態で何をするか」という情報が**同じメソッドの中で物理的に混ざり合っている**からです。
 
