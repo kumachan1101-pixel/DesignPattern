@@ -97,12 +97,12 @@
 
 #### 全章横展開の完了判定
 
-- [ ] 本文中の編集指示としての `★` が0件である。
-- [ ] X-STAR-01〜13を全章で確認し、章別進捗がすべて「完了」である。
-- [ ] 指摘への判断と具体的な対応先がこのファイルに残っている。
-- [ ] `python kindle/design-patterns/script/validate_book.py` が成功する。
-- [ ] `python kindle/design-patterns/script/audit_book.py --report kindle/design-patterns/audit-report.md --write-baseline` が成功する。
-- [ ] `git diff --check` が成功する。
+- [x] 本文中の編集指示としての `★` が0件である。
+- [x] X-STAR-01〜13を全章で確認し、章別進捗がすべて「完了」である。
+- [x] 指摘への判断と具体的な対応先がこのファイルに残っている。
+- [x] `python kindle/design-patterns/script/validate_book.py` が成功する。
+- [x] `python kindle/design-patterns/script/audit_book.py --report kindle/design-patterns/audit-report.md --write-baseline` が成功する。
+- [x] `git diff --check` が成功する。
 
 > 生成日：2026-06-12  
 > 観点：①理解しやすいか ②疑問に感じないか ③今後の設計に活かせるか  
