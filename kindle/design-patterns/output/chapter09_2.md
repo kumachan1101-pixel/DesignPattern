@@ -882,6 +882,8 @@ int main() {
 
 ### ステップ2：処理を別クラスに切り出す
 
+**ステップ1との差：** プライベートメソッドとして整理した状態処理を独立クラスへ移します。法人優先度と `Pending` 状態はそのまま保持します。
+
 **この形の考え方：**
 優先度計算や状態処理を別クラスへ切り出し、呼び出し元がそれらへ処理を委ねる形です。処理の置き場所は分かれますが、呼び出し元は `PriorityCalculator` や各Phaseのクラス名と生成方法を知っています。実装を差し替える要求では、呼び出し元も修正します。
 
@@ -901,8 +903,12 @@ classDiagram
     class InProgressPhase {
         +activate()
     }
+    class PendingPhase {
+        +activate()
+    }
     TicketManager --> PriorityCalculator : 別クラスへ委譲するがクラス名を知る
     TicketManager --> OpenPhase : 別クラスへ委譲するがクラス名を知る
+    TicketManager --> PendingPhase : 追加済み状態も具体名を知る
 ```
 
 クラスは分離されて処理を委ねるようになりましたが、呼び出し元が各実装のクラス名と生成方法を知っています。状態やルールを差し替えるときは、処理クラスだけでなく呼び出し元も修正する構造です。
@@ -914,7 +920,8 @@ classDiagram
 class PriorityCalculator {
 public:
     string calculate(string userType) {
-        if (userType == "premium") return "High";
+        if (userType == "premium")   return "High";
+        if (userType == "corporate") return "High";
         return "Normal";
     }
 };
@@ -928,6 +935,11 @@ public:
 class InProgressPhase {
 public:
     void activate() { cout << "チケットを対応中状態に設定。" << endl; }
+};
+
+class PendingPhase {
+public:
+    void activate() { cout << "保留中。理由を記録します。" << endl; }
 };
 ```
 
@@ -951,6 +963,11 @@ public:
             InProgressPhase s; // ← 具体：InProgressPhaseを直接生成
             s.activate(); // ← 間接：対応中状態の処理をsに委ねる
             cout << "緊急対応中。担当者を招集します。" << endl;
+            return;
+        }
+        if (status == "Pending") {
+            PendingPhase s;
+            s.activate();
         }
     }
 };
@@ -962,6 +979,8 @@ public:
 int main() {
     TicketManager manager;
     manager.updateStatus("premium", "InProgress");
+    manager.updateStatus("corporate", "Open");
+    manager.updateStatus("normal", "Pending");
     return 0;
 }
 ```
@@ -979,6 +998,8 @@ int main() {
 
 ### ステップ3：関数アプローチの限界を確認する
 
+**ステップ2との差：** 別クラス化しても具体クラス名の依存が残ったため、同じ形の関数へ整理した場合と比較し、契約へ抽象化すべき共通点を確認します。
+
 ステップ1・2の構造では呼び出し元がルールの種類と状態名を知る問題が残りました。ここで少し立ち止まって、処理を関数（プライベートメソッド）として整理し直した場合に何が見えてくるかを確認します。
 
 ```cpp
@@ -995,13 +1016,18 @@ class TicketManager {
             cout << "緊急対応中。担当者を招集します。" << endl;
         }
     }
+    void handlePending() {
+        cout << "保留中。理由を記録します。" << endl;
+    }
     string routePriority(string userType) {
         if (userType == "premium") return calcPremiumPriority();
+        if (userType == "corporate") return calcPremiumPriority();
         return calcNormalPriority();
     }
     void routeStatus(string status, string priority) {
         if (status == "Open") handleOpen(priority);
         else if (status == "InProgress") handleInProgress(priority);
+        else if (status == "Pending") handlePending();
     }
 public:
     void updateStatus(string userType, string status) {
@@ -1076,6 +1102,14 @@ public:
         return "Normal";
     }
 };
+
+// SLA変更で追加した法人ユーザー向け優先度ルール
+class CorporatePriority : public IPriorityRule {
+public:
+    string getPriority(string userType) override {
+        return "High";
+    }
+};
 ```
 
 **TicketManager クラス（ステップ4）：**
@@ -1094,6 +1128,8 @@ public:
             cout << "チケット受付中。優先度: " << priority << endl;
         } else if (status == "InProgress" && priority == "High") {
             cout << "緊急対応中。担当者を招集します。" << endl;
+        } else if (status == "Pending") {
+            cout << "保留中。理由を記録します。" << endl;
         }
     }
 };
@@ -1110,6 +1146,10 @@ int main() {
     PremiumPriority strategy;
     TicketManager manager(&strategy);
     manager.updateStatus("premium", "InProgress");
+    CorporatePriority corporateRule;
+    TicketManager corporateManager(&corporateRule);
+    corporateManager.updateStatus("corporate", "Open");
+    corporateManager.updateStatus("corporate", "Pending");
     return 0;
 }
 ```
@@ -1148,6 +1188,9 @@ classDiagram
     class NormalPriority {
         +getPriority(userType) string
     }
+    class CorporatePriority {
+        +getPriority(userType) string
+    }
     class OpenPhase {
         +handle(context)
         +display()
@@ -1156,10 +1199,16 @@ classDiagram
         +handle(context)
         +display()
     }
+    class PendingPhase {
+        +handle(context)
+        +display()
+    }
     PremiumPriority ..|> IPriorityRule : 実装
     NormalPriority ..|> IPriorityRule : 実装
+    CorporatePriority ..|> IPriorityRule : 実装
     OpenPhase ..|> ITicketPhase : 実装
     InProgressPhase ..|> ITicketPhase : 実装
+    PendingPhase ..|> ITicketPhase : 実装
     TicketContext --> IPriorityRule : 共通の契約だけを知る
     TicketContext --> ITicketPhase : 共通の契約だけを知る
 ```
@@ -1208,6 +1257,13 @@ public:
         return "Normal";
     }
 };
+
+class CorporatePriority : public IPriorityRule {
+public:
+    string getPriority(string userType) override {
+        return "High";
+    }
+};
 ```
 
 **状態クラス（ステップ5）：**
@@ -1228,6 +1284,14 @@ public:
     void handle(TicketContext* context) override { display(); }
     void display() override {
         cout << "チケット対応中。担当者に割り当て。" << endl;
+    }
+};
+
+class PendingPhase : public ITicketPhase {
+public:
+    void handle(TicketContext* context) override { display(); }
+    void display() override {
+        cout << "保留中。理由を記録します。" << endl;
     }
 };
 ```
@@ -1265,6 +1329,10 @@ int main() {
     InProgressPhase state;
     TicketContext ctx(&state, &strategy);
     ctx.execute("premium");
+    CorporatePriority corporateRule;
+    PendingPhase pending;
+    TicketContext corporatePending(&pending, &corporateRule);
+    corporatePending.execute("corporate");
     return 0;
 }
 ```

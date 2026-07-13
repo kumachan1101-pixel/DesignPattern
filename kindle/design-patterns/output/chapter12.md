@@ -1047,25 +1047,22 @@ public:
     WorkflowManager(RuleChecker* c, NotificationService* n)
         : checker(c), notifier(n) {}
 
-    void process(string status, double amount) {
+    void process(string status, double amount, bool urgent) {
         if (status == "SUBMITTED") {
-            if (checker->requiresExecutiveApproval(amount))  // ← 間接：委ねる
-                cout << "役員承認が必要。" << endl;
-            else
-                cout << "審査待ち状態へ移行。" << endl;
+            cout << "審査待ち状態へ移行。" << endl;
             notifier->notify("申請者に通知");  // ← 間接：委ねる
-            return;
-        }
-        if (status == "APPROVED") {
+            if (urgent) {
+                cout << "緊急：課長スキップ→部長へ。" << endl;
+                notifier->notify("部長へ緊急通知");
+            }
+        } else if (status == "APPROVED") {
             cout << "完了状態へ移行。" << endl;
             notifier->notify("関係者に通知");
-            return;
+            notifier->notify("申請者に承認完了を通知");
+            if (urgent) notifier->notify("部長へ完了報告");
         }
-        if (status == "EMERGENCY") {
-            cout << "緊急承認ルートで処理。" << endl;
-            notifier->notify("部長に通知");
-            return;
-        }
+        if (checker->requiresExecutiveApproval(amount))
+            cout << "役員承認が必要。" << endl;
     }
 };
 ```
@@ -1081,7 +1078,11 @@ public:
 
 これが、この章の変更要求に対するシングルクラスアプローチの限界です。「状態遷移」「通知」「判定ルール」は変更の決定者と頻度が異なるため、それぞれの境界をインターフェースで表し、組み立て箇所で連携させる構造を検討します。インターフェース化そのものが目的ではなく、確認した変更シナリオの影響範囲を分けることが目的です。
 
+ステップ2で維持した `urgent` の緊急ルートと「申請者に承認完了を通知」は、以降も削除しません。ステップ4以降の短いコードは、各変化軸をどこへ移すかを示す差分抜粋として読みます。
+
 ### ステップ4：第3章で学んだ 状態分離構造を適用する ―― 状態遷移を分離する
+
+**ステップ3との差：** 単一クラスへ状態名の分岐が残る限界を受け、状態ごとの処理を `IWorkflowPhase` 実装へ移します。
 
 はじめに「状態遷移の混在」という最も根本的な問題から解決します。各状態の振る舞いをオブジェクトとして切り出し、`WorkflowManager` が状態を切り替えるだけの形にします。
 
@@ -1096,8 +1097,9 @@ public:
 // 各状態の実装
 class SubmittedPhase : public IWorkflowPhase {
     double amount;
+    bool urgent;
 public:
-    SubmittedPhase(double a) : amount(a) {}
+    SubmittedPhase(double a, bool u) : amount(a), urgent(u) {}
     void handle(WorkflowManager* wm) override {
         // ← 状態遷移の知識がここに封じ込められた
         if (amount > 100000)
@@ -1106,17 +1108,25 @@ public:
             cout << "審査待ち状態へ移行。" << endl;
         // ← まだ通知先がハードコードされている
         cout << "申請者に通知" << endl;
+        if (urgent) {
+            cout << "緊急：課長スキップ→部長へ。" << endl;
+            cout << "部長へ緊急通知" << endl;
+        }
         // wm は次ステップで導入するリスナーへの通知のために
         // 受け取っているが、このステップではまだ使わない
         (void)wm;
     }
 };
 
-class EmergencyPhase : public IWorkflowPhase {
+class ApprovedPhase : public IWorkflowPhase {
+    bool urgent;
 public:
+    explicit ApprovedPhase(bool u) : urgent(u) {}
     void handle(WorkflowManager* wm) override {
-        cout << "緊急承認ルートで処理。部長へ直接通知。" << endl;
-        cout << "部長に通知" << endl;
+        cout << "完了状態へ移行。" << endl;
+        cout << "関係者に通知" << endl;
+        cout << "申請者に承認完了を通知" << endl;
+        if (urgent) cout << "部長へ完了報告" << endl;
         // wm は次ステップで導入するリスナーへの通知のために
         // 受け取っているが、このステップではまだ使わない
         (void)wm;
@@ -1140,7 +1150,11 @@ public:
 
 ### ステップ5：第7章で学んだ 通知分離構造を追加する ―― 通知を分離する
 
+**ステップ4との差：** 状態処理の分離は保ち、Phase内に残っていた通知先の知識を通知先データと通知契約へ移します。
+
 次に「通知の混在」という問題を解決します。通知先をコードに直接書くのではなく、申請IDごとの通知先データとして管理します。`WorkflowManager` は状態変化が起きたら通知先データを読み出し、登録済みの送信スタブへ渡します。
+
+緊急申請（ステップ1・2のコード上の `urgent`）では `NotificationTargetRepository` に申請者・部長・決済部門を登録し、「申請者に承認完了を通知」を含む送信先をデータとして引き継ぎます。以下は送信先取得と通知契約へ移す差分です。
 
 > [!INFO] コラム: 状態クラスに「誰に通知するか」を教えない理由
 > もし状態クラスの中で「課長に通知する」と直接書いてしまうと、後から「関連部署にも通知したい」という要望が出たときに、状態遷移のロジックまで修正しなければならなくなります。通知分離構造を使って「状態が変わったよ！」と伝える仕組みにすると、状態ロジックと通知ルールの依存を弱められます。
@@ -1254,6 +1268,14 @@ public:
         wm->notifyAll("申請が受理されました");
     }
 };
+
+class ApprovedPhase : public IWorkflowPhase {
+public:
+    void handle(WorkflowManager* wm) override {
+        cout << "完了状態へ移行。" << endl;
+        wm->notifyAll("申請者に承認完了を通知");
+    }
+};
 ```
 
 **この段階の評価：**
@@ -1264,6 +1286,8 @@ public:
 ### ステップ6：第1章で学んだ ルール差し替え構造を追加して完成する
 
 ステップ4で状態分離構造により状態遷移を分離し、ステップ5で通知分離構造によって通知先を切り離しました。しかし、まだ「判定ルール」の問題が残っています。この限界から、3つ目のパターンとしてルール差し替え構造を追加し、承認判定ロジックをインターフェースで切り出して外部から差し替え可能にします。
+
+このステップは承認判定軸の差分です。ステップ5の `ApprovedPhase`、「申請者に承認完了を通知」という通知内容、緊急申請の通知先データ、`urgent` に対応する組み立てはそのまま維持します。
 
 ```cpp
 // 承認判定ルールの契約（インターフェース）

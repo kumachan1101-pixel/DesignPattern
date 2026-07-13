@@ -904,6 +904,8 @@ public:
 
 ### ステップ2：継承で全組み合わせを表現する（最初の直感）
 
+**ステップ1との差：** 1クラス内のフラグ分岐を減らすため、抹茶とチョコを含む組み合わせ全体をサブクラスとして表す案へ移ります。
+
 「フラグではなく、組み合わせごとにサブクラスを作ればいい」という発想を試してみます。継承を使えば、各組み合わせを型として表現できます。
 
 ```cpp
@@ -939,6 +941,12 @@ class CoffeeMatcha : public Coffee { };
 class CoffeeMilkMatcha : public Coffee { };
 class CoffeeWhipMatcha : public Coffee { };
 class CoffeeMilkWhipMatcha : public Coffee { };
+
+// 同時に追加したチョコでも、同じ数の組み合わせクラスが増える
+class CoffeeChoco : public Coffee { };
+class CoffeeMilkChoco : public Coffee { };
+class CoffeeWhipChoco : public Coffee { };
+class CoffeeMilkWhipChoco : public Coffee { };
 ```
 
 継承ツリーはメニューの「全組み合わせ」を型として持つことになります。
@@ -950,6 +958,8 @@ class CoffeeMilkWhipMatcha : public Coffee { };
 ---
 
 ### ステップ3：トッピングをクラスに切り出す
+
+**ステップ2との差：** 組み合わせごとのクラス爆発を避けるため、組み合わせ全体ではなく各トッピングを独立したクラスへ移します。
 
 「継承で組み合わせを表現するのではなく、トッピングを独立したクラスとして持てばいい」という発想を試してみます。
 
@@ -973,6 +983,12 @@ public:
     string getName() const { return " + Matcha"; }
 };
 
+class Choco {
+public:
+    int getPrice() const { return 40; }
+    string getName() const { return " + Choco"; }
+};
+
 class CustomDrink {
 private:
     string baseName;
@@ -981,9 +997,11 @@ private:
     Milk  milk;
     Whip  whip;
     Matcha matcha;
+    Choco choco;
     bool hasMilk  = false;
     bool hasWhip  = false;
     bool hasMatcha = false;
+    bool hasChoco = false;
 
 public:
     CustomDrink(string name, int price)
@@ -992,12 +1010,14 @@ public:
     void addMilk()   { hasMilk  = true; }
     void addWhip()   { hasWhip  = true; }
     void addMatcha() { hasMatcha = true; }
+    void addChoco()  { hasChoco = true; }
 
     int getPrice() const {
         int total = basePrice;
         if (hasMilk)   total += milk.getPrice();
         if (hasWhip)   total += whip.getPrice();
         if (hasMatcha) total += matcha.getPrice();
+        if (hasChoco)  total += choco.getPrice();
         return total;
     }
 
@@ -1006,6 +1026,7 @@ public:
         if (hasMilk)   desc += milk.getName();
         if (hasWhip)   desc += whip.getName();
         if (hasMatcha) desc += matcha.getName();
+        if (hasChoco)  desc += choco.getName();
         return desc;
     }
 };
@@ -1028,6 +1049,8 @@ int main() {
 ---
 
 ### ステップ4：共通の契約を導入するが、スロットは固定のまま
+
+**ステップ3との差：** 個別クラスへの分離は保ち、`CustomDrink` が具体トッピング名を直接持つ接続を `ITopping` 契約へ置き換えます。
 
 「`CustomDrink` が具体クラスを直接知っているのが問題なら、インターフェースを挟もう」という方向を試してみます。
 
@@ -1058,6 +1081,12 @@ public:
     string getName() const override { return " + Matcha"; }
 };
 
+class Choco : public ITopping {
+public:
+    int getPrice() const override { return 40; }
+    string getName() const override { return " + Choco"; }
+};
+
 class CustomDrink {
 private:
     string baseName;
@@ -1066,6 +1095,7 @@ private:
     ITopping* milk   = nullptr;
     ITopping* whip   = nullptr;
     ITopping* matcha = nullptr;
+    ITopping* choco  = nullptr;
 
 public:
     CustomDrink(string name, int price)
@@ -1074,12 +1104,14 @@ public:
     void setMilk(ITopping* t)   { milk   = t; }
     void setWhip(ITopping* t)   { whip   = t; }
     void setMatcha(ITopping* t) { matcha = t; }
+    void setChoco(ITopping* t)  { choco = t; }
 
     int getPrice() const {
         int total = basePrice;
         if (milk)   total += milk->getPrice();
         if (whip)   total += whip->getPrice();
         if (matcha) total += matcha->getPrice();
+        if (choco)  total += choco->getPrice();
         return total;
     }
 
@@ -1088,6 +1120,7 @@ public:
         if (milk)   desc += milk->getName();
         if (whip)   desc += whip->getName();
         if (matcha) desc += matcha->getName();
+        if (choco)  desc += choco->getName();
         return desc;
     }
 };
@@ -1171,6 +1204,15 @@ public:
     }
 };
 
+class Choco : public ToppingWrapper {
+public:
+    Choco(IDrink* base) : ToppingWrapper(base) {}
+    int getPrice() const override { return baseDrink->getPrice() + 40; }
+    string getDescription() const override {
+        return baseDrink->getDescription() + " + Choco";
+    }
+};
+
 // WhipもSyrupも同じ構造で定義できる（Milkのコピーで価格だけ変える）
 class Whip : public ToppingWrapper {
 public:
@@ -1182,12 +1224,12 @@ public:
 };
 
 // 組み立て
-IDrink* order = new Matcha(new Milk(new Coffee()));
+IDrink* order = new Choco(new Matcha(new Milk(new Coffee())));
 // ホイップ×2（ダブル）は、同じ型を2回包むだけ
 IDrink* double_whip = new Whip(new Whip(new Coffee()));
 ```
 
-`Matcha` クラスへ抹茶固有の価格と説明をまとめ、利用する組み立てコードで `Matcha` を追加すれば要件を満たせます。既存の `Coffee`、`Milk`、`ToppingWrapper` の実装へ抹茶の条件分岐を加える必要はありません。
+`Matcha` と `Choco` へそれぞれ固有の価格と説明をまとめ、利用する組み立てコードで両方を追加すれば、フェーズ3の変更要求を保ったまま要件を満たせます。既存の `Coffee`、`Milk`、`ToppingWrapper` の実装へ抹茶やチョコの条件分岐を加える必要はありません。
 
 **この段階の評価：** 新しいトッピングの振る舞いは新しいラッパー（別のドリンクを包む側の）クラスへ置き、提供メニューや生成処理などの組み立て箇所へ登録します。「ホイップをダブルにする」は `new Whip(new Whip(new Coffee()))` のように同じ部品を重ねて表現できます。ステップ4の「スロットを追加するたびに `CustomDrink` の条件分岐を増やす」という問題が解消されました。
 

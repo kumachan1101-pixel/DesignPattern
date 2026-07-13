@@ -292,6 +292,10 @@ class NotificationService {
 public:
     void notify(string r) { cout << "完了通知: " << r << endl; }
 };
+class SlackNotifier {
+public:
+    void notify(string result) { cout << "Slack通知: " << result << endl; }
+};
 
 class BatchExecutor {
     PartnerDatabase db;
@@ -945,6 +949,8 @@ public:
         }
         NotificationService n;
         n.notify("Success");
+        SlackNotifier slack;
+        slack.notify("Success");
     }
 };
 ```
@@ -977,6 +983,7 @@ public:
             SystemCClient client; client.send("manualData");
         }
         NotificationService n; n.notify("手動同期完了");
+        SlackNotifier slack; slack.notify("手動同期完了");
     }
 };
 ```
@@ -1043,6 +1050,8 @@ public:
         // 通知はまだ具体クラスを直接知っている
         NotificationService n;
         n.notify(r.success ? "Success" : r.message);
+        SlackNotifier slack;
+        slack.notify(r.success ? "Success" : r.message);
         return r;
     }
 };
@@ -1074,6 +1083,13 @@ public:
     }
 };
 
+class EmailNotifier : public INotifier {
+public:
+    void onComplete(string result) override {
+        cout << "完了通知: " << result << endl;
+    }
+};
+
 // BatchExecutorはINotifierのリストを持ち、通知先を直接知らない
 class BatchExecutor {
     IExternalClient* client;          // ← 抽象：連携先を知らない
@@ -1094,6 +1110,8 @@ public:
 };
 
 ```
+
+このステップは通知軸だけの差分を示しています。`SystemCClient` を含む `IExternalClient` の実装はステップ4から変更せず、そのまま利用します。組み立て側では `EmailNotifier` と `SlackNotifier` の両方を登録するため、フェーズ3で追加したC社連携とSlack通知は失われません。
 
 通知先がリストで管理されるようになりました。Slack以外にメール通知やログ基盤への通知を追加したい場合は、`INotifier` を実装した新クラスを作り、`addNotifier()` で登録するだけです。`BatchExecutor`の実行フローは変更しません（組み立て箇所への登録は必要です）。
 
@@ -1152,6 +1170,18 @@ public:
         return r;
     }
 };
+```
+
+組み立て側では、ステップ5の通知登録をそのまま引き継ぎます。
+
+```cpp
+SystemCClientCreator creator;
+EmailNotifier email;
+SlackNotifier slack;
+BatchExecutor executor;
+executor.addNotifier(&email);
+executor.addNotifier(&slack);
+executor.execute(&creator, "C社");
 ```
 
 `BatchExecutor` は`IClientCreator`だけを知り、具体的なCreatorやクライアントには依存しません。新しい連携先には新しい具象Creatorを追加し、組み立て箇所で選択します。生成方法の変更が実行フローへ波及しない点が、生成分離構造を導入した効果です。

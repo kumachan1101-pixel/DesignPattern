@@ -974,19 +974,21 @@ private:
     vector<ChatNotifier*>      chatList;
     // ← update() 型なので別リストが必要
     vector<DashboardUpdater*>  dashboardList;
-    // SMSを追加するには vector<SMSNotifier*> smsListも必要になる
+    // フェーズ3で追加したSMSにも専用リストが必要
+    vector<SMSNotifier*>       smsList;
 
     void notifyAll(string message) {
         for (auto* n : emailList)     n->send(message);
         for (auto* n : chatList)      n->send(message);
         for (auto* n : dashboardList) n->update(message); // ← メソッド名が違う
-        // SMS用のループも追加する必要が生じます
+        for (auto* n : smsList)       n->send(message);
     }
 
 public:
     void attachEmail(EmailNotifier* n)       { emailList.push_back(n); }
     void attachChat(ChatNotifier* n)         { chatList.push_back(n); }
     void attachDashboard(DashboardUpdater* n){ dashboardList.push_back(n); }
+    void attachSms(SMSNotifier* n)           { smsList.push_back(n); }
 
     void reduceStock(string productId, int quantity) {
         string message = "商品 " + productId
@@ -998,7 +1000,7 @@ public:
 
 リストで管理することで同種の通知先を複数登録できるようになったことが分かる。
 
-**この段階の評価：** リストで管理することで通知先の追加はしやすくなった。しかし、リストに格納できる型が固定されている。新しい通知先（SMSNotifier）を追加するには `vector<SMSNotifier*>` という新しいリストを追加し、`notifyAll` にもループを追加する必要が生じます。通知先の種類が増えるたびに `InventoryManager` を修正する必要があるという根本は解決していない。
+**この段階の評価：** リストで管理することで同種の通知先は追加しやすくなりました。しかし、今回のSMS対応でも `vector<SMSNotifier*>`、専用ループ、登録メソッドを追加しました。次の新しい通知種別でも、型ごとのリストを増やして `InventoryManager` を修正する必要があるという根本は解決していません。
 
 ---
 

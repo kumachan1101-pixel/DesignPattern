@@ -960,26 +960,41 @@ public:
 
 // ReportSkeletonが具体クラスを知り、処理をそのクラスに委ねる
 class ReportSkeleton {
+    ReportHistoryManager history;
 public:
-    void generate() {
+    void generate(string format, bool addGraph, bool addLogo) {
         DataReader reader;
         reader.readCSV();
-        cout << "レポートのヘッダーを生成。" << endl;
-        GraphFeature graph; // ← 具体：GraphFeatureという型名を直接書いている
-        graph.draw();       // ← 間接：描画処理はgraphに委ねる
-        cout << "レポートのフッターを生成。" << endl;
+        ReportRenderingApi renderer;
+        renderer.addHeader(format);
+        if (addGraph) {
+            GraphFeature graph;
+            graph.draw();
+        }
+        if (addLogo) {
+            LogoFeature logo;
+            logo.draw();
+        }
+        renderer.addFooter(format);
+        string rec = format;
+        if (addGraph) rec += "+Graph";
+        if (addLogo) rec += "+Logo";
+        history.record(rec);
     }
+    void replay() { history.replay(); }
 };
 ```
 
 **この段階の評価：**
 それぞれの処理が別のファイルに分かれたため、一見すると整理されたように思えます。しかし、クラスを分けたにもかかわらず、新しい装飾が来るたびに `ReportSkeleton` を開いて新しいクラスをインクルードし、新しい記述を追加する必要があるでしょう。これが骨格側がすべての装飾クラス名を知っている限界です。
 
-**残課題：** 装飾を追加するたびに骨格クラスの修正が必要。操作履歴もまだない。
+**残課題：** 履歴と再実行は維持できたが、装飾を追加するたびに骨格クラスの修正が必要で、履歴管理も骨格に残っている。
 
 ### ステップ3：限界を確認する ―― 新フォーマット追加で骨格を必ず修正
 
 ステップ2まで進んでも、「透かし付きレポート」「グラフ＋透かし付きレポート」のように装飾の組み合わせが増えると、組み合わせの構造ごとに `ReportSkeleton` が肥大化し続けます。さらに、`PreviewService` という類似クラスがあれば、まったく同じ問題が並行して走ります。
+
+このステップのコードは装飾の組み合わせ爆発だけを示す差分抜粋です。ステップ2の履歴管理 `ReportHistoryManager` と `replay()` は削除せず、そのまま残ります。
 
 ```cpp
 // 問題：装飾の組み合わせが増えるほどクラスが爆発する
@@ -993,7 +1008,11 @@ class PreviewWithGraph { ... };         // プレビュー+グラフ（重複）
 
 ### ステップ4：骨格固定構造 を適用する ―― 骨格を固定し、変わる部分だけをサブクラスに委ねる
 
+**ステップ3との差：** 装飾の組み合わせごとに骨格が増える状態から、共通手順を1つに固定し、本文差分だけをサブクラスへ移します。
+
 骨格（ヘッダー生成・フッター生成の順序）は変えたくないが、本文の中身（`renderBody()`）だけは種類ごとに変えたい。この「固定と可変の分離」を 骨格固定構造 で解決します。
+
+以下は骨格軸の差分抜粋です。ステップ2で分離途中だった履歴記録と `replay()` は呼び出し側に残したまま、ここでは生成骨格だけを置き換えます。
 
 ```cpp
 // ReportSkeleton: レポート生成の骨格（骨格固定構造）
@@ -1025,6 +1044,8 @@ public:
 ### ステップ5：装飾連結構造 を追加する ―― 機能を実行時に動的に重ねる
 
 ステップ4で骨格は固定できました。次は「どの装飾を重ねるか」を実行時に決められるようにします。`ReportFeature` は `ReportSkeleton` を継承しつつ、内部に別の `ReportSkeleton` を所有してチェーンする 装飾連結構造を使います。
+
+このステップも装飾軸の差分抜粋です。履歴記録と `replay()` はステップ4と同じく呼び出し側に残り、次のステップ6で生成操作と同じ単位へまとめます。
 
 このサンプルでは、説明を短くするために生ポインタで所有権を表しています。最も外側の `ReportSkeleton*` を破棄すると、各装飾クラスのデストラクタが内側の要素を順に破棄し、チェーン全体の生存期間もそこで終わります。実務コードでは、同じ所有関係を `std::unique_ptr<ReportSkeleton>` で表すのが自然です。
 
@@ -1184,8 +1205,29 @@ public:
 };
 ```
 
+操作を実行・取り消し・再実行する履歴も、同じ契約のまま保持します。
+
+```cpp
+class ReportActionHistory {
+    vector<IReportAction*> history;
+public:
+    JobResult executeAndRecord(IReportAction* action) {
+        JobResult result = action->execute();
+        if (result.success) history.push_back(action);
+        return result;
+    }
+    void undoLast() {
+        if (!history.empty()) history.back()->undo();
+    }
+    JobResult replayLast() {
+        if (history.empty()) return {false, "再実行する履歴がありません。"};
+        return history.back()->execute();
+    }
+};
+```
+
 **この段階の評価：**
-`GenerateReportAction`はレポート、出力形式、出力先を保持します。`execute()`は既存ファイルを上書きせず、デモ用ファイルを実際に作成します。`undo()`が削除するのは、この操作オブジェクト自身が正常に作成したファイルだけです。これにより、別処理が先に作成していたファイルを誤って削除せずに、操作の実行と取り消しを確認できます。
+`GenerateReportAction`はレポート、出力形式、出力先を保持します。`execute()`は既存ファイルを上書きせず、デモ用ファイルを実際に作成します。`undo()`が削除するのは、この操作オブジェクト自身が正常に作成したファイルだけです。`ReportActionHistory` は成功した操作を記録し、`undoLast()` の後に `replayLast()` すれば同じ操作を再実行できます。これにより、フェーズ3の履歴・再実行要求を保ったまま、生成骨格から履歴責任を外せます。
 
 ---
 

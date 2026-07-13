@@ -69,6 +69,23 @@ PHASE6_BASELINE_HEADING = (
     "#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする"
 )
 
+# Phase 3で追加した代表要素。各改善ステップでコードとして扱うか、
+# 差分抜粋なら「維持している」と説明し、仕様を消さない。
+PHASE6_CONTINUITY_TOKENS = {
+    "chapter01.md": ["isSummerSale", "isCampaignActive"],
+    "chapter02.md": ["txId", "requestOTP"],
+    "chapter03.md": ["Held", "Waitlisted"],
+    "chapter04.md": ["EC", "checkFormatVersion"],
+    "chapter05.md": ["undo", "removeExpense"],
+    "chapter06.md": ["Matcha", "Choco"],
+    "chapter07.md": ["SMS"],
+    "chapter08.md": ["PayPay", "PaymentResult"],
+    "chapter09_2.md": ["corporate", "Pending"],
+    "chapter10.md": ["SystemC", "Slack"],
+    "chapter11.md": ["履歴", "replay"],
+    "chapter12.md": ["urgent", "承認完了"],
+}
+
 BANNED_PATTERNS = [
     (
         re.compile(r"直接（直差し）|間接（アダプター経由）"),
@@ -215,6 +232,57 @@ def check_phase6_baseline(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def check_phase6_continuity(text: str, path: Path) -> list[Issue]:
+    """Check that every improvement step keeps phase 3 additions visible."""
+    tokens = PHASE6_CONTINUITY_TOKENS.get(path.name)
+    if not tokens:
+        return []
+    phase6 = text.find("## 🔴 フェーズ6：対策検討")
+    adoption = text.find("### 採用する形を決める", phase6)
+    section = text[phase6:adoption]
+    matches = list(re.finditer(r"(?m)^### ステップ(\d+)：", section))
+    issues: list[Issue] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(section)
+        step_text = section[match.start():end]
+        for token in tokens:
+            if token not in step_text:
+                absolute = phase6 + match.start()
+                issues.append(
+                    Issue(
+                        path,
+                        line_number(text, absolute),
+                        f"ステップ{match.group(1)}で仕様変更要素「{token}」が消えています。コードで保持するか、差分抜粋なら継続を明記してください",
+                    )
+                )
+    return issues
+
+
+def check_phase6_step_chain(text: str, path: Path) -> list[Issue]:
+    """Require step 2+ to identify the immediately preceding comparison."""
+    phase6 = text.find("## 🔴 フェーズ6：対策検討")
+    adoption = text.find("### 採用する形を決める", phase6)
+    section = text[phase6:adoption]
+    matches = list(re.finditer(r"(?m)^### ステップ(\d+)：", section))
+    issues: list[Issue] = []
+    for index in range(1, len(matches)):
+        match = matches[index]
+        step_number = int(match.group(1))
+        previous = step_number - 1
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(section)
+        step_text = section[match.start():end]
+        if f"ステップ{previous}" not in step_text:
+            absolute = phase6 + match.start()
+            issues.append(
+                Issue(
+                    path,
+                    line_number(text, absolute),
+                    f"ステップ{step_number}に直前のステップ{previous}との差が明記されていません",
+                )
+            )
+    return issues
+
+
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
@@ -224,6 +292,8 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(find_in_order(text, REQUIRED_PHASES, path))
         issues.extend(find_in_order(text, REQUIRED_NUMBERED_SECTIONS, path))
         issues.extend(check_phase6_baseline(text, path))
+        issues.extend(check_phase6_continuity(text, path))
+        issues.extend(check_phase6_step_chain(text, path))
     return issues
 
 

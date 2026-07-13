@@ -1344,6 +1344,8 @@ public:
 
 ### ステップ2：生成ロジックを専用の PaymentFactory クラスに分離する
 
+**ステップ1との差：** 決済手段ごとの生成メソッドを `PaymentApplication` 内に置く形から、PayPayを含む生成判断を専用のFactoryへ移します。
+
 生成した各プロセッサーを共通の型で受け渡すため、`PaymentRequest` を受け取り `PaymentResult` を返す共通インターフェース `IPaymentProcessor` をここで導入します。
 
 ```cpp
@@ -1402,6 +1404,8 @@ public:
 
 ### ステップ3：生成メソッドを抽象化し、具体クラスに委ねる
 
+**ステップ2との差：** すべての具体Processorを知る単一Factoryから、共通の生成メソッドだけを骨格に残し、具体的な生成をサブクラスへ移します。
+
 `PaymentApplication` 自体に `createProcessor` という抽象メソッドを宣言し、「生成の仕方は自分では決めない、サブクラスに任せる」という構造にします。
 
 > [!INFO] コラム: ただの生成メソッドと抽象化された生成の違い
@@ -1433,6 +1437,25 @@ public:
         delete proc;
         return result;
     }
+};
+```
+
+フェーズ3で追加したPayPayは、具体的な生成だけを担うサブクラス側へ残します。
+
+```cpp
+class PayPayPaymentApplication : public PaymentApplication {
+    PaymentGatewayClient& gatewayClient;
+protected:
+    IPaymentProcessor* createProcessor(
+            const string& type) override {
+        if (type == "paypay")
+            return new PayPayProcessor(gatewayClient);
+        return nullptr;
+    }
+public:
+    explicit PayPayPaymentApplication(
+            PaymentGatewayClient& gateway)
+        : gatewayClient(gateway) {}
 };
 ```
 
