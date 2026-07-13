@@ -2206,7 +2206,7 @@ graph LR
 
 | シナリオ | フェーズ1の現状コードでの影響 | この設計での影響 |
 |---|---|---|
-| PayPay決済を追加 | 7か所に修正が広がる | PayPayProcessorと生成分岐を追加し、processPaymentは保つ |
+| PayPay決済を追加 | 7か所に修正が広がる | `PayPayInput`・決済API境界・マスター設定・`PayPayProcessor`・生成分岐を追加する。`processPayment` と既存Processorは保つ |
 | カードの認証ロジック変更 | PaymentApplication内の生成・エラー処理を修正 | CreditCardProcessorだけを確認する |
 | 新しい非同期決済を追加 | processPaymentに分岐追加、main()に完了確認追加 | 新Processorと生成分岐を追加。完了確認は汎用のため変更不要 |
 | 決済後の共通処理を追加 | PaymentApplicationの各分岐に追記 | processPayment()に1箇所追加 |

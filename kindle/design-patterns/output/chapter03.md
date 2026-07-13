@@ -1778,7 +1778,7 @@ graph LR
 | **シナリオ** | **フェーズ1の現状コードでの影響** | **この設計での影響** |
 |---|---|---|
 | キャンセル待ち状態を追加 | `TicketReservation` の全メソッドに新条件分岐を追加 | `WaitlistedState` を追加し、組み立て側へ登録 |
-| 支払済みからの返金対応 | `TicketReservation` の `pay()` `cancel()` を修正 | `PaidState` のみ修正 |
+| 支払済みからの返金対応 | `TicketReservation` の `pay()` `cancel()` を修正 | `IReservationState` と `TicketReservation` に返金操作を追加し、`PaidState` に振る舞いを実装する |
 | 有効期限切れ処理を追加 | `TicketReservation` に新メソッドと全状態への分岐を追加 | 対象状態へ `expire()` を追加し、必要な遷移を登録 |
 | 決済失敗後に再試行可能にする | `pay()` の成功/失敗分岐と状態ごとの戻り先を修正 | `ReservedState` / `HeldState` に失敗時の扱いを置く |
 
@@ -1949,6 +1949,8 @@ classDiagram
         +reserve()
         +pay()
         +cancel()
+        +addToWaitlist()
+        +upgrade()
         +hold()
         +expire()
     }
@@ -1957,42 +1959,35 @@ classDiagram
         +reserve(ctx)
         +pay(ctx)
         +cancel(ctx)
+        +addToWaitlist(ctx)
+        +upgrade(ctx)
         +hold(ctx)
         +expire(ctx)
     }
     class AvailableState {
         +reserve(ctx)
-        +pay(ctx)
-        +cancel(ctx)
-        +hold(ctx)
-        +expire(ctx)
+        +addToWaitlist(ctx)
     }
     class ReservedState {
-        +reserve(ctx)
         +pay(ctx)
         +cancel(ctx)
         +hold(ctx)
-        +expire(ctx)
     }
-    class PaidState {
-        +reserve(ctx)
-        +pay(ctx)
-        +cancel(ctx)
-        +hold(ctx)
-        +expire(ctx)
-    }
+    class PaidState
     class HeldState {
-        +reserve(ctx)
         +pay(ctx)
         +cancel(ctx)
-        +hold(ctx)
         +expire(ctx)
+    }
+    class WaitlistedState {
+        +upgrade(ctx)
     }
     TicketReservation o--> IReservationState
     IReservationState <|.. AvailableState
     IReservationState <|.. ReservedState
     IReservationState <|.. PaidState
     IReservationState <|.. HeldState
+    IReservationState <|.. WaitlistedState
 ```
 
 抽象ロールである `IReservationState` が、現実の `ReservedState` などの具体クラスと結びついています。
