@@ -1239,191 +1239,152 @@ REQ002：審査待ち → 承認済み
 
 ### ステップ2：第7章で学んだ 通知分離構造を追加する ―― 通知を分離する
 
-**ステップ1との差：** 状態処理の分離は保ち、Phase内に残っていた通知先の知識を通知先データと通知契約へ移します。
+**ステップ1との差：** 状態遷移の分離（Phase と表引き委譲）はそのまま。ステップ1で `WorkflowManager` の本体に残っていた「通知先の解決（`targets.getTarget`）」と「完了時の決済部門通知」を、状態変化を受け取るリスナーへ移します。緊急提出ルートの最終承認も決済部門通知も、リスナーとして維持します。
 
-次に「通知の混在」という問題を解決します。通知先をコードに直接書くのではなく、申請IDごとの通知先データとして管理します。`WorkflowManager` は状態変化が起きたら通知先データを読み出し、登録済みの送信スタブへ渡します。
-
-緊急申請（緊急提出ルート）では `NotificationTargetRepository` に申請者・部長・決済部門を登録し、「申請者に承認完了を通知」を含む送信先をデータとして引き継ぎます。以下は送信先取得と通知契約へ移す差分です。
+`WorkflowManager` は「状態が変わった」と知らせるだけにし、誰にどう送るかはリスナーが決めます。以下はステップ1のコードから、通知まわりだけを差し替えた抜粋です（リポジトリ・状態オブジェクト・表引き委譲はステップ1のまま）。
 
 > [!INFO] コラム: 状態クラスに「誰に通知するか」を教えない理由
 > もし状態クラスの中で「課長に通知する」と直接書いてしまうと、後から「関連部署にも通知したい」という要望が出たときに、状態遷移のロジックまで修正しなければならなくなります。通知分離構造を使って「状態が変わったよ！」と伝える仕組みにすると、状態ロジックと通知ルールの依存を弱められます。
 
 ```cpp
-struct NotificationTarget {
-    string recipientName;
-    string channel; // "email", "chat"
-};
-
-class NotificationTargetRepository {
-    map<string, vector<NotificationTarget>> targetsByRequestId;
-public:
-    void setTargets(
-        const string& requestId,
-        const vector<NotificationTarget>& targets
-    ) {
-        targetsByRequestId[requestId] = targets;
-    }
-    vector<NotificationTarget> loadTargets(const string& requestId) const {
-        auto it = targetsByRequestId.find(requestId);
-        if (it == targetsByRequestId.end()) return {};
-        return it->second;
-    }
-};
-
-// 通知リスナーの契約（送信手段のインターフェース）
+// 状態変化を受け取る通知リスナーの契約
 class INotificationListener {
 public:
-    virtual bool supports(const string& channel) const = 0;
-    virtual void onStatusChanged(
-        const NotificationTarget& target,
-        string msg
-    ) = 0;
+    virtual void onChanged(const string& requestId,
+                           const string& from, const string& to) = 0;
     virtual ~INotificationListener() = default;
 };
 
-// 通知送信スタブの実装例
-class EmailNotifier : public INotificationListener {
+// 申請ごとの通知先（課長・部長など）へ送るリスナー
+class RecipientNotifier : public INotificationListener {
+    NotificationTargetRepository& targets;
 public:
-    bool supports(const string& channel) const override {
-        return channel == "email";
-    }
-    void onStatusChanged(
-        const NotificationTarget& target,
-        string msg
-    ) override {
-        cout << "[メール送信] To:" << target.recipientName
-             << " / " << msg << endl;
+    RecipientNotifier(NotificationTargetRepository& t) : targets(t) {}
+    void onChanged(const string& requestId, const string&,
+                   const string&) override {
+        cout << targets.getTarget(requestId) << "へ通知" << endl;
     }
 };
 
-class ChatNotifier : public INotificationListener {
+// 「完了」になったときだけ決済部門へ送るリスナー
+// （緊急ルートの最終承認もこの完了を通る）
+class SettlementNotifier : public INotificationListener {
 public:
-    bool supports(const string& channel) const override {
-        return channel == "chat";
-    }
-    void onStatusChanged(
-        const NotificationTarget& target,
-        string msg
-    ) override {
-        cout << "[チャット通知] To:" << target.recipientName
-             << " / " << msg << endl;
+    void onChanged(const string&, const string&,
+                   const string& to) override {
+        if (to == "完了") cout << "決済部門へ通知" << endl;
     }
 };
 
+// WorkflowManager は「状態が変わった」と知らせるだけになった
 class WorkflowManager {
-    IWorkflowPhase* phase;
-    NotificationTargetRepository& notificationTargets;
-    string requestId;
-    vector<INotificationListener*> listeners;  // ← 送信手段のリスト
+    WorkflowCaseRepository& cases;
+    ApproverDatabase& approvers;
+    map<string, IWorkflowPhase*> phases;
+    vector<INotificationListener*> listeners; // ← 追加：通知の宛先
 public:
-    WorkflowManager(
-        NotificationTargetRepository& notificationTargets,
-        const string& requestId
-    ) : notificationTargets(notificationTargets), requestId(requestId) {}
+    WorkflowManager(WorkflowCaseRepository& c, ApproverDatabase& a)
+        : cases(c), approvers(a) {}
+    void registerPhase(const string& s, IWorkflowPhase* p) { phases[s] = p; }
+    void addListener(INotificationListener* l) { listeners.push_back(l); }
 
-    void setPhase(IWorkflowPhase* p) { phase = p; }
-
-    void addListener(INotificationListener* l) {
-        listeners.push_back(l);
-    }
-
-    void process(const string& operation, int amount) {
-        phase->handle(this, operation, amount);
-    }
-
-    void notifyAll(string msg) {
-        auto targets = notificationTargets.loadTargets(requestId);
-        for (const auto& target : targets) {
-            for (int i = 0; i < (int)listeners.size(); i++) {
-                if (listeners[i]->supports(target.channel)) {
-                    listeners[i]->onStatusChanged(target, msg);
-                }
-            }
+    void process(const string& requestId, const string& operation,
+                 int amount, const string& approverId) {
+        if (!approvers.canApprove(approverId, amount)) {
+            cout << "承認上限を超えています。" << endl;
+            return;
         }
-    }
-};
-
-// 状態クラスは WorkflowManager の notifyAll を呼ぶだけでよくなった
-class DraftPhase : public IWorkflowPhase {
-public:
-    void handle(WorkflowManager* wm, const string& operation,
-                int amount) override {
-        if (operation == "提出") {
-            if (amount > 100000) cout << "役員承認が必要。" << endl;
-            cout << "作成中 → 審査待ち" << endl;
-        } else if (operation == "緊急提出") {
-            cout << "作成中 → 優先審査待ち（課長スキップ）" << endl;
-        }
-        // ← 通知先を知らずに済む
-        wm->notifyAll("申請が受理されました");
-    }
-};
-
-class PendingPhase : public IWorkflowPhase {
-public:
-    void handle(WorkflowManager* wm, const string& operation,
-                int amount) override {
-        if (operation == "承認") cout << "審査待ち → 承認済み" << endl;
-        (void)amount;
-        wm->notifyAll("申請が承認されました");
+        string current = cases.getState(requestId);
+        string nextState = phases[current]->next(operation);
+        if (nextState == "") return;            // エラー処理は省略
+        cases.saveState(requestId, nextState);
+        cout << requestId << "：" << current << " → " << nextState << endl;
+        for (auto* l : listeners)               // ← 通知はリスナーへ委ねる
+            l->onChanged(requestId, current, nextState);
     }
 };
 ```
 
-**この段階の評価：**
-通知先の管理が `WorkflowManager` の分岐から切り離されました。新しい通知先を追加するときは `NotificationTargetRepository` のデータを増やします。新しい送信手段が必要なときだけ、`INotificationListener` を実装した送信スタブを追加して登録します。既存の Phase クラスは触れずに済みます。
+組み立て（`main`）側の差分は、通知リスナーを生成して登録する部分です（`targets` は `WorkflowManager` ではなくリスナーが持つようになりました）。
 
-しかし、まだ承認判定ロジック（`amount > 100000`）が Phase クラスに直書きされており、部署ごとの承認上限制度に対応するためには Phase クラスを修正する必要があるでしょう。
+```cpp
+RecipientNotifier recipient(targets);
+SettlementNotifier settlement;
+
+WorkflowManager wm(cases, approvers);
+wm.registerPhase("作成中", &draft);
+// …他の Phase も登録…
+wm.addListener(&recipient);   // 宛先へ送る
+wm.addListener(&settlement);  // 完了時は決済部門にも送る
+```
+
+**この段階の評価：**
+通知の宛先解決と「完了時の決済部門通知」という特別扱いが、`WorkflowManager` の本体から消えました。通知先を増やす・関連部署を追加するといった変更は、リスナーを1つ追加して登録するだけで済み、状態遷移コードには手を触れません。`WorkflowManager` は `NotificationTargetRepository` への直接依存も手放しました。
+
+ただし、まだ承認判定（`approvers.canApprove(...)`）が `WorkflowManager` の本体に直書きされています。来期からの部署別上限制度のようにルールが変わると、この本体を開いて書き換える必要が残っています。
 
 ### ステップ3：第1章で学んだ ルール差し替え構造を追加して完成する
 
-ステップ1で状態分離構造により状態遷移を分離し、ステップ2で通知分離構造によって通知先を切り離しました。しかし、まだ「判定ルール」の問題が残っています。この限界から、3つ目のパターンとしてルール差し替え構造を追加し、承認判定ロジックをインターフェースで切り出して外部から差し替え可能にします。
+**ステップ2との差：** 状態分離（Phase）と通知分離（リスナー）はそのまま。ステップ2まで `WorkflowManager` の本体に直書きだった承認判定を、差し替え可能なルールへ移します。緊急提出ルートと決済部門通知（通知リスナー）はそのまま維持します。
 
-このステップは承認判定軸の差分です。ステップ2の `PendingPhase`、通知内容、緊急申請の通知先データ（決済部門を含む）、緊急提出に対応する組み立てはそのまま維持します。
+`WorkflowManager` は「承認してよいか」の中身を知らず、注入されたルールへ尋ねるだけにします。判定方法を変えたいときは、組み立て箇所で別のルールに差し替えるだけで済みます。以下はステップ2のコードから、承認判定まわりだけを差し替えた抜粋です。
 
 ```cpp
-// 承認判定ルールの契約（インターフェース）
+// 承認判定ルールの契約
 class IApprovalRule {
 public:
-    virtual bool canApprove(int amount) = 0;
+    virtual bool canApprove(const string& approverId, int amount) = 0;
     virtual ~IApprovalRule() = default;
 };
 
-// 判定ルールの実装例
-class ManagerApprovalRule : public IApprovalRule {
+// 現行：承認者ごとの上限で判定するルール
+class LimitBasedRule : public IApprovalRule {
+    ApproverDatabase& approvers;
 public:
-    bool canApprove(int amount) override {
-        return amount <= 100000;  // 課長は10万円以下を承認可能
+    LimitBasedRule(ApproverDatabase& a) : approvers(a) {}
+    bool canApprove(const string& approverId, int amount) override {
+        return approvers.canApprove(approverId, amount);
     }
 };
 
-class DirectorApprovalRule : public IApprovalRule {
+// 来期から：部署共通の上限で判定するルール（差し替え候補）
+class DepartmentRule : public IApprovalRule {
 public:
-    bool canApprove(int amount) override {
-        return amount <= 1000000;  // 部長は100万円以下を承認可能
+    bool canApprove(const string&, int amount) override {
+        return amount <= 300000;
     }
 };
 
-// Phase クラスは判定ルールを外部から受け取る（ルール差し替え構造 を使う）
-class DraftPhase : public IWorkflowPhase {
-    IApprovalRule* rule;  // ← 判定ルールを注入される
+// WorkflowManager は判定の中身を知らず、ルールへ委ねる
+class WorkflowManager {
+    WorkflowCaseRepository& cases;
+    IApprovalRule& rule;               // ← ApproverDatabase 直接依存をやめた
+    map<string, IWorkflowPhase*> phases;
+    vector<INotificationListener*> listeners;
 public:
-    explicit DraftPhase(IApprovalRule* r) : rule(r) {}
-    void handle(WorkflowManager* wm, const string& operation,
-                int amount) override {
-        if (operation == "提出") {
-            if (rule->canApprove(amount))  // ← 判定を外部ルールに委ねる
-                cout << "作成中 → 審査待ち（承認可能）" << endl;
-            else
-                cout << "作成中：上位承認者へエスカレーション。" << endl;
-            wm->notifyAll("申請が受理されました");
+    WorkflowManager(WorkflowCaseRepository& c, IApprovalRule& r)
+        : cases(c), rule(r) {}
+    // registerPhase / addListener はステップ2のまま
+    void process(const string& requestId, const string& operation,
+                 int amount, const string& approverId) {
+        if (!rule.canApprove(approverId, amount)) { // ← ルールへ委ねる
+            cout << "承認上限を超えています。" << endl;
+            return;
         }
+        // 以降（状態の表引き・遷移・リスナー通知）はステップ2と同じ
     }
 };
 ```
 
+組み立て側では、使うルールを1つ選んで渡します。判定方法の変更は、この差し替え1か所で済みます。
+
+```cpp
+LimitBasedRule rule(approvers);   // 来期は DepartmentRule に差し替える
+WorkflowManager wm(cases, rule);
+```
+
 **この段階の評価：**
-3つの変化軸をそれぞれの契約へ分けました。新しい承認ルート、通知先、判定ルールは対応する実装クラスとして追加し、組み立て・登録・遷移設定を更新します。今回の変更シナリオでは、`WorkflowManager`の実行フローを変更せずに対応できます。
+3つの変化軸——状態遷移・通知・承認判定——が、それぞれ `IWorkflowPhase`・`INotificationListener`・`IApprovalRule` という別々の契約へ分かれました。新しい承認ルートは Phase を、通知先の追加はリスナーを、判定方法の変更はルールを、それぞれ追加・差し替えて組み立て箇所で登録するだけで対応できます。今回の変更シナリオでは、`WorkflowManager` の実行フロー本体を変更せずに対応できます。
 
 ---
 
