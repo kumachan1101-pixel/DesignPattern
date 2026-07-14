@@ -1070,61 +1070,172 @@ void WorkflowManager::process(const string& requestId,
 
 ### ステップ1：第3章で学んだ 状態分離構造を適用する ―― 状態遷移を分離する
 
-まず最も根本的な「状態遷移の混在」から解きます。同じ形で並んでいた分岐を、状態ごとのオブジェクト（`IWorkflowPhase` の実装）へ移し、`WorkflowManager` は現在状態へ処理を委ねるだけにします。緊急提出ルートと決済部門通知は各 Phase の分岐として維持します。
+まず最も根本的な「状態遷移の混在」から解きます。痛みコードでは「どの状態か」を `if` の条件で判定していました。これを、状態ごとのオブジェクト（`IWorkflowPhase` の実装）に置き換え、`WorkflowManager` は現在状態に対応するオブジェクトへ処理を委ねるだけにします。**土台（申請ID・状態リポジトリ・通知先・承認者データ）は痛みコードのまま**で、変えるのは「状態の分岐をどこが持つか」だけです。
+
+以下は、生成・組み立て（`main`）まで含めた、そのまま動く形です。通知先の解決（`targets`）と承認判定（`approvers`）は、まだ `WorkflowManager` に残したままにしてあります（ステップ2・3で外へ出します）。
 
 ```cpp
-// 状態遷移の契約（インターフェース）
+#include <iostream>
+#include <string>
+#include <map>
+using namespace std;
+
+// 申請ID → 現在状態（1-4と同じ土台）
+class WorkflowCaseRepository {
+    map<string, string> states;
+public:
+    void saveState(const string& id, const string& s) { states[id] = s; }
+    string getState(const string& id) {
+        auto it = states.find(id);
+        return it == states.end() ? "" : it->second;
+    }
+};
+
+// 申請ID → 通知先（1-4と同じ土台）
+class NotificationTargetRepository {
+    map<string, string> targets;
+public:
+    void setTarget(const string& id, const string& t) { targets[id] = t; }
+    string getTarget(const string& id) {
+        auto it = targets.find(id);
+        return it == targets.end() ? "" : it->second;
+    }
+};
+
+// 承認者ID → 承認上限（1-4と同じ土台）
+class ApproverDatabase {
+    map<string, int> limits;
+public:
+    void setLimit(const string& id, int limit) { limits[id] = limit; }
+    bool canApprove(const string& id, int amount) {
+        return limits[id] >= amount;
+    }
+};
+
+// ① 状態ごとの振る舞いの契約
 class IWorkflowPhase {
 public:
-    virtual void handle(class WorkflowManager* wm,
-                        const string& operation, int amount) = 0;
+    // この状態で operation を受けたときの次状態（不可なら空文字）
+    virtual string next(const string& operation) = 0;
     virtual ~IWorkflowPhase() = default;
 };
 
-// 各状態の実装
+// ②-a 「作成中」状態の振る舞い
 class DraftPhase : public IWorkflowPhase {
 public:
-    void handle(WorkflowManager* wm, const string& operation,
-                int amount) override {
-        // ← 状態遷移の知識がここに封じ込められた
-        if (operation == "提出") {
-            if (amount > 100000) cout << "役員承認が必要。" << endl;
-            cout << "作成中 → 審査待ち" << endl;
-            cout << "課長へ通知" << endl;   // ← まだ通知先がハードコード
-        } else if (operation == "緊急提出") {
-            cout << "作成中 → 優先審査待ち（課長スキップ）" << endl;
-            cout << "部長へ通知" << endl;
-        }
-        (void)wm; // 次ステップで通知リスナーへ渡すために受け取る
+    string next(const string& operation) override {
+        if (operation == "提出")     return "審査待ち";
+        if (operation == "緊急提出") return "優先審査待ち"; // 課長スキップ
+        return "";
     }
 };
 
+// ②-b 「審査待ち」状態の振る舞い
 class PendingPhase : public IWorkflowPhase {
 public:
-    void handle(WorkflowManager* wm, const string& operation,
-                int amount) override {
-        if (operation == "承認") {
-            cout << "審査待ち → 承認済み" << endl;
-            cout << "部長へ通知" << endl;
-        }
-        (void)wm; (void)amount;
+    string next(const string& operation) override {
+        if (operation == "承認") return "承認済み";
+        if (operation == "却下") return "却下";
+        return "";
     }
 };
 
-class WorkflowManager {
-    IWorkflowPhase* phase;  // ← 抽象型のみ知る
+// ②-c 「優先審査待ち」状態の振る舞い
+class PriorityPendingPhase : public IWorkflowPhase {
 public:
-    void setPhase(IWorkflowPhase* p) { phase = p; }
-    void process(const string& operation, int amount) {
-        phase->handle(this, operation, amount);  // ← if文がなくなった！
+    string next(const string& operation) override {
+        if (operation == "承認") return "完了"; // 完了で決済部門通知
+        return "";
     }
 };
+
+// ③ 状態名から振る舞いを引いて委ねるだけの本体
+class WorkflowManager {
+    WorkflowCaseRepository& cases;
+    NotificationTargetRepository& targets;
+    ApproverDatabase& approvers;
+    map<string, IWorkflowPhase*> phases; // 状態名 → 振る舞い
+public:
+    WorkflowManager(WorkflowCaseRepository& c,
+                    NotificationTargetRepository& t,
+                    ApproverDatabase& a)
+        : cases(c), targets(t), approvers(a) {}
+
+    // 状態名と、その状態の振る舞いを登録する
+    void registerPhase(const string& state, IWorkflowPhase* p) {
+        phases[state] = p;
+    }
+
+    void process(const string& requestId, const string& operation,
+                 int amount, const string& approverId) {
+        // ↓ 判定ルール：まだ本体に残る（ステップ3で分離）
+        if (!approvers.canApprove(approverId, amount)) {
+            cout << "承認上限を超えています。" << endl;
+            return;
+        }
+        string current = cases.getState(requestId);
+        IWorkflowPhase* phase = phases[current]; // ← if文の代わりに表引き
+        string nextState = phase->next(operation);
+        if (nextState == "") {
+            cout << "エラー：" << current << "で" << operation
+                 << "はできません。" << endl;
+            return;
+        }
+        cases.saveState(requestId, nextState);   // 状態を実際に更新
+        cout << requestId << "：" << current << " → " << nextState << endl;
+        // ↓ 通知：まだ本体に残る（ステップ2で分離）
+        cout << targets.getTarget(requestId) << "へ通知" << endl;
+        if (nextState == "完了") cout << "決済部門へ通知" << endl;
+    }
+};
+
+int main() {
+    // ---- 実体の生成と組み立て ----
+    WorkflowCaseRepository cases;
+    cases.saveState("REQ001", "作成中");
+    cases.saveState("REQ002", "審査待ち");
+
+    NotificationTargetRepository targets;
+    targets.setTarget("REQ001", "課長");
+    targets.setTarget("REQ002", "部長");
+
+    ApproverDatabase approvers;
+    approvers.setLimit("APR001", 100000);
+
+    DraftPhase draft;
+    PendingPhase pending;
+    PriorityPendingPhase priorityPending;
+
+    WorkflowManager wm(cases, targets, approvers);
+    wm.registerPhase("作成中", &draft);
+    wm.registerPhase("審査待ち", &pending);
+    wm.registerPhase("優先審査待ち", &priorityPending);
+
+    // ---- 実行 ----
+    wm.process("REQ001", "提出", 50000, "APR001"); // 作成中 → 審査待ち
+    cout << "---" << endl;
+    wm.process("REQ002", "承認", 50000, "APR001"); // 審査待ち → 承認済み
+    return 0;
+}
+```
+
+実行結果：
+
+```
+REQ001：作成中 → 審査待ち
+課長へ通知
+---
+REQ002：審査待ち → 承認済み
+部長へ通知
 ```
 
 **この段階の評価：**
-`WorkflowManager` から具体的な状態名を判定する `if` 文がなくなりました。新しい承認ルートは `IWorkflowPhase` を実装したPhaseクラスを追加し、組み立て箇所へ登録することで対応できます。既存の状態インターフェースで表現できる限り、`WorkflowManager` の委譲ロジックは保てます。
+`WorkflowManager` から状態名を判定する `if` の塊が消え、状態名で `IWorkflowPhase` を表引きして委ねる形になりました。新しい状態や承認ルートは、`IWorkflowPhase` を実装したクラスを追加し、`main` の組み立て箇所で `registerPhase` に登録するだけで増やせます。状態は `cases.saveState` で実際に更新されるので、`REQ001` は「作成中→審査待ち」へ本当に遷移します。
 
-しかし、まだ2つの問題が残っています。通知先（「課長へ通知」「部長へ通知」）が各 Phase クラスにハードコードされており、通知先を変えるたびに Phase クラスを修正する必要があるでしょう。また、判定ロジック（`amount > 100000`）も Phase クラスの中に直書きされています。判定ロジックは `WorkflowManager` から `DraftPhase` に移動しただけで、「承認上限金額のルールが変わったら `DraftPhase` を開いて書き換える」という問題は残っています。
+ただし `process` の中には、まだ状態遷移とは別の理由で変わる知識が2つ残っています。1つは通知先の解決（`targets.getTarget(...)`）と決済部門への追加通知——これは通知の都合で変わります。もう1つは承認判定（`approvers.canApprove(...)`）——これは部署別上限などルールの都合で変わります。次のステップ2で通知を、ステップ3で判定ルールを、順に外へ出します。
+
+> [!NOTE]
+> ここまでのステップ1が、この章の土台となる**動く完全なコード**です。以降のステップ2・3は、このステップ1のコードを起点に「変わった部分だけ」を示す差分抜粋です（リポジトリ・状態オブジェクト・組み立ての骨格は同じものを引き継ぎます）。3構造をすべて組み込んだ、生成・組み立てまで含む最終的な動くコードは、フェーズ7でまとめて示します。
 
 ### ステップ2：第7章で学んだ 通知分離構造を追加する ―― 通知を分離する
 
