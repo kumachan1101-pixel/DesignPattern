@@ -384,6 +384,12 @@ def render_report(findings: list[Finding]) -> str:
     return "\n".join(lines)
 
 
+def write_text_lf(path: Path, text: str) -> None:
+    """Write generated artifacts without Windows newline conversion."""
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-compile", action="store_true")
@@ -393,13 +399,13 @@ def main() -> int:
     args = parser.parse_args()
 
     findings = collect_findings(not args.no_compile)
-    args.report.write_text(render_report(findings), encoding="utf-8")
+    write_text_lf(args.report, render_report(findings))
 
     serialized = [asdict(item) for item in findings]
     if args.write_baseline:
-        DEFAULT_BASELINE.write_text(
+        write_text_lf(
+            DEFAULT_BASELINE,
             json.dumps(serialized, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
         )
 
     if args.check_baseline:

@@ -1019,6 +1019,8 @@ flowchart LR
 
 「PayPay対応」の要求を、フェーズ1の現状コードで実装しようと試みます。PayPayを追加するには、次の修正が必要です。
 
+> **中間コードの継続条件：** 以下はPayPay追加で触る箇所を責任ごとに抜き出します。`ProcessorRegistry` の手段確認、`PaymentGatewayClient` / `PaymentStatusClient` の外部境界、`PaymentLog` の記録は維持します。表示しない境界が削除されたのではなく、変更箇所だけを順に見せています。
+
 **修正1：PayPay固有の入力構造体を追加**
 
 ```cpp
@@ -1261,6 +1263,8 @@ PaymentResult processPayment(
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
 フェーズ6では、第0章の段階的進化アプローチを標準フローとして使います。フェーズ5で「変わるのは生成する具体クラス・手段固有の入力検証・処理モード・エラー対処であり、注文処理から見た `PaymentRequest` → `PaymentResult` の契約は守りたい」ことが分かりました。
+
+> **中間コードの継続条件：** 各ステップはProcessorの生成・選択だけを比較します。`ProcessorRegistry`、`PaymentGatewayClient`、`PaymentStatusClient`、`PaymentLog` と、`PaymentRequest` → `PaymentResult` の契約は全ステップで維持します。生成コードだけの抜粋を、決済境界全体の削除とは扱いません。
 
 フェーズ5の課題から、対策候補は次のように出します。
 

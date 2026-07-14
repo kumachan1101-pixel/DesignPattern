@@ -109,6 +109,21 @@ PHASE7_CODE_TOKENS = {
     "chapter12.md": ["SubmitEmergency", "決済部門"],
 }
 
+# 中間フェーズが中心ロジックの差分抜粋でも、フェーズ1から維持する
+# DB・Repository・外部境界を削除したように見せないための継続契約。
+PHASE_BOUNDARY_CONTINUITY_TOKENS = {
+    "chapter01.md": ["CustomerDatabase", "CheckoutResultRenderer"],
+    "chapter02.md": ["AccountDatabase", "TransferHistory"],
+    "chapter03.md": ["EventDatabase"],
+    "chapter05.md": ["CategoryDatabase"],
+    "chapter06.md": ["MenuDatabase"],
+    "chapter07.md": ["ProductDatabase"],
+    "chapter08.md": ["ProcessorRegistry", "PaymentLog"],
+    "chapter09_2.md": ["UserDatabase"],
+    "chapter10.md": ["PartnerDatabase"],
+    "chapter11.md": ["TemplateRegistry", "ReportRenderingApi"],
+}
+
 BANNED_PATTERNS = [
     (
         re.compile(r"直接（直差し）|間接（アダプター経由）"),
@@ -338,6 +353,40 @@ def check_phase7_continuity(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def check_intermediate_boundary_continuity(
+    text: str, path: Path
+) -> list[Issue]:
+    """Require retained boundaries to remain explicit in phases 3 and 6."""
+    tokens = PHASE_BOUNDARY_CONTINUITY_TOKENS.get(path.name, [])
+    if not tokens:
+        return []
+    phase3 = text.find("## 🟣 フェーズ3：問題特定")
+    phase4 = text.find("## 🟠 フェーズ4：原因分析", phase3)
+    phase6 = text.find("## 🔴 フェーズ6：対策検討")
+    phase7 = text.find("## 🟢 フェーズ7：対策実施", phase6)
+    sections = [
+        ("フェーズ3", phase3, text[phase3:phase4]),
+        ("フェーズ6", phase6, text[phase6:phase7]),
+    ]
+    issues: list[Issue] = []
+    for label, offset, section in sections:
+        if "中間コードの継続条件" not in section:
+            issues.append(
+                Issue(path, line_number(text, offset),
+                      f"{label}に中間コードの継続条件がありません")
+            )
+        for token in tokens:
+            if token not in section:
+                issues.append(
+                    Issue(
+                        path,
+                        line_number(text, offset),
+                        f"{label}で維持する境界「{token}」が不明です",
+                    )
+                )
+    return issues
+
+
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
@@ -350,6 +399,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase6_continuity(text, path))
         issues.extend(check_phase6_step_chain(text, path))
         issues.extend(check_phase7_continuity(text, path))
+        issues.extend(check_intermediate_boundary_continuity(text, path))
     return issues
 
 
