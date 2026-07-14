@@ -247,6 +247,51 @@ def check_banned_patterns(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def check_required_chapter_structures(text: str, path: Path) -> list[Issue]:
+    """Check recurring structures that previously depended on visual review."""
+    markers = {
+        "1-1": "### 1-1：このシステムの仕様",
+        "1-2": "### 1-2：動作例",
+        "1-3": "### 1-3：登場クラスとクラス構成図",
+        "1-4": "### 1-4：現状コード",
+        "1-5": "### 1-5：変更要求",
+        "phase2": "## 🔵 フェーズ2：仮説立案",
+    }
+    offsets = {name: text.find(marker) for name, marker in markers.items()}
+    if any(offset < 0 for offset in offsets.values()):
+        # Missing headings are already reported by find_in_order.
+        return []
+
+    section11 = text[offsets["1-1"]:offsets["1-2"]]
+    section13 = text[offsets["1-3"]:offsets["1-4"]]
+    section15 = text[offsets["1-5"]:offsets["phase2"]]
+    issues: list[Issue] = []
+
+    if "仕様項目" not in section11 or "具体例" not in section11:
+        issues.append(Issue(path, line_number(text, offsets["1-1"]),
+                            "1-1に具体例付きの仕様要点表がありません"))
+    if "仕様整理図" not in section11 or "```mermaid" not in section11:
+        issues.append(Issue(path, line_number(text, offsets["1-1"]),
+                            "1-1に仕様説明後の仕様整理図がありません"))
+
+    class_table = section13.find("| クラス名")
+    class_diagram = section13.find("```mermaid")
+    if class_table < 0 or class_diagram < 0 or class_table > class_diagram:
+        issues.append(Issue(path, line_number(text, offsets["1-3"]),
+                            "1-3は登場クラス表をクラス構成図より前に置いてください"))
+    if "担当する仕様" not in section13[:class_diagram]:
+        issues.append(Issue(path, line_number(text, offsets["1-3"]),
+                            "1-3の登場クラス表に担当する仕様がありません"))
+
+    if "変更前後の入力・判定・加工・出力差分" not in section15:
+        issues.append(Issue(path, line_number(text, offsets["1-5"]),
+                            "1-5に変更前後の入出力差分表がありません"))
+    if "```mermaid" not in section15:
+        issues.append(Issue(path, line_number(text, offsets["1-5"]),
+                            "1-5に変更後の仕様整理図がありません"))
+    return issues
+
+
 def check_phase6_baseline(text: str, path: Path) -> list[Issue]:
     """Require a visible code baseline before phase 6 step 1.
 
@@ -395,6 +440,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
     if core:
         issues.extend(find_in_order(text, REQUIRED_PHASES, path))
         issues.extend(find_in_order(text, REQUIRED_NUMBERED_SECTIONS, path))
+        issues.extend(check_required_chapter_structures(text, path))
         issues.extend(check_phase6_baseline(text, path))
         issues.extend(check_phase6_continuity(text, path))
         issues.extend(check_phase6_step_chain(text, path))
