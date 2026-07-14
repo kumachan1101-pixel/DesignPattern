@@ -1423,7 +1423,7 @@ public:
 class IPriorityRule {
 public:
     virtual ~IPriorityRule() = default;
-    virtual string getPriority(string userTier) = 0;
+    virtual string getPriority(string userType) = 0;
 };
 ```
 
@@ -1462,19 +1462,19 @@ public:
 // 法人ユーザー向けSLA優先度ルール（フェーズ3の変更を維持）
 class CorporatePriority : public IPriorityRule {
 public:
-    string getPriority(string userTier) override { return "High"; }
+    string getPriority(string userType) override { return "High"; }
 };
 
 // プレミアム向け優先度ルール
 class PremiumPriority : public IPriorityRule {
 public:
-    string getPriority(string userTier) override { return "High"; }
+    string getPriority(string userType) override { return "High"; }
 };
 
 // 一般（standard）ユーザー向け優先度ルール
 class NormalPriority : public IPriorityRule {
 public:
-    string getPriority(string userTier) override { return "Normal"; }
+    string getPriority(string userType) override { return "Normal"; }
 };
 ```
 
@@ -1542,18 +1542,18 @@ public:
         : state(st), strategy(s) {}
     void setState(ITicketPhase* s) { state = s; }
     void setStrategy(IPriorityRule* s) { strategy = s; }
-    void execute(string userTier) {
-        string priority = strategy->getPriority(userTier); // ← 抽象経由
+    void execute(string userType) {
+        string priority = strategy->getPriority(userType); // ← 抽象経由
         cout << "優先度: " << priority << " — ";
         state->display();
     }
-    void transition(string userTier) {
-        string priority = strategy->getPriority(userTier);
+    void transition(string userType) {
+        string priority = strategy->getPriority(userType);
         cout << "優先度: " << priority << " — ";
         state->handle(this); // 現在の状態が次の状態を決める
     }
-    string calculatePriority(string userTier) {
-        return strategy->getPriority(userTier);
+    string calculatePriority(string userType) {
+        return strategy->getPriority(userType);
     }
 };
 ```

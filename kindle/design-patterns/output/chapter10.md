@@ -181,7 +181,7 @@ flowchart LR
 ```mermaid
 classDiagram
     class BatchExecutor {
-        +execute(string targetId)
+        +execute(string partnerId)
     }
     class SystemAClient {
         +send(string data)
@@ -595,14 +595,14 @@ Slack通知は成功・失敗を問わず送る要求のため、送信失敗時
 // C社連携を追加しようとすると...
 class BatchExecutor {
 public:
-    void execute(string targetId) {
-        if (targetId == "A") {
+    void execute(string partnerId) {
+        if (partnerId == "A") {
             SystemAClient client;
             client.send("data");
-        } else if (targetId == "B") {
+        } else if (partnerId == "B") {
             SystemBClient client;
             client.send("data");
-        } else if (targetId == "C") {          // ← 新しい連携先を追加
+        } else if (partnerId == "C") {          // ← 新しい連携先を追加
             SystemCClient client;              // ← SystemCClientも追加が必要
             client.send("data");
         }
@@ -803,11 +803,11 @@ graph LR
 
 ```cpp
 // 現在の BatchExecutor.execute() が知っていること（全部）
-void execute(string targetId) {
-    if (targetId == "A") {
+void execute(string partnerId) {
+    if (partnerId == "A") {
         SystemAClient client;   // ← 具体クラスを生成している（接続点C）
         client.send("data");    // ← 通信の詳細を知っている（接続点A）
-    } else if (targetId == "B") {
+    } else if (partnerId == "B") {
         SystemBClient client;   // ← 具体クラスを生成している（接続点C）
         client.send("data");    // ← 通信の詳細を知っている（接続点A）
     }
@@ -867,14 +867,14 @@ void execute(string targetId) {
 
 ```cpp
 // フェーズ3の変更途中コード（対策前）の要点
-void BatchExecutor::execute(string targetId) {
-    if (targetId == "A") {
+void BatchExecutor::execute(string partnerId) {
+    if (partnerId == "A") {
         SystemAClient client;
         client.send("data");
-    } else if (targetId == "B") {
+    } else if (partnerId == "B") {
         SystemBClient client;
         client.send("data");
-    } else if (targetId == "C") {
+    } else if (partnerId == "C") {
         SystemCClient client;
         client.send("data");
     }
@@ -895,12 +895,12 @@ void BatchExecutor::execute(string targetId) {
 // ステップ1：各処理を独立したプライベートメソッドとして切り出す
 class BatchExecutor {
 public:
-    void execute(string targetId) {
-        if (targetId == "A") {
+    void execute(string partnerId) {
+        if (partnerId == "A") {
             sendToA(); // ← 処理の意図がメソッド名で明確になった
-        } else if (targetId == "B") {
+        } else if (partnerId == "B") {
             sendToB();
-        } else if (targetId == "C") {
+        } else if (partnerId == "C") {
             sendToC();
         }
         notifyComplete(); // ← 通知処理もメソッド名で意図を示す
@@ -963,14 +963,14 @@ public:
 // BatchExecutorが具体クラスを知り、処理をそのクラスに委ねる
 class BatchExecutor {
 public:
-    void execute(string targetId) {
-        if (targetId == "A") {
+    void execute(string partnerId) {
+        if (partnerId == "A") {
             SystemAClient client; // ← 具体：型名を直接書いている
             client.send("data"); // ← 間接：送信処理はclientに委ねる
-        } else if (targetId == "B") {
+        } else if (partnerId == "B") {
             SystemBClient client;
             client.send("data");
-        } else if (targetId == "C") {
+        } else if (partnerId == "C") {
             SystemCClient client;
             client.send("data");
         }

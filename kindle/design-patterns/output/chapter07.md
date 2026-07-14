@@ -709,10 +709,10 @@ class InventoryManager {
     ChatNotifier     chat;
     SMSNotifier      sms; // ← ①メンバ変数を追加
 public:
-    void reduceStock(std::string id, int qty) {
-        std::cout << "在庫減少: " << id
-                  << " × " << qty << std::endl;
-        std::string msg = id + " の在庫が減少しました";
+    void reduceStock(std::string productId, int quantity) {
+        std::cout << "在庫減少: " << productId
+                  << " × " << quantity << std::endl;
+        std::string msg = productId + " の在庫が減少しました";
         notifyAll(msg);
     }
 private:
