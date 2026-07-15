@@ -296,12 +296,58 @@ def check_required_chapter_structures(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def _phase6_section(text: str) -> tuple[int, str]:
+    p6 = text.find("## 🔴 フェーズ6")
+    if p6 < 0:
+        return -1, ""
+    p7 = text.find("## 🟢 フェーズ7", p6)
+    return p6, text[p6:(p7 if p7 > 0 else len(text))]
+
+
+def is_new_phase6(text: str) -> bool:
+    """設計先行フォーマット（6-1 構造の見立て…）かどうか。"""
+    _, sec = _phase6_section(text)
+    return "### 6-1" in sec
+
+
+def check_phase6_design(text: str, path: Path) -> list[Issue]:
+    """設計先行フェーズ6の必須要素を確認する。
+
+    対策検討は実装ではなく設計を決める場である。クラス図（構造の見立て）・
+    データ配置・接続点の契約（インターフェース）・影響範囲・採用判断を置き、
+    完全な実装（int main）はフェーズ7へ回す。
+    """
+    if not is_new_phase6(text):
+        return []
+    p6, sec = _phase6_section(text)
+    ln = line_number(text, p6)
+    issues: list[Issue] = []
+    checks = [
+        ("### 6-1", "フェーズ6に構造の見立て（6-1）がありません"),
+        ("```mermaid", "設計先行フェーズ6に構造のクラス図（mermaid）がありません"),
+        ("### 6-2", "フェーズ6にデータ配置（6-2）がありません"),
+        ("### 6-3", "フェーズ6に接続点の契約／インターフェース設計（6-3）がありません"),
+        ("### 6-4", "フェーズ6に影響範囲（6-4）がありません"),
+        ("### 採用する形を決める", "フェーズ6に採用判断がありません"),
+    ]
+    for token, msg in checks:
+        if token not in sec:
+            issues.append(Issue(path, ln, msg))
+    if "int main(" in sec:
+        issues.append(Issue(path, ln,
+                            "設計先行フェーズ6に完全な実装（int main）が残っています。"
+                            "動く実装はフェーズ7へ移してください"))
+    return issues
+
+
 def check_phase6_baseline(text: str, path: Path) -> list[Issue]:
     """Require a visible code baseline before phase 6 step 1.
 
     An introductory sentence saying that phase 6 starts from the phase 3
     code is insufficient: readers must be able to compare the actual code.
     """
+    if is_new_phase6(text):
+        return []
     issues: list[Issue] = []
     phase6 = text.find("## 🔴 フェーズ6：対策検討")
     baseline = text.find(PHASE6_BASELINE_HEADING, phase6)
@@ -321,6 +367,8 @@ def check_phase6_baseline(text: str, path: Path) -> list[Issue]:
 
 def check_phase6_continuity(text: str, path: Path) -> list[Issue]:
     """Check that every improvement step keeps phase 3 additions visible."""
+    if is_new_phase6(text):
+        return []
     tokens = PHASE6_CONTINUITY_TOKENS.get(path.name)
     if not tokens:
         return []
@@ -347,6 +395,8 @@ def check_phase6_continuity(text: str, path: Path) -> list[Issue]:
 
 def check_phase6_step_chain(text: str, path: Path) -> list[Issue]:
     """Require step 2+ to identify the immediately preceding comparison."""
+    if is_new_phase6(text):
+        return []
     phase6 = text.find("## 🔴 フェーズ6：対策検討")
     adoption = text.find("### 採用する形を決める", phase6)
     section = text[phase6:adoption]
@@ -415,8 +465,10 @@ def check_intermediate_boundary_continuity(
     phase7 = text.find("## 🟢 フェーズ7：対策実施", phase6)
     sections = [
         ("フェーズ3", phase3, text[phase3:phase4]),
-        ("フェーズ6", phase6, text[phase6:phase7]),
     ]
+    if not is_new_phase6(text):
+        # 設計先行フェーズ6には「中間コード」が無いため、この継続契約は課さない。
+        sections.append(("フェーズ6", phase6, text[phase6:phase7]))
     issues: list[Issue] = []
     for label, offset, section in sections:
         if "中間コードの継続条件" not in section:
@@ -548,6 +600,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_required_chapter_structures(text, path))
         issues.extend(check_error_condition_last(text, path))
         issues.extend(check_boundary_error_marker(text, path))
+        issues.extend(check_phase6_design(text, path))
         issues.extend(check_phase6_baseline(text, path))
         issues.extend(check_phase6_continuity(text, path))
         issues.extend(check_phase6_step_chain(text, path))
