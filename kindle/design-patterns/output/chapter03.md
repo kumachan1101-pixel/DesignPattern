@@ -975,13 +975,7 @@ graph LR
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6の出発点は、フェーズ3で変更要求（新しい予約状態の追加）を当てて痛んだ「変更途中コード」です。変更要求を容れる前の現状コードには戻しません。`reserve()` / `pay()` / `cancel()` に増えた「どの状態なら操作できるか」「操作後どの状態へ移るか」という状態ごとの分岐から、同じ形で扱える共通点（状態ごとに振る舞いをまとめる契約）を抜き出し、変わる差分を接続点の外へ出す形へ整理していきます。読者が「痛み → 共通点の発見 → 抽象化」の順で追えるよう、変更途中コードに既に並んでいる共通の形を読み取り、そこから直接それぞれの構造へ分けていきます。
-
-> **中間コードの継続条件：** 各ステップは状態分岐の移動だけを比較します。`EventDatabase` と座席更新は全ステップで維持します。利用側の引数なし `reserve()` は公開操作、状態側の `reserve(TicketReservation* ctx)` は委譲先の契約であり、同じメソッドの引数が揺れたのではなく、状態処理を別責任へ移した結果です。
-
-フェーズ6では、第0章の段階的進化アプローチを標準フローとして使います。ただし、ここでのステップは一本道の作業手順ではなく、対策案を比較するための候補です。共通の形が分割前から見えているこの章では小さな整理（関数へ切り出す）を飛ばし、責任の移動、契約、窓口、組み合わせ、生成責任の移動のうち、この章の課題に必要な案だけを比べます。
-フェーズ5で「変わるのは状態ごとの振る舞いであり、予約オブジェクトへ入力を渡す入口は安定させたい」ことが分かりました。ここでは、その振る舞いをどのように状態ごとに分けるかを段階的に検討します。どのステップも動作例テーブルで示した動作を実現します。違うのは「変更が来たときにどこを触ることになるか」です。ステップ1から順に試していくことで、どこで止めるのが適切かを自分の目で確かめていきましょう。
-
+フェーズ6は、フェーズ5で定めた課題——**状態ごとの振る舞いを、公開操作の形を変えずに切り離す接続点を作る**——を受けて始めます。ここで決めるのは実装ではなく設計です。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。動く実装一式はフェーズ7で書きます。
 フェーズ5の課題から、対策候補は次のように出します。
 
 | フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
@@ -993,354 +987,131 @@ graph LR
 
 ---
 
-#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+#### 起点：フェーズ3の痛みコード
 
-比較元は、`Held` と `Waitlisted` を追加した結果、公開操作ごとに状態分岐が増えたフェーズ3の変更途中コードです。新しい状態と操作を消さず、この分岐を整理します。
+比較元は、`Held` と `Waitlisted` を追加した結果、公開操作ごとに状態分岐が増えたフェーズ3の変更途中コードです。
 
 ```cpp
 // フェーズ3の変更途中コード（対策前）の要点
 void pay() {
-    if (status == "Reserved") {
-        status = "Paid";
-    } else if (status == "Held") {
-        status = "Paid";
-    } else {
-        handlePayError();
-    }
+    if (status == "Reserved")   status = "Paid";
+    else if (status == "Held")  status = "Paid";
+    else handlePayError();
 }
 void cancel() {
-    if (status == "Reserved" || status == "Held") {
-        status = "Available";
-    } else {
-        handleCancelError();
-    }
+    if (status == "Reserved" || status == "Held") status = "Available";
+    else handleCancelError();
 }
-void hold() {
-    if (status == "Reserved") status = "Held";
-    else handleHoldError();
-}
-void expire() {
-    if (status == "Held") status = "Available";
-    else handleExpireError();
-}
-void addToWaitlist() {
-    if (status == "Available") status = "Waitlisted";
-    else handleWaitlistError();
-}
-void upgrade() {
-    if (status == "Waitlisted") status = "Reserved";
-    else handleUpgradeError();
-}
+void hold()   { if (status == "Reserved")   status = "Held";       else handleHoldError(); }
+void expire() { if (status == "Held")       status = "Available";  else handleExpireError(); }
+// addToWaitlist / upgrade も同じく status 分岐が並ぶ
 ```
 
-どの分岐も `status = "次状態"` を代入して結果を表示するだけで、状態ごとに違うのは「どの操作を受け付け、どの状態へ進むか」だけです。共通の形は分割前から見えているので、いったんプライベートメソッドへ切り出して名前を付ける段階（第0章の「関数へ切り出す」）は踏まず、最初から**状態そのものをオブジェクトにする**ところへ進みます。各ステップは直前のステップとの差分として読みます。
+### 6-1：痛みコードを変換して、接続点の「形」を探す
 
-### ステップ1：状態ごとにクラスを作る
+痛みは、`pay`/`cancel`/`hold`/… の**どの操作にも `status` の分岐**があり、状態を1つ増やすと全操作の分岐を触ることでした。どんな形なら状態を切り離せるか、痛みコードを変換して探します。どの分岐も「その状態で操作を受け付け、次状態へ移す」だけで、共通の形は既に見えています。だから関数へ切り出す段階は飛ばし、**状態そのものをオブジェクトにする**変換から始めます。
 
-痛みコードでは `pay()`・`cancel()`・`hold()` などの公開操作それぞれが現在状態で分岐していました。同じ状態の振る舞いが複数の操作に散らばっているので、「状態ごとにロジックをまとめれば整理できるのでは」という自然な発想が浮かぶ。仕様変更後の5状態（`Held`・`Waitlisted` を含む）をクラスに分け、`TicketReservation` がそれぞれを直接フィールドとして持つ形を試してみる。
+**変換1：状態ごとにクラスを作り、その状態で受け付ける操作を寄せる。**
 
 ```cpp
-class AvailableState {
-public:
-    void reserve(std::string& status) {
-        status = "Reserved";
-        std::cout << "予約完了しました\n";
-    }
-    void addToWaitlist(std::string& status) {
-        status = "Waitlisted";
-        std::cout << "キャンセル待ちに登録しました\n";
-    }
-};
-
-class ReservedState {
-public:
-    void pay(std::string& status) {
-        status = "Paid";
-        std::cout << "支払い完了しました\n";
-    }
-    void cancel(std::string& status) {
-        status = "Available";
-        std::cout << "予約をキャンセルしました\n";
-    }
-    void hold(std::string& status) {
-        status = "Held";
-        std::cout << "保留にしました\n";
-    }
-};
-
-class HeldState {
-public:
-    void pay(std::string& status) {
-        status = "Paid";
-        std::cout << "保留から支払い完了しました\n";
-    }
-    void cancel(std::string& status) {
-        status = "Available";
-        std::cout << "保留からキャンセルしました\n";
-    }
-    void expire(std::string& status) {
-        status = "Available";
-        std::cout << "保留期限が切れました\n";
-    }
-};
-
-class WaitlistedState {
-public:
-    void upgrade(std::string& status) {
-        status = "Reserved";
-        std::cout << "予約に昇格しました\n";
-    }
-};
-
-class PaidState {
-public:
-    void errorReserve() {
-        std::cout << "支払い済みのため再予約できません\n";
-    }
-    void errorCancel() {
-        std::cout << "支払い済みのためキャンセルできません\n";
-    }
-};
-
-class TicketReservation {
-private:
-    std::string    status;
-    AvailableState available; // ← 具体クラスを直接保持
-    ReservedState  reserved;  // ← 具体クラスを直接保持
-    PaidState      paid;      // ← 具体クラスを直接保持
-    HeldState      held;
-    WaitlistedState waitlisted;
-
-    void handleReserveError() {
-        std::cout << "現在予約できません\n";
-    }
-    void handlePayError() {
-        std::cout << "支払いに適した状態ではありません\n";
-    }
-    void handleCancelError() {
-        std::cout << "キャンセルできません\n";
-    }
-    void handleHoldError() { std::cout << "保留できません\n"; }
-    void handleExpireError() { std::cout << "期限切れ処理は行えません\n"; }
-    void handleWaitlistError() { std::cout << "キャンセル待ちに登録できません\n"; }
-    void handleUpgradeError() { std::cout << "予約に昇格できません\n"; }
-
-public:
-    TicketReservation() : status("Available") {}
-
-    void reserve() {
-        if (status == "Available") { available.reserve(status); return; }
-        if (status == "Paid")      { paid.errorReserve();       return; }
-        handleReserveError();
-    }
-    void pay() {
-        if (status == "Reserved") { reserved.pay(status); return; }
-        if (status == "Held")     { held.pay(status);     return; }
-        handlePayError();
-    }
-    void cancel() {
-        if (status == "Reserved") { reserved.cancel(status); return; }
-        if (status == "Held")     { held.cancel(status);     return; }
-        if (status == "Paid")     { paid.errorCancel();      return; }
-        handleCancelError();
-    }
-    void hold() {
-        if (status == "Reserved") { reserved.hold(status); return; }
-        handleHoldError();
-    }
-    void expire() {
-        if (status == "Held") { held.expire(status); return; }
-        handleExpireError();
-    }
-    void addToWaitlist() {
-        if (status == "Available") { available.addToWaitlist(status); return; }
-        handleWaitlistError();
-    }
-    void upgrade() {
-        if (status == "Waitlisted") { waitlisted.upgrade(status); return; }
-        handleUpgradeError();
-    }
-};
+class ReservedState { void pay(ctx){/*→Paid*/}  void cancel(ctx){/*→Available*/} };
+class HeldState     { void pay(ctx){/*→Paid*/}  void cancel(ctx){/*→Available*/} void expire(ctx){/*→Available*/} };
 ```
 
-状態ごとのロジックが `TicketReservation` から別クラスに移り、クラスを見ただけで「これがAvailable状態のふるまい」と分かるようになった。
+見えたこと：どの状態クラスも `reserve`/`pay`/`cancel`… という**同じ操作の集まり**を持ち、状態ごとに違うのは中身だけ。
+まだ詰まること：`TicketReservation` がまだ「今 `status` が何かで、どの状態クラスを呼ぶか」を分岐で選んでいる。状態追加でその分岐が増える。
 
-**評価：** `HeldState` と `WaitlistedState` を含む状態ごとのロジックは分離できたが、`TicketReservation` が全状態クラス名と選択条件を知っています。さらに新しい状態が必要になったとき、新クラスだけでなく、関係する公開操作の分岐も追記しなければなりません。
-
----
-
-### ステップ2：状態の契約を導入し、現在の状態に委譲する
-
-ステップ1で「`TicketReservation` が全状態クラスを直接知っている」ことが問題だと分かった。解消するには `TicketReservation` が具体的なクラス名を知らなくてよい構造にすればいい。「どの状態クラスも `reserve()`・`pay()`・`cancel()` を持つ」という契約（インターフェース）を定め、`TicketReservation` はその契約だけを通じて現在の状態に処理を丸投げする。
-
-**状態インターフェース（IReservationState）：**
-
-> [!INFO] C++の「純粋仮想関数（`= 0`）」とは
-> `virtual void reserve(...) = 0;` の `= 0` は「このメソッドはサブクラスで必ず実装しなければならない」という宣言です。Java の `interface` メソッドや Python の `@abstractmethod` と同じ役割で、このクラス自体はインスタンス化できません。C++ にはJavaの `interface` キーワードがないため、すべてのメソッドを `= 0` にした抽象クラスがインターフェースの代わりを果たします。
-
-以下に状態インターフェースの定義を示します：
+**変換2：現在状態を状態オブジェクトとして持ち、操作を委譲する。** `status` 文字列でなく現在状態オブジェクトを保持し、操作をそれへ丸投げします。
 
 ```cpp
-class TicketReservation;
+IReservationState* state;                 // 現在状態そのもの
+void pay()    { state->pay(this); }        // 分岐なしで委譲
+void cancel() { state->cancel(this); }     // 次状態への遷移は状態側で setState
+```
 
+詰まり解消：`TicketReservation` は「今どの状態か」を分岐で選ばず、**現在状態オブジェクトへ一律委譲**する。状態遷移は各状態クラスが `setState` で行う。
+
+**変換の結論：** 状態ごとの振る舞いを状態オブジェクトへ閉じ込め、全状態が満たす**共通契約（`reserve`/`pay`/`cancel`…）**で委譲すれば、中心クラスは状態名で分岐しない。これが接続点の正体です。
+
+### 6-2：見つけた形を契約にし、データの置き場所を決める
+
+見つけた形を、状態が満たすべき契約として定義します（実装本体はフェーズ7）。
+
+```cpp
+// 状態の契約：既定を「操作不可エラー」にし、各状態は受け付ける操作だけ override する
 class IReservationState {
 public:
-    virtual void reserve(TicketReservation* ctx) = 0;
-    virtual void pay(TicketReservation* ctx) = 0;
-    virtual void cancel(TicketReservation* ctx) = 0;
-    virtual void hold(TicketReservation* ctx) {
-        std::cout << "保留できません\n";
-    }
-    virtual void expire(TicketReservation* ctx) {
-        std::cout << "期限切れ処理は行えません\n";
-    }
-    virtual void addToWaitlist(TicketReservation* ctx) {
-        std::cout << "キャンセル待ちに登録できません\n";
-    }
-    virtual void upgrade(TicketReservation* ctx) {
-        std::cout << "予約に昇格できません\n";
-    }
+    virtual void reserve(TicketReservation* ctx);  // 既定＝操作不可エラー
+    virtual void pay(TicketReservation* ctx);
+    virtual void cancel(TicketReservation* ctx);
+    // hold / expire / addToWaitlist / upgrade も同じ形で並ぶ
     virtual ~IReservationState() = default;
 };
-
-// 状態オブジェクトを共有するための取得関数
-IReservationState* availableState();
-IReservationState* reservedState();
-IReservationState* paidState();
-IReservationState* heldState();
-IReservationState* waitlistedState();
 ```
 
-メソッド引数に `TicketReservation* ctx` を受け取るのは、各状態クラスが遷移後の状態を `ctx->setState()` でセットするためにコンテキストへのポインタが必要だからだ。
+次に、データの置き場所を決めます。
 
-**各状態クラス：**
+| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
+|---|---|---|---|
+| 現在状態 | `TicketReservation.status`（文字列） | `TicketReservation.state`（`IReservationState*`） | 状態名でなく状態オブジェクトを持てば、分岐でなく委譲になる |
+| イベント存在・空席 | `EventDatabase` | 変えない | 状態設計とは別の関心事 |
 
-```cpp
-class AvailableState : public IReservationState {
-public:
-    void reserve(TicketReservation* ctx) override {
-        std::cout << "予約完了しました\n";
-        // 遷移はctx->setState()で行う（フェーズ7で実装）
-    }
-    void pay(TicketReservation* ctx) override {
-        std::cout << "予約なしで支払いはできません\n";
-    }
-    void cancel(TicketReservation* ctx) override {
-        std::cout << "予約可能状態のためキャンセル不要です\n";
-    }
-    void addToWaitlist(TicketReservation* ctx) override {
-        std::cout << "キャンセル待ちに登録しました\n";
-    }
-};
+接続点で受け渡すのは、操作対象の**コンテキスト（`TicketReservation* ctx`）**です。状態は次状態へ `setState` で遷移します。
 
-class ReservedState : public IReservationState {
-public:
-    void reserve(TicketReservation* ctx) override {
-        std::cout << "既に予約済みです\n";
-    }
-    void pay(TicketReservation* ctx) override {
-        std::cout << "支払い完了しました\n";
-    }
-    void cancel(TicketReservation* ctx) override {
-        std::cout << "予約をキャンセルしました\n";
-    }
-    void hold(TicketReservation* ctx) override {
-        std::cout << "保留にしました\n";
-    }
-};
+### 6-3：構造の見立て（変換の結果、こうなる）
 
-class HeldState : public IReservationState {
-public:
-    void reserve(TicketReservation* ctx) override {
-        std::cout << "保留中のため予約できません\n";
-    }
-    void pay(TicketReservation* ctx) override {
-        std::cout << "保留から支払い完了しました\n";
-    }
-    void cancel(TicketReservation* ctx) override {
-        std::cout << "保留からキャンセルしました\n";
-    }
-    void expire(TicketReservation* ctx) override {
-        std::cout << "保留期限が切れました\n";
-    }
-};
+変換して契約とデータ配置を決めた結果、構造はこうなります。図は出発点ではなく結論です。
 
-class WaitlistedState : public IReservationState {
-public:
-    void reserve(TicketReservation* ctx) override {
-        std::cout << "キャンセル待ちから直接予約できません\n";
-    }
-    void pay(TicketReservation* ctx) override {
-        std::cout << "キャンセル待ち中は支払いできません\n";
-    }
-    void cancel(TicketReservation* ctx) override {
-        std::cout << "キャンセル待ちを解除しました\n";
-    }
-    void upgrade(TicketReservation* ctx) override {
-        std::cout << "予約に昇格しました\n";
-    }
-};
+現状（中心クラスが `status` 分岐で各操作を処理）：
 
-class PaidState : public IReservationState {
-public:
-    void reserve(TicketReservation* ctx) override {
-        std::cout << "支払い済みのため再予約できません\n";
+```mermaid
+classDiagram
+    direction LR
+    class TicketReservation {
+      string status
+      reserve() pay() cancel()
     }
-    void pay(TicketReservation* ctx) override {
-        std::cout << "既に支払い済みです\n";
-    }
-    void cancel(TicketReservation* ctx) override {
-        std::cout << "支払い済みのためキャンセルできません\n";
-    }
-};
 ```
 
-各クラスが「自分の状態のときに何ができて何ができないか」を自己完結して持っている。
+見立て（中心クラスは現在状態へ委譲するだけ）：
 
-**コンテキストクラス（TicketReservation）：**
-
-```cpp
-class TicketReservation {
-private:
-    IReservationState* state; // ← インターフェース型のみ知っている
-public:
-    TicketReservation(IReservationState* s) : state(s) {}
-    void setState(IReservationState* s) { state = s; }
-    void reserve() { state->reserve(this); }
-    void pay()     { state->pay(this); }
-    void cancel()  { state->cancel(this); }
-    void hold() { state->hold(this); }
-    void expire() { state->expire(this); }
-    void addToWaitlist() { state->addToWaitlist(this); }
-    void upgrade() { state->upgrade(this); }
-};
+```mermaid
+classDiagram
+    direction LR
+    class IReservationState { <<interface>> }
+    TicketReservation --> IReservationState : state
+    IReservationState <|.. AvailableState
+    IReservationState <|.. ReservedState
+    IReservationState <|.. PaidState
+    IReservationState <|.. HeldState
+    IReservationState <|.. WaitlistedState
 ```
 
-`TicketReservation` から状態名を判定する `if` 文がなくなりました。仕様変更で追加した `HeldState` と `WaitlistedState` も同じ契約で扱います。さらに新しい状態を追加するときは、`IReservationState` を実装するクラスを作り、遷移関係を組み立てる箇所へ登録します。公開操作を委譲する `TicketReservation` の条件分岐は増やさずに済みます。
+図から読み取ること：中心クラスから `status` 分岐が消え、現在状態オブジェクトへの委譲だけが残る。状態の追加はクラスを1つ増やすことになる。
 
-**評価：** 状態ごとの振る舞いを新しい状態クラスへ置けるようになりました。実際の追加時には、新クラスに加えて遷移先の設定や組み立て箇所の登録が必要です。なお、このコードはまだ状態遷移処理を省いているため、動作例テーブルの全構造は再現できません。完成版はフェーズ7で示します。
+### 6-4：影響範囲（この設計で変更要求を再度当てたら）
 
----
+| 変更要求 | 修正する場所 | 再テスト範囲 |
+|---|---|---|
+| 状態を1つ追加（キャンセル待ちなど） | `IReservationState` を実装した状態クラスを1つ追加し、遷移元で `setState` する | 追加クラス単体。**既存操作の分岐は無変更** |
+| ある状態の遷移ルールを変える | 該当の状態クラスのみ | その状態 |
+| タイマー・決済失敗などの入力を追加 | 該当状態クラスに操作を1つ足す | その状態 |
+
+現状との差：現状は状態を追加するたびに全操作の `status` 分岐を開く。対策後は状態クラスを1つ足すだけで、中心クラスを触らない。**この「触る範囲の差」がこの構造を採る理由**です。
 
 ### 採用する形を決める
 
-各ステップには一長一短があります。どこで止めるかは、「今後の変更頻度（ビジネス要求）」で決断します。
-
-今回の課題は、予約システムに「状態が増えるたびに同じ条件分岐を伸ばす」構造を残すかどうかです。読者が自分で判断できるように、まず候補を並べます。
+各案には一長一短があります。どこで止めるかは、「今後の変更頻度（ビジネス要求）」で決断します。
 
 | 案 | 解けること | 残ること | 今回の判断 |
 |---|---|---|---|
 | 何もしない | クラス数は増えない | 状態追加のたびに分岐が増える | 今後の状態追加と合わない |
 | 状態ごとにクラス分離 | 状態ごとの振る舞いを別に読める | 呼び出し側が具体状態を知り続ける可能性がある | 中間策として有効 |
-| 現在状態へ委譲する | コンテキストは状態ごとの分岐を知らずに済む | 状態クラスと遷移の組み立てが増える。入力イベント自体が頻繁に増える場合は、イベントを値として扱う遷移表も検討余地がある | 状態追加が主な変化軸のため採用する |
+| 現在状態へ委譲する | コンテキストは状態ごとの分岐を知らずに済む | 状態クラスと遷移の組み立てが増える | 状態追加が主な変化軸のため採用する |
 
-* **ステップ1で止めるケース：** 状態ごとの処理を別クラスに整理したいが、新しい状態が追加されるかどうかまだ確証がない場合。状態の数が少なく、追加の見込みが薄ければここで止めるのも現実的な選択です。
-* **ステップ2まで進むケース：** 今後も頻繁に新しい状態が追加されると確定している場合。今すぐ初期投資コストを払ってでも、業務フローのコンテキストクラスを変更から守る設計が適切です。
+**今回の決断：** フェーズ2のヒアリングで、「キャンセル待ち状態」「特別優待予約」など、状態は今後も増え続けると予告されています。状態遷移のルール自体も変わりうると確認できています。期限切れタイマーや決済失敗は入力の発生源こそ違いますが、最終的には「現在状態ごとに受け付けるか、どの状態へ戻すか」を決める問題です。したがって、今回は**状態の契約を導入し、現在の状態へ委譲する形を採用する**決断を下します。
 
-**今回の決断：**
-フェーズ2のヒアリングで、「キャンセル待ち状態」「特別優待予約」など、状態は今後も増え続けると予告されています。また、状態遷移のルール自体も変わりうると確認できています。期限切れタイマーや決済失敗は入力の発生源こそ違いますが、最終的には「現在状態ごとに受け付けるか、どの状態へ戻すか」を決める問題です。したがって、今回は**ステップ2（状態の契約を導入し、現在の状態へ委譲する）まで進化させる**決断を下します。
-
-**この状態ごとのクラス分割構造により、コンテキスト（`TicketReservation`）は現在の状態に処理を委譲します。今回のような状態追加では、コンテキストの条件分岐を変更せず、状態クラスと遷移の組み立てを追加できます。**
+フェーズ6で採用する設計（接続点の契約・データ配置・構造・影響範囲）が決まりました。次のフェーズ7では、この決断を動く実装（`EventDatabase`・全状態クラス・`TicketReservation` の委譲・実行結果）に落とし込み、変更要求で効果を確認します。
 
 ---
 
