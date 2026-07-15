@@ -149,6 +149,10 @@ BANNED_PATTERNS = [
         "編集メモが本文に残っています",
     ),
     (
+        re.compile(r"私の経験でも|頭をよぎ[るり]|不安が頭|胸をなでおろ|私自身.{0,12}気づ"),
+        "架空の著者体験・作り物の心情が本文に残っています（フェーズ1は事実記述にする）",
+    ),
+    (
         re.compile(r"ステップ\s*S[0-8]|S[0-8]\s*ステップ|S[0-8][：:]"),
         "旧9ステップ表記が本文に残っています",
     ),
@@ -432,6 +436,107 @@ def check_intermediate_boundary_continuity(
     return issues
 
 
+def _tables_in(lines: list[str]) -> list[tuple[int, int]]:
+    """Return (start_line, end_line) index pairs for each markdown table run."""
+    tables: list[tuple[int, int]] = []
+    in_tbl = False
+    start = 0
+    in_fence = False
+    for idx, ln in enumerate(lines):
+        if ln.lstrip().startswith("```"):
+            in_fence = not in_fence
+        is_row = (not in_fence) and ln.lstrip().startswith("|")
+        if is_row and not in_tbl:
+            in_tbl = True
+            start = idx
+        elif not is_row and in_tbl:
+            in_tbl = False
+            tables.append((start, idx - 1))
+    if in_tbl:
+        tables.append((start, len(lines) - 1))
+    return tables
+
+
+def check_error_condition_last(text: str, path: Path) -> list[Issue]:
+    """Require the エラー条件表 to be the last spec table in 1-1.
+
+    正常系の仕様（図・各種仕様表）をすべて説明した後、エラー条件表を 1-1 の
+    最後（1-2 の直前）に置く。システム説明の途中でエラーを差し込まない。
+    """
+    i11 = text.find("### 1-1")
+    i12 = text.find("### 1-2", i11)
+    if i11 < 0 or i12 < 0:
+        return []
+    sec = text[i11:i12]
+    marker = sec.rfind("**エラー条件**")
+    if marker < 0:
+        return [Issue(path, line_number(text, i11),
+                      "1-1にエラー条件表（**エラー条件**）がありません")]
+    lines = sec.splitlines(keepends=True)
+    offsets = []
+    pos = 0
+    for ln in lines:
+        offsets.append(pos)
+        pos += len(ln)
+    marker_line = 0
+    for idx, off in enumerate(offsets):
+        if off > marker:
+            break
+        marker_line = idx
+    tables = _tables_in(lines)
+    err_tbl = next(((s, e) for (s, e) in tables if s >= marker_line), None)
+    if err_tbl is None:
+        return [Issue(path, line_number(text, i11 + marker),
+                      "エラー条件表の本体（表）が見つかりません")]
+    issues: list[Issue] = []
+    later_tbl = next(((s, e) for (s, e) in tables if s > err_tbl[1]), None)
+    if later_tbl is not None:
+        issues.append(Issue(path, line_number(text, i11 + offsets[later_tbl[0]]),
+                            "エラー条件表より後に正常系の仕様表があります。"
+                            "エラー条件表を1-1の最後（1-2の直前）に置いてください"))
+    for idx in range(err_tbl[1] + 1, len(lines)):
+        stripped = lines[idx].strip()
+        if re.match(r"^\*\*[^*]+\*\*$", stripped):
+            issues.append(Issue(path, line_number(text, i11 + offsets[idx]),
+                                f"エラー条件表より後に仕様見出し「{stripped}」があります。"
+                                "エラー条件表を1-1の最後に置いてください"))
+            break
+    return issues
+
+
+def check_boundary_error_marker(text: str, path: Path) -> list[Issue]:
+    """External-boundary failures in the error table must state their stub handling.
+
+    掲載コードは print/固定データで外部I/Oを代替するため、ファイルオープン失敗・
+    DB保存失敗・API送信失敗などは掲載コードでは発生しない。エラー条件へ挙げる場合は
+    「実システムの境界」「掲載コードでは発生しない」「詳細扱いなし」等の扱いを明記する。
+    """
+    i11 = text.find("### 1-1")
+    i12 = text.find("### 1-2", i11)
+    if i11 < 0 or i12 < 0:
+        return []
+    marker = text.find("**エラー条件**", i11, i12)
+    if marker < 0:
+        return []
+    block = text[marker:i12]
+    boundary_re = re.compile(
+        r"ファイル.{0,4}開け|ファイルオープン|外部.{0,4}API|API.{0,4}(呼び出し|失敗)|"
+        r"送信.{0,4}失敗|通信.{0,6}(失敗|タイムアウト)|描画API|ファイル出力.{0,4}失敗|"
+        r"DB保存|決済API"
+    )
+    if not boundary_re.search(block):
+        return []
+    marker_re = re.compile(
+        r"実システム|掲載コードでは|詳細扱いなし|境界|発生しない|スタブ|"
+        r"リトライ|再試行|実運用"
+    )
+    if marker_re.search(block):
+        return []
+    return [Issue(path, line_number(text, marker),
+                  "外部境界の失敗をエラー条件に挙げていますが、掲載コードでの扱い"
+                  "（発生しない/実システム境界/詳細扱いなし）が明記されていません")]
+
+
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
@@ -441,6 +546,8 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(find_in_order(text, REQUIRED_PHASES, path))
         issues.extend(find_in_order(text, REQUIRED_NUMBERED_SECTIONS, path))
         issues.extend(check_required_chapter_structures(text, path))
+        issues.extend(check_error_condition_last(text, path))
+        issues.extend(check_boundary_error_marker(text, path))
         issues.extend(check_phase6_baseline(text, path))
         issues.extend(check_phase6_continuity(text, path))
         issues.extend(check_phase6_step_chain(text, path))
