@@ -23,7 +23,7 @@
 
 ### 1-1：このシステムの仕様
 
-このシステムは、アパレルメーカーの在庫数を管理し、**在庫が閾値を下回ったときに複数の通知先へ通知**します。
+このシステムは、PC周辺機器メーカーの在庫数を管理し、**在庫が閾値を下回ったときに複数の通知先へ通知**します。
 
 在庫の増減を記録し、一定数を下回るイベントが発生すると、登録されているすべての通知先へ同時にメッセージを送ります。
 
@@ -144,10 +144,11 @@ flowchart LR
 
 | シナリオ | 操作 | 通知・更新の結果 |
 | --- | --- | --- |
-| 在庫が閾値以下に減少（通常） | Tシャツ-001の在庫を5減らす | 全通知先へ送信・更新 |
-| 在庫が閾値以下に減少（複数通知先） | パンツ-002の在庫を3減らす | 全通知先へ送信・更新 |
-| 在庫が補充された（閾値超え） | Tシャツ-001の在庫を20補充する | 送信されない・更新なし |
-| 在庫が閾値ちょうどに減少（境界値） | キャップ-003の在庫を1減らす | 全通知先へ送信・更新 |
+| 在庫が閾値を下回る | ワイヤレスマウス（PRD001）の在庫を5減らす | 残数5（閾値10）→ 全通知先へ送信 |
+| 在庫が閾値ちょうどに減少（境界値） | USBハブ（PRD002）の在庫を3減らす | 残数5（閾値5）→ 全通知先へ送信 |
+| 在庫が補充される（閾値超え） | ワイヤレスマウス（PRD001）の在庫を20補充する | 残数25 → 送信されない・更新のみ |
+| 在庫0の商品を減らす（エラー） | キーボード（PRD003）の在庫を1減らす | 出庫エラー・通知なし |
+| 存在しない商品ID（エラー） | PRD999を操作する | マスタ不存在エラー・通知なし |
 
 在庫が閾値以下になったときは現在の3通知先すべてへ送り、閾値を超えて
 いるときは通知しないことが核心です。
@@ -195,7 +196,7 @@ classDiagram
     class ProductDatabase {
         +exists(id)
         +get(id)
-        +isBelowThreshold(id)
+        +isBelowThreshold(id, stock)
     }
     InventoryManager --> EmailNotifier
     InventoryManager --> DashboardUpdater
@@ -304,9 +305,8 @@ public:
         records[id] = info;           // 実行中の商品マスタへ追加
     }
 
-    bool isBelowThreshold(const string& id) const {
-        const auto& p = records.at(id);
-        return p.stock <= p.alertThreshold;
+    bool isBelowThreshold(const string& id, int currentStock) const {
+        return currentStock <= records.at(id).alertThreshold;
     }
 };
 ```
@@ -376,7 +376,7 @@ public:
              << " の在庫を " << quantity << " 減らしました。残数: "
              << stock[productId] << endl;
 
-        if (db.isBelowThreshold(productId)) {
+        if (db.isBelowThreshold(productId, stock[productId])) {
             string message = "商品 " + productId
                            + " の在庫が閾値以下です。";
             notifyAll(message);
@@ -445,6 +445,9 @@ int main() {
 ```text
 --- 行1: PRD001を5減らす ---
 商品 PRD001 の在庫を 5 減らしました。残数: 5
+Email: 商品 PRD001 の在庫が閾値以下です。
+Dashboard: 商品 PRD001 の在庫が閾値以下です。
+Chat: 商品 PRD001 の在庫が閾値以下です。
 --- 行2: PRD002を3減らす ---
 商品 PRD002 の在庫を 3 減らしました。残数: 5
 Email: 商品 PRD002 の在庫が閾値以下です。
@@ -458,8 +461,8 @@ Chat: 商品 PRD002 の在庫が閾値以下です。
 [エラー] 商品ID PRD999 はマスタに存在しません。処理を中断します。
 ```
 
-動作例テーブルの全4行について、閾値以下では3通知先へ送信され、
-補充後に閾値を超えている場合は通知されないことを確認できました。
+動作例テーブルの各行について、在庫が閾値以下になった減少では3通知先へ送信され、
+補充では通知されず、在庫0・未登録IDはエラーになることを確認できました。
 同時に、`InventoryManager` が通知先のクラス名と呼び出し方をすべて直接
 知っていることも分かります。
 
@@ -603,7 +606,7 @@ flowchart LR
 
 ### ヒアリングに向けた背景確認
 
-このシステムは、あるアパレルメーカーの在庫管理システムを支える一部です。日々、全国の店舗から刻々と送られてくる売上データを受けて、倉庫にある在庫数を減らし、規定数を下回れば追加発注をかける、といった業務の流れを管理しています。
+このシステムは、あるPC周辺機器メーカーの在庫管理システムを支える一部です。日々、全国の店舗から刻々と送られてくる売上データを受けて、倉庫にある在庫数を減らし、規定数を下回れば追加発注をかける、といった業務の流れを管理しています。
 
 システムが立ち上がった当初は、在庫が減ったことを倉庫の担当者に「メール」で送るだけで十分でした。しかし、昨今のデジタル化の流れを受け、在庫状況をリアルタイムで「社内ダッシュボード」に反映させたり、在庫が少なくなったら「在庫担当者のチャット」に通知したりと、在庫の変動を追いかける相手がどんどん増えてきました。
 
@@ -1204,9 +1207,8 @@ public:
         records[id] = info;           // 実行中の商品マスタへ追加
     }
 
-    bool isBelowThreshold(const string& id) const {
-        const auto& p = records.at(id);
-        return p.stock <= p.alertThreshold;
+    bool isBelowThreshold(const string& id, int currentStock) const {
+        return currentStock <= records.at(id).alertThreshold;
     }
 };
 
@@ -1382,7 +1384,7 @@ public:
         cout << "商品 " << productId
              << " の在庫を " << quantity << " 減らしました。" << endl;
 
-        if (db.isBelowThreshold(productId)) {
+        if (db.isBelowThreshold(productId, stock[productId])) {
             notifyAll("商品 " + productId + " の在庫が閾値以下です。");
         }
     }
