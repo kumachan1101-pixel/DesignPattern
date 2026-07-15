@@ -53,7 +53,7 @@ flowchart LR
     E[/送金金額<br>5,000円/]:::input --> B{残高は足りるか}:::decision
     D -->|Yes| B
     B -->|Yes| G{OTP認証に<br>成功するか}:::decision
-    F[/認証コード<br>123456/]:::input --> G
+    F[/認証コード<br>999999/]:::input --> G
     G -->|Yes| H[送金を実行し<br>残高を更新]:::process
     H --> I[履歴を記録]:::process
     I --> J([正常出力<br>振り込み完了]):::normal
@@ -624,7 +624,7 @@ flowchart LR
     E[/送金金額<br>5,000円/]:::input --> B{残高は足りるか}:::decision
     D -->|Yes| B
     B -->|Yes| P[認証コードの発行を要求し<br>取引IDを受け取る]:::process
-    F[/認証コード<br>123456/]:::input --> G
+    F[/認証コード<br>999999/]:::input --> G
     P --> G{取引IDと認証コードの<br>照合に成功するか}:::decision
     G -->|Yes| H
     H[取引IDを添えて送金を実行し<br>残高を更新]:::process
