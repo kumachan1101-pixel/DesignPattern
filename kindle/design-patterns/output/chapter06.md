@@ -376,9 +376,9 @@ int main() {
 
 | 注文内容 | getDescription() | getPrice() |
 |---|---|---|
-| コーヒー + 抹茶パウダー | `Coffee + Matcha` | 460円（400 + 60） |
-| コーヒー + チョコチップ | `Coffee + Choco` | 440円（400 + 40） |
-| コーヒー + ミルク + 抹茶パウダー + チョコチップ | `Coffee + Milk + Matcha + Choco` | 550円（400 + 50 + 60 + 40） |
+| ホットコーヒー + Matcha | `ホットコーヒー + Matcha` | 460円（400 + 60） |
+| ホットコーヒー + Choco | `ホットコーヒー + Choco` | 440円（400 + 40） |
+| ホットコーヒー + Milk + Matcha + Choco | `ホットコーヒー + Milk + Matcha + Choco` | 550円（400 + 50 + 60 + 40） |
 
 ベースドリンクの価格と既存トッピング（Milk・Syrup・Whip）の価格・名称は変更なしです。新しいトッピングを追加しても、既存の組み合わせ構造の動作は変わりません。
 
@@ -615,14 +615,14 @@ public:
 
 int main() {
     // 新しいコンストラクタ呼び出し（引数7個）
-    CustomDrink order("Coffee", 400,
+    CustomDrink order("ホットコーヒー", 400,
                       true, false, false, true, true);
     std::cout << order.getDescription() << std::endl;
     std::cout << order.getPrice() << " 円" << std::endl;
 
     // 既存の呼び出し（引数5個）はコンパイルエラーになるため
     // コメントアウトして検証
-    // CustomDrink old("Coffee", 400, true, false, false);
+    // CustomDrink old("ホットコーヒー", 400, true, false, false);
     //                                              ↑ 引数不足
     return 0;
 }
@@ -635,13 +635,13 @@ int main() {
 実行結果：
 
 ```text
-Coffee + Milk + Matcha + Choco
+ホットコーヒー + Milk + Matcha + Choco
 550 円
 ```
 
-新しい注文（order）は正しく動き、期待される出力（コーヒー 400円 + Milk 50円 + Matcha 60円 + Choco 40円 = 550円）が得られます。しかし、コメントアウトされている `old` のように、既存の5つの引数で呼び出している箇所は、コンストラクタの引数の数が合わないためすべてコンパイルエラーになります。
+新しい注文（order）は正しく動き、期待される出力（ホットコーヒー 400円 + Milk 50円 + Matcha 60円 + Choco 40円 = 550円）が得られます。しかし、コメントアウトされている `old` のように、既存の5つの引数で呼び出している箇所は、コンストラクタの引数の数が合わないためすべてコンパイルエラーになります。
 
-つまり、この新しいトッピングを追加したクラスを導入するには、既存の「コーヒーにミルクだけ」といった注文を生成しているモバイルアプリ側（呼び出し元）のコードをすべて探し出し、新しい引数（`false, false` など）を追加するように修正しなければならないのです。
+つまり、この新しいトッピングを追加したクラスを導入するには、既存の「ホットコーヒーにミルクだけ」といった注文を生成しているモバイルアプリ側（呼び出し元）のコードをすべて探し出し、新しい引数（`false, false` など）を追加するように修正しなければならないのです。
 
 たった2つのトッピングを追加しようとしただけなのに、クラスの中をあちこち探し回って修正した上に、呼び出し側のコードまで直す必要に迫られる状況になっています。
 
@@ -936,28 +936,28 @@ public:
 class Coffee {
 public:
     int getPrice() const { return 400; }
-    string getDescription() const { return "Coffee"; }
+    string getDescription() const { return "ホットコーヒー"; }
 };
 
 // コーヒー + ミルク
 class CoffeeMilk : public Coffee {
 public:
     int getPrice() const { return 450; }  // 400 + 50
-    string getDescription() const { return "Coffee + Milk"; }
+    string getDescription() const { return "ホットコーヒー + Milk"; }
 };
 
 // コーヒー + ホイップ
 class CoffeeWhip : public Coffee {
 public:
     int getPrice() const { return 470; }  // 400 + 70
-    string getDescription() const { return "Coffee + Whip"; }
+    string getDescription() const { return "ホットコーヒー + Whip"; }
 };
 
 // コーヒー + ミルク + ホイップ
 class CoffeeMilkWhip : public Coffee {
 public:
     int getPrice() const { return 520; }  // 400 + 50 + 70
-    string getDescription() const { return "Coffee + Milk + Whip"; }
+    string getDescription() const { return "ホットコーヒー + Milk + Whip"; }
 };
 
 // 抹茶を追加すると、さらに倍の数が必要になる
@@ -1057,10 +1057,10 @@ public:
 
 // 使い方
 int main() {
-    CustomDrink order("Coffee", 400);
+    CustomDrink order("ホットコーヒー", 400);
     order.addMilk();
     order.addWhip();
-    cout << order.getDescription() << endl; // Coffee + Milk + Whip
+    cout << order.getDescription() << endl; // ホットコーヒー + Milk + Whip
     cout << order.getPrice() << "円" << endl; // 520円
     return 0;
 }
@@ -1151,12 +1151,12 @@ public:
 
 // 使い方
 int main() {
-    CustomDrink order("Coffee", 400);
+    CustomDrink order("ホットコーヒー", 400);
     Milk  m;
     Whip  w;
     order.setMilk(&m);
     order.setWhip(&w);
-    cout << order.getDescription() << endl; // Coffee + Milk + Whip
+    cout << order.getDescription() << endl; // ホットコーヒー + Milk + Whip
     cout << order.getPrice() << "円" << endl; // 520円
     return 0;
 }
@@ -1194,7 +1194,7 @@ public:
 class Coffee : public IDrink {
 public:
     int getPrice() const override { return 400; }
-    string getDescription() const override { return "Coffee"; }
+    string getDescription() const override { return "ホットコーヒー"; }
 };
 
 // トッピングの基底クラス：中に別のドリンクを包む仲介役
@@ -1365,7 +1365,7 @@ public:
 
 struct OrderRecord {
     string itemId;
-    string description;  // 注文の説明（e.g. "ホットコーヒー + ミルク + シロップ"）
+    string description;  // 注文の説明（e.g. "ホットコーヒー + Milk + Syrup"）
     int totalPrice;
 };
 
@@ -1415,7 +1415,7 @@ public:
 class Coffee : public IDrink {
 public:
     int getPrice() const override { return 400; }
-    string getDescription() const override { return "Coffee"; }
+    string getDescription() const override { return "ホットコーヒー"; }
 };
 ```
 
@@ -1651,33 +1651,33 @@ int main() {
 実行結果：
 
 ```
-Coffee → 400円
-Coffee + Milk → 450円
-Coffee + Milk + Syrup → 480円
-Coffee + Milk + Whip → 520円
-Coffee + Syrup + Whip → 500円
-Coffee + Whip + Whip → 540円
-Coffee + Milk + Syrup + Whip → 550円
-Coffee + Milk + Syrup + Whip + Matcha → 610円
-Coffee + Choco → 440円
-Coffee + Milk + Matcha + Choco → 550円
+ホットコーヒー → 400円
+ホットコーヒー + Milk → 450円
+ホットコーヒー + Milk + Syrup → 480円
+ホットコーヒー + Milk + Whip → 520円
+ホットコーヒー + Syrup + Whip → 500円
+ホットコーヒー + Whip + Whip → 540円
+ホットコーヒー + Milk + Syrup + Whip → 550円
+ホットコーヒー + Milk + Syrup + Whip + Matcha → 610円
+ホットコーヒー + Choco → 440円
+ホットコーヒー + Milk + Matcha + Choco → 550円
 エラー：メニューID DRINK999 は存在しません
 エラー：トッピング SeasonalMint は販売停止または在庫切れです
 
 --- 注文ログ ---
-[DRINK001] Coffee 400円
-[DRINK001] Coffee + Milk 450円
-[DRINK001] Coffee + Milk + Syrup 480円
-[DRINK001] Coffee + Milk + Whip 520円
-[DRINK001] Coffee + Syrup + Whip 500円
-[DRINK001] Coffee + Whip + Whip 540円
-[DRINK001] Coffee + Milk + Syrup + Whip 550円
-[DRINK001] Coffee + Milk + Syrup + Whip + Matcha 610円
-[DRINK001] Coffee + Choco 440円
-[DRINK001] Coffee + Milk + Matcha + Choco 550円
+[DRINK001] ホットコーヒー 400円
+[DRINK001] ホットコーヒー + Milk 450円
+[DRINK001] ホットコーヒー + Milk + Syrup 480円
+[DRINK001] ホットコーヒー + Milk + Whip 520円
+[DRINK001] ホットコーヒー + Syrup + Whip 500円
+[DRINK001] ホットコーヒー + Whip + Whip 540円
+[DRINK001] ホットコーヒー + Milk + Syrup + Whip 550円
+[DRINK001] ホットコーヒー + Milk + Syrup + Whip + Matcha 610円
+[DRINK001] ホットコーヒー + Choco 440円
+[DRINK001] ホットコーヒー + Milk + Matcha + Choco 550円
 ```
 
-各注文は `OrderRequest`（基本ドリンクIDとトッピングID・個数の並び）として渡し、`OrderAssembler` がメニューとトッピングの販売可否を確認してから、選択順・個数ぶんだけドリンクを包みます。5行目の「Coffee + Syrup + Whip」は、フェーズ1ではフラグの判定順によって「Coffee + Whip + Syrup」と表示されていたケースです。変更後は注文で指定した Syrup → Whip の順が表示名に反映され、価格500円は変わりません。6行目の「Coffee + Whip + Whip」は、ホイップを個数2で頼んだ結果です。`Whip` を二重に書くのではなく、要求データの個数として表しています。価格と表示名は各トッピングクラスが持たず、`ToppingCatalog`（保存データ）から読みます。`DRINK999` は未登録メニュー、`SeasonalMint` は `ToppingCatalog` で販売停止としているため、どちらも注文結果を作らずエラー理由だけを返しています。
+各注文は `OrderRequest`（基本ドリンクIDとトッピングID・個数の並び）として渡し、`OrderAssembler` がメニューとトッピングの販売可否を確認してから、選択順・個数ぶんだけドリンクを包みます。5行目の「ホットコーヒー + Syrup + Whip」は、フェーズ1ではフラグの判定順によって「ホットコーヒー + Whip + Syrup」と表示されていたケースです。変更後は注文で指定した Syrup → Whip の順が表示名に反映され、価格500円は変わりません。6行目の「ホットコーヒー + Whip + Whip」は、ホイップを個数2で頼んだ結果です。`Whip` を二重に書くのではなく、要求データの個数として表しています。価格と表示名は各トッピングクラスが持たず、`ToppingCatalog`（保存データ）から読みます。`DRINK999` は未登録メニュー、`SeasonalMint` は `ToppingCatalog` で販売停止としているため、どちらも注文結果を作らずエラー理由だけを返しています。
 
 ---
 
@@ -1854,7 +1854,7 @@ graph LR
 **原則3「継承よりコンポジションを優先せよ」の現れ**
 
 - 具体化された場所：`ToppingWrapper` 内での `IDrink*` 保持
-- 解説：「コーヒー + ミルク + ホイップ」を継承で表現しようとすると `MilkCoffee`, `WhipMilkCoffee`, `MilkWhipCoffee` …と組み合わせ爆発が起きます。コンポジション（保持）によって機能を動的に重ね合わせることで、この爆発を防いでいます。
+- 解説：「ホットコーヒー + Milk + Whip」を継承で表現しようとすると `MilkCoffee`, `WhipMilkCoffee`, `MilkWhipCoffee` …と組み合わせ爆発が起きます。コンポジション（保持）によって機能を動的に重ね合わせることで、この爆発を防いでいます。
 
 ---
 
