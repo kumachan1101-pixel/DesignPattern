@@ -829,9 +829,11 @@ graph LR
 **【変わってほしくない部分（守りたい骨格）】**
 ```cpp
     void reduceStock(string productId, int quantity) {
-        cout << "商品 " << productId
-             << " の在庫を " << quantity << " 減らしました。" << endl;
-        // ... (ここに変わる通知処理が入っている) ...
+        stock[productId] -= quantity;                           // 在庫を減らす（守りたい骨格）
+        if (db.isBelowThreshold(productId, stock[productId])) { // 閾値を下回ったか（守りたい骨格）
+            string message = productId + " の在庫が閾値以下です。";
+            notifyAll(message);   // ← 「在庫が少ない」イベントを出す。誰に送るかは変わる側
+        }
     }
 ```
 

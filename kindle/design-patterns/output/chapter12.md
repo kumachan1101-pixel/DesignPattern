@@ -916,12 +916,14 @@ graph LR
 
 **【変わってほしくない部分（守りたい骨格）】**
 ```cpp
-        // 状態を読む → 状態と操作に応じた処理 → 状態保存 → 通知
-        // この「流れ」自体は変わらない
-        void process(const string& requestId, const string& operation,
-                     int amount, const string& approverId) {
-            // ... (ここに変わる部分が入る) ...
-        }
+    void process(const string& requestId, const string& operation,
+                 int amount, const string& approverId) {
+        string current = cases.getState(requestId);   // ① 状態を読む（守りたい骨格）
+        // ② 状態×操作で次状態を決める ← ここが変わる（状態が増えると分岐が増える）
+        string next = /* current と operation から次状態を決定 */;
+        cases.saveState(requestId, next);              // ③ 次状態を保存（守りたい骨格）
+        notify(requestId);                             // ④ 通知する（誰に送るかは変わる側）
+    }
 ```
 
 ### 4-3：接続点に漏れている3つの知識を確認する

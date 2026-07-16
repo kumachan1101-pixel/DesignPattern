@@ -912,11 +912,12 @@ graph LR
 
 **【変わってほしくない部分（守りたい業務フローの骨格）】**
 ```cpp
-        // ← 振り込みという業務の意図は変わらない
-        // （口座を確認する）
-        // （認証する）
-        // （送金を実行する）
-        std::cout << "振り込み完了\n";
+    void transfer(const std::string& toAccount, int amount, const std::string& otp) {
+        gateway.verifyAccount(toAccount);   // ① 口座確認（守りたい業務フロー）
+        gateway.checkBalance(amount);       // ② 残高確認（守りたい）
+        // ③ 認証・送金（銀行APIの手順＝変わる側）を呼ぶ
+        std::cout << "振り込み完了\n";       // ④ 完了（守りたい）
+    }
 ```
 
 ### 4-3：接続点に漏れている手順を確認する
