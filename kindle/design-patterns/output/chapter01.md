@@ -1035,11 +1035,7 @@ public:
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6では、第0章の段階的進化アプローチを標準フローとして使います。ただし、ここでのステップは一本道の作業手順ではなく、対策案を比較するための候補です。まず小さな整理で何が見えるかを確認し、次に責任の移動、契約、窓口、組み合わせ、生成責任の移動のうち、この章の課題に必要な案だけを比べます。
-検討の起点は、フェーズ3でサマーセール割引という変更要求を当てて痛んだ「変更途中のコード」です。まっさらな現状コードから設計し直すのではなく、その痛んだコードに現れた割引処理どうしの共通点を抜き出し、そこから整理を始めます。フェーズ5で「変わるのは割引の計算ロジックであり、割引後の金額という結果の型は安定している」ことが分かりました。ここでは、その割引ルールをどのように差し替え可能にするかを段階的に検討します。いきなり正解へ飛ぶのではなく、各ステップで「どこまで痛みが解消されるか」を確認しながら、今回の要件において「どのステップで止めるのが良いか」を決断します。
-
-> **中間コードの継続条件：** 各ステップは `PaymentCalculator` と割引選択の差分抜粋です。`CustomerDatabase` による顧客取得、注文検証、`CheckoutResultRenderer` への出力は全ステップで維持し、フェーズ7で同じ外側の流れへ接続します。
-
+フェーズ6は、フェーズ5で定めた課題——**小計計算の骨格を守りつつ、割引ルールごとの判定・計算式を差し替えられる接続点を作る**——を受けて始めます。ここで決めるのは実装ではなく設計です。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。動く実装一式はフェーズ7で書きます。
 フェーズ5の課題から、対策候補は次のように出します。
 
 | フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
@@ -1048,16 +1044,15 @@ public:
 | 新しい割引が増えるたびに `calculate()` の条件分岐が増える | ルール追加時に既存の小計計算や他の割引へ触らない接続点を作る | 共通の割引契約を作り、複数ルールを同じ形で扱えるかを見る |
 | 今回は逐次割引、将来は定額割引もありうる | 割引の種類が増えても、支払金額を返す形は守る | ルール一覧へ登録して順に適用する形まで進める必要があるか判断する |
 
-#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+#### 起点：フェーズ3の痛みコード
 
-ステップ1で最初に直すのは、フェーズ1の変更前コードではありません。フェーズ3でサマーセールとキャンペーンの逐次割引を追加し、分岐が増えた次のコードです。仕様変更は残したまま、ここから処理を切り出します。
+比較元は、フェーズ3でサマーセールとキャンペーンの逐次割引を追加し、`calculate()` の分岐が増えたコードです。
 
 ```cpp
 // フェーズ3の変更途中コード（対策前）
 if (memberType == "Premium") {
     total = total * 80 / 100;
-} else if (context.isSummerSale
-           && context.isCampaignActive) {
+} else if (context.isSummerSale && context.isCampaignActive) {
     total = (total * 90 / 100) * 95 / 100;
 } else if (context.isSummerSale) {
     total = total * 95 / 100;
@@ -1066,279 +1061,98 @@ if (memberType == "Premium") {
 }
 ```
 
-比較点は、逐次割引を消さずに、`calculate()` が直接知る条件と計算式をどこまで外へ移せるかです。ステップ1はこのコードとの比較、ステップ2以降は直前ステップとの比較として読み進めます。
+### 6-1：痛みコードを変換して、接続点の「形」を探す
 
-### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
+課題は「割引ルールを切り離す」と言っていますが、**どんな形なら切り離せるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（動く実装一式はフェーズ7）。
 
-「if-else が乱立しているなら、まずそれをメソッドに切り出して整理しよう」というのが自然な最初の発想です。クラスを新しく作るのはコストがかかる。同じクラスの中で、割引の計算を種類ごとに独立したプライベートメソッドとして分離してみます。
-
-ここで抜粋するのは `PaymentCalculator` クラスの `calculate()` と、その中から呼ばれる割引関数だけです。`Item`、`Order`、`CustomerDatabase` など、入力データや顧客取得のクラスは1-4と同じなので省略します。着目したいのは、割引の**処理**を関数へ切り出したとき、割引を**選ぶ判定**がどこに残るかです。
+**変換1：各割引の計算を関数へ切り出す。** まず計算式に名前を付けます。
 
 ```cpp
-class PaymentCalculator {
-    // 各割引を独立した関数として切り出す（判定なし、計算だけ）
-    int applyPremiumRule(int total) {
-        return total * 80 / 100;
-    }
-    int applySummerRule(int total) {
-        return total * 95 / 100;
-    }
-    int applyCampaignRule(int total) {
-        return total * 90 / 100;
-    }
-
-    // 判定（どのルールを選ぶか）も独立した関数として切り出す
-    int selectAndApply(int total, const std::string& memberType,
-                       const CampaignContext& ctx) {
-        if (memberType == "Premium")
-            return applyPremiumRule(total);
-        if (ctx.isSummerSale && ctx.isCampaignActive)
-            return applySummerRule(applyCampaignRule(total));
-        if (ctx.isSummerSale)
-            return applySummerRule(total);
-        if (ctx.isCampaignActive)
-            return applyCampaignRule(total);
-        return total;
-    }
-public:
-    int calculate(const Order& order, const std::string& memberType,
-                  const CampaignContext& ctx) {
-        int total = 0;
-        for (const auto& item : order.items)
-            total += item.price;
-        return selectAndApply(total, memberType, ctx);
-    }
-};
+int applyPremiumRule(int total)  { return total * 80 / 100; }
+int applySummerRule(int total)   { return total * 95 / 100; }
+int applyCampaignRule(int total) { return total * 90 / 100; }
 ```
 
-- `applyPremiumRule` などは「計算だけ」を行う関数で、各割引の式（`* 80 / 100` など）に名前が付きました。
-- `selectAndApply()` は「どの割引を選ぶか」の判定だけを担います。計算と判定が別の関数に分かれました。
-- `calculate()` は「小計を出して `selectAndApply()` に渡す」だけになり、骨格が読みやすくなりました。
+見えたこと：どの割引計算も **`int` を受け取り `int`（割引後金額）を返す**同じ形。「割引の計算」と「どの割引を選ぶ判定」は別の関心事だと分かる。
+まだ詰まること：どの割引を使うかの `if` 判定（`memberType == "Premium"` …）が、まだ `PaymentCalculator` の中に残る。
 
-**この段階の評価：** ここで気づくことがあります。`applyPremiumRule`・`applySummerRule`・`applyCampaignRule` の3つは、引数も戻り値の型も同じです。同じシグネチャ（`int (int)`）を持つ関数が並んでいる——これが「共通の構造」の初めての兆候です。また、`selectAndApply()` を独立させたことで、「計算の処理」と「どれを選ぶかの判定」が別の関心事だということも見えてきました。`calculate()` は確かにスッキリしましたが、新しい割引が来るたびに `applyXxx()` の追加と `selectAndApply()` の書き足しが必要です。整理と共通構造の発見はできたが、同じクラスを修正する根本は変わっていない。次のステップでは、この共通構造を持つ関数たちをクラスに昇格させてみます。
-
-判定を関数にしないのではなく、このステップでは `selectAndApply()` にまとめています。あえて処理関数と判定関数を分けて見ることで、「個別の割引処理は同じ形をしているが、どれを選ぶかの判断はまだ `PaymentCalculator` 側に残っている」と確認できます。
-
----
-
-### ステップ2：各割引を別のクラスに切り出す
-
-ステップ1では関数を種類ごとに独立させ、「共通のシグネチャを持つ関数が並んでいる」という構造が見えてきました。しかし、関数が増えるにつれて1つのクラスの中に処理がどんどん積み重なっていきます。そこで「それぞれを別のクラスにしよう」という発想が生まれます。
-
-「割引ロジックが増えてきたなら、それぞれを別のクラスにしよう」という発想は自然です。今度は割引の種類ごとにクラスを作ってみます。
+**変換2：各割引を別クラスに切り出す。** 同じ形なら、それぞれをクラスにして差し替えられるのでは、と分けてみます。
 
 ```cpp
-// 割引ごとに別のクラスに分けた（インターフェースはまだない）
-class PremiumDiscount {
-public:
-    int apply(int total) { return total * 80 / 100; }
-};
-
-class SummerSaleDiscount {
-public:
-    int apply(int total) { return total * 95 / 100; }
-};
-
-class CampaignDiscount {
-public:
-    int apply(int total) { return total * 90 / 100; }
-};
-
-class PaymentCalculator {
-public:
-    int calculate(const Order& order, const std::string& memberType,
-                  const CampaignContext& context) {
-        int total = 0;
-        for (const auto& item : order.items) total += item.price;
-
-        // ← if文はここに残ったまま。しかも全具体クラスを知らなければならない
-        if (memberType == "Premium") {
-            PremiumDiscount rule;
-            return rule.apply(total);
-        } else if (context.isSummerSale && context.isCampaignActive) {
-            SummerSaleDiscount s;
-            CampaignDiscount c;
-            return c.apply(s.apply(total));
-        } else if (context.isSummerSale) {
-            SummerSaleDiscount rule;
-            return rule.apply(total);
-        } else if (context.isCampaignActive) {
-            CampaignDiscount rule;
-            return rule.apply(total);
-        }
-        return total;
-    }
-};
+class PremiumDiscount  { int apply(int total){ return total*80/100; } };
+class SummerDiscount   { int apply(int total){ return total*95/100; } };
 ```
 
-- 各割引が `PremiumDiscount` などの独立したクラスになりました（1クラス＝1割引）。
-- ただし `calculate()` の `if` は残り、`PaymentCalculator` が全クラス名（`PremiumDiscount` 等）を直接知っています。
+まだ詰まること：クラスは分かれたが、`PaymentCalculator` が**どのクラスを生成し呼ぶか**を条件で選び続ける。割引を1つ増やすと、その選択と生成が本体に増える。ここで分かるのは、**「計算本体が割引の種類を知らずに済むには、全割引が同じ名前・同じ形の操作を持ち、"どれを使うか"の選択を本体の外へ出す必要がある」**ということ。
 
-**この段階の評価：** 割引の計算が別ファイルに分かれたのは良い変化です。しかし `PaymentCalculator` は `PremiumDiscount`・`SummerSaleDiscount`・`CampaignDiscount` の全クラス名を直接知っており、if文も本体に残ったままです。新しい割引が来るたびに新しいクラスを作るのと同時に `PaymentCalculator` の中の if 文も書き足さなければなりません。クラスに分けられたが、`PaymentCalculator` が全クラスを直接知っている問題は残っています。「直接知る」という部分を何とかできないか、考えてみましょう。
+**変換の結論：** 全割引が満たす**共通契約（`apply(total)`）**を作り、`PaymentCalculator` は契約だけを呼ぶ。「会員種別・キャンペーンからどのルールを使うか」の選択は、本体の外（生成役）へ出す。これが接続点の正体です。
 
----
+### 6-2：見つけた形を契約にし、データの置き場所を決める
 
-### ステップ3：共通の契約を導入するが、生成は自分で行う
-
-**ステップ2との差：** 割引ごとのクラス分離は保ち、`PaymentCalculator` が具体クラス別に呼んでいた部分を共通の割引契約へ置き換えます。
-
-「全クラスを直接知っているのが問題なら、共通のインターフェースを作ってそれだけを知ればいい」という発想です。`IDiscountRule` インターフェースを導入し、`PaymentCalculator` はそれだけを知るようにします。ただし、どの具体クラスを生成するかはまだ `PaymentCalculator` 自身が if 文で判断します。
+見つけた形を、割引ルールが満たすべき契約として定義します（実装本体はフェーズ7）。
 
 ```cpp
-// 共通のインターフェース（契約）を導入する
+// 割引ルールの契約：割引後の金額を返す（実装本体はフェーズ7）
 class IDiscountRule {
 public:
     virtual int apply(int total) = 0;
     virtual ~IDiscountRule() = default;
 };
-
-class PremiumDiscount : public IDiscountRule {
-public:
-    int apply(int total) override { return total * 80 / 100; }
-};
-
-class SummerSaleDiscount : public IDiscountRule {
-public:
-    int apply(int total) override { return total * 95 / 100; }
-};
-
-class CampaignDiscount : public IDiscountRule {
-public:
-    int apply(int total) override { return total * 90 / 100; }
-};
-
-class PaymentCalculator {
-public:
-    int calculate(const Order& order, const std::string& memberType,
-                  const CampaignContext& context) {
-        int total = 0;
-        for (const auto& item : order.items) total += item.price;
-
-        // ← 型は抽象（IDiscountRule*）になったが、
-        //   どれを生成するかの判断はまだif文に残っている
-        IDiscountRule* rule = nullptr;
-        PremiumDiscount premium;
-        SummerSaleDiscount summer;
-        CampaignDiscount campaign;
-
-        if (memberType == "Premium") {
-            rule = &premium;
-        } else if (context.isSummerSale) {
-            rule = &summer;
-        } else if (context.isCampaignActive) {
-            rule = &campaign;
-        }
-
-        return rule ? rule->apply(total) : total;
-    }
-};
 ```
 
-> [!INFO] 生ポインタの使用について
-> このサンプルでは段階的な設計の変化を示すため、生ポインタ（`IDiscountRule* rule`）を使用しています。本書では全章を通じて生ポインタを使い、所有権の議論よりも構造の変化に集中します。
+次に、データ（どのルールを使うかの判断と、判断材料）の置き場所を決めます。
 
-- `IDiscountRule` という共通の契約（`apply` だけ）を作り、各割引がそれを実装します。
-- `PaymentCalculator` が扱う型は `IDiscountRule*`（抽象）になりました。ただし、どの具体クラスを生成するかの `if` はまだ内部に残っています。
+| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
+|---|---|---|---|
+| 会員種別・キャンペーン条件 | 入力（`CustomerDatabase`／`CampaignContext`） | 変えない | 割引ルール設計とは別の入力 |
+| 「どの割引ルールを使うか」の選択 | `PaymentCalculator` の `if` 分岐 | `RuleFactory` が会員種別・キャンペーンから `IDiscountRule` を選んで渡す | 選択を本体の外へ出せば、計算本体は割引の種類を知らずに済む |
 
-**この段階の評価：** 型を抽象化できたのは前進です。しかし `PaymentCalculator` はまだ `PremiumDiscount` や `SummerSaleDiscount` という具体クラス名を知っており、if 文で生成を選んでいます。新しい割引クラスを追加するとき、`PaymentCalculator` の中の if 文も書き足さなければなりません。加えて、この `else if` の連鎖は、「Regular会員でSummerSale中かつキャンペーン中（逐次割引：8,550円）」のケースを正しく表現できません。`isSummerSale` が真であれば `CampaignDiscount` は無視されるためです。この問題は、割引ルールの適用条件や優先順位を外側でどのように制御するかによって解決を図ります。型は抽象化できたが、どれを生成するかの判断はまだ if 文に残っている。「生成の選択」そのものを外に出せれば、`PaymentCalculator` から if 文が消えるはずです。
+`PaymentCalculator` は `IDiscountRule` を受け取って `apply` を呼ぶだけ。接続点で受け渡すのは、**割引後の整数金額**です。逐次割引（サマーセール＋キャンペーン）は `SummerSaleAndCampaignDiscount` という1つのルールとして表します。なお、`RuleFactory` が生成したルールの**所有権は生成・管理側**にあり、`PaymentCalculator` はそれを**非所有の参照**（生ポインタ）として受け取ります。ルールの生存期間は利用側より長く保ちます。
 
----
+### 6-3：構造の見立て（変換の結果、こうなる）
 
-### ステップ4：ルールを外から受け取る（依存性の注入）
+変換して契約とデータ配置を決めた結果、構造はこうなります。図は出発点ではなく結論です。
 
-**ステップ3との差：** 共通契約は保ち、`PaymentCalculator` 内に残っていた具体ルールの生成を組み立て側へ移します。
+現状（計算本体が割引の判定・計算を直接持つ）：
 
-「`PaymentCalculator` が自分でルールを生成するから if 文が必要になる。なら、外からルールを渡してもらえばいい」という発想です。どのルールを使うかを決める責任を呼び出し側に移し、`PaymentCalculator` はただ受け取って使うだけにします。
-
-```cpp
-class IDiscountRule {
-public:
-    virtual int apply(int total) = 0;
-    virtual ~IDiscountRule() = default;
-};
-
-class PremiumDiscount : public IDiscountRule {
-public:
-    int apply(int total) override { return total * 80 / 100; }
-};
-
-class SummerSaleDiscount : public IDiscountRule {
-public:
-    int apply(int total) override { return total * 95 / 100; }
-};
-
-class SummerSaleAndCampaignDiscount : public IDiscountRule {
-public:
-    int apply(int total) override {
-        return (total * 90 / 100) * 95 / 100;
+```mermaid
+classDiagram
+    direction LR
+    class PaymentCalculator {
+      if memberType / isSummerSale ...
     }
-};
-
-class CampaignDiscount : public IDiscountRule {
-public:
-    int apply(int total) override { return total * 90 / 100; }
-};
-
-class NoDiscount : public IDiscountRule {
-public:
-    int apply(int total) override { return total; }
-};
-
-// ← コンストラクタでルールを受け取る。自分では生成しない
-class PaymentCalculator {
-private:
-    IDiscountRule* rule;
-public:
-    PaymentCalculator(IDiscountRule* r) : rule(r) {}
-
-    int calculate(const Order& order) {
-        int total = 0;
-        for (const auto& item : order.items) total += item.price;
-        return rule->apply(total); // 割引種別を選ぶif文が計算フローから外れた
-    }
-};
-
-// ─── 呼び出し側：どのルールを使うかはここで決める ───
-void processOrder(const Order& order, const std::string& memberType,
-                  const CampaignContext& context) {
-    PremiumDiscount premium;
-    SummerSaleAndCampaignDiscount both;
-    SummerSaleDiscount summer;
-    CampaignDiscount campaign;
-    NoDiscount none;
-
-    // かつてPaymentCalculatorの中にあったif文がここに移動した
-    // 外から見える実行結果を保ったまま、判断の責任を外側に押し出した
-    IDiscountRule* rule = &none;
-    if (memberType == "Premium") {
-        rule = &premium;
-    } else if (context.isSummerSale && context.isCampaignActive) {
-        rule = &both;
-    } else if (context.isSummerSale) {
-        rule = &summer;
-    } else if (context.isCampaignActive) {
-        rule = &campaign;
-    }
-
-    PaymentCalculator calculator(rule);
-    int finalPrice = calculator.calculate(order);
-}
 ```
 
-- `PaymentCalculator` はコンストラクタで `IDiscountRule* rule` を受け取り、`calculate()` は `rule->apply(total)` を呼ぶだけになりました。割引を選ぶ `if` が計算フローから消えました。
-- どのルールを使うか決める `if` は、呼び出し側（`processOrder`）へ移りました。判定の置き場所が変わっただけで、結果の金額は変わりません。
+見立て（計算本体は契約だけを知り、選択は生成役へ）：
 
-**この段階の評価：** `PaymentCalculator` から割引種別の選択判断が消えました。新しい割引を追加するときは、ルールクラスと選択を担う組み立て箇所を変更します。`IDiscountRule` の契約が安定している限り、`PaymentCalculator` の計算フローへ条件分岐を追加せずに済みます。これが今回目指した「変わる理由の分離」の到達点です。
+```mermaid
+classDiagram
+    direction LR
+    class IDiscountRule { <<interface>> }
+    PaymentCalculator --> IDiscountRule : 受け取って apply
+    RuleFactory --> IDiscountRule : 会員種別/キャンペーンで選ぶ
+    IDiscountRule <|.. PremiumDiscount
+    IDiscountRule <|.. SummerSaleDiscount
+    IDiscountRule <|.. CampaignDiscount
+    IDiscountRule <|.. SummerSaleAndCampaignDiscount
+    IDiscountRule <|.. NoDiscount
+```
 
-ただし、この設計は「実行するアルゴリズムの差し替え」を解決するもので、複数の割引を自由に重ねる問題まで自動的に解決するわけではありません。この例では逐次割引を1つのルールとして表す `SummerSaleAndCampaignDiscount` を用意しています。独立した割引が増え、組み合わせごとのクラスが増え始めたら、割引のリストを順番に適用する仕組みや、ルールを入れ子にして重ねる構造を別途検討します。
+図から読み取ること：`PaymentCalculator` から割引の判定・計算が消え、契約 `IDiscountRule` への依存だけが残る。どのルールを使うかの選択は `RuleFactory` に集まる。
 
----
+### 6-4：影響範囲（この設計で変更要求を再度当てたら）
+
+| 変更要求 | 修正する場所 | 再テスト範囲 |
+|---|---|---|
+| 割引を1つ追加（定額割引など） | `IDiscountRule` を実装したルールクラスを1つ追加し、`RuleFactory` の選択に1行足す | 追加クラスと選択1行。**`PaymentCalculator` は無変更** |
+| 割引の計算式を変える | 該当ルールクラスのみ | そのルール |
+| 併用・適用順を変える | 併用を表すルールクラスのみ | そのルール |
+
+現状との差：現状は割引を追加するたびに `calculate()` の分岐を開く。対策後は計算本体を触らず、ルールクラスと選択1行を足すだけ。**この「触る範囲の差」がこの構造を採る理由**です。
 
 ### 採用する形を決める
 
-それぞれのステップには一長一短があります。ステップ4のインターフェース化は強力ですが、ファイル数や型が増えるという「初期投資コスト」もかかります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
-
-ここで読者の頭に浮かべてほしいのは、「割引を分けるなら必ずインターフェース」と短絡することではありません。今回の課題は、価格計算の骨格を守りながら、会員割引・キャンペーン割引・季節割引という判定と計算式だけを差し替えられるようにすることです。その課題に対して、まず次の案を比べます。
+各案には一長一短があります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。今回の課題は、価格計算の骨格を守りながら、会員割引・キャンペーン割引・季節割引という判定と計算式だけを差し替えられるようにすることです。
 
 | 案 | 解けること | 残ること | 今回の判断 |
 |---|---|---|---|
@@ -1347,15 +1161,9 @@ void processOrder(const Order& order, const std::string& memberType,
 | 具体クラスへ分ける | 割引ごとの計算を別ファイルに置ける | 呼び出し側が具体クラスを知る | 中間策として有効 |
 | 共通契約を通して渡す | 計算本体は割引の種類を知らずに済む | ルールクラスと組み立て箇所が増える | 今回の変更頻度なら採用する |
 
-*   **ステップ1（プライベートメソッド化）で止めるケース：** 「今回限りの特例」の場合。見た目を整理するだけで十分です。
-*   **ステップ2（具体クラスへの分離）で止めるケース：** ファイルを分けて整理したいが、インターフェース導入のコストをまだかけたくない場合の「中間策」です。
-*   **ステップ3（インターフェース化・生成は自分）で止めるケース：** 型を統一したいが、呼び出し側にルール選択の責任を渡す準備がまだできていない場合。
-*   **ステップ4（依存性の注入）まで進むケース：** 「毎月新しい割引が追加される」と確定している場合。今すぐ初期投資コストを払ってでも、将来の変更箇所を限定するのが適切です。
+**今回の決断：** フェーズ2のヒアリングで、マーケティング責任者から「今後も毎月ルールが追加される」と明言されています。共通契約とルールクラス、選択箇所が増える初期投資コストはありますが、今後の施策追加では `PaymentCalculator` の計算フローを開かず、新しいルールクラスと選択箇所へ変更を寄せられます。変更頻度と将来の回帰確認コストを比べ、今回は初期投資に見合うため、**共通契約（`IDiscountRule`）を通してルールを外から受け取る形を採用する**決断を下します。
 
-**今回の決断：**
-フェーズ2のヒアリングで、マーケティング責任者から「今後も毎月ルールが追加される」と明言されています。ステップ4はインターフェース、ルールクラス、組み立て箇所が増えるため初期投資コストはあります。一方で、今後の施策追加では `PaymentCalculator` の計算フローを開かず、新しいルールクラスと選択箇所へ変更を寄せられます。変更頻度と将来の回帰確認コストを比べると、今回は初期投資に見合うため、**ステップ4（インターフェース化・依存性の注入）まで進化させる**案を採用します。
-
-フェーズ6で採用する形が決まりました。次のフェーズ7では、この決断を最終的なコードに落とし込みます。
+フェーズ6で採用する設計（接続点の契約・データ配置・構造・影響範囲）が決まりました。次のフェーズ7では、この決断を動く実装（`CustomerDatabase`・全ルールクラス・`RuleFactory`・`PaymentCalculator`・実行結果）に落とし込み、変更要求で効果を確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 ### 7-1：解決後のコード（全体）
