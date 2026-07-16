@@ -1262,10 +1262,7 @@ PaymentResult processPayment(
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6では、第0章の段階的進化アプローチを標準フローとして使います。フェーズ5で「変わるのは生成する具体クラス・手段固有の入力検証・処理モード・エラー対処であり、注文処理から見た `PaymentRequest` → `PaymentResult` の契約は守りたい」ことが分かりました。
-
-> **中間コードの継続条件：** 各ステップはProcessorの生成・選択だけを比較します。`ProcessorRegistry`、`PaymentGatewayClient`、`PaymentStatusClient`、`PaymentLog` と、`PaymentRequest` → `PaymentResult` の契約は全ステップで維持します。生成コードだけの抜粋を、決済境界全体の削除とは扱いません。
-
+フェーズ6は、フェーズ5で定めた課題——**注文処理の呼び出し元から、決済手段の具体クラス名と生成条件を切り離し、手段固有の知識をProcessorへ閉じる接続点を作る**（`PaymentRequest` → `PaymentResult` の契約は守る）——を受けて始めます。ここで決めるのは実装ではなく設計です。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。動く実装一式はフェーズ7で書きます。
 フェーズ5の課題から、対策候補は次のように出します。
 
 | フェーズ4で見えた原因 | フェーズ5で定めた課題 | フェーズ6で見る候補 |
@@ -1273,216 +1270,123 @@ PaymentResult processPayment(
 | 具体クラスの生成と選択条件が呼び出し元に集まっている | 呼び出し元から具体クラス名と生成条件を切り離す | 生成処理を関数化し、選択条件がどこに残るかを見る |
 | 手段ごとの入力検証・処理モード・エラー対処も混在 | 手段固有の知識をProcessorへ閉じる | 共通インターフェースで手段固有の差分を隠蔽する |
 
-#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+#### 起点：フェーズ3の痛みコード
 
-比較元は、PayPay対応を7か所へ追加したフェーズ3の変更途中コードです。ステップ1では `PayPayInput`、API境界、完了確認、マスター登録を維持したまま、利用側に残った生成と分岐を整理します。
+比較元は、PayPay対応を追加したフェーズ3の変更途中コードです。呼び出し元が決済種別ごとに具体クラスを生成する分岐を持っています。
 
 ```cpp
 // フェーズ3の変更途中コード（対策前）の代表箇所
-struct PaymentRequest {
-    // 既存のカード・振込・コンビニ入力
-    PayPayInput payPay;
-};
-
 PaymentResult processPayment(const PaymentRequest& request) {
     const string& type = request.methodId;
-    // 既存3手段の分岐
-    if (type == "paypay") {
-        PayPayProcessor proc(gatewayClient);
-        return proc.pay(request);
-    }
-    return {"失敗", "未対応の決済種別", false,
-            "UNSUPPORTED", {}};
+    if (type == "credit")  { CreditCardProcessor p(gatewayClient); return p.pay(request); }
+    if (type == "bank")    { BankTransferProcessor p(gatewayClient); return p.pay(request); }
+    if (type == "paypay")  { PayPayProcessor p(gatewayClient); return p.pay(request); }  // ← 追加
+    return {"失敗", "未対応の決済種別", false, "UNSUPPORTED", {}};
 }
 ```
 
-ステップ1はPayPay要求を残して決済手段ごとの生成・実行に名前を付けます。ステップ2以降は、直前ステップから具体Processor名、生成条件、手段固有のエラー対処がどこへ移ったかを比べます。
+### 6-1：痛みコードを変換して、接続点の「形」を探す
 
-### ステップ1：各処理を独立した関数として切り出す
+課題は「具体クラス名と生成条件を切り離す」と言っていますが、**どんな形なら切り離せるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（動く実装一式はフェーズ7）。
 
-`processPayment` の中を見ると、「どの決済方法IDか判断する if-else」と「具体クラスを生成して要求を渡す」が一体になっています。最初に考えやすい案は、決済手段ごとの生成と実行を独立したプライベートメソッドとして切り出すことです。
+**変換1：各生成・実行を関数へ切り出す。**
 
 ```cpp
-class PaymentApplication {
-private:
-    PaymentResult payByCredit(
-        const PaymentRequest& request) {
-        CreditCardProcessor proc(gatewayClient);
-        PaymentResult result = proc.pay(request);
-        if (result.status == "失敗") {
-            result.canRetry = true;
-        }
-        return result;
-    }
-
-    PaymentResult payByBankTransfer(
-        const PaymentRequest& request) {
-        BankTransferProcessor proc(gatewayClient);
-        return proc.pay(request);
-    }
-
-    PaymentResult payByCvs(
-        const PaymentRequest& request) {
-        ConvenienceStoreProcessor proc(
-            gatewayClient);
-        return proc.pay(request);
-    }
-
-    PaymentResult payByPayPay(
-        const PaymentRequest& request) {
-        PayPayProcessor proc(gatewayClient);
-        return proc.pay(request);
-    }
-
-public:
-    PaymentResult processPayment(
-        const PaymentRequest& request) {
-        const string& type = request.methodId;
-        if (type == "credit_card")
-            return payByCredit(request);
-        if (type == "bank_transfer")
-            return payByBankTransfer(request);
-        if (type == "convenience")
-            return payByCvs(request);
-        if (type == "paypay")
-            return payByPayPay(request);
-        return {"失敗",
-                "未対応の決済種別: " + type,
-                false, "UNSUPPORTED", {}};
-    }
-};
+PaymentResult payByCredit(const PaymentRequest& r) { CreditCardProcessor p(gatewayClient); return p.pay(r); }
+PaymentResult payByPayPay(const PaymentRequest& r) { PayPayProcessor p(gatewayClient); return p.pay(r); }
 ```
 
-**この段階の評価：**
-関数化すると、各決済手段の手順に名前が付き、読みやすさは上がります。各Processorが自分の入力検証とAPI呼び出しを内包しているのは良い点です。しかし、`PaymentApplication` の中に具体クラス名、生成方法、手段別メソッドの一覧、手段ごとのエラー対処（`payByCredit` 内の `canRetry` 設定など）が残っています。新しい決済手段を追加するたびに、メソッドと分岐を追加する構造は変わりません。
+見えたこと：どの決済も **`PaymentRequest` を受け取り `PaymentResult` を返す**同じ形（`pay`）を持つ。手段ごとに違うのは「どのクラスを生成し、どう検証するか」だけ。
+まだ詰まること：**どの具体クラスを生成するかの `if(type)` 分岐が呼び出し元に残る**。決済を1つ増やすと、また呼び出し元を開く。
 
-「生成の知識とエラー対処を `PaymentApplication` の外に出せないか」という問いが自然に湧いてきます。
-
-### ステップ2：生成ロジックを専用の PaymentFactory クラスに分離する
-
-**ステップ1との差：** 決済手段ごとの生成メソッドを `PaymentApplication` 内に置く形から、PayPayを含む生成判断を専用のFactoryへ移します。
-
-生成した各プロセッサーを共通の型で受け渡すため、`PaymentRequest` を受け取り `PaymentResult` を返す共通インターフェース `IPaymentProcessor` をここで導入します。
+**変換2：生成ロジックを専用のファクトリへ分離する。** `if(type) new XxxProcessor` を `PaymentFactory` へ移し、呼び出し元は「作って実行」だけにします。
 
 ```cpp
+IPaymentProcessor* create(const string& type) {   // PaymentFactory の中
+    if (type == "credit") return new CreditCardProcessor(gatewayClient);
+    if (type == "paypay") return new PayPayProcessor(gatewayClient);   // ← まだ分岐が残る
+    return nullptr;
+}
+```
+
+詰まり解消：呼び出し元からは生成条件が消える。
+まだ詰まること：**ファクトリの中に `if(type)` 分岐が残る**。決済を増やすたび、今度はファクトリを開く。ここで分かるのは、**「生成の"どれを作るか"の判断自体を、種別ごとの生成役へ分ければ、共通の分岐が消える」**ということ。
+
+**変換の結論：** 製品は共通契約 **`IPaymentProcessor`（`process`）**、生成は共通契約 **`Creator`（`createProcessor`）** にし、決済種別ごとの `ConcreteCreator` が自分の Processor を生成する。呼び出し元もファクトリの分岐も、種別を知らない。これが接続点の正体です。
+
+### 6-2：見つけた形を契約にし、データの置き場所を決める
+
+見つけた2つの形を、製品の契約と生成の契約として定義します（実装本体はフェーズ7）。
+
+```cpp
+// 製品の契約：決済の実行（手段固有の検証・エラー対処は中に閉じる）
 class IPaymentProcessor {
 public:
-    virtual ~IPaymentProcessor() {}
-    virtual PaymentResult pay(
-        const PaymentRequest& request) = 0;
+    virtual PaymentResult process(const PaymentRequest& request) = 0;
+    virtual ~IPaymentProcessor() = default;
+};
+// 生成の契約：種別ごとの ConcreteCreator が自分の Processor を作る
+class Creator {
+public:
+    virtual std::unique_ptr<IPaymentProcessor> createProcessor() = 0;
+    virtual ~Creator() = default;
 };
 ```
 
-このインターフェースを実装すれば、各Processorは自分の手段固有の入力検証、API呼び出し、エラー対処を内包できます。利用側は `pay(request)` だけを呼べば、手段の違いを知らずに結果を受け取れます。
+次に、データの置き場所を決めます。
 
-```cpp
-class PaymentFactory {
-public:
-    IPaymentProcessor* create(string type) {
-        if (type == "credit_card")
-            return new CreditCardProcessor();
-        if (type == "bank_transfer")
-            return new BankTransferProcessor();
-        if (type == "paypay")
-            return new PayPayProcessor();
-        if (type == "convenience")
-            return new ConvenienceStoreProcessor();
-        return nullptr;
-    }
-};
+| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
+|---|---|---|---|
+| 「どの種別にどの生成役か」の対応 | 呼び出し元／ファクトリの `if(type)` | `ProcessorRegistry`（種別→`Creator` の登録表） | 分岐でなく登録にすれば、追加は表への1行になる |
+| 外部決済API | 各所で直接 | `PaymentGatewayClient` / `PaymentStatusClient`（注入） | 決済フローの論点外の境界 |
+| 手段固有の入力検証・エラー対処 | 呼び出し元に混在 | 各 Processor の内側 | 手段固有の知識は製品に閉じる |
 
-class PaymentApplication {
-private:
-    PaymentFactory factory;
-public:
-    PaymentResult processPayment(
-        const PaymentRequest& request) {
-        IPaymentProcessor* proc
-            = factory.create(request.methodId);
-        if (proc) {
-            PaymentResult result
-                = proc->pay(request);
-            delete proc;
-            return result;
-        }
-        return {"失敗",
-                "未対応の決済種別: "
-                + request.methodId,
-                false, "UNSUPPORTED", {}};
+接続点で受け渡すのは **`PaymentRequest → PaymentResult`** です。`Creator` が生成した Processor の**所有権と生存期間は生成・管理側**が持ちます（利用側は非所有の参照として受け取る）。
+
+### 6-3：構造の見立て（変換の結果、こうなる）
+
+変換して2つの契約とデータ配置を決めた結果、構造はこうなります。図は出発点ではなく結論です。
+
+現状（呼び出し元が種別で分岐して生成）：
+
+```mermaid
+classDiagram
+    direction LR
+    class PaymentApplication {
+      if(type) new CreditProcessor / new PayPayProcessor ...
     }
-};
 ```
 
-**この段階の評価：**
-生成の責任を `PaymentApplication` から切り出せました。`PaymentApplication` は決済の振り分けフローに集中でき、手段固有の入力検証やエラー対処は各Processorに閉じ込められています。リトライ判定も各Processorの `pay()` 内で処理すれば、`processPayment` から手段固有のエラー対処が消えます。
+見立て（利用側は生成の契約だけを知る）：
 
-しかし `PaymentFactory` がすべての具体クラスを知っており、新しい決済手段を追加するたびに `PaymentFactory` を修正する必要があります。「テスト環境ではモック用のプロセッサーを使いたい」「本番とステージングで生成ロジックを変えたい」といった要求が来たとき、`PaymentFactory` ごと差し替える仕組みがありません。
-
-### ステップ3：生成メソッドを抽象化し、具体クラスに委ねる
-
-**ステップ2との差：** すべての具体Processorを知る単一Factoryから、共通の生成メソッドだけを骨格に残し、具体的な生成をサブクラスへ移します。
-
-`PaymentApplication` 自体に `createProcessor` という抽象メソッドを宣言し、「生成の仕方は自分では決めない、サブクラスに任せる」という構造にします。
-
-> [!INFO] コラム: ただの生成メソッドと抽象化された生成の違い
-> 「生成するだけの別メソッド（関数）を作れば十分では？」と思うかもしれません。しかし、それだけでは「そのメソッドを持つクラス」が全ての具体クラスを知っている状態は変わりません。この生成の抽象化構造の核心は、「具体的な生成処理をサブクラスに委ねる」ことです。これにより、呼び出し側の変更を抑えながら、テスト用のモックに差し替えたり、環境ごとに生成するクラスを切り替えたりしやすくなります。
-
-各Processorは `IPaymentProcessor` を実装し、自分の手段固有の入力検証、API呼び出し、エラー対処をすべて `pay()` 内に閉じ込めます。利用側は `IPaymentProcessor*` だけを知り、`pay(request)` を呼ぶだけです。
-
-```cpp
-// 振り分けフローの骨格（生成は知らない）
-class PaymentApplication {
-protected:
-    virtual IPaymentProcessor*
-    createProcessor(const string& type) = 0;
-
-public:
-    virtual ~PaymentApplication() = default;
-
-    PaymentResult processPayment(
-        const PaymentRequest& request) {
-        if (request.amount < 1) {
-            return {"失敗",
-                    "金額は1円以上で指定してください。",
-                    false, "INVALID_AMOUNT", {}};
-        }
-        IPaymentProcessor* proc
-            = createProcessor(request.methodId);
-        PaymentResult result
-            = proc->pay(request);
-        delete proc;
-        return result;
-    }
-};
+```mermaid
+classDiagram
+    direction LR
+    class IPaymentProcessor { <<interface>> }
+    class Creator { <<interface>> }
+    ProcessorRegistry --> Creator : 種別→生成役
+    Creator --> IPaymentProcessor : createProcessor
+    IPaymentProcessor <|.. CreditCardProcessor
+    IPaymentProcessor <|.. PayPayProcessor
+    Creator <|.. CreditCardCreator
+    Creator <|.. PayPayCreator
 ```
 
-フェーズ3で追加したPayPayは、具体的な生成だけを担うサブクラス側へ残します。
+図から読み取ること：呼び出し元と共通ファクトリから `if(type)` が消え、種別ごとの生成役（`Creator`）と製品（`IPaymentProcessor`）だけが残る。種別と生成役の対応は `ProcessorRegistry` の登録に集まる。
 
-```cpp
-class PayPayPaymentApplication : public PaymentApplication {
-    PaymentGatewayClient& gatewayClient;
-protected:
-    IPaymentProcessor* createProcessor(
-            const string& type) override {
-        if (type == "paypay")
-            return new PayPayProcessor(gatewayClient);
-        return nullptr;
-    }
-public:
-    explicit PayPayPaymentApplication(
-            PaymentGatewayClient& gateway)
-        : gatewayClient(gateway) {}
-};
-```
+### 6-4：影響範囲（この設計で変更要求を再度当てたら）
 
-`processPayment` は `IPaymentProcessor*` を受け取って `pay(request)` を呼びます。手段固有の入力検証、API呼び出し手順、エラー対処は各Processorの `pay()` 内に閉じ込められています。利用側は手段の違いを知りません。
+| 変更要求 | 修正する場所 | 再テスト範囲 |
+|---|---|---|
+| 決済手段を1つ追加 | `Processor` と `Creator` を1組追加し、`ProcessorRegistry` へ1行登録 | 追加した1組。**呼び出し元も共通分岐も無変更** |
+| ある手段の検証・エラー対処を変える | その `Processor` のみ | その手段 |
+| 環境別・テスト用の生成に差し替える | 登録する `Creator` を差し替える | 生成の組み立て |
 
-**この段階の評価：**
-`PaymentApplication`（振り分けフローの骨格）から、生成判断だけでなく、手段固有の入力検証・処理モード・エラー対処もすべて各Processorへ移りました。`processPayment` は「Processorを取得 → pay() → 結果を返す」だけです。
-
----
+現状との差：現状は決済追加のたびに呼び出し元（と共通ファクトリ）の `if(type)` を開く。対策後は生成役と製品を1組足して登録するだけ。**この「触る範囲の差」がこの構造を採る理由**です。
 
 ### 採用する形を決める
+
+各案には一長一短があります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
 
 | 案 | 解けること | 残ること | 今回の判断 |
 |---|---|---|---|
@@ -1491,10 +1395,9 @@ public:
 | 具体ファクトリへ移す | 生成判断を1か所へ寄せ、入力検証やエラー対処をProcessorへ閉じる | 環境別・テスト用の生成方法を差し替えにくい | 中間策として有効 |
 | 生成の契約を抽象化する | 利用側から手段固有の知識をすべて排除できる | Creatorクラスと組み立てが増える | 決済手段追加が続くため採用する |
 
-**今回の決断：**
-フェーズ2のヒアリングで「かなりハイペースで追加していく予定」と明言されています。したがって、今回は**ステップ3（抽象化ファクトリ）まで進化させる**決断を下します。
+**今回の決断：** フェーズ2のヒアリングで「かなりハイペースで追加していく予定」と明言されています。したがって、今回は**生成の契約（`Creator`）まで抽象化する形を採用する**決断を下します。
 
-フェーズ6で採用する形が決まりました。次のフェーズ7では、この決断を最終的なコードに落とし込みます。
+フェーズ6で採用する設計（製品と生成の契約・データ配置・構造・影響範囲）が決まりました。次のフェーズ7では、この決断を動く実装（`ProcessorRegistry`・各 `Processor`／`Creator`・外部境界・`PaymentLog`・実行結果）に落とし込み、変更要求で効果を確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 生成するオブジェクトの種類（決済手段）を、利用側から隠蔽するメソッドに集約し、利用側がインターフェースを通じてインスタンスを得る構造——これが **生成分離構造（ファクトリーメソッド）** と呼ばれています。
