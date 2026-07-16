@@ -845,13 +845,7 @@ void execute(string partnerId) {
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6の出発点は、フェーズ3で変更要求（新しい連携先の追加）を当てて痛んだ「変更途中コード」です。変更要求を容れる前の現状コードには戻しません。`BatchExecutor` に通信・通知・生成が混じって増えたコードから、同じ形で扱える共通点（連携先ごとに差し替わる通信・通知・生成の契約と、実行手順の骨格）を抜き出し、変わる差分を接続点の外へ出す形へ整理していきます。読者が「痛み → 共通点の発見 → 抽象化」の順で追えるよう、変更途中コードに既に並んでいる共通の形を読み取り、そこから直接それぞれの構造へ分けていきます。
-
-> **中間コードの継続条件：** 各ステップは通信・通知・生成の分離だけを比較します。`PartnerDatabase` のID検証と有効性確認は全ステップで維持します。前半の `execute(partnerId)` から最終の `execute(IClientCreator*)` への変化は、検証済みIDからCreatorを選ぶ責任を組み立て側へ移した結果であり、パートナー情報を捨てたものではありません。
-
-フェーズ6では、第0章の段階的進化アプローチを標準フローとして使います。ただし、ここでのステップは一本道の作業手順ではなく、対策案を比較するための候補です。共通の形が分割前から見えているこの章では小さな整理（関数へ切り出す）を飛ばし、責任の移動、契約、窓口、組み合わせ、生成責任の移動のうち、この章の課題に必要な案だけを比べます。
-外部連携バッチシステムにおいて、「通信の詳細」「通知処理の多様化」「連携先クライアントの生成」という3つの変更軸が `BatchExecutor` に混在していることが、システムを複雑にする原因です。ここでは、これらの責務を適切に切り離すための対策ステップを検討します。
-
+フェーズ6は、フェーズ5で定めた3つの課題——**連携先ごとの通信を切り離すこと（A）／通知先を切り離すこと（B）／クライアント生成を切り離すこと（C）**——を受けて始めます。ここで決めるのは実装ではなく設計です。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを分解して探します。第二部の要は「いくつの独立した変化軸があるかを数える」ことです。動く実装一式はフェーズ7で書きます。
 フェーズ5の課題から、対策候補は次のように出します。
 
 | フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
@@ -865,244 +859,104 @@ void execute(string partnerId) {
 
 ---
 
-#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+#### 起点：フェーズ3の痛みコード
 
-比較元は、C社連携とSlack通知を `BatchExecutor` へ直接追加したフェーズ3の変更途中コードです。どちらも残したまま、通信・通知・生成を少しずつ分けます。
+比較元は、C社連携とSlack通知を `BatchExecutor` へ直接追加したフェーズ3の変更途中コードです。
 
 ```cpp
 // フェーズ3の変更途中コード（対策前）の要点
 void BatchExecutor::execute(string partnerId) {
-    if (partnerId == "A") {
-        SystemAClient client;
-        client.send("data");
-    } else if (partnerId == "B") {
-        SystemBClient client;
-        client.send("data");
-    } else if (partnerId == "C") {
-        SystemCClient client;
-        client.send("data");
-    }
-    NotificationService notifier;
-    notifier.notify("Success");
-    SlackNotifier slack;
-    slack.notify("Success");
+    if (partnerId == "A") { SystemAClient client; client.send("data"); }   // ← 生成＋通信
+    else if (partnerId == "B") { SystemBClient client; client.send("data"); }
+    else if (partnerId == "C") { SystemCClient client; client.send("data"); }
+    NotificationService notifier; notifier.notify("Success");              // ← 通知の直呼び
+    SlackNotifier slack; slack.notify("Success");
 }
 ```
 
-この痛みコードでは、連携先ごとの分岐がどれも「クライアントを生成して `send` し、最後に通知する」という同じ形で並んでいます。共通の形は分割前から見えているので、いったんプライベートメソッドへ切り出して名前を付ける段階（第0章の「関数へ切り出す」）は踏みません。しかもこの「どのクライアントを生成し、どう送り、誰に通知するか」という知識は、`BatchExecutor` だけでなく手動実行の `ManualTriggerController` でも同じように必要で、放っておくと2か所へ重複します。そこで、生成・通信・通知という変わる理由の異なる3つの関心を、窓口構造（外部手順を隠す）→通知分離構造（通知先を登録式にする）→生成分離構造（生成を一か所へ）の順に、それぞれの構造へ直接分けていきます。各ステップは直前のステップとの差分として読みます。
+同じ知識が手動実行の `ManualTriggerController` にも重複します。
 
-### ステップ1：窓口構造を適用する ―― 外部の複雑さを隠す
+### 6-1：痛みコードを分解して、接続点の「形」を探す
 
-痛みコードでは `BatchExecutor`（と `ManualTriggerController`）が連携先の具体クラスを直接生成していました。この重複と依存を断つため、連携先クライアントにインターフェースを導入します。`BatchExecutor` はインターフェース型だけを知り、具体的なクライアントクラスへの依存をなくします。
+課題は3つあります。どんな形なら切り離せるかは、痛みコードを分解して探します。まず数えるのは、**独立して変わる軸がいくつあるか**です。共通の形は既に並んでいるので、関数へ切り出す段階は飛ばします。
 
-```cpp
-// 送信結果の契約は、以降のステップでも変えない
-struct DeliveryResult {
-    bool success;
-    string message;
-};
+**分解A（通信の軸）：** `if(partnerId)` の各分岐は「クライアントを生成して `send` する」。連携先ごとに差し替わる送信 → **製品の契約 `IExternalClient`（`send`）**。
+**分解B（通知の軸）：** `NotificationService`/`SlackNotifier` の直呼び出し。通知先ごとに増減する → **通知の契約 `INotifier`（`onComplete`）** のリスト。
+**分解C（生成の軸）：** `if(partnerId) new XxxClient` という生成判断。どのクライアントを作るか → **生成の契約 `IClientCreator`（`createClient`）**。
+**骨格（窓口）：** 「順に流す」実行手順そのものは変わらない。これは `BatchExecutor` に残し、契約だけを知る**窓口**にする。
 
-// 連携先クライアントのインターフェースを定義
-class IExternalClient {
-public:
-    virtual DeliveryResult send(string data,
-                                bool apiHealthy = true) = 0;
-};
+**片方だけでは詰まる（第二部の肝）：** 生成だけ分けても通知の直呼びが残り、通知だけ分けても連携先の分岐が残る。しかも同じ知識が `ManualTriggerController` にも重複する。ここで分かるのは、**「決定者と頻度が異なる3つの軸は、それぞれ別の契約に分けないと、どれか1つの変更が他へ波及し続ける」**ということ。
 
-class SystemAClient : public IExternalClient {
-public:
-    DeliveryResult send(string data,
-                        bool apiHealthy = true) override {
-        if (!apiHealthy) return {false, "API障害"};
-        cout << "A社へ送信: " << data << endl;
-        return {true, "送信成功"};
-    }
-};
-class SystemBClient : public IExternalClient {
-public:
-    DeliveryResult send(string data,
-                        bool apiHealthy = true) override {
-        if (!apiHealthy) return {false, "API障害"};
-        cout << "B社へ送信: " << data << endl;
-        return {true, "送信成功"};
-    }
-};
-class SystemCClient : public IExternalClient {
-public:
-    DeliveryResult send(string data,
-                        bool apiHealthy = true) override {
-        if (!apiHealthy) return {false, "API障害"};
-        cout << "C社へ送信: " << data << endl;
-        return {true, "送信成功"};
-    }
-};
+**分解の結論：** 通信・通知・生成の3つに独立した契約を置き、`BatchExecutor` は実行順（骨格）を保ったまま契約だけを呼ぶ窓口にする。これが第二部の見立てです。
 
-// BatchExecutorはインターフェースだけを知る（窓口構造として機能）
-class BatchExecutor {
-    IExternalClient* client; // ← 抽象：具体クラス名を知らない
-public:
-    BatchExecutor(IExternalClient* c) : client(c) {}
-    DeliveryResult execute(bool apiHealthy = true) {
-        DeliveryResult r = client->send("data", apiHealthy);
-        // 通知はまだ具体クラスを直接知っている
-        NotificationService n;
-        n.notify(r.success ? "Success" : r.message);
-        SlackNotifier slack;
-        slack.notify(r.success ? "Success" : r.message);
-        return r;
-    }
-};
+### 6-2：見つけた形を契約にし、データの置き場所を決める
 
-```
-
-`BatchExecutor` の内部から具体クライアントクラス名が消えました。連携先の複雑さが `IExternalClient` というインターフェースの裏に隠れ、`BatchExecutor` は外部連携の窓口（窓口構造）として機能し始めています。
-
-**評価：** 連携先の詳細を隠すことができた。しかし通知処理（`NotificationService`）はまだ `BatchExecutor` の中で直接生成されている。「Slack以外への通知を追加したい」という変更要求が来ると、また `BatchExecutor` を修正する必要があります。通知の変化軸がまだ残っている。
-
-
----
-
-### ステップ2：通知分離構造を加える ―― 通知を疎結合にする
-
-ステップ1で残った「通知の変化軸」を解消します。通知処理にもインターフェースを導入し、通知先をリストで動的に管理する仕組みを加えます。
+見つけた3つの形を、それぞれの契約として定義します（実装本体はフェーズ7）。
 
 ```cpp
-// 通知のインターフェースを定義（通知契約）
-class INotifier {
-public:
-    virtual void onComplete(string result) = 0;
-};
-
-class SlackNotifier : public INotifier {
-public:
-    void onComplete(string result) override {
-        cout << "Slack通知: " << result << endl;
-    }
-};
-
-class EmailNotifier : public INotifier {
-public:
-    void onComplete(string result) override {
-        cout << "完了通知: " << result << endl;
-    }
-};
-
-// BatchExecutorはINotifierのリストを持ち、通知先を直接知らない
-class BatchExecutor {
-    IExternalClient* client;          // ← 抽象：連携先を知らない
-    vector<INotifier*> notifiers;     // ← 通知先リスト（抽象型のみ）
-public:
-    BatchExecutor(IExternalClient* c) : client(c) {}
-    void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
-
-    DeliveryResult execute(bool apiHealthy = true) {
-        DeliveryResult r = client->send("data", apiHealthy);
-        string note = r.success ? "Success" : r.message;
-        // 全通知先に通知（通知先を知らない）
-        for (int i = 0; i < notifiers.size(); i++) {
-            notifiers[i]->onComplete(note);
-        }
-        return r;
-    }
-};
-
+struct DeliveryResult { bool success; std::string message; };
+// A：連携先クライアント（製品）の契約
+class IExternalClient { public: virtual DeliveryResult send(std::string data, bool apiHealthy = true) = 0; };
+// B：通知先の契約
+class INotifier       { public: virtual void onComplete(std::string result) = 0; };
+// C：クライアント生成の契約
+class IClientCreator  { public: virtual IExternalClient* createClient() = 0; };
 ```
 
-このステップは通知軸だけの差分を示しています。`SystemCClient` を含む `IExternalClient` の実装はステップ1から変更せず、そのまま利用します。組み立て側では `EmailNotifier` と `SlackNotifier` の両方を登録するため、フェーズ3で追加したC社連携とSlack通知は失われません。
+次に、データの置き場所を決めます。
 
-通知先がリストで管理されるようになりました。Slack以外にメール通知やログ基盤への通知を追加したい場合は、`INotifier` を実装した新クラスを作り、`addNotifier()` で登録するだけです。`BatchExecutor`の実行フローは変更しません（組み立て箇所への登録は必要です）。
+| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
+|---|---|---|---|
+| 連携先の設定・有効性 | `BatchExecutor` の分岐 | `PartnerDatabase` | 実行順とは別の関心事 |
+| どの連携先クライアントを作るか | `if(partnerId) new` | `IClientCreator`（種別ごと） | 連携先追加を生成役の追加で吸収 |
+| 通知先の一覧 | `BatchExecutor` の直呼び | `INotifier` の登録リスト | 通知先の増減を登録で扱う |
+| 実行順（認証→取得→送信→通知） | `BatchExecutor` | 変えない（窓口の骨格） | 手順は安定。契約だけ差し替える |
 
-**評価：** 連携先の複雑さ（窓口構造）と通知の疎結合（通知分離構造）は実現できた。しかし「どの連携先クライアントを生成するか」という判断が、まだ呼び出し元（`main()` や `BatchApplication`）に委ねられている。D社が追加されたとき、呼び出し元で `SystemDClient` を生成して渡す修正が必要になる。生成の知識がまだ分散している。
+接続点で受け渡すのは、送信の **`DeliveryResult`** と通知の **結果文字列**です。`IClientCreator` が生成したクライアントの**所有権・生存期間は生成・管理側**が持ちます（利用側は非所有の参照で受け取る）。
 
----
+### 6-3：構造の見立て（分解の結果、こうなる）
 
-### ステップ3：生成分離構造を加える ―― 生成を一か所に集める（完全解）
+分解して3つの契約とデータ配置を決めた結果、構造はこうなります。図は出発点ではなく結論です。
 
-ステップ1で外部手順を窓口構造で分離し、ステップ2で通知分離構造によって通知先を分離しましたが、まだ「連携先クライアントの生成」の知識が残っています。この「生成の分散」という限界から、3つ目のパターンとして生成分離構造を追加し解消します。生成メソッドを`IClientCreator::createClient()`として定義し、連携先ごとのCreatorがオーバーライドします。`BatchExecutor` はCreatorの抽象型だけを受け取り、どのクライアントを生成するかを知りません。
+現状（1メソッドに通信・通知・生成が同居）：
 
-```cpp
-// Creatorの契約。createClient()が生成を分離する接続点になる
-class IClientCreator {
-public:
-    virtual ~IClientCreator() = default;
-    virtual IExternalClient* createClient() = 0;
-};
-
-class SystemAClientCreator : public IClientCreator {
-public:
-    IExternalClient* createClient() override {
-        return new SystemAClient();
+```mermaid
+classDiagram
+    direction LR
+    class BatchExecutor {
+      if(partner) new client + 通知直呼び
     }
-};
-
-class SystemBClientCreator : public IClientCreator {
-public:
-    IExternalClient* createClient() override {
-        return new SystemBClient();
-    }
-};
-
-class SystemCClientCreator : public IClientCreator {
-public:
-    IExternalClient* createClient() override {
-        return new SystemCClient();
-    }
-};
-
-// BatchExecutorはCreatorの抽象型だけを受け取る
-class BatchExecutor {
-    vector<INotifier*> notifiers;
-public:
-    void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
-
-    DeliveryResult execute(IClientCreator* creator, string partnerName,
-                           bool apiHealthy = true) {
-        IExternalClient* client = creator->createClient();
-        DeliveryResult r = client->send("data", apiHealthy);
-        string note = r.success ? (partnerName + " 連携完了")
-                                : (partnerName + " 連携失敗: " + r.message);
-        for (auto* notifier : notifiers) {
-            notifier->onComplete(note);
-        }
-        return r;
-    }
-};
 ```
 
-組み立て側では、ステップ2の通知登録をそのまま引き継ぎます。
+見立て（実行順は窓口に残し、3軸は契約へ）：
 
-```cpp
-SystemCClientCreator creator;
-EmailNotifier email;
-SlackNotifier slack;
-BatchExecutor executor;
-executor.addNotifier(&email);
-executor.addNotifier(&slack);
-executor.execute(&creator, "C社");
+```mermaid
+classDiagram
+    direction LR
+    class IExternalClient { <<interface>> }
+    class IClientCreator { <<interface>> }
+    class INotifier { <<interface>> }
+    BatchExecutor --> IClientCreator : 生成を依頼
+    IClientCreator --> IExternalClient : createClient
+    BatchExecutor --> IExternalClient : send
+    BatchExecutor --> INotifier : onComplete（登録リスト）
 ```
 
-`BatchExecutor` は`IClientCreator`だけを知り、具体的なCreatorやクライアントには依存しません。新しい連携先には新しい具象Creatorを追加し、組み立て箇所で選択します。生成方法の変更が実行フローへ波及しない点が、生成分離構造を導入した効果です。
+図から読み取ること：`BatchExecutor` から通信・通知・生成の具体が消え、3つの契約への依存と実行順の骨格だけが残る。3軸は互いに独立して差し替わる。
 
-> [!INFO] コラム: なぜ直接 new してはいけないのか？
-> BatchExecutor の中で直接 new SystemCClient() と書いてしまうと、連携先が増えるたびにバッチ実行のコアロジックを修正することになります。生成分離構造を導入することで、BatchExecutor は「誰かが作ってくれたクライアントを使うだけ」になり、新しい連携先が増えたときの主な変更を生成側へ寄せられます。
+### 6-4：影響範囲（この設計で変更要求を再度当てたら）
 
-**評価：** 3つの変化軸（生成・通信・通知）がそれぞれ独立して変更できる構造になった。これが今回の完全解です。
+| 変更要求 | 修正する場所 | 再テスト範囲 |
+|---|---|---|
+| 連携先を追加（D社・E社） | `IExternalClient` と `IClientCreator` を1組追加 | 追加した1組。**通知・実行順は無変更** |
+| 通知先を追加（ログ基盤など） | `INotifier` を実装して登録 | 追加通知先。**連携・実行順は無変更** |
+| ある社のAPI仕様が変わる | その `IExternalClient` 実装のみ | その連携先 |
 
----
+現状との差：現状はどの軸を変えても `BatchExecutor`（と `ManualTriggerController`）を開く。対策後は軸ごとに独立して差し替えられ、実行順の骨格は触らない。**この「独立して触れる」ことがこの構造を採る理由**です。
 
 ### 採用する形を決める
 
-それぞれのステップには一長一短があります。
-
-今回の課題は、外部連携先、通知先、連携クライアント生成という3つの変化軸が同じ実行処理へ集まっていることです。1つの構造で全部を解こうとするのではなく、どの案がどの軸に効くのかを分けて考えます。順次実行という外部手順の骨格は、どの案を選んでも `BatchExecutor` 側に残す部分です。外部手順（順に流す）・通知（誰に伝える）・生成（何を作る）を別々の軸として扱い、通信詳細・通知先・生成判断だけを本体の外へ寄せるのが狙いです。送信失敗の扱いは順次実行の骨格側に残し、各ジョブの通信部品は差し替え可能にします。
-
-| **ステップ** | **移した知識** | **特徴** | **残る問題** |
-| --- | --- | --- | --- |
-| ステップ1 | 外部連携手順を窓口へ移す | 窓口構造適用 | 通知の変化軸が残る |
-| ステップ2 | 通知先の知識を登録先へ移す | 通知分離構造追加 | 生成の知識が分散している |
-| ステップ3 | 生成判断をCreatorへ移す | 生成分離構造追加 | 具象Creatorの組み立てが必要 |
-
-読者の思考としては、次の順で絞ります。
+各案には一長一短があります。今回の課題は、外部連携先・通知先・クライアント生成という3つの変化軸が同じ実行処理へ集まっていることです。1つの構造で全部を解こうとせず、どの案がどの軸に効くのかを分けて考えます。順次実行という骨格は、どの案でも `BatchExecutor` 側に残します。
 
 | 案 | 解けること | 残ること | 今回の判断 |
 |---|---|---|---|
@@ -1111,7 +965,11 @@ executor.execute(&creator, "C社");
 | Client生成だけ分ける | 連携先ごとの生成判断を寄せられる | 連携実行と通知の変化は残る | 生成条件の増加には必要だが単独では不足 |
 | 3つの境界を別々に作る | 連携・通知・生成を独立して変更できる | 組み立て箇所とクラス数が増える | 3軸すべてが変わるため採用する |
 
-今回の決断はステップ3まで進めることです。フェーズ2のヒアリングで「外部連携先の追加（D社・E社）」と「通知方法の多様化（ログ基盤）」が確認されています。変更の決定者と頻度が異なる3つの責務について、外部連携の窓口、通知先の登録、Client生成の境界をそれぞれ明示する構造を採用します。
+**今回の決断：** フェーズ2のヒアリングで「外部連携先の追加（D社・E社）」と「通知方法の多様化（ログ基盤）」が確認されています。変更の決定者と頻度が異なる3つの責務について、**外部連携の窓口・通知先の登録・Client生成の境界をそれぞれ明示する構造を採用する**決断を下します。
+
+> この構造は、第2章の**窓口構造**、第7章の**通知分離構造**、第8章の**生成分離構造**を、問題を分析した結果として組み合わせたものです。
+
+フェーズ6で採用する設計（3つの契約と窓口の骨格・データ配置・構造・影響範囲）が決まりました。次のフェーズ7では、この決断を動く実装（`PartnerDatabase`・各クライアント／Creator・各通知先・`BatchExecutor`・実行結果）に落とし込み、変更要求で効果を確認します。
 
 
 ---
