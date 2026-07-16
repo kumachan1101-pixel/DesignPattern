@@ -738,10 +738,10 @@ graph LR
 
 **【変わってほしくない部分（守りたい骨格）】**
 ```cpp
-        reader.readCSV();                              // 常に最初
-        renderer.addHeader(format);
-        // ... (ここに変わる部分が入る) ...
-        renderer.addFooter(format); // 常に最後
+        reader.readCSV();                    // 常に最初（守りたい骨格）
+        renderer.addHeader(format);          // ヘッダー生成（守りたい）
+        // ↑↓ この間に「本文生成」と「装飾（グラフ・ロゴ）」が入る ← 種別・組み合わせで変わる
+        renderer.addFooter(format);          // 常に最後（守りたい）
 ```
 
 ### 4-3：接続点に漏れている3つの知識を確認する
