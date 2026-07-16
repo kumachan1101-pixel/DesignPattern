@@ -846,13 +846,7 @@ public:
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6の出発点は、フェーズ3で変更要求（新しいレポート種別・出力形式の追加）を当てて痛んだ「変更途中コード」です。変更要求を容れる前の現状コードには戻しません。生成手順に装飾や出力が混じって増えたコードから、同じ形で扱える共通点（レポート生成手順の骨格と、種別・形式・装飾を差し込む契約）を抜き出し、変わる差分を接続点の外へ出す形へ整理していきます。読者が「痛み → 共通点の発見 → 抽象化」の順で追えるよう、最初の小さな案も、この変更途中コードを整理する形から始めます。
-
-> **中間コードの継続条件：** 各ステップは骨格・装飾・操作履歴の責任移動だけを比較します。`TemplateRegistry` の検証と `ReportRenderingApi` の外部境界は全ステップで維持します。`generate(format, flags)` から引数なしの骨格操作へ変わるのは、出力形式・出力先を `GenerateReportAction` が保持するためで、形式入力が消えたものではありません。
-
-フェーズ6では、第0章の段階的進化アプローチを標準フローとして使います。ただし、ここでのステップは一本道の作業手順ではなく、対策案を比較するための候補です。まず小さな整理で何が見えるかを確認し、次に責任の移動、契約、窓口、組み合わせ、生成責任の移動のうち、この章の課題に必要な案だけを比べます。
-ターゲットである3つの塊を外に出すために、いきなり正解へ飛ぶのではなく、段階的にリファクタリングを進めてみます。それぞれの段階（ステップ）でどこまで痛みが解消されるかを確認し、今回の要件において「どのステップで止めるべきか」を決断します。
-
+フェーズ6は、フェーズ5で定めた3つの課題——**本文生成を骨格から切り離すこと／装飾を順に組み合わせられるようにすること／生成操作を記録・再実行・取消できる単位に分けること**——を受けて始めます。ここで決めるのは実装ではなく設計です。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを分解して探します。第二部の要は「いくつの独立した変化軸があるかを数える」ことです。動く実装一式はフェーズ7で書きます。
 フェーズ5の課題から、対策候補は次のように出します。
 
 | フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
@@ -874,370 +868,117 @@ public:
 
 今回足した「装飾の途中失敗」と「失敗した生成操作の再実行」も、この分け方の判断材料になります。装飾失敗は装飾のリスト化の側（装飾を包む部品）で扱い、再実行は生成操作の単位化の側（記録できる操作オブジェクト）で扱う——このように、生成骨格・装飾・操作履歴を別軸として分けておくと、装飾失敗を骨格へ持ち込まずに済み、再実行は記録した生成操作を材料に扱えます。組み立てや結果の受け渡しには変更が残りますが、骨格そのものへ手を入れる必要は減ります。
 
-#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+#### 起点：フェーズ3の痛みコード
 
-比較元は、生成手順へ履歴記録と再実行を直接追加したフェーズ3の変更途中コードです。履歴要求を消さずに、骨格・装飾・履歴を段階的に分けます。
+比較元は、生成手順へ履歴記録と再実行を直接追加したフェーズ3の変更途中コードです。
 
 ```cpp
 // フェーズ3の変更途中コード（対策前）の要点
 class ReportSkeleton {
-    DataReader reader;
-    ReportHistoryManager history;
-    ReportRenderingApi renderer;
+    DataReader reader; ReportHistoryManager history; ReportRenderingApi renderer;
 public:
     void generate(string format, bool addGraph, bool addLogo) {
         reader.readCSV();
-        renderer.addHeader(format);
-        if (addGraph) renderer.addGraph();
+        renderer.addHeader(format);          // ← 骨格（順序）
+        if (addGraph) renderer.addGraph();   // ← 装飾の組み合わせ
         if (addLogo)  renderer.addLogo();
         renderer.addFooter(format);
-        string rec = format;
-        if (addGraph) rec += "+Graph";
-        history.record(rec);
-    }
-    void replay() { history.replay(); }
-};
-```
-
-ステップ1は形式・装飾・履歴を維持して処理へ名前を付けます。ステップ2以降は、直前ステップから本文生成、装飾選択、履歴管理がどこへ移ったかを比べます。
-
-### ステップ1：各処理を独立した関数として切り出す（共通構造を発見する）
-
-はじめに、クラスを分けずに、各処理をプライベートメソッドとして分離してみます。「どの処理が変わるのか」を明確にするために、まず処理を独立した名前のついた単位に切り出すことが出発点です。
-
-```cpp
-// ステップ1：各処理を独立したプライベートメソッドとして切り出す
-class ReportSkeleton {
-    DataReader reader;
-    ReportHistoryManager history;
-    ReportRenderingApi renderer;
-public:
-    void generate(string format, bool addGraph, bool addLogo) {
-        reader.readCSV();
-        renderer.addHeader(format);
-        if (addGraph) {
-            applyGraph(); // ← 処理の意図がメソッド名で明確になった
-        }
-        if (addLogo) {
-            applyLogo();
-        }
-        renderer.addFooter(format);
-        recordHistory(format, addGraph, addLogo);
-    }
-    void replay() { history.replay(); }
-private:
-    void applyGraph() { renderer.addGraph(); }
-    void applyLogo()  { renderer.addLogo(); }
-    void recordHistory(string format, bool addGraph, bool addLogo) {
-        string rec = format;
-        if (addGraph) rec += "+Graph";
-        if (addLogo)  rec += "+Logo";
-        history.record(rec);
+        history.record(format);              // ← 履歴の記録
     }
 };
 ```
 
-**この段階の評価：**
-`applyGraph()` と `applyLogo()` は、どちらも「引数なし・戻り値なし」という同じシグネチャを持つことが見えてきました。これは「処理の本体は独立できる」という構造の兆候です。また、`generate()` が「どの処理を呼ぶかを決める制御」と「実際の処理の実行」を両方担っていることが浮き彫りになりました。処理の実行と制御の分離が、次のステップで考えるべき課題として見えてきています。
+### 6-1：痛みコードを分解して、接続点の「形」を探す
 
-**残課題：** 仕様変更後の履歴機能は保てたが、骨格と装飾、履歴の分離は不完全。新しい装飾や履歴形式の変更で同じクラスの修正が必要。
+課題は3つあります。どんな形なら切り離せるかは、痛みコードを分解して探します。まず数えるのは、**独立して変わる軸がいくつあるか**です。
 
-このステップで「独立した処理として切り出せること」と「処理の制御と実行が同居していること」が確認できました。次のステップでは、この処理をクラスとして独立させることで、その限界がどこにあるかを確かめます。
+**分解1（骨格の軸）：** `addHeader → 本文 → addFooter` の**順序は固定**で、変わるのは本文（週次・月次…）だけ → 骨格を固定し本文を差し替える**フックの形**（`renderBody`）。
+**分解2（装飾の軸）：** `if(addGraph)/if(addLogo)` の組み合わせ → 装飾を「レポートを包むレポート」にして順に重ねる**装飾の形**（`ReportFeature`）。
+**分解3（記録の軸）：** `history.record` と再実行・取消 → 生成操作を1つの実行・取消できる単位にする**操作の形**（`IReportAction`）。
 
-### ステップ2：3つの責任を別々のクラスに切り出す
+**片方だけでは詰まる（第二部の肝）：** 本文だけ差し替えても装飾の分岐と履歴が骨格に残る。装飾だけリスト化しても履歴が骨格に残る。履歴だけ分けても骨格と装飾が混ざったまま。ここで分かるのは、**「変わる理由が異なる3つの軸は、それぞれ別の契約に分けないと、どれか1つの変更が骨格へ染み出す」**ということ。
 
-ステップ1の「クラスが肥大化する」という問題を解決するために、装飾機能を別クラスに切り出し、呼び出し元はその具体クラスを名指しで知った上で処理を「委ねる」形にします。
+**分解の結論：** 骨格（`renderBody` フック）・装飾（`ReportFeature`）・記録（`IReportAction`）の3つに独立した契約を置く。これが第二部の見立てです。
 
-```cpp
-// ステップ2：処理を別クラスに切り出した
-class GraphFeature {
-public:
-    void draw() { cout << "グラフを描画。" << endl; }
-};
+### 6-2：見つけた形を契約にし、データの置き場所を決める
 
-class LogoFeature {
-public:
-    void draw() { cout << "ロゴを配置。" << endl; }
-};
-
-// ReportSkeletonが具体クラスを知り、処理をそのクラスに委ねる
-class ReportSkeleton {
-    ReportHistoryManager history;
-public:
-    void generate(string format, bool addGraph, bool addLogo) {
-        DataReader reader;
-        reader.readCSV();
-        ReportRenderingApi renderer;
-        renderer.addHeader(format);
-        if (addGraph) {
-            GraphFeature graph;
-            graph.draw();
-        }
-        if (addLogo) {
-            LogoFeature logo;
-            logo.draw();
-        }
-        renderer.addFooter(format);
-        string rec = format;
-        if (addGraph) rec += "+Graph";
-        if (addLogo) rec += "+Logo";
-        history.record(rec);
-    }
-    void replay() { history.replay(); }
-};
-```
-
-**この段階の評価：**
-それぞれの処理が別のファイルに分かれたため、一見すると整理されたように思えます。しかし、クラスを分けたにもかかわらず、新しい装飾が来るたびに `ReportSkeleton` を開いて新しいクラスをインクルードし、新しい記述を追加する必要があるでしょう。これが骨格側がすべての装飾クラス名を知っている限界です。
-
-**残課題：** 履歴と再実行は維持できたが、装飾を追加するたびに骨格クラスの修正が必要で、履歴管理も骨格に残っている。
-
-### ステップ3：限界を確認する ―― 新フォーマット追加で骨格を必ず修正
-
-ステップ2まで進んでも、「透かし付きレポート」「グラフ＋透かし付きレポート」のように装飾の組み合わせが増えると、組み合わせの構造ごとに `ReportSkeleton` が肥大化し続けます。さらに、`PreviewService` という類似クラスがあれば、まったく同じ問題が並行して走ります。
-
-このステップのコードは装飾の組み合わせ爆発だけを示す差分抜粋です。ステップ2の履歴管理 `ReportHistoryManager` と `replay()` は削除せず、そのまま残ります。
+見つけた3つの形を、それぞれの契約として定義します（実装本体はフェーズ7）。
 
 ```cpp
-// 問題：装飾の組み合わせが増えるほどクラスが爆発する
-class ReportWithGraph { ... };          // グラフ付き
-class ReportWithWatermark { ... };      // 透かし付き
-class ReportWithGraphAndWatermark { ... }; // グラフ+透かし（爆発）
-class PreviewWithGraph { ... };         // プレビュー+グラフ（重複）
-```
-
-このまま装飾クラスを増やすだけでは限界があります。「if文の塊」を外に移すには、骨格が装飾クラス名を知らなくてよい接続点へ変える必要があります。
-
-### ステップ4：骨格固定構造 を適用する ―― 骨格を固定し、変わる部分だけをサブクラスに委ねる
-
-**ステップ3との差：** 装飾の組み合わせごとに骨格が増える状態から、共通手順を1つに固定し、本文差分だけをサブクラスへ移します。
-
-骨格（ヘッダー生成・フッター生成の順序）は変えたくないが、本文の中身（`renderBody()`）だけは種類ごとに変えたい。この「固定と可変の分離」を 骨格固定構造 で解決します。
-
-以下は骨格軸の差分抜粋です。ステップ2で分離途中だった履歴記録と `replay()` は呼び出し側に残したまま、ここでは生成骨格だけを置き換えます。
-
-```cpp
-// ReportSkeleton: レポート生成の骨格（骨格固定構造）
+// 軸1：骨格を固定し、本文だけをフックにする（Template Method）
 class ReportSkeleton {
 public:
-    virtual ~ReportSkeleton() = default;
-    void generate() {
-        cout << "CSV読み込み" << endl;
-        renderBody(); // ← 継承先で変化する部分だけをここに任せる
-        cout << "フッター生成" << endl;
-    }
-    virtual void renderBody() = 0;
-};
-
-// 月次レポート：本文の中身だけを担う
-class MonthlyReport : public ReportSkeleton {
-public:
-    void renderBody() override {
-        cout << "月次集計を本文として生成。" << endl;
-    }
-};
-```
-
-**この段階の評価：**
-`ReportSkeleton` は「CSV読み込み → 本文生成 → フッター出力」という実行順序を固定しました。本文の中身（`renderBody()`）だけが派生クラスに委ねられており、骨格の重複が解消されています。これが 骨格固定構造の核心です。
-
-**残課題：** 骨格固定は解決したが、「グラフ追加」「透かし追加」という装飾を実行時に動的に組み合わせられない。新しいレポート形式に装飾を追加するたびにサブクラスが爆発する問題がまだ残っています。
-
-### ステップ5：装飾連結構造 を追加する ―― 機能を実行時に動的に重ねる
-
-ステップ4で骨格は固定できました。次は「どの装飾を重ねるか」を実行時に決められるようにします。`ReportFeature` は `ReportSkeleton` を継承しつつ、内部に別の `ReportSkeleton` を所有してチェーンする 装飾連結構造を使います。
-
-このステップも装飾軸の差分抜粋です。履歴記録と `replay()` はステップ4と同じく呼び出し側に残り、次のステップ6で生成操作と同じ単位へまとめます。
-
-このサンプルでは、説明を短くするために生ポインタで所有権を表しています。最も外側の `ReportSkeleton*` を破棄すると、各装飾クラスのデストラクタが内側の要素を順に破棄し、チェーン全体の生存期間もそこで終わります。実務コードでは、同じ所有関係を `std::unique_ptr<ReportSkeleton>` で表すのが自然です。
-
-```cpp
-// ReportFeature: 装飾機能の基底クラス（装飾連結構造基底）
-class ReportFeature : public ReportSkeleton {
+    void generate();                 // 骨格（順序）を固定
 protected:
-    ReportSkeleton* wrapped;
-public:
-    explicit ReportFeature(ReportSkeleton* g)
-        : wrapped(g) {}
-    virtual ~ReportFeature() {
-        delete wrapped; // デストラクタで内側のインスタンスを再帰的に解放
-    }
+    virtual void renderBody() = 0;   // 差分＝フック（種別ごと）
+    virtual ~ReportSkeleton() = default;
 };
-
-// ReportRenderingApi: 実システムではPDF/Excel/画像生成ライブラリを呼ぶ境界。
-// 掲載コードでは、その先のライブラリ処理だけをcoutで代替する。
-class ReportRenderingApi {
-public:
-    void addGraph() {
-        cout << "[ReportRenderingApi] グラフ描画APIを呼び出し。" << endl;
-    }
-    void addWatermark() {
-        cout << "[ReportRenderingApi] 透かし描画APIを呼び出し。" << endl;
-    }
-};
-
-// GraphFeature: グラフ追加の装飾
-class GraphFeature : public ReportFeature {
-public:
-    explicit GraphFeature(ReportSkeleton* g)
-        : ReportFeature(g) {}
-    void renderBody() override {
-        wrapped->renderBody();         // ← 内側の処理を先に呼ぶ
-        ReportRenderingApi api;
-        api.addGraph(); // ← 実システムでは描画ライブラリ/APIを呼ぶ
-    }
-};
-
-// WatermarkFeature: 透かし追加の装飾
-class WatermarkFeature : public ReportFeature {
-public:
-    explicit WatermarkFeature(ReportSkeleton* g)
-        : ReportFeature(g) {}
-    void renderBody() override {
-        wrapped->renderBody();
-        ReportRenderingApi api;
-        api.addWatermark();
-    }
-};
-```
-
-`new WatermarkFeature(new GraphFeature(new MonthlyReport()))` のように入れ子にすることで、装飾を自由に重ねがけできます。既存機能の組み合わせを増やすだけなら、組み合わせ専用のクラスを作る必要はありません。`GraphFeature` や `WatermarkFeature` は装飾の順序と接続を担い、実際の描画は `ReportRenderingApi` に渡します。この章ではAPIの先を `cout` で代替しています。
-
-**この段階の評価：**
-骨格の固定（骨格固定構造）と動的な装飾の組み合わせ（装飾連結構造）が両立しました。しかし、「レポートを生成した」という操作を後から取り消せる形で記録する仕組みがまだありません。
-
-**残課題：** 操作記録がない。`undo()` 機能が実現できない。
-
-### ステップ6：操作記録構造 を追加して完全解を得る
-
-ステップ4で骨格固定構造により本文差分を分離し、ステップ5で装飾連結構造によって機能の組み合わせを外へ出しました。しかし、まだ「操作履歴」の問題が残っています。この限界から、3つ目のパターンとして操作記録構造を追加し、レポート生成という操作自体をオブジェクトとして扱える仕組みを加えます。
-
-```cpp
-enum class OutputFormat { Pdf, Excel };
-
-string formatName(OutputFormat format) {
-    return format == OutputFormat::Pdf ? "PDF" : "Excel";
-}
-
-bool fileExists(const string& path) {
-    ifstream input(path);
-    return input.good();
-}
-
-// 生成操作の結果（結果オブジェクト）：成功可否と理由
-struct JobResult {
-    bool success;
-    std::string message;
-};
-
+// 軸2：装飾はレポートを包むレポート（Decorator）
+class ReportFeature : public ReportSkeleton { /* 内側の ReportSkeleton を包む */ };
+// 軸3：生成操作は実行・取消できる単位（Command）
 class IReportAction {
 public:
-    virtual ~IReportAction() = default;
     virtual JobResult execute() = 0;
     virtual void undo() = 0;
-};
-
-class GenerateReportAction : public IReportAction {
-    ReportSkeleton* generator;
-    string outputPath;
-    OutputFormat format;
-    bool created = false;
-public:
-    GenerateReportAction(
-        ReportSkeleton* g,
-        string path,
-        OutputFormat f
-    ) : generator(g), outputPath(move(path)), format(f) {}
-
-    ~GenerateReportAction() override {
-        delete generator; // generatorを所有しているので解放する
-    }
-
-    JobResult execute() override {
-        if (created) {
-            return {false, "同じ操作は再実行できません。"};
-        }
-        if (fileExists(outputPath)) {
-            return {false,
-                    outputPath + " は既に存在するため上書きしません。"};
-        }
-
-        try {
-            generator->generate();
-        } catch (const exception& e) {
-            return {false, string("生成失敗: ") + e.what()};
-        }
-
-        ofstream output(outputPath);
-        if (!output) {
-            return {false, outputPath + " を作成できません。"};
-        }
-        output << formatName(format) << " report" << endl;
-        output.close();
-        if (!output) {
-            remove(outputPath.c_str());
-            return {false, outputPath + " の書き込みに失敗しました。"};
-        }
-        created = true;
-
-        cout << "[コマンド] " << formatName(format) << "形式で "
-             << outputPath << " を生成して履歴に記録。" << endl;
-        return {true, "成功"};
-    }
-
-    void handleNoFileToUndo() {
-        cout << "[コマンド] この操作が生成したファイルはありません。"
-             << endl;
-    }
-
-    void undo() override {
-        if (!created) {
-            handleNoFileToUndo();
-            return;
-        }
-        if (remove(outputPath.c_str()) == 0) {
-            created = false;
-            cout << "[コマンド] " << outputPath
-                 << " を削除してアンドゥ完了。" << endl;
-        } else {
-            cout << "[コマンド] " << outputPath
-                 << " は存在しないため削除できません。" << endl;
-        }
-    }
+    virtual ~IReportAction() = default;
 };
 ```
 
-操作を実行・取り消し・再実行する履歴も、同じ契約のまま保持します。
+次に、データの置き場所を決めます。
 
-```cpp
-class ReportActionHistory {
-    vector<IReportAction*> history;
-public:
-    JobResult executeAndRecord(IReportAction* action) {
-        JobResult result = action->execute();
-        if (result.success) history.push_back(action);
-        return result;
+| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
+|---|---|---|---|
+| 生成手順の順序 | `generate()` に直書き | `ReportSkeleton.generate()`（骨格） | 順序は安定。本文だけフックへ |
+| 装飾の組み合わせ | `if(addGraph)` フラグ | 装飾を包む `ReportFeature` の連結 | 組み合わせを包む順で表す |
+| 生成履歴・再実行・取消 | `generate()` に混在 | `IReportAction` のリスト | 記録は別の変化軸。骨格から出す |
+| 出力形式・出力先 | `generate` 引数 | `GenerateReportAction` が保持 | 操作単位が自分の入力を持つ |
+
+接続点で受け渡すのは、生成操作の **`JobResult`（成功／失敗）**です。`ReportFeature` は内側のレポート、履歴は生成操作の**所有権・生存期間を保持側**が管理します。
+
+### 6-3：構造の見立て（分解の結果、こうなる）
+
+分解して3つの契約とデータ配置を決めた結果、構造はこうなります。図は出発点ではなく結論です。
+
+現状（1メソッドに骨格・装飾・履歴が同居）：
+
+```mermaid
+classDiagram
+    direction LR
+    class ReportSkeleton {
+      generate() に 順序 + if装飾 + history が同居
     }
-    void undoLast() {
-        if (!history.empty()) history.back()->undo();
-    }
-    JobResult replayLast() {
-        if (history.empty()) return {false, "再実行する履歴がありません。"};
-        return history.back()->execute();
-    }
-};
 ```
 
-**この段階の評価：**
-`GenerateReportAction`はレポート、出力形式、出力先を保持します。`execute()`は既存ファイルを上書きせず、デモ用ファイルを実際に作成します。`undo()`が削除するのは、この操作オブジェクト自身が正常に作成したファイルだけです。`ReportActionHistory` は成功した操作を記録し、`undoLast()` の後に `replayLast()` すれば同じ操作を再実行できます。これにより、フェーズ3の履歴・再実行要求を保ったまま、生成骨格から履歴責任を外せます。
+見立て（3軸を別々の契約へ）：
 
----
+```mermaid
+classDiagram
+    direction LR
+    class ReportSkeleton { <<abstract>> renderBody()* }
+    class ReportFeature
+    class IReportAction { <<interface>> }
+    ReportSkeleton <|-- MonthlyReport
+    ReportSkeleton <|-- ReportFeature
+    ReportFeature --> ReportSkeleton : 包む（装飾）
+    IReportAction <|.. GenerateReportAction
+    GenerateReportAction --> ReportSkeleton : 実行対象
+```
+
+図から読み取ること：`generate()` から装飾分岐と履歴記録が消え、骨格・装飾・記録の3契約に分かれる。どれか1つを変えても他へ染み出さない。
+
+### 6-4：影響範囲（この設計で変更要求を再度当てたら）
+
+| 変更要求 | 修正する場所 | 再テスト範囲 |
+|---|---|---|
+| レポート種別を追加（部門別など） | `renderBody` を実装したクラスを1つ追加 | 追加種別。**装飾・履歴は無変更** |
+| 装飾を追加（透かしなど） | `ReportFeature` を継承したクラスを1つ追加 | 追加装飾。**骨格・履歴は無変更** |
+| 再実行・取消の扱いを変える | `IReportAction`／履歴管理のみ | 記録。**骨格・装飾は無変更** |
+
+現状との差：現状はどの軸を変えても `generate()` を開く。対策後は軸ごとに独立して差し替えられ、骨格へ染み出さない。**この「独立して触れる」ことがこの構造を採る理由**です。
 
 ### 採用する形を決める
 
-それぞれのステップには一長一短があります。ステップ6の「3構造統合」は強力ですが、クラス数が増えるという「初期投資コスト」もかかります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
-
-今回の課題は、レポート本文の骨格、装飾の組み合わせ、生成操作の履歴という3つの変化軸を同時に扱うことです。読者が自分で判断できるように、まず「どの案がどの軸に効くか」を分けて比べます。
+各案には一長一短があります。今回の課題は、レポート本文の骨格・装飾の組み合わせ・生成操作の履歴という3つの変化軸を同時に扱うことです。「どの案がどの軸に効くか」を分けて比べます。
 
 | 案 | 解けること | 残ること | 今回の判断 |
 |---|---|---|---|
@@ -1246,21 +987,13 @@ public:
 | 生成操作を記録単位にする | 再実行・取り消しを扱える | 本文差分と装飾の組み合わせは別途必要 | 履歴要求には必要だが単独では不足 |
 | 3つの境界を別々に作る | 骨格・装飾・履歴を独立して変更できる | クラス数と組み立てが増える | 3軸すべてが変わるため採用する |
 
-*   **ステップ1（プライベートメソッドで整理）で止めるケース：** 装飾の種類が現状の2つだけで、当面増える見込みが低い場合。
-*   **ステップ2（具体クラスへの分離）で止めるケース：** 装飾の種類は増えるが、実行時の動的な組み合わせやUndo機能が不要な場合。
-*   **ステップ3（限界の確認）で折り返す：** 骨格側が全装飾クラス名を知る限界を認識し、抽象化を検討するタイミング。
-*   **ステップ4（骨格固定構造）で止めるケース：** 骨格の重複が問題だが、動的な装飾の組み合わせが不要で、Undo機能も不要な場合。
-*   **ステップ5（骨格固定構造 + 装飾連結構造）で止めるケース：** 動的な装飾の組み合わせは必要だが、Undo機能が不要な場合。
-*   **ステップ6（3構造全統合）まで進むケース：** レポートの骨格を固定しつつ、動的な装飾の組み合わせが必要で、かつ操作のUndoまで求められる場合。
+**今回の決断：** フェーズ2のヒアリングで「基本フォーマットは全社統一の順序（骨格固定）」「部署ごとに装飾を自由に組み合わせたい（動的装飾）」「誤操作時に元に戻したい（Undo）」という3つの独立した要件が求められています。3つの変更理由を別々に扱うため、今回は**骨格固定・装飾連結・操作記録の3つの契約を別々に置く形を採用する**決断を下します。
 
-**今回の決断：**
-フェーズ2のヒアリングで「レポートの基本フォーマットは全社統一の順序で出力したい（骨格固定）」、「部署ごとに独自の透かしや装飾を自由に組み合わせたい（動的装飾）」、「誤操作時に元に戻したい（Undo）」という3つの独立した要件が求められています。3つの変更理由を別々に扱うため、今回は**ステップ6（骨格固定構造 × 装飾連結構造 × 操作記録構造の3構造統合）まで進化させる**案を採用します。
-
-このように、処理骨格・機能装飾・操作履歴を3層へ分けた構造は、第4章で学んだ **骨格固定構造**、第6章で学んだ **装飾連結構造**、第5章で学んだ **操作記録構造** の役割に対応します。構造名を先に決めたのではなく、三つの変更課題へ順に対策した結果として、この組み合わせになったという順序が大切です。
+> この構造は、第4章の**骨格固定構造**、第6章の**装飾連結構造**、第5章の**操作記録構造**に対応します。構造名を先に決めたのではなく、三つの変更課題へ順に対策した結果としてこの組み合わせになりました。
 
 ### どの構造を使うかの判断基準
 
-3つの構造のどれを適用するか判断するための基準を整理します。以下のフローチャートを使うと、今の問題にどの構造が必要かを順を追って確認できます。
+3つの構造のどれを適用するかは、次のように順を追って確認できます。
 
 ```mermaid
 flowchart TD
@@ -1273,7 +1006,7 @@ flowchart TD
     C -->|No| F[骨格固定構造 × 装飾連結構造]
 ```
 
-フェーズ6で採用する形が決まりました。次のフェーズ7では、この決断を最終的なコードに落とし込みます。
+フェーズ6で採用する設計（3つの契約・データ配置・構造・影響範囲）が決まりました。次のフェーズ7では、この決断を動く実装（`TemplateRegistry`・`ReportRenderingApi`・各レポート／装飾クラス・`GenerateReportAction`・実行結果）に落とし込み、変更要求で効果を確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 ### 7-1：解決後のコード（全体）
