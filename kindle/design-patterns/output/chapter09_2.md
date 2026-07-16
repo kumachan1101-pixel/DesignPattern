@@ -721,13 +721,7 @@ graph LR
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6の出発点は、フェーズ3で変更要求（優先度ルールと状態の追加）を当てて痛んだ「変更途中コード」です。変更要求を容れる前の現状コードには戻しません。状態判定と優先度判定が同じ分岐に同居して増えたコードから、同じ形で扱える共通点（状態ごとの振る舞いと、優先度判定という2つの契約）を抜き出し、変わる差分を接続点の外へ出す形へ整理していきます。読者が「痛み → 共通点の発見 → 抽象化」の順で追えるよう、変更途中コードに既に並んでいる共通の形を読み取り、そこから直接それぞれの構造へ分けていきます。
-
-> **中間コードの継続条件：** 各ステップは状態処理と優先度ルールの分離だけを比較します。`UserDatabase` のID検証・ユーザー種別取得は全ステップで維持し、取得した `userType` を優先度契約へ渡します。フェーズ7の `TicketEventLog` は変更後の状態操作を記録するために追加する境界です。
-
-フェーズ6では、第0章の段階的進化アプローチを標準フローとして使います。ただし、ここでのステップは一本道の作業手順ではなく、対策案を比較するための候補です。共通の形が分割前から見えているこの章では小さな整理（関数へ切り出す）を飛ばし、責任の移動、契約、窓口、組み合わせ、生成責任の移動のうち、この章の課題に必要な案だけを比べます。
-フェーズ5で整理した「状態ごとの振る舞い」と「優先度判定ルール」という二つの課題に対し、どのように構造を分離するかを検討します。どちらの課題も「変わりやすさ」が特徴であるため、それぞれの接続点から不要な知識を移す必要があります。
-
+フェーズ6は、フェーズ5で定めた2つの課題——**状態ごとの振る舞いを切り離すこと**と、**優先度判定ルールを単独で差し替えられるようにすること**——を受けて始めます。ここで決めるのは実装ではなく設計です。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを分解して探します。第二部の要は「いくつの独立した変化軸があるかを数える」ことです。動く実装一式はフェーズ7で書きます。
 フェーズ5の課題から、対策候補は次のように出します。
 
 | フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
@@ -740,338 +734,112 @@ graph LR
 
 ---
 
-#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする
+#### 起点：フェーズ3の痛みコード
 
-比較元は、法人ユーザーの優先度変更と `Pending` 状態を同時に追加したフェーズ3の変更途中コードです。2つの変更要求を残したまま、状態処理と優先度判定を分けます。
+比較元は、法人ユーザーの優先度変更と `Pending` 状態を同時に追加したフェーズ3の変更途中コードです。
 
 ```cpp
 // フェーズ3の変更途中コード（対策前）の要点
 string PriorityCalculator::calculate(string userType) {
     if (userType == "premium")   return "High";
-    if (userType == "corporate") return "High";
+    if (userType == "corporate") return "High";   // ← 優先度の軸
     return "Normal";
 }
-
 void TicketManager::updateStatus(string userType, string status) {
     string priority = calc.calculate(userType);
-    if (status == "Open") {
-        cout << "チケット受付中。優先度: " << priority << endl;
-    } else if (status == "InProgress" && priority == "High") {
-        cout << "緊急対応中。担当者を招集します。" << endl;
-    } else if (status == "Pending") {
-        cout << "保留中。理由を記録します。" << endl;
-    }
+    if (status == "Open")            { /* 受付中 */ }
+    else if (status == "InProgress" && priority == "High") { /* 緊急対応 */ }
+    else if (status == "Pending")    { /* 保留中 */ }   // ← 状態の軸
 }
 ```
 
-この痛みコードには2つの変化軸が同居しています。`PriorityCalculator::calculate()` は「`userType` を受け取り優先度を返す」判定ルール、`updateStatus()` の分岐は「状態ごとの振る舞い」です。どちらも同じ形ですでに並んでいるので、いったんプライベートメソッドへ切り出して名前を付ける段階（第0章の「関数へ切り出す」）は踏まず、最初から2つの軸をそれぞれの構造へ分けます。まず優先度ルールをルール差し替え構造で、次に状態を状態分離構造で切り出します。各ステップは直前のステップとの差分として読みます。
+### 6-1：痛みコードを分解して、接続点の「形」を探す
 
-### ステップ1：ルール差し替え構造で優先度ルールを分離する
+課題は2つあります。どんな形なら切り離せるかは、痛みコードを分解して探します。まず数えるのは、**独立して変わる軸がいくつあるか**です。共通の形は既に並んでいるので、関数へ切り出す段階は飛ばします。
 
-まず優先度ルールの変化軸から解決します。`calculate()` は「`userType` を受け取り優先度（`string`）を返す」という形をしているので、これを共通の契約（インターフェース）として抜き出し、ルールごとの実装を差し替えられるようにします。
+**分解1（優先度の軸）：** `calculate(userType)` は「`userType` を受け取り優先度（`string`）を返す」。差し替え可能な**ルールの形**です。
 
-**構造図：**
+**分解2（状態の軸）：** `updateStatus()` の `status` 分岐は「状態ごとに振る舞いが変わる」。状態をオブジェクトにして委譲する**状態の形**です。
 
-```mermaid
-classDiagram
-    class IPriorityRule {
-        <<interface>>
-        +getPriority(userType) string
-    }
-    class TicketManager {
-        -strategy IPriorityRule
-        +update()
-    }
-    class PremiumPriority {
-        +getPriority(userType) string
-    }
-    class NormalPriority {
-        +getPriority(userType) string
-    }
-    PremiumPriority ..|> IPriorityRule : 実装
-    NormalPriority ..|> IPriorityRule : 実装
-    TicketManager --> IPriorityRule : 共通の契約だけを知る
-```
+**片方だけでは詰まる（第二部の肝）：** 優先度だけをルールに切り出しても、`updateStatus()` の `status` 分岐は残る。状態だけをオブジェクトに切り出しても、`if(userType)` の優先度分岐は残る。ここで分かるのは、**「2つの軸は独立に変わるので、片方を分けても他方が残る。両方にそれぞれの契約が要る」**ということ。
 
-**インターフェースと優先度戦略クラス（ステップ1）：**
+**分解の結論：** 優先度は**差し替え可能なルールの契約 `IPriorityRule`（`getPriority`）**、状態は**状態ごとの振る舞いの契約 `ITicketPhase`（`handle`/`display`）**。2つの独立した接続点を置く。これが第二部の見立てです。
+
+### 6-2：見つけた形を契約にし、データの置き場所を決める
+
+見つけた2つの形を、それぞれの契約として定義します（実装本体はフェーズ7）。
 
 ```cpp
-#include <iostream>
-#include <string>
-using namespace std;
-
-// 優先度判定のインターフェース（ルール差し替え構造の骨格）
+// 軸1：優先度ルールの契約（差し替え可能）
 class IPriorityRule {
 public:
+    virtual std::string getPriority(std::string userType) = 0;
     virtual ~IPriorityRule() = default;
-    virtual string getPriority(string userType) = 0;
 };
-
-// プレミアムユーザー向け優先度ルール
-class PremiumPriority : public IPriorityRule {
-public:
-    string getPriority(string userType) override {
-        return "High"; // ← プレミアムユーザーは常にHighとする
-    }
-};
-
-// 一般ユーザー向け優先度ルール
-class NormalPriority : public IPriorityRule {
-public:
-    string getPriority(string userType) override {
-        return "Normal";
-    }
-};
-
-// SLA変更で追加した法人ユーザー向け優先度ルール
-class CorporatePriority : public IPriorityRule {
-public:
-    string getPriority(string userType) override {
-        return "High";
-    }
-};
-```
-
-**TicketManager クラス（ステップ1）：**
-
-```cpp
-// ステップ1：TicketManagerはIPriorityRule*のみを知る（優先度ルールの軸が解決）
-class TicketManager {
-    // ← 抽象：外部から注入されたインターフェースのみ知っている
-    IPriorityRule* strategy;
-public:
-    TicketManager(IPriorityRule* s) : strategy(s) {}
-    void updateStatus(string userType, string status) {
-        string priority = strategy->getPriority(userType); // ← 抽象経由で呼ぶ
-        // 状態遷移のif-elseはまだTicketManager内に残っている
-        if (status == "Open") {
-            cout << "チケット受付中。優先度: " << priority << endl;
-        } else if (status == "InProgress" && priority == "High") {
-            cout << "緊急対応中。担当者を招集します。" << endl;
-        } else if (status == "Pending") {
-            cout << "保留中。理由を記録します。" << endl;
-        }
-    }
-};
-```
-
-> [!INFO] 生ポインタの使用について
-> このサンプルでは依存性の注入を示すため、生ポインタ（`IPriorityRule* strategy`）を使用しています。本書では全章を通じて生ポインタを使い、所有権の議論よりも構造の変化に集中します。
-
-**main 関数（ステップ1）：**
-
-```cpp
-int main() {
-    // ← 具体：呼び出し側だけが具体クラスを生成
-    PremiumPriority strategy;
-    TicketManager manager(&strategy);
-    manager.updateStatus("premium", "InProgress");
-    CorporatePriority corporateRule;
-    TicketManager corporateManager(&corporateRule);
-    corporateManager.updateStatus("corporate", "Open");
-    corporateManager.updateStatus("corporate", "Pending");
-    return 0;
-}
-```
-
-ステップ1でルール差し替え構造を導入したことで、優先度ルールは新しいルールクラスと選択・注入箇所へ分けられました。`TicketManager` の判定ロジックへルール種別の条件分岐を増やさずに済みます。しかし状態遷移の変化軸はまだ残っています。新しい状態「保留中」が追加されるたびに、`TicketManager` の状態判定の `if` 文を開かなければなりません。この残課題を解決するのがステップ2です。
-
----
-
-### ステップ2：状態分離構造で状態ごとの振る舞いを分離する
-
-ステップ1で残った「状態による変化」を解決するために、状態ごとの振る舞いをオブジェクトとして分離する設計を導入します。なお、この実装例では状態遷移の管理責任は呼び出し側（Context）に残し、「状態ごとの表示やアクション」の分離に焦点を当てています。
-
-なお、このステップから `TicketManager` を **`TicketContext`** に改名します。状態分離構造の導入によりこのクラスはもはや「状態を管理する」責務を持たず、現在の状態オブジェクトを保持して委譲するだけの「コンテキスト」に変わるためです。GoFの状態分離構造では、状態オブジェクトを保持するクラスを慣習的に Context と呼びます。
-
-**構造図：**
-
-```mermaid
-classDiagram
-    class IPriorityRule {
-        <<interface>>
-        +getPriority(userType) string
-    }
-    class ITicketPhase {
-        <<interface>>
-        +handle(context)
-        +display()
-    }
-    class TicketContext {
-        -strategy IPriorityRule
-        -state ITicketPhase
-        +execute()
-    }
-    class PremiumPriority {
-        +getPriority(userType) string
-    }
-    class NormalPriority {
-        +getPriority(userType) string
-    }
-    class CorporatePriority {
-        +getPriority(userType) string
-    }
-    class OpenPhase {
-        +handle(context)
-        +display()
-    }
-    class InProgressPhase {
-        +handle(context)
-        +display()
-    }
-    class PendingPhase {
-        +handle(context)
-        +display()
-    }
-    PremiumPriority ..|> IPriorityRule : 実装
-    NormalPriority ..|> IPriorityRule : 実装
-    CorporatePriority ..|> IPriorityRule : 実装
-    OpenPhase ..|> ITicketPhase : 実装
-    InProgressPhase ..|> ITicketPhase : 実装
-    PendingPhase ..|> ITicketPhase : 実装
-    TicketContext --> IPriorityRule : 共通の契約だけを知る
-    TicketContext --> ITicketPhase : 共通の契約だけを知る
-```
-
-`TicketContext` は2つのインターフェースのみを知り、具体クラスはmain()側だけが生成して注入する。
-
-
-**インターフェース定義（ステップ2）：**
-
-```cpp
-#include <iostream>
-#include <string>
-using namespace std;
-
-// ルール差し替え構造: 優先度判定のインターフェース
-class IPriorityRule {
-public:
-    virtual ~IPriorityRule() = default;
-    virtual string getPriority(string userType) = 0;
-};
-
-// 状態分離構造: 状態別振る舞いのインターフェース
+// 軸2：状態ごとの振る舞いの契約
 class ITicketPhase {
 public:
-    virtual ~ITicketPhase() = default;
-    virtual void handle(class TicketContext* context) = 0;
+    virtual void handle(class TicketContext* context) = 0;  // 操作と遷移
     virtual void display() = 0;
+    virtual ~ITicketPhase() = default;
 };
 ```
 
-**優先度戦略クラス（ステップ2）：**
+次に、データの置き場所を決めます。
 
-```cpp
-// プレミアムユーザー向け優先度ルール
-class PremiumPriority : public IPriorityRule {
-public:
-    string getPriority(string userType) override {
-        return "High"; // ← プレミアムユーザーは常にHighとする
-    }
-};
+| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
+|---|---|---|---|
+| 現在状態 | `TicketManager` の `status` 文字列 | `TicketContext.state`（`ITicketPhase*`） | 状態名でなく状態オブジェクトを持てば、分岐でなく委譲になる |
+| 優先度ルール | `PriorityCalculator` の `if` 分岐 | 注入された `IPriorityRule` | ルールを外から差し替えられる |
+| ユーザー種別 | 入力（`UserDatabase`） | 変えない | 判定材料。優先度契約へ渡す |
 
-// 一般ユーザー向け優先度ルール
-class NormalPriority : public IPriorityRule {
-public:
-    string getPriority(string userType) override {
-        return "Normal";
-    }
-};
+接続点で受け渡すのは、優先度側が **`userType → priority`**、状態側が **操作のコンテキスト**です。状態は次状態へ `setState` で遷移します。状態オブジェクトと優先度ルールの**所有権・生存期間は組み立て側（`TicketContext`）**が管理します。
 
-class CorporatePriority : public IPriorityRule {
-public:
-    string getPriority(string userType) override {
-        return "High";
+### 6-3：構造の見立て（分解の結果、こうなる）
+
+分解して2つの契約とデータ配置を決めた結果、構造はこうなります。図は出発点ではなく結論です。
+
+現状（1クラスが状態分岐と優先度分岐を同居）：
+
+```mermaid
+classDiagram
+    direction LR
+    class TicketManager {
+      status 分岐 + if(userType) 優先度分岐
     }
-};
 ```
 
-**状態クラス（ステップ2）：**
+見立て（2軸を別々の契約へ）：
 
-```cpp
-// Open状態の振る舞い
-class OpenPhase : public ITicketPhase {
-public:
-    void handle(TicketContext* context) override { display(); }
-    void display() override {
-        cout << "チケット受付中。" << endl;
-    }
-};
-
-// 対応中状態の振る舞い
-class InProgressPhase : public ITicketPhase {
-public:
-    void handle(TicketContext* context) override { display(); }
-    void display() override {
-        cout << "チケット対応中。担当者に割り当て。" << endl;
-    }
-};
-
-class PendingPhase : public ITicketPhase {
-public:
-    void handle(TicketContext* context) override { display(); }
-    void display() override {
-        cout << "保留中。理由を記録します。" << endl;
-    }
-};
+```mermaid
+classDiagram
+    direction LR
+    class ITicketPhase { <<interface>> }
+    class IPriorityRule { <<interface>> }
+    TicketContext --> ITicketPhase : state（状態の軸）
+    TicketContext --> IPriorityRule : strategy（優先度の軸）
+    ITicketPhase <|.. OpenPhase
+    ITicketPhase <|.. InProgressPhase
+    ITicketPhase <|.. PendingPhase
+    IPriorityRule <|.. NormalPriority
+    IPriorityRule <|.. PremiumPriority
 ```
 
-**TicketContext クラス（ステップ2）：**
+図から読み取ること：状態分岐と優先度分岐が消え、2つの独立した契約への依存だけが残る。片方を変えても、もう片方には及ばない。
 
-```cpp
-// コンテキスト：インターフェース型のみを知る
-class TicketContext {
-    ITicketPhase* state;
-    IPriorityRule* strategy;
-public:
-    TicketContext(ITicketPhase* st, IPriorityRule* s)
-        : state(st), strategy(s) {}
-    void setState(ITicketPhase* s) { state = s; }
-    void setStrategy(IPriorityRule* s) { strategy = s; }
-    void execute(string userType) {
-        string priority = strategy->getPriority(userType); // ← 抽象経由
-        cout << "優先度: " << priority << " — ";
-        state->handle(this); // ← 直接呼び出し
-    }
-    string calculatePriority(string userType) {
-        return strategy->getPriority(userType);
-    }
-};
-```
+### 6-4：影響範囲（この設計で変更要求を再度当てたら）
 
-**main 関数（ステップ2）：**
+| 変更要求 | 修正する場所 | 再テスト範囲 |
+|---|---|---|
+| 状態を1つ追加（保留中など） | `ITicketPhase` を実装した状態クラスを1つ追加 | 追加状態。**優先度ルールは無関係** |
+| 優先度区分を変える（SLA見直し等） | `IPriorityRule` を実装したルールを差し替え／追加 | ルール。**状態は無関係** |
+| 割当・再オープンで両軸が同時に動く | 組み立て側が両方を呼ぶだけ | 呼び出しの組み立て |
 
-```cpp
-int main() {
-    // ← 具体：呼び出し側だけが具体クラスを生成
-    PremiumPriority strategy;
-    // ← 具体：呼び出し側だけが具体クラスを生成
-    InProgressPhase state;
-    TicketContext ctx(&state, &strategy);
-    ctx.execute("premium");
-    CorporatePriority corporateRule;
-    PendingPhase pending;
-    TicketContext corporatePending(&pending, &corporateRule);
-    corporatePending.execute("corporate");
-    return 0;
-}
-```
-
-ここまでの短いコードは、2つの変化軸を別のインターフェースへ分ける骨格を示したものです。`handle()` は表示だけに省略しています。フェーズ7の完成版では、各状態クラスが次の状態を保持し、`TicketContext::setState()` を呼んで実際に遷移させます。
-
-**このステップのトレードオフ：**
-
-* 変更容易性：高（主な変更は対応する独立クラス内に限定できる）
-* テスト容易性：高（インターフェースに対しスタブを差し込んで個別にテストできる）
-* 実装コスト：中（インターフェースと複数の実装クラスを定義する必要がある）
-
----
+現状との差：現状はどちらの軸を変えても同じ分岐を開き、もう一方に影響しうる。対策後は軸ごとに独立して差し替えられる。**この「独立して触れる」ことがこの構造を採る理由**です。
 
 ### 採用する形を決める
 
-それぞれのステップには一長一短があります。ステップ2の「共通の契約だけを知る（インターフェースの導入）」は強力ですが、クラス数が増加する「初期投資コスト」もかかります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
-
-今回の課題は、優先度ルールと状態ごとの振る舞いという2つの変化軸を、同じ条件分岐の中で扱っていることです。どちらか一方だけを分ければ足りるのか、両方を分ける必要があるのかを比べます。
+各案には一長一短があります。今回の課題は、優先度ルールと状態ごとの振る舞いという2つの変化軸を、同じ条件分岐の中で扱っていることです。どちらか一方だけを分ければ足りるのか、両方を分ける必要があるのかを比べます。
 
 | 案 | 解けること | 残ること | 今回の判断 |
 |---|---|---|---|
@@ -1080,17 +848,11 @@ int main() {
 | 状態だけ分ける | 状態ごとの振る舞いを局所化できる | 優先度ルールの差し替えは残る | ルールが固定なら有効 |
 | ルールと状態を別々に分ける | 2つの変化軸を独立して扱える | クラス数と組み立てが増える | 両方が増えるため採用する |
 
-エスカレーションや割当のように状態とルールが同時に動く行があっても、採用する形は変わりません。同時に動く1回の操作を、状態軸は状態オブジェクトへ、ルール軸（SLA期限を含む優先度判定）は優先度ルールへと、別々の構造へ振り分けます。同時に呼ぶこと自体は組み立て側の役目に残し、それぞれの軸が独立して差し替えられる状態を保ちます。
+**今回の決断：** フェーズ2のヒアリングで「SLA基準の四半期ごとの見直し」「プレミアムユーザー区分の細分化」など優先度ルールの頻繁な変更が確定し、さらに「保留中」「ベンダー確認中」といった状態自体の追加も確定しています。2つの変化軸をそれぞれ独立して安全に変更できるようにするため、**ルール差し替え構造 × 状態分離構造の両方を採用する**決断を下します。
 
-* **ステップ1（ルール差し替え構造）で止めるケース：** 優先度ルールは複数存在し今後も増えるが、状態遷移はまだシンプルで増える見込みがない場合。
-* **ステップ2（ルール差し替え構造 × 状態分離構造）まで進むケース：** 優先度ルールと状態遷移の両方が、独立した担当者によって頻繁に変更されることが確定している場合。
+> 実はこの構造には名前があります。「優先度ルールの差し替え可能な分離」は第1章の**ルール差し替え構造**、「状態ごとの振る舞いをオブジェクトで表現する」は第3章の**状態分離構造**です。第二部では、問題を分析した結果として、これらが組み合わさりました。
 
-**今回の決断：**
-フェーズ2のヒアリングで「SLA基準の四半期ごとの見直し」や「プレミアムユーザー区分の細分化」など、優先度ルールの頻繁な変更が確定しています。さらに「保留中」「ベンダー確認中」といった状態自体の追加も確定しています。2つの変化軸（状態の増減、優先度ルールの変更）をそれぞれ独立して安全に変更できるようにするため、**ステップ2（ルール差し替え構造 × 状態分離構造）まで進む**決断を下します。
-
-> 実はこのステップ2の構造には名前があります。「優先度ルールの差し替え可能な分離」は **ルール差し替え構造**、「状態ごとの振る舞いをオブジェクトとして表現する」は **状態分離構造** と呼ばれています。この構造は、第1章で学んだ**ルール差し替え構造**と、第3章で学んだ**状態分離構造**を組み合わせた複合設計です。
-
-フェーズ6で採用する形が決まりました。次のフェーズ7では、この決断を最終的なコードに落とし込みます。
+フェーズ6で採用する設計（2つの契約・データ配置・構造・影響範囲）が決まりました。次のフェーズ7では、この決断を動く実装（`UserDatabase`・全状態クラス・全優先度ルール・`TicketContext`・実行結果）に落とし込み、変更要求で効果を確認します。
 
 ---
 
