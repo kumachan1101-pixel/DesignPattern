@@ -257,7 +257,7 @@ def check_required_chapter_structures(text: str, path: Path) -> list[Issue]:
         "1-1": "### 1-1：このシステムの仕様",
         "1-2": "### 1-2：動作例",
         "1-3": "### 1-3：登場クラスとクラス構成図",
-        "1-4": "### 1-4：現状コード",
+        "1-4": "### 1-4：実装コード（現状）",
         "1-5": "### 1-5：変更要求",
         "phase2": "## 🔵 フェーズ2：仮説立案",
     }
@@ -311,32 +311,90 @@ def is_new_phase6(text: str) -> bool:
 
 
 def check_phase6_design(text: str, path: Path) -> list[Issue]:
-    """設計先行フェーズ6の必須要素を確認する。
-
-    対策検討は実装ではなく設計を決める場である。クラス図（構造の見立て）・
-    データ配置・接続点の契約（インターフェース）・影響範囲・採用判断を置き、
-    完全な実装（int main）はフェーズ7へ回す。
-    """
+    """完全な候補コードで比較するフェーズ6の必須要素を確認する。"""
     if not is_new_phase6(text):
         return []
     p6, sec = _phase6_section(text)
     ln = line_number(text, p6)
     issues: list[Issue] = []
     checks = [
-        ("### 6-1", "フェーズ6に構造の見立て（6-1）がありません"),
-        ("```mermaid", "設計先行フェーズ6に構造のクラス図（mermaid）がありません"),
-        ("### 6-2", "フェーズ6にデータ配置（6-2）がありません"),
-        ("### 6-3", "フェーズ6に接続点の契約／インターフェース設計（6-3）がありません"),
+        ("### 6-1", "フェーズ6に痛みコードの分解（6-1）がありません"),
+        ("### 6-2", "フェーズ6に契約・データ配置（6-2）がありません"),
+        ("### 6-3", "フェーズ6に構造の見立て（6-3）がありません"),
+        ("```mermaid", "フェーズ6に構造のクラス図（mermaid）がありません"),
         ("### 6-4", "フェーズ6に影響範囲（6-4）がありません"),
         ("### 採用する形を決める", "フェーズ6に採用判断がありません"),
+        ("#### 比較元の完全コード（フェーズ1の現状）",
+         "フェーズ6に元の構造を振り返る完全コードがありません"),
+        ("#### 採用候補の完全コード（生成・所有・依存注入・実行入口まで）",
+         "フェーズ6に生成・依存注入まで含む完全な候補コードがありません"),
     ]
     for token, msg in checks:
         if token not in sec:
             issues.append(Issue(path, ln, msg))
-    if "int main(" in sec:
+    if "int main(" not in sec:
         issues.append(Issue(path, ln,
-                            "設計先行フェーズ6に完全な実装（int main）が残っています。"
-                            "動く実装はフェーズ7へ移してください"))
+                            "フェーズ6の完全な候補コードに実行入口 main() がありません"))
+    return issues
+
+
+def extract_cpp_blocks(section: str) -> list[str]:
+    """Return C++ blocks with their internal formatting preserved."""
+    return [
+        match.group(1).strip()
+        for match in re.finditer(r"```cpp\s*\n(.*?)```", section, re.DOTALL)
+    ]
+
+
+def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
+    """Compare phase 6 code with the verified source sections, including line breaks."""
+    markers = {
+        "section14": "### 1-4：実装コード（現状）",
+        "section15": "### 1-5：変更要求",
+        "baseline": "#### 比較元の完全コード（フェーズ1の現状）",
+        "step61": "### 6-1：",
+        "candidate": "#### 採用候補の完全コード（生成・所有・依存注入・実行入口まで）",
+        "step63": "### 6-3：",
+        "section71": "### 7-1：",
+        "section72": "### 7-2：",
+    }
+    offsets = {name: text.find(marker) for name, marker in markers.items()}
+    if any(offset < 0 for offset in offsets.values()):
+        missing = [name for name, offset in offsets.items() if offset < 0]
+        return [Issue(path, 1, f"完全コード比較の必須要素がありません: {', '.join(missing)}")]
+
+    phase1_code = "\n\n".join(extract_cpp_blocks(
+        text[offsets["section14"]:offsets["section15"]]
+    ))
+    baseline_code = "\n\n".join(extract_cpp_blocks(
+        text[offsets["baseline"]:offsets["step61"]]
+    ))
+    candidate_code = "\n\n".join(extract_cpp_blocks(
+        text[offsets["candidate"]:offsets["step63"]]
+    ))
+    phase7_code = "\n\n".join(extract_cpp_blocks(
+        text[offsets["section71"]:offsets["section72"]]
+    ))
+    issues: list[Issue] = []
+
+    if not baseline_code or baseline_code != phase1_code:
+        issues.append(Issue(
+            path, line_number(text, offsets["baseline"]),
+            "フェーズ6の比較元完全コードが1-4と同じ並び・改行ではありません",
+        ))
+    if not candidate_code or candidate_code != phase7_code:
+        issues.append(Issue(
+            path, line_number(text, offsets["candidate"]),
+            "フェーズ6の採用候補完全コードが7-1と同じ並び・改行ではありません",
+        ))
+    fragments = extract_cpp_blocks(
+        text[offsets["step61"]:offsets["candidate"]]
+    )
+    if fragments:
+        issues.append(Issue(
+            path, line_number(text, offsets["step61"]),
+            "6-1/6-2に完全コードとは別の断片C++コードが残っています",
+        ))
     return issues
 
 
@@ -601,6 +659,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_error_condition_last(text, path))
         issues.extend(check_boundary_error_marker(text, path))
         issues.extend(check_phase6_design(text, path))
+        issues.extend(check_phase6_complete_comparison_code(text, path))
         issues.extend(check_phase6_baseline(text, path))
         issues.extend(check_phase6_continuity(text, path))
         issues.extend(check_phase6_step_chain(text, path))

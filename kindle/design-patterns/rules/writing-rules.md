@@ -140,7 +140,7 @@
 
 ## 依存注入コードルール
 
-インターフェースを使う実装では、依存注入のコードを必要に応じて示す。
+インターフェースを使う実装では、依存注入のコードを示す。
 
 1. コンストラクタでの受け取り。
 2. 本番コードでの組み立て例。
@@ -151,8 +151,33 @@
 スタブ・モック・アサーションマクロが初めて登場する箇所に、1〜2行の日本語コメントを添える。
 
 ```cpp
+class IPayrollFacade {
+public:
+    virtual int calculateNetPay(int grossPay) = 0;
+    virtual ~IPayrollFacade() = default;
+};
+
 // スタブ：本物のAPIを呼ばずに、あらかじめ決めた値を返す差し替えクラス。
-class StubPayrollFacade : public IPayrollFacade { ... };
+class StubPayrollFacade : public IPayrollFacade {
+public:
+    int calculateNetPay(int grossPay) override {
+        return grossPay - 1200;
+    }
+};
+
+class PayrollCalculator {
+    IPayrollFacade& payroll;
+public:
+    explicit PayrollCalculator(IPayrollFacade& payroll)
+        : payroll(payroll) {}
+
+    int calculate(int grossPay) {
+        return payroll.calculateNetPay(grossPay);
+    }
+};
+
+StubPayrollFacade stub;
+PayrollCalculator calc(stub); // コンストラクタでスタブを注入する。
 
 // EXPECT_EQ(期待値, 実際の値)：等しければテスト通過。
 EXPECT_EQ(8800, calc.calculate(10000));

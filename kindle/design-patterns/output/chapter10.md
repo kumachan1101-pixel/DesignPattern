@@ -845,7 +845,7 @@ void execute(string partnerId) {
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6は、フェーズ5で定めた3つの課題——**連携先ごとの通信を切り離すこと（A）／通知先を切り離すこと（B）／クライアント生成を切り離すこと（C）**——を受けて始めます。ここで決めるのは実装ではなく設計です。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを分解して探します。第二部の要は「いくつの独立した変化軸があるかを数える」ことです。動く実装一式はフェーズ7で書きます。
+フェーズ6は、フェーズ5で定めた3つの課題——**連携先ごとの通信を切り離すこと（A）／通知先を切り離すこと（B）／クライアント生成を切り離すこと（C）**——を受けて始めます。ここでは設計案を、比較元と同じ改行を保った完全コードで具体化して決めます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを分解して探します。第二部の要は「いくつの独立した変化軸があるかを数える」ことです。候補コードは生成・所有・依存注入・実行入口までこのフェーズで示し、フェーズ7で実行結果を検証します。
 フェーズ5の課題から、対策候補は次のように出します。
 
 | フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
@@ -859,20 +859,120 @@ void execute(string partnerId) {
 
 ---
 
+#### 比較元の完全コード（フェーズ1の現状）
+
+最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
+
+```cpp
+#include <iostream>
+#include <string>
+#include <vector>
+#include <map>
+
+using namespace std;
+
+struct PartnerConfig {
+    string name;      // パートナー名
+    string endpoint;  // エンドポイント（概念上）
+    bool isEnabled;   // 連携有効フラグ
+};
+
+class PartnerDatabase {
+private:
+    map<string, PartnerConfig> records;
+public:
+    PartnerDatabase() {
+        records["PARTNER_A"] = {"物流会社A", "logistics-a.example",  true};
+        records["PARTNER_B"] = {"在庫会社B", "stock-b.example",      true};
+        records["PARTNER_Z"] = {"分析会社Z", "analytics-z.example",  false}; // 無効
+    }
+
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+
+    bool isEnabled(const string& id) const {
+        return records.at(id).isEnabled;
+    }
+
+    PartnerConfig get(const string& id) const {
+        return records.at(id);
+    }
+
+    void save(const string& id, const PartnerConfig& cfg) {
+        records[id] = cfg;            // 実行中の連携先表へ追加
+    }
+};
+
+class SystemAClient {
+public:
+    void send(string d) { cout << "A社へ送信: " << d << endl; }
+};
+class SystemBClient {
+public:
+    void send(string d) { cout << "B社へ送信: " << d << endl; }
+};
+class NotificationService {
+public:
+    void notify(string r) { cout << "完了通知: " << r << endl; }
+};
+class SlackNotifier {
+public:
+    void notify(string result) { cout << "Slack通知: " << result << endl; }
+};
+
+class BatchExecutor {
+    PartnerDatabase db;
+public:
+    void execute(string partnerId) {
+        if (!db.exists(partnerId)) {
+            cout << "エラー: パートナーID [" << partnerId
+                 << "] はデータベースに登録されていません。" << endl;
+            return;
+        }
+        if (!db.isEnabled(partnerId)) {
+            PartnerConfig cfg = db.get(partnerId);
+            cout << "エラー: パートナー [" << cfg.name
+                 << "] は現在無効です。処理を中断します。" << endl;
+            return;
+        }
+        PartnerConfig cfg = db.get(partnerId);
+        if (partnerId == "PARTNER_A") {
+            SystemAClient client; // A社向けクライアントを生成
+            client.send("data");
+        } else if (partnerId == "PARTNER_B") {
+            SystemBClient client; // B社向けクライアントを生成
+            client.send("data");
+        }
+        NotificationService notifier; // 連携完了を通知
+        notifier.notify(cfg.name + " 連携完了");
+    }
+};
+
+int main() {
+    BatchExecutor executor;
+
+    // 行1: A社向け月次バッチを実行する
+    executor.execute("PARTNER_A");
+
+    // 行4: B社向けデータ同期を手動で実行する
+    executor.execute("PARTNER_B");
+
+    // 無効パートナーの実行（Z社は isEnabled==false）
+    executor.execute("PARTNER_Z");
+
+    // 未登録パートナーの実行
+    executor.execute("PARTNER_X");
+
+    return 0;
+}
+```
+
 #### 起点：フェーズ3の痛みコード
 
 比較元は、C社連携とSlack通知を `BatchExecutor` へ直接追加したフェーズ3の変更途中コードです。
 
-```cpp
-// フェーズ3の変更途中コード（対策前）の要点
-void BatchExecutor::execute(string partnerId) {
-    if (partnerId == "A") { SystemAClient client; client.send("data"); }   // ← 生成＋通信
-    else if (partnerId == "B") { SystemBClient client; client.send("data"); }
-    else if (partnerId == "C") { SystemCClient client; client.send("data"); }
-    NotificationService notifier; notifier.notify("Success");              // ← 通知の直呼び
-    SlackNotifier slack; slack.notify("Success");
-}
-```
+> フェーズ3で追加した状態・分岐・通知・履歴・入力・出力は、直前のフェーズ3本文で確認済みです。ここでは短い差分コードを重ねず、上の現状完全コードと下の採用候補完全コードを比較し、6-1の説明でどの責任を移すかを追います。
 
 同じ知識が手動実行の `ManualTriggerController` にも重複します。
 
@@ -891,17 +991,9 @@ void BatchExecutor::execute(string partnerId) {
 
 ### 6-2：見つけた形を契約にし、データの置き場所を決める
 
-見つけた3つの形を、それぞれの契約として定義します（実装本体はフェーズ7）。
+見つけた3つの形を、それぞれの契約として定義します（完全な接続コードはこの節の後半で示す）。
 
-```cpp
-struct DeliveryResult { bool success; std::string message; };
-// A：連携先クライアント（製品）の契約
-class IExternalClient { public: virtual DeliveryResult send(std::string data, bool apiHealthy = true) = 0; };
-// B：通知先の契約
-class INotifier       { public: virtual void onComplete(std::string result) = 0; };
-// C：クライアント生成の契約
-class IClientCreator  { public: virtual IExternalClient* createClient() = 0; };
-```
+> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
 
 次に、データの置き場所を決めます。
 
@@ -913,6 +1005,357 @@ class IClientCreator  { public: virtual IExternalClient* createClient() = 0; };
 | 実行順（認証→取得→送信→通知） | `BatchExecutor` | 変えない（窓口の骨格） | 手順は安定。契約だけ差し替える |
 
 接続点で受け渡すのは、送信の **`DeliveryResult`** と通知の **結果文字列**です。`IClientCreator` が生成したクライアントの**所有権・生存期間は生成・管理側**が持ちます（利用側は非所有の参照で受け取る）。
+
+#### 採用候補の完全コード（生成・所有・依存注入・実行入口まで）
+
+クラスを分けただけでは利用できません。以下では、分離したクラスの定義だけでなく、具体オブジェクトを生成する場所、所有する場所、コンストラクタまたは登録操作による依存注入、実行入口からの呼び出しまでを一続きで示します。各行の並び・インデント・改行は、フェーズ7でコンパイル・実行確認する採用コードと同一です。フェーズ6では接続と責任移動を比較し、フェーズ7では同じコードを実行結果で検証します。
+
+```cpp
+#include <iostream>
+#include <string>
+#include <vector>
+#include <map>
+
+using namespace std;
+
+struct PartnerConfig {
+    string name;      // パートナー名
+    string endpoint;  // エンドポイント（概念上）
+    bool isEnabled;   // 連携有効フラグ
+};
+
+class PartnerDatabase {
+private:
+    map<string, PartnerConfig> records;
+public:
+    PartnerDatabase() {
+        records["PARTNER_A"] = {"物流会社A", "logistics-a.example",  true};
+        records["PARTNER_B"] = {"在庫会社B", "stock-b.example",      true};
+        records["PARTNER_C"] = {"配送会社C", "delivery-c.example",   true};  // 今回追加
+        records["PARTNER_D"] = {"配送会社D", "delivery-d.example",   true};  // D社追加
+        records["PARTNER_Z"] = {"分析会社Z", "analytics-z.example",  false}; // 無効
+    }
+
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+
+    bool isEnabled(const string& id) const {
+        return records.at(id).isEnabled;
+    }
+
+    PartnerConfig get(const string& id) const {
+        return records.at(id);
+    }
+
+    void save(const string& id, const PartnerConfig& cfg) {
+        records[id] = cfg;            // 実行中の連携先表へ追加
+    }
+};
+
+// 送信1件分の結果（void をやめ、成否・メッセージを返す）
+struct DeliveryResult {
+    string status;   // "成功" または "失敗"
+    bool success;
+    string message;  // 送信の詳細（バイト数、失敗理由など）
+};
+
+// 通知のインターフェース（通知契約）
+class INotifier {
+public:
+    virtual ~INotifier() {}
+    virtual void onComplete(string result) = 0;
+};
+
+// Slack通知の具体的な実装
+class SlackNotifier : public INotifier {
+public:
+    void onComplete(string result) {
+        cout << "Slack通知: " << result << endl;
+    }
+};
+
+// メール通知の具体的な実装
+class EmailNotifier : public INotifier {
+public:
+    void onComplete(string result) {
+        cout << "Email通知: " << result << endl;
+    }
+};
+
+// ログ基盤への記録
+class LogNotifier : public INotifier {
+public:
+    void onComplete(string result) {
+        cout << "ログ基盤へ記録: " << result << endl;
+    }
+};
+
+struct BatchRecord {
+    std::string partnerId;
+    std::string partnerName;
+    std::string status;   // "成功", "失敗", "スキップ（無効）"
+};
+
+// バッチ実行ログを管理するクラス
+class BatchLog {
+    std::vector<BatchRecord> records;
+public:
+    void add(const std::string& partnerId, const std::string& partnerName,
+             const std::string& status) {
+        records.push_back({partnerId, partnerName, status});
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << "[" << r.partnerId << "] " << r.partnerName
+                      << " -> " << r.status << std::endl;
+        }
+    }
+    int size() const { return (int)records.size(); }
+};
+
+// 連携先クライアントのインターフェース（送信結果 DeliveryResult を返す）
+// apiHealthy は外部APIの健全性をスタブで表す（false=API障害）
+class IExternalClient {
+public:
+    virtual ~IExternalClient() {}
+    virtual DeliveryResult send(string data, bool apiHealthy) = 0;
+};
+
+// A社向け実装
+class SystemAClient : public IExternalClient {
+public:
+    DeliveryResult send(string data, bool apiHealthy) {
+        cout << "A社へ転送: " << data << endl;
+        if (!apiHealthy) return {"失敗", false, "A社: API障害"};
+        return {"成功", true, "A社: 連携完了"};
+    }
+};
+
+// B社向け実装（以降、連携先が増えるたびにこの形で追加する）
+class SystemBClient : public IExternalClient {
+public:
+    DeliveryResult send(string data, bool apiHealthy) {
+        cout << "B社へ転送: " << data << endl;
+        if (!apiHealthy) return {"失敗", false, "B社: API障害"};
+        return {"成功", true, "B社: 連携完了"};
+    }
+};
+
+class SystemCClient : public IExternalClient {
+public:
+    DeliveryResult send(string data, bool apiHealthy) {
+        cout << "C社へ転送: " << data << endl;
+        if (!apiHealthy) return {"失敗", false, "C社: API障害"};
+        return {"成功", true, "C社: 連携完了"};
+    }
+};
+
+// D社向け実装（新規追加）
+class SystemDClient : public IExternalClient {
+public:
+    DeliveryResult send(string data, bool apiHealthy) {
+        cout << "D社へ転送: " << data << endl;
+        if (!apiHealthy) return {"失敗", false, "D社: API障害"};
+        return {"成功", true, "D社: 連携完了"};
+    }
+};
+
+// Creatorの契約：サブクラスが生成方法を決める
+class IClientCreator {
+public:
+    virtual ~IClientCreator() = default;
+    virtual IExternalClient* createClient() = 0;
+};
+
+class SystemAClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemAClient();
+    }
+};
+
+class SystemBClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemBClient();
+    }
+};
+
+class SystemCClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemCClient();
+    }
+};
+
+class SystemDClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemDClient();
+    }
+};
+
+// バッチ全体のフローを統括するクラス（窓口構造）
+class BatchExecutor {
+    vector<INotifier*> notifiers;
+public:
+    void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
+
+    // 送信結果を受け取り、通知内容へ反映して DeliveryResult を返す
+    DeliveryResult execute(IClientCreator* creator, string partnerName,
+                           bool apiHealthy = true) {
+        // 生成分離構造を抽象Creator経由で呼び出す
+        IExternalClient* client = creator->createClient();
+        DeliveryResult r = client->send("data", apiHealthy);
+        string note = r.success ? (partnerName + " 連携完了")
+                                : (partnerName + " 連携失敗: " + r.message);
+        for (auto* notifier : notifiers) {
+            notifier->onComplete(note);
+        }
+        return r;
+    }
+};
+
+class ManualTriggerController {
+    IExternalClient* client;
+    vector<INotifier*> notifiers;
+public:
+    ManualTriggerController(IExternalClient* c) : client(c) {}
+    void addNotifier(INotifier* notifier) {
+        notifiers.push_back(notifier);
+    }
+    DeliveryResult triggerSync(string targetId, bool apiHealthy = true) {
+        cout << "[ManualTrigger] " << targetId
+             << " への手動同期を実行。" << endl;
+        DeliveryResult r = client->send("manualData", apiHealthy);
+        string note = r.success ? (targetId + "社手動連携完了")
+                                : (targetId + "社手動連携失敗: " + r.message);
+        for (auto* notifier : notifiers) {
+            notifier->onComplete(note);
+        }
+        return r;
+    }
+};
+
+class BatchApplication {
+    PartnerDatabase db;
+
+    bool validate(const string& partnerId) {
+        if (!db.exists(partnerId)) {
+            cout << "エラー: パートナーID [" << partnerId
+                 << "] はデータベースに登録されていません。" << endl;
+            return false;
+        }
+        if (!db.isEnabled(partnerId)) {
+            PartnerConfig cfg = db.get(partnerId);
+            cout << "エラー: パートナー [" << cfg.name
+                 << "] は現在無効です。処理を中断します。" << endl;
+            return false;
+        }
+        return true;
+    }
+
+public:
+    void run() {
+        BatchLog batchLog;
+        SlackNotifier slack;
+        EmailNotifier email;
+        LogNotifier log;
+        SystemAClientCreator creatorA;
+        SystemBClientCreator creatorB;
+        SystemCClientCreator creatorC;
+        SystemDClientCreator creatorD;
+
+        cout << "--- 行1: A社月次バッチ ---" << endl;
+        if (validate("PARTNER_A")) {
+            PartnerConfig cfgA = db.get("PARTNER_A");
+            BatchExecutor executorA;
+            executorA.addNotifier(&slack);
+            DeliveryResult r = executorA.execute(&creatorA, cfgA.name);
+            batchLog.add("PARTNER_A", cfgA.name, r.status);
+        }
+
+        cout << "--- 変更要求: C社月次バッチ（今回追加） ---" << endl;
+        if (validate("PARTNER_C")) {
+            PartnerConfig cfgC = db.get("PARTNER_C");
+            BatchExecutor executorC;
+            executorC.addNotifier(&slack);
+            DeliveryResult r = executorC.execute(&creatorC, cfgC.name);
+            batchLog.add("PARTNER_C", cfgC.name, r.status);
+        }
+
+        cout << "--- 行3: D社日次バッチ（新規D社追加後） ---" << endl;
+        if (validate("PARTNER_D")) {
+            PartnerConfig cfgD = db.get("PARTNER_D");
+            BatchExecutor executorD;
+            executorD.addNotifier(&slack);
+            DeliveryResult r = executorD.execute(&creatorD, cfgD.name);
+            batchLog.add("PARTNER_D", cfgD.name, r.status);  // 失敗を記録し次へ進む
+        }
+
+        cout << "--- 行4: B社手動トリガー ---" << endl;
+        if (validate("PARTNER_B")) {
+            PartnerConfig cfgB = db.get("PARTNER_B");
+            IExternalClient* bClient = creatorB.createClient();
+            ManualTriggerController manual(bClient);
+            manual.addNotifier(&slack);
+            DeliveryResult r = manual.triggerSync("B");
+            batchLog.add("PARTNER_B", cfgB.name, r.status);
+        }
+
+        cout << "--- 行5: A社月次バッチ（API障害・Slack＋メール通知） ---" << endl;
+        if (validate("PARTNER_A")) {
+            PartnerConfig cfgA = db.get("PARTNER_A");
+            BatchExecutor executorFail;
+            executorFail.addNotifier(&slack);
+            executorFail.addNotifier(&email);
+            // 外部APIが障害中（apiHealthy=false）。失敗を記録し次のジョブへ進む
+            DeliveryResult r =
+                executorFail.execute(&creatorA, cfgA.name, false);
+            batchLog.add("PARTNER_A", cfgA.name, r.status);
+        }
+
+        cout << "--- 行6: B社バッチ（Slack＋ログ基盤） ---" << endl;
+        if (validate("PARTNER_B")) {
+            PartnerConfig cfgB = db.get("PARTNER_B");
+            BatchExecutor executorB;
+            executorB.addNotifier(&slack);
+            executorB.addNotifier(&log);
+            DeliveryResult r = executorB.execute(&creatorB, cfgB.name);
+            batchLog.add("PARTNER_B", cfgB.name, r.status);
+        }
+
+        cout << "--- 無効パートナーZ社の実行試行 ---" << endl;
+        if (!validate("PARTNER_Z")) {
+            PartnerConfig cfgZ = db.get("PARTNER_Z");
+            batchLog.add("PARTNER_Z", cfgZ.name, "スキップ（無効）");
+        }
+
+        cout << "\n--- バッチ実行ログ ---\n";
+        batchLog.printAll();
+    }
+};
+
+int main() {
+    BatchApplication app;
+    app.run();
+    return 0;
+}
+```
+
+クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
+
+| 判断 | 完全コードで確認すること |
+|---|---|
+| 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
+| 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
+| 誰が所有するか | スタック、スマートポインタ、所有コンテナのどれが破棄まで担うかを決める |
+| どう注入するか | 必須依存はコンストラクタ、増減する依存は登録操作、生成自体を替える場合は生成契約から渡す |
+| 利用側は何を知るか | 利用側は抽象契約だけを保持し、処理中に具体クラスを生成しない |
+| 追加時にどこを変えるか | 新しい実装クラスと組み立て・登録を変更し、安定させたい処理骨格へ具体名を戻さない |
+
+生ポインタや参照で非所有の依存を保持する場合は、所有側の生存期間が利用側より長いことまで組み立てコードで確認します。
 
 ### 6-3：構造の見立て（分解の結果、こうなる）
 

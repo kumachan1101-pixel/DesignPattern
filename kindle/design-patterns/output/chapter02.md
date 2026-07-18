@@ -912,7 +912,9 @@ graph LR
 
 **【変わってほしくない部分（守りたい業務フローの骨格）】**
 ```cpp
-    void transfer(const std::string& toAccount, int amount, const std::string& otp) {
+    void transfer(const std::string& toAccount,
+                  int amount,
+                  const std::string& otp) {
         gateway.verifyAccount(toAccount);   // ① 口座確認（守りたい業務フロー）
         gateway.checkBalance(amount);       // ② 残高確認（守りたい）
         // ③ 認証・送金（銀行APIの手順＝変わる側）を呼ぶ
@@ -1013,7 +1015,7 @@ void transfer(
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6は、フェーズ5で定めた課題——**振込フローの呼び出し元から、銀行APIごとの手順と失敗処理を隠す接続点を作る**——を受けて始めます。ここで決めるのは実装ではなく設計です。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。動く実装一式はフェーズ7で書きます。
+フェーズ6は、フェーズ5で定めた課題——**振込フローの呼び出し元から、銀行APIごとの手順と失敗処理を隠す接続点を作る**——を受けて始めます。ここでは設計案を、比較元と同じ改行を保った完全コードで具体化して決めます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。候補コードは生成・所有・依存注入・実行入口までこのフェーズで示し、フェーズ7で実行結果を検証します。
 フェーズ5の課題から、対策候補は次のように出します。
 
 | フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
@@ -1022,49 +1024,280 @@ void transfer(
 | 銀行ごとに呼び出し順や必要な確認が変わる | 業務フローは「振込を依頼する」だけにし、手順差分を窓口の内側へ閉じ込める | 銀行ごとの窓口クラスを作り、共通の振込操作で呼べるかを見る |
 | 失敗条件が増えると呼び出し元の分岐も増える | 成功・失敗の扱いを、呼び出し元が銀行別に判断しなくて済む形にする | 窓口の戻り値とエラー表現をそろえ、採用コストと効果を比べる |
 
+#### 比較元の完全コード（フェーズ1の現状）
+
+最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
+
+```cpp
+#include <iostream>
+#include <map>
+#include <string>
+#include <vector>
+#include <utility>
+
+// 口座情報を保持する構造体
+struct AccountInfo {
+    std::string ownerName;  // 口座名義
+    int balance;            // 残高（円）
+};
+
+// 口座データを管理するクラス
+class AccountDatabase {
+private:
+    std::map<std::string, AccountInfo> records;
+public:
+    AccountDatabase() {
+        records["ACC001"] = {"田中 一郎", 150000};
+        records["ACC002"] = {"佐藤 花子",  30000};
+        records["ACC003"] = {"鈴木 次郎", 500000};
+    }
+
+    bool exists(const std::string& id) const {
+        return records.count(id) > 0;
+    }
+
+    AccountInfo get(const std::string& id) const {
+        return records.at(id);
+    }
+
+    void withdraw(const std::string& id, int amount) {
+        records[id].balance -= amount;
+    }
+
+    void deposit(const std::string& id, int amount) {
+        records[id].balance += amount;
+    }
+
+    void save(const std::string& id, const AccountInfo& info) {
+        records[id] = info;             // 実行中の口座表へ追加
+    }
+};
+
+// 銀行との通信を担うクラス
+class BankGateway {
+public:
+    bool verifyAccount(const std::string& account) {
+        std::cout << "口座確認: " << account << "\n";
+        return true;
+    }
+    bool checkBalance(int /*amount*/) {
+        std::cout << "残高確認\n";
+        return true;
+    }
+    void executeTransfer(
+            const std::string& /*account*/, int amount) {
+        std::cout << "送金実行: " << amount << "円\n";
+    }
+};
+
+// 認証を担うクラス
+class SecurityAuthenticator {
+public:
+    void handleAuthenticationFailed() {
+        std::cout << "エラー: 認証失敗\n";
+    }
+    void promptOTP() { std::cout << "認証コード入力受付\n"; }
+    bool verifyOTP(const std::string& token) {
+        std::cout << "認証コード検証\n";
+        if (token == "INVALID") {
+            handleAuthenticationFailed();
+            return false;
+        }
+        return true;
+    }
+};
+
+// 振り込み1件分のデータを保持する構造体
+struct TransferRecord {
+    std::string fromId;
+    std::string fromName;
+    std::string toId;
+    std::string toName;
+    int amount;
+};
+
+// 振り込み履歴を管理するクラス
+class TransferHistory {
+private:
+    std::vector<TransferRecord> records;
+public:
+    void add(const std::string& fromId,
+             const std::string& fromName,
+             const std::string& toId,
+             const std::string& toName,
+             int amount) {
+        records.push_back(
+            {fromId, fromName, toId, toName, amount});
+    }
+
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << r.fromName << " → " << r.toName
+                      << " : " << r.amount << "円\n";
+        }
+    }
+};
+
+// 振り込み処理クラス
+class TransferProcessor {
+private:
+    AccountDatabase& db;
+    TransferHistory& history;
+    BankGateway gateway;
+    SecurityAuthenticator auth;
+public:
+    TransferProcessor(AccountDatabase& database,
+                      TransferHistory& hist)
+        : db(database), history(hist) {}
+
+    bool transfer(
+        const std::string& fromAccount,
+        const std::string& toAccount, int amount,
+        const std::string& otp) {
+        // 銀行システムの複雑な手順を直接制御している
+        if (!db.exists(fromAccount)) {
+            std::cout << "エラー: 送金元口座なし\n";
+            return false;
+        }
+        if (!db.exists(toAccount)) {
+            std::cout << "エラー: 送金先口座なし\n";
+            return false;
+        }
+        if (db.get(fromAccount).balance < amount) {
+            std::cout << "エラー: 残高不足\n";
+            return false;
+        }
+
+        gateway.verifyAccount(toAccount);
+        gateway.checkBalance(amount);
+        auth.promptOTP();
+        if (!auth.verifyOTP(otp)) return false;
+
+        gateway.executeTransfer(toAccount, amount);
+        db.withdraw(fromAccount, amount);
+        db.deposit(toAccount, amount);
+        history.add(fromAccount,
+                    db.get(fromAccount).ownerName,
+                    toAccount,
+                    db.get(toAccount).ownerName,
+                    amount);
+        std::cout << "振り込み完了\n";
+        return true;
+    }
+
+    bool transferApprovedBatch(
+        const std::string& fromAccount,
+        const std::string& toAccount, int amount) {
+        // 社内承認済みバッチ用。通常振込と手順が重複している
+        if (!db.exists(fromAccount)) {
+            std::cout << "エラー: 送金元口座なし\n";
+            return false;
+        }
+        if (!db.exists(toAccount)) {
+            std::cout << "エラー: 送金先口座なし\n";
+            return false;
+        }
+        if (db.get(fromAccount).balance < amount) {
+            std::cout << "エラー: 残高不足\n";
+            return false;
+        }
+
+        gateway.verifyAccount(toAccount);
+        gateway.checkBalance(amount);
+        gateway.executeTransfer(toAccount, amount);
+        db.withdraw(fromAccount, amount);
+        db.deposit(toAccount, amount);
+        history.add(fromAccount,
+                    db.get(fromAccount).ownerName,
+                    toAccount,
+                    db.get(toAccount).ownerName,
+                    amount);
+        std::cout << "振り込み完了（OTP不要）\n";
+        return true;
+    }
+};
+
+// 給与振り込みなどの一括処理バッチ（もう1つの呼び出し元）
+class BatchTransferProcessor {
+private:
+    TransferProcessor processor;
+public:
+    BatchTransferProcessor(AccountDatabase& database,
+                           TransferHistory& hist)
+        : processor(database, hist) {}
+
+    void processPayroll(
+            const std::string& fromAccount,
+            const std::vector<std::pair<std::string, int>>&
+                transfers) {
+        for (int i = 0; i < (int)transfers.size(); i++) {
+            const std::string& account = transfers[i].first;
+            int amount = transfers[i].second;
+            processor.transferApprovedBatch(
+                fromAccount, account, amount);
+        }
+    }
+};
+
+int main() {
+    AccountDatabase db;
+    TransferHistory history;
+    TransferProcessor processor(db, history);
+
+    // ACC001（田中 一郎、残高15万円）から ACC002（佐藤 花子）へ送金
+    std::cout << "--- 行1: 正常な個別振り込み ---\n";
+    processor.transfer("ACC001", "ACC002", 5000, "999999");
+
+    // 存在しない送金先口座
+    std::cout << "--- 行2: 存在しない口座 ---\n";
+    processor.transfer("ACC001", "UNKNOWN", 5000, "999999");
+
+    // 送金元残高（15万円）より多い額を送金しようとする
+    std::cout << "--- 行3: 残高不足 ---\n";
+    processor.transfer("ACC001", "ACC002", 1000000, "999999");
+
+    std::cout << "--- 行4: 認証失敗 ---\n";
+    processor.transfer("ACC001", "ACC002", 5000, "INVALID");
+
+    // ACC003（鈴木 次郎、残高50万円）から ACC002 へバッチ送金
+    std::cout << "--- 行5: 社内承認済みバッチ ---\n";
+    BatchTransferProcessor batch(db, history);
+    std::vector<std::pair<std::string, int>> payroll = {
+        {"ACC002", 30000}
+    };
+    batch.processPayroll("ACC003", payroll);
+
+    std::cout << "\n--- 最終残高 ---\n";
+    std::cout << "ACC001: " << db.get("ACC001").balance << "円\n";
+    std::cout << "ACC002: " << db.get("ACC002").balance << "円\n";
+    std::cout << "ACC003: " << db.get("ACC003").balance << "円\n";
+    std::cout << "\n--- 振り込み履歴 ---\n";
+    history.printAll();
+
+    return 0;
+}
+```
+
 #### 起点：フェーズ3の痛みコード
 
 比較元は、取引IDを発行・検証・送金へ引き回すフェーズ3の変更途中コードです。`transfer()` が銀行APIの手順を順に直接知っています。
 
-```cpp
-// フェーズ3の変更途中コード（対策前）
-void transfer(const std::string& toAccount, int amount, const std::string& otp) {
-    gateway.verifyAccount(toAccount);
-    gateway.checkBalance(amount);
-    std::string transactionId = auth.requestOTP();
-    auth.verifyOTP(otp, transactionId);
-    gateway.executeTransfer(toAccount, amount, transactionId);
-    std::cout << "振り込み完了\n";
-}
-```
+> フェーズ3で追加した状態・分岐・通知・履歴・入力・出力は、直前のフェーズ3本文で確認済みです。ここでは短い差分コードを重ねず、上の現状完全コードと下の採用候補完全コードを比較し、6-1の説明でどの責任を移すかを追います。
 
 ### 6-1：痛みコードを変換して、接続点の「形」を探す
 
-課題は「銀行APIの手順を隠す」と言っていますが、**どんな形なら隠せるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（動く実装一式はフェーズ7）。
+課題は「銀行APIの手順を隠す」と言っていますが、**どんな形なら隠せるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（完全な接続コードはこのフェーズの後半で示す）。
 
 **変換1：各API呼び出しを関数へ切り出す。**
 
-```cpp
-bool checkAccountExists(const std::string& acc) { return gateway.verifyAccount(acc); }
-bool checkBalance(int amount)                   { return gateway.checkBalance(amount); }
-std::string issueAndVerifyOtp(const std::string& otp) { /* requestOTP → verifyOTP */ }
-```
+> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
 
 見えたこと：`TransferProcessor` が「口座確認→残高確認→OTP発行・検証→送金」という**銀行APIの手順を全部知っている**。名前は付いたが、手順の並びと詳細は本体に露出したまま。
 まだ詰まること：認証ステップが1つ増える（取引ID）だけで本体の手順を触る。銀行が変われば呼び出し順も変わり、また本体を開く。
 
 **変換2：銀行API手順を専用の窓口クラスへ集約する。** 手順一式を `BankTransferService` という窓口へ移し、本体はそれを1回呼ぶだけにします。
 
-```cpp
-class BankTransferService {                 // 窓口：手順を内側に隠す
-    void performTransfer(const TransferRequest& req) {
-        gateway.verifyAccount(...); gateway.checkBalance(...);
-        auth.requestOTP(); auth.verifyOTP(...); gateway.executeTransfer(...);
-    }
-};
-// 呼び出し元は「振込を依頼する」だけ
-bank.performTransfer(req);
-```
+> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
 
 詰まり解消：手順の詳細は窓口の内側にまとまり、`TransferProcessor` は「振込を依頼する」だけになる。
 まだ詰まること（軽微）：窓口が具体クラスのままだと、別銀行向けやテスト用（外部通信なし）へ**差し替えにくい**。
@@ -1073,18 +1306,9 @@ bank.performTransfer(req);
 
 ### 6-2：見つけた形を契約にし、データの置き場所を決める
 
-見つけた形を、窓口が満たすべき契約として定義します（実装本体はフェーズ7）。
+見つけた形を、窓口が満たすべき契約として定義します（完全な接続コードはこの節の後半で示す）。
 
-```cpp
-// 窓口の契約：手順の詳細を隠し、依頼と結果だけを見せる（実装本体はフェーズ7）
-class IBankTransferService {
-public:
-    virtual TransferResult performTransfer(const TransferRequest& req) = 0;
-    virtual TransferResult performApprovedBatchTransfer(const TransferRequest& req) = 0;
-    virtual void compensate(const TransferRequest& req) = 0;   // 失敗時の補償
-    virtual ~IBankTransferService() = default;
-};
-```
+> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
 
 次に、データの置き場所を決めます。
 
@@ -1095,6 +1319,364 @@ public:
 | 銀行APIの呼び出し手順 | `TransferProcessor` に直書き | 窓口（`BankTransferService`）の内側 | 呼び出し元は手順を知らず、窓口を差し替えるだけで銀行・テストを切り替えられる |
 
 接続点で受け渡すのは、位置引数と成否表示をまとめた **`TransferRequest → TransferResult`** です。`TransferProcessor` は窓口契約を**注入して保持**し、その生存期間は組み立て側が管理します。
+
+#### 採用候補の完全コード（生成・所有・依存注入・実行入口まで）
+
+クラスを分けただけでは利用できません。以下では、分離したクラスの定義だけでなく、具体オブジェクトを生成する場所、所有する場所、コンストラクタまたは登録操作による依存注入、実行入口からの呼び出しまでを一続きで示します。各行の並び・インデント・改行は、フェーズ7でコンパイル・実行確認する採用コードと同一です。フェーズ6では接続と責任移動を比較し、フェーズ7では同じコードを実行結果で検証します。
+
+```cpp
+#include <iostream>
+#include <map>
+#include <string>
+#include <vector>
+
+// 口座情報を保持する構造体
+struct AccountInfo {
+    std::string ownerName;  // 口座名義
+    int balance;            // 残高（円）
+};
+
+// 口座データを管理するクラス
+class AccountDatabase {
+private:
+    std::map<std::string, AccountInfo> records;
+public:
+    AccountDatabase() {
+        records["ACC001"] = {"田中 一郎", 150000};
+        records["ACC002"] = {"佐藤 花子",  30000};
+        records["ACC003"] = {"鈴木 次郎", 500000};
+    }
+
+    bool exists(const std::string& id) const {
+        return records.count(id) > 0;
+    }
+
+    AccountInfo get(const std::string& id) const {
+        return records.at(id);
+    }
+
+    void withdraw(const std::string& id, int amount) {
+        records[id].balance -= amount;
+    }
+
+    void deposit(const std::string& id, int amount) {
+        records[id].balance += amount;
+    }
+
+    void save(const std::string& id, const AccountInfo& info) {
+        records[id] = info;             // 実行中の口座表へ追加
+    }
+};
+
+// 銀行との通信を担うクラス（サブシステム1）
+class BankGateway {
+public:
+    bool verifyAccount(const std::string& account) {
+        std::cout << "口座確認: " << account << "\n";
+        return true;
+    }
+    bool checkBalance(int /*amount*/) {
+        std::cout << "残高確認\n";
+        return true;
+    }
+    void executeTransfer(const std::string& account, int amount,
+                         const std::string& txId) {
+        (void)account;
+        (void)txId;
+        std::cout << "送金実行: " << amount << "円\n";
+    }
+};
+
+// 認証を担うクラス（サブシステム2）
+class SecurityAuthenticator {
+public:
+    std::string requestOTP() {
+        std::cout << "認証コード発行\n";
+        return "TXN12345"; // 銀行APIの応答で返る取引ID
+    }
+    bool verifyOTP(const std::string& token,
+                   const std::string& txId) {
+        (void)txId;
+        std::cout << "認証コード検証\n";
+        return token == "999999"; // 正しいOTPだけ通す
+    }
+};
+
+// 振り込み1件分のデータを保持する構造体
+struct TransferRecord {
+    std::string fromId;
+    std::string fromName;
+    std::string toId;
+    std::string toName;
+    int amount;
+};
+
+// 振り込み履歴を管理するクラス
+class TransferHistory {
+private:
+    std::vector<TransferRecord> records;
+public:
+    void add(const std::string& fromId,
+             const std::string& fromName,
+             const std::string& toId,
+             const std::string& toName,
+             int amount) {
+        records.push_back(
+            {fromId, fromName, toId, toName, amount});
+    }
+
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << r.fromName << " → " << r.toName
+                      << " : " << r.amount << "円\n";
+        }
+    }
+};
+
+// 業務フロー側に見せる窓口（インターフェース）
+// 振り込み要求（要求オブジェクト）：1件の振込に必要な入力をまとめる
+struct TransferRequest {
+    std::string fromAccount;
+    std::string toAccount;
+    int amount;
+    std::string otp;
+};
+
+// 振り込み結果（結果オブジェクト）：成功可否と理由
+struct TransferResult {
+    bool success;
+    std::string message; // 完了、または失敗理由
+};
+
+class IBankTransferService {
+public:
+    virtual TransferResult performTransfer(
+        const TransferRequest& req) = 0;
+    virtual TransferResult performApprovedBatchTransfer(
+        const std::string& fromAccount,
+        const std::string& toAccount, int amount) = 0;
+    // 補償：完了済みの振込を逆仕訳で取り消す（ロールバック）
+    virtual void compensate(
+        const std::string& fromAccount,
+        const std::string& toAccount, int amount) = 0;
+    virtual ~IBankTransferService() = default;
+};
+
+// 銀行との複雑なやり取りをすべて隠蔽する窓口クラス（窓口構造）
+class BankTransferService : public IBankTransferService {
+private:
+    AccountDatabase& db;
+    TransferHistory& history;
+    BankGateway gateway;
+    SecurityAuthenticator auth;
+public:
+    BankTransferService(AccountDatabase& database,
+                        TransferHistory& hist)
+        : db(database), history(hist) {}
+
+    TransferResult performTransfer(
+            const TransferRequest& req) override {
+        // 複雑な手順はすべてこの窓口の中に閉じる
+        if (!db.exists(req.fromAccount)) {
+            std::cout << "エラー: 送金元口座なし\n";
+            return {false, "送金元口座なし"};
+        }
+        if (!db.exists(req.toAccount)) {
+            std::cout << "エラー: 送金先口座なし\n";
+            return {false, "送金先口座なし"};
+        }
+        if (db.get(req.fromAccount).balance < req.amount) {
+            std::cout << "エラー: 残高不足\n";
+            return {false, "残高不足"};
+        }
+
+        gateway.verifyAccount(req.toAccount);
+        gateway.checkBalance(req.amount);
+        std::string txId = auth.requestOTP();
+        if (!auth.verifyOTP(req.otp, txId)) {
+            std::cout << "エラー: 認証失敗\n";
+            return {false, "認証失敗"};
+        }
+        gateway.executeTransfer(req.toAccount, req.amount, txId);
+        db.withdraw(req.fromAccount, req.amount);
+        db.deposit(req.toAccount, req.amount);
+        history.add(req.fromAccount,
+                    db.get(req.fromAccount).ownerName,
+                    req.toAccount,
+                    db.get(req.toAccount).ownerName,
+                    req.amount);
+        return {true, "振り込み完了"};
+    }
+
+    TransferResult performApprovedBatchTransfer(
+            const std::string& fromAccount,
+            const std::string& toAccount,
+            int amount) override {
+        if (!db.exists(fromAccount)) {
+            std::cout << "エラー: 送金元口座なし\n";
+            return {false, "送金元口座なし"};
+        }
+        if (!db.exists(toAccount)) {
+            std::cout << "エラー: 送金先口座なし\n";
+            return {false, "送金先口座なし"};
+        }
+        if (db.get(fromAccount).balance < amount) {
+            std::cout << "エラー: 残高不足\n";
+            return {false, "残高不足"};
+        }
+
+        gateway.verifyAccount(toAccount);
+        gateway.checkBalance(amount);
+        gateway.executeTransfer(toAccount, amount,
+                                "APPROVED-BATCH");
+        db.withdraw(fromAccount, amount);
+        db.deposit(toAccount, amount);
+        history.add(fromAccount,
+                    db.get(fromAccount).ownerName,
+                    toAccount,
+                    db.get(toAccount).ownerName,
+                    amount);
+        return {true, "振り込み完了"};
+    }
+
+    void compensate(
+            const std::string& fromAccount,
+            const std::string& toAccount,
+            int amount) override {
+        // 逆仕訳：送金先から引き、送金元へ戻す
+        db.withdraw(toAccount, amount);
+        db.deposit(fromAccount, amount);
+        history.add(toAccount,
+                    db.get(toAccount).ownerName,
+                    fromAccount,
+                    db.get(fromAccount).ownerName,
+                    amount);
+        std::cout << "補償: " << toAccount << " から "
+                  << fromAccount << " へ " << amount
+                  << "円を戻しました\n";
+    }
+};
+
+// 振り込み処理クラス：銀行APIの詳細を直接扱わない
+class TransferProcessor {
+private:
+    IBankTransferService* facade;
+public:
+    TransferProcessor(IBankTransferService* f) : facade(f) {}
+    void transfer(const TransferRequest& req) {
+        // 振り込みという業務プロセスに集中できる
+        TransferResult result = facade->performTransfer(req);
+        if (result.success)
+            std::cout << "振り込み完了\n";
+    }
+};
+
+// 給与振り込みなどの一括処理バッチ
+class BatchTransferProcessor {
+private:
+    IBankTransferService* facade;
+public:
+    BatchTransferProcessor(IBankTransferService* f)
+        : facade(f) {}
+    void processPayroll(
+            const std::string& fromAccount,
+            const std::vector<std::pair<std::string, int>>&
+                transfers) {
+        // 完了済みを覚えておき、途中失敗したら逆順で取り消す
+        std::vector<std::pair<std::string, int>> completed;
+        for (int i = 0; i < (int)transfers.size(); i++) {
+            const std::string& account = transfers[i].first;
+            int amount = transfers[i].second;
+            TransferResult result =
+                facade->performApprovedBatchTransfer(
+                    fromAccount, account, amount);
+            if (result.success) {
+                std::cout << "振り込み完了（OTP不要）\n";
+                completed.push_back({account, amount});
+            } else {
+                std::cout << "一括処理を中断し、完了済み"
+                          << (int)completed.size()
+                          << "件を取り消します\n";
+                for (int j = (int)completed.size() - 1;
+                     j >= 0; j--) {
+                    facade->compensate(fromAccount,
+                                       completed[j].first,
+                                       completed[j].second);
+                }
+                return;
+            }
+        }
+    }
+};
+
+// 依存の組み立てを担うクラス（Composition Root）
+class Application {
+public:
+    void run() {
+        AccountDatabase db;
+        TransferHistory history;
+        BankTransferService facade(db, history);
+        TransferProcessor processor(&facade);
+
+        // ACC001（田中 一郎）から ACC002（佐藤 花子）へ送金
+        processor.transfer(
+            {"ACC001", "ACC002", 5000, "999999"});
+
+        // 存在しない送金先口座
+        processor.transfer(
+            {"ACC001", "UNKNOWN", 5000, "999999"});
+
+        // 残高不足
+        processor.transfer(
+            {"ACC001", "ACC002", 1000000, "999999"});
+
+        // 認証失敗
+        processor.transfer(
+            {"ACC001", "ACC002", 5000, "INVALID"});
+
+        // ACC003（鈴木 次郎）から ACC002 へバッチ送金
+        BatchTransferProcessor batch(&facade);
+        std::vector<std::pair<std::string, int>> payroll = {
+            {"ACC002", 30000}
+        };
+        batch.processPayroll("ACC003", payroll);
+
+        // 一括送金の途中失敗と補償（ロールバック）
+        // 2件目がACC003の残高を超えるため、1件目を取り消す
+        std::vector<std::pair<std::string, int>> payroll2 = {
+            {"ACC002", 20000},
+            {"ACC001", 600000}
+        };
+        batch.processPayroll("ACC003", payroll2);
+
+        std::cout << "--- 最終残高 ---\n";
+        std::cout << "ACC001: " << db.get("ACC001").balance << "円\n";
+        std::cout << "ACC002: " << db.get("ACC002").balance << "円\n";
+        std::cout << "ACC003: " << db.get("ACC003").balance << "円\n";
+        std::cout << "--- 振り込み履歴 ---\n";
+        history.printAll();
+    }
+};
+
+int main() {
+    Application app;
+    app.run();
+    return 0;
+}
+```
+
+クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
+
+| 判断 | 完全コードで確認すること |
+|---|---|
+| 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
+| 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
+| 誰が所有するか | スタック、スマートポインタ、所有コンテナのどれが破棄まで担うかを決める |
+| どう注入するか | 必須依存はコンストラクタ、増減する依存は登録操作、生成自体を替える場合は生成契約から渡す |
+| 利用側は何を知るか | 利用側は抽象契約だけを保持し、処理中に具体クラスを生成しない |
+| 追加時にどこを変えるか | 新しい実装クラスと組み立て・登録を変更し、安定させたい処理骨格へ具体名を戻さない |
+
+生ポインタや参照で非所有の依存を保持する場合は、所有側の生存期間が利用側より長いことまで組み立てコードで確認します。
 
 ### 6-3：構造の見立て（変換の結果、こうなる）
 

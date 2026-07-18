@@ -846,7 +846,7 @@ public:
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6は、フェーズ5で定めた3つの課題——**本文生成を骨格から切り離すこと／装飾を順に組み合わせられるようにすること／生成操作を記録・再実行・取消できる単位に分けること**——を受けて始めます。ここで決めるのは実装ではなく設計です。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを分解して探します。第二部の要は「いくつの独立した変化軸があるかを数える」ことです。動く実装一式はフェーズ7で書きます。
+フェーズ6は、フェーズ5で定めた3つの課題——**本文生成を骨格から切り離すこと／装飾を順に組み合わせられるようにすること／生成操作を記録・再実行・取消できる単位に分けること**——を受けて始めます。ここでは設計案を、比較元と同じ改行を保った完全コードで具体化して決めます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを分解して探します。第二部の要は「いくつの独立した変化軸があるかを数える」ことです。候補コードは生成・所有・依存注入・実行入口までこのフェーズで示し、フェーズ7で実行結果を検証します。
 フェーズ5の課題から、対策候補は次のように出します。
 
 | フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
@@ -868,25 +868,129 @@ public:
 
 今回足した「装飾の途中失敗」と「失敗した生成操作の再実行」も、この分け方の判断材料になります。装飾失敗は装飾のリスト化の側（装飾を包む部品）で扱い、再実行は生成操作の単位化の側（記録できる操作オブジェクト）で扱う——このように、生成骨格・装飾・操作履歴を別軸として分けておくと、装飾失敗を骨格へ持ち込まずに済み、再実行は記録した生成操作を材料に扱えます。組み立てや結果の受け渡しには変更が残りますが、骨格そのものへ手を入れる必要は減ります。
 
+#### 比較元の完全コード（フェーズ1の現状）
+
+最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
+
+```cpp
+#include <iostream>
+#include <string>
+#include <vector>
+#include <map>
+#include <fstream>
+#include <cstdio>
+#include <memory>
+#include <stdexcept>
+#include <utility>
+
+using namespace std;
+
+class DataReader {
+public:
+    void readCSV() { cout << "CSVデータ読み込み完了。" << endl; }
+};
+
+struct ReportTemplate {
+    string name;                    // レポート名
+    vector<string> supportedFormats; // "pdf", "excel"
+};
+
+class TemplateRegistry {
+    map<string, ReportTemplate> templates;
+public:
+    TemplateRegistry() {
+        templates["SALES_WEEKLY"]  = {"週次売上レポート",   {"pdf", "excel"}};
+        templates["SALES_MONTHLY"] = {"月次売上レポート",   {"pdf", "excel"}};
+        templates["SALES_DEPT"]    = {"部門別売上レポート", {"pdf", "excel"}};
+    }
+
+    bool exists(const string& id) const {
+        return templates.count(id) > 0;
+    }
+
+    ReportTemplate get(const string& id) const {
+        return templates.at(id);
+    }
+
+    void save(const string& id, const ReportTemplate& tpl) {
+        templates[id] = tpl;          // 実行中のテンプレート表へ追加
+    }
+
+    bool supportsFormat(const string& id, const string& format) const {
+        for (const string& supported : templates.at(id).supportedFormats) {
+            if (supported == format) return true;
+        }
+        return false;
+    }
+};
+
+// 実システムではPDF/Excel/画像生成ライブラリを呼ぶ境界。
+// 掲載コードでは、その先のライブラリ処理だけをcoutで代替する。
+class ReportRenderingApi {
+public:
+    void addHeader(const string& format) {
+        cout << "[ReportRenderingApi] " << format
+             << "形式でヘッダー生成APIを呼び出し。" << endl;
+    }
+    void addGraph() {
+        cout << "[ReportRenderingApi] グラフ描画APIを呼び出し。" << endl;
+    }
+    void addLogo() {
+        cout << "[ReportRenderingApi] ロゴ配置APIを呼び出し。" << endl;
+    }
+    void addFooter(const string& format) {
+        cout << "[ReportRenderingApi] " << format
+             << "形式でフッター生成APIを呼び出し。" << endl;
+    }
+};
+
+// レポート生成統括
+class ReportSkeleton {
+    DataReader reader;
+    ReportRenderingApi renderer;
+public:
+    void generate(string format, bool addGraph, bool addLogo) {
+        reader.readCSV();
+        renderer.addHeader(format);
+        if (addGraph) renderer.addGraph();
+        if (addLogo) renderer.addLogo();
+        renderer.addFooter(format);
+    }
+};
+
+int main() {
+    TemplateRegistry registry;
+    string templateId = "SALES_MONTHLY";
+    string requestedFormat = "pdf";
+
+    if (!registry.exists(templateId)) {
+        cerr << "[エラー] テンプレートID '"
+             << templateId << "' は登録されていません。" << endl;
+        return 1;
+    }
+
+    if (!registry.supportsFormat(templateId, requestedFormat)) {
+        cerr << "[エラー] テンプレートID '"
+             << templateId << "' は "
+             << requestedFormat << " 形式に対応していません。" << endl;
+        return 1;
+    }
+
+    ReportTemplate tmpl = registry.get(templateId);
+    cout << "テンプレート: " << tmpl.name
+         << " (指定形式: " << requestedFormat << ")" << endl;
+
+    ReportSkeleton gen;
+    gen.generate(requestedFormat, true, false);
+    return 0;
+}
+```
+
 #### 起点：フェーズ3の痛みコード
 
 比較元は、生成手順へ履歴記録と再実行を直接追加したフェーズ3の変更途中コードです。
 
-```cpp
-// フェーズ3の変更途中コード（対策前）の要点
-class ReportSkeleton {
-    DataReader reader; ReportHistoryManager history; ReportRenderingApi renderer;
-public:
-    void generate(string format, bool addGraph, bool addLogo) {
-        reader.readCSV();
-        renderer.addHeader(format);          // ← 骨格（順序）
-        if (addGraph) renderer.addGraph();   // ← 装飾の組み合わせ
-        if (addLogo)  renderer.addLogo();
-        renderer.addFooter(format);
-        history.record(format);              // ← 履歴の記録
-    }
-};
-```
+> フェーズ3で追加した状態・分岐・通知・履歴・入力・出力は、直前のフェーズ3本文で確認済みです。ここでは短い差分コードを重ねず、上の現状完全コードと下の採用候補完全コードを比較し、6-1の説明でどの責任を移すかを追います。
 
 ### 6-1：痛みコードを分解して、接続点の「形」を探す
 
@@ -902,27 +1006,9 @@ public:
 
 ### 6-2：見つけた形を契約にし、データの置き場所を決める
 
-見つけた3つの形を、それぞれの契約として定義します（実装本体はフェーズ7）。
+見つけた3つの形を、それぞれの契約として定義します（完全な接続コードはこの節の後半で示す）。
 
-```cpp
-// 軸1：骨格を固定し、本文だけをフックにする（Template Method）
-class ReportSkeleton {
-public:
-    void generate();                 // 骨格（順序）を固定
-protected:
-    virtual void renderBody() = 0;   // 差分＝フック（種別ごと）
-    virtual ~ReportSkeleton() = default;
-};
-// 軸2：装飾はレポートを包むレポート（Decorator）
-class ReportFeature : public ReportSkeleton { /* 内側の ReportSkeleton を包む */ };
-// 軸3：生成操作は実行・取消できる単位（Command）
-class IReportAction {
-public:
-    virtual JobResult execute() = 0;
-    virtual void undo() = 0;
-    virtual ~IReportAction() = default;
-};
-```
+> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
 
 次に、データの置き場所を決めます。
 
@@ -934,6 +1020,437 @@ public:
 | 出力形式・出力先 | `generate` 引数 | `GenerateReportAction` が保持 | 操作単位が自分の入力を持つ |
 
 接続点で受け渡すのは、生成操作の **`JobResult`（成功／失敗）**です。`ReportFeature` は内側のレポート、履歴は生成操作の**所有権・生存期間を保持側**が管理します。
+
+#### 採用候補の完全コード（生成・所有・依存注入・実行入口まで）
+
+クラスを分けただけでは利用できません。以下では、分離したクラスの定義だけでなく、具体オブジェクトを生成する場所、所有する場所、コンストラクタまたは登録操作による依存注入、実行入口からの呼び出しまでを一続きで示します。各行の並び・インデント・改行は、フェーズ7でコンパイル・実行確認する採用コードと同一です。フェーズ6では接続と責任移動を比較し、フェーズ7では同じコードを実行結果で検証します。
+
+```cpp
+#include <iostream>
+#include <string>
+#include <vector>
+#include <map>
+#include <fstream>
+#include <cstdio>
+#include <memory>
+#include <stdexcept>
+#include <utility>
+
+using namespace std;
+
+struct ReportTemplate {
+    string name;    // レポート名
+    string format;  // "pdf", "excel"
+};
+
+class TemplateRegistry {
+    map<string, ReportTemplate> templates;
+public:
+    TemplateRegistry() {
+        templates["SALES_WEEKLY"]  = {"週次売上レポート",   "pdf"};
+        templates["SALES_MONTHLY"] = {"月次売上レポート",   "pdf"};
+        templates["SALES_DEPT"]    = {"部門別売上レポート", "pdf"};
+    }
+
+    bool exists(const string& id) const {
+        return templates.count(id) > 0;
+    }
+
+    ReportTemplate get(const string& id) const {
+        return templates.at(id);
+    }
+};
+
+struct ReportRecord {
+    std::string templateId;    // "SALES_WEEKLY", "SALES_MONTHLY", "SALES_DEPT"
+    std::string templateName;  // "週次売上", "月次売上", "部門別売上"
+    std::string format;        // "pdf", "excel"
+    std::string status;        // "成功", "キャンセル", "失敗"
+};
+
+// レポート生成ログを管理するクラス
+class ReportLog {
+    std::vector<ReportRecord> records;
+public:
+    void add(const std::string& templateId, const std::string& templateName,
+             const std::string& format, const std::string& status) {
+        records.push_back({templateId, templateName, format, status});
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            std::cout << "[" << r.templateId << "] " << r.templateName
+                      << " (" << r.format << ") -> " << r.status << std::endl;
+        }
+    }
+    int size() const { return (int)records.size(); }
+};
+
+// IReportAction: 操作履歴のインターフェース（操作記録構造）
+// 生成操作の結果（結果オブジェクト）：成功可否と理由
+struct JobResult {
+    bool success;
+    std::string message;
+};
+
+class IReportAction {
+public:
+    virtual ~IReportAction() = default;
+    virtual JobResult execute() = 0;
+    virtual void undo() = 0;  // ← 取り消し操作も契約に含める
+};
+
+// ReportSkeleton: レポート生成の骨格（骨格固定構造）
+class ReportSkeleton {
+public:
+    virtual ~ReportSkeleton() = default;
+    void generate() {
+        cout << "CSV読み込み" << endl;
+        renderBody(); // ← 継承先で変化する部分だけをここに任せる
+        cout << "フッター生成" << endl;
+    }
+    virtual void renderBody() = 0;
+};
+
+// StandardReport: 基本レポートの本体
+class StandardReport : public ReportSkeleton {
+public:
+    void renderBody() override {
+        cout << "本文を生成。" << endl;
+    }
+};
+
+// MonthlyReport: 月次レポートの本体
+class MonthlyReport : public ReportSkeleton {
+public:
+    void renderBody() override {
+        cout << "月次集計を本文として生成。" << endl;
+    }
+};
+
+// WeeklyReport: 週次レポートの本体
+class WeeklyReport : public ReportSkeleton {
+public:
+    void renderBody() override {
+        cout << "週次集計を本文として生成。" << endl;
+    }
+};
+
+// DeptReport: 部門別レポートの本体
+class DeptReport : public ReportSkeleton {
+public:
+    void renderBody() override {
+        cout << "部門別集計を本文として生成。" << endl;
+    }
+};
+
+// ReportFeature: 装飾機能の基底クラス（装飾連結構造基底）
+class ReportFeature : public ReportSkeleton {
+protected:
+    ReportSkeleton* wrapped;
+public:
+    explicit ReportFeature(ReportSkeleton* g)
+        : wrapped(g) {}
+    virtual ~ReportFeature() {
+        delete wrapped; // デストラクタで内側のインスタンスを再帰的に解放
+    }
+};
+
+// ReportRenderingApi: 実システムではPDF/Excel/画像生成ライブラリを呼ぶ境界。
+// 掲載コードでは、その先のライブラリ処理だけをcoutで代替する。
+class ReportRenderingApi {
+public:
+    void addGraph() {
+        cout << "[ReportRenderingApi] グラフ描画APIを呼び出し。" << endl;
+    }
+    void addWatermark() {
+        cout << "[ReportRenderingApi] 透かし描画APIを呼び出し。" << endl;
+    }
+};
+
+// GraphFeature: グラフ追加の装飾
+class GraphFeature : public ReportFeature {
+    bool* available;  // 外部描画基盤が使えるか（nullptrなら常に可）
+public:
+    explicit GraphFeature(ReportSkeleton* g, bool* avail = nullptr)
+        : ReportFeature(g), available(avail) {}
+    void renderBody() override {
+        wrapped->renderBody();         // ← 内側の処理を先に呼ぶ
+        if (available && !*available) {
+            throw runtime_error("グラフ描画APIが一時的に失敗しました");
+        }
+        ReportRenderingApi api;
+        api.addGraph(); // ← 実システムでは描画ライブラリ/APIを呼ぶ
+    }
+};
+
+// WatermarkFeature: 透かし追加の装飾
+class WatermarkFeature : public ReportFeature {
+public:
+    explicit WatermarkFeature(ReportSkeleton* g)
+        : ReportFeature(g) {}
+    void renderBody() override {
+        wrapped->renderBody();
+        ReportRenderingApi api;
+        api.addWatermark();
+    }
+};
+
+enum class OutputFormat { Pdf, Excel };
+
+string formatName(OutputFormat format) {
+    return format == OutputFormat::Pdf ? "PDF" : "Excel";
+}
+
+bool fileExists(const string& path) {
+    ifstream input(path);
+    return input.good();
+}
+
+class GenerateReportAction : public IReportAction {
+    ReportSkeleton* generator;
+    string outputPath;
+    OutputFormat format;
+    bool created = false;
+public:
+    GenerateReportAction(
+        ReportSkeleton* g,
+        string path,
+        OutputFormat f
+    ) : generator(g), outputPath(move(path)), format(f) {}
+
+    ~GenerateReportAction() override {
+        delete generator; // generatorを所有しているので解放する
+    }
+
+    JobResult execute() override {
+        if (created) {
+            return {false, "同じ操作は再実行できません。"};
+        }
+        if (fileExists(outputPath)) {
+            return {false,
+                    outputPath + " は既に存在するため上書きしません。"};
+        }
+
+        // 装飾途中の失敗はここで生成操作の失敗として受け取る
+        try {
+            generator->generate();
+        } catch (const exception& e) {
+            return {false, string("生成失敗: ") + e.what()};
+        }
+
+        // サンプルでは形式名を記録したデモ用ファイルを実際に作成する
+        ofstream output(outputPath);
+        if (!output) {
+            return {false, outputPath + " を作成できません。"};
+        }
+        output << formatName(format) << " report" << endl;
+        output.close();
+        if (!output) {
+            remove(outputPath.c_str());
+            return {false, outputPath + " の書き込みに失敗しました。"};
+        }
+        created = true;
+
+        cout << "[コマンド] " << formatName(format) << "形式で "
+             << outputPath << " を生成して履歴に記録。" << endl;
+        return {true, "生成完了"};
+    }
+
+    void handleNoFileToUndo() {
+        cout << "[コマンド] この操作が生成したファイルはありません。"
+             << endl;
+    }
+
+    void undo() override {
+        if (!created) {
+            handleNoFileToUndo();
+            return;
+        }
+        if (remove(outputPath.c_str()) == 0) {
+            created = false;
+            cout << "[コマンド] " << outputPath
+                 << " を削除してアンドゥ完了。" << endl;
+        } else {
+            cout << "[コマンド] " << outputPath
+                 << " は存在しないため削除できません。" << endl;
+        }
+    }
+};
+
+// BatchApplication: 具体クラスを知っている主な場所
+class BatchApplication {
+    vector<IReportAction*> history;
+    TemplateRegistry registry; // ← テンプレートIDの検証に使う
+
+    void executeAndRemember(IReportAction* action) {
+        action->execute();
+        history.push_back(action);
+    }
+
+    // テンプレートIDが登録済みか確認し、未登録ならエラーを出力して nullptr を返す
+    ReportTemplate* validateTemplate(const string& id,
+                                     ReportTemplate& out) {
+        if (!registry.exists(id)) {
+            cerr << "[エラー] テンプレートID '"
+                 << id << "' は登録されていません。" << endl;
+            return nullptr;
+        }
+        out = registry.get(id);
+        return &out;
+    }
+
+public:
+    ~BatchApplication() {
+        for (auto* action : history) {
+            delete action;
+        }
+    }
+
+    void run() {
+        ReportTemplate tmpl;
+        ReportLog reportLog;
+
+        // 行1: 月次レポートをPDF出力
+        cout << "--- 行1: 月次レポートPDF出力 ---" << endl;
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        cout << "テンプレート: " << tmpl.name << endl;
+        executeAndRemember(new GenerateReportAction(
+            new MonthlyReport(),
+            "monthly.pdf",
+            OutputFormat::Pdf));
+        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "成功");
+
+        // 行2: 月次レポートをExcel出力
+        cout << "--- 行2: 月次レポートExcel出力 ---" << endl;
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        cout << "テンプレート: " << tmpl.name << endl;
+        executeAndRemember(new GenerateReportAction(
+            new MonthlyReport(),
+            "monthly.xlsx",
+            OutputFormat::Excel));
+        reportLog.add("SALES_MONTHLY", tmpl.name, "excel", "成功");
+
+        // 行3: グラフ付き・透かし付きでPDF出力
+        cout << "--- 行3: 装飾付きレポートPDF出力 ---" << endl;
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        cout << "テンプレート: " << tmpl.name << endl;
+        executeAndRemember(new GenerateReportAction(
+            new WatermarkFeature(
+                new GraphFeature(
+                    new StandardReport())),
+            "decorated.pdf",
+            OutputFormat::Pdf));
+        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "成功");
+
+        // 行4: 月次レポートを生成し、直後にキャンセル
+        cout << "--- 行4: 月次レポート生成後にキャンセル ---" << endl;
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        cout << "テンプレート: " << tmpl.name << endl;
+        auto* cancelAction = new GenerateReportAction(
+            new MonthlyReport(),
+            "cancel_monthly.pdf",
+            OutputFormat::Pdf);
+        cancelAction->execute();
+        history.push_back(cancelAction);
+        history.back()->undo();
+        delete history.back();
+        history.pop_back();
+        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "キャンセル");
+
+        // 行5: バッチで3レポート（週次・月次・部門別）を一括生成
+        cout << "--- 行5: バッチで3レポート一括生成 ---" << endl;
+        if (!validateTemplate("SALES_WEEKLY", tmpl)) return;
+        cout << "テンプレート: " << tmpl.name << endl;
+        executeAndRemember(new GenerateReportAction(
+            new WeeklyReport(),
+            "weekly.pdf",
+            OutputFormat::Pdf));
+        reportLog.add("SALES_WEEKLY", tmpl.name, tmpl.format, "成功");
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        executeAndRemember(new GenerateReportAction(
+            new MonthlyReport(),
+            "batch_monthly.pdf",
+            OutputFormat::Pdf));
+        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "成功");
+        if (!validateTemplate("SALES_DEPT", tmpl)) return;
+        executeAndRemember(new GenerateReportAction(
+            new DeptReport(),
+            "dept.pdf",
+            OutputFormat::Pdf));
+        reportLog.add("SALES_DEPT", tmpl.name, tmpl.format, "成功");
+        cout << "[この操作で3コマンドが履歴に追加されました。]" << endl;
+
+        // 行6: グラフ付き月次レポートを生成してアンドゥ
+        cout << "--- 行6: グラフ付き月次レポートを生成してアンドゥ ---"
+             << endl;
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        cout << "テンプレート: " << tmpl.name << endl;
+        auto* a6 = new GenerateReportAction(
+            new GraphFeature(
+                new MonthlyReport()),
+            "graph_monthly.pdf",
+            OutputFormat::Pdf);
+        a6->execute();
+        history.push_back(a6);
+        history.back()->undo();
+        delete history.back();
+        history.pop_back();
+        reportLog.add("SALES_MONTHLY", tmpl.name, tmpl.format, "キャンセル");
+
+        // 行7: グラフ描画が一時的に失敗し、復旧後に同じ操作を再実行
+        cout << "--- 行7: グラフ描画失敗と再実行 ---" << endl;
+        if (!validateTemplate("SALES_MONTHLY", tmpl)) return;
+        cout << "テンプレート: " << tmpl.name << endl;
+        bool graphAvailable = false;   // 外部描画基盤が一時停止
+        auto* a7 = new GenerateReportAction(
+            new GraphFeature(new MonthlyReport(), &graphAvailable),
+            "retry_monthly.pdf",
+            OutputFormat::Pdf);
+        JobResult r7 = a7->execute();
+        if (!r7.success) {
+            cout << "[ジョブ] 失敗: " << r7.message << endl;
+            reportLog.add("SALES_MONTHLY", tmpl.name,
+                          tmpl.format, "失敗");
+            graphAvailable = true;     // 描画基盤が復旧
+            cout << "[ジョブ] 同じ生成操作を再実行します。" << endl;
+            r7 = a7->execute();
+        }
+        if (r7.success) {
+            reportLog.add("SALES_MONTHLY", tmpl.name,
+                          tmpl.format, "成功");
+        }
+        history.push_back(a7);
+
+        cout << "\n--- レポート生成ログ ---\n";
+        reportLog.printAll();
+    }
+};
+
+// main: BatchApplicationを起動するだけ
+int main() {
+    try {
+        BatchApplication app;
+        app.run();
+        return 0;
+    } catch (const exception& e) {
+        cerr << "[エラー] " << e.what() << endl;
+        return 1;
+    }
+}
+```
+
+クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
+
+| 判断 | 完全コードで確認すること |
+|---|---|
+| 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
+| 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
+| 誰が所有するか | スタック、スマートポインタ、所有コンテナのどれが破棄まで担うかを決める |
+| どう注入するか | 必須依存はコンストラクタ、増減する依存は登録操作、生成自体を替える場合は生成契約から渡す |
+| 利用側は何を知るか | 利用側は抽象契約だけを保持し、処理中に具体クラスを生成しない |
+| 追加時にどこを変えるか | 新しい実装クラスと組み立て・登録を変更し、安定させたい処理骨格へ具体名を戻さない |
+
+生ポインタや参照で非所有の依存を保持する場合は、所有側の生存期間が利用側より長いことまで組み立てコードで確認します。
 
 ### 6-3：構造の見立て（分解の結果、こうなる）
 

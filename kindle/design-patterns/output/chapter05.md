@@ -833,7 +833,7 @@ UIが「呼び出し先の具体的な知識」として保持しているのは
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6は、フェーズ5で定めた課題——**実行手段をオブジェクトとして差し替え可能にし、実行・取消・履歴を同じ単位で扱う接続点を作る**——を受けて始めます。ここで決めるのは実装ではなく設計です。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。動く実装一式はフェーズ7で書きます。
+フェーズ6は、フェーズ5で定めた課題——**実行手段をオブジェクトとして差し替え可能にし、実行・取消・履歴を同じ単位で扱う接続点を作る**——を受けて始めます。ここでは設計案を、比較元と同じ改行を保った完全コードで具体化して決めます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。候補コードは生成・所有・依存注入・実行入口までこのフェーズで示し、フェーズ7で実行結果を検証します。
 フェーズ5の課題から、対策候補は次のように出します。
 
 | フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
@@ -843,57 +843,142 @@ UIが「呼び出し先の具体的な知識」として保持しているのは
 | 複合操作や保存失敗時の補償では、成功した操作だけを履歴へ積み、失敗時に逆順で戻す必要がある | 操作の成功/失敗、取消、再実行を同じ契約で扱う | `execute` / `undo` の結果を履歴管理が受け取り、スタックを崩さない形を見る |
 | 操作追加のたびにUIの条件分岐が増える | UIは操作の種類を知らず、登録された操作を実行するだけにする | 操作一覧の登録・実行方式まで進める必要があるか判断する |
 
+#### 比較元の完全コード（フェーズ1の現状）
+
+最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
+
+```cpp
+#include <iostream>
+#include <map>
+#include <string>
+
+struct Category {
+    std::string name;  // カテゴリ名
+    std::string type;  // "income"（収入）または "expense"（支出）
+};
+
+class CategoryDatabase {
+    std::map<std::string, Category> records;
+public:
+    CategoryDatabase() {
+        records["CAT001"] = {"給与",   "income"};
+        records["CAT002"] = {"食費",   "expense"};
+        records["CAT003"] = {"交通費", "expense"};
+        records["CAT004"] = {"副収入", "income"};
+    }
+    bool exists(const std::string& id) const {
+        return records.count(id) > 0;
+    }
+    Category get(const std::string& id) const {
+        return records.at(id);
+    }
+    void save(const std::string& id, const Category& c) {
+        records[id] = c;                // 実行中のカテゴリ表へ追加
+    }
+};
+
+class ExpenseManager {
+    CategoryDatabase& db;
+public:
+    ExpenseManager(CategoryDatabase& db) : db(db) {}
+    int addExpense(int amount, const std::string& categoryId) {
+        if (!db.exists(categoryId)) {
+            std::cout << "エラー：カテゴリID「" << categoryId
+                      << "」は存在しません" << std::endl;
+            return 0;
+        }
+        if (amount <= 0) {
+            std::cout << "エラー：金額は1円以上を指定してください"
+                      << std::endl;
+            return 0;
+        }
+        Category cat = db.get(categoryId);
+        std::cout << "支出を追加しました：" << cat.name
+                  << " " << amount << "円" << std::endl;
+        // DB保存・画面更新処理
+        return -amount;
+    }
+};
+
+class IncomeManager {
+    CategoryDatabase& db;
+public:
+    IncomeManager(CategoryDatabase& db) : db(db) {}
+    int addIncome(int amount, const std::string& categoryId) {
+        if (!db.exists(categoryId)) {
+            std::cout << "エラー：カテゴリID「" << categoryId
+                      << "」は存在しません" << std::endl;
+            return 0;
+        }
+        if (amount <= 0) {
+            std::cout << "エラー：金額は1円以上を指定してください"
+                      << std::endl;
+            return 0;
+        }
+        Category cat = db.get(categoryId);
+        std::cout << "収入を追加しました：" << cat.name
+                  << " " << amount << "円" << std::endl;
+        // DB保存・画面更新処理
+        return amount;
+    }
+};
+
+// ユーザーインターフェース層（上記2クラスを直接呼び出す）
+class UIButtons {
+    ExpenseManager em;
+    IncomeManager im;
+    int balance = 0;
+public:
+    UIButtons(CategoryDatabase& db) : em(db), im(db) {}
+    void onAddExpenseClick(int amount, const std::string& categoryId) {
+        balance += em.addExpense(amount, categoryId);
+        std::cout << "現在残高：" << balance << "円\n";
+    }
+    void onAddIncomeClick(int amount, const std::string& categoryId) {
+        balance += im.addIncome(amount, categoryId);
+        std::cout << "現在残高：" << balance << "円\n";
+    }
+};
+
+int main() {
+    CategoryDatabase db;
+    UIButtons buttons(db);
+
+    std::cout << "--- 行1: 支出登録 ---\n";
+    buttons.onAddExpenseClick(1000, "CAT002");  // 食費
+
+    std::cout << "--- 行2: 収入登録 ---\n";
+    buttons.onAddIncomeClick(5000, "CAT001");   // 給与
+
+    std::cout << "--- 行3: 未登録カテゴリの支出 ---\n";
+    buttons.onAddExpenseClick(500, "CAT999");   // 存在しないID
+
+    std::cout << "--- 行4: 金額0円の収入 ---\n";
+    buttons.onAddIncomeClick(0, "CAT001");      // 金額エラー
+    return 0;
+}
+```
+
 #### 起点：フェーズ3の痛みコード
 
 比較元は、Undo要求を文字列履歴で追加しようとして、UIが操作種別と逆操作を判断し始めたフェーズ3の変更途中コードです。
 
-```cpp
-// フェーズ3の変更途中コード（対策前）
-class UIButtons {
-    ExpenseManager em;
-    IncomeManager im;
-    std::vector<std::string> history;
-public:
-    void onAddExpenseClick() {
-        em.addExpense(1000, "Food");
-        history.push_back("Expense");
-    }
-    void undo() {
-        if (history.back() == "Expense") {
-            // em.undoExpense(1000, "Food");
-            // 逆操作がなく、UIが実装方法まで知る必要がある
-        }
-        // Income・Transferなどの分岐もここへ増える
-    }
-};
-```
+> フェーズ3で追加した状態・分岐・通知・履歴・入力・出力は、直前のフェーズ3本文で確認済みです。ここでは短い差分コードを重ねず、上の現状完全コードと下の採用候補完全コードを比較し、6-1の説明でどの責任を移すかを追います。
 
 ### 6-1：痛みコードを変換して、接続点の「形」を探す
 
-課題は「実行手段を切り離す」と言っていますが、**どんな形なら切り離せるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（動く実装一式はフェーズ7）。
+課題は「実行手段を切り離す」と言っていますが、**どんな形なら切り離せるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（完全な接続コードはこのフェーズの後半で示す）。
 
 **変換1：各操作を関数へ切り出す。**
 
-```cpp
-void recordExpense(int amount, const std::string& c) { em.addExpense(amount, c); }
-void recordIncome (int amount, const std::string& s) { im.addIncome(amount, s); }
-```
+> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
 
 見えたこと：2つとも **`(int, 文字列)` を受け取る同じ形**。「実行の記録」と「どれを取り消すか」は別の関心事だと分かる。
 まだ詰まること：取り消しの逆操作（`removeExpense`/`removeIncome`）を呼ぶのは**UI側**で、UIが操作ごとの逆操作を知り続ける。
 
 **変換2：種別と値を構造体にしてスタックへ積む。** 1回だけでなく複数回Undoできるよう履歴をスタックにします。
 
-```cpp
-struct Entry { std::string kind; int amount; std::string detail; };
-std::vector<Entry> history;
-void undo() {
-    Entry e = history.back(); history.pop_back();
-    if (e.kind == "Expense") em.removeExpense(e.amount, e.detail);   // ← 種別ごとの逆操作分岐
-    else if (e.kind == "Income") im.removeIncome(e.amount, e.detail);
-    // 操作が増えるたび、この分岐がUIへ増える
-}
-```
+> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
 
 詰まったこと：複数Undoはできるが、**取り消し方（種別ごとの逆操作）をUIが分岐で持つ**。操作を1つ増やすたびUIの `undo` を開く。ここで分かるのは、**「実行と取り消しを、操作の外（UI）でなく操作自身が持てば、UIは種別を知らずに済む」**ということ。
 
@@ -901,17 +986,9 @@ void undo() {
 
 ### 6-2：見つけた形を契約にし、データの置き場所を決める
 
-見つけた形を、操作が満たすべき契約として定義します（実装本体はフェーズ7）。
+見つけた形を、操作が満たすべき契約として定義します（完全な接続コードはこの節の後半で示す）。
 
-```cpp
-// 操作の契約：実行と取り消しを操作自身が知っている
-class IAction {
-public:
-    virtual bool execute() = 0;
-    virtual bool undo() = 0;
-    virtual ~IAction() = default;
-};
-```
+> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
 
 次に、データの置き場所を決めます。
 
@@ -921,6 +998,371 @@ public:
 | 実行済みの操作履歴 | UIに `vector<string>`（種別文字列） | `ActionHistory` が `IAction` の並び（`deque`）で持つ | 取り消しに必要な値は操作オブジェクト自身が内包。UIは種別を持たない |
 
 UIは操作オブジェクトを生成して `ActionHistory` に渡すだけです。接続点で受け渡すのは、**実行に必要な値（金額・カテゴリ）を内包した操作オブジェクト**です。
+
+#### 採用候補の完全コード（生成・所有・依存注入・実行入口まで）
+
+クラスを分けただけでは利用できません。以下では、分離したクラスの定義だけでなく、具体オブジェクトを生成する場所、所有する場所、コンストラクタまたは登録操作による依存注入、実行入口からの呼び出しまでを一続きで示します。各行の並び・インデント・改行は、フェーズ7でコンパイル・実行確認する採用コードと同一です。フェーズ6では接続と責任移動を比較し、フェーズ7では同じコードを実行結果で検証します。
+
+```cpp
+#include <deque>
+#include <iostream>
+#include <map>
+#include <string>
+#include <vector>
+
+struct Category {
+    std::string name;  // カテゴリ名
+    std::string type;  // "income"（収入）または "expense"（支出）
+};
+
+class CategoryDatabase {
+    std::map<std::string, Category> records;
+public:
+    CategoryDatabase() {
+        records["CAT001"] = {"給与",   "income"};
+        records["CAT002"] = {"食費",   "expense"};
+        records["CAT003"] = {"交通費", "expense"};
+        records["CAT004"] = {"副収入", "income"};
+    }
+    bool exists(const std::string& id) const {
+        return records.count(id) > 0;
+    }
+    Category get(const std::string& id) const {
+        return records.at(id);
+    }
+    void save(const std::string& id, const Category& c) {
+        records[id] = c;                // 実行中のカテゴリ表へ追加
+    }
+};
+
+class LedgerRepository {
+public:
+    // 実DBでは保存失敗時に false を返す。
+    // この掲載コードの代表シナリオでは成功を返す。
+    bool saveExpense(const Category& category, int amount) {
+        std::cout << "[LedgerRepository] 支出を保存: "
+                  << category.name << " " << amount << "円" << std::endl;
+        return true;
+    }
+    bool saveIncome(const Category& category, int amount) {
+        std::cout << "[LedgerRepository] 収入を保存: "
+                  << category.name << " " << amount << "円" << std::endl;
+        return true;
+    }
+    // Undoの副作用：保存済みの収支データを取り消す
+    bool deleteExpense(const Category& category, int amount) {
+        std::cout << "[LedgerRepository] 支出を取消: "
+                  << category.name << " " << amount << "円" << std::endl;
+        return true;
+    }
+    bool deleteIncome(const Category& category, int amount) {
+        std::cout << "[LedgerRepository] 収入を取消: "
+                  << category.name << " " << amount << "円" << std::endl;
+        return true;
+    }
+};
+
+class BalanceViewRenderer {
+public:
+    void showMessage(const std::string& message) {
+        std::cout << message << std::endl;
+    }
+};
+
+// 操作オブジェクトから処理を委ねられる実行先（Receiver）
+class ExpenseManager {
+    int total = 0;
+    CategoryDatabase& db;
+    LedgerRepository& repository;
+    BalanceViewRenderer& renderer;
+public:
+    ExpenseManager(CategoryDatabase& db,
+                   LedgerRepository& repository,
+                   BalanceViewRenderer& renderer)
+        : db(db), repository(repository), renderer(renderer) {}
+    bool addExpense(int amount, const std::string& categoryId) {
+        if (!db.exists(categoryId)) {
+            renderer.showMessage("エラー：カテゴリID「" + categoryId
+                                 + "」は存在しません");
+            return false;
+        }
+        if (amount <= 0) {
+            renderer.showMessage("エラー：金額は1円以上を指定してください");
+            return false;
+        }
+        Category cat = db.get(categoryId);
+        if (!repository.saveExpense(cat, amount)) {
+            renderer.showMessage("エラー：支出の保存に失敗しました");
+            return false;
+        }
+        total += amount;
+        renderer.showMessage("支出を追加しました：" + cat.name
+                             + " " + std::to_string(amount) + "円");
+        return true;
+    }
+    bool removeExpense(int amount, const std::string& categoryId) {
+        Category cat = db.get(categoryId);
+        repository.deleteExpense(cat, amount);
+        total -= amount;
+        renderer.showMessage("支出を取り消しました：" + cat.name
+                             + " " + std::to_string(amount) + "円");
+        return true;
+    }
+    int totalExpenses() const { return total; }
+};
+
+class IncomeManager {
+    int total = 0;
+    CategoryDatabase& db;
+    LedgerRepository& repository;
+    BalanceViewRenderer& renderer;
+public:
+    IncomeManager(CategoryDatabase& db,
+                  LedgerRepository& repository,
+                  BalanceViewRenderer& renderer)
+        : db(db), repository(repository), renderer(renderer) {}
+    bool addIncome(int amount, const std::string& categoryId) {
+        if (!db.exists(categoryId)) {
+            renderer.showMessage("エラー：カテゴリID「" + categoryId
+                                 + "」は存在しません");
+            return false;
+        }
+        if (amount <= 0) {
+            renderer.showMessage("エラー：金額は1円以上を指定してください");
+            return false;
+        }
+        Category cat = db.get(categoryId);
+        if (!repository.saveIncome(cat, amount)) {
+            renderer.showMessage("エラー：収入の保存に失敗しました");
+            return false;
+        }
+        total += amount;
+        renderer.showMessage("収入を追加しました：" + cat.name
+                             + " " + std::to_string(amount) + "円");
+        return true;
+    }
+    bool removeIncome(int amount, const std::string& categoryId) {
+        Category cat = db.get(categoryId);
+        repository.deleteIncome(cat, amount);
+        total -= amount;
+        renderer.showMessage("収入を取り消しました：" + cat.name
+                             + " " + std::to_string(amount) + "円");
+        return true;
+    }
+    int totalIncome() const { return total; }
+};
+
+// 操作の契約：実行と取り消しをすべての操作クラスに強制する
+class IAction {
+public:
+    virtual ~IAction() {}
+    virtual bool execute() = 0;
+    virtual bool undo() = 0;
+    virtual std::string describe() const = 0;
+};
+
+// 支出追加の操作をカプセル化したクラス
+class AddExpenseAction : public IAction {
+    ExpenseManager& em;
+    int amount;
+    std::string categoryId;
+public:
+    AddExpenseAction(ExpenseManager& em,
+                      int amount, std::string categoryId)
+        : em(em), amount(amount), categoryId(categoryId) {}
+    bool execute() override {
+        return em.addExpense(amount, categoryId);
+    }
+    bool undo() override {
+        return em.removeExpense(amount, categoryId);
+    }
+    std::string describe() const override {
+        return "支出登録: " + categoryId + " "
+               + std::to_string(amount) + "円";
+    }
+};
+
+// 収入追加の操作をカプセル化したクラス
+class AddIncomeAction : public IAction {
+    IncomeManager& im;
+    int amount;
+    std::string categoryId;
+public:
+    AddIncomeAction(IncomeManager& im,
+                     int amount, std::string categoryId)
+        : im(im), amount(amount), categoryId(categoryId) {}
+    bool execute() override {
+        return im.addIncome(amount, categoryId);
+    }
+    bool undo() override {
+        return im.removeIncome(amount, categoryId);
+    }
+    std::string describe() const override {
+        return "収入登録: " + categoryId + " "
+               + std::to_string(amount) + "円";
+    }
+};
+
+// 操作履歴を保持し、Undo/Redoを制御する仲介役
+class ActionHistory {
+    std::deque<IAction*> undoStack;
+    std::vector<std::string> executionLog;  // 実行ログ（追記のみ）
+    std::deque<IAction*> redoStack;
+    static const int MAX_HISTORY = 50;
+public:
+    bool execute(IAction* cmd) {
+        if (!cmd->execute()) {
+            executionLog.push_back("失敗: " + cmd->describe());
+            return false;
+        }
+        undoStack.push_back(cmd);
+        executionLog.push_back(cmd->describe());
+        if ((int)undoStack.size() > MAX_HISTORY) {
+            undoStack.pop_front();  // 最古の操作を削除する
+        }
+        redoStack.clear();
+        return true;
+    }
+    void undo() {
+        if (undoStack.empty()) return;
+        // undo()が失敗した場合は、操作をundoStackに残す
+        IAction* cmd = undoStack.back();
+        undoStack.pop_back();
+        if (!cmd->undo()) {
+            undoStack.push_back(cmd);
+            executionLog.push_back("取り消し失敗: " + cmd->describe());
+            return;
+        }
+        executionLog.push_back("取り消し: " + cmd->describe());
+        redoStack.push_back(cmd);
+    }
+    void redo() {
+        if (redoStack.empty()) return;
+        // execute()が失敗した場合は、操作をredoStackに残す
+        IAction* cmd = redoStack.back();
+        redoStack.pop_back();
+        if (!cmd->execute()) {
+            redoStack.push_back(cmd);
+            executionLog.push_back("再実行失敗: " + cmd->describe());
+            return;
+        }
+        undoStack.push_back(cmd);
+        executionLog.push_back("再実行: " + cmd->describe());
+    }
+    void printLog() const {
+        for (const auto& entry : executionLog) {
+            std::cout << entry << std::endl;
+        }
+    }
+    int historySize() const {
+        return (int)undoStack.size();
+    }
+};
+
+// UIからの操作を受け取り、Historyに委譲するだけ
+class BudgetApp {
+    ActionHistory* history;
+public:
+    BudgetApp(ActionHistory* h) : history(h) {}
+    void onAddExpenseClick(IAction* cmd) {
+        history->execute(cmd);
+    }
+    void onAddIncomeClick(IAction* cmd) {
+        history->execute(cmd);
+    }
+    void onUndoClick() { history->undo(); }
+    void onRedoClick() { history->redo(); }
+};
+
+// 一括インポートからの操作を受け取り、Historyに委譲するだけ
+class ImportService {
+    ActionHistory* history;
+public:
+    ImportService(ActionHistory* h) : history(h) {}
+    void importTransactions(
+            std::vector<IAction*> cmds) {
+        int succeeded = 0;
+        for (IAction* cmd : cmds) {
+            if (!history->execute(cmd)) {
+                rollback(succeeded);
+                std::cout << "インポート失敗。成功済み操作を補償しました"
+                          << std::endl;
+                return;
+            }
+            succeeded++;
+        }
+        std::cout << succeeded << "件インポート完了"
+                  << "（履歴: " << history->historySize()
+                  << "件）" << std::endl;
+    }
+    void rollback(int count) {
+        for (int i = 0; i < count; i++) history->undo();
+        std::cout << count << "件ロールバック完了"
+                  << std::endl;
+    }
+};
+
+// 依存の組み立ては main() に集約する
+int main() {
+    CategoryDatabase db;
+    LedgerRepository repository;
+    BalanceViewRenderer renderer;
+    ExpenseManager em(db, repository, renderer);
+    IncomeManager im(db, repository, renderer);
+    ActionHistory hist;
+
+    BudgetApp app(&hist);
+    AddExpenseAction cmd1(em, 1000, "CAT002");  // 食費
+    app.onAddExpenseClick(&cmd1);
+    AddIncomeAction cmd2(im, 5000, "CAT001");   // 給与
+    app.onAddIncomeClick(&cmd2);
+    std::cout << "残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
+    app.onUndoClick();               // 直前の収入を取り消す
+    app.onUndoClick();               // さらに支出も取り消す
+    std::cout << "Undo後の残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
+    app.onRedoClick();               // 支出を再実行
+    std::cout << "Redo後の残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
+
+    ImportService importer(&hist);
+    AddExpenseAction imp1(em, 2000, "CAT003");  // 交通費
+    AddExpenseAction imp2(em, 300,  "CAT002");  // 食費
+    AddExpenseAction imp3(em, 800,  "CAT002");  // 食費
+    std::vector<IAction*> imported;
+    imported.push_back(&imp1);
+    imported.push_back(&imp2);
+    imported.push_back(&imp3);
+    importer.importTransactions(imported); // 一括登録（3件）
+    std::cout << "インポート後の残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
+    importer.rollback(3);            // 3件ロールバック
+    std::cout << "ロールバック後の残高: "
+              << im.totalIncome() - em.totalExpenses()
+              << "円" << std::endl;
+    std::cout << "\n--- 操作履歴 ---\n";
+    hist.printLog();
+    return 0;
+}
+```
+
+クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
+
+| 判断 | 完全コードで確認すること |
+|---|---|
+| 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
+| 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
+| 誰が所有するか | スタック、スマートポインタ、所有コンテナのどれが破棄まで担うかを決める |
+| どう注入するか | 必須依存はコンストラクタ、増減する依存は登録操作、生成自体を替える場合は生成契約から渡す |
+| 利用側は何を知るか | 利用側は抽象契約だけを保持し、処理中に具体クラスを生成しない |
+| 追加時にどこを変えるか | 新しい実装クラスと組み立て・登録を変更し、安定させたい処理骨格へ具体名を戻さない |
+
+生ポインタや参照で非所有の依存を保持する場合は、所有側の生存期間が利用側より長いことまで組み立てコードで確認します。
 
 ### 6-3：構造の見立て（変換の結果、こうなる）
 
