@@ -318,24 +318,22 @@ def is_system_structure_phase6(section: str) -> bool:
 def check_system_structure_phase6(
         text: str, path: Path, p6: int, sec: str,
         phase5_sec: str, handoff_table_heading: str) -> list[Issue]:
-    """候補比較→採用構造→段階実装→完成後の影響確認を検証する。"""
+    """変更軸の統合→システム構造→段階実装→全体判定を検証する。"""
     ln = line_number(text, p6)
     issues: list[Issue] = []
     required = [
         ("### 6-1", "フェーズ6に段階的なコード検討（6-1）がありません"),
         ("### 6-2", "フェーズ6に契約・データ配置（6-2）がありません"),
-        ("### 6-3", "フェーズ6にクラス図とコードの一致確認（6-3）がありません"),
-        ("### 6-4", "フェーズ6に課題カードの完了確認（6-4）がありません"),
-        ("#### コードを書く前に採用する形を決める",
-         "フェーズ6にコード作成前の採用判断がありません"),
-        ("#### 3-2の変更影響を、目的を持つ2つの課題カードへ落とす",
-         "フェーズ6に3-2からP1・P2の課題カードへ接続する説明がありません"),
-        ("| 項目 | P1 |",
-         "フェーズ6にP1の目的・境界・完了条件を結ぶ課題カードがありません"),
-        ("| 項目 | P2 |",
-         "フェーズ6にP2の目的・境界・完了条件を結ぶ課題カードがありません"),
-        ("| 完成した最終構造 | P1をどう完了するか | P2をどう完了するか | トレードオフと判断 |",
-         "P1・P2を完了する最終構造同士の比較がありません"),
+        ("#### 3-2の変更影響を、システム構造の材料へ統合する",
+         "フェーズ6にP1・P2をシステム構造の材料へ統合する説明がありません"),
+        ("| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |",
+         "フェーズ6に変化軸・移す責任・守る範囲の統合表がありません"),
+        ("#### システム全体の完了条件を固定する",
+         "フェーズ6にシステム全体の完了条件がありません"),
+        ("#### システム全体の最終構造を決める",
+         "フェーズ6にコード作成前のシステム構造決定がありません"),
+        ("| 最終システム構造 | 責任配置と依存の差 | 施策追加時に触る場所 | 判断 |",
+         "構造差分のある完成システム同士の比較がありません"),
         ("### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
          "フェーズ6に既存クラス図を使った責任見直しがありません"),
         ("変更前のクラス図（1-3を責任見直し用に再掲）",
@@ -353,38 +351,38 @@ def check_system_structure_phase6(
          "段階コードが採用設計の実装順だと明文化されていません"),
         ("#### 課題箇所のおさらい（フェーズ3の関連コード）",
          "フェーズ6に課題箇所だけのコードおさらいがありません"),
-        ("#### 課題IDごとのコード適用結果",
-         "フェーズ6に課題IDごとのコード適用結果がありません"),
-        ("| 課題ID | 採用設計 | コードへの実装順 | 守った契約・完了条件の判定 |",
-         "フェーズ6に採用設計・実装順・完了判定の対応表がありません"),
-        ("| 共通の問い | P1・P2での答え | 変えたくない側が知らなくなる詳細 |",
+        ("#### システム全体のコード適用結果",
+         "フェーズ6にシステム全体のコード適用結果がありません"),
+        ("| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |",
+         "フェーズ6にシステム全体の完了条件とコードの対応表がありません"),
+        ("| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |",
          "全章共通の分離・生成・依存注入・実行の問いと第1章の対応がありません"),
         ("#### 実装ステップ1", "採用設計の実装ステップ1がありません"),
         ("#### 実装ステップ2", "採用設計の実装ステップ2がありません"),
         ("#### 実装ステップ3", "採用設計の実装ステップ3がありません"),
-        ("**実装結果：P1・P2ともに達成。**",
-         "採用設計によるP1・P2の達成確認がありません"),
+        ("**システム全体の実装結果：達成。**",
+         "採用設計によるシステム全体の達成確認がありません"),
     ]
     for token, msg in required:
         if token not in sec:
             issues.append(Issue(path, ln, msg))
 
     order_tokens = [
-        "#### 3-2の変更影響を、目的を持つ2つの課題カードへ落とす",
-        "#### コードを書く前に採用する形を決める",
+        "#### 3-2の変更影響を、システム構造の材料へ統合する",
+        "#### システム全体の完了条件を固定する",
+        "#### システム全体の最終構造を決める",
         "### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
         "#### 課題箇所のおさらい（フェーズ3の関連コード）",
         "### 6-1",
-        "#### 課題IDごとのコード適用結果",
-        "### 6-3",
-        "### 6-4",
+        "### 6-2",
+        "#### システム全体のコード適用結果",
     ]
     positions = [sec.find(token) for token in order_tokens]
     if min(positions) >= 0 and positions != sorted(positions):
         issues.append(Issue(
             path, ln,
-            "フェーズ6は課題カード→最終構造の比較→クラス図→関連コード→"
-            "段階実装→適用結果→完成構造→完了確認の順にしてください",
+            "フェーズ6は変更軸の統合→全体条件→最終構造→クラス図→関連コード→"
+            "段階実装→システム全体の判定の順にしてください",
         ))
 
     structure_start = sec.find("### 対策検討のクラス図：1-3の責任と依存をどう変えるか")
@@ -402,49 +400,43 @@ def check_system_structure_phase6(
         if token not in structure_sec:
             issues.append(Issue(path, ln, f"責任見直しのクラス図に主要クラス {token} がありません"))
 
-    for final_form in ("ルールエンジン", "条件関数と計算関数", "具象ルール"):
+    for final_form in ("ルールエンジン", "条件関数と計算関数の登録システム",
+                       "具象ルールの登録システム"):
         if final_form not in sec:
             issues.append(Issue(path, ln, f"完成形の比較に {final_form} がありません"))
 
     if len(extract_cpp_blocks(sec)) < 5:
         issues.append(Issue(path, ln, "フェーズ6に段階判断を確認できるコードが不足しています"))
 
-    issue_table = "| 項目 | P1 |"
+    issue_table = "| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |"
     issue_start = sec.find(issue_table)
     structure_heading = sec.find("### 対策検討のクラス図：1-3の責任と依存をどう変えるか")
     issue_ids = re.findall(
-        r"(?m)^\|\s*課題ID\s*\|\s*(P\d+)\s*\|",
+        r"(?m)^\|\s*(P\d+)\s*\|",
         sec[issue_start:structure_heading],
     ) if min(issue_start, structure_heading) >= 0 else []
-    result_start = sec.find("| 課題ID | 採用設計 | コードへの実装順 |")
-    step63 = sec.find("### 6-3")
-    result_ids = re.findall(
-        r"(?m)^\|\s*(P\d+)\s*\|",
-        sec[result_start:step63],
-    ) if min(result_start, step63) >= 0 else []
     handoff_start = phase5_sec.find(handoff_table_heading)
     handoff_ids = re.findall(
         r"(?m)^\|\s*(P\d+)\s*\|",
         phase5_sec[handoff_start:],
     ) if handoff_start >= 0 else []
-    phase7_start = text.find("#### 課題IDごとの完成コード結果", p6)
+    phase7_start = text.find("#### 変更軸ごとの完成コード追跡", p6)
     phase72 = text.find("### 7-2", phase7_start)
     phase7_ids = re.findall(
         r"(?m)^\|\s*(P\d+)\s*\|",
         text[phase7_start:phase72],
     ) if min(phase7_start, phase72) >= 0 else []
     if not issue_ids:
-        issues.append(Issue(path, ln, "課題カードに課題ID行がありません"))
+        issues.append(Issue(path, ln, "変更軸の統合表に課題ID行がありません"))
     else:
         expected = [f"P{i}" for i in range(1, len(issue_ids) + 1)]
         if issue_ids != expected:
             issues.append(Issue(path, ln, f"課題IDは連番にしてください: {issue_ids}"))
-        for label, ids in (("フェーズ5", handoff_ids), ("コード適用結果", result_ids),
-                           ("完成コード結果", phase7_ids)):
+        for label, ids in (("フェーズ5", handoff_ids), ("完成コード追跡", phase7_ids)):
             if ids != issue_ids:
                 issues.append(Issue(
                     path, ln,
-                    f"{label}の課題IDを課題カードと一致させてください: {ids} != {issue_ids}",
+                    f"{label}の課題IDを変更軸の統合表と一致させてください: {ids} != {issue_ids}",
                 ))
 
     p7 = text.find("## 🟢 フェーズ7", p6)
@@ -728,10 +720,15 @@ def extract_cpp_blocks(section: str) -> list[str]:
 
 def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
     """課題関連コード・段階コード・完成コードの役割分担を確認する。"""
+    stage_end_marker = (
+        "#### システム全体のコード適用結果"
+        if "#### システム全体のコード適用結果" in text
+        else "### 6-3："
+    )
     markers = {
         "recap": "#### 課題箇所のおさらい（フェーズ3の関連コード）",
         "step61": "### 6-1：",
-        "step63": "### 6-3：",
+        "stage_end": stage_end_marker,
         "section71": "### 7-1：",
         "section72": "### 7-2：",
     }
@@ -744,7 +741,7 @@ def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
         text[offsets["recap"]:offsets["step61"]]
     )
     stage_blocks = extract_cpp_blocks(
-        text[offsets["step61"]:offsets["step63"]]
+        text[offsets["step61"]:offsets["stage_end"]]
     )
     phase7_code = "\n\n".join(extract_cpp_blocks(
         text[offsets["section71"]:offsets["section72"]]
@@ -1035,7 +1032,7 @@ def _diagram_class_names(diagram: str) -> set[str]:
 
 
 def check_class_diagram_completeness(text: str, path: Path) -> list[Issue]:
-    """1-4・6-3対策後・7-1の全classを対応するクラス図へ載せる。"""
+    """現状・採用構造・完成コードの全classを対応するクラス図へ載せる。"""
     ranges = []
     s13 = text.find("### 1-3：")
     s14 = text.find("### 1-4：")
@@ -1047,15 +1044,35 @@ def check_class_diagram_completeness(text: str, path: Path) -> list[Issue]:
     diagram_heading = text.find("#### 解決後のクラス構成", s71)
     if min(s71, diagram_heading) >= 0:
         final_code = text[s71:diagram_heading]
-        s63 = text.find("### 6-3：")
-        s64 = text.find("### 6-4：", s63)
-        if min(s63, s64) >= 0:
+        system_structure = text.find(
+            "### 対策検討のクラス図：1-3の責任と依存をどう変えるか"
+        )
+        system_structure_end = text.find(
+            "#### 課題箇所のおさらい（フェーズ3の関連コード）",
+            system_structure,
+        )
+        if min(system_structure, system_structure_end) >= 0:
             phase6_diagrams = list(re.finditer(
-                r"classDiagram", text[s63:s64]
+                r"classDiagram", text[system_structure:system_structure_end]
             ))
             if phase6_diagrams:
-                last_diagram = s63 + phase6_diagrams[-1].start()
-                ranges.append(("6-3対策後", last_diagram, s64, final_code))
+                last_diagram = system_structure + phase6_diagrams[-1].start()
+                ranges.append((
+                    "フェーズ6採用構造",
+                    last_diagram,
+                    system_structure_end,
+                    final_code,
+                ))
+        else:
+            s63 = text.find("### 6-3：")
+            s64 = text.find("### 6-4：", s63)
+            if min(s63, s64) >= 0:
+                phase6_diagrams = list(re.finditer(
+                    r"classDiagram", text[s63:s64]
+                ))
+                if phase6_diagrams:
+                    last_diagram = s63 + phase6_diagrams[-1].start()
+                    ranges.append(("6-3対策後", last_diagram, s64, final_code))
         ranges.append(("7-1", diagram_heading, len(text),
                        final_code))
 
