@@ -874,253 +874,84 @@ public:
 
 本文・装飾・履歴は独立して変わるためP1、P2、P3の連番にします。フェーズ6では3つの理想枝から別々の課題カードを導きます。
 
-## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
+## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-フェーズ6は、フェーズ5で定めた3つの課題——**本文生成を骨格から切り離すこと／装飾を順に組み合わせられるようにすること／生成操作を記録・再実行・取消できる単位に分けること**——を受けて始めます。問題定義で得た3本の変更影響を左へ引き継ぎ、P1〜P3の影響を切るクラス・契約・依存関係を中央に置き、同じ要求を再適用した変更影響を右に描きます。その差、守る契約、完了条件、候補を同じ課題IDの行へ落とします。その後、各IDの関連コードで中央の構造を段階的に検証し、独立した変化軸を混ぜずに、変更理由、結果、残った問題、次の判断を回収します。
+P1〜P3を1つの構造で解くのではなく、本文生成の骨格・装飾・操作履歴の3つの変化軸を独立して差し替えできるシステムを設計します。
 
-#### 問題定義の変更影響を、どの構造で変えるか
+#### 3-2の変更影響を、システム構造の材料へ統合する
 
-フェーズ4では、本文種別、装飾、生成履歴が同じ生成処理へ波及していました。変わる理由が3つあるため、この3本の痛みをP1〜P3の起点にし、それぞれの構造変更後までつなぎます。
-
-```mermaid
-flowchart LR
-    subgraph Pain["問題定義：変更前の変更影響"]
-        direction TB
-        CR1["レポート種別を追加"] --> C1["生成骨格の分岐を修正"]
-        CR2["装飾を追加"] --> C2["組み合わせ分岐を修正"]
-        CR3["履歴操作を追加"] --> C3["生成処理と履歴を修正"]
-    end
-    subgraph TargetStructure["影響を切る構造の形"]
-        direction TB
-        RS["ReportSkeleton::generate 固定骨格"] --> Body["renderBody 差分"]
-        RT["レポート種別実装"] -. "本文差分を実装" .-> Body
-        F["ReportFeature"] --> RS
-        FI["Feature実装群"] -. "1段ずつ包む" .-> F
-        A["IReportAction::execute / undo"] --> RS
-        H["ActionHistory"] --> A
-    end
-    subgraph Result["同じ要求を再適用した変更影響"]
-        direction TB
-        IR1["種別を追加"] --> I1["P1: 本文実装と登録を追加"]
-        IR2["装飾を追加"] --> I2["P2: Feature実装を追加"]
-        IR3["履歴操作を変更"] --> I3["P3: Action実装・履歴を変更"]
-        IS["変更しない: 生成順序・既存装飾・描画境界"]
-    end
-    C1 -. "P1: 骨格と本文差分を切る" .-> Body
-    Body -. "新しい変更先" .-> I1
-    C2 -. "P2: 装飾を連結構造で切る" .-> F
-    F -. "新しい変更先" .-> I2
-    C3 -. "P3: 生成操作をAction契約で切る" .-> A
-    A -. "新しい変更先" .-> I3
-```
-
-中央では、生成骨格、本文差分、装飾の連結、履歴対象の操作を別の構造として接続します。左では一つの生成処理へ集まっていた三つの変更が、右では本文・Feature・Actionの別々の追加先へ分かれます。
-
-#### 構造と変更後の影響から、課題と候補を一続きで導く
-
-| 課題ID | 変更の到達点 | 最初に試すコード変更 | 残る問題に対する次のコード変更 |
+| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |
 |---|---|---|---|
-| P1 | **現在→理想の差：** 種別追加から生成骨格を外す<br>**切る境界・守る契約：** 本文分岐を切り固定順序を守る<br>**完了条件：** 骨格を複製しない | **候補：** 固定順序と本文差分を分ける<br>**減る影響：** 境界が見える | 固定順序を1か所に置き本文だけ差し替える |
-| P2 | **現在→理想の差：** 装飾追加から組み合わせ分岐を外す<br>**切る境界・守る契約：** 装飾判定を切り、本文・順序・失敗結果を守る<br>**完了条件：** 組み合わせクラスを増やさない | **候補：** 装飾を同じ操作のリストへする<br>**減る影響：** 分岐が減る | 1装飾が1レポートを包む形へ上げる |
-| P3 | **現在→理想の差：** 履歴変更から本文・装飾を外す<br>**切る境界・守る契約：** 入力と `execute/undo` を切り、成功操作だけ記録する<br>**完了条件：** 履歴が具体種別を判定しない | **候補：** 生成を入力保持する操作単位へする<br>**減る影響：** 再実行・取消対象が明確になる | Action契約と履歴へ接続する |
+| P1 | レポート種別追加で `ReportSkeleton` の本文生成と共通手順へ波及する | 種別ごとの本文生成を各派生クラスの `renderBody()` へ移す | 読込→本文→装飾→描画という生成骨格と既存形式 |
+| P2 | 装飾追加・順序変更で `ReportSkeleton` のフラグ分岐へ波及する | 装飾ごとの追加処理を各 `ReportFeature` 派生へ移す | 本文生成、描画API、既存装飾の組み合わせ |
+| P3 | 履歴・再実行・取消の追加で生成本体と利用側へ波及する | 生成操作の実行・記録・取消を各 `IReportAction` へ移す | レポート生成操作そのものと既存検証 |
 
-ここからP1〜P3の横一行を、生成骨格・装飾分岐・履歴処理へ独立に適用します。
+#### システム全体の完了条件を固定する
 
-#### 課題箇所のおさらい（フェーズ3の関連コード）
+次の条件をすべて満たして、初めて対策完了とします。
 
-比較元は、生成手順へ履歴記録と再実行を直接追加したフェーズ3の変更途中コードです。
+- レポート種別の追加を、`ReportSkeleton` 派生1クラスに限定し、生成骨格を複製しない。
+- 装飾の追加を、`ReportFeature` 派生1クラスに限定し、フラグ分岐を増やさない。
+- 履歴・再実行・取消を、同じ `IReportAction` 契約の単位で扱う。
+- 「読込→本文→装飾→描画」の実行順と、既存の検証・描画APIの位置を維持する。
 
+#### システム全体の最終構造を決める
 
-課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+この章は変化軸が3本あり、それぞれ別の理由で変わるため、最終構造は**3つの構造を組み合わせて**決まります。本文生成は骨格固定構造で `ReportSkeleton` の派生へ、装飾は装飾連結構造で `ReportFeature` の連結へ、操作履歴は操作記録構造で `IReportAction` へ移します。
 
-```cpp
-class DataReader {
-public:
-    void readCSV() {
-        std::cout << "CSVを読み込み" << std::endl;
-    }
-};
-
-class ReportHistoryManager {
-    std::vector<std::string> log;
-public:
-    void record(std::string op) {
-        log.push_back(op);
-        std::cout << "[履歴記録] " << op << std::endl;
-    }
-    void replay() {
-        for (int i = 0; i < (int)log.size(); i++) {
-            std::cout << "再実行: " << log[i]
-                      << std::endl;
-        }
-    }
-};
-
-// 変更後の ReportSkeleton（履歴管理を追加した状態）
-class ReportSkeleton {
-    DataReader reader;
-    ReportHistoryManager history; // ← 追加
-    ReportRenderingApi renderer;
-public:
-    void generate(std::string format,
-                  bool addGraph, bool addLogo) {
-        reader.readCSV();
-        renderer.addHeader(format);
-        if (addGraph)
-            renderer.addGraph();
-        if (addLogo)
-            renderer.addLogo();
-        renderer.addFooter(format);
-        // 履歴記録がここに混在してしまっている
-        std::string rec = format;
-        if (addGraph) rec += "+Graph";
-        history.record(rec); // ← 追加
-    }
-    void replay() { history.replay(); }
-};
-
-int main() {
-    ReportSkeleton gen;
-    gen.generate("PDF", true, false);
-    std::cout << "---" << std::endl;
-    gen.replay();
-    return 0;
-}
-```
-
-### 6-1：課題IDごとに痛みコードを分解し、構造上の境界を探す
-
-課題は3つあります。どんな形なら切り離せるかは、痛みコードを分解して探します。まず数えるのは、**独立して変わる軸がいくつあるか**です。
-
-**分解1（骨格の軸）：** `addHeader → 本文 → addFooter` の**順序は固定**で、変わるのは本文（週次・月次…）だけ → 骨格を固定し本文を差し替える**フックの形**（`renderBody`）。
-
-```cpp
-class ReportSkeleton {
-public:
-    ReportDocument generate() {
-        ReportDocument report;
-        addHeader(report);
-        renderBody(report);  // 種別差分だけを委譲
-        addFooter(report);
-        return report;
-    }
-protected:
-    virtual void renderBody(ReportDocument& report) = 0;
-};
-```
-
-P1で順序の複製は消えます。しかし `addGraph` と `addLogo` の分岐、履歴記録はまだ骨格の外側に残るため、P2・P3へ進みます。
-**分解2（装飾の軸）：** `if(addGraph)/if(addLogo)` の組み合わせ → 装飾を「レポートを包むレポート」にして順に重ねる**装飾の形**（`ReportFeature`）。
-
-```cpp
-class IReport {
-public:
-    virtual ReportDocument render() = 0;
-    virtual ~IReport() = default;
-};
-
-class GraphFeature : public IReport {
-    IReport* inner;  // 組み立て側が生存期間を管理する
-public:
-    ReportDocument render() override {
-        ReportDocument report = inner->render();
-        report.addGraph();
-        return report;
-    }
-};
-```
-
-P2で装飾フラグは包む順序へ変わりました。生成済みファイルをいつ履歴へ積み、どう取り消すかは装飾の責任ではないためP3へ残します。
-**分解3（記録の軸）：** `history.record` と再実行・取消 → 生成操作を1つの実行・取消できる単位にする**操作の形**（`IReportAction`）。
-
-```cpp
-class IReportAction {
-public:
-    virtual JobResult execute() = 0;
-    virtual JobResult undo() = 0;
-    virtual ~IReportAction() = default;
-};
-
-class GenerateReportAction : public IReportAction {
-    IReport& report;
-    OutputRequest request;
-public:
-    JobResult execute() override;
-    JobResult undo() override;
-};
-```
-
-操作自身が出力要求と取消方法を持つため、P3の履歴は `IReportAction` だけを扱えます。
-
-**片方だけでは詰まる（第二部の肝）：** 本文だけ差し替えても装飾の分岐と履歴が骨格に残る。装飾だけリスト化しても履歴が骨格に残る。履歴だけ分けても骨格と装飾が混ざったまま。ここで分かるのは、**「変わる理由が異なる3つの軸は、それぞれ別の契約に分けないと、どれか1つの変更が骨格へ染み出す」**ということ。
-
-**分解の結論：** 骨格（`renderBody` フック）・装飾（`ReportFeature`）・記録（`IReportAction`）の3つに独立した契約を置く。これが第二部の見立てです。
-
-### 6-2：見つけた形を契約にし、データの置き場所を決める
-
-見つけた3つの形を、それぞれの契約として定義します。
-
-```cpp
-IReport* report = new WeeklyReport(renderingApi);
-report = new GraphFeature(report);
-report = new LogoFeature(report);
-
-GenerateReportAction action(*report, outputRequest);
-ReportActionHistory history;
-history.execute(action);
-```
-
-本文骨格→装飾連結→生成操作→履歴の順に接続しました。各課題の契約を保った統合コードとUndo結果はフェーズ7で示します。
-
-
-
-次に、データの置き場所を決めます。
-
-| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
+| 組み合わせる構造 | 担う変化軸 | 移す責任 | 触る場所 |
 |---|---|---|---|
-| 生成手順の順序 | `generate()` に直書き | `ReportSkeleton.generate()`（骨格） | 順序は安定。本文だけフックへ |
-| 装飾の組み合わせ | `if(addGraph)` フラグ | 装飾を包む `ReportFeature` の連結 | 組み合わせを包む順で表す |
-| 生成履歴・再実行・取消 | `generate()` に混在 | `IReportAction` のリスト | 記録は別の変化軸。骨格から出す |
-| 出力形式・出力先 | `generate` 引数 | `GenerateReportAction` が保持 | 操作単位が自分の入力を持つ |
+| 骨格固定構造 | P1 本文生成 | 種別ごとの本文生成を派生の `renderBody()` へ | `ReportSkeleton` と各派生 |
+| 装飾連結構造 | P2 装飾 | 装飾ごとの追加処理を連結部品へ | `ReportFeature` と各Feature |
+| 操作記録構造 | P3 操作履歴 | 生成操作の実行・記録・取消を操作単位へ | `IReportAction` と `GenerateReportAction` |
 
-接続点で受け渡すのは、生成操作の **`JobResult`（成功／失敗）**です。`ReportFeature` は内側のレポート、履歴は生成操作の**所有権・生存期間を保持側**が管理します。
+3つの構造は、装飾が骨格を包み、操作が装飾済みの生成物を実行・記録する形で直列に接続します。各構造が同じ責任を重複して持たないことが、3軸を独立に変えられる条件です。
 
-クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
+### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
-| 判断 | 関連コードで確認すること |
-|---|---|
-| 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
-| 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
-| 誰が所有するか | スタック、スマートポインタ、所有コンテナのどれが破棄まで担うかを決める |
-| どう注入するか | 必須依存はコンストラクタ、増減する依存は登録操作、生成自体を替える場合は生成契約から渡す |
-| 利用側は何を知るか | 利用側は抽象契約だけを保持し、処理中に具体クラスを生成しない |
-| 追加時にどこを変えるか | 新しい実装クラスと組み立て・登録を変更し、安定させたい処理骨格へ具体名を戻さない |
+フェーズ1の1-3で作ったクラス図へフェーズ2〜5の判断を反映し、変更後の形へ更新します。
 
-生ポインタや参照で非所有の依存を保持する場合は、所有側の生存期間が利用側より長いことまで組み立てコードで確認します。
+| クラス図を変える材料 | 前工程で確認したこと | クラス図へ反映すること |
+|---|---|---|
+| フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
+| フェーズ2の変化予測 | レポート種別・装飾・履歴要件は今後も増える | 毎回変わる責任へ `【移す】` と注記する |
+| フェーズ4の原因 | `ReportSkeleton` に本文・装飾・履歴が混在する | 同じクラスの中で `【残す】` と `【移す】` を分ける |
+| フェーズ5の接続点 | 生成順は残し、本文・装飾・履歴を各契約へ委ねればよい | P1を派生の `renderBody()`、P2を `ReportFeature`、P3を `IReportAction` へ置く |
 
-#### 課題IDごとのコード適用結果
+**薄い黄色が着目クラス**です。変更前では `ReportSkeleton` の `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。矢印は1-3と同じ利用・実装・包含関係です。
 
-| 課題ID | 候補を適用したコード | 段階的なコード変更と結果 | 守った契約・完了条件の判定 |
-|---|---|---|---|
-| P1 | `ReportSkeleton::generate/renderBody()` と本文実装 | **段階的な変更：** 生成の固定順序を `generate()` に1回だけ置き、種別で変わる本文生成だけを `renderBody()` 実装へ移動<br>**結果：** 骨格を複製しない | **守った契約：** 生成順序、描画境界<br>**判定：** 達成 |
-| P2 | `IReport::render()` とFeature | **段階的な変更：** 装飾フラグと組み合わせ分岐を、1装飾が内側のレポートを包む接続へ変更<br>**結果：** 組み合わせ分岐が消えた | **守った契約：** 本文、装飾順、失敗結果<br>**判定：** 達成 |
-| P3 | `IReportAction`、`GenerateReportAction`、履歴 | **段階的な変更：** 生成入力・実行・取消をActionへ保持し、履歴をAction契約だけを扱う構造へ変更<br>**結果：** 履歴から具体判定が消えた | **守った契約：** 成功操作だけ記録、再実行・取消<br>**判定：** 達成 |
-
-### 6-3：構造の見立て（分解の結果、こうなる）
-
-分解して3つの契約とデータ配置を決めた結果、構造はこうなります。図は出発点ではなく結論です。
-
-現状（1メソッドに骨格・装飾・履歴が同居）：
+**変更前のクラス図（1-3を責任見直し用に再掲）：**
 
 ```mermaid
 classDiagram
     direction LR
     class ReportSkeleton {
-      generate() に 順序 + if装飾 + history が同居
+        -DataReader reader
+        +generate(format, addGraph, addLogo)
     }
+    class DataReader { +readCSV() SalesSummary }
+    class ReportRenderingApi
+    ReportSkeleton *-- DataReader : owns
+    ReportSkeleton --> ReportRenderingApi : 描画
+
+    note for ReportSkeleton "【残す】読込→本文→装飾→描画の生成順\n【P1・移す】種別ごとの本文生成\n【P2・移す】装飾のフラグ分岐\n【P3・移す】操作履歴の管理"
+    note for DataReader "【維持】売上データの読込・集計"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "ReportSkeleton" focus
 ```
 
-見立て（3軸を別々の契約へ）：
+変更前は `ReportSkeleton` が本文生成・装飾フラグ・（追加しようとする）履歴管理を抱え、種別追加・装飾追加・履歴要件のいずれでも同じ `generate()` を開きます。
+
+P1〜P3をクラス図の変更として書くと、次の3操作になります。
+
+1. P1：生成順を固定し、本文だけを派生の `renderBody()` へ委ねる `ReportSkeleton` の骨格を新設する（骨格固定構造）。
+2. P2：装飾を `ReportFeature` の派生として連結し、フラグ分岐を消す（装飾連結構造）。
+3. P3：生成操作を `IReportAction`（`execute`／`undo`）の単位へ移し、履歴で扱う（操作記録構造）。
+
+変更後は、`ReportSkeleton` が生成順だけを持ち、本文・装飾・履歴がそれぞれの契約の裏へ移り、`generate()` の混在分岐が消えたことを確認します。
+
+**採用した変更後のクラス図：**
 
 ```mermaid
 classDiagram
@@ -1158,51 +989,151 @@ classDiagram
     ReportSkeleton --> ReportRenderingApi
     GenerateReportAction --> ReportLog
     BatchApplication --> IReportAction
+
+    note for ReportSkeleton "【P1・新設】生成順を固定する骨格（骨格固定構造）"
+    note for ReportFeature "【P2・新設】骨格を包む装飾（装飾連結構造）"
+    note for IReportAction "【P3・新設】生成操作の履歴契約（操作記録構造）"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "ReportSkeleton,StandardReport,MonthlyReport,ReportFeature,GraphFeature,WatermarkFeature,IReportAction,GenerateReportAction" focus
 ```
 
-図から読み取ること：`generate()` から装飾分岐と履歴記録が消え、骨格・装飾・記録の3契約に分かれる。どれか1つを変えても他へ染み出さない。
+クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-### 6-4：影響範囲（この設計で変更要求を再度当てたら）
-
-| 変更要求 | 修正する場所 | 再テスト範囲 |
-|---|---|---|
-| レポート種別を追加（部門別など） | `renderBody` を実装したクラスを1つ追加 | 追加種別。**装飾・履歴は無変更** |
-| 装飾を追加（透かしなど） | `ReportFeature` を継承したクラスを1つ追加 | 追加装飾。**骨格・履歴は無変更** |
-| 再実行・取消の扱いを変える | `IReportAction`／履歴管理のみ | 記録。**骨格・装飾は無変更** |
-
-現状との差：現状はどの軸を変えても `generate()` を開く。対策後は軸ごとに独立して差し替えられ、骨格へ染み出さない。**この「独立して触れる」ことがこの構造を採る理由**です。
-
-### 採用する形を決める
-
-各案には一長一短があります。今回の課題は、レポート本文の骨格・装飾の組み合わせ・生成操作の履歴という3つの変化軸を同時に扱うことです。「どの案がどの軸に効くか」を分けて比べます。
-
-| 案 | 解けること | 残ること | 今回の判断 |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
 |---|---|---|---|
-| 本文生成だけ分ける | 週次・月次など本文差分を外へ出せる | 装飾の組み合わせとUndoは残る | 骨格固定には必要だが単独では不足 |
-| 装飾をリスト化する | 利用者が選んだ装飾を順に適用できる | 生成手順の固定と履歴管理は残る | 装飾追加には必要だが単独では不足 |
-| 生成操作を記録単位にする | 再実行・取り消しを扱える | 本文差分と装飾の組み合わせは別途必要 | 履歴要求には必要だが単独では不足 |
-| 3つの境界を別々に作る | 骨格・装飾・履歴を独立して変更できる | クラス数と組み立てが増える | 3軸すべてが変わるため採用する |
+| P1 | 生成順を固定する `ReportSkeleton` を新設する | `generate()` を固定し `renderBody()` を派生へ委ねる | ステップ1 |
+| P2 | 装飾を `ReportFeature` の連結へ移す | 各Featureが骨格を包み自分の装飾を足す | ステップ2 |
+| P3 | 生成操作を `IReportAction` の単位へ移す | `GenerateReportAction` が実行・記録・取消を持つ | ステップ3 |
 
-**今回の決断：** フェーズ2のヒアリングで「基本フォーマットは全社統一の順序（骨格固定）」「部署ごとに装飾を自由に組み合わせたい（動的装飾）」「誤操作時に元に戻したい（Undo）」という3つの独立した要件が求められています。3つの変更理由を別々に扱うため、今回は**骨格固定・装飾連結・操作記録の3つの契約を別々に置く形を採用する**決断を下します。
+このクラス図が、P1〜P3を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
-> この構造は、第4章の**骨格固定構造**、第6章の**装飾連結構造**、第5章の**操作記録構造**に対応します。構造名を先に決めたのではなく、三つの変更課題へ順に対策した結果としてこの組み合わせになりました。
+#### 課題箇所のおさらい（フェーズ3の関連コード）
 
-### どの構造を使うかの判断基準
+統合表で特定した箇所だけを振り返ります。P1は種別ごとの本文生成、P2は装飾のフラグ分岐、P3は混入しかけの履歴管理です。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
 
-3つの構造のどれを適用するかは、次のように順を追って確認できます。
-
-```mermaid
-flowchart TD
-    A[処理のステップが<br>複数クラスで重複しているか？]
-    A -->|Yes| B[実行時に機能を<br>組み合わせる必要があるか？]
-    A -->|No| Z[構造不要]
-    B -->|Yes| C[操作を記録・取り消し<br>したいか？]
-    B -->|No| D[骨格固定構造のみ検討]
-    C -->|Yes| E[3構造全て適用を検討]
-    C -->|No| F[骨格固定構造 × 装飾連結構造]
+```cpp
+// 現状：本文・装飾・履歴が generate() に混在しかけている
+class ReportSkeleton {
+    DataReader reader;
+public:
+    void generate(std::string format, bool addGraph, bool addLogo) {
+        reader.readCSV();
+        // P1: 種別ごとの本文生成がここへ入り込む
+        if (addGraph) renderer.addGraph();   // P2: 装飾のフラグ分岐
+        if (addLogo)  renderer.addLogo();    // P2
+        // P3: 履歴を足そうとするとここへ管理ロジックが混入する
+    }
+};
 ```
 
-フェーズ6で採用する設計（3つの契約・データ配置・構造・影響範囲）が決まりました。次のフェーズ7では、この決断を動く実装（`TemplateRegistry`・`ReportRenderingApi`・各レポート／装飾クラス・`GenerateReportAction`・実行結果）に落とし込み、変更要求で効果を確認します。
+### 6-1：採用設計をコードへ段階的に反映する
+
+採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+
+#### 実装ステップ1（P1）：生成順を固定し、本文を派生へ委ねる
+
+`ReportSkeleton` が「読込→本文→装飾→描画」の生成順を固定し、種別ごとに変わる本文だけを純粋仮想 `renderBody()` として派生へ委ねます。
+
+```cpp
+class ReportSkeleton {
+public:
+    virtual ~ReportSkeleton() = default;
+    void generate() {           // 生成順を固定（骨格）
+        header();
+        renderBody();           // 種別差分だけ派生へ委譲
+        footer();
+    }
+    virtual void renderBody() = 0;
+};
+
+class StandardReport : public ReportSkeleton {
+    void renderBody() override { /* 標準レポートの本文 */ }
+};
+```
+
+**P1との対応：** `ReportSkeleton <|-- StandardReport` の骨格固定関係を実装しました（骨格固定構造）。種別追加は派生1クラスで済み、生成順は複製しません。
+
+#### 実装ステップ2（P2）：装飾を連結部品へ移す
+
+装飾は `ReportFeature` として骨格を包み、`renderBody()` で内側の本文へ自分の装飾を足します。包む順で任意の組み合わせを表せるため、フラグ分岐は要りません。
+
+```cpp
+class ReportFeature : public ReportSkeleton {
+protected:
+    ReportSkeleton* wrapped;      // 内側の骨格（所有）
+public:
+    ReportFeature(ReportSkeleton* w) : wrapped(w) {}
+};
+
+class GraphFeature : public ReportFeature {
+    void renderBody() override {
+        wrapped->renderBody();    // 内側を生成してから
+        renderer.addGraph();      // 自分の装飾を足す
+    }
+};
+```
+
+**P2との対応：** `ReportFeature o--> ReportSkeleton` の包含と `ReportFeature <|-- GraphFeature` の派生を実装しました（装飾連結構造）。装飾追加はFeature1クラスに閉じます。
+
+#### 実装ステップ3（P3）：生成操作を履歴の単位へ移す
+
+生成操作を `IReportAction` の `execute()`／`undo()` にまとめ、履歴で扱います。履歴は具体種別も装飾も判定しません。
+
+```cpp
+class IReportAction {
+public:
+    virtual ~IReportAction() = default;
+    virtual void execute() = 0;
+    virtual void undo() = 0;
+};
+
+class GenerateReportAction : public IReportAction {
+    ReportSkeleton* generator;    // 装飾済みの生成物でもよい
+public:
+    void execute() override { generator->generate(); }
+    void undo() override { /* 出力ファイルを削除 */ }
+};
+```
+
+**P3との対応：** `IReportAction <|.. GenerateReportAction` と `GenerateReportAction --> ReportSkeleton` を実装しました（操作記録構造）。ここで骨格固定・装飾連結・操作記録の3構造が直列に接続されました。
+
+### 6-2：システム全体の契約とデータ配置を確定する
+
+採用システムの契約、生成場所、依存注入を一表で確定します。接続点で受け渡すのは、生成対象の `ReportSkeleton*`（装飾済みでもよい）と、集計結果 `SalesSummary` です。テンプレートと監査ログは `TemplateRegistry`／`ReportLog` の位置に残します。
+
+```cpp
+struct SalesSummary { int count; long total; long average; };
+
+class BatchApplication {
+    std::vector<IReportAction*> history;   // P3: 操作履歴
+public:
+    void run(IReportAction* action) {      // 装飾済みの生成物を実行し記録
+        action->execute();
+        history.push_back(action);
+    }
+};
+```
+
+| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |
+|---|---|---|
+| 何を分離するか | P1を派生の `renderBody()`、P2を `ReportFeature`、P3を `IReportAction` へ置く | 種別の本文・装飾の種類・履歴の扱い |
+| どこで生成・選択するか | 組み立て側（`BatchApplication`）が骨格を包み操作へ渡す | 具体種別・具体装飾の選択 |
+| どう依存を渡すか | 装飾は内側の骨格を、操作は生成物を受け取る | 内側の骨格・装飾の実体 |
+| 安定側はどう実行するか | 利用側は `IReportAction::execute()` だけを呼ぶ | 何段装飾されているか、どの種別か |
+
+内側の骨格は外側の装飾が所有し、装飾済みの生成物は操作が扱います。組み立て役が生存期間をまとめて管理します。
+
+#### システム全体のコード適用結果
+
+| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |
+|---|---|---|---|
+| 種別追加を派生1クラスに限定する | 骨格固定構造の `renderBody()` 委譲 | 新派生クラス | 達成 |
+| 装飾追加をFeature1クラスに限定する | 装飾連結構造の連結 | 新Featureと組み立て | 達成 |
+| 履歴・再実行・取消を同じ単位で扱う | 操作記録構造の `IReportAction` | 生成操作を操作単位へ | 達成 |
+| 生成順と検証・描画の位置を維持する | `generate()` の固定順と描画API | 骨格と検証を維持 | 達成 |
+
+**システム全体の実装結果：達成。** P1が骨格固定構造、P2が装飾連結構造、P3が操作記録構造で接続され、冒頭の完了条件をすべて満たしました。実際の動作と変更影響はフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 ### 7-1：解決後のコード（全体）
@@ -1831,7 +1762,7 @@ classDiagram
 
 完成後はTemplate Methodが帳票生成順序、Decoratorが追加機能、Commandが生成操作の履歴化を担当します。3構造が同じ責任を重複して持たないことを図で確認できます。
 
-#### 課題IDごとの完成コード結果
+#### 変更軸ごとの完成コード追跡
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |
 |---|---|---|---|
@@ -1867,18 +1798,25 @@ sequenceDiagram
 
 ### 7-3：変更影響グラフ（改善後）
 
-フェーズ3で行った「グラフ追加」や「履歴保存」の変更を試みた際の構造を確認します。
+フェーズ3で確認した「変更要求：装飾機能の追加」と「履歴管理の調整」のシナリオを、3-2と同じ粒度で再度適用します。
 
 ```mermaid
 graph LR
-    T1["変更要求：装飾機能の追加"] --> F1["装飾連結構造派生クラス（新規作成） ✅"]
-    T1 --> C["組み立て・設定箇所で新しい装飾を選択 ✅"]
-    T1 -. "影響なし" .-> A["ReportSkeleton骨格 ✅"]
-    T2["変更要求：履歴管理の調整"] --> F2["GenerateReportAction ✅"]
-    T2 -. "影響なし" .-> A
+    T1["変更要求：装飾機能の追加"]
+        -->|新規追加| F1["新Feature<br>（ReportFeature派生1クラス）"]
+    T2["変更要求：履歴管理の調整"]
+        -->|1クラス修正| F2["GenerateReportAction<br>（IReportAction実装）"]
+    T1 -. "影響なし" .-> A["ReportSkeleton骨格 / 既存装飾 ✅"]
+    T2 -. "影響なし" .-> B["本文生成・装飾の連結 ✅"]
 ```
 
-フェーズ3の変更影響グラフと比べると、新しい装飾機能の追加では装飾連結構造派生クラスに加えて、その装飾を使う組み立て・設定箇所を変更します。一方、バッチ本体の生成骨格（`ReportSkeleton`）へ装飾名や条件分岐を追加する必要はなくなりました。「変更が一箇所だけになる」のではなく、変更理由に対応する実装と構成へ影響を限定する設計です。
+フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、P2の装飾追加は `ReportFeature` の派生1クラスと組み立てへ、P3の履歴調整は `IReportAction` を実装する `GenerateReportAction` の中だけへ限定されました。生成骨格 `ReportSkeleton` へ装飾名や条件分岐を追加する必要はありません。
+
+| 3-2で影響した場所 | 修正後 | 構造変更との対応 |
+|---|---|---|
+| 種別ごとの本文生成（P1） | **修正しない** | 生成順を骨格固定構造に固定した |
+| `generate()` の装飾フラグ分岐（P2） | Featureを1クラス追加する | 装飾を装飾連結構造へ移した |
+| 混入しかけの履歴管理（P3） | `GenerateReportAction` の中だけ修正 | 操作を操作記録構造へ移した |
 
 ### 7-4：変更シナリオ表
 

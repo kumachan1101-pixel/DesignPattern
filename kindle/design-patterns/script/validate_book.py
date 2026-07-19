@@ -179,6 +179,11 @@ SYSTEM_STRUCTURE_CLASS_TOKENS = {
         "IClientCreator", "SystemAClientCreator", "BatchExecutor",
         "ManualTriggerController",
     ],
+    "chapter11.md": [
+        "ReportSkeleton", "StandardReport", "MonthlyReport",
+        "ReportFeature", "GraphFeature", "WatermarkFeature",
+        "IReportAction", "GenerateReportAction",
+    ],
 }
 SYSTEM_STRUCTURE_FINAL_FORMS = {
     "chapter01.md": [
@@ -194,6 +199,7 @@ SYSTEM_STRUCTURE_FINAL_FORMS = {
     "chapter08.md": ["生成分離構造"],
     "chapter09_2.md": ["状態分離構造", "ルール差し替え構造"],
     "chapter10.md": ["窓口構造", "通知分離構造", "生成分離構造"],
+    "chapter11.md": ["骨格固定構造", "装飾連結構造", "操作記録構造"],
 }
 SYSTEM_STRUCTURE_RESULT_TOKENS = {
     "chapter01.md": [
@@ -236,6 +242,10 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
         "変更要求：連携先の追加", "IExternalClient",
         "IClientCreator", "INotifier",
     ],
+    "chapter11.md": [
+        "変更要求：装飾機能の追加", "ReportFeature",
+        "ReportSkeleton", "IReportAction",
+    ],
 }
 
 # フェーズ6「システム全体の最終構造を決める」の出し方は章の問題で決まる。
@@ -254,6 +264,7 @@ SYSTEM_STRUCTURE_MODE = {
     "chapter08.md": "single",
     "chapter09_2.md": "combine",
     "chapter10.md": "combine",
+    "chapter11.md": "combine",
 }
 
 BANNED_PATTERNS = [
