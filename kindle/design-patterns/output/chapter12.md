@@ -1642,6 +1642,7 @@ public:
 
 ```cpp
 class EmailNotifier : public INotificationListener {
+    vector<string> inbox;  // 送ったメールを実際に蓄積する
 public:
     bool supports(const string& channel) const override {
         return channel == "email";
@@ -1650,14 +1651,16 @@ public:
         const NotificationTarget& target,
         string msg
     ) override {
-        cout << "[メール送信] To:" << target.recipientName
-             << " / " << msg << endl;
+        inbox.push_back(msg);
+        cout << "[メール送信 " << inbox.size() << "件目] To:"
+             << target.recipientName << " / " << msg << endl;
         return {true, "email"};
     }
 };
 
 class ChatNotifier : public INotificationListener {
     bool willFail;  // チャット基盤が不調の状況を再現する
+    vector<string> inbox;  // 送れたチャットだけ蓄積する
 public:
     ChatNotifier(bool fail = false) : willFail(fail) {}
     bool supports(const string& channel) const override {
@@ -1670,8 +1673,9 @@ public:
         if (willFail) {
             return {false, "chat"};
         }
-        cout << "[チャット通知] To:" << target.recipientName
-             << " / " << msg << endl;
+        inbox.push_back(msg);
+        cout << "[チャット通知 " << inbox.size() << "件目] To:"
+             << target.recipientName << " / " << msg << endl;
         return {true, "chat"};
     }
 };
@@ -2060,34 +2064,34 @@ int main() {
 ```text
 --- 行1: 通常申請書提出 ---
 状態: 審査待ち
-[メール送信] To:課長 / 申請を受け付けました
+[メール送信 1件目] To:課長 / 申請を受け付けました
 --- 行2: 緊急申請書提出 ---
 状態: 優先審査待ち
-[チャット通知] To:部長 / 緊急申請を受け付けました
+[チャット通知 1件目] To:部長 / 緊急申請を受け付けました
 --- 行3: 審査待ち→課長承認操作 ---
 状態: 承認済み
-[メール送信] To:申請者 / 承認されました
-[チャット通知] To:部長 / 承認されました
+[メール送信 2件目] To:申請者 / 承認されました
+[チャット通知 2件目] To:部長 / 承認されました
 --- 行4: 優先審査待ち→部長承認操作 ---
 状態: 完了
-[メール送信] To:申請者 / 承認されました
-[チャット通知] To:部長 / 承認されました
-[メール送信] To:決済部門 / 承認されました
+[メール送信 3件目] To:申請者 / 承認されました
+[チャット通知 3件目] To:部長 / 承認されました
+[メール送信 4件目] To:決済部門 / 承認されました
 --- 行5: 審査待ち→却下操作 ---
 状態: 却下
-[メール送信] To:申請者 / 申請が却下されました
+[メール送信 5件目] To:申請者 / 申請が却下されました
 --- 行6: 承認済み→部長承認操作 ---
 状態: 完了
-[メール送信] To:申請者 / 部長承認が完了しました
-[メール送信] To:課長 / 部長承認が完了しました
-[チャット通知] To:部長 / 部長承認が完了しました
-[メール送信] To:決済部門 / 部長承認が完了しました
+[メール送信 6件目] To:申請者 / 部長承認が完了しました
+[メール送信 7件目] To:課長 / 部長承認が完了しました
+[チャット通知 4件目] To:部長 / 部長承認が完了しました
+[メール送信 8件目] To:決済部門 / 部長承認が完了しました
 --- 行7: 却下→再申請操作 ---
 状態: 審査待ち
-[メール送信] To:課長 / 再申請を受け付けました
+[メール送信 9件目] To:課長 / 再申請を受け付けました
 --- 行8: 通知失敗と状態保持 ---
 状態: 審査待ち
-[メール送信] To:申請者 / 申請を受け付けました
+[メール送信 10件目] To:申請者 / 申請を受け付けました
 [通知失敗] channel=chat（状態は保持、他の通知は継続）
 --- エラー例1: 不正な承認者ID ---
 エラー：承認者ID APR999 はデータベースに存在しません。
