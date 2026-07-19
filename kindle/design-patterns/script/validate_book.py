@@ -311,7 +311,7 @@ def is_new_phase6(text: str) -> bool:
 
 
 def check_phase6_design(text: str, path: Path) -> list[Issue]:
-    """理想影響グラフから課題カード・候補・段階コードへ進む構造を確認する。"""
+    """痛みグラフから構造変更・コード適用・完成結果までの追跡を確認する。"""
     if not is_new_phase6(text):
         return []
     p6, sec = _phase6_section(text)
@@ -335,20 +335,21 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
         ("```mermaid", "フェーズ6に構造のクラス図（mermaid）がありません"),
         ("### 6-4", "フェーズ6に影響範囲（6-4）がありません"),
         ("### 採用する形を決める", "フェーズ6に採用判断がありません"),
-        ("#### 理想の変更影響グラフを先に組み立てる",
-         "フェーズ6に理想の変更影響グラフがありません"),
-        ("subgraph Current", "理想グラフに現在の変更影響がありません"),
-        ("subgraph Ideal", "理想グラフに理想の変更影響がありません"),
-        ("#### 理想グラフとの差から課題カードを導く",
-         "フェーズ6に現在→理想の差から導く課題カードがありません"),
-        ("| 課題ID | 現在→理想の差 | 切る境界・守る契約 | 完了条件 |",
-         "フェーズ6の課題カードにグラフ差・境界・契約・完了条件がありません"),
-        ("#### 課題カードから検討候補を出す",
-         "フェーズ6に課題カードから出す検討候補がありません"),
-        ("| 課題ID | 最初に試す候補 | それで減る影響 | 残れば次に試す候補 |",
-         "フェーズ6の候補表に最初の候補・減る影響・次の候補がありません"),
+        ("#### 痛みの変更影響から、構造をどう変えるか",
+         "フェーズ6に痛みの変更影響を起点にした構造変更グラフがありません"),
+        ("subgraph Pain", "構造変更グラフにフェーズ3・4の痛みがありません"),
+        ("subgraph StructuralChange", "構造変更グラフにコード構造の微修正がありません"),
+        ("subgraph Result", "構造変更グラフに同じ要求を再適用した結果がありません"),
+        ("#### 構造変更グラフから課題と候補を一続きで導く",
+         "フェーズ6にグラフから課題・候補を一続きで導く表がありません"),
+        ("| 課題ID | 変更の到達点 | 最初の微修正 | 残れば次の微修正 |",
+         "フェーズ6に差・境界・完了条件・候補を同じ課題IDで結ぶ表がありません"),
         ("#### 課題箇所のおさらい（フェーズ3の関連コード）",
          "フェーズ6に課題カードで指定した関連コードのおさらいがありません"),
+        ("#### 課題IDごとのコード適用結果",
+         "フェーズ6に課題IDごとのコード適用結果がありません"),
+        ("| 課題ID | 候補を適用したコード | コード上の微修正と結果 | 守った契約・完了条件の判定 |",
+         "フェーズ6に適用コード・微修正・結果・契約・完了判定の対応表がありません"),
     ]
     for token, msg in checks:
         if token not in sec:
@@ -363,6 +364,9 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
         "#### 振り返り：現行コード全体（フェーズ1）",
         "#### 候補をコードで検討するための課題カード",
         "| 課題ID | フェーズ4で見えた原因 | フェーズ5で定めた課題 | フェーズ6で試す候補 |",
+        "#### 理想の変更影響グラフを先に組み立てる",
+        "#### 理想グラフとの差から課題カードを導く",
+        "#### 課題カードから検討候補を出す",
     ]
     for token in stale:
         if token in sec:
@@ -371,42 +375,90 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
                 f"完成コード先出しの旧表現が残っています: {token}",
             ))
 
-    ideal_heading = "#### 理想の変更影響グラフを先に組み立てる"
-    card_heading = "#### 理想グラフとの差から課題カードを導く"
-    card_table_heading = (
-        "| 課題ID | 現在→理想の差 | 切る境界・守る契約 | 完了条件 |"
-    )
-    candidate_heading = "#### 課題カードから検討候補を出す"
-    candidate_table_heading = (
-        "| 課題ID | 最初に試す候補 | それで減る影響 | 残れば次に試す候補 |"
+    graph_heading = "#### 痛みの変更影響から、構造をどう変えるか"
+    trace_heading = "#### 構造変更グラフから課題と候補を一続きで導く"
+    trace_table_heading = (
+        "| 課題ID | 変更の到達点 | 最初の微修正 | 残れば次の微修正 |"
     )
     recap_heading = "#### 課題箇所のおさらい（フェーズ3の関連コード）"
-    ideal_start = sec.find(ideal_heading)
-    card_start = sec.find(card_heading)
-    card_table_start = sec.find(card_table_heading)
-    candidate_start = sec.find(candidate_heading)
-    candidate_table_start = sec.find(candidate_table_heading)
+    code_result_heading = "#### 課題IDごとのコード適用結果"
+    code_result_table_heading = (
+        "| 課題ID | 候補を適用したコード | コード上の微修正と結果 | "
+        "守った契約・完了条件の判定 |"
+    )
+    graph_heading_start = sec.find(graph_heading)
+    trace_start = sec.find(trace_heading)
+    trace_table_start = sec.find(trace_table_heading)
     recap_start = sec.find(recap_heading)
+    code_result_start = sec.find(code_result_heading)
+    code_result_table_start = sec.find(code_result_table_heading)
+    step63_start = sec.find("### 6-3")
     starts = [
-        ideal_start, card_start, card_table_start,
-        candidate_start, candidate_table_start, recap_start,
+        graph_heading_start, trace_start, trace_table_start, recap_start,
+        code_result_start, code_result_table_start, step63_start,
     ]
     if min(starts) >= 0:
         if starts != sorted(starts):
             issues.append(Issue(
                 path, ln,
-                "フェーズ6冒頭は理想グラフ→課題カード→候補→関連コードの順にしてください",
+                "フェーズ6は痛みグラフ→課題候補表→関連コード→コード適用結果→構造の順にしてください",
             ))
 
-        card_ids = re.findall(
-            r"(?m)^\|\s*(P\d+)\s*\|",
-            sec[card_table_start:candidate_start],
+        trace_rows = re.findall(
+            r"(?m)^\|\s*P\d+\s*\|.*$",
+            sec[trace_table_start:recap_start],
         )
-        candidate_ids = re.findall(
-            r"(?m)^\|\s*(P\d+)\s*\|",
-            sec[candidate_table_start:recap_start],
+        trace_ids = [
+            re.match(r"^\|\s*(P\d+)\s*\|", row).group(1)
+            for row in trace_rows
+        ]
+        code_result_rows = re.findall(
+            r"(?m)^\|\s*P\d+\s*\|.*$",
+            sec[code_result_table_start:step63_start],
         )
-        graph_start = sec.find("```mermaid", ideal_start, card_start)
+        code_result_ids = [
+            re.match(r"^\|\s*(P\d+)\s*\|", row).group(1)
+            for row in code_result_rows
+        ]
+
+        trace_required_labels = (
+            "**現在→理想の差：**",
+            "**切る境界・守る契約：**",
+            "**完了条件：**",
+            "**候補：**",
+            "**減る影響：**",
+        )
+        for row in trace_rows:
+            task_id = re.match(r"^\|\s*(P\d+)\s*\|", row).group(1)
+            missing = [label for label in trace_required_labels if label not in row]
+            if missing:
+                issues.append(Issue(
+                    path, ln,
+                    f"{task_id}の一続き表に必須の対応項目がありません: {missing}",
+                ))
+
+        code_result_required_labels = (
+            "**微修正：**",
+            "**結果：**",
+            "**守った契約：**",
+            "**判定：**",
+        )
+        for row in code_result_rows:
+            task_id = re.match(r"^\|\s*(P\d+)\s*\|", row).group(1)
+            missing = [
+                label for label in code_result_required_labels if label not in row
+            ]
+            if missing:
+                issues.append(Issue(
+                    path, ln,
+                    f"{task_id}のコード適用結果に必須の対応項目がありません: {missing}",
+                ))
+            if "`" not in row:
+                issues.append(Issue(
+                    path, ln,
+                    f"{task_id}のコード適用結果にクラス・関数・メソッド名がありません",
+                ))
+        graph_start = sec.find("```mermaid", graph_heading_start, trace_start)
         graph_end = sec.find("```", graph_start + len("```mermaid"))
         graph_ids = (
             re.findall(r"P\d+", sec[graph_start:graph_end])
@@ -421,33 +473,57 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
             if handoff_table_start >= 0 else []
         )
 
-        if not card_ids:
-            issues.append(Issue(path, ln, "課題カードに課題ID行がありません"))
+        phase7_result_heading = "#### 課題IDごとの完成コード結果"
+        phase7_result_table_heading = (
+            "| 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |"
+        )
+        phase7_result_start = text.find(phase7_result_heading, p6)
+        phase7_result_table_start = text.find(phase7_result_table_heading, p6)
+        phase72_start = text.find("### 7-2", p6)
+        phase7_result_ids = (
+            re.findall(
+                r"(?m)^\|\s*(P\d+)\s*\|",
+                text[phase7_result_table_start:phase72_start],
+            )
+            if min(phase7_result_start, phase7_result_table_start, phase72_start) >= 0
+            else []
+        )
+        if phase7_result_start < 0 or phase7_result_table_start < 0:
+            issues.append(Issue(path, ln, "フェーズ7に課題IDごとの完成コード結果がありません"))
+
+        if not trace_ids:
+            issues.append(Issue(path, ln, "課題・候補の一続き表に課題ID行がありません"))
         else:
-            expected_ids = [f"P{i}" for i in range(1, len(card_ids) + 1)]
-            if card_ids != expected_ids:
+            expected_ids = [f"P{i}" for i in range(1, len(trace_ids) + 1)]
+            if trace_ids != expected_ids:
                 issues.append(Issue(
                     path, ln,
-                    "課題カードの課題IDは重複・欠番なしの連番にしてください: "
-                    f"実際={card_ids}, 期待={expected_ids}",
+                    "課題・候補表の課題IDは重複・欠番なしの連番にしてください: "
+                    f"実際={trace_ids}, 期待={expected_ids}",
                 ))
-            if candidate_ids != card_ids:
+            if code_result_ids != trace_ids:
                 issues.append(Issue(
                     path, ln,
-                    "候補表の課題IDは課題カードと同じ順序・一課題一行にしてください: "
-                    f"候補={candidate_ids}, カード={card_ids}",
+                    "コード適用結果の課題IDは課題・候補表と同じ順序・一課題一行にしてください: "
+                    f"適用結果={code_result_ids}, 課題={trace_ids}",
                 ))
-            if graph_ids != card_ids:
+            if set(graph_ids) != set(trace_ids):
                 issues.append(Issue(
                     path, ln,
-                    "理想グラフの課題IDは課題カードと同じ順序・一課題一枝にしてください: "
-                    f"グラフ={graph_ids}, カード={card_ids}",
+                    "構造変更グラフは全課題IDだけを使って痛み→微修正→結果を追跡してください: "
+                    f"グラフ={sorted(set(graph_ids))}, 課題={trace_ids}",
                 ))
-            if handoff_ids != card_ids:
+            if handoff_ids != trace_ids:
                 issues.append(Issue(
                     path, ln,
-                    "フェーズ5の引き渡し課題IDは理想グラフ・課題カードと同じ連番にしてください: "
-                    f"引き渡し={handoff_ids}, カード={card_ids}",
+                    "フェーズ5の引き渡し課題IDは課題・候補表と同じ連番にしてください: "
+                    f"引き渡し={handoff_ids}, 課題={trace_ids}",
+                ))
+            if phase7_result_ids != trace_ids:
+                issues.append(Issue(
+                    path, ln,
+                    "完成コード結果の課題IDは課題・候補表と同じ順序・一課題一行にしてください: "
+                    f"完成結果={phase7_result_ids}, 課題={trace_ids}",
                 ))
     return issues
 
