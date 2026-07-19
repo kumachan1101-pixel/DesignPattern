@@ -890,9 +890,19 @@ graph LR
 
 **現状のままでよい場面**：対応形式が少なく、共通手順も当面変わらないなら、重複を許容する判断もあります。今回は形式追加と共通手順の変更が見込まれるため、骨格を1か所に置き、形式ごとの差分だけを接続点から呼ぶ設計を検討します。
 
+### 変わるものを分離するか、まとめて分離するか
+
+この章の変化軸は1つです。フェーズ2で確認した「取込形式は今後も増える」を、P1として最後まで追います。
+
+| 課題ID | 変化軸 | 分離する責任 | 安定させる責任 |
+|---|---|---|---|
+| P1 | インポート形式ごとのパース・行検証 | 形式ごとの読み方・不正行の扱いを形式別クラスへ置く | 全形式に共通する open→検証→パース→行検証→保存→close の骨格 |
+
+P1は単一の変化軸ですが、形式の「読み方」と「行検証」は同じ形式の変更で一緒に変わるため、コード上では同じ形式別クラスへ `parseData()` と `validateRows()` を置きます。
+
 ---
-> **📌 課題（確定）**
-> 骨格の呼び出し順序（open→checkVersion→parse→validate→save→close→result）と、形式ごとに異なるパース/行検証処理を切り離す。骨格を1か所に集約し、各インポートクラスはパースルールと検証ルールだけを担う構造にする。新しい形式を追加するときは差分実装と組み立て箇所を変更し、共通手順の重複を増やさない。
+> **📌 システム全体の課題（確定）**
+> 骨格の呼び出し順序（open→checkVersion→parse→validate→save→close→result）と、形式ごとに異なるパース/行検証処理を切り離す。骨格を1か所に集約し、各インポートクラスはパースルールと検証ルールだけを担う構造にする。新しい形式を追加しても、共通骨格・既存形式を変更しないシステムにする。
 ---
 
 #### フェーズ6へ渡す課題
@@ -903,227 +913,89 @@ graph LR
 
 P1は「形式固有の変更が共通手順へ波及する課題」です。フェーズ6では、形式追加時に変更を許す範囲を先に限定します。
 
-## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
+## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-フェーズ6は、フェーズ5で定めた課題——**骨格の呼び出し順序（open→checkVersion→parse→validate→save→close→result）を守りつつ、形式ごとのパース／検証を切り離す接続点を作る**——を受けて始めます。まず問題定義で得た変更影響を左へ引き継ぎ、P1の影響を切るクラス・契約・依存関係を中央に置き、同じ要求を再適用した変更影響を右に描きます。その差、守る契約、完了条件、候補を同じP1の行へ落とします。その後、P1に紐づくフェーズ3の関連コードだけをおさらいし、中央の構造が妥当かを最小単位のコード変更で一段ずつ検証します。各段階で「変更理由」「対象コード」「変更内容」「減った影響」「残った問題」「次の判断」を言語化し、統合後の全体コードはフェーズ7で示します。
+P1を単独で解くのではなく、共通の骨格順序を1か所へ固定し、形式ごとのパース・検証だけを差し込めるシステムを設計します。
 
-#### 問題定義の変更影響を、どの構造で変えるか
+#### 3-2の変更影響を、システム構造の材料へ統合する
 
-フェーズ4では、新形式を追加するたびに、開く・版確認・解析・検証・保存・閉じるという共通順序まで複製されました。理想は、形式差分だけを追加対象にすることです。
-
-```mermaid
-flowchart LR
-    subgraph Pain["問題定義：変更前の変更影響"]
-        direction TB
-        CR["新しい取込形式を追加"] --> C1["import() の全手順を複製"]
-        C1 --> C2["共通順序と全形式を再テスト"]
-    end
-    subgraph TargetStructure["影響を切る構造の形"]
-        direction TB
-        U["取込入口"] --> AI["AbstractImporter::import 固定骨格"]
-        AI --> H["parseData / validateRows フック"]
-        FI["形式別Importer"] -. "フックを実装" .-> H
-        R["SchemaRegistry"] --> FI
-    end
-    subgraph Result["同じ要求を再適用した変更影響"]
-        direction TB
-        IR["新しい取込形式を追加"] --> I1["P1: 形式別Importerと登録を追加"]
-        I1 --> I2["追加形式の解析・検証だけをテスト"]
-        IS["変更しない: 固定骨格と既存形式"]
-    end
-    C1 -. "P1: 共通順序と形式差分を分ける" .-> AI
-    H -. "新しい変更先" .-> I1
-```
-
-中央では、全形式に共通する順序を `AbstractImporter::import()` に固定し、形式差分だけをフック実装へ置きます。左で新形式ごとに複製していた骨格が、右では変更対象から外れます。
-
-#### 構造と変更後の影響から、課題と候補を一続きで導く
-
-| 課題ID | 変更の到達点 | 最初に試すコード変更 | 残る問題に対する次のコード変更 |
+| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |
 |---|---|---|---|
-| P1 | **現在→理想の差：** 共通順序の複製・再テストを外す<br>**切る境界・守る契約：** 固定順序と形式別 `parse/validate` を切り、`ImportResult` と保存順序を守る<br>**完了条件：** 新形式で共通順序を複製しない | **候補：** 共通手順と形式差分をメソッド分割<br>**減る影響：** 同じ行と違う行を見分けられる | 共通順序を1か所に置き、形式差分だけを後から定義する |
+| P1 | 形式追加・形式固有ルールの変更で、各Importerの共通手順を複製し、既存形式を再確認する | open→検証→パース→行検証→保存→closeの共通骨格を1か所へ集約する | 骨格の順序、`ImportResult` 契約、既存形式のパース |
 
-ここからP1の横一行を、共通順序と形式差分のコードへ順に適用します。
+#### システム全体の完了条件を固定する
 
-#### 課題箇所のおさらい（フェーズ3の関連コード）
+次の条件をすべて満たして、初めて対策完了とします。
 
-比較元は、EC店形式と形式バージョンチェックを追加したフェーズ3の変更途中コードです。直営店・FC店・EC店の3クラスが、同じ手順を各 `import()` にべた書きで複製しています。
+- 新しい取込形式の追加を、形式別のパース・行検証・登録に限定する。
+- 共通の骨格順序（open→検証→パース→行検証→保存→close→result）を複製しない。
+- 骨格側は形式ごとの読み方を知らず、形式側は骨格の順序を知らない。
+- `ImportResult`（件数・スキップ・成否）の受け渡し契約を維持する。
 
+#### システム全体の最終構造を決める
 
-課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+この章の最終構造は、競合する複数案から選ぶのではなく、完了条件から**一つに定まります**。骨格の順序を固定したまま形式差分だけを差し込むと決めた時点で、「共通順序を基底クラスの `import()` に固定し、変わるステップだけを派生クラスのフックへ委ねる」**骨格固定構造**以外に、上の完了条件を満たす形が残らないためです。
 
-```cpp
-// EC店データのインポート（会員ランク・ポイント項目あり）
-// 既存の直営店・FC店と同じ手順を、また import() の中にべた書きでコピーしている
-class ECDataImporter {
-    vector<string> rawLines;
-public:
-    explicit ECDataImporter(vector<string> lines) : rawLines(move(lines)) {}
+各ステップを関数ポインタのテーブルで差し替える方式も理屈の上では置けますが、骨格の前後条件や失敗時の中断がテーブルの束へ散り、形式単位の責任とテスト境界が見えにくくなります。したがって当て馬を並べた比較は行いません（完成形が複数競合する章でのみ、構造差分を比較します）。
 
-    ImportResult import() {
-        // (1) 開く ← StoreDataImporter・FCDataImporter と全く同じコピー
-        cout << "EC店CSVを開く\n";
+一意に定まった骨格固定構造を、`AbstractImporter`（固定骨格）、形式別Importer（パース・検証フック）、`SchemaRegistry`（形式登録）の責任として具体化します。
 
-        // (2) パース：カンマ区切り＋会員ランク・ポイント列（EC固有）
-        vector<SalesRow> rows; int skipped = 0;
-        for (size_t i = 1; i < rawLines.size(); ++i) {
-            vector<string> c = splitLine(rawLines[i], ',');
-            if (c.size() < 5) { ++skipped; continue; }   // ランク/ポイント列が不足
-            rows.push_back({c[0], c[1], stol(c[2])});
-        }
-        cout << "カンマ区切りで会員ランク・ポイント列まで解析（有効"
-             << rows.size() << "件・スキップ" << skipped << "件）\n";
+### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
-        // (2') EC固有：ポイント付与量を計算
-        long pointBonus = 0;
-        for (auto& r : rows) pointBonus += r.amount / 100;
-        cout << "ポイントボーナスを計算（合計" << pointBonus << "pt）\n";
+フェーズ1の1-3で作ったクラス図へフェーズ2〜5の判断を反映し、変更後の形へ更新します。
 
-        // (3) 保存 ← また同じコピー
-        cout << rows.size() << "件をDBへ追加\n";
+| クラス図を変える材料 | 前工程で確認したこと | クラス図へ反映すること |
+|---|---|---|
+| フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
+| フェーズ2の変化予測 | 取込形式は今後も増える | 毎回複製される責任へ `【移す】` と注記する |
+| フェーズ4の原因 | 各Importerに共通骨格と形式差分が混在する | 同じクラスの中で `【残す】` と `【移す】` を分ける |
+| フェーズ5の接続点 | 骨格は形式の読み方を知らず、形式は順序を知らなくてよい | P1の共通骨格を `AbstractImporter` へ、差分をフックへ置く |
 
-        // (4) 閉じる ← また同じコピー
-        cout << "ファイルを閉じる\n";
+**薄い黄色が着目クラス**です。変更前では各Importerの `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。矢印は1-3と同じ継承・利用関係です。
 
-        return {"EC店データ", (int)rows.size(), skipped};
-    }
-};
-
-int main() {
-    vector<string> ecLines = {"id,name,amount,rank,points"};
-    for (int i = 1; i <= 10; ++i) {
-        if (i == 4 || i == 9)   // 2件は列不足（不正行）
-            ecLines.push_back("E00" + to_string(i)
-                + ",商品" + to_string(i) + ",3000");
-        else
-            ecLines.push_back("E00" + to_string(i) + ",商品"
-                + to_string(i) + ",3000,gold,50");
-    }
-    ECDataImporter importer(ecLines);
-    ImportResult r = importer.import();
-    cout << "インポート成功: " << r.saved << "件追加、スキップ" << r.skipped << "件\n";
-    return 0;
-}
-```
-
-### 6-1：痛みコードを段階的に変更し、接続点の「形」を探す
-
-課題は「骨格を守りつつ形式差分を切り離す」と言っていますが、**どんな形なら切り離せるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（各段階の直後に関連コードで確かめる）。
-
-**変換1：各 `import()` の手順を独立したメソッドへ切り出す。** 何が共通で何が差分かを、名前として浮かび上がらせます。
-
-```cpp
-ImportResult StoreDataImporter::import() {
-    auto lines = openFile();             // 共通
-    checkFormatVersion();                // 共通
-    auto parsed = parseData(lines);      // 形式差分
-    auto valid = validateRows(parsed);   // 形式差分
-    int saved = saveToDB(valid);         // 共通
-    closeFile();                         // 共通
-    return makeResult(saved);            // 共通
-}
-```
-
-名前を付けると、順序と共通処理が各Importerで同じだと確認できます。しかし、この骨格を形式数ぶん複製する状態は変わっていないため、P1は未完了です。
-
-
-
-見えたこと：`openFile`/`checkFormatVersion`/`saveToDB`/`closeFile` は3クラスで**一字一句同じコピー**、`parseData`/`validateRows` だけが形式ごとに違う。しかも `import()` の**呼び出し順序も3クラスで完全一致**している。
-まだ詰まること：共通の手順（順序＋同一メソッド）が3クラスに複製されたまま。順序を変える（バージョンチェック追加など）と、また3クラスを触る。
-
-**変換2：共通の順序を1か所へ、差分だけを残す。** 一致している順序と同一メソッドを1つの親クラスの `import()` へまとめ、形式ごとに違う `parseData`/`validateRows` だけをサブクラス側に残そうとします。
-
-```cpp
-class AbstractImporter {
-public:
-    ImportResult import() {
-        auto lines = gateway.open(filePath());
-        gateway.checkFormatVersion();
-        auto parsed = parseData(lines);
-        auto valid = validateRows(parsed);
-        int saved = repository.save(valid.validRows);
-        gateway.close();
-        return makeResult(saved, valid.skipped);
-    }
-protected:
-    virtual std::vector<ParsedRow> parseData(
-        const std::vector<std::string>& lines) = 0;
-    virtual ValidationResult validateRows(
-        const std::vector<ParsedRow>& rows) = 0;
-};
-```
-
-共通順序は1か所になり、形式差分だけが穴として残りました。新形式で骨格を複製しないというP1の完了条件を満たせます。
-
-詰まり解消：親クラスに `import()` の順序と共通処理を1つだけ置き、サブクラスは `parseData`/`validateRows` の中身だけを埋める。順序変更は親の1か所で済む。ここで分かるのは、**「骨格（順序）を親に固定し、変わるステップだけを"後から埋める穴"にすればよい」**ということ。
-
-**変換の結論：** 親クラスが `import()` の**骨格（順序）を固定**し、形式ごとに変わるステップ（`parseData`/`validateRows`、任意で `afterParse`）を**抽象メソッド（フック）**としてサブクラスへ委譲する。接続点は「骨格の中に開けたフック点」です。
-
-### 6-2：見つけた形を契約にし、データの置き場所を決める
-
-見つけた形を、骨格を固定する親クラスと、サブクラスが埋めるフック（抽象メソッド）として定義します。
-
-```cpp
-ImportFileGateway gateway;
-SalesImportRepository repository;
-StoreDataImporter store(gateway, repository);
-FCDataImporter franchise(gateway, repository);
-
-ImportResult result = store.import();
-```
-
-境界の所有、Importerへの注入、共通入口 `import()` までをつなげました。全形式と実データを含む完成コードはフェーズ7で示します。
-
-
-
-次に、データ（骨格が触る外部境界）の置き場所を決めます。
-
-| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
-|---|---|---|---|
-| ファイルの開閉 | 各 `import()` に直書き | `ImportFileGateway`（注入） | 骨格は境界を呼ぶだけで、保存媒体の実体を知らない |
-| DB保存 | 各 `import()` に直書き | `SalesImportRepository`（注入） | 同上。媒体が変わっても骨格は不変 |
-| 形式ごとのパース／検証 | 各クラスにべた書き | サブクラスのフック実装 | 変わるのはここだけ |
-
-接続点で受け渡すのは、フックを通る **`lines → ParsedRow → ValidationResult → 保存件数`** です。
-
-クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
-
-| 判断 | 関連コードで確認すること |
-|---|---|
-| 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
-| 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
-| 誰が所有するか | スタック、スマートポインタ、所有コンテナのどれが破棄まで担うかを決める |
-| どう注入するか | 必須依存はコンストラクタ、増減する依存は登録操作、生成自体を替える場合は生成契約から渡す |
-| 利用側は何を知るか | 利用側は抽象契約だけを保持し、処理中に具体クラスを生成しない |
-| 追加時にどこを変えるか | 新しい実装クラスと組み立て・登録を変更し、安定させたい処理骨格へ具体名を戻さない |
-
-生ポインタや参照で非所有の依存を保持する場合は、所有側の生存期間が利用側より長いことまで組み立てコードで確認します。
-
-#### 課題IDごとのコード適用結果
-
-| 課題ID | 候補を適用したコード | 段階的なコード変更と結果 | 守った契約・完了条件の判定 |
-|---|---|---|---|
-| P1 | `StoreDataImporter::import()`、`AbstractImporter::import()`、`parseData()`、`validateRows()`、Registry | **段階的な変更：** ①共通手順と形式差分をメソッド分割し、骨格の複製が残ることを確認→②固定順序を `AbstractImporter::import()` へ集約→③形式差分だけを仮想操作と登録へ残す<br>**結果：** 形式固有の解析・検証だけを追加できる | **守った契約：** open→version→parse→validate→save→close→result<br>**判定：** 分割だけでは未達、骨格集約で達成 |
-
-### 6-3：構造の見立て（変換の結果、こうなる）
-
-変換して骨格とフックを決めた結果、構造はこうなります。図は出発点ではなく結論です。
-
-現状（3クラスが骨格を複製）：
+**変更前のクラス図（1-3を責任見直し用に再掲）：**
 
 ```mermaid
 classDiagram
     direction LR
-    class StoreDataImporter { import() 骨格べた書き }
-    class FCDataImporter { import() 骨格べた書き }
-    class ECDataImporter { import() 骨格べた書き }
+    class StoreDataImporter {
+        -rawLines: vector~string~
+        +import() ImportResult
+    }
+    class FCDataImporter {
+        -rawLines: vector~string~
+        +import() ImportResult
+    }
+    class SchemaRegistry {
+        +exists(type) bool
+        +get(type) ImportSchema
+    }
+    note for StoreDataImporter "【残す】直営店のパース・行検証\n【P1・移す】open→検証→保存→closeの共通骨格"
+    note for FCDataImporter "【残す】FC店のパース・行検証\n【P1・移す】重複した共通骨格"
+    note for SchemaRegistry "【維持】形式の登録・存在確認"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "StoreDataImporter,FCDataImporter" focus
 ```
 
-見立て（骨格は親に1つ、差分だけサブクラス）：
+変更前は各Importerが共通骨格と形式差分を一本の `import()` に抱え、形式追加のたびに骨格が複製されます。
+
+P1をクラス図の変更として書くと、次の3操作になります。
+
+1. P1：各Importerの `import()` から共通骨格（open→検証→パース→行検証→保存→close）を外す。
+2. P1：共通骨格を `AbstractImporter::import()` の1か所へ固定する（新設）。
+3. P1：形式ごとのパース・行検証を派生クラスの `parseData()` / `validateRows()` フックへ残す。
+
+変更後は同じ3つのImporterから読み、共通骨格が `AbstractImporter` へ移り、各Importerが差分フックだけを持つこと、保存・取得が外部境界へ分かれたことを確認します。
+
+**採用した変更後のクラス図：**
 
 ```mermaid
 classDiagram
+    direction LR
     class SchemaRegistry
+    class ImportFileGateway
+    class SalesImportRepository
     class ImportScheduler
     class BatchImportJob
     class BatchApplication
@@ -1137,45 +1009,186 @@ classDiagram
     class StoreDataImporter
     class FCDataImporter
     class ECDataImporter
-    class ImportFileGateway
-    class SalesImportRepository
+
     AbstractImporter <|-- StoreDataImporter
     AbstractImporter <|-- FCDataImporter
     AbstractImporter <|-- ECDataImporter
-    AbstractImporter --> ImportFileGateway
-    AbstractImporter --> SalesImportRepository
-    BatchImportJob --> AbstractImporter
-    ImportScheduler --> BatchImportJob
-    BatchApplication --> ImportScheduler
-    ManualImportController --> BatchApplication
-    StoreDataImporter --> SchemaRegistry
+    AbstractImporter --> ImportFileGateway : 使う
+    AbstractImporter --> SalesImportRepository : 使う
+    StoreDataImporter --> SchemaRegistry : 参照する
+    BatchImportJob --> AbstractImporter : 実行する
+    ImportScheduler --> BatchImportJob : 束ねる
+    BatchApplication --> ImportScheduler : 起動する
+    ManualImportController --> BatchApplication : 手動起動する
+
+    note for AbstractImporter "【P1・新設】共通骨格を1か所へ固定\nparse/validateは純粋仮想フック"
+    note for StoreDataImporter "【P1・残した】直営店のパース・行検証だけ"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "AbstractImporter,StoreDataImporter,FCDataImporter,ECDataImporter" focus
 ```
 
-図から読み取ること：骨格の複製が消え、親クラスの `import()` 1か所に集約。サブクラスは差分フックだけを持つ。
+クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-### 6-4：影響範囲（この設計で変更要求を再度当てたら）
-
-| 変更要求 | 修正する場所 | 再テスト範囲 |
-|---|---|---|
-| 形式を1つ追加（SNS経由など） | `AbstractImporter` を継承し、`parseData`/`validateRows` を実装したクラスを1つ追加 | 追加クラス単体。**骨格と既存形式は無変更** |
-| 共通手順を変える（バージョンチェック追加など） | 親クラスの `import()` の1か所 | 骨格（全形式に一度で効く） |
-| EC店だけの計算を足す | `afterParse` フックのみ | EC店 |
-
-現状との差：現状は共通手順を変えるたびに全形式の `import()` を触る。対策後は親の1か所で済み、形式追加はサブクラスを1つ足すだけ。**この「触る範囲の差」がこの構造を採る理由**です。
-
-### 採用する形を決める
-
-各案には一長一短があります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。今回の課題は、共通手順を守りながら、店舗種別ごとのパース差分と検証差分だけを差し替えることです。
-
-| 案 | 解けること | 残ること | 今回の判断 |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
 |---|---|---|---|
-| 何もしない | 追加コストはない | 形式追加のたびに共通手順を複製しやすい | 新形式追加の予定と合わない |
-| ユーティリティ化 | 重複した小処理を減らせる | 手順全体の順序は各クラスに残る | 最初の整理として有効 |
-| 共通手順を親側へ集約 | 手順の順序を1か所で守れる | 差分ステップを定義する基底クラスが増える | 共通手順を守る課題に合うため採用する |
+| P1 | 共通骨格を `AbstractImporter` へ固定する | `import()` に固定順序を書き、可変部を純粋仮想フックにする | ステップ1 |
+| P1 | 形式差分を派生クラスへ残す | 各Importerで `parseData()` / `validateRows()` を override する | ステップ2 |
+| P1 | 保存・取得を外部境界へ委譲する | `ImportFileGateway` / `SalesImportRepository` を骨格へ注入する | ステップ3 |
 
-**今回の決断：** フェーズ2のヒアリングで、システム基盤担当から「次はSNS経由の販売データを取り込む予定」と明言されています。形式追加の見込みを重視し、今回は**骨格を親クラスの `import()` へ固定し、差分をフックへ委譲する形を採用する**決断を下します。処理の骨格を親クラスが定義し、変わるステップだけをサブクラスが差し替えます。
+このクラス図が、P1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
-フェーズ6で採用する設計（骨格とフックの接続点・データ配置・構造・影響範囲）が決まりました。次のフェーズ7では、この決断を動く実装（`ImportFileGateway`・`SalesImportRepository`・`AbstractImporter` と各形式クラス・実行結果）に落とし込み、変更要求で効果を確認します。
+#### 課題箇所のおさらい（フェーズ3の関連コード）
+
+統合表で特定した箇所だけを振り返ります。P1は各 `import()` にべた書きされた共通骨格と、その中に混ざる形式差分です。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+
+```cpp
+// EC店データのインポート（会員ランク・ポイント項目あり）
+// 既存の直営店・FC店と同じ手順を、また import() の中にべた書きでコピーしている
+class ECDataImporter {
+    vector<string> rawLines;
+public:
+    explicit ECDataImporter(vector<string> lines) : rawLines(move(lines)) {}
+
+    ImportResult import() {
+        cout << "EC店CSVを開く\n";                  // (1) 開く ← 全形式で同じコピー
+        vector<SalesRow> rows; int skipped = 0;
+        for (size_t i = 1; i < rawLines.size(); ++i) {
+            vector<string> c = splitLine(rawLines[i], ',');
+            if (c.size() < 5) { ++skipped; continue; }   // EC固有の列数
+            rows.push_back({c[0], c[1], stol(c[2])});
+        }
+        long pointBonus = 0;                        // (2') EC固有：ポイント付与
+        for (auto& r : rows) pointBonus += r.amount / 100;
+        cout << rows.size() << "件をDBへ追加\n";     // (3) 保存 ← また同じコピー
+        cout << "ファイルを閉じる\n";                 // (4) 閉じる ← また同じコピー
+        return {"EC店データ", (int)rows.size(), skipped};
+    }
+};
+```
+
+### 6-1：採用設計をコードへ段階的に反映する
+
+採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+
+#### 実装ステップ1（P1）：共通骨格を基底クラスへ固定する
+
+全形式で同じだった open→検証→パース→行検証→保存→close の順序を `AbstractImporter::import()` の1か所へ固定します。形式で変わるステップは純粋仮想フックにし、派生クラスへ委ねます。
+
+```cpp
+class AbstractImporter {
+    ImportFileGateway& gateway;
+    SalesImportRepository& repo;
+public:
+    AbstractImporter(ImportFileGateway& g, SalesImportRepository& r)
+        : gateway(g), repo(r) {}
+    virtual ~AbstractImporter() = default;
+
+    // 骨格：この順序だけを1か所に固定する
+    ImportResult import() {
+        vector<string> lines = gateway.open(filePath());
+        gateway.checkFormatVersion();
+        vector<ParsedRow> parsed = parseData(lines);      // 形式差分
+        ValidationResult v = validateRows(parsed);        // 形式差分
+        afterParse(v.validRows);                          // 任意フック
+        int saved = repo.save(v.validRows);
+        gateway.close();
+        return { schemaType(), schemaName(), saved, v.skipped, true };
+    }
+protected:
+    virtual string filePath() const = 0;
+    virtual string schemaType() const = 0;
+    virtual string schemaName() const = 0;
+    virtual vector<ParsedRow> parseData(const vector<string>&) = 0;
+    virtual ValidationResult validateRows(const vector<ParsedRow>&) = 0;
+    virtual void afterParse(const vector<SalesRow>&) {}
+};
+```
+
+**P1との対応：** `AbstractImporter::import()` の固定順序を実装しました。骨格はここ1か所だけになり、形式ごとの読み方は純粋仮想フックの向こう側へ隠れます。
+
+#### 実装ステップ2（P1）：形式差分を派生クラスのフックへ残す
+
+各形式は、骨格を持たず `parseData()` / `validateRows()` の中身だけを実装します。共通順序は基底クラスにあるため、直営店もFC店も骨格を複製しません。
+
+```cpp
+class StoreDataImporter : public AbstractImporter {
+public:
+    using AbstractImporter::AbstractImporter;
+protected:
+    string filePath()   const override { return "store_sales.csv"; }
+    string schemaType() const override { return "store"; }
+    string schemaName() const override { return "直営店データ"; }
+    vector<ParsedRow> parseData(const vector<string>& lines) override {
+        vector<ParsedRow> out;                       // カンマ区切り・ヘッダーあり
+        for (size_t i = 1; i < lines.size(); ++i) {
+            vector<string> c = splitLine(lines[i], ',');
+            bool ok = (c.size() >= 3);
+            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
+            out.push_back({r, ok});
+        }
+        return out;
+    }
+    ValidationResult validateRows(const vector<ParsedRow>& parsed) override {
+        ValidationResult v{{}, 0, {}};
+        for (auto& p : parsed)
+            if (p.wellFormed) v.validRows.push_back(p.row);
+            else ++v.skipped;
+        return v;
+    }
+};
+```
+
+**P1との対応：** `AbstractImporter <|-- StoreDataImporter` の継承と、形式差分だけを持つフックを実装しました。FC店・EC店も同じ形で差分だけを実装します。
+
+#### 実装ステップ3（P1）：保存・取得を外部境界へ委譲する
+
+骨格が保存媒体を知らないよう、ファイル取得とDB保存を境界クラスへ委譲し、組み立て側から注入します。骨格の順序は変えず、`open()` と `save()` を呼ぶだけにします。
+
+```cpp
+ImportFileGateway gateway;
+SalesImportRepository repo;
+gateway.prepareSample("store_sales.csv", storeCsv);
+
+StoreDataImporter store(gateway, repo);   // 骨格へ境界を注入
+ImportResult r = store.import();          // 固定順序で実行
+```
+
+**P1との対応：** `AbstractImporter --> ImportFileGateway` / `SalesImportRepository` の利用関係を実装しました。ここで共通骨格と形式差分が一つの構造として接続されました。
+
+### 6-2：システム全体の契約とデータ配置を確定する
+
+採用システムの契約、生成場所、依存注入を一表で確定します。`ImportResult` は対策の抽象ではなく、取込1回の種別・保存件数・スキップ件数・成否を呼び出し元へ返す結果オブジェクトです。
+
+```cpp
+struct ImportResult {
+    string schemaType;   // 形式の種別
+    string schemaName;   // 表示名
+    int saved;           // 保存できた件数
+    int skipped;         // スキップした件数
+    bool ok;             // 成否
+};
+```
+
+| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |
+|---|---|---|
+| 何を分離するか | P1の形式ごとのパース・行検証を派生クラスのフックへ置く | 形式ごとの読み方 |
+| どこで生成・選択するか | `main()`／組み立てが形式別Importerを生成する | 具体形式クラスの生成 |
+| どう依存を渡すか | 骨格へ `ImportFileGateway` / `SalesImportRepository` を注入する | 保存媒体の詳細 |
+| 安定側はどう実行するか | `AbstractImporter::import()` が固定順序でフックを呼ぶ | 形式ごとの解析詳細 |
+
+参照で非所有の依存を保持するため、`main()` の境界オブジェクトはImporterより長く生存させます。
+
+#### システム全体のコード適用結果
+
+| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |
+|---|---|---|---|
+| 形式追加を差分に限定する | 形式別Importerの `parseData`/`validateRows` と登録 | 新形式クラスと登録 | 達成 |
+| 共通骨格を複製しない | `AbstractImporter::import()` の固定順序 | 既存骨格の修正なし | 達成 |
+| 骨格と形式を相互に隠す | 純粋仮想フックと override | 双方の詳細は相手に見えない | 達成 |
+| `ImportResult` 契約を守る | `import()` の戻り値 | 件数・スキップ・成否を維持 | 達成 |
+
+**システム全体の実装結果：達成。** P1の責任が骨格固定構造で接続され、冒頭の完了条件をすべて満たしました。実際の動作と変更影響はフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 採用したステップ2の設計を、実際のコードに実装します。これまでは個別のクラスで重複していたファイル操作やDB保存の手順を、基底クラスにテンプレートとして集約します。
@@ -1658,11 +1671,13 @@ classDiagram
 
 章末のTemplate Method骨格図では `AbstractImporter.import()` が共通の骨格、3つのImporterが個別ステップを実装する具象クラスに対応します。ファイル取得とDB保存は骨格へ直書きせず、それぞれの外部境界へ委譲します。
 
-#### 課題IDごとの完成コード結果
+#### 変更軸ごとの完成コード追跡
 
-| 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |
+| 課題ID | 完成コードの適用先 | 実装後に起きたこと | システム全体で維持できた範囲 |
 |---|---|---|---|
 | P1 | `AbstractImporter::import()`、形式別Importer、`SchemaRegistry` | 共通順序は1か所で実行され、形式別クラスは解析・検証差分だけを提供した | 新形式で共通骨格を複製せず、形式実装と登録だけを追加できる |
+
+1行は、一つの完成システムを唯一の変化軸から追跡した結果です。骨格固定構造がP1の完了条件を維持しています。
 
 ### 7-2：動作シーケンス図
 
@@ -1707,20 +1722,25 @@ sequenceDiagram
 
 ### 7-3：変更影響グラフ（改善後）
 
-フェーズ3で確認した「形式バージョンチェック追加」のシナリオを再度適用します。
+フェーズ3で確認した「EC店形式の追加」のシナリオを、3-2と同じ粒度で再度適用します。
 
 ```mermaid
 graph LR
-    T1["変更要求：新フォーマット対応<br>（形式バージョンチェック追加）"]
-    F1["AbstractImporter<br>（基底クラスの修正のみ）"]
-    T1 --> F1
-    T1 -. "影響なし" .-> A["StoreDataImporter ✅"]
-    T1 -. "影響なし" .-> B["FCDataImporter ✅"]
-    T1 -. "影響なし" .-> C["ECDataImporter ✅"]
-
+    T1["変更要求：EC店形式の追加"]
+        -->|新規追加| F1["ECDataImporter<br>（parse/validateフックのみ）"]
+    T1 -->|登録を追加| F2["SchemaRegistry / 組み立て<br>（ec登録）"]
+    T1 -. "影響なし" .-> A["AbstractImporter ✅"]
+    T1 -. "影響なし" .-> B["StoreDataImporter / FCDataImporter ✅"]
 ```
 
-→ **フェーズ3の変更影響グラフと比較して、形式バージョンチェックの追加という変更要求が、基底クラスである `AbstractImporter` 一箇所に集約されました**。
+フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、共通骨格 `AbstractImporter` と既存形式は変更先から消えました。EC店形式の追加は、`ECDataImporter` のフック実装と `SchemaRegistry` への登録だけに限定されます。
+
+| 3-2で影響した場所 | 修正後 | 構造変更との対応 |
+|---|---|---|
+| 各Importerの共通骨格 | **修正しない** | 骨格を `AbstractImporter` へ集約した |
+| 3-2には共通の骨格がなかった | `AbstractImporter::import()` は無変更 | 順序を1か所へ固定した |
+| 3-2には形式差分の置き場がなかった | `ECDataImporter` のフックを追加する | 形式差分の変更先を新しく作った |
+| 形式の登録 | `SchemaRegistry` へ ec を追加する | 形式の登録だけを増やす |
 
 ### 7-4：変更シナリオ表
 
@@ -1747,7 +1767,7 @@ graph LR
 |---|---|
 | **問題** | インポート形式や行単位検証が増えるたびに共通手順を重複して書かなければならず、想定される追加頻度ではコストが合わない |
 | **原因** | 骨格（システム基盤担当が管理）とパース/行検証ルール（業務担当者が管理）が各クラスの `import()` に混在しており、骨格への変更が全インポートクラスに波及する |
-| **課題** | 共通の呼び出し順序と形式ごとの `parseData()` / `validateRows()` を切り離し、骨格を1か所に集約する |
+| **課題P1** | 共通の呼び出し順序と形式ごとの `parseData()` / `validateRows()` を切り離し、骨格を1か所に集約する |
 | **解決策** | 骨格固定構造：`AbstractImporter` に骨格を固定し、必須の `parseData()` / `validateRows()` と任意の `afterParse()` をサブクラスへ委ねる |
 
 ### フェーズとこの章でやったこと
@@ -1761,7 +1781,7 @@ graph LR
 | 🟣 フェーズ3：問題特定 | 新しいインポート形式を追加しようとした際に、全クラスで同じ修正が必要になる「痛み」を確認しました |
 | 🟠 フェーズ4：原因分析 | 共通の「骨格（手順）」と固有の「詳細（ロジック）」が混在していることが、変更影響を拡大させる根本原因だと突き止めました |
 | 🟡 フェーズ5：課題定義 | 共通の処理順序と形式ごとの `parseData()` / `validateRows()` の境界を定め、手順の重複を増やさない課題を定めた |
-| 🔴 フェーズ6：対策検討 | ステップ1〜2を比較し、共通手順を基底クラスにテンプレート化して分離するステップ2を採用しました |
+| 🔴 フェーズ6：対策検討 | P1を満たす最終構造は骨格固定構造に一意に定まると確認し、採用クラス図を3ステップでコードへ反映した |
 | 🟢 フェーズ7：対策実施 | 共通の手順を基底クラスに集約し、固有ロジックだけをサブクラスで実装する構造へ移行しました |
 
 ### 責任の移動

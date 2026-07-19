@@ -140,6 +140,11 @@ SYSTEM_STRUCTURE_CLASS_TOKENS = {
         "IBankTransferService", "BankTransferService",
         "AccountDatabase", "TransferHistory",
     ],
+    "chapter04.md": [
+        "AbstractImporter", "StoreDataImporter", "FCDataImporter",
+        "ECDataImporter", "SchemaRegistry", "ImportFileGateway",
+        "SalesImportRepository", "parseData",
+    ],
 }
 SYSTEM_STRUCTURE_FINAL_FORMS = {
     "chapter01.md": [
@@ -147,6 +152,7 @@ SYSTEM_STRUCTURE_FINAL_FORMS = {
         "具象ルールの登録システム",
     ],
     "chapter02.md": ["窓口構造"],
+    "chapter04.md": ["骨格固定構造"],
 }
 SYSTEM_STRUCTURE_RESULT_TOKENS = {
     "chapter01.md": [
@@ -156,6 +162,10 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
     "chapter02.md": [
         "変更要求：認証フロー変更", "BankTransferService",
         "Application", "TransferProcessor",
+    ],
+    "chapter04.md": [
+        "変更要求：EC店形式の追加", "ECDataImporter",
+        "AbstractImporter", "SchemaRegistry",
     ],
 }
 
@@ -167,6 +177,7 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
 SYSTEM_STRUCTURE_MODE = {
     "chapter01.md": "select",
     "chapter02.md": "single",
+    "chapter04.md": "single",
 }
 
 BANNED_PATTERNS = [
