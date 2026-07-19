@@ -292,24 +292,40 @@ public:
 
 ```cpp
 class SystemAClient {
+    vector<string> sent;              // 送ったデータを実際に蓄積する
 public:
-    void send(string d) { cout << "A社へ送信: " << d << endl; }
+    void send(string d) {
+        sent.push_back(d);
+        cout << "A社へ送信(" << sent.size() << "件): " << d << endl;
+    }
 };
 class SystemBClient {
+    vector<string> sent;
 public:
-    void send(string d) { cout << "B社へ送信: " << d << endl; }
+    void send(string d) {
+        sent.push_back(d);
+        cout << "B社へ送信(" << sent.size() << "件): " << d << endl;
+    }
 };
 class NotificationService {
+    vector<string> inbox;             // 受け取った通知を蓄積する
 public:
-    void notify(string r) { cout << "完了通知: " << r << endl; }
+    void notify(string r) {
+        inbox.push_back(r);
+        cout << "完了通知(" << inbox.size() << "件): " << r << endl;
+    }
 };
 class SlackNotifier {
+    vector<string> inbox;
 public:
-    void notify(string result) { cout << "Slack通知: " << result << endl; }
+    void notify(string result) {
+        inbox.push_back(result);
+        cout << "Slack通知(" << inbox.size() << "件): " << result << endl;
+    }
 };
 ```
 
-`SystemAClient` と `SystemBClient` は連携先ごとに分かれた送信クラスで、実際の外部API呼び出しを標準出力で代替しています。`NotificationService` は転送完了後の通知を担い、メールやSlackへの通知を標準出力で代替します。
+`SystemAClient` と `SystemBClient` は連携先ごとに分かれた送信クラスで、送ったデータを内部に蓄積しつつ、実通信は標準出力で代替します。`NotificationService` と `SlackNotifier` は転送完了後の通知を担い、受け取った通知を蓄積して通し番号（何件目か）付きで表示します。実通信こそ省きますが、「何を送り、何件通知したか」は実際の状態として残ります。
 
 **③ バッチ処理をまとめるクラス（BatchExecutor）**
 
@@ -334,10 +350,10 @@ public:
         PartnerConfig cfg = db.get(partnerId);
         if (partnerId == "PARTNER_A") {
             SystemAClient client; // A社向けクライアントを生成
-            client.send("data");
+            client.send(cfg.name + "のデータ");
         } else if (partnerId == "PARTNER_B") {
             SystemBClient client; // B社向けクライアントを生成
-            client.send("data");
+            client.send(cfg.name + "のデータ");
         }
         NotificationService notifier; // 連携完了を通知
         notifier.notify(cfg.name + " 連携完了");
@@ -380,10 +396,10 @@ int main() {
 実行結果：
 
 ```
-A社へ送信: data
-完了通知: 物流会社A 連携完了
-B社へ送信: data
-完了通知: 在庫会社B 連携完了
+A社へ送信(1件): 物流会社Aのデータ
+完了通知(1件): 物流会社A 連携完了
+B社へ送信(1件): 在庫会社Bのデータ
+完了通知(1件): 在庫会社B 連携完了
 エラー: パートナー [分析会社Z] は現在無効です。処理を中断します。
 エラー: パートナーID [PARTNER_X] はデータベースに登録されていません。
 ```
@@ -1255,27 +1271,33 @@ public:
     virtual void onComplete(string result) = 0;
 };
 
-// Slack通知の具体的な実装
+// Slack通知の具体的な実装（受け取った通知を蓄積する）
 class SlackNotifier : public INotifier {
+    vector<string> inbox;
 public:
     void onComplete(string result) {
-        cout << "Slack通知: " << result << endl;
+        inbox.push_back(result);
+        cout << "Slack通知(" << inbox.size() << "件): " << result << endl;
     }
 };
 
 // メール通知の具体的な実装
 class EmailNotifier : public INotifier {
+    vector<string> inbox;
 public:
     void onComplete(string result) {
-        cout << "Email通知: " << result << endl;
+        inbox.push_back(result);
+        cout << "Email通知(" << inbox.size() << "件): " << result << endl;
     }
 };
 
 // ログ基盤への記録
 class LogNotifier : public INotifier {
+    vector<string> inbox;
 public:
     void onComplete(string result) {
-        cout << "ログ基盤へ記録: " << result << endl;
+        inbox.push_back(result);
+        cout << "ログ基盤へ記録(" << inbox.size() << "件): " << result << endl;
     }
 };
 ```
@@ -1585,25 +1607,25 @@ int main() {
 ```
 --- 行1: A社月次バッチ ---
 A社へ転送: data
-Slack通知: 物流会社A 連携完了
+Slack通知(1件): 物流会社A 連携完了
 --- 変更要求: C社月次バッチ（今回追加） ---
 C社へ転送: data
-Slack通知: 配送会社C 連携完了
+Slack通知(2件): 配送会社C 連携完了
 --- 行3: D社日次バッチ（新規D社追加後） ---
 D社へ転送: data
-Slack通知: 配送会社D 連携完了
+Slack通知(3件): 配送会社D 連携完了
 --- 行4: B社手動トリガー ---
 [ManualTrigger] B への手動同期を実行。
 B社へ転送: manualData
-Slack通知: B社手動連携完了
+Slack通知(4件): B社手動連携完了
 --- 行5: A社月次バッチ（API障害・Slack＋メール通知） ---
 A社へ転送: data
-Slack通知: 物流会社A 連携失敗: A社: API障害
-Email通知: 物流会社A 連携失敗: A社: API障害
+Slack通知(5件): 物流会社A 連携失敗: A社: API障害
+Email通知(1件): 物流会社A 連携失敗: A社: API障害
 --- 行6: B社バッチ（Slack＋ログ基盤） ---
 B社へ転送: data
-Slack通知: 在庫会社B 連携完了
-ログ基盤へ記録: 在庫会社B 連携完了
+Slack通知(6件): 在庫会社B 連携完了
+ログ基盤へ記録(1件): 在庫会社B 連携完了
 --- 無効パートナーZ社の実行試行 ---
 エラー: パートナー [分析会社Z] は現在無効です。処理を中断します。
 
