@@ -174,6 +174,11 @@ SYSTEM_STRUCTURE_CLASS_TOKENS = {
         "IPriorityRule", "CorporatePriority", "NormalPriority",
         "UserDatabase",
     ],
+    "chapter10.md": [
+        "IExternalClient", "SystemAClient", "INotifier", "SlackNotifier",
+        "IClientCreator", "SystemAClientCreator", "BatchExecutor",
+        "ManualTriggerController",
+    ],
 }
 SYSTEM_STRUCTURE_FINAL_FORMS = {
     "chapter01.md": [
@@ -188,6 +193,7 @@ SYSTEM_STRUCTURE_FINAL_FORMS = {
     "chapter07.md": ["通知分離構造"],
     "chapter08.md": ["生成分離構造"],
     "chapter09_2.md": ["状態分離構造", "ルール差し替え構造"],
+    "chapter10.md": ["窓口構造", "通知分離構造", "生成分離構造"],
 }
 SYSTEM_STRUCTURE_RESULT_TOKENS = {
     "chapter01.md": [
@@ -226,6 +232,10 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
         "変更要求：状態追加", "ITicketPhase",
         "IPriorityRule", "TicketContext",
     ],
+    "chapter10.md": [
+        "変更要求：連携先の追加", "IExternalClient",
+        "IClientCreator", "INotifier",
+    ],
 }
 
 # フェーズ6「システム全体の最終構造を決める」の出し方は章の問題で決まる。
@@ -243,6 +253,7 @@ SYSTEM_STRUCTURE_MODE = {
     "chapter07.md": "single",
     "chapter08.md": "single",
     "chapter09_2.md": "combine",
+    "chapter10.md": "combine",
 }
 
 BANNED_PATTERNS = [
