@@ -154,6 +154,11 @@ SYSTEM_STRUCTURE_CLASS_TOKENS = {
         "IDrink", "Coffee", "ToppingWrapper", "Milk",
         "ToppingCatalog", "OrderAssembler", "CustomDrink", "MenuDatabase",
     ],
+    "chapter07.md": [
+        "INotification", "EmailNotifier", "DashboardUpdater",
+        "ChatNotifier", "SMSNotifier", "InventoryManager",
+        "ProductDatabase", "StockEventLog",
+    ],
     "chapter08.md": [
         "PaymentApplication", "IPaymentProcessor", "CreditCardProcessor",
         "BankTransferProcessor", "ConvenienceStoreProcessor",
@@ -169,6 +174,7 @@ SYSTEM_STRUCTURE_FINAL_FORMS = {
     "chapter04.md": ["骨格固定構造"],
     "chapter05.md": ["操作記録構造"],
     "chapter06.md": ["装飾連結構造"],
+    "chapter07.md": ["通知分離構造"],
     "chapter08.md": ["生成分離構造"],
 }
 SYSTEM_STRUCTURE_RESULT_TOKENS = {
@@ -192,6 +198,10 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
         "変更要求：抹茶トッピングの追加", "Matcha",
         "ToppingCatalog", "IDrink",
     ],
+    "chapter07.md": [
+        "変更要求：SMS通知の追加", "SMSNotifier",
+        "InventoryManager", "INotification",
+    ],
     "chapter08.md": [
         "変更要求：PayPay決済の追加", "PayPayProcessor",
         "ProcessorRegistry", "IPaymentProcessor",
@@ -209,6 +219,7 @@ SYSTEM_STRUCTURE_MODE = {
     "chapter04.md": "single",
     "chapter05.md": "single",
     "chapter06.md": "single",
+    "chapter07.md": "single",
     "chapter08.md": "single",
 }
 

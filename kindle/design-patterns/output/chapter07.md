@@ -923,248 +923,95 @@ graph LR
 
 P1は「通知先追加の波及」です。フェーズ6では、通知実装と登録だけへ影響を閉じる理想を先に決めます。
 
-## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
+## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-フェーズ6では、問題定義で確認した「通知先追加が `InventoryManager` と在庫更新の再テストへ波及する経路」を左へ引き継ぎます。P1の影響を切るクラス・契約・登録関係を中央に置き、同じ通知先追加を再適用した変更影響を右に描きます。その差、守る契約、完了条件、候補を同じP1の行へ落とし、通知関連コードを段階的に変更して中央の構造が妥当かを検証します。変更要求を容れる前の現状コードへは戻りません。
+P1を単独で解くのではなく、在庫イベントを出す通知元と、増減する通知先を同じ契約で疎結合に扱えるシステムを設計します。
 
-#### 問題定義の変更影響を、どの構造で変えるか
+#### 3-2の変更影響を、システム構造の材料へ統合する
 
-フェーズ4では、通知先追加が InventoryManager のメンバ、分岐、呼び方、成否集計へ波及しました。理想は、追加通知先と登録だけを変更対象にすることです。
-
-```mermaid
-flowchart LR
-    subgraph Pain["問題定義：変更前の変更影響"]
-        direction TB
-        CR["通知先を追加"] --> C1["InventoryManager のメンバ・分岐・ループを修正"]
-        C1 --> C2["在庫更新と既存通知を再テスト"]
-    end
-    subgraph TargetStructure["影響を切る構造の形"]
-        direction TB
-        IM["InventoryManager"] --> Reg["登録済みINotificationのリスト"]
-        Reg --> N["INotification::send → DeliveryResult"]
-        NI["通知実装群"] -. "契約を実装" .-> N
-        IM --> Log["通知結果ログ"]
-    end
-    subgraph Result["同じ要求を再適用した変更影響"]
-        direction TB
-        IR["通知先を追加"] --> I1["P1: 通知実装と登録を追加"]
-        I1 --> I2["追加通知のDeliveryResultだけをテスト"]
-        IS["変更しない: 在庫更新・既存通知先"]
-    end
-    C1 -. "P1: 通知先別呼び出しを契約で切る" .-> N
-    N -. "新しい変更先" .-> I1
-```
-
-中央では、`InventoryManager` が通知先ごとの型を持たず、登録された `INotification` へ一律に送ります。各通知が `DeliveryResult` を返すため、在庫更新を変えずに部分失敗も記録でき、左の在庫処理への波及が右では通知実装と登録で止まります。
-
-#### 構造と変更後の影響から、課題と候補を一続きで導く
-
-| 課題ID | 変更の到達点 | 最初に試すコード変更 | 残る問題に対する次のコード変更 |
+| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |
 |---|---|---|---|
-| P1 | **現在→理想の差：** 在庫更新と通知先別ループを変更対象から外す<br>**切る境界・守る契約：** `notifyAll()` の具体型を切り、在庫更新を先に確定し、部分失敗で他通知を止めない<br>**完了条件：** `InventoryManager` のメンバ・分岐・ループを増やさない | **候補：** 通知処理へ共通名を付ける<br>**減る影響：** 在庫更新との境界が見える | `DeliveryResult` 契約へそろえ、登録先へ配る |
+| P1 | 通知先追加で `InventoryManager` のメンバ・通知先別呼び出し・結果集計と在庫更新の再テストへ波及する | 通知先ごとの送信手段と受付結果の責任を各通知クラスと `INotification` 契約へ移す | 商品・在庫検証、在庫更新、しきい値判定、既存通知先 |
 
-> **中間コードの継続条件：** 各ステップは通知の登録・配布だけを比較します。`ProductDatabase` の存在・在庫検証、在庫更新、しきい値判定は全ステップで維持します。通知の成功・保留・失敗は在庫更新を巻き戻さず、フェーズ7の `StockEventLog` は確定した在庫変動を記録するために追加します。
+#### システム全体の完了条件を固定する
 
-ここからP1の横一行を、通知先別メンバ・呼び出し・結果集計へ順に適用します。
+次の条件をすべて満たして、初めて対策完了とします。
 
-#### 課題箇所のおさらい（フェーズ3の関連コード）
+- 新しい通知先の追加を、通知1クラスと登録（`attach`）に限定する。
+- `InventoryManager` へ通知先別のメンバ・分岐・ループを増やさない。
+- 通知元は `string` メッセージを渡し、`DeliveryResult` の3状態（成功・保留・失敗）を集約するだけにする。
+- 商品・在庫検証、在庫更新、しきい値判定の位置と、一部通知失敗で他通知を止めない骨格を維持する。
 
-P1でおさらいするのは、フェーズ3のうち通知先ごとのメンバ、呼び出し、結果集計が在庫更新へ混ざった部分です。直前の一続き表で指定した「通知処理へ共通名を付ける」をこのコードへ当て、種類別リストで影響が残るなら、残った重複を根拠に同じ `DeliveryResult` 契約の登録リストへ進みます。以降の各段階でも同じP1を付け、変更理由、減った影響、残った影響、次へ進む判断をコードで示します。
+#### システム全体の最終構造を決める
 
-比較元は、SMS通知を追加するために `InventoryManager` のメンバと通知処理を直接増やしたフェーズ3の変更途中コードです。
+この章の最終構造は、競合する複数案から選ぶのではなく、完了条件から**一つに定まります**。通知先の知識を通知元から外し、通知元は登録された相手へ一律に配ると決めた時点で、「通知先が共通契約 `INotification` を満たし、`InventoryManager` が登録リストへ同じ操作で配る」**通知分離構造**以外に、上の完了条件を満たす形が残らないためです。
 
+通知先ごとに専用のメンバとループを通知元へ置く方式も理屈の上では置けますが、通知先が1種増えるたびに `InventoryManager` を触り、同期・非同期・部分失敗を同じ仕組みで扱えません。したがって当て馬を並べた比較は行いません（完成形が複数競合する章でのみ、構造差分を比較します）。
 
-課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+一意に定まった通知分離構造を、`INotification`（共通契約）、`EmailNotifier`／`DashboardUpdater`／`ChatNotifier`／`SMSNotifier`（通知部品）、`InventoryManager`（通知元）、`StockEventLog`（在庫変動の記録）の責任として具体化します。
 
-```cpp
-// 既存の通知クラス（変更なし）
-class EmailNotifier {
-public:
-    void send(std::string msg) {
-        std::cout << "[Email] " << msg << std::endl;
-    }
-};
-class DashboardUpdater {
-public:
-    void update(std::string msg) {
-        std::cout << "[Dashboard] " << msg << std::endl;
-    }
-};
-class ChatNotifier {
-public:
-    void send(std::string msg) {
-        std::cout << "[Chat] " << msg << std::endl;
-    }
-};
+### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
-// 新規追加：SMS通知クラス
-class SMSNotifier {
-public:
-    void send(std::string msg) {
-        std::cout << "[SMS] " << msg << std::endl;
-    }
-};
+フェーズ1の1-3で作ったクラス図へフェーズ2〜5の判断を反映し、変更後の形へ更新します。
 
-// 変更後の InventoryManager（3箇所を修正）
-class InventoryManager {
-    EmailNotifier    email;
-    DashboardUpdater dashboard;
-    ChatNotifier     chat;
-    SMSNotifier      sms; // ← ①メンバ変数を追加
-public:
-    void reduceStock(std::string productId, int quantity) {
-        std::cout << "在庫減少: " << productId
-                  << " × " << quantity << std::endl;
-        std::string msg = productId + " の在庫が減少しました";
-        notifyAll(msg);
-    }
-private:
-    void notifyAll(std::string msg) {
-        email.send(msg);
-        dashboard.update(msg);
-        chat.send(msg);
-        sms.send(msg); // ← ②notifyAll 内にも追加
-    }
-};
+| クラス図を変える材料 | 前工程で確認したこと | クラス図へ反映すること |
+|---|---|---|
+| フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
+| フェーズ2の変化予測 | 通知先の種類と同期・非同期は今後も増える | 毎回変わる責任へ `【移す】` と注記する |
+| フェーズ4の原因 | `InventoryManager` に在庫管理と通知先の具体知識が混在する | 同じクラスの中で `【残す】` と `【移す】` を分ける |
+| フェーズ5の接続点 | 通知元は種別を知らず、`string` を渡し `DeliveryResult` を集めればよい | P1の送信手段・受付結果を各通知クラスへ置く |
 
-int main() {
-    InventoryManager mgr;
-    mgr.reduceStock("ITEM-001", 5);
-    return 0;
-}
-```
+**薄い黄色が着目クラス**です。変更前では `InventoryManager` の `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。矢印は1-3と同じ利用・実装・登録関係です。
 
-### 6-1：痛みコードを段階的に変更し、接続点の「形」を探す
-
-課題は「通知先を外へ出す」と言っていますが、**どんな形なら外へ出せるか**は、課題からもクラス図からも出てきません。痛みコードを実際に変換し、**手を動かして詰まる場所**から形を見つけます。ここでは変換の着眼点を先に言語化し、その直後に生成・注入まで含む完全な候補コードで接続を確認します。
-
-**変換1：各通知を独立したメソッドへ切り出す。** まず `notifyAll` の中身を1つずつ名前付きメソッドに分けます。
-
-```cpp
-void notifyEmail(const std::string& message) {
-    email.send(message);
-}
-void notifyDashboard(const std::string& message) {
-    dashboard.update(message);
-}
-```
-
-処理には名前が付きましたが、通知先を増やすたびにメンバ、メソッド、`notifyAll()` の3か所を変えます。P1の変更範囲は減っていません。
-
-
-
-見えたこと：4つとも **`string` を受け取り `void` を返す**——同じ形をしている。
-まだ詰まること：通知先を1つ増やすと、メンバ変数・`notifyXxx`・`notifyAll` の呼び出しと、やはり在庫本体を3箇所触る。名前を付けただけで、増減の痛みは減っていない。
-
-**変換2：同じ形なら束ねられるはず——型ごとにリストで持つ。** 同じ形なら1つの入れ物に入れて回せるのでは、と型ごとのリストにしてみます。
-
-```cpp
-std::vector<EmailNotifier*> emails;
-std::vector<DashboardUpdater*> dashboards;
-
-for (auto* email : emails) email->send(message);
-for (auto* dashboard : dashboards) dashboard->update(message);
-```
-
-引数は同じでも型と操作名が異なるため、リストとループが増え続けます。ここから、`send(message) → DeliveryResult` までを1つの契約にそろえる必要があると分かります。
-
-
-
-詰まったこと：`send` と `update` で**呼ぶ名前が違い**、型も違うので、**型ごとに別リスト・別ループ**が要る。通知先が増えれば在庫本体をまた触る。ここで分かるのは、**「束ねるには、通知先全員が同じ名前・同じシグネチャの操作を持っていないといけない」**ということです。
-
-**変換の結論：** 4つを1つに束ねるには、全員が満たす**共通の契約（同じ操作 `send(string)`）**が要る。`update` を `send` にそろえれば、通知元は具体型を見ずに「契約」だけを一律に呼べる。これが、課題で言っていた**接続点の正体**です。クラス図から入っていたら、「なぜ契約が要るのか」には辿り着けませんでした。
-
-### 6-2：見つけた形を契約にし、データの置き場所を決める
-
-見つけた共通の形を、通知先が満たすべき**契約（インターフェース）**として定義します。
-
-```cpp
-class INotification {
-public:
-    virtual DeliveryResult send(
-        const std::string& message) = 0;
-    virtual ~INotification() = default;
-};
-
-class InventoryManager {
-    std::vector<INotification*> observers;
-public:
-    void attach(INotification& observer) {
-        observers.push_back(&observer);
-    }
-    void notifyAll(const std::string& message) {
-        for (auto* observer : observers) {
-            DeliveryResult result = observer->send(message);
-            recordDelivery(result); // 失敗でも次の通知へ進む
-        }
-    }
-};
-
-EmailNotifier email;
-SMSNotifier sms;
-InventoryManager inventory;
-inventory.attach(email);
-inventory.attach(sms);
-```
-
-通知の生成・登録・一律呼び出しまでがつながり、P1の完了条件を満たします。同期・非同期の受付結果と在庫数ログはフェーズ7の実行結果で確認します。
-
-
-
-次に、通知元がこの契約をどう持つか——データの置き場所を決めます。
-
-| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
-|---|---|---|---|
-| 在庫数・アラート閾値 | `ProductDatabase` | 変えない | 通知の設計とは別の変化軸。混ぜない |
-| 通知先の一覧 | `InventoryManager` に型ごと散在（`email`/`dashboard`/`chat`/`sms` の個別メンバ） | `InventoryManager` が「契約型の一覧」1本で持つ | 通知先は増減する同種のもの。1本なら追加で在庫本体を触らずに済む |
-
-通知元は、この契約の一覧だけを持ち、登録口（`attach`）で増減させます。接続点で受け渡すのは**メッセージ文字列だけ**——宛先・手段・同期/非同期は通知元が知りません。
-
-
-
-クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
-
-| 判断 | 関連コードで確認すること |
-|---|---|
-| 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
-| 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
-| 誰が所有するか | スタック、スマートポインタ、所有コンテナのどれが破棄まで担うかを決める |
-| どう注入するか | 必須依存はコンストラクタ、増減する依存は登録操作、生成自体を替える場合は生成契約から渡す |
-| 利用側は何を知るか | 利用側は抽象契約だけを保持し、処理中に具体クラスを生成しない |
-| 追加時にどこを変えるか | 新しい実装クラスと組み立て・登録を変更し、安定させたい処理骨格へ具体名を戻さない |
-
-生ポインタや参照で非所有の依存を保持する場合は、所有側の生存期間が利用側より長いことまで組み立てコードで確認します。
-
-#### 課題IDごとのコード適用結果
-
-| 課題ID | 候補を適用したコード | 段階的なコード変更と結果 | 守った契約・完了条件の判定 |
-|---|---|---|---|
-| P1 | 通知関数、`INotification::send()`、`InventoryManager::attach/notifyAll()` | **段階的な変更：** ①通知処理へ共通名を付け、種類別メンバが残ることを確認→②種類別リストでもループが重複することを確認→③`DeliveryResult` を返す同一契約の登録リストへ統合<br>**結果：** 通知先別メンバ・メソッド・ループが消えた | **守った契約：** 在庫更新を先に確定、部分失敗でも継続<br>**判定：** 種類別リストでは未達、一律配布で達成 |
-
-### 6-3：構造の見立て（分解の結果、こうなる）
-
-痛みコードを分解して共通の形を見つけ、契約とデータ配置を決めた**結果**、構造はこうなります。ここで初めてクラス図が描けます。図は思考の出発点ではなく、**結論**です。
-
-現状の依存（在庫本体が具象4つを直接持つ）：
+**変更前のクラス図（1-3を責任見直し用に再掲）：**
 
 ```mermaid
 classDiagram
     direction LR
-    class InventoryManager
-    InventoryManager --> EmailNotifier
-    InventoryManager --> DashboardUpdater
-    InventoryManager --> ChatNotifier
-    InventoryManager --> SMSNotifier
+    class InventoryManager {
+        -EmailNotifier email
+        -DashboardUpdater dashboard
+        -ChatNotifier chat
+        +reduceStock(productId, quantity)
+        -notifyAll(message)
+    }
+    class EmailNotifier { +send(message) }
+    class DashboardUpdater { +update(message) }
+    class ChatNotifier { +send(message) }
+    class ProductDatabase { +isBelowThreshold(id, stock) }
+    InventoryManager --> EmailNotifier : 直接呼び出し
+    InventoryManager --> DashboardUpdater : 直接呼び出し
+    InventoryManager --> ChatNotifier : 直接呼び出し
+    InventoryManager --> ProductDatabase : 存在確認・閾値判定
+
+    note for InventoryManager "【残す】在庫更新・しきい値判定\n【P1・移す】通知先別のメンバ・呼び出し・結果集計"
+    note for ProductDatabase "【維持】存在確認・閾値判定"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "InventoryManager" focus
 ```
 
-見立て（在庫本体は契約1つだけを知る）：
+変更前は `InventoryManager` が通知先の具体型・メソッド名・同期非同期を抱え、通知先追加のたびにメンバと `notifyAll()` の呼び出しが増えます。
+
+P1をクラス図の変更として書くと、次の3操作になります。
+
+1. P1：通知先が満たす共通契約 `INotification`（`notify` と受付結果 `DeliveryResult`）を新設する。
+2. P1：各通知先を `INotification` 実装へ移し、送信手段と受付結果を通知クラス側へ閉じる。
+3. P1：`InventoryManager` を登録リスト（`attach`）と一律配布へ変え、`StockEventLog` に確定した在庫変動を記録する。
+
+変更後は、通知元が具体型を知らず登録リストへ一律配布し、`InventoryManager` の通知先別メンバと分岐が消えたことを確認します。
+
+**採用した変更後のクラス図：**
 
 ```mermaid
 classDiagram
     class ProductDatabase
     class StockEventLog
     class InventoryManager
-    class INotification { <<interface>> }
+    class INotification {
+        <<interface>>
+        +notify(message) DeliveryResult
+    }
     class EmailNotifier
     class DashboardUpdater
     class ChatNotifier
@@ -1174,37 +1021,136 @@ classDiagram
     INotification <|.. DashboardUpdater
     INotification <|.. ChatNotifier
     INotification <|.. SMSNotifier
+    InventoryManager --> ProductDatabase
+    InventoryManager --> StockEventLog
+
+    note for INotification "【P1・新設】通知の共通契約"
+    note for EmailNotifier "【P1・新設】送信手段と受付結果を内包する通知部品"
+    note for StockEventLog "【P1・新設】確定した在庫変動の記録"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "INotification,EmailNotifier,DashboardUpdater,ChatNotifier,SMSNotifier" focus
 ```
 
-図から読み取ること：在庫本体から具体クラス名への矢印が消え、契約（`INotification`）への矢印1本へ集約された。通知先の増減は契約の裏側で起こり、在庫本体には及ばない。
+クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-### 6-4：影響範囲（この設計で変更要求を再度当てたら）
-
-採用の前に、この設計にしたとき、変更要求をもう一度当てると修正と再テストの範囲がどう変わるかを見ます。
-
-| 変更要求 | 修正する場所 | 再テスト範囲 |
-|---|---|---|
-| 通知先を1つ追加（音声通知など） | `INotification` を実装した新クラスを1つ追加し、`attach` で登録する | 追加クラス単体。**在庫本体は無変更** |
-| 通知の閾値条件を変える | `InventoryManager` の閾値判定のみ | 在庫本体（通知先は無関係） |
-| 通知先を一時的に0件にする | `attach` を呼ばないだけ | なし（在庫更新は止まらない） |
-
-現状との差：現状は通知先を追加するたびに在庫本体を開いて「メンバ変数・`notifyXxx`・`notifyAll` 内の呼び出し」の3箇所を直します。対策後は在庫本体を触りません。**この「触る範囲の差」こそが、この構造を採る理由**です。
-
-### 採用する形を決める
-
-設計案を、解けること・残ること・影響範囲で比べて決断します。
-
-| 案 | 解けること | 残ること | 今回の判断 |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
 |---|---|---|---|
-| 通知先を個別メンバのまま | 追加コストはない | 追加のたびに在庫本体を修正する | 通知先追加の予定と合わない |
-| 通知先を型ごとのリストで持つ | 同種の通知先を複数登録できる | 契約が揃わず、非同期や部分失敗を型ごとに扱う羽目になる | 固定種類なら有効 |
-| 契約（`INotification`）で統一する | 在庫本体は具体型を知らず、同期・非同期・部分失敗も受付結果で1契約に揃う | 登録・解除と受付結果の集約設計が必要 | 通知先が増え、非同期・部分失敗も混ざるため採用する |
+| P1 | 共通契約 `INotification` を新設する | `notify(message)` を純粋仮想で定義し `DeliveryResult` を返す | ステップ1 |
+| P1 | 各通知先を契約実装へ移す | `EmailNotifier` などが `notify()` を実装する | ステップ2 |
+| P1 | 通知元を登録・一律配布へ変える | `InventoryManager` が `attach` と `notifyAll` を持つ | ステップ3 |
 
-**今回の決断：** フェーズ2のヒアリングでSMS通知が要望され、今後も音声通知などが増える可能性があります。加えてSMSは受付だけ返す非同期であり、受付に失敗しても在庫や他通知を止めない要求がありました。そこで、**契約統一（`INotification` を接続点とし、受付結果を `DeliveryResult` で返して登録できるようにする）を採用**します。通知元は在庫イベントを出し、返ってきた受付結果を数えるだけに徹します。
+このクラス図が、P1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
-フェーズ6で採用する設計（接続点の契約・データ配置・構造・影響範囲）が決まりました。次のフェーズ7では、この決断を動く実装（在庫DB・全通知先・受付結果・実行結果）に落とし込み、変更要求で効果を確認します。
+#### 課題箇所のおさらい（フェーズ3の関連コード）
 
----
+統合表で特定した箇所だけを振り返ります。P1は `InventoryManager` の通知先別メンバと、`notifyAll()` 内の通知先別呼び出しです。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+
+```cpp
+// 現状：通知元が通知先の具体型・メソッド名を直接抱える
+class InventoryManager {
+    EmailNotifier    email;
+    DashboardUpdater dashboard;
+    ChatNotifier     chat;
+    SMSNotifier      sms;   // ← 通知先追加でメンバが増える
+public:
+    void reduceStock(std::string productId, int quantity) {
+        // 在庫更新・しきい値判定（維持）
+        notifyAll(productId + " の在庫が減少しました");
+    }
+private:
+    void notifyAll(std::string msg) {
+        email.send(msg);
+        dashboard.update(msg);   // ← 名前もシグネチャも通知先ごとに違う
+        chat.send(msg);
+        sms.send(msg);           // ← 通知先追加でここも増える
+    }
+};
+```
+
+### 6-1：採用設計をコードへ段階的に反映する
+
+採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+
+#### 実装ステップ1（P1）：通知の共通契約 `INotification` を定める
+
+すべての通知先が満たす契約 `INotification` を定義します。受付結果は成功・保留・失敗の3状態を持つ `DeliveryResult` に揃えます。
+
+```cpp
+struct DeliveryResult {
+    enum State { Accepted, Pending, Failed } state;
+};
+
+class INotification {
+public:
+    virtual ~INotification() = default;
+    virtual DeliveryResult notify(const std::string& message) = 0;
+};
+```
+
+**P1との対応：** `INotification` を新設しました。通知元は種別を知らず、`notify()` だけを呼び、`DeliveryResult` を集めます。
+
+#### 実装ステップ2（P1）：各通知先を契約実装へ移す
+
+各通知先は送信手段と受付結果を自分の中に閉じ、`notify()` で共通の `DeliveryResult` を返します。名前もシグネチャも揃うため、通知元は一律に呼べます。
+
+```cpp
+class EmailNotifier : public INotification {
+public:
+    DeliveryResult notify(const std::string& message) override {
+        // メール送信（同期）：受付できたら Accepted
+        return { DeliveryResult::Accepted };
+    }
+};
+```
+
+**P1との対応：** `INotification <|.. EmailNotifier` の実装関係を実装しました。`DashboardUpdater`・`ChatNotifier`・`SMSNotifier` も同じ形で、送信手段と同期非同期の差だけを内側に持ちます。
+
+#### 実装ステップ3（P1）：通知元を登録・一律配布へ変える
+
+`InventoryManager` は通知先を `attach` で登録リストへ持ち、在庫更新後に登録相手へ一律配布して結果を集約します。通知先別のメンバも分岐も持ちません。
+
+```cpp
+InventoryManager manager(productDatabase, stockEventLog);
+manager.attach(&emailNotifier);
+manager.attach(&smsNotifier);
+manager.reduceStock("ITEM-001", 5);  // 在庫更新→登録先へ一律 notify
+```
+
+**P1との対応：** `InventoryManager o--> INotification` の登録関係を実装しました。ここで通知元と通知先が一つの通知分離構造として接続されました。
+
+### 6-2：システム全体の契約とデータ配置を確定する
+
+採用システムの契約、生成場所、依存注入を一表で確定します。接続点で受け渡すのは `string` メッセージと `DeliveryResult` です。通知の成否は在庫更新を巻き戻さず、`StockEventLog` は確定した在庫変動を記録します。
+
+```cpp
+class StockEventLog {
+    std::vector<StockEvent> events;   // 確定した在庫変動の記録
+public:
+    void record(const StockEvent& e) { events.push_back(e); }
+    int count() const { return (int)events.size(); }
+};
+```
+
+| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |
+|---|---|---|
+| 何を分離するか | P1の送信手段・受付結果を各通知クラスと `INotification` へ置く | 通知先の種類・数・同期非同期 |
+| どこで生成・選択するか | 組み立て側が通知先を生成し `attach` で登録する | 具体通知クラスの選択 |
+| どう依存を渡すか | 登録時に `INotification*` を通知元へ渡す | 通知先クラスの実体 |
+| 安定側はどう実行するか | 通知元は登録先へ一律 `notify()` を呼ぶ | 何件が同期で何件が非同期か |
+
+通知先は組み立て側が所有し、通知元は非所有の `INotification*` を登録リストで保持します。所有側の生存期間が通知元より長いことを組み立てコードで確認します。
+
+#### システム全体のコード適用結果
+
+| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |
+|---|---|---|---|
+| 通知先追加を1クラスと登録に限定する | 通知クラスと `attach` 登録 | 新通知クラスと登録 | 達成 |
+| 通知元へ分岐・ループを増やさない | `InventoryManager` は `INotification` だけを扱う | 通知元の修正なし | 達成 |
+| 同じ契約で結果を集約する | `notify()` と `DeliveryResult` の3状態 | 成功・保留・失敗を数える | 達成 |
+| 検証・在庫更新・骨格を維持する | `ProductDatabase` 検証と在庫更新の位置 | 位置を維持し部分失敗で止めない | 達成 |
+
+**システム全体の実装結果：達成。** P1の責任が通知分離構造で接続され、冒頭の完了条件をすべて満たしました。実際の動作と変更影響はフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 フェーズ6のステップ3を実装し、通知元が通知先の種類を知らなくてよい構造へ変えます。`InventoryManager`は登録済みの通知先へ同じ操作を呼び出します。
@@ -1619,7 +1565,7 @@ classDiagram
 
 章末のObserver骨格図では、`InventoryManager` がSubject、`INotification` がObserver、各通知クラスがConcreteObserverに対応します。
 
-#### 課題IDごとの完成コード結果
+#### 変更軸ごとの完成コード追跡
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |
 |---|---|---|---|
@@ -1675,17 +1621,24 @@ sequenceDiagram
 
 ### 7-3：変更影響グラフ（改善後）
 
-フェーズ3で行った「SMS通知を追加する」という要求を、改善後の構造で見てみましょう。
+フェーズ3で確認した「SMS通知の追加」のシナリオを、3-2と同じ粒度で再度適用します。
 
 ```mermaid
 graph LR
-    T1["変更要求：SMS通知の追加"] --> F1["SMSNotifier（新規追加のみ）"]
-    T1 -. "影響なし" .-> A["InventoryManager ✅"]
-    T1 -. "影響なし" .-> B["EmailNotifier ✅"]
-
+    T1["変更要求：SMS通知の追加"]
+        -->|新規追加| F1["SMSNotifier<br>（INotification実装1クラス）"]
+    T1 -->|登録を追加| F2["attach(&smsNotifier)<br>（組み立て側の登録）"]
+    T1 -. "影響なし" .-> A["INotification / InventoryManager ✅"]
+    T1 -. "影響なし" .-> B["EmailNotifier など既存通知先 ✅"]
 ```
 
-フェーズ3のグラフと比較して、新しい通知先の追加は、新規クラスの作成と登録処理（attach）へ局所化されました。`INotification` の契約が変わらない限り、既存の通知元クラスや他の通知先クラスの実装を変更せずに追加できます。
+フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、共通契約 `INotification` と通知元 `InventoryManager`、既存通知先は変更先から消えました。SMS通知の追加は、`SMSNotifier` の1クラスと登録（`attach`）だけに限定されます。
+
+| 3-2で影響した場所 | 修正後 | 構造変更との対応 |
+|---|---|---|
+| `InventoryManager` のメンバ・`notifyAll()` の呼び出し | **修正しない** | 送信手段を各通知クラスへ移した |
+| 3-2には通知部品の契約がなかった | `SMSNotifier` を1クラス追加する | 通知先の変更先を新しく作った |
+| 通知先の登録 | 組み立て側で `attach` を1行増やす | 登録だけを増やす |
 
 ### 7-4：変更シナリオ表
 
