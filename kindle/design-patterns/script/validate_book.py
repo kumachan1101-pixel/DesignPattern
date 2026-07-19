@@ -66,7 +66,7 @@ REQUIRED_NUMBERED_SECTIONS = [
 ]
 
 PHASE6_BASELINE_HEADING = (
-    "#### ステップ1の比較元：仕様変更後の痛みコードをおさらいする"
+    "#### 振り返り：現行コード全体（フェーズ1）"
 )
 
 # Phase 3で追加した代表要素。各改善ステップでコードとして扱うか、
@@ -311,7 +311,7 @@ def is_new_phase6(text: str) -> bool:
 
 
 def check_phase6_design(text: str, path: Path) -> list[Issue]:
-    """完全な候補コードで比較するフェーズ6の必須要素を確認する。"""
+    """課題カードから段階コードへ進むフェーズ6の必須要素を確認する。"""
     if not is_new_phase6(text):
         return []
     p6, sec = _phase6_section(text)
@@ -324,17 +324,30 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
         ("```mermaid", "フェーズ6に構造のクラス図（mermaid）がありません"),
         ("### 6-4", "フェーズ6に影響範囲（6-4）がありません"),
         ("### 採用する形を決める", "フェーズ6に採用判断がありません"),
-        ("#### 比較元の完全コード（フェーズ1の現状）",
+        ("#### 対策検討の課題カード",
+         "フェーズ6に原因・最小変更・契約・完了条件を結ぶ課題カードがありません"),
+        ("#### 振り返り：現行コード全体（フェーズ1）",
          "フェーズ6に元の構造を振り返る完全コードがありません"),
-        ("#### 採用候補の完全コード（生成・所有・依存注入・実行入口まで）",
-         "フェーズ6に生成・依存注入まで含む完全な候補コードがありません"),
+        ("#### 痛みの差分（フェーズ3で変更した関連部分）",
+         "フェーズ6にフェーズ3の痛みを示す関連コードがありません"),
     ]
     for token, msg in checks:
         if token not in sec:
             issues.append(Issue(path, ln, msg))
-    if "int main(" not in sec:
+    if len(extract_cpp_blocks(sec)) < 4:
         issues.append(Issue(path, ln,
-                            "フェーズ6の完全な候補コードに実行入口 main() がありません"))
+                            "フェーズ6に現行全体・痛み・2段階以上の関連コードがありません"))
+    stale = [
+        "#### 採用候補の完全コード",
+        "この変換は断片コードでは示しません",
+        "完全な接続コードはこのフェーズの後半で示す",
+    ]
+    for token in stale:
+        if token in sec:
+            issues.append(Issue(
+                path, ln,
+                f"完成コード先出しの旧表現が残っています: {token}",
+            ))
     return issues
 
 
@@ -347,13 +360,13 @@ def extract_cpp_blocks(section: str) -> list[str]:
 
 
 def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
-    """Compare phase 6 code with the verified source sections, including line breaks."""
+    """現行全体・痛み・段階コード・完成コードの役割分担を確認する。"""
     markers = {
         "section14": "### 1-4：実装コード（現状）",
         "section15": "### 1-5：変更要求",
-        "baseline": "#### 比較元の完全コード（フェーズ1の現状）",
+        "baseline": "#### 振り返り：現行コード全体（フェーズ1）",
+        "pain": "#### 痛みの差分（フェーズ3で変更した関連部分）",
         "step61": "### 6-1：",
-        "candidate": "#### 採用候補の完全コード（生成・所有・依存注入・実行入口まで）",
         "step63": "### 6-3：",
         "section71": "### 7-1：",
         "section72": "### 7-2：",
@@ -367,11 +380,14 @@ def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
         text[offsets["section14"]:offsets["section15"]]
     ))
     baseline_code = "\n\n".join(extract_cpp_blocks(
-        text[offsets["baseline"]:offsets["step61"]]
+        text[offsets["baseline"]:offsets["pain"]]
     ))
-    candidate_code = "\n\n".join(extract_cpp_blocks(
-        text[offsets["candidate"]:offsets["step63"]]
-    ))
+    pain_blocks = extract_cpp_blocks(
+        text[offsets["pain"]:offsets["step61"]]
+    )
+    stage_blocks = extract_cpp_blocks(
+        text[offsets["step61"]:offsets["step63"]]
+    )
     phase7_code = "\n\n".join(extract_cpp_blocks(
         text[offsets["section71"]:offsets["section72"]]
     ))
@@ -382,18 +398,20 @@ def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
             path, line_number(text, offsets["baseline"]),
             "フェーズ6の比較元完全コードが1-4と同じ並び・改行ではありません",
         ))
-    if not candidate_code or candidate_code != phase7_code:
+    if not pain_blocks:
         issues.append(Issue(
-            path, line_number(text, offsets["candidate"]),
-            "フェーズ6の採用候補完全コードが7-1と同じ並び・改行ではありません",
+            path, line_number(text, offsets["pain"]),
+            "フェーズ6の痛みの差分に関連C++コードがありません",
         ))
-    fragments = extract_cpp_blocks(
-        text[offsets["step61"]:offsets["candidate"]]
-    )
-    if fragments:
+    if len(stage_blocks) < 2:
         issues.append(Issue(
             path, line_number(text, offsets["step61"]),
-            "6-1/6-2に完全コードとは別の断片C++コードが残っています",
+            "6-1/6-2に最小変更と次の変更を示す段階C++コードが不足しています",
+        ))
+    if not phase7_code:
+        issues.append(Issue(
+            path, line_number(text, offsets["section71"]),
+            "7-1に統合後の完成C++コードがありません",
         ))
     return issues
 
@@ -647,6 +665,109 @@ def check_boundary_error_marker(text: str, path: Path) -> list[Issue]:
                   "（発生しない/実システム境界/詳細扱いなし）が明記されていません")]
 
 
+def _cpp_class_names(section: str) -> set[str]:
+    cpp = "\n".join(extract_cpp_blocks(section))
+    return set(re.findall(r"\bclass\s+(\w+)", cpp))
+
+
+def _diagram_class_names(diagram: str) -> set[str]:
+    names = set(re.findall(r"\bclass\s+(\w+)", diagram))
+    relation = re.compile(
+        r"^\s*(\w+)\s+(?:<\|--|<\|\.\.|-->|\.\.>|o-->|\*-->|--\|>)\s*(\w+)",
+        re.MULTILINE,
+    )
+    for match in relation.finditer(diagram):
+        names.update(match.groups())
+    return names
+
+
+def check_class_diagram_completeness(text: str, path: Path) -> list[Issue]:
+    """1-4・6-3対策後・7-1の全classを対応するクラス図へ載せる。"""
+    ranges = []
+    s13 = text.find("### 1-3：")
+    s14 = text.find("### 1-4：")
+    s15 = text.find("### 1-5：", s14)
+    if min(s13, s14, s15) >= 0:
+        ranges.append(("1-3", s13, s14, text[s14:s15]))
+
+    s71 = text.find("### 7-1：")
+    diagram_heading = text.find("#### 解決後のクラス構成", s71)
+    if min(s71, diagram_heading) >= 0:
+        final_code = text[s71:diagram_heading]
+        s63 = text.find("### 6-3：")
+        s64 = text.find("### 6-4：", s63)
+        if min(s63, s64) >= 0:
+            phase6_diagrams = list(re.finditer(
+                r"classDiagram", text[s63:s64]
+            ))
+            if phase6_diagrams:
+                last_diagram = s63 + phase6_diagrams[-1].start()
+                ranges.append(("6-3対策後", last_diagram, s64, final_code))
+        ranges.append(("7-1", diagram_heading, len(text),
+                       final_code))
+
+    issues: list[Issue] = []
+    for label, diagram_start, diagram_limit, code_section in ranges:
+        class_diagram = text.find("classDiagram", diagram_start, diagram_limit)
+        if class_diagram < 0:
+            issues.append(Issue(
+                path, line_number(text, diagram_start),
+                f"{label}に対応するclassDiagramがありません",
+            ))
+            continue
+        diagram_end = text.find("```", class_diagram)
+        diagram = text[class_diagram:diagram_end]
+        missing = sorted(
+            _cpp_class_names(code_section) - _diagram_class_names(diagram)
+        )
+        if missing:
+            issues.append(Issue(
+                path, line_number(text, class_diagram),
+                f"{label}のコードにあるクラスがクラス図にありません: "
+                + ", ".join(missing),
+            ))
+    return issues
+
+
+def check_state_automation(text: str, path: Path) -> list[Issue]:
+    """State章の自動昇格・数値ログ・状態不変エラーを機械確認する。"""
+    if path.name != "chapter03.md":
+        return []
+    s71 = text.find("### 7-1：")
+    s72 = text.find("### 7-2：", s71)
+    final = text[s71:s72]
+    required = {
+        "ReservationWaitlist": "キャンセル待ちキューが完成コードにありません",
+        "promoteNextWaitlisted": "キャンセル後の自動昇格呼び出しがありません",
+        "50/50": "満席の予約数ログがありません",
+        "49/50": "キャンセル・自動昇格の予約数ログがありません",
+        "利用側が昇格メソッドを呼ぶ行はありません":
+            "自動昇格であることの実行結果説明がありません",
+    }
+    issues: list[Issue] = []
+    for token, message in required.items():
+        if token not in final:
+            issues.append(Issue(path, line_number(text, s71), message))
+    if re.search(r"\w+\.upgrade\s*\(", final):
+        issues.append(Issue(
+            path, line_number(text, s71),
+            "完成コードの利用側がキャンセル待ち昇格を手動実行しています",
+        ))
+    state_diagrams = re.findall(
+        r"```mermaid\s*\nstateDiagram-v2(.*?)```", text, re.DOTALL
+    )
+    for diagram in state_diagrams:
+        for match in re.finditer(
+            r"^\s*(\w+)\s*-->\s*\1\s*:\s*(.*)$", diagram, re.MULTILINE
+        ):
+            if re.search(r"失敗|エラー|不可|拒否", match.group(2)):
+                issues.append(Issue(
+                    path, line_number(text, text.find(match.group(0))),
+                    "状態不変のエラーを状態遷移図の自己遷移に含めています",
+                ))
+    return issues
+
+
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
@@ -665,6 +786,8 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase6_step_chain(text, path))
         issues.extend(check_phase7_continuity(text, path))
         issues.extend(check_intermediate_boundary_continuity(text, path))
+        issues.extend(check_class_diagram_completeness(text, path))
+        issues.extend(check_state_automation(text, path))
     return issues
 
 

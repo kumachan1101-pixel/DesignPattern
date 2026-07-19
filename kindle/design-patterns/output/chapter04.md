@@ -897,7 +897,7 @@ graph LR
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6は、フェーズ5で定めた課題——**骨格の呼び出し順序（open→checkVersion→parse→validate→save→close→result）を守りつつ、形式ごとのパース／検証を切り離す接続点を作る**——を受けて始めます。ここでは設計案を、比較元と同じ改行を保った完全コードで具体化して決めます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。候補コードは生成・所有・依存注入・実行入口までこのフェーズで示し、フェーズ7で実行結果を検証します。
+フェーズ6は、フェーズ5で定めた課題——**骨格の呼び出し順序（open→checkVersion→parse→validate→save→close→result）を守りつつ、形式ごとのパース／検証を切り離す接続点を作る**——を受けて始めます。まず現行コード全体を振り返り、痛みが出た関連部分へ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
 フェーズ5の課題から、対策候補は次のように出します。
 
 | フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
@@ -907,7 +907,15 @@ graph LR
 | 成功件数・スキップ件数・失敗理由を作る流れが各形式に散る | 呼び出し元へ返す取込結果の作り方を骨格側でそろえる | 保存後の結果記録を共通手順へ置けるかを見る |
 | 手順順序は守りたいが、変換方法は増える | 呼び出し順を固定しつつ、一部の処理だけを後から定義できる形にする | フックとして差分処理を渡す形まで進めるか判断する |
 
-#### 比較元の完全コード（フェーズ1の現状）
+#### 対策検討の課題カード
+
+| ID | 原因と着目コード | 最小変更と守る契約 | 完了条件 |
+|---|---|---|---|
+| P1 | 各Importerの `import()` に同じ順序と形式固有処理が混在する | 同じ手順へ名前を付け、共通順序を1か所へ移す。**守る：** open→version→parse→validate→save→close→result の順序 | 新形式は差分ステップだけを実装し、共通順序を複製しない |
+
+メソッド抽出から始めるのは、コードを親クラスへ移す前に「完全に同じ手順」と「形式ごとに違う手順」を行単位で分けるためです。
+
+#### 振り返り：現行コード全体（フェーズ1）
 
 最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
 
@@ -1079,20 +1087,112 @@ int main() {
 
 比較元は、EC店形式と形式バージョンチェックを追加したフェーズ3の変更途中コードです。直営店・FC店・EC店の3クラスが、同じ手順を各 `import()` にべた書きで複製しています。
 
-> フェーズ3で追加した状態・分岐・通知・履歴・入力・出力は、直前のフェーズ3本文で確認済みです。ここでは短い差分コードを重ねず、上の現状完全コードと下の採用候補完全コードを比較し、6-1の説明でどの責任を移すかを追います。
+#### 痛みの差分（フェーズ3で変更した関連部分）
+
+現行コード全体のどこに痛みが現れたかを振り返ります。以下はフェーズ3で変更した関連部分です。
+
+```cpp
+// EC店データのインポート（会員ランク・ポイント項目あり）
+// 既存の直営店・FC店と同じ手順を、また import() の中にべた書きでコピーしている
+class ECDataImporter {
+    vector<string> rawLines;
+public:
+    explicit ECDataImporter(vector<string> lines) : rawLines(move(lines)) {}
+
+    ImportResult import() {
+        // (1) 開く ← StoreDataImporter・FCDataImporter と全く同じコピー
+        cout << "EC店CSVを開く\n";
+
+        // (2) パース：カンマ区切り＋会員ランク・ポイント列（EC固有）
+        vector<SalesRow> rows; int skipped = 0;
+        for (size_t i = 1; i < rawLines.size(); ++i) {
+            vector<string> c = splitLine(rawLines[i], ',');
+            if (c.size() < 5) { ++skipped; continue; }   // ランク/ポイント列が不足
+            rows.push_back({c[0], c[1], stol(c[2])});
+        }
+        cout << "カンマ区切りで会員ランク・ポイント列まで解析（有効"
+             << rows.size() << "件・スキップ" << skipped << "件）\n";
+
+        // (2') EC固有：ポイント付与量を計算
+        long pointBonus = 0;
+        for (auto& r : rows) pointBonus += r.amount / 100;
+        cout << "ポイントボーナスを計算（合計" << pointBonus << "pt）\n";
+
+        // (3) 保存 ← また同じコピー
+        cout << rows.size() << "件をDBへ追加\n";
+
+        // (4) 閉じる ← また同じコピー
+        cout << "ファイルを閉じる\n";
+
+        return {"EC店データ", (int)rows.size(), skipped};
+    }
+};
+
+int main() {
+    vector<string> ecLines = {"id,name,amount,rank,points"};
+    for (int i = 1; i <= 10; ++i) {
+        if (i == 4 || i == 9)   // 2件は列不足（不正行）
+            ecLines.push_back("E00" + to_string(i)
+                + ",商品" + to_string(i) + ",3000");
+        else
+            ecLines.push_back("E00" + to_string(i) + ",商品"
+                + to_string(i) + ",3000,gold,50");
+    }
+    ECDataImporter importer(ecLines);
+    ImportResult r = importer.import();
+    cout << "インポート成功: " << r.saved << "件追加、スキップ" << r.skipped << "件\n";
+    return 0;
+}
+```
 
 ### 6-1：痛みコードを変換して、接続点の「形」を探す
 
-課題は「骨格を守りつつ形式差分を切り離す」と言っていますが、**どんな形なら切り離せるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（完全な接続コードはこのフェーズの後半で示す）。
+課題は「骨格を守りつつ形式差分を切り離す」と言っていますが、**どんな形なら切り離せるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（各段階の直後に関連コードで確かめる）。
 
 **変換1：各 `import()` の手順を独立したメソッドへ切り出す。** 何が共通で何が差分かを、名前として浮かび上がらせます。
 
-> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
+```cpp
+ImportResult StoreDataImporter::import() {
+    auto lines = openFile();             // 共通
+    checkFormatVersion();                // 共通
+    auto parsed = parseData(lines);      // 形式差分
+    auto valid = validateRows(parsed);   // 形式差分
+    int saved = saveToDB(valid);         // 共通
+    closeFile();                         // 共通
+    return makeResult(saved);            // 共通
+}
+```
+
+名前を付けると、順序と共通処理が各Importerで同じだと確認できます。しかし、この骨格を形式数ぶん複製する状態は変わっていないため、P1は未完了です。
+
+
 
 見えたこと：`openFile`/`checkFormatVersion`/`saveToDB`/`closeFile` は3クラスで**一字一句同じコピー**、`parseData`/`validateRows` だけが形式ごとに違う。しかも `import()` の**呼び出し順序も3クラスで完全一致**している。
 まだ詰まること：共通の手順（順序＋同一メソッド）が3クラスに複製されたまま。順序を変える（バージョンチェック追加など）と、また3クラスを触る。
 
 **変換2：共通の順序を1か所へ、差分だけを残す。** 一致している順序と同一メソッドを1つの親クラスの `import()` へまとめ、形式ごとに違う `parseData`/`validateRows` だけをサブクラス側に残そうとします。
+
+```cpp
+class AbstractImporter {
+public:
+    ImportResult import() {
+        auto lines = gateway.open(filePath());
+        gateway.checkFormatVersion();
+        auto parsed = parseData(lines);
+        auto valid = validateRows(parsed);
+        int saved = repository.save(valid.validRows);
+        gateway.close();
+        return makeResult(saved, valid.skipped);
+    }
+protected:
+    virtual std::vector<ParsedRow> parseData(
+        const std::vector<std::string>& lines) = 0;
+    virtual ValidationResult validateRows(
+        const std::vector<ParsedRow>& rows) = 0;
+};
+```
+
+共通順序は1か所になり、形式差分だけが穴として残りました。新形式で骨格を複製しないというP1の完了条件を満たせます。
 
 詰まり解消：親クラスに `import()` の順序と共通処理を1つだけ置き、サブクラスは `parseData`/`validateRows` の中身だけを埋める。順序変更は親の1か所で済む。ここで分かるのは、**「骨格（順序）を親に固定し、変わるステップだけを"後から埋める穴"にすればよい」**ということ。
 
@@ -1100,9 +1200,20 @@ int main() {
 
 ### 6-2：見つけた形を契約にし、データの置き場所を決める
 
-見つけた形を、骨格を固定する親クラスと、サブクラスが埋めるフック（抽象メソッド）として定義します（完全な接続コードはこの節の後半で示す）。
+見つけた形を、骨格を固定する親クラスと、サブクラスが埋めるフック（抽象メソッド）として定義します。
 
-> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
+```cpp
+ImportFileGateway gateway;
+SalesImportRepository repository;
+StoreDataImporter store(gateway, repository);
+FCDataImporter franchise(gateway, repository);
+
+ImportResult result = store.import();
+```
+
+境界の所有、Importerへの注入、共通入口 `import()` までをつなげました。全形式と実データを含む完成コードはフェーズ7で示します。
+
+
 
 次に、データ（骨格が触る外部境界）の置き場所を決めます。
 
@@ -1114,342 +1225,9 @@ int main() {
 
 接続点で受け渡すのは、フックを通る **`lines → ParsedRow → ValidationResult → 保存件数`** です。
 
-#### 採用候補の完全コード（生成・所有・依存注入・実行入口まで）
-
-クラスを分けただけでは利用できません。以下では、分離したクラスの定義だけでなく、具体オブジェクトを生成する場所、所有する場所、コンストラクタまたは登録操作による依存注入、実行入口からの呼び出しまでを一続きで示します。各行の並び・インデント・改行は、フェーズ7でコンパイル・実行確認する採用コードと同一です。フェーズ6では接続と責任移動を比較し、フェーズ7では同じコードを実行結果で検証します。
-
-```cpp
-#include <iostream>
-#include <sstream>
-#include <string>
-#include <vector>
-#include <map>
-#include <queue>
-#include <functional>
-using namespace std;
-
-// 1行を区切り文字で分割する小さなヘルパー
-static vector<string> splitLine(const string& line, char delim) {
-    vector<string> cols; string cur; istringstream iss(line);
-    while (getline(iss, cur, delim)) cols.push_back(cur);
-    return cols;
-}
-
-// ---- ドメインデータ型（void をやめ、実データを受け渡す）----
-struct SalesRow { string id; string name; long amount; };
-struct ParsedRow { SalesRow row; bool wellFormed; };
-struct ValidationResult {
-    vector<SalesRow> validRows;
-    int skipped;
-    vector<string> reasons;
-};
-struct ImportResult {
-    string schemaType;
-    string schemaName;
-    int saved;
-    int skipped;
-    bool success;
-};
-
-// ---- スキーマ ----
-struct ImportSchema { string name; vector<string> requiredColumns; };
-class SchemaRegistry {
-    map<string, ImportSchema> schemas;
-public:
-    SchemaRegistry() {
-        schemas["store"] = {"直営店データ", {"id","name","amount"}};
-        schemas["fc"]    = {"FC店データ",   {"id","name","amount"}};
-        schemas["ec"]    = {"EC店データ",
-            {"id","name","amount","memberRank","point"}};
-    }
-    bool exists(const string& t) const { return schemas.count(t) > 0; }
-    ImportSchema get(const string& t) const { return schemas.at(t); }
-};
-
-// ---- 境界スタブ：ファイルI/OとDB（本章の論点外を簡略化）----
-// 実ファイルは使わず、メモリ上にサンプルCSVを保持する。実運用ではこの内側が
-// 本物のファイルAPI・DB・オブジェクトストレージへ差し替わる（骨格は媒体を知らない）。
-class ImportFileGateway {
-    map<string, vector<string>> store;   // 論理パス -> 行データ（実ファイルの代わり）
-public:
-    void prepareSample(const string& path, const string& content) {
-        vector<string> lines; string line; istringstream iss(content);
-        while (getline(iss, line)) {
-            if (!line.empty() && line.back() == '\r') line.pop_back();
-            if (!line.empty()) lines.push_back(line);
-        }
-        store[path] = lines;
-    }
-    vector<string> open(const string& path) {
-        cout << "ファイルをオープンしました。\n";
-        return store.count(path) ? store[path] : vector<string>{};
-    }
-    void close() { cout << "ファイルをクローズしました。\n"; }
-    string checkFormatVersion() {
-        cout << "[全共通] 形式バージョンを確認しました。\n"; return "v1";
-    }
-};
-class SalesImportRepository {
-    long totalAmount = 0;
-public:
-    int save(const vector<SalesRow>& rows) {
-        for (auto& r : rows) totalAmount += r.amount;
-        cout << "DBへ" << rows.size() << "件を保存しました。\n";
-        return (int)rows.size();
-    }
-    long savedAmount() const { return totalAmount; }
-};
-
-// ---- 骨格を固定する基底クラス（テンプレートメソッド）----
-class AbstractImporter {
-    ImportFileGateway& gateway;
-    SalesImportRepository& repo;
-public:
-    AbstractImporter(ImportFileGateway& g, SalesImportRepository& r)
-        : gateway(g), repo(r) {}
-    virtual ~AbstractImporter() = default;
-
-    // テンプレートメソッド。戻り値は ImportResult（void をやめる）。
-    ImportResult import() {
-        vector<string> lines = gateway.open(filePath());    // (1) 開く
-        gateway.checkFormatVersion();                       // (2) バージョン確認（全共通）
-        vector<ParsedRow> parsed = parseData(lines);        // (3) 形式ごとのパース
-        ValidationResult v = validateRows(parsed);          // (4) 形式ごとの行検証
-        afterParse(v.validRows);                            // (5) 任意フック（EC店のみ）
-        int saved = repo.save(v.validRows);                 // (6) 保存
-        gateway.close();                                    // (7) 閉じる
-        return { schemaType(), schemaName(), saved, v.skipped, true };
-    }
-protected:
-    virtual string filePath() const = 0;
-    virtual string schemaType() const = 0;
-    virtual string schemaName() const = 0;
-    virtual vector<ParsedRow> parseData(const vector<string>& lines) = 0;
-    virtual ValidationResult validateRows(const vector<ParsedRow>& parsed) = 0;
-    virtual void afterParse(const vector<SalesRow>&) {}     // 既定は何もしない任意フック
-};
-
-// ---- 直営店（カンマ区切り・ヘッダーあり）----
-class StoreDataImporter : public AbstractImporter {
-public:
-    using AbstractImporter::AbstractImporter;
-protected:
-    string filePath()   const override { return "store_sales.csv"; }
-    string schemaType() const override { return "store"; }
-    string schemaName() const override { return "直営店データ"; }
-    vector<ParsedRow> parseData(const vector<string>& lines) override {
-        cout << "[直営店] ヘッダー行をスキップし、カンマ区切りで解析します。\n";
-        vector<ParsedRow> out;
-        for (size_t i = 1; i < lines.size(); ++i) {          // 1行目=ヘッダー
-            vector<string> c = splitLine(lines[i], ',');
-            bool ok = (c.size() >= 3);
-            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
-            out.push_back({r, ok});
-        }
-        return out;
-    }
-    ValidationResult validateRows(const vector<ParsedRow>& parsed) override {
-        ValidationResult v{{}, 0, {}};
-        for (auto& p : parsed) {
-            if (p.wellFormed) v.validRows.push_back(p.row);
-            else { ++v.skipped; v.reasons.push_back("必須列不足"); }
-        }
-        cout << "[直営店] 必須列を検証しました（有効" << v.validRows.size()
-             << "件 / スキップ" << v.skipped << "件）。\n";
-        return v;
-    }
-};
-
-// ---- FC店（タブ区切り・ヘッダーなし・不正行スキップ）----
-class FCDataImporter : public AbstractImporter {
-public:
-    using AbstractImporter::AbstractImporter;
-protected:
-    string filePath()   const override { return "fc_sales.csv"; }
-    string schemaType() const override { return "fc"; }
-    string schemaName() const override { return "FC店データ"; }
-    vector<ParsedRow> parseData(const vector<string>& lines) override {
-        cout << "[FC店] 先頭行からタブ区切りで解析します。\n";
-        vector<ParsedRow> out;
-        for (size_t i = 0; i < lines.size(); ++i) {          // ヘッダーなし
-            vector<string> c = splitLine(lines[i], '\t');
-            bool ok = (c.size() >= 3);
-            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
-            out.push_back({r, ok});
-        }
-        return out;
-    }
-    ValidationResult validateRows(const vector<ParsedRow>& parsed) override {
-        ValidationResult v{{}, 0, {}};
-        for (auto& p : parsed) {
-            if (p.wellFormed) v.validRows.push_back(p.row);
-            else { ++v.skipped; v.reasons.push_back("タブ分割不可"); }
-        }
-        cout << "[FC店] 不正行を検証しました（有効" << v.validRows.size()
-             << "件 / スキップ" << v.skipped << "件）。\n";
-        return v;
-    }
-};
-
-// ---- EC店（カンマ区切り・会員ランク/ポイント・後処理あり）----
-class ECDataImporter : public AbstractImporter {
-    long pointBonus = 0;
-public:
-    using AbstractImporter::AbstractImporter;
-protected:
-    string filePath()   const override { return "ec_sales.csv"; }
-    string schemaType() const override { return "ec"; }
-    string schemaName() const override { return "EC店データ"; }
-    vector<ParsedRow> parseData(const vector<string>& lines) override {
-        cout << "[EC店] カンマ区切りで会員ランク・ポイント列まで解析します。\n";
-        vector<ParsedRow> out;
-        for (size_t i = 1; i < lines.size(); ++i) {          // 1行目=ヘッダー
-            vector<string> c = splitLine(lines[i], ',');
-            // id,name,amount,rank,point
-            bool ok = (c.size() >= 5);
-            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
-            out.push_back({r, ok});
-        }
-        return out;
-    }
-    ValidationResult validateRows(const vector<ParsedRow>& parsed) override {
-        ValidationResult v{{}, 0, {}};
-        for (auto& p : parsed) {
-            if (p.wellFormed) v.validRows.push_back(p.row);
-            else { ++v.skipped; v.reasons.push_back("EC必須列(ランク/ポイント)不足"); }
-        }
-        cout << "[EC店] 不正行を検証しました（有効" << v.validRows.size()
-             << "件 / スキップ" << v.skipped << "件）。\n";
-        return v;
-    }
-    void afterParse(const vector<SalesRow>& rows) override {
-        for (auto& r : rows) pointBonus += r.amount / 100;   // ポイント付与量
-        cout << "[EC店] ポイントボーナスを計算しました（" << rows.size()
-             << "件・合計" << pointBonus << "pt）。\n";
-    }
-};
-
-// ---- 非同期実行を模したスケジューラ ----
-// 実運用ではワーカースレッドで並行実行するが、掲載コードでは決定的な出力のため逐次実行で代替する。
-class ImportScheduler {
-    queue<function<ImportResult()>> tasks;
-    queue<string> labels;
-public:
-    void submit(const string& label, function<ImportResult()> task) {
-        cout << "[非同期] " << label << " をキューへ投入しました。\n";
-        tasks.push(move(task)); labels.push(label);
-    }
-    vector<ImportResult> awaitAll() {
-        vector<ImportResult> results;
-        while (!tasks.empty()) {
-            cout << "[非同期] " << labels.front() << " の実行を開始します。\n";
-            results.push_back(tasks.front()());
-            tasks.pop(); labels.pop();
-        }
-        return results;
-    }
-};
-
-// 夜間バッチ：複数形式を非同期に投入する
-class BatchImportJob {
-    ImportScheduler& scheduler;
-public:
-    explicit BatchImportJob(ImportScheduler& s) : scheduler(s) {}
-    void enqueue(const string& label, AbstractImporter* importer) {
-        scheduler.submit(label, [importer]{ return importer->import(); });
-    }
-};
-
-// 手動アップロード：同期で即時実行し、結果をその場で返す
-class ManualImportController {
-public:
-    ImportResult importNow(AbstractImporter* importer) {
-        cout << "[同期] 手動アップロードを即時実行します。\n";
-        return importer->import();
-    }
-};
-
-// ---- 依存関係の組み立てを担うクラス ----
-class BatchApplication {
-    SchemaRegistry registry;
-    ImportFileGateway gateway;
-    SalesImportRepository repo;
-    ImportScheduler scheduler;
-public:
-    void run() {
-        // 実ファイルではなく、メモリ上にサンプルCSVを用意する
-        gateway.prepareSample("store_sales.csv", storeCsv());
-        gateway.prepareSample("fc_sales.csv",    fcCsv());
-        gateway.prepareSample("ec_sales.csv",    ecCsv());
-
-        StoreDataImporter store(gateway, repo);
-        FCDataImporter    fc(gateway, repo);
-        ECDataImporter    ec(gateway, repo);
-
-        // 夜間バッチ：直営店・FC店を非同期でまとめて処理
-        cout << "==== 夜間バッチ（非同期） ====\n";
-        BatchImportJob batch(scheduler);
-        batch.enqueue("直営店", &store);
-        batch.enqueue("FC店", &fc);
-        vector<ImportResult> batchResults = scheduler.awaitAll();
-
-        // 手動アップロード：EC店を同期で即時処理
-        cout << "\n==== 手動アップロード（同期） ====\n";
-        ManualImportController manual;
-        ImportResult ecResult = manual.importNow(&ec);
-
-        cout << "\n--- インポート結果ログ ---\n";
-        for (auto& r : batchResults) printResult(r);
-        printResult(ecResult);
-        reportUnknown("online");   // 未登録タイプはエラーで中断
-    }
-private:
-    void printResult(const ImportResult& r) {
-        if (!registry.exists(r.schemaType)) return;
-        cout << "[" << r.schemaType << "] " << r.schemaName
-             << " 保存" << r.saved << "件 / スキップ" << r.skipped << "件 -> "
-             << (r.success ? "成功" : "失敗") << "\n";
-    }
-    void reportUnknown(const string& type) {
-        if (!registry.exists(type))
-            cout << "[エラー] 未登録のインポートタイプ: " << type << " — 処理を中断します\n";
-    }
-    // サンプルCSVの中身（直営店=10件、FC店=5件、EC店=10件中2件不正）
-    string storeCsv() {
-        string s = "id,name,amount\n";
-        for (int i = 1; i <= 10; ++i)
-            s += "S00" + to_string(i) + ",商品" + to_string(i) + ",1000\n";
-        return s;
-    }
-    string fcCsv() {
-        string s;
-        for (int i = 1; i <= 5; ++i)
-            s += "F00" + to_string(i) + "\t商品" + to_string(i) + "\t2000\n";
-        return s;
-    }
-    string ecCsv() {
-        string s = "id,name,amount,rank,points\n";
-        for (int i = 1; i <= 10; ++i) {
-            if (i == 4 || i == 9)   // 2件は列不足（不正行）
-                s += "E00" + to_string(i) + ",商品" + to_string(i) + ",3000\n";
-            else
-                s += "E00" + to_string(i) + ",商品"
-                    + to_string(i) + ",3000,gold,50\n";
-        }
-        return s;
-    }
-};
-
-int main() {
-    BatchApplication app;
-    app.run();
-    return 0;
-}
-```
-
 クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
 
-| 判断 | 完全コードで確認すること |
+| 判断 | 関連コードで確認すること |
 |---|---|
 | 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
 | 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
@@ -1478,14 +1256,32 @@ classDiagram
 
 ```mermaid
 classDiagram
-    direction LR
+    class SchemaRegistry
+    class ImportScheduler
+    class BatchImportJob
+    class BatchApplication
+    class ManualImportController
     class AbstractImporter {
-      import() 骨格を固定
-      parseData()* validateRows()*
+        +import() ImportResult
+        #parseData()*
+        #validateRows()*
+        #afterParse()
     }
+    class StoreDataImporter
+    class FCDataImporter
+    class ECDataImporter
+    class ImportFileGateway
+    class SalesImportRepository
     AbstractImporter <|-- StoreDataImporter
     AbstractImporter <|-- FCDataImporter
     AbstractImporter <|-- ECDataImporter
+    AbstractImporter --> ImportFileGateway
+    AbstractImporter --> SalesImportRepository
+    BatchImportJob --> AbstractImporter
+    ImportScheduler --> BatchImportJob
+    BatchApplication --> ImportScheduler
+    ManualImportController --> BatchApplication
+    StoreDataImporter --> SchemaRegistry
 ```
 
 図から読み取ること：骨格の複製が消え、親クラスの `import()` 1か所に集約。サブクラスは差分フックだけを持つ。
@@ -1608,8 +1404,11 @@ class SalesImportRepository {
     long totalAmount = 0;
 public:
     int save(const vector<SalesRow>& rows) {
+        long before = totalAmount;
         for (auto& r : rows) totalAmount += r.amount;
-        cout << "DBへ" << rows.size() << "件を保存しました。\n";
+        cout << "DBへ" << rows.size() << "件を保存しました。"
+             << " 保存金額合計: " << before
+             << "円 -> " << totalAmount << "円\n";
         return (int)rows.size();
     }
     long savedAmount() const { return totalAmount; }
@@ -1916,14 +1715,14 @@ int main() {
 [全共通] 形式バージョンを確認しました。
 [直営店] ヘッダー行をスキップし、カンマ区切りで解析します。
 [直営店] 必須列を検証しました（有効10件 / スキップ0件）。
-DBへ10件を保存しました。
+DBへ10件を保存しました。 保存金額合計: 0円 -> 10000円
 ファイルをクローズしました。
 [非同期] FC店 の実行を開始します。
 ファイルをオープンしました。
 [全共通] 形式バージョンを確認しました。
 [FC店] 先頭行からタブ区切りで解析します。
 [FC店] 不正行を検証しました（有効5件 / スキップ0件）。
-DBへ5件を保存しました。
+DBへ5件を保存しました。 保存金額合計: 10000円 -> 20000円
 ファイルをクローズしました。
 
 ==== 手動アップロード（同期） ====
@@ -1933,7 +1732,7 @@ DBへ5件を保存しました。
 [EC店] カンマ区切りで会員ランク・ポイント列まで解析します。
 [EC店] 不正行を検証しました（有効8件 / スキップ2件）。
 [EC店] ポイントボーナスを計算しました（8件・合計240pt）。
-DBへ8件を保存しました。
+DBへ8件を保存しました。 保存金額合計: 20000円 -> 44000円
 ファイルをクローズしました。
 
 --- インポート結果ログ ---
@@ -1962,6 +1761,11 @@ DBへ8件を保存しました。
 
 ```mermaid
 classDiagram
+    class SchemaRegistry
+    class ImportScheduler
+    class BatchImportJob
+    class BatchApplication
+    class ManualImportController
     class AbstractImporter {
         +import() ImportResult
         #parseData()*
@@ -1978,6 +1782,11 @@ classDiagram
     AbstractImporter <|-- ECDataImporter
     AbstractImporter --> ImportFileGateway
     AbstractImporter --> SalesImportRepository
+    BatchImportJob --> AbstractImporter
+    ImportScheduler --> BatchImportJob
+    BatchApplication --> ImportScheduler
+    ManualImportController --> BatchApplication
+    StoreDataImporter --> SchemaRegistry
 ```
 
 章末のTemplate Method骨格図では `AbstractImporter.import()` が共通の骨格、3つのImporterが個別ステップを実装する具象クラスに対応します。ファイル取得とDB保存は骨格へ直書きせず、それぞれの外部境界へ委譲します。

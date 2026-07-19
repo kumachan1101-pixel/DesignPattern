@@ -153,16 +153,22 @@ flowchart LR
 システムのクラス構成を可視化し、呼び出し元がどのクラスを使っているかを確認します。
 
 ```mermaid
-flowchart LR
-    Main["main()<br>注文入力を組み立てる"]
-    DB["MenuDatabase<br>メニューIDから商品名・基本価格を取得"]
-    Drink["CustomDrink<br>注文名・合計金額を計算"]
-    Output["画面出力<br>注文内容・合計金額"]
-
-    Main --> DB
-    DB --> Main
-    Main --> Drink
-    Drink --> Output
+classDiagram
+    direction LR
+    class Main {
+        <<entrypoint>>
+        +注文入力を組み立てる
+    }
+    class MenuDatabase {
+        +exists(menuId) bool
+        +get(menuId) MenuItem
+    }
+    class CustomDrink {
+        +getPrice() int
+        +getDescription() string
+    }
+    Main --> MenuDatabase : 商品情報を取得
+    Main --> CustomDrink : 注文を生成
 ```
 
 **図に出てくる主なデータと操作**
@@ -798,7 +804,7 @@ graph LR
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6は、フェーズ5で定めた課題——**基本ドリンクから、トッピングごとの加算処理と説明追加を切り離し、順に重ねても同じ操作で扱える接続点を作る**——を受けて始めます。ここでは設計案を、比較元と同じ改行を保った完全コードで具体化して決めます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。候補コードは生成・所有・依存注入・実行入口までこのフェーズで示し、フェーズ7で実行結果を検証します。
+フェーズ6は、フェーズ5で定めた課題——**基本ドリンクから、トッピングごとの加算処理と説明追加を切り離し、順に重ねても同じ操作で扱える接続点を作る**——を受けて始めます。まず現行コード全体を振り返り、痛みが出た関連部分へ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
 フェーズ5の課題から、対策候補は次のように出します。
 
 | フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
@@ -812,7 +818,15 @@ graph LR
 
 ---
 
-#### 比較元の完全コード（フェーズ1の現状）
+#### 対策検討の課題カード
+
+| ID | 原因と着目コード | 最小変更と守る契約 | 完了条件 |
+|---|---|---|---|
+| P1 | `CustomDrink` が全トッピングのフラグ、価格、説明を分岐で持つ | 加算処理を関数化し、組み合わせクラスの失敗を経て1段ずつ包む形へ変える。**守る：** `getPrice()/getDescription()`、カタログの価格・販売可否 | 新トッピングは1クラスとカタログ登録で追加し、既存組み合わせクラスを増やさない |
+
+組み合わせ継承を途中案として実コードにするのは、分岐を消すだけではクラス数が指数的に増えることを確認し、「組み合わせ」ではなく「1段」を部品にすべきだと判断するためです。
+
+#### 振り返り：現行コード全体（フェーズ1）
 
 最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
 
@@ -912,22 +926,119 @@ int main() {
 
 比較元は、抹茶とチョコチップを追加したことで、フラグ・価格・説明のすべてが増えたフェーズ3の変更途中コードです。
 
-> フェーズ3で追加した状態・分岐・通知・履歴・入力・出力は、直前のフェーズ3本文で確認済みです。ここでは短い差分コードを重ねず、上の現状完全コードと下の採用候補完全コードを比較し、6-1の説明でどの責任を移すかを追います。
+#### 痛みの差分（フェーズ3で変更した関連部分）
+
+現行コード全体のどこに痛みが現れたかを振り返ります。以下はフェーズ3で変更した関連部分です。
+
+```cpp
+int getPrice() const {
+    int total = basePrice;
+    if (hasMilk)     total += 50;
+    if (hasWhip)     total += 70;
+    if (hasSyrup)    total += 30;
+    if (hasMatcha)   total += 60; // ← 抹茶パウダーを追加
+    if (hasChoco)    total += 40; // ← チョコチップを追加
+    return total;
+}
+```
+
+```cpp
+string getDescription() const {
+    string desc = baseName;
+    if (hasMilk)     desc += " + Milk";
+    if (hasWhip)     desc += " + Whip";
+    if (hasSyrup)    desc += " + Syrup";
+    if (hasMatcha)   desc += " + Matcha"; // ← 抹茶パウダーを追加
+    if (hasChoco)    desc += " + Choco";  // ← チョコチップを追加
+    return desc;
+}
+```
+
+```cpp
+// 変更後の CustomDrink（抹茶・チョコチップフラグ追加後）
+class CustomDrink {
+    std::string baseName;
+    int basePrice;
+    bool hasMilk, hasWhip, hasSyrup, hasMatcha, hasChoco;
+public:
+    CustomDrink(std::string name, int price,
+                bool milk, bool whip, bool syrup,
+                bool matcha, bool choco) // ← 引数が2つ増えた
+        : baseName(name), basePrice(price),
+          hasMilk(milk), hasWhip(whip), hasSyrup(syrup),
+          hasMatcha(matcha), hasChoco(choco) {}
+
+    int getPrice() const {
+        int total = basePrice;
+        if (hasMilk)   total += 50;
+        if (hasWhip)   total += 70;
+        if (hasSyrup)  total += 30;
+        if (hasMatcha) total += 60;
+        if (hasChoco)  total += 40;
+        return total;
+    }
+    std::string getDescription() const {
+        std::string desc = baseName;
+        if (hasMilk)   desc += " + Milk";
+        if (hasWhip)   desc += " + Whip";
+        if (hasSyrup)  desc += " + Syrup";
+        if (hasMatcha) desc += " + Matcha";
+        if (hasChoco)  desc += " + Choco";
+        return desc;
+    }
+};
+
+int main() {
+    // 新しいコンストラクタ呼び出し（引数7個）
+    CustomDrink order("ホットコーヒー", 400,
+                      true, false, false, true, true);
+    std::cout << order.getDescription() << std::endl;
+    std::cout << order.getPrice() << " 円" << std::endl;
+
+    // 既存の呼び出し（引数5個）はコンパイルエラーになるため
+    // コメントアウトして検証
+    // CustomDrink old("ホットコーヒー", 400, true, false, false);
+    //                                              ↑ 引数不足
+    return 0;
+}
+```
 
 ### 6-1：痛みコードを変換して、接続点の「形」を探す
 
-課題は「トッピングを切り離す」と言っていますが、**どんな形なら順に重ねられるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（完全な接続コードはこのフェーズの後半で示す）。
+課題は「トッピングを切り離す」と言っていますが、**どんな形なら順に重ねられるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（各段階の直後に関連コードで確かめる）。
 
 **変換1：各トッピング処理を関数へ切り出す。**
 
-> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
+```cpp
+int addMilkPrice(int price) { return price + 50; }
+std::string addMilkName(const std::string& name) {
+    return name + " + ミルク";
+}
+
+if (hasMilk) {
+    price = addMilkPrice(price);
+    description = addMilkName(description);
+}
+```
+
+加算処理は分かれましたが、`hasMilk`、`hasWhip` などの選択分岐は本体に残ります。トッピング追加で本体を開くため、P1は未完了です。
+
+
 
 見えたこと：どのトッピングも「ドリンクに**価格と名前を足す**」同じ形。基本ドリンクとトッピングの違いは「何を足すか」だけ。
 まだ詰まること：どのトッピングを足すかの `hasXxx` 判定が、まだ本体に残る。
 
 **変換2：継承で全組み合わせを表現してみる。** 「Milk入り」「Milk+Whip入り」をクラスにすれば分岐が消えるのでは、と組み合わせごとにクラスを作ります。
 
-> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
+```cpp
+class CoffeeWithMilk : public Coffee { /* +50円 */ };
+class CoffeeWithWhip : public Coffee { /* +70円 */ };
+class CoffeeWithMilkAndWhip : public Coffee { /* +120円 */ };
+```
+
+2種類で「なし・Milk・Whip・両方」の4形が必要です。3種類なら8形になるため、分岐は消えても変更量が増えます。ここで、組み合わせ全体ではなくトッピング1個を再利用単位にします。
+
+
 
 詰まったこと：トッピングを**1つ増やすと組み合わせクラスが倍増**する（Milk/Whip の2種で4クラス、Matchaを足すと8クラス…）。組み合わせの数だけクラスが要る。ここで分かるのは、**「組み合わせをクラスで持つと爆発する。トッピングを"ドリンクを包むドリンク"にして、包む順で組み合わせを表せばよい」**ということ。
 
@@ -935,9 +1046,35 @@ int main() {
 
 ### 6-2：見つけた形を契約にし、データの置き場所を決める
 
-見つけた形を、ドリンクとトッピングが共通で満たす契約として定義します（完全な接続コードはこの節の後半で示す）。
+見つけた形を、ドリンクとトッピングが共通で満たす契約として定義します。
 
-> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
+```cpp
+class IDrink {
+public:
+    virtual int getPrice() const = 0;
+    virtual std::string getDescription() const = 0;
+    virtual ~IDrink() = default;
+};
+
+class Milk : public IDrink {
+    IDrink* inner;  // 外側が内側の生存期間を管理する
+    int price;
+public:
+    int getPrice() const override {
+        return inner->getPrice() + price;
+    }
+    std::string getDescription() const override {
+        return inner->getDescription() + " + ミルク";
+    }
+};
+
+IDrink* drink = new Coffee();
+drink = new Milk(drink, milkPrice);
+```
+
+基本ドリンクとトッピングが同じ契約になり、包む回数がそのまま個数になります。価格は `ToppingCatalog` から組み立て時に渡し、トッピングクラスへ重複させません。
+
+
 
 次に、データの置き場所を決めます。
 
@@ -949,299 +1086,9 @@ int main() {
 
 接続点で受け渡すのは、`getPrice`/`getDescription` が返す**価格と説明**です。各トッピングは内側のドリンク（`baseDrink`）の**所有権**を持ち、自身の破棄時に内側も破棄します（生存期間は外側の組み立て役が管理）。
 
-#### 採用候補の完全コード（生成・所有・依存注入・実行入口まで）
-
-クラスを分けただけでは利用できません。以下では、分離したクラスの定義だけでなく、具体オブジェクトを生成する場所、所有する場所、コンストラクタまたは登録操作による依存注入、実行入口からの呼び出しまでを一続きで示します。各行の並び・インデント・改行は、フェーズ7でコンパイル・実行確認する採用コードと同一です。フェーズ6では接続と責任移動を比較し、フェーズ7では同じコードを実行結果で検証します。
-
-```cpp
-#include <iostream>
-#include <string>
-#include <map>
-#include <vector>
-#include <cassert>
-
-using namespace std;
-
-struct MenuItem {
-    string name;      // 商品名
-    int basePrice;    // 基本価格（円）
-};
-
-class MenuDatabase {
-private:
-    map<string, MenuItem> items;
-public:
-    MenuDatabase() {
-        items["DRINK001"] = {"ホットコーヒー", 400};
-        items["DRINK002"] = {"アイスコーヒー", 450};
-        items["FOOD001"]  = {"サンドイッチ",   600};
-        items["FOOD002"]  = {"スコーン",        300};
-    }
-
-    bool exists(const string& id) const {
-        return items.count(id) > 0;
-    }
-
-    MenuItem get(const string& id) const {
-        return items.at(id);
-    }
-
-    void save(const string& id, const MenuItem& item) {
-        items[id] = item;             // 実行中のメニュー表へ追加
-    }
-};
-
-// トッピングの表示名・追加料金・販売可否を保持する保存データ（境界）
-struct ToppingSpec {
-    string label;   // 表示名（スタッフ向け作業指示に使う）
-    int price;      // 追加料金（円）
-    bool onSale;    // 販売可否（販売停止・在庫切れはfalse）
-};
-
-class ToppingCatalog {
-private:
-    map<string, ToppingSpec> specs;
-public:
-    ToppingCatalog() {
-        specs["Milk"]         = {"Milk",   50, true};
-        specs["Syrup"]        = {"Syrup",  30, true};
-        specs["Whip"]         = {"Whip",   70, true};
-        specs["Matcha"]       = {"Matcha", 60, true};
-        specs["Choco"]        = {"Choco",  40, true};
-        specs["SeasonalMint"] = {"SeasonalMint", 80, false};
-    }
-    bool exists(const string& id) const { return specs.count(id) > 0; }
-    bool onSale(const string& id) const {
-        auto it = specs.find(id);
-        return it != specs.end() && it->second.onSale;
-    }
-    int priceOf(const string& id) const { return specs.at(id).price; }
-    string labelOf(const string& id) const { return specs.at(id).label; }
-};
-
-struct OrderRecord {
-    string itemId;
-    string description;  // 注文の説明（e.g. "ホットコーヒー + Milk + Syrup"）
-    int totalPrice;
-};
-
-// 注文ログを管理するクラス
-class OrderLog {
-    vector<OrderRecord> records;
-public:
-    void add(const string& itemId, const string& description,
-             int totalPrice) {
-        records.push_back({itemId, description, totalPrice});
-    }
-    void printAll() const {
-        for (const auto& r : records) {
-            cout << "[" << r.itemId << "] " << r.description
-                 << " " << r.totalPrice << "円" << endl;
-        }
-    }
-    int size() const { return (int)records.size(); }
-};
-
-// ドリンクとしてのビジネス上の責任（契約）を示すインターフェース
-class IDrink {
-public:
-    virtual ~IDrink() = default;
-    virtual int getPrice() const = 0;
-    virtual string getDescription() const = 0;
-};
-
-// 変わらない処理の骨格：基本のドリンク
-class Coffee : public IDrink {
-public:
-    int getPrice() const override { return 400; }
-    string getDescription() const override { return "ホットコーヒー"; }
-};
-
-// 変わる部分を繋ぐ仲介役：トッピングの基底クラス
-class ToppingWrapper : public IDrink {
-protected:
-    IDrink* baseDrink;             // 中身（基本ドリンクや他のトッピング）
-    const ToppingCatalog* catalog; // 価格・表示名の保存データ
-    string toppingId;              // 自分がどのトッピングか
-public:
-    ToppingWrapper(IDrink* base, const ToppingCatalog* cat,
-                   const string& id)
-        : baseDrink(base), catalog(cat), toppingId(id) {}
-    ~ToppingWrapper() override { delete baseDrink; }
-    int getPrice() const override {
-        // 価格は自分で持たず、カタログ（保存データ）から読む
-        return baseDrink->getPrice() + catalog->priceOf(toppingId);
-    }
-    string getDescription() const override {
-        return baseDrink->getDescription()
-             + " + " + catalog->labelOf(toppingId);
-    }
-};
-
-// 具体的なトッピング：自分の識別子だけを名乗る
-class Milk : public ToppingWrapper {
-public:
-    Milk(IDrink* base, const ToppingCatalog* cat)
-        : ToppingWrapper(base, cat, "Milk") {}
-};
-
-// 具体的なトッピング：ホイップ
-class Whip : public ToppingWrapper {
-public:
-    Whip(IDrink* base, const ToppingCatalog* cat)
-        : ToppingWrapper(base, cat, "Whip") {}
-};
-
-// 新しいトッピングでは、この識別クラスに加えてカタログ登録と組み立て登録を行う
-class Syrup : public ToppingWrapper {
-public:
-    Syrup(IDrink* base, const ToppingCatalog* cat)
-        : ToppingWrapper(base, cat, "Syrup") {}
-};
-
-class Matcha : public ToppingWrapper {
-public:
-    Matcha(IDrink* base, const ToppingCatalog* cat)
-        : ToppingWrapper(base, cat, "Matcha") {}
-};
-
-class Choco : public ToppingWrapper {
-public:
-    Choco(IDrink* base, const ToppingCatalog* cat)
-        : ToppingWrapper(base, cat, "Choco") {}
-};
-
-// 注文明細（要求オブジェクト）：トッピングIDと個数をデータで持つ
-struct ToppingLine {
-    string toppingId;
-    int quantity;
-};
-
-struct OrderRequest {
-    string baseItemId;
-    vector<ToppingLine> toppings;
-};
-
-// 注文結果（結果オブジェクト）：成功可否・注文名・金額・エラー理由
-struct OrderResult {
-    bool ok;
-    string description;
-    int totalPrice;
-    string error;
-};
-
-// 依存の組み立てと検証を担うクラス
-class OrderAssembler {
-private:
-    MenuDatabase& db;
-    ToppingCatalog& catalog;
-
-    IDrink* wrapOne(const string& id, IDrink* base) {
-        if (id == "Milk")   return new Milk(base, &catalog);
-        if (id == "Syrup")  return new Syrup(base, &catalog);
-        if (id == "Whip")   return new Whip(base, &catalog);
-        if (id == "Matcha") return new Matcha(base, &catalog);
-        if (id == "Choco")  return new Choco(base, &catalog);
-        return base;
-    }
-public:
-    OrderAssembler(MenuDatabase& d, ToppingCatalog& c)
-        : db(d), catalog(c) {}
-
-    OrderResult assemble(const OrderRequest& req) {
-        if (!db.exists(req.baseItemId)) {
-            return {false, "", 0,
-                    "メニューID " + req.baseItemId + " は存在しません"};
-        }
-        // 手順1：全トッピングの登録と販売可否を先に確認する
-        for (const auto& line : req.toppings) {
-            if (!catalog.exists(line.toppingId)) {
-                return {false, "", 0,
-                        "トッピング " + line.toppingId + " は未対応です"};
-            }
-            if (!catalog.onSale(line.toppingId)) {
-                return {false, "", 0, "トッピング " + line.toppingId
-                        + " は販売停止または在庫切れです"};
-            }
-        }
-        // 手順2：検証を通ったので、選択順・個数だけ基本ドリンクへ重ねる
-        IDrink* drink = new Coffee();
-        for (const auto& line : req.toppings) {
-            for (int i = 0; i < line.quantity; ++i) {
-                drink = wrapOne(line.toppingId, drink);
-            }
-        }
-        OrderResult r{true, drink->getDescription(),
-                      drink->getPrice(), ""};
-        delete drink;
-        return r;
-    }
-};
-
-// 依存の組み立てと実行を担うアプリケーションクラス
-class OrderApplication {
-private:
-    MenuDatabase db;
-    ToppingCatalog catalog;
-public:
-    void run() {
-        OrderAssembler assembler(db, catalog);
-        OrderLog log;
-
-        vector<OrderRequest> requests = {
-            {"DRINK001", {}},
-            {"DRINK001", {{"Milk", 1}}},
-            {"DRINK001", {{"Milk", 1}, {"Syrup", 1}}},
-            {"DRINK001", {{"Milk", 1}, {"Whip", 1}}},
-            {"DRINK001", {{"Syrup", 1}, {"Whip", 1}}},
-            {"DRINK001", {{"Whip", 2}}},
-            {"DRINK001", {{"Milk", 1}, {"Syrup", 1}, {"Whip", 1}}},
-            {"DRINK001", {{"Milk", 1}, {"Syrup", 1},
-                          {"Whip", 1}, {"Matcha", 1}}},
-            {"DRINK001", {{"Choco", 1}}},
-            {"DRINK001", {{"Milk", 1}, {"Matcha", 1}, {"Choco", 1}}},
-            {"DRINK999", {{"Milk", 1}}},
-            {"DRINK001", {{"SeasonalMint", 1}}},
-        };
-
-        for (const auto& req : requests) {
-            OrderResult res = assembler.assemble(req);
-            if (res.ok) {
-                cout << res.description << " → " << res.totalPrice
-                     << "円" << endl;
-                log.add(req.baseItemId, res.description,
-                        res.totalPrice);
-            } else {
-                cout << "エラー：" << res.error << endl;
-            }
-        }
-
-        cout << "\n--- 注文ログ ---\n";
-        log.printAll();
-    }
-
-    void testOrderCalculation() {
-        OrderAssembler assembler(db, catalog);
-        OrderResult r1 = assembler.assemble({"DRINK001", {}});
-        assert(r1.totalPrice == 400);
-        OrderResult r6 = assembler.assemble(
-            {"DRINK001", {{"Milk", 1}, {"Syrup", 1}, {"Whip", 1}}});
-        assert(r6.totalPrice == 550);
-    }
-};
-
-// main() の責任はプログラムを起動することだけ
-int main() {
-    OrderApplication app;
-    app.run();
-    // app.testOrderCalculation();
-    return 0;
-}
-```
-
 クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
 
-| 判断 | 完全コードで確認すること |
+| 判断 | 関連コードで確認すること |
 |---|---|
 | 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
 | 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
@@ -1260,6 +1107,8 @@ int main() {
 
 ```mermaid
 classDiagram
+    class CustomDrink
+    class MenuDatabase
     direction LR
     class CustomDrink {
       bool hasMilk / hasWhip / ...
@@ -1271,17 +1120,34 @@ classDiagram
 
 ```mermaid
 classDiagram
-    direction LR
+    class CustomDrink
+    class MenuDatabase
+    class Choco
+    class Syrup
+    class OrderApplication
+    class OrderLog
     class IDrink { <<interface>> }
+    class Coffee
     class ToppingWrapper
+    class Milk
+    class Whip
+    class Matcha
+    class ToppingCatalog
+    class OrderAssembler
     IDrink <|.. Coffee
     IDrink <|.. ToppingWrapper
-    ToppingWrapper --> IDrink : baseDrink（内側を包む）
+    ToppingWrapper o--> IDrink
     ToppingWrapper <|-- Milk
     ToppingWrapper <|-- Whip
-    ToppingWrapper <|-- Syrup
     ToppingWrapper <|-- Matcha
     ToppingWrapper <|-- Choco
+    ToppingWrapper <|-- Syrup
+    ToppingWrapper ..> ToppingCatalog
+    OrderAssembler ..> ToppingCatalog
+    OrderAssembler ..> MenuDatabase
+    OrderAssembler ..> IDrink
+    OrderApplication --> OrderAssembler
+    OrderApplication --> OrderLog
 ```
 
 図から読み取ること：`hasXxx` フラグと組み合わせ分岐が消え、契約 `IDrink` を包み合う構造だけが残る。組み合わせは「包む順」で表すため、組み合わせクラスは要らない。
@@ -1712,6 +1578,12 @@ int main() {
 
 ```mermaid
 classDiagram
+    class CustomDrink
+    class MenuDatabase
+    class Choco
+    class Syrup
+    class OrderApplication
+    class OrderLog
     class IDrink { <<interface>> }
     class Coffee
     class ToppingWrapper
@@ -1726,9 +1598,14 @@ classDiagram
     ToppingWrapper <|-- Milk
     ToppingWrapper <|-- Whip
     ToppingWrapper <|-- Matcha
+    ToppingWrapper <|-- Choco
+    ToppingWrapper <|-- Syrup
     ToppingWrapper ..> ToppingCatalog
     OrderAssembler ..> ToppingCatalog
+    OrderAssembler ..> MenuDatabase
     OrderAssembler ..> IDrink
+    OrderApplication --> OrderAssembler
+    OrderApplication --> OrderLog
 ```
 
 この図は、装飾の連結（`IDrink` を軸にした包む構造）に加え、価格・販売可否を持つ `ToppingCatalog` と、要求から組み立てる `OrderAssembler` を示しています。章末のDecorator骨格図では、`IDrink` がComponent、`Coffee` がConcreteComponent、`ToppingWrapper` がDecorator、各トッピングがConcreteDecoratorに対応します。`ToppingCatalog` と `OrderAssembler` は、Decorator本体の外側で価格データと組み立てを支える役割です。

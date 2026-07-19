@@ -240,6 +240,7 @@ flowchart LR
 
 ```mermaid
 classDiagram
+    class PaymentLog
     class PaymentApplication {
         +processPayment(request) PaymentResult
         +checkCompletion(pendingId) PaymentResult
@@ -1262,7 +1263,7 @@ PaymentResult processPayment(
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6は、フェーズ5で定めた課題——**注文処理の呼び出し元から、決済手段の具体クラス名と生成条件を切り離し、手段固有の知識をProcessorへ閉じる接続点を作る**（`PaymentRequest` → `PaymentResult` の契約は守る）——を受けて始めます。ここでは設計案を、比較元と同じ改行を保った完全コードで具体化して決めます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。候補コードは生成・所有・依存注入・実行入口までこのフェーズで示し、フェーズ7で実行結果を検証します。
+フェーズ6は、フェーズ5で定めた課題——**注文処理の呼び出し元から、決済手段の具体クラス名と生成条件を切り離し、手段固有の知識をProcessorへ閉じる接続点を作る**（`PaymentRequest` → `PaymentResult` の契約は守る）——を受けて始めます。まず現行コード全体を振り返り、痛みが出た関連部分へ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
 フェーズ5の課題から、対策候補は次のように出します。
 
 | フェーズ4で見えた原因 | フェーズ5で定めた課題 | フェーズ6で見る候補 |
@@ -1270,7 +1271,15 @@ PaymentResult processPayment(
 | 具体クラスの生成と選択条件が呼び出し元に集まっている | 呼び出し元から具体クラス名と生成条件を切り離す | 生成処理を関数化し、選択条件がどこに残るかを見る |
 | 手段ごとの入力検証・処理モード・エラー対処も混在 | 手段固有の知識をProcessorへ閉じる | 共通インターフェースで手段固有の差分を隠蔽する |
 
-#### 比較元の完全コード（フェーズ1の現状）
+#### 対策検討の課題カード
+
+| ID | 原因と着目コード | 最小変更と守る契約 | 完了条件 |
+|---|---|---|---|
+| P1 | 注文処理が決済種別の `if(type)`、具体Processor生成、手段固有検証を持つ | 生成・実行を関数化し、生成判断をCreatorのFactory Methodへ集める。**守る：** `PaymentRequest → PaymentResult`、外部API境界、所有権 | 新決済ではProcessorと具象Creatorの生成判断を変更し、共通利用フロー・ワーカー・Webhookを変更しない |
+
+共通Factoryを途中案として止めて確認するのは、分岐が呼び出し元から別クラスへ移っただけでも、生成と利用の境界ができれば共通利用フローを安定させられるかを判断するためです。
+
+#### 振り返り：現行コード全体（フェーズ1）
 
 最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
 
@@ -1761,396 +1770,53 @@ int main() {
 
 比較元は、PayPay対応を追加したフェーズ3の変更途中コードです。呼び出し元が決済種別ごとに具体クラスを生成する分岐を持っています。
 
-> フェーズ3で追加した状態・分岐・通知・履歴・入力・出力は、直前のフェーズ3本文で確認済みです。ここでは短い差分コードを重ねず、上の現状完全コードと下の採用候補完全コードを比較し、6-1の説明でどの責任を移すかを追います。
+#### 痛みの差分（フェーズ3で変更した関連部分）
 
-### 6-1：痛みコードを変換して、接続点の「形」を探す
-
-課題は「具体クラス名と生成条件を切り離す」と言っていますが、**どんな形なら切り離せるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（完全な接続コードはこのフェーズの後半で示す）。
-
-**変換1：各生成・実行を関数へ切り出す。**
-
-> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
-
-見えたこと：どの決済も **`PaymentRequest` を受け取り `PaymentResult` を返す**同じ形（`pay`）を持つ。手段ごとに違うのは「どのクラスを生成し、どう検証するか」だけ。
-まだ詰まること：**どの具体クラスを生成するかの `if(type)` 分岐が呼び出し元に残る**。決済を1つ増やすと、また呼び出し元を開く。
-
-**変換2：生成ロジックを専用のファクトリへ分離する。** `if(type) new XxxProcessor` を `PaymentFactory` へ移し、呼び出し元は「作って実行」だけにします。
-
-> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
-
-詰まり解消：呼び出し元からは生成条件が消える。
-まだ詰まること：**ファクトリの中に `if(type)` 分岐が残る**。決済を増やすたび、今度はファクトリを開く。ここで分かるのは、**「生成の"どれを作るか"の判断自体を、種別ごとの生成役へ分ければ、共通の分岐が消える」**ということ。
-
-**変換の結論：** 製品は共通契約 **`IPaymentProcessor`（`process`）**、生成は共通契約 **`Creator`（`createProcessor`）** にし、決済種別ごとの `ConcreteCreator` が自分の Processor を生成する。呼び出し元もファクトリの分岐も、種別を知らない。これが接続点の正体です。
-
-### 6-2：見つけた形を契約にし、データの置き場所を決める
-
-見つけた2つの形を、製品の契約と生成の契約として定義します（完全な接続コードはこの節の後半で示す）。
-
-> この変換は断片コードでは示しません。対象クラス、生成、所有、依存注入、実行入口を含む直後の「採用候補の完全コード」で、移した行と残した行を同じ改行のまま確認します。
-
-次に、データの置き場所を決めます。
-
-| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
-|---|---|---|---|
-| 「どの種別にどの生成役か」の対応 | 呼び出し元／ファクトリの `if(type)` | `ProcessorRegistry`（種別→`Creator` の登録表） | 分岐でなく登録にすれば、追加は表への1行になる |
-| 外部決済API | 各所で直接 | `PaymentGatewayClient` / `PaymentStatusClient`（注入） | 決済フローの論点外の境界 |
-| 手段固有の入力検証・エラー対処 | 呼び出し元に混在 | 各 Processor の内側 | 手段固有の知識は製品に閉じる |
-
-接続点で受け渡すのは **`PaymentRequest → PaymentResult`** です。`Creator` が生成した Processor の**所有権と生存期間は生成・管理側**が持ちます（利用側は非所有の参照として受け取る）。
-
-#### 採用候補の完全コード（生成・所有・依存注入・実行入口まで）
-
-クラスを分けただけでは利用できません。以下では、分離したクラスの定義だけでなく、具体オブジェクトを生成する場所、所有する場所、コンストラクタまたは登録操作による依存注入、実行入口からの呼び出しまでを一続きで示します。各行の並び・インデント・改行は、フェーズ7でコンパイル・実行確認する採用コードと同一です。フェーズ6では接続と責任移動を比較し、フェーズ7では同じコードを実行結果で検証します。
+現行コード全体のどこに痛みが現れたかを振り返ります。以下はフェーズ3で変更した関連部分です。
 
 ```cpp
-#include <iostream>
-#include <map>
-#include <stdexcept>
-#include <string>
-#include <vector>
-#include <queue>
-
-using namespace std;
-
-// ---- 手段固有の入力データ ----
-
-struct CreditCardInput {
-    string cardToken;
-    string holderName;
-    string securityCode;
-};
-
-struct BankTransferInput {
-    string payerName;
-    string bankCode;
-    string accountType;
-};
-
-struct ConvenienceInput {
-    string phoneNumber;
-    string email;
-    string storeCode;
-};
-
 struct PayPayInput {
     string accessToken;
     string merchantId;
 };
+```
 
-// ---- 保留決済の追跡情報 ----
-
-struct PendingInfo {
-    string pendingId;
-    string checkUrl;
-    string expiresAt;
-};
-
-// ---- 決済要求・結果 ----
-
+```cpp
 struct PaymentRequest {
-    string methodId;
-    int amount;
-    string orderId;
-    string customerId;
-    CreditCardInput creditCard;
-    BankTransferInput bankTransfer;
-    ConvenienceInput convenience;
-    PayPayInput payPay;
+    // ... 既存フィールド ...
+    PayPayInput payPay;  // ← 追加
 };
+```
 
-struct PaymentResult {
-    string status;
-    string message;
-    bool canRetry;
-    string errorCode;
-    PendingInfo pending;
-};
+```cpp
+// PaymentGatewayClientへ追加
+PaymentResult chargePayPay(
+    const string& orderId,
+    int amount,
+    const PayPayInput& pp) {
+    cout << "[決済API] PayPay決済"
+         << " order=" << orderId
+         << " amount=" << amount
+         << " token=" << pp.accessToken
+         << endl;
+    PendingInfo p{
+        "PP-" + orderId,
+        "/api/paypay/status/",
+        "2026-07-10"};
+    return {"保留",
+            "PayPayセッション作成済み",
+            false, "", p};
+}
+```
 
-// ---- 共通インターフェース ----
-
-class IPaymentProcessor {
-public:
-    virtual ~IPaymentProcessor() {}
-    virtual PaymentResult pay(
-        const PaymentRequest& request) = 0;
-};
-
-struct ProcessorConfig {
-    string name;
-    bool isActive;
-    double feeRate;
-};
-
-class ProcessorRegistry {
-private:
-    map<string, ProcessorConfig> registry;
-public:
-    ProcessorRegistry() {
-        registry["credit_card"] =
-            {"クレジットカード", true, 0.030};
-        registry["bank_transfer"] =
-            {"銀行振込", true, 0.005};
-        registry["convenience"] =
-            {"コンビニ払い", true, 0.000};
-        registry["paypay"] =
-            {"PayPay", true, 0.020};
-        registry["crypto"] =
-            {"暗号通貨", false, 0.010};
-    }
-
-    bool exists(const string& method) const {
-        return registry.count(method) > 0;
-    }
-
-    bool isActive(const string& method) const {
-        return registry.at(method).isActive;
-    }
-
-    ProcessorConfig get(
-        const string& method) const {
-        return registry.at(method);
-    }
-};
-
-struct PaymentRecord {
-    string method;
-    int amount;
-    string status;
-    string errorCode;
-};
-
-class PaymentLog {
-    vector<PaymentRecord> records;
-public:
-    void add(const string& method,
-             int amount,
-             const string& status,
-             const string& errorCode = "") {
-        records.push_back(
-            {method, amount, status, errorCode});
-    }
-    void printAll() const {
-        for (const auto& r : records) {
-            cout << "[" << r.method << "] "
-                 << r.amount << "円 -> "
-                 << r.status;
-            if (!r.errorCode.empty()) {
-                cout << " (" << r.errorCode << ")";
-            }
-            cout << endl;
-        }
-    }
-};
-
-class PaymentGatewayClient {
-public:
-    PaymentResult authorizeCreditCard(
-        const string& orderId,
-        int amount,
-        const CreditCardInput& card) {
-        cout << "[PaymentGateway] カード認証"
-             << " order=" << orderId
-             << " amount=" << amount
-             << " token=" << card.cardToken
-             << endl;
-        if (card.cardToken.find("ERROR") == 0) {
-            return {"失敗",
-                    "カード認証失敗: 残高不足",
-                    true, "AUTH_DECLINED", {}};
-        }
-        return {"成功",
-                "クレジット認証済み id=AUTH001",
-                false, "", {}};
-    }
-
-    PaymentResult issueBankTransfer(
-        const string& orderId,
-        int amount,
-        const BankTransferInput& bank) {
-        cout << "[PaymentGateway] 振込先発行"
-             << " order=" << orderId
-             << " amount=" << amount
-             << " payer=" << bank.payerName
-             << endl;
-        PendingInfo p{
-            "BT-" + orderId,
-            "/api/bank/status/",
-            "2026-07-12"};
-        return {"保留",
-                "振込先発行済み 口座=mizuho-1234567",
-                false, "", p};
-    }
-
-    PaymentResult issueConvenienceCode(
-        const string& orderId,
-        int amount,
-        const ConvenienceInput& cvs) {
-        cout << "[PaymentGateway] コンビニ番号発行"
-             << " order=" << orderId
-             << " amount=" << amount
-             << " phone=" << cvs.phoneNumber
-             << endl;
-        PendingInfo p{
-            "CVS-" + orderId,
-            "/api/cvs/status/",
-            "2026-07-08"};
-        return {"保留",
-                "番号発行済み 番号=CVS-98765",
-                false, "", p};
-    }
-
-    PaymentResult chargePayPay(
-        const string& orderId,
-        int amount,
-        const PayPayInput& pp) {
-        cout << "[PaymentGateway] PayPay決済"
-             << " order=" << orderId
-             << " amount=" << amount
-             << " token=" << pp.accessToken
-             << endl;
-        PendingInfo p{
-            "PP-" + orderId,
-            "/api/paypay/status/",
-            "2026-07-10"};
-        return {"保留",
-                "PayPayセッション作成済み",
-                false, "", p};
-    }
-};
-
-class PaymentStatusClient {
-public:
-    PaymentResult checkStatus(
-        const string& pendingId) {
-        cout << "[状態確認API] id="
-             << pendingId << endl;
-        if (pendingId.find("EXPIRE")
-            != string::npos) {
-            return {"失敗",
-                    "支払い期限切れ",
-                    false, "EXPIRED", {}};
-        }
-        if (pendingId.find("BT-") == 0) {
-            return {"成功",
-                    "入金確認済み",
-                    false, "", {}};
-        }
-        if (pendingId.find("CVS-") == 0) {
-            return {"成功",
-                    "コンビニ入金確認済み",
-                    false, "", {}};
-        }
-        if (pendingId.find("PP-") == 0) {
-            return {"成功",
-                    "PayPay決済確認済み",
-                    false, "", {}};
-        }
-        return {"失敗",
-                "不明な保留ID",
-                false, "UNKNOWN_PENDING", {}};
-    }
-};
-
-class CreditCardProcessor
-    : public IPaymentProcessor {
+```cpp
+class PayPayProcessor {
     PaymentGatewayClient& gateway;
 public:
-    CreditCardProcessor(
-        PaymentGatewayClient& gw)
+    PayPayProcessor(PaymentGatewayClient& gw)
         : gateway(gw) {}
-
     PaymentResult pay(
-        const PaymentRequest& req) override {
-        if (req.creditCard.cardToken.empty()) {
-            return {"失敗",
-                    "カードトークンが不足しています",
-                    false, "MISSING_TOKEN", {}};
-        }
-        if (req.creditCard.holderName.empty()) {
-            return {"失敗",
-                    "カード名義が不足しています",
-                    false, "MISSING_HOLDER", {}};
-        }
-        if (req.creditCard.securityCode.empty()) {
-            return {"失敗",
-                    "セキュリティコードが不足",
-                    false, "MISSING_CVV", {}};
-        }
-        PaymentResult result
-            = gateway.authorizeCreditCard(
-                req.orderId, req.amount,
-                req.creditCard);
-        // カード認証失敗はリトライ可能
-        if (result.status == "失敗") {
-            result.canRetry = true;
-        }
-        return result;
-    }
-};
-
-class BankTransferProcessor
-    : public IPaymentProcessor {
-    PaymentGatewayClient& gateway;
-public:
-    BankTransferProcessor(
-        PaymentGatewayClient& gw)
-        : gateway(gw) {}
-
-    PaymentResult pay(
-        const PaymentRequest& req) override {
-        if (req.bankTransfer.payerName.empty()) {
-            return {"失敗",
-                    "振込名義が不足しています",
-                    false, "MISSING_PAYER", {}};
-        }
-        if (req.bankTransfer.bankCode.empty()) {
-            return {"失敗",
-                    "銀行コードが不足しています",
-                    false, "MISSING_BANK", {}};
-        }
-        return gateway.issueBankTransfer(
-            req.orderId, req.amount,
-            req.bankTransfer);
-    }
-};
-
-class ConvenienceStoreProcessor
-    : public IPaymentProcessor {
-    PaymentGatewayClient& gateway;
-public:
-    ConvenienceStoreProcessor(
-        PaymentGatewayClient& gw)
-        : gateway(gw) {}
-
-    PaymentResult pay(
-        const PaymentRequest& req) override {
-        if (req.convenience.phoneNumber.empty()) {
-            return {"失敗",
-                    "電話番号が不足しています",
-                    false, "MISSING_PHONE", {}};
-        }
-        if (req.convenience.email.empty()) {
-            return {"失敗",
-                    "メールアドレスが不足しています",
-                    false, "MISSING_EMAIL", {}};
-        }
-        return gateway.issueConvenienceCode(
-            req.orderId, req.amount,
-            req.convenience);
-    }
-};
-
-class PayPayProcessor
-    : public IPaymentProcessor {
-    PaymentGatewayClient& gateway;
-public:
-    PayPayProcessor(
-        PaymentGatewayClient& gw)
-        : gateway(gw) {}
-
-    PaymentResult pay(
-        const PaymentRequest& req) override {
+        const PaymentRequest& req) {
         if (req.payPay.accessToken.empty()) {
             return {"失敗",
                     "PayPayトークンが不足しています",
@@ -2162,257 +1828,128 @@ public:
                     false, "MISSING_MERCHANT", {}};
         }
         return gateway.chargePayPay(
-            req.orderId, req.amount,
-            req.payPay);
+            req.orderId, req.amount, req.payPay);
     }
+};
+```
+
+```cpp
+// processPayment() の if-else に追加
+} else if (type == "paypay") {     // ← 追加
+    PayPayProcessor proc(gatewayClient); // ← 追加
+    PaymentResult result               // ← 追加
+        = proc.pay(request);            // ← 追加
+    return result;                      // ← 追加
+}
+```
+
+```cpp
+// checkStatus() に追加
+if (pendingId.find("PP-") == 0) {       // ← 追加
+    return {"成功",                      // ← 追加
+            "PayPay決済確認済み",         // ← 追加
+            false, "", {}};              // ← 追加
+}                                        // ← 追加
+```
+
+```cpp
+registry["paypay"] =
+    {"PayPay", true, 0.020};  // ← 追加
+```
+
+### 6-1：痛みコードを変換して、接続点の「形」を探す
+
+課題は「具体クラス名と生成条件を切り離す」と言っていますが、**どんな形なら切り離せるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（各段階の直後に関連コードで確かめる）。
+
+**変換1：各生成・実行を関数へ切り出す。**
+
+```cpp
+PaymentResult payByCard(const PaymentRequest& request) {
+    CreditCardProcessor processor(gateway);
+    return processor.pay(request);
+}
+
+if (request.methodId == "credit_card")
+    return payByCard(request);
+```
+
+実行には名前が付きましたが、決済種別の分岐と具体クラス生成は注文処理に残ります。P1の完了条件は満たしていません。
+
+
+
+見えたこと：どの決済も **`PaymentRequest` を受け取り `PaymentResult` を返す**同じ形（`pay`）を持つ。手段ごとに違うのは「どのクラスを生成し、どう検証するか」だけ。
+まだ詰まること：**どの具体クラスを生成するかの `if(type)` 分岐が呼び出し元に残る**。決済を1つ増やすと、また呼び出し元を開く。
+
+**変換2：生成ロジックを専用のファクトリへ分離する。** `if(type) new XxxProcessor` を `PaymentFactory` へ移し、呼び出し元は「作って実行」だけにします。
+
+```cpp
+class PaymentFactory {
+public:
+    IPaymentProcessor* create(
+            const std::string& type) {
+        if (type == "credit_card")
+            return new CreditCardProcessor();
+        if (type == "paypay")
+            return new PayPayProcessor();
+        throw std::invalid_argument("未対応の決済手段");
+    }
+};
+```
+
+呼び出し元は短くなりました。新決済では生成メソッドを開きますが、「生成して `pay()` を呼び、結果を返す」利用フローは変わりません。今回は決済追加ごとにCreator自体を増やすのではなく、この安定した利用フローを基底Creatorへ置き、具象CreatorのFactory Methodだけへ生成判断を集めます。
+
+
+
+詰まり解消：呼び出し元からは生成条件が消える。
+残ること：**具象Creatorの `createProcessor(type)` には生成分岐が残る**。ただし、注文処理、ワーカー、Webhookから具体クラス名と手段固有検証は消える。今回守りたいのは複数入口で共有する利用フローなので、この集中点を許容する。
+
+**変換の結論：** 製品は共通契約 **`IPaymentProcessor`（`pay`）**、利用フローはCreator **`PaymentApplication`（`processPayment`）**、生成判断はFactory Method **`createProcessor(type)`** に分ける。外側の呼び出し元は種別を要求値として渡すだけで、具体Processorを知らない。これが接続点の正体です。
+
+### 6-2：見つけた形を契約にし、データの置き場所を決める
+
+見つけた2つの形を、製品の契約と生成の契約として定義します。
+
+```cpp
+class IPaymentProcessor {
+public:
+    virtual PaymentResult pay(
+        const PaymentRequest& request) = 0;
+    virtual ~IPaymentProcessor() = default;
 };
 
 class PaymentApplication {
 protected:
-    virtual IPaymentProcessor*
-    createProcessor(const string& type) = 0;
-
-    PaymentStatusClient statusClient;
-
+    virtual IPaymentProcessor* createProcessor(
+        const std::string& type) = 0;
 public:
-    virtual ~PaymentApplication() = default;
-
-    PaymentResult processPayment(
-        const PaymentRequest& request) {
-        if (request.amount < 1) {
-            return {"失敗",
-                    "金額は1円以上で指定してください。",
-                    false, "INVALID_AMOUNT", {}};
-        }
-        IPaymentProcessor* proc
-            = createProcessor(request.methodId);
-        PaymentResult result
-            = proc->pay(request);
-        delete proc;
+    PaymentResult processPayment(const PaymentRequest& request) {
+        IPaymentProcessor* processor =
+            createProcessor(request.methodId);
+        PaymentResult result = processor->pay(request);
+        delete processor;
         return result;
     }
-
-    // 保留決済の完了確認（汎用）
-    PaymentResult checkCompletion(
-        const string& pendingId) {
-        return statusClient.checkStatus(pendingId);
-    }
 };
-
-class DefaultPaymentApplication
-    : public PaymentApplication {
-    ProcessorRegistry registry;
-    PaymentGatewayClient gatewayClient;
-protected:
-    IPaymentProcessor*
-    createProcessor(const string& type) override {
-        if (!registry.exists(type)) {
-            throw invalid_argument(
-                "未登録の決済方法です: " + type);
-        }
-        if (!registry.isActive(type)) {
-            ProcessorConfig cfg
-                = registry.get(type);
-            throw invalid_argument(
-                cfg.name + " は現在無効です。");
-        }
-        if (type == "credit_card")
-            return new CreditCardProcessor(
-                gatewayClient);
-        if (type == "bank_transfer")
-            return new BankTransferProcessor(
-                gatewayClient);
-        if (type == "convenience")
-            return new ConvenienceStoreProcessor(
-                gatewayClient);
-        if (type == "paypay")
-            return new PayPayProcessor(
-                gatewayClient);
-        throw invalid_argument(
-            "未対応の決済種別: " + type);
-    }
-};
-
-// 外部（決済会社）から届くWebフックイベント
-struct WebhookEvent {
-    string methodId;
-    string signature;   // 署名。"valid" 以外は不正として拒否する
-    PaymentRequest payload;
-};
-
-// Webフックを受け取り、署名を検証してジョブキューへ積む入口
-class WebhookController {
-    queue<PaymentRequest>& jobs;
-public:
-    explicit WebhookController(queue<PaymentRequest>& q)
-        : jobs(q) {}
-    bool receive(const WebhookEvent& ev) {
-        if (ev.signature != "valid") {
-            cout << "[Webhook] 署名検証に失敗: "
-                 << ev.methodId << endl;
-            return false;
-        }
-        cout << "[Webhook] 受理してキューへ: "
-             << ev.methodId << endl;
-        jobs.push(ev.payload);
-        return true;
-    }
-};
-
-// キューからジョブを取り出し、Factory経由で処理するワーカー
-// 実運用では別スレッドで動くが、ここでは同期的にキューを空にする
-class PaymentWorker {
-    PaymentApplication& app;
-    queue<PaymentRequest>& jobs;
-public:
-    PaymentWorker(PaymentApplication& a,
-                  queue<PaymentRequest>& q)
-        : app(a), jobs(q) {}
-    void drain() {
-        while (!jobs.empty()) {
-            PaymentRequest req = jobs.front();
-            jobs.pop();
-            PaymentResult r = app.processPayment(req);
-            cout << "[ワーカー] " << req.methodId
-                 << " -> " << r.status << endl;
-        }
-    }
-};
-
-int main() {
-    DefaultPaymentApplication app;
-    PaymentLog payLog;
-
-    // ケース1: カード正常（同期）
-    PaymentRequest r1;
-    r1.methodId = "credit_card";
-    r1.amount = 1000;
-    r1.orderId = "ORD-1001";
-    r1.customerId = "C001";
-    r1.creditCard = {"tok_abc", "YAMADA", "123"};
-
-    // ケース2: 銀行振込正常（非同期）
-    PaymentRequest r2;
-    r2.methodId = "bank_transfer";
-    r2.amount = 2000;
-    r2.orderId = "ORD-1002";
-    r2.customerId = "C002";
-    r2.bankTransfer
-        = {"山田太郎", "0001", "ordinary"};
-
-    // ケース3: コンビニ正常（非同期）
-    PaymentRequest r3;
-    r3.methodId = "convenience";
-    r3.amount = 500;
-    r3.orderId = "ORD-1003";
-    r3.customerId = "C003";
-    r3.convenience
-        = {"09012345678", "y@example.com",
-           "seven"};
-
-    // ケース4: PayPay正常（非同期）
-    PaymentRequest r4;
-    r4.methodId = "paypay";
-    r4.amount = 3000;
-    r4.orderId = "ORD-2001";
-    r4.customerId = "C020";
-    r4.payPay = {"pp_token_123", "MERCHANT001"};
-
-    // ケース5: カードAPI失敗
-    PaymentRequest r5;
-    r5.methodId = "credit_card";
-    r5.amount = 800;
-    r5.orderId = "ORD-1004";
-    r5.customerId = "C004";
-    r5.creditCard
-        = {"ERROR_DECLINED", "SUZUKI", "456"};
-
-    // ケース6: カード入力不足
-    PaymentRequest r6;
-    r6.methodId = "credit_card";
-    r6.amount = 600;
-    r6.orderId = "ORD-1005";
-    r6.customerId = "C005";
-    r6.creditCard = {"tok_xyz", "", "789"};
-
-    // ケース7: 無効な決済方法
-    PaymentRequest r7;
-    r7.methodId = "crypto";
-    r7.amount = 300;
-    r7.orderId = "ORD-1006";
-    r7.customerId = "C006";
-
-    // ケース8: 未登録の決済方法
-    PaymentRequest r8;
-    r8.methodId = "unknown";
-    r8.amount = 200;
-    r8.orderId = "ORD-1007";
-    r8.customerId = "C007";
-
-    vector<PaymentRequest> requests
-        = {r1, r2, r3, r4, r5, r6, r7, r8};
-
-    for (const auto& req : requests) {
-        try {
-            PaymentResult result
-                = app.processPayment(req);
-            cout << "結果: " << req.methodId
-                 << " -> " << result.status
-                 << " (" << result.message << ")"
-                 << endl;
-
-            // 保留の場合、完了確認
-            if (result.status == "保留") {
-                cout << "  完了確認中... id="
-                     << result.pending.pendingId
-                     << endl;
-                PaymentResult completion
-                    = app.checkCompletion(
-                        result.pending.pendingId);
-                cout << "  完了結果: "
-                     << completion.status
-                     << " (" << completion.message
-                     << ")" << endl;
-                payLog.add(req.methodId,
-                           req.amount,
-                           completion.status,
-                           completion.errorCode);
-            } else {
-                payLog.add(req.methodId,
-                           req.amount,
-                           result.status,
-                           result.errorCode);
-            }
-        } catch (const invalid_argument& e) {
-            cout << "結果: " << req.methodId
-                 << " -> 失敗 ("
-                 << e.what() << ")" << endl;
-            payLog.add(req.methodId,
-                       req.amount, "失敗", "");
-        }
-    }
-
-    // イベント駆動（Webhook）＋ワーカーで同じFactoryを再利用する
-    cout << "\n--- Webhook + ワーカー ---\n";
-    queue<PaymentRequest> jobs;
-    WebhookController controller(jobs);
-    PaymentWorker worker(app, jobs);
-    WebhookEvent e1{"credit_card", "valid", r1};
-    WebhookEvent e2{"paypay", "bad", r4};
-    controller.receive(e1);   // 署名OK→キューへ
-    controller.receive(e2);   // 署名NG→拒否
-    worker.drain();           // キューを取り出しFactoryで処理
-
-    cout << "\n--- 決済ログ ---\n";
-    payLog.printAll();
-
-    return 0;
-}
 ```
+
+製品契約と生成メソッドを分け、生成後の利用順を `processPayment()` へ固定しました。この接続ならP1の変更中心をProcessorと具象CreatorのFactory Methodへ限定できます。
+
+
+
+次に、データの置き場所を決めます。
+
+| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
+|---|---|---|---|
+| 決済手段の有効性・手数料 | 呼び出し元の分岐 | `ProcessorRegistry` の設定データ | 生成前の有効性確認を設定へ寄せる |
+| 「どの種別にどのProcessorを作るか」 | 呼び出し元の `if(type)` | `DefaultPaymentApplication::createProcessor(type)` | 生成判断を共通利用フローから分ける |
+| 外部決済API | 各所で直接 | `PaymentGatewayClient` / `PaymentStatusClient`（注入） | 決済フローの論点外の境界 |
+| 手段固有の入力検証・エラー対処 | 呼び出し元に混在 | 各 Processor の内側 | 手段固有の知識は製品に閉じる |
+
+接続点で受け渡すのは **`PaymentRequest → PaymentResult`** です。`processPayment()` がFactory Methodから受け取ったProcessorを所有し、`pay()` の直後に破棄します。
 
 クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
 
-| 判断 | 完全コードで確認すること |
+| 判断 | 関連コードで確認すること |
 |---|---|
 | 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
 | 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
@@ -2437,32 +1974,41 @@ classDiagram
     }
 ```
 
-見立て（利用側は生成の契約だけを知る）：
+見立て（利用側は共通利用フローだけを知る）：
 
 ```mermaid
 classDiagram
-    direction LR
+    class DefaultPaymentApplication
+    class PaymentGatewayClient
+    class PaymentStatusClient
+    class ProcessorRegistry
+    class PaymentLog
+    class PaymentWorker
+    class WebhookController
+    class PaymentApplication
     class IPaymentProcessor { <<interface>> }
-    class Creator { <<interface>> }
-    ProcessorRegistry --> Creator : 種別→生成役
-    Creator --> IPaymentProcessor : createProcessor
+    class CreditCardProcessor
+    class BankTransferProcessor
+    class ConvenienceStoreProcessor
+    class PayPayProcessor
+    PaymentApplication --> IPaymentProcessor : createProcessor
     IPaymentProcessor <|.. CreditCardProcessor
+    IPaymentProcessor <|.. BankTransferProcessor
+    IPaymentProcessor <|.. ConvenienceStoreProcessor
     IPaymentProcessor <|.. PayPayProcessor
-    Creator <|.. CreditCardCreator
-    Creator <|.. PayPayCreator
 ```
 
-図から読み取ること：呼び出し元と共通ファクトリから `if(type)` が消え、種別ごとの生成役（`Creator`）と製品（`IPaymentProcessor`）だけが残る。種別と生成役の対応は `ProcessorRegistry` の登録に集まる。
+図から読み取ること：呼び出し元から具体Processor名が消え、共通利用フローは `PaymentApplication`、生成判断は `DefaultPaymentApplication::createProcessor()`、手段固有処理は各Processorへ分かれる。
 
 ### 6-4：影響範囲（この設計で変更要求を再度当てたら）
 
 | 変更要求 | 修正する場所 | 再テスト範囲 |
 |---|---|---|
-| 決済手段を1つ追加 | `Processor` と `Creator` を1組追加し、`ProcessorRegistry` へ1行登録 | 追加した1組。**呼び出し元も共通分岐も無変更** |
+| 決済手段を1つ追加 | `Processor` を追加し、`ProcessorRegistry` と `DefaultPaymentApplication::createProcessor()` を変更 | 追加Processorと生成判断。**`processPayment`・ワーカー・Webhookは無変更** |
 | ある手段の検証・エラー対処を変える | その `Processor` のみ | その手段 |
-| 環境別・テスト用の生成に差し替える | 登録する `Creator` を差し替える | 生成の組み立て |
+| 環境別・テスト用の生成に差し替える | `PaymentApplication` のテスト用サブクラスを使う | 生成の組み立て |
 
-現状との差：現状は決済追加のたびに呼び出し元（と共通ファクトリ）の `if(type)` を開く。対策後は生成役と製品を1組足して登録するだけ。**この「触る範囲の差」がこの構造を採る理由**です。
+現状との差：現状は決済追加のたびに注文処理・ワーカーなど複数入口を開く。対策後はProcessor、設定、具象Creatorの生成判断へ変更が集まり、共通利用フローは触らない。**この「触る範囲の差」がこの構造を採る理由**です。
 
 ### 採用する形を決める
 
@@ -3205,6 +2751,13 @@ int main() {
 
 ```mermaid
 classDiagram
+    class DefaultPaymentApplication
+    class PaymentGatewayClient
+    class PaymentStatusClient
+    class ProcessorRegistry
+    class PaymentLog
+    class PaymentWorker
+    class WebhookController
     class PaymentApplication
     class IPaymentProcessor { <<interface>> }
     class CreditCardProcessor
