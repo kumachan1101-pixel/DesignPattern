@@ -335,21 +335,24 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
         ("```mermaid", "フェーズ6に構造のクラス図（mermaid）がありません"),
         ("### 6-4", "フェーズ6に影響範囲（6-4）がありません"),
         ("### 採用する形を決める", "フェーズ6に採用判断がありません"),
-        ("#### 痛みの変更影響から、構造をどう変えるか",
-         "フェーズ6に痛みの変更影響を起点にした構造変更グラフがありません"),
-        ("subgraph Pain", "構造変更グラフにフェーズ3・4の痛みがありません"),
-        ("subgraph StructuralChange", "構造変更グラフにコード構造の微修正がありません"),
-        ("subgraph Result", "構造変更グラフに同じ要求を再適用した結果がありません"),
-        ("#### 構造変更グラフから課題と候補を一続きで導く",
+        ("#### 問題定義の変更影響を、どの構造で変えるか",
+         "フェーズ6に問題定義の変更影響と構造を対応させたグラフがありません"),
+        ('subgraph Pain["問題定義：変更前の変更影響"]',
+         "構造変更グラフに問題定義で得た変更前の変更影響がありません"),
+        ('subgraph TargetStructure["影響を切る構造の形"]',
+         "構造変更グラフに影響を切るクラス・契約・依存関係がありません"),
+        ('subgraph Result["同じ要求を再適用した変更影響"]',
+         "構造変更グラフに同じ要求を再適用した変更影響がありません"),
+        ("#### 構造と変更後の影響から、課題と候補を一続きで導く",
          "フェーズ6にグラフから課題・候補を一続きで導く表がありません"),
-        ("| 課題ID | 変更の到達点 | 最初の微修正 | 残れば次の微修正 |",
+        ("| 課題ID | 変更の到達点 | 最初に試すコード変更 | 残る問題に対する次のコード変更 |",
          "フェーズ6に差・境界・完了条件・候補を同じ課題IDで結ぶ表がありません"),
         ("#### 課題箇所のおさらい（フェーズ3の関連コード）",
          "フェーズ6に課題カードで指定した関連コードのおさらいがありません"),
         ("#### 課題IDごとのコード適用結果",
          "フェーズ6に課題IDごとのコード適用結果がありません"),
-        ("| 課題ID | 候補を適用したコード | コード上の微修正と結果 | 守った契約・完了条件の判定 |",
-         "フェーズ6に適用コード・微修正・結果・契約・完了判定の対応表がありません"),
+        ("| 課題ID | 候補を適用したコード | 段階的なコード変更と結果 | 守った契約・完了条件の判定 |",
+         "フェーズ6に適用コード・段階的なコード変更・結果・契約・完了判定の対応表がありません"),
     ]
     for token, msg in checks:
         if token not in sec:
@@ -375,15 +378,15 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
                 f"完成コード先出しの旧表現が残っています: {token}",
             ))
 
-    graph_heading = "#### 痛みの変更影響から、構造をどう変えるか"
-    trace_heading = "#### 構造変更グラフから課題と候補を一続きで導く"
+    graph_heading = "#### 問題定義の変更影響を、どの構造で変えるか"
+    trace_heading = "#### 構造と変更後の影響から、課題と候補を一続きで導く"
     trace_table_heading = (
-        "| 課題ID | 変更の到達点 | 最初の微修正 | 残れば次の微修正 |"
+        "| 課題ID | 変更の到達点 | 最初に試すコード変更 | 残る問題に対する次のコード変更 |"
     )
     recap_heading = "#### 課題箇所のおさらい（フェーズ3の関連コード）"
     code_result_heading = "#### 課題IDごとのコード適用結果"
     code_result_table_heading = (
-        "| 課題ID | 候補を適用したコード | コード上の微修正と結果 | "
+        "| 課題ID | 候補を適用したコード | 段階的なコード変更と結果 | "
         "守った契約・完了条件の判定 |"
     )
     graph_heading_start = sec.find(graph_heading)
@@ -438,7 +441,7 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
                 ))
 
         code_result_required_labels = (
-            "**微修正：**",
+            "**段階的な変更：**",
             "**結果：**",
             "**守った契約：**",
             "**判定：**",
@@ -460,10 +463,41 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
                 ))
         graph_start = sec.find("```mermaid", graph_heading_start, trace_start)
         graph_end = sec.find("```", graph_start + len("```mermaid"))
+        graph_text = (
+            sec[graph_start:graph_end]
+            if graph_start >= 0 and graph_end >= 0 else ""
+        )
         graph_ids = (
-            re.findall(r"P\d+", sec[graph_start:graph_end])
+            re.findall(r"P\d+", graph_text)
             if graph_start >= 0 and graph_end >= 0 else []
         )
+        target_match = re.search(
+            r"subgraph TargetStructure.*?\n(.*?)\n\s*end",
+            graph_text,
+            re.DOTALL,
+        )
+        if target_match:
+            target_structure = target_match.group(1)
+            if re.search(r"P\d+-変更\d+|変更[１２12]", target_structure):
+                issues.append(Issue(
+                    path, ln,
+                    "中央のTargetStructureを変更1→変更2の作業フローにせず、"
+                    "クラス・契約・依存関係の形を描いてください",
+                ))
+            structure_nodes = re.findall(r"\b[A-Za-z][A-Za-z0-9_]*\[", target_structure)
+            if len(structure_nodes) < 3 or "-->" not in target_structure:
+                issues.append(Issue(
+                    path, ln,
+                    "中央のTargetStructureには、影響を切る3つ以上の構造要素と"
+                    "依存関係を描いてください",
+                ))
+        graph_explanation = sec[graph_end + 3:trace_start]
+        if "中央" not in graph_explanation:
+            issues.append(Issue(
+                path, ln,
+                "構造変更グラフの直後に、中央の構造で左の影響が右へどう変わるか"
+                "言語化してください",
+            ))
         handoff_table_start = phase5_sec.find(handoff_table_heading)
         handoff_ids = (
             re.findall(
@@ -510,7 +544,7 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
             if set(graph_ids) != set(trace_ids):
                 issues.append(Issue(
                     path, ln,
-                    "構造変更グラフは全課題IDだけを使って痛み→微修正→結果を追跡してください: "
+                    "構造変更グラフは全課題IDだけを使って変更前の影響→構造上の境界→変更後の影響を追跡してください: "
                     f"グラフ={sorted(set(graph_ids))}, 課題={trace_ids}",
                 ))
             if handoff_ids != trace_ids:
