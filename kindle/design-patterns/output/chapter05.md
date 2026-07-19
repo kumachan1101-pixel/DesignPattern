@@ -834,17 +834,21 @@ UIが「呼び出し先の具体的な知識」として保持しているのは
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6は、フェーズ5で定めた課題——**実行手段をオブジェクトとして差し替え可能にし、実行・取消・履歴を同じ単位で扱う接続点を作る**——を受けて始めます。まず現行コード全体を振り返り、痛みが出た関連部分へ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
+フェーズ6は、フェーズ5で定めた課題——**実行手段をオブジェクトとして差し替え可能にし、実行・取消・履歴を同じ単位で扱う接続点を作る**——を受けて始めます。まず課題カードで指定したフェーズ3の関連部分だけをおさらいし、そのコードへ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
 フェーズ5の課題から、対策候補は次のように出します。
 
-| フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
-|---|---|---|
-| `UIButtons` が操作の意図だけでなく、実行先メソッドと引数まで知っている | UIから実行手段を切り離し、「実行できる操作」を渡せる接続点にする | まず呼び出し処理に名前を付け、実行手段がどこに漏れているかを見る |
-| Undoでは、実行した操作と取り消し手段を対応させる必要がある | 履歴には文字列ではなく、実行・取消できる単位を残す | 操作をオブジェクト化し、`execute` と `undo` を同じ単位に持たせる案を見る |
-| 複合操作や保存失敗時の補償では、成功した操作だけを履歴へ積み、失敗時に逆順で戻す必要がある | 操作の成功/失敗、取消、再実行を同じ契約で扱う | `execute` / `undo` の結果を履歴管理が受け取り、スタックを崩さない形を見る |
-| 操作追加のたびにUIの条件分岐が増える | UIは操作の種類を知らず、登録された操作を実行するだけにする | 操作一覧の登録・実行方式まで進める必要があるか判断する |
+| 課題ID | フェーズ4で見えた原因 | フェーズ5で定めた課題 | フェーズ6で試す候補 |
+|---|---|---|---|
+| P1 | `UIButtons` が操作の意図だけでなく、実行先メソッドと引数まで知っている | UIから実行手段を切り離し、「実行できる操作」を渡せる接続点にする | まず呼び出し処理に名前を付け、実行手段がどこに漏れているかを見る |
+| P1 | Undoでは、実行した操作と取り消し手段を対応させる必要がある | 履歴には文字列ではなく、実行・取消できる単位を残す | 操作をオブジェクト化し、`execute` と `undo` を同じ単位に持たせる案を見る |
+| P1 | 複合操作や保存失敗時の補償では、成功した操作だけを履歴へ積み、失敗時に逆順で戻す必要がある | 操作の成功/失敗、取消、再実行を同じ契約で扱う | `execute` / `undo` の結果を履歴管理が受け取り、スタックを崩さない形を見る |
+| P1 | 操作追加のたびにUIの条件分岐が増える | UIは操作の種類を知らず、登録された操作を実行するだけにする | 操作一覧の登録・実行方式まで進める必要があるか判断する |
 
-#### 対策検討の課題カード
+上表の「候補」は、原因と課題から何を試すかを出したものです。次の課題カードは別の課題を追加する表ではなく、同じ課題IDについて、着目コード・最小変更・守る契約・完了条件を固定する表です。同じIDの候補を1枚のカードへまとめ、そのIDの関連コードへ進みます。
+
+ここまでに挙げた候補を、同じ課題IDのコード検討条件へ落としたものが次のカードです。
+
+#### 候補をコードで検討するための課題カード
 
 | ID | 原因と着目コード | 最小変更と守る契約 | 完了条件 |
 |---|---|---|---|
@@ -852,129 +856,12 @@ UIが「呼び出し先の具体的な知識」として保持しているのは
 
 最初に関数へ出すのは、UIから消すべきものが「呼び出し」だけか、「後で取り消すための値と逆操作」までかを明らかにするためです。
 
-#### 振り返り：現行コード全体（フェーズ1）
-
-最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
-
-```cpp
-#include <iostream>
-#include <map>
-#include <string>
-
-struct Category {
-    std::string name;  // カテゴリ名
-    std::string type;  // "income"（収入）または "expense"（支出）
-};
-
-class CategoryDatabase {
-    std::map<std::string, Category> records;
-public:
-    CategoryDatabase() {
-        records["CAT001"] = {"給与",   "income"};
-        records["CAT002"] = {"食費",   "expense"};
-        records["CAT003"] = {"交通費", "expense"};
-        records["CAT004"] = {"副収入", "income"};
-    }
-    bool exists(const std::string& id) const {
-        return records.count(id) > 0;
-    }
-    Category get(const std::string& id) const {
-        return records.at(id);
-    }
-    void save(const std::string& id, const Category& c) {
-        records[id] = c;                // 実行中のカテゴリ表へ追加
-    }
-};
-
-class ExpenseManager {
-    CategoryDatabase& db;
-public:
-    ExpenseManager(CategoryDatabase& db) : db(db) {}
-    int addExpense(int amount, const std::string& categoryId) {
-        if (!db.exists(categoryId)) {
-            std::cout << "エラー：カテゴリID「" << categoryId
-                      << "」は存在しません" << std::endl;
-            return 0;
-        }
-        if (amount <= 0) {
-            std::cout << "エラー：金額は1円以上を指定してください"
-                      << std::endl;
-            return 0;
-        }
-        Category cat = db.get(categoryId);
-        std::cout << "支出を追加しました：" << cat.name
-                  << " " << amount << "円" << std::endl;
-        // DB保存・画面更新処理
-        return -amount;
-    }
-};
-
-class IncomeManager {
-    CategoryDatabase& db;
-public:
-    IncomeManager(CategoryDatabase& db) : db(db) {}
-    int addIncome(int amount, const std::string& categoryId) {
-        if (!db.exists(categoryId)) {
-            std::cout << "エラー：カテゴリID「" << categoryId
-                      << "」は存在しません" << std::endl;
-            return 0;
-        }
-        if (amount <= 0) {
-            std::cout << "エラー：金額は1円以上を指定してください"
-                      << std::endl;
-            return 0;
-        }
-        Category cat = db.get(categoryId);
-        std::cout << "収入を追加しました：" << cat.name
-                  << " " << amount << "円" << std::endl;
-        // DB保存・画面更新処理
-        return amount;
-    }
-};
-
-// ユーザーインターフェース層（上記2クラスを直接呼び出す）
-class UIButtons {
-    ExpenseManager em;
-    IncomeManager im;
-    int balance = 0;
-public:
-    UIButtons(CategoryDatabase& db) : em(db), im(db) {}
-    void onAddExpenseClick(int amount, const std::string& categoryId) {
-        balance += em.addExpense(amount, categoryId);
-        std::cout << "現在残高：" << balance << "円\n";
-    }
-    void onAddIncomeClick(int amount, const std::string& categoryId) {
-        balance += im.addIncome(amount, categoryId);
-        std::cout << "現在残高：" << balance << "円\n";
-    }
-};
-
-int main() {
-    CategoryDatabase db;
-    UIButtons buttons(db);
-
-    std::cout << "--- 行1: 支出登録 ---\n";
-    buttons.onAddExpenseClick(1000, "CAT002");  // 食費
-
-    std::cout << "--- 行2: 収入登録 ---\n";
-    buttons.onAddIncomeClick(5000, "CAT001");   // 給与
-
-    std::cout << "--- 行3: 未登録カテゴリの支出 ---\n";
-    buttons.onAddExpenseClick(500, "CAT999");   // 存在しないID
-
-    std::cout << "--- 行4: 金額0円の収入 ---\n";
-    buttons.onAddIncomeClick(0, "CAT001");      // 金額エラー
-    return 0;
-}
-```
-
-#### 起点：フェーズ3の痛みコード
+#### 課題箇所のおさらい（フェーズ3の関連コード）
 
 比較元は、Undo要求を文字列履歴で追加しようとして、UIが操作種別と逆操作を判断し始めたフェーズ3の変更途中コードです。
 
-#### 痛みの差分（フェーズ3で変更した関連部分）
 
-現行コード全体のどこに痛みが現れたかを振り返ります。以下はフェーズ3で変更した関連部分です。
+課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
 
 ```cpp
 class UIButtons {

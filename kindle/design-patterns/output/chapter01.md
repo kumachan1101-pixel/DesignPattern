@@ -1036,16 +1036,20 @@ public:
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6は、フェーズ5で定めた課題——**小計計算の骨格を守りつつ、割引ルールごとの判定・計算式を差し替えられる接続点を作る**——を受けて始めます。まず現行コード全体を振り返り、痛みが出た関連部分へ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
+フェーズ6は、フェーズ5で定めた課題——**小計計算の骨格を守りつつ、割引ルールごとの判定・計算式を差し替えられる接続点を作る**——を受けて始めます。まず課題カードで指定したフェーズ3の関連部分だけをおさらいし、そのコードへ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
 フェーズ5の課題から、対策候補は次のように出します。
 
-| フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
-|---|---|---|
-| `PaymentCalculator` が割引条件と計算式を直接知っている | 小計計算の骨格から、割引ルールごとの判定・計算式を切り離す | まず関数化で計算式に名前を付け、次に割引ルールを独立した部品へ移す |
-| 新しい割引が増えるたびに `calculate()` の条件分岐が増える | ルール追加時に既存の小計計算や他の割引へ触らない接続点を作る | 共通の割引契約を作り、複数ルールを同じ形で扱えるかを見る |
-| 今回は逐次割引、将来は定額割引もありうる | 割引の種類が増えても、支払金額を返す形は守る | ルール一覧へ登録して順に適用する形まで進める必要があるか判断する |
+| 課題ID | フェーズ4で見えた原因 | フェーズ5で定めた課題 | フェーズ6で試す候補 |
+|---|---|---|---|
+| P1 | `PaymentCalculator` が割引条件と計算式を直接知っている | 小計計算の骨格から、割引ルールごとの判定・計算式を切り離す | まず関数化で計算式に名前を付け、次に割引ルールを独立した部品へ移す |
+| P1 | 新しい割引が増えるたびに `calculate()` の条件分岐が増える | ルール追加時に既存の小計計算や他の割引へ触らない接続点を作る | 共通の割引契約を作り、複数ルールを同じ形で扱えるかを見る |
+| P1 | 今回は逐次割引、将来は定額割引もありうる | 割引の種類が増えても、支払金額を返す形は守る | ルール一覧へ登録して順に適用する形まで進める必要があるか判断する |
 
-#### 対策検討の課題カード
+上表の「候補」は、原因と課題から何を試すかを出したものです。次の課題カードは別の課題を追加する表ではなく、同じ課題IDについて、着目コード・最小変更・守る契約・完了条件を固定する表です。同じIDの候補を1枚のカードへまとめ、そのIDの関連コードへ進みます。
+
+ここまでに挙げた候補を、同じ課題IDのコード検討条件へ落としたものが次のカードです。
+
+#### 候補をコードで検討するための課題カード
 
 | ID | 原因と着目コード | 最小変更と守る契約 | 完了条件 |
 |---|---|---|---|
@@ -1053,213 +1057,12 @@ public:
 
 P1をこの順で進める理由は、いきなりクラスを増やす前に、分岐間で本当に共通な入出力が `int → int` だとコードで確かめるためです。
 
-#### 振り返り：現行コード全体（フェーズ1）
-
-最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
-
-```cpp
-#include <iostream>
-#include <string>
-#include <vector>
-#include <map>
-#include <stdexcept>
-
-class Item {
-public:
-    std::string name;   // 商品名
-    int price;          // 単価（円）
-    Item(std::string n, int p) : name(n), price(p) {}
-};
-
-class CampaignContext {
-public:
-    bool isCampaignActive = false;  // キャンペーン期間中なら true
-};
-
-class Order {
-public:
-    std::string customerId;   // 注文した顧客のID
-    std::vector<Item> items;  // カートに入っている商品の一覧
-};
-
-struct CustomerInfo {
-    std::string name;        // 顧客の氏名
-    std::string memberType;  // "Premium" または "Regular"
-};
-
-class CustomerDatabase {
-private:
-    std::map<std::string, CustomerInfo> records;  // ID→顧客情報
-public:
-    CustomerDatabase() {
-        records["C001"] = {"田中 一郎", "Premium"};
-        records["C002"] = {"佐藤 花子", "Regular"};
-        records["C003"] = {"鈴木 次郎", "Regular"};
-    }
-
-    bool exists(const std::string& id) const {
-        return records.count(id) > 0;   // IDが登録済みか
-    }
-
-    CustomerInfo get(const std::string& id) const {
-        return records.at(id);          // IDから顧客情報を取り出す
-    }
-
-    void save(const std::string& id, const CustomerInfo& info) {
-        records[id] = info;             // 実行中の登録表へ顧客を追加
-    }
-};
-
-class PaymentCalculator {
-public:
-    int calculate(const Order& order,
-                  const std::string& memberType,
-                  const CampaignContext& context) {
-        // (1) 小計：商品の単価を全部足す
-        int total = 0;
-        for (const auto& item : order.items) {
-            total += item.price;
-        }
-
-        // (2) 割引：会員種別とキャンペーンで割引率を決める
-        if (memberType == "Premium") {
-            total = total * 80 / 100;   // プレミアム割引 20%引き
-        } else if (memberType == "Regular" && context.isCampaignActive) {
-            total = total * 90 / 100;   // キャンペーン割引 10%引き
-        }
-        // どちらにも当てはまらなければ割引なし（定価）
-
-        return total;
-    }
-};
-
-class CartPreviewService {
-private:
-    PaymentCalculator calculator;
-public:
-    int getEstimatedTotal(const Order& order,
-                          const std::string& memberType,
-                          const CampaignContext& context) {
-        return calculator.calculate(order, memberType, context);
-    }
-};
-
-class CheckoutResultRenderer {
-public:
-    void showOrderResult(const CustomerInfo& customer,
-                         const Order& order,
-                         const CampaignContext& context,
-                         int subtotal,
-                         int finalPrice) {
-        std::cout << customer.name << " さんの注文:";
-        for (const auto& item : order.items) {
-            std::cout << " " << item.name << " " << item.price << "円";
-        }
-        std::cout << "\n  条件: 会員=" << customer.memberType
-                  << ", キャンペーン="
-                  << (context.isCampaignActive ? "あり" : "なし");
-        std::cout << "\n  小計 " << subtotal << "円 → 支払金額 "
-                  << finalPrice << "円\n";
-    }
-};
-
-class OrderProcessor {
-private:
-    CustomerDatabase& db;
-    CheckoutResultRenderer& renderer;
-    PaymentCalculator calculator;
-public:
-    OrderProcessor(CustomerDatabase& db, CheckoutResultRenderer& renderer)
-        : db(db), renderer(renderer) {}
-
-    void process(const Order& order, const CampaignContext& context) {
-        // エラー条件1：顧客IDが存在しない
-        if (!db.exists(order.customerId)) {
-            std::cerr << "エラー: 顧客ID " << order.customerId
-                      << " は登録されていません\n";
-            return;
-        }
-        // エラー条件2：注文が空
-        if (order.items.empty()) {
-            std::cerr << "エラー: 注文が空です\n";
-            return;
-        }
-
-        // 会員種別をIDから取得して計算へ渡す
-        // 実運用ではDB/API呼び出し。接続失敗などに備えて捕捉する
-        CustomerInfo customer;
-        try {
-            customer = db.get(order.customerId);
-        } catch (const std::exception&) {
-            std::cerr << "エラー: 顧客情報の取得に失敗しました\n";
-            return;
-        }
-        int finalPrice =
-            calculator.calculate(order, customer.memberType, context);
-
-        // 表示形式はRenderer境界へ委ねる
-        int subtotal = 0;
-        for (const auto& item : order.items) {
-            subtotal += item.price;
-        }
-        renderer.showOrderResult(customer, order, context,
-                                 subtotal, finalPrice);
-    }
-};
-
-int main() {
-    CustomerDatabase db;
-    CheckoutResultRenderer renderer;
-    OrderProcessor processor(db, renderer);
-    CartPreviewService preview;
-    CampaignContext context;
-
-    // 動作例1：C001（Premium）/ キャンペーンなし → 20%引き
-    Order order1;
-    order1.customerId = "C001";
-    order1.items.push_back(Item("ワイヤレスイヤホン", 10000));
-    context.isCampaignActive = false;
-    processor.process(order1, context);
-
-    // 動作例2：同じPremium会員にキャンペーンを当てても優先は変わらない
-    context.isCampaignActive = true;
-    processor.process(order1, context);   // → 8000（キャンペーン無効）
-    context.isCampaignActive = false;
-
-    // 動作例3：C002（Regular）/ キャンペーンあり → 10%引き
-    Order order2;
-    order2.customerId = "C002";
-    order2.items.push_back(Item("ワイヤレスイヤホン", 10000));
-    context.isCampaignActive = true;
-    processor.process(order2, context);
-    std::cout << "  （上と同じ佐藤さんのカート）カートプレビュー: "
-              << preview.getEstimatedTotal(order2, "Regular", context)
-              << "円\n";
-
-    // 動作例4：C003（Regular）/ キャンペーンなし → 割引なし
-    Order order3;
-    order3.customerId = "C003";
-    order3.items.push_back(Item("スマホケース", 3000));
-    context.isCampaignActive = false;
-    processor.process(order3, context);
-
-    // エラー条件：存在しない顧客ID
-    Order order4;
-    order4.customerId = "UNKNOWN";
-    order4.items.push_back(Item("ケーブル", 1000));
-    processor.process(order4, context);
-
-    return 0;
-}
-```
-
-#### 起点：フェーズ3の痛みコード
+#### 課題箇所のおさらい（フェーズ3の関連コード）
 
 比較元は、フェーズ3でサマーセールとキャンペーンの逐次割引を追加し、`calculate()` の分岐が増えたコードです。
 
-#### 痛みの差分（フェーズ3で変更した関連部分）
 
-現行コード全体のどこに痛みが現れたかを振り返ります。
+課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
 
 ```cpp
 if (memberType == "Premium") {

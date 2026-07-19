@@ -1021,16 +1021,20 @@ public:
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6は、フェーズ5で定めた3つの課題——**状態遷移を切り離すこと／通知先を切り離すこと／承認判定ルールを差し替えられるようにすること**——を受けて始めます。まず現行コード全体を振り返り、痛みが出た関連部分へ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを分解して探します。第二部の集大成として、まず「いくつの独立した変化軸があるか」を数えます。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
+フェーズ6は、フェーズ5で定めた3つの課題——**状態遷移を切り離すこと／通知先を切り離すこと／承認判定ルールを差し替えられるようにすること**——を受けて始めます。まず課題カードで指定したフェーズ3の関連部分だけをおさらいし、そのコードへ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを分解して探します。第二部の集大成として、まず「いくつの独立した変化軸があるか」を数えます。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
 フェーズ5の課題から、対策候補は次のように出します。
 
-| フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
-|---|---|---|
-| 状態ごとの操作可否と遷移条件が `WorkflowManager` に集まっている | 状態ごとの振る舞いを、申請イベントの公開形を変えずに切り離す | 状態処理を状態ごとの部品へ移す案を見る |
-| 承認判定の条件が金額・申請種別・承認者・部署別上限で変わる | 承認ルールを状態遷移とは別に差し替えられるようにする | 承認判定を独立したアルゴリズムとして扱う案を見る |
-| 通知先の増減と送信失敗の扱いが、状態や判定とは別の理由で変わる | 状態保存後の副作用として本体から切り離し、失敗を局所化する | 通知先を登録式にし、送信可否は通知側で扱う案を見る |
+| 課題ID | フェーズ4で見えた原因 | フェーズ5で定めた課題 | フェーズ6で試す候補 |
+|---|---|---|---|
+| P1 | 状態ごとの操作可否と遷移条件が `WorkflowManager` に集まっている | 状態ごとの振る舞いを、申請イベントの公開形を変えずに切り離す | 状態処理を状態ごとの部品へ移す案を見る |
+| P3 | 承認判定の条件が金額・申請種別・承認者・部署別上限で変わる | 承認ルールを状態遷移とは別に差し替えられるようにする | 承認判定を独立したアルゴリズムとして扱う案を見る |
+| P2 | 通知先の増減と送信失敗の扱いが、状態や判定とは別の理由で変わる | 状態保存後の副作用として本体から切り離し、失敗を局所化する | 通知先を登録式にし、送信可否は通知側で扱う案を見る |
 
-#### 対策検討の課題カード
+上表の「候補」は、原因と課題から何を試すかを出したものです。次の課題カードは別の課題を追加する表ではなく、同じ課題IDについて、着目コード・最小変更・守る契約・完了条件を固定する表です。同じIDの候補を1枚のカードへまとめ、そのIDの関連コードへ進みます。
+
+ここまでに挙げた候補を、同じ課題IDのコード検討条件へ落としたものが次のカードです。
+
+#### 候補をコードで検討するための課題カード
 
 | ID | 原因と着目コード | 最小変更と守る契約 | 完了条件 |
 |---|---|---|---|
@@ -1040,148 +1044,12 @@ public:
 
 3課題を分ける理由は、不許可という「状態不変の結果」を状態遷移として扱わず、判定・保存・通知の実行順を明確にするためです。
 
-#### 振り返り：現行コード全体（フェーズ1）
-
-最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
-
-```cpp
-#include <iostream>
-#include <map>
-#include <string>
-
-using namespace std;
-
-// 承認者情報
-struct ApproverInfo {
-    string name;         // 氏名
-    string role;         // "manager", "director", "executive"
-    int approvalLimit;   // 承認可能な申請金額上限（円）
-};
-
-// 承認者マスターデータ
-class ApproverDatabase {
-    map<string, ApproverInfo> records;
-public:
-    ApproverDatabase() {
-        records["APR001"] = {"田中 部長",   "manager",   100000};
-        records["APR002"] = {"佐藤 取締役", "director",  1000000};
-        records["APR003"] = {"鈴木 代表",   "executive", 99999999};
-    }
-
-    bool exists(const string& id) const {
-        return records.count(id) > 0;
-    }
-
-    ApproverInfo get(const string& id) const {
-        return records.at(id);
-    }
-
-    void save(const string& id, const ApproverInfo& info) {
-        records[id] = info;           // 実行中の承認者マスタへ追加
-    }
-
-    bool canApprove(const string& id, int amount) const {
-        return records.at(id).approvalLimit >= amount;
-    }
-};
-
-// 申請ごとの現在状態を保持するリポジトリ（申請ID→状態）
-class WorkflowCaseRepository {
-    map<string, string> states;
-public:
-    WorkflowCaseRepository() {
-        states["REQ001"] = "作成中";
-        states["REQ002"] = "審査待ち";
-    }
-    bool exists(const string& id) const { return states.count(id) > 0; }
-    string getState(const string& id) const { return states.at(id); }
-    void saveState(const string& id, const string& s) { states[id] = s; }
-};
-
-// 申請ごとの通知先を保持するリポジトリ（申請ID→通知先）
-class NotificationTargetRepository {
-    map<string, string> targets;
-public:
-    NotificationTargetRepository() {
-        targets["REQ001"] = "課長";
-        targets["REQ002"] = "部長";
-    }
-    string getTarget(const string& id) const { return targets.at(id); }
-};
-
-// ワークフロー管理クラス（状態遷移・承認判定・通知をすべて抱える）
-class WorkflowManager {
-    ApproverDatabase approvers;
-    WorkflowCaseRepository cases;
-    NotificationTargetRepository targets;
-public:
-    void process(const string& requestId, const string& operation,
-                 int amount, const string& approverId) {
-        // 申請の存在確認
-        if (!cases.exists(requestId)) {
-            cout << "エラー：申請ID " << requestId
-                 << " は存在しません。" << endl;
-            return;
-        }
-        // 承認者IDの存在確認
-        if (!approvers.exists(approverId)) {
-            cout << "エラー：承認者ID " << approverId
-                 << " はデータベースに存在しません。" << endl;
-            return;
-        }
-        // 承認権限額チェック
-        if (!approvers.canApprove(approverId, amount)) {
-            ApproverInfo info = approvers.get(approverId);
-            cout << "エラー：" << info.name << " の承認上限（"
-                 << info.approvalLimit << "円）を超えています。" << endl;
-            return;
-        }
-        // 保存済みの現在状態を読み出す
-        string current = cases.getState(requestId);
-        // 現在状態 × 操作 で次状態を決める
-        if (current == "作成中" && operation == "提出") {
-            cases.saveState(requestId, "審査待ち");
-            cout << requestId << "：作成中 → 審査待ち" << endl;
-            notify(requestId);
-        } else if (current == "審査待ち" && operation == "承認") {
-            cases.saveState(requestId, "完了");
-            cout << requestId << "：審査待ち → 完了" << endl;
-            notify(requestId);
-        } else {
-            cout << "エラー：現在状態「" << current
-                 << "」で操作「" << operation << "」はできません。" << endl;
-        }
-    }
-private:
-    void notify(const string& requestId) {
-        cout << targets.getTarget(requestId) << "へ通知" << endl;
-    }
-};
-
-int main() {
-    WorkflowManager wm;
-    // 正常ケース1：REQ001（作成中）を5万円で提出する
-    wm.process("REQ001", "提出", 50000, "APR001");
-    cout << "---" << endl;
-    // 正常ケース2：REQ002（審査待ち）を5万円で承認する
-    wm.process("REQ002", "承認", 50000, "APR001");
-    cout << "---" << endl;
-    // エラー：存在しない承認者ID
-    wm.process("REQ001", "提出", 50000, "APR999");
-    cout << "---" << endl;
-    // エラー：田中 部長の上限（10万円）を超える申請
-    wm.process("REQ001", "提出", 200000, "APR001");
-    return 0;
-}
-```
-
-#### 起点：フェーズ3の痛みコード
+#### 課題箇所のおさらい（フェーズ3の関連コード）
 
 比較元は、緊急ルートと承認後通知を `WorkflowManager` へ直接追加したフェーズ3の変更途中コードです。
 
-#### 痛みの差分（フェーズ3で変更した関連部分）
 
-現行コード全体のどこに痛みが現れたかを振り返ります。以下はフェーズ3で変更した関連部分です。
+課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
 
 ```cpp
 // 変更後の WorkflowManager（緊急ルート・却下通知・決済部門通知を追加）

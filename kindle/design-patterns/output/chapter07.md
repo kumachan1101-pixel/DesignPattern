@@ -913,14 +913,18 @@ graph LR
 
 フェーズ5の課題から、対策候補は次のように出します。
 
-| フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
-|---|---|---|
-| `InventoryManager` が在庫更新と通知先の詳細を同時に知っている | 在庫更新の骨格から、通知先ごとの送信処理を切り離す | まず通知処理を関数化し、在庫更新と通知の境界を見えるようにする |
-| 通知先が増えるたびに在庫更新側の条件分岐が増える | 通知元は「在庫不足イベント」を出すだけにし、通知先を外側で増減できる形にする | 通知先を共通の受け口で扱い、登録された通知先へ配る案を見る |
-| SMSの非同期や部分失敗の扱いが在庫更新へ入り込もうとする | 通知操作の契約に受付結果（`DeliveryResult`）を含め、同期・非同期・失敗を通知先側へ寄せる | 契約を `DeliveryResult` 返しに揃え、通知元は結果を数えるだけにする案を見る |
-| メール・Slack・ログなど通知先は独立して変わる | 通知先追加が既存通知や在庫更新へ波及しない接続点を作る | 複数の購読者を登録・解除できる形まで進めるか判断する |
+| 課題ID | フェーズ4で見えた原因 | フェーズ5で定めた課題 | フェーズ6で試す候補 |
+|---|---|---|---|
+| P1 | `InventoryManager` が在庫更新と通知先の詳細を同時に知っている | 在庫更新の骨格から、通知先ごとの送信処理を切り離す | まず通知処理を関数化し、在庫更新と通知の境界を見えるようにする |
+| P1 | 通知先が増えるたびに在庫更新側の条件分岐が増える | 通知元は「在庫不足イベント」を出すだけにし、通知先を外側で増減できる形にする | 通知先を共通の受け口で扱い、登録された通知先へ配る案を見る |
+| P1 | SMSの非同期や部分失敗の扱いが在庫更新へ入り込もうとする | 通知操作の契約に受付結果（`DeliveryResult`）を含め、同期・非同期・失敗を通知先側へ寄せる | 契約を `DeliveryResult` 返しに揃え、通知元は結果を数えるだけにする案を見る |
+| P1 | メール・Slack・ログなど通知先は独立して変わる | 通知先追加が既存通知や在庫更新へ波及しない接続点を作る | 複数の購読者を登録・解除できる形まで進めるか判断する |
 
-#### 対策検討の課題カード
+上表の「候補」は、原因と課題から何を試すかを出したものです。次の課題カードは別の課題を追加する表ではなく、同じ課題IDについて、着目コード・最小変更・守る契約・完了条件を固定する表です。同じIDの候補を1枚のカードへまとめ、そのIDの関連コードへ進みます。
+
+ここまでに挙げた候補を、同じ課題IDのコード検討条件へ落としたものが次のカードです。
+
+#### 候補をコードで検討するための課題カード
 
 | ID | 原因と着目コード | 最小変更と守る契約 | 完了条件 |
 |---|---|---|---|
@@ -928,166 +932,14 @@ graph LR
 
 関数抽出と型別リストを途中案として示すのは、「同じ引数」だけでは束ねられず、メソッド名と戻り値まで共通でなければ接続点にならないと確認するためです。
 
-#### 振り返り：現行コード全体（フェーズ1）
-
-最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
-
-```cpp
-#include <iostream>
-#include <string>
-#include <map>
-#include <unordered_map>
-
-using namespace std;
-
-// 商品マスタの1件分
-struct ProductInfo {
-    string name;         // 商品名
-    int    stock;        // 在庫数
-    int    alertThreshold; // アラート閾値
-};
-
-// 商品マスタ（データ駆動バリデーション用）
-class ProductDatabase {
-private:
-    map<string, ProductInfo> records;
-public:
-    ProductDatabase() {
-        records["PRD001"] = {"ワイヤレスマウス", 50, 10};
-        records["PRD002"] = {"USBハブ",           3,  5}; // 閾値以下
-        records["PRD003"] = {"キーボード",         0,  5}; // 在庫なし
-    }
-
-    bool exists(const string& id) const {
-        return records.count(id) > 0;
-    }
-
-    ProductInfo get(const string& id) const {
-        return records.at(id);
-    }
-
-    void save(const string& id, const ProductInfo& info) {
-        records[id] = info;           // 実行中の商品マスタへ追加
-    }
-
-    bool isBelowThreshold(const string& id, int currentStock) const {
-        return currentStock <= records.at(id).alertThreshold;
-    }
-};
-
-// 各通知先の具体的な実装
-class EmailNotifier {
-public:
-    void send(string m) { cout << "Email: " << m << endl; }
-};
-class DashboardUpdater {
-public:
-    void update(string m) { cout << "Dashboard: " << m << endl; }
-};
-class ChatNotifier {
-public:
-    void send(string m) { cout << "Chat: " << m << endl; }
-};
-
-class InventoryManager {
-private:
-    EmailNotifier    email;
-    DashboardUpdater dashboard;
-    ChatNotifier     chat;
-    ProductDatabase  db;
-    unordered_map<string, int> stock;
-
-public:
-    void setStock(const string& productId, int quantity) {
-        if (!db.exists(productId)) {
-            cout << "[エラー] 商品ID " << productId
-                 << " はマスタに存在しません。" << endl;
-            return;
-        }
-        stock[productId] = quantity;
-    }
-
-    void reduceStock(string productId, int quantity) {
-        if (!db.exists(productId)) {
-            cout << "[エラー] 商品ID " << productId
-                 << " はマスタに存在しません。処理を中断します。"
-                 << endl;
-            return;
-        }
-        if (stock[productId] <= 0) {
-            cout << "[エラー] 商品 " << productId
-                 << " の在庫が0です。出庫できません。" << endl;
-            return;
-        }
-
-        stock[productId] -= quantity;
-        cout << "商品 " << productId
-             << " の在庫を " << quantity << " 減らしました。残数: "
-             << stock[productId] << endl;
-
-        if (db.isBelowThreshold(productId, stock[productId])) {
-            string message = "商品 " + productId
-                           + " の在庫が閾値以下です。";
-            notifyAll(message);
-        }
-    }
-
-    void replenishStock(string productId, int quantity) {
-        if (!db.exists(productId)) {
-            cout << "[エラー] 商品ID " << productId
-                 << " はマスタに存在しません。処理を中断します。"
-                 << endl;
-            return;
-        }
-        stock[productId] += quantity;
-        cout << "商品 " << productId
-             << " の在庫を " << quantity << " 補充しました。残数: "
-             << stock[productId] << endl;
-    }
-
-private:
-    void notifyAll(string message) {
-        // 通知先が増えるたびに、ここが修正される
-        email.send(message);
-        dashboard.update(message);
-        chat.send(message);
-    }
-};
-
-int main() {
-    InventoryManager manager;
-
-    manager.setStock("PRD001", 10); // ワイヤレスマウス
-    manager.setStock("PRD002", 8);  // USBハブ
-    manager.setStock("PRD003", 0);  // キーボード
-
-    cout << "--- 行1: PRD001を5減らす ---" << endl;
-    manager.reduceStock("PRD001", 5);
-
-    cout << "--- 行2: PRD002を3減らす ---" << endl;
-    manager.reduceStock("PRD002", 3);
-
-    cout << "--- 行3: PRD001を20補充する ---" << endl;
-    manager.replenishStock("PRD001", 20);
-
-    cout << "--- 行4: PRD003を1減らす ---" << endl;
-    manager.reduceStock("PRD003", 1);
-
-    cout << "--- 行5: 存在しない商品IDを操作する ---" << endl;
-    manager.reduceStock("PRD999", 1);
-    return 0;
-}
-```
-
-#### 起点：フェーズ3の痛みコードと、フェーズ5で定めた課題
+#### 課題箇所のおさらい（フェーズ3の関連コード）
 
 対策検討は、フェーズ5で定めた課題——**「在庫更新の骨格から通知先ごとの送信処理を切り離し、通知元は在庫不足イベントを出すだけにする。通知先を外側で増減できる接続点を作る」**——を受けて始めます。課題は「何を切り離すか（＝どこに接続点を置くか）」までを決めています。まだ決まっていないのは、**その接続点をどんな形にするか**です。ここは課題からは出てきません。痛みコードを分解して決めます。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
 
 比較元は、SMS通知を追加するために `InventoryManager` のメンバと通知処理を直接増やしたフェーズ3の変更途中コードです。
 
-#### 痛みの差分（フェーズ3で変更した関連部分）
 
-現行コード全体のどこに痛みが現れたかを振り返ります。以下はフェーズ3で変更した関連部分です。
+課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
 
 ```cpp
 // 既存の通知クラス（変更なし）

@@ -995,19 +995,24 @@ graph LR
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6は、フェーズ5で定めた課題——**状態ごとの振る舞いを、公開操作の形を変えずに切り離す接続点を作る**——を受けて始めます。まず現行コード全体を振り返り、痛みが出た関連部分へ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
+フェーズ6は、フェーズ5で定めた課題——**状態ごとの振る舞いを、公開操作の形を変えずに切り離す接続点を作る**——を受けて始めます。まず課題カードで指定したフェーズ3の関連部分だけをおさらいし、そのコードへ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
 フェーズ5の課題から、対策候補は次のように出します。
 
-| フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
-|---|---|---|
-| `TicketReservation` が状態名と、各状態で許可される操作をまとめて判定している | 状態ごとの振る舞いを、公開操作の形を変えずに切り離す | 状態ごとの振る舞いを状態オブジェクトへ移す案を見る |
-| 状態追加のたびに `reserve/pay/cancel` の分岐が増える | 新しい状態を追加しても既存状態の判定を触らない接続点を作る | 状態ごとのクラスへ振る舞いを移し、同じ操作名で呼べるかを見る |
-| タイマーや決済結果の入力でも、状態ごとの扱いを中心クラスが選んでいる | 入力の発生源が違っても、状態ごとの反応を同じ境界へ寄せる | 操作とイベントを現在状態オブジェクトへ委譲できるかを見る |
-| 呼び出し元は「予約する」などの操作だけ知っていればよい | 呼び出し元に状態遷移の内部条件を漏らさない | 現在状態オブジェクトへ処理を委譲する形まで進めるか判断する |
+| 課題ID | フェーズ4で見えた原因 | フェーズ5で定めた課題 | フェーズ6で試す候補 |
+|---|---|---|---|
+| P1 | `TicketReservation` が状態名と、各状態で許可される操作をまとめて判定している | 状態ごとの振る舞いを、公開操作の形を変えずに切り離す | 状態ごとの振る舞いを状態オブジェクトへ移す案を見る |
+| P1 | 状態追加のたびに `reserve/pay/cancel` の分岐が増える | 新しい状態を追加しても既存状態の判定を触らない接続点を作る | 状態ごとのクラスへ振る舞いを移し、同じ操作名で呼べるかを見る |
+| P1 | タイマーや決済結果の入力でも、状態ごとの扱いを中心クラスが選んでいる | 入力の発生源が違っても、状態ごとの反応を同じ境界へ寄せる | 操作とイベントを現在状態オブジェクトへ委譲できるかを見る |
+| P1 | 呼び出し元は「予約する」などの操作だけ知っていればよい | 呼び出し元に状態遷移の内部条件を漏らさない | 現在状態オブジェクトへ処理を委譲する形まで進めるか判断する |
+| P2 | `cancel()` / `expire()` が静的な待ち行列の探索・削除・昇格まで抱えている | 自動昇格の接続を維持しながら、待ち行列管理だけを分離する | イベント別の先着順キューへ移し、席の解放直後に先頭を自動昇格できるかを見る |
+
+上表の「候補」は、原因と課題から何を試すかを出したものです。次の課題カードは別の課題を追加する表ではなく、同じ課題IDについて、着目コード・最小変更・守る契約・完了条件を固定する表です。同じIDの候補を1枚のカードへまとめ、そのIDの関連コードへ進みます。
 
 ---
 
-#### 対策検討の課題カード
+ここまでに挙げた候補を、同じ課題IDのコード検討条件へ落としたものが次のカードです。
+
+#### 候補をコードで検討するための課題カード
 
 | ID | 原因と着目コード | 最小変更と守る契約 | 完了条件 |
 |---|---|---|---|
@@ -1016,168 +1021,12 @@ graph LR
 
 P1は状態分岐の責任、P2は業務イベントの連鎖と待ち行列管理の責任です。痛みコードでも昇格はキャンセルに接続していますが、その実現方法まで `TicketReservation` に埋め込まれています。状態クラス化でこの自動接続を失わず、キュー管理だけを分離できるかを別課題として確認します。
 
-#### 振り返り：現行コード全体（フェーズ1）
-
-最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
-
-```cpp
-#include <iostream>
-#include <string>
-#include <map>
-#include <stdexcept>
-
-struct EventInfo {
-    std::string title;   // イベント名
-    int capacity;        // 定員
-    int reserved;        // 現在の予約数
-};
-
-class EventDatabase {
-private:
-    std::map<std::string, EventInfo> records;
-public:
-    EventDatabase() {
-        records["EVT001"] = {"春の音楽祭",  100,  20};
-        records["EVT002"] = {"夏のフェス",  500, 499};
-        records["EVT003"] = {"秋の映画会",   50,  50};  // 満席
-    }
-
-    bool exists(const std::string& id) const {
-        return records.count(id) > 0;
-    }
-
-    EventInfo get(const std::string& id) const {
-        return records.at(id);
-    }
-
-    bool hasCapacity(const std::string& id) const {
-        const auto& e = records.at(id);
-        return e.reserved < e.capacity;
-    }
-
-    void reserveSeat(const std::string& id) {
-        ++records.at(id).reserved;
-    }
-
-    void cancelSeat(const std::string& id) {
-        auto& e = records.at(id);
-        if (e.reserved > 0) --e.reserved;
-    }
-
-    void save(const std::string& id, const EventInfo& info) {
-        records[id] = info;             // 実行中のイベント表へ追加
-    }
-};
-
-class TicketReservation {
-private:
-    EventDatabase& db;
-    std::string eventId;
-    std::string status; // "Available", "Reserved", "Paid"
-
-    void handleReserveError() {
-        std::cout << "現在予約できません\n";
-    }
-
-    void handlePayError() {
-        std::cout << "支払いに適した状態ではありません\n";
-    }
-
-    void handleCancelError() {
-        std::cout << "キャンセルできません\n";
-    }
-
-public:
-    TicketReservation(EventDatabase& db, const std::string& eventId)
-        : db(db), eventId(eventId), status("Available") {}
-
-    void reserve() {
-        if (!db.exists(eventId)) {
-            std::cout << "エラー：イベントID " << eventId << " は存在しません\n";
-            return;
-        }
-        if (!db.hasCapacity(eventId)) {
-            std::cout << "エラー：" << db.get(eventId).title << " は満席です\n";
-            return;
-        }
-        if (status == "Available") {
-            db.reserveSeat(eventId);
-            status = "Reserved";
-            std::cout << "予約対象：" << db.get(eventId).title << "\n";
-            std::cout << "予約完了しました\n";
-        } else {
-            handleReserveError();
-        }
-    }
-
-    void pay() {
-        if (status == "Reserved") {
-            status = "Paid";
-            std::cout << "支払い完了しました\n";
-        } else {
-            handlePayError();
-        }
-    }
-
-    void cancel() {
-        if (status == "Reserved") {
-            db.cancelSeat(eventId);
-            status = "Available";
-            std::cout << "予約をキャンセルしました\n";
-        } else {
-            handleCancelError();
-        }
-    }
-};
-
-int main() {
-    EventDatabase db;
-
-    // 行1: 正常な予約から支払いまで
-    std::cout << "--- 行1: EVT001 予約 → 支払い ---\n";
-    TicketReservation seat1(db, "EVT001");
-    seat1.reserve();  // Available → Reserved
-    seat1.pay();      // Reserved  → Paid
-
-    // 行2: 予約からキャンセルまで
-    std::cout << "\n--- 行2: EVT001 予約 → キャンセル ---\n";
-    TicketReservation seat2(db, "EVT001");
-    seat2.reserve();  // Available → Reserved
-    seat2.cancel();   // Reserved  → Available
-
-    // 行3: 満席イベントへの予約試み
-    std::cout << "\n--- 行3: EVT003 満席イベントへの予約 ---\n";
-    TicketReservation seat3(db, "EVT003");
-    seat3.reserve();  // エラー（満席）
-
-    // 行4: 存在しないイベントへの予約試み
-    std::cout << "\n--- 行4: UNKNOWN 存在しないイベントへの予約 ---\n";
-    TicketReservation seat4(db, "UNKNOWN");
-    seat4.reserve();  // エラー（存在しない）
-
-    // 行5: 状態エラー — 予約前に支払いを試みる
-    std::cout << "\n--- 行5: 予約なしで支払いを試みる ---\n";
-    TicketReservation seat5(db, "EVT001");
-    seat5.pay();      // エラー（Available状態）
-
-    // 行6: 状態エラー — 支払い済みをキャンセルしようとする
-    std::cout << "\n--- 行6: 支払い済みをキャンセルしようとする ---\n";
-    TicketReservation seat6(db, "EVT001");
-    seat6.reserve();  // Available → Reserved
-    seat6.pay();      // Reserved  → Paid
-    seat6.cancel();   // エラー（Paid状態）
-
-    return 0;
-}
-```
-
-#### 起点：フェーズ3の痛みコード
+#### 課題箇所のおさらい（フェーズ3の関連コード）
 
 比較元は、`Held` と `Waitlisted` を追加した結果、公開操作ごとに状態分岐が増えたフェーズ3の変更途中コードです。
 
-#### 痛みの差分（フェーズ3で変更した関連部分）
 
-現行コード全体のどこに痛みが現れたかを振り返ります。以下はフェーズ3で変更した関連部分です。
+課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
 
 ```cpp
 #include <iostream>

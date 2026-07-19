@@ -847,21 +847,25 @@ void execute(string partnerId) {
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6は、フェーズ5で定めた3つの課題——**連携先ごとの通信を切り離すこと（A）／通知先を切り離すこと（B）／クライアント生成を切り離すこと（C）**——を受けて始めます。まず現行コード全体を振り返り、痛みが出た関連部分へ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを分解して探します。第二部の要は「いくつの独立した変化軸があるかを数える」ことです。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
+フェーズ6は、フェーズ5で定めた3つの課題——**連携先ごとの通信を切り離すこと（A）／通知先を切り離すこと（B）／クライアント生成を切り離すこと（C）**——を受けて始めます。まず課題カードで指定したフェーズ3の関連部分だけをおさらいし、そのコードへ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを分解して探します。第二部の要は「いくつの独立した変化軸があるかを数える」ことです。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
 フェーズ5の課題から、対策候補は次のように出します。
 
-| フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
-|---|---|---|
-| `BatchExecutor` が連携先ごとの通信詳細を直接知っている | バッチの実行順序から、連携先ごとの送信処理を切り離す | 各連携先の送信を、窓口の内側の差し替え可能な部品へ寄せる案を見る |
-| 順次実行の骨格と各ジョブの通信詳細・成否判定が同居している | ジョブを順に流す外部手順を、通信詳細と分けて残す | 実行順は本体に残し、各ジョブの送信を差し替え可能な部品へ寄せる案を見る |
-| 通知先の追加がバッチ本体へ波及する | 通知先をバッチ本体から切り離し、通知イベントだけを渡す | 通知先を共通の受け口で扱い、登録・追加できる案を見る |
-| 具体クライアントの生成判断がバッチ本体にある | 連携先追加時に生成ロジックだけを変更できる場所を作る | クライアント生成を専用の場所へ移し、通信・通知の分離と組み合わせるか判断する |
+| 課題ID | フェーズ4で見えた原因 | フェーズ5で定めた課題 | フェーズ6で試す候補 |
+|---|---|---|---|
+| P1 | `BatchExecutor` が連携先ごとの通信詳細を直接知っている | バッチの実行順序から、連携先ごとの送信処理を切り離す | 各連携先の送信を、窓口の内側の差し替え可能な部品へ寄せる案を見る |
+| P1 | 順次実行の骨格と各ジョブの通信詳細・成否判定が同居している | ジョブを順に流す外部手順を、通信詳細と分けて残す | 実行順は本体に残し、各ジョブの送信を差し替え可能な部品へ寄せる案を見る |
+| P2 | 通知先の追加がバッチ本体へ波及する | 通知先をバッチ本体から切り離し、通知イベントだけを渡す | 通知先を共通の受け口で扱い、登録・追加できる案を見る |
+| P3 | 具体クライアントの生成判断がバッチ本体にある | 連携先追加時に生成ロジックだけを変更できる場所を作る | クライアント生成を専用の場所へ移し、通信・通知の分離と組み合わせるか判断する |
+
+上表の「候補」は、原因と課題から何を試すかを出したものです。次の課題カードは別の課題を追加する表ではなく、同じ課題IDについて、着目コード・最小変更・守る契約・完了条件を固定する表です。同じIDの候補を1枚のカードへまとめ、そのIDの関連コードへ進みます。
 
 **どのステップも、動作例テーブルの基本シナリオ（行1・3・4・6）を実現します。エラー系（行2・5）はエラー動作に依存するため各ステップでは省略しています。違うのは「変更が来たときにどこを触ることになるか」です。**
 
 ---
 
-#### 対策検討の課題カード
+ここまでに挙げた候補を、同じ課題IDのコード検討条件へ落としたものが次のカードです。
+
+#### 候補をコードで検討するための課題カード
 
 | ID | 原因と着目コード | 最小変更と守る契約 | 完了条件 |
 |---|---|---|---|
@@ -871,122 +875,12 @@ void execute(string partnerId) {
 
 3課題は同じメソッドに見えても、通信仕様・通知運用・生成設定という別の理由で変わります。そのためコードも別々に変え、最後に骨格で接続します。
 
-#### 振り返り：現行コード全体（フェーズ1）
-
-最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
-
-```cpp
-#include <iostream>
-#include <string>
-#include <vector>
-#include <map>
-
-using namespace std;
-
-struct PartnerConfig {
-    string name;      // パートナー名
-    string endpoint;  // エンドポイント（概念上）
-    bool isEnabled;   // 連携有効フラグ
-};
-
-class PartnerDatabase {
-private:
-    map<string, PartnerConfig> records;
-public:
-    PartnerDatabase() {
-        records["PARTNER_A"] = {"物流会社A", "logistics-a.example",  true};
-        records["PARTNER_B"] = {"在庫会社B", "stock-b.example",      true};
-        records["PARTNER_Z"] = {"分析会社Z", "analytics-z.example",  false}; // 無効
-    }
-
-    bool exists(const string& id) const {
-        return records.count(id) > 0;
-    }
-
-    bool isEnabled(const string& id) const {
-        return records.at(id).isEnabled;
-    }
-
-    PartnerConfig get(const string& id) const {
-        return records.at(id);
-    }
-
-    void save(const string& id, const PartnerConfig& cfg) {
-        records[id] = cfg;            // 実行中の連携先表へ追加
-    }
-};
-
-class SystemAClient {
-public:
-    void send(string d) { cout << "A社へ送信: " << d << endl; }
-};
-class SystemBClient {
-public:
-    void send(string d) { cout << "B社へ送信: " << d << endl; }
-};
-class NotificationService {
-public:
-    void notify(string r) { cout << "完了通知: " << r << endl; }
-};
-class SlackNotifier {
-public:
-    void notify(string result) { cout << "Slack通知: " << result << endl; }
-};
-
-class BatchExecutor {
-    PartnerDatabase db;
-public:
-    void execute(string partnerId) {
-        if (!db.exists(partnerId)) {
-            cout << "エラー: パートナーID [" << partnerId
-                 << "] はデータベースに登録されていません。" << endl;
-            return;
-        }
-        if (!db.isEnabled(partnerId)) {
-            PartnerConfig cfg = db.get(partnerId);
-            cout << "エラー: パートナー [" << cfg.name
-                 << "] は現在無効です。処理を中断します。" << endl;
-            return;
-        }
-        PartnerConfig cfg = db.get(partnerId);
-        if (partnerId == "PARTNER_A") {
-            SystemAClient client; // A社向けクライアントを生成
-            client.send("data");
-        } else if (partnerId == "PARTNER_B") {
-            SystemBClient client; // B社向けクライアントを生成
-            client.send("data");
-        }
-        NotificationService notifier; // 連携完了を通知
-        notifier.notify(cfg.name + " 連携完了");
-    }
-};
-
-int main() {
-    BatchExecutor executor;
-
-    // 行1: A社向け月次バッチを実行する
-    executor.execute("PARTNER_A");
-
-    // 行4: B社向けデータ同期を手動で実行する
-    executor.execute("PARTNER_B");
-
-    // 無効パートナーの実行（Z社は isEnabled==false）
-    executor.execute("PARTNER_Z");
-
-    // 未登録パートナーの実行
-    executor.execute("PARTNER_X");
-
-    return 0;
-}
-```
-
-#### 起点：フェーズ3の痛みコード
+#### 課題箇所のおさらい（フェーズ3の関連コード）
 
 比較元は、C社連携とSlack通知を `BatchExecutor` へ直接追加したフェーズ3の変更途中コードです。
 
-#### 痛みの差分（フェーズ3で変更した関連部分）
 
-現行コード全体のどこに痛みが現れたかを振り返ります。以下はフェーズ3で変更した関連部分です。
+課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
 
 ```cpp
 // C社連携を追加しようとすると...

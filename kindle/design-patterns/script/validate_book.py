@@ -66,7 +66,7 @@ REQUIRED_NUMBERED_SECTIONS = [
 ]
 
 PHASE6_BASELINE_HEADING = (
-    "#### 振り返り：現行コード全体（フェーズ1）"
+    "#### 課題箇所のおさらい（フェーズ3の関連コード）"
 )
 
 # Phase 3で追加した代表要素。各改善ステップでコードとして扱うか、
@@ -324,29 +324,62 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
         ("```mermaid", "フェーズ6に構造のクラス図（mermaid）がありません"),
         ("### 6-4", "フェーズ6に影響範囲（6-4）がありません"),
         ("### 採用する形を決める", "フェーズ6に採用判断がありません"),
-        ("#### 対策検討の課題カード",
-         "フェーズ6に原因・最小変更・契約・完了条件を結ぶ課題カードがありません"),
-        ("#### 振り返り：現行コード全体（フェーズ1）",
-         "フェーズ6に元の構造を振り返る完全コードがありません"),
-        ("#### 痛みの差分（フェーズ3で変更した関連部分）",
-         "フェーズ6にフェーズ3の痛みを示す関連コードがありません"),
+        ("#### 候補をコードで検討するための課題カード",
+         "フェーズ6に候補と同じIDの課題カードがありません"),
+        ("#### 課題箇所のおさらい（フェーズ3の関連コード）",
+         "フェーズ6に課題カードで指定した関連コードのおさらいがありません"),
+        ("| 課題ID | フェーズ4で見えた原因 | フェーズ5で定めた課題 | フェーズ6で試す候補 |",
+         "フェーズ6に原因・課題・候補を課題IDで結ぶ表がありません"),
+        ("同じ課題ID",
+         "候補表と課題カードが同じ課題IDでつながる説明がありません"),
     ]
     for token, msg in checks:
         if token not in sec:
             issues.append(Issue(path, ln, msg))
-    if len(extract_cpp_blocks(sec)) < 4:
+    if len(extract_cpp_blocks(sec)) < 3:
         issues.append(Issue(path, ln,
-                            "フェーズ6に現行全体・痛み・2段階以上の関連コードがありません"))
+                            "フェーズ6に課題箇所のおさらい・2段階以上の関連コードがありません"))
     stale = [
         "#### 採用候補の完全コード",
         "この変換は断片コードでは示しません",
         "完全な接続コードはこのフェーズの後半で示す",
+        "#### 振り返り：現行コード全体（フェーズ1）",
     ]
     for token in stale:
         if token in sec:
             issues.append(Issue(
                 path, ln,
                 f"完成コード先出しの旧表現が残っています: {token}",
+            ))
+
+    candidate_heading = (
+        "| 課題ID | フェーズ4で見えた原因 | フェーズ5で定めた課題 | "
+        "フェーズ6で試す候補 |"
+    )
+    card_heading = "#### 候補をコードで検討するための課題カード"
+    recap_heading = "#### 課題箇所のおさらい（フェーズ3の関連コード）"
+    candidate_start = sec.find(candidate_heading)
+    card_start = sec.find(card_heading)
+    recap_start = sec.find(recap_heading)
+    if min(candidate_start, card_start, recap_start) >= 0:
+        candidate_ids = set(re.findall(
+            r"(?m)^\| (P\d+(?:・P\d+)*) \|",
+            sec[candidate_start:card_start],
+        ))
+        candidate_ids = {
+            task_id
+            for cell in candidate_ids
+            for task_id in re.findall(r"P\d+", cell)
+        }
+        card_ids = set(re.findall(
+            r"(?m)^\| (P\d+) \|",
+            sec[card_start:recap_start],
+        ))
+        if candidate_ids != card_ids:
+            issues.append(Issue(
+                path, ln,
+                "候補表と課題カードの課題IDが一致しません: "
+                f"候補={sorted(candidate_ids)}, カード={sorted(card_ids)}",
             ))
     return issues
 
@@ -360,12 +393,9 @@ def extract_cpp_blocks(section: str) -> list[str]:
 
 
 def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
-    """現行全体・痛み・段階コード・完成コードの役割分担を確認する。"""
+    """課題関連コード・段階コード・完成コードの役割分担を確認する。"""
     markers = {
-        "section14": "### 1-4：実装コード（現状）",
-        "section15": "### 1-5：変更要求",
-        "baseline": "#### 振り返り：現行コード全体（フェーズ1）",
-        "pain": "#### 痛みの差分（フェーズ3で変更した関連部分）",
+        "recap": "#### 課題箇所のおさらい（フェーズ3の関連コード）",
         "step61": "### 6-1：",
         "step63": "### 6-3：",
         "section71": "### 7-1：",
@@ -374,16 +404,10 @@ def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
     offsets = {name: text.find(marker) for name, marker in markers.items()}
     if any(offset < 0 for offset in offsets.values()):
         missing = [name for name, offset in offsets.items() if offset < 0]
-        return [Issue(path, 1, f"完全コード比較の必須要素がありません: {', '.join(missing)}")]
+        return [Issue(path, 1, f"フェーズ6比較の必須要素がありません: {', '.join(missing)}")]
 
-    phase1_code = "\n\n".join(extract_cpp_blocks(
-        text[offsets["section14"]:offsets["section15"]]
-    ))
-    baseline_code = "\n\n".join(extract_cpp_blocks(
-        text[offsets["baseline"]:offsets["pain"]]
-    ))
-    pain_blocks = extract_cpp_blocks(
-        text[offsets["pain"]:offsets["step61"]]
+    recap_blocks = extract_cpp_blocks(
+        text[offsets["recap"]:offsets["step61"]]
     )
     stage_blocks = extract_cpp_blocks(
         text[offsets["step61"]:offsets["step63"]]
@@ -393,15 +417,10 @@ def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
     ))
     issues: list[Issue] = []
 
-    if not baseline_code or baseline_code != phase1_code:
+    if not recap_blocks:
         issues.append(Issue(
-            path, line_number(text, offsets["baseline"]),
-            "フェーズ6の比較元完全コードが1-4と同じ並び・改行ではありません",
-        ))
-    if not pain_blocks:
-        issues.append(Issue(
-            path, line_number(text, offsets["pain"]),
-            "フェーズ6の痛みの差分に関連C++コードがありません",
+            path, line_number(text, offsets["recap"]),
+            "フェーズ6の課題箇所のおさらいに関連C++コードがありません",
         ))
     if len(stage_blocks) < 2:
         issues.append(Issue(

@@ -847,14 +847,16 @@ public:
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6は、フェーズ5で定めた3つの課題——**本文生成を骨格から切り離すこと／装飾を順に組み合わせられるようにすること／生成操作を記録・再実行・取消できる単位に分けること**——を受けて始めます。まず現行コード全体を振り返り、痛みが出た関連部分へ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを分解して探します。第二部の要は「いくつの独立した変化軸があるかを数える」ことです。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
+フェーズ6は、フェーズ5で定めた3つの課題——**本文生成を骨格から切り離すこと／装飾を順に組み合わせられるようにすること／生成操作を記録・再実行・取消できる単位に分けること**——を受けて始めます。まず課題カードで指定したフェーズ3の関連部分だけをおさらいし、そのコードへ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを分解して探します。第二部の要は「いくつの独立した変化軸があるかを数える」ことです。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
 フェーズ5の課題から、対策候補は次のように出します。
 
-| フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
-|---|---|---|
-| レポート種別ごとの本文生成が共通手順の中に混ざっている | ヘッダー・本文・フッターの骨格から、本文生成だけを切り離す | 共通手順を残し、本文生成の差し替え案を見る |
-| グラフ・ロゴ・透かしなど装飾の組み合わせが条件分岐になり、装飾失敗の判定も骨格へ入り込む | 装飾を個別に追加・削除でき、順に適用でき、失敗も装飾側で扱える形にする | 装飾をリスト化し、同じ操作で順に実行する案を見る |
-| 生成履歴や再実行・取消は、本文生成や装飾とは別の理由で変わり、失敗した生成操作の再実行も同じ軸に属する | 生成操作そのものを履歴に残し、失敗しても同じ操作を再実行できる単位へ分ける | 生成操作を実行・再実行・取消できる単位にする案を見る |
+| 課題ID | フェーズ4で見えた原因 | フェーズ5で定めた課題 | フェーズ6で試す候補 |
+|---|---|---|---|
+| P1 | レポート種別ごとの本文生成が共通手順の中に混ざっている | ヘッダー・本文・フッターの骨格から、本文生成だけを切り離す | 共通手順を残し、本文生成の差し替え案を見る |
+| P2 | グラフ・ロゴ・透かしなど装飾の組み合わせが条件分岐になり、装飾失敗の判定も骨格へ入り込む | 装飾を個別に追加・削除でき、順に適用でき、失敗も装飾側で扱える形にする | 装飾をリスト化し、同じ操作で順に実行する案を見る |
+| P3 | 生成履歴や再実行・取消は、本文生成や装飾とは別の理由で変わり、失敗した生成操作の再実行も同じ軸に属する | 生成操作そのものを履歴に残し、失敗しても同じ操作を再実行できる単位へ分ける | 生成操作を実行・再実行・取消できる単位にする案を見る |
+
+上表の「候補」は、原因と課題から何を試すかを出したものです。次の課題カードは別の課題を追加する表ではなく、同じ課題IDについて、着目コード・最小変更・守る契約・完了条件を固定する表です。同じIDの候補を1枚のカードへまとめ、そのIDの関連コードへ進みます。
 
 ここで比べる案は、次の4種類です。
 
@@ -869,7 +871,9 @@ public:
 
 今回足した「装飾の途中失敗」と「失敗した生成操作の再実行」も、この分け方の判断材料になります。装飾失敗は装飾のリスト化の側（装飾を包む部品）で扱い、再実行は生成操作の単位化の側（記録できる操作オブジェクト）で扱う——このように、生成骨格・装飾・操作履歴を別軸として分けておくと、装飾失敗を骨格へ持ち込まずに済み、再実行は記録した生成操作を材料に扱えます。組み立てや結果の受け渡しには変更が残りますが、骨格そのものへ手を入れる必要は減ります。
 
-#### 対策検討の課題カード
+ここまでに挙げた候補を、同じ課題IDのコード検討条件へ落としたものが次のカードです。
+
+#### 候補をコードで検討するための課題カード
 
 | ID | 原因と着目コード | 最小変更と守る契約 | 完了条件 |
 |---|---|---|---|
@@ -879,131 +883,12 @@ public:
 
 骨格・装飾・操作は順に接続します。1つ目だけを入れた時点で残る装飾分岐と履歴処理を明示し、別課題を一度に解いたように見せません。
 
-#### 振り返り：現行コード全体（フェーズ1）
-
-最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
-
-```cpp
-#include <iostream>
-#include <string>
-#include <vector>
-#include <map>
-#include <fstream>
-#include <cstdio>
-#include <memory>
-#include <stdexcept>
-#include <utility>
-
-using namespace std;
-
-class DataReader {
-public:
-    void readCSV() { cout << "CSVデータ読み込み完了。" << endl; }
-};
-
-struct ReportTemplate {
-    string name;                    // レポート名
-    vector<string> supportedFormats; // "pdf", "excel"
-};
-
-class TemplateRegistry {
-    map<string, ReportTemplate> templates;
-public:
-    TemplateRegistry() {
-        templates["SALES_WEEKLY"]  = {"週次売上レポート",   {"pdf", "excel"}};
-        templates["SALES_MONTHLY"] = {"月次売上レポート",   {"pdf", "excel"}};
-        templates["SALES_DEPT"]    = {"部門別売上レポート", {"pdf", "excel"}};
-    }
-
-    bool exists(const string& id) const {
-        return templates.count(id) > 0;
-    }
-
-    ReportTemplate get(const string& id) const {
-        return templates.at(id);
-    }
-
-    void save(const string& id, const ReportTemplate& tpl) {
-        templates[id] = tpl;          // 実行中のテンプレート表へ追加
-    }
-
-    bool supportsFormat(const string& id, const string& format) const {
-        for (const string& supported : templates.at(id).supportedFormats) {
-            if (supported == format) return true;
-        }
-        return false;
-    }
-};
-
-// 実システムではPDF/Excel/画像生成ライブラリを呼ぶ境界。
-// 掲載コードでは、その先のライブラリ処理だけをcoutで代替する。
-class ReportRenderingApi {
-public:
-    void addHeader(const string& format) {
-        cout << "[ReportRenderingApi] " << format
-             << "形式でヘッダー生成APIを呼び出し。" << endl;
-    }
-    void addGraph() {
-        cout << "[ReportRenderingApi] グラフ描画APIを呼び出し。" << endl;
-    }
-    void addLogo() {
-        cout << "[ReportRenderingApi] ロゴ配置APIを呼び出し。" << endl;
-    }
-    void addFooter(const string& format) {
-        cout << "[ReportRenderingApi] " << format
-             << "形式でフッター生成APIを呼び出し。" << endl;
-    }
-};
-
-// レポート生成統括
-class ReportSkeleton {
-    DataReader reader;
-    ReportRenderingApi renderer;
-public:
-    void generate(string format, bool addGraph, bool addLogo) {
-        reader.readCSV();
-        renderer.addHeader(format);
-        if (addGraph) renderer.addGraph();
-        if (addLogo) renderer.addLogo();
-        renderer.addFooter(format);
-    }
-};
-
-int main() {
-    TemplateRegistry registry;
-    string templateId = "SALES_MONTHLY";
-    string requestedFormat = "pdf";
-
-    if (!registry.exists(templateId)) {
-        cerr << "[エラー] テンプレートID '"
-             << templateId << "' は登録されていません。" << endl;
-        return 1;
-    }
-
-    if (!registry.supportsFormat(templateId, requestedFormat)) {
-        cerr << "[エラー] テンプレートID '"
-             << templateId << "' は "
-             << requestedFormat << " 形式に対応していません。" << endl;
-        return 1;
-    }
-
-    ReportTemplate tmpl = registry.get(templateId);
-    cout << "テンプレート: " << tmpl.name
-         << " (指定形式: " << requestedFormat << ")" << endl;
-
-    ReportSkeleton gen;
-    gen.generate(requestedFormat, true, false);
-    return 0;
-}
-```
-
-#### 起点：フェーズ3の痛みコード
+#### 課題箇所のおさらい（フェーズ3の関連コード）
 
 比較元は、生成手順へ履歴記録と再実行を直接追加したフェーズ3の変更途中コードです。
 
-#### 痛みの差分（フェーズ3で変更した関連部分）
 
-現行コード全体のどこに痛みが現れたかを振り返ります。以下はフェーズ3で変更した関連部分です。
+課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
 
 ```cpp
 class DataReader {

@@ -897,17 +897,21 @@ graph LR
 
 ## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
 
-フェーズ6は、フェーズ5で定めた課題——**骨格の呼び出し順序（open→checkVersion→parse→validate→save→close→result）を守りつつ、形式ごとのパース／検証を切り離す接続点を作る**——を受けて始めます。まず現行コード全体を振り返り、痛みが出た関連部分へ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
+フェーズ6は、フェーズ5で定めた課題——**骨格の呼び出し順序（open→checkVersion→parse→validate→save→close→result）を守りつつ、形式ごとのパース／検証を切り離す接続点を作る**——を受けて始めます。まず課題カードで指定したフェーズ3の関連部分だけをおさらいし、そのコードへ、課題ごとに最小の変更を重ねます。課題は「何を切り離すか」までを決めており、**その接続点をどんな形にするか**は、痛みコードを変換して探します。各段階で「今何を変えたか」「何が減ったか」「何が残るか」を関連コードで確認し、統合後の全体コードはフェーズ7で初めて示します。
 フェーズ5の課題から、対策候補は次のように出します。
 
-| フェーズ4で見えた原因 | フェーズ5で定めた課題 | だからフェーズ6で見る候補 |
-|---|---|---|
-| 各形式の処理に、開く・変換する・保存する・閉じる順序が重複している | 共通手順の骨格を1か所へ寄せ、形式差分だけを切り替える | まず共通手順を関数化し、重複している骨格を確認する |
-| 変わるのは `parseData()` や `validateRows()` など形式別処理なのに、骨格も一緒にコピーされる | 形式追加時に共通手順を再実装しなくて済む接続点を作る | 骨格を親側へ置き、形式別処理だけを差し替える案を見る |
-| 成功件数・スキップ件数・失敗理由を作る流れが各形式に散る | 呼び出し元へ返す取込結果の作り方を骨格側でそろえる | 保存後の結果記録を共通手順へ置けるかを見る |
-| 手順順序は守りたいが、変換方法は増える | 呼び出し順を固定しつつ、一部の処理だけを後から定義できる形にする | フックとして差分処理を渡す形まで進めるか判断する |
+| 課題ID | フェーズ4で見えた原因 | フェーズ5で定めた課題 | フェーズ6で試す候補 |
+|---|---|---|---|
+| P1 | 各形式の処理に、開く・変換する・保存する・閉じる順序が重複している | 共通手順の骨格を1か所へ寄せ、形式差分だけを切り替える | まず共通手順を関数化し、重複している骨格を確認する |
+| P1 | 変わるのは `parseData()` や `validateRows()` など形式別処理なのに、骨格も一緒にコピーされる | 形式追加時に共通手順を再実装しなくて済む接続点を作る | 骨格を親側へ置き、形式別処理だけを差し替える案を見る |
+| P1 | 成功件数・スキップ件数・失敗理由を作る流れが各形式に散る | 呼び出し元へ返す取込結果の作り方を骨格側でそろえる | 保存後の結果記録を共通手順へ置けるかを見る |
+| P1 | 手順順序は守りたいが、変換方法は増える | 呼び出し順を固定しつつ、一部の処理だけを後から定義できる形にする | フックとして差分処理を渡す形まで進めるか判断する |
 
-#### 対策検討の課題カード
+上表の「候補」は、原因と課題から何を試すかを出したものです。次の課題カードは別の課題を追加する表ではなく、同じ課題IDについて、着目コード・最小変更・守る契約・完了条件を固定する表です。同じIDの候補を1枚のカードへまとめ、そのIDの関連コードへ進みます。
+
+ここまでに挙げた候補を、同じ課題IDのコード検討条件へ落としたものが次のカードです。
+
+#### 候補をコードで検討するための課題カード
 
 | ID | 原因と着目コード | 最小変更と守る契約 | 完了条件 |
 |---|---|---|---|
@@ -915,181 +919,12 @@ graph LR
 
 メソッド抽出から始めるのは、コードを親クラスへ移す前に「完全に同じ手順」と「形式ごとに違う手順」を行単位で分けるためです。
 
-#### 振り返り：現行コード全体（フェーズ1）
-
-最初に、構造と改行を思い出す作業を読者へ求めないため、変更要求を当てる前の完全コードを同じ並びで再掲します。ここはおさらい用であり、対策の起点はこの後に示すフェーズ3の仕様変更後コードです。候補を比べるときは、変更していない行の並び・インデント・改行をこの比較元から動かさず、責任を移した箇所だけを追います。
-
-```cpp
-#include <iostream>
-#include <sstream>
-#include <string>
-#include <vector>
-#include <map>
-#include <utility>
-using namespace std;
-
-// 1行を区切り文字で分割する小さなヘルパー
-static vector<string> splitLine(const string& line, char delim) {
-    vector<string> cols; string cur; istringstream iss(line);
-    while (getline(iss, cur, delim)) cols.push_back(cur);
-    return cols;
-}
-
-// パース済みの売上1行
-struct SalesRow { string id; string name; long amount; };
-
-// インポート1回分の結果（void をやめ、件数を返す）
-struct ImportResult { string schemaName; int saved; int skipped; };
-
-// インポートスキーマ（タイプごとの必須カラム定義）
-struct ImportSchema { string name; vector<string> requiredColumns; };
-
-// インポートスキーマの登録・参照を担うクラス
-class SchemaRegistry {
-    map<string, ImportSchema> schemas;
-public:
-    SchemaRegistry() {
-        schemas["store"] = {"直営店データ", {"id", "name", "amount"}};
-        schemas["fc"]    = {"FC店データ",   {"id", "name", "amount"}};
-    }
-    bool exists(const string& type) const { return schemas.count(type) > 0; }
-    ImportSchema get(const string& type) const { return schemas.at(type); }
-};
-
-// 直営店データのインポート（カンマ区切り・ヘッダー行あり）
-class StoreDataImporter {
-    vector<string> rawLines;
-public:
-    explicit StoreDataImporter(vector<string> lines) : rawLines(move(lines)) {}
-
-    // 手順がすべて import() の中にべた書きされている
-    ImportResult import() {
-        // (1) 開く
-        cout << "直営店CSVを開く\n";
-
-        // (2) パース：1行目をヘッダーとして飛ばし、カンマで分割する（べた書き）
-        vector<SalesRow> rows;
-        for (size_t i = 1; i < rawLines.size(); ++i) {
-            vector<string> c = splitLine(rawLines[i], ',');
-            if (c.size() < 3) continue;
-            rows.push_back({c[0], c[1], stol(c[2])});
-        }
-        cout << "カンマ区切りで" << rows.size() << "件を読み込む\n";
-
-        // (3) 保存
-        cout << rows.size() << "件をDBへ追加\n";
-
-        // (4) 閉じる
-        cout << "ファイルを閉じる\n";
-
-        return {"直営店データ", (int)rows.size(), 0};
-    }
-};
-
-// FC店データのインポート（タブ区切り・ヘッダーなし・不正行スキップ）
-class FCDataImporter {
-    vector<string> rawLines;
-public:
-    explicit FCDataImporter(vector<string> lines) : rawLines(move(lines)) {}
-
-    // こちらも手順がすべて import() にべた書きされている
-    ImportResult import() {
-        // (1) 開く
-        cout << "FC店CSVを開く\n";
-
-        // (2) パース：先頭行からタブで分割し、割れない行はスキップ（べた書き）
-        vector<SalesRow> rows;
-        int skipped = 0;
-        for (size_t i = 0; i < rawLines.size(); ++i) {
-            vector<string> c = splitLine(rawLines[i], '\t');
-            if (c.size() < 3) { ++skipped; continue; }
-            rows.push_back({c[0], c[1], stol(c[2])});
-        }
-        cout << "タブ区切りで" << rows.size() << "件を読み込み、"
-             << skipped << "件をスキップ\n";
-
-        // (3) 保存
-        cout << rows.size() << "件をDBへ更新\n";
-
-        // (4) 閉じる
-        cout << "ファイルを閉じる\n";
-
-        return {"FC店データ", (int)rows.size(), skipped};
-    }
-};
-
-int main() {
-    SchemaRegistry registry;
-
-    // 直営店：ヘッダー行 + 正常10件
-    vector<string> storeLines = {"商品ID,商品名,金額"};
-    for (int i = 1; i <= 10; ++i)
-        storeLines.push_back("100" + to_string(i)
-            + ",商品" + to_string(i) + ",3000");
-
-    string type1 = "store";
-    if (!registry.exists(type1)) {
-        cout << "[エラー] 未登録のインポートタイプ: " << type1 << "\n"; return 1;
-    }
-    cout << "--- 行1: " << registry.get(type1).name << " ---\n";
-    StoreDataImporter storeNormal(storeLines);
-    ImportResult r1 = storeNormal.import();
-    cout << "インポート成功: " << r1.saved << "件追加\n";
-
-    // FC店：タブ区切り・正常5件
-    vector<string> fcLines;
-    for (int i = 1; i <= 5; ++i)
-        fcLines.push_back("200" + to_string(i)
-            + "\t商品" + to_string(i) + "\t5200");
-
-    string type2 = "fc";
-    if (!registry.exists(type2)) {
-        cout << "[エラー] 未登録のインポートタイプ: " << type2 << "\n"; return 1;
-    }
-    cout << "--- 行2: " << registry.get(type2).name << " ---\n";
-    FCDataImporter fcNormal(fcLines);
-    ImportResult r2 = fcNormal.import();
-    cout << "インポート成功: " << r2.saved << "件更新\n";
-
-    // 直営店：空ファイル（ヘッダー行のみ）
-    cout << "--- 行3: 直営店空ファイル ---\n";
-    StoreDataImporter storeEmpty({"商品ID,商品名,金額"});
-    ImportResult r3 = storeEmpty.import();
-    cout << "インポート成功: " << r3.saved << "件追加\n";
-
-    // FC店：全行不正（タブ分割できない）
-    cout << "--- 行4: FC店全行不正 ---\n";
-    FCDataImporter fcInvalid({"不正な行", "壊れた行", "欠損行"});
-    ImportResult r4 = fcInvalid.import();
-    cout << "インポート成功: " << r4.saved << "件更新";
-    if (r4.skipped > 0) cout << "、エラー" << r4.skipped << "件";
-    cout << "\n";
-
-    // 直営店：正常1件＋列不足1件（不正行件数は報告しない）
-    cout << "--- 行5: 直営店に不正行あり ---\n";
-    StoreDataImporter storeMixed({
-        "商品ID,商品名,金額", "1001,シャツ,3000", "9001,欠損"});
-    ImportResult r5 = storeMixed.import();
-    cout << "インポート成功: " << r5.saved << "件追加\n";
-
-    // タイプ "online" は未登録 → エラーで中断
-    string unknownType = "online";
-    if (!registry.exists(unknownType)) {
-        cout << "[エラー] 未登録のインポートタイプ: "
-             << unknownType << " — 処理を中断します\n";
-        return 1;
-    }
-    return 0;
-}
-```
-
-#### 起点：フェーズ3の痛みコード
+#### 課題箇所のおさらい（フェーズ3の関連コード）
 
 比較元は、EC店形式と形式バージョンチェックを追加したフェーズ3の変更途中コードです。直営店・FC店・EC店の3クラスが、同じ手順を各 `import()` にべた書きで複製しています。
 
-#### 痛みの差分（フェーズ3で変更した関連部分）
 
-現行コード全体のどこに痛みが現れたかを振り返ります。以下はフェーズ3で変更した関連部分です。
+課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
 
 ```cpp
 // EC店データのインポート（会員ランク・ポイント項目あり）
