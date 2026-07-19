@@ -185,7 +185,7 @@ flowchart LR
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
 | `ReportSkeleton` | レポート生成の流れを進める | データ読み込み、本文生成、装飾指定、出力 |
-| `DataReader` | CSVデータを読み込む | 売上データの取得 |
+| `DataReader` | 売上データを読み込み集計する | 売上データの取得・合計/平均の算出 |
 | `TemplateRegistry` | テンプレートIDの登録・検索 | レポートテンプレートの名称・出力形式をIDで管理し、バリデーションに使う |
 
 
@@ -199,7 +199,7 @@ classDiagram
         +generate(format: string, addGraph: bool, addLogo: bool) void
     }
     class DataReader {
-        +readCSV() void
+        +readCSV() SalesSummary
     }
     class TemplateRegistry {
         +exists(id) bool
@@ -215,7 +215,7 @@ classDiagram
 |---|---|---|
 | `ReportSkeleton` | `reader` | CSV読み込みを行う `DataReader` を保持する |
 | `ReportSkeleton` | `generate()` | 出力形式と装飾フラグを受け取り、レポート生成を進める |
-| `DataReader` | `readCSV()` | 売上データCSVを読み込む |
+| `DataReader` | `readCSV()` | 売上データを読み込み、合計・平均を集計する |
 
 
 > **注記：** `addGraph` と `addLogo` は独立したメソッドではなく、`generate()` の引数として渡されるフラグです。これらのフラグで実際に何をしているかは、次の実装コードで確認します。
@@ -256,13 +256,26 @@ classDiagram
 
 using namespace std;
 
+// 集計結果（件数・合計・平均）
+struct SalesSummary { int count; long total; long average; };
+
 class DataReader {
+    vector<int> sales;  // 月次売上データ（実際に保持する）
 public:
-    void readCSV() { cout << "CSVデータ読み込み完了。" << endl; }
+    DataReader() : sales{520, 610, 480, 700, 560, 640} {}
+    // 実データを集計して返す（合計・平均を実際に計算する）
+    SalesSummary readCSV() {
+        long total = 0;
+        for (int v : sales) total += v;
+        long avg = sales.empty() ? 0 : total / (long)sales.size();
+        cout << "CSVデータ読み込み完了（" << sales.size()
+             << "件, 合計" << total << "・平均" << avg << "）" << endl;
+        return {(int)sales.size(), total, avg};
+    }
 };
 ```
 
-`DataReader` は純粋なデータ読み込みの入れ物です。レポート生成ロジックは持たせていません。
+`DataReader` は売上データを実際に保持し、`readCSV()` で合計・平均を集計して返します。装飾やファイル出力などのレポート生成ロジックは持たせていません。
 
 #### テンプレートレジストリ
 
@@ -331,6 +344,10 @@ public:
         cout << "[ReportRenderingApi] " << format
              << "形式でヘッダー生成APIを呼び出し。" << endl;
     }
+    void addBody(long total, long average) {
+        cout << "[ReportRenderingApi] 本文生成API：合計"
+             << total << "・平均" << average << "。" << endl;
+    }
     void addGraph() {
         cout << "[ReportRenderingApi] グラフ描画APIを呼び出し。" << endl;
     }
@@ -349,8 +366,9 @@ class ReportSkeleton {
     ReportRenderingApi renderer;
 public:
     void generate(string format, bool addGraph, bool addLogo) {
-        reader.readCSV();
+        SalesSummary s = reader.readCSV();
         renderer.addHeader(format);
+        renderer.addBody(s.total, s.average);
         if (addGraph) renderer.addGraph();
         if (addLogo) renderer.addLogo();
         renderer.addFooter(format);
@@ -358,7 +376,7 @@ public:
 };
 ```
 
-このクラスが今章の中心です。`generate` メソッドは、CSV読み込み、ヘッダー生成、グラフ追加、ロゴ追加、フッター生成を順に実行します。
+このクラスが今章の中心です。`generate` メソッドは、CSV読み込み・集計、ヘッダー生成、本文生成、グラフ追加、ロゴ追加、フッター生成を順に実行します。読み込んだ売上を実際に合計・平均して本文へ渡します。
 
 #### 呼び出し元と実行確認
 
@@ -401,8 +419,9 @@ int main() {
 
 ```
 テンプレート: 月次売上レポート (指定形式: pdf)
-CSVデータ読み込み完了。
+CSVデータ読み込み完了（6件, 合計3510・平均585）
 [ReportRenderingApi] pdf形式でヘッダー生成APIを呼び出し。
+[ReportRenderingApi] 本文生成API：合計3510・平均585。
 [ReportRenderingApi] グラフ描画APIを呼び出し。
 [ReportRenderingApi] pdf形式でフッター生成APIを呼び出し。
 ```
@@ -1118,6 +1137,7 @@ classDiagram
     class ReportFeature
     class GraphFeature
     class WatermarkFeature
+    class DataReader
     class IReportAction { <<interface>> }
     class GenerateReportAction
     ReportSkeleton <|-- StandardReport
@@ -1130,6 +1150,10 @@ classDiagram
     GenerateReportAction --> ReportSkeleton
     WeeklyReport --|> ReportSkeleton
     DeptReport --|> ReportSkeleton
+    StandardReport --> DataReader
+    MonthlyReport --> DataReader
+    WeeklyReport --> DataReader
+    DeptReport --> DataReader
     ReportSkeleton --> TemplateRegistry
     ReportSkeleton --> ReportRenderingApi
     GenerateReportAction --> ReportLog
@@ -1271,6 +1295,22 @@ public:
 ```
 
 ```cpp
+// 集計結果（件数・合計・平均）
+struct SalesSummary { int count; long total; long average; };
+
+// 売上データを保持し、集計して返す（実際に計算する）
+class DataReader {
+    vector<int> sales;
+public:
+    explicit DataReader(vector<int> s) : sales(move(s)) {}
+    SalesSummary readCSV() const {
+        long total = 0;
+        for (int v : sales) total += v;
+        long avg = sales.empty() ? 0 : total / (long)sales.size();
+        return {(int)sales.size(), total, avg};
+    }
+};
+
 // ReportSkeleton: レポート生成の骨格（骨格固定構造）
 class ReportSkeleton {
 public:
@@ -1293,9 +1333,12 @@ public:
 ```cpp
 // StandardReport: 基本レポートの本体
 class StandardReport : public ReportSkeleton {
+    DataReader reader{{100, 200, 300}};
 public:
     void renderBody() override {
-        cout << "本文を生成。" << endl;
+        SalesSummary s = reader.readCSV();
+        cout << "本文を生成（合計" << s.total
+             << "・平均" << s.average << "）。" << endl;
     }
 };
 ```
@@ -1303,9 +1346,12 @@ public:
 ```cpp
 // MonthlyReport: 月次レポートの本体
 class MonthlyReport : public ReportSkeleton {
+    DataReader reader{{520, 610, 480, 700, 560, 640}};
 public:
     void renderBody() override {
-        cout << "月次集計を本文として生成。" << endl;
+        SalesSummary s = reader.readCSV();
+        cout << "月次集計を本文として生成（合計" << s.total
+             << "・平均" << s.average << "）。" << endl;
     }
 };
 ```
@@ -1313,17 +1359,23 @@ public:
 ```cpp
 // WeeklyReport: 週次レポートの本体
 class WeeklyReport : public ReportSkeleton {
+    DataReader reader{{120, 150, 90, 210, 180}};
 public:
     void renderBody() override {
-        cout << "週次集計を本文として生成。" << endl;
+        SalesSummary s = reader.readCSV();
+        cout << "週次集計を本文として生成（合計" << s.total
+             << "・平均" << s.average << "）。" << endl;
     }
 };
 
 // DeptReport: 部門別レポートの本体
 class DeptReport : public ReportSkeleton {
+    DataReader reader{{300, 450, 280}};
 public:
     void renderBody() override {
-        cout << "部門別集計を本文として生成。" << endl;
+        SalesSummary s = reader.readCSV();
+        cout << "部門別集計を本文として生成（合計" << s.total
+             << "・平均" << s.average << "）。" << endl;
     }
 };
 ```
@@ -1661,19 +1713,19 @@ int main() {
 --- 行1: 月次レポートPDF出力 ---
 テンプレート: 月次売上レポート
 CSV読み込み
-月次集計を本文として生成。
+月次集計を本文として生成（合計3510・平均585）。
 フッター生成
 [コマンド] PDF形式で monthly.pdf を生成して履歴に記録。
 --- 行2: 月次レポートExcel出力 ---
 テンプレート: 月次売上レポート
 CSV読み込み
-月次集計を本文として生成。
+月次集計を本文として生成（合計3510・平均585）。
 フッター生成
 [コマンド] Excel形式で monthly.xlsx を生成して履歴に記録。
 --- 行3: 装飾付きレポートPDF出力 ---
 テンプレート: 月次売上レポート
 CSV読み込み
-本文を生成。
+本文を生成（合計600・平均200）。
 [ReportRenderingApi] グラフ描画APIを呼び出し。
 [ReportRenderingApi] 透かし描画APIを呼び出し。
 フッター生成
@@ -1681,29 +1733,29 @@ CSV読み込み
 --- 行4: 月次レポート生成後にキャンセル ---
 テンプレート: 月次売上レポート
 CSV読み込み
-月次集計を本文として生成。
+月次集計を本文として生成（合計3510・平均585）。
 フッター生成
 [コマンド] PDF形式で cancel_monthly.pdf を生成して履歴に記録。
 [コマンド] cancel_monthly.pdf を削除してアンドゥ完了。
 --- 行5: バッチで3レポート一括生成 ---
 テンプレート: 週次売上レポート
 CSV読み込み
-週次集計を本文として生成。
+週次集計を本文として生成（合計750・平均150）。
 フッター生成
 [コマンド] PDF形式で weekly.pdf を生成して履歴に記録。
 CSV読み込み
-月次集計を本文として生成。
+月次集計を本文として生成（合計3510・平均585）。
 フッター生成
 [コマンド] PDF形式で batch_monthly.pdf を生成して履歴に記録。
 CSV読み込み
-部門別集計を本文として生成。
+部門別集計を本文として生成（合計1030・平均343）。
 フッター生成
 [コマンド] PDF形式で dept.pdf を生成して履歴に記録。
 [この操作で3コマンドが履歴に追加されました。]
 --- 行6: グラフ付き月次レポートを生成してアンドゥ ---
 テンプレート: 月次売上レポート
 CSV読み込み
-月次集計を本文として生成。
+月次集計を本文として生成（合計3510・平均585）。
 [ReportRenderingApi] グラフ描画APIを呼び出し。
 フッター生成
 [コマンド] PDF形式で graph_monthly.pdf を生成して履歴に記録。
@@ -1711,11 +1763,11 @@ CSV読み込み
 --- 行7: グラフ描画失敗と再実行 ---
 テンプレート: 月次売上レポート
 CSV読み込み
-月次集計を本文として生成。
+月次集計を本文として生成（合計3510・平均585）。
 [ジョブ] 失敗: 生成失敗: グラフ描画APIが一時的に失敗しました
 [ジョブ] 同じ生成操作を再実行します。
 CSV読み込み
-月次集計を本文として生成。
+月次集計を本文として生成（合計3510・平均585）。
 [ReportRenderingApi] グラフ描画APIを呼び出し。
 フッター生成
 [コマンド] PDF形式で retry_monthly.pdf を生成して履歴に記録。
@@ -1754,6 +1806,7 @@ classDiagram
     class ReportFeature
     class GraphFeature
     class WatermarkFeature
+    class DataReader
     class IReportAction { <<interface>> }
     class GenerateReportAction
     ReportSkeleton <|-- StandardReport
@@ -1766,6 +1819,10 @@ classDiagram
     GenerateReportAction --> ReportSkeleton
     WeeklyReport --|> ReportSkeleton
     DeptReport --|> ReportSkeleton
+    StandardReport --> DataReader
+    MonthlyReport --> DataReader
+    WeeklyReport --> DataReader
+    DeptReport --> DataReader
     ReportSkeleton --> TemplateRegistry
     ReportSkeleton --> ReportRenderingApi
     GenerateReportAction --> ReportLog
