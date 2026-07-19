@@ -124,6 +124,41 @@ PHASE_BOUNDARY_CONTINUITY_TOKENS = {
     "chapter11.md": ["TemplateRegistry", "ReportRenderingApi"],
 }
 
+# 「対策検討のクラス図」システム構造フォーマットで章ごとに変わる語彙。
+# ハードコードを避け、章の題材に合わせて主要クラス・完成形比較・7-3結果を
+# 定義する。定義が無い章でこのフォーマットを使うと検証が抜けるため、
+# 未定義は明示的な指摘にする（検証を弱めない）。
+SYSTEM_STRUCTURE_CLASS_TOKENS = {
+    "chapter01.md": [
+        "PaymentCalculator", "OrderProcessor", "CartPreviewService",
+        "CampaignContext", "IDiscountRule", "RuleSelector",
+        "PremiumDiscount", "CampaignDiscount", "SummerSaleDiscount",
+    ],
+    "chapter02.md": [
+        "TransferProcessor", "BatchTransferProcessor",
+        "BankGateway", "SecurityAuthenticator",
+        "IBankTransferService", "BankTransferService",
+        "AccountDatabase", "TransferHistory",
+    ],
+}
+SYSTEM_STRUCTURE_FINAL_FORMS = {
+    "chapter01.md": [
+        "ルールエンジン", "条件関数と計算関数の登録システム",
+        "具象ルールの登録システム",
+    ],
+    "chapter02.md": ["設定駆動ゲートウェイ", "手順関数テーブル", "窓口クラス"],
+}
+SYSTEM_STRUCTURE_RESULT_TOKENS = {
+    "chapter01.md": [
+        "変更要求：サマーセール追加", "SummerSaleDiscount",
+        "main / Composition Root", "CampaignContext", "RuleSelector",
+    ],
+    "chapter02.md": [
+        "変更要求：認証フロー変更", "BankTransferService",
+        "Application", "TransferProcessor",
+    ],
+}
+
 BANNED_PATTERNS = [
     (
         re.compile(r"直接（直差し）|間接（アダプター経由）"),
@@ -394,14 +429,21 @@ def check_system_structure_phase6(
         issues.append(Issue(path, ln, "責任見直しの2図は既存図と同じクラス図にしてください"))
     if "flowchart" in structure_sec or "graph " in structure_sec:
         issues.append(Issue(path, ln, "責任見直しにクラス図以外の新しい図を追加しないでください"))
-    for token in ("PaymentCalculator", "OrderProcessor", "CartPreviewService",
-                  "CampaignContext", "IDiscountRule", "RuleSelector",
-                  "PremiumDiscount", "CampaignDiscount", "SummerSaleDiscount"):
+    class_tokens = SYSTEM_STRUCTURE_CLASS_TOKENS.get(path.name)
+    if class_tokens is None:
+        issues.append(Issue(path, ln,
+                            "システム構造フォーマットの主要クラス語彙が未定義です"))
+        class_tokens = []
+    for token in class_tokens:
         if token not in structure_sec:
             issues.append(Issue(path, ln, f"責任見直しのクラス図に主要クラス {token} がありません"))
 
-    for final_form in ("ルールエンジン", "条件関数と計算関数の登録システム",
-                       "具象ルールの登録システム"):
+    final_forms = SYSTEM_STRUCTURE_FINAL_FORMS.get(path.name)
+    if final_forms is None:
+        issues.append(Issue(path, ln,
+                            "システム構造フォーマットの完成形比較語彙が未定義です"))
+        final_forms = []
+    for final_form in final_forms:
         if final_form not in sec:
             issues.append(Issue(path, ln, f"完成形の比較に {final_form} がありません"))
 
@@ -446,8 +488,12 @@ def check_system_structure_phase6(
     else:
         graph_end = text.find("### 7-4", result_graph)
         result_sec = text[result_graph:graph_end]
-        for token in ("変更要求：サマーセール追加", "SummerSaleDiscount",
-                      "main / Composition Root", "CampaignContext", "RuleSelector"):
+        result_tokens = SYSTEM_STRUCTURE_RESULT_TOKENS.get(path.name)
+        if result_tokens is None:
+            issues.append(Issue(path, ln,
+                                "システム構造フォーマットの7-3結果語彙が未定義です"))
+            result_tokens = []
+        for token in result_tokens:
             if token not in result_sec:
                 issues.append(Issue(path, ln, f"7-3の結果確認に {token} がありません"))
     return issues
