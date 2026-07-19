@@ -140,6 +140,11 @@ SYSTEM_STRUCTURE_CLASS_TOKENS = {
         "IBankTransferService", "BankTransferService",
         "AccountDatabase", "TransferHistory",
     ],
+    "chapter03.md": [
+        "IReservationState", "TicketReservation", "AvailableState",
+        "ReservedState", "WaitlistedState", "HeldState",
+        "ReservationWaitlist", "EventDatabase",
+    ],
     "chapter04.md": [
         "AbstractImporter", "StoreDataImporter", "FCDataImporter",
         "ECDataImporter", "SchemaRegistry", "ImportFileGateway",
@@ -171,6 +176,7 @@ SYSTEM_STRUCTURE_FINAL_FORMS = {
         "具象ルールの登録システム",
     ],
     "chapter02.md": ["窓口構造"],
+    "chapter03.md": ["状態分離構造", "待ち行列分離構造"],
     "chapter04.md": ["骨格固定構造"],
     "chapter05.md": ["操作記録構造"],
     "chapter06.md": ["装飾連結構造"],
@@ -185,6 +191,10 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
     "chapter02.md": [
         "変更要求：認証フロー変更", "BankTransferService",
         "Application", "TransferProcessor",
+    ],
+    "chapter03.md": [
+        "変更要求：状態追加", "IReservationState",
+        "ReservationWaitlist", "TicketReservation",
     ],
     "chapter04.md": [
         "変更要求：EC店形式の追加", "ECDataImporter",
@@ -216,6 +226,7 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
 SYSTEM_STRUCTURE_MODE = {
     "chapter01.md": "select",
     "chapter02.md": "single",
+    "chapter03.md": "combine",
     "chapter04.md": "single",
     "chapter05.md": "single",
     "chapter06.md": "single",
