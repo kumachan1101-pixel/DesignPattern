@@ -310,6 +310,154 @@ def is_new_phase6(text: str) -> bool:
     return "### 6-1" in sec
 
 
+def is_system_structure_phase6(section: str) -> bool:
+    """システム全体の変更前/目標構造からコード案を導く新フォーマット。"""
+    return "#### 条件が集まった構造を、どう分離した構造へ変えるか" in section
+
+
+def check_system_structure_phase6(
+        text: str, path: Path, p6: int, sec: str,
+        phase5_sec: str, handoff_table_heading: str) -> list[Issue]:
+    """構造仮説→思考連鎖→段階コード→完成後の影響確認を検証する。"""
+    ln = line_number(text, p6)
+    issues: list[Issue] = []
+    required = [
+        ("### 6-1", "フェーズ6に段階的なコード検討（6-1）がありません"),
+        ("### 6-2", "フェーズ6に契約・データ配置（6-2）がありません"),
+        ("### 6-3", "フェーズ6に完成構造のクラス図（6-3）がありません"),
+        ("### 6-4", "フェーズ6に課題カードの採用判定（6-4）がありません"),
+        ("### 採用する形を決める", "フェーズ6に採用判断がありません"),
+        ("#### 3-2の変更影響を、コードで検討する課題カードへ落とす",
+         "フェーズ6に3-2から課題カードへ接続する説明がありません"),
+        ("| 項目 | P1 |",
+         "フェーズ6に差・境界・完了条件・候補を縦に結ぶ課題カードがありません"),
+        ("#### 条件が集まった構造を、どう分離した構造へ変えるか",
+         "フェーズ6に変更前/目標のシステム構造がありません"),
+        ("注文金額計算システム（変更前）",
+         "システム構造図に変更前の全体構造がありません"),
+        ("注文金額計算システム（変更後の目標）",
+         "システム構造図に変更後の目標構造がありません"),
+        ("【残す】", "システム構造図に残す責任の表示がありません"),
+        ("【移す】", "システム構造図に移す責任の表示がありません"),
+        ("【新設・固定】", "システム構造図に新設する安定部品の表示がありません"),
+        ("| 構造上どう変えるか | コードレベルで何をするか | 後続の検討で確認すること |",
+         "構造変化とコード変更を対応させる表がありません"),
+        ("#### 自分のコードから同じ構造図を作る手順",
+         "読者が構造図を再現する作図手順がありません"),
+        ("| 手順 | 問うこと | この章での答え | 図へ行う操作 |",
+         "作図材料・判断・操作を対応させる表がありません"),
+        ("#### 構造から対策案が出てくる思考回路",
+         "現在の事実から対策案を導く思考連鎖がありません"),
+        ("観察 → 仮説 → 最小変更 → 結果 → P1判定 → 次の判断",
+         "段階コードの判断順序が明文化されていません"),
+        ("#### 課題箇所のおさらい（フェーズ3の関連コード）",
+         "フェーズ6に課題箇所だけのコードおさらいがありません"),
+        ("#### 課題IDごとのコード適用結果",
+         "フェーズ6に課題IDごとのコード適用結果がありません"),
+        ("| 課題ID | 候補を適用したコード | 段階的なコード変更と結果 | 守った契約・完了条件の判定 |",
+         "フェーズ6にコード変更と完了判定の対応表がありません"),
+        ("**P1判定：未達。**", "途中候補を未達と判定する説明がありません"),
+        ("**P1判定：一部達成。**", "途中候補の残課題を判定する説明がありません"),
+        ("**P1判定：達成。**", "全課題を満たした採用候補の判定がありません"),
+    ]
+    for token, msg in required:
+        if token not in sec:
+            issues.append(Issue(path, ln, msg))
+
+    order_tokens = [
+        "#### 3-2の変更影響を、コードで検討する課題カードへ落とす",
+        "#### 条件が集まった構造を、どう分離した構造へ変えるか",
+        "#### 自分のコードから同じ構造図を作る手順",
+        "#### 構造から対策案が出てくる思考回路",
+        "#### 課題箇所のおさらい（フェーズ3の関連コード）",
+        "### 6-1",
+        "#### 課題IDごとのコード適用結果",
+        "### 6-3",
+        "### 6-4",
+        "### 採用する形を決める",
+    ]
+    positions = [sec.find(token) for token in order_tokens]
+    if min(positions) >= 0 and positions != sorted(positions):
+        issues.append(Issue(
+            path, ln,
+            "フェーズ6は課題カード→システム構造→思考連鎖→関連コード→"
+            "段階検討→適用結果→完成構造→採用判定の順にしてください",
+        ))
+
+    structure_start = sec.find("#### 条件が集まった構造を、どう分離した構造へ変えるか")
+    reasoning_start = sec.find("#### 構造から対策案が出てくる思考回路")
+    structure_sec = sec[structure_start:reasoning_start]
+    if structure_sec.count("```mermaid") < 2:
+        issues.append(Issue(path, ln, "変更前と変更後のシステム構造図を2図示してください"))
+    for token in ("PaymentCalculator", "OrderProcessor", "CartPreviewService",
+                  "CampaignContext", "IDiscountRule", "RuleSelector"):
+        if token not in structure_sec:
+            issues.append(Issue(path, ln, f"システム構造図に主要要素 {token} がありません"))
+
+    reasoning_end = sec.find("#### 課題箇所のおさらい（フェーズ3の関連コード）")
+    reasoning_sec = sec[reasoning_start:reasoning_end]
+    for alternative in ("表・設定データ", "std::function", "パイプライン", "if-else"):
+        if alternative not in reasoning_sec:
+            issues.append(Issue(
+                path, ln,
+                f"読者が考える別案 {alternative} の採否条件がありません",
+            ))
+
+    if len(extract_cpp_blocks(sec)) < 5:
+        issues.append(Issue(path, ln, "フェーズ6に段階判断を確認できるコードが不足しています"))
+
+    issue_table = "| 項目 | P1 |"
+    issue_start = sec.find(issue_table)
+    structure_heading = sec.find("#### 条件が集まった構造を、どう分離した構造へ変えるか")
+    issue_ids = re.findall(
+        r"(?m)^\|\s*課題ID\s*\|\s*(P\d+)\s*\|",
+        sec[issue_start:structure_heading],
+    ) if min(issue_start, structure_heading) >= 0 else []
+    result_start = sec.find("| 課題ID | 候補を適用したコード |")
+    step63 = sec.find("### 6-3")
+    result_ids = re.findall(
+        r"(?m)^\|\s*(P\d+)\s*\|",
+        sec[result_start:step63],
+    ) if min(result_start, step63) >= 0 else []
+    handoff_start = phase5_sec.find(handoff_table_heading)
+    handoff_ids = re.findall(
+        r"(?m)^\|\s*(P\d+)\s*\|",
+        phase5_sec[handoff_start:],
+    ) if handoff_start >= 0 else []
+    phase7_start = text.find("#### 課題IDごとの完成コード結果", p6)
+    phase72 = text.find("### 7-2", phase7_start)
+    phase7_ids = re.findall(
+        r"(?m)^\|\s*(P\d+)\s*\|",
+        text[phase7_start:phase72],
+    ) if min(phase7_start, phase72) >= 0 else []
+    if not issue_ids:
+        issues.append(Issue(path, ln, "課題カードに課題ID行がありません"))
+    else:
+        expected = [f"P{i}" for i in range(1, len(issue_ids) + 1)]
+        if issue_ids != expected:
+            issues.append(Issue(path, ln, f"課題IDは連番にしてください: {issue_ids}"))
+        for label, ids in (("フェーズ5", handoff_ids), ("コード適用結果", result_ids),
+                           ("完成コード結果", phase7_ids)):
+            if ids != issue_ids:
+                issues.append(Issue(
+                    path, ln,
+                    f"{label}の課題IDを課題カードと一致させてください: {ids} != {issue_ids}",
+                ))
+
+    p7 = text.find("## 🟢 フェーズ7", p6)
+    result_graph = text.find("### 7-3：変更影響グラフ（改善後）", p7)
+    if result_graph < 0:
+        issues.append(Issue(path, ln, "変更影響グラフの結果確認は完成コード後の7-3に置いてください"))
+    else:
+        graph_end = text.find("### 7-4", result_graph)
+        result_sec = text[result_graph:graph_end]
+        for token in ("変更要求：サマーセール追加", "SummerSaleDiscount",
+                      "main / Composition Root", "CampaignContext", "RuleSelector"):
+            if token not in result_sec:
+                issues.append(Issue(path, ln, f"7-3の結果確認に {token} がありません"))
+    return issues
+
+
 def check_phase6_design(text: str, path: Path) -> list[Issue]:
     """痛みグラフから構造変更・コード適用・完成結果までの追跡を確認する。"""
     if not is_new_phase6(text):
@@ -328,6 +476,11 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
             path, ln,
             "フェーズ5の引き渡し表に課題ID・現在の変更影響・変えたくない範囲がありません",
         ))
+    if is_system_structure_phase6(sec):
+        issues.extend(check_system_structure_phase6(
+            text, path, p6, sec, phase5_sec, handoff_table_heading,
+        ))
+        return issues
     checks = [
         ("### 6-1", "フェーズ6に痛みコードの分解（6-1）がありません"),
         ("### 6-2", "フェーズ6に契約・データ配置（6-2）がありません"),
