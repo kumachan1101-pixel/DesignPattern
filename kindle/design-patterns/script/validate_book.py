@@ -146,7 +146,7 @@ SYSTEM_STRUCTURE_FINAL_FORMS = {
         "ルールエンジン", "条件関数と計算関数の登録システム",
         "具象ルールの登録システム",
     ],
-    "chapter02.md": ["設定駆動ゲートウェイ", "手順関数テーブル", "窓口クラス"],
+    "chapter02.md": ["窓口構造"],
 }
 SYSTEM_STRUCTURE_RESULT_TOKENS = {
     "chapter01.md": [
@@ -157,6 +157,16 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
         "変更要求：認証フロー変更", "BankTransferService",
         "Application", "TransferProcessor",
     ],
+}
+
+# フェーズ6「システム全体の最終構造を決める」の出し方は章の問題で決まる。
+#   select : 本当に競合する複数案から1つを選ぶ（比較表を要求）
+#   single : 分解の結果、構造が一意に定まる（比較不要、一意の宣言を要求）
+#   combine: 複数のパターン構造を組み合わせる（組み合わせ表を要求）
+# 未登録章は既定の select（比較表を要求し検証を弱めない）。
+SYSTEM_STRUCTURE_MODE = {
+    "chapter01.md": "select",
+    "chapter02.md": "single",
 }
 
 BANNED_PATTERNS = [
@@ -367,8 +377,6 @@ def check_system_structure_phase6(
          "フェーズ6にシステム全体の完了条件がありません"),
         ("#### システム全体の最終構造を決める",
          "フェーズ6にコード作成前のシステム構造決定がありません"),
-        ("| 最終システム構造 | 責任配置と依存の差 | 施策追加時に触る場所 | 判断 |",
-         "構造差分のある完成システム同士の比較がありません"),
         ("### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
          "フェーズ6に既存クラス図を使った責任見直しがありません"),
         ("変更前のクラス図（1-3を責任見直し用に再掲）",
@@ -446,6 +454,32 @@ def check_system_structure_phase6(
     for final_form in final_forms:
         if final_form not in sec:
             issues.append(Issue(path, ln, f"完成形の比較に {final_form} がありません"))
+
+    # 最終構造の出し方はモードで変える（軸数とは独立に決まる）。
+    mode = SYSTEM_STRUCTURE_MODE.get(path.name, "select")
+    decide_start = sec.find("#### システム全体の最終構造を決める")
+    decide_end = sec.find("### 対策検討のクラス図：1-3の責任と依存をどう変えるか")
+    decide_sec = sec[decide_start:decide_end] if 0 <= decide_start < decide_end else ""
+    if mode == "select":
+        if "| 最終システム構造 | 責任配置と依存の差 | 施策追加時に触る場所 | 判断 |" \
+                not in decide_sec:
+            issues.append(Issue(path, ln,
+                "select章は競合する複数案を比較する最終システム構造の表が必要です"))
+        if len(final_forms) < 2:
+            issues.append(Issue(path, ln,
+                "select章は比較する完成形を2つ以上登録してください"))
+    elif mode == "single":
+        if "一つに定ま" not in decide_sec:
+            issues.append(Issue(path, ln,
+                "single章は最終構造が一意に定まる根拠（『一つに定まる』）が必要です"))
+        if "| 最終システム構造 | 責任配置と依存の差 | 施策追加時に触る場所 | 判断 |" \
+                in decide_sec:
+            issues.append(Issue(path, ln,
+                "single章は当て馬を並べず、一意に定まる構造だけを示してください"))
+    elif mode == "combine":
+        if "| 組み合わせる構造 | 担う変化軸 | 移す責任 | 触る場所 |" not in decide_sec:
+            issues.append(Issue(path, ln,
+                "combine章は組み合わせる構造とその変化軸の対応表が必要です"))
 
     if len(extract_cpp_blocks(sec)) < 5:
         issues.append(Issue(path, ln, "フェーズ6に段階判断を確認できるコードが不足しています"))
