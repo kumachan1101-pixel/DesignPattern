@@ -145,6 +145,11 @@ SYSTEM_STRUCTURE_CLASS_TOKENS = {
         "ECDataImporter", "SchemaRegistry", "ImportFileGateway",
         "SalesImportRepository", "parseData",
     ],
+    "chapter05.md": [
+        "IAction", "AddExpenseAction", "AddIncomeAction",
+        "ActionHistory", "ExpenseManager", "IncomeManager",
+        "BudgetApp", "LedgerRepository",
+    ],
     "chapter06.md": [
         "IDrink", "Coffee", "ToppingWrapper", "Milk",
         "ToppingCatalog", "OrderAssembler", "CustomDrink", "MenuDatabase",
@@ -162,6 +167,7 @@ SYSTEM_STRUCTURE_FINAL_FORMS = {
     ],
     "chapter02.md": ["窓口構造"],
     "chapter04.md": ["骨格固定構造"],
+    "chapter05.md": ["操作記録構造"],
     "chapter06.md": ["装飾連結構造"],
     "chapter08.md": ["生成分離構造"],
 }
@@ -177,6 +183,10 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
     "chapter04.md": [
         "変更要求：EC店形式の追加", "ECDataImporter",
         "AbstractImporter", "SchemaRegistry",
+    ],
+    "chapter05.md": [
+        "変更要求：新しい操作の追加", "TransferAction",
+        "ActionHistory", "IAction",
     ],
     "chapter06.md": [
         "変更要求：抹茶トッピングの追加", "Matcha",
@@ -197,6 +207,7 @@ SYSTEM_STRUCTURE_MODE = {
     "chapter01.md": "select",
     "chapter02.md": "single",
     "chapter04.md": "single",
+    "chapter05.md": "single",
     "chapter06.md": "single",
     "chapter08.md": "single",
 }

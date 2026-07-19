@@ -840,242 +840,83 @@ UIが「呼び出し先の具体的な知識」として保持しているのは
 
 P1は「操作の具体手段が利用側と履歴へ漏れる課題」です。フェーズ6では、この痛みの経路を起点に、操作追加でどこまでの変更を許す構造へ直すかを描きます。
 
-## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
+## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-フェーズ6は、フェーズ5で定めた課題——**実行手段をオブジェクトとして差し替え可能にし、実行・取消・履歴を同じ単位で扱う接続点を作る**——を受けて始めます。まず問題定義で得た変更影響を左へ引き継ぎ、P1の影響を切るクラス・契約・依存関係を中央に置き、同じ要求を再適用した変更影響を右に描きます。その差、守る契約、完了条件、候補を同じP1の行へ落とします。その後、P1に紐づくフェーズ3の関連コードだけをおさらいし、中央の構造が妥当かを最小単位のコード変更で一段ずつ検証します。各段階で「変更理由」「対象コード」「変更内容」「減った影響」「残った問題」「次の判断」を言語化し、統合後の全体コードはフェーズ7で示します。
+P1を単独で解くのではなく、支出・収入・振替などの操作を同じ契約で実行・取消・記録できるシステムを設計します。
 
-#### 問題定義の変更影響を、どの構造で変えるか
+#### 3-2の変更影響を、システム構造の材料へ統合する
 
-フェーズ4では、操作追加やUndo要件がUI、履歴文字列、実行先、補償処理へ波及しました。理想は、新しい操作単位と登録だけを追加対象にすることです。
-
-```mermaid
-flowchart LR
-    subgraph Pain["問題定義：変更前の変更影響"]
-        direction TB
-        CR["操作・Undo・補償を追加"] --> C1["UIの分岐と引数を修正"]
-        C1 --> C2["履歴・逆操作・実行先を再テスト"]
-    end
-    subgraph TargetStructure["影響を切る構造の形"]
-        direction TB
-        UI["UI"] --> A["IAction::execute / undo"]
-        AH["ActionHistory"] --> A
-        AC["操作クラス群"] -. "契約を実装" .-> A
-        AC --> R["操作対象のManager"]
-    end
-    subgraph Result["同じ要求を再適用した変更影響"]
-        direction TB
-        IR["新しい操作を追加"] --> I1["P1: 操作クラスと登録を追加"]
-        I1 --> I2["追加操作のexecute / undoだけをテスト"]
-        IS["変更しない: UIの実行入口・ActionHistory"]
-    end
-    C1 -. "P1: 実行・取消を操作契約で切る" .-> A
-    A -. "新しい変更先" .-> I1
-```
-
-中央では、UIと履歴が具体的な操作種別や逆操作を判定せず、どちらも `IAction` だけを扱います。左でUI・履歴・実行先へ広がった影響が、右では新しい操作クラスと登録で止まります。
-
-#### 構造と変更後の影響から、課題と候補を一続きで導く
-
-| 課題ID | 変更の到達点 | 最初に試すコード変更 | 残る問題に対する次のコード変更 |
+| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |
 |---|---|---|---|
-| P1 | **現在→理想の差：** UI分岐と履歴の種別判定を外す<br>**切る境界・守る契約：** 実行先・引数・逆操作を切り、成功操作だけ履歴へ積み、失敗時にスタックを壊さない<br>**完了条件：** UIと履歴へ種別分岐を追加しない | **候補：** UIの呼び出し処理へ名前を付ける<br>**減る影響：** 実行手段の漏出箇所が見える | 入力値と `execute/undo` を同じ操作単位へまとめる |
+| P1 | 操作追加やUndo/Redo対応で、UIの具体呼び出し・履歴の種別判定・逆操作分岐へ同時に波及する | 実行値・逆操作・履歴登録の責任を各操作クラスと `ActionHistory` へ移す | 入力検証、`LedgerRepository` への保存、「操作を依頼する」という利用側の意図 |
 
-ここからP1の横一行を、UI呼び出し・履歴・逆操作のコードへ順に適用します。
+#### システム全体の完了条件を固定する
 
-#### 課題箇所のおさらい（フェーズ3の関連コード）
+次の条件をすべて満たして、初めて対策完了とします。
 
-比較元は、Undo要求を文字列履歴で追加しようとして、UIが操作種別と逆操作を判断し始めたフェーズ3の変更途中コードです。
+- 新しい操作の追加を、操作1クラスと組み立て側の割り当てに限定する。
+- UIと `ActionHistory` へ操作種別の `if` 分岐や逆操作分岐を増やさない。
+- 実行・取消・履歴登録・失敗補償を、同じ `IAction` 契約の単位で扱う。
+- 収支データと残高の保存先（`LedgerRepository`）と入力検証の位置を維持する。
 
+#### システム全体の最終構造を決める
 
-課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+この章の最終構造は、競合する複数案から選ぶのではなく、完了条件から**一つに定まります**。実行と取消を操作の外（UIや履歴）ではなく操作自身に持たせると決めた時点で、「各操作が `IAction::execute/undo` を満たし、`ActionHistory` が種別を見ずに履歴へ積む」**操作記録構造**以外に、上の完了条件を満たす形が残らないためです。
 
-```cpp
-class UIButtons {
-    ExpenseManager em;
-    IncomeManager im;
-    // 履歴管理のためのリスト（ここから既に無理がある…）
-    std::vector<std::string> history;
-public:
-    void onAddExpenseClick() {
-        em.addExpense(1000, "Food");
-        history.push_back("Expense"); // 履歴記録
-    }
-    void undo() {
-        // 取り消しのために、何が最後に実行されたかを確認する巨大な分岐が必要
-        if (history.back() == "Expense") {
-            // em.undoExpense(1000, "Food");
-            // そもそも取り消しメソッドがない！
-        }
-        // Income・Transfer など他の種別の取り消しも
-        // else if で続く（操作が増えるたびにここが肥大化する）
-    }
-};
+操作ごとに取消フラグや種別分岐を利用側へ置く方式も理屈の上では置けますが、操作が1種増えるたびにUIと履歴の分岐が増え、Undo/Redo・一括実行・失敗補償を同じ仕組みで扱えません。したがって当て馬を並べた比較は行いません（完成形が複数競合する章でのみ、構造差分を比較します）。
 
-```
+一意に定まった操作記録構造を、`IAction`（共通契約）、`AddExpenseAction`／`AddIncomeAction`（操作部品）、`ActionHistory`（実行・取消・履歴）、`ExpenseManager`／`IncomeManager`（実行先）、`BudgetApp`（操作の受け口）の責任として具体化します。
 
-```cpp
-// 動作確認（Undoが不完全な状態）
-class ExpenseManager {
-public:
-    void addExpense(int amount, std::string cat) {
-        std::cout << "支出追加: " << amount
-                  << "円 [" << cat << "]" << std::endl;
-    }
-    // undoExpense() は存在しない
-};
+### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
-class UIButtons {
-    ExpenseManager em;
-    std::vector<std::string> history;
-public:
-    void onAddExpenseClick() {
-        em.addExpense(1000, "Food");
-        history.push_back("Expense");
-    }
-    void undo() {
-        if (history.empty()) return;
-        if (history.back() == "Expense") {
-            // em.undoExpense() が存在しないため何もできない
-            std::cout << "Undo失敗（取り消しメソッドがない）"
-                      << std::endl;
-        }
-        history.pop_back();
-    }
-};
+フェーズ1の1-3で作ったクラス図へフェーズ2〜5の判断を反映し、変更後の形へ更新します。
 
-int main() {
-    UIButtons buttons;
-    buttons.onAddExpenseClick();
-    buttons.onAddExpenseClick();
-    buttons.undo(); // 取り消そうとするが…
-    return 0;
-}
-```
+| クラス図を変える材料 | 前工程で確認したこと | クラス図へ反映すること |
+|---|---|---|
+| フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
+| フェーズ2の変化予測 | 操作の種類とUndo/Redo・一括処理は今後も増える | 毎回変わる責任へ `【移す】` と注記する |
+| フェーズ4の原因 | `UIButtons` に操作の依頼と実行手段・逆操作の知識が混在する | 同じクラスの中で `【残す】` と `【移す】` を分ける |
+| フェーズ5の接続点 | 利用側は種別を知らず、`execute/undo` を同じ契約で呼べばよい | P1の実行値・逆操作を各操作クラスへ置く |
 
-### 6-1：痛みコードを段階的に変更し、接続点の「形」を探す
+**薄い黄色が着目クラス**です。変更前では `UIButtons` の `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。矢印は1-3と同じ利用・実装・包含関係です。
 
-課題は「実行手段を切り離す」と言っていますが、**どんな形なら切り離せるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（各段階の直後に関連コードで確かめる）。
-
-**変換1：各操作を関数へ切り出す。**
-
-```cpp
-bool addExpense(int amount, const std::string& categoryId) {
-    return expenseManager.addExpense(amount, categoryId);
-}
-bool undoExpense(int amount, const std::string& categoryId) {
-    return expenseManager.removeExpense(amount, categoryId);
-}
-```
-
-実行と取消には名前が付きました。しかし、UIが金額・カテゴリを保存し、どの `undoXxx` を呼ぶか決める責任は残ります。P1の「種別分岐を追加しない」には届きません。
-
-
-
-見えたこと：2つとも **`(int, 文字列)` を受け取る同じ形**。「実行の記録」と「どれを取り消すか」は別の関心事だと分かる。
-まだ詰まること：取り消しの逆操作（`removeExpense`/`removeIncome`）を呼ぶのは**UI側**で、UIが操作ごとの逆操作を知り続ける。
-
-**変換2：種別と値を構造体にしてスタックへ積む。** 1回だけでなく複数回Undoできるよう履歴をスタックにします。
-
-```cpp
-struct HistoryEntry {
-    std::string type;
-    int amount;
-    std::string categoryId;
-};
-
-void undo(const HistoryEntry& entry) {
-    if (entry.type == "expense")
-        expenseManager.removeExpense(entry.amount, entry.categoryId);
-    else if (entry.type == "income")
-        incomeManager.removeIncome(entry.amount, entry.categoryId);
-}
-```
-
-複数件を覚えられても、履歴の利用側に操作種別の分岐が移っただけです。値と逆操作を操作自身へ持たせる必要がある、とこの失敗から判断できます。
-
-
-
-詰まったこと：複数Undoはできるが、**取り消し方（種別ごとの逆操作）をUIが分岐で持つ**。操作を1つ増やすたびUIの `undo` を開く。ここで分かるのは、**「実行と取り消しを、操作の外（UI）でなく操作自身が持てば、UIは種別を知らずに済む」**ということ。
-
-**変換の結論：** 各操作が「実行(`execute`)」と「取り消し(`undo`)」を**自分で持つ**契約にすれば、UIは種別を知らず、履歴に積んだ操作へ一律 `undo()` を呼ぶだけでよい。これが接続点の正体です。
-
-### 6-2：見つけた形を契約にし、データの置き場所を決める
-
-見つけた形を、操作が満たすべき契約として定義します。
-
-```cpp
-class IAction {
-public:
-    virtual bool execute() = 0;
-    virtual bool undo() = 0;
-    virtual ~IAction() = default;
-};
-
-class AddExpenseAction : public IAction {
-    ExpenseManager& manager;
-    int amount;
-    std::string categoryId;
-public:
-    bool execute() override {
-        return manager.addExpense(amount, categoryId);
-    }
-    bool undo() override {
-        return manager.removeExpense(amount, categoryId);
-    }
-};
-
-ActionHistory history;
-history.execute(&addExpenseAction);
-history.undo();  // 種別を見ず、直前の IAction::undo() を呼ぶ
-```
-
-実行値・逆操作・履歴の接続が1単位になり、UIと `ActionHistory` から具体的な操作種別が消えました。Redoと一括補償を含む統合コードはフェーズ7で確認します。
-
-
-
-次に、データの置き場所を決めます。
-
-| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
-|---|---|---|---|
-| 収支データ・残高 | `LedgerRepository` | 変えない | 操作の設計とは別の関心事 |
-| 実行済みの操作履歴 | UIに `vector<string>`（種別文字列） | `ActionHistory` が `IAction` の並び（`deque`）で持つ | 取り消しに必要な値は操作オブジェクト自身が内包。UIは種別を持たない |
-
-UIは操作オブジェクトを生成して `ActionHistory` に渡すだけです。接続点で受け渡すのは、**実行に必要な値（金額・カテゴリ）を内包した操作オブジェクト**です。
-
-クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
-
-| 判断 | 関連コードで確認すること |
-|---|---|
-| 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
-| 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
-| 誰が所有するか | スタック、スマートポインタ、所有コンテナのどれが破棄まで担うかを決める |
-| どう注入するか | 必須依存はコンストラクタ、増減する依存は登録操作、生成自体を替える場合は生成契約から渡す |
-| 利用側は何を知るか | 利用側は抽象契約だけを保持し、処理中に具体クラスを生成しない |
-| 追加時にどこを変えるか | 新しい実装クラスと組み立て・登録を変更し、安定させたい処理骨格へ具体名を戻さない |
-
-生ポインタや参照で非所有の依存を保持する場合は、所有側の生存期間が利用側より長いことまで組み立てコードで確認します。
-
-#### 課題IDごとのコード適用結果
-
-| 課題ID | 候補を適用したコード | 段階的なコード変更と結果 | 守った契約・完了条件の判定 |
-|---|---|---|---|
-| P1 | `addExpense/undoExpense`、`IAction::execute/undo()`、`AddExpenseAction`、履歴 | **段階的な変更：** ①具体操作へ名前を付け、UIと履歴に種別判断が残ることを確認→②入力と実行先をActionへ保持→③履歴を `execute/undo` 契約だけを扱う構造へ変更<br>**結果：** UIと履歴から種別・引数・逆操作分岐が消えた | **守った契約：** 成功操作だけ記録、失敗時スタック維持<br>**判定：** 関数化では未達、Action接続で達成 |
-
-### 6-3：構造の見立て（変換の結果、こうなる）
-
-変換して契約とデータ配置を決めた結果、構造はこうなります。図は出発点ではなく結論です。
-
-現状（UIが各Managerを直呼びし、逆操作の分岐を持つ）：
+**変更前のクラス図（1-3を責任見直し用に再掲）：**
 
 ```mermaid
 classDiagram
     direction LR
-    class UIButtons
-    UIButtons --> ExpenseManager
-    UIButtons --> IncomeManager
+    class UIButtons {
+        -balance int
+        +onAddExpenseClick(amount, category)
+        +onAddIncomeClick(amount, source)
+    }
+    class ExpenseManager {
+        +addExpense(amount, category) int
+    }
+    class IncomeManager {
+        +addIncome(amount, source) int
+    }
+    UIButtons --> ExpenseManager : 直接呼び出し
+    UIButtons --> IncomeManager : 直接呼び出し
+
+    note for UIButtons "【残す】操作を依頼する入口\n【P1・移す】実行先・引数・逆操作・履歴の分岐"
+    note for ExpenseManager "【維持】支出登録の実行"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "UIButtons" focus
 ```
 
-見立て（UIは操作の契約と履歴だけを知る）：
+変更前は `UIButtons` が各Managerの具体メソッドと引数、逆操作、履歴の種別文字列を抱え、操作追加やUndo対応のたびに分岐が増えます。
+
+P1をクラス図の変更として書くと、次の3操作になります。
+
+1. P1：各操作が満たす共通契約 `IAction`（`execute`／`undo`）を新設する。
+2. P1：支出・収入の実行値と逆操作を、`AddExpenseAction`／`AddIncomeAction` へ移す。
+3. P1：実行・取消・履歴登録を `ActionHistory` へ集め、`BudgetApp` は操作を渡すだけにする。
+
+変更後は、UIも履歴も操作種別を判定せず `IAction` だけを扱い、`UIButtons` の逆操作分岐が消えたことを確認します。
+
+**採用した変更後のクラス図：**
 
 ```mermaid
 classDiagram
@@ -1100,34 +941,142 @@ classDiagram
     BudgetApp --> ActionHistory
     AddExpenseAction --> ExpenseManager
     AddIncomeAction --> IncomeManager
+    ExpenseManager --> LedgerRepository
+    IncomeManager --> LedgerRepository
+    ExpenseManager --> CategoryDatabase
+    BudgetApp --> BalanceViewRenderer
+    ImportService --> ActionHistory
+
+    note for IAction "【P1・新設】実行と取消の共通契約"
+    note for AddExpenseAction "【P1・新設】実行値と逆操作を内包する操作部品"
+    note for ActionHistory "【P1・新設】種別を見ず履歴へ積む実行・取消の仲介"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "IAction,AddExpenseAction,AddIncomeAction,ActionHistory" focus
 ```
 
-図から読み取ること：UIから各Managerの逆操作を知る矢印と種別分岐が消え、契約 `IAction` と `ActionHistory` だけが残る。取り消しは操作自身が持つ。
+クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-### 6-4：影響範囲（この設計で変更要求を再度当てたら）
-
-| 変更要求 | 修正する場所 | 再テスト範囲 |
-|---|---|---|
-| 操作を1つ追加（口座間移動など） | `IAction` を実装した操作クラスを1つ追加し、生成箇所で使う | 追加クラス単体。**UIのundo分岐は増えない** |
-| Undoの上限や順序を変える | `ActionHistory` のみ | 履歴管理（操作は無関係） |
-| 一括実行・保存失敗時の補償 | `ActionHistory` が成功分だけ積み、失敗時に逆順で戻す | 履歴管理 |
-
-現状との差：現状は操作を追加するたびにUIの `undo` 分岐を開く。対策後はUIを触らず、操作クラスを1つ足すだけ。**この「触る範囲の差」がこの構造を採る理由**です。
-
-### 採用する形を決める
-
-それぞれの案には一長一短があります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
-
-| 案 | 解けること | 残ること | 今回の判断 |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
 |---|---|---|---|
-| 何もしない | 追加コストはない | 操作追加とUndo追加でUIが膨らむ | 変更要求と合わない |
-| UI内で履歴配列を持つ | 直近操作を覚えられる | 操作ごとの取り消し方法をUIが知る | 一時対応なら可能だが拡張に弱い |
-| 操作ごとに関数化 | 実行処理に名前が付く | 実行と取り消しを同じ単位で扱いにくい | 最初の整理として有効 |
-| 操作をオブジェクト化する | 実行・取り消し・履歴登録を同じ単位で扱える | 操作クラスと履歴管理が増える | 操作種類が増えるため採用する |
+| P1 | 共通契約 `IAction` を新設する | `execute()`／`undo()` を純粋仮想で定義する | ステップ1 |
+| P1 | 実行値と逆操作を操作部品へ移す | `AddExpenseAction` が値を内包し実行先を呼ぶ | ステップ2 |
+| P1 | 実行・取消・履歴を仲介役へ集める | `ActionHistory` がスタックで積み、`BudgetApp` は操作を渡す | ステップ3 |
 
-**今回の決断：** フェーズ2のヒアリングで「口座間の移動」や「一括削除」など新しい操作が追加される見込みがあり、Undo/Redo機能は操作の履歴管理という独立した責任を持ちます。さらに、一括実行や保存失敗時の補償も同じ「操作を後から扱う」問題です。したがって今回は、初期投資コストを払ってでも、`IAction` インターフェースと `ActionHistory` の両方を導入する**操作オブジェクト化を採用する**決断を下します。
+このクラス図が、P1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
-フェーズ6で採用する設計（接続点の契約・データ配置・構造・影響範囲）が決まりました。次のフェーズ7では、この決断を動く実装（`LedgerRepository`・全操作クラス・`ActionHistory`・実行結果）に落とし込み、変更要求で効果を確認します。
+#### 課題箇所のおさらい（フェーズ3の関連コード）
+
+統合表で特定した箇所だけを振り返ります。P1は `UIButtons` が持つ操作種別の履歴文字列と、取り消し時の種別分岐です。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+
+```cpp
+// 現状：UIが実行先・引数・逆操作・履歴種別をすべて抱える
+class UIButtons {
+    ExpenseManager em;
+    IncomeManager im;
+    std::vector<std::string> history;   // 種別文字列で履歴を持つ
+public:
+    void onAddExpenseClick() {
+        em.addExpense(1000, "Food");
+        history.push_back("Expense");
+    }
+    void undo() {
+        if (history.back() == "Expense") {
+            // em.undoExpense(...) をUIが種別ごとに知る必要がある
+        }
+        // Income・Transfer が増えるたびに else if が伸びる
+    }
+};
+```
+
+### 6-1：採用設計をコードへ段階的に反映する
+
+採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+
+#### 実装ステップ1（P1）：実行と取消の共通契約 `IAction` を定める
+
+すべての操作が満たす契約 `IAction` を定義します。以降、UIも履歴もこの契約だけを軸に操作を扱います。
+
+```cpp
+class IAction {
+public:
+    virtual ~IAction() = default;
+    virtual bool execute() = 0;
+    virtual bool undo() = 0;
+};
+```
+
+**P1との対応：** `IAction` を新設しました。利用側は種別を知らず、`execute()`／`undo()` だけを呼びます。
+
+#### 実装ステップ2（P1）：実行値と逆操作を操作部品へ移す
+
+各操作は実行に必要な値（金額・カテゴリ）と実行先を内包し、`execute()` で実行、`undo()` で逆操作を呼びます。UIは値も逆操作も持ちません。
+
+```cpp
+class AddExpenseAction : public IAction {
+    ExpenseManager& manager;
+    int amount;
+    std::string categoryId;
+public:
+    AddExpenseAction(ExpenseManager& m, int a, std::string c)
+        : manager(m), amount(a), categoryId(c) {}
+    bool execute() override { return manager.addExpense(amount, categoryId); }
+    bool undo() override { return manager.removeExpense(amount, categoryId); }
+};
+```
+
+**P1との対応：** `IAction <|.. AddExpenseAction` の実装関係を実装しました。`AddIncomeAction` も同じ形で、実行先が `IncomeManager` に変わるだけです。
+
+#### 実装ステップ3（P1）：実行・取消・履歴を仲介役へ集める
+
+`ActionHistory` が操作を受け取って実行し、成功したものだけをスタックへ積みます。`BudgetApp` は操作を渡すだけで、種別も逆操作も知りません。
+
+```cpp
+ActionHistory history;
+BudgetApp app(&history);
+app.run(new AddExpenseAction(expenseManager, 1000, "Food"));
+history.undo();   // 種別を見ず、直前の IAction::undo() を呼ぶ
+```
+
+**P1との対応：** `ActionHistory o--> IAction` と `BudgetApp --> ActionHistory` の関連を実装しました。ここで実行・取消・履歴が一つの操作記録構造として接続されました。
+
+### 6-2：システム全体の契約とデータ配置を確定する
+
+採用システムの契約、生成場所、依存注入を一表で確定します。接続点で受け渡すのは、実行に必要な値を内包した `IAction*` です。履歴の成否は `bool` で返し、失敗した操作はスタックへ積みません。
+
+```cpp
+class ActionHistory {
+    std::deque<IAction*> done;      // 成功済み操作の並び（Undo対象）
+    std::deque<IAction*> redoable;  // Undoした操作（Redo対象）
+public:
+    bool execute(IAction* a) {      // 成功時だけ done へ積む
+        if (!a->execute()) return false;
+        done.push_back(a);
+        return true;
+    }
+    bool undo();                    // 直前の done を undo し redoable へ回す
+};
+```
+
+| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |
+|---|---|---|
+| 何を分離するか | P1の実行値・逆操作・履歴登録を各操作クラスと `ActionHistory` へ置く | 操作種別・引数・取り消し方 |
+| どこで生成・選択するか | 組み立て側（`main`／`BudgetApp` の受け口）が具体操作を生成する | 具体操作クラスの選択 |
+| どう依存を渡すか | 生成時に実行先Managerと実行値を操作へ渡す | 実行先クラスの実体 |
+| 安定側はどう実行するか | 利用側は `ActionHistory::execute/undo` だけを呼ぶ | 履歴に何が積まれているか |
+
+操作オブジェクトの所有は `ActionHistory` がまとめて担い、生存期間を管理します。UIやバッチは操作を生成して渡すだけです。
+
+#### システム全体のコード適用結果
+
+| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |
+|---|---|---|---|
+| 操作追加を1クラスと割り当てに限定する | 操作クラスと組み立て側の割り当て | 新操作クラスと生成箇所 | 達成 |
+| UI・履歴へ種別分岐を増やさない | `ActionHistory` は `IAction` だけを扱う | 履歴の修正なし | 達成 |
+| 同じ契約で実行・取消・補償を扱う | `IAction::execute/undo` の単位 | 一括・失敗補償も同じ仕組み | 達成 |
+| 保存先と入力検証を維持する | `LedgerRepository` と各Manager内の検証 | 保存・検証の位置を維持 | 達成 |
+
+**システム全体の実装結果：達成。** P1の責任が操作記録構造で接続され、冒頭の完了条件をすべて満たしました。実際の動作と変更影響はフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 フェーズ6のステップ3で選んだ「操作のオブジェクト化＋仲介役による履歴管理」を、実際のコードに実装します。これまではUIが各マネージャの具体的なメソッドを知っていましたが、これを「操作そのものを表すオブジェクト」へと置き換えます。
@@ -1629,7 +1578,7 @@ classDiagram
 
 章末のCommand骨格図では、`IAction` がCommand、各AddActionがConcreteCommand、`ActionHistory` がInvoker、各ManagerがReceiverに対応します。`BudgetApp` は操作を受け取りますが、具体的なManagerのメソッドやUndo手順は知りません。
 
-#### 課題IDごとの完成コード結果
+#### 変更軸ごとの完成コード追跡
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |
 |---|---|---|---|
@@ -1660,18 +1609,23 @@ sequenceDiagram
 
 ### 7-3：変更影響グラフ（改善後）
 
-フェーズ3で確認したUndo機能の追加要求を再適用します。
+フェーズ3で確認した「新しい操作（口座間移動）の追加」のシナリオを、3-2と同じ粒度で再度適用します。
 
 ```mermaid
 graph LR
     T1["変更要求：新しい操作の追加"]
-        --> F1["新しいActionクラス<br>（新規クラスの作成のみ）"]
-    T1 -. "影響なし" .-> A["BudgetApp ✅"]
-    T1 -. "影響なし" .-> B["ActionHistory ✅"]
-
+        -->|新規追加| F1["TransferAction<br>（IAction派生1クラス）"]
+    T1 -. "影響なし" .-> A["IAction / ActionHistory ✅"]
+    T1 -. "影響なし" .-> B["BudgetApp / UI ✅"]
 ```
 
-→ **フェーズ3の変更影響グラフと比較して、新しい操作の追加という変更要求が、主に新規コマンドクラス内に限定できる形になりました**。
+フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、共通契約 `IAction` と履歴管理 `ActionHistory`、利用側の `BudgetApp` は変更先から消えました。口座間移動の追加は、`TransferAction` の1クラスと生成箇所への割り当てだけに限定されます。
+
+| 3-2で影響した場所 | 修正後 | 構造変更との対応 |
+|---|---|---|
+| `UIButtons` の実行呼び出し・取消分岐 | **修正しない** | 実行値と逆操作を各操作クラスへ移した |
+| 3-2には操作部品がなかった | `TransferAction` を1クラス追加する | 操作の変更先を新しく作った |
+| 履歴・Undo/Redoの仕組み | `ActionHistory` を**修正しない** | 種別を見ず `IAction` を積む構造にした |
 
 ### 7-4：変更シナリオ表
 
