@@ -136,7 +136,7 @@ SYSTEM_STRUCTURE_CLASS_TOKENS = {
     ],
     "chapter02.md": [
         "TransferProcessor", "BatchTransferProcessor",
-        "BankGateway", "SecurityAuthenticator",
+        "SecurityAuthenticator", "verifyAccount",
         "IBankTransferService", "BankTransferService",
         "AccountDatabase", "TransferHistory",
     ],
