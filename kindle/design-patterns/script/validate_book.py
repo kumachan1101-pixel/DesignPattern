@@ -311,8 +311,8 @@ def is_new_phase6(text: str) -> bool:
 
 
 def is_system_structure_phase6(section: str) -> bool:
-    """システム全体の変更前/目標構造からコード案を導く新フォーマット。"""
-    return "#### 条件が集まった構造を、どう分離した構造へ変えるか" in section
+    """既存クラス図の責任と依存を更新してコード案を導く新フォーマット。"""
+    return "#### 1-3のクラス図を、責任分離したクラス図へどう変えるか" in section
 
 
 def check_system_structure_phase6(
@@ -331,23 +331,25 @@ def check_system_structure_phase6(
          "フェーズ6に3-2から課題カードへ接続する説明がありません"),
         ("| 項目 | P1 |",
          "フェーズ6に差・境界・完了条件・候補を縦に結ぶ課題カードがありません"),
-        ("#### 条件が集まった構造を、どう分離した構造へ変えるか",
-         "フェーズ6に変更前/目標のシステム構造がありません"),
-        ("注文金額計算システム（変更前）",
-         "システム構造図に変更前の全体構造がありません"),
-        ("注文金額計算システム（変更後の目標）",
-         "システム構造図に変更後の目標構造がありません"),
-        ("【残す】", "システム構造図に残す責任の表示がありません"),
-        ("【移す】", "システム構造図に移す責任の表示がありません"),
-        ("【新設・固定】", "システム構造図に新設する安定部品の表示がありません"),
-        ("| 構造上どう変えるか | コードレベルで何をするか | 後続の検討で確認すること |",
-         "構造変化とコード変更を対応させる表がありません"),
-        ("#### 自分のコードから同じ構造図を作る手順",
-         "読者が構造図を再現する作図手順がありません"),
-        ("| 手順 | 問うこと | この章での答え | 図へ行う操作 |",
-         "作図材料・判断・操作を対応させる表がありません"),
-        ("#### 構造から対策案が出てくる思考回路",
-         "現在の事実から対策案を導く思考連鎖がありません"),
+        ("#### 1-3のクラス図を、責任分離したクラス図へどう変えるか",
+         "フェーズ6に既存クラス図を使った責任見直しがありません"),
+        ("変更前のクラス図（1-3を責任見直し用に再掲）",
+         "責任見直しに変更前クラス図がありません"),
+        ("変更後に目指すクラス図",
+         "責任見直しに変更後クラス図がありません"),
+        ("【残す】", "変更前クラス図に残す責任の表示がありません"),
+        ("【移す】", "変更前クラス図に移す責任の表示がありません"),
+        ("【新設】", "変更後クラス図に新設する責任の表示がありません"),
+        ("classDef focus", "責任見直しの着目クラスを示す色定義がありません"),
+        ("cssClass", "責任見直しの着目クラスへ色が適用されていません"),
+        ("| クラス図をどう変えるか | コードレベルで何をするか | 後続の検討で確認すること |",
+         "クラス図の変更とコード変更を対応させる表がありません"),
+        ("#### 自分のコードから同じクラス図を作る手順",
+         "読者が責任見直しを再現するクラス図の編集手順がありません"),
+        ("| 手順 | 問うこと | この章での答え | クラス図へ行う操作 |",
+         "クラス図の材料・判断・編集操作を対応させる表がありません"),
+        ("#### クラス図の差分から対策案が出てくる思考回路",
+         "クラス図の差分から対策案を導く思考連鎖がありません"),
         ("観察 → 仮説 → 最小変更 → 結果 → P1判定 → 次の判断",
          "段階コードの判断順序が明文化されていません"),
         ("#### 課題箇所のおさらい（フェーズ3の関連コード）",
@@ -366,9 +368,9 @@ def check_system_structure_phase6(
 
     order_tokens = [
         "#### 3-2の変更影響を、コードで検討する課題カードへ落とす",
-        "#### 条件が集まった構造を、どう分離した構造へ変えるか",
-        "#### 自分のコードから同じ構造図を作る手順",
-        "#### 構造から対策案が出てくる思考回路",
+        "#### 1-3のクラス図を、責任分離したクラス図へどう変えるか",
+        "#### 自分のコードから同じクラス図を作る手順",
+        "#### クラス図の差分から対策案が出てくる思考回路",
         "#### 課題箇所のおさらい（フェーズ3の関連コード）",
         "### 6-1",
         "#### 課題IDごとのコード適用結果",
@@ -380,19 +382,24 @@ def check_system_structure_phase6(
     if min(positions) >= 0 and positions != sorted(positions):
         issues.append(Issue(
             path, ln,
-            "フェーズ6は課題カード→システム構造→思考連鎖→関連コード→"
+            "フェーズ6は課題カード→クラス図の責任見直し→思考連鎖→関連コード→"
             "段階検討→適用結果→完成構造→採用判定の順にしてください",
         ))
 
-    structure_start = sec.find("#### 条件が集まった構造を、どう分離した構造へ変えるか")
-    reasoning_start = sec.find("#### 構造から対策案が出てくる思考回路")
+    structure_start = sec.find("#### 1-3のクラス図を、責任分離したクラス図へどう変えるか")
+    reasoning_start = sec.find("#### クラス図の差分から対策案が出てくる思考回路")
     structure_sec = sec[structure_start:reasoning_start]
     if structure_sec.count("```mermaid") < 2:
-        issues.append(Issue(path, ln, "変更前と変更後のシステム構造図を2図示してください"))
+        issues.append(Issue(path, ln, "責任見直しに変更前と変更後のクラス図を2図示してください"))
+    if structure_sec.count("classDiagram") < 2:
+        issues.append(Issue(path, ln, "責任見直しの2図は既存図と同じクラス図にしてください"))
+    if "flowchart" in structure_sec or "graph " in structure_sec:
+        issues.append(Issue(path, ln, "責任見直しにクラス図以外の新しい図を追加しないでください"))
     for token in ("PaymentCalculator", "OrderProcessor", "CartPreviewService",
-                  "CampaignContext", "IDiscountRule", "RuleSelector"):
+                  "CampaignContext", "IDiscountRule", "RuleSelector",
+                  "PremiumDiscount", "CampaignDiscount", "SummerSaleDiscount"):
         if token not in structure_sec:
-            issues.append(Issue(path, ln, f"システム構造図に主要要素 {token} がありません"))
+            issues.append(Issue(path, ln, f"責任見直しのクラス図に主要クラス {token} がありません"))
 
     reasoning_end = sec.find("#### 課題箇所のおさらい（フェーズ3の関連コード）")
     reasoning_sec = sec[reasoning_start:reasoning_end]
@@ -408,7 +415,7 @@ def check_system_structure_phase6(
 
     issue_table = "| 項目 | P1 |"
     issue_start = sec.find(issue_table)
-    structure_heading = sec.find("#### 条件が集まった構造を、どう分離した構造へ変えるか")
+    structure_heading = sec.find("#### 1-3のクラス図を、責任分離したクラス図へどう変えるか")
     issue_ids = re.findall(
         r"(?m)^\|\s*課題ID\s*\|\s*(P\d+)\s*\|",
         sec[issue_start:structure_heading],
