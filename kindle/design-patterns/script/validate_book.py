@@ -149,6 +149,11 @@ SYSTEM_STRUCTURE_CLASS_TOKENS = {
         "IDrink", "Coffee", "ToppingWrapper", "Milk",
         "ToppingCatalog", "OrderAssembler", "CustomDrink", "MenuDatabase",
     ],
+    "chapter08.md": [
+        "PaymentApplication", "IPaymentProcessor", "CreditCardProcessor",
+        "BankTransferProcessor", "ConvenienceStoreProcessor",
+        "ProcessorRegistry", "PaymentGatewayClient", "createProcessor",
+    ],
 }
 SYSTEM_STRUCTURE_FINAL_FORMS = {
     "chapter01.md": [
@@ -158,6 +163,7 @@ SYSTEM_STRUCTURE_FINAL_FORMS = {
     "chapter02.md": ["窓口構造"],
     "chapter04.md": ["骨格固定構造"],
     "chapter06.md": ["装飾連結構造"],
+    "chapter08.md": ["生成分離構造"],
 }
 SYSTEM_STRUCTURE_RESULT_TOKENS = {
     "chapter01.md": [
@@ -176,6 +182,10 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
         "変更要求：抹茶トッピングの追加", "Matcha",
         "ToppingCatalog", "IDrink",
     ],
+    "chapter08.md": [
+        "変更要求：PayPay決済の追加", "PayPayProcessor",
+        "ProcessorRegistry", "IPaymentProcessor",
+    ],
 }
 
 # フェーズ6「システム全体の最終構造を決める」の出し方は章の問題で決まる。
@@ -188,6 +198,7 @@ SYSTEM_STRUCTURE_MODE = {
     "chapter02.md": "single",
     "chapter04.md": "single",
     "chapter06.md": "single",
+    "chapter08.md": "single",
 }
 
 BANNED_PATTERNS = [

@@ -1252,9 +1252,19 @@ PaymentResult processPayment(
 
 **現状のままでよい場面**：決済手段が1種類で固定されるなら、利用処理で生成する単純さを保つ判断もあります。今回は決済手段が増えるため、利用フローから生成判断と手段固有の知識を分ける設計を検討します。
 
+### 変わるものを分離するか、まとめて分離するか
+
+この章の変化軸は1つです。フェーズ2で確認した「決済手段は今後も増える」を、P1として最後まで追います。
+
+| 課題ID | 変化軸 | 分離する責任 | 安定させる責任 |
+|---|---|---|---|
+| P1 | 決済手段の種類 | 具体Processorの生成判断と手段固有の入力検証・処理モード・エラー対処を生成メソッドと各Processorへ置く | `PaymentRequest`→`PaymentResult` 契約と利用フローの進行 |
+
+P1は単一の変化軸ですが、ある手段の「生成」「入力検証」「エラー対処」は同じ手段の追加で一緒に変わるため、コード上では同じProcessorと生成メソッドへまとめて置きます。
+
 ---
-> **📌 課題（確定）**
-> 「注文処理から見た決済フロー（`processPayment`）」と「決済プロセッサーの生成ロジック（具体クラスの選択と `new`）」を切り離す必要がある。接続点に残す約束は `PaymentRequest` → `PaymentResult` にそろえ、具体クラス名・手段固有の入力検証・処理モード判定・エラー対処を `PaymentApplication` から取り除くことが課題である。
+> **📌 システム全体の課題（確定）**
+> 「注文処理から見た決済フロー（`processPayment`）」と「決済プロセッサーの生成ロジック（具体クラスの選択と `new`）」を切り離す。接続点に残す約束は `PaymentRequest` → `PaymentResult` にそろえ、具体クラス名・手段固有の入力検証・処理モード判定・エラー対処を `PaymentApplication` から取り除く。新しい決済手段を追加しても、利用フロー・Worker・Webhookを変更しないシステムにする。
 ---
 
 問題・原因・課題の3点が揃いました。次のフェーズ6では、この課題を解消するための具体的な設計案を段階的に検討します。
@@ -1269,263 +1279,97 @@ PaymentResult processPayment(
 
 P1は「決済手段追加の波及」です。フェーズ6では、新しいProcessorと生成登録だけへ変更を閉じる理想を描きます。
 
-## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
+## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-フェーズ6は、フェーズ5で定めた課題——**注文処理の呼び出し元から、決済手段の具体クラス名と生成条件を切り離し、手段固有の知識をProcessorへ閉じる接続点を作る**（`PaymentRequest` → `PaymentResult` の契約は守る）——を受けて始めます。まず問題定義で得た変更影響を左へ引き継ぎ、P1の影響を切るクラス・契約・依存関係を中央に置き、同じ要求を再適用した変更影響を右に描きます。その差、守る契約、完了条件、候補を同じP1の行へ落とします。その後、P1に紐づくフェーズ3の関連コードだけをおさらいし、中央の構造が妥当かを最小単位のコード変更で一段ずつ検証します。各段階で「変更理由」「対象コード」「変更内容」「減った影響」「残った問題」「次の判断」を言語化し、統合後の全体コードはフェーズ7で示します。
+P1を単独で解くのではなく、生成判断を1か所へ寄せ、手段固有の差分を各Processorへ閉じ、利用フローは共通契約だけを呼ぶシステムを設計します。
 
-#### 問題定義の変更影響を、どの構造で変えるか
+#### 3-2の変更影響を、システム構造の材料へ統合する
 
-フェーズ4では、決済手段追加が種別分岐、具体Processor生成、手段固有検証、ワーカーやWebhookの利用側へ波及しました。理想は、Processor実装と生成登録だけを追加対象にすることです。
-
-```mermaid
-flowchart LR
-    subgraph Pain["問題定義：変更前の変更影響"]
-        direction TB
-        CR["決済手段を追加"] --> C1["呼び出し元のtype分岐と生成を修正"]
-        C1 --> C2["共通決済フロー・Worker・Webhookを再テスト"]
-    end
-    subgraph TargetStructure["影響を切る構造の形"]
-        direction TB
-        U["Worker / Webhook"] --> PA["PaymentApplication"]
-        PA --> P["IPaymentProcessor::pay"]
-        PI["決済手段別Processor"] -. "契約を実装" .-> P
-        CPA["DefaultPaymentApplication::createProcessor"] --> PI
-        Reg["ProcessorRegistry"] --> CPA
-    end
-    subgraph Result["同じ要求を再適用した変更影響"]
-        direction TB
-        IR["決済手段を追加"] --> I1["P1: Processor実装と生成登録を追加"]
-        I1 --> I2["追加手段の要求・結果だけをテスト"]
-        IS["変更しない: 共通決済フロー・Worker・Webhook"]
-    end
-    C1 -. "P1: 利用と生成を二つの契約で切る" .-> P
-    PI -. "新しい変更先" .-> I1
-```
-
-中央では、WorkerとWebhookが `PaymentApplication` の共通フローだけを呼び、手段固有処理は `IPaymentProcessor`、生成判断は `createProcessor()` と登録へ分かれます。左で複数入口まで伸びた影響が、右ではProcessor実装と生成登録で止まります。
-
-#### 構造と変更後の影響から、課題と候補を一続きで導く
-
-| 課題ID | 変更の到達点 | 最初に試すコード変更 | 残る問題に対する次のコード変更 |
+| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |
 |---|---|---|---|
-| P1 | **現在→理想の差：** 共通利用フローと非同期入口を変更対象から外す<br>**切る境界・守る契約：** `type` 分岐・具体生成を切り、`PaymentRequest`→`PaymentResult`、API境界、所有権を守る<br>**完了条件：** Worker・Webhookを変更しない | **候補：** 生成と実行を関数分割<br>**減る影響：** 生成判断の漏出位置が見える | Processor契約へ固有知識を閉じ、生成メソッドへ集める |
+| P1 | 決済手段追加で `PaymentApplication` の振り分け・具体Processor生成・手段固有検証・エラー対処へ波及する | 具体クラスの生成判断と手段固有の入力検証・処理モード・エラー対処を生成メソッドと各Processorへ移す | `PaymentRequest`→`PaymentResult` 契約、外部Clientとログの境界、非同期の入口 |
 
-ここからP1の横一行を、`type` 分岐・具体生成・手段固有検証へ順に適用します。
+#### システム全体の完了条件を固定する
 
-#### 課題箇所のおさらい（フェーズ3の関連コード）
+次の条件をすべて満たして、初めて対策完了とします。
 
-比較元は、PayPay対応を追加したフェーズ3の変更途中コードです。呼び出し元が決済種別ごとに具体クラスを生成する分岐を持っています。
+- 新しい決済手段の追加を、Processor実装1つと生成登録に限定する。
+- `PaymentApplication` の振り分け（`if`／具体クラス名）を増やさない。
+- 利用フローは具体クラス・手段固有入力・処理モードの違いを知らない。
+- `PaymentRequest`→`PaymentResult` の契約と、Worker・Webhookの入口を維持する。
 
+#### システム全体の最終構造を決める
 
-課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+この章の最終構造は、競合する複数案から選ぶのではなく、完了条件から**一つに定まります**。生成判断を利用フローから外し、手段固有の差分を各Processorへ閉じると決めた時点で、「生成を専用の生成メソッド（`createProcessor`）へ委ね、利用側は共通契約 `IPaymentProcessor` の `pay()` だけを呼ぶ」**生成分離構造**以外に、上の完了条件を満たす形が残らないためです。
 
-```cpp
-struct PayPayInput {
-    string accessToken;
-    string merchantId;
-};
-```
+決済手段ごとの分岐を巨大な設定テーブルへ寄せる方式も理屈の上では置けますが、手段固有の入力検証やエラー対処がテーブルの外へ散り、手段単位の責任とテスト境界が見えにくくなります。したがって当て馬を並べた比較は行いません（完成形が複数競合する章でのみ、構造差分を比較します）。
 
-```cpp
-struct PaymentRequest {
-    // ... 既存フィールド ...
-    PayPayInput payPay;  // ← 追加
-};
-```
+一意に定まった生成分離構造を、`IPaymentProcessor`（共通契約）、各Processor（手段固有の差分）、`createProcessor`（生成判断）、`PaymentApplication`（利用フロー）の責任として具体化します。
 
-```cpp
-// PaymentGatewayClientへ追加
-PaymentResult chargePayPay(
-    const string& orderId,
-    int amount,
-    const PayPayInput& pp) {
-    cout << "[決済API] PayPay決済"
-         << " order=" << orderId
-         << " amount=" << amount
-         << " token=" << pp.accessToken
-         << endl;
-    PendingInfo p{
-        "PP-" + orderId,
-        "/api/paypay/status/",
-        "2026-07-10"};
-    return {"保留",
-            "PayPayセッション作成済み",
-            false, "", p};
-}
-```
+### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
-```cpp
-class PayPayProcessor {
-    PaymentGatewayClient& gateway;
-public:
-    PayPayProcessor(PaymentGatewayClient& gw)
-        : gateway(gw) {}
-    PaymentResult pay(
-        const PaymentRequest& req) {
-        if (req.payPay.accessToken.empty()) {
-            return {"失敗",
-                    "PayPayトークンが不足しています",
-                    false, "MISSING_PP_TOKEN", {}};
-        }
-        if (req.payPay.merchantId.empty()) {
-            return {"失敗",
-                    "マーチャントIDが不足しています",
-                    false, "MISSING_MERCHANT", {}};
-        }
-        return gateway.chargePayPay(
-            req.orderId, req.amount, req.payPay);
-    }
-};
-```
+フェーズ1の1-3で作ったクラス図へフェーズ2〜5の判断を反映し、変更後の形へ更新します。
 
-```cpp
-// processPayment() の if-else に追加
-} else if (type == "paypay") {     // ← 追加
-    PayPayProcessor proc(gatewayClient); // ← 追加
-    PaymentResult result               // ← 追加
-        = proc.pay(request);            // ← 追加
-    return result;                      // ← 追加
-}
-```
+| クラス図を変える材料 | 前工程で確認したこと | クラス図へ反映すること |
+|---|---|---|
+| フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
+| フェーズ2の変化予測 | 決済手段は今後も増える | 毎回変わる責任へ `【移す】` と注記する |
+| フェーズ4の原因 | `PaymentApplication` に振り分けと生成と手段固有知識が混在する | 同じクラスの中で `【残す】` と `【移す】` を分ける |
+| フェーズ5の接続点 | 利用側は具体クラスを知らず、`pay(request)` だけを呼べばよい | P1の生成を `createProcessor` へ、差分を各Processorへ置く |
 
-```cpp
-// checkStatus() に追加
-if (pendingId.find("PP-") == 0) {       // ← 追加
-    return {"成功",                      // ← 追加
-            "PayPay決済確認済み",         // ← 追加
-            false, "", {}};              // ← 追加
-}                                        // ← 追加
-```
+**薄い黄色が着目クラス**です。変更前では `PaymentApplication` の `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。矢印は1-3と同じ利用・実装・生成関係です。
 
-```cpp
-registry["paypay"] =
-    {"PayPay", true, 0.020};  // ← 追加
-```
-
-### 6-1：痛みコードを段階的に変更し、接続点の「形」を探す
-
-課題は「具体クラス名と生成条件を切り離す」と言っていますが、**どんな形なら切り離せるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（各段階の直後に関連コードで確かめる）。
-
-**変換1：各生成・実行を関数へ切り出す。**
-
-```cpp
-PaymentResult payByCard(const PaymentRequest& request) {
-    CreditCardProcessor processor(gateway);
-    return processor.pay(request);
-}
-
-if (request.methodId == "credit_card")
-    return payByCard(request);
-```
-
-実行には名前が付きましたが、決済種別の分岐と具体クラス生成は注文処理に残ります。P1の完了条件は満たしていません。
-
-
-
-見えたこと：どの決済も **`PaymentRequest` を受け取り `PaymentResult` を返す**同じ形（`pay`）を持つ。手段ごとに違うのは「どのクラスを生成し、どう検証するか」だけ。
-まだ詰まること：**どの具体クラスを生成するかの `if(type)` 分岐が呼び出し元に残る**。決済を1つ増やすと、また呼び出し元を開く。
-
-**変換2：生成ロジックを専用のファクトリへ分離する。** `if(type) new XxxProcessor` を `PaymentFactory` へ移し、呼び出し元は「作って実行」だけにします。
-
-```cpp
-class PaymentFactory {
-public:
-    IPaymentProcessor* create(
-            const std::string& type) {
-        if (type == "credit_card")
-            return new CreditCardProcessor();
-        if (type == "paypay")
-            return new PayPayProcessor();
-        throw std::invalid_argument("未対応の決済手段");
-    }
-};
-```
-
-呼び出し元は短くなりました。新決済では生成メソッドを開きますが、「生成して `pay()` を呼び、結果を返す」利用フローは変わりません。今回は決済追加ごとにCreator自体を増やすのではなく、この安定した利用フローを基底Creatorへ置き、具象CreatorのFactory Methodだけへ生成判断を集めます。
-
-
-
-詰まり解消：呼び出し元からは生成条件が消える。
-残ること：**具象Creatorの `createProcessor(type)` には生成分岐が残る**。ただし、注文処理、ワーカー、Webhookから具体クラス名と手段固有検証は消える。今回守りたいのは複数入口で共有する利用フローなので、この集中点を許容する。
-
-**変換の結論：** 製品は共通契約 **`IPaymentProcessor`（`pay`）**、利用フローはCreator **`PaymentApplication`（`processPayment`）**、生成判断はFactory Method **`createProcessor(type)`** に分ける。外側の呼び出し元は種別を要求値として渡すだけで、具体Processorを知らない。これが接続点の正体です。
-
-### 6-2：見つけた形を契約にし、データの置き場所を決める
-
-見つけた2つの形を、製品の契約と生成の契約として定義します。
-
-```cpp
-class IPaymentProcessor {
-public:
-    virtual PaymentResult pay(
-        const PaymentRequest& request) = 0;
-    virtual ~IPaymentProcessor() = default;
-};
-
-class PaymentApplication {
-protected:
-    virtual IPaymentProcessor* createProcessor(
-        const std::string& type) = 0;
-public:
-    PaymentResult processPayment(const PaymentRequest& request) {
-        IPaymentProcessor* processor =
-            createProcessor(request.methodId);
-        PaymentResult result = processor->pay(request);
-        delete processor;
-        return result;
-    }
-};
-```
-
-製品契約と生成メソッドを分け、生成後の利用順を `processPayment()` へ固定しました。この接続ならP1の変更中心をProcessorと具象CreatorのFactory Methodへ限定できます。
-
-
-
-次に、データの置き場所を決めます。
-
-| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
-|---|---|---|---|
-| 決済手段の有効性・手数料 | 呼び出し元の分岐 | `ProcessorRegistry` の設定データ | 生成前の有効性確認を設定へ寄せる |
-| 「どの種別にどのProcessorを作るか」 | 呼び出し元の `if(type)` | `DefaultPaymentApplication::createProcessor(type)` | 生成判断を共通利用フローから分ける |
-| 外部決済API | 各所で直接 | `PaymentGatewayClient` / `PaymentStatusClient`（注入） | 決済フローの論点外の境界 |
-| 手段固有の入力検証・エラー対処 | 呼び出し元に混在 | 各 Processor の内側 | 手段固有の知識は製品に閉じる |
-
-接続点で受け渡すのは **`PaymentRequest → PaymentResult`** です。`processPayment()` がFactory Methodから受け取ったProcessorを所有し、`pay()` の直後に破棄します。
-
-クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
-
-| 判断 | 関連コードで確認すること |
-|---|---|
-| 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
-| 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
-| 誰が所有するか | スタック、スマートポインタ、所有コンテナのどれが破棄まで担うかを決める |
-| どう注入するか | 必須依存はコンストラクタ、増減する依存は登録操作、生成自体を替える場合は生成契約から渡す |
-| 利用側は何を知るか | 利用側は抽象契約だけを保持し、処理中に具体クラスを生成しない |
-| 追加時にどこを変えるか | 新しい実装クラスと組み立て・登録を変更し、安定させたい処理骨格へ具体名を戻さない |
-
-生ポインタや参照で非所有の依存を保持する場合は、所有側の生存期間が利用側より長いことまで組み立てコードで確認します。
-
-#### 課題IDごとのコード適用結果
-
-| 課題ID | 候補を適用したコード | 段階的なコード変更と結果 | 守った契約・完了条件の判定 |
-|---|---|---|---|
-| P1 | `payByCard()`、Factory、`IPaymentProcessor::pay()`、`PaymentApplication` | **段階的な変更：** ①生成と実行を分割し、利用側に `type` 分岐が残ることを確認→②手段固有処理を `IPaymentProcessor` 契約へ移動→③残った生成判断を `createProcessor()` と登録へ移動<br>**結果：** 共通フロー・Worker・Webhookから固有知識が消えた | **守った契約：** Request→Result、API境界、所有権<br>**判定：** 単一Factoryでは未達、製品契約と生成分離で達成 |
-
-### 6-3：構造の見立て（変換の結果、こうなる）
-
-変換して2つの契約とデータ配置を決めた結果、構造はこうなります。図は出発点ではなく結論です。
-
-現状（呼び出し元が種別で分岐して生成）：
+**変更前のクラス図（1-3を責任見直し用に再掲）：**
 
 ```mermaid
 classDiagram
-    direction LR
+    class PaymentLog
     class PaymentApplication {
-      if(type) new CreditProcessor / new PayPayProcessor ...
+        +processPayment(request) PaymentResult
+        +checkCompletion(pendingId) PaymentResult
     }
+    class CreditCardProcessor {
+        +pay(request) PaymentResult
+    }
+    class BankTransferProcessor {
+        +pay(request) PaymentResult
+    }
+    class ConvenienceStoreProcessor {
+        +pay(request) PaymentResult
+    }
+    class ProcessorRegistry {
+        +exists(method)
+        +isActive(method)
+        +get(method)
+    }
+    class PaymentGatewayClient
+    class PaymentStatusClient
+
+    PaymentApplication ..> CreditCardProcessor : uses
+    PaymentApplication ..> BankTransferProcessor : uses
+    PaymentApplication ..> ConvenienceStoreProcessor : uses
+    PaymentApplication --> ProcessorRegistry : 存在・有効確認
+    PaymentApplication --> PaymentStatusClient : 完了確認
+    CreditCardProcessor --> PaymentGatewayClient : 認証API
+
+    note for PaymentApplication "【残す】決済フローの進行\n【P1・移す】具体Processorの生成判断と手段固有のエラー対処"
+    note for CreditCardProcessor "【残す】カード固有の入力検証・API手順"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "PaymentApplication" focus
 ```
 
-見立て（利用側は共通利用フローだけを知る）：
+変更前は `PaymentApplication` が振り分けの `if`、具体Processorの生成、手段固有のエラー対処を抱え、決済手段追加のたびに分岐が増えます。
+
+P1をクラス図の変更として書くと、次の3操作になります。
+
+1. P1：各Processorが満たす共通契約 `IPaymentProcessor`（`pay(request)`）を新設する。
+2. P1：具体Processorを選んで生成する判断を、生成メソッド `createProcessor` の1か所へ移す。
+3. P1：`processPayment` は生成されたProcessorへ `pay(request)` を委譲するだけにする。
+
+変更後は、`PaymentApplication` から具体クラス名と手段固有分岐が消え、生成が `createProcessor`、手段固有差分が各Processorへ移ったことを確認します。
+
+**採用した変更後のクラス図：**
 
 ```mermaid
 classDiagram
@@ -1542,39 +1386,159 @@ classDiagram
     class BankTransferProcessor
     class ConvenienceStoreProcessor
     class PayPayProcessor
+
     PaymentApplication --> IPaymentProcessor : createProcessor
     IPaymentProcessor <|.. CreditCardProcessor
     IPaymentProcessor <|.. BankTransferProcessor
     IPaymentProcessor <|.. ConvenienceStoreProcessor
     IPaymentProcessor <|.. PayPayProcessor
+    PaymentApplication --> ProcessorRegistry : 存在・有効確認
+    PaymentApplication --> PaymentStatusClient : 完了確認
+    DefaultPaymentApplication --|> PaymentApplication
+    PaymentWorker --> PaymentApplication : 非同期入口
+    WebhookController --> PaymentApplication : 完了通知
+    CreditCardProcessor --> PaymentGatewayClient : 認証API
+    PaymentApplication --> PaymentLog : 記録
+
+    note for IPaymentProcessor "【P1・新設】pay(request)の共通契約"
+    note for PaymentApplication "【P1・残した】決済フロー\ncreateProcessorで生成を委ねる"
+    note for PayPayProcessor "【P1・新設した追加手段】"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "IPaymentProcessor,CreditCardProcessor,BankTransferProcessor,ConvenienceStoreProcessor,PayPayProcessor,PaymentApplication" focus
 ```
 
-図から読み取ること：呼び出し元から具体Processor名が消え、共通利用フローは `PaymentApplication`、生成判断は `DefaultPaymentApplication::createProcessor()`、手段固有処理は各Processorへ分かれる。
+クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-### 6-4：影響範囲（この設計で変更要求を再度当てたら）
-
-| 変更要求 | 修正する場所 | 再テスト範囲 |
-|---|---|---|
-| 決済手段を1つ追加 | `Processor` を追加し、`ProcessorRegistry` と `DefaultPaymentApplication::createProcessor()` を変更 | 追加Processorと生成判断。**`processPayment`・ワーカー・Webhookは無変更** |
-| ある手段の検証・エラー対処を変える | その `Processor` のみ | その手段 |
-| 環境別・テスト用の生成に差し替える | `PaymentApplication` のテスト用サブクラスを使う | 生成の組み立て |
-
-現状との差：現状は決済追加のたびに注文処理・ワーカーなど複数入口を開く。対策後はProcessor、設定、具象Creatorの生成判断へ変更が集まり、共通利用フローは触らない。**この「触る範囲の差」がこの構造を採る理由**です。
-
-### 採用する形を決める
-
-各案には一長一短があります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。
-
-| 案 | 解けること | 残ること | 今回の判断 |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
 |---|---|---|---|
-| 何もしない | 追加コストはない | 7か所に修正が広がり続ける | 追加頻度と合わない |
-| 生成処理を関数化 | 生成判断に名前が付く | 具体型名と手段固有エラー処理が利用側に残る | 最初の整理として有効 |
-| 具体ファクトリへ移す | 生成判断を1か所へ寄せ、入力検証やエラー対処をProcessorへ閉じる | 環境別・テスト用の生成方法を差し替えにくい | 中間策として有効 |
-| 生成の契約を抽象化する | 利用側から手段固有の知識をすべて排除できる | Creatorクラスと組み立てが増える | 決済手段追加が続くため採用する |
+| P1 | 共通契約 `IPaymentProcessor` を新設する | `pay(request)` を純粋仮想で定義し各Processorが実装する | ステップ1 |
+| P1 | 生成判断を生成メソッドへ寄せる | `createProcessor(type)` に具体クラスの選択・生成を集める | ステップ2 |
+| P1 | 利用フローを契約中心へ変える | `processPayment` は `createProcessor` の結果へ `pay()` を委譲する | ステップ3 |
 
-**今回の決断：** フェーズ2のヒアリングで「かなりハイペースで追加していく予定」と明言されています。したがって、今回は**生成の契約（`Creator`）まで抽象化する形を採用する**決断を下します。
+このクラス図が、P1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
-フェーズ6で採用する設計（製品と生成の契約・データ配置・構造・影響範囲）が決まりました。次のフェーズ7では、この決断を動く実装（`ProcessorRegistry`・各 `Processor`／`Creator`・外部境界・`PaymentLog`・実行結果）に落とし込み、変更要求で効果を確認します。
+#### 課題箇所のおさらい（フェーズ3の関連コード）
+
+統合表で特定した箇所だけを振り返ります。P1は `processPayment` の振り分け `if` と、その中の具体Processor生成・手段固有のエラー対処です。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+
+```cpp
+// 現状：利用フローが具体クラスの生成とエラー対処を抱えている
+PaymentResult processPayment(const PaymentRequest& request) {
+    const string& type = request.methodId;
+    if (type == "credit_card") {
+        CreditCardProcessor proc(gatewayClient);
+        PaymentResult result = proc.pay(request);
+        if (result.status == "失敗") result.canRetry = true; // カード固有
+        return result;
+    } else if (type == "bank_transfer") {
+        BankTransferProcessor proc(gatewayClient);
+        return proc.pay(request);
+    } else if (type == "convenience") {
+        ConvenienceStoreProcessor proc(gatewayClient);
+        return proc.pay(request);
+    }
+    // ← 決済手段を足すたびにこの if が伸びる
+}
+```
+
+### 6-1：採用設計をコードへ段階的に反映する
+
+採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+
+#### 実装ステップ1（P1）：共通契約 `IPaymentProcessor` を定める
+
+各決済手段が満たす契約 `pay(request)` を定義し、既存Processorをその実装にします。手段固有の入力検証・API手順・エラー対処は各Processorの内側に閉じます。
+
+```cpp
+class IPaymentProcessor {
+public:
+    virtual ~IPaymentProcessor() = default;
+    virtual PaymentResult pay(const PaymentRequest& request) = 0;
+};
+
+class CreditCardProcessor : public IPaymentProcessor {
+    PaymentGatewayClient& gateway;
+public:
+    explicit CreditCardProcessor(PaymentGatewayClient& g) : gateway(g) {}
+    PaymentResult pay(const PaymentRequest& request) override {
+        PaymentResult r = /* カード固有の検証・認証API */;
+        if (r.status == "失敗") r.canRetry = true;   // 手段固有はここに閉じる
+        return r;
+    }
+};
+```
+
+**P1との対応：** `IPaymentProcessor <|.. CreditCardProcessor` の実装関係を実装しました。手段固有のエラー対処が利用フローから各Processorの内側へ移りました。
+
+#### 実装ステップ2（P1）：生成判断を生成メソッドへ寄せる
+
+具体クラスを選んで生成する判断を、`createProcessor(type)` の1か所へ集めます。新しい手段はここへ1行足すだけになります。
+
+```cpp
+class PaymentApplication {
+protected:
+    virtual IPaymentProcessor* createProcessor(const string& type) {
+        if (type == "credit_card") return new CreditCardProcessor(gateway);
+        if (type == "bank_transfer") return new BankTransferProcessor(gateway);
+        if (type == "convenience")
+            return new ConvenienceStoreProcessor(gateway);
+        return nullptr;
+    }
+    // ...
+};
+```
+
+**P1との対応：** `PaymentApplication --> IPaymentProcessor : createProcessor` の生成関係を実装しました。生成判断は1か所へ集まり、利用フローからは消えました。
+
+#### 実装ステップ3（P1）：利用フローを委譲だけにする
+
+`processPayment` は `createProcessor` で得たProcessorへ `pay(request)` を委譲するだけにします。具体クラス名も手段固有分岐も持ちません。
+
+```cpp
+PaymentResult processPayment(const PaymentRequest& request) {
+    if (!registry.isActive(request.methodId))
+        return {"失敗", false, "無効な決済手段"};
+    std::unique_ptr<IPaymentProcessor> proc(createProcessor(request.methodId));
+    PaymentResult r = proc->pay(request);
+    log.record(request, r);
+    return r;
+}
+```
+
+**P1との対応：** `processPayment` が契約だけを呼ぶ形になりました。ここで生成判断と手段固有差分が一つの生成分離構造として接続されました。
+
+### 6-2：システム全体の契約とデータ配置を確定する
+
+採用システムの契約、生成場所、依存注入を一表で確定します。`PaymentResult` は対策の抽象ではなく、成否・保留・リトライ可否・保留IDを利用フローへ返す結果オブジェクトです。
+
+```cpp
+struct PaymentResult {
+    string status;    // 成功・保留・失敗
+    bool canRetry;    // リトライ可否
+    string message;   // 理由や保留ID
+};
+```
+
+| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |
+|---|---|---|
+| 何を分離するか | P1の手段固有検証・処理モード・エラー対処を各Processorへ置く | 手段ごとの入力・API手順 |
+| どこで生成・選択するか | `createProcessor(type)` が具体Processorを選び生成する | 具体クラス名 |
+| どう依存を渡すか | 生成時に `PaymentGatewayClient` をProcessorへ注入する | 外部APIの実体 |
+| 安定側はどう実行するか | 利用フローは `pay(request)` だけを呼ぶ | 何を生成したか |
+
+新しい手段は Processor 実装と `createProcessor` の1行、`ProcessorRegistry` の登録に限られます。
+
+#### システム全体のコード適用結果
+
+| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |
+|---|---|---|---|
+| 手段追加をProcessorと登録に限定する | `IPaymentProcessor` 実装と `createProcessor` の1行 | 新Processorと登録 | 達成 |
+| 利用フローの振り分けを増やさない | `processPayment` は委譲のみ | 利用フローの修正なし | 達成 |
+| 手段固有知識を利用側から隠す | 各Processorの内側 | 手段詳細は対象Processorだけ | 達成 |
+| 契約と非同期入口を守る | `PaymentRequest`→`PaymentResult`、Worker・Webhook | 入口を維持 | 達成 |
+
+**システム全体の実装結果：達成。** P1の責任が生成分離構造で接続され、冒頭の完了条件をすべて満たしました。実際の動作と変更影響はフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 生成するオブジェクトの種類（決済手段）を、利用側から隠蔽するメソッドに集約し、利用側がインターフェースを通じてインスタンスを得る構造——これが **生成分離構造（ファクトリーメソッド）** と呼ばれています。
@@ -2324,11 +2288,13 @@ classDiagram
 
 章末のFactory Method骨格図では、`PaymentApplication` がCreator、`createProcessor` がFactory Method、`IPaymentProcessor` と各実装がProduct群に対応します。
 
-#### 課題IDごとの完成コード結果
+#### 変更軸ごとの完成コード追跡
 
-| 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |
+| 課題ID | 完成コードの適用先 | 実装後に起きたこと | システム全体で維持できた範囲 |
 |---|---|---|---|
 | P1 | 全 `IPaymentProcessor` 実装、生成メソッド、`PaymentApplication`、Worker・Webhook | 同期・非同期入口は同じ `processPayment()` を使い、手段固有知識はProcessorと生成側に閉じた | 新決済でWorker・Webhookを変更せず、Processor実装と生成登録だけを追加できる |
+
+1行は、一つの完成システムを一本の変化軸から追跡した結果です。生成分離構造がP1の完了条件を維持しています。
 
 ### 7-2：動作シーケンス図
 
@@ -2357,17 +2323,24 @@ sequenceDiagram
 
 ### 7-3：変更影響グラフ（改善後）
 
+フェーズ3で確認した「PayPay決済の追加」のシナリオを、3-2と同じ粒度で再度適用します。
+
 ```mermaid
 graph LR
-    T1["変更要求：PayPay対応"] --> F0["PayPayProcessor<br>新規作成"]
-    T1 --> F1["DefaultPaymentApplication<br>生成分岐の追加"]
+    T1["変更要求：PayPay決済の追加"]
+        -->|新規追加| F0["PayPayProcessor<br>（IPaymentProcessor実装）"]
+    T1 -->|生成と登録を追加| F1["createProcessor / ProcessorRegistry<br>（1行と登録）"]
     T1 -. "影響なし" .-> A["processPayment ✅"]
-    T1 -. "影響なし" .-> B["CreditCardProcessor ✅"]
-    T1 -. "影響なし" .-> C["BankTransferProcessor ✅"]
-    T1 -. "影響なし" .-> D["checkCompletion ✅"]
+    T1 -. "影響なし" .-> B["CreditCardProcessor など既存Processor ✅"]
 ```
 
-フェーズ3の変更影響グラフと比べると、変更は新しいProductと具象Creatorの生成判断へ寄り、利用フロー `processPayment()` と既存Product、完了確認ロジック `checkCompletion()` を保てます。フェーズ3では7か所の修正が必要でしたが、改善後は新しいProcessorの作成と具象Creatorの分岐追加に集中しています。
+フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、利用フロー `processPayment` と既存Processor・完了確認は変更先から消えました。PayPay決済の追加は、`PayPayProcessor` の実装と `createProcessor`／`ProcessorRegistry` への登録だけに限定されます。
+
+| 3-2で影響した場所 | 修正後 | 構造変更との対応 |
+|---|---|---|
+| `processPayment` の振り分け `if` | **修正しない** | 生成判断を `createProcessor` へ移した |
+| 3-2にはProcessor契約がなかった | `PayPayProcessor` を1クラス追加する | 手段の変更先を新しく作った |
+| 生成と有効判定 | `createProcessor` の1行と `ProcessorRegistry` 登録 | 生成と登録だけを増やす |
 
 ### 7-4：変更シナリオ表
 
@@ -2400,7 +2373,7 @@ graph LR
 | 🟣 フェーズ3 | PayPay追加を試み、7か所に修正が広がることを確認した |
 | 🟠 フェーズ4 | 具体クラス名・入力検証・処理モード・エラー対処が利用側に混在していることを根本原因と特定した |
 | 🟡 フェーズ5 | `IPaymentProcessor*` を共通の接続点とし、手段固有の差分をProcessorへ閉じる課題を定めた |
-| 🔴 フェーズ6 | 3ステップの段階的進化で生成分離構造まで進化させる決断を下した |
+| 🔴 フェーズ6 | P1を満たす最終構造は生成分離構造に一意に定まると確認し、採用クラス図を3ステップでコードへ反映した |
 | 🟢 フェーズ7 | 各Processorが入力検証・API呼び出し・エラー対処を内包する最終コードを実装し、変更の局所化を確認した |
 
 ### 責任の移動
