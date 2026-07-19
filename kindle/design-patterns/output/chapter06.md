@@ -795,9 +795,19 @@ graph LR
 
 **現状のままでよい場面**：トッピングが数種類で固定され、重ね掛けも不要なら、`bool`フラグを保つ判断もあります。今回は種類と組み合わせが増えるため、価格と説明を同じ契約で重ねられる部品へ分ける設計を検討します。
 
+### 変わるものを分離するか、まとめて分離するか
+
+この章の変化軸は1つです。フェーズ2で確認した「トッピングの種類と組み合わせは今後も増える」を、P1として最後まで追います。
+
+| 課題ID | 変化軸 | 分離する責任 | 安定させる責任 |
+|---|---|---|---|
+| P1 | トッピングの種類・組み合わせ | 各トッピングの価格・表示名・包む責任をトッピング側とカタログへ置く | `getPrice()`/`getDescription()` の契約と基本ドリンクの骨格 |
+
+P1は単一の変化軸ですが、あるトッピングの「価格」「表示名」「販売可否」は同じトッピングの変更で一緒に変わるため、コード上では同じトッピング部品と `ToppingCatalog` へまとめて置きます。
+
 ---
-> **📌 課題（確定）**
-> 切り離す境界は「基本ドリンク」と「各トッピングが何円で何という名前か、注文へ重ねてよいか」の間にある。接続点で受け渡すのは `int` 型の金額と `string` 型の説明で、販売可否は組み立て前の境界で確認する。各トッピングを同じ契約で包み、基本ドリンク側の条件分岐を増やさず組み合わせられる形にすることが、この章の課題だ。
+> **📌 システム全体の課題（確定）**
+> 切り離す境界は「基本ドリンク」と「各トッピングが何円で何という名前か、注文へ重ねてよいか」の間にある。接続点で受け渡すのは `int` 型の金額と `string` 型の説明で、販売可否は組み立て前の境界で確認する。各トッピングを同じ契約で包み、基本ドリンク側の条件分岐を増やさず組み合わせられるシステムにする。新しいトッピングを追加しても、基本ドリンクと既存トッピングを変更しない。
 ---
 
 （切り離す境界と課題が明確になりました。次のフェーズ6では、その課題を解決するための対策を段階的に検討します。）
@@ -810,256 +820,89 @@ graph LR
 
 P1は「トッピング追加の波及」を表します。フェーズ6では、追加トッピングと組み立てだけへ影響を縮める理想を描きます。
 
-## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
+## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-フェーズ6は、フェーズ5で定めた課題——**基本ドリンクから、トッピングごとの加算処理と説明追加を切り離し、順に重ねても同じ操作で扱える接続点を作る**——を受けて始めます。まず問題定義で得た変更影響を左へ引き継ぎ、P1の影響を切るクラス・契約・依存関係を中央に置き、同じ要求を再適用した変更影響を右に描きます。その差、守る契約、完了条件、候補を同じP1の行へ落とします。その後、P1に紐づくフェーズ3の関連コードだけをおさらいし、中央の構造が妥当かを最小単位のコード変更で一段ずつ検証します。各段階で「変更理由」「対象コード」「変更内容」「減った影響」「残った問題」「次の判断」を言語化し、統合後の全体コードはフェーズ7で示します。
+P1を単独で解くのではなく、基本ドリンクとトッピングを同じ契約で扱い、順に重ねて価格・説明を合成できるシステムを設計します。
 
-#### 問題定義の変更影響を、どの構造で変えるか
+#### 3-2の変更影響を、システム構造の材料へ統合する
 
-フェーズ4では、トッピング追加がフラグ、価格、説明、組み合わせ分岐へ波及しました。理想は、1つのトッピング部品とカタログ・組み立てだけを追加対象にすることです。
-
-```mermaid
-flowchart LR
-    subgraph Pain["問題定義：変更前の変更影響"]
-        direction TB
-        CR["トッピングを追加"] --> C1["CustomDrink のフラグ・価格・説明を修正"]
-        C1 --> C2["全組み合わせを再テスト"]
-    end
-    subgraph TargetStructure["影響を切る構造の形"]
-        direction TB
-        O["注文組み立て"] --> D["IDrink::getPrice / getDescription"]
-        B["基本ドリンク"] -. "契約を実装" .-> D
-        T["トッピングクラス"] -. "契約を実装" .-> D
-        T -->|"内側のIDrinkを保持"| D
-        Cat["カタログ"] --> T
-    end
-    subgraph Result["同じ要求を再適用した変更影響"]
-        direction TB
-        IR["トッピングを追加"] --> I1["P1: トッピング1クラスと登録を追加"]
-        I1 --> I2["追加トッピングと組み立てだけをテスト"]
-        IS["変更しない: 基本ドリンク・既存トッピング"]
-    end
-    C1 -. "P1: フラグ分岐を共通操作で切る" .-> D
-    T -. "新しい変更先" .-> I1
-```
-
-中央では、基本ドリンクとトッピングが同じ `IDrink` 契約を持ち、トッピングが内側の `IDrink` を一段だけ包みます。組み合わせをフラグで列挙しないため、左の全組み合わせへの影響が右では一つのトッピングクラスと登録へ縮みます。
-
-#### 構造と変更後の影響から、課題と候補を一続きで導く
-
-| 課題ID | 変更の到達点 | 最初に試すコード変更 | 残る問題に対する次のコード変更 |
+| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |
 |---|---|---|---|
-| P1 | **現在→理想の差：** `CustomDrink` の全フラグと全組み合わせを外す<br>**切る境界・守る契約：** `getPrice/getDescription` で1段の加算を切り、価格・説明・販売可否・重ね順を守る<br>**完了条件：** 1クラスと登録だけで追加する | **候補：** 価格・説明の加算を関数へ出す<br>**減る影響：** トッピング差分が見える | ドリンクと追加部品を同じ操作へそろえ、1段ずつ包む |
+| P1 | トッピング追加で `CustomDrink` のフラグ・価格分岐・説明分岐・組み合わせ確認へ波及する | 各トッピングの価格・表示名・包む責任をトッピング側と `ToppingCatalog` へ移す | `getPrice()`/`getDescription()` の利用方法、注文検証、既存の組み合わせ |
 
-ここからP1の横一行を、価格・説明・組み合わせ分岐へ順に適用します。
+#### システム全体の完了条件を固定する
 
-#### 課題箇所のおさらい（フェーズ3の関連コード）
+次の条件をすべて満たして、初めて対策完了とします。
 
-比較元は、抹茶とチョコチップを追加したことで、フラグ・価格・説明のすべてが増えたフェーズ3の変更途中コードです。
+- 新しいトッピングの追加を、トッピング1クラスと `ToppingCatalog` への登録に限定する。
+- `CustomDrink`（基本ドリンク側）へ `bool` フラグや `if` 分岐を増やさない。
+- 基本ドリンクもトッピングも同じ契約 `IDrink` で扱い、包む順で組み合わせを表す。
+- `getPrice()` が `int`、`getDescription()` が `string` を返す契約と、呼び出し元の使い方を維持する。
 
+#### システム全体の最終構造を決める
 
-課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+この章の最終構造は、競合する複数案から選ぶのではなく、完了条件から**一つに定まります**。トッピングを基本ドリンクから外し、順に重ねて価格・説明を合成すると決めた時点で、「基本ドリンクもトッピングも同じ `IDrink` 契約を満たし、トッピングが内側のドリンクを包む」**装飾連結構造**以外に、上の完了条件を満たす形が残らないためです。
 
-```cpp
-int getPrice() const {
-    int total = basePrice;
-    if (hasMilk)     total += 50;
-    if (hasWhip)     total += 70;
-    if (hasSyrup)    total += 30;
-    if (hasMatcha)   total += 60; // ← 抹茶パウダーを追加
-    if (hasChoco)    total += 40; // ← チョコチップを追加
-    return total;
-}
-```
+組み合わせごとに専用クラスを作る方式も理屈の上では置けますが、トッピングが1種増えるたびにクラス数が倍増し、現実の組み合わせ数に耐えません。したがって当て馬を並べた比較は行いません（完成形が複数競合する章でのみ、構造差分を比較します）。
 
-```cpp
-string getDescription() const {
-    string desc = baseName;
-    if (hasMilk)     desc += " + Milk";
-    if (hasWhip)     desc += " + Whip";
-    if (hasSyrup)    desc += " + Syrup";
-    if (hasMatcha)   desc += " + Matcha"; // ← 抹茶パウダーを追加
-    if (hasChoco)    desc += " + Choco";  // ← チョコチップを追加
-    return desc;
-}
-```
+一意に定まった装飾連結構造を、`IDrink`（共通契約）、`Coffee`（基本ドリンク）、`ToppingWrapper` と各トッピング（包む部品）、`ToppingCatalog`（価格・販売可否）、`OrderAssembler`（組み立て）の責任として具体化します。
 
-```cpp
-// 変更後の CustomDrink（抹茶・チョコチップフラグ追加後）
-class CustomDrink {
-    std::string baseName;
-    int basePrice;
-    bool hasMilk, hasWhip, hasSyrup, hasMatcha, hasChoco;
-public:
-    CustomDrink(std::string name, int price,
-                bool milk, bool whip, bool syrup,
-                bool matcha, bool choco) // ← 引数が2つ増えた
-        : baseName(name), basePrice(price),
-          hasMilk(milk), hasWhip(whip), hasSyrup(syrup),
-          hasMatcha(matcha), hasChoco(choco) {}
+### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
-    int getPrice() const {
-        int total = basePrice;
-        if (hasMilk)   total += 50;
-        if (hasWhip)   total += 70;
-        if (hasSyrup)  total += 30;
-        if (hasMatcha) total += 60;
-        if (hasChoco)  total += 40;
-        return total;
-    }
-    std::string getDescription() const {
-        std::string desc = baseName;
-        if (hasMilk)   desc += " + Milk";
-        if (hasWhip)   desc += " + Whip";
-        if (hasSyrup)  desc += " + Syrup";
-        if (hasMatcha) desc += " + Matcha";
-        if (hasChoco)  desc += " + Choco";
-        return desc;
-    }
-};
+フェーズ1の1-3で作ったクラス図へフェーズ2〜5の判断を反映し、変更後の形へ更新します。
 
-int main() {
-    // 新しいコンストラクタ呼び出し（引数7個）
-    CustomDrink order("ホットコーヒー", 400,
-                      true, false, false, true, true);
-    std::cout << order.getDescription() << std::endl;
-    std::cout << order.getPrice() << " 円" << std::endl;
+| クラス図を変える材料 | 前工程で確認したこと | クラス図へ反映すること |
+|---|---|---|
+| フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
+| フェーズ2の変化予測 | トッピングの種類と組み合わせは今後も増える | 毎回変わる責任へ `【移す】` と注記する |
+| フェーズ4の原因 | `CustomDrink` に基本骨格とトッピング知識が混在する | 同じクラスの中で `【残す】` と `【移す】` を分ける |
+| フェーズ5の接続点 | 骨格は個々のトッピングを知らず、価格・説明を同じ契約で重ねればよい | P1の価格・表示名を各トッピングの `getPrice()`/`getDescription()` へ置く |
 
-    // 既存の呼び出し（引数5個）はコンパイルエラーになるため
-    // コメントアウトして検証
-    // CustomDrink old("ホットコーヒー", 400, true, false, false);
-    //                                              ↑ 引数不足
-    return 0;
-}
-```
+**薄い黄色が着目クラス**です。変更前では `CustomDrink` の `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。矢印は1-3と同じ利用・実装・包含関係です。
 
-### 6-1：痛みコードを段階的に変更し、接続点の「形」を探す
-
-課題は「トッピングを切り離す」と言っていますが、**どんな形なら順に重ねられるか**は課題からもクラス図からも出てきません。痛みコードを変換し、詰まる場所から形を見つけます（各段階の直後に関連コードで確かめる）。
-
-**変換1：各トッピング処理を関数へ切り出す。**
-
-```cpp
-int addMilkPrice(int price) { return price + 50; }
-std::string addMilkName(const std::string& name) {
-    return name + " + ミルク";
-}
-
-if (hasMilk) {
-    price = addMilkPrice(price);
-    description = addMilkName(description);
-}
-```
-
-加算処理は分かれましたが、`hasMilk`、`hasWhip` などの選択分岐は本体に残ります。トッピング追加で本体を開くため、P1は未完了です。
-
-
-
-見えたこと：どのトッピングも「ドリンクに**価格と名前を足す**」同じ形。基本ドリンクとトッピングの違いは「何を足すか」だけ。
-まだ詰まること：どのトッピングを足すかの `hasXxx` 判定が、まだ本体に残る。
-
-**変換2：継承で全組み合わせを表現してみる。** 「Milk入り」「Milk+Whip入り」をクラスにすれば分岐が消えるのでは、と組み合わせごとにクラスを作ります。
-
-```cpp
-class CoffeeWithMilk : public Coffee { /* +50円 */ };
-class CoffeeWithWhip : public Coffee { /* +70円 */ };
-class CoffeeWithMilkAndWhip : public Coffee { /* +120円 */ };
-```
-
-2種類で「なし・Milk・Whip・両方」の4形が必要です。3種類なら8形になるため、分岐は消えても変更量が増えます。ここで、組み合わせ全体ではなくトッピング1個を再利用単位にします。
-
-
-
-詰まったこと：トッピングを**1つ増やすと組み合わせクラスが倍増**する（Milk/Whip の2種で4クラス、Matchaを足すと8クラス…）。組み合わせの数だけクラスが要る。ここで分かるのは、**「組み合わせをクラスで持つと爆発する。トッピングを"ドリンクを包むドリンク"にして、包む順で組み合わせを表せばよい」**ということ。
-
-**変換の結論：** トッピングを、内側のドリンクを1つ包み、同じ操作（`getPrice`/`getDescription`）で「自分ぶんを足して返す」部品にする。基本ドリンクもトッピングも同じ**共通契約 `IDrink`** を満たせば、包む順で任意の組み合わせを表せ、組み合わせクラスは要らない。これが接続点の正体です。
-
-### 6-2：見つけた形を契約にし、データの置き場所を決める
-
-見つけた形を、ドリンクとトッピングが共通で満たす契約として定義します。
-
-```cpp
-class IDrink {
-public:
-    virtual int getPrice() const = 0;
-    virtual std::string getDescription() const = 0;
-    virtual ~IDrink() = default;
-};
-
-class Milk : public IDrink {
-    IDrink* inner;  // 外側が内側の生存期間を管理する
-    int price;
-public:
-    int getPrice() const override {
-        return inner->getPrice() + price;
-    }
-    std::string getDescription() const override {
-        return inner->getDescription() + " + ミルク";
-    }
-};
-
-IDrink* drink = new Coffee();
-drink = new Milk(drink, milkPrice);
-```
-
-基本ドリンクとトッピングが同じ契約になり、包む回数がそのまま個数になります。価格は `ToppingCatalog` から組み立て時に渡し、トッピングクラスへ重複させません。
-
-
-
-次に、データの置き場所を決めます。
-
-| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
-|---|---|---|---|
-| 基本ドリンク | `MenuDatabase` | 変えない | トッピング設計とは別の関心事 |
-| トッピングの価格・表示名 | 各分岐にハードコード | `ToppingCatalog`（保存データ）に集約 | 価格改定を商品企画部の側で扱える。各トッピングクラスに散らさない |
-| どのトッピングを何個重ねるか | `hasXxx` フラグ | `OrderRequest`（トッピングID・個数の並び） | 同じトッピングの複数回重ねを、包む構造を変えずデータで表せる |
-
-接続点で受け渡すのは、`getPrice`/`getDescription` が返す**価格と説明**です。各トッピングは内側のドリンク（`baseDrink`）の**所有権**を持ち、自身の破棄時に内側も破棄します（生存期間は外側の組み立て役が管理）。
-
-クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
-
-| 判断 | 関連コードで確認すること |
-|---|---|
-| 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
-| 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
-| 誰が所有するか | スタック、スマートポインタ、所有コンテナのどれが破棄まで担うかを決める |
-| どう注入するか | 必須依存はコンストラクタ、増減する依存は登録操作、生成自体を替える場合は生成契約から渡す |
-| 利用側は何を知るか | 利用側は抽象契約だけを保持し、処理中に具体クラスを生成しない |
-| 追加時にどこを変えるか | 新しい実装クラスと組み立て・登録を変更し、安定させたい処理骨格へ具体名を戻さない |
-
-生ポインタや参照で非所有の依存を保持する場合は、所有側の生存期間が利用側より長いことまで組み立てコードで確認します。
-
-#### 課題IDごとのコード適用結果
-
-| 課題ID | 候補を適用したコード | 段階的なコード変更と結果 | 守った契約・完了条件の判定 |
-|---|---|---|---|
-| P1 | 加算関数、`IDrink::getPrice/getDescription()`、`Milk`、カタログ | **段階的な変更：** ①価格・説明の加算を関数化し、組み合わせ分岐が残ることを確認→②組み合わせクラスでは種類数が増えることを確認→③同じ `IDrink` 契約で1段ずつ包む構造へ変更<br>**結果：** フラグと組み合わせ分岐が消えた | **守った契約：** 価格、説明、販売可否、選択順<br>**判定：** 関数化・組み合わせクラスでは未達、連結で達成 |
-
-### 6-3：構造の見立て（変換の結果、こうなる）
-
-変換して契約とデータ配置を決めた結果、構造はこうなります。図は出発点ではなく結論です。
-
-現状（1クラスがフラグで全トッピングを分岐）：
+**変更前のクラス図（1-3を責任見直し用に再掲）：**
 
 ```mermaid
 classDiagram
-    class CustomDrink
-    class MenuDatabase
     direction LR
-    class CustomDrink {
-      bool hasMilk / hasWhip / ...
-      getPrice() getDescription()
+    class Main {
+        <<entrypoint>>
+        +注文入力を組み立てる
     }
+    class MenuDatabase {
+        +exists(menuId) bool
+        +get(menuId) MenuItem
+    }
+    class CustomDrink {
+        +getPrice() int
+        +getDescription() string
+    }
+    Main --> MenuDatabase : 商品情報を取得
+    Main --> CustomDrink : 注文を生成
+
+    note for CustomDrink "【残す】価格・説明を返す契約\n【P1・移す】各トッピングのフラグ・価格・表示名・組み合わせ"
+    note for MenuDatabase "【維持】商品情報の取得"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "CustomDrink" focus
 ```
 
-見立て（基本ドリンクもトッピングも同じ契約で、包んで重ねる）：
+変更前は `CustomDrink` が基本ドリンクの骨格と全トッピングの価格・表示名・組み合わせ分岐を抱え、トッピング追加のたびにフラグと `if` が増えます。
+
+P1をクラス図の変更として書くと、次の3操作になります。
+
+1. P1：基本ドリンクとトッピングが満たす共通契約 `IDrink` を新設する。
+2. P1：各トッピングを、内側の `IDrink` を包んで自分ぶんを足す `ToppingWrapper` の派生へ移す。
+3. P1：価格・販売可否を `ToppingCatalog` へ、要求からの組み立てを `OrderAssembler` へ分ける。
+
+変更後は、基本ドリンクもトッピングも同じ `IDrink` を満たし、包む順で組み合わせが表せること、`CustomDrink` のフラグ分岐が消えたことを確認します。
+
+**採用した変更後のクラス図：**
 
 ```mermaid
 classDiagram
     class CustomDrink
     class MenuDatabase
-    class Choco
-    class Syrup
     class OrderApplication
     class OrderLog
     class IDrink { <<interface>> }
@@ -1068,8 +911,11 @@ classDiagram
     class Milk
     class Whip
     class Matcha
+    class Choco
+    class Syrup
     class ToppingCatalog
     class OrderAssembler
+
     IDrink <|.. Coffee
     IDrink <|.. ToppingWrapper
     ToppingWrapper o--> IDrink
@@ -1084,36 +930,150 @@ classDiagram
     OrderAssembler ..> IDrink
     OrderApplication --> OrderAssembler
     OrderApplication --> OrderLog
+
+    note for IDrink "【P1・新設】価格・説明の共通契約"
+    note for ToppingWrapper "【P1・新設】内側のIDrinkを包み自分ぶんを足す"
+    note for ToppingCatalog "【P1・新設】価格・販売可否を持つ"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "IDrink,ToppingWrapper,Milk,Whip,Matcha,Choco,Syrup,ToppingCatalog,OrderAssembler" focus
 ```
 
-図から読み取ること：`hasXxx` フラグと組み合わせ分岐が消え、契約 `IDrink` を包み合う構造だけが残る。組み合わせは「包む順」で表すため、組み合わせクラスは要らない。
+クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-### 6-4：影響範囲（この設計で変更要求を再度当てたら）
-
-| 変更要求 | 修正する場所 | 再テスト範囲 |
-|---|---|---|
-| トッピングを1つ追加（抹茶・チョコなど） | `ToppingWrapper` を継承したクラスを1つ追加し、`ToppingCatalog` と組み立て登録に足す | 追加クラスと登録。**基本ドリンクと既存トッピングは無変更** |
-| 同じトッピングを複数回重ねる | 変更なし（`OrderRequest` の個数で表す） | なし |
-| 価格を改定する | `ToppingCatalog` のみ | カタログ |
-
-現状との差：現状はトッピングを追加するたびに `getPrice`/`getDescription` の分岐、あるいは組み合わせクラスを増やす。対策後は包む部品を1つ足すだけで、基本ドリンクを触らない。**この「触る範囲の差」がこの構造を採る理由**です。
-
-### 採用する形を決める
-
-各案には一長一短があります。どこで止めるかは、**「今後の変更頻度（ビジネス要求）」**で決断します。今回の課題は、トッピングの種類だけでなく「組み合わせ方」まで増えることです。
-
-| 案 | 解けること | 残ること | 今回の判断 |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
 |---|---|---|---|
-| 何もしない | 追加コストはない | トッピング追加のたびに分岐が増える | 毎月追加の前提と合わない |
-| 関数化 | 各トッピング処理に名前が付く | 組み合わせの判断は同じ場所に残る | 最初の整理として有効 |
-| トッピングを別クラス化 | 種類ごとの処理を分けられる | 重ね順や同じトッピング複数回を扱いにくい | 固定組み合わせなら有効 |
-| 同じ契約で包む | 基本商品と追加機能を同じように重ねられる | ラッパークラスと組み立て順の理解が必要 | 組み合わせ要求が強いため採用する |
+| P1 | 共通契約 `IDrink` を新設する | `getPrice()`/`getDescription()` を純粋仮想で定義し `Coffee` が実装する | ステップ1 |
+| P1 | トッピングを包む部品へ移す | `ToppingWrapper` が内側の `IDrink` を持ち、自分ぶんを足す | ステップ2 |
+| P1 | 価格・組み立てを外側へ分ける | `ToppingCatalog` と `OrderAssembler` を追加する | ステップ3 |
 
-**今回の決断：** フェーズ2のヒアリングで、商品企画部の佐藤マネージャーから「毎月のキャンペーンごとにトッピングが入れ替わる」「ホイップのダブル・チョコチップのトリプルも将来実現したい」と明言されています。この組み合わせ要件を重視し、今回は**トッピング自体がドリンクを包む形（共通契約 `IDrink` で重ねる）を採用する**決断を下します。価格や販売可否は各トッピングクラスに散らさず、商品企画部が管理する `ToppingCatalog`（保存データ）へ寄せ、組み立て役が販売可否を確認してから包みます。
+このクラス図が、P1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
-フェーズ6で採用する設計（接続点の契約・データ配置・構造・影響範囲）が決まりました。次のフェーズ7では、この決断を動く実装（`MenuDatabase`・`ToppingCatalog`・全トッピングクラス・`OrderAssembler`・実行結果）に落とし込み、変更要求で効果を確認します。
+#### 課題箇所のおさらい（フェーズ3の関連コード）
 
----
+統合表で特定した箇所だけを振り返ります。P1は `CustomDrink` に集まったトッピングのフラグと、価格・表示名の `if` 分岐です。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+
+```cpp
+// 現状：トッピングのフラグと分岐が基本ドリンクへ集まっている
+class CustomDrink {
+    bool hasMilk, hasWhip, hasSyrup, hasMatcha, hasChoco;
+public:
+    int getPrice() const {
+        int total = 400;                 // 基本ドリンク
+        if (hasMilk)   total += 50;
+        if (hasWhip)   total += 70;
+        if (hasSyrup)  total += 30;
+        if (hasMatcha) total += 60;      // ← トッピング追加のたびに1行増える
+        if (hasChoco)  total += 40;
+        return total;
+    }
+    string getDescription() const {
+        string desc = "ホットコーヒー";
+        if (hasMilk)   desc += " + Milk";
+        if (hasMatcha) desc += " + Matcha";   // ← 価格と同じ分岐がここにも増える
+        // ...他のトッピングも同様に並ぶ
+        return desc;
+    }
+};
+```
+
+### 6-1：採用設計をコードへ段階的に反映する
+
+採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+
+#### 実装ステップ1（P1）：共通契約 `IDrink` を定め、基本ドリンクを実装にする
+
+価格と説明を返す共通契約 `IDrink` を定義し、基本ドリンク `Coffee` をその実装にします。以降はこの契約だけを軸に組み立てます。
+
+```cpp
+class IDrink {
+public:
+    virtual ~IDrink() = default;
+    virtual int getPrice() const = 0;
+    virtual string getDescription() const = 0;
+};
+
+class Coffee : public IDrink {
+public:
+    int getPrice() const override { return 400; }
+    string getDescription() const override { return "ホットコーヒー"; }
+};
+```
+
+**P1との対応：** `IDrink <|.. Coffee` の実装関係を実装しました。基本ドリンクは自分の価格・説明だけを持ち、トッピングを知りません。
+
+#### 実装ステップ2（P1）：トッピングを内側のドリンクを包む部品にする
+
+各トッピングは内側の `IDrink` を1つ持ち、`getPrice()` で内側の価格へ自分ぶんを足します。包む順で任意の組み合わせを表せるため、組み合わせクラスは要りません。
+
+```cpp
+class ToppingWrapper : public IDrink {
+protected:
+    IDrink* inner;                 // 内側のドリンク（所有）
+    ToppingCatalog* catalog;
+    string toppingId;
+public:
+    ToppingWrapper(IDrink* d, ToppingCatalog* c, string id)
+        : inner(d), catalog(c), toppingId(id) {}
+    ~ToppingWrapper() override { delete inner; }
+    int getPrice() const override {
+        return inner->getPrice() + catalog->priceOf(toppingId);
+    }
+    string getDescription() const override {
+        return inner->getDescription() + " + " + catalog->nameOf(toppingId);
+    }
+};
+
+class Milk : public ToppingWrapper { using ToppingWrapper::ToppingWrapper; };
+```
+
+**P1との対応：** `ToppingWrapper o--> IDrink` の包含と `ToppingWrapper <|-- Milk` の派生を実装しました。`Whip`・`Matcha`・`Choco`・`Syrup` も同じ形で、価格差分だけがカタログ側にあります。
+
+#### 実装ステップ3（P1）：価格・販売可否をカタログへ、組み立てを組み立て役へ分ける
+
+価格・表示名・販売可否は `ToppingCatalog` に置き、注文要求からドリンクを包み上げる責任は `OrderAssembler` に置きます。基本ドリンク側の分岐は増えません。
+
+```cpp
+OrderApplication app;
+app.run({ "coffee", {"milk", "matcha"} });   // 要求＝基本＋トッピング列
+// OrderAssembler が Coffee を Milk→Matcha の順に包み、
+// getPrice()/getDescription() を連鎖させて OrderResult を返す
+```
+
+**P1との対応：** `OrderAssembler ..> ToppingCatalog` / `IDrink` の組み立て関係を実装しました。ここで基本ドリンクとトッピングが一つの装飾連結構造として接続されました。
+
+### 6-2：システム全体の契約とデータ配置を確定する
+
+採用システムの契約、生成場所、依存注入を一表で確定します。`OrderResult` は対策の抽象ではなく、組み立てた注文の価格・表示名・成否を呼び出し元へ返す結果オブジェクトです。
+
+```cpp
+struct OrderResult {
+    bool ok;             // 販売できたか
+    string description;  // 表示名（連結済み）
+    int price;           // 合計価格
+    string reason;       // 失敗理由
+};
+```
+
+| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |
+|---|---|---|
+| 何を分離するか | P1の価格・表示名・包む責任を各トッピングと `ToppingCatalog` へ置く | トッピングの種類・価格・組み合わせ |
+| どこで生成・選択するか | `OrderAssembler` が要求から順に包む | 具体トッピングの生成順 |
+| どう依存を渡すか | 包むときに内側の `IDrink` と `ToppingCatalog` を渡す | 内側のドリンクの実体 |
+| 安定側はどう実行するか | 呼び出し元は `getPrice()`/`getDescription()` だけを呼ぶ | 何段包まれているか |
+
+内側のドリンクは外側のトッピングが所有し破棄するため、組み立て役が生存期間をまとめて管理します。
+
+#### システム全体のコード適用結果
+
+| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |
+|---|---|---|---|
+| トッピング追加を1クラスと登録に限定する | トッピングクラスと `ToppingCatalog` 登録 | 新トッピングと登録 | 達成 |
+| 基本ドリンクへ分岐を増やさない | `Coffee` は自分の価格・説明だけ | 基本ドリンクの修正なし | 達成 |
+| 同じ契約で組み合わせる | `IDrink` と `ToppingWrapper` の連結 | 包む順だけで組み合わせを表す | 達成 |
+| 価格・説明の契約を守る | `getPrice()`/`getDescription()` の戻り値 | `int`/`string` と利用方法を維持 | 達成 |
+
+**システム全体の実装結果：達成。** P1の責任が装飾連結構造で接続され、冒頭の完了条件をすべて満たしました。実際の動作と変更影響はフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 このように、基本機能（ドリンク）と追加機能（トッピング）を同じインターフェースで統一し、追加機能が内部に別の機能を包む形で機能を動的に重ね合わせるこの設計構造を **装飾連結構造（デコレーター）** と呼びます。
@@ -1546,11 +1506,13 @@ classDiagram
 
 この図は、装飾の連結（`IDrink` を軸にした包む構造）に加え、価格・販売可否を持つ `ToppingCatalog` と、要求から組み立てる `OrderAssembler` を示しています。章末のDecorator骨格図では、`IDrink` がComponent、`Coffee` がConcreteComponent、`ToppingWrapper` がDecorator、各トッピングがConcreteDecoratorに対応します。`ToppingCatalog` と `OrderAssembler` は、Decorator本体の外側で価格データと組み立てを支える役割です。
 
-#### 課題IDごとの完成コード結果
+#### 変更軸ごとの完成コード追跡
 
-| 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |
+| 課題ID | 完成コードの適用先 | 実装後に起きたこと | システム全体で維持できた範囲 |
 |---|---|---|---|
 | P1 | `IDrink`、基本ドリンク、全トッピング、カタログと組み立て | 選択順に1段ずつ包むことで価格・説明を合成し、フラグや組み合わせクラスを使わなかった | 新トッピングは1クラスとカタログ登録で追加できる |
+
+1行は、一つの完成システムを唯一の変化軸から追跡した結果です。装飾連結構造がP1の完了条件を維持しています。
 
 ### 7-2：動作シーケンス図
 
@@ -1598,16 +1560,24 @@ sequenceDiagram
 
 ### 7-3：変更影響グラフ（改善後）
 
-フェーズ3で確認した「抹茶パウダーとチョコチップの追加」という同じシナリオで、変更の影響がどのように変わったかをグラフで対比してみます。
+フェーズ3で確認した「抹茶トッピングの追加」のシナリオを、3-2と同じ粒度で再度適用します。
 
 ```mermaid
 graph LR
-    T1["変更要求（抹茶などの追加）"] --> F1["Matcha（新規追加のみ）"]
-    T1 -. "影響なし" .-> A["Coffee ✅"]
-    T1 -. "影響なし" .-> B["Milk ✅"]
+    T1["変更要求：抹茶トッピングの追加"]
+        -->|新規追加| F1["Matcha<br>（ToppingWrapper派生1クラス）"]
+    T1 -->|登録を追加| F2["ToppingCatalog<br>（価格・販売可否）"]
+    T1 -. "影響なし" .-> A["IDrink / Coffee ✅"]
+    T1 -. "影響なし" .-> B["Milk / Whip など既存トッピング ✅"]
 ```
 
-フェーズ3のグラフと比較して、新しいトッピングを追加する変更が、トッピング実装と利用時の組み立てへ寄ったことを読み取れます。既存の`Coffee`や`Milk`には影響の矢印が向かっていません。
+フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、共通契約 `IDrink` と基本ドリンク・既存トッピングは変更先から消えました。抹茶トッピングの追加は、`Matcha` の1クラスと `ToppingCatalog` への登録だけに限定されます。
+
+| 3-2で影響した場所 | 修正後 | 構造変更との対応 |
+|---|---|---|
+| `CustomDrink` のフラグ・価格分岐・説明分岐 | **修正しない** | 価格・表示名を各トッピングへ移した |
+| 3-2にはトッピング部品がなかった | `Matcha` を1クラス追加する | トッピングの変更先を新しく作った |
+| 価格・販売可否の登録 | `ToppingCatalog` へ抹茶を登録する | 登録だけを増やす |
 
 ---
 
@@ -1633,7 +1603,7 @@ graph LR
 |---|---|
 | **問題** | トッピングの種類が増えるたびに、`CustomDrink` のメンバ変数・コンストラクタ・価格計算・名称生成の4箇所と呼び出し側が連動して変わる |
 | **原因** | 基本ドリンクの骨格と、各トッピングの価格・名前・販売可否・表示順という変わる理由が異なるものが同じ場所に混在している |
-| **課題** | 各トッピングは識別子と包む責任を持ち、価格・表示名・販売可否は `ToppingCatalog` から取得する。基本ドリンク側の条件分岐を増やさず、注文で指定した順に組み合わせられる形にする |
+| **課題P1** | 各トッピングは識別子と包む責任を持ち、価格・表示名・販売可否は `ToppingCatalog` から取得する。基本ドリンク側の条件分岐を増やさず、注文で指定した順に組み合わせられる形にする |
 | **解決策** | 装飾連結構造：基本ドリンクとトッピングを同じ `IDrink` インターフェースで統一し、トッピング自身が別のドリンクを包む `ToppingWrapper` 構造で機能を動的に重ね合わせる。販売可否は `ToppingCatalog` で確認してから包む |
 
 ## 整理
@@ -1647,7 +1617,7 @@ graph LR
 | 🟣 フェーズ3：問題特定 | 抹茶パウダーの追加を試み、影響がモバイルアプリ側にまで波及することを確認した |
 | 🟠 フェーズ4：原因分析 | 変わる理由が異なる知識が同じ場所にいることが痛みの根本と特定した |
 | 🟡 フェーズ5：課題定義 | getPrice()/getDescription() を共通の接続点とし、販売可否は組み立て前の境界で確認する課題を定めた |
-| 🔴 フェーズ6：対策検討 | 5ステップの段階的進化で各アプローチの限界を確認した。継承による組み合わせ爆発→具体クラス直参照→抽象型スロット固定→ラッパー構造という思考の流れでステップ5（トッピング自体がドリンクを包む）まで進化させる決断を下した |
+| 🔴 フェーズ6：対策検討 | P1を満たす最終構造は装飾連結構造に一意に定まると確認し、採用クラス図を3ステップでコードへ反映した |
 | 🟢 フェーズ7：対策実施 | 最終コードを実装し、販売停止ケースと変更影響グラフで変更の局所化を確認した |
 
 ### 責任の移動

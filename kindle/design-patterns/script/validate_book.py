@@ -145,6 +145,10 @@ SYSTEM_STRUCTURE_CLASS_TOKENS = {
         "ECDataImporter", "SchemaRegistry", "ImportFileGateway",
         "SalesImportRepository", "parseData",
     ],
+    "chapter06.md": [
+        "IDrink", "Coffee", "ToppingWrapper", "Milk",
+        "ToppingCatalog", "OrderAssembler", "CustomDrink", "MenuDatabase",
+    ],
 }
 SYSTEM_STRUCTURE_FINAL_FORMS = {
     "chapter01.md": [
@@ -153,6 +157,7 @@ SYSTEM_STRUCTURE_FINAL_FORMS = {
     ],
     "chapter02.md": ["窓口構造"],
     "chapter04.md": ["骨格固定構造"],
+    "chapter06.md": ["装飾連結構造"],
 }
 SYSTEM_STRUCTURE_RESULT_TOKENS = {
     "chapter01.md": [
@@ -167,6 +172,10 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
         "変更要求：EC店形式の追加", "ECDataImporter",
         "AbstractImporter", "SchemaRegistry",
     ],
+    "chapter06.md": [
+        "変更要求：抹茶トッピングの追加", "Matcha",
+        "ToppingCatalog", "IDrink",
+    ],
 }
 
 # フェーズ6「システム全体の最終構造を決める」の出し方は章の問題で決まる。
@@ -178,6 +187,7 @@ SYSTEM_STRUCTURE_MODE = {
     "chapter01.md": "select",
     "chapter02.md": "single",
     "chapter04.md": "single",
+    "chapter06.md": "single",
 }
 
 BANNED_PATTERNS = [
