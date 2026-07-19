@@ -169,6 +169,11 @@ SYSTEM_STRUCTURE_CLASS_TOKENS = {
         "BankTransferProcessor", "ConvenienceStoreProcessor",
         "ProcessorRegistry", "PaymentGatewayClient", "createProcessor",
     ],
+    "chapter09_2.md": [
+        "ITicketPhase", "TicketContext", "OpenPhase", "PendingPhase",
+        "IPriorityRule", "CorporatePriority", "NormalPriority",
+        "UserDatabase",
+    ],
 }
 SYSTEM_STRUCTURE_FINAL_FORMS = {
     "chapter01.md": [
@@ -182,6 +187,7 @@ SYSTEM_STRUCTURE_FINAL_FORMS = {
     "chapter06.md": ["装飾連結構造"],
     "chapter07.md": ["通知分離構造"],
     "chapter08.md": ["生成分離構造"],
+    "chapter09_2.md": ["状態分離構造", "ルール差し替え構造"],
 }
 SYSTEM_STRUCTURE_RESULT_TOKENS = {
     "chapter01.md": [
@@ -216,6 +222,10 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
         "変更要求：PayPay決済の追加", "PayPayProcessor",
         "ProcessorRegistry", "IPaymentProcessor",
     ],
+    "chapter09_2.md": [
+        "変更要求：状態追加", "ITicketPhase",
+        "IPriorityRule", "TicketContext",
+    ],
 }
 
 # フェーズ6「システム全体の最終構造を決める」の出し方は章の問題で決まる。
@@ -232,6 +242,7 @@ SYSTEM_STRUCTURE_MODE = {
     "chapter06.md": "single",
     "chapter07.md": "single",
     "chapter08.md": "single",
+    "chapter09_2.md": "combine",
 }
 
 BANNED_PATTERNS = [

@@ -728,224 +728,87 @@ graph LR
 
 状態と優先度は独立して変わるためP1、P2に分けます。フェーズ6でも、痛みのグラフにあるこの2枝を混ぜずに扱います。
 
-## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
+## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-フェーズ6は、フェーズ5で定めた2つの課題——**状態ごとの振る舞いを切り離すこと**と、**優先度判定ルールを単独で差し替えられるようにすること**——を受けて始めます。問題定義で得た2本の変更影響を左へ引き継ぎ、P1とP2の影響を切るクラス・契約・依存関係を中央に置き、同じ要求を再適用した変更影響を右に描きます。その差、守る契約、完了条件、候補を同じ課題IDの行へ落とします。その後、各IDの関連コードで中央の構造を段階的に検証し、独立した変化軸を混ぜずに、変更理由、結果、残った問題、次の判断を回収します。
+P1とP2を別々に解くのではなく、状態ごとの振る舞いと優先度判定ルールを独立して差し替えできるシステムを設計します。
 
-#### 問題定義の変更影響を、どの構造で変えるか
+#### 3-2の変更影響を、システム構造の材料へ統合する
 
-フェーズ4では、状態追加とSLA変更が同じ TicketContext 周辺へ波及していましたが、変わる理由は別です。この2本の痛みをP1（状態）とP2（優先度）の起点にし、それぞれの構造変更後までつなぎます。
-
-```mermaid
-flowchart LR
-    subgraph Pain["問題定義：変更前の変更影響"]
-        direction TB
-        CR1["状態を追加"] --> C1["状態分岐と公開操作を修正"]
-        CR2["SLAルールを変更"] --> C2["優先度分岐と状態処理を修正"]
-    end
-    subgraph TargetStructure["影響を切る構造の形"]
-        direction TB
-        A["TicketApplication"] --> TC["TicketContext"]
-        TC --> PH["ITicketPhase::handle"]
-        PI["Phase実装群"] -. "契約を実装" .-> PH
-        TC --> PR["IPriorityRule::priority"]
-        RI["PriorityRule実装群"] -. "契約を実装" .-> PR
-    end
-    subgraph Result["同じ要求を再適用した変更影響"]
-        direction TB
-        IR1["状態を追加"] --> I1["P1: Phase実装と遷移元を変更"]
-        IR2["SLAを変更"] --> I2["P2: PriorityRule実装と組み立てを変更"]
-        IS["変更しない: TicketApplication・公開操作"]
-    end
-    C1 -. "P1: 状態選択をPhase契約で切る" .-> PH
-    PH -. "新しい変更先" .-> I1
-    C2 -. "P2: 優先度判定をRule契約で切る" .-> PR
-    PR -. "新しい変更先" .-> I2
-```
-
-中央では、`TicketContext` から状態処理と優先度判定を別々の契約へ接続します。状態とSLAは同じ中心クラスへ集まらないため、左で混ざっていた二つの影響が、右ではP1とP2の別経路へ分かれます。
-
-#### 構造と変更後の影響から、課題と候補を一続きで導く
-
-| 課題ID | 変更の到達点 | 最初に試すコード変更 | 残る問題に対する次のコード変更 |
+| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |
 |---|---|---|---|
-| P1 | **現在→理想の差：** 文字列分岐をPhase実装と遷移元へ縮める<br>**切る境界・守る契約：** `updateStatus()` の選択を切り、公開操作・保存・ログを守る<br>**完了条件：** 状態選択分岐を増やさない | **候補：** 状態処理をクラスへ移す<br>**減る影響：** 状態別振る舞いを分離できる | 現在Phaseへ公開操作を一律委譲する |
-| P2 | **現在→理想の差：** SLA変更から状態処理を外す<br>**切る境界・守る契約：** 優先度判定を切り、入出力と状態からの独立を守る<br>**完了条件：** Phaseを触らずRuleだけを交換する | **候補：** 優先度計算を関数へ出す<br>**減る影響：** SLA判定を状態から分けて読める | `IPriorityRule` 契約へ上げて注入する |
+| P1 | 状態追加で `TicketManager` の状態分岐と各操作の再テストへ波及する | 状態ごとの振る舞いと遷移を各状態クラスと `ITicketPhase` へ移す | 公開操作、チケット保存、既存状態の振る舞い |
+| P2 | 優先度ルール変更で `TicketManager` とSLA・顧客区分の判定へ波及する | SLA基準・顧客区分の判定を各ルールクラスと `IPriorityRule` へ移す | 状態処理、チケットの公開操作、既存ルール |
 
-ここからP1、P2の横一行を、状態分岐と優先度判定へ別々に適用します。
+#### システム全体の完了条件を固定する
 
-#### 課題箇所のおさらい（フェーズ3の関連コード）
+次の条件をすべて満たして、初めて対策完了とします。
 
-比較元は、法人ユーザーの優先度変更と `Pending` 状態を同時に追加したフェーズ3の変更途中コードです。
+- 状態の追加を、状態1クラスと遷移元に限定し、`TicketContext` の状態選択分岐を増やさない。
+- 優先度ルールの変更を、ルール1クラスの差し替えに限定し、状態処理を触らない。
+- 状態処理と優先度判定を、互いを知らずに独立して差し替えられるようにする。
+- 公開操作 `updateStatus()` の入口と、チケット保存・監査ログの位置を維持する。
 
+#### システム全体の最終構造を決める
 
-課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+この章は変化軸が2本あり、それぞれ別のチームが別の理由で改定するため、最終構造は**2つの構造を組み合わせて**決まります。状態ごとの振る舞いは状態分離構造で各状態クラスへ、優先度判定はルール差し替え構造で各ルールクラスへ移し、`TicketContext` が両方の契約を保持します。
 
-```cpp
-// 優先度ルール（SLA改定を反映）
-class PriorityCalculator {
-public:
-    std::string calculate(std::string userType) {
-        if (userType == "premium")   return "High";
-        if (userType == "corporate") return "High"; // ← 追加
-        return "Normal";
-    }
-};
-
-// チケット管理（「保留中」状態を追加）
-class TicketManager {
-    PriorityCalculator calc;
-public:
-    void updateStatus(std::string userType,
-                      std::string status) {
-        std::string priority = calc.calculate(userType);
-        if (status == "Open") {
-            std::cout << "チケット受付中。優先度: "
-                      << priority << std::endl;
-        } else if (status == "InProgress"
-                   && priority == "High") {
-            std::cout << "緊急対応中。担当者を招集します。"
-                      << std::endl;
-        } else if (status == "Pending") { // ← 新規追加
-            std::cout << "保留中。理由を記録します。"
-                      << std::endl;
-        }
-    }
-};
-
-int main() {
-    TicketManager mgr;
-    mgr.updateStatus("premium",   "Open");
-    mgr.updateStatus("premium",   "InProgress");
-    mgr.updateStatus("corporate", "Open");    // SLA変更で High
-    mgr.updateStatus("general",   "Pending"); // 新規状態
-    return 0;
-}
-```
-
-### 6-1：課題IDごとに痛みコードを分解し、構造上の境界を探す
-
-課題は2つあります。どんな形なら切り離せるかは、痛みコードを分解して探します。まず数えるのは、**独立して変わる軸がいくつあるか**です。共通の形は既に並んでいるので、関数へ切り出す段階は飛ばします。
-
-**分解1（優先度の軸）：** `calculate(userType)` は「`userType` を受け取り優先度（`string`）を返す」。差し替え可能な**ルールの形**です。
-
-```cpp
-class IPriorityRule {
-public:
-    virtual std::string getPriority(
-        const std::string& userType) const = 0;
-    virtual ~IPriorityRule() = default;
-};
-
-class SlaPriorityRule : public IPriorityRule {
-public:
-    std::string getPriority(
-            const std::string& userType) const override {
-        return userType == "Premium" ? "High" : "Normal";
-    }
-};
-```
-
-これでP2の判定式は単独交換できます。ただし `updateStatus()` の文字列分岐は一行も減っていないため、P1は別に解く必要があります。
-
-**分解2（状態の軸）：** `updateStatus()` の `status` 分岐は「状態ごとに振る舞いが変わる」。状態をオブジェクトにして委譲する**状態の形**です。
-
-```cpp
-class ITicketPhase {
-public:
-    virtual void handle(
-        TicketContext& ticket,
-        const std::string& operation) = 0;
-    virtual ~ITicketPhase() = default;
-};
-
-class OpenPhase : public ITicketPhase {
-public:
-    void handle(TicketContext& ticket,
-                const std::string& operation) override {
-        if (operation == "assign")
-            ticket.setPhase(inProgressPhase());
-    }
-};
-```
-
-状態固有の遷移がP1のクラスへ移りました。優先度計算をこの状態クラスへ入れないことが、2軸を分ける境界です。
-
-**片方だけでは詰まる（第二部の肝）：** 優先度だけをルールに切り出しても、`updateStatus()` の `status` 分岐は残る。状態だけをオブジェクトに切り出しても、`if(userType)` の優先度分岐は残る。ここで分かるのは、**「2つの軸は独立に変わるので、片方を分けても他方が残る。両方にそれぞれの契約が要る」**ということ。
-
-**分解の結論：** 優先度は**差し替え可能なルールの契約 `IPriorityRule`（`getPriority`）**、状態は**状態ごとの振る舞いの契約 `ITicketPhase`（`handle`/`display`）**。2つの独立した接続点を置く。これが第二部の見立てです。
-
-### 6-2：見つけた形を契約にし、データの置き場所を決める
-
-見つけた2つの形を、それぞれの契約として定義します。
-
-```cpp
-class TicketContext {
-    ITicketPhase* phase;
-    IPriorityRule& priorityRule;
-public:
-    TicketContext(ITicketPhase* initial,
-                  IPriorityRule& rule)
-        : phase(initial), priorityRule(rule) {}
-
-    void updateStatus(const std::string& operation) {
-        phase->handle(*this, operation);
-    }
-    std::string priority(const std::string& userType) const {
-        return priorityRule.getPriority(userType);
-    }
-};
-```
-
-1つのコンテキストへ2契約を注入しても、状態は優先度ルールを知らず、ルールは状態を知りません。P1とP2を個別にテストできる接続になりました。
-
-
-
-次に、データの置き場所を決めます。
-
-| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
+| 組み合わせる構造 | 担う変化軸 | 移す責任 | 触る場所 |
 |---|---|---|---|
-| 現在状態 | `TicketManager` の `status` 文字列 | `TicketContext.state`（`ITicketPhase*`） | 状態名でなく状態オブジェクトを持てば、分岐でなく委譲になる |
-| 優先度ルール | `PriorityCalculator` の `if` 分岐 | 注入された `IPriorityRule` | ルールを外から差し替えられる |
-| ユーザー種別 | 入力（`UserDatabase`） | 変えない | 判定材料。優先度契約へ渡す |
+| 状態分離構造 | P1 状態ごとの振る舞い | 状態固有の判断と遷移を各状態クラスへ | `ITicketPhase` と4つの状態クラス |
+| ルール差し替え構造 | P2 優先度判定ルール | SLA基準・顧客区分の判定を各ルールクラスへ | `IPriorityRule` と各ルールクラス |
 
-接続点で受け渡すのは、優先度側が **`userType → priority`**、状態側が **操作のコンテキスト**です。状態は次状態へ `setState` で遷移します。状態オブジェクトと優先度ルールの**所有権・生存期間は組み立て側（`TicketContext`）**が管理します。
+2つの構造は `TicketContext` が両契約を別々に保持する形で共存し、互いを参照しません。状態を増やしてもルールは、ルールを差し替えても状態は影響を受けないことが、2軸を独立に変えられる条件です。
 
-クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
+### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
-| 判断 | 関連コードで確認すること |
-|---|---|
-| 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
-| 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
-| 誰が所有するか | スタック、スマートポインタ、所有コンテナのどれが破棄まで担うかを決める |
-| どう注入するか | 必須依存はコンストラクタ、増減する依存は登録操作、生成自体を替える場合は生成契約から渡す |
-| 利用側は何を知るか | 利用側は抽象契約だけを保持し、処理中に具体クラスを生成しない |
-| 追加時にどこを変えるか | 新しい実装クラスと組み立て・登録を変更し、安定させたい処理骨格へ具体名を戻さない |
+フェーズ1の1-3で作ったクラス図へフェーズ2〜5の判断を反映し、変更後の形へ更新します。
 
-生ポインタや参照で非所有の依存を保持する場合は、所有側の生存期間が利用側より長いことまで組み立てコードで確認します。
+| クラス図を変える材料 | 前工程で確認したこと | クラス図へ反映すること |
+|---|---|---|
+| フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
+| フェーズ2の変化予測 | 状態の種類とSLA・優先度ルールは別チームが増やす | 毎回変わる責任へ `【移す】` と注記する |
+| フェーズ4の原因 | `TicketManager` に状態判断と優先度判定が混在する | 同じクラスの中で `【残す】` と `【移す】` を分ける |
+| フェーズ5の接続点 | 公開操作は現在状態へ委譲し、優先度は差し替え可能ルールへ委ねればよい | P1の状態判断を状態クラスへ、P2の優先度判定を `IPriorityRule` へ置く |
 
-#### 課題IDごとのコード適用結果
+**薄い黄色が着目クラス**です。変更前では `TicketManager` の `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。矢印は1-3と同じ利用・実装・委譲関係です。
 
-| 課題ID | 候補を適用したコード | 段階的なコード変更と結果 | 守った契約・完了条件の判定 |
-|---|---|---|---|
-| P1 | `ITicketPhase::handle()`、`OpenPhase`、`TicketContext::updateStatus()` | **段階的な変更：** ①状態処理をPhaseへ移し、Contextの状態選択が残ることを確認→②公開操作を現在Phaseへ一律委譲<br>**結果：** 状態固有遷移がPhaseへ閉じた | **守った契約：** 公開操作、保存、ログ<br>**判定：** 一律委譲まで接続して達成 |
-| P2 | 優先度関数、`IPriorityRule`、`SlaPriorityRule`、`TicketContext::priority()` | **段階的な変更：** ①優先度計算を関数化し、状態処理との依存が残ることを確認→②`IPriorityRule` 契約へ移動→③状態とは別の依存として注入<br>**結果：** SLA変更がRuleへ閉じた | **守った契約：** 優先度入出力、状態からの独立<br>**判定：** 独立契約の注入で達成 |
-
-### 6-3：構造の見立て（分解の結果、こうなる）
-
-分解して2つの契約とデータ配置を決めた結果、構造はこうなります。図は出発点ではなく結論です。
-
-現状（1クラスが状態分岐と優先度分岐を同居）：
+**変更前のクラス図（1-3を責任見直し用に再掲）：**
 
 ```mermaid
 classDiagram
     direction LR
     class TicketManager {
-      status 分岐 + if(userType) 優先度分岐
+        -PriorityCalculator calc
+        -UserDatabase db
+        +updateStatus(userId, status)
     }
+    class PriorityCalculator {
+        +calculate(userType) string
+    }
+    class UserDatabase {
+        +get(id) UserInfo
+    }
+    TicketManager --> PriorityCalculator : 保持
+    TicketManager --> UserDatabase : 保持
+
+    note for TicketManager "【残す】公開操作・チケット保存・監査ログ\n【P1・移す】status文字列分岐の状態遷移\n【P2・移す】SLA・顧客区分の優先度判定"
+    note for UserDatabase "【維持】ユーザー検索"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "TicketManager" focus
 ```
 
-見立て（2軸を別々の契約へ）：
+変更前は `TicketManager` が全状態の分岐と優先度判定を抱え、状態追加やSLA改定のたびに同じクラスの中身が膨らみます。
+
+P1・P2をクラス図の変更として書くと、次の3操作になります。
+
+1. P1：状態が満たす共通契約 `ITicketPhase`（`updateStatus/display` 等）を新設する。
+2. P2：優先度ルールが満たす共通契約 `IPriorityRule`（`getPriority`）を新設し、各ルールを実装へ移す。
+3. P1・P2：`TicketContext` が両契約を保持し、状態遷移と優先度判定をそれぞれへ委譲する。
+
+変更後は、公開操作が状態を判定せず現在状態へ委譲し、優先度は差し替え可能なルールへ委ね、`TicketManager` の混在分岐が消えたことを確認します。
+
+**採用した変更後のクラス図：**
 
 ```mermaid
 classDiagram
@@ -974,38 +837,133 @@ classDiagram
     TicketApplication --> TicketContext
     TicketApplication --> TicketEventLog
     TicketApplication --> UserDatabase
+
+    note for ITicketPhase "【P1・新設】状態ごとの振る舞いの共通契約"
+    note for IPriorityRule "【P2・新設】優先度判定の差し替え可能な契約"
+    note for TicketContext "【新設】両契約を保持し委譲するContext"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "ITicketPhase,OpenPhase,InProgressPhase,ResolvedPhase,PendingPhase,IPriorityRule,PremiumPriority,NormalPriority,CorporatePriority" focus
 ```
 
-図から読み取ること：状態分岐と優先度分岐が消え、2つの独立した契約への依存だけが残る。片方を変えても、もう片方には及ばない。
+クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-### 6-4：影響範囲（この設計で変更要求を再度当てたら）
-
-| 変更要求 | 修正する場所 | 再テスト範囲 |
-|---|---|---|
-| 状態を1つ追加（保留中など） | `ITicketPhase` を実装した状態クラスを1つ追加 | 追加状態。**優先度ルールは無関係** |
-| 優先度区分を変える（SLA見直し等） | `IPriorityRule` を実装したルールを差し替え／追加 | ルール。**状態は無関係** |
-| 割当・再オープンで両軸が同時に動く | 組み立て側が両方を呼ぶだけ | 呼び出しの組み立て |
-
-現状との差：現状はどちらの軸を変えても同じ分岐を開き、もう一方に影響しうる。対策後は軸ごとに独立して差し替えられる。**この「独立して触れる」ことがこの構造を採る理由**です。
-
-### 採用する形を決める
-
-各案には一長一短があります。今回の課題は、優先度ルールと状態ごとの振る舞いという2つの変化軸を、同じ条件分岐の中で扱っていることです。どちらか一方だけを分ければ足りるのか、両方を分ける必要があるのかを比べます。
-
-| 案 | 解けること | 残ること | 今回の判断 |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
 |---|---|---|---|
-| 何もしない | 追加コストはない | ルール変更と状態追加のたびに同じ分岐を修正する | 2軸の変更頻度と合わない |
-| 優先度ルールだけ分ける | SLA期限や顧客区分の変更を局所化できる | 状態追加や割当契機の分岐は残る | 状態が固定なら有効 |
-| 状態だけ分ける | 状態ごとの振る舞いを局所化できる | 優先度ルールの差し替えは残る | ルールが固定なら有効 |
-| ルールと状態を別々に分ける | 2つの変化軸を独立して扱える | クラス数と組み立てが増える | 両方が増えるため採用する |
+| P1 | 共通契約 `ITicketPhase` を新設する | 各状態クラスが振る舞いと遷移を実装する | ステップ1 |
+| P2 | 共通契約 `IPriorityRule` を新設する | 各ルールクラスがSLA・顧客区分の判定を実装する | ステップ2 |
+| P1・P2 | Contextが両契約へ委譲する | `TicketContext` が状態と優先度を別々に保持し委譲する | ステップ3 |
 
-**今回の決断：** フェーズ2のヒアリングで「SLA基準の四半期ごとの見直し」「プレミアムユーザー区分の細分化」など優先度ルールの頻繁な変更が確定し、さらに「保留中」「ベンダー確認中」といった状態自体の追加も確定しています。2つの変化軸をそれぞれ独立して安全に変更できるようにするため、**ルール差し替え構造 × 状態分離構造の両方を採用する**決断を下します。
+このクラス図が、P1・P2を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
-> 実はこの構造には名前があります。「優先度ルールの差し替え可能な分離」は第1章の**ルール差し替え構造**、「状態ごとの振る舞いをオブジェクトで表現する」は第3章の**状態分離構造**です。第二部では、問題を分析した結果として、これらが組み合わさりました。
+#### 課題箇所のおさらい（フェーズ3の関連コード）
 
-フェーズ6で採用する設計（2つの契約・データ配置・構造・影響範囲）が決まりました。次のフェーズ7では、この決断を動く実装（`UserDatabase`・全状態クラス・全優先度ルール・`TicketContext`・実行結果）に落とし込み、変更要求で効果を確認します。
+統合表で特定した箇所だけを振り返ります。P1は `updateStatus()` の `status` 文字列分岐、P2は `calculate()` のSLA・顧客区分判定です。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
 
----
+```cpp
+// 現状：状態遷移と優先度判定が TicketManager に混在する
+class TicketManager {
+    PriorityCalculator calc;    // P2: 優先度判定を直接保持
+public:
+    void updateStatus(std::string userType, std::string status) {
+        std::string priority = calc.calculate(userType);   // P2
+        if (status == "Open") { /* ... */ }                // P1: 状態分岐
+        else if (status == "InProgress" && priority == "High") { /* ... */ }
+        else if (status == "Pending") { /* ... */ }        // 状態追加で増える
+    }
+};
+```
+
+### 6-1：採用設計をコードへ段階的に反映する
+
+採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+
+#### 実装ステップ1（P1）：状態の共通契約 `ITicketPhase` を定める
+
+すべての状態が満たす契約 `ITicketPhase` を定義し、各状態クラスが自分の振る舞いと遷移を実装します。
+
+```cpp
+class TicketContext;
+
+class ITicketPhase {
+public:
+    virtual ~ITicketPhase() = default;
+    virtual void updateStatus(TicketContext& ctx) = 0;
+    virtual std::string display() const = 0;
+};
+```
+
+**P1との対応：** `ITicketPhase` を新設しました。公開操作は状態を判定せず、現在状態へ委譲します。状態追加は新しい状態クラスと遷移元だけで済みます。
+
+#### 実装ステップ2（P2）：優先度ルールの共通契約 `IPriorityRule` を定める
+
+優先度判定を差し替え可能なルールとして切り出します。SLA基準・顧客区分の判定は各ルールクラスの中に閉じ、状態処理から独立します。
+
+```cpp
+class IPriorityRule {
+public:
+    virtual ~IPriorityRule() = default;
+    virtual std::string getPriority(const std::string& userType) = 0;
+};
+
+class CorporatePriority : public IPriorityRule {
+public:
+    std::string getPriority(const std::string& userType) override {
+        return "High";   // 法人向けSLA基準
+    }
+};
+```
+
+**P2との対応：** `IPriorityRule <|.. CorporatePriority` の実装関係を実装しました。`PremiumPriority`・`NormalPriority` も同じ形で、SLA改定はルール1クラスの差し替えに閉じます。
+
+#### 実装ステップ3（P1・P2）：Contextが両契約へ委譲する
+
+`TicketContext` が現在状態と優先度ルールを別々に保持し、状態遷移と優先度判定をそれぞれへ委譲します。両者は互いを知りません。
+
+```cpp
+TicketContext ctx(new OpenPhase(), new CorporatePriority());
+ctx.execute("corporate");   // 優先度は IPriorityRule、遷移は ITicketPhase へ委譲
+```
+
+**P1・P2との対応：** `TicketContext o--> ITicketPhase` と `TicketContext --> IPriorityRule` の関連を実装しました。ここで状態分離構造とルール差し替え構造が独立したまま1つのContextに共存しました。
+
+### 6-2：システム全体の契約とデータ配置を確定する
+
+採用システムの契約、生成場所、依存注入を一表で確定します。接続点で受け渡すのは、遷移を進める `TicketContext&` と、優先度を求める `userType`（`string`）です。チケット保存と監査ログは従来どおりの位置に残します。
+
+```cpp
+class TicketContext {
+    ITicketPhase* phase;      // 現在状態（P1の委譲先）
+    IPriorityRule* rule;      // 優先度ルール（P2の委譲先）
+public:
+    TicketContext(ITicketPhase* p, IPriorityRule* r) : phase(p), rule(r) {}
+    void execute(const std::string& userType) {
+        std::string priority = rule->getPriority(userType);   // P2へ委譲
+        phase->updateStatus(*this);                           // P1へ委譲
+    }
+    void setPhase(ITicketPhase* p) { phase = p; }
+};
+```
+
+| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |
+|---|---|---|
+| 何を分離するか | P1の状態振る舞いを状態クラスへ、P2の優先度判定をルールクラスへ置く | 状態の種類・遷移、SLA基準・顧客区分 |
+| どこで生成・選択するか | 組み立て側（`TicketApplication`）が状態とルールを注入する | 具体状態・具体ルールの選択 |
+| どう依存を渡すか | コンストラクタで `ITicketPhase*` と `IPriorityRule*` を渡す | 状態・ルールの実体 |
+| 安定側はどう実行するか | 利用側は `execute()` だけを呼ぶ | 現在どの状態か、どの優先度ルールか |
+
+状態とルールは組み立て側が生成・注入し、`TicketContext` は非所有の契約ポインタを保持します。所有側の生存期間がContextより長いことを組み立てコードで確認します。
+
+#### システム全体のコード適用結果
+
+| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |
+|---|---|---|---|
+| 状態追加を1クラスと遷移元に限定する | 状態クラスと `ITicketPhase` 委譲 | 新状態クラスと遷移元 | 達成 |
+| 優先度ルールを1クラスの差し替えに限定する | ルールクラスと `IPriorityRule` 差し替え | 新ルールクラスと注入 | 達成 |
+| 状態と優先度を独立に差し替える | `TicketContext` が両契約を別々に保持 | 互いを参照しない | 達成 |
+| 公開操作と保存・ログの位置を維持する | `execute()` の委譲と保存・監査ログ | 入口と副作用を維持 | 達成 |
+
+**システム全体の実装結果：達成。** P1の責任が状態分離構造、P2の責任がルール差し替え構造で接続され、冒頭の完了条件をすべて満たしました。実際の動作と変更影響はフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 採用した ルール差し替え構造（優先度ルールの分離）および 状態分離構造（状態ごとの振る舞いの分離）を実装し、ビジネスルールと状態固有の処理をそれぞれ独立したクラスへカプセル化します。
@@ -1417,7 +1375,7 @@ classDiagram
 
 完成後はStateで進行状態を、Strategyで優先度判定を分離します。章末の抽象図と比べると、`TicketContext` が両構造のContextを担うことが分かります。
 
-#### 課題IDごとの完成コード結果
+#### 変更軸ごとの完成コード追跡
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |
 |---|---|---|---|
@@ -1452,17 +1410,25 @@ sequenceDiagram
 
 ### 7-3：変更影響グラフ（改善後）
 
-フェーズ3と同じ「SLAルール変更」や「状態追加」を試みます。
+フェーズ3で確認した「変更要求：状態追加」と「SLAルール変更」のシナリオを、3-2と同じ粒度で再度適用します。
 
 ```mermaid
 graph LR
-    T1["変更要求：法人向けSLAルール"] --> F1["CorporatePriorityクラス ✅"]
-    T1 -. "影響なし" .-> A["TicketContext ✅"]
-    T2["変更要求：保留中状態追加"] --> F2["PendingPhaseクラス ✅"]
-    T2 -. "影響なし" .-> A
+    T1["変更要求：状態追加"]
+        -->|新規追加| F1["PendingPhase<br>（ITicketPhase実装1クラス）"]
+    T2["変更要求：SLAルール変更"]
+        -->|差し替え| F2["CorporatePriority<br>（IPriorityRule実装1クラス）"]
+    T1 -. "影響なし" .-> A["IPriorityRule / 優先度ルール ✅"]
+    T2 -. "影響なし" .-> B["ITicketPhase / TicketContext ✅"]
 ```
 
-フェーズ3のグラフと比較して、変更要求がそれぞれ独立したクラスに閉じるようになり、`TicketContext` への飛び火がなくなりました。
+フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、P1の状態追加は `ITicketPhase` の実装1クラスへ、P2のSLAルール変更は `IPriorityRule` の実装1クラスへ限定されました。`TicketContext` は両契約を別々に保持するため、片方の変更がもう片方へ飛び火しません。
+
+| 3-2で影響した場所 | 修正後 | 構造変更との対応 |
+|---|---|---|
+| `updateStatus()` の `status` 文字列分岐（P1） | **修正しない** | 振る舞いを各状態クラスへ移した |
+| `calculate()` のSLA・顧客区分判定（P2） | ルール1クラスを差し替える | 優先度判定をルール差し替え構造へ移した |
+| 3-2には状態・ルールの契約がなかった | `ITicketPhase`／`IPriorityRule` へ実装を1つずつ追加 | 変更先を新しく作った |
 
 ### 7-4：変更シナリオ表
 
