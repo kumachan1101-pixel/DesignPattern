@@ -1029,273 +1029,86 @@ public:
 
 状態遷移・通知・承認判定は独立して変わるためP1、P2、P3の連番にします。フェーズ6では、問題定義の変更影響にあるこの3枝を起点に、それぞれの影響を切る構造と候補を導きます。
 
-## 🔴 フェーズ6：対策検討 ―― 案を比べ、採用する形を決める
+## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-フェーズ6は、フェーズ5で定めた3つの課題——**状態遷移を切り離すこと／通知先を切り離すこと／承認判定ルールを差し替えられるようにすること**——を受けて始めます。問題定義で得た3本の変更影響を左へ引き継ぎ、P1〜P3の影響を切るクラス・契約・依存関係を中央に置き、同じ要求を再適用した変更影響を右に描きます。その差、守る契約、完了条件、候補を同じ課題IDの行へ落とします。その後、各IDの関連コードで中央の構造を段階的に検証し、独立した変化軸を混ぜずに、変更理由、結果、残った問題、次の判断を回収します。
+P1〜P3を1つの構造で解くのではなく、状態遷移・通知・承認判定の3つの変化軸を独立して差し替えできるシステムを設計します。
 
-#### 問題定義の変更影響を、どの構造で変えるか
+#### 3-2の変更影響を、システム構造の材料へ統合する
 
-フェーズ4では、状態遷移、通知運用、承認判定が WorkflowManager へ集まり、別々の要求が同じ場所へ波及していました。この3本の痛みをP1〜P3の起点にし、それぞれの構造変更後までつなぎます。
-
-```mermaid
-flowchart LR
-    subgraph Pain["問題定義：変更前の変更影響"]
-        direction TB
-        CR1["状態・遷移を追加"] --> C1["WorkflowManagerの状態分岐を修正"]
-        CR2["通知先を追加"] --> C2["保存後処理を修正"]
-        CR3["承認条件を変更"] --> C3["状態処理とDB判定を修正"]
-    end
-    subgraph TargetStructure["影響を切る構造の形"]
-        direction TB
-        WM["WorkflowManager"] --> PH["IWorkflowPhase::next"]
-        PI["Phase実装群"] -. "契約を実装" .-> PH
-        PI --> AR["IApprovalRule::canApprove"]
-        RI["ApprovalRule実装群"] -. "契約を実装" .-> AR
-        WM -->|"保存成功後"| N["INotificationListener::onChanged"]
-        NI["Listener実装群"] -. "契約を実装" .-> N
-        WM --> Repo["WorkflowCaseRepository::save"]
-    end
-    subgraph Result["同じ要求を再適用した変更影響"]
-        direction TB
-        IR1["状態・遷移を追加"] --> I1["P1: Phase実装と遷移元を変更"]
-        IR2["通知先を追加"] --> I2["P2: Listener実装と登録を追加"]
-        IR3["承認条件を変更"] --> I3["P3: ApprovalRule実装を変更"]
-        IS["変更しない: WorkflowManagerの公開入口・保存順序"]
-    end
-    C1 -. "P1: 状態判断をPhase契約で切る" .-> PH
-    PH -. "新しい変更先" .-> I1
-    C2 -. "P2: 通知をListener契約で切る" .-> N
-    N -. "新しい変更先" .-> I2
-    C3 -. "P3: 承認判定をRule契約で切る" .-> AR
-    AR -. "新しい変更先" .-> I3
-```
-
-中央では、`WorkflowManager` に集まっていた状態、通知、承認判定を三つの契約へ分け、保存後に通知する順序だけを進行骨格へ残します。左の三つの要求が同じ本体へ波及する構造から、右の独立した三つの変更先へ変わったと読みます。
-
-#### 構造と変更後の影響から、課題と候補を一続きで導く
-
-| 課題ID | 変更の到達点 | 最初に試すコード変更 | 残る問題に対する次のコード変更 |
+| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |
 |---|---|---|---|
-| P1 | **現在→理想の差：** 状態追加をPhase実装へ縮める<br>**切る境界・守る契約：** 状態選択を切り、操作→次状態・保存・監査を守る<br>**完了条件：** Managerの分岐を増やさない | **候補：** 次状態判断をクラスへ移す<br>**減る影響：** 状態分岐を分離できる | 現在Phaseへ一律委譲する |
-| P2 | **現在→理想の差：** 通知追加をListener登録へ縮める<br>**切る境界・守る契約：** 直接通知を切り、保存成功後・部分失敗継続を守る<br>**完了条件：** 登録だけで追加する | **候補：** `onChanged` 契約へそろえる<br>**減る影響：** 直接通知分岐が減る | 登録リストと結果記録へ接続する |
-| P3 | **現在→理想の差：** 承認変更から状態・通知を外す<br>**切る境界・守る契約：** 固定判定を切り、不許可時の状態不変・理由ログを守る<br>**完了条件：** 状態・通知を変更しない | **候補：** 承認判定を関数へ出す<br>**減る影響：** 状態処理と判定を分けて読める | `IApprovalRule` 契約へ上げて注入する |
+| P1 | 状態・遷移追加で `WorkflowManager` の条件分岐と各操作へ波及する | 状態ごとの遷移判断を各 `IWorkflowPhase` 実装へ移す | ワークフローの公開入口、状態保存、既存フェーズ |
+| P2 | 通知先追加で `WorkflowManager` の通知分岐へ波及する | 通知先ごとの送信手段を各 `INotificationListener` へ移す | 状態確定後に通知する順序、他通知、処理本体 |
+| P3 | 承認ルール変更で `WorkflowManager` の金額・承認者判定へ波及する | 承認可否の判定を各 `IApprovalRule` へ移す | 承認操作、状態遷移、既存ルール |
 
-ここからP1〜P3の横一行を、状態分岐・通知・承認判定へ独立に適用します。
+#### システム全体の完了条件を固定する
 
-#### 課題箇所のおさらい（フェーズ3の関連コード）
+次の条件をすべて満たして、初めて対策完了とします。
 
-比較元は、緊急ルートと承認後通知を `WorkflowManager` へ直接追加したフェーズ3の変更途中コードです。
+- 状態・遷移の追加を、`IWorkflowPhase` 実装1クラスに限定し、`WorkflowManager` の分岐を増やさない。
+- 通知先の追加を、`INotificationListener` 実装1クラスと登録に限定する。
+- 承認ルールの変更を、`IApprovalRule` 実装1クラスの差し替えに限定する。
+- ワークフローの公開入口と、状態保存・通知先取得のRepository境界を維持する。
 
+#### システム全体の最終構造を決める
 
-課題カードの着目コードに該当する部分だけを振り返ります。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+この章は変化軸が3本あり、それぞれ別のチームが別の理由で改定するため、最終構造は**3つの構造を組み合わせて**決まります。状態遷移は状態分離構造で各Phaseへ、通知は通知分離構造で登録リスナーへ、承認判定はルール差し替え構造で各Ruleへ移し、`WorkflowManager` は進行骨格だけを持ちます。
 
-```cpp
-// 変更後の WorkflowManager（緊急ルート・却下通知・決済部門通知を追加）
-class WorkflowManager {
-    ApproverDatabase approvers;
-    WorkflowCaseRepository cases;
-    NotificationTargetRepository targets;
-public:
-    void process(const string& requestId, const string& operation,
-                 int amount, const string& approverId) {
-        if (!cases.exists(requestId)) {
-            cout << "エラー：申請ID " << requestId << " は存在しません。" << endl;
-            return;
-        }
-        if (!approvers.exists(approverId)) {
-            cout << "エラー：承認者ID " << approverId
-                 << " はデータベースに存在しません。" << endl;
-            return;
-        }
-        if (!approvers.canApprove(approverId, amount)) {
-            ApproverInfo info = approvers.get(approverId);
-            cout << "エラー：" << info.name << " の承認上限（"
-                 << info.approvalLimit << "円）を超えています。" << endl;
-            return;
-        }
-        string current = cases.getState(requestId);
-        string next;
-        string suffix;              // 「（課長スキップ）」など状態別の付記
-        bool notifyPayment = false; // 完了時に決済部門へ追加通知するか
-        // ↓ 状態遷移・通知・判定が同じif/elseに次々と積み重なる
-        if (current == "作成中" && operation == "提出") {
-            next = "審査待ち";
-        } else if (current == "作成中" && operation == "緊急提出") { // 緊急ルート追加
-            next = "優先審査待ち"; suffix = "（課長スキップ）";
-        } else if (current == "審査待ち" && operation == "承認") {
-            next = "承認済み";
-        } else if (current == "審査待ち" && operation == "却下") {   // 却下通知追加
-            next = "却下";
-        } else if ((current == "優先審査待ち" || current == "承認済み")
-                   && operation == "承認") {
-            next = "完了"; notifyPayment = true;                    // 決済部門通知追加
-        } else {
-            cout << "エラー：現在状態「" << current
-                 << "」で操作「" << operation << "」はできません。" << endl;
-            return;
-        }
-        cases.saveState(requestId, next);
-        cout << requestId << "：" << current << " → " << next << suffix << endl;
-        notify(requestId);                        // ← どの遷移でも同じ。毎回1回でよい
-        if (notifyPayment) cout << "決済部門へ通知" << endl;
-    }
-private:
-    void notify(const string& requestId) {
-        cout << targets.getTarget(requestId) << "へ通知" << endl;
-    }
-};
-
-int main() {
-    WorkflowManager wm;
-    // 通常申請の提出
-    wm.process("REQ001", "提出", 50000, "APR001");
-    cout << "---" << endl;
-    // 緊急申請の提出（課長スキップ）
-    wm.process("REQ003", "緊急提出", 50000, "APR001");
-    cout << "---" << endl;
-    // 通常申請の課長承認
-    wm.process("REQ002", "承認", 50000, "APR001");
-    return 0;
-}
-```
-
-### 6-1：課題IDごとに痛みコードを分解し、構造上の境界を探す
-
-課題は3つあります。どんな形なら切り離せるかは、痛みコードを分解して探します。まず数えるのは、**独立して変わる軸がいくつあるか**です。共通の形は既に並んでいます。どの遷移も「次状態を保存し、表示し、通知する」という**同じ3行**で、状態ごとに違うのは「どの操作を受け付け、どの状態へ進むか」だけです。
-
-**分解1（状態の軸）：** `if(current && operation)` の遷移。状態ごとに違う振る舞いを、状態そのものを表すオブジェクトへ → **状態の契約 `IWorkflowPhase`（`next`）**。
-
-```cpp
-class IWorkflowPhase {
-public:
-    virtual PhaseResult next(
-        const std::string& operation) const = 0;
-    virtual ~IWorkflowPhase() = default;
-};
-
-class DraftPhase : public IWorkflowPhase {
-public:
-    PhaseResult next(
-            const std::string& operation) const override {
-        if (operation == "submit")
-            return {true, "審査待ち"};
-        return {false, "操作できません"};
-    }
-};
-```
-
-P1は次状態の判断を分けます。`false` はエラー結果であって遷移ではないため、状態保存も通知も行いません。
-**分解2（通知の軸）：** `notify()` と決済部門通知。状態保存後の副作用で、通知先が増減する → **通知の契約 `INotificationListener`（`onChanged`）** のリスト。
-
-```cpp
-class INotificationListener {
-public:
-    virtual NotificationResult onChanged(
-        const StateChanged& event) = 0;
-    virtual ~INotificationListener() = default;
-};
-
-for (auto* listener : listeners)
-    notificationLog.add(listener->onChanged(event));
-```
-
-P2は「保存後に配る」順序だけを骨格に残し、宛先知識を外へ出します。通知失敗は記録し、保存済み状態を手動で戻しません。
-**分解3（ルールの軸）：** `canApprove(approverId, amount)` の承認判定。金額・部署別上限で変わる → **判定の契約 `IApprovalRule`（`canApprove`）**。
-
-```cpp
-class IApprovalRule {
-public:
-    virtual ApprovalDecision canApprove(
-        const std::string& approverId,
-        int amount) const = 0;
-    virtual ~IApprovalRule() = default;
-};
-
-ApprovalDecision decision =
-    approvalRule.canApprove(approverId, amount);
-if (!decision.allowed)
-    return {false, decision.reason}; // 状態は変えない
-```
-
-P3の判定失敗は戻り値と監査ログへ出します。状態不変なので、状態遷移図にエラー遷移の矢印は追加しません。
-
-**片方だけでは詰まる（第二部の肝）：** 状態だけ分けても `notify()` と `canApprove` が本体に残る。通知だけ分けても状態遷移と判定が残る。3つは決定者も頻度も異なるので、片方の変更が他へ波及し続ける。ここで分かるのは、**「3つの軸をそれぞれ別の契約に分け、`WorkflowManager` は"進行する"骨格だけにする」**必要があるということ。
-
-**分解の結論：** 状態・通知・判定の3つに独立した契約を置き、`WorkflowManager` は状態を進めて通知を配るだけの骨格にする。これが第二部の集大成の見立てです。
-
-### 6-2：見つけた形を契約にし、データの置き場所を決める
-
-見つけた3つの形を、それぞれの契約として定義します。
-
-```cpp
-ProcessResult WorkflowManager::process(
-        const WorkflowCommand& command) {
-    ApprovalDecision approval =
-        approvalRule.canApprove(command.approverId, command.amount);
-    if (!approval.allowed) return rejectWithoutTransition(approval);
-
-    PhaseResult phase = currentPhase(command.caseId)
-        .next(command.operation);
-    if (!phase.changed) return errorWithoutTransition(phase);
-
-    StateChanged event = cases.saveAndReturnEvent(
-        command.caseId, phase.nextState);
-    approvalLog.add(event);
-    notifyAll(event);
-    return {true, phase.nextState};
-}
-```
-
-判定→状態判断→保存・監査→通知の順を骨格に固定しました。P1〜P3のどれかが失敗したときに人手で後続処理を補う必要はありません。
-
-
-
-次に、データの置き場所を決めます。
-
-| データ | 現状の置き場所 | 対策後の置き場所 | 置き場所を決める理由 |
+| 組み合わせる構造 | 担う変化軸 | 移す責任 | 触る場所 |
 |---|---|---|---|
-| 現在状態 | `WorkflowManager` の `if` 分岐 | `WorkflowCaseRepository`（`IWorkflowPhase` で表現） | 状態名でなく状態オブジェクトへ委譲する |
-| 通知先の一覧 | `notify()` の直呼び | `INotificationListener` の登録リスト | 通知先の増減・失敗を通知側で扱う |
-| 承認者・上限 | `approvers.canApprove` 直呼び | `ApproverDatabase` ＋ 差し替え可能な `IApprovalRule` | 判定ルールを外から差し替える |
+| 状態分離構造 | P1 状態遷移 | 状態ごとの遷移判断を各Phaseへ | `IWorkflowPhase` と各Phase |
+| 通知分離構造 | P2 通知 | 通知先ごとの送信手段を登録リスナーへ | `INotificationListener` と各Notifier |
+| ルール差し替え構造 | P3 承認判定 | 承認可否の判定を各Ruleへ | `IApprovalRule` と各Rule |
 
-接続点で受け渡すのは、状態側が **操作 → 次状態名**、通知側が **状態変化（from/to）**、判定側が **承認者・金額 → 可否**です。状態・リスナー・ルールの**所有権・生存期間は組み立て側**が管理します。
+3つの構造は `WorkflowManager` が状態を保持し、状態が承認ルールを使い、状態確定後に通知リスナーへ配る形で接続します。各構造が同じ責任を重複して持たないことが、3軸を独立に変えられる条件です。
 
-クラス分離を完成させるには、分離先だけでなく次の順で組み立てを確認します。
+### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
-| 判断 | 関連コードで確認すること |
-|---|---|
-| 誰が具体実装を選ぶか | `main()`、Application、Factory、Creator、Registryなど、業務処理の外側に選択を集める |
-| 誰が生成するか | 必要な依存を先に生成できる組み立て側が具体オブジェクトを生成する |
-| 誰が所有するか | スタック、スマートポインタ、所有コンテナのどれが破棄まで担うかを決める |
-| どう注入するか | 必須依存はコンストラクタ、増減する依存は登録操作、生成自体を替える場合は生成契約から渡す |
-| 利用側は何を知るか | 利用側は抽象契約だけを保持し、処理中に具体クラスを生成しない |
-| 追加時にどこを変えるか | 新しい実装クラスと組み立て・登録を変更し、安定させたい処理骨格へ具体名を戻さない |
+フェーズ1の1-3で作ったクラス図へフェーズ2〜5の判断を反映し、変更後の形へ更新します。
 
-生ポインタや参照で非所有の依存を保持する場合は、所有側の生存期間が利用側より長いことまで組み立てコードで確認します。
+| クラス図を変える材料 | 前工程で確認したこと | クラス図へ反映すること |
+|---|---|---|
+| フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
+| フェーズ2の変化予測 | 状態・通知先・承認ルールは別チームが増やす | 毎回変わる責任へ `【移す】` と注記する |
+| フェーズ4の原因 | `WorkflowManager` に状態・通知・承認判定が混在する | 同じクラスの中で `【残す】` と `【移す】` を分ける |
+| フェーズ5の接続点 | 進行入口は残し、状態・通知・承認を各契約へ委ねればよい | P1を `IWorkflowPhase`、P2を `INotificationListener`、P3を `IApprovalRule` へ置く |
 
-#### 課題IDごとのコード適用結果
+**薄い黄色が着目クラス**です。変更前では `WorkflowManager` の `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。矢印は1-3と同じ利用・実装・委譲関係です。
 
-| 課題ID | 候補を適用したコード | 段階的なコード変更と結果 | 守った契約・完了条件の判定 |
-|---|---|---|---|
-| P1 | `IWorkflowPhase::next()`、`DraftPhase`、`WorkflowManager::process()` | **段階的な変更：** 次状態判断をPhaseへ移し、`WorkflowManager::process()` を現在Phaseへの委譲と保存の骨格だけに変更<br>**結果：** 状態変更がPhaseへ閉じた | **守った契約：** 操作→次状態、保存、監査<br>**判定：** 達成、エラー時は状態不変 |
-| P2 | `INotificationListener`、登録、保存後ループ | **段階的な変更：** 保存処理に混ざった直接通知をListener登録へ移し、保存成功後の一律ループと失敗記録を接続<br>**結果：** 通知追加が実装と登録へ縮んだ | **守った契約：** 保存成功後、部分失敗継続<br>**判定：** 達成 |
-| P3 | `IApprovalRule`、部署別Rule、処理先頭判定 | **段階的な変更：** 固定承認判定をRuleへ移し、不許可時は状態・保存・通知へ進まず理由を記録する入口判定へ変更<br>**結果：** 条件変更がRuleへ閉じた | **守った契約：** 状態不変、理由ログ<br>**判定：** 達成 |
-
-### 6-3：構造の見立て（分解の結果、こうなる）
-
-分解して3つの契約とデータ配置を決めた結果、構造はこうなります。図は出発点ではなく結論です。
-
-現状（1メソッドに状態・通知・判定が同居）：
+**変更前のクラス図（1-3を責任見直し用に再掲）：**
 
 ```mermaid
 classDiagram
     direction LR
     class WorkflowManager {
-      if(状態×操作) + notify() + canApprove()
+        +process(requestId, operation, amount, approverId)
+        -notify(requestId)
     }
+    class WorkflowCaseRepository { +getState(id) string }
+    class NotificationTargetRepository { +getTarget(id) string }
+    class ApproverDatabase { +canApprove(id, amount) bool }
+    WorkflowManager --> WorkflowCaseRepository : 状態を読み書き
+    WorkflowManager --> NotificationTargetRepository : 通知先を読む
+    WorkflowManager --> ApproverDatabase : 承認者確認に使う
+
+    note for WorkflowManager "【残す】進行の公開入口\n【P1・移す】状態遷移の条件分岐\n【P2・移す】通知先ごとの通知\n【P3・移す】金額・承認者の判定"
+    note for WorkflowCaseRepository "【維持】状態の保存・取得"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "WorkflowManager" focus
 ```
 
-見立て（3軸を別々の契約へ、本体は進行の骨格）：
+変更前は `WorkflowManager` が状態遷移・通知・承認判定の3責務を抱え、状態追加・通知先追加・承認ルール変更のいずれでも同じ `process()` を開きます。
+
+P1〜P3をクラス図の変更として書くと、次の3操作になります。
+
+1. P1：状態が満たす契約 `IWorkflowPhase`（`handle`）を新設し、遷移判断を各Phaseへ移す（状態分離構造）。
+2. P2：通知先が満たす契約 `INotificationListener`（`onStatusChanged`）を新設し、登録制にする（通知分離構造）。
+3. P3：承認判定を担う契約 `IApprovalRule`（`canApprove`）を新設し、差し替え可能にする（ルール差し替え構造）。
+
+変更後は、`WorkflowManager` が進行骨格だけを持ち、状態・通知・承認判定がそれぞれの契約の裏へ移り、`process()` の混在分岐が消えたことを確認します。
+
+**採用した変更後のクラス図：**
 
 ```mermaid
 classDiagram
@@ -1337,51 +1150,148 @@ classDiagram
     INotificationListener <|.. ChatNotifier
     WorkflowManager --> ApprovalLog
     BatchApplication --> WorkflowManager
+
+    note for IWorkflowPhase "【P1・新設】状態遷移の契約（状態分離構造）"
+    note for INotificationListener "【P2・新設】通知の契約（通知分離構造）"
+    note for IApprovalRule "【P3・新設】承認判定の契約（ルール差し替え構造）"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "IWorkflowPhase,DraftPhase,PendingPhase,INotificationListener,EmailNotifier,IApprovalRule,ManagerApprovalRule" focus
 ```
 
-図から読み取ること：`WorkflowManager` から状態分岐・通知直呼び・判定が消え、3つの契約への依存だけが残る。3軸は互いに独立して差し替わる。
+クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-### 6-4：影響範囲（この設計で変更要求を再度当てたら）
-
-| 変更要求 | 修正する場所 | 再テスト範囲 |
-|---|---|---|
-| 承認ルートを追加（海外出張など） | `IWorkflowPhase` を実装した状態を追加 | 追加状態。**通知・判定は無変更** |
-| 通知先を追加 | `INotificationListener` を実装して登録 | 追加通知先。**状態・判定は無変更** |
-| 承認上限を部署別に変える | `IApprovalRule` を差し替え | ルール。**状態・通知は無変更** |
-
-現状との差：現状はどの軸を変えても `WorkflowManager` を開く。対策後は軸ごとに独立して差し替えられる。**この「独立して触れる」ことがこの構造を採る理由**です。
-
-### 採用する形を決める
-
-各案には一長一短があります。今回の課題は、承認状態・通知先・承認判定ルールという3つの変化軸を同じワークフロー本体で扱っていることです。「どの案がどの課題を解くのか」を順に比べます。
-
-| 案 | 解けること | 残ること | 今回の判断 |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
 |---|---|---|---|
-| 状態遷移だけ分ける | 申請イベントと承認ルート追加を状態ごとに扱える | 通知先・送信失敗と判定ルールの変更は残る | ルート追加には必要だが単独では不足 |
-| 通知だけ登録式にする | 通知先の増減と送信失敗の扱いを通知側へ寄せられる | 状態遷移と承認判定は本体に残る | 通知追加・失敗対応には必要だが単独では不足 |
-| 判定ルールだけ差し替える | 部署別上限など承認条件を局所化できる | 状態追加と通知追加は残る | ルール変更には必要だが単独では不足 |
-| 3つの境界を別々に作る | 状態・通知・判定を独立して変更できる | クラス数と組み立てが増える | 3軸すべてが変わるため採用する |
+| P1 | 状態遷移の契約 `IWorkflowPhase` を新設する | 各Phaseが `handle()` で遷移判断を持つ | ステップ1 |
+| P2 | 通知の契約 `INotificationListener` を新設する | 各Notifierが `onStatusChanged()` を実装し登録制にする | ステップ2 |
+| P3 | 承認判定の契約 `IApprovalRule` を新設する | 各Ruleが `canApprove()` を実装し差し替える | ステップ3 |
 
-**今回の決断：** フェーズ2のヒアリングで「海外出張ルートや限定フローが今後も追加される（承認ルートの変化）」「関連部署への通知追加ニーズが継続的にある（通知の変化）」「来期から部署ごとの承認上限制度に変わる（判定ルールの変化）」と明言されています。3つの独立した変化軸が確認できたため、今回は**状態分離・通知分離・ルール差し替えの3つの契約を別々に置く形を採用する**決断を下します。
+このクラス図が、P1〜P3を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
-> この構造は、第3章の**状態分離構造**、第7章の**通知分離構造**、第1章の**ルール差し替え構造**を、問題を分析した結果として組み合わせた第二部の集大成です。
+#### 課題箇所のおさらい（フェーズ3の関連コード）
 
-### どの構造を使うかの判断基準
+統合表で特定した箇所だけを振り返ります。P1は状態遷移の条件分岐、P2は通知先の直呼び、P3は金額・承認者の判定です。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
 
-3つの構造のどれを適用するかは、次のように順を追って確認できます。
-
-```mermaid
-flowchart TD
-    A[処理の流れや状態遷移が<br>複雑化しているか？]
-    A -->|Yes| B[ルールやアルゴリズムを<br>差し替えたいか？]
-    A -->|No| Z[構造不要]
-    B -->|Yes| C[状態の変化を<br>他に通知したいか？]
-    B -->|No| D[状態分離構造のみ検討]
-    C -->|Yes| E[3構造全て適用を検討]
-    C -->|No| F[状態分離構造 × ルール差し替え構造]
+```cpp
+// 現状：状態遷移・通知・承認判定が process() に混在する
+void WorkflowManager::process(const std::string& requestId,
+                              const std::string& operation,
+                              int amount, const std::string& approverId) {
+    std::string current = cases.getState(requestId);
+    if (current == "作成中" && operation == "提出") {   // P1: 状態遷移
+        cases.saveState(requestId, "審査待ち");
+        notify(requestId);                              // P2: 通知の直呼び
+    }
+    if (!approvers.canApprove(approverId, amount))      // P3: 承認判定
+        std::cout << "承認上限を超えています。" << std::endl;
+}
 ```
 
-フェーズ6で採用する設計（3つの契約・データ配置・構造・影響範囲）が決まりました。次のフェーズ7では、この決断を動く実装（`WorkflowCaseRepository`・各状態／リスナー／ルール・`WorkflowManager`・実行結果）に落とし込み、変更要求で効果を確認します。
+### 6-1：採用設計をコードへ段階的に反映する
+
+採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+
+#### 実装ステップ1（P1）：状態遷移の契約 `IWorkflowPhase` を定める
+
+各状態が満たす契約 `IWorkflowPhase` を定義し、遷移判断を各Phaseへ移します。`WorkflowManager` は現在状態へイベントを渡すだけです。
+
+```cpp
+class WorkflowManager;
+
+class IWorkflowPhase {
+public:
+    virtual ~IWorkflowPhase() = default;
+    virtual void handle(WorkflowManager& wm, WorkflowEvent ev) = 0;
+};
+
+class DraftPhase : public IWorkflowPhase {
+    void handle(WorkflowManager& wm, WorkflowEvent ev) override {
+        if (ev == WorkflowEvent::Submit) wm.transitionTo(/* 審査待ち */);
+    }
+};
+```
+
+**P1との対応：** `IWorkflowPhase <|.. DraftPhase` の実装関係と `WorkflowManager o--> IWorkflowPhase` の委譲を実装しました（状態分離構造）。状態追加は新Phaseと遷移元だけで済みます。
+
+#### 実装ステップ2（P2）：通知の契約 `INotificationListener` を定め、登録制にする
+
+通知先を `INotificationListener` に揃え、`WorkflowManager` は状態確定後に登録リスナーへ一律配布します。通知先追加は実装と登録に閉じます。
+
+```cpp
+class INotificationListener {
+public:
+    virtual ~INotificationListener() = default;
+    virtual void onStatusChanged(const std::string& requestId,
+                                 const std::string& newState) = 0;
+};
+
+class EmailNotifier : public INotificationListener {
+    void onStatusChanged(const std::string& id,
+                         const std::string& s) override { /* メール送信 */ }
+};
+```
+
+**P2との対応：** `INotificationListener <|.. EmailNotifier` の実装関係を実装しました（通知分離構造）。`ChatNotifier` も同じ形で、`WorkflowManager` は具体通知先を知りません。
+
+#### 実装ステップ3（P3）：承認判定の契約 `IApprovalRule` を差し替え可能にする
+
+承認可否の判定を `IApprovalRule` へ切り出し、状態（Phase）が判定を委ねます。SLA・部署別上限の変更はRule1クラスの差し替えに閉じます。
+
+```cpp
+class IApprovalRule {
+public:
+    virtual ~IApprovalRule() = default;
+    virtual bool canApprove(const std::string& approverId, int amount) = 0;
+};
+
+class ManagerApprovalRule : public IApprovalRule {
+    bool canApprove(const std::string& approverId, int amount) override {
+        return amount <= 500000;   // 課長承認上限
+    }
+};
+```
+
+**P3との対応：** `IApprovalRule <|.. ManagerApprovalRule` と `PendingPhase --> IApprovalRule` を実装しました（ルール差し替え構造）。ここで状態分離・通知分離・ルール差し替えの3構造が独立したまま接続されました。
+
+### 6-2：システム全体の契約とデータ配置を確定する
+
+採用システムの契約、生成場所、依存注入を一表で確定します。接続点で受け渡すのは、遷移を進める `WorkflowManager&` と、承認判定に使う `approverId`・`amount` です。状態保存と通知先取得はRepository境界に残します。
+
+```cpp
+class WorkflowManager {
+    IWorkflowPhase* phase;                         // P1: 現在状態
+    std::vector<INotificationListener*> listeners; // P2: 登録リスナー
+    WorkflowCaseRepository& cases;
+public:
+    void addListener(INotificationListener* l) { listeners.push_back(l); }
+    void process(WorkflowEvent ev) { phase->handle(*this, ev); }   // 委譲
+    void transitionTo(const std::string& s, const std::string& id) {
+        cases.saveState(id, s);                    // 保存はRepositoryへ
+        for (auto* l : listeners) l->onStatusChanged(id, s);  // P2: 一律通知
+    }
+};
+```
+
+| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |
+|---|---|---|
+| 何を分離するか | P1を `IWorkflowPhase`、P2を `INotificationListener`、P3を `IApprovalRule` へ置く | 状態遷移・通知先・承認ルール |
+| どこで生成・選択するか | 組み立て側（`BatchApplication`）がPhase・Listener・Ruleを注入する | 具体Phase・Listener・Ruleの選択 |
+| どう依存を渡すか | Phaseにはコンストラクタで、Listenerは登録で渡す | 各契約の実体 |
+| 安定側はどう実行するか | `WorkflowManager` は `process()` で現在状態へ委譲するだけ | 状態・通知・承認判定の中身 |
+
+Phase・Listener・Ruleは組み立て側が生成・注入し、`WorkflowManager` は非所有の契約ポインタを保持します。所有側の生存期間がManagerより長いことを組み立てコードで確認します。
+
+#### システム全体のコード適用結果
+
+| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |
+|---|---|---|---|
+| 状態・遷移追加をPhase1クラスに限定する | 状態分離構造の `IWorkflowPhase` 委譲 | 新Phaseと遷移元 | 達成 |
+| 通知先追加を実装と登録に限定する | 通知分離構造の登録リスナー | 新Listenerと登録 | 達成 |
+| 承認ルール変更をRule1クラスに限定する | ルール差し替え構造の `IApprovalRule` | 新Ruleと注入 | 達成 |
+| 進行入口とRepository境界を維持する | `process()` の委譲と状態保存・通知先取得 | 入口と境界を維持 | 達成 |
+
+**システム全体の実装結果：達成。** P1が状態分離構造、P2が通知分離構造、P3がルール差し替え構造で接続され、冒頭の完了条件をすべて満たしました。実際の動作と変更影響はフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 フェーズ7のコードは、フェーズ6のステップ1〜3で切り出した**3つの契約をそのまま引き継ぎ**、実運用に耐えるよう肉付けした完成形です。まず、フェーズ6のどの部品がフェーズ7のどのクラスへ育つかを対応づけます。
@@ -2158,7 +2068,7 @@ classDiagram
 
 完成後はStateが状態遷移、Strategyが承認判定、Observerが通知を担当します。状態保存と通知先取得はRepository境界に残り、パターンの役割へ混ぜません。
 
-#### 課題IDごとの完成コード結果
+#### 変更軸ごとの完成コード追跡
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |
 |---|---|---|---|
@@ -2209,18 +2119,28 @@ sequenceDiagram
 
 ### 7-3：変更影響グラフ（改善後）
 
+フェーズ3で確認した「変更要求：状態・遷移の追加」「新通知先追加」「部署別承認上限」のシナリオを、3-2と同じ粒度で再度適用します。
+
 ```mermaid
 graph LR
-    T1["変更要求：緊急ルート追加"]
-        --> F1["PriorityPendingPhase + DraftPhase + 組み立て"]
+    T1["変更要求：状態・遷移の追加"]
+        -->|新規追加| F1["PriorityPendingPhase<br>（IWorkflowPhase実装1クラス）"]
+    T2["変更要求：新通知先追加"]
+        -->|登録を追加| F2["新Listener + addListener<br>（INotificationListener実装）"]
+    T3["変更要求：部署別承認上限"]
+        -->|差し替え| F3["DeptApprovalRule<br>（IApprovalRule実装1クラス）"]
     T1 -. "影響なし" .-> A["WorkflowManager本体 ✅"]
-    T2["変更要求：新通知先追加"] --> F2["NotificationTargetRepositoryのデータ + 必要なら送信スタブ"]
     T2 -. "影響なし" .-> A
-    T3["変更要求：部署別承認上限"] --> F3["DeptApprovalRule + 注入箇所"]
     T3 -. "影響なし" .-> A
 ```
 
-フェーズ3の変更影響グラフと比べると、変更要求ごとの実装先が、状態・通知・判定ルールの各クラスへ分かれるようになりました。組み立て箇所への登録は必要ですが、`WorkflowManager` の実行骨格は変更せずに済みます。
+フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、P1の状態追加は `IWorkflowPhase` の実装1クラスへ、P2の通知先追加は `INotificationListener` の実装と登録へ、P3の承認上限変更は `IApprovalRule` の実装1クラスへ限定されました。`WorkflowManager` は3つの契約を別々に保持するため、どの軸の変更も他軸へ飛び火しません。
+
+| 3-2で影響した場所 | 修正後 | 構造変更との対応 |
+|---|---|---|
+| `process()` の状態遷移分岐（P1） | **修正しない** | 遷移判断を状態分離構造へ移した |
+| `process()` の通知直呼び（P2） | Listener追加と `addListener` 1行 | 通知を通知分離構造へ移した |
+| `process()` の金額・承認者判定（P3） | Ruleを1クラス差し替える | 判定をルール差し替え構造へ移した |
 
 ### 7-4：変更シナリオ表
 
