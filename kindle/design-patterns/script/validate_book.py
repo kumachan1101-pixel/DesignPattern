@@ -278,6 +278,15 @@ SYSTEM_STRUCTURE_MODE = {
     "chapter12.md": "combine",
 }
 
+# 2026-07-20 フェーズ再定義（RESTRUCTURE_PLAN.md）へ変換済みの章。
+#   v2章のフェーズ5: 接続点定義表（変わる側/守る側）+ 受け入れ条件付き引き渡し表。
+#            対策の先取り（「へ移す」「新設」）をフェーズ5に書かない。
+#   v2章のフェーズ6: 受け入れ条件（フェーズ5から引き継ぎ）+ 分離・配置・組み立ての決定。
+#            旧「システム全体の完了条件」語彙は禁止。
+#   v2章の全コード: 接続点コードの略記（「が続く」「も同様」）禁止。
+# 未登録章は旧形式（v1）の検証を維持し、章単位で移行する。
+SYSTEM_STRUCTURE_V2 = set()
+
 BANNED_PATTERNS = [
     (
         re.compile(r"直接（直差し）|間接（アダプター経由）"),
@@ -475,15 +484,27 @@ def check_system_structure_phase6(
     """変更軸の統合→システム構造→段階実装→全体判定を検証する。"""
     ln = line_number(text, p6)
     issues: list[Issue] = []
-    required = [
+    is_v2 = path.name in SYSTEM_STRUCTURE_V2
+    if is_v2:
+        condition_required = [
+            ("#### 受け入れ条件（フェーズ5から引き継ぎ）",
+             "v2章のフェーズ6に受け入れ条件の引き継ぎがありません"),
+            ("#### 接続点の分離・配置・組み立てを決める",
+             "v2章のフェーズ6に分離・配置・組み立ての決定がありません"),
+            ("| 決定 | ", "v2章のフェーズ6に分離・配置・組み立ての決定表がありません"),
+        ]
+    else:
+        condition_required = [
+            ("#### システム全体の完了条件を固定する",
+             "フェーズ6にシステム全体の完了条件がありません"),
+        ]
+    required = condition_required + [
         ("### 6-1", "フェーズ6に段階的なコード検討（6-1）がありません"),
         ("### 6-2", "フェーズ6に契約・データ配置（6-2）がありません"),
         ("#### 3-2の変更影響を、システム構造の材料へ統合する",
          "フェーズ6にP1・P2をシステム構造の材料へ統合する説明がありません"),
         ("| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |",
          "フェーズ6に変化軸・移す責任・守る範囲の統合表がありません"),
-        ("#### システム全体の完了条件を固定する",
-         "フェーズ6にシステム全体の完了条件がありません"),
         ("#### システム全体の最終構造を決める",
          "フェーズ6にコード作成前のシステム構造決定がありません"),
         ("### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
@@ -505,8 +526,9 @@ def check_system_structure_phase6(
          "フェーズ6に課題箇所だけのコードおさらいがありません"),
         ("#### システム全体のコード適用結果",
          "フェーズ6にシステム全体のコード適用結果がありません"),
-        ("| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |",
-         "フェーズ6にシステム全体の完了条件とコードの対応表がありません"),
+        (("| 受け入れ条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |" if is_v2
+          else "| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |"),
+         "フェーズ6に受け入れ条件（旧: 完了条件）とコードの対応表がありません"),
         ("| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |",
          "全章共通の分離・生成・依存注入・実行の問いと第1章の対応がありません"),
         ("#### 実装ステップ1", "採用設計の実装ステップ1がありません"),
@@ -519,9 +541,14 @@ def check_system_structure_phase6(
         if token not in sec:
             issues.append(Issue(path, ln, msg))
 
+    if is_v2 and "システム全体の完了条件" in sec:
+        issues.append(Issue(path, ln,
+            "v2章では旧語彙「システム全体の完了条件」を使わず受け入れ条件を参照してください"))
+
     order_tokens = [
         "#### 3-2の変更影響を、システム構造の材料へ統合する",
-        "#### システム全体の完了条件を固定する",
+        ("#### 受け入れ条件（フェーズ5から引き継ぎ）" if is_v2
+         else "#### システム全体の完了条件を固定する"),
         "#### システム全体の最終構造を決める",
         "### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
         "#### 課題箇所のおさらい（フェーズ3の関連コード）",
@@ -529,6 +556,8 @@ def check_system_structure_phase6(
         "### 6-2",
         "#### システム全体のコード適用結果",
     ]
+    if is_v2:
+        order_tokens.insert(2, "#### 接続点の分離・配置・組み立てを決める")
     positions = [sec.find(token) for token in order_tokens]
     if min(positions) >= 0 and positions != sorted(positions):
         issues.append(Issue(
@@ -652,14 +681,38 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
     p5 = text.find("## 🟡 フェーズ5")
     phase5_sec = text[p5:p6] if 0 <= p5 < p6 else ""
     handoff_heading = "#### フェーズ6へ渡す課題"
-    handoff_table_heading = "| 課題ID | 現在の変更影響 | 変えたくない範囲 |"
+    is_v2 = path.name in SYSTEM_STRUCTURE_V2
+    handoff_table_heading = (
+        "| 課題ID | 現在の変更影響 | 変えたくない範囲 | 受け入れ条件 |" if is_v2
+        else "| 課題ID | 現在の変更影響 | 変えたくない範囲 |"
+    )
     if handoff_heading not in phase5_sec:
         issues.append(Issue(path, ln, "フェーズ5末尾にフェーズ6へ渡す課題がありません"))
     if handoff_table_heading not in phase5_sec:
         issues.append(Issue(
             path, ln,
-            "フェーズ5の引き渡し表に課題ID・現在の変更影響・変えたくない範囲がありません",
+            "フェーズ5の引き渡し表に課題ID・現在の変更影響・変えたくない範囲"
+            + ("・受け入れ条件" if is_v2 else "") + "がありません",
         ))
+    if is_v2:
+        if "変わる側" not in phase5_sec or "守る側" not in phase5_sec:
+            issues.append(Issue(
+                path, ln,
+                "v2章のフェーズ5接続点定義表に変わる側・守る側がありません",
+            ))
+        for leak in ("へ移す", "を新設", "へ移し"):
+            if leak in phase5_sec:
+                issues.append(Issue(
+                    path, line_number(text, p5 + phase5_sec.find(leak)),
+                    f"v2章のフェーズ5に配置の先取り表現「{leak}」があります"
+                    "（分離先の決定はフェーズ6で行う）",
+                ))
+        for match in re.finditer(
+                r"//[^\n]*(?:が続く|も同様|同様に並ぶ)", text):
+            issues.append(Issue(
+                path, line_number(text, match.start()),
+                "v2章では接続点コードの略記（が続く/も同様）を使わず全分岐を記載してください",
+            ))
     if is_system_structure_phase6(sec):
         issues.extend(check_system_structure_phase6(
             text, path, p6, sec, phase5_sec, handoff_table_heading,
