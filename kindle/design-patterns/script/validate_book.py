@@ -501,6 +501,14 @@ def check_system_structure_phase6(
              "直接接続型のフェーズ6に分離・配置・組み立ての決定がありません"),
             ("| 決定 | システム全体の考え方 | P1のコードへの反映 | P2のコードへの反映 |",
              "直接接続型のフェーズ6に課題とコードを結ぶ決定表がありません"),
+            ("組み立て（生成・所有・登録・注入）",
+             "直接接続型のフェーズ6で組み立てに生成・所有・登録・注入が含まれていません"),
+            ("OrderProcessor processor(db, renderer, selector);",
+             "直接接続型のフェーズ6にSelectorを安定側へ注入するコードがありません"),
+            ("PaymentCalculator calculator(rule);",
+             "直接接続型のフェーズ6に選択結果で計算役を生成するコードがありません"),
+            ("CartPreviewService preview(rule);",
+             "直接接続型のフェーズ6に選択結果でプレビュー役を生成するコードがありません"),
         ]
     elif is_v2:
         condition_required = [
@@ -668,10 +676,10 @@ def check_system_structure_phase6(
 
     structure_heading = sec.find("### 対策検討のクラス図：1-3の責任と依存をどう変えるか")
     if is_direct_flow:
-        issue_table = "| 課題ID | 変化軸 | 変わる側（差し替えたい知識） | 守る側（安定させたい処理） |"
+        issue_table = "| 課題ID・接続点 | 接続するデータ | 変わる側 | 守る側 |"
         issue_start = phase5_sec.find(issue_table)
         issue_ids = re.findall(
-            r"(?m)^\|\s*(P\d+)\s*\|",
+            r"(?m)^\|\s*(P\d+)\s*[：|]",
             phase5_sec[issue_start:],
         ) if issue_start >= 0 else []
         handoff_ids = issue_ids
@@ -796,10 +804,7 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
         else "| 課題ID | 現在の変更影響 | 変えたくない範囲 |"
     )
     if is_direct_flow:
-        direct_issue_heading = (
-            "| 課題ID | 変化軸 | 変わる側（差し替えたい知識） | "
-            "守る側（安定させたい処理） |"
-        )
+        direct_issue_heading = "| 課題ID・接続点 | 接続するデータ | 変わる側 | 守る側 |"
         if direct_issue_heading not in phase5_sec:
             issues.append(Issue(
                 path, ln,
