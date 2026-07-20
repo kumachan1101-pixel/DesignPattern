@@ -499,9 +499,9 @@ def check_system_structure_phase6(
         condition_required = [
             ("#### 接続点の分離・配置・組み立てを決める",
              "直接接続型のフェーズ6に分離・配置・組み立ての決定がありません"),
-            ("| 決定 | システム全体の考え方 | P1のコードへの反映 | P2のコードへの反映 |",
+            ("| 接続点を変える観点 | システム全体の考え方 | P1のコードへの反映 | P2のコードへの反映 |",
              "直接接続型のフェーズ6に課題とコードを結ぶ決定表がありません"),
-            ("組み立て（生成・所有・登録・注入）",
+            ("組み立て方法（生成・所有・登録・注入）",
              "直接接続型のフェーズ6で組み立てに生成・所有・登録・注入が含まれていません"),
             ("OrderProcessor processor(db, renderer, selector);",
              "直接接続型のフェーズ6にSelectorを安定側へ注入するコードがありません"),
@@ -684,7 +684,7 @@ def check_system_structure_phase6(
         ) if issue_start >= 0 else []
         handoff_ids = issue_ids
         decision_start = sec.find(
-            "| 決定 | システム全体の考え方 | P1のコードへの反映 | P2のコードへの反映 |"
+            "| 接続点を変える観点 | システム全体の考え方 | P1のコードへの反映 | P2のコードへの反映 |"
         )
         decision_end = sec.find("#### システム全体の最終構造を決める")
         decision_sec = sec[decision_start:decision_end]

@@ -38,7 +38,7 @@
 
 ここで確認する対象は、どの在庫変動で通知が発生するかです。
 
-通知先リストは、利用者が在庫操作のたびに入力する値ではありません。商品マスタと通知先設定としてシステム側に登録され、在庫更新時に読み出されます。★以下の通知境界って何？通知先リストが、メールやチャットという意味か？
+通知を受け取る相手は倉庫担当者や在庫管理チームです。メール、ダッシュボード、チャットは、その相手へ届ける**通知手段**です。通知手段のアダプターは利用者が在庫操作のたびに入力するものではなく、システム起動時に登録され、在庫更新時に利用されます。
 
 **仕様整理図：保存データとアクセス関係**
 
@@ -46,8 +46,8 @@
 flowchart LR
     U["担当者<br>商品IDと出庫数を入力"] --> M["InventoryManager<br>在庫更新を実行"]
     M --> P["ProductDatabase<br>現在在庫・閾値"]
-    M --> N["NotificationRegistry<br>通知先リスト"]
-    N --> G["通知境界<br>メール・ダッシュボード・チャット"]
+    M --> N["NotificationRegistry<br>登録済み通知アダプター"]
+    N --> G["通知手段<br>メール・ダッシュボード・チャット"]
     M --> R["実行結果<br>在庫更新・通知結果"]
 
     classDef actor fill:#f8fafc,stroke:#64748b,color:#111827;
@@ -60,17 +60,15 @@ flowchart LR
     class G,R boundary;
 ```
 
-上の文章と表で仕様を一通り確認したので、まず正常に在庫更新できる場合の入力・判定・加工・出力の流れとして整理します。★以下のYES出なかった場合の分岐がないのは、どう解釈すればよいか。エラーになるという事か。エラーのフローを含めないなら、商品IDと出庫数をインプットにして、在庫数を更新に進めばよいのでは？ほかの章も使用整理図は大丈夫ですか？ほかの章も同じ指摘がないかタスク登録して
+上の文章と表で仕様を一通り確認したので、ここでは商品IDと出庫数の検証が済んだ**正常系**だけを、入力・加工・出力の順に整理します。商品不存在や在庫不足は、後段のエラー条件表で別に扱います。正常系の図に片側しかない判定を置かないのは、存在しない分岐を読者に推測させないためです。
 
 **仕様整理図：正常系の入力・判定・加工・出力**
 
 ```mermaid
 flowchart LR
-    A[/商品ID<br>PRD002/]:::input --> B{商品は存在するか}:::decision
-    C[/出庫数<br>3個/]:::input --> D{在庫は足りるか}:::decision
-    E[(登録済み通知先<br>メール・ダッシュボード・チャット)]:::data --> F[通知先を準備]:::process
-    B -->|Yes| D
-    D -->|Yes| G[在庫数を更新]:::process
+    A[/検証済みの商品ID<br>PRD002/]:::input --> G[在庫数を更新]:::process
+    C[/検証済みの出庫数<br>1個/]:::input --> G
+    E[(登録済み通知手段<br>メール・ダッシュボード・チャット)]:::data --> F[通知手段を準備]:::process
     G --> H{しきい値を下回るか}:::decision
     H -->|Yes| I[通知を送る]:::process
     F --> I
@@ -102,16 +100,15 @@ flowchart LR
 
 「閾値以下になったら全通知先へ」という動作は、発注漏れを防ぐための安全策です。一部の通知先だけに送ると、担当者によって情報の到達タイミングがずれてしまうため、同時に全員へ届ける設計になっています。
 
-**現在登録されている通知先**
+**現在登録されている受信者と通知手段**
 
-3つの通知先は、担当者の働く環境に応じて手段が分かれています。倉庫担当者はメール、在庫管理チームはダッシュボード、在庫担当者はチャットで受け取ります。
-★通知先が、メール土っておかしいでしょう、通知先は担当者ですよね
+受信者は人またはチームであり、メールなどは受信者へ届ける手段です。コード上の通知アダプターは、この通知手段の違いを担当します。
 
-| 通知先       | 通知手段      | 担当者     |
-| --------- | --------- | ------- |
-| メール通知     | メール       | 倉庫担当者   |
-| ダッシュボード更新 | 社内ダッシュボード | 在庫管理チーム |
-| チャット通知    | 社内チャット    | 在庫担当者   |
+| 受信者 | 通知手段 | コード上のアダプター |
+|---|---|---|
+| 倉庫担当者 | メール | `EmailNotifier` |
+| 在庫管理チーム | 社内ダッシュボード | `DashboardUpdater` |
+| 在庫担当者 | 社内チャット | `ChatNotifier` |
 
 この3つの通知先は、それぞれ異なるシステムや担当チームによって管理されています。メールはインフラ管理部門が、ダッシュボードはフロントエンドチームが、チャットは各部門のマネージャーが運用を担っています。
 
@@ -145,9 +142,9 @@ flowchart LR
 
 | シナリオ | 操作 | 通知・更新の結果 |
 | --- | --- | --- |
-| 在庫が閾値を下回る | ワイヤレスマウス（PRD001）の在庫を5減らす | 残数5（閾値10）→ 全通知先へ送信 |
-| 在庫が閾値ちょうどに減少（境界値） | USBハブ（PRD002）の在庫を3減らす | 残数5（閾値5）→ 全通知先へ送信 |
-| 在庫が補充される（閾値超え） | ワイヤレスマウス（PRD001）の在庫を20補充する | 残数25 → 送信されない・更新のみ |
+| 在庫が閾値を超えたまま減少 | ワイヤレスマウス（PRD001）の在庫を5減らす | 50→45（閾値10）→ 通知なし |
+| 在庫が閾値以下に減少 | USBハブ（PRD002）の在庫を1減らす | 3→2（閾値5）→ 全通知手段へ送信 |
+| 在庫が補充される（閾値超え） | ワイヤレスマウス（PRD001）の在庫を20補充する | 45→65 → 送信されない・更新のみ |
 | 在庫0の商品を減らす（エラー） | キーボード（PRD003）の在庫を1減らす | 出庫エラー・通知なし |
 | 存在しない商品ID（エラー） | PRD999を操作する | マスタ不存在エラー・通知なし |
 
@@ -178,9 +175,7 @@ classDiagram
         -EmailNotifier email
         -DashboardUpdater dashboard
         -ChatNotifier chat
-        -unordered_map stock
-        -int threshold
-        +setStock(productId, quantity)
+        -ProductDatabase db
         +reduceStock(productId, quantity)
         +replenishStock(productId, quantity)
         -notifyAll(message)
@@ -197,6 +192,7 @@ classDiagram
     class ProductDatabase {
         +exists(id)
         +get(id)
+        +save(id, info)
         +isBelowThreshold(id, stock)
     }
     InventoryManager --> EmailNotifier
@@ -210,10 +206,9 @@ classDiagram
 
 | クラス | メンバー・操作 | 何ができるか |
 |---|---|---|
-| `InventoryManager` | `stock` / `threshold` | 商品ごとの在庫数と通知しきい値を保持する |
-| `InventoryManager` | `setStock()` / `reduceStock()` / `replenishStock()` | 在庫数の初期設定、減少、補充を行う |
+| `InventoryManager` | `reduceStock()` / `replenishStock()` | 商品マスタの現在在庫を減少、補充する |
 | `InventoryManager` | `notifyAll()` | 在庫がしきい値を下回ったとき、各通知先へ通知する |
-| `ProductDatabase` | `exists()` / `isBelowThreshold()` | 商品IDの存在確認と、しきい値判定を行う |
+| `ProductDatabase` | `exists()` / `get()` / `save()` / `isBelowThreshold()` | 商品ID・現在在庫・しきい値を一元管理する |
 | `EmailNotifier` | `send()` | メール通知を送る |
 | `DashboardUpdater` | `update()` | ダッシュボード表示を更新する |
 | `ChatNotifier` | `send()` | チャット通知を送る |
@@ -260,7 +255,7 @@ classDiagram
 
 在庫数がアラート閾値以下になると、登録済みの通知先への通知が発火します。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
 
-この表の在庫数は商品マスタに登録された基準値です。後述の動作例では、減少・補充・在庫不足を短い手順で確認するため、`setStock()` で PRD001 を10個、PRD002を8個、PRD003を0個へ明示的に上書きしてから操作します。商品名とアラート閾値はマスタ値を使い、動作例の開始在庫だけをテスト条件として差し替えています。
+この表の在庫数を、そのまま動作例の開始値として使います。商品マスタとは別の在庫表を作ると、どちらが正しい値か分からなくなるため、`ProductDatabase` の `ProductInfo::stock` を唯一の在庫データとします。
 
 コードは責任の固まりごとに分けて読みます。
 
@@ -360,17 +355,8 @@ private:
     DashboardUpdater dashboard;
     ChatNotifier     chat;
     ProductDatabase  db;
-    unordered_map<string, int> stock;
 
 public:
-    void setStock(const string& productId, int quantity) {
-        if (!db.exists(productId)) {
-            cout << "[エラー] 商品ID " << productId
-                 << " はマスタに存在しません。" << endl;
-            return;
-        }
-        stock[productId] = quantity;
-    }
 
     void reduceStock(string productId, int quantity) {
         if (!db.exists(productId)) {
@@ -379,18 +365,22 @@ public:
                  << endl;
             return;
         }
-        if (stock[productId] <= 0) {
+        ProductInfo info = db.get(productId);
+        if (quantity <= 0 || quantity > info.stock) {
             cout << "[エラー] 商品 " << productId
-                 << " の在庫が0です。出庫できません。" << endl;
+                 << " は " << quantity << " 個出庫できません。現在在庫: "
+                 << info.stock << endl;
             return;
         }
 
-        stock[productId] -= quantity;
+        int before = info.stock;
+        info.stock -= quantity;
+        db.save(productId, info);
         cout << "商品 " << productId
-             << " の在庫を " << quantity << " 減らしました。残数: "
-             << stock[productId] << endl;
+             << " の在庫を " << quantity << " 減らしました。在庫: "
+             << before << " -> " << info.stock << endl;
 
-        if (db.isBelowThreshold(productId, stock[productId])) {
+        if (db.isBelowThreshold(productId, info.stock)) {
             string message = "商品 " + productId
                            + " の在庫が閾値以下です。";
             notifyAll(message);
@@ -404,10 +394,13 @@ public:
                  << endl;
             return;
         }
-        stock[productId] += quantity;
+        ProductInfo info = db.get(productId);
+        int before = info.stock;
+        info.stock += quantity;
+        db.save(productId, info);
         cout << "商品 " << productId
-             << " の在庫を " << quantity << " 補充しました。残数: "
-             << stock[productId] << endl;
+             << " の在庫を " << quantity << " 補充しました。在庫: "
+             << before << " -> " << info.stock << endl;
     }
 
 private:
@@ -422,35 +415,27 @@ private:
 
 `notifyAll()` が3つの通知先を名指しで直接呼び出しています。この `notifyAll()` が、通知先が増えるたびに修正される箇所です。
 
-★以下最初の処理で、setStockで、在庫状況を更新しています、上段で記載していた以下の在庫情報は使わないの？何のために用意したのか
-
-| 商品ID   | 商品名      | 在庫数 | アラート閾値         |
-| ------ | -------- | --- | -------------- |
-| PRD001 | ワイヤレスマウス | 50  | 10（閾値以上）       |
-| PRD002 | USBハブ    | 3   | 5（閾値以下→アラート発火） |
-| PRD003 | キーボード    | 0   | 5（在庫なし）        |
-
 **④ 実行して動作例と照合する（main）**
 
 ```cpp
 int main() {
     InventoryManager manager;
 
-    manager.setStock("PRD001", 10); // ワイヤレスマウス
-    manager.setStock("PRD002", 8);  // USBハブ
-    manager.setStock("PRD003", 0);  // キーボード
-
     cout << "--- 行1: PRD001を5減らす ---" << endl;
     manager.reduceStock("PRD001", 5);
 
-    cout << "--- 行2: PRD002を3減らす ---" << endl;
-    manager.reduceStock("PRD002", 3);
+
+    cout << "--- 行2: PRD002を1減らす ---" << endl;
+    manager.reduceStock("PRD002", 1);
+
 
     cout << "--- 行3: PRD001を20補充する ---" << endl;
     manager.replenishStock("PRD001", 20);
 
+
     cout << "--- 行4: PRD003を1減らす ---" << endl;
     manager.reduceStock("PRD003", 1);
+
 
     cout << "--- 行5: 存在しない商品IDを操作する ---" << endl;
     manager.reduceStock("PRD999", 1);
@@ -462,25 +447,24 @@ int main() {
 対応する動作例：1-2の動作例テーブル
 確認したいこと：入力、加工、出力が仕様どおりに対応していること
 
-★以下実行結果、区切り目は入れてくれているが、狭苦しいから、改行を入れてほしい。これは他の章にも同様に言える私的なので、タスク登録して
-
 実行結果：
 
 ```text
 --- 行1: PRD001を5減らす ---
-商品 PRD001 の在庫を 5 減らしました。残数: 5
-Email(1件): 商品 PRD001 の在庫が閾値以下です。
-Dashboard(1件): 商品 PRD001 の在庫が閾値以下です。
-Chat(1件): 商品 PRD001 の在庫が閾値以下です。
---- 行2: PRD002を3減らす ---
-商品 PRD002 の在庫を 3 減らしました。残数: 5
-Email(2件): 商品 PRD002 の在庫が閾値以下です。
-Dashboard(2件): 商品 PRD002 の在庫が閾値以下です。
-Chat(2件): 商品 PRD002 の在庫が閾値以下です。
+商品 PRD001 の在庫を 5 減らしました。在庫: 50 -> 45
+
+--- 行2: PRD002を1減らす ---
+商品 PRD002 の在庫を 1 減らしました。在庫: 3 -> 2
+Email(1件): 商品 PRD002 の在庫が閾値以下です。
+Dashboard(1件): 商品 PRD002 の在庫が閾値以下です。
+Chat(1件): 商品 PRD002 の在庫が閾値以下です。
+
 --- 行3: PRD001を20補充する ---
-商品 PRD001 の在庫を 20 補充しました。残数: 25
+商品 PRD001 の在庫を 20 補充しました。在庫: 45 -> 65
+
 --- 行4: PRD003を1減らす ---
-[エラー] 商品 PRD003 の在庫が0です。出庫できません。
+[エラー] 商品 PRD003 は 1 個出庫できません。現在在庫: 0
+
 --- 行5: 存在しない商品IDを操作する ---
 [エラー] 商品ID PRD999 はマスタに存在しません。処理を中断します。
 ```
@@ -494,7 +478,7 @@ Chat(2件): 商品 PRD002 の在庫が閾値以下です。
 ---
 
 > **手元で動かすには**
-> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter07.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。たとえば `manager.setStock("PRD010", 12);` で商品と在庫を足し、`manager.reduceStock("PRD010", 8);` を呼べば、追加した商品が閾値を下回ったときの全通知先への通知がその場の実行結果に表れます。在庫データはプロセス実行中だけ有効で、終了すると消えます（通知先への実送信は通知境界スタブで簡略化しています）。
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter07.cpp -o app && ./app`）。開始在庫は `ProductDatabase` の登録値を使います。在庫データはプロセス実行中だけ有効で、終了すると消えます（通知手段への実送信はアダプタースタブで簡略化しています）。
 
 ### 1-5：変更要求
 
@@ -546,21 +530,18 @@ Chat(2件): 商品 PRD002 の在庫が閾値以下です。
 
 **変更後の入力・加工・出力**
 
-変更後の仕様を、1-1と同じ粒度で、正常系の入力・判定・加工・出力として確認します。1-1の図との差分は、登録済み通知先にSMS（非同期）が加わり、通知を送った後に各通知先の受付結果を集める枝が増えることです。判定・在庫更新の流れ自体は変わりません。
+変更後の仕様も、1-1と同じく入力検証済みの正常系として確認します。登録済み通知手段にSMS（非同期）が加わり、通知後に受付結果を集める点だけが差分です。
 
 ```mermaid
 flowchart LR
-    A[/商品ID<br>PRD002/]:::input --> B{商品は存在するか}:::decision
-    C[/出庫数<br>3個/]:::input --> D{在庫は足りるか}:::decision
-    E[(登録済み通知先<br>メール・ダッシュ<br>チャット・SMS)]:::data --> F[通知先を準備]:::process
-    B -->|Yes| D
-    D -->|Yes| G[在庫数を更新]:::process
+    A[/検証済みの商品ID<br>PRD002/]:::input --> G[在庫数を更新]:::process
+    C[/検証済みの出庫数<br>1個/]:::input --> G
+    E[(登録済み通知手段<br>メール・ダッシュ<br>チャット・SMS)]:::data --> F[通知手段を準備]:::process
     G --> H{しきい値を下回るか}:::decision
-    H -->|Yes| I[各通知先へ同報]:::process
+    H -->|Yes| I[在庫警告を各手段へ配布]:::process
     F --> I
-    I --> L{受付結果を集める}:::decision
-    L -->|全て成功/保留| K([正常出力<br>在庫更新・通知完了]):::normal
-    L -->|一部失敗| M([正常出力<br>在庫更新・一部保留]):::normal
+    I --> L[受付結果を集める]:::process
+    L --> K([正常出力<br>在庫更新・通知受付結果]):::normal
     H -->|No| J([正常出力<br>在庫更新のみ]):::normal
 
     classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
@@ -667,7 +648,7 @@ flowchart LR
 | 🔴 **変動リスク高** | 通知先となるクラスの種類とその実装（音声通知システムなど）                                  | 業務要件の変更があるたび    | 田中部長との合意          |
 | 🔴 **変動リスク高** | 通知先の増減（動的な登録・解除）                                               | 随時              | 田中部長との合意          |
 | 🔴 **変動リスク高** | 通知先ごとの同期・非同期や受付失敗の扱い                                           | 送信基盤や外部連携が増えるたび | 田中部長との合意（在庫は止めない） |
-| 🟢 **当面安定**   | 「在庫減少」というイベントの発生タイミング★これどういう意味？在庫が減るタイミングの事？システム関係ないよね？ロジックの事？ | 今回は固定           | ロジックの骨格として合意      |
+| 🟢 **当面安定**   | 商品マスタの在庫更新が成功した後に、更新後在庫で閾値を判定して通知イベントを発生させる処理順 | 今回は固定 | 田中部長と確認した業務ロジック |
 
 通知先という「管理者が異なる知識」が今後も増え続けることが確定しました。今の `InventoryManager` クラスにこれ以上責任を背負わせるのは、そろそろ限界かもしれません。
 
@@ -704,59 +685,69 @@ flowchart LR
 実際に SMSNotifier を追加した変更後のコードは次のようになります。
 
 ```cpp
-// 既存の通知クラス（変更なし）
+// 通知手段ごとに表現を変えられる、共通の在庫警告データ
+struct StockAlert {
+    std::string productId;
+    std::string productName;
+    int stock;
+    int threshold;
+};
+
 class EmailNotifier {
 public:
-    void send(std::string msg) {
-        std::cout << "[Email] " << msg << std::endl;
+    void send(const StockAlert& a) {
+        std::cout << "[Email] 件名:在庫不足 / " << a.productName
+                  << " 残" << a.stock << " 閾値" << a.threshold << std::endl;
     }
 };
 class DashboardUpdater {
 public:
-    void update(std::string msg) {
-        std::cout << "[Dashboard] " << msg << std::endl;
+    void update(const StockAlert& a) {
+        std::cout << "[Dashboard] " << a.productId
+                  << " | 残" << a.stock << " | 要発注" << std::endl;
     }
 };
 class ChatNotifier {
 public:
-    void send(std::string msg) {
-        std::cout << "[Chat] " << msg << std::endl;
+    void send(const StockAlert& a) {
+        std::cout << "[Chat] " << a.productName
+                  << " 残" << a.stock << "個。発注を確認してください。" << std::endl;
     }
 };
 
-// 新規追加：SMS通知クラス
+// 新規追加：外部SMS基盤へ非同期送信を依頼し、受付だけを返す
 class SMSNotifier {
 public:
-    void send(std::string msg) {
-        std::cout << "[SMS] " << msg << std::endl;
+    void requestAsync(const StockAlert& a) {
+        std::cout << "[SMS受付] 在庫警告 " << a.productId
+                  << " 残" << a.stock << std::endl;
     }
 };
 
-// 変更後の InventoryManager（3箇所を修正）
+// 変更後の InventoryManager（具体的な通知手段を直接知る）
 class InventoryManager {
     EmailNotifier    email;
     DashboardUpdater dashboard;
     ChatNotifier     chat;
-    SMSNotifier      sms; // ← ①メンバ変数を追加
+    SMSNotifier      sms; // ← ①非同期SMSの具体型を追加
 public:
-    void reduceStock(std::string productId, int quantity) {
-        std::cout << "在庫減少: " << productId
-                  << " × " << quantity << std::endl;
-        std::string msg = productId + " の在庫が減少しました";
-        notifyAll(msg);
+    void reduceStock(const std::string& productId,
+                     const std::string& productName,
+                     int stockAfter, int threshold) {
+        notifyAll({productId, productName, stockAfter, threshold});
     }
 private:
-    void notifyAll(std::string msg) {
-        email.send(msg);
-        dashboard.update(msg);
-        chat.send(msg);
-        sms.send(msg); // ← ②notifyAll 内にも追加
+    void notifyAll(const StockAlert& alert) {
+        email.send(alert);
+        dashboard.update(alert);
+        chat.send(alert);
+        sms.requestAsync(alert); // ← ②SMS固有の呼び方を追加
     }
 };
 
 int main() {
-    InventoryManager mgr;
-    mgr.reduceStock("ITEM-001", 5);
+    InventoryManager manager;
+    manager.reduceStock("PRD002", "USBハブ", 2, 5);
     return 0;
 }
 ```
@@ -768,14 +759,13 @@ int main() {
 実行結果：
 
 ```
-在庫減少: ITEM-001 × 5
-[Email] ITEM-001 の在庫が減少しました
-[Dashboard] ITEM-001 の在庫が減少しました
-[Chat] ITEM-001 の在庫が減少しました
-[SMS] ITEM-001 の在庫が減少しました
+[Email] 件名:在庫不足 / USBハブ 残2 閾値5
+[Dashboard] PRD002 | 残2 | 要発注
+[Chat] USBハブ 残2個。発注を確認してください。
+[SMS受付] 在庫警告 PRD002 残2
 ```
 
-SMS通知が正しく追加されています。しかし `SMSNotifier` を1つ追加するだけで、`InventoryManager` のメンバ変数と `notifyAll` の2箇所を修正しなければなりませんでした。
+SMSはその場で配信完了を待たず、外部基盤への受付だけを行う非同期手段として追加しました。また、全手段へ完成済みの同一文字列を渡すのではなく、商品ID・商品名・在庫数・閾値という共通の `StockAlert` を渡し、メール、画面、チャット、SMSが用途に合う表現へ整形しています。それでも `SMSNotifier` を1つ追加するだけで、`InventoryManager` のメンバ変数と `notifyAll` の2箇所を修正し、固有メソッド `requestAsync()` まで知らなければなりません。
 
 ### 3-2：変更影響グラフ
 
@@ -890,7 +880,7 @@ graph LR
 ---
 
 ## 🟡 フェーズ5：課題定義 ―― 解くべき接続点を定める
-フェーズ4は「なぜ辛いか」を答えました。フェーズ5が問うのは「分けるべき境界で、実際に何が流れているか」です。クラスの参照関係ではなく、**値・型のレベル**に降りていきます。
+フェーズ4は「なぜ辛いか」を答えました。ここでは、3-2で波及した場所を起点に、変わる通知手段と守る在庫処理が接する場所を、値・型のレベルで一度だけ定義します。
 
 フェーズ4の分析により、問題は「通知元（`InventoryManager`）が通知先の具体名を知りすぎている」ことだと分かりました。その境界で何がやり取りされているかを具体化します。
 
@@ -898,68 +888,36 @@ graph LR
 
 接続点は、クラス図の線やインターフェース名から探すのではなく、変更要求を当てて特定します。まず、その要求で変えたい側と変えたくない側を分けます。次に、両者がどのメソッド呼び出し・引数・戻り値・生成・イベントでつながっているかを見ます。そのつながりのうち、変更要求のたびに知識が漏れて修正が波及する場所が、ここで解くべき接続点です。
 
-`notifyAll()` の中で分けるべき境界は「通知元 → 各通知先」の接続部分。各通知先に渡しているデータを見ます。
+`notifyAll()` の中で分けるべき境界は「通知元 → 各通知手段」の接続部分です。各手段に必要なのは完成済みの同一文面ではなく、手段ごとに文面を作れる在庫警告データです。
 
 現在の状況：`InventoryManager` は `email.send(msg)` / `dashboard.update(msg)` / `chat.send(msg)` という**異なるメソッド名・クラス名**を直接知っています。通知先が増えるたびにこの接続点の数が増えます。
 
-| 接続点 | 接続するデータ | 変わるもの |
-|---|---|---|
-| `InventoryManager` → 各通知先 | 通知メッセージ（`string`）を渡し、受付結果（`DeliveryResult`）を1つ受け取る | 通知先の種類・数、同期非同期の別、受付成否 |
+| 課題ID・接続点 | 接続するデータ | 変わる側 | 守る側 |
+|---|---|---|---|
+| P1：`InventoryManager` → 通知手段 | `StockAlert`（商品ID・商品名・更新後在庫・閾値）を渡し、`DeliveryResult`（成功・保留・失敗）を受け取る | 通知手段の種類・数、手段別の文面、同期／非同期、受付成否 | 商品確認、在庫更新、更新後の閾値判定、一部失敗でも在庫更新と他通知を止めない処理順 |
 
-接続点で渡すのは `string` のメッセージ、受け取るのは `DeliveryResult` という結果オブジェクトです。`DeliveryResult` は「受付成功・受付失敗・保留（非同期で結果は後）」の3状態だけを持ちます。同期の通知先は成功か失敗を即返し、非同期のSMSは保留を返します。この契約に揃えれば、通知元は結果の中身を細かく分岐せず、成功・失敗・保留の件数を数えるだけで済みます。
-
-### 何を変え、何を守るか
-
-- **変わるもの**：通知先の種類（EmailNotifier / DashboardUpdater / ChatNotifier … が増え続ける）と、通知先ごとの同期非同期・受付成否。新しい通知先が増えるたびに `InventoryManager` に知識が積み重なる。
-- **守りたい前提**：通知として渡すデータの型（`string` 型のメッセージ）と、返ってくる `DeliveryResult` の3状態。「何かを伝え、受付結果を1つ受け取る」という通知の行為そのもの。一部の通知先が失敗しても在庫更新と他通知を止めない骨格。
-
-`InventoryManager`に必要なのは「在庫が減ったことを知らせ、受付結果を集める」という役割です。問題は、「誰に・どのメソッドで・同期か非同期か・失敗したらどうするか」という知識まで抱えていることです。
+システム全体の課題は、在庫更新を行う `InventoryManager` から、通知手段の具体型・固有メソッド・文面・同期非同期を外すことです。そのうえで、在庫更新後に作った `StockAlert` を登録済み手段へ一律に渡し、共通の `DeliveryResult` を集約するところまでを安定側の責任として残します。
 
 **現状のままでよい場面**：通知先が固定され、登録・解除も不要で、すべて同期で成否も気にしないなら、現在の呼び出しを保つ判断もあります。今回は通知先が増減し、同期・非同期・部分失敗が混ざるため、通知元が同じ操作で通知でき、結果を共通の `DeliveryResult` で受け取れる契約を検討します。
 
 ---
 > **📌 課題（確定）**
-> 「通知元（`InventoryManager`）」と「通知先（`EmailNotifier`・`DashboardUpdater`・`ChatNotifier`・SMS）」を切り離す必要がある。渡すデータ（`string` 型のメッセージ）と受け取る `DeliveryResult` の3状態は安定しているため、「何を渡すか」ではなく「誰に渡すか・どのメソッドで渡すか・同期か非同期か・失敗をどう扱うか」という通知先の知識を `InventoryManager` から取り除くことが課題である。通知元は在庫イベントを出し、返ってきた受付結果を集約するところまでに徹する。
+> P1の接続点を `StockAlert → DeliveryResult` という契約へ揃え、通知手段の追加・文面・同期非同期を通知アダプター側へ閉じる。`InventoryManager` は、在庫更新後に警告データを作り、登録済み手段へ一律配布して結果を集約するところまでに徹する。
 ---
 
-問題・原因・課題の3点が揃いました。次のフェーズ6では、この課題を解消するための具体的な設計案を段階的に検討します。
-
----
-
-#### フェーズ6へ渡す課題
-
-| 課題ID | 現在の変更影響 | 変えたくない範囲 |
-|---|---|---|
-| P1 | 通知先追加で `InventoryManager` のメンバ、通知先別呼び出し、結果集計と在庫更新の再テストへ波及する | 商品・在庫検証、在庫更新、しきい値判定、既存通知先 |
-
-P1は「通知先追加の波及」です。フェーズ6では、通知実装と登録だけへ影響を閉じる理想を先に決めます。
+問題・原因・課題の3点が揃いました。次のフェーズ6では、このP1を入力として、システム全体の完成構造を決めます。
 
 ## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-P1を単独で解くのではなく、在庫イベントを出す通知元と、増減する通知先を同じ契約で疎結合に扱えるシステムを設計します。
+フェーズ5で定めた一つの接続点を、次の三つの観点で完成構造へ変換します。
 
-#### 3-2の変更影響を、システム構造の材料へ統合する
+| 接続点を変える観点 | システム全体の考え方 | P1のコードへの反映 |
+|---|---|---|
+| 分離方法 | 通知元には `StockAlert` の発行と `DeliveryResult` の集約だけを残し、手段別の送信・文面・同期非同期を外す | `INotification::send(const StockAlert&)` を境界にする |
+| 配置場所 | メール、画面、チャット、SMSの表現と送信方法は各具象通知クラスへ置く | 各クラスが同じ警告データから手段別の文面を作る |
+| 組み立て方法 | 組み立て側がDB・ログ・通知手段を生成して所有し、`InventoryManager` へDB・ログをコンストラクタ注入、通知手段を `attach()` で登録する | `InventoryManager` は非所有参照と非所有ポインタだけを保持し、具体型を知らず `send()` だけを呼ぶ |
 
-| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |
-|---|---|---|---|
-| P1 | 通知先追加で `InventoryManager` のメンバ・通知先別呼び出し・結果集計と在庫更新の再テストへ波及する | 通知先ごとの送信手段と受付結果の責任を各通知クラスと `INotification` 契約へ移す | 商品・在庫検証、在庫更新、しきい値判定、既存通知先 |
-
-#### システム全体の完了条件を固定する
-
-次の条件をすべて満たして、初めて対策完了とします。
-
-- 新しい通知先の追加を、通知1クラスと登録（`attach`）に限定する。
-- `InventoryManager` へ通知先別のメンバ・分岐・ループを増やさない。
-- 通知元は `string` メッセージを渡し、`DeliveryResult` の3状態（成功・保留・失敗）を集約するだけにする。
-- 商品・在庫検証、在庫更新、しきい値判定の位置と、一部通知失敗で他通知を止めない骨格を維持する。
-
-#### システム全体の最終構造を決める
-
-この章の最終構造は、競合する複数案から選ぶのではなく、完了条件から**一つに定まります**。通知先の知識を通知元から外し、通知元は登録された相手へ一律に配ると決めた時点で、「通知先が共通契約 `INotification` を満たし、`InventoryManager` が登録リストへ同じ操作で配る」**通知分離構造**以外に、上の完了条件を満たす形が残らないためです。
-
-通知先ごとに専用のメンバとループを通知元へ置く方式も理屈の上では置けますが、通知先が1種増えるたびに `InventoryManager` を触り、同期・非同期・部分失敗を同じ仕組みで扱えません。したがって当て馬を並べた比較は行いません（完成形が複数競合する章でのみ、構造差分を比較します）。
-
-一意に定まった通知分離構造を、`INotification`（共通契約）、`EmailNotifier`／`DashboardUpdater`／`ChatNotifier`／`SMSNotifier`（通知部品）、`InventoryManager`（通知元）、`StockEventLog`（在庫変動の記録）の責任として具体化します。
+この三観点を同時に満たす完成形は一つです。通知手段ごとの専用メンバを残す形はP1の波及を解消しない途中状態なので、比較案にはしません。採用するのは、共通契約を実装した通知アダプターを外側で生成・登録し、通知元が登録リストへ一律配布する通知分離構造です。
 
 ### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
@@ -995,7 +953,7 @@ classDiagram
     InventoryManager --> ChatNotifier : 直接呼び出し
     InventoryManager --> ProductDatabase : 存在確認・閾値判定
 
-    note for InventoryManager "【残す】在庫更新・しきい値判定\n【P1・移す】通知先別のメンバ・呼び出し・結果集計"
+    note for InventoryManager "【残す】在庫更新・しきい値判定\n【P1・移す】通知手段別のメンバ・呼び出し・文面"
     note for ProductDatabase "【維持】存在確認・閾値判定"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
@@ -1006,9 +964,9 @@ classDiagram
 
 P1をクラス図の変更として書くと、次の3操作になります。
 
-1. P1：通知先が満たす共通契約 `INotification`（`notify` と受付結果 `DeliveryResult`）を新設する。
-2. P1：各通知先を `INotification` 実装へ移し、送信手段と受付結果を通知クラス側へ閉じる。
-3. P1：`InventoryManager` を登録リスト（`attach`）と一律配布へ変え、`StockEventLog` に確定した在庫変動を記録する。
+1. P1：通知手段が満たす共通契約 `INotification`（`StockAlert` と受付結果 `DeliveryResult`）を新設する。
+2. P1：各通知手段を `INotification` 実装へ移し、文面・送信方法・受付結果を具象クラス側へ閉じる。
+3. P1：`InventoryManager` を登録リスト（`attach`）と一律配布へ変える。組み立て側が `ProductDatabase` と `StockEventLog` を注入し、在庫更新とログ記録を自動で連続実行させる。
 
 変更後は、通知元が具体型を知らず登録リストへ一律配布し、`InventoryManager` の通知先別メンバと分岐が消えたことを確認します。
 
@@ -1016,40 +974,63 @@ P1をクラス図の変更として書くと、次の3操作になります。
 
 ```mermaid
 classDiagram
-    class ProductDatabase
-    class StockEventLog
-    class InventoryManager
+    direction LR
+    class ProductDatabase {
+        +get(id) ProductInfo
+        +save(id, info)
+    }
+    class StockEventLog {
+        +add(event)
+        +printAll()
+    }
+    class StockAlert {
+        +productId
+        +productName
+        +stock
+        +threshold
+    }
+    class InventoryManager {
+        -ProductDatabase& db
+        -StockEventLog& eventLog
+        -vector~INotification*~ observers
+        +attach(observer)
+        +detach(observer)
+        +reduceStock(id, quantity)
+        +restoreStock(id, quantity)
+        -notifyAll(alert)
+    }
     class INotification {
         <<interface>>
-        +notify(message) DeliveryResult
+        +send(alert) DeliveryResult
     }
-    class EmailNotifier
-    class DashboardUpdater
-    class ChatNotifier
-    class SMSNotifier
-    InventoryManager o--> INotification
+    class EmailNotifier { +send(alert) DeliveryResult }
+    class DashboardUpdater { +send(alert) DeliveryResult }
+    class ChatNotifier { +send(alert) DeliveryResult }
+    class SMSNotifier { +send(alert) DeliveryResult }
+    InventoryManager --> ProductDatabase : 注入・在庫更新
+    InventoryManager --> StockEventLog : 注入・自動記録
+    InventoryManager o--> INotification : 登録・一律通知
+    InventoryManager ..> StockAlert : 作成
     INotification <|.. EmailNotifier
     INotification <|.. DashboardUpdater
     INotification <|.. ChatNotifier
     INotification <|.. SMSNotifier
-    InventoryManager --> ProductDatabase
-    InventoryManager --> StockEventLog
 
-    note for INotification "【P1・新設】通知の共通契約"
-    note for EmailNotifier "【P1・新設】送信手段と受付結果を内包する通知部品"
-    note for StockEventLog "【P1・新設】確定した在庫変動の記録"
+    note for INotification "【P1・新設】警告データと受付結果の共通契約"
+    note for EmailNotifier "【P1・配置】手段別の文面・送信・受付結果"
+    note for InventoryManager "【P1・安定側】在庫更新後に警告を一律配布"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "INotification,EmailNotifier,DashboardUpdater,ChatNotifier,SMSNotifier" focus
+    cssClass "InventoryManager,INotification,EmailNotifier,DashboardUpdater,ChatNotifier,SMSNotifier" focus
 ```
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
 | 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
 |---|---|---|---|
-| P1 | 共通契約 `INotification` を新設する | `notify(message)` を純粋仮想で定義し `DeliveryResult` を返す | ステップ1 |
-| P1 | 各通知先を契約実装へ移す | `EmailNotifier` などが `notify()` を実装する | ステップ2 |
-| P1 | 通知元を登録・一律配布へ変える | `InventoryManager` が `attach` と `notifyAll` を持つ | ステップ3 |
+| P1 | 共通契約 `INotification` を新設する | `send(const StockAlert&)` を純粋仮想で定義し `DeliveryResult` を返す | ステップ1 |
+| P1 | 各通知手段を契約実装へ移す | `EmailNotifier` などが手段別の文面を作って `send()` する | ステップ2 |
+| P1 | 通知元を登録・一律配布へ変える | `InventoryManager` がDB・ログの注入を受け、`attach` と `notifyAll` を持つ | ステップ3 |
 
 このクラス図が、P1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
@@ -1067,14 +1048,14 @@ class InventoryManager {
 public:
     void reduceStock(std::string productId, int quantity) {
         // 在庫更新・しきい値判定（維持）
-        notifyAll(productId + " の在庫が減少しました");
+        notifyAll({productId, productName, stockAfter, threshold});
     }
 private:
-    void notifyAll(std::string msg) {
-        email.send(msg);
-        dashboard.update(msg);   // ← 名前もシグネチャも通知先ごとに違う
-        chat.send(msg);
-        sms.send(msg);           // ← 通知先追加でここも増える
+    void notifyAll(const StockAlert& alert) {
+        email.send(alert);
+        dashboard.update(alert);   // ← 名前もシグネチャも通知先ごとに違う
+        chat.send(alert);
+        sms.requestAsync(alert);   // ← 通知先追加でここも増える
     }
 };
 ```
@@ -1085,54 +1066,61 @@ private:
 
 #### 実装ステップ1（P1）：通知の共通契約 `INotification` を定める
 
-すべての通知先が満たす契約 `INotification` を定義します。受付結果は成功・保留・失敗の3状態を持つ `DeliveryResult` に揃えます。
+すべての通知手段が満たす契約 `INotification` を定義します。入力は手段別に文面を作れる `StockAlert`、戻り値は成功・保留・失敗を持つ `DeliveryResult` に揃えます。
 
 ```cpp
 struct DeliveryResult {
     enum State { Accepted, Pending, Failed } state;
 };
 
+struct StockAlert {
+    std::string productId;
+    std::string productName;
+    int stock;
+    int threshold;
+};
+
 class INotification {
 public:
     virtual ~INotification() = default;
-    virtual DeliveryResult notify(const std::string& message) = 0;
+    virtual DeliveryResult send(const StockAlert& alert) = 0;
 };
 ```
 
-**P1との対応：** `INotification` を新設しました。通知元は種別を知らず、`notify()` だけを呼び、`DeliveryResult` を集めます。
+**P1との対応：** `INotification` を新設しました。通知元は種別を知らず、`send()` だけを呼び、`DeliveryResult` を集めます。
 
 #### 実装ステップ2（P1）：各通知先を契約実装へ移す
 
-各通知先は送信手段と受付結果を自分の中に閉じ、`notify()` で共通の `DeliveryResult` を返します。名前もシグネチャも揃うため、通知元は一律に呼べます。
+各通知手段は文面・送信方法・受付結果を自分の中に閉じ、`send()` で共通の `DeliveryResult` を返します。通知元は一律に呼べます。
 
 ```cpp
 class EmailNotifier : public INotification {
 public:
-    DeliveryResult notify(const std::string& message) override {
-        // メール送信（同期）：受付できたら Accepted
+    DeliveryResult send(const StockAlert& alert) override {
+        // StockAlertからメール向け件名・本文を作って同期送信する
         return { DeliveryResult::Accepted };
     }
 };
 ```
 
-**P1との対応：** `INotification <|.. EmailNotifier` の実装関係を実装しました。`DashboardUpdater`・`ChatNotifier`・`SMSNotifier` も同じ形で、送信手段と同期非同期の差だけを内側に持ちます。
+**P1との対応：** `INotification <|.. EmailNotifier` の実装関係を実装しました。`DashboardUpdater`・`ChatNotifier`・`SMSNotifier` も同じ入力から手段別の文面を作り、同期非同期の差を内側に持ちます。
 
 #### 実装ステップ3（P1）：通知元を登録・一律配布へ変える
 
-`InventoryManager` は通知先を `attach` で登録リストへ持ち、在庫更新後に登録相手へ一律配布して結果を集約します。通知先別のメンバも分岐も持ちません。
+`InventoryManager` は通知アダプターを `attach` で登録リストへ持ち、在庫更新とログ記録の後に `StockAlert` を一律配布して結果を集約します。手段別のメンバも分岐も持ちません。
 
 ```cpp
 InventoryManager manager(productDatabase, stockEventLog);
 manager.attach(&emailNotifier);
 manager.attach(&smsNotifier);
-manager.reduceStock("ITEM-001", 5);  // 在庫更新→登録先へ一律 notify
+manager.reduceStock("PRD002", 1);  // 在庫更新・自動記録→登録先へ一律 send
 ```
 
 **P1との対応：** `InventoryManager o--> INotification` の登録関係を実装しました。ここで通知元と通知先が一つの通知分離構造として接続されました。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
-採用システムの契約、生成場所、依存注入を一表で確定します。接続点で受け渡すのは `string` メッセージと `DeliveryResult` です。通知の成否は在庫更新を巻き戻さず、`StockEventLog` は確定した在庫変動を記録します。
+採用システムの生成・所有・登録・注入を確認します。接続点で受け渡すのは `StockAlert` と `DeliveryResult` です。通知の成否は在庫更新を巻き戻さず、`InventoryManager` が確定した在庫変動を `StockEventLog` へ自動記録します。
 
 ```cpp
 class StockEventLog {
@@ -1145,23 +1133,14 @@ public:
 
 | 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |
 |---|---|---|
-| 何を分離するか | P1の送信手段・受付結果を各通知クラスと `INotification` へ置く | 通知先の種類・数・同期非同期 |
-| どこで生成・選択するか | 組み立て側が通知先を生成し `attach` で登録する | 具体通知クラスの選択 |
-| どう依存を渡すか | 登録時に `INotification*` を通知元へ渡す | 通知先クラスの実体 |
-| 安定側はどう実行するか | 通知元は登録先へ一律 `notify()` を呼ぶ | 何件が同期で何件が非同期か |
+| 分離方法 | P1の文面・送信手段・受付結果を各通知クラスと `INotification` へ置く | 通知手段の種類・数・文面・同期非同期 |
+| 配置場所 | 在庫更新と警告生成は `InventoryManager`、手段別処理は具象通知クラスに置く | 具体的な配信処理 |
+| 組み立て方法 | 組み立て側がDB・ログ・通知手段を生成・所有し、DB・ログをコンストラクタ注入、通知手段を `attach` 登録する | 具体クラスの生成と生存期間 |
+| 安定側の実行 | 通知元は登録先へ一律 `send(alert)` を呼ぶ | 何件が同期で何件が非同期か |
 
-通知先は組み立て側が所有し、通知元は非所有の `INotification*` を登録リストで保持します。所有側の生存期間が通知元より長いことを組み立てコードで確認します。
+DB、ログ、通知アダプターは組み立て側が生成・所有します。通知元はDBとログを参照で受け取り、通知アダプターは非所有の `INotification*` として登録します。所有側の生存期間が通知元より長いことを組み立てコードで確認します。
 
-#### システム全体のコード適用結果
-
-| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |
-|---|---|---|---|
-| 通知先追加を1クラスと登録に限定する | 通知クラスと `attach` 登録 | 新通知クラスと登録 | 達成 |
-| 通知元へ分岐・ループを増やさない | `InventoryManager` は `INotification` だけを扱う | 通知元の修正なし | 達成 |
-| 同じ契約で結果を集約する | `notify()` と `DeliveryResult` の3状態 | 成功・保留・失敗を数える | 達成 |
-| 検証・在庫更新・骨格を維持する | `ProductDatabase` 検証と在庫更新の位置 | 位置を維持し部分失敗で止めない | 達成 |
-
-**システム全体の実装結果：達成。** P1の責任が通知分離構造で接続され、冒頭の完了条件をすべて満たしました。実際の動作と変更影響はフェーズ7で確認します。
+ここまでで、P1は「具象通知クラスと登録だけが変わる構造」へ変換されました。`InventoryManager` の在庫更新・閾値判定・結果集約は具体的な通知手段を知らず、DB更新後のログも利用者の追加操作ではなく同じ処理内で記録されます。実行結果と変更影響は、完成コードを示した後のフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 フェーズ6のステップ3を実装し、通知元が通知先の種類を知らなくてよい構造へ変えます。`InventoryManager`は登録済みの通知先へ同じ操作を呼び出します。
@@ -1229,19 +1208,27 @@ enum DeliveryStatus { ACCEPTED, PENDING, FAILED };
 
 struct DeliveryResult {
     DeliveryStatus status; // 受付成功・保留(非同期)・受付失敗
-    string channel;        // どの通知先か
+    string channel;        // どの通知手段か
+};
+
+// 通知手段ごとに表現を変えるための、共通の在庫警告データ
+struct StockAlert {
+    string productId;
+    string productName;
+    int stock;
+    int threshold;
 };
 
 // 通知先が満たす必要がある契約（インターフェース）
 class INotification {
 public:
     virtual ~INotification() = default;
-    // メッセージを受け取り、受付結果を1つ返す
-    virtual DeliveryResult send(string m) = 0;
+    // 在庫警告を受け取り、手段別に表現して受付結果を1つ返す
+    virtual DeliveryResult send(const StockAlert& alert) = 0;
 };
 ```
 
-`ProductDatabase` が商品マスタを保持し、`INotification` がすべての通知先クラスが守るべき「契約」を定義します。契約の戻り値を `DeliveryResult` に揃えたことで、同期の通知先は受付成功か失敗を即返し、非同期の通知先は保留を返せます。通知元は結果の中身を分岐せず、成功・保留・失敗の件数を数えるだけで済みます。次に、在庫変動の履歴を記録するログクラスを追加します。
+`ProductDatabase` が商品マスタと現在在庫を一元管理します。`INotification` は、完成済みの同一文面ではなく `StockAlert` を受け取る契約です。各通知手段は自分の用途に合う文面を作れます。戻り値を `DeliveryResult` に揃えたため、同期の通知手段は受付成功か失敗を即返し、非同期のSMSは保留を返せます。
 
 **② 在庫変動ログ（StockEvent / StockEventLog）**
 
@@ -1287,9 +1274,12 @@ public:
 class EmailNotifier : public INotification {
     vector<string> inbox;
 public:
-    DeliveryResult send(string m) override {
-        inbox.push_back(m);
-        cout << "Email(" << inbox.size() << "件): " << m << endl;
+    DeliveryResult send(const StockAlert& a) override {
+        string text = "件名:在庫不足 / " + a.productName
+                    + "(" + a.productId + ") 残" + to_string(a.stock)
+                    + " 閾値" + to_string(a.threshold);
+        inbox.push_back(text);
+        cout << "Email(" << inbox.size() << "件): " << text << endl;
         return {ACCEPTED, "Email"};
     }
 };
@@ -1300,9 +1290,10 @@ public:
 class DashboardUpdater : public INotification {
     vector<string> inbox;
 public:
-    DeliveryResult send(string m) override {
-        inbox.push_back(m);
-        cout << "Dashboard(" << inbox.size() << "件): " << m << endl;
+    DeliveryResult send(const StockAlert& a) override {
+        string text = a.productId + " | 残" + to_string(a.stock) + " | 要発注";
+        inbox.push_back(text);
+        cout << "Dashboard(" << inbox.size() << "件): " << text << endl;
         return {ACCEPTED, "Dashboard"};
     }
 };
@@ -1313,9 +1304,11 @@ public:
 class ChatNotifier : public INotification {
     vector<string> inbox;
 public:
-    DeliveryResult send(string m) override {
-        inbox.push_back(m);
-        cout << "Chat(" << inbox.size() << "件): " << m << endl;
+    DeliveryResult send(const StockAlert& a) override {
+        string text = a.productName + " 残" + to_string(a.stock)
+                    + "個。発注を確認してください。";
+        inbox.push_back(text);
+        cout << "Chat(" << inbox.size() << "件): " << text << endl;
         return {ACCEPTED, "Chat"};
     }
 };
@@ -1331,19 +1324,20 @@ class SMSNotifier : public INotification {
     vector<string> inbox;  // 受付できた通知だけを蓄積する
 public:
     SMSNotifier(bool fail) : willFail(fail) {}
-    DeliveryResult send(string m) override {
+    DeliveryResult send(const StockAlert& a) override {
         if (willFail) {
             cout << "SMS: 受付失敗（後で再送対象）" << endl;
             return {FAILED, "SMS"};
         }
-        inbox.push_back(m);
-        cout << "SMS(" << inbox.size() << "件受付): " << m << endl;
+        string text = "在庫警告 " + a.productId + " 残" + to_string(a.stock);
+        inbox.push_back(text);
+        cout << "SMS(" << inbox.size() << "件受付): " << text << endl;
         return {PENDING, "SMS"};
     }
 };
 ```
 
-4つの通知先クラスはいずれも `INotification` を実装しているだけで、互いの存在を知りません。また `InventoryManager` の存在も知りません。同期の3つは受付成功を、非同期のSMSは保留か失敗を返しますが、いずれも同じ `DeliveryResult` 契約で返します。
+4つの通知クラスはいずれも `INotification` を実装し、同じ `StockAlert` から用途別の表現を作ります。同期の3つは受付成功を、非同期のSMSは保留か失敗を返しますが、戻り値は同じ `DeliveryResult` 契約です。
 
 **④ 在庫を管理するクラス（InventoryManager）**
 
@@ -1355,10 +1349,13 @@ class InventoryManager {
 private:
     // 非所有ポインタ。登録中の通知先はInventoryManagerより長く生存すること。
     vector<INotification*> observers;
-    ProductDatabase         db;
-    map<string, int>        stock;
+    ProductDatabase&        db;
+    StockEventLog&          eventLog;
 
 public:
+    InventoryManager(ProductDatabase& database, StockEventLog& log)
+        : db(database), eventLog(log) {}
+
     // nullと重複登録を拒否する
     bool attach(INotification* o) {
         if (o == nullptr) return false;
@@ -1377,16 +1374,6 @@ public:
             observers.end());
     }
 
-    // 在庫の初期値を設定する
-    void setStock(const string& productId, int quantity) {
-        if (!db.exists(productId)) {
-            cout << "[エラー] 商品ID " << productId
-                 << " はマスタに存在しません。" << endl;
-            return;
-        }
-        stock[productId] = quantity;
-    }
-
     void reduceStock(string productId, int quantity) {
         if (!db.exists(productId)) {
             cout << "[エラー] 商品ID " << productId
@@ -1394,21 +1381,26 @@ public:
                  << endl;
             return;
         }
-        if (stock[productId] <= 0) {
+        ProductInfo info = db.get(productId);
+        if (quantity <= 0 || quantity > info.stock) {
             cout << "[エラー] 商品 " << productId
-                 << " の在庫が0です。出庫できません。" << endl;
+                 << " は " << quantity << " 個出庫できません。現在在庫: "
+                 << info.stock << endl;
             return;
         }
 
-        int before = stock[productId];
-        stock[productId] -= quantity;
+        int before = info.stock;
+        info.stock -= quantity;
+        db.save(productId, info);
+        eventLog.add(productId, info.name, "出荷", quantity, info.stock);
         cout << "商品 " << productId
              << " の在庫を " << quantity << " 減らしました。"
              << " 在庫: " << before
-             << " -> " << stock[productId] << endl;
+             << " -> " << info.stock << endl;
 
-        if (db.isBelowThreshold(productId, stock[productId])) {
-            notifyAll("商品 " + productId + " の在庫が閾値以下です。");
+        if (db.isBelowThreshold(productId, info.stock)) {
+            eventLog.add(productId, info.name, "閾値警告", quantity, info.stock);
+            notifyAll({productId, info.name, info.stock, info.alertThreshold});
         }
     }
 
@@ -1419,22 +1411,24 @@ public:
                  << endl;
             return;
         }
-        // 補充は閾値を超えるため通知しない
-        int before = stock[productId];
-        stock[productId] += quantity;
+        ProductInfo info = db.get(productId);
+        int before = info.stock;
+        info.stock += quantity;
+        db.save(productId, info);
+        eventLog.add(productId, info.name, "入荷", quantity, info.stock);
         cout << "商品 " << productId
              << " の在庫を " << quantity
              << " 補充しました。在庫: " << before
-             << " -> " << stock[productId]
+             << " -> " << info.stock
              << "（通知なし）" << endl;
     }
 
 private:
     // 各通知先の受付結果を集計する。通知先の種類ごとに分岐しない
-    void notifyAll(string message) {
+    void notifyAll(const StockAlert& alert) {
         int accepted = 0, pending = 0, failed = 0;
         for (auto* o : observers) {
-            DeliveryResult r = o->send(message);
+            DeliveryResult r = o->send(alert);
             if (r.status == ACCEPTED)      accepted++;
             else if (r.status == PENDING)  pending++;
             else                           failed++;
@@ -1446,7 +1440,7 @@ private:
 };
 ```
 
-`InventoryManager` は `INotification*` のリストと `ProductDatabase` を持ちます。商品IDの存在確認と閾値判定はデータベース経由で行うため、マスタに存在しないIDや在庫0の出庫操作はエラーとして中断されます。`EmailNotifier` や `SMSNotifier` の名前は知りません。通知元は各通知先へ同じ `send` を呼び、返ってきた `DeliveryResult` を成功・保留・失敗として数えるだけです。SMSが受付に失敗しても在庫更新と他通知は止まらず、SMSだけが失敗として集計されます。この例のポインタは非所有なので、登録中の通知先は `InventoryManager` が通知を終えるまで生存させ、破棄前に `detach()` します。
+`InventoryManager` は注入された `ProductDatabase` を唯一の在庫データとして更新し、その処理内で `StockEventLog` へ自動記録します。利用者が更新後にログを手動追加する必要はありません。通知時は `StockAlert` を作り、各手段へ同じ `send` を呼ぶだけです。SMSが受付に失敗しても在庫更新と他通知は止まらず、SMSだけが失敗として集計されます。この例の通知ポインタは非所有なので、組み立て側が通知中の生存期間を保証します。
 
 > [!NOTE] 応用：通知中の通知先リスト変更（再入可能性）について
 > 本書の実装では、`notifyAll` をシンプルなループで処理しています。もし「通知処理（`send`）を実行している最中に、ある通知先が自分自身を `detach`（登録解除）する」といった複雑な動的変更が発生する場合、反復子が破損してクラッシュする原因になります。実務の設計でそのような動的変更に対応する必要がある場合は、`notifyAll` 開始時にリストのコピー（スナップショット）を作成し、そのコピーに対してループを回すといった再入可能性への対策が必要になります。
@@ -1455,46 +1449,43 @@ private:
 
 ```cpp
 int main() {
-    // 全通知先を登録した状態。SMSは非同期（受付は成功する設定）
-    InventoryManager manager;
+    // 組み立て側が依存を生成・所有し、InventoryManagerへ注入・登録する
+    ProductDatabase  productDatabase;
+    StockEventLog    eventLog;
     EmailNotifier    email;
     DashboardUpdater dashboard;
     ChatNotifier     chat;
     SMSNotifier      sms(false);   // false: 受付成功→保留を返す
+    InventoryManager manager(productDatabase, eventLog);
 
     manager.attach(&email);
     manager.attach(&dashboard);
     manager.attach(&chat);
     manager.attach(&sms);
 
-    // 在庫の初期値を設定する（マスタの閾値はProductDatabaseが持つ）
-    manager.setStock("PRD001", 50);
-    manager.setStock("PRD002", 3);
-
-    StockEventLog eventLog;
-
     // PRD001: 在庫50、閾値10 → 5減らしても閾値超えのまま
     cout << "--- 行1: 在庫が閾値以下に減少（通常） ---" << endl;
     manager.reduceStock("PRD001", 5);
-    eventLog.add("PRD001", "ワイヤレスマウス", "出荷", 5, 45);
+    cout << endl;
 
     // PRD002: 在庫3、閾値5 → 最初から閾値以下。SMSは保留を返す
     cout << "--- 行2: 在庫が閾値以下に減少（同期3件＋非同期SMS） ---" << endl;
     manager.reduceStock("PRD002", 1);
-    eventLog.add("PRD002", "USBハブ", "出荷", 1, 2);
-    eventLog.add("PRD002", "USBハブ", "閾値警告", 1, 2);
+    cout << endl;
 
     cout << "--- 行3: 在庫が補充された（閾値超え） ---" << endl;
     manager.restoreStock("PRD001", 20);
-    eventLog.add("PRD001", "ワイヤレスマウス", "入荷", 20, 65);
+    cout << endl;
 
     // PRD003: 在庫0 → 出庫エラー
     cout << "--- 行4: 在庫0の出庫操作 ---" << endl;
     manager.reduceStock("PRD003", 1);
+    cout << endl;
 
     // 行5: 存在しない商品IDのエラー確認
     cout << "--- 行5: 存在しない商品IDを操作する ---" << endl;
     manager.reduceStock("PRD999", 1);
+    cout << endl;
 
     // 行6: SMSを受付失敗する設定へ差し替え、部分失敗を確認する
     cout << "--- 行6: SMSだけ受付失敗（部分失敗） ---" << endl;
@@ -1502,8 +1493,6 @@ int main() {
     manager.detach(&sms);
     manager.attach(&smsFail);
     manager.reduceStock("PRD002", 1);
-    eventLog.add("PRD002", "USBハブ", "出荷", 1, 1);
-    eventLog.add("PRD002", "USBハブ", "閾値警告", 1, 1);
 
     cout << "\n--- 在庫変動ログ ---\n";
     eventLog.printAll();
@@ -1521,24 +1510,29 @@ int main() {
 ```
 --- 行1: 在庫が閾値以下に減少（通常） ---
 商品 PRD001 の在庫を 5 減らしました。 在庫: 50 -> 45
+
 --- 行2: 在庫が閾値以下に減少（同期3件＋非同期SMS） ---
 商品 PRD002 の在庫を 1 減らしました。 在庫: 3 -> 2
-Email(1件): 商品 PRD002 の在庫が閾値以下です。
-Dashboard(1件): 商品 PRD002 の在庫が閾値以下です。
-Chat(1件): 商品 PRD002 の在庫が閾値以下です。
-SMS(1件受付): 商品 PRD002 の在庫が閾値以下です。
+Email(1件): 件名:在庫不足 / USBハブ(PRD002) 残2 閾値5
+Dashboard(1件): PRD002 | 残2 | 要発注
+Chat(1件): USBハブ 残2個。発注を確認してください。
+SMS(1件受付): 在庫警告 PRD002 残2
 [受付結果] 成功:3 保留:1 失敗:0
+
 --- 行3: 在庫が補充された（閾値超え） ---
 商品 PRD001 の在庫を 20 補充しました。在庫: 45 -> 65（通知なし）
+
 --- 行4: 在庫0の出庫操作 ---
-[エラー] 商品 PRD003 の在庫が0です。出庫できません。
+[エラー] 商品 PRD003 は 1 個出庫できません。現在在庫: 0
+
 --- 行5: 存在しない商品IDを操作する ---
 [エラー] 商品ID PRD999 はマスタに存在しません。処理を中断します。
+
 --- 行6: SMSだけ受付失敗（部分失敗） ---
 商品 PRD002 の在庫を 1 減らしました。 在庫: 2 -> 1
-Email(2件): 商品 PRD002 の在庫が閾値以下です。
-Dashboard(2件): 商品 PRD002 の在庫が閾値以下です。
-Chat(2件): 商品 PRD002 の在庫が閾値以下です。
+Email(2件): 件名:在庫不足 / USBハブ(PRD002) 残1 閾値5
+Dashboard(2件): PRD002 | 残1 | 要発注
+Chat(2件): USBハブ 残1個。発注を確認してください。
 SMS: 受付失敗（後で再送対象）
 [受付結果] 成功:3 保留:0 失敗:1
 
@@ -1559,19 +1553,54 @@ SMS: 受付失敗（後で再送対象）
 
 ```mermaid
 classDiagram
-    class ProductDatabase
-    class StockEventLog
-    class InventoryManager
-    class INotification { <<interface>> }
-    class EmailNotifier
-    class DashboardUpdater
-    class ChatNotifier
-    class SMSNotifier
-    InventoryManager o--> INotification
+    direction LR
+    class ProductDatabase {
+        +get(id) ProductInfo
+        +save(id, info)
+    }
+    class StockEventLog {
+        +add(event)
+        +printAll()
+    }
+    class StockAlert {
+        +productId
+        +productName
+        +stock
+        +threshold
+    }
+    class InventoryManager {
+        -ProductDatabase& db
+        -StockEventLog& eventLog
+        -vector~INotification*~ observers
+        +attach(observer)
+        +detach(observer)
+        +reduceStock(id, quantity)
+        +restoreStock(id, quantity)
+        -notifyAll(alert)
+    }
+    class INotification {
+        <<interface>>
+        +send(alert) DeliveryResult
+    }
+    class EmailNotifier { +send(alert) DeliveryResult }
+    class DashboardUpdater { +send(alert) DeliveryResult }
+    class ChatNotifier { +send(alert) DeliveryResult }
+    class SMSNotifier { +send(alert) DeliveryResult }
+    InventoryManager --> ProductDatabase : 注入・在庫更新
+    InventoryManager --> StockEventLog : 注入・自動記録
+    InventoryManager o--> INotification : 登録・一律通知
+    InventoryManager ..> StockAlert : 作成
     INotification <|.. EmailNotifier
     INotification <|.. DashboardUpdater
     INotification <|.. ChatNotifier
     INotification <|.. SMSNotifier
+
+    note for INotification "【P1・新設】警告データと受付結果の共通契約"
+    note for EmailNotifier "【P1・配置】手段別の文面・送信・受付結果"
+    note for InventoryManager "【P1・安定側】在庫更新後に警告を一律配布"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "InventoryManager,INotification,EmailNotifier,DashboardUpdater,ChatNotifier,SMSNotifier" focus
 ```
 
 章末のObserver骨格図では、`InventoryManager` がSubject、`INotification` がObserver、各通知クラスがConcreteObserverに対応します。
@@ -1580,11 +1609,11 @@ classDiagram
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |
 |---|---|---|---|
-| P1 | 全 `INotification` 実装、`InventoryManager::attach/notifyAll()`、`StockEventLog` | 在庫更新後に登録通知先へ一律配布し、成功・保留・失敗を記録して他通知を継続した | 通知先追加で `InventoryManager` のメンバ・分岐・ループを増やさない |
+| P1 | 全 `INotification` 実装、`InventoryManager::attach/notifyAll()`、`StockAlert`、DB・ログ注入 | 在庫更新とログ記録の後、手段別の文面で一律配布し、成功・保留・失敗を集約して他通知を継続した | 通知手段追加で `InventoryManager` のメンバ・分岐・ループを増やさない |
 
 ### 7-2：動作シーケンス図
 
-ステップ3で到達した通知分離構造の実行時のオブジェクト間のやり取りを可視化します。main() が依存関係を注入し、InventoryManager が具象クラスを知らずに抽象インターフェース経由で通知を送る流れが確認できます。
+ステップ3で到達した通知分離構造の実行時のやり取りを確認します。組み立て側が依存を注入・登録し、`InventoryManager` が在庫更新後の `StockAlert` を、具象クラスを知らずに配る流れです。
 
 ```mermaid
 sequenceDiagram
@@ -1606,20 +1635,21 @@ sequenceDiagram
     M->>IM: attach(&sms)
     M->>IM: reduceStock("PRD002", 1)
     activate IM
-    IM->>IM: notifyAll(message)
-    IM->>E: send(message)
+    IM->>IM: StockAlert(PRD002, 残2, 閾値5)を作成
+    IM->>IM: notifyAll(alert)
+    IM->>E: send(alert)
     activate E
     E-->>IM: DeliveryResult(成功)
     deactivate E
-    IM->>D: send(message)
+    IM->>D: send(alert)
     activate D
     D-->>IM: DeliveryResult(成功)
     deactivate D
-    IM->>C: send(message)
+    IM->>C: send(alert)
     activate C
     C-->>IM: DeliveryResult(成功)
     deactivate C
-    IM->>S: send(message)
+    IM->>S: send(alert)
     activate S
     S-->>IM: DeliveryResult(保留/非同期)
     deactivate S
@@ -1686,8 +1716,8 @@ graph LR
 | 🟣 フェーズ2：仮説立案 | 在庫通知の運用担当者へのヒアリングを通じ、通知先が今後も頻繁に入れ替わることを「変動要因」として確定した。 |
 | 🟣 フェーズ3：問題特定 | 新しい通知手段を追加しようとすると、既存の通知元クラスを毎回修正する必要が生じるという「痛み」を確認した。 |
 | 🟠 フェーズ4：原因分析 | 通知元が、通知先の具体的な実装を直接知っていることが、影響範囲を広げる根本原因だと特定した。 |
-| 🟡 フェーズ5：課題定義 | string 型メッセージと `DeliveryResult` を共通の接続点とし、変わる通知先を登録・解除でき、同期非同期・部分失敗も結果で吸収する課題を定めた |
-| 🔴 フェーズ6：対策検討 | 3ステップを比較し、通知操作の契約を統一して受付結果を返し、外部から登録できるステップ3を採用した。 |
+| 🟡 フェーズ5：課題定義 | `StockAlert` と `DeliveryResult` をP1の接続データとし、通知手段の種類・文面・同期非同期を在庫処理から外す課題を定めた。 |
+| 🔴 フェーズ6：対策検討 | 分離・配置・組み立ての三観点から一つの完成構造を決め、採用クラス図をコードへ3段階で反映した。 |
 | 🟢 フェーズ7：対策実施 | 通知元はインターフェースのリストを保持し受付結果を集計するだけに留め、通知先を動的に登録・解除でき、非同期・部分失敗も通知ループを変えずに扱える構造を実現した。この構造が 通知分離構造と呼ばれると知った。 |
 
 ### 責任の移動
@@ -1696,7 +1726,7 @@ graph LR
 | --- | --- | --- |
 | 在庫減算と通知先への通知 | `InventoryManager` | `InventoryManager`（変わらず） |
 | 具体的な通知先クラスの直接保持 | `InventoryManager`（メンバとして直接宣言） | 組み立て側が共通契約の登録リストへ追加・解除 |
-| 個別の通知手段の実装 | `EmailNotifier` 等（変わらず） | `EmailNotifier` 等（`INotification`経由に） |
+| 個別の通知手段と文面 | `EmailNotifier` 等（固有メソッド） | `EmailNotifier` 等が `StockAlert` から手段別に整形 |
 | 同期・非同期・受付成否の扱い | 通知元へ入り込みそうだった | 各通知先が `DeliveryResult` で返す |
 | 受付結果の集約 | —（なし） | `InventoryManager` が件数を数える |
 | 通知受け取り契約の定義 | —（なし） | `INotification`（`DeliveryResult` を返す） |

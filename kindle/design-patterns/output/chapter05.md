@@ -136,9 +136,9 @@ flowchart LR
 | `UIButtons` | 利用者のボタン操作を受け取り、残高表示を更新する | 支出登録・収入登録の起点 |
 | `ExpenseManager` | 支出登録を実行する | 支出金額を残高から差し引く |
 | `IncomeManager` | 収入登録を実行する | 収入金額を残高へ加算する |
+| `CategoryDatabase` | カテゴリマスタを保持する | 収入・支出カテゴリの存在と種別を返す |
 
-各クラスの責任を把握したところで、クラス同士の関係を図で確認します。
-★この賞限らずですが、クラス図で浮いているクラスは、どういう見方をすればよいのか？何かしらどこからのクラスから使われるわけではないのか。コメントで補足するなどした方が良いです。
+各クラスの責任を把握したところで、クラス同士の関係を図で確認します。図中のクラスは必ず利用・所有・実装などの関係へ接続します。もし説明上どうしても線がつながらない場合は、誰が生成・利用するかをnoteで補います。
 
 ```mermaid
 classDiagram
@@ -156,6 +156,12 @@ classDiagram
     }
     UIButtons *-- ExpenseManager
     UIButtons *-- IncomeManager
+    ExpenseManager --> CategoryDatabase : カテゴリを検証する
+    IncomeManager --> CategoryDatabase : カテゴリを検証する
+
+    note for UIButtons "入力だけでなく残高まで所有している着目箇所"
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "UIButtons" focus
 
 ```
 
@@ -323,7 +329,7 @@ public:
 
 **③ UI層のクラス（UIButtons）**
 
-1-1の「画面操作」にあたる部分です。ボタン操作を対応するManagerへ渡し、戻り値を残高へ加えて表示します。★ボタンクラスで、残高を管理する責任ってそもそもどうなっているの？その責任がおかしいという話もどこかに出てくるのでしょうか。
+1-1の「画面操作」にあたる部分です。ボタン操作を対応するManagerへ渡し、戻り値を残高へ加えて表示します。つまり現状の `UIButtons` は、入力を受けるだけでなく現在残高の正本まで持っています。画面がCLIやAPIへ変わると残高の置き場所まで変わり、複数の入力端から操作すると残高が分裂します。この責任配置は、変更を試したフェーズ3で痛みとして確認し、フェーズ4・5でP2の接続点として定義します。
 
 ```cpp
 // ユーザーインターフェース層（上記2クラスを直接呼び出す）
@@ -409,7 +415,8 @@ int main() {
 **仕様変更の内容**
 
 変更要求を受けて、利用できる操作がどう変わるかを整理します。
-★Redoってどういう意味？Undoで取り消した後、その取り消しをやはりやめて元に戻すつまり取り消しを取り消しするというのが、Redoなのか？実際そんなシステムってあるのか。取り消ししたら、最初からやり直しすれべよさそうだが。これは指摘ではなくただの疑問です。
+
+Redoは、Undoで取り消した操作をもう一度適用する、つまり「取り消しの取り消し」です。編集ソフトや会計入力では、利用者が誤ってUndoしたときに元の操作を復元でき、同じ金額・カテゴリを入力し直すミスも防げます。単純な画面で再入力が容易ならRedoを省く判断もありますが、この章では「実行済み」と「Undo済み」の二つの履歴を同じ操作単位で扱えるかを確認するために含めます。
 
 | 操作 | 変更前 | 変更後 |
 |---|---|---|
@@ -467,27 +474,37 @@ flowchart LR
     class L,H data;
 ```
 
-変更後の仕様を、1-1と同じ粒度で、正常系の入力・判定・加工・出力として確認します。1-1の図との差分は、操作の種類に「Undo/Redo/一括登録」が加わること、支出・収入の実行後に「履歴へ記録」という加工が挟まること、保存失敗時に「成功済み操作を逆順に戻す」という補償が必要になることです。
-★以下、登録操作か履歴操作か、の２つあるが、これらのインプットによって動きが分かれるならブロックを分けた方が見やすいのでは？
+変更後の仕様は、入力が異なる二つの流れへ分けます。登録・一括登録は金額やカテゴリを入力に取り、Undo／Redoは履歴を入力に取るからです。
+
+**登録・一括登録の流れ：**
+
 ```mermaid
 flowchart LR
-    A[/操作の種類<br>支出登録・収入登録・Undo・Redo・一括登録/]:::input --> B{登録操作か<br>履歴操作か}:::decision
-    B -->|支出・収入| C[1-1と同じ判定と加工<br>カテゴリ確認・金額確認 → 残高更新]:::process
+    A[/支出・収入・一括登録<br>金額・カテゴリ/]:::input --> C[カテゴリ確認・金額確認<br>台帳へ収支を保存し残高更新]:::process
     C --> D[実行した操作を履歴へ記録]:::process
     D --> E([正常出力<br>残高・収支一覧・履歴の更新]):::normal
-    B -->|Undo| F{履歴に取り消せる操作があるか}:::decision
-    F -->|Yes| G[直前の操作を逆向きに実行し<br>残高を元へ戻す]:::process
-    G --> H[取り消した操作を履歴から外す]:::process
-    H --> E
-    F -->|No| I([正常出力<br>何もせず終了]):::normal
-    B -->|Redo| J{再実行できる操作があるか}:::decision
-    J -->|Yes| K[取り消した操作を再実行し<br>履歴へ戻す]:::process
-    K --> E
-    B -->|一括登録| M[複数操作を順番に実行]:::process
-    M --> N{途中で保存失敗したか}:::decision
+    A -->|一括| M[複数操作を順番に実行]:::process
+    M --> N{保存失敗したか}:::decision
     N -->|No| D
     N -->|Yes| O[成功済み操作を逆順に取り消す]:::process
     O --> P([失敗出力<br>補償後残高・失敗ログ]):::normal
+
+    classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
+    classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+```
+
+**Undo／Redoの流れ：**
+
+```mermaid
+flowchart LR
+    A[/Undo または Redo/]:::input --> B{対象履歴があるか}:::decision
+    B -->|No| C([何も変更せず終了]):::normal
+    B -->|Undo| D[直前の操作を逆向きに実行<br>Undo済み履歴へ移す]:::process
+    B -->|Redo| E[Undo済み操作を再実行<br>実行済み履歴へ戻す]:::process
+    D --> F([残高・収支一覧・履歴を更新]):::normal
+    E --> F
 
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
@@ -696,12 +713,45 @@ Undo失敗（取り消しメソッドがない）
 
 `undo()` を呼んでも、実際には何も取り消せていません。履歴に「Expense」という種別の文字列しか積んでおらず、`ExpenseManager` 側にも取り消し用のメソッドがないため、逆操作を実行できないからです。
 
-ここで「メソッドがないからできない」と止めるのではなく、**この変更を動く状態まで持っていくには何が必要か**を具体的に洗い出します。
-★以下の内容を反映した状態が変更を試みて痛みを感じた状態ですよね？関数がないという状態は、痛みでも何でもないですよね？
+この失敗は要件が未実装だと示すだけで、まだ設計上の痛みではありません。そこで、次の三つを実際に加えてUndoが動く状態まで進めます。
 
 1. `ExpenseManager`・`IncomeManager` など各マネージャに、登録を打ち消す `undoExpense(金額, カテゴリ)` のような逆操作メソッドを追加する。
 2. 履歴に種別文字列だけでなく、取り消しに必要な金額・カテゴリまで保存する（文字列1つでは元に戻せない）。
 3. `UIButtons.undo()` に「最後の操作が支出なら支出の逆操作、収入なら収入の逆操作……」と種別ごとに振り分ける条件分岐を書き加える。
+
+```cpp
+struct HistoryItem {
+    std::string type;
+    int amount;
+    std::string categoryId;
+};
+
+class UIButtons {
+    ExpenseManager em;
+    IncomeManager im;
+    std::vector<HistoryItem> history;
+public:
+    void onAddExpenseClick(int amount, const std::string& categoryId) {
+        em.addExpense(amount, categoryId);
+        history.push_back({"Expense", amount, categoryId});
+    }
+    void onAddIncomeClick(int amount, const std::string& categoryId) {
+        im.addIncome(amount, categoryId);
+        history.push_back({"Income", amount, categoryId});
+    }
+    void undo() {
+        HistoryItem last = history.back();
+        if (last.type == "Expense") {
+            em.removeExpense(last.amount, last.categoryId);
+        } else if (last.type == "Income") {
+            im.removeIncome(last.amount, last.categoryId);
+        }
+        history.pop_back();
+    }
+};
+```
+
+このコードならUndo自体は動きます。しかし、振替や一括登録を増やすたびに `HistoryItem` のデータと `undo()` の分岐、各Managerの逆操作を同時に増やす必要があります。ここで初めて、変更要求を実現した結果として変更影響が複数責任へ波及する痛みを確認できました。
 
 つまり `undo` は「関数を1つ足せば動く」変更ではありません。**各マネージャへ逆操作を足したうえで、呼び出し元の `UIButtons` がすべての操作種別とその逆操作・内部データを知る必要があり、操作が増えるたびにこの分岐が伸び続けます。** 局所的なメソッド追加では済まず、`UIButtons` へ責任を集めていく構造変更に踏み込むことになります。次のフェーズ4で、この痛みがなぜ生じるのかを構造の観点から言語化します。
 
@@ -764,15 +814,15 @@ graph LR
 > **「変わらないもの」と「変わってほしくないもの」は異なります。** 「変わらないもの」は経験的事実（今まで変わっていない）、「変わってほしくないもの」は設計意図（ここを安定させてほかを守りたい）です。ここで整理するのは後者です。
 
 原因分析の結果として、「変わり続けるもの」と「変わってほしくないもの」を明確に分けます。
-★UIって変わりそうですが。変わってほしくないのはわかりますが。ボタン操作ではなく他の操作で呼び出しできるような形で設計した方が良いのでは。そもそも、前提として入力部分や保存部分は、変わりやすいという前提のもと考えた方が良いと思います。この話は０章では出てこないのでしょうか。
 
 | **変わり続けるもの（🔴）** | **変わってほしくないもの（🟢）** |
 | --- | --- |
-| 操作の内容（支出追加、収入追加、削除など） | 操作をキックするトリガー（UIボタン自体） |
+| 入力端（UIボタン、API、バッチ）と操作内容（支出、収入、振替など） | 入力端に依存せず「操作を依頼する」アプリケーション境界 |
+| DBやファイルなど台帳の保存方式 | 収支レコードと現在残高が一つの正本として整合する契約 |
 | 操作ごとの実行ロジックと取り消しロジック | 履歴のリストを管理し、Undoを実行する仕組み |
 | 操作ごとの失敗時補償、再実行、複合操作の内訳 | 操作を同じ単位として実行・取消・再実行できる契約 |
 
-本来、UIボタンは「操作ボタンが押された」ことだけを知っていれば十分なはずです。現在の構造では、操作の「意図」と「実行手段」が密接に結合しているため、操作が増えるたびにUIクラスが改修の嵐にさらされているのです。
+UIそのものを固定するのではありません。画面、API、バッチは変わる入力アダプタとして扱います。どの入力端からでも同じ操作単位をアプリケーション境界へ渡せることを守ります。現在の構造では、操作の意図、実行手段、残高の正本がUIに結合しているため、操作や入力端が増えるたびにUIへ変更が波及します。
 
 ### 4-3：接続点に漏れている実行手段を確認する
 
@@ -815,10 +865,10 @@ void onAddExpenseClick() {
 
 UIが「呼び出し先の具体的な知識」として保持しているのは、メソッド名・引数の型・引数の値の組み合わせです。履歴や一括実行を入れると、さらに「この操作を取り消すには何を呼ぶか」「再実行するには何を呼ぶか」「途中失敗時にどこまで戻すか」も外側が知ることになります。
 
-| 接続点 | 接続するデータ | 変わるもの |
-|---|---|---|
-| 実行手段 → `UIButtons` のボタン処理 | 呼び出し先（クラス名）・メソッド名・引数（int/string）→ 実行完了（void） | 具体的な呼び出し先の組み合わせ |
-| 補償手段 → 履歴管理 | 実行済み操作、逆向き操作、再実行可否、保存成否 → 履歴更新 | 失敗時にどこまで戻すか、Redo対象に残すか |
+| 課題ID・接続点 | 接続するデータ | 変わる側 | 守る側 |
+|---|---|---|---|
+| P1：実行手段 ↔ UI／バッチ | 金額・カテゴリを内包した操作と実行成否 | 具体的な呼び出し先、引数、実行・取消方法 | UIやバッチが「操作を依頼する」入口 |
+| P2：操作効果・補償 ↔ 台帳／履歴 | 収支レコード、残高の変更前後、実行済み操作、再実行可否 | 残高更新、保存失敗時の補償、Undo／Redoの積み替え | 一つの台帳を残高の正本とし、成功した操作だけを履歴に残す契約 |
 
 ### 何を変え、何を守るか
 
@@ -830,49 +880,36 @@ UIが「呼び出し先の具体的な知識」として保持しているのは
 **現状のままでよい場面**：操作が少なく、Undoや履歴が不要なら、UIから処理を呼ぶ単純な構造を保つ判断もあります。今回は操作の追加とUndo/Redoが必要なため、操作そのものを接続点で受け渡す設計を検討します。
 
 ---
-> **📌 課題（確定）**
-> 切り離す境界は「操作の意図（ボタンを押した事実、またはバッチから渡された処理単位）」と「実行手段（クラス名・メソッド名・引数の組み合わせ、取り消し方、再実行の仕方）」の間にある。UIやバッチは `int` や `string` を渡す先の具体的な知識を持たず、「この操作を実行せよ」という依頼だけを送れる形にする。そのために、具体的な実行手段と補償手段をオブジェクトとして切り出し、呼び出し元から分離する。
+> **📌 システム全体の課題（確定）**
+> UIやバッチは具体Manager、引数、取消方法、残高計算を知らず、操作を依頼するだけにする。実行・取消・再実行は同じ処理単位で扱い、収支レコードと現在残高は一つの台帳が正本として更新する。成功した操作だけが履歴へ残り、失敗やUndoでも台帳と履歴が食い違わないシステムにする。
 ---
 
 （切り離す境界と課題が明確になりました。次のフェーズ6では、その課題を解決するための対策を段階的に検討します。）
 
-#### フェーズ6へ渡す課題
-
-| 課題ID | 現在の変更影響 | 変えたくない範囲 |
-|---|---|---|
-| P1 | 操作の追加やUndo/Redo対応が、UIの具体呼び出し、履歴、補償処理へ同時に波及する | 入力検証、台帳への保存、「操作を依頼する」という利用側の意図 |
-
-P1は「操作の具体手段が利用側と履歴へ漏れる課題」です。フェーズ6では、この痛みの経路を起点に、操作追加でどこまでの変更を許す構造へ直すかを描きます。
-
 ## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-P1を単独で解くのではなく、支出・収入・振替などの操作を同じ契約で実行・取消・記録できるシステムを設計します。
+フェーズ5の一表から、P1とP2を同時に解く構造を直接決めます。UIは変わりやすい入力端なので安定側には置きません。守るのは、画面・バッチ・APIのどこからでも「操作を依頼する」だけでよいアプリケーション境界と、一つの台帳が残高を正しく持つ契約です。
 
-#### 3-2の変更影響を、システム構造の材料へ統合する
+#### 接続点の分離・配置・組み立てを決める
 
-| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |
-|---|---|---|---|
-| P1 | 操作追加やUndo/Redo対応で、UIの具体呼び出し・履歴の種別判定・逆操作分岐へ同時に波及する | 実行値・逆操作・履歴登録の責任を各操作クラスと `ActionHistory` へ移す | 入力検証、`LedgerRepository` への保存、「操作を依頼する」という利用側の意図 |
-
-#### システム全体の完了条件を固定する
-
-次の条件をすべて満たして、初めて対策完了とします。
-
-- 新しい操作の追加を、操作1クラスと組み立て側の割り当てに限定する。
-- UIと `ActionHistory` へ操作種別の `if` 分岐や逆操作分岐を増やさない。
-- 実行・取消・履歴登録・失敗補償を、同じ `IAction` 契約の単位で扱う。
-- 収支データと残高の保存先（`LedgerRepository`）と入力検証の位置を維持する。
+| 接続点を変える観点 | システム全体の考え方 | この章での答え |
+|---|---|---|
+| 分離方法 | 変わる部分と守る処理をどの契約で切るか | 具体Manager・引数・逆操作を `IAction::execute/undo` の向こうへ出す。台帳更新は `LedgerRepository` の収入・支出・取消操作へ閉じる |
+| 配置場所 | 切り出した責任をどこへ置くか | 実行値と逆操作を各Action、履歴の積み替えを `ActionHistory`、収支レコードと現在残高を `LedgerRepository` へ置く。`BudgetApp` は入力端に依存しない受け口にする |
+| 組み立て方法（生成・所有・登録・注入） | 誰がどう接続するか | Composition Root が台帳・Manager・History・Appを生成・所有し、ActionへManagerを注入する。UI／バッチはActionを生成してAppへ渡し、Historyが成功したActionを所有する |
 
 #### システム全体の最終構造を決める
 
-★収入と支出を別で管理して、差分は利用側で出しているように見えます。最終残高を統合クラスで管理した方が良いと思いました。結局残高はシステム利用者が計算するという事になっていませんか。
-★実行クラスに対して、現在の残高を渡して、計算結果を返して実行するという形もあり得るのでは？最終系が本当に１つだけなのか疑問です。
+操作記録の構造はP1から決まりますが、P2の残高正本には二つの完成可能な配置が残ります。ここでは最終構造同士を比較します。
 
-この章の最終構造は、競合する複数案から選ぶのではなく、完了条件から**一つに定まります**。実行と取消を操作の外（UIや履歴）ではなく操作自身に持たせると決めた時点で、「各操作が `IAction::execute/undo` を満たし、`ActionHistory` が種別を見ずに履歴へ積む」**操作記録構造**以外に、上の完了条件を満たす形が残らないためです。
+| 完成構造 | P1・P2への答え | コスト | 判断 |
+|---|---|---|---|
+| 台帳正本型 | ActionがManagerを呼び、`LedgerRepository` が収支レコードと現在残高を一体で更新する | 永続化境界に残高整合性の責任が増える | 採用。監査用レコードと残高を同じトランザクション単位で扱える |
+| 残高集約型 | Actionへ `AccountBalance` を注入し、集約が残高を更新して別Repositoryへ保存する | 集約と保存境界の整合・復元処理が増える | 不採用。複数口座や複雑な残高規則なら有力だが、この単一台帳では層が一つ増える |
 
-操作ごとに取消フラグや種別分岐を利用側へ置く方式も理屈の上では置けますが、操作が1種増えるたびにUIと履歴の分岐が増え、Undo/Redo・一括実行・失敗補償を同じ仕組みで扱えません。したがって当て馬を並べた比較は行いません（完成形が複数競合する章でのみ、構造差分を比較します）。
+「Actionへ現在残高の数値を渡して結果を返す」だけでは、その結果を誰が正本として保存するかが未解決で、利用側に計算・整合責任が残ります。完全な最終案にするには残高を所有する集約が必要です。今回は `LedgerRepository` が一つの台帳として収支と残高を所有する台帳正本型を採用します。
 
-一意に定まった操作記録構造を、`IAction`（共通契約）、`AddExpenseAction`／`AddIncomeAction`（操作部品）、`ActionHistory`（実行・取消・履歴）、`ExpenseManager`／`IncomeManager`（実行先）、`BudgetApp`（操作の受け口）の責任として具体化します。
+採用構造を、`IAction`（共通契約）、各Action（操作部品）、`ActionHistory`（実行・取消・履歴）、各Manager（検証と台帳操作）、`LedgerRepository`（収支と残高の正本）、`BudgetApp`（入力端に依存しない受け口）として具体化します。
 
 ### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
@@ -928,7 +965,10 @@ P1をクラス図の変更として書くと、次の3操作になります。
 ```mermaid
 classDiagram
     class CategoryDatabase
-    class LedgerRepository
+    class LedgerRepository {
+        -currentBalance int
+        +balance() int
+    }
     class BalanceViewRenderer
     class ImportService
     class IAction {
@@ -951,15 +991,18 @@ classDiagram
     ExpenseManager --> LedgerRepository
     IncomeManager --> LedgerRepository
     ExpenseManager --> CategoryDatabase
-    BudgetApp --> BalanceViewRenderer
+    IncomeManager --> CategoryDatabase
+    ExpenseManager --> BalanceViewRenderer
+    IncomeManager --> BalanceViewRenderer
     ImportService --> ActionHistory
 
     note for IAction "【P1・新設】実行と取消の共通契約"
     note for AddExpenseAction "【P1・新設】実行値と逆操作を内包する操作部品"
     note for ActionHistory "【P1・新設】種別を見ず履歴へ積む実行・取消の仲介"
+    note for LedgerRepository "【P2・新設】収支レコードと現在残高の唯一の正本"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "IAction,AddExpenseAction,AddIncomeAction,ActionHistory" focus
+    cssClass "IAction,AddExpenseAction,AddIncomeAction,ActionHistory,LedgerRepository" focus
 ```
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
@@ -1017,8 +1060,7 @@ public:
 
 #### 実装ステップ2（P1）：実行値と逆操作を操作部品へ移す
 
-各操作は実行に必要な値（金額・カテゴリ）と実行先を内包し、`execute()` で実行、`undo()` で逆操作を呼びます。UIは値も逆操作も持ちません。
-★ワインラインで関数を書くと、キンドルで読む人からしたら読みづらいのでは？なるべくブロックを改行させた方が良いのでしょうか。各章に言える話です
+各操作は実行に必要な値（金額・カテゴリ）と実行先を内包し、`execute()` で実行、`undo()` で逆操作を呼びます。UIは値も逆操作も持ちません。Kindleでは横幅が狭いため、コンストラクタや委譲関数も役割を追える複数行で示します。この表記を全章の標準にします。
 
 
 ```cpp
@@ -1029,8 +1071,12 @@ class AddExpenseAction : public IAction {
 public:
     AddExpenseAction(ExpenseManager& m, int a, std::string c)
         : manager(m), amount(a), categoryId(c) {}
-    bool execute() override { return manager.addExpense(amount, categoryId); }
-    bool undo() override { return manager.removeExpense(amount, categoryId); }
+    bool execute() override {
+        return manager.addExpense(amount, categoryId);
+    }
+    bool undo() override {
+        return manager.removeExpense(amount, categoryId);
+    }
 };
 ```
 
@@ -1058,8 +1104,10 @@ class ActionHistory {
     std::deque<IAction*> done;      // 成功済み操作の並び（Undo対象）
     std::deque<IAction*> redoable;  // Undoした操作（Redo対象）
 public:
-    bool execute(IAction* a) {      // 成功時だけ done へ積む
-        if (!a->execute()) return false;
+    bool execute(IAction* a) {
+        if (!a->execute()) {
+            return false;
+        }
         done.push_back(a);
         return true;
     }
@@ -1067,25 +1115,25 @@ public:
 };
 ```
 
-| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |
+| 接続点を変える観点 | システム全体での答え | 変えたくない側が知らなくなる詳細 |
 |---|---|---|
-| 何を分離するか | P1の実行値・逆操作・履歴登録を各操作クラスと `ActionHistory` へ置く | 操作種別・引数・取り消し方 |
-| どこで生成・選択するか | 組み立て側（`main`／`BudgetApp` の受け口）が具体操作を生成する | 具体操作クラスの選択 |
-| どう依存を渡すか | 生成時に実行先Managerと実行値を操作へ渡す | 実行先クラスの実体 |
-| 安定側はどう実行するか | 利用側は `ActionHistory::execute/undo` だけを呼ぶ | 履歴に何が積まれているか |
+| 分離方法 | P1の実行値・逆操作を各Actionへ、P2の残高更新を台帳へ閉じる | 操作種別・引数・取り消し方・残高計算 |
+| 配置場所 | 履歴を `ActionHistory`、収支と残高を `LedgerRepository` へ置く | 履歴と残高の保存詳細 |
+| 組み立て方法 | Composition Rootが台帳・Manager・History・Appを所有し、ActionへManagerを注入する | 具体操作クラスと実行先の選択 |
 
 操作オブジェクトの所有は `ActionHistory` がまとめて担い、生存期間を管理します。UIやバッチは操作を生成して渡すだけです。
 
 #### システム全体のコード適用結果
 
-| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |
+| システム全体の課題 | 対応する構造とコード | 変更後に残る作業 | 結果 |
 |---|---|---|---|
 | 操作追加を1クラスと割り当てに限定する | 操作クラスと組み立て側の割り当て | 新操作クラスと生成箇所 | 達成 |
 | UI・履歴へ種別分岐を増やさない | `ActionHistory` は `IAction` だけを扱う | 履歴の修正なし | 達成 |
 | 同じ契約で実行・取消・補償を扱う | `IAction::execute/undo` の単位 | 一括・失敗補償も同じ仕組み | 達成 |
 | 保存先と入力検証を維持する | `LedgerRepository` と各Manager内の検証 | 保存・検証の位置を維持 | 達成 |
+| 残高の正本を一つにする | `LedgerRepository::balance()` と収支レコードの一体更新 | 複数口座化では台帳IDを追加 | 達成 |
 
-**システム全体の実装結果：達成。** P1の責任が操作記録構造で接続され、冒頭の完了条件をすべて満たしました。実際の動作と変更影響はフェーズ7で確認します。
+**システム全体の実装結果：** P1の操作単位とP2の残高正本が一つの構造へ接続されました。実際の動作と変更影響はフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 フェーズ6のステップ3で選んだ「操作のオブジェクト化＋仲介役による履歴管理」を、実際のコードに実装します。これまではUIが各マネージャの具体的なメソッドを知っていましたが、これを「操作そのものを表すオブジェクト」へと置き換えます。
@@ -1138,30 +1186,57 @@ public:
     }
 };
 
+struct LedgerEntry {
+    std::string kind;
+    std::string categoryName;
+    int amount;
+};
+
 class LedgerRepository {
+    std::vector<LedgerEntry> entries;
+    int currentBalance = 0;
 public:
-    // 実DBでは保存失敗時に false を返す。
-    // この掲載コードの代表シナリオでは成功を返す。
     bool saveExpense(const Category& category, int amount) {
-        std::cout << "[LedgerRepository] 支出を保存: "
-                  << category.name << " " << amount << "円" << std::endl;
+        entries.push_back({"expense", category.name, amount});
+        currentBalance -= amount;
         return true;
     }
     bool saveIncome(const Category& category, int amount) {
-        std::cout << "[LedgerRepository] 収入を保存: "
-                  << category.name << " " << amount << "円" << std::endl;
+        entries.push_back({"income", category.name, amount});
+        currentBalance += amount;
         return true;
     }
-    // Undoの副作用：保存済みの収支データを取り消す
     bool deleteExpense(const Category& category, int amount) {
-        std::cout << "[LedgerRepository] 支出を取消: "
-                  << category.name << " " << amount << "円" << std::endl;
+        if (!removeLast("expense", category.name, amount)) {
+            return false;
+        }
+        currentBalance += amount;
         return true;
     }
     bool deleteIncome(const Category& category, int amount) {
-        std::cout << "[LedgerRepository] 収入を取消: "
-                  << category.name << " " << amount << "円" << std::endl;
+        if (!removeLast("income", category.name, amount)) {
+            return false;
+        }
+        currentBalance -= amount;
         return true;
+    }
+    int balance() const {
+        return currentBalance;
+    }
+private:
+    bool removeLast(const std::string& kind,
+                    const std::string& categoryName,
+                    int amount) {
+        for (std::size_t i = entries.size(); i > 0; --i) {
+            const LedgerEntry& entry = entries[i - 1];
+            if (entry.kind == kind
+                    && entry.categoryName == categoryName
+                    && entry.amount == amount) {
+                entries.erase(entries.begin() + (i - 1));
+                return true;
+            }
+        }
+        return false;
     }
 };
 
@@ -1173,7 +1248,7 @@ public:
 };
 ```
 
-`CategoryDatabase` はカテゴリのマスタ、`LedgerRepository` は収支の保存・取消を担う境界スタブ、`BalanceViewRenderer` は画面表示の境界です。`LedgerRepository` の `deleteExpense` / `deleteIncome` が、Undo時に保存済みデータを取り消す副作用にあたります。
+`CategoryDatabase` はカテゴリのマスタ、`LedgerRepository` は収支レコードと現在残高を一体で所有する台帳の正本、`BalanceViewRenderer` は画面表示の境界です。`deleteExpense` / `deleteIncome` は保存済みレコードを取り消し、同じ操作で残高も戻します。利用側が収入合計と支出合計の差を計算する必要はありません。
 
 **② 実行先クラス（ExpenseManager / IncomeManager）**
 
@@ -1182,7 +1257,6 @@ public:
 ```cpp
 // 操作オブジェクトから処理を委ねられる実行先（Receiver）
 class ExpenseManager {
-    int total = 0;
     CategoryDatabase& db;
     LedgerRepository& repository;
     BalanceViewRenderer& renderer;
@@ -1202,36 +1276,35 @@ public:
             return false;
         }
         Category cat = db.get(categoryId);
+        int before = repository.balance();
         if (!repository.saveExpense(cat, amount)) {
             renderer.showMessage("エラー：支出の保存に失敗しました");
             return false;
         }
-        int before = total;
-        total += amount;
         renderer.showMessage("支出を追加しました：" + cat.name
                              + " " + std::to_string(amount) + "円"
-                             + "（支出合計 "
+                             + "（残高 "
                              + std::to_string(before) + "円 -> "
-                             + std::to_string(total) + "円）");
+                             + std::to_string(repository.balance()) + "円）");
         return true;
     }
     bool removeExpense(int amount, const std::string& categoryId) {
         Category cat = db.get(categoryId);
-        repository.deleteExpense(cat, amount);
-        int before = total;
-        total -= amount;
+        int before = repository.balance();
+        if (!repository.deleteExpense(cat, amount)) {
+            renderer.showMessage("エラー：支出の取消に失敗しました");
+            return false;
+        }
         renderer.showMessage("支出を取り消しました：" + cat.name
                              + " " + std::to_string(amount) + "円"
-                             + "（支出合計 "
+                             + "（残高 "
                              + std::to_string(before) + "円 -> "
-                             + std::to_string(total) + "円）");
+                             + std::to_string(repository.balance()) + "円）");
         return true;
     }
-    int totalExpenses() const { return total; }
 };
 
 class IncomeManager {
-    int total = 0;
     CategoryDatabase& db;
     LedgerRepository& repository;
     BalanceViewRenderer& renderer;
@@ -1251,36 +1324,36 @@ public:
             return false;
         }
         Category cat = db.get(categoryId);
+        int before = repository.balance();
         if (!repository.saveIncome(cat, amount)) {
             renderer.showMessage("エラー：収入の保存に失敗しました");
             return false;
         }
-        int before = total;
-        total += amount;
         renderer.showMessage("収入を追加しました：" + cat.name
                              + " " + std::to_string(amount) + "円"
-                             + "（収入合計 "
+                             + "（残高 "
                              + std::to_string(before) + "円 -> "
-                             + std::to_string(total) + "円）");
+                             + std::to_string(repository.balance()) + "円）");
         return true;
     }
     bool removeIncome(int amount, const std::string& categoryId) {
         Category cat = db.get(categoryId);
-        repository.deleteIncome(cat, amount);
-        int before = total;
-        total -= amount;
+        int before = repository.balance();
+        if (!repository.deleteIncome(cat, amount)) {
+            renderer.showMessage("エラー：収入の取消に失敗しました");
+            return false;
+        }
         renderer.showMessage("収入を取り消しました：" + cat.name
                              + " " + std::to_string(amount) + "円"
-                             + "（収入合計 "
+                             + "（残高 "
                              + std::to_string(before) + "円 -> "
-                             + std::to_string(total) + "円）");
+                             + std::to_string(repository.balance()) + "円）");
         return true;
     }
-    int totalIncome() const { return total; }
 };
 ```
 
-`ExpenseManager` と `IncomeManager` は、それぞれ支出・収入の登録と取消を担います。カテゴリIDと金額を検証し、`LedgerRepository` へ保存してから残高を増減します。
+`ExpenseManager` と `IncomeManager` は、それぞれ支出・収入の入力を検証し、台帳操作を依頼します。残高を所有・更新するのは `LedgerRepository` だけです。
 
 **③ 操作の契約（IAction インターフェース）**
 
@@ -1432,8 +1505,12 @@ public:
     void onAddIncomeClick(IAction* cmd) {
         history->execute(cmd);
     }
-    void onUndoClick() { history->undo(); }
-    void onRedoClick() { history->redo(); }
+    void onUndoClick() {
+        history->undo();
+    }
+    void onRedoClick() {
+        history->redo();
+    }
 };
 
 // 一括インポートからの操作を受け取り、Historyに委譲するだけ
@@ -1479,16 +1556,16 @@ int main() {
     AddIncomeAction cmd2(im, 5000, "CAT001");   // 給与
     app.onAddIncomeClick(&cmd2);
     std::cout << "残高: "
-              << im.totalIncome() - em.totalExpenses()
+              << repository.balance()
               << "円" << std::endl;
     app.onUndoClick();               // 直前の収入を取り消す
     app.onUndoClick();               // さらに支出も取り消す
     std::cout << "Undo後の残高: "
-              << im.totalIncome() - em.totalExpenses()
+              << repository.balance()
               << "円" << std::endl;
     app.onRedoClick();               // 支出を再実行
     std::cout << "Redo後の残高: "
-              << im.totalIncome() - em.totalExpenses()
+              << repository.balance()
               << "円" << std::endl;
 
     ImportService importer(&hist);
@@ -1501,11 +1578,11 @@ int main() {
     imported.push_back(&imp3);
     importer.importTransactions(imported); // 一括登録（3件）
     std::cout << "インポート後の残高: "
-              << im.totalIncome() - em.totalExpenses()
+              << repository.balance()
               << "円" << std::endl;
     importer.rollback(3);            // 3件ロールバック
     std::cout << "ロールバック後の残高: "
-              << im.totalIncome() - em.totalExpenses()
+              << repository.balance()
               << "円" << std::endl;
     std::cout << "\n--- 操作履歴 ---\n";
     hist.printLog();
@@ -1521,23 +1598,23 @@ int main() {
 
 ```text
 --- 登録 ---
-  支出: 食費 1000円（支出合計 0円 -> 1000円）
-  収入: 給与 5000円（収入合計 0円 -> 5000円）
+  支出: 食費 1000円（残高 0円 -> -1000円）
+  収入: 給与 5000円（残高 -1000円 -> 4000円）
   残高: 4000円
 
 --- Undo / Redo ---
-  Undo: 給与 5000円（収入合計 5000円 -> 0円）
-        食費 1000円（支出合計 1000円 -> 0円）
+  Undo: 給与 5000円（残高 4000円 -> -1000円）
+        食費 1000円（残高 -1000円 -> 0円）
   Undo後: 0円
-  Redo: 食費 1000円（支出合計 0円 -> 1000円）
+  Redo: 食費 1000円（残高 0円 -> -1000円）
   Redo後: -1000円
 
 --- 一括インポート ---
-  支出合計: 1000円 -> 3000円 -> 3300円 -> 4100円
+  残高: -1000円 -> -3000円 -> -3300円 -> -4100円
   結果: 3件完了（履歴4件）、残高 -4100円
 
 --- ロールバック ---
-  支出合計: 4100円 -> 3300円 -> 3000円 -> 1000円
+  残高: -4100円 -> -3300円 -> -3000円 -> -1000円
   結果: 3件完了、残高 -1000円
 
 --- 操作履歴 ---
@@ -1554,16 +1631,18 @@ int main() {
 取り消し: 支出登録: CAT003 2000円
 ```
 
-支出1,000円と収入5,000円の登録後は残高4,000円、2回のUndo後は0円、Redo後は-1,000円になります。3件合計3,100円の支出をインポートすると-4,100円になり、3件をロールバックすると-1,000円へ戻ります。ログの順序だけでなく、実行先（Receiver）が保持する集計状態も元へ戻ることを確認できます。Undoの取り消しは `ExpenseManager` の集計だけでなく、`LedgerRepository`（保存データ）に対しても `deleteExpense`／`deleteIncome` を呼び、保存済みの収支データを取り消します。操作の取り消しが、画面表示・集計・保存先のすべてへ副作用として届きます。
+支出1,000円と収入5,000円の登録後は残高4,000円、2回のUndo後は0円、Redo後は-1,000円になります。3件合計3,100円の支出をインポートすると-4,100円になり、3件をロールバックすると-1,000円へ戻ります。各ログで一つの `LedgerRepository` の残高が変更前→変更後として見え、UIやManagerが差額を計算していないことを確認できます。
 
-この実装により、UIは操作オブジェクトのポインタを履歴へ渡すだけでよくなり、支出・収入ごとの実行手順を管理する必要がなくなりました。操作オブジェクトの生成と画面への割り当ては組み立て側に残ります。
-★どことも関連がないクラスは不自然です、何かしら説明を入れてほしい
+この実装により、UIは操作オブジェクトのポインタを履歴へ渡すだけでよくなり、支出・収入ごとの実行手順を管理する必要がなくなりました。操作オブジェクトの生成と画面への割り当ては組み立て側に残ります。次のクラス図では、`CategoryDatabase`、`LedgerRepository`、`BalanceViewRenderer` も各Managerまたは `BudgetApp` から利用される関係を必ず描き、浮いたクラスを残しません。
 #### 解決後のクラス構成
 
 ```mermaid
 classDiagram
     class CategoryDatabase
-    class LedgerRepository
+    class LedgerRepository {
+        -currentBalance int
+        +balance() int
+    }
     class BalanceViewRenderer
     class ImportService
     class IAction {
@@ -1583,15 +1662,31 @@ classDiagram
     BudgetApp --> ActionHistory
     AddExpenseAction --> ExpenseManager
     AddIncomeAction --> IncomeManager
+    ExpenseManager --> LedgerRepository
+    IncomeManager --> LedgerRepository
+    ExpenseManager --> CategoryDatabase
+    IncomeManager --> CategoryDatabase
+    ExpenseManager --> BalanceViewRenderer
+    IncomeManager --> BalanceViewRenderer
+    ImportService --> ActionHistory
+
+    note for IAction "【P1・新設】実行と取消の共通契約"
+    note for AddExpenseAction "【P1・新設】実行値と逆操作を内包する操作部品"
+    note for ActionHistory "【P1・新設】種別を見ず履歴へ積む実行・取消の仲介"
+    note for LedgerRepository "【P2・新設】収支レコードと現在残高の唯一の正本"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "IAction,AddExpenseAction,AddIncomeAction,ActionHistory,LedgerRepository" focus
 ```
 
 章末のCommand骨格図では、`IAction` がCommand、各AddActionがConcreteCommand、`ActionHistory` がInvoker、各ManagerがReceiverに対応します。`BudgetApp` は操作を受け取りますが、具体的なManagerのメソッドやUndo手順は知りません。
 
 #### 変更軸ごとの完成コード追跡
 
-| 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |
+| 課題ID | 完成コードの適用先 | 実装後に起きたこと | システム全体での結果 |
 |---|---|---|---|
 | P1 | 全 `IAction` 実装、UI、`ActionHistory` | UIはActionを実行し、履歴は具体種別を判定せず同じ `execute/undo` 契約を扱った | 新操作でUI・履歴へ種別分岐を追加せず、失敗時もスタックを維持した |
+| P2 | `LedgerRepository` と各Manager | 台帳が収支レコードと残高を一体で更新し、Undo／Redoでも同じ正本を戻した | UI・Managerによる差額計算がなくなり、全入力端が同じ残高を参照した |
 
 ### 7-2：動作シーケンス図
 
