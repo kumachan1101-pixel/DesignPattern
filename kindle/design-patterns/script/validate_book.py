@@ -288,6 +288,7 @@ SYSTEM_STRUCTURE_MODE = {
 SYSTEM_STRUCTURE_V2 = {
     "chapter01.md",
     "chapter02.md",
+    "chapter03.md",
 }
 
 BANNED_PATTERNS = [
