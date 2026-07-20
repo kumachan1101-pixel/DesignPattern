@@ -285,7 +285,9 @@ SYSTEM_STRUCTURE_MODE = {
 #            旧「システム全体の完了条件」語彙は禁止。
 #   v2章の全コード: 接続点コードの略記（「が続く」「も同様」）禁止。
 # 未登録章は旧形式（v1）の検証を維持し、章単位で移行する。
-SYSTEM_STRUCTURE_V2 = set()
+SYSTEM_STRUCTURE_V2 = {
+    "chapter01.md",
+}
 
 BANNED_PATTERNS = [
     (
