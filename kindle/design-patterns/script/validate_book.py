@@ -191,10 +191,7 @@ SYSTEM_STRUCTURE_CLASS_TOKENS = {
     ],
 }
 SYSTEM_STRUCTURE_FINAL_FORMS = {
-    "chapter01.md": [
-        "ルールエンジン", "条件関数と計算関数の登録システム",
-        "具象ルールの登録システム",
-    ],
+    "chapter01.md": ["具象ルールの登録システム"],
     "chapter02.md": ["窓口構造"],
     "chapter03.md": ["状態分離構造", "待ち行列分離構造"],
     "chapter04.md": ["骨格固定構造"],
@@ -264,7 +261,7 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
 #   combine: 複数のパターン構造を組み合わせる（組み合わせ表を要求）
 # 未登録章は既定の select（比較表を要求し検証を弱めない）。
 SYSTEM_STRUCTURE_MODE = {
-    "chapter01.md": "select",
+    "chapter01.md": "single",
     "chapter02.md": "single",
     "chapter03.md": "combine",
     "chapter04.md": "single",
@@ -289,6 +286,14 @@ SYSTEM_STRUCTURE_V2 = {
     "chapter01.md",
     "chapter02.md",
     "chapter03.md",
+}
+
+# 第1章の★指摘で確定した、重複した引き渡し表・受け入れ条件再掲・
+# 変更影響統合表を置かない流れ。フェーズ5の課題定義を直接、
+# フェーズ6の「分離・配置・組み立て」へ接続する。
+# 第1章を完成見本として確定後、0章・テンプレ・各章へ展開する。
+SYSTEM_STRUCTURE_DIRECT_FLOW = {
+    "chapter01.md",
 }
 
 BANNED_PATTERNS = [
@@ -489,7 +494,15 @@ def check_system_structure_phase6(
     ln = line_number(text, p6)
     issues: list[Issue] = []
     is_v2 = path.name in SYSTEM_STRUCTURE_V2
-    if is_v2:
+    is_direct_flow = path.name in SYSTEM_STRUCTURE_DIRECT_FLOW
+    if is_direct_flow:
+        condition_required = [
+            ("#### 接続点の分離・配置・組み立てを決める",
+             "直接接続型のフェーズ6に分離・配置・組み立ての決定がありません"),
+            ("| 決定 | システム全体の考え方 | P1のコードへの反映 | P2のコードへの反映 |",
+             "直接接続型のフェーズ6に課題とコードを結ぶ決定表がありません"),
+        ]
+    elif is_v2:
         condition_required = [
             ("#### 受け入れ条件（フェーズ5から引き継ぎ）",
              "v2章のフェーズ6に受け入れ条件の引き継ぎがありません"),
@@ -505,10 +518,6 @@ def check_system_structure_phase6(
     required = condition_required + [
         ("### 6-1", "フェーズ6に段階的なコード検討（6-1）がありません"),
         ("### 6-2", "フェーズ6に契約・データ配置（6-2）がありません"),
-        ("#### 3-2の変更影響を、システム構造の材料へ統合する",
-         "フェーズ6にP1・P2をシステム構造の材料へ統合する説明がありません"),
-        ("| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |",
-         "フェーズ6に変化軸・移す責任・守る範囲の統合表がありません"),
         ("#### システム全体の最終構造を決める",
          "フェーズ6にコード作成前のシステム構造決定がありません"),
         ("### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
@@ -530,9 +539,11 @@ def check_system_structure_phase6(
          "フェーズ6に課題箇所だけのコードおさらいがありません"),
         ("#### システム全体のコード適用結果",
          "フェーズ6にシステム全体のコード適用結果がありません"),
-        (("| 受け入れ条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |" if is_v2
-          else "| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |"),
-         "フェーズ6に受け入れ条件（旧: 完了条件）とコードの対応表がありません"),
+        (("| 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |"
+          if is_direct_flow else
+          ("| 受け入れ条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |" if is_v2
+           else "| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |")),
+         "フェーズ6に課題定義とコードの対応表がありません"),
         ("| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |",
          "全章共通の分離・生成・依存注入・実行の問いと第1章の対応がありません"),
         ("#### 実装ステップ1", "採用設計の実装ステップ1がありません"),
@@ -541,6 +552,13 @@ def check_system_structure_phase6(
         ("**システム全体の実装結果：達成。**",
          "採用設計によるシステム全体の達成確認がありません"),
     ]
+    if not is_direct_flow:
+        required.extend([
+            ("#### 3-2の変更影響を、システム構造の材料へ統合する",
+             "フェーズ6にP1・P2をシステム構造の材料へ統合する説明がありません"),
+            ("| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |",
+             "フェーズ6に変化軸・移す責任・守る範囲の統合表がありません"),
+        ])
     for token, msg in required:
         if token not in sec:
             issues.append(Issue(path, ln, msg))
@@ -549,25 +567,47 @@ def check_system_structure_phase6(
         issues.append(Issue(path, ln,
             "v2章では旧語彙「システム全体の完了条件」を使わず受け入れ条件を参照してください"))
 
-    order_tokens = [
-        "#### 3-2の変更影響を、システム構造の材料へ統合する",
-        ("#### 受け入れ条件（フェーズ5から引き継ぎ）" if is_v2
-         else "#### システム全体の完了条件を固定する"),
-        "#### システム全体の最終構造を決める",
-        "### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
-        "#### 課題箇所のおさらい（フェーズ3の関連コード）",
-        "### 6-1",
-        "### 6-2",
-        "#### システム全体のコード適用結果",
-    ]
-    if is_v2:
-        order_tokens.insert(2, "#### 接続点の分離・配置・組み立てを決める")
+    if is_direct_flow:
+        for redundant in (
+                "#### フェーズ6へ渡す課題",
+                "#### 3-2の変更影響を、システム構造の材料へ統合する",
+                "#### 受け入れ条件（フェーズ5から引き継ぎ）"):
+            if redundant in text:
+                issues.append(Issue(
+                    path, line_number(text, text.find(redundant)),
+                    f"直接接続型では重複する節「{redundant.removeprefix('#### ')}」を置かないでください",
+                ))
+
+    if is_direct_flow:
+        order_tokens = [
+            "#### 接続点の分離・配置・組み立てを決める",
+            "#### システム全体の最終構造を決める",
+            "### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
+            "#### 課題箇所のおさらい（フェーズ3の関連コード）",
+            "### 6-1",
+            "### 6-2",
+            "#### システム全体のコード適用結果",
+        ]
+    else:
+        order_tokens = [
+            "#### 3-2の変更影響を、システム構造の材料へ統合する",
+            ("#### 受け入れ条件（フェーズ5から引き継ぎ）" if is_v2
+             else "#### システム全体の完了条件を固定する"),
+            "#### システム全体の最終構造を決める",
+            "### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
+            "#### 課題箇所のおさらい（フェーズ3の関連コード）",
+            "### 6-1",
+            "### 6-2",
+            "#### システム全体のコード適用結果",
+        ]
+        if is_v2:
+            order_tokens.insert(2, "#### 接続点の分離・配置・組み立てを決める")
     positions = [sec.find(token) for token in order_tokens]
     if min(positions) >= 0 and positions != sorted(positions):
         issues.append(Issue(
             path, ln,
-            "フェーズ6は変更軸の統合→全体条件→最終構造→クラス図→関連コード→"
-            "段階実装→システム全体の判定の順にしてください",
+            "フェーズ6は課題定義→分離・配置・組み立て→最終構造→クラス図→"
+            "関連コード→段階実装→システム全体の判定の順にしてください",
         ))
 
     structure_start = sec.find("### 対策検討のクラス図：1-3の責任と依存をどう変えるか")
@@ -595,7 +635,7 @@ def check_system_structure_phase6(
         final_forms = []
     for final_form in final_forms:
         if final_form not in sec:
-            issues.append(Issue(path, ln, f"完成形の比較に {final_form} がありません"))
+            issues.append(Issue(path, ln, f"最終構造の説明に {final_form} がありません"))
 
     # 最終構造の出し方はモードで変える（軸数とは独立に決まる）。
     mode = SYSTEM_STRUCTURE_MODE.get(path.name, "select")
@@ -626,18 +666,51 @@ def check_system_structure_phase6(
     if len(extract_cpp_blocks(sec)) < 5:
         issues.append(Issue(path, ln, "フェーズ6に段階判断を確認できるコードが不足しています"))
 
-    issue_table = "| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |"
-    issue_start = sec.find(issue_table)
     structure_heading = sec.find("### 対策検討のクラス図：1-3の責任と依存をどう変えるか")
-    issue_ids = re.findall(
-        r"(?m)^\|\s*(P\d+)\s*\|",
-        sec[issue_start:structure_heading],
-    ) if min(issue_start, structure_heading) >= 0 else []
-    handoff_start = phase5_sec.find(handoff_table_heading)
-    handoff_ids = re.findall(
-        r"(?m)^\|\s*(P\d+)\s*\|",
-        phase5_sec[handoff_start:],
-    ) if handoff_start >= 0 else []
+    if is_direct_flow:
+        issue_table = "| 課題ID | 変化軸 | 変わる側（差し替えたい知識） | 守る側（安定させたい処理） |"
+        issue_start = phase5_sec.find(issue_table)
+        issue_ids = re.findall(
+            r"(?m)^\|\s*(P\d+)\s*\|",
+            phase5_sec[issue_start:],
+        ) if issue_start >= 0 else []
+        handoff_ids = issue_ids
+        decision_start = sec.find(
+            "| 決定 | システム全体の考え方 | P1のコードへの反映 | P2のコードへの反映 |"
+        )
+        decision_end = sec.find("#### システム全体の最終構造を決める")
+        decision_sec = sec[decision_start:decision_end]
+        for issue_id in issue_ids:
+            if issue_id not in decision_sec:
+                issues.append(Issue(
+                    path, ln,
+                    f"分離・配置・組み立ての決定表に{issue_id}のコード反映がありません",
+                ))
+        result_start = sec.find(
+            "| 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |"
+        )
+        result_end = sec.find("**システム全体の実装結果：達成。**", result_start)
+        result_trace_sec = (
+            sec[result_start:result_end] if 0 <= result_start < result_end else ""
+        )
+        for issue_id in issue_ids:
+            if f"| {issue_id}：" not in result_trace_sec:
+                issues.append(Issue(
+                    path, ln,
+                    f"システム全体のコード適用結果に{issue_id}のコードと結果の追跡がありません",
+                ))
+    else:
+        issue_table = "| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |"
+        issue_start = sec.find(issue_table)
+        issue_ids = re.findall(
+            r"(?m)^\|\s*(P\d+)\s*\|",
+            sec[issue_start:structure_heading],
+        ) if min(issue_start, structure_heading) >= 0 else []
+        handoff_start = phase5_sec.find(handoff_table_heading)
+        handoff_ids = re.findall(
+            r"(?m)^\|\s*(P\d+)\s*\|",
+            phase5_sec[handoff_start:],
+        ) if handoff_start >= 0 else []
     phase7_start = text.find("#### 変更軸ごとの完成コード追跡", p6)
     phase72 = text.find("### 7-2", phase7_start)
     phase7_ids = re.findall(
@@ -645,7 +718,7 @@ def check_system_structure_phase6(
         text[phase7_start:phase72],
     ) if min(phase7_start, phase72) >= 0 else []
     if not issue_ids:
-        issues.append(Issue(path, ln, "変更軸の統合表に課題ID行がありません"))
+        issues.append(Issue(path, ln, "フェーズ5の課題定義に課題ID行がありません"))
     else:
         expected = [f"P{i}" for i in range(1, len(issue_ids) + 1)]
         if issue_ids != expected:
@@ -654,8 +727,39 @@ def check_system_structure_phase6(
             if ids != issue_ids:
                 issues.append(Issue(
                     path, ln,
-                    f"{label}の課題IDを変更軸の統合表と一致させてください: {ids} != {issue_ids}",
+                    f"{label}の課題IDを課題定義と一致させてください: {ids} != {issue_ids}",
                 ))
+
+    if is_direct_flow:
+        # 対策検討で採用したクラス図と、完成コード後のクラス図は同じ構造を
+        # 確認する図である。Mermaid定義の差による自動配置の揺れを防ぐ。
+        phase6_class_diagrams = re.findall(
+            r"```mermaid\s*\n(classDiagram.*?)(?=\n```)",
+            structure_sec,
+            re.DOTALL,
+        )
+        completed_heading = text.find("#### 解決後のクラス構成", p6)
+        completed_end = text.find("#### 変更軸ごとの完成コード追跡", completed_heading)
+        completed_sec = (
+            text[completed_heading:completed_end]
+            if 0 <= completed_heading < completed_end else ""
+        )
+        completed_diagrams = re.findall(
+            r"```mermaid\s*\n(classDiagram.*?)(?=\n```)",
+            completed_sec,
+            re.DOTALL,
+        )
+        if phase6_class_diagrams and completed_diagrams:
+            if phase6_class_diagrams[-1].strip() != completed_diagrams[0].strip():
+                issues.append(Issue(
+                    path, line_number(text, completed_heading),
+                    "対策検討の採用後クラス図と対策完成後のクラス図は同じMermaid定義にしてください",
+                ))
+        else:
+            issues.append(Issue(
+                path, ln,
+                "対策検討の採用後クラス図と対策完成後のクラス図を比較できません",
+            ))
 
     p7 = text.find("## 🟢 フェーズ7", p6)
     result_graph = text.find("### 7-3：変更影響グラフ（改善後）", p7)
@@ -686,18 +790,30 @@ def check_phase6_design(text: str, path: Path) -> list[Issue]:
     phase5_sec = text[p5:p6] if 0 <= p5 < p6 else ""
     handoff_heading = "#### フェーズ6へ渡す課題"
     is_v2 = path.name in SYSTEM_STRUCTURE_V2
+    is_direct_flow = path.name in SYSTEM_STRUCTURE_DIRECT_FLOW
     handoff_table_heading = (
         "| 課題ID | 現在の変更影響 | 変えたくない範囲 | 受け入れ条件 |" if is_v2
         else "| 課題ID | 現在の変更影響 | 変えたくない範囲 |"
     )
-    if handoff_heading not in phase5_sec:
-        issues.append(Issue(path, ln, "フェーズ5末尾にフェーズ6へ渡す課題がありません"))
-    if handoff_table_heading not in phase5_sec:
-        issues.append(Issue(
-            path, ln,
-            "フェーズ5の引き渡し表に課題ID・現在の変更影響・変えたくない範囲"
-            + ("・受け入れ条件" if is_v2 else "") + "がありません",
-        ))
+    if is_direct_flow:
+        direct_issue_heading = (
+            "| 課題ID | 変化軸 | 変わる側（差し替えたい知識） | "
+            "守る側（安定させたい処理） |"
+        )
+        if direct_issue_heading not in phase5_sec:
+            issues.append(Issue(
+                path, ln,
+                "直接接続型のフェーズ5に、対策検討へ渡す変化軸・変わる側・守る側がありません",
+            ))
+    else:
+        if handoff_heading not in phase5_sec:
+            issues.append(Issue(path, ln, "フェーズ5末尾にフェーズ6へ渡す課題がありません"))
+        if handoff_table_heading not in phase5_sec:
+            issues.append(Issue(
+                path, ln,
+                "フェーズ5の引き渡し表に課題ID・現在の変更影響・変えたくない範囲"
+                + ("・受け入れ条件" if is_v2 else "") + "がありません",
+            ))
     if is_v2:
         if "変わる側" not in phase5_sec or "守る側" not in phase5_sec:
             issues.append(Issue(
