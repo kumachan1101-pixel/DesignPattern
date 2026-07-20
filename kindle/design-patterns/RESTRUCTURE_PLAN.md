@@ -30,8 +30,8 @@
 
 | ID | 内容 | 対象 | 状態 |
 |---|---|---|---|
-| F1 | フェーズ5/6/7の再定義を正本へ反映（5=接続点洗い出し+受け入れ条件、6=分離・配置・組み立て+採用、7=実施+検証）。「完了条件」→「受け入れ条件」への転換を含む | chapter00_2.md, templates/chapter-template.md, CLAUDE.md 7フェーズ表, rules/design-decision-guide.md, rules/connection-point-review.md, rules/phase-consistency-check.md, rules/checklist.md | 未 |
-| F2 | 0章への追記：変わりやすい場所のヒューリスティック（入力・保存など端は変わりやすい）、共有ストア注入規約（staticにしない理由・模擬DB/待ち行列の読み方）、クラス図規約（浮きクラス注記必須・依存ラベルの許容範囲） | chapter00_1.md / chapter00_2.md, rules/writing-rules.md | 未 |
+| F1 | フェーズ5/6/7の再定義を正本へ反映（5=接続点洗い出し+受け入れ条件、6=分離・配置・組み立て+採用、7=実施+検証）。「完了条件」→「受け入れ条件」への転換を含む | chapter00_2.md, templates/chapter-template.md, CLAUDE.md 7フェーズ表, rules/design-decision-guide.md, rules/connection-point-review.md, rules/phase-consistency-check.md, rules/checklist.md | 完了 |
+| F2 | 0章への追記：変わりやすい場所のヒューリスティック（入力・保存など端は変わりやすい）、共有ストア注入規約（staticにしない理由・模擬DB/待ち行列の読み方）、クラス図規約（浮きクラス注記必須・依存ラベルの許容範囲） | chapter00_1.md / chapter00_2.md, rules/writing-rules.md | **作業中（次のAIはここから）** |
 | F3 | validator改訂：新フェーズ5（接続点定義表+受け入れ条件）・新フェーズ6（分離・配置・組み立て+受け入れ条件参照）の検証。旧「完了条件」語彙の検出。接続点コード略記（「が続く」「同様に並ぶ」等）の検出 | script/validate_book.py | 未 |
 | F4 | 提示ルール明文化：接続点コードは略さない／同型並列の極小関数は1行揃え・それ以外はブロック改行（Kindle80字と両立）／データ・関数コメント義務／浮きクラス注記 | rules/writing-rules.md, rules/checklist.md | 未 |
 
