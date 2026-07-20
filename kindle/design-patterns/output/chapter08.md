@@ -938,9 +938,7 @@ PayPay決済が追加されても、注文処理から見た大枠（`PaymentReq
 
 ```mermaid
 flowchart LR
-    A[/決済要求<br>methodId=paypay<br>amount=3,000<br>accessToken=pp_123/]:::input --> B{登録・有効・金額OK}:::decision
-    B -->|Yes| C{PayPay固有データは揃っているか}:::decision
-    C -->|Yes| D[PayPay決済セッション作成API]:::process
+    A[/検証済み決済要求<br>methodId=paypay<br>amount=3,000<br>accessToken=pp_123/]:::input --> D[PayPay決済セッション作成API]:::process
     D --> E([中間出力<br>保留: セッション作成済み<br>pendingId=PP-ORD-2001]):::pending
     E --> F[状態確認APIで決済完了確認]:::process
     F --> G([最終出力<br>成功: PayPay決済確認済み]):::normal
@@ -1520,7 +1518,14 @@ struct PaymentResult {
 
 新しい手段は Processor 実装と `createProcessor` の1行、`ProcessorRegistry` の登録に限られます。
 
-ここまでで、決済手段の追加は具象Processor、生成メソッドの登録、設定Registryの登録へ閉じました。`processPayment()`、Worker、Webhookは具体型や同期非同期を知らないままです。実行結果と変更影響は、完成コードを示した後のフェーズ7で確認します。
+#### システム全体のコード適用結果
+
+| 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |
+|---|---|---|---|
+| P1：決済手段 | 手段追加を具象Processorと生成・設定登録へ限定する | `IPaymentProcessor`、各Processor、`createProcessor()`、`ProcessorRegistry` | `processPayment()` は具体型・手段固有入力・同期非同期を知らず `pay()` だけを呼ぶ |
+| P1を適用したシステム全体 | Worker・Webhook・ログを同じ契約のまま維持する | 外側がRegistry・Client・Logを生成・所有・注入し、Applicationが要求ごとにProcessorを生成・破棄する | 手段追加が安定した入口へ波及せず、成功・保留・失敗を同じ結果型で返せた |
+
+**システム全体の実装結果：達成。** P1が生成分離構造として決済経路へ接続され、フェーズ5で目指した状態を実現しました。実行結果と変更影響は、完成コードを示した後のフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 生成するオブジェクトの種類（決済手段）を、利用側から隠蔽するメソッドに集約し、利用側がインターフェースを通じてインスタンスを得る構造——これが **生成分離構造（ファクトリーメソッド）** と呼ばれています。
@@ -2261,11 +2266,26 @@ classDiagram
     class BankTransferProcessor
     class ConvenienceStoreProcessor
     class PayPayProcessor
+
     PaymentApplication --> IPaymentProcessor : createProcessor
     IPaymentProcessor <|.. CreditCardProcessor
     IPaymentProcessor <|.. BankTransferProcessor
     IPaymentProcessor <|.. ConvenienceStoreProcessor
     IPaymentProcessor <|.. PayPayProcessor
+    PaymentApplication --> ProcessorRegistry : 存在・有効確認
+    PaymentApplication --> PaymentStatusClient : 完了確認
+    DefaultPaymentApplication --|> PaymentApplication
+    PaymentWorker --> PaymentApplication : 非同期入口
+    WebhookController --> PaymentApplication : 完了通知
+    CreditCardProcessor --> PaymentGatewayClient : 認証API
+    PaymentApplication --> PaymentLog : 記録
+
+    note for IPaymentProcessor "【P1・新設】pay(request)の共通契約"
+    note for PaymentApplication "【P1・残した】決済フロー\ncreateProcessorで生成を委ねる"
+    note for PayPayProcessor "【P1・新設した追加手段】"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "IPaymentProcessor,CreditCardProcessor,BankTransferProcessor,ConvenienceStoreProcessor,PayPayProcessor,PaymentApplication" focus
 ```
 
 章末のFactory Method骨格図では、`PaymentApplication` がCreator、`createProcessor` がFactory Method、`IPaymentProcessor` と各実装がProduct群に対応します。

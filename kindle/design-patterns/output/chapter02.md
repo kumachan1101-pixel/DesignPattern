@@ -48,13 +48,12 @@
 
 ```mermaid
 flowchart LR
-    A[/送金元口座<br>ACC001/]:::input --> D{振込先口座は<br>有効か}:::decision
+    A[/検証済み送金元口座<br>ACC001/]:::input --> D[口座・残高を確認]:::process
     C[/振込先口座<br>ACC002/]:::input --> D
-    E[/送金金額<br>5,000円/]:::input --> B{残高は足りるか}:::decision
-    D -->|Yes| B
-    B -->|Yes| G{OTP認証に<br>成功するか}:::decision
-    F[/認証コード<br>999999/]:::input --> G
-    G -->|Yes| H[送金を実行し<br>残高を更新]:::process
+    E[/検証済み送金金額<br>5,000円/]:::input --> D
+    D --> G[OTP認証を完了]:::process
+    F[/有効な認証コード<br>999999/]:::input --> G
+    G --> H[送金を実行し<br>残高を更新]:::process
     H --> I[履歴を記録]:::process
     I --> J([正常出力<br>振り込み完了]):::normal
 
@@ -559,14 +558,13 @@ ACC003: 470000円
 
 ```mermaid
 flowchart LR
-    A[/送金元口座<br>ACC001/]:::input --> D{振込先口座は<br>有効か}:::decision
+    A[/検証済み送金元口座<br>ACC001/]:::input --> D[口座・残高を確認]:::process
     C[/振込先口座<br>ACC002/]:::input --> D
-    E[/送金金額<br>5,000円/]:::input --> B{残高は足りるか}:::decision
-    D -->|Yes| B
-    B -->|Yes| P[認証コードの発行を要求し<br>取引IDを受け取る]:::process
+    E[/検証済み送金金額<br>5,000円/]:::input --> D
+    D --> P[認証コードの発行を要求し<br>取引IDを受け取る]:::process
     F[/認証コード<br>999999/]:::input --> G
-    P --> G{取引IDと認証コードの<br>照合に成功するか}:::decision
-    G -->|Yes| H
+    P --> G[取引IDと認証コードを照合]:::process
+    G --> H
     H[取引IDを添えて送金を実行し<br>残高を更新]:::process
     H --> I[履歴を記録]:::process
     I --> J([正常出力<br>振り込み完了]):::normal
@@ -1281,7 +1279,7 @@ struct TransferResult {
 };
 ```
 
-| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |
+| 接続点を変える観点 | システム全体での設計判断 | 変えたくない側が知らなくなる詳細 |
 |---|---|---|
 | 何を分離するか | P1の銀行API手順とP2の具体窓口選択を窓口クラスと契約へ置く | 手順の並びと具体窓口名 |
 | どこで生成・選択するか | `Application` が `BankTransferService` を生成・所有・選択する | 具体窓口の生成方法 |
@@ -1292,14 +1290,13 @@ struct TransferResult {
 
 #### システム全体のコード適用結果
 
-| 受け入れ条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |
+| 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |
 |---|---|---|---|
-| 銀行API手順の変更を窓口内側に限定する | `BankTransferService` の手順集約、`performTransfer` | 窓口内側の手順と必要な入力 | 達成 |
-| 差し替えを組み立ての1か所に限定する | 契約 `IBankTransferService`、`Application` の生成・注入 | `Application` の1行 | 達成 |
-| 2つの呼び出し元を安定させる | 契約だけに依存する `TransferProcessor`・`BatchTransferProcessor` | 既存クラスの修正なし | 達成 |
-| 振込依頼・振込結果の契約を守る | `TransferRequest`→`TransferResult` の受け渡し | 口座残高検証・履歴記録を維持 | 達成 |
+| P1：銀行API手順 | 手順変更を呼び出し元へ波及させない | `BankTransferService::performTransfer()` に手順を集約 | API順序と入力の変更が窓口内側へ閉じた |
+| P2：具体窓口の選択 | 差し替えを組み立てへ限定する | `Application` が生成・所有し `IBankTransferService&` を注入 | 二つのProcessorは具体窓口を知らない |
+| P1・P2を接続したシステム全体 | `TransferRequest`→`TransferResult` と保存位置を守る | 窓口の内側で残高確認・送金・履歴記録を順に実行 | 二軸を一つの振込経路で動かし、既存入口を維持した |
 
-**システム全体の実装結果：達成。** P1・P2の責任が同じ採用構造で接続され、フェーズ5の受け入れ条件をすべて満たしました。実際の動作と変更影響はフェーズ7で確認します。
+**システム全体の実装結果：達成。** P1・P2が同じ採用構造で接続され、フェーズ5で目指した状態を実現しました。実際の動作と変更影響はフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 ### 7-1：解決後のコード（全体）
@@ -1714,6 +1711,11 @@ classDiagram
     BankTransferService --> TransferHistory : 履歴を追加する
     BankTransferService --> Bank : 手順を呼ぶ
     BankTransferService --> SecurityAuthenticator : 手順を呼ぶ
+
+    note for TransferProcessor "【P1・残した】業務フロー\n手順を知らない\n【P2】契約だけに依存"
+    note for BankTransferService "【P1・新設】銀行API手順を集約\n【P2】IBankTransferServiceを実装"
+    note for IBankTransferService "【P2・新設】窓口契約\nperformTransferなど"
+    note for Application "【P2・新設】具体窓口を生成・注入"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
     cssClass "TransferProcessor,BatchTransferProcessor,IBankTransferService,BankTransferService,Application" focus

@@ -195,8 +195,8 @@ SYSTEM_STRUCTURE_FINAL_FORMS = {
     "chapter02.md": ["窓口構造"],
     "chapter03.md": ["状態分離構造", "待ち行列分離構造"],
     "chapter04.md": ["骨格固定構造"],
-    "chapter05.md": ["操作記録構造"],
-    "chapter06.md": ["装飾連結構造"],
+    "chapter05.md": ["台帳正本型", "残高集約型"],
+    "chapter06.md": ["トッピングリスト構造", "装飾連結構造"],
     "chapter07.md": ["通知分離構造"],
     "chapter08.md": ["生成分離構造"],
     "chapter09_2.md": ["状態分離構造", "ルール差し替え構造"],
@@ -265,8 +265,8 @@ SYSTEM_STRUCTURE_MODE = {
     "chapter02.md": "single",
     "chapter03.md": "combine",
     "chapter04.md": "single",
-    "chapter05.md": "single",
-    "chapter06.md": "single",
+    "chapter05.md": "select",
+    "chapter06.md": "select",
     "chapter07.md": "single",
     "chapter08.md": "single",
     "chapter09_2.md": "combine",
@@ -275,26 +275,11 @@ SYSTEM_STRUCTURE_MODE = {
     "chapter12.md": "combine",
 }
 
-# 2026-07-20 フェーズ再定義（RESTRUCTURE_PLAN.md）へ変換済みの章。
-#   v2章のフェーズ5: 接続点定義表（変わる側/守る側）+ 受け入れ条件付き引き渡し表。
-#            対策の先取り（「へ移す」「新設」）をフェーズ5に書かない。
-#   v2章のフェーズ6: 受け入れ条件（フェーズ5から引き継ぎ）+ 分離・配置・組み立ての決定。
-#            旧「システム全体の完了条件」語彙は禁止。
-#   v2章の全コード: 接続点コードの略記（「が続く」「も同様」）禁止。
-# 未登録章は旧形式（v1）の検証を維持し、章単位で移行する。
-SYSTEM_STRUCTURE_V2 = {
-    "chapter01.md",
-    "chapter02.md",
-    "chapter03.md",
-}
-
-# 第1章の★指摘で確定した、重複した引き渡し表・受け入れ条件再掲・
-# 変更影響統合表を置かない流れ。フェーズ5の課題定義を直接、
-# フェーズ6の「分離・配置・組み立て」へ接続する。
-# 第1章を完成見本として確定後、0章・テンプレ・各章へ展開する。
-SYSTEM_STRUCTURE_DIRECT_FLOW = {
-    "chapter01.md",
-}
+# 2026-07-20 第1章確定版（RESTRUCTURE_PLAN.md）。全章で、フェーズ5は
+# 接続点表1枚、フェーズ6は分離・配置・組み立てへ直接接続する。
+# 重複する引き渡し表・受け入れ条件再掲・変更影響の再統合表は置かない。
+SYSTEM_STRUCTURE_V2 = set(CORE_CHAPTERS)
+SYSTEM_STRUCTURE_DIRECT_FLOW = set(CORE_CHAPTERS)
 
 BANNED_PATTERNS = [
     (
@@ -493,41 +478,23 @@ def check_system_structure_phase6(
     """変更軸の統合→システム構造→段階実装→全体判定を検証する。"""
     ln = line_number(text, p6)
     issues: list[Issue] = []
-    is_v2 = path.name in SYSTEM_STRUCTURE_V2
     is_direct_flow = path.name in SYSTEM_STRUCTURE_DIRECT_FLOW
     if is_direct_flow:
         condition_required = [
-            ("#### 接続点の分離・配置・組み立てを決める",
-             "直接接続型のフェーズ6に分離・配置・組み立ての決定がありません"),
-            ("| 接続点を変える観点 | システム全体の考え方 | P1のコードへの反映 | P2のコードへの反映 |",
-             "直接接続型のフェーズ6に課題とコードを結ぶ決定表がありません"),
-            ("組み立て方法（生成・所有・登録・注入）",
-             "直接接続型のフェーズ6で組み立てに生成・所有・登録・注入が含まれていません"),
-            ("OrderProcessor processor(db, renderer, selector);",
-             "直接接続型のフェーズ6にSelectorを安定側へ注入するコードがありません"),
-            ("PaymentCalculator calculator(rule);",
-             "直接接続型のフェーズ6に選択結果で計算役を生成するコードがありません"),
-            ("CartPreviewService preview(rule);",
-             "直接接続型のフェーズ6に選択結果でプレビュー役を生成するコードがありません"),
-        ]
-    elif is_v2:
-        condition_required = [
-            ("#### 受け入れ条件（フェーズ5から引き継ぎ）",
-             "v2章のフェーズ6に受け入れ条件の引き継ぎがありません"),
-            ("#### 接続点の分離・配置・組み立てを決める",
-             "v2章のフェーズ6に分離・配置・組み立ての決定がありません"),
-            ("| 決定 | ", "v2章のフェーズ6に分離・配置・組み立ての決定表がありません"),
+            ("| 接続点を変える観点 |",
+             "フェーズ6に課題とコードを結ぶ三観点の表がありません"),
+            ("分離方法", "フェーズ6に分離方法の判断がありません"),
+            ("配置場所", "フェーズ6に配置場所の判断がありません"),
+            ("組み立て方法", "フェーズ6に組み立て方法の判断がありません"),
+            ("生成", "フェーズ6の組み立て説明に生成責任がありません"),
+            ("所有", "フェーズ6の組み立て説明に所有責任がありません"),
+            ("注入", "フェーズ6の組み立て説明に依存注入がありません"),
         ]
     else:
-        condition_required = [
-            ("#### システム全体の完了条件を固定する",
-             "フェーズ6にシステム全体の完了条件がありません"),
-        ]
+        condition_required = []
     required = condition_required + [
         ("### 6-1", "フェーズ6に段階的なコード検討（6-1）がありません"),
         ("### 6-2", "フェーズ6に契約・データ配置（6-2）がありません"),
-        ("#### システム全体の最終構造を決める",
-         "フェーズ6にコード作成前のシステム構造決定がありません"),
         ("### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
          "フェーズ6に既存クラス図を使った責任見直しがありません"),
         ("変更前のクラス図（1-3を責任見直し用に再掲）",
@@ -547,74 +514,45 @@ def check_system_structure_phase6(
          "フェーズ6に課題箇所だけのコードおさらいがありません"),
         ("#### システム全体のコード適用結果",
          "フェーズ6にシステム全体のコード適用結果がありません"),
-        (("| 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |"
-          if is_direct_flow else
-          ("| 受け入れ条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |" if is_v2
-           else "| システム全体の完了条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |")),
+        ("| 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |",
          "フェーズ6に課題定義とコードの対応表がありません"),
-        ("| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |",
-         "全章共通の分離・生成・依存注入・実行の問いと第1章の対応がありません"),
+        ("| 接続点を変える観点 | システム全体での設計判断 | 変えたくない側が知らなくなる詳細 |",
+         "全章共通の分離・配置・組み立て・実行の確認表がありません"),
         ("#### 実装ステップ1", "採用設計の実装ステップ1がありません"),
         ("#### 実装ステップ2", "採用設計の実装ステップ2がありません"),
         ("#### 実装ステップ3", "採用設計の実装ステップ3がありません"),
         ("**システム全体の実装結果：達成。**",
          "採用設計によるシステム全体の達成確認がありません"),
     ]
-    if not is_direct_flow:
-        required.extend([
-            ("#### 3-2の変更影響を、システム構造の材料へ統合する",
-             "フェーズ6にP1・P2をシステム構造の材料へ統合する説明がありません"),
-            ("| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |",
-             "フェーズ6に変化軸・移す責任・守る範囲の統合表がありません"),
-        ])
     for token, msg in required:
         if token not in sec:
             issues.append(Issue(path, ln, msg))
-
-    if is_v2 and "システム全体の完了条件" in sec:
-        issues.append(Issue(path, ln,
-            "v2章では旧語彙「システム全体の完了条件」を使わず受け入れ条件を参照してください"))
 
     if is_direct_flow:
         for redundant in (
                 "#### フェーズ6へ渡す課題",
                 "#### 3-2の変更影響を、システム構造の材料へ統合する",
-                "#### 受け入れ条件（フェーズ5から引き継ぎ）"):
+                "#### 受け入れ条件（フェーズ5から引き継ぎ）",
+                "#### システム全体の完了条件を固定する"):
             if redundant in text:
                 issues.append(Issue(
                     path, line_number(text, text.find(redundant)),
                     f"直接接続型では重複する節「{redundant.removeprefix('#### ')}」を置かないでください",
                 ))
 
-    if is_direct_flow:
-        order_tokens = [
-            "#### 接続点の分離・配置・組み立てを決める",
-            "#### システム全体の最終構造を決める",
-            "### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
-            "#### 課題箇所のおさらい（フェーズ3の関連コード）",
-            "### 6-1",
-            "### 6-2",
-            "#### システム全体のコード適用結果",
-        ]
-    else:
-        order_tokens = [
-            "#### 3-2の変更影響を、システム構造の材料へ統合する",
-            ("#### 受け入れ条件（フェーズ5から引き継ぎ）" if is_v2
-             else "#### システム全体の完了条件を固定する"),
-            "#### システム全体の最終構造を決める",
-            "### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
-            "#### 課題箇所のおさらい（フェーズ3の関連コード）",
-            "### 6-1",
-            "### 6-2",
-            "#### システム全体のコード適用結果",
-        ]
-        if is_v2:
-            order_tokens.insert(2, "#### 接続点の分離・配置・組み立てを決める")
+    order_tokens = [
+        "| 接続点を変える観点 |",
+        "### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
+        "#### 課題箇所のおさらい（フェーズ3の関連コード）",
+        "### 6-1",
+        "### 6-2",
+        "#### システム全体のコード適用結果",
+    ]
     positions = [sec.find(token) for token in order_tokens]
     if min(positions) >= 0 and positions != sorted(positions):
         issues.append(Issue(
             path, ln,
-            "フェーズ6は課題定義→分離・配置・組み立て→最終構造→クラス図→"
+            "フェーズ6は課題定義→分離・配置・組み立て→クラス図→"
             "関連コード→段階実装→システム全体の判定の順にしてください",
         ))
 
@@ -647,29 +585,19 @@ def check_system_structure_phase6(
 
     # 最終構造の出し方はモードで変える（軸数とは独立に決まる）。
     mode = SYSTEM_STRUCTURE_MODE.get(path.name, "select")
-    decide_start = sec.find("#### システム全体の最終構造を決める")
     decide_end = sec.find("### 対策検討のクラス図：1-3の責任と依存をどう変えるか")
-    decide_sec = sec[decide_start:decide_end] if 0 <= decide_start < decide_end else ""
+    decide_sec = sec[:decide_end] if decide_end > 0 else ""
     if mode == "select":
-        if "| 最終システム構造 | 責任配置と依存の差 | 施策追加時に触る場所 | 判断 |" \
-                not in decide_sec:
+        if "| 完成構造 |" not in decide_sec:
             issues.append(Issue(path, ln,
                 "select章は競合する複数案を比較する最終システム構造の表が必要です"))
         if len(final_forms) < 2:
             issues.append(Issue(path, ln,
                 "select章は比較する完成形を2つ以上登録してください"))
     elif mode == "single":
-        if "一つに定ま" not in decide_sec:
-            issues.append(Issue(path, ln,
-                "single章は最終構造が一意に定まる根拠（『一つに定まる』）が必要です"))
-        if "| 最終システム構造 | 責任配置と依存の差 | 施策追加時に触る場所 | 判断 |" \
-                in decide_sec:
+        if "| 完成構造 |" in decide_sec:
             issues.append(Issue(path, ln,
                 "single章は当て馬を並べず、一意に定まる構造だけを示してください"))
-    elif mode == "combine":
-        if "| 組み合わせる構造 | 担う変化軸 | 移す責任 | 触る場所 |" not in decide_sec:
-            issues.append(Issue(path, ln,
-                "combine章は組み合わせる構造とその変化軸の対応表が必要です"))
 
     if len(extract_cpp_blocks(sec)) < 5:
         issues.append(Issue(path, ln, "フェーズ6に段階判断を確認できるコードが不足しています"))
@@ -683,10 +611,10 @@ def check_system_structure_phase6(
             phase5_sec[issue_start:],
         ) if issue_start >= 0 else []
         handoff_ids = issue_ids
-        decision_start = sec.find(
-            "| 接続点を変える観点 | システム全体の考え方 | P1のコードへの反映 | P2のコードへの反映 |"
+        decision_start = sec.find("| 接続点を変える観点 |")
+        decision_end = sec.find(
+            "### 対策検討のクラス図：1-3の責任と依存をどう変えるか"
         )
-        decision_end = sec.find("#### システム全体の最終構造を決める")
         decision_sec = sec[decision_start:decision_end]
         for issue_id in issue_ids:
             if issue_id not in decision_sec:
@@ -1090,7 +1018,7 @@ def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
     stage_end_marker = (
         "#### システム全体のコード適用結果"
         if "#### システム全体のコード適用結果" in text
-        else "### 6-3："
+        else "## 🟢 フェーズ7"
     )
     markers = {
         "recap": "#### 課題箇所のおさらい（フェーズ3の関連コード）",

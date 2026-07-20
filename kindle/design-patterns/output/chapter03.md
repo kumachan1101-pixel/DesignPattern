@@ -64,12 +64,10 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A[(TicketReservation.status<br>Available / Reserved / Paid)]:::data --> B{操作は現在状態で可能か}:::decision
+    A[(検証済み予約<br>Available / Reserved / Paid)]:::data --> B[イベント存在・空席・操作可否を確認]:::process
     C[/操作<br>予約・支払い・キャンセル/]:::input --> B
-    D[/イベントID<br>EVT001・EVT002・EVT003/]:::input --> E{対象イベントは存在するか}:::decision
-    E -->|Yes| K{空きはあるか<br>（予約時のみ）}:::decision
-    K -->|Yesまたは予約以外| B
-    B -->|Yes| F[状態ごとの処理を実行]:::process
+    D[/イベントID<br>EVT001・EVT002・EVT003/]:::input --> B
+    B --> F[状態ごとの処理を実行]:::process
     F --> G[次の状態を決める]:::process
     G --> H([正常出力<br>状態更新・結果表示]):::normal
 
@@ -574,12 +572,10 @@ stateDiagram-v2
 
 ```mermaid
 flowchart LR
-    A[(TicketReservation.status<br>Available / Reserved / Paid<br>Waitlisted / Held)]:::data --> B{操作は現在状態で可能か}:::decision
+    A[(検証済み予約<br>Available / Reserved / Paid<br>Waitlisted / Held)]:::data --> B[イベント存在・空席・操作可否を確認]:::process
     C[/操作・イベント<br>予約・支払い・キャンセル<br>waitlist登録・予約昇格・一時保留・期限切れ・決済失敗/]:::input --> B
-    D[/イベントID<br>EVT001: 春の音楽祭<br>EVT002: 夏のフェス<br>EVT003: 秋の映画会/]:::input --> E{対象イベントは存在するか}:::decision
-    E -->|Yes| K{空きはあるか<br>（予約時のみ）}:::decision
-    K -->|Yesまたは予約以外| B
-    B -->|Yes| F[状態ごとの処理を実行]:::process
+    D[/イベントID<br>EVT001: 春の音楽祭<br>EVT002: 夏のフェス<br>EVT003: 秋の映画会/]:::input --> B
+    B --> F[状態ごとの処理を実行]:::process
     F --> G[次の状態を決める]:::process
     G --> H([正常出力<br>状態更新・結果表示]):::normal
 
@@ -1245,7 +1241,7 @@ public:
 };
 ```
 
-| 共通の問い | システム全体での答え | 変えたくない側が知らなくなる詳細 |
+| 接続点を変える観点 | システム全体での設計判断 | 変えたくない側が知らなくなる詳細 |
 |---|---|---|
 | 何を分離するか | P1の状態振る舞いを状態クラスへ、P2のキュー操作を `ReservationWaitlist` へ置く | 状態の種類・遷移、待ち行列の方針 |
 | どこで生成・選択するか | 遷移元の状態が次の状態を生成し、組み立て側が待ち行列を渡す | 具体状態クラスの選択 |
@@ -1256,14 +1252,13 @@ public:
 
 #### システム全体のコード適用結果
 
-| 受け入れ条件 | 対応する構造とコード | 変更後に残る作業 | 判定 |
+| 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |
 |---|---|---|---|
-| 状態追加を1クラスと遷移元に限定する | 状態クラスと `IReservationState` 委譲 | 新状態クラスと遷移元 | 達成 |
-| 待ち行列方針を専用クラスへ閉じる | `ReservationWaitlist` の探索・削除・先頭選択 | 方針変更は同クラス内 | 達成 |
-| 席解放直後の自動昇格を維持する | `ReservedState::cancel()` → `promoteFront()` | 接続点を維持する | 達成 |
-| 公開操作と副作用の位置を維持する | `reserve()`／`cancel()` の委譲と座席・履歴更新 | 入口と副作用を維持 | 達成 |
+| P1：予約状態 | 状態追加で公開操作と既存状態を変えない | `IReservationState` と状態クラスへ委譲 | 新状態と遷移元へ変更が閉じた |
+| P2：待ち行列 | 待ち行列方針と自動昇格を利用者の手動操作にしない | `ReservationWaitlist` と `ReservedState::cancel()`→`promoteFront()` | 席解放直後にシステムが先頭を自動昇格した |
+| P1・P2を接続したシステム全体 | 公開操作・座席・履歴更新を維持する | 状態処理が待ち行列へ自動接続される | 二軸を一つの予約経路で動かし、入口と副作用を維持した |
 
-**システム全体の実装結果：達成。** P1の責任が状態分離構造、P2の責任が待ち行列分離構造で接続され、フェーズ5の受け入れ条件をすべて満たしました。実際の動作と変更影響はフェーズ7で確認します。
+**システム全体の実装結果：達成。** P1とP2が一つの予約経路で接続され、フェーズ5で目指した状態を実現しました。実際の動作と変更影響はフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 採用した設計（ステップ2：状態の契約と委譲）を、実際のコードに実装します。これにより、これまで`TicketReservation`が抱え込んでいた複雑な条件分岐を、個別の状態クラスへ移します。
@@ -1840,10 +1835,6 @@ int main() {
 classDiagram
     class TicketReservation {
         -IReservationState* state
-        -EventDatabase& db
-        -ReservationHistory& history
-        -ReservationWaitlist& waitlist
-        -string eventId
         +reserve()
         +pay()
         +cancel()
@@ -1857,6 +1848,7 @@ classDiagram
     }
     class EventInfo
     class ReservationRecord
+    class EventDatabase
     class ReservationHistory
     class ReservationWaitlist
     class AvailableState
@@ -1864,27 +1856,27 @@ classDiagram
     class PaidState
     class WaitlistedState
     class HeldState
-    class EventDatabase {
-        +reserveSeat(eventId)
-        +cancelSeat(eventId)
-    }
     class BatchApplication
-    EventDatabase o--> EventInfo
-    ReservationHistory o--> ReservationRecord
-    ReservationWaitlist o--> TicketReservation : waiting
     TicketReservation o--> IReservationState
     TicketReservation --> EventDatabase
     TicketReservation --> ReservationHistory
     TicketReservation --> ReservationWaitlist
-    BatchApplication --> TicketReservation
-    BatchApplication --> EventDatabase
-    BatchApplication --> ReservationHistory
-    BatchApplication --> ReservationWaitlist
+    ReservationWaitlist o--> TicketReservation : waiting
+    EventDatabase o--> EventInfo
+    ReservationHistory o--> ReservationRecord
     IReservationState <|.. AvailableState
     IReservationState <|.. ReservedState
     IReservationState <|.. PaidState
     IReservationState <|.. WaitlistedState
     IReservationState <|.. HeldState
+    BatchApplication --> TicketReservation
+
+    note for IReservationState "【P1・新設】状態ごとの振る舞いの共通契約"
+    note for ReservedState "【P1・新設】予約状態の振る舞いと解放時の自動昇格呼び出し"
+    note for ReservationWaitlist "【P2・新設】待機者の探索・削除・先頭選択"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "IReservationState,AvailableState,ReservedState,PaidState,WaitlistedState,HeldState,ReservationWaitlist" focus
 ```
 
 章末のState骨格図では `TicketReservation` がContext、`IReservationState` がState、5つの状態クラスがConcreteStateに対応します。掲載コードに登場する在庫・履歴・待ち行列・組み立てクラスも省略せず記載しています。予約数の増減と待機者の自動昇格は状態処理からコンテキスト経由で実行され、`BatchApplication` はシナリオを起動するだけです。

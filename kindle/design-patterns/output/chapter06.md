@@ -67,10 +67,8 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A[/基本ドリンク<br>DRINK001/]:::input --> B{商品は選択済みか}:::decision
-    C[/追加トッピング/]:::input --> D{トッピングは有効か}:::decision
-    B -->|Yes| E[基本価格を決める]:::process
-    D -->|Yes| F[トッピング価格を重ねる]:::process
+    A[/検証済み基本ドリンク<br>DRINK001/]:::input --> E[基本価格を決める]:::process
+    C[/検証済み追加トッピング/]:::input --> F[トッピング価格を重ねる]:::process
     E --> F
     F --> G([正常出力<br>合計金額・注文内容]):::normal
 
@@ -404,11 +402,8 @@ int main() {
 
 ```mermaid
 flowchart LR
-    A[/基本ドリンク<br>DRINK001/]:::input --> B{商品は選択済みか}:::decision
-    C[/追加トッピング<br>Milk・Syrup・Whip<br>Matcha・Choco/]:::input --> D{トッピングは有効か}:::decision
-    B -->|Yes| E[基本価格を決める]:::process
-    D -->|Yes| A2{販売可能か}:::decision
-    A2 -->|Yes| F[選択順に価格と表示名を重ねる]:::process
+    A[/検証済み基本ドリンク<br>DRINK001/]:::input --> E[基本価格を決める]:::process
+    C[/販売可能な追加トッピング<br>Milk・Syrup・Whip<br>Matcha・Choco/]:::input --> F[選択順に価格と表示名を重ねる]:::process
     E --> F
     F --> G([正常出力<br>合計金額・注文内容]):::normal
 
@@ -974,8 +969,10 @@ public:
     string getDescription() const {
         string desc = "ホットコーヒー";
         if (hasMilk)   desc += " + Milk";
+        if (hasWhip)   desc += " + Whip";
+        if (hasSyrup)  desc += " + Syrup";
         if (hasMatcha) desc += " + Matcha";   // ← 価格と同じ分岐がここにも増える
-        // ...他のトッピングも同様に並ぶ
+        if (hasChoco)  desc += " + Choco";
         return desc;
     }
 };
@@ -1066,7 +1063,7 @@ struct OrderResult {
 };
 ```
 
-| 接続点を変える観点 | システム全体での答え | 変えたくない側が知らなくなる詳細 |
+| 接続点を変える観点 | システム全体での設計判断 | 変えたくない側が知らなくなる詳細 |
 |---|---|---|
 | 分離方法 | P1の価格・表示名・包む責任を各トッピングと `ToppingCatalog` へ置く | トッピングの種類・価格・組み合わせ |
 | 配置場所 | 共通データをCatalog、振る舞いを各部品、組み合わせをAssemblerへ置く | 具体トッピングの責任配置 |
@@ -1076,14 +1073,12 @@ struct OrderResult {
 
 #### システム全体のコード適用結果
 
-| システム全体の課題 | 対応する構造とコード | 変更後に残る作業 | 結果 |
+| 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |
 |---|---|---|---|
-| トッピング追加を1クラスと登録に限定する | トッピングクラスと `ToppingCatalog` 登録 | 新トッピングと登録 | 達成 |
-| 基本ドリンクへ分岐を増やさない | `Coffee` は自分の価格・説明だけ | 基本ドリンクの修正なし | 達成 |
-| 同じ契約で組み合わせる | `IDrink` と `ToppingWrapper` の連結 | 包む順だけで組み合わせを表す | 達成 |
-| 価格・説明の契約を守る | `getPrice()`/`getDescription()` の戻り値 | `int`/`string` と利用方法を維持 | 達成 |
+| P1：トッピング | 追加を具象部品と登録へ限定する | `IDrink`、各Wrapper、`ToppingCatalog` | 基本ドリンクへ分岐を増やさず追加できた |
+| P1を適用したシステム全体 | 価格・説明・販売可否を同じ組み立て経路で扱う | `OrderAssembler` が要求順に所有連結する | 価格・説明の契約を守り、組合せを包む順で表せた |
 
-**システム全体の実装結果：** P1のトッピング知識と組み立てが基本ドリンクから分かれました。実際の動作と変更影響はフェーズ7で確認します。
+**システム全体の実装結果：達成。** P1のトッピング知識と組み立てが基本ドリンクから分かれ、フェーズ5で目指した状態を実現しました。実際の動作と変更影響はフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 このように、基本機能（ドリンク）と追加機能（トッピング）を同じインターフェースで統一し、追加機能が内部に別の機能を包む形で機能を動的に重ね合わせるこの設計構造を **装飾連結構造（デコレーター）** と呼びます。
@@ -1486,8 +1481,6 @@ int main() {
 classDiagram
     class CustomDrink
     class MenuDatabase
-    class Choco
-    class Syrup
     class OrderApplication
     class OrderLog
     class IDrink { <<interface>> }
@@ -1496,8 +1489,11 @@ classDiagram
     class Milk
     class Whip
     class Matcha
+    class Choco
+    class Syrup
     class ToppingCatalog
     class OrderAssembler
+
     IDrink <|.. Coffee
     IDrink <|.. ToppingWrapper
     ToppingWrapper o--> IDrink
@@ -1512,6 +1508,13 @@ classDiagram
     OrderAssembler ..> IDrink
     OrderApplication --> OrderAssembler
     OrderApplication --> OrderLog
+
+    note for IDrink "【P1・新設】価格・説明の共通契約"
+    note for ToppingWrapper "【P1・新設】内側のIDrinkを包み自分ぶんを足す"
+    note for ToppingCatalog "【P1・新設】価格・販売可否を持つ"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "IDrink,ToppingWrapper,Milk,Whip,Matcha,Choco,Syrup,ToppingCatalog,OrderAssembler" focus
 ```
 
 この図は、装飾の連結（`IDrink` を軸にした包む構造）に加え、価格・販売可否を持つ `ToppingCatalog` と、要求から組み立てる `OrderAssembler` を示しています。章末のDecorator骨格図では、`IDrink` がComponent、`Coffee` がConcreteComponent、`ToppingWrapper` がDecorator、各トッピングがConcreteDecoratorに対応します。`ToppingCatalog` と `OrderAssembler` は、Decorator本体の外側で価格データと組み立てを支える役割です。

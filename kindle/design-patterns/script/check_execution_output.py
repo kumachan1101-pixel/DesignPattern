@@ -61,12 +61,12 @@ def run_source(src: str) -> tuple[bool, str]:
         cpp.write_text(src, encoding="utf-8")
         r = subprocess.run(
             ["g++", "-std=c++14", str(cpp), "-o", str(exe)],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         if r.returncode != 0:
             return False, r.stderr
         run = subprocess.run([str(exe)], capture_output=True,
-                             text=True, cwd=d)
+                             text=True, encoding="utf-8", errors="replace", cwd=d)
         return True, run.stdout
 
 
