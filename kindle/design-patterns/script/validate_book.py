@@ -287,6 +287,7 @@ SYSTEM_STRUCTURE_MODE = {
 # 未登録章は旧形式（v1）の検証を維持し、章単位で移行する。
 SYSTEM_STRUCTURE_V2 = {
     "chapter01.md",
+    "chapter02.md",
 }
 
 BANNED_PATTERNS = [
