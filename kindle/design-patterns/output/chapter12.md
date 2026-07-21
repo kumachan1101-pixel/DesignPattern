@@ -1303,6 +1303,12 @@ Phase・Listener・Ruleは組み立て側が生成・注入し、`WorkflowManage
 
 using namespace std;
 
+// 通知チャネル（判定で使う直文字列を名前へ置き換える）
+namespace Channel {
+    const string Email = "email";
+    const string Chat  = "chat";
+}
+
 // 承認者情報
 struct ApproverInfo {
     string name;         // 氏名
@@ -1408,7 +1414,7 @@ public:
 
 struct NotificationTarget {
     string recipientName; // "申請者", "課長", "部長", "決済部門"
-    string channel;       // "email", "chat"
+    string channel;       // Channel::Email, Channel::Chat
 };
 
 // 通知の送信結果（結果オブジェクト）：送信可否と対象チャネル
@@ -1528,7 +1534,7 @@ class EmailNotifier : public INotificationListener {
     vector<string> inbox;  // 送ったメールを実際に蓄積する
 public:
     bool supports(const string& channel) const override {
-        return channel == "email";
+        return channel == Channel::Email;
     }
     DeliveryResult onStatusChanged(
         const NotificationTarget& target,
@@ -1537,7 +1543,7 @@ public:
         inbox.push_back(msg);
         cout << "[メール送信 " << inbox.size() << "件目] To:"
              << target.recipientName << " / " << msg << endl;
-        return {true, "email"};
+        return {true, Channel::Email};
     }
 };
 
@@ -1547,22 +1553,24 @@ class ChatNotifier : public INotificationListener {
 public:
     ChatNotifier(bool fail = false) : willFail(fail) {}
     bool supports(const string& channel) const override {
-        return channel == "chat";
+        return channel == Channel::Chat;
     }
     DeliveryResult onStatusChanged(
         const NotificationTarget& target,
         string msg
     ) override {
         if (willFail) {
-            return {false, "chat"};
+            return {false, Channel::Chat};
         }
         inbox.push_back(msg);
         cout << "[チャット通知 " << inbox.size() << "件目] To:"
              << target.recipientName << " / " << msg << endl;
-        return {true, "chat"};
+        return {true, Channel::Chat};
     }
 };
 ```
+
+各通知先が `supports()` で受け持つチャネルの判定は、`Channel` の名前付き定数（`Email`／`Chat`）で行い、直文字列の打ち間違いを防ぎます。
 
 **4. 本体クラス（WorkflowManager）**
 
@@ -1819,7 +1827,7 @@ public:
         if (validateApprover("APR001", 50000)) {
             cases.create("REQ001", &draft);
             notificationTargets.setTargets(
-                "REQ001", {{"課長", "email"}});
+                "REQ001", {{"課長", Channel::Email}});
             WorkflowManager wf1(cases, notificationTargets, "REQ001");
             wf1.addListener(&email);
             wf1.addListener(&chat);
@@ -1832,7 +1840,7 @@ public:
         if (validateApprover("APR002", 500000)) {
             cases.create("REQ002", &draft);
             notificationTargets.setTargets(
-                "REQ002", {{"部長", "chat"}});
+                "REQ002", {{"部長", Channel::Chat}});
             WorkflowManager wf2(cases, notificationTargets, "REQ002");
             wf2.addListener(&email);
             wf2.addListener(&chat);
@@ -1845,7 +1853,7 @@ public:
         if (validateApprover("APR001", 50000)) {
             cases.create("REQ003", &pending);
             notificationTargets.setTargets(
-                "REQ003", {{"申請者", "email"}, {"部長", "chat"}});
+                "REQ003", {{"申請者", Channel::Email}, {"部長", Channel::Chat}});
             WorkflowManager wf3(cases, notificationTargets, "REQ003");
             wf3.addListener(&email);
             wf3.addListener(&chat);
@@ -1859,8 +1867,8 @@ public:
             cases.create("REQ004", &priorityPending);
             notificationTargets.setTargets(
                 "REQ004",
-                {{"申請者", "email"}, {"部長", "chat"},
-                 {"決済部門", "email"}});
+                {{"申請者", Channel::Email}, {"部長", Channel::Chat},
+                 {"決済部門", Channel::Email}});
             WorkflowManager wf4(cases, notificationTargets, "REQ004");
             wf4.addListener(&email);
             wf4.addListener(&chat);
@@ -1873,7 +1881,7 @@ public:
         if (validateApprover("APR001", 50000)) {
             cases.create("REQ005", &pending);
             notificationTargets.setTargets(
-                "REQ005", {{"申請者", "email"}});
+                "REQ005", {{"申請者", Channel::Email}});
             WorkflowManager wf5(cases, notificationTargets, "REQ005");
             wf5.addListener(&email);
             wf5.addListener(&chat);
@@ -1887,8 +1895,8 @@ public:
             cases.create("REQ006", &approved);
             notificationTargets.setTargets(
                 "REQ006",
-                {{"申請者", "email"}, {"課長", "email"},
-                 {"部長", "chat"}, {"決済部門", "email"}});
+                {{"申請者", Channel::Email}, {"課長", Channel::Email},
+                 {"部長", Channel::Chat}, {"決済部門", Channel::Email}});
             WorkflowManager wf6(cases, notificationTargets, "REQ006");
             wf6.addListener(&email);
             wf6.addListener(&chat);
@@ -1900,7 +1908,7 @@ public:
         cout << "--- 行7: 却下→再申請操作 ---" << endl;
         cases.create("REQ007", &rejected);
         notificationTargets.setTargets(
-            "REQ007", {{"課長", "email"}});
+            "REQ007", {{"課長", Channel::Email}});
         WorkflowManager wf7(cases, notificationTargets, "REQ007");
         wf7.addListener(&email);
         wf7.addListener(&chat);
@@ -1911,7 +1919,7 @@ public:
         cout << "--- 行8: 通知失敗と状態保持 ---" << endl;
         cases.create("REQ008", &draft);
         notificationTargets.setTargets(
-            "REQ008", {{"申請者", "email"}, {"課長", "chat"}});
+            "REQ008", {{"申請者", Channel::Email}, {"課長", Channel::Chat}});
         WorkflowManager wf8(cases, notificationTargets, "REQ008");
         ChatNotifier chatDown(true);   // チャット基盤が不調
         wf8.addListener(&email);
