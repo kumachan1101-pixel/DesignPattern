@@ -129,18 +129,22 @@
 | ID | 内容 | 状態 |
 |---|---|---|
 | R2-9 | 第9章：チケット実体化（Repository保存）＋Escalated状態新設＋当章の定数化。1-1〜7-4を整合。実行結果を更新 | 完了（7-1実体化コード、TicketService/TicketRepository/StaffDirectory、Escalated状態＋状態遷移図、フェーズ6をTicketService設計へ再構成、enterprise→corporate/ティア→ユーザー種別、担当者ID=AGT系を分離。validator.ch09登録とenum class除外を更新。全ゲート通過） |
-| R2-const-01 | ch01 直文字列を名前付き定数へ（出力不変・実行結果照合維持） | 未 |
-| R2-const-02 | ch02 同上 | 未 |
-| R2-const-03 | ch03 同上 | 未 |
-| R2-const-04 | ch04 同上 | 未 |
-| R2-const-05 | ch05 同上 | 未 |
-| R2-const-06 | ch06 同上 | 未 |
-| R2-const-07 | ch07 同上 | 未 |
-| R2-const-08 | ch08 同上 | 未 |
-| R2-const-10 | ch10 同上 | 未 |
-| R2-const-11 | ch11 同上 | 未 |
-| R2-const-12 | ch12 同上 | 未 |
-| R2-Z | 全章横断確認（定数の初出説明・Kindle80字・実行結果照合）＋review-tasks記録 | 未 |
+| R2-const-01 | ch01 会員種別 "Premium"/"Regular" → `MemberType`（matches分岐） | 完了 |
+| R2-const-02 | ch02 直文字列の分岐なし（口座IDは記録データ・状態は非文字列）→対象外 | 対象外 |
+| R2-const-03 | ch03 State object方式で文字列分岐なし（EVT系は記録データ）→対象外 | 対象外 |
+| R2-const-04 | ch04 店舗形式ID "store"/"fc"/"ec" → `SchemaType`（登録キー＋schemaType()） | 完了 |
+| R2-const-05 | ch05 Command object方式で文字列分岐なし（CAT系は記録データ）→対象外 | 対象外 |
+| R2-const-06 | ch06 トッピングID "Milk"等 → `ToppingId`（生成分岐 create()） | 完了 |
+| R2-const-07 | ch07 Observer object方式で文字列分岐なし（PRD系は記録データ）→対象外 | 対象外 |
+| R2-const-08 | ch08 決済手段ID＋状態 "保留"/"失敗" → `PaymentMethod`/`PaymentStatus` | 完了 |
+| R2-const-10 | ch10 具象オブジェクト分岐で文字列dispatch なし（PARTNER系は記録データ）→対象外 | 対象外 |
+| R2-const-11 | ch11 テンプレートIDは記録データ・文字列分岐なし→対象外 | 対象外 |
+| R2-const-12 | ch12 通知チャネル "email"/"chat" → `Channel`（supports分岐） | 完了 |
+| R2-Z | 全章横断確認（定数の初出説明・Kindle80字・実行結果照合）＋方針判断の記録 | 完了（分岐・dispatchに使う直文字列のみ定数化。記録IDのseedデータ・出力メッセージは過剰化を避けデータのまま維持。全ゲート通過） |
+
+### R2-const 方針判断（記録）
+
+「直文字列を定数へ」は、**コードの分岐・dispatch判定に使う直文字列**（＝打ち間違いで挙動が壊れる磁石リテラル）を対象とした。対象は分岐キー（`== "..."`）と、レジストリ登録キーと型宣言が対で一致すべき識別子（ch04/ch08）。会員種別・店舗形式・トッピングID・決済手段/状態・通知チャネルが該当。一方、DBのseed用レコードID（口座ID・イベントID・商品ID・提携先ID・テンプレートID）や画面出力メッセージは、分岐に使われないデータ・表示であり、定数化するとかえって冗長になるため文字列のまま残した。State/Command/Observer/Factory-objectで既にオブジェクト分岐している章（ch02/03/05/07/10/11）は、そもそも文字列分岐が無く対象外。
 
 ## 定数化の方針（全章共通）
 
