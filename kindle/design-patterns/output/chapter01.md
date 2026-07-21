@@ -1415,6 +1415,12 @@ struct PaymentResult {
 #include <map>
 #include <stdexcept>
 
+// 会員種別（ルール判定で使う直文字列を名前へ置き換える）
+namespace MemberType {
+    const std::string Premium = "Premium";
+    const std::string Regular = "Regular";
+}
+
 class Item {
 public:
     std::string name;
@@ -1471,6 +1477,7 @@ public:
 };
 ```
 
+- `MemberType` は会員種別（`Premium`／`Regular`）を名前付き定数へまとめたものです。各割引ルールの `matches()` はこの定数で判定し、直文字列の打ち間違いを防ぎます。
 - `Item`〜`CustomerDatabase` は1-4と同じデータ群です。割引の分離では、これらを主な修正対象にしていません。
 - `CampaignContext` には1-5で追加した `isSummerSale` が入っています。
 - `IDiscountRule` が割引ルールの共通契約です。`matches()` は適用条件、`apply()` は計算式、`name()` は結果表示名を表します。条件と式を施策単位で差し替える接続点になります。
@@ -1493,7 +1500,7 @@ class PremiumDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
                  const CampaignContext&) const override {
-        return memberType == "Premium";
+        return memberType == MemberType::Premium;
     }
     int apply(int total) const override {
         return total * 80 / 100;
@@ -1505,7 +1512,7 @@ class SummerSaleAndCampaignDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
                  const CampaignContext& context) const override {
-        return memberType == "Regular"
+        return memberType == MemberType::Regular
             && context.isSummerSale
             && context.isCampaignActive;
     }
@@ -1521,7 +1528,7 @@ class SummerSaleDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
                  const CampaignContext& context) const override {
-        return memberType == "Regular" && context.isSummerSale;
+        return memberType == MemberType::Regular && context.isSummerSale;
     }
     int apply(int total) const override {
         return total * 95 / 100;
@@ -1533,7 +1540,7 @@ class CampaignDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
                  const CampaignContext& context) const override {
-        return memberType == "Regular" && context.isCampaignActive;
+        return memberType == MemberType::Regular && context.isCampaignActive;
     }
     int apply(int total) const override {
         return total * 90 / 100;
