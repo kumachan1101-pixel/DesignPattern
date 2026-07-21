@@ -1100,6 +1100,15 @@ struct OrderResult {
 
 using namespace std;
 
+// トッピングID（生成の分岐で使う直文字列を名前へ置き換える）
+namespace ToppingId {
+    const string Milk   = "Milk";
+    const string Syrup  = "Syrup";
+    const string Whip   = "Whip";
+    const string Matcha = "Matcha";
+    const string Choco  = "Choco";
+}
+
 struct MenuItem {
     string name;      // 商品名
     int basePrice;    // 基本価格（円）
@@ -1327,11 +1336,11 @@ private:
     ToppingCatalog& catalog;
 
     IDrink* wrapOne(const string& id, IDrink* base) {
-        if (id == "Milk")   return new Milk(base, &catalog);
-        if (id == "Syrup")  return new Syrup(base, &catalog);
-        if (id == "Whip")   return new Whip(base, &catalog);
-        if (id == "Matcha") return new Matcha(base, &catalog);
-        if (id == "Choco")  return new Choco(base, &catalog);
+        if (id == ToppingId::Milk)   return new Milk(base, &catalog);
+        if (id == ToppingId::Syrup)  return new Syrup(base, &catalog);
+        if (id == ToppingId::Whip)   return new Whip(base, &catalog);
+        if (id == ToppingId::Matcha) return new Matcha(base, &catalog);
+        if (id == ToppingId::Choco)  return new Choco(base, &catalog);
         return base;
     }
 public:
@@ -1370,7 +1379,7 @@ public:
 
 ```
 
-`OrderAssembler` は、メニューIDとトッピングの存在・販売可否を先に検証し、通ったものだけを重ねて `OrderResult` を返します。トッピングを追加しても、`OrderAssembler` の分岐（`wrapOne`）と組み立て側だけが変わります。
+`OrderAssembler` は、メニューIDとトッピングの存在・販売可否を先に検証し、通ったものだけを重ねて `OrderResult` を返します。生成の分岐は `ToppingId` の名前付き定数で判定するので、直文字列の打ち間違いを防げます。トッピングを追加しても、`OrderAssembler` の分岐（`wrapOne`）と組み立て側だけが変わります。
 
 **組み立てと実行（OrderApplication / main）：**
 
