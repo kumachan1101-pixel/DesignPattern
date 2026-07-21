@@ -1216,6 +1216,13 @@ struct ImportResult {
 #include <functional>
 using namespace std;
 
+// 店舗形式ID（スキーマ登録と各Importerの型宣言で使う定数）
+namespace SchemaType {
+    const string Store = "store";
+    const string Fc    = "fc";
+    const string Ec    = "ec";
+}
+
 // 1行を区切り文字で分割する小さなヘルパー
 static vector<string> splitLine(const string& line, char delim) {
     vector<string> cols; string cur; istringstream iss(line);
@@ -1245,9 +1252,9 @@ class SchemaRegistry {
     map<string, ImportSchema> schemas;
 public:
     SchemaRegistry() {
-        schemas["store"] = {"直営店データ", {"id","name","amount"}};
-        schemas["fc"]    = {"FC店データ",   {"id","name","amount"}};
-        schemas["ec"]    = {"EC店データ",
+        schemas[SchemaType::Store] = {"直営店データ", {"id","name","amount"}};
+        schemas[SchemaType::Fc]    = {"FC店データ",   {"id","name","amount"}};
+        schemas[SchemaType::Ec]    = {"EC店データ",
             {"id","name","amount","memberRank","point"}};
     }
     bool exists(const string& t) const { return schemas.count(t) > 0; }
@@ -1255,7 +1262,7 @@ public:
 };
 ```
 
-`SchemaRegistry` は1-4の2種類（store / fc）に、変更要求のEC店（ec）が加わり、ecには会員ランク（memberRank）とポイント（point）の列が増えています。戻り値の型もすべて `void` をやめました。`import()` は `ImportResult`（種別・スキーマ名・保存件数・スキップ件数・成否）を返し、`parseData()` は `vector<ParsedRow>`、`validateRows()` は `ValidationResult` を返します。`ParsedRow`／`ValidationResult` は、パースと行検証の境界で受け渡す中間データです。
+店舗形式ID（`store`／`fc`／`ec`）は `SchemaType` の名前付き定数へまとめ、スキーマ登録のキーと各Importerの `schemaType()` の戻り値を同じ定数で揃えて、直文字列の打ち間違いを防ぎます。`SchemaRegistry` は1-4の2種類（store / fc）に、変更要求のEC店（ec）が加わり、ecには会員ランク（memberRank）とポイント（point）の列が増えています。戻り値の型もすべて `void` をやめました。`import()` は `ImportResult`（種別・スキーマ名・保存件数・スキップ件数・成否）を返し、`parseData()` は `vector<ParsedRow>`、`validateRows()` は `ValidationResult` を返します。`ParsedRow`／`ValidationResult` は、パースと行検証の境界で受け渡す中間データです。
 
 **ファイルI/OとDBの境界スタブ：**
 
@@ -1345,7 +1352,7 @@ public:
     using AbstractImporter::AbstractImporter;
 protected:
     string filePath()   const override { return "store_sales.csv"; }
-    string schemaType() const override { return "store"; }
+    string schemaType() const override { return SchemaType::Store; }
     string schemaName() const override { return "直営店データ"; }
     vector<ParsedRow> parseData(const vector<string>& lines) override {
         cout << "[直営店] ヘッダー行をスキップし、カンマ区切りで解析します。\n";
@@ -1376,7 +1383,7 @@ public:
     using AbstractImporter::AbstractImporter;
 protected:
     string filePath()   const override { return "fc_sales.csv"; }
-    string schemaType() const override { return "fc"; }
+    string schemaType() const override { return SchemaType::Fc; }
     string schemaName() const override { return "FC店データ"; }
     vector<ParsedRow> parseData(const vector<string>& lines) override {
         cout << "[FC店] 先頭行からタブ区切りで解析します。\n";
@@ -1408,7 +1415,7 @@ public:
     using AbstractImporter::AbstractImporter;
 protected:
     string filePath()   const override { return "ec_sales.csv"; }
-    string schemaType() const override { return "ec"; }
+    string schemaType() const override { return SchemaType::Ec; }
     string schemaName() const override { return "EC店データ"; }
     vector<ParsedRow> parseData(const vector<string>& lines) override {
         cout << "[EC店] カンマ区切りで会員ランク・ポイント列まで解析します。\n";
