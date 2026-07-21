@@ -1548,6 +1548,18 @@ struct PaymentResult {
 
 using namespace std;
 
+// 決済手段ID・決済状態（直文字列を名前へ置き換える）
+namespace PaymentMethod {
+    const string CreditCard   = "credit_card";
+    const string BankTransfer = "bank_transfer";
+    const string Convenience  = "convenience";
+    const string PayPay       = "paypay";
+}
+namespace PaymentStatus {
+    const string Pending = "保留";
+    const string Failed  = "失敗";
+}
+
 // ---- 手段固有の入力データ ----
 
 struct CreditCardInput {
@@ -1628,13 +1640,13 @@ private:
     map<string, ProcessorConfig> registry;
 public:
     ProcessorRegistry() {
-        registry["credit_card"] =
+        registry[PaymentMethod::CreditCard] =
             {"クレジットカード", true, 0.030};
-        registry["bank_transfer"] =
+        registry[PaymentMethod::BankTransfer] =
             {"銀行振込", true, 0.005};
-        registry["convenience"] =
+        registry[PaymentMethod::Convenience] =
             {"コンビニ払い", true, 0.000};
-        registry["paypay"] =
+        registry[PaymentMethod::PayPay] =
             {"PayPay", true, 0.020};
         registry["crypto"] =
             {"暗号通貨", false, 0.010};
@@ -1704,7 +1716,7 @@ public:
              << " token=" << card.cardToken
              << endl;
         if (card.cardToken.find("ERROR") == 0) {
-            return {"失敗",
+            return {PaymentStatus::Failed,
                     "カード認証失敗: 残高不足",
                     true, "AUTH_DECLINED", {}};
         }
@@ -1726,7 +1738,7 @@ public:
             "BT-" + orderId,
             "/api/bank/status/",
             "2026-07-12"};
-        return {"保留",
+        return {PaymentStatus::Pending,
                 "振込先発行済み 口座=mizuho-1234567",
                 false, "", p};
     }
@@ -1744,7 +1756,7 @@ public:
             "CVS-" + orderId,
             "/api/cvs/status/",
             "2026-07-08"};
-        return {"保留",
+        return {PaymentStatus::Pending,
                 "番号発行済み 番号=CVS-98765",
                 false, "", p};
     }
@@ -1762,7 +1774,7 @@ public:
             "PP-" + orderId,
             "/api/paypay/status/",
             "2026-07-10"};
-        return {"保留",
+        return {PaymentStatus::Pending,
                 "PayPayセッション作成済み",
                 false, "", p};
     }
@@ -1776,7 +1788,7 @@ public:
              << pendingId << endl;
         if (pendingId.find("EXPIRE")
             != string::npos) {
-            return {"失敗",
+            return {PaymentStatus::Failed,
                     "支払い期限切れ",
                     false, "EXPIRED", {}};
         }
@@ -1795,7 +1807,7 @@ public:
                     "PayPay決済確認済み",
                     false, "", {}};
         }
-        return {"失敗",
+        return {PaymentStatus::Failed,
                 "不明な保留ID",
                 false, "UNKNOWN_PENDING", {}};
     }
@@ -1818,17 +1830,17 @@ public:
     PaymentResult pay(
         const PaymentRequest& req) override {
         if (req.creditCard.cardToken.empty()) {
-            return {"失敗",
+            return {PaymentStatus::Failed,
                     "カードトークンが不足しています",
                     false, "MISSING_TOKEN", {}};
         }
         if (req.creditCard.holderName.empty()) {
-            return {"失敗",
+            return {PaymentStatus::Failed,
                     "カード名義が不足しています",
                     false, "MISSING_HOLDER", {}};
         }
         if (req.creditCard.securityCode.empty()) {
-            return {"失敗",
+            return {PaymentStatus::Failed,
                     "セキュリティコードが不足",
                     false, "MISSING_CVV", {}};
         }
@@ -1837,7 +1849,7 @@ public:
                 req.orderId, req.amount,
                 req.creditCard);
         // カード認証失敗はリトライ可能
-        if (result.status == "失敗") {
+        if (result.status == PaymentStatus::Failed) {
             result.canRetry = true;
         }
         return result;
@@ -1855,12 +1867,12 @@ public:
     PaymentResult pay(
         const PaymentRequest& req) override {
         if (req.bankTransfer.payerName.empty()) {
-            return {"失敗",
+            return {PaymentStatus::Failed,
                     "振込名義が不足しています",
                     false, "MISSING_PAYER", {}};
         }
         if (req.bankTransfer.bankCode.empty()) {
-            return {"失敗",
+            return {PaymentStatus::Failed,
                     "銀行コードが不足しています",
                     false, "MISSING_BANK", {}};
         }
@@ -1881,12 +1893,12 @@ public:
     PaymentResult pay(
         const PaymentRequest& req) override {
         if (req.convenience.phoneNumber.empty()) {
-            return {"失敗",
+            return {PaymentStatus::Failed,
                     "電話番号が不足しています",
                     false, "MISSING_PHONE", {}};
         }
         if (req.convenience.email.empty()) {
-            return {"失敗",
+            return {PaymentStatus::Failed,
                     "メールアドレスが不足しています",
                     false, "MISSING_EMAIL", {}};
         }
@@ -1907,12 +1919,12 @@ public:
     PaymentResult pay(
         const PaymentRequest& req) override {
         if (req.payPay.accessToken.empty()) {
-            return {"失敗",
+            return {PaymentStatus::Failed,
                     "PayPayトークンが不足しています",
                     false, "MISSING_PP_TOKEN", {}};
         }
         if (req.payPay.merchantId.empty()) {
-            return {"失敗",
+            return {PaymentStatus::Failed,
                     "マーチャントIDが不足しています",
                     false, "MISSING_MERCHANT", {}};
         }
@@ -1941,7 +1953,7 @@ public:
     PaymentResult processPayment(
         const PaymentRequest& request) {
         if (request.amount < 1) {
-            return {"失敗",
+            return {PaymentStatus::Failed,
                     "金額は1円以上で指定してください。",
                     false, "INVALID_AMOUNT", {}};
         }
@@ -1982,16 +1994,16 @@ protected:
             throw invalid_argument(
                 cfg.name + " は現在無効です。");
         }
-        if (type == "credit_card")
+        if (type == PaymentMethod::CreditCard)
             return new CreditCardProcessor(
                 gatewayClient);
-        if (type == "bank_transfer")
+        if (type == PaymentMethod::BankTransfer)
             return new BankTransferProcessor(
                 gatewayClient);
-        if (type == "convenience")
+        if (type == PaymentMethod::Convenience)
             return new ConvenienceStoreProcessor(
                 gatewayClient);
-        if (type == "paypay")
+        if (type == PaymentMethod::PayPay)
             return new PayPayProcessor(
                 gatewayClient);
         throw invalid_argument(
@@ -2000,7 +2012,7 @@ protected:
 };
 ```
 
-`processPayment` は `IPaymentProcessor*` を取得して `pay(request)` を呼ぶだけです。手段固有の入力検証、API呼び出し手順、エラー対処は各Processorの内部で完結しています。同期/非同期の違いも結果のステータス（「成功」か「保留」か）として自然に表れ、利用側は区別する必要がありません。完了確認は `checkCompletion()` で汎用的に処理できます。
+`processPayment` は `IPaymentProcessor*` を取得して `pay(request)` を呼ぶだけです。生成の分岐で使う決済手段IDと、結果のステータス（`保留`／`失敗`）は、それぞれ `PaymentMethod`・`PaymentStatus` の名前付き定数へまとめ、直文字列の打ち間違いを防いでいます。手段固有の入力検証、API呼び出し手順、エラー対処は各Processorの内部で完結しています。同期/非同期の違いも結果のステータス（「成功」か「保留」か）として自然に表れ、利用側は区別する必要がありません。完了確認は `checkCompletion()` で汎用的に処理できます。
 
 この構成は、利用側が同期ループで呼ぶ形に限りません。掲載コードの末尾では、決済会社から届くWebフックを受け取る `WebhookController`（署名を検証し、正しいものだけをジョブキューへ積む）と、キューを取り出して同じ `processPayment` を呼ぶ `PaymentWorker` を追加しています。イベント駆動（Webhook）で受け取り、ワーカーがキューから非同期に処理する構成でも、決済手段ごとの生成・処理は同じ Factory Method の裏に隠れたままです。実運用ではワーカーは別スレッドで動きますが、掲載コードでは実スレッドを使わず、キューを同期的に空にして投入順・処理順を確認します。ここで使う `std::queue` は先入れ先出し（FIFO）のコンテナで、`push()` で末尾へ積み、`front()` で先頭を見て `pop()` で取り出します。積んだ順に処理されるため、受け取った順序どおりに決済が進むことを確認できます。
 
@@ -2075,7 +2087,7 @@ int main() {
 
     // ケース1: カード正常（同期）
     PaymentRequest r1;
-    r1.methodId = "credit_card";
+    r1.methodId = PaymentMethod::CreditCard;
     r1.amount = 1000;
     r1.orderId = "ORD-1001";
     r1.customerId = "C001";
@@ -2083,7 +2095,7 @@ int main() {
 
     // ケース2: 銀行振込正常（非同期）
     PaymentRequest r2;
-    r2.methodId = "bank_transfer";
+    r2.methodId = PaymentMethod::BankTransfer;
     r2.amount = 2000;
     r2.orderId = "ORD-1002";
     r2.customerId = "C002";
@@ -2092,7 +2104,7 @@ int main() {
 
     // ケース3: コンビニ正常（非同期）
     PaymentRequest r3;
-    r3.methodId = "convenience";
+    r3.methodId = PaymentMethod::Convenience;
     r3.amount = 500;
     r3.orderId = "ORD-1003";
     r3.customerId = "C003";
@@ -2102,7 +2114,7 @@ int main() {
 
     // ケース4: PayPay正常（非同期）
     PaymentRequest r4;
-    r4.methodId = "paypay";
+    r4.methodId = PaymentMethod::PayPay;
     r4.amount = 3000;
     r4.orderId = "ORD-2001";
     r4.customerId = "C020";
@@ -2110,7 +2122,7 @@ int main() {
 
     // ケース5: カードAPI失敗
     PaymentRequest r5;
-    r5.methodId = "credit_card";
+    r5.methodId = PaymentMethod::CreditCard;
     r5.amount = 800;
     r5.orderId = "ORD-1004";
     r5.customerId = "C004";
@@ -2119,7 +2131,7 @@ int main() {
 
     // ケース6: カード入力不足
     PaymentRequest r6;
-    r6.methodId = "credit_card";
+    r6.methodId = PaymentMethod::CreditCard;
     r6.amount = 600;
     r6.orderId = "ORD-1005";
     r6.customerId = "C005";
@@ -2152,7 +2164,7 @@ int main() {
                  << endl;
 
             // 保留の場合、完了確認
-            if (result.status == "保留") {
+            if (result.status == PaymentStatus::Pending) {
                 cout << "  完了確認中... id="
                      << result.pending.pendingId
                      << endl;
@@ -2178,7 +2190,7 @@ int main() {
                  << " -> 失敗 ("
                  << e.what() << ")" << endl;
             payLog.add(req.methodId,
-                       req.amount, "失敗", "");
+                       req.amount, PaymentStatus::Failed, "");
         }
     }
 
@@ -2187,8 +2199,8 @@ int main() {
     queue<PaymentRequest> jobs;
     WebhookController controller(jobs);
     PaymentWorker worker(app, jobs);
-    WebhookEvent e1{"credit_card", "valid", r1};
-    WebhookEvent e2{"paypay", "bad", r4};
+    WebhookEvent e1{PaymentMethod::CreditCard, "valid", r1};
+    WebhookEvent e2{PaymentMethod::PayPay, "bad", r4};
     controller.receive(e1);   // 署名OK→キューへ
     controller.receive(e2);   // 署名NG→拒否
     worker.drain();           // キューを取り出しFactoryで処理
