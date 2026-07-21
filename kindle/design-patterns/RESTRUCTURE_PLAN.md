@@ -128,7 +128,7 @@
 
 | ID | 内容 | 状態 |
 |---|---|---|
-| R2-9 | 第9章：チケット実体化（Repository保存）＋Escalated状態新設＋当章の定数化。1-1〜7-4を整合。実行結果を更新 | 作業中 |
+| R2-9 | 第9章：チケット実体化（Repository保存）＋Escalated状態新設＋当章の定数化。1-1〜7-4を整合。実行結果を更新 | 完了（7-1実体化コード、TicketService/TicketRepository/StaffDirectory、Escalated状態＋状態遷移図、フェーズ6をTicketService設計へ再構成、enterprise→corporate/ティア→ユーザー種別、担当者ID=AGT系を分離。validator.ch09登録とenum class除外を更新。全ゲート通過） |
 | R2-const-01 | ch01 直文字列を名前付き定数へ（出力不変・実行結果照合維持） | 未 |
 | R2-const-02 | ch02 同上 | 未 |
 | R2-const-03 | ch03 同上 | 未 |

@@ -170,8 +170,9 @@ SYSTEM_STRUCTURE_CLASS_TOKENS = {
         "ProcessorRegistry", "PaymentGatewayClient", "createProcessor",
     ],
     "chapter09_2.md": [
-        "ITicketPhase", "TicketContext", "OpenPhase", "PendingPhase",
-        "IPriorityRule", "CorporatePriority", "NormalPriority",
+        "ITicketPhase", "TicketService", "OpenPhase", "PendingPhase",
+        "EscalatedPhase", "IPriorityRule", "CorporatePriority",
+        "NormalPriority", "TicketRepository", "StaffDirectory",
         "UserDatabase",
     ],
     "chapter10.md": [
@@ -239,7 +240,7 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
     ],
     "chapter09_2.md": [
         "変更要求：状態追加", "ITicketPhase",
-        "IPriorityRule", "TicketContext",
+        "IPriorityRule", "TicketService",
     ],
     "chapter10.md": [
         "変更要求：連携先の追加", "IExternalClient",
@@ -1312,7 +1313,8 @@ def check_boundary_error_marker(text: str, path: Path) -> list[Issue]:
 
 def _cpp_class_names(section: str) -> set[str]:
     cpp = "\n".join(extract_cpp_blocks(section))
-    return set(re.findall(r"\bclass\s+(\w+)", cpp))
+    # enum class は列挙型でありクラス図の対象外なので除外する。
+    return set(re.findall(r"(?<!enum )\bclass\s+(\w+)", cpp))
 
 
 def _diagram_class_names(diagram: str) -> set[str]:
