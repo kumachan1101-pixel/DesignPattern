@@ -1974,7 +1974,7 @@ classDiagram
         +setCommand()
         +run()
     }
-    Command <|-- ConcreteCommand
+    Command <|.. ConcreteCommand
     Invoker o-- Command
 
 ```

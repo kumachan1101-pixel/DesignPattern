@@ -1178,7 +1178,7 @@ classDiagram
     }
     class BankTransferService
 
-    Application --> BankTransferService : 生成する
+    Application ..> BankTransferService : 生成する
     Application --> TransferProcessor : 組み立てる
     Application --> BatchTransferProcessor : 組み立てる
     TransferProcessor --> IBankTransferService : 使う
@@ -1815,7 +1815,7 @@ classDiagram
     }
     class BankTransferService
 
-    Application --> BankTransferService : 生成する
+    Application ..> BankTransferService : 生成する
     Application --> TransferProcessor : 組み立てる
     Application --> BatchTransferProcessor : 組み立てる
     TransferProcessor --> IBankTransferService : 使う

@@ -250,7 +250,7 @@ classDiagram
     }
     ReportApplication *-- TemplateRegistry : owns
     ReportApplication ..> ReportRequest : 入力
-    ReportApplication --> ReportSkeleton : 検証後に生成を依頼
+    ReportApplication ..> ReportSkeleton : 検証後に生成を依頼
     ReportSkeleton *-- DataReader : owns
     ReportSkeleton *-- ReportRenderingApi : 描画を委譲
     DataReader ..> SalesSummary : 返す
@@ -1309,7 +1309,7 @@ classDiagram
     class ReportRenderingApi
     class ReportHistoryManager
     ReportApplication *-- TemplateRegistry : 検証
-    ReportApplication --> ReportSkeleton : 生成を依頼
+    ReportApplication ..> ReportSkeleton : 生成を依頼
     TemplateRegistry *-- ReportTemplate : 定義を保存
     ReportSkeleton *-- DataReader : owns
     ReportSkeleton --> ReportRenderingApi : 描画
