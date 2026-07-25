@@ -2409,13 +2409,60 @@ public:
 
 **6. 組み立てと実行（main）**
 
-各部品を組み立て、同期・イベント駆動の代表シナリオを実行します。
+各部品を組み立て、代表シナリオをケースごとに実行します。まず各ケース共通の「実行・再試行・保留時の完了確認・ログ記録」を補助関数にまとめます。
+
+```cpp
+// 各ケース共通：実行し、再試行可能なら再試行し、保留なら完了確認する
+static void executeCase(PaymentApplication& app,
+                        PaymentLog& payLog,
+                        const PaymentRequest& req) {
+    try {
+        PaymentResult result = app.processPayment(req);
+        // 失敗かつ再試行可能（canRetry）なら1回だけ再試行する
+        if (result.status == PaymentStatus::Failed
+            && result.canRetry) {
+            cout << "結果: " << req.methodId << " -> "
+                 << result.status << " (" << result.message
+                 << ") [canRetry=true]" << endl;
+            cout << "  再試行可能なため再試行します..." << endl;
+            result = app.processPayment(req);
+        }
+        cout << "結果: " << req.methodId << " -> "
+             << result.status << " (" << result.message
+             << ")" << endl;
+        if (result.status == PaymentStatus::Pending) {
+            cout << "  完了確認中... id="
+                 << result.pending.pendingId << endl;
+            PaymentResult completion
+                = app.checkCompletion(result.pending.pendingId);
+            cout << "  完了結果: " << completion.status
+                 << " (" << completion.message << ")" << endl;
+            payLog.add(req.methodId, req.amount,
+                       completion.status, completion.errorCode);
+        } else {
+            payLog.add(req.methodId, req.amount,
+                       result.status, result.errorCode);
+        }
+    } catch (const invalid_argument& e) {
+        cout << "結果: " << req.methodId << " -> 失敗 ("
+             << e.what() << ")" << endl;
+        payLog.add(req.methodId, req.amount,
+                   PaymentStatus::Failed, "");
+    }
+}
+```
+
+`main()` は各部品を組み立て、ケースを1件ずつ `executeCase` へ渡します。
 
 ```cpp
 int main() {
     DefaultPaymentApplication app;
     PaymentLog payLog;
+```
 
+ケース1は、同期決済（カード）の正常ケースです。
+
+```cpp
     // ケース1: カード正常（同期）
     PaymentRequest r1;
     r1.methodId = PaymentMethod::CreditCard;
@@ -2423,26 +2470,65 @@ int main() {
     r1.orderId = "ORD-1001";
     r1.customerId = "C001";
     r1.creditCard = {"tok_abc", "YAMADA", "123"};
+    executeCase(app, payLog, r1);
+```
 
+ケース1の実行結果：
+
+```
+[PaymentGateway] カード認証 order=ORD-1001 amount=1000 token=tok_abc
+結果: credit_card -> 成功 (クレジット認証済み id=AUTH001)
+```
+
+ケース2は、非同期決済（銀行振込）の保留→完了確認です。
+
+```cpp
     // ケース2: 銀行振込正常（非同期）
     PaymentRequest r2;
     r2.methodId = PaymentMethod::BankTransfer;
     r2.amount = 2000;
     r2.orderId = "ORD-1002";
     r2.customerId = "C002";
-    r2.bankTransfer
-        = {"山田太郎", "0001", "ordinary"};
+    r2.bankTransfer = {"山田太郎", "0001", "ordinary"};
+    executeCase(app, payLog, r2);
+```
 
+ケース2の実行結果：
+
+```
+[PaymentGateway] 振込先発行 order=ORD-1002 amount=2000 payer=山田太郎
+結果: bank_transfer -> 保留 (振込先発行済み 口座=mizuho-1234567)
+  完了確認中... id=BT-ORD-1002
+[状態確認API] id=BT-ORD-1002
+  完了結果: 成功 (入金確認済み)
+```
+
+ケース3は、非同期決済（コンビニ）の保留→完了確認です。
+
+```cpp
     // ケース3: コンビニ正常（非同期）
     PaymentRequest r3;
     r3.methodId = PaymentMethod::Convenience;
     r3.amount = 500;
     r3.orderId = "ORD-1003";
     r3.customerId = "C003";
-    r3.convenience
-        = {"09012345678", "y@example.com",
-           "seven"};
+    r3.convenience = {"09012345678", "y@example.com", "seven"};
+    executeCase(app, payLog, r3);
+```
 
+ケース3の実行結果：
+
+```
+[PaymentGateway] コンビニ番号発行 order=ORD-1003 amount=500 phone=09012345678
+結果: convenience -> 保留 (番号発行済み 番号=CVS-98765)
+  完了確認中... id=CVS-ORD-1003
+[状態確認API] id=CVS-ORD-1003
+  完了結果: 成功 (コンビニ入金確認済み)
+```
+
+ケース4は、変更要求で追加したPayPay（非同期）の保留→完了確認です。
+
+```cpp
     // ケース4: PayPay正常（非同期）
     PaymentRequest r4;
     r4.methodId = PaymentMethod::PayPay;
@@ -2450,16 +2536,42 @@ int main() {
     r4.orderId = "ORD-2001";
     r4.customerId = "C020";
     r4.payPay = {"pp_token_123", "MERCHANT001"};
+    executeCase(app, payLog, r4);
+```
 
-    // ケース5: カードAPI失敗
+ケース4の実行結果：
+
+```
+[PaymentGateway] PayPay決済 order=ORD-2001 amount=3000 token=pp_token_123
+結果: paypay -> 保留 (PayPayセッション作成済み)
+  完了確認中... id=PP-ORD-2001
+[状態確認API] id=PP-ORD-2001
+  完了結果: 成功 (PayPay決済確認済み)
+```
+
+ケース5は、カード認証がAPIで失敗（残高不足・再試行不可）するケースです。
+
+```cpp
+    // ケース5: カードAPI失敗（残高不足・canRetry=false）
     PaymentRequest r5;
     r5.methodId = PaymentMethod::CreditCard;
     r5.amount = 800;
     r5.orderId = "ORD-1004";
     r5.customerId = "C004";
-    r5.creditCard
-        = {"ERROR_DECLINED", "SUZUKI", "456"};
+    r5.creditCard = {"ERROR_DECLINED", "SUZUKI", "456"};
+    executeCase(app, payLog, r5);
+```
 
+ケース5の実行結果（再試行不可なので再試行しません）：
+
+```
+[PaymentGateway] カード認証 order=ORD-1004 amount=800 token=ERROR_DECLINED
+結果: credit_card -> 失敗 (カード認証失敗: 残高不足)
+```
+
+ケース6は、カード入力（名義）が不足していて認証前に弾かれるケースです。
+
+```cpp
     // ケース6: カード入力不足
     PaymentRequest r6;
     r6.methodId = PaymentMethod::CreditCard;
@@ -2467,21 +2579,54 @@ int main() {
     r6.orderId = "ORD-1005";
     r6.customerId = "C005";
     r6.creditCard = {"tok_xyz", "", "789"};
+    executeCase(app, payLog, r6);
+```
 
+ケース6の実行結果：
+
+```
+結果: credit_card -> 失敗 (カード名義が不足しています)
+```
+
+ケース7は、登録済みだが無効な決済方法（暗号通貨）です。
+
+```cpp
     // ケース7: 無効な決済方法
     PaymentRequest r7;
     r7.methodId = "crypto";
     r7.amount = 300;
     r7.orderId = "ORD-1006";
     r7.customerId = "C006";
+    executeCase(app, payLog, r7);
+```
 
+ケース7の実行結果：
+
+```
+結果: crypto -> 失敗 (暗号通貨 は現在無効です。)
+```
+
+ケース8は、未登録の決済方法です。
+
+```cpp
     // ケース8: 未登録の決済方法
     PaymentRequest r8;
     r8.methodId = "unknown";
     r8.amount = 200;
     r8.orderId = "ORD-1007";
     r8.customerId = "C007";
+    executeCase(app, payLog, r8);
+```
 
+ケース8の実行結果：
+
+```
+結果: unknown -> 失敗 (未登録の決済方法です: unknown)
+```
+
+ケース9は、一時的な通信失敗で `canRetry` が立ち、`executeCase` が再試行して成功するケースです。
+
+```cpp
     // ケース9: カード一時失敗 → canRetryを見て再試行し成功
     PaymentRequest r9;
     r9.methodId = PaymentMethod::CreditCard;
@@ -2489,60 +2634,22 @@ int main() {
     r9.orderId = "ORD-1008";
     r9.customerId = "C008";
     r9.creditCard = {"TIMEOUT_ONCE", "TANAKA", "321"};
+    executeCase(app, payLog, r9);
+```
 
-    vector<PaymentRequest> requests
-        = {r1, r2, r3, r4, r5, r6, r7, r8, r9};
+ケース9の実行結果（1回目失敗→再試行→成功）：
 
-    for (const auto& req : requests) {
-        try {
-            PaymentResult result
-                = app.processPayment(req);
-            // 失敗かつ再試行可能（canRetry）なら1回だけ再試行する
-            if (result.status == PaymentStatus::Failed
-                && result.canRetry) {
-                cout << "結果: " << req.methodId << " -> "
-                     << result.status << " (" << result.message
-                     << ") [canRetry=true]" << endl;
-                cout << "  再試行可能なため再試行します..."
-                     << endl;
-                result = app.processPayment(req);
-            }
-            cout << "結果: " << req.methodId
-                 << " -> " << result.status
-                 << " (" << result.message << ")"
-                 << endl;
+```
+[PaymentGateway] カード認証 order=ORD-1008 amount=1200 token=TIMEOUT_ONCE
+結果: credit_card -> 失敗 (カード認証失敗: 通信タイムアウト) [canRetry=true]
+  再試行可能なため再試行します...
+[PaymentGateway] カード認証 order=ORD-1008 amount=1200 token=TIMEOUT_ONCE
+結果: credit_card -> 成功 (クレジット認証済み id=AUTH001)
+```
 
-            // 保留の場合、完了確認
-            if (result.status == PaymentStatus::Pending) {
-                cout << "  完了確認中... id="
-                     << result.pending.pendingId
-                     << endl;
-                PaymentResult completion
-                    = app.checkCompletion(
-                        result.pending.pendingId);
-                cout << "  完了結果: "
-                     << completion.status
-                     << " (" << completion.message
-                     << ")" << endl;
-                payLog.add(req.methodId,
-                           req.amount,
-                           completion.status,
-                           completion.errorCode);
-            } else {
-                payLog.add(req.methodId,
-                           req.amount,
-                           result.status,
-                           result.errorCode);
-            }
-        } catch (const invalid_argument& e) {
-            cout << "結果: " << req.methodId
-                 << " -> 失敗 ("
-                 << e.what() << ")" << endl;
-            payLog.add(req.methodId,
-                       req.amount, PaymentStatus::Failed, "");
-        }
-    }
+最後に、イベント駆動（Webhook）＋ワーカーでも同じFactoryが再利用されることと、各ケースの記録を確認します。
 
+```cpp
     // イベント駆動（Webhook）＋ワーカーで同じFactoryを再利用する
     cout << "\n--- Webhook + ワーカー ---\n";
     queue<PaymentRequest> jobs;
@@ -2561,41 +2668,9 @@ int main() {
 }
 ```
 
-実行対象コード：7-1の解決後コード
-対応する動作例：1-2の動作例テーブル、および変更要求後の代表ケース
-確認したいこと：外部から見える結果を保ちながら、変更理由ごとの責任が分離されていること
-
-実行結果：
+Webhook・決済ログの実行結果：
 
 ```
-[PaymentGateway] カード認証 order=ORD-1001 amount=1000 token=tok_abc
-結果: credit_card -> 成功 (クレジット認証済み id=AUTH001)
-[PaymentGateway] 振込先発行 order=ORD-1002 amount=2000 payer=山田太郎
-結果: bank_transfer -> 保留 (振込先発行済み 口座=mizuho-1234567)
-  完了確認中... id=BT-ORD-1002
-[状態確認API] id=BT-ORD-1002
-  完了結果: 成功 (入金確認済み)
-[PaymentGateway] コンビニ番号発行 order=ORD-1003 amount=500 phone=09012345678
-結果: convenience -> 保留 (番号発行済み 番号=CVS-98765)
-  完了確認中... id=CVS-ORD-1003
-[状態確認API] id=CVS-ORD-1003
-  完了結果: 成功 (コンビニ入金確認済み)
-[PaymentGateway] PayPay決済 order=ORD-2001 amount=3000 token=pp_token_123
-結果: paypay -> 保留 (PayPayセッション作成済み)
-  完了確認中... id=PP-ORD-2001
-[状態確認API] id=PP-ORD-2001
-  完了結果: 成功 (PayPay決済確認済み)
-[PaymentGateway] カード認証 order=ORD-1004 amount=800 token=ERROR_DECLINED
-結果: credit_card -> 失敗 (カード認証失敗: 残高不足)
-結果: credit_card -> 失敗 (カード名義が不足しています)
-結果: crypto -> 失敗 (暗号通貨 は現在無効です。)
-結果: unknown -> 失敗 (未登録の決済方法です: unknown)
-[PaymentGateway] カード認証 order=ORD-1008 amount=1200 token=TIMEOUT_ONCE
-結果: credit_card -> 失敗 (カード認証失敗: 通信タイムアウト) [canRetry=true]
-  再試行可能なため再試行します...
-[PaymentGateway] カード認証 order=ORD-1008 amount=1200 token=TIMEOUT_ONCE
-結果: credit_card -> 成功 (クレジット認証済み id=AUTH001)
-
 --- Webhook + ワーカー ---
 [Webhook] 受理してキューへ: credit_card
 [Webhook] 署名検証に失敗: paypay
