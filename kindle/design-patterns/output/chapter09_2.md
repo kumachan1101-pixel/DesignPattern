@@ -2024,6 +2024,10 @@ Serviceに残る判断は「入力が存在するか」「状態操作が成功�
 
 **main 関数**
 
+実行対象は7-1の完成コードです。確認したいのは、状態・優先度・担当者がチケット単位で保存・追跡され、変更理由ごとの責任が分離されていることです。ここからは行のまとまりごとに、実行するコードとその実行結果を並べます。
+
+まず依存を組み立て、行1・行2で一般ユーザーとプレミアムユーザーがチケットを登録します。
+
 ```cpp
 int main() {
     UserDatabase users;   // 依頼者（USR）
@@ -2032,19 +2036,46 @@ int main() {
     TicketEventLog log;
     TicketPolicySet policies;
     TicketService svc(repo, users, staff, log, policies);
-
     cout << "--- 行1: 依頼者 鈴木(standard)がTCK001を登録 ---" << endl;
     svc.create("TCK001", "USR003");
     cout << "--- 行2: 依頼者 佐藤(premium)がTCK002を登録 ---" << endl;
     svc.create("TCK002", "USR002");
+```
 
+行1・行2の実行結果（登録時に優先度が決まり保存される）：
+
+```
+--- 行1: 依頼者 鈴木(standard)がTCK001を登録 ---
+[TCK001] 作成 状態=Open 優先度=Normal
+--- 行2: 依頼者 佐藤(premium)がTCK002を登録 ---
+[TCK002] 作成 状態=Open 優先度=High
+```
+
+行3〜行5で、TCK001をアサイン→解決→再受付します（状態がID単位で更新・保存される）。
+
+```cpp
     cout << "--- 行3: TCK001に担当者 山田をアサイン ---" << endl;
     svc.assign("TCK001", "AGT01");
     cout << "--- 行4: TCK001を解決 ---" << endl;
     svc.resolve("TCK001");
     cout << "--- 行5: TCK001を再受付（優先度を再計算） ---" << endl;
     svc.reopen("TCK001");
+```
 
+行3〜行5の実行結果：
+
+```
+--- 行3: TCK001に担当者 山田をアサイン ---
+  アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
+--- 行4: TCK001を解決 ---
+  解決: 状態 InProgress → Resolved
+--- 行5: TCK001を再受付（優先度を再計算） ---
+  再受付: 状態 Resolved → Open 優先度=Normal
+```
+
+行6〜行8で、TCK002をアサイン→エスカレーション（緊急対応中）→解決します。
+
+```cpp
     cout << "--- 行6: TCK002に担当者 高橋をアサイン ---" << endl;
     svc.assign("TCK002", "AGT02");
     cout << "--- 行7: TCK002をエスカレーション（緊急対応中へ） ---"
@@ -2052,50 +2083,62 @@ int main() {
     svc.escalate("TCK002");
     cout << "--- 行8: TCK002を解決（緊急対応中→解決済み） ---" << endl;
     svc.resolve("TCK002");
-
-    cout << "--- 変更要求: 田中(corporate)のTCK003を登録し保留 ---"
-         << endl;
-    svc.create("TCK003", "USR001");
-    svc.hold("TCK003");
-
-    cout << "--- エラー: 存在しないユーザー ---" << endl;
-    svc.create("TCK004", "USR999");
-
-    cout << "\n--- 監査ログ ---" << endl;
-    log.printAll();
-    return 0;
-}
 ```
 
-実行対象コード：7-1の解決後コード
-対応する動作例：1-2の動作例テーブル、および変更要求後の代表ケース
-確認したいこと：状態・優先度・担当者がチケット単位で保存・追跡され、変更理由ごとの責任が分離されていること
-
-**実行結果：**
+行6〜行8の実行結果（優先度Highが引き継がれ、Escalatedを経由する）：
 
 ```
---- 行1: 依頼者 鈴木(standard)がTCK001を登録 ---
-[TCK001] 作成 状態=Open 優先度=Normal
---- 行2: 依頼者 佐藤(premium)がTCK002を登録 ---
-[TCK002] 作成 状態=Open 優先度=High
---- 行3: TCK001に担当者 山田をアサイン ---
-  アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
---- 行4: TCK001を解決 ---
-  解決: 状態 InProgress → Resolved
---- 行5: TCK001を再受付（優先度を再計算） ---
-  再受付: 状態 Resolved → Open 優先度=Normal
 --- 行6: TCK002に担当者 高橋をアサイン ---
   アサイン: 状態 Open → InProgress 担当=高橋 二郎(AGT02)
 --- 行7: TCK002をエスカレーション（緊急対応中へ） ---
   エスカレーション: 状態 InProgress → Escalated 優先度=High
 --- 行8: TCK002を解決（緊急対応中→解決済み） ---
   解決: 状態 Escalated → Resolved
+```
+
+変更要求として、法人ユーザーのTCK003を登録し保留（Pending）にします。
+
+```cpp
+    cout << "--- 変更要求: 田中(corporate)のTCK003を登録し保留 ---"
+         << endl;
+    svc.create("TCK003", "USR001");
+    svc.hold("TCK003");
+```
+
+変更要求の実行結果：
+
+```
 --- 変更要求: 田中(corporate)のTCK003を登録し保留 ---
 [TCK003] 作成 状態=Open 優先度=High
   保留: 状態 Open → Pending
+```
+
+エラー例として、存在しないユーザーIDで登録を試みます。
+
+```cpp
+    cout << "--- エラー: 存在しないユーザー ---" << endl;
+    svc.create("TCK004", "USR999");
+```
+
+エラー例の実行結果：
+
+```
 --- エラー: 存在しないユーザー ---
 エラー: ユーザーID USR999 は存在しません。
+```
 
+最後に監査ログを出力し、`main()` を終了します。
+
+```cpp
+    cout << "\n--- 監査ログ ---" << endl;
+    log.printAll();
+    return 0;
+}
+```
+
+監査ログの実行結果：
+
+```
 --- 監査ログ ---
 [TCK001] 作成 状態=Open 優先度=Normal
 [TCK002] 作成 状態=Open 優先度=High
