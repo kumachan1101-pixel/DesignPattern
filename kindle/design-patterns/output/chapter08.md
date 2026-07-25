@@ -487,6 +487,7 @@ public:
 // ---- 外部決済API境界スタブ ----
 
 class PaymentGatewayClient {
+    map<string, int> cardAttempts;  // 注文ごとのカード認証試行回数
 public:
     // カード認証（同期: 即座に成功/失敗を返す）
     PaymentResult authorizeCreditCard(
@@ -499,11 +500,19 @@ public:
              << " token=" << card.cardToken
              << " holder=" << card.holderName
              << endl;
-        // スタブ: ERROR始まりなら認証失敗
+        int attempt = ++cardAttempts[orderId];
+        // スタブ: ERROR始まりは残高不足。再試行しても結果は変わらない
         if (card.cardToken.find("ERROR") == 0) {
             return {"失敗",
                     "カード認証失敗: 残高不足",
-                    true, "AUTH_DECLINED", {}};
+                    false, "AUTH_DECLINED", {}};
+        }
+        // スタブ: TIMEOUT始まりは一時的な通信失敗。1回目だけ失敗し
+        //        再試行（2回目）で成功する。canRetry=true を返す
+        if (card.cardToken.find("TIMEOUT") == 0 && attempt == 1) {
+            return {"失敗",
+                    "カード認証失敗: 通信タイムアウト",
+                    true, "NETWORK_TIMEOUT", {}};
         }
         return {"成功",
                 "クレジット認証済み id=AUTH001",
@@ -731,13 +740,8 @@ public:
         // 決済方法に応じてプロセッサを生成して実行
         if (type == "credit_card") {
             CreditCardProcessor proc(gatewayClient);
-            PaymentResult result
-                = proc.pay(request);
-            // カード認証失敗はリトライ可能
-            if (result.status == "失敗") {
-                result.canRetry = true;
-            }
-            return result;
+            // canRetry はゲートウェイの結果に含まれる（失敗の種類で決まる）
+            return proc.pay(request);
         } else if (type == "bank_transfer") {
             BankTransferProcessor proc(
                 gatewayClient);
@@ -817,6 +821,13 @@ static void executeCase(
     PaymentLog& payLog,
     const PaymentRequest& req) {
     PaymentResult result = app.processPayment(req);
+    // 失敗かつ再試行可能（canRetry）なら1回だけ再試行する
+    if (result.status == "失敗" && result.canRetry) {
+        cout << "結果: " << req.methodId << " -> " << result.status
+             << " (" << result.message << ") [canRetry=true]\n";
+        cout << "  再試行可能なため再試行します...\n";
+        result = app.processPayment(req);
+    }
     cout << "結果: " << req.methodId
          << " -> " << result.status
          << " (" << result.message << ")\n";
@@ -972,6 +983,29 @@ int main() {
 結果: unknown -> 失敗 (未登録の決済方法です: unknown)
 ```
 
+続いて、`canRetry` を実際に読んで再試行する流れを確認します。一時的な通信失敗（`TIMEOUT_ONCE`）は1回目に失敗しますが、`executeCase` が `canRetry=true` を見て再試行し、2回目で成功します。残高不足（ケース4）は `canRetry=false` のため再試行しません。
+
+```cpp
+    // ケース8: カード一時失敗 → canRetryを見て再試行し成功
+    PaymentRequest r8;
+    r8.methodId = "credit_card";
+    r8.amount = 1200;
+    r8.orderId = "ORD-1008";
+    r8.customerId = "C008";
+    r8.creditCard = {"TIMEOUT_ONCE", "TANAKA", "321"};
+    executeCase(app, payLog, r8);
+```
+
+ケース8の実行結果：
+
+```
+[決済API] カード認証 order=ORD-1008 amount=1200 token=TIMEOUT_ONCE holder=TANAKA
+結果: credit_card -> 失敗 (カード認証失敗: 通信タイムアウト) [canRetry=true]
+  再試行可能なため再試行します...
+[決済API] カード認証 order=ORD-1008 amount=1200 token=TIMEOUT_ONCE holder=TANAKA
+結果: credit_card -> 成功 (クレジット認証済み id=AUTH001)
+```
+
 最後に、ここまで各ケースで記録した最終結果をまとめて確認します。
 
 ```cpp
@@ -993,6 +1027,7 @@ int main() {
 [credit_card] 600円 -> 失敗 (MISSING_HOLDER)
 [crypto] 300円 -> 失敗 (DISABLED)
 [unknown] 200円 -> 失敗 (UNKNOWN_METHOD)
+[credit_card] 1200円 -> 成功
 ```
 
 このコードでは、`PaymentApplication` クラスが、どの決済手段のクラスを生成し、どう実行し、エラー時にどう対処するかをすべて直接知っています。
@@ -1287,11 +1322,7 @@ public:
 
         if (type == "credit_card") {
             CreditCardProcessor proc(gatewayClient);
-            PaymentResult result = proc.pay(request);
-            if (result.status == "失敗") {
-                result.canRetry = true;
-            }
-            return result;
+            return proc.pay(request); // canRetryは結果に含む
         } else if (type == "bank_transfer") {
             BankTransferProcessor proc(gatewayClient);
             return proc.pay(request);
@@ -1451,7 +1482,7 @@ graph LR
 `PaymentApplication::processPayment()` は、次の知識をすべて保持しています。
 
 1. **具体クラス名**：`CreditCardProcessor`、`BankTransferProcessor`、`ConvenienceStoreProcessor` を直接 `new` している
-2. **手段ごとのエラー対処**：カード認証失敗時に `canRetry = true` を設定する判断が手段別に書かれている
+2. **手段ごとのエラー対処**：失敗の種類ごとの再試行可否（`canRetry`）を決める判断が手段別に書かれ、利用側がそれを読んで再試行する
 3. **処理モードの違い**：カードは同期（即座に返す）、銀行振込とコンビニは非同期（保留を返す）という区別を利用側が知っている
 
 呼び出し側（`main()`）も追加の知識を持っています。
@@ -1476,11 +1507,8 @@ graph LR
 ```cpp
 if (type == "credit_card") {
     CreditCardProcessor proc(gatewayClient);
-    PaymentResult result = proc.pay(request);
-    if (result.status == "失敗") {
-        result.canRetry = true;
-    }
-    return result;
+    // 失敗の種類ごとの再試行可否（canRetry）は結果に含まれる
+    return proc.pay(request);
 } else if (type == "bank_transfer") {
     BankTransferProcessor proc(gatewayClient);
     return proc.pay(request);
@@ -1519,7 +1547,7 @@ payLog.add(request.methodId,
 
 ### 接続点を特定する
 
-`processPayment()` の中で分けるべき境界は1か所です。決済処理を利用する流れと、具体的な処理クラスを生成する判断との境界を見ます。★canRetryを参照している箇所が見つけられない
+`processPayment()` の中で分けるべき境界は1か所です。決済処理を利用する流れと、具体的な処理クラスを生成する判断との境界を見ます。境界を流れる `PaymentResult` には再試行可否（`canRetry`）が含まれ、失敗の種類（残高不足は不可、通信タイムアウトは可）をゲートウェイ側が決めます。利用側（`executeCase`）はその `canRetry` を読んで再試行するかを判断します（1-4の実行結果ケース8で確認）。この「どの失敗が再試行可能か」という手段固有の判断も、`processPayment()` の分岐と一緒に置かれている点が、切り分ける対象です。
 
 ```cpp
 PaymentResult processPayment(
@@ -1528,11 +1556,7 @@ PaymentResult processPayment(
     // ↓ 具体クラスの生成・エラー対処が混在
     if (type == "credit_card") {
         CreditCardProcessor proc(gatewayClient);
-        PaymentResult result = proc.pay(request);
-        if (result.status == "失敗") {
-            result.canRetry = true;  // カード固有
-        }
-        return result;
+        return proc.pay(request); // canRetryは結果に含む
     } else if (type == "bank_transfer") {
         BankTransferProcessor proc(gatewayClient);
         return proc.pay(request);
@@ -1681,7 +1705,7 @@ classDiagram
     class ConvenienceStoreProcessor
     class PayPayProcessor
 
-    PaymentApplication --> IPaymentProcessor : createProcessor
+    PaymentApplication ..> IPaymentProcessor : createProcessor
     IPaymentProcessor <|.. CreditCardProcessor
     IPaymentProcessor <|.. BankTransferProcessor
     IPaymentProcessor <|.. ConvenienceStoreProcessor
@@ -1722,9 +1746,7 @@ PaymentResult processPayment(const PaymentRequest& request) {
     const string& type = request.methodId;
     if (type == "credit_card") {
         CreditCardProcessor proc(gatewayClient);
-        PaymentResult result = proc.pay(request);
-        if (result.status == "失敗") result.canRetry = true; // カード固有
-        return result;
+        return proc.pay(request); // canRetryは結果に含む（カード固有）
     } else if (type == "bank_transfer") {
         BankTransferProcessor proc(gatewayClient);
         return proc.pay(request);
@@ -1756,9 +1778,10 @@ class CreditCardProcessor : public IPaymentProcessor {
 public:
     explicit CreditCardProcessor(PaymentGatewayClient& g) : gateway(g) {}
     PaymentResult pay(const PaymentRequest& request) override {
-        PaymentResult r = /* カード固有の検証・認証API */;
-        if (r.status == "失敗") r.canRetry = true;   // 手段固有はここに閉じる
-        return r;
+        // カード固有の検証と認証API。canRetry（残高不足は不可、
+        // 通信タイムアウトは可）はゲートウェイの結果に含まれる
+        return gateway.authorizeCreditCard(
+            request.orderId, request.amount, request.creditCard);
     }
 };
 ```
@@ -1783,7 +1806,7 @@ protected:
 };
 ```
 
-**P1との対応：** `PaymentApplication --> IPaymentProcessor : createProcessor` の生成関係を実装しました。生成判断は1か所へ集まり、利用フローからは消えました。
+**P1との対応：** `PaymentApplication ..> IPaymentProcessor : createProcessor` の依存関係（生成して一時的に使う）を実装しました。生成判断は1か所へ集まり、利用フローからは消えました。
 
 #### 実装ステップ3（P1）：利用フローを委譲だけにする
 
@@ -2009,6 +2032,7 @@ public:
 
 ```cpp
 class PaymentGatewayClient {
+    map<string, int> cardAttempts;  // 注文ごとのカード認証試行回数
 public:
     PaymentResult authorizeCreditCard(
         const string& orderId,
@@ -2019,10 +2043,18 @@ public:
              << " amount=" << amount
              << " token=" << card.cardToken
              << endl;
+        int attempt = ++cardAttempts[orderId];
+        // ERROR始まりは残高不足。再試行しても変わらない（canRetry=false）
         if (card.cardToken.find("ERROR") == 0) {
             return {PaymentStatus::Failed,
                     "カード認証失敗: 残高不足",
-                    true, "AUTH_DECLINED", {}};
+                    false, "AUTH_DECLINED", {}};
+        }
+        // TIMEOUT始まりは一時的な通信失敗。1回目だけ失敗し再試行で成功する
+        if (card.cardToken.find("TIMEOUT") == 0 && attempt == 1) {
+            return {PaymentStatus::Failed,
+                    "カード認証失敗: 通信タイムアウト",
+                    true, "NETWORK_TIMEOUT", {}};
         }
         return {"成功",
                 "クレジット認証済み id=AUTH001",
@@ -2148,15 +2180,10 @@ public:
                     "セキュリティコードが不足",
                     false, "MISSING_CVV", {}};
         }
-        PaymentResult result
-            = gateway.authorizeCreditCard(
-                req.orderId, req.amount,
-                req.creditCard);
-        // カード認証失敗はリトライ可能
-        if (result.status == PaymentStatus::Failed) {
-            result.canRetry = true;
-        }
-        return result;
+        // canRetry はゲートウェイの結果に含まれる（失敗の種類で決まる）
+        return gateway.authorizeCreditCard(
+            req.orderId, req.amount,
+            req.creditCard);
     }
 };
 
@@ -2455,13 +2482,31 @@ int main() {
     r8.orderId = "ORD-1007";
     r8.customerId = "C007";
 
+    // ケース9: カード一時失敗 → canRetryを見て再試行し成功
+    PaymentRequest r9;
+    r9.methodId = PaymentMethod::CreditCard;
+    r9.amount = 1200;
+    r9.orderId = "ORD-1008";
+    r9.customerId = "C008";
+    r9.creditCard = {"TIMEOUT_ONCE", "TANAKA", "321"};
+
     vector<PaymentRequest> requests
-        = {r1, r2, r3, r4, r5, r6, r7, r8};
+        = {r1, r2, r3, r4, r5, r6, r7, r8, r9};
 
     for (const auto& req : requests) {
         try {
             PaymentResult result
                 = app.processPayment(req);
+            // 失敗かつ再試行可能（canRetry）なら1回だけ再試行する
+            if (result.status == PaymentStatus::Failed
+                && result.canRetry) {
+                cout << "結果: " << req.methodId << " -> "
+                     << result.status << " (" << result.message
+                     << ") [canRetry=true]" << endl;
+                cout << "  再試行可能なため再試行します..."
+                     << endl;
+                result = app.processPayment(req);
+            }
             cout << "結果: " << req.methodId
                  << " -> " << result.status
                  << " (" << result.message << ")"
@@ -2545,6 +2590,11 @@ int main() {
 結果: credit_card -> 失敗 (カード名義が不足しています)
 結果: crypto -> 失敗 (暗号通貨 は現在無効です。)
 結果: unknown -> 失敗 (未登録の決済方法です: unknown)
+[PaymentGateway] カード認証 order=ORD-1008 amount=1200 token=TIMEOUT_ONCE
+結果: credit_card -> 失敗 (カード認証失敗: 通信タイムアウト) [canRetry=true]
+  再試行可能なため再試行します...
+[PaymentGateway] カード認証 order=ORD-1008 amount=1200 token=TIMEOUT_ONCE
+結果: credit_card -> 成功 (クレジット認証済み id=AUTH001)
 
 --- Webhook + ワーカー ---
 [Webhook] 受理してキューへ: credit_card
@@ -2561,6 +2611,7 @@ int main() {
 [credit_card] 600円 -> 失敗 (MISSING_HOLDER)
 [crypto] 300円 -> 失敗
 [unknown] 200円 -> 失敗
+[credit_card] 1200円 -> 成功
 ```
 
 新しく追加したPayPay決済も含めて、同期決済（カード）は即座に成功し、非同期決済（銀行振込・コンビニ・PayPay）は保留→完了確認→成功の流れが動いています。カードAPI失敗、入力不足、無効・未登録の各エラーも `processPayment` の骨格に手を加えることなく表現できています。
@@ -2583,7 +2634,7 @@ classDiagram
     class ConvenienceStoreProcessor
     class PayPayProcessor
 
-    PaymentApplication --> IPaymentProcessor : createProcessor
+    PaymentApplication ..> IPaymentProcessor : createProcessor
     IPaymentProcessor <|.. CreditCardProcessor
     IPaymentProcessor <|.. BankTransferProcessor
     IPaymentProcessor <|.. ConvenienceStoreProcessor
@@ -2756,7 +2807,7 @@ graph LR
 
 ### パターンの骨格
 
-Factory Method パターンは、Productを生成するためのメソッドを定義し、どの具体Productを作るかをサブクラスへ委ねるパターンです。Creatorの利用フローから具体Productの生成コードを分けられますが、具象Creatorは自分が生成するProductを知ります。★C++でインターフェースクラスって作れるのか。抽象クラスとインターフェースクラスはコードの書き方は異なるのか。白矢印の実践と点線の使い分けは適切か。
+Factory Method パターンは、Productを生成するためのメソッドを定義し、どの具体Productを作るかをサブクラスへ委ねるパターンです。Creatorの利用フローから具体Productの生成コードを分けられますが、具象Creatorは自分が生成するProductを知ります。
 
 ```mermaid
 classDiagram
@@ -2773,10 +2824,49 @@ classDiagram
     }
     class ConcreteProduct {
     }
-    Creator --> Product
+    Creator ..> Product : factoryMethodで生成・利用
     ConcreteCreator --|> Creator
     ConcreteProduct ..|> Product
 ```
+
+> [!INFO] コラム: C++の「インターフェース」と、クラス図の線種
+> **C++に `interface` キーワードはありません。** C++でいう「インターフェース」は、次を満たす**抽象クラス**として書きます。
+>
+> - メンバ関数がすべて純粋仮想（`= 0`）で、実装を持たない。
+> - データメンバを持たない。
+> - `virtual ~Name() = default;` の仮想デストラクタを持つ（派生を安全に破棄するため）。
+>
+> 一方「抽象クラス」はより広く、**純粋仮想関数を1つ以上持つ**クラスを指します。実装済みのメソッドやデータメンバを持ってもかまいません（一部だけ `= 0`）。つまりインターフェースは抽象クラスの特殊形です。この章の `IPaymentProcessor` は `pay(request)` だけを純粋仮想で持つインターフェースです。
+>
+> ```cpp
+> // インターフェース：全メソッドが純粋仮想、データなし
+> class IPaymentProcessor {
+> public:
+>     virtual ~IPaymentProcessor() = default;
+>     virtual PaymentResult pay(const PaymentRequest& r) = 0;
+> };
+>
+> // 抽象クラス：一部を実装し、一部を純粋仮想で残す
+> class AbstractProcessor {
+> protected:
+>     PaymentGatewayClient& gateway;   // データメンバを持てる
+> public:
+>     virtual ~AbstractProcessor() = default;
+>     void log(const std::string& m) { /* 共通の実装 */ }
+>     virtual PaymentResult pay(const PaymentRequest& r) = 0; // 未実装
+> };
+> ```
+>
+> **クラス図の線種は関係の種類で決まります。** この本では次の対応で統一します。
+>
+> | 関係 | Mermaid記法 | 見た目 | 使う場面 |
+> |---|---|---|---|
+> | 実現（インターフェース実装） | `<\|..` / `..\|>` | 破線＋白三角 | 具象がインターフェース契約を満たす |
+> | 継承（クラス拡張） | `<\|--` / `--\|>` | 実線＋白三角 | 具象が抽象・基底クラスを継承する |
+> | 依存（生成・一時利用） | `..>` | 破線矢印 | 生成して一時的に使い、保持しない |
+> | 関連・集約・合成（保持） | `-->` / `o--` / `*--` | 実線 | メンバとして保持する |
+>
+> この基準で本章の図を読むと、`IPaymentProcessor <|.. CreditCardProcessor` は**実現**（インターフェース実装なので破線白三角で正しい）、`PaymentApplication ..> IPaymentProcessor` は**依存**（`createProcessor` で生成して `processPayment` の中だけで使い、メンバに保持しないので破線矢印）、`CreditCardProcessor --> PaymentGatewayClient` は**関連**（ゲートウェイを参照メンバとして保持するので実線）となります。
 
 ### 抽象骨格の実行シーケンス
 
