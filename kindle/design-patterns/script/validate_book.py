@@ -124,7 +124,13 @@ PHASE_BOUNDARY_CONTINUITY_TOKENS = {
     "chapter07.md": ["ProductDatabase"],
     "chapter08.md": ["ProcessorRegistry", "PaymentLog"],
     "chapter09_2.md": ["UserDatabase"],
-    "chapter10.md": ["PartnerDatabase", "DeliveryResult", "BatchLog"],
+    "chapter10.md": [
+        "SyncRequest",
+        "SyncDataCatalog",
+        "PartnerDatabase",
+        "DeliveryResult",
+        "BatchLog",
+    ],
     "chapter11.md": ["TemplateRegistry", "ReportRenderingApi"],
 }
 
@@ -140,7 +146,13 @@ UNCHANGED_BASELINE_TOKENS = {
     "chapter07.md": ["ProductDatabase"],
     "chapter08.md": ["PaymentRequest", "PaymentResult", "PaymentLog"],
     "chapter09_2.md": ["Ticket", "TicketRepository", "UserDatabase"],
-    "chapter10.md": ["DeliveryResult", "BatchRecord", "BatchLog"],
+    "chapter10.md": [
+        "SyncRequest",
+        "SyncDataCatalog",
+        "DeliveryResult",
+        "BatchRecord",
+        "BatchLog",
+    ],
     "chapter11.md": [
         "DataReader",
         "TemplateRegistry",
@@ -202,12 +214,12 @@ SYSTEM_STRUCTURE_CLASS_TOKENS = {
         "ITicketPhase", "TicketService", "OpenPhase", "PendingPhase",
         "EscalatedPhase", "IPriorityRule", "CorporatePriority",
         "NormalPriority", "TicketRepository", "StaffDirectory",
-        "UserDatabase",
+        "UserDatabase", "TicketPolicySet",
     ],
     "chapter10.md": [
         "IExternalClient", "SystemAClient", "INotifier", "SlackNotifier",
         "IClientCreator", "SystemAClientCreator", "BatchExecutor",
-        "ManualTriggerController",
+        "ManualTriggerController", "SyncRequest", "SyncDataCatalog",
     ],
     "chapter11.md": [
         "ReportSkeleton", "StandardReport", "MonthlyReport",
@@ -1620,6 +1632,57 @@ def check_class_diagram_completeness(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def check_phase1_input_contract_use(text: str, path: Path) -> list[Issue]:
+    """仕様入力が現状・完成コードで実際のデータ選択まで使われるか確認する。"""
+    if path.name != "chapter10.md":
+        return []
+
+    s11 = text.find("### 1-1：")
+    s14 = text.find("### 1-4：")
+    s15 = text.find("### 1-5：", s14)
+    s71 = text.find("### 7-1：")
+    s72 = text.find("### 7-2：", s71)
+    if min(s11, s14, s15, s71, s72) < 0:
+        return []
+
+    section11 = text[s11:text.find("### 1-2：", s11)]
+    current = text[s14:s15]
+    final = text[s71:s72]
+    issues: list[Issue] = []
+
+    required = [
+        (section11, "連携先ID・同期対象",
+         "1-1に同期要求の入力契約がありません", s11),
+        (current, "execute(const SyncRequest& request)",
+         "1-4のexecute()がSyncRequestを受け取っていません", s14),
+        (current, "dataCatalog.load(request.target)",
+         "1-4で同期対象がデータ取得先の選択に使われていません", s14),
+        (current, "client.send(data)",
+         "1-4で取得した同期データが外部送信へ渡っていません", s14),
+        (final, "const SyncRequest& request",
+         "7-1でSyncRequestが実行入口から消えています", s71),
+        (final, "dataCatalog.load(request.target)",
+         "7-1で同期対象がデータ取得先の選択に使われていません", s71),
+        (final, "client->send(data, apiHealthy)",
+         "7-1で取得した同期データが外部送信へ渡っていません", s71),
+    ]
+    for section, token, message, start in required:
+        if token not in section:
+            issues.append(Issue(path, line_number(text, start), message))
+
+    fabricated = re.search(
+        r"(?:client\.|client->)send\(\"(?:data|manualData)\"",
+        current + final,
+    )
+    if fabricated:
+        issues.append(Issue(
+            path,
+            line_number(text, s14),
+            "仕様の同期対象を使わず固定文字列を外部送信しています",
+        ))
+    return issues
+
+
 def check_state_automation(text: str, path: Path) -> list[Issue]:
     """State章の自動昇格・数値ログ・状態不変エラーを機械確認する。"""
     if path.name != "chapter03.md":
@@ -1680,6 +1743,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_unchanged_baseline(text, path))
         issues.extend(check_class_diagram_completeness(text, path))
         issues.extend(check_phase1_system_model_v3(text, path))
+        issues.extend(check_phase1_input_contract_use(text, path))
         issues.extend(check_state_automation(text, path))
     return issues
 

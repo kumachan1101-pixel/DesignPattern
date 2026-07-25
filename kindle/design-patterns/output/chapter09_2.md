@@ -31,7 +31,7 @@
 | 仕様項目 | この章で扱う値 | 具体例 | 何に使うか |
 |---|---|---|---|
 | チケット | 問い合わせ内容と現在状態 | TCK001 が Open | 状態に応じて許可される操作を判定する |
-| ユーザー種別 | 一般 / プレミアム / 法人 | USR001 は法人（corporate） | 優先度計算に使う |
+| ユーザー種別 | 一般 / プレミアム | USR002 はプレミアム | 優先度計算に使う |
 | 操作 | 受付・対応開始・解決など | 担当者アサイン、解決 | 状態遷移と優先度更新のきっかけになる |
 | 出力 | 更新後状態と優先度 | InProgress、高優先度 | 操作結果としてチケット状態を照合する |
 
@@ -222,11 +222,11 @@ classDiagram
         +id string
         +userId string
         +status TicketStatus
-        +priority string
+        +priority Priority
         +assigneeId string
     }
     class PriorityCalculator {
-        +calculate(userType) string
+        +calculate(userType) Priority
     }
     class UserDatabase {
         +exists(id) bool
@@ -234,7 +234,7 @@ classDiagram
     }
     class UserInfo {
         +name string
-        +userType string
+        +userType UserType
     }
     TicketManager *-- TicketRepository : 保持
     TicketManager *-- PriorityCalculator : 保持
@@ -280,7 +280,7 @@ classDiagram
 
 | ユーザーID | 氏名 | ユーザー種別 |
 |---|---|---|
-| USR001 | 田中 一郎 | 法人（corporate） |
+| USR001 | 田中 一郎 | 一般（standard） |
 | USR002 | 佐藤 花子 | プレミアム（premium） |
 | USR003 | 鈴木 次郎 | 一般（standard） |
 
@@ -295,10 +295,27 @@ classDiagram
 
 using namespace std;
 
+// ユーザー種別。現状は一般とプレミアムの2区分。
+enum class UserType {
+    Standard,
+    Premium
+};
+
+// 優先度。変更前後で共通して使う値。
+enum class Priority {
+    Normal,
+    High
+};
+
+// 優先度を保存・表示用の文字列へ変換する。
+string toString(Priority priority) {
+    return priority == Priority::High ? "High" : "Normal";
+}
+
 // ユーザー情報
 struct UserInfo {
-    string name;     // 氏名
-    string userType; // "standard", "premium", "corporate"
+    string name;       // 氏名
+    UserType userType; // 契約区分
 };
 
 // ユーザーデータベース
@@ -306,9 +323,9 @@ class UserDatabase {
     map<string, UserInfo> records;
 public:
     UserDatabase() {
-        records["USR001"] = {"田中 一郎", "corporate"};
-        records["USR002"] = {"佐藤 花子", "premium"};
-        records["USR003"] = {"鈴木 次郎", "standard"};
+        records["USR001"] = {"田中 一郎", UserType::Standard};
+        records["USR002"] = {"佐藤 花子", UserType::Premium};
+        records["USR003"] = {"鈴木 次郎", UserType::Standard};
     }
     bool exists(const string& id) const {
         return records.count(id) > 0;
@@ -321,13 +338,16 @@ public:
 // 優先度ルール（変わる可能性がある）
 class PriorityCalculator {
 public:
-    string calculate(string userType) {
-        if (userType == "premium") return "High"; // ← ルール判定を直書き
-        return "Normal";
+    Priority calculate(UserType userType) {
+        if (userType == UserType::Premium) {
+            return Priority::High; // ← ルール判定を直書き
+        }
+        return Priority::Normal;
     }
 };
 ```
 
+- `UserType` と `Priority` は、現状コードの時点から使う値です。後の設計変更で突然追加する定数ではありません。今回の要求では `UserType` に法人区分だけを追加します。
 - `UserInfo` は氏名とユーザー種別を持ち、`UserDatabase` はユーザーIDから検索します。実システムのユーザー管理DBを、実行中だけ有効なインメモリの登録表で代替しています。
 - `PriorityCalculator` はユーザー種別から優先度を返します。現状はプレミアムを高優先度、それ以外を標準とする2区分です。
 
@@ -359,8 +379,8 @@ struct Ticket {
     string id;
     string userId;
     TicketStatus status; // 現在状態（保存される）
-    string priority;    // 優先度（保存される）
-    string assigneeId;  // 担当者（未割当は空）
+    Priority priority;    // 優先度（保存される）
+    string assigneeId;    // 担当者（未割当は空）
 };
 
 // チケット保存庫：チケットID単位で保存・取得する
@@ -394,8 +414,8 @@ public:
                  << " は存在しません。" << endl;
             return;
         }
-        string userType = db.get(userId).userType;
-        string priority = calc.calculate(userType); // 優先度を判定
+        UserType userType = db.get(userId).userType;
+        Priority priority = calc.calculate(userType); // 優先度を判定
         Ticket t{
             ticketId,
             userId,
@@ -405,7 +425,7 @@ public:
         };
         repo.save(t);
         cout << "[" << ticketId << "] 作成 状態=Open 優先度="
-             << priority << endl;
+             << toString(priority) << endl;
     }
     // 状態遷移と優先度判定を1メソッドの分岐で行う
     void updateStatus(const string& ticketId, const string& op,
@@ -459,7 +479,7 @@ public:
         repo.save(t);                                // 変更後を保存
         cout << "[" << ticketId << "] " << op << ": 状態 "
              << statusName(before) << " → " << statusName(t.status)
-             << " 優先度=" << t.priority;
+             << " 優先度=" << toString(t.priority);
         if (!t.assigneeId.empty())
             cout << " 担当=" << t.assigneeId;
         cout << endl;
@@ -527,7 +547,7 @@ int main() {
 ---
 
 > **手元で動かすには**
-> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter09.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。`manager.create("TCK005", "USR002");` や `manager.updateStatus("TCK005", "assign", "AGT01");` の呼び出しを足せば、チケットごとの状態と優先度がその場の実行結果に表れます。新しいユーザーを試すときは `UserDatabase` の登録へ `records["USR010"] = {"高橋 三郎", "corporate"};` を足すと、そのユーザーでも同じ処理を実行できます。データはプロセス実行中だけ有効で、終了すると消えます。
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter09.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。`manager.create("TCK005", "USR002");` や `manager.updateStatus("TCK005", "assign", "AGT01");` の呼び出しを足せば、チケットごとの状態と優先度がその場の実行結果に表れます。現状コードへユーザーを追加するときは、`UserDatabase` の登録表へ一般またはプレミアムのレコードを足します。法人区分は1-5の変更要求で初めて追加します。データはプロセス実行中だけ有効で、終了すると消えます。
 
 ### 1-5：変更要求
 
@@ -581,7 +601,29 @@ int main() {
 | 判定 | 状態ごとの操作可否、一般・プレミアムの固定優先度判定 | 保留中を含む操作可否、法人を含む優先度判定 | 状態判定と優先度判定が別々に変わる |
 | 加工 | 状態更新と優先度計算 | 保留・再オープンによる状態遷移と法人SLA優先度計算 | 二つの加工軸を分けて追う |
 | 出力 | 更新後状態と優先度 | 保留中を含む更新後状態と法人のHigh優先度 | 出力状態と優先度区分が増える |
-★変更後の状態遷移図は記載しないのか？ほかの章は状態戦図は変更前と変更後で記載してなかったか
+
+**変更後の状態遷移仕様**
+
+1-2bの変更前図と同じ粒度で、今回追加する状態と遷移だけに
+`【追加】`を付けます。既存の4状態と6遷移は変えません。
+
+```mermaid
+stateDiagram-v2
+    [*] --> Open : 登録
+    Open --> InProgress : アサイン
+    Open --> Pending : 保留【追加】
+    InProgress --> Resolved : 解決
+    InProgress --> Escalated : エスカレーション
+    InProgress --> Pending : 保留【追加】
+    Escalated --> Resolved : 解決
+    Escalated --> InProgress : 差し戻し
+    Resolved --> Open : 再受付
+    Pending --> Open : 再受付【追加】
+```
+
+変更箇所は `Pending` と、それにつながる保留・再受付の3遷移です。
+状態が変わらない操作不可エラーは遷移ではないため、この図には加えません。
+
 **変更後の入力・加工・出力**
 
 変更後の仕様を、1-1のシステム内部図と同じ箱・矢印・配置で示します。薄い黄色と`【追加】`が今回変わる箇所です。保存済み状態へ保留中、ユーザー種別へ法人、操作へ保留、優先度選択へ法人向けルールが加わります。優先度を再計算する操作かを判定し、不要なら保存済み優先度を維持する流れは変更前と同じです。
@@ -721,13 +763,47 @@ flowchart LR
 
 作業を進める中で、すぐに気づきました。「状態ごとのアクションとルールの条件分岐が混在していて、どちらが変わったときにどこを直せばいいか分からない」という感覚です。ステータスが一つ増えるだけで、「遷移の可否」「担当者への通知」「優先度計算」という、それぞれ変更理由の異なるロジックを一つの大きなメソッドの中で同時に考慮する必要があります。「状態を足したのにSLAのロジックも壊れたかもしれない」という不安が、常について回ります。
 
-実際に変更を加えたコードを見てみましょう。`UserDatabase`・`TicketRepository`・`create()` は今回の変更で変わらないため省略し、修正が入る `PriorityCalculator` と `TicketManager::updateStatus()` に絞って示します。メンバ（`repo`／`db`／`calc`）は1-4と同じです。
+実際に変更を加えたコードを見てみましょう。法人区分を追加するため
+`UserType` と `UserDatabase` のUSR001、優先度判定を変更します。保留状態を
+追加するため `TicketStatus`、`statusName()`、`updateStatus()` も変更します。
+`TicketRepository` と `create()` の処理順は1-4から変えません。
 
-> **中間コードの継続条件：** `UserDatabase` の存在確認・ユーザー種別取得と、`TicketRepository` へのチケット保存は省略後も維持します。以下の `updateStatus()` は保存済みチケットを読み書きする1-4の構造をそのまま引き継ぎ、そこへ保留（`Pending`）の分岐を書き足したものです。
+> **中間コードの継続条件：** `UserDatabase` の存在確認・ユーザー種別取得と、`TicketRepository` へのチケット保存は維持します。`Priority` と `toString()` も1-4の定義をそのまま使います。以下の `updateStatus()` は保存済みチケットを読み書きする1-4の構造へ、保留（`Pending`）の分岐を書き足したものです。
 
-★statusNameは使われているか？この関数意味ある？
+`statusName()` は、列挙型の状態をエラー表示と遷移ログへ出すための変換関数です。
+この後の `操作不可`、`変更前`、`変更後` の3箇所で呼びます。`Pending` を
+列挙型へ加えるだけではログに表示できないため、変換分岐にも同じ値を追加します。
 
 ```cpp
+// 1-4のユーザー種別へ、変更要求の法人区分を追加する
+enum class UserType {
+    Standard,
+    Premium,
+    Corporate
+};
+
+struct UserInfo {
+    string name;
+    UserType userType;
+};
+
+class UserDatabase {
+    map<string, UserInfo> records;
+public:
+    UserDatabase() {
+        // 変更要求の代表データとしてUSR001を法人区分へ変更する
+        records["USR001"] = {"田中 一郎", UserType::Corporate};
+        records["USR002"] = {"佐藤 花子", UserType::Premium};
+        records["USR003"] = {"鈴木 次郎", UserType::Standard};
+    }
+    bool exists(const string& id) const {
+        return records.count(id) > 0;
+    }
+    UserInfo get(const string& id) const {
+        return records.at(id);
+    }
+};
+
 // 1-4の列挙型へ、変更要求の保留中を追加する
 enum class TicketStatus {
     Open,
@@ -751,10 +827,14 @@ string statusName(TicketStatus status) {
 // 優先度ルール（SLA改定を反映）
 class PriorityCalculator {
 public:
-    std::string calculate(std::string userType) {
-        if (userType == "premium")   return "High";
-        if (userType == "corporate") return "High"; // ← 追加
-        return "Normal";
+    Priority calculate(UserType userType) {
+        if (userType == UserType::Premium) {
+            return Priority::High;
+        }
+        if (userType == UserType::Corporate) { // ← 追加
+            return Priority::High;
+        }
+        return Priority::Normal;
     }
 };
 
@@ -819,7 +899,7 @@ public:
         repo.save(t);
         std::cout << "[" << ticketId << "] " << op << ": 状態 "
                   << statusName(before) << " → " << statusName(t.status)
-                  << " 優先度=" << t.priority
+                  << " 優先度=" << toString(t.priority)
                   << std::endl;
     }
 };
@@ -829,7 +909,21 @@ public:
 対応する動作例：変更要求後の代表ケース（法人登録＋保留の追加）
 確認したいこと：変更要求を現状構造へ当てはめたとき、修正箇所と痛みがどこに出るか
 
-★以下実行結果のmain関数がない
+上の差分を1-4の現状コードへ適用し、次の `main()` で代表ケースを実行します。
+`create()` は1-4と同じ処理ですが、変更後のUSR001と優先度判定を使うため、
+法人のHigh優先度が保存されます。
+
+```cpp
+int main() {
+    TicketManager manager;
+
+    manager.create("TCK010", "USR001");
+    manager.updateStatus("TCK010", "hold");
+    manager.updateStatus("TCK010", "reopen");
+
+    return 0;
+}
+```
 
 実行結果（`create("TCK010","USR001")` で法人チケットを登録し、保留・再受付する）：
 
@@ -966,9 +1060,13 @@ P1とP2を、次の三つの観点で一つの完成構造へ変換します。
 |---|---|---|
 | 分離方法 | チケット進行には状態操作と優先度判定の契約だけを残し、具体的な条件を外す | P1は `ITicketPhase`、P2は `IPriorityRule` を境界にする |
 | 配置場所 | 状態固有の判断と遷移は各Phase、SLA・顧客区分判定は各PriorityRuleへ置く | 状態クラス群とルールクラス群へ別々に配置する |
-| 組み立て方法 | `TicketService` が全Phaseと全ルールを生成・所有し、Phase同士の遷移先を初期化時に配線する。各操作では保存済みチケットを読み、現在Phaseへ次状態を問い、結果を `TicketRepository` へ保存する | 状態と優先度を別々に保持し、状態処理と優先度判定を一つの操作で利用する |
+| 組み立て方法 | `TicketPolicySet` が全Phaseと全ルールを生成・所有し、遷移先を配線する。`main()` はその組み立て済み部品を `TicketService` へ注入する。Serviceは保存済みチケットを読み、抽象契約だけを利用して結果を保存する | 具体部品の生成・所有・選択を実行責任から外し、状態処理と優先度判定を一つの操作で利用する |
 
-最終構造は、状態分離構造とルール差し替え構造を `TicketService` が束ね、チケット自身（`Ticket`）は現在状態・優先度・担当者を保持する実体として `TicketRepository` に保存される一つのシステムです。片方だけを切り出す形は二つの課題を完了しない途中状態なので比較しません。
+最終構造は、`TicketPolicySet` が状態分離構造とルール差し替え構造を
+組み立て、`TicketService` がその抽象契約を使う一つのシステムです。
+チケット自身（`Ticket`）は現在状態・優先度・担当者を保持する実体として
+`TicketRepository` に保存されます。片方だけを切り出す形は二つの課題を
+完了しない途中状態なので比較しません。
 
 ### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
@@ -983,17 +1081,14 @@ P1とP2を、次の三つの観点で一つの完成構造へ変換します。
 
 **薄い黄色が着目クラス**です。変更前では `TicketManager` の `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。矢印は1-3と同じ利用・実装・委譲関係です。
 
-★以下クラス図は向きを変えた？埼葛なら同じ絵にしませんか
-
 **変更前のクラス図（1-3を責任見直し用に再掲）：**
 
 ```mermaid
 classDiagram
-    direction LR
     class TicketManager {
-        -TicketRepository repo
-        -UserDatabase db
-        -PriorityCalculator calc
+        -repo: TicketRepository
+        -db: UserDatabase
+        -calc: PriorityCalculator
         +create(ticketId, userId)
         +updateStatus(ticketId, op, assigneeId)
     }
@@ -1001,15 +1096,29 @@ classDiagram
         +get(id) Ticket
         +save(t)
     }
+    class Ticket {
+        +id string
+        +userId string
+        +status TicketStatus
+        +priority Priority
+        +assigneeId string
+    }
     class PriorityCalculator {
-        +calculate(userType) string
+        +calculate(userType) Priority
     }
     class UserDatabase {
+        +exists(id) bool
         +get(id) UserInfo
     }
-    TicketManager --> TicketRepository : 保持
-    TicketManager --> PriorityCalculator : 保持
-    TicketManager --> UserDatabase : 保持
+    class UserInfo {
+        +name string
+        +userType UserType
+    }
+    TicketManager *-- TicketRepository : 保持
+    TicketManager *-- PriorityCalculator : 保持
+    TicketManager *-- UserDatabase : 保持
+    TicketRepository *-- Ticket : ID別に保存
+    UserDatabase *-- UserInfo : ID別に保存
 
     note for TicketManager "【残す】公開操作・チケット保存\n【P1・移す】TicketStatus分岐の状態遷移\n【P2・移す】SLA・顧客区分の優先度判定"
     note for TicketRepository "【維持】チケットの保存・取得"
@@ -1018,13 +1127,14 @@ classDiagram
     cssClass "TicketManager" focus
 ```
 
-変更前は `TicketManager` が全状態の分岐と優先度判定を抱え、状態追加やSLA改定のたびに同じクラスの中身が膨らみます。
+向きと掲載クラスは1-3から変えていません。ここでは同じ図に注記と色だけを
+加え、`TicketManager` のどの責任を残し、どの責任を移すかに着目します。
 
 P1・P2をクラス図の変更として書くと、次の3操作になります。
 
 1. P1：状態が満たす共通契約 `ITicketPhase`（`assign/resolve/escalate/reopen/hold` 等が次状態を返す）を新設する。
 2. P2：優先度ルールが満たす共通契約 `IPriorityRule`（`getPriority`）を新設し、各ルールを実装へ移す。
-3. P1・P2：`TicketService` が全Phaseと全ルールを所有し、保存済みチケットに対して状態遷移と優先度判定をそれぞれへ委譲する。
+3. P1・P2：`TicketPolicySet` が全Phaseと全ルールを所有・配線し、`TicketService` は注入された部品を使って保存済みチケットへ状態遷移と優先度判定を適用する。
 
 変更後は、公開操作が状態を判定せず現在状態へ委譲し、優先度は差し替え可能なルールへ委ね、`TicketManager` の混在分岐が消えたことを確認します。
 
@@ -1033,6 +1143,7 @@ P1・P2をクラス図の変更として書くと、次の3操作になります
 ```mermaid
 classDiagram
     class TicketService
+    class TicketPolicySet
     class TicketRepository
     class UserDatabase
     class StaffDirectory
@@ -1052,8 +1163,9 @@ classDiagram
     TicketService --> UserDatabase : 依頼者照会
     TicketService --> StaffDirectory : 担当者照会
     TicketService --> TicketEventLog : 監査記録
-    TicketService o--> ITicketPhase : 状態を所有
-    TicketService o--> IPriorityRule : ルールを所有
+    TicketService --> TicketPolicySet : 状態・ルールを利用
+    TicketPolicySet o--> ITicketPhase : 状態を所有・配線
+    TicketPolicySet o--> IPriorityRule : ルールを所有・選択
     TicketRepository --> Ticket : 保存
     Ticket --> ITicketPhase : 現在状態
     ITicketPhase <|.. OpenPhase
@@ -1067,10 +1179,11 @@ classDiagram
 
     note for ITicketPhase "【P1・新設】状態ごとの振る舞いの共通契約"
     note for IPriorityRule "【P2・新設】優先度判定の差し替え可能な契約"
-    note for TicketService "【新設】両契約と保存先を所有し操作を実行"
+    note for TicketPolicySet "【新設】具体状態・具体ルールを生成・所有・配線"
+    note for TicketService "【新設】抽象契約を使って公開操作・保存・ログを実行"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "ITicketPhase,OpenPhase,InProgressPhase,EscalatedPhase,ResolvedPhase,PendingPhase,IPriorityRule,CorporatePriority,PremiumPriority,NormalPriority" focus
+    cssClass "TicketService,TicketPolicySet,ITicketPhase,OpenPhase,InProgressPhase,EscalatedPhase,ResolvedPhase,PendingPhase,IPriorityRule,CorporatePriority,PremiumPriority,NormalPriority" focus
 ```
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
@@ -1079,33 +1192,122 @@ classDiagram
 |---|---|---|---|
 | P1 | 共通契約 `ITicketPhase` を新設する | 各状態クラスが振る舞いと遷移先を実装する | ステップ1 |
 | P2 | 共通契約 `IPriorityRule` を新設する | 各ルールクラスがSLA・顧客区分の判定を実装する | ステップ2 |
-| P1・P2 | `TicketService` が両契約と保存先を所有する | 保存済みチケットへ状態遷移と優先度判定を委譲する | ステップ3 |
+| P1・P2 | `TicketPolicySet` が具体部品を所有し、`TicketService` は抽象契約を利用する | 具体状態・ルールの生成と配線を実行責任から分け、保存済みチケットへ両契約を適用する | ステップ3 |
 
 このクラス図が、P1・P2を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
 #### 課題箇所のおさらい（フェーズ3の関連コード）
 
-統合表で特定した箇所だけを振り返ります。P1は `updateStatus()` の `TicketStatus` 分岐、P2は `calculate()` のSLA・顧客区分判定です。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。★おさらいなのにコード違う？
+フェーズ3で実際に変更したコードから、P1の `TicketStatus` 分岐と
+P2の `calculate()` だけを、改行も変えずに再掲します。
+`UserDatabase` のUSR001法人レコード、`TicketRepository`、`create()`、
+保存とログ出力はフェーズ3のまま維持します。
 
 ```cpp
-// 現状：状態遷移と優先度判定が TicketManager に混在する
+// 1-4のユーザー種別へ、変更要求の法人区分を追加する
+enum class UserType {
+    Standard,
+    Premium,
+    Corporate
+};
+
+// 1-4の列挙型へ、変更要求の保留中を追加する
+enum class TicketStatus {
+    Open,
+    InProgress,
+    Escalated,
+    Resolved,
+    Pending
+};
+
+string statusName(TicketStatus status) {
+    switch (status) {
+    case TicketStatus::Open:       return "Open";
+    case TicketStatus::InProgress: return "InProgress";
+    case TicketStatus::Escalated:  return "Escalated";
+    case TicketStatus::Resolved:   return "Resolved";
+    case TicketStatus::Pending:    return "Pending";
+    }
+    return "Unknown";
+}
+
+// 優先度ルール（SLA改定を反映）
+class PriorityCalculator {
+public:
+    Priority calculate(UserType userType) {
+        if (userType == UserType::Premium) {
+            return Priority::High;
+        }
+        if (userType == UserType::Corporate) { // ← 追加
+            return Priority::High;
+        }
+        return Priority::Normal;
+    }
+};
+
+// チケット管理（「保留中」状態を追加）
 class TicketManager {
     TicketRepository repo;
     UserDatabase db;
-    PriorityCalculator calc;    // P2: 優先度判定を直接保持
+    PriorityCalculator calc;
 public:
     void updateStatus(const std::string& ticketId,
-                      const std::string& op) {
+                      const std::string& op,
+                      const std::string& assigneeId = "") {
         Ticket& t = repo.get(ticketId);
-        // P1: status 文字列の分岐が状態の種類だけ並ぶ
-        if (t.status == "Open" && op == "assign") {
-            t.status = "InProgress";
-        } else if (t.status == "InProgress" && op == "escalate") {
-            t.status = "Escalated";
-            // P2: 状態遷移の途中で優先度ルールを呼ぶ
-            t.priority = calc.calculate(db.get(t.userId).userType);
+        TicketStatus before = t.status;
+        bool changed = false;
+        switch (t.status) {
+        case TicketStatus::Open:
+            if (op == "assign") {
+                t.status = TicketStatus::InProgress;
+                t.assigneeId = assigneeId;
+                changed = true;
+            } else if (op == "hold") {                // ← 追加
+                t.status = TicketStatus::Pending;
+                changed = true;
+            }
+            break;
+        case TicketStatus::InProgress:
+            if (op == "resolve") {
+                t.status = TicketStatus::Resolved;
+                changed = true;
+            } else if (op == "escalate") {
+                t.status = TicketStatus::Escalated;
+                t.priority = calc.calculate(db.get(t.userId).userType);
+                changed = true;
+            }
+            break;
+        case TicketStatus::Escalated:
+            if (op == "resolve") {
+                t.status = TicketStatus::Resolved;
+                changed = true;
+            } else if (op == "sendback") {
+                t.status = TicketStatus::InProgress;
+                changed = true;
+            }
+            break;
+        case TicketStatus::Resolved:
+        case TicketStatus::Pending:                   // ← 追加
+            if (op == "reopen") {
+                t.status = TicketStatus::Open;
+                t.priority = calc.calculate(db.get(t.userId).userType);
+                changed = true;
+            }
+            break;
+        }
+        if (!changed) {
+            std::cout << "[" << ticketId << "] 操作不可: 状態 "
+                      << statusName(t.status)
+                      << " で " << op << " はできません。"
+                      << std::endl;
+            return;
         }
         repo.save(t);
+        std::cout << "[" << ticketId << "] " << op << ": 状態 "
+                  << statusName(before) << " → " << statusName(t.status)
+                  << " 優先度=" << toString(t.priority)
+                  << std::endl;
     }
 };
 ```
@@ -1145,7 +1347,9 @@ class OpenPhase : public ITicketPhase {
 public:
     void setInProgress(ITicketPhase* p) { inProgress = p; }
     void setPending(ITicketPhase* p)    { pending = p; }
-    std::string name() const override { return "Open"; }
+    std::string name() const override {
+        return statusName(TicketStatus::Open);
+    }
     ITicketPhase* assign() override { return inProgress; }
     ITicketPhase* hold() override   { return pending; }
 };
@@ -1159,8 +1363,6 @@ public:
 
 ```cpp
 // P2接続点：優先度判定を差し替え可能なルールにする
-enum class Priority { Normal, High };
-
 class IPriorityRule {
 public:
     virtual ~IPriorityRule() = default;
@@ -1173,22 +1375,59 @@ public:
 };
 ```
 
-**P2との対応：** `IPriorityRule <|.. CorporatePriority` の実装関係を実装しました。優先度は `Priority` 列挙型で表し、`PremiumPriority`（High）・`NormalPriority`（Normal）も同じ形です。SLA改定はルール1クラスの差し替えに閉じます。
+**P2との対応：** `IPriorityRule <|.. CorporatePriority` の実装関係を実装しました。`Priority` は1-4から使っている列挙型であり、このステップで追加する変化点ではありません。`PremiumPriority`（High）・`NormalPriority`（Normal）も同じ契約を実装します。SLA改定はルール1クラスの差し替えに閉じます。
 
-#### 実装ステップ3（P1・P2）：TicketServiceが両契約を所有し委譲する
+#### 実装ステップ3（P1・P2）：組み立てと実行を分けて注入する
 
-`TicketService` が全Phaseと全ルールを所有し、遷移先を初期化時に配線します。各操作では保存済みチケットを読み、現在状態へ委譲し、結果を保存します。状態とルールは互いを知りません。
+具体状態・具体ルールの生成、所有、配線、選択は `TicketPolicySet` に置きます。
+`TicketService` は外から注入された組み立て済みの部品を使い、保存済み
+チケットへ操作を適用します。これで、業務操作の実行と具体部品の組み立てを
+同じServiceへ集めません。
 
 ```cpp
-// P1・P2接続点：保存済みチケットへ両契約を委譲する
-class TicketService {
-    TicketRepository& repo;          // チケットの保存先
-    OpenPhase openPhase;             // 所有する状態（共有）
+// P1・P2の組み立て：具体状態と具体ルールを生成・所有・配線する
+class TicketPolicySet {
+    NormalPriority normal;
+    PremiumPriority premium;
+    CorporatePriority corporate;
+    OpenPhase openPhase;
     InProgressPhase inProgressPhase;
+    EscalatedPhase escalatedPhase;
+    ResolvedPhase resolvedPhase;
+    PendingPhase pendingPhase;
 public:
-    TicketService(TicketRepository& r) : repo(r) {
-        openPhase.setInProgress(&inProgressPhase); // 遷移先を配線
+    TicketPolicySet() {
+        openPhase.setInProgress(&inProgressPhase);
+        openPhase.setPending(&pendingPhase);
+        inProgressPhase.setResolved(&resolvedPhase);
+        inProgressPhase.setEscalated(&escalatedPhase);
+        inProgressPhase.setPending(&pendingPhase);
+        escalatedPhase.setResolved(&resolvedPhase);
+        escalatedPhase.setInProgress(&inProgressPhase);
+        resolvedPhase.setOpen(&openPhase);
+        pendingPhase.setOpen(&openPhase);
     }
+    ITicketPhase* initialPhase() {
+        return &openPhase;
+    }
+    IPriorityRule& priorityRule(UserType type) {
+        if (type == UserType::Corporate) {
+            return corporate;
+        }
+        if (type == UserType::Premium) {
+            return premium;
+        }
+        return normal;
+    }
+};
+
+// 安定側：組み立て済みの抽象契約を使って保存済みチケットを更新する
+class TicketService {
+    TicketRepository& repo;
+    TicketPolicySet& policies;
+public:
+    TicketService(TicketRepository& r, TicketPolicySet& p)
+        : repo(r), policies(p) {}
     void assign(const std::string& ticketId,
                 const std::string& assigneeId) {
         Ticket& t = repo.get(ticketId);          // 保存済みを読む
@@ -1201,25 +1440,25 @@ public:
 };
 ```
 
-**P1・P2との対応：** `TicketService o--> ITicketPhase` と `TicketService o--> IPriorityRule` の関連を実装しました。`TicketService` は全Phase・全ルールに加え `UserDatabase`・`StaffDirectory`・`TicketEventLog` も所有します（全体は7-1）。状態分離構造とルール差し替え構造が独立したまま、チケット実体を介して共存します。
+**P1・P2との対応：** `TicketPolicySet` が `ITicketPhase` と
+`IPriorityRule` の具体実装を所有し、`TicketService` は
+`TicketPolicySet` をコンストラクタで受け取ります。Serviceに残るのは、
+公開操作、検証、保存、監査ログという一連のユースケース進行です。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
-採用システムの契約、生成場所、依存注入を一表で確定します。`TicketService` は全Phaseと全ルールを値メンバとして所有し、依頼者・担当者・保存先・監査ログは外から受け取ります。優先度はユーザー種別から選んだルールで計算し、登録時にチケット実体へ保存します。
+採用システムの契約、生成場所、依存注入を一表で確定します。
+`TicketPolicySet` は全Phaseと全ルールを値メンバとして所有します。
+`TicketService` は組み立て済み部品、依頼者、担当者、保存先、監査ログを
+外から受け取ります。
 
 ```cpp
-// TicketService 内：ユーザー種別から優先度ルールを選ぶ
-IPriorityRule* ruleFor(UserType t) {
-    if (t == UserType::Corporate) return &corporate;
-    if (t == UserType::Premium)   return &premium;
-    return &normal;
-}
-// 登録時に優先度を計算し、チケット実体へ保存する
+// TicketService 内：選択判断を持たず、組み立て済み部品へ問い合わせる
 void create(const std::string& ticketId,
             const std::string& userId) {
     UserType category = users.get(userId).userType;
-    Priority p = ruleFor(category)->getPriority();
-    Ticket t{ticketId, userId, &openPhase, p, ""};
+    Priority p = policies.priorityRule(category).getPriority();
+    Ticket t{ticketId, userId, policies.initialPhase(), p, ""};
     repo.save(t);   // 状態・優先度・担当者を1件として保存
 }
 ```
@@ -1227,11 +1466,14 @@ void create(const std::string& ticketId,
 | 接続点を変える観点 | システム全体での設計判断 | 変えたくない側が知らなくなる詳細 |
 |---|---|---|
 | 何を分離するか | P1の状態振る舞いを状態クラスへ、P2の優先度判定をルールクラスへ置く | 状態の種類・遷移、SLA基準・顧客区分 |
-| どこで生成・選択するか | `TicketService` が全Phase・全ルールを所有し、`ruleFor()` で選ぶ | 具体状態・具体ルールの選択 |
-| どう依存を渡すか | 依頼者・担当者・保存先・監査ログをコンストラクタで受け取る | 実体データの持ち方 |
+| どこで生成・選択するか | `TicketPolicySet` が全Phase・全ルールを所有し、`priorityRule()` で選ぶ | 具体状態・具体ルールの生成・配線・選択 |
+| どう依存を渡すか | `main()` がPolicySet、依頼者、担当者、保存先、監査ログをServiceへ注入する | 具体部品の組み立てと実体データの持ち方 |
 | 安定側はどう実行するか | 利用側は `create()` や `assign()` などの操作だけを呼ぶ | 現在どの状態か、どの優先度ルールか |
 
-状態とルールは `TicketService` が値メンバとして所有するため生存期間はサービスと一致し、`Ticket` 実体は現在状態を指すポインタと保存された優先度・担当者を持ちます。優先度は登録時に確定して保存され、再受付・エスカレーション時に再計算して引き継ぎます。
+状態とルールは `TicketPolicySet` が値メンバとして所有し、`main()` では
+PolicySetをServiceより先に生成します。したがって、`Ticket` が指す状態の
+生存期間はServiceの利用期間を上回ります。優先度は登録時に確定して保存され、
+再受付・エスカレーション時に再計算して引き継ぎます。
 
 #### システム全体のコード適用結果
 
@@ -1239,7 +1481,7 @@ void create(const std::string& ticketId,
 |---|---|---|---|
 | P1：状態処理 | 状態追加で公開操作・保存・既存状態を変えない | 状態クラスと `ITicketPhase` 委譲 | 新状態と遷移元へ変更が閉じた |
 | P2：優先度判定 | ルール変更で状態処理を変えない | ルールクラスと `IPriorityRule` 注入 | 新ルールと注入へ変更が閉じた |
-| P1・P2を接続したシステム全体 | 二軸を独立に変え、公開操作・保存・ログを維持する | `TicketService` が両契約を所有し、保存済みチケットへ操作ごとに委譲する | 互いを参照せず、入口と副作用の位置も維持した |
+| P1・P2を接続したシステム全体 | 二軸を独立に変え、公開操作・保存・ログを維持する | `TicketPolicySet` が具体部品を所有し、`TicketService` が抽象契約を利用する | 組み立て判断をServiceから外し、入口と副作用の位置も維持した |
 
 **システム全体の実装結果：達成。** P1とP2が一つの実行経路で接続され、フェーズ5で目指した状態を実現しました。実際の動作と変更影響はフェーズ7で確認します。
 
@@ -1250,10 +1492,12 @@ void create(const std::string& ticketId,
 
 優先度判定を `IPriorityRule`（ルール差し替え構造）、状態管理を `ITicketPhase`（状態分離構造）へ分離し、チケットの状態・優先度・担当者は `TicketRepository` にチケットID単位で保存します。ここで3つのIDは別物です。**チケットID（TCK…）** はチケット自身の識別子、**依頼者ID（USR…）** はトラブルを申請したユーザー、**担当者ID（AGT…）** は対応するヘルプデスク担当者です。操作はそのつど保存済みチケットを読み込んで更新し、変更前→変更後を実行ログで確認できます。
 
-**定数の定義（状態名・ユーザー種別・優先度・イベント種別）**
-★定数定義は、フェーズ１のコードから起用して。変化点ではないです。
+**1-4から引き継ぐ列挙型と、変更要求で追加した値**
 
-直接の文字列リテラルを本文コードへ散らばせず、意味のある名前へまとめます。ユーザー種別は「一般（standard）／プレミアム（premium）／法人（corporate）」という契約区分です。
+`UserType`、`Priority`、`TicketStatus`、`statusName()` は1-4から
+引き継ぎます。変更要求による差分は `Corporate` と `Pending` の追加です。
+次のコードでは、7-1を単独で実行できるよう、継続する定義も含めて再掲します。
+監査ログ用のイベント名だけは、完成コードでログを一貫して出すための表示語彙です。
 
 ```cpp
 #include <iostream>
@@ -1263,20 +1507,29 @@ void create(const std::string& ticketId,
 
 using namespace std;
 
-// ===== 定数（直文字列を名前で置き換える） =====
-// ユーザー種別（契約区分・一般/プレミアム/法人）
+// ===== 1-4から継続する型。CorporateとPendingだけが今回の追加 =====
 enum class UserType { Standard, Premium, Corporate };
-// 優先度
 enum class Priority { Normal, High };
 
-// 状態名（保存・表示・ログで使う）
-namespace StatusName {
-    const string Open       = "Open";        // 受付中
-    const string InProgress = "InProgress";  // 対応中
-    const string Escalated  = "Escalated";   // 緊急対応中
-    const string Resolved   = "Resolved";    // 解決済み
-    const string Pending    = "Pending";     // 保留中
+enum class TicketStatus {
+    Open,
+    InProgress,
+    Escalated,
+    Resolved,
+    Pending
+};
+
+string statusName(TicketStatus status) {
+    switch (status) {
+    case TicketStatus::Open:       return "Open";
+    case TicketStatus::InProgress: return "InProgress";
+    case TicketStatus::Escalated:  return "Escalated";
+    case TicketStatus::Resolved:   return "Resolved";
+    case TicketStatus::Pending:    return "Pending";
+    }
+    return "Unknown";
 }
+
 // イベント種別（監査ログで使う）
 namespace EventType {
     const string Create   = "作成";
@@ -1393,7 +1646,9 @@ class OpenPhase : public ITicketPhase {          // 受付中
 public:
     void setInProgress(ITicketPhase* p) { inProgress = p; }
     void setPending(ITicketPhase* p)    { pending = p; }
-    string name() const override { return StatusName::Open; }
+    string name() const override {
+        return statusName(TicketStatus::Open);
+    }
     ITicketPhase* assign() override { return inProgress; }
     ITicketPhase* hold() override   { return pending; }
 };
@@ -1406,7 +1661,9 @@ public:
     void setResolved(ITicketPhase* p)  { resolved = p; }
     void setEscalated(ITicketPhase* p) { escalated = p; }
     void setPending(ITicketPhase* p)   { pending = p; }
-    string name() const override { return StatusName::InProgress; }
+    string name() const override {
+        return statusName(TicketStatus::InProgress);
+    }
     ITicketPhase* resolve() override  { return resolved; }
     ITicketPhase* escalate() override { return escalated; }
     ITicketPhase* hold() override     { return pending; }
@@ -1418,7 +1675,9 @@ class EscalatedPhase : public ITicketPhase {     // 緊急対応中
 public:
     void setResolved(ITicketPhase* p)   { resolved = p; }
     void setInProgress(ITicketPhase* p) { inProgress = p; }
-    string name() const override { return StatusName::Escalated; }
+    string name() const override {
+        return statusName(TicketStatus::Escalated);
+    }
     ITicketPhase* resolve() override  { return resolved; }
     ITicketPhase* sendBack() override { return inProgress; }
 };
@@ -1427,7 +1686,9 @@ class ResolvedPhase : public ITicketPhase {      // 解決済み
     ITicketPhase* open = nullptr;
 public:
     void setOpen(ITicketPhase* p) { open = p; }
-    string name() const override { return StatusName::Resolved; }
+    string name() const override {
+        return statusName(TicketStatus::Resolved);
+    }
     ITicketPhase* reopen() override { return open; }
 };
 
@@ -1435,7 +1696,9 @@ class PendingPhase : public ITicketPhase {       // 保留中
     ITicketPhase* open = nullptr;
 public:
     void setOpen(ITicketPhase* p) { open = p; }
-    string name() const override { return StatusName::Pending; }
+    string name() const override {
+        return statusName(TicketStatus::Pending);
+    }
     ITicketPhase* reopen() override { return open; }
 };
 ```
@@ -1493,18 +1756,15 @@ public:
 };
 ```
 
-**TicketService（組み立てと実行）**
+**TicketPolicySet（具体部品の組み立て）**
 
-具体クラスを知っているのはこの1クラスだけです。状態遷移を適用し、優先度を登録・再受付・エスカレーション時に再計算して保存し、担当者をアサインで保存します。`main()` は起動だけを担います。
-★以下のメンバー全て使われているか？感覚的に、serviceとはいえ、判断もたくさんしているように見えるが
+具体状態・具体ルールの生成、所有、配線、選択は、このクラスへ集めます。
+`TicketService` は状態名やルールクラス名を知らず、組み立て済みの部品だけを
+受け取ります。
 
 ```cpp
-// ===== 組み立てと実行：具体クラスの生成と所有をまとめる =====
-class TicketService {
-    TicketRepository& repo;
-    UserDatabase& users;
-    StaffDirectory& staff;
-    TicketEventLog& log;
+// ===== 具体状態・具体ルールの組み立てと所有 =====
+class TicketPolicySet {
     NormalPriority normal;
     PremiumPriority premium;
     CorporatePriority corporate;
@@ -1513,12 +1773,51 @@ class TicketService {
     EscalatedPhase escalatedPhase;
     ResolvedPhase resolvedPhase;
     PendingPhase pendingPhase;
-
-    IPriorityRule* ruleFor(UserType t) {
-        if (t == UserType::Corporate) return &corporate;
-        if (t == UserType::Premium)   return &premium;
-        return &normal;
+public:
+    TicketPolicySet() {
+        openPhase.setInProgress(&inProgressPhase);
+        openPhase.setPending(&pendingPhase);
+        inProgressPhase.setResolved(&resolvedPhase);
+        inProgressPhase.setEscalated(&escalatedPhase);
+        inProgressPhase.setPending(&pendingPhase);
+        escalatedPhase.setResolved(&resolvedPhase);
+        escalatedPhase.setInProgress(&inProgressPhase);
+        resolvedPhase.setOpen(&openPhase);
+        pendingPhase.setOpen(&openPhase);
     }
+    ITicketPhase* initialPhase() {
+        return &openPhase;
+    }
+    IPriorityRule& priorityRule(UserType type) {
+        if (type == UserType::Corporate) {
+            return corporate;
+        }
+        if (type == UserType::Premium) {
+            return premium;
+        }
+        return normal;
+    }
+};
+```
+
+`TicketPolicySet` の全メンバーは、初期状態の提供、遷移先の配線、
+ユーザー種別に対応する優先度ルールの選択のいずれかで使われます。
+具体クラス名を追加・変更するときに開く場所も、ここへまとまります。
+
+**TicketService（ユースケースの実行）**
+
+Serviceは公開操作を受け、検証、状態への委譲、保存、監査記録を順に行います。
+具体状態の配線と具体ルールの選択は行いません。
+
+```cpp
+// ===== 実行：組み立て済み部品を使ってユースケースを進める =====
+class TicketService {
+    TicketRepository& repo;
+    UserDatabase& users;
+    StaffDirectory& staff;
+    TicketEventLog& log;
+    TicketPolicySet& policies;
+
     // 状態遷移を1回適用し、成功したら保存する共通処理
     void applyTransition(const string& ticketId, ITicketPhase* next,
                          const string& eventType) {
@@ -1533,18 +1832,9 @@ class TicketService {
     }
 public:
     TicketService(TicketRepository& r, UserDatabase& u,
-                  StaffDirectory& s, TicketEventLog& l)
-        : repo(r), users(u), staff(s), log(l) {
-        openPhase.setInProgress(&inProgressPhase);
-        openPhase.setPending(&pendingPhase);
-        inProgressPhase.setResolved(&resolvedPhase);
-        inProgressPhase.setEscalated(&escalatedPhase);
-        inProgressPhase.setPending(&pendingPhase);
-        escalatedPhase.setResolved(&resolvedPhase);
-        escalatedPhase.setInProgress(&inProgressPhase);
-        resolvedPhase.setOpen(&openPhase);
-        pendingPhase.setOpen(&openPhase);
-    }
+                  StaffDirectory& s, TicketEventLog& l,
+                  TicketPolicySet& p)
+        : repo(r), users(u), staff(s), log(l), policies(p) {}
 
     void create(const string& ticketId, const string& userId) {
         if (!users.exists(userId)) {
@@ -1553,8 +1843,8 @@ public:
             return;
         }
         UserType category = users.get(userId).userType;
-        Priority p = ruleFor(category)->getPriority(); // 登録時に計算
-        Ticket t{ticketId, userId, &openPhase, p, ""};
+        Priority p = policies.priorityRule(category).getPriority();
+        Ticket t{ticketId, userId, policies.initialPhase(), p, ""};
         repo.save(t);
         cout << "[" << ticketId << "] 作成 状態=" << t.phase->name()
              << " 優先度=" << toString(p) << endl;
@@ -1562,13 +1852,14 @@ public:
     }
     void assign(const string& ticketId, const string& assigneeId) {
         Ticket& t = repo.get(ticketId);
+        string before = t.phase->name();
         ITicketPhase* next = t.phase->assign();
         if (!next) return;
         t.phase = next;
         t.assigneeId = assigneeId;          // 担当者を保存
         repo.save(t);
         cout << "  " << EventType::Assign << ": 状態 "
-             << StatusName::Open << " → " << t.phase->name()
+             << before << " → " << t.phase->name()
              << " 担当=" << staff.nameOf(assigneeId)
              << "(" << assigneeId << ")" << endl;
         log.add(ticketId, EventType::Assign, t.phase->name(),
@@ -1585,7 +1876,8 @@ public:
         string before = t.phase->name();
         t.phase = next;
         // エスカレーション時に優先度を再計算して引き継ぐ
-        t.priority = ruleFor(users.get(t.userId).userType)->getPriority();
+        UserType type = users.get(t.userId).userType;
+        t.priority = policies.priorityRule(type).getPriority();
         repo.save(t);
         cout << "  " << EventType::Escalate << ": 状態 " << before
              << " → " << t.phase->name()
@@ -1600,7 +1892,8 @@ public:
         string before = t.phase->name();
         t.phase = next;
         // 再受付時に優先度を再計算して引き継ぐ
-        t.priority = ruleFor(users.get(t.userId).userType)->getPriority();
+        UserType type = users.get(t.userId).userType;
+        t.priority = policies.priorityRule(type).getPriority();
         repo.save(t);
         cout << "  " << EventType::Reopen << ": 状態 " << before
              << " → " << t.phase->name()
@@ -1615,6 +1908,19 @@ public:
 };
 ```
 
+各メンバーの利用先を確認すると、未使用メンバーはありません。
+
+| メンバー | 利用する処理 | Serviceに残す理由 |
+|---|---|---|
+| `repo` | 全操作の取得・保存 | ユースケースの副作用を確定する |
+| `users` / `staff` | 依頼者検証・優先度入力・担当者表示 | 操作対象の業務データを照会する |
+| `log` | 作成・遷移の監査記録 | 操作結果を同じ入口で記録する |
+| `policies` | 初期状態・次状態・優先度ルールの利用 | 具体クラスを知らずに変わる処理へ委譲する |
+
+Serviceに残る判断は「入力が存在するか」「状態操作が成功したか」という
+ユースケース進行の判定です。状態別の操作可否、遷移先、SLA区分の具体判断、
+具体部品の配線は外へ移っています。
+
 **main 関数**
 
 ```cpp
@@ -1623,7 +1929,8 @@ int main() {
     StaffDirectory staff; // ヘルプデスク担当者（AGT）
     TicketRepository repo;
     TicketEventLog log;
-    TicketService svc(repo, users, staff, log);
+    TicketPolicySet policies;
+    TicketService svc(repo, users, staff, log, policies);
 
     cout << "--- 行1: 依頼者 鈴木(standard)がTCK001を登録 ---" << endl;
     svc.create("TCK001", "USR003");
@@ -1708,6 +2015,7 @@ int main() {
 ```mermaid
 classDiagram
     class TicketService
+    class TicketPolicySet
     class TicketRepository
     class UserDatabase
     class StaffDirectory
@@ -1727,8 +2035,9 @@ classDiagram
     TicketService --> UserDatabase : 依頼者照会
     TicketService --> StaffDirectory : 担当者照会
     TicketService --> TicketEventLog : 監査記録
-    TicketService o--> ITicketPhase : 状態を所有
-    TicketService o--> IPriorityRule : ルールを所有
+    TicketService --> TicketPolicySet : 状態・ルールを利用
+    TicketPolicySet o--> ITicketPhase : 状態を所有・配線
+    TicketPolicySet o--> IPriorityRule : ルールを所有・選択
     TicketRepository --> Ticket : 保存
     Ticket --> ITicketPhase : 現在状態
     ITicketPhase <|.. OpenPhase
@@ -1742,17 +2051,21 @@ classDiagram
 
     note for ITicketPhase "【P1・新設】状態ごとの振る舞いの共通契約"
     note for IPriorityRule "【P2・新設】優先度判定の差し替え可能な契約"
-    note for TicketService "【新設】両契約と保存先を所有し操作を実行"
+    note for TicketPolicySet "【新設】具体状態・具体ルールを生成・所有・配線"
+    note for TicketService "【新設】抽象契約を使って公開操作・保存・ログを実行"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "ITicketPhase,OpenPhase,InProgressPhase,EscalatedPhase,ResolvedPhase,PendingPhase,IPriorityRule,CorporatePriority,PremiumPriority,NormalPriority" focus
+    cssClass "TicketService,TicketPolicySet,ITicketPhase,OpenPhase,InProgressPhase,EscalatedPhase,ResolvedPhase,PendingPhase,IPriorityRule,CorporatePriority,PremiumPriority,NormalPriority" focus
 ```
 
-完成後はStateで進行状態を、Strategyで優先度判定を分離します。章末の抽象図と比べると、`TicketService` が両構造を束ね、`Ticket` 実体が現在状態を保持することが分かります。
+完成後は状態ごとの処理と優先度判定を分離します。`TicketPolicySet` が
+具体部品を組み立て、`TicketService` は抽象契約だけを使い、`Ticket` 実体が
+現在状態を保持します。この図はフェーズ6で確定した採用図と同じ定義です。
 
-#### 完成後の状態遷移
-★これは使用の話では？
-完成コードが実装する全状態と遷移を、状態遷移図で確認します。現状の4状態（Open・InProgress・Escalated・Resolved）に、変更要求で加わった `Pending`（保留中）を独立した状態として含め、エスカレーション後の遷移先（解決・差し戻し）も定義されています。
+#### 変更後の状態遷移仕様との照合
+
+1-5で確定した変更後の状態遷移仕様と、完成コードのPhase配線を照合します。
+現状の4状態に `Pending` が加わり、保留と再受付の遷移が実装されています。
 
 ```mermaid
 stateDiagram-v2
@@ -1775,7 +2088,7 @@ stateDiagram-v2
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |
 |---|---|---|---|
 | P1 | 全 `ITicketPhase` 実装と `TicketService` の各操作 | 公開操作は現在Phaseへ委譲し、状態固有遷移がPhase実装へ閉じた | 状態追加で既存の状態選択分岐を増やさない |
-| P2 | 全 `IPriorityRule` 実装と `TicketService::ruleFor()` | SLA・顧客区分の判定は状態から独立して交換できた | SLA変更でPhase実装を変更しない |
+| P2 | 全 `IPriorityRule` 実装と `TicketPolicySet::priorityRule()` | SLA・顧客区分の判定は状態から独立して交換できた | SLA変更でPhase実装を変更しない |
 
 ### 7-2：動作シーケンス図
 
@@ -1817,7 +2130,7 @@ graph LR
     T2 -. "影響なし" .-> B["ITicketPhase / TicketService ✅"]
 ```
 
-フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、P1の状態追加は `ITicketPhase` の実装1クラスへ、P2のSLAルール変更は `IPriorityRule` の実装1クラスへ限定されました。`TicketService` は両契約を所有しつつ操作ごとに委譲するため、片方の変更がもう片方へ飛び火しません。
+フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、P1の状態追加は `ITicketPhase` の実装と `TicketPolicySet` の配線へ、P2のSLAルール変更は `IPriorityRule` の実装と同じ組み立て箇所へ限定されました。`TicketService` は注入された契約へ操作ごとに委譲するため、片方の変更判断がもう片方へ入り込みません。
 
 | 3-2で影響した場所 | 修正後 | 構造変更との対応 |
 |---|---|---|
