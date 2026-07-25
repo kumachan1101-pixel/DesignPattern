@@ -32,6 +32,12 @@ CORE_CHAPTERS = [
     "chapter12.md",
 ]
 
+# 第3ラウンドの「システム全体図／内部図＋現状型完全一致」を
+# 修正済みの章から段階導入する。
+PHASE1_SYSTEM_MODEL_V3 = {
+    "chapter10.md",
+}
+
 REQUIRED_PHASES = [
     "## 🔵 フェーズ1：現状把握",
     "## 🟣 フェーズ2：仮説立案",
@@ -432,7 +438,14 @@ def check_required_chapter_structures(text: str, path: Path) -> list[Issue]:
     if "仕様項目" not in section11 or "具体例" not in section11:
         issues.append(Issue(path, line_number(text, offsets["1-1"]),
                             "1-1に具体例付きの仕様要点表がありません"))
-    if "仕様整理図" not in section11 or "```mermaid" not in section11:
+    has_spec_diagram = (
+        "仕様整理図" in section11
+        or (
+            "システム全体図" in section11
+            and "システム内部図" in section11
+        )
+    )
+    if not has_spec_diagram or "```mermaid" not in section11:
         issues.append(Issue(path, line_number(text, offsets["1-1"]),
                             "1-1に仕様説明後の仕様整理図がありません"))
 
@@ -1317,6 +1330,12 @@ def _cpp_class_names(section: str) -> set[str]:
     return set(re.findall(r"(?<!enum )\bclass\s+(\w+)", cpp))
 
 
+def _cpp_type_names(section: str) -> set[str]:
+    """掲載C++に定義されたclass/structを取得する（enum classは除外）。"""
+    cpp = "\n".join(extract_cpp_blocks(section))
+    return set(re.findall(r"(?<!enum )\b(?:class|struct)\s+(\w+)", cpp))
+
+
 def _diagram_class_names(diagram: str) -> set[str]:
     names = set(re.findall(r"\bclass\s+(\w+)", diagram))
     relation = re.compile(
@@ -1326,6 +1345,143 @@ def _diagram_class_names(diagram: str) -> set[str]:
     for match in relation.finditer(diagram):
         names.update(match.groups())
     return names
+
+
+def _diagram_relation_degrees(diagram: str) -> dict[str, int]:
+    names = _diagram_class_names(diagram)
+    degrees = {name: 0 for name in names}
+    relation = re.compile(
+        r"^\s*(\w+)\s+"
+        r"(?:<\|--|--\|>|<\|\.\.|\.\.\|>|\*--|o--|-->|"
+        r"\.\.>|--|\.\.)\s*(\w+)",
+        re.MULTILINE,
+    )
+    for match in relation.finditer(diagram):
+        left, right = match.groups()
+        if left in degrees:
+            degrees[left] += 1
+        if right in degrees:
+            degrees[right] += 1
+    return degrees
+
+
+def check_phase1_system_model_v3(text: str, path: Path) -> list[Issue]:
+    """システム仕様図と現状コードの型を、修正済み章で完全照合する。"""
+    if path.name not in PHASE1_SYSTEM_MODEL_V3:
+        return []
+
+    s11 = text.find("### 1-1：")
+    s12 = text.find("### 1-2：", s11)
+    s13 = text.find("### 1-3：", s12)
+    s14 = text.find("### 1-4：", s13)
+    s15 = text.find("### 1-5：", s14)
+    if min(s11, s12, s13, s14, s15) < 0:
+        return []
+
+    section11 = text[s11:s12]
+    section12 = text[s12:s13]
+    section13 = text[s13:s14]
+    section14 = text[s14:s15]
+    issues: list[Issue] = []
+
+    whole = section11.find("システム全体図")
+    internal = section11.find("システム内部図")
+    if whole < 0 or internal < 0 or whole > internal:
+        issues.append(Issue(
+            path,
+            line_number(text, s11),
+            "1-1はシステム全体図の後にシステム内部図を置いてください",
+        ))
+
+    implementation_name = re.compile(
+        r"\b[A-Z][A-Za-z0-9_]*"
+        r"(?:Database|Repository|Client|Service|Gateway|Manager|Executor|"
+        r"Application|Result|Request|Config|Notifier)\b"
+    )
+    leaked = sorted(set(implementation_name.findall(section11)))
+    if leaked:
+        issues.append(Issue(
+            path,
+            line_number(text, s11),
+            "1-1に1-3より前の実装型名があります: " + ", ".join(leaked),
+        ))
+
+    future_tokens = {
+        "chapter10.md": [
+            "Slack",
+            "C社",
+            "D社",
+            "DeliveryResult",
+            "BatchJob",
+        ],
+    }
+    mixed = [
+        token for token in future_tokens.get(path.name, [])
+        if token in section11 or token in section12
+    ]
+    if mixed:
+        issues.append(Issue(
+            path,
+            line_number(text, s11),
+            "1-1/1-2に変更要求後の要素が混ざっています: "
+            + ", ".join(mixed),
+        ))
+
+    if "| クラス名" in section12:
+        issues.append(Issue(
+            path,
+            line_number(text, s12),
+            "登場型表は1-2ではなく1-3へ置いてください",
+        ))
+
+    diagram_match = re.search(
+        r"```mermaid\s*\n(classDiagram.*?)```",
+        section13,
+        re.DOTALL,
+    )
+    if not diagram_match:
+        return issues
+    diagram = diagram_match.group(1)
+    code_types = _cpp_type_names(section14)
+    diagram_types = _diagram_class_names(diagram)
+
+    table_start = section13.find("| クラス名")
+    diagram_start = section13.find("```mermaid")
+    table_types: set[str] = set()
+    if table_start >= 0 and diagram_start > table_start:
+        table_types = set(re.findall(
+            r"^\|\s*`([A-Za-z_]\w*)`\s*\|",
+            section13[table_start:diagram_start],
+            re.MULTILINE,
+        ))
+
+    comparisons = [
+        ("登場型表に不足", code_types - table_types),
+        ("登場型表に現状コード外の型", table_types - code_types),
+        ("クラス図に不足", code_types - diagram_types),
+        ("クラス図に現状コード外の型", diagram_types - code_types),
+    ]
+    for label, names in comparisons:
+        if names:
+            issues.append(Issue(
+                path,
+                line_number(text, s13),
+                f"1-3の{label}があります: " + ", ".join(sorted(names)),
+            ))
+
+    if len(diagram_types) > 1:
+        degrees = _diagram_relation_degrees(diagram)
+        floating = sorted(name for name, degree in degrees.items()
+                          if degree == 0)
+        if floating:
+            issues.append(Issue(
+                path,
+                line_number(text, s13 + diagram_start),
+                "1-3のクラス図に関係線のない型があります: "
+                + ", ".join(floating),
+            ))
+
+    return issues
 
 
 def check_class_diagram_completeness(text: str, path: Path) -> list[Issue]:
@@ -1454,6 +1610,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase7_continuity(text, path))
         issues.extend(check_intermediate_boundary_continuity(text, path))
         issues.extend(check_class_diagram_completeness(text, path))
+        issues.extend(check_phase1_system_model_v3(text, path))
         issues.extend(check_state_automation(text, path))
     return issues
 
