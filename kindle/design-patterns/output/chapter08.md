@@ -57,7 +57,7 @@
 | 外部API呼び出し | 認証失敗・通信エラー | リトライ可否を結果に含めて返す |
 | 完了確認 | 支払い期限切れ・キャンセル | 失敗結果として確定する |
 
-この章では、注文処理が次のような `PaymentRequest` を渡し、`PaymentResult` を受け取るシステムとして扱います。
+この章では、注文処理が次のような決済要求を渡し、決済結果を受け取るシステムとして扱います。
 
 | 仕様項目 | この章で扱う値 | 具体例 |
 |---|---|---|
@@ -85,24 +85,24 @@
 
 この違いを無視して `pay(amount)` だけで扱うと、現実の決済で問題になる「手段ごとの必要情報」「同期と非同期の処理の違い」「非同期完了の確認手順」「失敗時の対処の違い」が見えなくなります。この章では外部サービスの内部実装までは作りませんが、注文処理と外部決済APIの間を流れる要求・結果・状態はコード上でも表します。
 
-**仕様整理図：保存データとアクセス関係**
+**システム全体図：注文処理・決済・外部サービスの境界**
 
 決済設定と決済結果がどこにあり、誰が使うかを先に整理します。色は、灰色＝利用者・入出力、青緑＝保存データ、橙＝システム内の処理、紫＝外部システムとの境界を表します。この対応は仕様整理図で共通に使います。
 
 ```mermaid
 flowchart LR
-    U["購入者<br>決済手段を選択"] --> O["注文処理<br>PaymentRequestを作る"]
-    O --> A["PaymentApplication<br>決済要求を処理"]
-    A --> R["ProcessorRegistry<br>決済設定を参照"]
+    U["購入者<br>決済手段を選択"] --> O["注文処理<br>決済要求を作る"]
+    O --> A["決済処理システム"]
+    A --> R[("決済手段設定<br>有効状態・手数料")]
     R --> A
-    A --> P["各Processor<br>手段別の手順を実行"]
-    P --> G["PaymentGatewayClient<br>外部決済API境界"]
+    A --> P["手段別の決済処理"]
+    P --> G["外部決済サービス"]
     G --> P
     P --> A
-    A -.-> S["PaymentStatusClient<br>非同期完了確認API境界"]
+    A -.-> S["入金状態確認サービス"]
     S -.-> A
-    A --> L["PaymentLog<br>結果を記録"]
-    A --> O2["PaymentResult<br>成功/保留/失敗"]
+    A --> L[("決済実行ログ")]
+    A --> O2["決済結果<br>成功/保留/失敗"]
 
     classDef actor fill:#f8fafc,stroke:#64748b,color:#111827;
     classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
@@ -114,9 +114,9 @@ flowchart LR
     class G,S boundary;
 ```
 
-この図では、購入者が直接外部決済APIを呼ぶのではなく、注文処理が `PaymentRequest` を作り、`PaymentApplication` が登録済み設定を確認してから手段別Processorへ渡すことが分かります。非同期決済の場合は、`PaymentStatusClient` を使って入金の完了確認を行います。
+この図では、購入者が直接外部決済サービスを呼ぶのではなく、注文処理が決済要求を作り、決済処理システムが登録済み設定を確認してから手段別処理へ渡すことが分かります。非同期決済の場合は、入金状態確認サービスを使って完了確認を行います。
 
-**仕様整理図：正常系の入力・判定・加工・出力**
+**システム内部図：正常系の入力・判定・加工・出力**
 
 代表ケースとしてクレジットカード決済（同期）の正常系を見ます。ここでは検証済み要求を前提に処理順だけを示し、無効・入力不足などの異常系はエラー条件表へ分けます。
 
@@ -157,7 +157,7 @@ flowchart LR
 
 決済手段ごとの中身は異なりますが、注文処理から見た大枠は共通です。
 
-1. 注文処理が `PaymentRequest` を作る
+1. 注文処理が決済要求を作る
 2. 決済方法IDを使って登録済み設定を確認する
 3. 有効な決済方法なら、対応するProcessorを選ぶ
 4. Processorが手段固有データを検証する
@@ -230,11 +230,28 @@ flowchart LR
 | `ProcessorRegistry`         | 決済方法の設定を保持するデータストア                                     | 決済方法の存在確認・有効フラグの参照 |
 | `PaymentGatewayClient`      | カード・銀行振込・コンビニの各Processorから呼ばれる外部決済API境界 | 認証・振込先発行・番号発行の代替   |
 | `PaymentStatusClient`       | 非同期決済の完了確認APIの境界スタブ                                    | 入金確認の代替            |
+| `CreditCardInput` | カード固有の入力値 | トークン・名義・セキュリティコード |
+| `BankTransferInput` | 銀行振込固有の入力値 | 振込名義・銀行コード・口座種別 |
+| `ConvenienceInput` | コンビニ払い固有の入力値 | 電話番号・メール・店舗コード |
+| `PendingInfo` | 非同期決済の追跡情報 | 保留ID・確認先・有効期限 |
+| `PaymentRequest` | 決済1件の要求 | 決済手段・金額・注文ID・手段固有入力 |
+| `PaymentResult` | 決済1件の結果 | 成功/保留/失敗・再試行可否・保留情報 |
+| `ProcessorConfig` | 決済手段1件の設定 | 名称・有効状態・手数料率 |
+| `PaymentRecord` | 保存する決済結果1件 | 決済手段・金額・状態・エラーコード |
+| `PaymentLog` | 決済結果を保存する | 実行結果の追記・一覧表示 |
 
 各クラスの責任を把握したところで、クラス間の関係を図で整理します。
 
 ```mermaid
 classDiagram
+    class CreditCardInput
+    class BankTransferInput
+    class ConvenienceInput
+    class PendingInfo
+    class PaymentRequest
+    class PaymentResult
+    class ProcessorConfig
+    class PaymentRecord
     class PaymentLog
     class PaymentApplication {
         +processPayment(request) PaymentResult
@@ -270,6 +287,20 @@ classDiagram
     CreditCardProcessor --> PaymentGatewayClient : 認証API
     BankTransferProcessor --> PaymentGatewayClient : 振込先発行API
     ConvenienceStoreProcessor --> PaymentGatewayClient : 番号発行API
+    PaymentRequest *-- CreditCardInput : カード入力
+    PaymentRequest *-- BankTransferInput : 振込入力
+    PaymentRequest *-- ConvenienceInput : コンビニ入力
+    PaymentResult *-- PendingInfo : 保留時に持つ
+    ProcessorRegistry *-- ProcessorConfig : 手段ID別に保存
+    PaymentApplication ..> PaymentRequest : 受け取る
+    PaymentApplication ..> PaymentResult : 返す
+    CreditCardProcessor ..> PaymentRequest : 受け取る
+    CreditCardProcessor ..> PaymentResult : 返す
+    BankTransferProcessor ..> PaymentRequest : 受け取る
+    BankTransferProcessor ..> PaymentResult : 返す
+    ConvenienceStoreProcessor ..> PaymentRequest : 受け取る
+    ConvenienceStoreProcessor ..> PaymentResult : 返す
+    PaymentLog *-- PaymentRecord : 実行結果を保存
 ```
 
 **クラス図に出てくる主な操作**
@@ -922,6 +953,14 @@ PayPay対応です。PayPayは外部のQRコード決済サービスであり、
 | 銀行振込 | 対応済み | 変更なし |
 | コンビニ払い | 対応済み | 変更なし |
 | PayPay | 未対応 | 新規追加 |
+
+今回変えるのは決済手段の追加と非同期結果の扱いです。注文処理と決済処理をつなぐ要求・結果契約、決済履歴の保存は仕様変更の対象ではないため、次の共通基盤は変更前後で維持します。
+
+| 変更対象外の共通基盤 | 変更前 | 変更後 |
+|---|---|---|
+| `PaymentRequest` | 決済に必要な共通入力を渡す | **変更なし** |
+| `PaymentResult` | 成功・失敗・保留の結果を返す | **変更なし** |
+| `PaymentLog` | 決済結果を履歴へ保存する | **変更なし** |
 
 PayPay決済が追加されても、注文処理から見た大枠（`PaymentRequest` を渡し、`PaymentResult` を受け取る）は変わりません。しかし、PayPayにはPayPay固有のアクセストークンとマーチャントIDが必要で、処理は非同期であり、完了確認ではPayPay固有の保留IDを使います。
 

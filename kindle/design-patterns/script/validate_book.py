@@ -33,10 +33,8 @@ CORE_CHAPTERS = [
 ]
 
 # 第3ラウンドの「システム全体図／内部図＋現状型完全一致」を
-# 修正済みの章から段階導入する。
-PHASE1_SYSTEM_MODEL_V3 = {
-    "chapter10.md",
-}
+# 全章の継続契約として検証する。
+PHASE1_SYSTEM_MODEL_V3 = set(CORE_CHAPTERS)
 
 REQUIRED_PHASES = [
     "## 🔵 フェーズ1：現状把握",
@@ -131,9 +129,28 @@ PHASE_BOUNDARY_CONTINUITY_TOKENS = {
 }
 
 # 仕様変更の対象外として、変更前コードと完成コードの両方に残す基盤。
-# 各章のR3-B監査が完了した時点で段階的に追加する。
+# 1-5でも「変更なし」と明示し、設計改善と無関係な差分を防ぐ。
 UNCHANGED_BASELINE_TOKENS = {
+    "chapter01.md": ["CustomerDatabase", "CheckoutResultRenderer"],
+    "chapter02.md": ["AccountDatabase", "TransferHistory"],
+    "chapter03.md": ["EventDatabase"],
+    "chapter04.md": ["ImportResult", "SchemaRegistry"],
+    "chapter05.md": ["CategoryDatabase"],
+    "chapter06.md": ["MenuDatabase", "MenuItem"],
+    "chapter07.md": ["ProductDatabase"],
+    "chapter08.md": ["PaymentRequest", "PaymentResult", "PaymentLog"],
+    "chapter09_2.md": ["Ticket", "TicketRepository", "UserDatabase"],
     "chapter10.md": ["DeliveryResult", "BatchRecord", "BatchLog"],
+    "chapter11.md": [
+        "DataReader",
+        "TemplateRegistry",
+        "ReportRenderingApi",
+    ],
+    "chapter12.md": [
+        "WorkflowCaseRepository",
+        "ApproverDatabase",
+        "NotificationTargetRepository",
+    ],
 }
 
 # 「対策検討のクラス図」システム構造フォーマットで章ごとに変わる語彙。

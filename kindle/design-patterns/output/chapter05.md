@@ -45,16 +45,18 @@
 
 ここで確認する対象は、どの入力で残高が変わり、どの入力で止まるかです。
 
-この章では、収支データは `LedgerRepository` に保存され、画面は `BalanceViewRenderer` が表示を担当する想定で簡略化します。利用者が残高を直接入力するのではなく、保存済みの収支データから残高が計算されます。
+この章では、収支データは収支台帳に保存され、残高と収支一覧は画面へ表示される想定で簡略化します。利用者が残高を直接入力するのではなく、保存済みの収支データから残高が計算されます。
 
-**仕様整理図：保存データとアクセス関係**
+**システム全体図：家計管理と保存データの境界**
 
 ```mermaid
 flowchart LR
-    U["利用者<br>支出/収入ボタンを押す"] --> B["UIButtons<br>操作を受け取る"]
-    B --> C["CategoryRepository<br>カテゴリIDを確認"]
-    B --> L["LedgerRepository<br>収支データを保存"]
-    L --> R["BalanceViewRenderer<br>残高と収支一覧を表示"]
+    U["利用者<br>支出/収入を登録"] --> B["家計管理システム"]
+    B --> C[("カテゴリマスター<br>カテゴリID・種別")]
+    C --> B
+    B --> L[("収支台帳<br>収入・支出")]
+    L --> B
+    B --> R["家計画面<br>残高・収支一覧"]
 
     classDef actor fill:#f8fafc,stroke:#64748b,color:#111827;
     classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
@@ -66,7 +68,7 @@ flowchart LR
 
 上の文章と表で仕様を一通り確認したので、まず正常に登録できる場合の入力・判定・加工・出力の流れとして整理します。
 
-**仕様整理図：正常系の入力・判定・加工・出力**
+**システム内部図：正常系の入力・判定・加工・出力**
 
 ```mermaid
 flowchart LR
@@ -135,12 +137,17 @@ flowchart LR
 | `UIButtons` | 利用者のボタン操作を受け取り、残高表示を更新する | 支出登録・収入登録の起点 |
 | `ExpenseManager` | 支出登録を実行する | 支出金額を残高から差し引く |
 | `IncomeManager` | 収入登録を実行する | 収入金額を残高へ加算する |
+| `Category` | カテゴリ1件分の情報を表す | カテゴリ名・収入/支出種別の受け渡し |
 | `CategoryDatabase` | カテゴリマスタを保持する | 収入・支出カテゴリの存在と種別を返す |
 
 各クラスの責任を把握したところで、クラス同士の関係を図で確認します。図中のクラスは必ず利用・所有・実装などの関係へ接続します。もし説明上どうしても線がつながらない場合は、誰が生成・利用するかをnoteで補います。
 
 ```mermaid
 classDiagram
+    class Category {
+        +name string
+        +type string
+    }
     class CategoryDatabase
     class UIButtons {
         -balance: int
@@ -155,6 +162,7 @@ classDiagram
     }
     UIButtons *-- ExpenseManager
     UIButtons *-- IncomeManager
+    CategoryDatabase *-- Category : ID別に保存
     ExpenseManager --> CategoryDatabase : カテゴリを検証する
     IncomeManager --> CategoryDatabase : カテゴリを検証する
 
@@ -424,6 +432,8 @@ Redoは、Undoで取り消した操作をもう一度適用する、つまり「
 | **Undo実行（新規）** | —（なし） | **直前の操作を取り消し、残高を操作前に戻す** |
 | **Redo実行（新規）** | —（なし） | **取り消した操作を再実行し、履歴へ戻す** |
 | **一括登録（新規）** | —（なし） | **複数の操作を順番に実行し、途中失敗時は実行済み分を取り消す** |
+
+今回変えるのは操作の記録・取消・再実行です。カテゴリ情報を取得する保存基盤は仕様変更の対象ではないため、`CategoryDatabase` のカテゴリ取得契約は変更前後で**変更なし**とします。
 
 支出登録と収入登録そのものの意味は変わりません。変わるのは「その操作をどう記録し、どう取り消すか」という管理層です。言い換えると、「何をする操作か」は保ちながら、「操作の記録をどう扱うか」という責任が加わります。
 

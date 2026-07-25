@@ -40,13 +40,14 @@
 
 通知を受け取る相手は倉庫担当者や在庫管理チームです。メール、ダッシュボード、チャットは、その相手へ届ける**通知手段**です。通知手段のアダプターは利用者が在庫操作のたびに入力するものではなく、システム起動時に登録され、在庫更新時に利用されます。
 
-**仕様整理図：保存データとアクセス関係**
+**システム全体図：在庫管理と通知先の境界**
 
 ```mermaid
 flowchart LR
-    U["担当者<br>商品IDと出庫数を入力"] --> M["InventoryManager<br>在庫更新を実行"]
-    M --> P["ProductDatabase<br>現在在庫・閾値"]
-    M --> N["NotificationRegistry<br>登録済み通知アダプター"]
+    U["担当者<br>商品IDと出庫数を入力"] --> M["在庫通知システム"]
+    M --> P[("商品マスター<br>現在在庫・閾値")]
+    P --> M
+    M --> N[("登録済み通知手段")]
     N --> G["通知手段<br>メール・ダッシュボード・チャット"]
     M --> R["実行結果<br>在庫更新・通知結果"]
 
@@ -62,7 +63,7 @@ flowchart LR
 
 上の文章と表で仕様を一通り確認したので、ここでは商品IDと出庫数の検証が済んだ**正常系**だけを、入力・加工・出力の順に整理します。商品不存在や在庫不足は、後段のエラー条件表で別に扱います。正常系の図に片側しかない判定を置かないのは、存在しない分岐を読者に推測させないためです。
 
-**仕様整理図：正常系の入力・判定・加工・出力**
+**システム内部図：正常系の入力・判定・加工・出力**
 
 ```mermaid
 flowchart LR
@@ -106,9 +107,9 @@ flowchart LR
 
 | 受信者 | 通知手段 | コード上のアダプター |
 |---|---|---|
-| 倉庫担当者 | メール | `EmailNotifier` |
+| 倉庫担当者 | メール | メール通知境界 |
 | 在庫管理チーム | 社内ダッシュボード | `DashboardUpdater` |
-| 在庫担当者 | 社内チャット | `ChatNotifier` |
+| 在庫担当者 | 社内チャット | 社内チャット通知境界 |
 
 この3つの通知先は、それぞれ異なるシステムや担当チームによって管理されています。メールはインフラ管理部門が、ダッシュボードはフロントエンドチームが、チャットは各部門のマネージャーが運用を担っています。
 
@@ -162,6 +163,7 @@ flowchart LR
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
 | `ProductDatabase` | 商品マスタを保持し、在庫数・アラート閾値を提供する | 商品IDの存在確認、在庫数と閾値の参照 |
+| `ProductInfo` | 商品1件分の在庫情報を表す | 商品名・在庫数・通知閾値の受け渡し |
 | `InventoryManager` | 在庫数を管理し、必要な通知を呼び出す | 在庫更新、閾値判定、通知実行 |
 | `EmailNotifier` | メール通知を送る | メール通知 |
 | `DashboardUpdater` | ダッシュボード表示を更新する | 管理画面への反映 |
@@ -195,10 +197,17 @@ classDiagram
         +save(id, info)
         +isBelowThreshold(id, stock)
     }
+    class ProductInfo {
+        +name string
+        +stock int
+        +alertThreshold int
+    }
     InventoryManager --> EmailNotifier
     InventoryManager --> DashboardUpdater
     InventoryManager --> ChatNotifier
     InventoryManager --> ProductDatabase : 存在確認・閾値判定
+    ProductDatabase *-- ProductInfo : 商品ID別に保存
+    InventoryManager ..> ProductInfo : 取得・更新
 
 ```
 
@@ -501,6 +510,8 @@ Chat(1件): 商品 PRD002 の在庫が閾値以下です。
 | DashboardUpdater（ダッシュボード） | あり | 変更なし |
 | ChatNotifier（チャット） | あり | 変更なし |
 | **SMSNotifier（SMS通知）** | なし | **新規追加** |
+
+今回変えるのは通知先の種類です。商品情報と在庫数を取得する保存基盤は仕様変更の対象ではないため、`ProductDatabase` の取得・更新契約は変更前後で**変更なし**とします。
 
 在庫が閾値を下回ったとき、これまでの3チャネル（メール・ダッシュボード・チャット）に加えて、倉庫担当者のスマートフォンへSMSが送信されるようになります。
 

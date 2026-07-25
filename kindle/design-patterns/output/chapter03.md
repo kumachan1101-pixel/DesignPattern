@@ -37,30 +37,34 @@
 
 ここで確認する対象は、どの状態でどの操作が許可され、どの結果になるかです。
 
-この章では、利用者が「現在状態」を毎回指定するのではありません。現在状態は `TicketReservation` が保持し、利用者はイベントIDと操作を指定します。状態は操作のたびにシステム内部で読み出され、更新されます。
+この章では、利用者が「現在状態」を毎回指定するのではありません。現在状態は予約管理システムが予約1件ごとに保持し、利用者はイベントIDと操作を指定します。状態は操作のたびにシステム内部で読み出され、更新されます。
 
-予約は利用者ごとに1件ずつ作られ、`TicketReservation` はその1件分の状態（Available/Reserved/Paid）を持ちます。イベント全体の残席数は `EventDatabase` が別に管理し、予約時に空席を1つ減らし、キャンセルや期限切れで1つ戻します。したがって、ある予約が Reserved（予約済み・未払い）のまま支払いを待っていても、残席がある限り別の利用者は自分の予約を進められます。押さえているのは在庫のうちの1席だけで、「予約済みの間は次の人が予約できない」わけではありません。状態マトリクスの「Reserved で『予約する』が——」は、イベントの占有ではなく、同じ予約1件を二重予約させないという意味です。
+予約は利用者ごとに1件ずつ作られ、その1件分の状態（Available/Reserved/Paid）を持ちます。イベント全体の残席数はイベント情報の保存領域が別に管理し、予約時に空席を1つ減らし、キャンセルや期限切れで1つ戻します。したがって、ある予約が Reserved（予約済み・未払い）のまま支払いを待っていても、残席がある限り別の利用者は自分の予約を進められます。押さえているのは在庫のうちの1席だけで、「予約済みの間は次の人が予約できない」わけではありません。状態マトリクスの「Reserved で『予約する』が——」は、イベントの占有ではなく、同じ予約1件を二重予約させないという意味です。
 
-**仕様整理図：保存データとアクセス関係**
+**システム全体図：予約管理と保存データの境界**
 
 ```mermaid
 flowchart LR
-    U["利用者<br>イベントIDと操作を指定"] --> T["TicketReservation<br>eventId / status を保持"]
-    T --> D["EventDatabase<br>イベント存在確認・空席確認"]
+    U["利用者<br>イベントIDと操作を指定"] --> T["チケット予約管理システム"]
+    T --> D[("イベント情報<br>イベント名・定員・予約数")]
     D --> T
+    T --> S[("予約1件の現在状態")]
+    S --> T
     T --> R["実行結果<br>状態更新・結果表示"]
 
     classDef actor fill:#f8fafc,stroke:#64748b,color:#111827;
     classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
+    classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef result fill:#dcfce7,stroke:#16a34a,color:#111827;
     class U actor;
-    class T,D data;
+    class D,S data;
+    class T process;
     class R result;
 ```
 
 上の文章と表で仕様を一通り確認したので、まず正常に状態更新できる場合の入力・判定・加工・出力の流れとして整理します。
 
-**仕様整理図：正常系の入力・判定・加工・出力**
+**システム内部図：正常系の入力・判定・加工・出力**
 
 ```mermaid
 flowchart LR
@@ -118,8 +122,8 @@ stateDiagram-v2
 
 | エラー条件 | どこで分かるか | 出力 | 状態保存・通知 |
 |---|---|---|---|
-| イベントIDが存在しない | `EventDatabase` の存在確認時 | 対象なしエラー | `TicketReservation.status` は変更しない |
-| 予約時に空席がない | `EventDatabase` の空席確認時 | 満席エラー | `TicketReservation.status` は変更しない |
+| イベントIDが存在しない | イベント情報の存在確認時 | 対象なしエラー | 予約状態は変更しない |
+| 予約時に空席がない | イベント情報の空席確認時 | 満席エラー | 予約状態は変更しない |
 | 現在状態では操作できない | `TicketReservation.status` と操作の組み合わせ確認時 | 操作不可エラー | `TicketReservation.status` は変更しない |
 
 ---
@@ -149,8 +153,9 @@ stateDiagram-v2
 
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
-| EventDatabase | イベント情報の保持と検索 | イベントIDの存在確認・満席判定 |
-| TicketReservation | チケット予約の状態管理と各状態の振る舞い | `Available` / `Reserved` / `Paid` の状態遷移 |
+| `EventInfo` | イベント1件分の情報 | イベント名・定員・予約数の受け渡し |
+| `EventDatabase` | イベント情報の保持と検索 | イベントIDの存在確認・満席判定 |
+| `TicketReservation` | チケット予約の状態管理と各状態の振る舞い | `Available` / `Reserved` / `Paid` の状態遷移 |
 
 データの流れは、次のように分かれます。
 
@@ -188,6 +193,11 @@ classDiagram
         +get(id)
         +hasCapacity(id)
     }
+    class EventInfo {
+        +title string
+        +capacity int
+        +reserved int
+    }
     class TicketReservation {
         -EventDatabase db
         -String eventId
@@ -200,6 +210,7 @@ classDiagram
         +cancel()
     }
 
+    EventDatabase *-- EventInfo : ID別に保存
     TicketReservation --> EventDatabase : reserve時に参照
 ```
 
@@ -470,6 +481,8 @@ int main() {
 | Paid（支払済み） | あり | 変更なし |
 | **Waitlisted（キャンセル待ち）** | なし | **新規追加** |
 | **Held（一時保留）** | なし | **新規追加** |
+
+今回変えるのは予約状態と遷移です。イベント情報と空席数を管理する保存基盤は仕様変更の対象ではないため、`EventDatabase` の取得・更新契約は変更前後で**変更なし**とします。
 
 **新しく追加される遷移ルール**
 

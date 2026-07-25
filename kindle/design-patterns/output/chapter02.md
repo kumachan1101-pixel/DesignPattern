@@ -42,9 +42,35 @@
 
 ここで確認する対象は、振り込みがどの確認を通って完了または失敗になるかです。
 
-上の文章と表で仕様を一通り確認したので、まず正常に振り込みが完了する場合の入力・判定・加工・出力の流れとして整理します。
+まず、ネット銀行画面、振り込み処理、保存データ、認証・銀行システムの境界を確認します。
 
-**仕様整理図：正常系の入力・判定・加工・出力**
+**システム全体図：振り込み処理と外部境界**
+
+```mermaid
+flowchart LR
+    U["利用者"] -->|"振込先・金額・認証コード"| W["ネット銀行画面"]
+    W -->|"振込要求"| S["振り込み処理システム"]
+    A[("口座台帳")] -->|"名義・口座情報"| S
+    S -->|"認証要求・結果"| O["認証システム"]
+    S -->|"残高照会・送金・結果"| B["銀行システム"]
+    S -->|"成功時に記録"| H[("振込履歴")]
+    S -->|"完了・エラー"| W
+
+    classDef actor fill:#f8fafc,stroke:#64748b,color:#111827;
+    classDef system fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
+    classDef boundary fill:#eef2ff,stroke:#4f46e5,color:#111827;
+    class U actor;
+    class W,S system;
+    class A,H data;
+    class O,B boundary;
+```
+
+この図では、振り込み処理を一つの箱として見て、口座台帳と履歴の保存、認証・銀行システムとのやり取りを示しています。
+
+次に箱の中を開き、正常に振り込みが完了する場合の入力・判定・加工・出力を整理します。
+
+**システム内部図：正常系の入力・判定・加工・出力**
 
 ```mermaid
 flowchart LR
@@ -148,13 +174,13 @@ flowchart LR
 
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
-| AccountDatabase | 自社台帳（口座名義の保持・検索） | 口座名義の照会 |
-| Bank | 外部銀行（残高保持・照会・送金・補償） | 仕様①口座確認・②残高確認・④送金 |
-| SecurityAuthenticator | 認証制御（コード発行・照合） | 仕様③認証 |
-| TransferRecord | 振り込み1件分のデータ | 振り込み履歴の1レコード |
-| TransferHistory | 振り込み履歴の管理 | 成功した振り込みの記録・一覧表示 |
-| TransferProcessor | 個別振り込みフロー進行 | 仕様全体 |
-| BatchTransferProcessor | 一括振り込み（バッチ）進行 | 複数の振り込みの呼び出し |
+| `AccountDatabase` | 自社台帳（口座名義の保持・検索） | 口座名義の照会 |
+| `Bank` | 外部銀行（残高保持・照会・送金・補償） | 仕様①口座確認・②残高確認・④送金 |
+| `SecurityAuthenticator` | 認証制御（コード発行・照合） | 仕様③認証 |
+| `TransferRecord` | 振り込み1件分のデータ | 振り込み履歴の1レコード |
+| `TransferHistory` | 振り込み履歴の管理 | 成功した振り込みの記録・一覧表示 |
+| `TransferProcessor` | 個別振り込みフロー進行 | 仕様全体 |
+| `BatchTransferProcessor` | 一括振り込み（バッチ）進行 | 複数の振り込みの呼び出し |
 
 データの流れ：BatchTransferProcessor → TransferProcessor → Bank / SecurityAuthenticator（外部銀行）
 この章で注目するポイント：振り込み業務の流れと、銀行の呼び出し手順がどのように結びついているか
@@ -193,12 +219,18 @@ classDiagram
         +add(fromName, toName, amount)
         +printAll()
     }
+    class TransferRecord {
+        +fromName string
+        +toName string
+        +amount int
+    }
 
     BatchTransferProcessor --> TransferProcessor : 使う
     TransferProcessor --> Bank : 手順を呼ぶ
     TransferProcessor --> SecurityAuthenticator : 認証する
     TransferProcessor --> AccountDatabase : 名義を引く
     TransferProcessor --> TransferHistory : 成功履歴を追加する
+    TransferHistory *-- TransferRecord : 履歴として保存
 ```
 
 **クラス図に出てくる主なメンバーと操作**
@@ -538,6 +570,13 @@ ACC003: 470000円
 | ② 残高確認 | 既存の残高確認を実行 | 同じ確認手順を継続 |
 | **③ 認証** | OTP（ワンタイムパスワード）1ステップで完了 | **「認証コードの発行」→「取引IDと認証コードの照合」の2ステップに変更** |
 | **④ 送金実行** | 振込先口座と金額だけを指定して送金 | **「トランザクションID」が必須パラメータとして追加** |
+
+今回変えるのは認証と送金APIの契約です。口座情報の取得と送金履歴の保存は仕様変更の対象ではないため、次の共通基盤は変更前後で維持します。
+
+| 変更対象外の共通基盤 | 変更前 | 変更後 |
+|---|---|---|
+| `AccountDatabase` | 口座情報と残高を取得する | **変更なし** |
+| `TransferHistory` | 送金結果を履歴へ保存する | **変更なし** |
 
 現行の認証では発行と検証の間に識別子を受け渡していませんでした。新仕様では `requestOTP()` の応答から取引IDを受け取り、`verifyOTP(otp, txId)` で検証します。検証済みの同じ取引IDを、`executeTransfer(from, to, amount, txId)` にも渡します。
 

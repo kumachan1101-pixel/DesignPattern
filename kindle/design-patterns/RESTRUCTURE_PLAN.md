@@ -181,22 +181,41 @@
 
 | ID | 章・対象 | 監査で確認した修正点 | 状態 |
 |---|---|---|---|
-| R3-00 | 第0章 | システム全体図とシステム内部図の目的・読み分け、1-3まで実装語彙を出さない規則を説明する | 未 |
+| R3-00 | 第0章 | システム全体図とシステム内部図の目的・読み分け、1-3まで実装語彙を出さない規則を説明する | 完了（本コミット） |
 | R3-T | テンプレート・ルール | 二つの仕様図、現状動作例と変更後動作例の分離、全`class`／`struct`と関係線の一致、変更対象外の共通基盤を前後で維持する規則を正本化する | 完了（本コミット） |
-| R3-B | 全章 | 1-5で「変える要素」と「変えない共通基盤」を分け、保存方法・結果型・検証・履歴・外部境界について、1-4と7-1の不必要な差分を監査する。差分がある場合は変更要求または課題IDで根拠を示し、根拠がなければ共通基盤へ戻す | 未 |
-| R3-01 | ch01 | 1-1の`OrderProcessor`先取りを仕様語彙へ変更。システム全体図を追加し、`CheckoutResultRenderer`の利用関係を図へ追加する | 未 |
-| R3-02 | ch02 | システム全体図を追加し、現状コードの`TransferRecord`を登場型表・クラス図へ追加する | 未 |
-| R3-03 | ch03 | 1-1の`EventDatabase`／`TicketReservation`先取りを仕様語彙へ変更し、`EventInfo`を登場型表・クラス図へ追加する | 未 |
-| R3-04 | ch04 | 1-1の`ImportResult`／`SchemaRegistry`先取りを仕様語彙へ変更。`SalesRow`／`ImportResult`／`ImportSchema`を表・図へ追加し、全型の関係線を示す | 未 |
-| R3-05 | ch05 | 1-1の`UIButtons`先取りを仕様語彙へ変更し、`Category`を登場型表・クラス図へ追加する | 未 |
-| R3-06 | ch06 | システム全体図を追加し、`MenuItem`を表・図へ追加。`MenuDatabase`と`CustomDrink`の利用関係を図へ示す | 未 |
-| R3-07 | ch07 | 1-1の実装クラス名を仕様語彙へ変更し、`ProductInfo`を登場型表・クラス図へ追加する | 未 |
-| R3-08 | ch08 | 1-1の実装クラス名を仕様語彙へ変更。要求・結果・設定・記録の各`struct`を表・図へ追加し、`PaymentLog`の利用関係を示す | 未 |
-| R3-09 | ch09_2 | 1-1の`TicketManager`／`TicketRepository`先取りを仕様語彙へ変更し、`UserInfo`／`Ticket`を登場型表・クラス図へ追加する | 未 |
+| R3-B | 全章 | 1-5で「変える要素」と「変えない共通基盤」を分け、保存方法・結果型・検証・履歴・外部境界について、1-4と7-1の不必要な差分を監査する。差分がある場合は変更要求または課題IDで根拠を示し、根拠がなければ共通基盤へ戻す | 完了（本コミット） |
+| R3-01 | ch01 | 1-1の`OrderProcessor`先取りを仕様語彙へ変更。システム全体図を追加し、`CheckoutResultRenderer`の利用関係を図へ追加する | 完了（本コミット） |
+| R3-02 | ch02 | システム全体図を追加し、現状コードの`TransferRecord`を登場型表・クラス図へ追加する | 完了（本コミット） |
+| R3-03 | ch03 | 1-1の`EventDatabase`／`TicketReservation`先取りを仕様語彙へ変更し、`EventInfo`を登場型表・クラス図へ追加する | 完了（本コミット） |
+| R3-04 | ch04 | 1-1の`ImportResult`／`SchemaRegistry`先取りを仕様語彙へ変更。`SalesRow`／`ImportResult`／`ImportSchema`を表・図へ追加し、全型の関係線を示す | 完了（本コミット） |
+| R3-05 | ch05 | 1-1の`UIButtons`先取りを仕様語彙へ変更し、`Category`を登場型表・クラス図へ追加する | 完了（本コミット） |
+| R3-06 | ch06 | システム全体図を追加し、`MenuItem`を表・図へ追加。`MenuDatabase`と`CustomDrink`の利用関係を図へ示す | 完了（本コミット） |
+| R3-07 | ch07 | 1-1の実装クラス名を仕様語彙へ変更し、`ProductInfo`を登場型表・クラス図へ追加する | 完了（本コミット） |
+| R3-08 | ch08 | 1-1の実装クラス名を仕様語彙へ変更。要求・結果・設定・記録の各`struct`を表・図へ追加し、`PaymentLog`の利用関係を示す | 完了（本コミット） |
+| R3-09 | ch09_2 | 1-1の`TicketManager`／`TicketRepository`先取りを仕様語彙へ変更し、`UserInfo`／`Ticket`を登場型表・クラス図へ追加する | 完了（本コミット） |
 | R3-10 | ch10 | システム全体図と内部図へ分離し、現状動作例と変更後動作例を分離。`PartnerConfig`、`DeliveryResult`、`BatchRecord`、`BatchLog`を変更前後の共通基盤として表・図・コードへ揃え、変更差分を連携先・通知・順次実行へ限定する。全型の関係線を明示する | 完了（本コミット） |
-| R3-11 | ch11 | 1-1の`ReportRenderingApi`先取りを仕様語彙へ変更。`SalesSummary`／`ReportTemplate`を表・図へ追加し、`ReportRenderingApi`／`TemplateRegistry`の利用関係を示す | 未 |
-| R3-12 | ch12 | 1-1の実装クラス名を仕様語彙へ変更する。現状の表・図・コードにある型と関係線は一致済み | 未 |
-| R3-V | validator | `struct`、表、余分な型、関係線、1-1の実装語彙、現状／変更後動作例の混在を段階導入で検査する | 作業中（ch10から適用） |
+| R3-11 | ch11 | 1-1の`ReportRenderingApi`先取りを仕様語彙へ変更。`SalesSummary`／`ReportTemplate`を表・図へ追加し、`ReportRenderingApi`／`TemplateRegistry`の利用関係を示す | 完了（本コミット） |
+| R3-12 | ch12 | 1-1の実装クラス名を仕様語彙へ変更する。現状の表・図・コードにある型と関係線は一致済み | 完了（本コミット） |
+| R3-V | validator | `struct`、表、余分な型、関係線、1-1の実装語彙、現状／変更後動作例の混在を段階導入で検査する | 完了（全12章へ適用・本コミット） |
+
+## R3-B監査結果
+
+1-4と7-1の型集合を照合し、仕様変更と無関係な保存方法・結果契約・検証・履歴・外部境界が消えていないかを確認した。各章の1-5には、次の共通基盤を「変更なし」として明記し、validatorでも前後の存在を継続検査する。
+
+| 章 | 変更対象外として前後で維持する共通基盤 | 変更前から外れた型と根拠 |
+|---|---|---|
+| ch01 | `CustomerDatabase`、`CheckoutResultRenderer` | なし |
+| ch02 | `AccountDatabase`、`TransferHistory` | なし |
+| ch03 | `EventDatabase` | なし |
+| ch04 | `ImportResult`、`SchemaRegistry` | `SampleFileStore`はP1の取得元・保存先境界を注入する課題に基づき、`ImportFileGateway`等へ責任を移した |
+| ch05 | `CategoryDatabase` | `UIButtons`はP1の実行入口分離とP2の残高正本化に基づき、`BudgetApp`と台帳境界へ責任を移した |
+| ch06 | `MenuDatabase`、`MenuItem` | `CustomDrink`はP1のトッピング接続点分離に基づき、基本商品と連結可能なトッピング部品へ分解した |
+| ch07 | `ProductDatabase` | なし |
+| ch08 | `PaymentRequest`、`PaymentResult`、`PaymentLog` | なし |
+| ch09_2 | `Ticket`、`TicketRepository`、`UserDatabase` | `TicketManager`と`PriorityCalculator`はP1/P2の状態・優先度分離に基づき、Service・Phase・Ruleへ責任を移した |
+| ch10 | `DeliveryResult`、`BatchRecord`、`BatchLog` | `NotificationService`はP2の通知差し替え要求に基づき、通知契約と通知実装へ責任を移した |
+| ch11 | `DataReader`、`TemplateRegistry`、`ReportRenderingApi` | なし |
+| ch12 | `WorkflowCaseRepository`、`ApproverDatabase`、`NotificationTargetRepository` | なし |
 
 ## 完了条件
 
