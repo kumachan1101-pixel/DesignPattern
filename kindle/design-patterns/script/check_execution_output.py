@@ -104,6 +104,11 @@ def main() -> int:
                 continue
             src = "\n\n".join(cpp_blocks(sec))
             if "int main(" not in src:
+                # コードがあるのに main() が無い＝分割ミス等で実行不可。
+                # 空セクションだけスキップし、それ以外は不合格にする。
+                if src.strip():
+                    print(f"{name} {head} main()が見つかりません（実行不可・分割ミスの疑い）")
+                    problems += 1
                 continue
             ok, out = run_source(src)
             if not ok:
