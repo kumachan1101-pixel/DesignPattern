@@ -43,8 +43,8 @@
 
 ```mermaid
 flowchart LR
-    U["担当者<br>チケットIDと操作を指定"] --> S["TicketService<br>状態更新を進行"]
-    S --> T["TicketRepository<br>現在状態・担当者・履歴"]
+    U["担当者<br>チケットIDと操作を指定"] --> S["TicketManager<br>状態更新を進行"]
+    S --> T["TicketRepository<br>現在状態・優先度・担当者"]
     S --> P["優先度ルール<br>ユーザー種別・SLA基準"]
     T --> S
     P --> S
@@ -95,10 +95,11 @@ flowchart LR
 | 状態 | 状態名（英語） | 実行できる操作 |
 |---|---|---|
 | 受付中 | Open | 担当者アサイン |
-| 対応中 | In Progress | 解決・エスカレーション |
+| 対応中 | InProgress | 解決・エスカレーション |
+| 緊急対応中 | Escalated | 解決・差し戻し |
 | 解決済み | Resolved | 再受付 |
 
-基本の流れは「Open → InProgress → Resolved」の一方向です。解決済みチケットを再度受け付ける「Resolved → Open」という逆流もあります。「一度解決したのにまた同じ問題が起きた」というケースに対応するための遷移です。
+各チケットの現在状態は、チケットID単位で保存され、操作のたびに更新・追跡されます。基本の流れは「Open → InProgress → Resolved」で、対応中に緊急対応が必要になれば「InProgress → Escalated（緊急対応中）」へ進み、そこから「解決」または「対応中へ差し戻し」ます。解決済みチケットを再度受け付ける「Resolved → Open」という逆流もあります。「一度解決したのにまた同じ問題が起きた」というケースに対応するための遷移です。
 
 **優先度ルール**
 
@@ -143,7 +144,7 @@ flowchart LR
 | 受付中チケット | 担当者アサイン | ルール適用なし | → 対応中（InProgress）に遷移 |
 | 対応中チケット | 担当者が解決 | ルール適用なし | → 解決済み（Resolved）に遷移 |
 | 解決済みチケット | 一般ユーザーが再オープン | 標準優先度（Normal） | → 再受付中（Open）に遷移 |
-| 対応中チケット | プレミアムユーザーがエスカレーション | 高優先度（High） | 緊急対応（担当者を招集） |
+| 対応中チケット | プレミアムユーザーがエスカレーション | 高優先度（High） | → 緊急対応中（Escalated）に遷移 |
 
 この6つの動作例が、このシステムが満たす必要がある動作の基準です。後でステップを比較するときも、「どのステップもこれと同じ動作を実現する」という前提で読んでください。
 
@@ -152,24 +153,30 @@ flowchart LR
 
 このシステムで管理する状態と、各状態から可能な遷移を整理します。これは、後のフェーズで状態ごとの振る舞いを確認するときの全体像です。
 
-| 現在の状態 | アサイン | 解決 | 再受付 |
-| --- | --- | --- | --- |
-| Open（受付中） | → InProgress（対応中） | —— | —— |
-| InProgress（対応中） | —— | → Resolved（解決済み） | —— |
-| Resolved（解決済み） | —— | —— | → Open（再受付中） |
+| 現在の状態 | 操作 | 遷移先 |
+| --- | --- | --- |
+| Open（受付中） | アサイン | InProgress（対応中） |
+| InProgress（対応中） | 解決 | Resolved（解決済み） |
+| InProgress（対応中） | エスカレーション | Escalated（緊急対応中） |
+| Escalated（緊急対応中） | 解決 | Resolved（解決済み） |
+| Escalated（緊急対応中） | 差し戻し | InProgress（対応中） |
+| Resolved（解決済み） | 再受付 | Open（受付中） |
 
 ```mermaid
 stateDiagram-v2
     [*] --> Open : 登録
     Open --> InProgress : アサイン
     InProgress --> Resolved : 解決
+    InProgress --> Escalated : エスカレーション
+    Escalated --> Resolved : 解決
+    Escalated --> InProgress : 差し戻し
     Resolved --> Open : 再受付
 ```
 
-「Open → InProgress → Resolved」という一方向の流れが基本ですが、「解決済み → 再受付」という逆流があります。状態が増えるほど、このマトリクスの「空欄（——）」の管理が複雑になります。
+「Open → InProgress → Resolved」という一方向の流れが基本ですが、対応中に緊急対応が必要になれば `Escalated`（緊急対応中）へ進み、そこから解決または対応中への差し戻しに分かれます。「解決済み → 再受付」という逆流もあります。状態の種類が増えるほど、この遷移の組み合わせを一箇所で管理するのは複雑になっていきます。
 
-> **📌 変更要求をどこまで実装するか**
-> 1-5節では「保留中」「ベンダー確認中」などの追加が予定されています。フェーズ3では、その代表として法人ユーザー向けSLAルールと `Pending`（保留中）を変更途中コードへ追加しました。現状ではエスカレーションは「緊急対応中」というメッセージ出力にとどまりますが、フェーズ7の最終コードでは `Escalated`（緊急対応中）を独立した状態として新設し、`InProgress → Escalated → Resolved`（および差し戻し `Escalated → InProgress`）まで定義します。フェーズ6の設計とフェーズ7の最終コードでは、`Pending` と `Escalated` を落とさず追います。完成後の全状態遷移は7-1の状態遷移図で確認します。`VendorWaiting`（ベンダー確認中）は、同じ `ITicketPhase` 契約へ追加する次の変更シナリオとして7-4で確認します。
+> **📌 変更要求で状態がさらに増える**
+> ここまでの Open / InProgress / Escalated / Resolved は現状の仕様です。1-5節では、これに「保留中（`Pending`）」「ベンダー確認中（`VendorWaiting`）」といった**新しい状態の追加**が変更要求として届きます。フェーズ3では、その代表として法人ユーザー向けSLAルールと `Pending`（保留中）を変更途中コードへ追加します。フェーズ6の設計とフェーズ7の最終コードでも `Pending` を落とさず追い、`VendorWaiting` は同じ契約へ追加する次の変更シナリオとして7-4で確認します。完成後の全状態遷移は7-1の状態遷移図で確認します。
 
 次は、この仕様を担うクラスの顔ぶれと責任を確認します。
 
@@ -181,7 +188,8 @@ stateDiagram-v2
 
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
-| `TicketManager` | チケット状態の更新を進める | 状態管理、操作可否、優先度計算の呼び出し |
+| `TicketManager` | チケット操作の受け口 | 状態遷移、操作可否、優先度計算の呼び出し |
+| `TicketRepository` | チケットの保存・取得 | 状態・優先度・担当者をID単位で保存する |
 | `PriorityCalculator` | ユーザー種別から優先度を計算する | 優先度ルール |
 | `UserDatabase` | ユーザー情報の管理 | ユーザーIDからユーザー名・ユーザー種別を検索する |
 
@@ -190,9 +198,15 @@ stateDiagram-v2
 ```mermaid
 classDiagram
     class TicketManager {
-        -calc: PriorityCalculator
+        -repo: TicketRepository
         -db: UserDatabase
-        +updateStatus(userId, status)
+        -calc: PriorityCalculator
+        +create(ticketId, userId)
+        +updateStatus(ticketId, op, assigneeId)
+    }
+    class TicketRepository {
+        +get(id) Ticket
+        +save(t)
     }
     class PriorityCalculator {
         +calculate(userType) string
@@ -201,6 +215,7 @@ classDiagram
         +exists(id) bool
         +get(id) UserInfo
     }
+    TicketManager *-- TicketRepository : 保持
     TicketManager *-- PriorityCalculator : 保持
     TicketManager *-- UserDatabase : 保持
 ```
@@ -209,13 +224,13 @@ classDiagram
 
 | クラス | メンバー・操作 | 何ができるか |
 |---|---|---|
-| `TicketManager` | `calc` / `db` | 優先度計算とユーザー検索を行うクラスを保持する |
-| `TicketManager` | `updateStatus()` | ユーザーIDと状態を受け取り、状態更新と優先度計算を進める |
+| `TicketManager` | `create()` / `updateStatus()` | チケットを登録・保存し、操作に応じて状態と優先度を更新する |
+| `TicketRepository` | `get()` / `save()` | チケットIDをキーに状態・優先度・担当者を保存・取得する |
 | `PriorityCalculator` | `calculate()` | ユーザー種別から優先度を返す |
 | `UserDatabase` | `exists()` / `get()` | ユーザーIDの存在確認と、氏名・ユーザー種別の取得を行う |
 
 
-`TicketManager` クラスが、チケットの状態管理と、その遷移に伴う優先度計算という異なる責務を抱えています。
+`TicketManager` クラスが、チケットの状態遷移と、その遷移に伴う優先度計算という異なる責務を、一つのメソッドの分岐で抱えています。状態そのものは `TicketRepository` にチケットID単位で保存され、追跡できます。
 
 ---
 
@@ -225,12 +240,12 @@ classDiagram
 
 | 対象 | 呼び出しと内部処理 | 戻り値・副作用 | 掲載上の表現 |
 |---|---|---|---|
-| Ticket DB | チケットID・利用者IDで検索する | 現在状態・利用者属性 | `std::map`でDBを代替する |
-| 優先度ルール | 属性・条件から優先度を計算する | 優先度値 | Strategyの戻り値として表す |
-| 状態 | 操作を受け遷移可否を決める | 次状態・ログ | Stateオブジェクトへ委譲する |
-| `vector` | イベントログを順番に保持する | 追記・一覧表示 | 永続監査ログのメモリ代替 |
+| ユーザーDB | ユーザーIDで検索する | 氏名・ユーザー種別 | `std::map`でDBを代替する |
+| チケット保存庫 | チケットIDで保存・取得する | 現在状態・優先度・担当者 | `std::map`でDBを代替する |
+| 優先度ルール | ユーザー種別から優先度を計算する | 優先度値（High/Normal） | 文字列で返す |
+| チケット管理 | 操作を受け状態遷移を決めて保存する | 次状態・優先度更新 | `if-else`で判定する |
 
-実チケットDBと通知は省略しますが、誰がどの操作を行い、どの状態へ変わり、どの優先度になったかは値として残します。
+実システムのチケットDBと通知は省略し `std::map` で代替しますが、誰がどの操作を行い、どの状態へ変わり、どの優先度になったかはチケットID単位で保存し、追跡できるようにします。
 
 システムの現状の実装を確認します。コードを役割ごとに分けて読んでいきます。
 
@@ -246,7 +261,7 @@ classDiagram
 
 ユーザー種別によって対応優先度が変わります。現状の優先度ルールはプレミアムを高優先度、それ以外を標準とする2区分で、法人向けの高優先度は1-5の変更要求で追加します。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
 
-この章では、画面表示・実際の通知送信・時計の実測を省略し、状態更新と優先度の計算結果を中心に確認します。実システムなら通知や時刻取得は境界へ渡しますが、本章の論点は「状態遷移とルール判定という2つの変化軸を分ける構造」です。SLAの残り時間の判定は `SlaTimer`、担当者割当の発火は `AssignmentEvent` にあたる境界の向こう側として扱い、掲載コードでは優先度ルールの結果と状態遷移の呼び出しだけを追います。`print` はこれら境界の先に閉じ、SLA期限そのものの時刻計算や通知配信の中身は扱いません。
+この章では、画面表示・実際の通知送信・時計の実測を省略し、状態の保存と優先度の計算結果を中心に確認します。実システムなら通知や時刻取得は境界の向こうで扱いますが、掲載コードでは優先度ルールの結果と状態遷移、そしてその保存だけを追います。
 
 ```cpp
 #include <iostream>
@@ -276,9 +291,6 @@ public:
     UserInfo get(const string& id) const {
         return records.at(id);
     }
-    void save(const string& id, const UserInfo& info) {
-        records[id] = info;           // 実行中のユーザー表へ追加
-    }
 };
 
 // 優先度ルール（変わる可能性がある）
@@ -291,30 +303,98 @@ public:
 };
 ```
 
+- `UserInfo` は氏名とユーザー種別を持ち、`UserDatabase` はユーザーIDから検索します。実システムのユーザー管理DBを、実行中だけ有効なインメモリの登録表で代替しています。
+- `PriorityCalculator` はユーザー種別から優先度を返します。現状はプレミアムを高優先度、それ以外を標準とする2区分です。
+
+**Ticket / TicketRepository クラス（状態を保存する）**
+
+チケットは、現在状態・優先度・担当者を持つ実体としてチケットID単位で保存されます。操作のたびに保存済みチケットを読み込んで更新します。
+
+```cpp
+// チケット実体：状態・優先度・担当者を保持する
+struct Ticket {
+    string id;
+    string userId;
+    string status;      // 現在状態（保存される）
+    string priority;    // 優先度（保存される）
+    string assigneeId;  // 担当者（未割当は空）
+};
+
+// チケット保存庫：チケットID単位で保存・取得する
+class TicketRepository {
+    map<string, Ticket> store;
+public:
+    bool exists(const string& id) const {
+        return store.count(id) > 0;
+    }
+    Ticket& get(const string& id) { return store.at(id); }
+    void save(const Ticket& t) { store[t.id] = t; }
+};
+```
+
+- `Ticket` は1件のチケットで、状態・優先度・担当者を保持します。
+- `TicketRepository` はチケットIDをキーに保存・取得します。実システムのチケットDBを、実行中だけ有効なインメモリの `map` で代替しています。状態はここに残るため、操作の前後で追跡できます。
+
 **TicketManager クラス**
 
 ```cpp
-// チケット管理（優先度計算と状態更新を行う）
+// チケット管理：状態遷移と優先度判定を1クラスに抱える
 class TicketManager {
-    PriorityCalculator calc;
+    TicketRepository repo;    // 状態を保存する
     UserDatabase db;
+    PriorityCalculator calc;  // 優先度判定を直接保持
 public:
-    void updateStatus(string userId, string status) {
-        if (!db.exists(userId)) {             // ← DBにないIDはエラー
-            cout << "エラー: ユーザーID "
-                 << userId << " は存在しません。" << endl;
+    // チケットを登録して保存する
+    void create(const string& ticketId, const string& userId) {
+        if (!db.exists(userId)) {          // ← DBにないIDはエラー
+            cout << "エラー: ユーザーID " << userId
+                 << " は存在しません。" << endl;
             return;
         }
-        UserInfo user = db.get(userId);
-        string priority = calc.calculate(user.userType);
-        if (status == "Open") {
-            cout << "チケット受付中。優先度: " << priority << endl;
-        } else if (status == "InProgress" && priority == "High") {
-            cout << "緊急対応中。担当者を招集します。" << endl;
+        string userType = db.get(userId).userType;
+        string priority = calc.calculate(userType); // 優先度を判定
+        Ticket t{ticketId, userId, "Open", priority, ""};
+        repo.save(t);
+        cout << "[" << ticketId << "] 作成 状態=Open 優先度="
+             << priority << endl;
+    }
+    // 状態遷移と優先度判定を1メソッドの分岐で行う
+    void updateStatus(const string& ticketId, const string& op,
+                      const string& assigneeId = "") {
+        Ticket& t = repo.get(ticketId);
+        string before = t.status;
+        if (t.status == "Open" && op == "assign") {
+            t.status = "InProgress";
+            t.assigneeId = assigneeId;               // 担当者を保存
+        } else if (t.status == "InProgress" && op == "resolve") {
+            t.status = "Resolved";
+        } else if (t.status == "InProgress" && op == "escalate") {
+            t.status = "Escalated";                  // 緊急対応中へ
+            t.priority = calc.calculate(db.get(t.userId).userType);
+        } else if (t.status == "Escalated" && op == "resolve") {
+            t.status = "Resolved";
+        } else if (t.status == "Escalated" && op == "sendback") {
+            t.status = "InProgress";                 // 対応中へ差し戻し
+        } else if (t.status == "Resolved" && op == "reopen") {
+            t.status = "Open";
+            t.priority = calc.calculate(db.get(t.userId).userType);
+        } else {
+            cout << "  操作不可: 状態 " << t.status
+                 << " で " << op << " はできません。" << endl;
+            return;
         }
+        repo.save(t);                                // 変更後を保存
+        cout << "  " << op << ": 状態 " << before << " → "
+             << t.status << " 優先度=" << t.priority;
+        if (!t.assigneeId.empty())
+            cout << " 担当=" << t.assigneeId;
+        cout << endl;
     }
 };
 ```
+
+- `create()` はユーザーの存在を確認し、優先度を判定して、状態 `Open` のチケットを保存します。
+- `updateStatus()` は保存済みチケットを読み、`op`（操作）と現在状態の組み合わせで次状態を決め、保存します。`assign` では担当者IDを保存し、`escalate`・`reopen` では優先度を再計算します。状態遷移の分岐（`status`）と優先度判定（`calc.calculate()`）が、同じメソッドの中に並んでいます。
 
 **main 関数**
 
@@ -322,17 +402,27 @@ public:
 int main() {
     TicketManager manager;
 
-    // 行1: 鈴木（standard）が新規チケットを登録（標準優先度 → 受付中）
-    manager.updateStatus("USR003", "Open");
+    // 行1: 鈴木(standard)が登録 → 標準優先度・受付中
+    manager.create("TCK001", "USR003");
+    // 行2: 佐藤(premium)が登録 → 高優先度・受付中
+    manager.create("TCK002", "USR002");
 
-    // 行2: 佐藤（premium）が新規チケットを登録（高優先度 → 受付中）
-    manager.updateStatus("USR002", "Open");
+    // 行3: TCK001をアサイン → 対応中
+    manager.updateStatus("TCK001", "assign", "AGT01");
+    // 行4: TCK001を解決 → 解決済み
+    manager.updateStatus("TCK001", "resolve");
+    // 行5: TCK001を再受付 → 受付中（優先度を再計算）
+    manager.updateStatus("TCK001", "reopen");
 
-    // 行6: 佐藤（premium）がエスカレーション（高優先度 → 緊急対応）
-    manager.updateStatus("USR002", "InProgress");
+    // 行6: TCK002をアサイン → 対応中
+    manager.updateStatus("TCK002", "assign", "AGT02");
+    // 行7: TCK002をエスカレーション → 緊急対応中
+    manager.updateStatus("TCK002", "escalate");
+    // 行8: TCK002を解決 → 解決済み
+    manager.updateStatus("TCK002", "resolve");
 
-    // 存在しないユーザーIDを渡した場合
-    manager.updateStatus("USR999", "Open");
+    // 存在しないユーザーID
+    manager.create("TCK004", "USR999");
 
     return 0;
 }
@@ -340,33 +430,38 @@ int main() {
 
 実行対象コード：1-4の現状コード
 対応する動作例：1-2の動作例テーブル
-確認したいこと：入力、加工、出力が仕様どおりに対応していること
+確認したいこと：入力・操作に応じて状態と優先度がチケットID単位で保存・更新されること
 
 実行結果：
 
 ```
-チケット受付中。優先度: Normal
-チケット受付中。優先度: High
-緊急対応中。担当者を招集します。
+[TCK001] 作成 状態=Open 優先度=Normal
+[TCK002] 作成 状態=Open 優先度=High
+  assign: 状態 Open → InProgress 優先度=Normal 担当=AGT01
+  resolve: 状態 InProgress → Resolved 優先度=Normal 担当=AGT01
+  reopen: 状態 Resolved → Open 優先度=Normal 担当=AGT01
+  assign: 状態 Open → InProgress 優先度=High 担当=AGT02
+  escalate: 状態 InProgress → Escalated 優先度=High 担当=AGT02
+  resolve: 状態 Escalated → Resolved 優先度=High 担当=AGT02
 エラー: ユーザーID USR999 は存在しません。
 ```
 
 > [!NOTE]
-> 上記はフェーズ1の現状コードで確認できる代表的な3ケースです（行1・行2・行6）。行3（アサイン）・行4（解決）・行5（再受付）の状態遷移は、フェーズ1の現状コードでは `updateStatus()` に遷移のロジックが含まれておらず、出力が生じません。行6（エスカレーション）はフェーズ1の現状コードで出力されますが、フェーズ7では行1〜5の基本フローが実装されます。
+> 実行結果は、1-2の動作例（行1〜行8）と存在しないユーザーのエラーに対応します。状態は `TicketRepository` にチケットID単位で保存され、`assign → resolve → reopen`（TCK001）や `assign → escalate → resolve`（TCK002）のように、操作のたびに現在状態と優先度が更新・保存されていることを読み取れます。エスカレーションでは `InProgress → Escalated`（緊急対応中）へ遷移します。
 
-このコードを見ると、`TicketManager` が優先度の計算ルール（`PriorityCalculator`）と、状態に応じたアクション（if-else）の両方を直接知っていることが分かります。
+このコードを見ると、`TicketManager` が優先度の計算ルール（`PriorityCalculator`）と、状態に応じたアクション（`status` の分岐）の両方を直接知り、`updateStatus()` の一つのメソッドで扱っていることが分かります。
 
 ---
 
 > **手元で動かすには**
-> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter09.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。`manager.updateStatus("USR002", "Open");` の呼び出しを増減させれば、ユーザー種別（standard/premium/corporate）ごとの優先度判定と状態遷移がその場の実行結果に表れます。新しいユーザーを試すときは `UserDatabase` の登録へ `records["USR010"] = {"高橋 三郎", "corporate"};` を足す（または `save()` を呼ぶ）と、そのユーザーでも同じ処理を実行できます。データはプロセス実行中だけ有効で、終了すると消えます。
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter09.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。`manager.create("TCK005", "USR002");` や `manager.updateStatus("TCK005", "assign", "AGT01");` の呼び出しを足せば、チケットごとの状態と優先度がその場の実行結果に表れます。新しいユーザーを試すときは `UserDatabase` の登録へ `records["USR010"] = {"高橋 三郎", "corporate"};` を足すと、そのユーザーでも同じ処理を実行できます。データはプロセス実行中だけ有効で、終了すると消えます。
 
 ### 1-5：変更要求
 
 【運用チームと品質管理チームからの要求】
 ある月曜日の朝、ヘルプデスクのマネージャーからチャットが届きました。
 
-「お疲れ様。現在対応しているチケットシステムなんだけど、今度から『SLA（サービスレベル合意）』を厳格に運用することになったんだ。特に、重要度が高いチケットが『Open』状態のまま長時間放置されるのは何としても避けたい。それと同時に、これまではチケットのステータスが3種類しかなかったけれど、今後は『保留中』や『ベンダー確認中』といった状態も増える予定だ。この新しいルールと状態遷移の複雑さに、今のシステムで対応できるかな？」
+「お疲れ様。現在対応しているチケットシステムなんだけど、今度から『SLA（サービスレベル合意）』を厳格に運用することになったんだ。特に、重要度が高いチケットが『Open』状態のまま長時間放置されるのは何としても避けたい。それと同時に、これまではチケットのステータスは受付中・対応中・緊急対応中・解決済みだったけれど、今後は『保留中』や『ベンダー確認中』といった状態も増える予定だ。この新しいルールと状態遷移の複雑さに、今のシステムで対応できるかな？」
 
 今回の変更要求は「重要度に応じた優先度判断ルールの追加」と「状態遷移の増加」という、二つの大きな柱があるようです。
 
@@ -376,7 +471,7 @@ int main() {
 
 | 項目 | 変更前 | 変更後 |
 |---|---|---|
-| チケット状態の種類 | 3種類（Open / InProgress / Resolved） | 保留中・ベンダー確認中など新状態を追加予定 |
+| チケット状態の種類 | 4種類（Open / InProgress / Escalated / Resolved） | 保留中・ベンダー確認中など新状態を追加予定 |
 | 優先度ルール | 一般→Normal、プレミアム→High の固定判定 | SLA基準に基づく判定ルール（四半期ごとに改定） |
 | SLA期限 | 未対応 | 受付から一定時間で期限超過を判定し優先度へ反映 |
 | 担当者割当 | 未対応 | アサイン操作を割当イベントとして扱い状態を進める |
@@ -522,7 +617,7 @@ flowchart LR
 | ユーザー区分と優先度の対応 | 一般→Normal、プレミアム→High の2区分 | プレミアム内にさらに細かい区分が加わる（次の契約改定時） |
 | SLA期限による優先度引き上げ | 期限の概念を持たない | 受付から一定時間の超過でHighへ引き上げる基準が入る（四半期改定に連動） |
 | 同一チケットへの同時アクセス | 担当者は1人を前提とした設計 | 複数担当者が同じチケットを同時に操作するケースが発生（日常的） |
-| チケット状態の種類・割当契機 | Open / InProgress / Resolved の3種類、割当は手動 | 保留中・ベンダー確認中などの状態と割当・再オープンの契機が追加される（半期以内、確定） |
+| チケット状態の種類・割当契機 | Open / InProgress / Escalated / Resolved の4種類、割当は手動 | 保留中・ベンダー確認中などの状態と割当・再オープンの契機が追加される（半期以内、確定） |
 
 この変化が来たとき、状態の追加と優先度ルールの変更が別々のタイミングで到着することは確認済みです。次のフェーズ3では、フェーズ1の現状コードにこれらの変化を当ててみて、どこが痛みになるかを確認します。
 
@@ -537,9 +632,9 @@ flowchart LR
 
 作業を進める中で、すぐに気づきました。「状態ごとのアクションとルールの条件分岐が混在していて、どちらが変わったときにどこを直せばいいか分からない」という感覚です。ステータスが一つ増えるだけで、「遷移の可否」「担当者への通知」「優先度計算」という、それぞれ変更理由の異なるロジックを一つの大きなメソッドの中で同時に考慮する必要があります。「状態を足したのにSLAのロジックも壊れたかもしれない」という不安が、常について回ります。
 
-実際に変更を加えたコードを見てみましょう。なお、ユーザーIDからユーザー種別を引く `UserDatabase` は今回の変更で変わらないため、この変更試行コードでは省略し、ユーザー種別を直接渡しています。
+実際に変更を加えたコードを見てみましょう。`UserDatabase`・`TicketRepository`・`create()` は今回の変更で変わらないため省略し、修正が入る `PriorityCalculator` と `TicketManager::updateStatus()` に絞って示します。メンバ（`repo`／`db`／`calc`）は1-4と同じです。
 
-> **中間コードの継続条件：** `UserDatabase` の存在確認とユーザー種別取得は省略後も維持します。以下の `userType` はDBから取得した値を表し、利用者が任意の種別を直接指定する新しい仕様へ変えたものではありません。
+> **中間コードの継続条件：** `UserDatabase` の存在確認・ユーザー種別取得と、`TicketRepository` へのチケット保存は省略後も維持します。以下の `updateStatus()` は保存済みチケットを読み書きする1-4の構造をそのまま引き継ぎ、そこへ保留（`Pending`）の分岐を書き足したものです。
 
 ```cpp
 // 優先度ルール（SLA改定を反映）
@@ -554,49 +649,62 @@ public:
 
 // チケット管理（「保留中」状態を追加）
 class TicketManager {
+    TicketRepository repo;
+    UserDatabase db;
     PriorityCalculator calc;
 public:
-    void updateStatus(std::string userType,
-                      std::string status) {
-        std::string priority = calc.calculate(userType);
-        if (status == "Open") {
-            std::cout << "チケット受付中。優先度: "
-                      << priority << std::endl;
-        } else if (status == "InProgress"
-                   && priority == "High") {
-            std::cout << "緊急対応中。担当者を招集します。"
+    void updateStatus(const std::string& ticketId,
+                      const std::string& op,
+                      const std::string& assigneeId = "") {
+        Ticket& t = repo.get(ticketId);
+        std::string before = t.status;
+        if (t.status == "Open" && op == "assign") {
+            t.status = "InProgress";
+            t.assigneeId = assigneeId;
+        } else if (t.status == "InProgress" && op == "resolve") {
+            t.status = "Resolved";
+        } else if (t.status == "InProgress" && op == "escalate") {
+            t.status = "Escalated";
+            t.priority = calc.calculate(db.get(t.userId).userType);
+        } else if (t.status == "Escalated" && op == "resolve") {
+            t.status = "Resolved";
+        } else if (t.status == "Escalated" && op == "sendback") {
+            t.status = "InProgress";
+        } else if (t.status == "Open" && op == "hold") { // ← 新規追加
+            t.status = "Pending";
+        } else if (t.status == "Pending" && op == "reopen") { // ← 追加
+            t.status = "Open";
+            t.priority = calc.calculate(db.get(t.userId).userType);
+        } else if (t.status == "Resolved" && op == "reopen") {
+            t.status = "Open";
+            t.priority = calc.calculate(db.get(t.userId).userType);
+        } else {
+            std::cout << "  操作不可: 状態 " << t.status
+                      << " で " << op << " はできません。"
                       << std::endl;
-        } else if (status == "Pending") { // ← 新規追加
-            std::cout << "保留中。理由を記録します。"
-                      << std::endl;
+            return;
         }
+        repo.save(t);
+        std::cout << "  " << op << ": 状態 " << before << " → "
+                  << t.status << " 優先度=" << t.priority
+                  << std::endl;
     }
 };
-
-int main() {
-    TicketManager mgr;
-    mgr.updateStatus("premium",   "Open");
-    mgr.updateStatus("premium",   "InProgress");
-    mgr.updateStatus("corporate", "Open");    // SLA変更で High
-    mgr.updateStatus("general",   "Pending"); // 新規状態
-    return 0;
-}
 ```
 
-実行対象コード：3-1の変更試行コード
-対応する動作例：変更要求後の代表ケース
+実行対象コード：3-1の変更試行コード（`create()` は1-4と同じ）
+対応する動作例：変更要求後の代表ケース（法人登録＋保留の追加）
 確認したいこと：変更要求を現状構造へ当てはめたとき、修正箇所と痛みがどこに出るか
 
-実行結果：
+実行結果（`create("TCK010","USR001")` で法人チケットを登録し、保留・再受付する）：
 
 ```
-チケット受付中。優先度: High
-緊急対応中。担当者を招集します。
-チケット受付中。優先度: High
-保留中。理由を記録します。
+[TCK010] 作成 状態=Open 優先度=High
+  hold: 状態 Open → Pending 優先度=High
+  reopen: 状態 Pending → Open 優先度=High
 ```
 
-動作は正しくなっています。しかし `PriorityCalculator` と `TicketManager` の両方を修正しており、「状態追加」と「SLAルール変更」という2つの異なる変化が同じ `updateStatus` メソッド内に絡み合っています。
+動作は正しくなっています。しかし `PriorityCalculator`（SLAルール）と `TicketManager::updateStatus()`（状態遷移）の両方を修正しており、「状態追加（保留中）」と「SLAルール変更（法人）」という2つの異なる変化が、同じ `updateStatus` メソッドの分岐と優先度呼び出しに絡み合っています。
 
 ### 3-2：変更影響グラフ
 
@@ -745,9 +853,15 @@ P1とP2を、次の三つの観点で一つの完成構造へ変換します。
 classDiagram
     direction LR
     class TicketManager {
-        -PriorityCalculator calc
+        -TicketRepository repo
         -UserDatabase db
-        +updateStatus(userId, status)
+        -PriorityCalculator calc
+        +create(ticketId, userId)
+        +updateStatus(ticketId, op, assigneeId)
+    }
+    class TicketRepository {
+        +get(id) Ticket
+        +save(t)
     }
     class PriorityCalculator {
         +calculate(userType) string
@@ -755,11 +869,12 @@ classDiagram
     class UserDatabase {
         +get(id) UserInfo
     }
+    TicketManager --> TicketRepository : 保持
     TicketManager --> PriorityCalculator : 保持
     TicketManager --> UserDatabase : 保持
 
-    note for TicketManager "【残す】公開操作・チケット保存・監査ログ\n【P1・移す】status文字列分岐の状態遷移\n【P2・移す】SLA・顧客区分の優先度判定"
-    note for UserDatabase "【維持】ユーザー検索"
+    note for TicketManager "【残す】公開操作・チケット保存\n【P1・移す】status文字列分岐の状態遷移\n【P2・移す】SLA・顧客区分の優先度判定"
+    note for TicketRepository "【維持】チケットの保存・取得"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
     cssClass "TicketManager" focus
@@ -837,13 +952,22 @@ classDiagram
 ```cpp
 // 現状：状態遷移と優先度判定が TicketManager に混在する
 class TicketManager {
+    TicketRepository repo;
+    UserDatabase db;
     PriorityCalculator calc;    // P2: 優先度判定を直接保持
 public:
-    void updateStatus(std::string userType, std::string status) {
-        std::string priority = calc.calculate(userType);   // P2
-        if (status == "Open") { /* ... */ }                // P1: 状態分岐
-        else if (status == "InProgress" && priority == "High") { /* ... */ }
-        else if (status == "Pending") { /* ... */ }        // 状態追加で増える
+    void updateStatus(const std::string& ticketId,
+                      const std::string& op) {
+        Ticket& t = repo.get(ticketId);
+        // P1: status 文字列の分岐が状態の種類だけ並ぶ
+        if (t.status == "Open" && op == "assign") {
+            t.status = "InProgress";
+        } else if (t.status == "InProgress" && op == "escalate") {
+            t.status = "Escalated";
+            // P2: 状態遷移の途中で優先度ルールを呼ぶ
+            t.priority = calc.calculate(db.get(t.userId).userType);
+        }
+        repo.save(t);
     }
 };
 ```
@@ -1488,7 +1612,7 @@ classDiagram
 
 #### 完成後の状態遷移
 
-完成コードが実装する全状態と遷移を、状態遷移図で確認します。現状の3状態（Open・InProgress・Resolved）に加え、`Escalated`（緊急対応中）と `Pending`（保留中）が独立した状態として加わり、エスカレーション後の遷移先も定義されています。
+完成コードが実装する全状態と遷移を、状態遷移図で確認します。現状の4状態（Open・InProgress・Escalated・Resolved）に、変更要求で加わった `Pending`（保留中）を独立した状態として含め、エスカレーション後の遷移先（解決・差し戻し）も定義されています。
 
 ```mermaid
 stateDiagram-v2
@@ -1658,7 +1782,7 @@ graph LR
 **原則3「継承よりコンポジションを優先せよ」の現れ**
 
 - 具体化された場所：`TicketService` が ルール差し替え構造 と 状態分離構造 を保持する構成
-- 解説：ロジックの振る舞いを継承ではなく、保持するオブジェクトの差し替えによって実現しました。継承だけで「状態×優先度ルール」の全組み合わせを表すと、状態3種類×優先度ルール3種類で9クラスになります。状態やルールが増えるたびに組み合わせクラスも増える、二次元的な膨張が起きます。コンポジションなら、状態クラスまたはルールクラスと、それらを結び付ける組み立て箇所を変更できます。
+- 解説：ロジックの振る舞いを継承ではなく、保持するオブジェクトの差し替えによって実現しました。継承だけで「状態×優先度ルール」の全組み合わせを表すと、状態4種類×優先度ルール3種類で12クラスになります。状態やルールが増えるたびに組み合わせクラスも増える、二次元的な膨張が起きます。コンポジションなら、状態クラスまたはルールクラスと、それらを結び付ける組み立て箇所を変更できます。
 
 ---
 

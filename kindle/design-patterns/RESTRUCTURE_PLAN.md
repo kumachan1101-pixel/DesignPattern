@@ -129,6 +129,7 @@
 | ID | 内容 | 状態 |
 |---|---|---|
 | R2-9 | 第9章：チケット実体化（Repository保存）＋Escalated状態新設＋当章の定数化。1-1〜7-4を整合。実行結果を更新 | 完了（7-1実体化コード、TicketService/TicketRepository/StaffDirectory、Escalated状態＋状態遷移図、フェーズ6をTicketService設計へ再構成、enterprise→corporate/ティア→ユーザー種別、担当者ID=AGT系を分離。validator.ch09登録とenum class除外を更新。全ゲート通過） |
+| R2-9b | 第9章：状態保存とEscalated(緊急対応中)は変更要求ではなく現状仕様、という指摘に対応。フェーズ1-5(before側)を状態保存あり・Escalated現状化へ整合 | 完了（1-4 before コードをTicketRepository(map)でID単位保存する実体ありへ作り替え＝優先度と状態遷移はupdateStatusの分岐に混在させ痛みは維持。1-1状態表にEscalated追加＋保存を現状仕様化、1-2動作例・1-2b遷移表/状態図をOpen/InProgress/Escalated/Resolvedへ、1-3クラス表/図にTicketRepository追加、1-5変更要求は状態追加(保留中)＋SLA改定に純化、2-5表・3-1変更試行・6変更前図/おさらいコード・7-1状態図注記を整合。実行結果更新。全ゲート通過） |
 | R2-const-01 | ch01 会員種別 "Premium"/"Regular" → `MemberType`（matches分岐） | 完了 |
 | R2-const-02 | ch02 直文字列の分岐なし（口座IDは記録データ・状態は非文字列）→対象外 | 対象外 |
 | R2-const-03 | ch03 State object方式で文字列分岐なし（EVT系は記録データ）→対象外 | 対象外 |
