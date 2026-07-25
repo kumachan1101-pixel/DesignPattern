@@ -34,10 +34,11 @@
 | 連携先 | 外部物流・在庫システム | PARTNER_A、PARTNER_B | どのAPIへ送るかを決める |
 | 通知 | 送信完了の通知 | 社内通知サービスへの完了通知 | バッチ結果を関係先へ知らせる |
 | 出力 | 同期結果と通知結果 | PARTNER_A連携成功、完了通知済み | 外部連携と通知の結果を照合する |
+| 保存 | 連携先設定とバッチ実行結果 | PARTNER_A、物流会社A、成功 | 設定の参照と実行結果の確認に使う |
 
 ここで確認する対象は、バッチが何を受け取り、どこへ送り、どの結果を返すかです。
 
-外部連携先の認証方式や通知先は、バッチ実行時に毎回手入力する値ではありません。連携先設定・認証情報・通知先設定として外部連携バッチシステムに保存され、実行要求に応じて読み出されます。
+外部連携先の接続先や有効状態は、バッチ実行時に毎回手入力する値ではありません。連携先設定として外部連携バッチシステムに保存され、実行要求に応じて読み出されます。また、1件の送信が終わるたびに、送信結果をバッチ実行結果へ保存します。
 
 ここでは、実装クラスではなく、まず三つのシステムの境界と、その間を流れるデータを確認します。A社とB社はどちらも現在接続している外部システムです。A社には注文データ、B社には在庫情報を送ります。
 
@@ -54,12 +55,12 @@ flowchart LR
 
     subgraph BATCH["外部連携バッチシステム"]
         Q
-        CFG[("連携先設定・認証情報<br>通知先設定")]
+        CFG[("連携先設定")]
         F["設定確認→データ取得→形式変換<br>→認証→送信→通知"]
-        LOG[("送信済みデータ<br>通知済みメッセージ")]
+        LOG[("バッチ実行結果")]
         Q --> F
-        CFG -->|"接続先・認証・通知先"| F
-        F -->|"送信・通知の記録"| LOG
+        CFG -->|"接続先・有効状態"| F
+        F -->|"連携先・名称・成否を記録"| LOG
     end
 
     ORD -->|"A社向け注文データ"| F
@@ -80,7 +81,7 @@ flowchart LR
     class A,B,N boundary;
 ```
 
-この図は、外部連携バッチシステムを一つの箱として見た図です。主要システムに保存された注文・在庫データを読み、A社とB社へ送り、送信済みデータと通知済みメッセージを記録する境界が分かります。
+この図は、外部連携バッチシステムを一つの箱として見た図です。主要システムに保存された注文・在庫データを読み、A社とB社へ送り、送信結果をバッチ実行結果へ記録する境界が分かります。
 
 次に、中央の「外部連携バッチシステム」の箱を開き、正常時に何を入力すると、内部で何が行われ、何が出力されるかを同じ仕様語彙で確認します。全体図と内部処理図は重複ではなく、前者がシステム間の境界、後者が一つのシステム内の処理順を示します。
 
@@ -89,11 +90,11 @@ flowchart LR
 ```mermaid
 flowchart LR
     A[/"実行要求<br>連携先ID・実行種別"/]:::input --> C["連携先設定と<br>実行条件を確認"]:::process
-    B[/"保存済み設定<br>接続先・認証・通知先"/]:::input --> C
+    B[/"保存済み設定<br>接続先・有効状態"/]:::input --> C
     D[/"同期対象データ<br>注文・在庫"/]:::input --> E["送信用形式へ変換"]:::process
     C --> F["認証して外部へ送信"]:::process
     E --> F
-    F --> G["関係先へ通知し<br>送信・通知を記録"]:::process
+    F --> G["送信結果を保存し<br>関係先へ通知"]:::process
     G --> H(["正常出力<br>同期結果・通知結果"]):::normal
 
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
@@ -104,7 +105,7 @@ flowchart LR
 この二つの図から読み取ることは、次の3点です。
 
 - 主要システム、外部連携バッチシステム、A社・B社の間で、どのデータと結果を受け渡すかが分かる。
-- 外部連携バッチシステムは、実行要求と保存済み設定を受け、データ取得・形式変換・認証・送信・通知・送信済みデータと通知メッセージの記録を順に行う。
+- 外部連携バッチシステムは、実行要求と保存済み設定を受け、データ取得・形式変換・認証・送信・結果保存・通知を順に行う。
 - 後でコードを読むときは、この仕様上の処理が、どのクラスの責任として実装されているかを1-3以降で対応づける。
 
 現状のシステムは、複数の外部連携先へデータを転送します。連携先はそれぞれ独自のデータフォーマットと接続認証を要求し、データの転送完了後には在庫管理システムや社内通知サービスへ「処理完了」を通知します。
@@ -153,7 +154,7 @@ flowchart LR
 |---|---|---|---|
 | 連携先が未登録、または無効 | 連携先設定の確認時 | 連携先エラー | 外部送信なし、通知なし |
 | 実行条件を満たさない | 実行要求の確認時 | 実行条件エラー | 外部送信なし、通知なし |
-| 外部API送信に失敗する | 外部システムへの送信時 | 送信エラー | 現状の掲載コードでは成功応答だけを代替する。実システムでは失敗通知、リトライ、再実行キューを検討する |
+| 外部API送信に失敗する | 外部システムへの送信時 | 送信エラー | 送信結果を保存する。リトライ、再実行キュー、後続ジョブの継続は現状の掲載コードでは扱わない |
 
 ### 1-2：動作例テーブル
 
@@ -161,10 +162,10 @@ flowchart LR
 
 | 行 | シナリオ | 操作 | 現状の結果 |
 |---|---|---|---|
-| 1 | A社向け正常実行 | A社向け月次バッチを実行する | A社へ注文データを送り、社内通知サービスへ完了通知する |
-| 2 | B社向け正常実行 | B社向け同期を実行する | B社へ在庫情報を送り、社内通知サービスへ完了通知する |
-| 3 | 無効な連携先 | 無効化済みのZ社を指定する | 送信・通知を行わず、無効エラーを返す |
-| 4 | 未登録の連携先 | 未登録のX社を指定する | 送信・通知を行わず、未登録エラーを返す |
+| 1 | A社向け正常実行 | A社向け月次バッチを実行する | A社へ注文データを送り、成功結果を保存して社内通知サービスへ完了通知する |
+| 2 | B社向け正常実行 | B社向け同期を実行する | B社へ在庫情報を送り、成功結果を保存して社内通知サービスへ完了通知する |
+| 3 | 無効な連携先 | 無効化済みのZ社を指定する | 送信・通知を行わず、スキップ結果を保存して無効エラーを返す |
+| 4 | 未登録の連携先 | 未登録のX社を指定する | 送信・通知を行わず、失敗結果を保存して未登録エラーを返す |
 
 次は、この仕様を現状コードのクラスへ対応づけます。
 
@@ -178,6 +179,9 @@ flowchart LR
 |---|---|---|
 | `PartnerConfig` | 1社分の連携先名・接続先・有効状態を持つ値 | 保存済みの連携先設定 |
 | `PartnerDatabase` | 連携先IDごとの設定を保存・検索する | 連携先の存在・有効確認と設定取得 |
+| `DeliveryResult` | 送信1件の成否と詳細を受け渡す値 | 外部システムから返る送信結果 |
+| `BatchRecord` | 保存する実行結果1件を表す値 | 連携先ID・名称・成否の記録 |
+| `BatchLog` | バッチ実行結果を保存・一覧表示する | 実行結果の保存 |
 | `BatchExecutor` | 外部連携バッチ全体を実行する | 連携先選択、送信、通知の呼び出し |
 | `SystemAClient` | A社向けにデータを送信する | A社連携 |
 | `SystemBClient` | B社向けにデータを送信する | B社連携 |
@@ -197,21 +201,41 @@ classDiagram
         +isEnabled(id) bool
         +get(id) PartnerConfig
     }
+    class DeliveryResult {
+        +status string
+        +success bool
+        +message string
+    }
+    class BatchRecord {
+        +partnerId string
+        +partnerName string
+        +status string
+    }
+    class BatchLog {
+        +add(partnerId, partnerName, status)
+        +printAll()
+        +size() int
+    }
     class BatchExecutor {
-        +execute(string partnerId)
+        +execute(string partnerId) DeliveryResult
     }
     class SystemAClient {
-        +send(string data)
+        +send(string data) DeliveryResult
     }
     class SystemBClient {
-        +send(string data)
+        +send(string data) DeliveryResult
     }
     class NotificationService {
         +notify(string result)
     }
     PartnerDatabase *-- PartnerConfig : ID別に保存
-    BatchExecutor *-- PartnerDatabase : 保持
+    BatchLog *-- BatchRecord : 実行結果を保存
+    BatchExecutor --> PartnerDatabase : 参照
+    BatchExecutor --> BatchLog : 結果を保存
     BatchExecutor ..> PartnerConfig : 設定を取得
+    SystemAClient ..> DeliveryResult : 返す
+    SystemBClient ..> DeliveryResult : 返す
+    BatchExecutor ..> DeliveryResult : 受け取る
     BatchExecutor ..> SystemAClient : A社送信時に生成・呼出
     BatchExecutor ..> SystemBClient : B社送信時に生成・呼出
     BatchExecutor ..> NotificationService : 送信後に生成・呼出
@@ -223,12 +247,15 @@ classDiagram
 |---|---|---|
 | `PartnerConfig` | `name` / `endpoint` / `isEnabled` | 1社分の名称、接続先、有効状態を受け渡す |
 | `PartnerDatabase` | `exists()` / `isEnabled()` / `get()` | 連携先の存在・有効状態を確認し、設定を返す |
-| `BatchExecutor` | `execute()` | 連携先IDを受け取り、送信処理と通知処理を進める |
-| `SystemAClient` | `send()` | A社向けの形式でデータを送信する |
-| `SystemBClient` | `send()` | B社向けの形式でデータを送信する |
+| `DeliveryResult` | `status` / `success` / `message` | 送信1件の成否と詳細を受け渡す |
+| `BatchRecord` | `partnerId` / `partnerName` / `status` | 保存する実行結果1件を表す |
+| `BatchLog` | `add()` / `printAll()` / `size()` | 実行結果を追記し、保存件数と内容を確認する |
+| `BatchExecutor` | `execute()` | 連携先IDを受け取り、送信結果の保存と通知を進める |
+| `SystemAClient` | `send()` | A社向けに送信し、結果を返す |
+| `SystemBClient` | `send()` | B社向けに送信し、結果を返す |
 | `NotificationService` | `notify()` | 外部連携の結果を通知する |
 
-図に置いたすべての型は、現状コードで定義され、少なくとも一つの保存・取得・生成・呼び出し関係を持ちます。変更要求で初めて追加する通知先や送信結果型は、現状図へ先取りしません。
+図に置いたすべての型は、現状コードで定義され、少なくとも一つの保存・取得・生成・呼び出し関係を持ちます。`DeliveryResult` と `BatchLog` は変更要求によって追加する要素ではなく、変更前からある送信結果の契約と保存方法です。変更要求で初めて追加するC社、Slack通知、複数ジョブの順次実行だけは、現状図へ先取りしません。
 
 ---
 
@@ -239,10 +266,11 @@ classDiagram
 | 対象 | 呼び出しと内部処理 | 戻り値・副作用 | 掲載上の表現 |
 |---|---|---|---|
 | 連携先設定 | 連携先IDから設定を検索する | `PartnerConfig` | `map`で設定DBを代替する |
-| A社・B社向け送信 | 連携データを外部システムへ送る | 戻り値なし。送信済みデータを蓄積する | `vector`と標準出力で成功応答だけを代替する |
+| A社・B社向け送信 | 連携データを外部システムへ送る | `DeliveryResult`を返し、送信済みデータを蓄積する | `vector`と標準出力で成功応答だけを代替する |
+| 実行結果の保存 | 送信結果を1件ずつ追記する | `BatchRecord`を`BatchLog`へ保存する | `vector`で実行結果DBを代替する |
 | 完了通知 | バッチ結果を社内通知サービスへ送る | 通知済みメッセージを蓄積する | `vector`と標準出力で通知を代替する |
 
-現状コードは、一つの連携先を指定して成功前提で送信する実装です。送信処理は `void` であり、送信失敗を表す結果型、複数ジョブの順次実行、Slack通知はまだありません。これらは1-5の変更要求で初めて追加します。
+現状コードは、一つの連携先を指定して送信する実装です。送信1件の成否は `DeliveryResult` で受け取り、`BatchLog`へ保存します。この結果契約と保存方法は今回の仕様変更では変えません。複数ジョブの順次実行、途中失敗後の継続、Slack通知はまだなく、1-5の変更要求で追加します。
 
 コードは責任の固まりごとに分けて読みます。まず、あらかじめ登録されている連携先データを把握しておきます。
 
@@ -256,9 +284,9 @@ classDiagram
 
 無効なパートナーや未登録のIDを指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
 
-現状では、1回の `execute()` が1社分の送信と完了通知を行います。外部APIの通信時間、失敗、リトライ、再送キューはまだ実装されていません。1-5で「途中の送信失敗でも後続ジョブを止めない」という要求を受けた後、送信結果を値として返す必要性を導きます。
+現状では、1回の `execute()` が1社分の送信、結果保存、完了通知を行います。送信結果の値と保存先はすでにありますが、外部API障害を含む複数ジョブを順次流す制御、失敗後の継続、リトライ、再送キューはまだ実装されていません。1-5以降では、既存の結果を使って「途中の送信失敗でも後続ジョブを止めない」実行構造を作ります。
 
-**① 連携先設定を表すクラス（PartnerConfig / PartnerDatabase）**
+**① 変更前後で共通する設定・結果・保存の型（PartnerConfig / PartnerDatabase / DeliveryResult / BatchLog）**
 
 最初に、1-1の「連携先システム一覧」にあたるデータを持つ部分です。連携先IDから接続先設定を引く役割を担い、エラー条件「未登録のID」「無効な連携先」もここで判定します。
 
@@ -302,9 +330,42 @@ public:
         records[id] = cfg;            // 実行中の連携先表へ追加
     }
 };
+
+// 送信1件分の結果。今回の仕様変更の前後で同じ契約を使う。
+struct DeliveryResult {
+    string status;   // "成功" または "失敗"
+    bool success;
+    string message;
+};
+
+struct BatchRecord {
+    string partnerId;
+    string partnerName;
+    string status;
+};
+
+// バッチ実行結果の保存方法も、今回の仕様変更の前後で変えない。
+class BatchLog {
+    vector<BatchRecord> records;
+public:
+    void add(const string& partnerId, const string& partnerName,
+             const string& status) {
+        records.push_back({partnerId, partnerName, status});
+        cout << "実行結果を保存(" << records.size() << "件): ["
+             << partnerId << "] " << partnerName
+             << " -> " << status << endl;
+    }
+    void printAll() const {
+        for (const auto& r : records) {
+            cout << "[" << r.partnerId << "] " << r.partnerName
+                 << " -> " << r.status << endl;
+        }
+    }
+    int size() const { return static_cast<int>(records.size()); }
+};
 ```
 
-`PartnerDatabase` は `std::map` で連携先IDと `PartnerConfig` を対応付けたマスターデータです。`exists()` でIDの存在確認、`isEnabled()` で有効・無効の判定、`get()` で設定取得を行います。実システムのDB問い合わせを、この章では実行終了まで覚えているインメモリの登録表で代替しています。
+`PartnerDatabase` は `std::map` で連携先IDと `PartnerConfig` を対応付けたマスターデータです。`DeliveryResult`は外部送信の結果、`BatchRecord`と`BatchLog`は実行結果の保存を表します。実システムのDB問い合わせと結果保存を、この章では実行終了まで覚えているインメモリの登録表で代替します。これらは変更後コードでも同じ型と保存方法を使います。
 
 **② 外部連携クライアントと通知クラス（SystemAClient / SystemBClient / NotificationService）**
 
@@ -314,17 +375,19 @@ public:
 class SystemAClient {
     vector<string> sent;              // 送ったデータを実際に蓄積する
 public:
-    void send(string d) {
+    DeliveryResult send(string d) {
         sent.push_back(d);
         cout << "A社へ送信(" << sent.size() << "件): " << d << endl;
+        return {"成功", true, "A社: " + to_string(d.size()) + "バイト送信"};
     }
 };
 class SystemBClient {
     vector<string> sent;
 public:
-    void send(string d) {
+    DeliveryResult send(string d) {
         sent.push_back(d);
         cout << "B社へ送信(" << sent.size() << "件): " << d << endl;
+        return {"成功", true, "B社: " + to_string(d.size()) + "バイト送信"};
     }
 };
 class NotificationService {
@@ -337,7 +400,7 @@ public:
 };
 ```
 
-`SystemAClient` と `SystemBClient` は連携先ごとに分かれた送信クラスで、送ったデータを内部に蓄積しつつ、実通信は標準出力で代替します。`NotificationService` は転送完了後の社内通知を担い、受け取った通知を蓄積して通し番号（何件目か）付きで表示します。実通信こそ省きますが、「何を送り、何件通知したか」は実際の状態として残ります。Slack通知は変更要求で追加するため、現状コードには置きません。
+`SystemAClient` と `SystemBClient` は連携先ごとに分かれた送信クラスで、送ったデータを内部に蓄積し、`DeliveryResult`を返します。`NotificationService` は転送後の社内通知を担い、受け取った通知を蓄積して通し番号付きで表示します。Slack通知は変更要求で追加するため、現状コードには置きません。
 
 **③ バッチ処理をまとめるクラス（BatchExecutor）**
 
@@ -345,30 +408,41 @@ public:
 
 ```cpp
 class BatchExecutor {
-    PartnerDatabase db;
+    PartnerDatabase& db;
+    BatchLog& batchLog;
 public:
-    void execute(string partnerId) {
+    BatchExecutor(PartnerDatabase& database, BatchLog& log)
+        : db(database), batchLog(log) {}
+
+    DeliveryResult execute(string partnerId) {
         if (!db.exists(partnerId)) {
             cout << "エラー: パートナーID [" << partnerId
                  << "] はデータベースに登録されていません。" << endl;
-            return;
+            DeliveryResult r{"失敗", false, "未登録"};
+            batchLog.add(partnerId, "未登録", r.status);
+            return r;
         }
         if (!db.isEnabled(partnerId)) {
             PartnerConfig cfg = db.get(partnerId);
             cout << "エラー: パートナー [" << cfg.name
                  << "] は現在無効です。処理を中断します。" << endl;
-            return;
+            DeliveryResult r{"失敗", false, "無効"};
+            batchLog.add(partnerId, cfg.name, "スキップ（無効）");
+            return r;
         }
         PartnerConfig cfg = db.get(partnerId);
+        DeliveryResult result{"失敗", false, "未対応の連携先"};
         if (partnerId == "PARTNER_A") {
             SystemAClient client; // A社向けクライアントを生成
-            client.send(cfg.name + "のデータ");
+            result = client.send(cfg.name + "のデータ");
         } else if (partnerId == "PARTNER_B") {
             SystemBClient client; // B社向けクライアントを生成
-            client.send(cfg.name + "のデータ");
+            result = client.send(cfg.name + "のデータ");
         }
-        NotificationService notifier; // 連携完了を通知
-        notifier.notify(cfg.name + " 連携完了");
+        batchLog.add(partnerId, cfg.name, result.status);
+        NotificationService notifier;
+        notifier.notify(cfg.name + (result.success ? " 連携完了" : " 連携失敗"));
+        return result;
     }
 };
 ```
@@ -383,7 +457,9 @@ public:
 
 ```cpp
 int main() {
-    BatchExecutor executor;
+    PartnerDatabase db;
+    BatchLog batchLog;
+    BatchExecutor executor(db, batchLog);
 
     // 行1: A社向け月次バッチを実行する
     executor.execute("PARTNER_A");
@@ -397,6 +473,9 @@ int main() {
     // 行4: 未登録パートナーの実行
     executor.execute("PARTNER_X");
 
+    cout << "\n--- バッチ実行ログ（" << batchLog.size() << "件） ---\n";
+    batchLog.printAll();
+
     return 0;
 }
 ```
@@ -409,15 +488,25 @@ int main() {
 
 ```
 A社へ送信(1件): 物流会社Aのデータ
+実行結果を保存(1件): [PARTNER_A] 物流会社A -> 成功
 完了通知(1件): 物流会社A 連携完了
 B社へ送信(1件): 在庫会社Bのデータ
+実行結果を保存(2件): [PARTNER_B] 在庫会社B -> 成功
 完了通知(1件): 在庫会社B 連携完了
 エラー: パートナー [分析会社Z] は現在無効です。処理を中断します。
+実行結果を保存(3件): [PARTNER_Z] 分析会社Z -> スキップ（無効）
 エラー: パートナーID [PARTNER_X] はデータベースに登録されていません。
+実行結果を保存(4件): [PARTNER_X] 未登録 -> 失敗
+
+--- バッチ実行ログ（4件） ---
+[PARTNER_A] 物流会社A -> 成功
+[PARTNER_B] 在庫会社B -> 成功
+[PARTNER_Z] 分析会社Z -> スキップ（無効）
+[PARTNER_X] 未登録 -> 失敗
 ```
 
 > [!NOTE]
-> 上記は1-2の現状動作例4行に対応します。行1・2はA社・B社への送信と完了通知、行3・4は無効・未登録の連携先で送信と通知を行わないことを確認できます。C社、Slack、複数ジョブ、送信失敗の継続は1-5の変更要求で追加し、フェーズ7の最終コードで確認します。
+> 上記は1-2の現状動作例4行に対応します。行1・2はA社・B社への送信、結果保存、完了通知、行3・4は送信と通知を行わず、スキップ・失敗結果だけを保存することを確認できます。C社、Slack、複数ジョブ、送信失敗後の継続は1-5の変更要求で追加し、フェーズ7の最終コードで確認します。
 
 このコードから、`BatchExecutor` が各連携先の生成と送信、さらにはその後の通知処理までを一手に引き受けていることが分かります。
 
@@ -442,7 +531,10 @@ B社へ送信(1件): 在庫会社Bのデータ
 | 連携先 | A社・B社の2社 | C社（配送管理）を追加して3社 |
 | バッチ完了通知 | 社内向けの汎用完了通知 | 通知先をSlackへ具体化し、成功・失敗を自動通知 |
 | 実行単位 | 1連携先を都度実行 | 複数連携先の送信ジョブを順番に流す |
-| 送信失敗 | 未対応 | 途中の送信失敗でも後続ジョブと通知は止めない |
+| 送信失敗 | 1件の結果は表現・保存できるが、後続ジョブはない | 途中の送信失敗でも後続ジョブと通知は止めない |
+| 結果の表現・保存 | `DeliveryResult`から`BatchRecord`を作り`BatchLog`へ保存する | **変更なし**。同じ結果契約と保存方法を使う |
+
+最後の行は仕様変更ではなく、変更前後で守る共通基盤です。対策後のコードにだけ`DeliveryResult`や`BatchLog`が現れると、「連携先・通知・実行単位を変える」という要求とは無関係に保存方法まで変えたことになります。その差分を生じさせないため、以降は既存の結果契約と保存方法をそのまま引き継ぎます。
 
 **変更後の動作例**
 
@@ -491,6 +583,7 @@ B社へ送信(1件): 在庫会社Bのデータ
 | 判定 | 連携先は有効か、データは送信可能か | C社を含めて有効か、通知先は有効か、送信は成功したか | 連携先・通知先・送信成否の判定が増える |
 | 加工 | 送信用形式へ変換し外部連携する | ジョブを順に流してC社へも連携し、完了ごとにSlack通知する | 順次実行と通信・通知の加工が増える |
 | 出力 | 同期結果と汎用完了通知 | ジョブごとの同期結果（成功/失敗）とSlack通知結果 | 送信失敗を含む結果と通知結果を追う |
+| 保存 | `DeliveryResult`を`BatchLog`へ1件ずつ保存 | 同じ結果契約と保存方法を使う | **変更なし。対策検討で作り替えない** |
 
 **変更後の入力・加工・出力**
 
@@ -503,6 +596,8 @@ flowchart LR
     E[/検証済み実行要求/]:::input --> H
     D --> H[ジョブを順に送信]:::process
     G --> H
+    H -->|送信結果| R[既存と同じ形式で保存]:::stable
+    R --> S[(バッチ実行結果)]:::stable
     H -->|成功| I[関係先へ通知<br>在庫管理・社内通知＋Slack]:::process
     H -->|失敗| L[失敗通知＋次ジョブへ]:::process
     H -->|成功| J([正常出力<br>同期結果]):::normal
@@ -513,13 +608,15 @@ flowchart LR
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef stable fill:#ecfeff,stroke:#0891b2,color:#111827;
 ```
 
-この図から読み取ることは、次の3点です。
+この図から読み取ることは、次の4点です。
 
 - 「C社の追加」と「D社の追加」は入力の「連携先ジョブ列」と、その先の認証・形式変換・送信に現れる。
 - 「Slack通知の追加」は送信の成功・失敗どちらの後にも現れ、通知先の一覧側の変化として整理できる。
 - 「順次実行」は複数ジョブを順に流す実行骨格で、あるジョブの送信失敗があっても後続ジョブと通知は止めない。順次実行・通知・生成が図の上でも別々の箱に現れ、独立した変化軸だという整理と一致する。
+- 水色の「既存と同じ形式で保存→バッチ実行結果」は1-1から変わらない。変更する通信・通知・実行構造が、既存の`DeliveryResult`と`BatchLog`へ接続し直されるだけである。
 
 変更後も、失敗条件は正常系図へ混ぜずに別で確認します。
 
@@ -632,30 +729,36 @@ Slack通知は成功・失敗を問わず送る要求のため、送信失敗時
 
 フェーズ2で確定した変更を、既存の `BatchExecutor` にそのまま組み込もうとします。「C社連携の追加」と「Slack通知の追加」——どちらもシンプルに聞こえますが、実際にコードを変えようとすると何が起きるかを確認します。
 
-変更を試みると、次のようなコードになります。なお、この変更試行コードでは `PartnerDatabase` による存在・有効チェックを省略し、パートナーIDを "A"・"B"・"C" と略記しています。どちらも今回の変更の論点ではないためです。
+変更を試みると、次のようなコードになります。なお、この変更試行コードでは `PartnerDatabase` による存在・有効チェックを省略し、パートナーIDを "A"・"B"・"C" と略記しています。既存の`DeliveryResult`と`BatchLog`は省略せず、そのまま使います。
 
 > **中間コードの継続条件：** `PartnerDatabase` の存在・有効チェックは省略後も維持し、検証済みの `partnerId` だけを `BatchExecutor` へ渡します。短縮IDは図を読みやすくする表記であり、マスター検証を削除する仕様変更ではありません。
 
 ```cpp
 // C社連携を追加しようとすると...
 class BatchExecutor {
+    BatchLog& batchLog;
 public:
-    void execute(string partnerId) {
+    BatchExecutor(BatchLog& log) : batchLog(log) {}
+
+    DeliveryResult execute(string partnerId) {
+        DeliveryResult result{"失敗", false, "未対応"};
         if (partnerId == "A") {
             SystemAClient client;
-            client.send("data");
+            result = client.send("data");
         } else if (partnerId == "B") {
             SystemBClient client;
-            client.send("data");
+            result = client.send("data");
         } else if (partnerId == "C") {          // ← 新しい連携先を追加
             SystemCClient client;              // ← SystemCClientも追加が必要
-            client.send("data");
+            result = client.send("data");
         }
+        batchLog.add(partnerId, partnerId + "社", result.status); // 保存方法は変更しない
         // Slack通知を追加しようとすると、通知の仕組みも一緒に変更が必要
         NotificationService notifier;
-        notifier.notify("Success");
+        notifier.notify(result.status);
         SlackNotifier slack;                  // ← 通知先を増やすとここも増える
-        slack.notify("Success");
+        slack.notify(result.status);
+        return result;
     }
 };
 ```
@@ -666,14 +769,16 @@ public:
 // 動作確認用のスタブ
 class SystemAClient {
 public:
-    void send(std::string data) {
+    DeliveryResult send(std::string data) {
         std::cout << "[A社] " << data << std::endl;
+        return {"成功", true, "A社送信完了"};
     }
 };
 class SystemCClient {
 public:
-    void send(std::string data) {
+    DeliveryResult send(std::string data) {
         std::cout << "[C社] " << data << std::endl;
+        return {"成功", true, "C社送信完了"};
     }
 };
 class NotificationService {
@@ -690,7 +795,8 @@ public:
 };
 
 int main() {
-    BatchExecutor executor;
+    BatchLog batchLog;
+    BatchExecutor executor(batchLog);
     executor.execute("A"); // A社連携
     std::cout << "---" << std::endl;
     executor.execute("C"); // C社連携（新規）
@@ -706,12 +812,14 @@ int main() {
 
 ```
 [A社] data
-[メール通知] Success
-[Slack通知] Success
+実行結果を保存(1件): [A] A社 -> 成功
+[メール通知] 成功
+[Slack通知] 成功
 ---
 [C社] data
-[メール通知] Success
-[Slack通知] Success
+実行結果を保存(2件): [C] C社 -> 成功
+[メール通知] 成功
+[Slack通知] 成功
 ```
 
 動作は正しくなっています。しかし A社のバッチを実行したときも Slack通知が走っており、C社追加のついでに Slack通知も全社に影響しています。
@@ -848,16 +956,19 @@ graph LR
 
 ```cpp
 // 現在の BatchExecutor.execute() が知っていること（全部）
-void execute(string partnerId) {
+DeliveryResult execute(string partnerId) {
+    DeliveryResult result{"失敗", false, "未対応"};
     if (partnerId == "A") {
         SystemAClient client;   // ← 具体クラスを生成している（接続点C）
-        client.send("data");    // ← 通信の詳細を知っている（接続点A）
+        result = client.send("data"); // ← 通信の詳細を知っている（接続点A）
     } else if (partnerId == "B") {
         SystemBClient client;   // ← 具体クラスを生成している（接続点C）
-        client.send("data");    // ← 通信の詳細を知っている（接続点A）
+        result = client.send("data"); // ← 通信の詳細を知っている（接続点A）
     }
+    batchLog.add(partnerId, partnerId + "社", result.status); // 既存の保存方法
     NotificationService n;      // ← 通知サービスの実装を知っている（接続点B）
-    n.notify("Success");        // ← 通知の詳細を知っている（接続点B）
+    n.notify(result.status);     // ← 通知の詳細を知っている（接続点B）
+    return result;
 }
 ```
 
@@ -901,19 +1012,31 @@ P1〜P3を、次の三つの観点で一つの完成構造へ変換します。
 | フェーズ4の原因 | `BatchExecutor` に通信・通知・生成が混在する | 同じクラスの中で `【残す】` と `【移す】` を分ける |
 | フェーズ5の接続点 | 実行順は残し、通信・通知・生成を各契約へ委ねればよい | P1を `IExternalClient`、P2を `INotifier`、P3を `IClientCreator` へ置く |
 
-**薄い黄色が着目クラス**です。変更前では `BatchExecutor` の `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。矢印は1-3と同じ利用・実装・生成関係です。
+**薄い黄色が今回変える責任、薄い水色が変更前後で維持する共通基盤**です。変更前では `BatchExecutor` の `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。`PartnerDatabase`、`DeliveryResult`、`BatchLog`は作り替えず、新しい通信・通知・生成構造から同じ基盤へ接続します。
 
 **変更前のクラス図（1-3を責任見直し用に再掲）：**
 
 ```mermaid
 classDiagram
     direction LR
+    class PartnerConfig
+    class PartnerDatabase
+    class DeliveryResult
+    class BatchRecord
+    class BatchLog
     class BatchExecutor {
         +execute(partnerId)
     }
-    class SystemAClient { +send(data) }
-    class SystemBClient { +send(data) }
+    class SystemAClient { +send(data) DeliveryResult }
+    class SystemBClient { +send(data) DeliveryResult }
     class NotificationService { +notify(result) }
+    PartnerDatabase *-- PartnerConfig : 設定を保存
+    BatchLog *-- BatchRecord : 結果を保存
+    BatchExecutor --> PartnerDatabase : 設定を参照
+    BatchExecutor --> BatchLog : 結果を保存
+    SystemAClient ..> DeliveryResult : 返す
+    SystemBClient ..> DeliveryResult : 返す
+    BatchExecutor ..> DeliveryResult : 受け取る
     BatchExecutor ..> SystemAClient : 生成・送信
     BatchExecutor ..> SystemBClient : 生成・送信
     BatchExecutor ..> NotificationService : 通知
@@ -922,7 +1045,9 @@ classDiagram
     note for NotificationService "【P2・移す】通知先の実装"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    classDef stable fill:#E0F7FA,stroke:#0891B2,stroke-width:2px,color:#222222
     cssClass "BatchExecutor" focus
+    cssClass "PartnerConfig,PartnerDatabase,DeliveryResult,BatchRecord,BatchLog" stable
 ```
 
 変更前は `BatchExecutor` が通信・通知・生成の3責務を抱え、連携先追加・通知追加・生成条件変更のいずれでも同じクラスの `execute()` を開きます。
@@ -939,7 +1064,10 @@ P1〜P3をクラス図の変更として書くと、次の3操作になります
 
 ```mermaid
 classDiagram
+    class PartnerConfig
     class PartnerDatabase
+    class DeliveryResult
+    class BatchRecord
     class BatchLog
     class BatchApplication
     class ManualTriggerController
@@ -972,17 +1100,27 @@ classDiagram
     IClientCreator <|.. SystemBClientCreator
     IClientCreator <|.. SystemCClientCreator
     IClientCreator <|.. SystemDClientCreator
-    BatchExecutor --> PartnerDatabase
-    BatchExecutor --> BatchLog
-    BatchApplication --> BatchExecutor
-    ManualTriggerController --> BatchApplication
+    PartnerDatabase *-- PartnerConfig : 設定を保存
+    BatchLog *-- BatchRecord : 結果を保存
+    IExternalClient ..> DeliveryResult : 返す
+    BatchExecutor ..> DeliveryResult : 受け取る
+    ManualTriggerController ..> DeliveryResult : 受け取る
+    BatchExecutor --> PartnerDatabase : 既存設定を参照
+    BatchExecutor --> BatchLog : 既存方式で保存
+    ManualTriggerController --> BatchLog : 既存方式で保存
+    BatchApplication *-- PartnerDatabase : 所有
+    BatchApplication *-- BatchLog : 所有
+    BatchApplication --> BatchExecutor : 組み立て・実行
+    BatchApplication --> ManualTriggerController : 組み立て・実行
 
     note for IExternalClient "【P1・新設】通信の窓口契約（窓口構造）"
     note for INotifier "【P2・新設】通知の共通契約（通知分離構造）"
     note for IClientCreator "【P3・新設】生成の契約（生成分離構造）"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    classDef stable fill:#E0F7FA,stroke:#0891B2,stroke-width:2px,color:#222222
     cssClass "IExternalClient,SystemAClient,INotifier,SlackNotifier,IClientCreator,SystemAClientCreator" focus
+    cssClass "PartnerConfig,PartnerDatabase,DeliveryResult,BatchRecord,BatchLog" stable
 ```
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
@@ -1001,16 +1139,19 @@ classDiagram
 
 ```cpp
 // 現状：通信・通知・生成が execute() に混在する
-void BatchExecutor::execute(std::string partnerId) {
+DeliveryResult BatchExecutor::execute(std::string partnerId) {
+    DeliveryResult result{"失敗", false, "未対応"};
     if (partnerId == "A") {
         SystemAClient client;   // P3: 具体クラスを生成
-        client.send("data");    // P1: 通信の詳細を知っている
+        result = client.send("data"); // P1: 通信の詳細を知っている
     } else if (partnerId == "B") {
         SystemBClient client;   // P3
-        client.send("data");    // P1
+        result = client.send("data"); // P1
     }
+    batchLog.add(partnerId, partnerId + "社", result.status); // 変更対象外
     NotificationService n;      // P2: 通知サービスを直接生成
-    n.notify("Success");        // P2: 通知の詳細を知っている
+    n.notify(result.status);     // P2: 通知の詳細を知っている
+    return result;
 }
 ```
 
@@ -1023,8 +1164,6 @@ void BatchExecutor::execute(std::string partnerId) {
 連携先ごとの通信詳細を窓口の裏へ隠します。`BatchExecutor` は `send()` の結果だけを受け取り、各社固有の送信処理を知りません。
 
 ```cpp
-struct DeliveryResult { bool ok; std::string detail; };
-
 class IExternalClient {
 public:
     virtual ~IExternalClient() = default;
@@ -1032,7 +1171,7 @@ public:
 };
 ```
 
-**P1との対応：** `IExternalClient` を新設しました（窓口構造）。`SystemAClient`〜`SystemDClient` が実装し、通信詳細は各Clientに閉じます。
+**P1との対応：** `IExternalClient` を新設しました（窓口構造）。戻り値には1-4から存在する`DeliveryResult`をそのまま使います。`SystemAClient`〜`SystemDClient`が実装し、通信詳細だけを各Clientへ閉じます。ここで結果契約を新設・変更しているわけではありません。
 
 #### 実装ステップ2（P2）：通知の共通契約 `INotifier` を定め、登録制にする
 
@@ -1083,10 +1222,14 @@ class BatchExecutor {
     BatchLog& log;
 public:
     void addNotifier(INotifier* n) { notifiers.push_back(n); }
-    void execute(IClientCreator* creator, const std::string& partnerId) {
+    DeliveryResult execute(
+        IClientCreator* creator,
+        const std::string& partnerId) {
         IExternalClient* client = creator->createClient();   // P3
         DeliveryResult r = client->send("data");             // P1
+        log.add(partnerId, partners.get(partnerId).name, r.status);
         for (auto* n : notifiers) n->onComplete(partnerId);  // P2
+        return r;
     }
 };
 ```
@@ -1108,6 +1251,7 @@ Client・Notifier・Creatorは組み立て側が所有し、`BatchExecutor` は�
 | P2：通知 | 通知追加でバッチ本体の分岐を増やさない | `INotifier` の登録リスト | 新Notifierと登録へ変更が閉じた |
 | P3：生成 | 両入口から具体Client生成を外す | `IClientCreator` と共有Application | Client選択がCreatorへ集まり、両入口が同じ経路を使う |
 | P1〜P3を接続したシステム全体 | 実行順と送信確定・成否を維持する | `execute()` が三契約を順に利用する | 三軸を独立させたまま同じバッチ骨格で動く |
+| 変更対象外：結果と保存 | 既存の結果契約・保存方法を維持する | `DeliveryResult` と `BatchLog` をそのまま利用する | 対策前後で無関係なデータ差分を作っていない |
 
 **システム全体の実装結果：達成。** P1〜P3が一つの実行経路で接続され、フェーズ5で目指した状態を実現しました。実際の動作と変更影響はフェーズ7で確認します。
 
@@ -1118,13 +1262,13 @@ Client・Notifier・Creatorは組み立て側が所有し、`BatchExecutor` は�
 
 ### 7-1：解決後のコード（全体）
 
-フェーズ6で選んだ構造を実装します。連携先クライアントの生成を`IClientCreator`と具象Creatorに、通知処理を`INotifier`として分離しました。あわせて、1-4の現状コードで `void` だった送信処理を、1件ごとの成否を表す `DeliveryResult` を返す形に改めます。これにより、`BatchExecutor` は送信の成功・失敗を実際の結果から受け取り、失敗しても記録して次のジョブへ進めます（1-5の変更後動作例「行5：API障害」を、この最終コードで実際に再現します）。
+フェーズ6で選んだ構造を実装します。連携先クライアントの生成を`IClientCreator`と具象Creatorに、通知処理を`INotifier`として分離します。送信結果の`DeliveryResult`と保存先の`BatchLog`は1-4の現状コードから変更せず、新しい通信・通知・生成構造を既存の結果保存へ接続します。今回追加するのは、複数ジョブの途中で失敗しても、その既存結果を記録して次へ進む制御です。
 
 解決後のコードも、責任の固まりごとに分けて読みます。
 
 **① 連携先マスタと送信結果の型（PartnerConfig / PartnerDatabase / DeliveryResult）**
 
-まず、連携先マスタと、送信1件ごとの成否を表す結果型を定義します。
+まず、1-4から引き継ぐ連携先マスタと、送信1件ごとの成否を表す結果型を再掲します。
 
 ```cpp
 #include <iostream>
@@ -1169,7 +1313,7 @@ public:
     }
 };
 
-// 送信1件分の結果（void をやめ、成否・メッセージを返す）
+// 送信1件分の結果（1-4から変更しない契約）
 struct DeliveryResult {
     string status;   // "成功" または "失敗"
     bool success;
@@ -1177,7 +1321,7 @@ struct DeliveryResult {
 };
 ```
 
-`PartnerDatabase` は1-4と同じ連携先マスタで、今回追加のC社・D社を含みます。`DeliveryResult` は、1-4で `void` にしていた送信処理を、1件ごとの成否・メッセージを返す形へ改めた結果型です。
+`PartnerDatabase` は1-4と同じ連携先マスタで、今回追加のC社・D社のレコードだけが増えます。`DeliveryResult`のフィールドと意味は1-4から変わりません。つまり、仕様変更による差分は連携先レコードと利用側の実行構造であり、結果契約ではありません。
 
 **② 通知のインターフェースと実装（INotifier / SlackNotifier / EmailNotifier / LogNotifier）**
 
@@ -1224,7 +1368,7 @@ public:
 
 **③ バッチ実行ログ（BatchRecord / BatchLog）**
 
-バッチ実行ログ（`BatchLog`）はシステム起動時は空で、バッチが実行されるたびに結果を1件追記します。無効パートナーのスキップも記録します。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
+バッチ実行ログ（`BatchLog`）は1-4と同じ型・同じ保存方法を使います。システム起動時は空で、バッチが実行されるたびに結果を1件追記し、保存件数も表示します。無効パートナーのスキップも記録し、ファイルではなく実行中のメモリ上に保持します。
 
 ```cpp
 struct BatchRecord {
@@ -1240,6 +1384,9 @@ public:
     void add(const std::string& partnerId, const std::string& partnerName,
              const std::string& status) {
         records.push_back({partnerId, partnerName, status});
+        std::cout << "実行結果を保存(" << records.size() << "件): ["
+                  << partnerId << "] " << partnerName
+                  << " -> " << status << std::endl;
     }
     void printAll() const {
         for (const auto& r : records) {
@@ -1357,17 +1504,39 @@ public:
 // バッチ全体のフローを統括するクラス（窓口構造）
 class BatchExecutor {
     vector<INotifier*> notifiers;
+    PartnerDatabase& db;
+    BatchLog& batchLog;
 public:
+    BatchExecutor(PartnerDatabase& database, BatchLog& log)
+        : db(database), batchLog(log) {}
+
     void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
 
     // 送信結果を受け取り、通知内容へ反映して DeliveryResult を返す
-    DeliveryResult execute(IClientCreator* creator, string partnerName,
+    DeliveryResult execute(IClientCreator* creator, string partnerId,
                            bool apiHealthy = true) {
+        if (!db.exists(partnerId)) {
+            cout << "エラー: パートナーID [" << partnerId
+                 << "] はデータベースに登録されていません。" << endl;
+            DeliveryResult r{"失敗", false, "未登録"};
+            batchLog.add(partnerId, "未登録", r.status);
+            return r;
+        }
+        PartnerConfig cfg = db.get(partnerId);
+        if (!cfg.isEnabled) {
+            cout << "エラー: パートナー [" << cfg.name
+                 << "] は現在無効です。処理を中断します。" << endl;
+            DeliveryResult r{"失敗", false, "無効"};
+            batchLog.add(partnerId, cfg.name, "スキップ（無効）");
+            return r;
+        }
+
         // 生成分離構造を抽象Creator経由で呼び出す
         IExternalClient* client = creator->createClient();
         DeliveryResult r = client->send("data", apiHealthy);
-        string note = r.success ? (partnerName + " 連携完了")
-                                : (partnerName + " 連携失敗: " + r.message);
+        batchLog.add(partnerId, cfg.name, r.status);
+        string note = r.success ? (cfg.name + " 連携完了")
+                                : (cfg.name + " 連携失敗: " + r.message);
         for (auto* notifier : notifiers) {
             notifier->onComplete(note);
         }
@@ -1376,7 +1545,7 @@ public:
 };
 ```
 
-`execute()` は、生成分離構造（Creator）を抽象 `IClientCreator` 経由で呼び、送信し、登録済みの全通知先へ結果を届けます。
+`execute()` は、1-4と同じ設定確認を行い、生成分離構造（Creator）を抽象 `IClientCreator` 経由で呼び出します。返された`DeliveryResult`を1-4と同じ`BatchLog`へ保存してから、登録済みの全通知先へ結果を届けます。
 
 **⑦ 手動トリガーのクラス（ManualTriggerController）**
 
@@ -1385,18 +1554,22 @@ public:
 ```cpp
 class ManualTriggerController {
     IExternalClient* client;
+    BatchLog& batchLog;
     vector<INotifier*> notifiers;
 public:
-    ManualTriggerController(IExternalClient* c) : client(c) {}
+    ManualTriggerController(IExternalClient* c, BatchLog& log)
+        : client(c), batchLog(log) {}
     void addNotifier(INotifier* notifier) {
         notifiers.push_back(notifier);
     }
-    DeliveryResult triggerSync(string targetId, bool apiHealthy = true) {
+    DeliveryResult triggerSync(string targetId, string partnerName,
+                               bool apiHealthy = true) {
         cout << "[ManualTrigger] " << targetId
-             << " への手動同期を実行。" << endl;
+              << " への手動同期を実行。" << endl;
         DeliveryResult r = client->send("manualData", apiHealthy);
-        string note = r.success ? (targetId + "社手動連携完了")
-                                : (targetId + "社手動連携失敗: " + r.message);
+        batchLog.add(targetId, partnerName, r.status);
+        string note = r.success ? (partnerName + " 手動連携完了")
+                                : (partnerName + " 手動連携失敗: " + r.message);
         for (auto* notifier : notifiers) {
             notifier->onComplete(note);
         }
@@ -1405,7 +1578,7 @@ public:
 };
 ```
 
-`ManualTriggerController` も `BatchExecutor` と同様に、送信結果を登録済みの通知先へ届けます。
+`ManualTriggerController` も `BatchExecutor` と同様に、送信結果を同じ`BatchLog`へ保存してから、登録済みの通知先へ届けます。
 
 **⑧ 組み立てと実行（BatchApplication / main）**
 
@@ -1414,25 +1587,10 @@ public:
 ```cpp
 class BatchApplication {
     PartnerDatabase db;
-
-    bool validate(const string& partnerId) {
-        if (!db.exists(partnerId)) {
-            cout << "エラー: パートナーID [" << partnerId
-                 << "] はデータベースに登録されていません。" << endl;
-            return false;
-        }
-        if (!db.isEnabled(partnerId)) {
-            PartnerConfig cfg = db.get(partnerId);
-            cout << "エラー: パートナー [" << cfg.name
-                 << "] は現在無効です。処理を中断します。" << endl;
-            return false;
-        }
-        return true;
-    }
+    BatchLog batchLog;
 
 public:
     void run() {
-        BatchLog batchLog;
         SlackNotifier slack;
         EmailNotifier email;
         LogNotifier log;
@@ -1442,71 +1600,45 @@ public:
         SystemDClientCreator creatorD;
 
         cout << "--- 行1: A社月次バッチ ---" << endl;
-        if (validate("PARTNER_A")) {
-            PartnerConfig cfgA = db.get("PARTNER_A");
-            BatchExecutor executorA;
-            executorA.addNotifier(&slack);
-            DeliveryResult r = executorA.execute(&creatorA, cfgA.name);
-            batchLog.add("PARTNER_A", cfgA.name, r.status);
-        }
+        BatchExecutor executorA(db, batchLog);
+        executorA.addNotifier(&slack);
+        executorA.execute(&creatorA, "PARTNER_A");
 
         cout << "--- 変更要求: C社月次バッチ（今回追加） ---" << endl;
-        if (validate("PARTNER_C")) {
-            PartnerConfig cfgC = db.get("PARTNER_C");
-            BatchExecutor executorC;
-            executorC.addNotifier(&slack);
-            DeliveryResult r = executorC.execute(&creatorC, cfgC.name);
-            batchLog.add("PARTNER_C", cfgC.name, r.status);
-        }
+        BatchExecutor executorC(db, batchLog);
+        executorC.addNotifier(&slack);
+        executorC.execute(&creatorC, "PARTNER_C");
 
         cout << "--- 行3: D社日次バッチ（新規D社追加後） ---" << endl;
-        if (validate("PARTNER_D")) {
-            PartnerConfig cfgD = db.get("PARTNER_D");
-            BatchExecutor executorD;
-            executorD.addNotifier(&slack);
-            DeliveryResult r = executorD.execute(&creatorD, cfgD.name);
-            batchLog.add("PARTNER_D", cfgD.name, r.status);  // 失敗を記録し次へ進む
-        }
+        BatchExecutor executorD(db, batchLog);
+        executorD.addNotifier(&slack);
+        executorD.execute(&creatorD, "PARTNER_D");
 
         cout << "--- 行4: B社手動トリガー ---" << endl;
-        if (validate("PARTNER_B")) {
-            PartnerConfig cfgB = db.get("PARTNER_B");
-            IExternalClient* bClient = creatorB.createClient();
-            ManualTriggerController manual(bClient);
-            manual.addNotifier(&slack);
-            DeliveryResult r = manual.triggerSync("B");
-            batchLog.add("PARTNER_B", cfgB.name, r.status);
-        }
+        PartnerConfig cfgB = db.get("PARTNER_B");
+        IExternalClient* bClient = creatorB.createClient();
+        ManualTriggerController manual(bClient, batchLog);
+        manual.addNotifier(&slack);
+        manual.triggerSync("PARTNER_B", cfgB.name);
 
         cout << "--- 行5: A社月次バッチ（API障害・Slack＋メール通知） ---" << endl;
-        if (validate("PARTNER_A")) {
-            PartnerConfig cfgA = db.get("PARTNER_A");
-            BatchExecutor executorFail;
-            executorFail.addNotifier(&slack);
-            executorFail.addNotifier(&email);
-            // 外部APIが障害中（apiHealthy=false）。失敗を記録し次のジョブへ進む
-            DeliveryResult r =
-                executorFail.execute(&creatorA, cfgA.name, false);
-            batchLog.add("PARTNER_A", cfgA.name, r.status);
-        }
+        BatchExecutor executorFail(db, batchLog);
+        executorFail.addNotifier(&slack);
+        executorFail.addNotifier(&email);
+        // 外部APIが障害中（apiHealthy=false）。失敗を記録し次のジョブへ進む
+        executorFail.execute(&creatorA, "PARTNER_A", false);
 
         cout << "--- 行6: B社バッチ（Slack＋ログ基盤） ---" << endl;
-        if (validate("PARTNER_B")) {
-            PartnerConfig cfgB = db.get("PARTNER_B");
-            BatchExecutor executorB;
-            executorB.addNotifier(&slack);
-            executorB.addNotifier(&log);
-            DeliveryResult r = executorB.execute(&creatorB, cfgB.name);
-            batchLog.add("PARTNER_B", cfgB.name, r.status);
-        }
+        BatchExecutor executorB(db, batchLog);
+        executorB.addNotifier(&slack);
+        executorB.addNotifier(&log);
+        executorB.execute(&creatorB, "PARTNER_B");
 
         cout << "--- 無効パートナーZ社の実行試行 ---" << endl;
-        if (!validate("PARTNER_Z")) {
-            PartnerConfig cfgZ = db.get("PARTNER_Z");
-            batchLog.add("PARTNER_Z", cfgZ.name, "スキップ（無効）");
-        }
+        BatchExecutor executorZ(db, batchLog);
+        executorZ.execute(&creatorA, "PARTNER_Z");
 
-        cout << "\n--- バッチ実行ログ ---\n";
+        cout << "\n--- バッチ実行ログ（" << batchLog.size() << "件） ---\n";
         batchLog.printAll();
     }
 };
@@ -1527,29 +1659,36 @@ int main() {
 ```
 --- 行1: A社月次バッチ ---
 A社へ転送: data
+実行結果を保存(1件): [PARTNER_A] 物流会社A -> 成功
 Slack通知(1件): 物流会社A 連携完了
 --- 変更要求: C社月次バッチ（今回追加） ---
 C社へ転送: data
+実行結果を保存(2件): [PARTNER_C] 配送会社C -> 成功
 Slack通知(2件): 配送会社C 連携完了
 --- 行3: D社日次バッチ（新規D社追加後） ---
 D社へ転送: data
+実行結果を保存(3件): [PARTNER_D] 配送会社D -> 成功
 Slack通知(3件): 配送会社D 連携完了
 --- 行4: B社手動トリガー ---
-[ManualTrigger] B への手動同期を実行。
+[ManualTrigger] PARTNER_B への手動同期を実行。
 B社へ転送: manualData
-Slack通知(4件): B社手動連携完了
+実行結果を保存(4件): [PARTNER_B] 在庫会社B -> 成功
+Slack通知(4件): 在庫会社B 手動連携完了
 --- 行5: A社月次バッチ（API障害・Slack＋メール通知） ---
 A社へ転送: data
+実行結果を保存(5件): [PARTNER_A] 物流会社A -> 失敗
 Slack通知(5件): 物流会社A 連携失敗: A社: API障害
 Email通知(1件): 物流会社A 連携失敗: A社: API障害
 --- 行6: B社バッチ（Slack＋ログ基盤） ---
 B社へ転送: data
+実行結果を保存(6件): [PARTNER_B] 在庫会社B -> 成功
 Slack通知(6件): 在庫会社B 連携完了
 ログ基盤へ記録(1件): 在庫会社B 連携完了
 --- 無効パートナーZ社の実行試行 ---
 エラー: パートナー [分析会社Z] は現在無効です。処理を中断します。
+実行結果を保存(7件): [PARTNER_Z] 分析会社Z -> スキップ（無効）
 
---- バッチ実行ログ ---
+--- バッチ実行ログ（7件） ---
 [PARTNER_A] 物流会社A -> 成功
 [PARTNER_C] 配送会社C -> 成功
 [PARTNER_D] 配送会社D -> 成功
@@ -1559,7 +1698,7 @@ Slack通知(6件): 在庫会社B 連携完了
 [PARTNER_Z] 分析会社Z -> スキップ（無効）
 ```
 
-1-5の変更後動作例の行1・3〜6と、変更要求で追加したC社連携のケースに一致しています。行5ではA社の外部APIが障害中（`apiHealthy=false`）で、送信が `DeliveryResult` で失敗（API障害）を返します。その結果が通知メッセージ（Slack＋メール両方）とバッチ実行ログの「失敗」に反映され、処理は中断せず次のジョブへ進んでいます。`send()` の戻り値を `void` から `DeliveryResult` に変えたことで、成否がハードコードではなく実際の送信結果から決まり、失敗を記録して次へ進む動作仕様（行5）を実コードで再現できるようになりました。`BatchExecutor` と `ManualTriggerController` はどちらも `INotifier` を登録できるため、実行経路が異なっても同じ通知契約を利用できます。行2（タイムアウト・リトライ）は、リトライ制御そのものが論点外のため動作仕様として残します。
+1-5の変更後動作例の行1・3〜6と、変更要求で追加したC社連携のケースに一致しています。行5ではA社の外部APIが障害中（`apiHealthy=false`）で、1-4からある`DeliveryResult`が失敗（API障害）を返します。その結果を1-4と同じ`BatchLog`へ5件目として保存し、Slackとメールへ通知した後も、行6のジョブを続けています。変えたのは結果契約や保存方法ではなく、その結果を受けて通知先を選び、後続ジョブへ進む実行構造です。`BatchExecutor`と`ManualTriggerController`はどちらも同じ`BatchLog`と`INotifier`を利用するため、実行経路が異なっても結果保存と通知の契約は揃います。行2（タイムアウト・リトライ）は、リトライ制御そのものが論点外のため動作仕様として残します。
 
 この実装により、`BatchExecutor` は通信の詳細や通知の仕組みを知ることなく、送信結果の受け取りとフローの統括に専念できるようになりました。
 
@@ -1567,7 +1706,10 @@ Slack通知(6件): 在庫会社B 連携完了
 
 ```mermaid
 classDiagram
+    class PartnerConfig
     class PartnerDatabase
+    class DeliveryResult
+    class BatchRecord
     class BatchLog
     class BatchApplication
     class ManualTriggerController
@@ -1600,28 +1742,39 @@ classDiagram
     IClientCreator <|.. SystemBClientCreator
     IClientCreator <|.. SystemCClientCreator
     IClientCreator <|.. SystemDClientCreator
-    BatchExecutor --> PartnerDatabase
-    BatchExecutor --> BatchLog
-    BatchApplication --> BatchExecutor
-    ManualTriggerController --> BatchApplication
+    PartnerDatabase *-- PartnerConfig : 設定を保存
+    BatchLog *-- BatchRecord : 結果を保存
+    IExternalClient ..> DeliveryResult : 返す
+    BatchExecutor ..> DeliveryResult : 受け取る
+    ManualTriggerController ..> DeliveryResult : 受け取る
+    BatchExecutor --> PartnerDatabase : 既存設定を参照
+    BatchExecutor --> BatchLog : 既存方式で保存
+    ManualTriggerController --> BatchLog : 既存方式で保存
+    BatchApplication *-- PartnerDatabase : 所有
+    BatchApplication *-- BatchLog : 所有
+    BatchApplication --> BatchExecutor : 組み立て・実行
+    BatchApplication --> ManualTriggerController : 組み立て・実行
 
     note for IExternalClient "【P1・新設】通信の窓口契約（窓口構造）"
     note for INotifier "【P2・新設】通知の共通契約（通知分離構造）"
     note for IClientCreator "【P3・新設】生成の契約（生成分離構造）"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    classDef stable fill:#E0F7FA,stroke:#0891B2,stroke-width:2px,color:#222222
     cssClass "IExternalClient,SystemAClient,INotifier,SlackNotifier,IClientCreator,SystemAClientCreator" focus
+    cssClass "PartnerConfig,PartnerDatabase,DeliveryResult,BatchRecord,BatchLog" stable
 ```
 
-完成後はCreatorが外部Clientを生成し、`BatchExecutor` が統合窓口として実行し、Observer契約で完了を通知します。章末の複合骨格図と同じ依存方向です。
+完成後はCreatorが外部Clientを生成し、`BatchExecutor` が統合窓口として実行し、Observer契約で完了を通知します。水色の設定・結果・保存は変更前と同じで、黄色の責任配置と依存関係だけが変わっています。章末の複合骨格図と同じ依存方向です。
 
 #### 変更軸ごとの完成コード追跡
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |
 |---|---|---|---|
 | P1 | 全 `IExternalClient` 実装と `BatchExecutor` | 連携先固有通信はClientへ閉じ、バッチ骨格は結果だけを受け取った | 固有通信を `BatchExecutor` へ戻さない |
-| P2 | 全 `INotifier` 実装、通知登録、`NotificationLog` | 通知先追加と部分失敗処理が登録・結果集計へ閉じた | 通知先追加でバッチ骨格を変更しない |
-| P3 | 全 `IClientCreator` 実装、Registry、手動入口 | バッチと手動入口が同じApplication・Creator登録を利用した | 手動入口へ別の生成・送信フローを実装しない |
+| P2 | 全 `INotifier` 実装と通知登録 | 通知先追加がNotifierの追加と組み立て側の登録へ閉じた | 通知先追加でバッチ骨格を変更しない |
+| P3 | 全 `IClientCreator` 実装、`BatchApplication`、手動入口 | バッチと手動入口が同じCreator群を利用した | 手動入口へ別の生成判断を実装しない |
+| 変更対象外 | `DeliveryResult`、`BatchRecord`、`BatchLog` | 1-4と同じ結果契約・保存方法のまま、保存件数が実行ごとに増えた | 仕様変更と無関係な保存差分を作らない |
 
 ### 7-2：動作シーケンス図
 
@@ -1632,25 +1785,31 @@ sequenceDiagram
     participant main
     participant BA as BatchApplication
     participant BE as BatchExecutor
+    participant DB as PartnerDatabase
+    participant BL as BatchLog
     participant AC as SystemAClientCreator
     participant SN as SlackNotifier
     participant SA as SystemAClient
     Note over main: BatchApplicationが全具体型を組み立て
     main->>BA: app.run()
-    BA->>BE: new BatchExecutor
+    BA->>BE: new BatchExecutor(db, batchLog)
     BA->>SN: new SlackNotifier
     BA->>BE: addNotifier(&slackNotifier)
-    BA->>BE: execute(&creatorA, "物流会社A")
+    BA->>BE: execute(&creatorA, "PARTNER_A")
+    BE->>DB: exists / get("PARTNER_A")
+    DB-->>BE: PartnerConfig
     BE->>AC: creator->createClient()
     Note right of BE: IExternalClient* 経由（抽象）
     AC-->>BE: IExternalClient*
     BE->>SA: client->send("data", apiHealthy)
     Note right of BE: IExternalClient* 経由
     SA-->>BE: DeliveryResult
+    BE->>BL: add("PARTNER_A", "物流会社A", "成功")
+    BL-->>BE: 保存件数 1
     BE->>SN: obs->onComplete("物流会社A 連携完了")
     Note right of BE: INotifier* 経由（抽象）
     SN-->>BE: 完了
-    BE-->>BA: 完了
+    BE-->>BA: DeliveryResult
     BA-->>main: 完了
 ```
 

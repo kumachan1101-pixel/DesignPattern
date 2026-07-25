@@ -126,8 +126,14 @@ PHASE_BOUNDARY_CONTINUITY_TOKENS = {
     "chapter07.md": ["ProductDatabase"],
     "chapter08.md": ["ProcessorRegistry", "PaymentLog"],
     "chapter09_2.md": ["UserDatabase"],
-    "chapter10.md": ["PartnerDatabase"],
+    "chapter10.md": ["PartnerDatabase", "DeliveryResult", "BatchLog"],
     "chapter11.md": ["TemplateRegistry", "ReportRenderingApi"],
+}
+
+# 仕様変更の対象外として、変更前コードと完成コードの両方に残す基盤。
+# 各章のR3-B監査が完了した時点で段階的に追加する。
+UNCHANGED_BASELINE_TOKENS = {
+    "chapter10.md": ["DeliveryResult", "BatchRecord", "BatchLog"],
 }
 
 # 「対策検討のクラス図」システム構造フォーマットで章ごとに変わる語彙。
@@ -1223,6 +1229,52 @@ def check_intermediate_boundary_continuity(
     return issues
 
 
+def check_unchanged_baseline(text: str, path: Path) -> list[Issue]:
+    """Require declared unchanged data contracts in both before/after code."""
+    tokens = UNCHANGED_BASELINE_TOKENS.get(path.name, [])
+    if not tokens:
+        return []
+
+    s14 = text.find("### 1-4：")
+    s15 = text.find("### 1-5：", s14)
+    phase2 = text.find("## 🟣 フェーズ2：", s15)
+    s71 = text.find("### 7-1：")
+    s72 = text.find("### 7-2：", s71)
+    if min(s14, s15, phase2, s71, s72) < 0:
+        return []
+
+    before_code = text[s14:s15]
+    change_request = text[s15:phase2]
+    final_code = text[s71:s72]
+    issues: list[Issue] = []
+    for token in tokens:
+        if token not in before_code:
+            issues.append(Issue(
+                path,
+                line_number(text, s14),
+                f"変更対象外の共通基盤「{token}」が1-4にありません",
+            ))
+        if token not in final_code:
+            issues.append(Issue(
+                path,
+                line_number(text, s71),
+                f"変更対象外の共通基盤「{token}」が7-1にありません",
+            ))
+        if token not in change_request:
+            issues.append(Issue(
+                path,
+                line_number(text, s15),
+                f"1-5で共通基盤「{token}」を変更なしと確認していません",
+            ))
+    if "変更なし" not in change_request:
+        issues.append(Issue(
+            path,
+            line_number(text, s15),
+            "1-5に変更対象外の共通基盤を「変更なし」とする行がありません",
+        ))
+    return issues
+
+
 def _tables_in(lines: list[str]) -> list[tuple[int, int]]:
     """Return (start_line, end_line) index pairs for each markdown table run."""
     tables: list[tuple[int, int]] = []
@@ -1411,7 +1463,6 @@ def check_phase1_system_model_v3(text: str, path: Path) -> list[Issue]:
             "Slack",
             "C社",
             "D社",
-            "DeliveryResult",
             "BatchJob",
         ],
     }
@@ -1609,6 +1660,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase6_step_chain(text, path))
         issues.extend(check_phase7_continuity(text, path))
         issues.extend(check_intermediate_boundary_continuity(text, path))
+        issues.extend(check_unchanged_baseline(text, path))
         issues.extend(check_class_diagram_completeness(text, path))
         issues.extend(check_phase1_system_model_v3(text, path))
         issues.extend(check_state_automation(text, path))
