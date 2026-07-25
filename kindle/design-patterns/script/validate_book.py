@@ -32,6 +32,15 @@ CORE_CHAPTERS = [
     "chapter12.md",
 ]
 
+# 直近の★指摘を横断反映した範囲。第11・12章は別作業中のため、
+# この追加契約の対象へはまだ含めない。
+REVIEWED_CHAPTERS = {
+    "chapter01.md", "chapter02.md", "chapter03.md",
+    "chapter04.md", "chapter05.md", "chapter06.md",
+    "chapter07.md", "chapter08.md", "chapter09_2.md",
+    "chapter10.md",
+}
+
 # 第3ラウンドの「システム全体図／内部図＋現状型完全一致」を
 # 全章の継続契約として検証する。
 PHASE1_SYSTEM_MODEL_V3 = set(CORE_CHAPTERS)
@@ -555,8 +564,6 @@ def check_system_structure_phase6(
         ("【新設】", "変更後クラス図に新設する責任の表示がありません"),
         ("classDef focus", "責任見直しの着目クラスを示す色定義がありません"),
         ("cssClass", "責任見直しの着目クラスへ色が適用されていません"),
-        ("| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |",
-         "クラス図の変更とコード変更を対応させる表がありません"),
         ("採用するクラス図と責任配置は、コードを書く前に確定しています",
          "段階コードが採用設計の実装順だと明文化されていません"),
         ("#### 課題箇所のおさらい（フェーズ3の関連コード）",
@@ -565,8 +572,6 @@ def check_system_structure_phase6(
          "フェーズ6にシステム全体のコード適用結果がありません"),
         ("| 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |",
          "フェーズ6に課題定義とコードの対応表がありません"),
-        ("| 接続点を変える観点 | システム全体での設計判断 | 変えたくない側が知らなくなる詳細 |",
-         "全章共通の分離・配置・組み立て・実行の確認表がありません"),
         ("#### 実装ステップ1", "採用設計の実装ステップ1がありません"),
         ("#### 実装ステップ2", "採用設計の実装ステップ2がありません"),
         ("#### 実装ステップ3", "採用設計の実装ステップ3がありません"),
@@ -576,6 +581,30 @@ def check_system_structure_phase6(
     for token, msg in required:
         if token not in sec:
             issues.append(Issue(path, ln, msg))
+
+    mapping_columns = (
+        "課題ID",
+        "クラス図をどう変えるか",
+        "コードレベルで何をするか",
+        "実装ステップ",
+    )
+    if not all(column in sec for column in mapping_columns):
+        issues.append(Issue(
+            path, ln,
+            "クラス図の変更とコード変更を対応させる表がありません",
+        ))
+
+    decision_columns = (
+        "接続点を変える観点",
+        "分離方法",
+        "配置場所",
+        "組み立て方法",
+    )
+    if not all(column in sec for column in decision_columns):
+        issues.append(Issue(
+            path, ln,
+            "全章共通の分離・配置・組み立ての確認表がありません",
+        ))
 
     if is_direct_flow:
         for redundant in (
@@ -1473,6 +1502,22 @@ def check_phase1_system_model_v3(text: str, path: Path) -> list[Issue]:
             line_number(text, s11),
             "1-1はシステム全体図の後にシステム内部図を置いてください",
         ))
+    if path.name in REVIEWED_CHAPTERS and whole >= 0 and internal > whole:
+        whole_diagram = section11[whole:internal]
+        if "最も大きな境界" not in whole_diagram:
+            issues.append(Issue(
+                path,
+                line_number(text, s11 + whole),
+                "システム全体図の前に、利用者→対象システム→外部サービスの"
+                "最も大きな境界を説明してください",
+            ))
+        if "subgraph " not in whole_diagram:
+            issues.append(Issue(
+                path,
+                line_number(text, s11 + whole),
+                "システム全体図は対象システムをsubgraphで囲み、"
+                "内部データと外部サービスの境界を明示してください",
+            ))
 
     implementation_name = re.compile(
         r"\b[A-Z][A-Za-z0-9_]*"
@@ -1634,21 +1679,91 @@ def check_class_diagram_completeness(text: str, path: Path) -> list[Issue]:
 
 def check_phase1_input_contract_use(text: str, path: Path) -> list[Issue]:
     """仕様入力が現状・完成コードで実際のデータ選択まで使われるか確認する。"""
-    if path.name != "chapter10.md":
-        return []
-
     s11 = text.find("### 1-1：")
     s14 = text.find("### 1-4：")
     s15 = text.find("### 1-5：", s14)
+    issues: list[Issue] = []
+
+    core_chapters = {
+        "chapter01.md", "chapter02.md", "chapter03.md",
+        "chapter04.md", "chapter05.md", "chapter06.md",
+        "chapter07.md", "chapter08.md", "chapter09_2.md",
+        "chapter10.md",
+    }
+    if path.name in core_chapters:
+        if min(s11, s14, s15) < 0:
+            return issues
+        current = text[s14:s15]
+        heading = "#### 仕様入力が現状コードで使われるまで"
+        if heading not in current:
+            issues.append(Issue(
+                path, line_number(text, s14),
+                "1-4に仕様入力→受け取り口→利用箇所→結果の追跡表がありません",
+            ))
+        for column in (
+            "仕様入力", "コード上の受け取り口",
+            "実際に使う箇所", "結果への現れ方",
+        ):
+            if column not in current:
+                issues.append(Issue(
+                    path, line_number(text, s14),
+                    f"1-4の仕様入力追跡表に「{column}」列がありません",
+                ))
+
+        required_current_tokens = {
+            "chapter01.md": ("Order::items", "customerId", "isCampaignActive"),
+            "chapter02.md": ("TransferProcessor::transfer", "amount", "verifyOTP"),
+            "chapter03.md": ("eventId", "reserve()", "status"),
+            "chapter04.md": ("SampleFileStore::get", "rawLines", "ImportResult"),
+            "chapter05.md": ("onAddExpenseClick", "categoryId", "balance"),
+            "chapter06.md": ("itemId", "hasMilk", "getPrice()"),
+            "chapter07.md": ("productId", "quantity", "alertThreshold"),
+            "chapter08.md": ("methodId", "orderId", "amount"),
+            "chapter09_2.md": ("ticketId", "userId", "assigneeId"),
+            "chapter10.md": ("partnerId", "request.target", "send(data)"),
+        }
+        for token in required_current_tokens[path.name]:
+            if token not in current:
+                issues.append(Issue(
+                    path, line_number(text, s14),
+                    f"1-4で仕様入力「{token}」の利用経路を追えません",
+                ))
+
+        phase1 = text[s11:s15]
+        forbidden_positive_descriptions = {
+            "chapter05.md": (
+                "| `deque` | Undo/Redo対象を実行順に保持する",
+                "成功した操作だけを履歴へ積み",
+            ),
+            "chapter06.md": (
+                "生ポインタは包む対象への参照",
+                "| `std::vector` | 注文したトッピング列を保持する",
+            ),
+            "chapter07.md": (
+                "| `algorithm` | 通知先の検索・登録解除を行う",
+                "`vector`を登録一覧に使う",
+            ),
+            "chapter08.md": ("double feeRate;",),
+        }
+        for phrase in forbidden_positive_descriptions.get(path.name, ()):
+            if phrase in phase1:
+                issues.append(Issue(
+                    path, line_number(text, s14),
+                    "1-5以降で追加する設計要素が現状説明へ混入しています: "
+                    + phrase,
+                ))
+
+    if path.name != "chapter10.md":
+        return issues
+
     s71 = text.find("### 7-1：")
     s72 = text.find("### 7-2：", s71)
     if min(s11, s14, s15, s71, s72) < 0:
-        return []
+        return issues
 
     section11 = text[s11:text.find("### 1-2：", s11)]
     current = text[s14:s15]
     final = text[s71:s72]
-    issues: list[Issue] = []
 
     required = [
         (section11, "連携先ID・同期対象",
@@ -1679,6 +1794,76 @@ def check_phase1_input_contract_use(text: str, path: Path) -> list[Issue]:
             path,
             line_number(text, s14),
             "仕様の同期対象を使わず固定文字列を外部送信しています",
+        ))
+    return issues
+
+
+def check_recent_star_contracts(text: str, path: Path) -> list[Issue]:
+    """直近の★指摘から抽出した第1〜10章の横断契約を確認する。"""
+    if path.name not in REVIEWED_CHAPTERS:
+        return []
+
+    issues: list[Issue] = []
+    if "★" in text:
+        issues.append(Issue(
+            path, line_number(text, text.find("★")),
+            "第1〜10章に未対応の★指摘が残っています",
+        ))
+
+    p3 = text.find("## 🟣 フェーズ3")
+    p4 = text.find("## 🟠 フェーズ4", p3)
+    phase3 = text[p3:p4] if 0 <= p3 < p4 else ""
+    for token, message in (
+        ("int main(", "フェーズ3に変更要求を実行するmain()がありません"),
+        ("実行対象コード", "フェーズ3の実行結果に実行対象コードがありません"),
+        ("実行結果", "フェーズ3に動作する変更コードの実行結果がありません"),
+    ):
+        if token not in phase3:
+            issues.append(Issue(path, line_number(text, p3), message))
+    for block in extract_cpp_blocks(phase3):
+        if re.search(r"\.\.\.|既存フィールド|既存部分|も同様|同様に", block):
+            issues.append(Issue(
+                path, line_number(text, p3 + phase3.find(block)),
+                "フェーズ3の変更コードを省略記号や「同様」で隠さず、"
+                "既存の類似処理と変更前後が分かる関連範囲を示してください",
+            ))
+
+    p5 = text.find("## 🟡 フェーズ5")
+    p6 = text.find("## 🔴 フェーズ6", p5)
+    phase5 = text[p5:p6] if 0 <= p5 < p6 else ""
+    if "```cpp" not in phase5:
+        issues.append(Issue(
+            path, line_number(text, p5),
+            "フェーズ5の接続点に、呼び出し元・接続先・結果利用を追う関連コードがありません",
+        ))
+    for token in (
+        "| 課題ID・接続点 | 接続するデータ | 変わる側 | 守る側 |",
+        "変わる側", "守る側",
+    ):
+        if token not in phase5:
+            issues.append(Issue(
+                path, line_number(text, p5),
+                f"フェーズ5の接続点定義に「{token}」がありません",
+            ))
+
+    _, phase6 = _phase6_section(text)
+    for token, message in (
+        ("#### 接続点の分離・配置・組み立てを決める",
+         "フェーズ6に接続点から設計判断を導く節がありません"),
+        ("#### システム全体の最終構造を決める",
+         "フェーズ6にシステム全体の最終構造を確定する節がありません"),
+    ):
+        if token not in phase6:
+            issues.append(Issue(path, line_number(text, p6), message))
+
+    s42 = text.find("### 4-2：")
+    s43 = text.find("### 4-3：", s42)
+    phase42 = text[s42:s43] if 0 <= s42 < s43 else ""
+    if "「変わらないもの」と「変わってほしくないもの」" not in phase42:
+        issues.append(Issue(
+            path, line_number(text, s42),
+            "4-2を第1章と同じ『変わるもの／変わってほしくないもの』の"
+            "観点で説明してください",
         ))
     return issues
 
@@ -1744,6 +1929,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_class_diagram_completeness(text, path))
         issues.extend(check_phase1_system_model_v3(text, path))
         issues.extend(check_phase1_input_contract_use(text, path))
+        issues.extend(check_recent_star_contracts(text, path))
         issues.extend(check_state_automation(text, path))
     return issues
 

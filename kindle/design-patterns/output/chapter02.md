@@ -46,14 +46,24 @@
 
 **システム全体図：振り込み処理と外部境界**
 
+最も大きな境界は「利用者 → ネット銀行の振込システム → 外部の認証・銀行システム」です。画面、業務処理、口座台帳、振込履歴を対象システムの内側にまとめます。
+
 ```mermaid
 flowchart LR
-    U["利用者"] -->|"振込先・金額・認証コード"| W["ネット銀行画面"]
-    W -->|"振込要求"| S["振り込み処理システム"]
-    A[("口座台帳")] -->|"名義・口座情報"| S
+    U["利用者"] -->|"振込先・金額・認証コード"| W
+
+    subgraph TRANSFER["ネット銀行の振込システム"]
+        W["振込画面"]
+        S["振り込み処理"]
+        A[("口座台帳")]
+        H[("振込履歴")]
+        W -->|"振込要求"| S
+        A -->|"送金元の名義・口座情報"| S
+        S -->|"成功時に振込内容を記録"| H
+    end
+
     S -->|"認証要求・結果"| O["認証システム"]
     S -->|"残高照会・送金・結果"| B["銀行システム"]
-    S -->|"成功時に記録"| H[("振込履歴")]
     S -->|"完了・エラー"| W
 
     classDef actor fill:#f8fafc,stroke:#64748b,color:#111827;
@@ -267,6 +277,16 @@ classDiagram
 | `TransferHistory` | 成立した送金から1レコードを受け取る | 履歴件数が増える | `std::vector` へ順番に追記する |
 
 残高は外部銀行（`Bank`）が権威として保持し、自社台帳（`AccountDatabase`）は名義だけを持ちます。`Bank` はprintで通信を表しますが、`executeTransfer` は実際に残高を増減させ、認証は入力コードを照合します。失敗時に残高と履歴を更新しない契約は実システムと同じです。
+
+#### 仕様入力が現状コードで使われるまで
+
+1-1の振込依頼を、`transfer()` が受け取ってから残高と履歴へ反映するまで追います。
+
+| 仕様入力 | コード上の受け取り口 | 実際に使う箇所 | 結果への現れ方 |
+|---|---|---|---|
+| 送金元・送金先口座ID | `TransferProcessor::transfer(from, to, ...)` | 自社台帳と銀行の存在確認、`Bank::executeTransfer()` | 送金元の減額、送金先の増額、名義付き履歴に反映される |
+| 金額 | `transfer(..., amount, ...)` | `Bank::checkBalance()`、`executeTransfer()`、`TransferHistory::add()` | 残高の前後差と履歴金額に同じ値が現れる |
+| OTP | `transfer(..., otp)` | `SecurityAuthenticator::verifyOTP()` | 一致時だけ送金・履歴追加へ進み、不一致時は状態を変えない |
 
 #### 銀行システム・自社台帳・認証のクラス群
 
@@ -1180,12 +1200,12 @@ classDiagram
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
-|---|---|---|---|
-| P1 | `TransferProcessor` から手順を外し `BankTransferService` へ集約する | 手順一式を `performTransfer` / `performApprovedBatchTransfer` へ移す | ステップ1 |
-| P2 | `BankTransferService` の前に契約 `IBankTransferService` を置く | 契約をpure virtualで宣言し `BankTransferService` でoverrideする | ステップ2 |
-| P2 | 具体窓口の生成・注入を `Application` へ移す | `Application` が生成し、呼び出し元へ契約参照を注入する | ステップ3 |
-| P1・P2 | 2つの呼び出し元の関連を契約中心へ変える | `TransferProcessor` と `BatchTransferProcessor` へ同じ契約を注入する | ステップ3 |
+| 課題ID  | クラス図をどう変えるか                                             | コードレベルで何をするか                                                 | 実装ステップ |
+| ----- | ------------------------------------------------------- | ------------------------------------------------------------ | ------ |
+| P1    | `TransferProcessor` から手順を外し `BankTransferService` へ集約する | 手順一式を `performTransfer` / `performApprovedBatchTransfer` へ移す | ステップ1  |
+| P2    | `BankTransferService` の前に契約 `IBankTransferService` を置く  | 契約をpure virtualで宣言し `BankTransferService` でoverrideする        | ステップ2  |
+| P2    | 具体窓口の生成・注入を `Application` へ移す                           | `Application` が生成し、呼び出し元へ契約参照を注入する                           | ステップ3  |
+| P1・P2 | 2つの呼び出し元の関連を契約中心へ変える                                    | `TransferProcessor` と `BatchTransferProcessor` へ同じ契約を注入する    | ステップ3  |
 
 このクラス図が、P1・P2を統合したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 

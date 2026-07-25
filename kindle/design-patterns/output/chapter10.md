@@ -45,6 +45,8 @@
 
 **システム全体図：保存データとシステム間のやり取り**
 
+最も大きな境界は「運用担当者・社内データ元 → 外部連携バッチシステム → 連携先・通知サービス」です。設定と実行ログだけを対象システムの内側に置きます。
+
 ```mermaid
 flowchart LR
     O["運用担当者"] -->|"同期要求<br>連携先ID・同期対象"| F
@@ -70,9 +72,9 @@ flowchart LR
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef boundary fill:#eef2ff,stroke:#4f46e5,color:#111827;
     class O actor;
-    class ORD,STK,CFG,LOG data;
+    class CFG,LOG data;
     class F process;
-    class A,B,N boundary;
+    class ORD,STK,A,B,N boundary;
 ```
 
 この図は、外部連携バッチシステムを一つの箱として見た図です。運用担当者が渡すのは「連携先ID」と「同期対象」です。バッチは同期対象に応じて受注管理システムまたは商品在庫管理システムからデータを読み、A社またはB社へ送ります。保存する実行結果は抽象的な「バッチ結果」ではなく、`BatchRecord` に対応する「連携先ID・名称・状態」の3項目です。
@@ -294,6 +296,16 @@ classDiagram
 | 完了通知 | バッチ結果を社内通知サービスへ送る | 通知済みメッセージを蓄積する | `vector`と標準出力で通知を代替する |
 
 現状コードは、一つの連携先を指定して送信する実装です。送信1件の成否は `DeliveryResult` で受け取り、`BatchLog`へ保存します。この結果契約と保存方法は今回の仕様変更では変えません。複数ジョブの順次実行、途中失敗後の継続、Slack通知はまだなく、1-5の変更要求で追加します。
+
+#### 仕様入力が現状コードで使われるまで
+
+1-1の連携先IDと同期対象を、設定検索と送信データ選択の二つへ分けて追います。
+
+| 仕様入力 | コード上の受け取り口 | 実際に使う箇所 | 結果への現れ方 |
+|---|---|---|---|
+| 連携先ID | `SyncRequest::partnerId` | `PartnerDatabase` の存在・有効確認と送信先Clientの選択 | A社・B社への送信、無効・未登録エラーに分かれる |
+| 同期対象 | `SyncRequest::target` | `SyncDataCatalog::load(request.target)` | 注文データまたは在庫データが選ばれる |
+| 選択済み同期データ | `execute()` のローカル変数 `data` | `client.send(data)` | 送信済みデータ、`DeliveryResult`、`BatchLog`へ同じ内容がつながる |
 
 コードは責任の固まりごとに分けて読みます。まず、あらかじめ登録されている連携先データを把握しておきます。
 
@@ -834,7 +846,7 @@ Slack通知は成功・失敗を問わず送る要求のため、送信失敗時
 > **中間コードの継続条件：** `PartnerDatabase` の存在・有効チェックは省略後も維持し、検証済みの `SyncRequest` だけを `BatchExecutor` へ渡します。短縮IDは図を読みやすくする表記であり、マスター検証や同期対象データの取得を削除する仕様変更ではありません。
 
 ```cpp
-// C社連携を追加しようとすると...
+// C社連携を追加すると、次の分岐が増える
 class BatchExecutor {
     BatchLog& batchLog;
     SyncDataCatalog& dataCatalog;
@@ -1081,6 +1093,25 @@ DeliveryResult execute(const SyncRequest& request) {
 }
 ```
 
+呼び出し先の責任も確認します。外部Clientは送信方法と結果作成を、通知サービスは通知方法を担っています。
+
+```cpp
+DeliveryResult SystemAClient::send(string data) {
+    cout << "[A社] " << data << "\n";
+    return {"成功", true, "A社送信完了"};
+}
+
+void NotificationService::notify(string message) {
+    cout << "[メール通知] " << message << "\n";
+}
+
+void SlackNotifier::notify(string message) {
+    cout << "[Slack通知] " << message << "\n";
+}
+```
+
+P1〜P3で追う接続は、`BatchExecutor` 内の呼び出し行だけではありません。送信データが外部Clientでどう使われ、`DeliveryResult` がログと通知へどう渡るか、具体Clientがどこで生成されるかまでを両端で確認します。
+
 3-2の変更影響とフェーズ4の原因を、三つの接続点として一表にまとめます。
 
 | 課題ID・接続点 | 接続するデータ | 変わる側 | 守る側 |
@@ -1102,11 +1133,17 @@ DeliveryResult execute(const SyncRequest& request) {
 
 P1〜P3を、次の三つの観点で一つの完成構造へ変換します。
 
+#### 接続点の分離・配置・組み立てを決める
+
 | 接続点を変える観点 | システム全体の考え方 | P1〜P3のコードへの反映 |
 |---|---|---|
 | 分離方法 | バッチ骨格には外部送信・通知・Client生成の契約だけを残し、具体的な通信・通知・生成判断を外す | P1は `IExternalClient`、P2は `INotifier`、P3は `IClientCreator` を境界にする |
 | 配置場所 | API詳細は各Client、通知手段は各Notifier、具体Clientの選択は各Creatorへ置く | 三つの具象クラス群へ変更理由ごとに配置する |
-| 組み立て方法 | 組み立て側がCreatorとNotifierを生成・所有・登録し、共有Applicationへ注入する。入口は連携先IDを渡し、CreatorがClientを選択・生成、Executorが契約だけを実行する | バッチ入口と手動入口は同じApplicationを共有する |
+| 組み立て方法（生成・所有・登録・注入） | 組み立て側がCreatorとNotifierを生成・所有・登録し、共有Applicationへ注入する。入口は連携先IDを渡し、CreatorがClientを選択・生成、Executorが契約だけを実行する | バッチ入口と手動入口は同じApplicationを共有する |
+
+表の左から右へ読むと、P1〜P3の三つの変化軸が、それぞれの契約・配置を持ちながら、一つのComposition Rootから共通実行フローへ接続されます。
+
+#### システム全体の最終構造を決める
 
 最終構造は、窓口構造・通知分離構造・生成分離構造を `BatchExecutor` の実行フローで組み合わせる一つのシステムです。一部だけを切り出す形は三課題を完了しない途中状態なので比較しません。
 

@@ -41,21 +41,34 @@
 
 **システム全体図：チケット管理と保存データの境界**
 
+最も大きな境界は「担当者 → サポートチケット管理システム」です。保存済みチケット、優先度ルール、実行結果は対象システムの内側にまとめます。
+
 ```mermaid
 flowchart LR
-    U["担当者<br>チケットIDと操作を指定"] --> S["サポートチケット管理システム"]
-    S --> T[("チケット情報<br>現在状態・優先度・担当者")]
-    S --> P["優先度ルール<br>ユーザー種別・SLA基準"]
-    T --> S
-    P --> S
-    S --> R["実行結果<br>状態更新・優先度表示"]
+    U["担当者<br>チケットIDと操作を指定"] -->|"状態更新要求"| S
+
+    subgraph SUPPORT["サポートチケット管理システム"]
+        S["チケット処理"]
+        T[("チケット情報<br>現在状態・優先度・担当者")]
+        P["優先度ルール<br>ユーザー種別・SLA基準"]
+        R["実行結果<br>状態更新・優先度表示"]
+        S -->|"チケットIDで取得・更新保存"| T
+        T -->|"状態・優先度・担当者"| S
+        S -->|"ユーザー種別で判定を依頼"| P
+        P -->|"Normal / High"| S
+        S -->|"更新後状態・優先度"| R
+    end
+
+    R -->|"操作結果"| U
 
     classDef actor fill:#f8fafc,stroke:#64748b,color:#111827;
     classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef result fill:#dcfce7,stroke:#16a34a,color:#111827;
     class U actor;
-    class T,P data;
-    class S,R process;
+    class T data;
+    class S,P process;
+    class R result;
 ```
 
 上の文章と表で仕様を一通り確認したので、まず正常にチケットを更新できる場合の入力・判定・加工・出力の流れとして整理します。
@@ -271,6 +284,17 @@ classDiagram
 | チケット管理 | 操作を受け状態遷移を決めて保存する | 次状態・優先度更新 | `if-else`で判定する |
 
 実システムのチケットDBと通知は省略し `std::map` で代替しますが、誰がどの操作を行い、どの状態へ変わり、どの優先度になったかはチケットID単位で保存し、追跡できるようにします。
+
+#### 仕様入力が現状コードで使われるまで
+
+チケットID、ユーザーID、操作、担当者IDが、どの判定と保存へ使われるかを分けて追います。
+
+| 仕様入力 | コード上の受け取り口 | 実際に使う箇所 | 結果への現れ方 |
+|---|---|---|---|
+| チケットID・ユーザーID | `TicketManager::create()` | ユーザー存在確認、優先度計算、`TicketRepository` への保存 | 初期状態Openと優先度、または未登録ユーザーエラーになる |
+| 操作 | `updateStatus(ticketId, op, ...)` | 現在状態ごとの `if-else` | 次状態または操作不可メッセージになる |
+| 担当者ID | `updateStatus()` の `assigneeId` | assign操作でチケットへ保存する | 以後の状態更新ログへ同じ担当者が現れる |
+| ユーザー種別 | `Ticket::userId` から `UserDatabase` を再参照する | 作成・escalate・reopen時の `PriorityCalculator::calculate()` | NormalまたはHighの優先度として保存される |
 
 システムの現状の実装を確認します。コードを役割ごとに分けて読んでいきます。
 
@@ -1035,13 +1059,84 @@ graph LR
 
 今回の分析により、`TicketManager` クラス内に以下の2つの接続点（ジョイント）が存在することが明確になりました。接続点A は状態遷移ロジックの境界、接続点B は優先度判定ロジックの境界です。
 
+接続点の両側を関連コードで確認します。公開操作は保存済みチケットを読み、状態別の判断と優先度計算へ入力を渡し、更新後のチケットを再び保存します。
+
+```cpp
+Priority PriorityCalculator::calculate(UserType userType) {
+    if (userType == UserType::Premium
+        || userType == UserType::Corporate) {
+        return Priority::High;
+    }
+    return Priority::Normal;
+}
+
+void TicketManager::updateStatus(
+    const string& ticketId,
+    const string& op,
+    const string& assigneeId) {
+    Ticket& t = repo.get(ticketId);
+    TicketStatus before = t.status;
+    bool changed = false;
+
+    switch (t.status) {
+    case TicketStatus::Open:
+        if (op == "assign") {
+            t.status = TicketStatus::InProgress;
+            t.assigneeId = assigneeId;
+            changed = true;
+        } else if (op == "hold") {
+            t.status = TicketStatus::Pending;
+            changed = true;
+        }
+        break;
+    case TicketStatus::InProgress:
+        if (op == "resolve") {
+            t.status = TicketStatus::Resolved;
+            changed = true;
+        } else if (op == "escalate") {
+            t.status = TicketStatus::Escalated;
+            t.priority = calc.calculate(
+                db.get(t.userId).userType);
+            changed = true;
+        }
+        break;
+    case TicketStatus::Escalated:
+        if (op == "resolve") {
+            t.status = TicketStatus::Resolved;
+            changed = true;
+        } else if (op == "sendback") {
+            t.status = TicketStatus::InProgress;
+            changed = true;
+        }
+        break;
+    case TicketStatus::Resolved:
+    case TicketStatus::Pending:
+        if (op == "reopen") {
+            t.status = TicketStatus::Open;
+            t.priority = calc.calculate(
+                db.get(t.userId).userType);
+            changed = true;
+        }
+        break;
+    }
+
+    if (!changed) return;
+    repo.save(t);
+    cout << statusName(before)
+         << " -> " << statusName(t.status) << "\n";
+}
+```
+
+P1では公開操作から現在状態・操作・担当者を状態判断へ渡し、次状態と副作用を受け取ります。P2では顧客区分を優先度判定へ渡し、判定結果を保存対象へ戻します。呼び出し行だけでなく、読み出しから判定、結果の反映、保存までを接続として追います。
+
 3-2の変更影響とフェーズ4の原因を、二つの接続点として一表にまとめます。
 
 | 課題ID・接続点 | 接続するデータ | 変わる側 | 守る側 |
 |---|---|---|---|
 | P1：状態処理 → チケット進行 | 現在状態、操作、次状態、割当・再オープンの結果 | 状態固有の操作可否・遷移先・副作用 | 公開操作、チケット保存、監査ログ、既存状態 |
 | P2：優先度判定 → チケット進行 | 顧客区分、判定結果 `High`／`Normal`、将来のSLA期限入力 | SLA基準・顧客区分の判定ルール | 状態処理、公開操作、チケット保存 |
-、その状態別の分岐の中で優先度で処理を分ける方が見やすいか？
+
+「状態別の分岐の中で優先度も判定する」案は一見まとまって見えますが、状態遷移の変更とSLA基準の変更という別々の理由を再び同じ分岐へ重ねます。そのため本章では、P1とP2を別の接続点として扱い、フェーズ6で同じシステムへ組み合わせます。
 
 システム全体の課題は、状態処理と優先度判定を `TicketManager` から別々に外し、二つの変化軸を互いに知らないまま差し替えられるようにすることです。
 
@@ -1056,11 +1151,17 @@ graph LR
 
 P1とP2を、次の三つの観点で一つの完成構造へ変換します。
 
+#### 接続点の分離・配置・組み立てを決める
+
 | 接続点を変える観点 | システム全体の考え方 | P1・P2のコードへの反映 |
 |---|---|---|
 | 分離方法 | チケット進行には状態操作と優先度判定の契約だけを残し、具体的な条件を外す | P1は `ITicketPhase`、P2は `IPriorityRule` を境界にする |
 | 配置場所 | 状態固有の判断と遷移は各Phase、SLA・顧客区分判定は各PriorityRuleへ置く | 状態クラス群とルールクラス群へ別々に配置する |
-| 組み立て方法 | `TicketPolicySet` が全Phaseと全ルールを生成・所有し、遷移先を配線する。`main()` はその組み立て済み部品を `TicketService` へ注入する。Serviceは保存済みチケットを読み、抽象契約だけを利用して結果を保存する | 具体部品の生成・所有・選択を実行責任から外し、状態処理と優先度判定を一つの操作で利用する |
+| 組み立て方法（生成・所有・登録・注入） | `TicketPolicySet` が全Phaseと全ルールを生成・所有し、遷移先を配線する。`main()` はその組み立て済み部品を `TicketService` へ注入する。Serviceは保存済みチケットを読み、抽象契約だけを利用して結果を保存する | 具体部品の生成・所有・選択を実行責任から外し、状態処理と優先度判定を一つの操作で利用する |
+
+表の左から右へ読むと、P1の状態判断とP2の優先度判断が、別々の契約・配置を持ちながら、同じ生成・注入地点で一つのチケット処理へ接続されます。
+
+#### システム全体の最終構造を決める
 
 最終構造は、`TicketPolicySet` が状態分離構造とルール差し替え構造を
 組み立て、`TicketService` がその抽象契約を使う一つのシステムです。
