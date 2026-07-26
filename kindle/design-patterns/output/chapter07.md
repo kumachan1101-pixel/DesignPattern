@@ -237,6 +237,31 @@ classDiagram
 
 この図が示す通り、InventoryManager という単一のクラスが、通知先であるすべてのクラス（メール、ダッシュボード、チャット）を直接保持している構成になっています。
 
+**現状システムの処理シーケンス**
+
+静的な関係に続けて、正常系（出庫でしきい値以下になり通知が走る）で各クラスがどの順に呼ばれ何を受け渡すかを時系列で示します。通知の具体の分岐は `InventoryManager` の注記に、エラー系はメモとして添えます。1-4の現状コードを読む前の地図です。
+
+```mermaid
+sequenceDiagram
+    participant Main as main（在庫操作相当）
+    participant IM as InventoryManager
+    participant DB as ProductDatabase
+    participant Email as EmailNotifier
+    participant Dash as DashboardUpdater
+    participant Chat as ChatNotifier
+    Main->>IM: reduceStock(productId, quantity)
+    IM->>DB: 在庫を減算して保存 ／ isBelowThreshold(id, stock)
+    DB-->>IM: true（しきい値以下）
+    IM->>Email: send(message)
+    IM->>Dash: update(message)
+    IM->>Chat: send(message)
+    IM-->>Main: 完了
+    Note right of IM: 具体の分岐（現状の通知手順）<br>在庫更新後にしきい値以下なら notifyAll が3通知先を順に直接呼ぶ<br>各通知先はメソッド名が異なる（send ／ update ／ send）
+    Note over Main,DB: エラー系（メモ）: 存在しない商品IDは在庫更新せず終了 ／ しきい値超過なら通知しない
+```
+
+図から読み取れるのは、`InventoryManager` が在庫更新後にしきい値を判定し、しきい値以下のときだけ `notifyAll` で3つの通知先を順に直接呼ぶこと、各通知先のメソッド名（`send`／`update`／`send`）まで通知元が知っていることです。通知先の名前と呼び方が通知元に集まっている呼び出し順を、この時系列と注記で確認できます。
+
 ---
 
 **この章での簡略化**
