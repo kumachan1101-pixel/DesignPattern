@@ -61,10 +61,14 @@
 
 | 仕様項目 | この章で扱う値 | 具体例 |
 |---|---|---|
-| 決済要求 | 注文ID、決済方法ID、金額、手段固有データ | `ORD-1001`, `credit_card`, 1000円, カードトークン等 |
+| 決済要求 | 注文ID、決済方法ID、金額、顧客ID、手段固有データ | `ORD-1001`, `credit_card`, 1000円, `C001`, カードトークン等 |
 | 決済設定 | 決済方法ID、有効/無効 | `credit_card` は有効 |
+| 顧客台帳 | 顧客ID → 氏名（事前保持） | `C001` → 田中 一郎 |
+| 注文台帳 | 注文ID → 顧客ID・請求金額（事前保持） | `ORD-1001` → `C001`・1000円 |
 | 手段別の加工 | 認証、振込先発行、支払い番号発行 | カード認証API、振込先発行API、番号発行API |
 | 決済結果 | 成功/保留/失敗、メッセージ、エラーコード、保留情報 | `成功: クレジット認証済み`, `保留: 振込先発行済み` |
+
+決済要求の `注文ID`・`顧客ID`・`金額` は自由入力ではなく、システムが事前に保持する顧客台帳・注文台帳に照合します。未登録の注文・顧客や、注文の登録額と食い違う金額は決済に進めません。
 
 この章の現状コードに登録されている決済手段は次の4つです。`crypto` を「未登録」にせず「登録済み・無効」として残すのは、運用で一時停止している既知の手段と、システムが知らないIDを別のエラーとして扱うためです。読者は後の動作例で「無効」と「未登録」の判定差を確認できます。
 
@@ -280,6 +284,10 @@ flowchart LR
 | `ProcessorConfig` | 決済手段1件の設定 | 名称・有効状態 |
 | `PaymentRecord` | 保存する決済結果1件 | 決済手段・金額・状態・エラーコード |
 | `PaymentLog` | 決済結果を保存する | 実行結果の追記・一覧表示 |
+| `CustomerRecord` | 保持している顧客1件 | 顧客の氏名 |
+| `CustomerDirectory` | 顧客を事前保持するデータストア | 顧客IDの存在確認・照合 |
+| `OrderRecord` | 保持している注文1件 | 注文の顧客ID・請求金額 |
+| `OrderBook` | 注文を事前保持するデータストア | 注文IDの存在確認・顧客/金額の照合 |
 
 各クラスの責任を把握したところで、クラス間の関係を図で整理します。
 
@@ -294,6 +302,16 @@ classDiagram
     class ProcessorConfig
     class PaymentRecord
     class PaymentLog
+    class CustomerRecord
+    class OrderRecord
+    class CustomerDirectory {
+        +exists(id)
+        +get(id)
+    }
+    class OrderBook {
+        +exists(id)
+        +get(id)
+    }
     class PaymentApplication {
         +processPayment(request) PaymentResult
         +checkCompletion(pendingId) PaymentResult
@@ -333,6 +351,10 @@ classDiagram
     PaymentRequest *-- ConvenienceInput : コンビニ入力
     PaymentResult *-- PendingInfo : 保留時に持つ
     ProcessorRegistry *-- ProcessorConfig : 手段ID別に保存
+    PaymentApplication --> CustomerDirectory : 顧客照合
+    PaymentApplication --> OrderBook : 注文照合
+    CustomerDirectory *-- CustomerRecord : 顧客ID別に保存
+    OrderBook *-- OrderRecord : 注文ID別に保存
     PaymentApplication ..> PaymentRequest : 受け取る
     PaymentApplication ..> PaymentResult : 返す
     CreditCardProcessor ..> PaymentRequest : 受け取る
@@ -400,7 +422,8 @@ classDiagram
 | 仕様入力 | コード上の受け取り口 | 実際に使う箇所 | 結果への現れ方 |
 |---|---|---|---|
 | 決済方法ID | `PaymentRequest::methodId` | `ProcessorRegistry` の存在・有効確認とProcessor選択 | 手段別処理、無効エラー、未登録エラーに分かれる |
-| 注文ID・金額 | `PaymentRequest::orderId` / `amount` | 金額検証と各外部APIスタブ、`PaymentLog` | API結果の識別子、決済金額、実行ログに反映される |
+| 注文ID・金額 | `PaymentRequest::orderId` / `amount` | 金額検証、`OrderBook` との照合、各外部APIスタブ、`PaymentLog` | 未登録注文・金額不一致エラー、API結果の識別子、実行ログに反映される |
+| 顧客ID | `PaymentRequest::customerId` | `OrderBook` の注文所有者照合と `CustomerDirectory` の存在確認 | 注文内容不一致・未登録顧客エラーに分かれる |
 | 手段固有データ | `creditCard` / `bankTransfer` / `convenience` | 各Processorの入力検証と対応API呼び出し | 成功・保留、または入力不足エラーになる |
 | 保留ID | `PaymentResult::pending` | `PaymentStatusClient::checkStatus()` | 非同期決済の最終的な成功・失敗へつながる |
 
@@ -506,6 +529,58 @@ public:
 ```
 
 レジストリは決済方法の設定を一元管理します。登録されているか、有効かの判定に使います。
+
+**②-2 顧客・注文の保持データ（ProcessorRegistry と同じデータ層）**
+
+決済要求に載る `customerId`・`orderId`・金額は、システムが事前に保持している顧客・注文と照合します。この保持データは現状コードの時点から存在し、フェーズ6以降の生成分離では変わりません（第1章 `CustomerDatabase`、第9章 `UserDatabase` と同じ「登録済みデータへ照合する」形）。
+
+```cpp
+// ---- 事前保持データ（顧客・注文） ----
+
+// 事前保持：顧客（customerId → 氏名）
+struct CustomerRecord { string name; };
+
+class CustomerDirectory {
+    map<string, CustomerRecord> records;
+public:
+    CustomerDirectory() {
+        records["C001"] = {"田中 一郎"};
+        records["C002"] = {"佐藤 花子"};
+        records["C003"] = {"鈴木 次郎"};
+        records["C004"] = {"高橋 三郎"};
+        records["C005"] = {"伊藤 四郎"};
+        records["C006"] = {"渡辺 五郎"};
+        records["C007"] = {"山本 六郎"};
+        records["C008"] = {"中村 七郎"};
+        records["C020"] = {"小林 八郎"};
+    }
+    bool exists(const string& id) const { return records.count(id) > 0; }
+    CustomerRecord get(const string& id) const { return records.at(id); }
+};
+
+// 事前保持：注文（orderId → 顧客ID・請求金額）
+struct OrderRecord { string customerId; int amount; };
+
+class OrderBook {
+    map<string, OrderRecord> records;
+public:
+    OrderBook() {
+        records["ORD-1001"] = {"C001", 1000};
+        records["ORD-1002"] = {"C002", 2000};
+        records["ORD-1003"] = {"C003", 500};
+        records["ORD-1004"] = {"C004", 800};
+        records["ORD-1005"] = {"C005", 600};
+        records["ORD-1006"] = {"C006", 300};
+        records["ORD-1007"] = {"C007", 200};
+        records["ORD-1008"] = {"C008", 1200};
+        records["ORD-2001"] = {"C020", 3000};
+    }
+    bool exists(const string& id) const { return records.count(id) > 0; }
+    OrderRecord get(const string& id) const { return records.at(id); }
+};
+```
+
+`customerId`・`orderId` は、この保持データに存在するもの以外は受け付けません。金額も注文の登録額と一致するかを照合します。
 
 **③ 外部決済APIの境界スタブ（PaymentGatewayClient / PaymentStatusClient）**
 
@@ -742,6 +817,8 @@ class PaymentApplication {
     ProcessorRegistry registry;
     PaymentGatewayClient gatewayClient;
     PaymentStatusClient statusClient;
+    CustomerDirectory customers;   // 事前保持：顧客
+    OrderBook orders;              // 事前保持：注文
 public:
     PaymentResult processPayment(
         const PaymentRequest& request) {
@@ -765,6 +842,24 @@ public:
             return {"失敗",
                     "金額は1円以上で指定してください。",
                     false, "INVALID_AMOUNT", {}};
+        }
+        // 事前保持データと照合：注文・顧客・金額が登録済みか
+        if (!orders.exists(request.orderId)) {
+            return {"失敗",
+                    "未登録の注文です: " + request.orderId,
+                    false, "UNKNOWN_ORDER", {}};
+        }
+        OrderRecord ord = orders.get(request.orderId);
+        if (ord.customerId != request.customerId
+            || ord.amount != request.amount) {
+            return {"失敗",
+                    "注文内容が保持データと一致しません",
+                    false, "ORDER_MISMATCH", {}};
+        }
+        if (!customers.exists(request.customerId)) {
+            return {"失敗",
+                    "未登録の顧客です: " + request.customerId,
+                    false, "UNKNOWN_CUSTOMER", {}};
         }
 
         // 決済方法に応じてプロセッサを生成して実行
