@@ -209,6 +209,29 @@ graph TD
 
 → `UIButtons` クラス（UI）に、操作を実行する各マネージャクラスへの依存が集中していることが分かります。
 
+**現状システムの処理シーケンス**
+
+静的な関係に続けて、正常系（支出登録1件）で各クラスがどの順に呼ばれ何を受け渡すかを時系列で示します。操作ごとの具体の分岐は `UIButtons` の注記に、エラー系はメモとして添えます。Undo・履歴はまだ現状にはなく、1-5の変更要求で加わります。1-4の現状コードを読む前の地図です。
+
+```mermaid
+sequenceDiagram
+    participant Main as main（画面操作相当）
+    participant UI as UIButtons
+    participant EM as ExpenseManager
+    participant DB as CategoryDatabase
+    Main->>UI: onAddExpenseClick(amount, category)
+    UI->>EM: addExpense(amount, category)
+    EM->>DB: exists(category)
+    DB-->>EM: true（カテゴリ登録あり）
+    EM-->>UI: 差分（-amount）
+    UI->>UI: balance += 差分（残高更新・表示）
+    UI-->>Main: 残高表示
+    Note right of UI: 具体の分岐（現状の操作）<br>支出 → ExpenseManager.addExpense（残高から減算）<br>収入 → IncomeManager.addIncome（残高へ加算）
+    Note over Main,DB: エラー系（メモ）: 金額≤0 または未登録カテゴリなら差分0を返し、残高を変えない
+```
+
+図から読み取れるのは、`UIButtons` がボタン操作を受けて対応するManagerを直接呼び、返ってきた差分で自分が持つ `balance` を更新していること、支出か収入かで呼ぶManagerが分かれること、無効な入力はメモのとおり残高を変えずに終わることです。この「UIが具体Managerと残高を直接握る」呼び出し順を、この時系列で確認できます。
+
 
 **この章での簡略化**
 

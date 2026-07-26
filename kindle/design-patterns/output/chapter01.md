@@ -249,6 +249,32 @@ classDiagram
 
 `OrderProcessor` が `CustomerDatabase` で顧客情報を取得し、`PaymentCalculator` で支払金額を計算します。`CartPreviewService` は同じ `PaymentCalculator` を利用します。
 
+**現状システムの処理シーケンス**
+
+クラス図は「誰が誰を持つか」という静的な関係を示します。次のシーケンス図は、正常系（会員種別あり・キャンペーン中）で、注文1件を処理する間に各クラスがどの順で呼ばれ、どの値を受け渡すかを時系列で示します。割引額を決める具体の分岐は `PaymentCalculator` の注記に書き出し、エラー系はメモとして添えます。1-4の現状コードを読む前の地図として使います。
+
+```mermaid
+sequenceDiagram
+    participant Main as main（購入フォーム相当）
+    participant OP as OrderProcessor
+    participant DB as CustomerDatabase
+    participant PC as PaymentCalculator
+    participant R as CheckoutResultRenderer
+    Main->>OP: process(order, campaign)
+    OP->>DB: exists(customerId)
+    DB-->>OP: true（登録あり）
+    Note over OP,DB: エラー系（メモ）: 未登録・取得失敗なら<br>calculateへ進まずRへエラー表示して終了
+    OP->>DB: get(customerId)
+    DB-->>OP: CustomerInfo（memberType）
+    OP->>PC: calculate(order, memberType, campaign)
+    Note right of PC: 具体の分岐（現状の割引ルール）<br>Premium → 20%引き（キャンペーンと排他）<br>Regular かつ キャンペーン中 → 10%引き<br>それ以外 → 割引なし（定価）
+    PC-->>OP: 支払金額（int）
+    OP->>R: 支払金額を渡して表示
+    R-->>Main: 金額プレビュー／確定表示
+```
+
+図から読み取れるのは、`OrderProcessor` が「顧客の存在確認 → 顧客情報の取得 → 支払金額の計算 → 結果表示」の順に各クラスを呼ぶこと、割引額の算出は `PaymentCalculator::calculate()` の内側で会員種別×キャンペーンの分岐（Premium 20%／Regular×キャンペーン中 10%／それ以外なし）で決まること、顧客の取得失敗はメモのとおり `calculate` へ進まずエラー表示で終わることです。どのクラスがどの値（`memberType`・`int` 金額）を受け渡すかを、この時系列で確認できます。
+
 **この章での簡略化**
 
 1-3で登場クラスと責任を確認したので、掲載コードで何を代替しているかを整理してからフェーズ1の現状コードへ進みます。
