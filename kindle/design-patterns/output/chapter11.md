@@ -180,7 +180,7 @@ flowchart LR
 | 未登録テンプレートを指定 | レポート種別：存在しないID | 未登録テンプレートエラーが出る |
 | 未対応形式を指定 | 出力形式：未対応の形式 | 未対応形式エラーが出る |
 
-この表は、フェーズ1の仕様図に出てきた入力・判定・加工・出力の代表例です。変更要求後の履歴操作は、1-5で別表として扱います。末尾2行（未登録テンプレート・未対応形式）は生成に入る前の入力バリデーションで、1-4の現状コードの `main` が持つ存在確認（`exists`）と形式確認（`supportsFormat`）で検出して処理を中断します。フェーズ7の最終コードは生成・装飾・履歴の振る舞いに焦点を当てるため、この2つの入力ガードは1-4で示した動作仕様として扱い、最終実行結果では正常系と履歴操作を示します。
+この表は、フェーズ1の仕様図に出てきた入力・判定・加工・出力の代表例です。変更要求後の履歴操作は、1-5で別表として扱います。末尾2行（未登録テンプレート・未対応形式）は生成に入る前の入力バリデーションで、1-4の現状コードの `main` が持つ存在確認（`exists`）と形式確認（`supportsFormat`）で検出して処理を中断します。フェーズ7の最終コードでも同じ2つのガードを生成の入口（`requireTemplate`）に残し、無効な要求は生成へ進めません。掲載シナリオは登録済みテンプレートと対応形式だけを使うためこのガードは通過し、最終実行結果では正常系と履歴操作に焦点を当てます。
 
 | 段階 | 主に確認する動作 |
 |---|---|
@@ -1544,17 +1544,17 @@ public:
 using namespace std;
 
 struct ReportTemplate {
-    string name;    // レポート名
-    string format;  // "pdf", "excel"
+    string name;                     // レポート名
+    vector<string> supportedFormats; // "pdf", "excel"
 };
 
 class TemplateRegistry {
     map<string, ReportTemplate> templates;
 public:
     TemplateRegistry() {
-        templates["SALES_WEEKLY"]  = {"週次売上レポート",   "pdf"};
-        templates["SALES_MONTHLY"] = {"月次売上レポート",   "pdf"};
-        templates["SALES_DEPT"]    = {"部門別売上レポート", "pdf"};
+        templates["SALES_WEEKLY"]  = {"週次売上レポート",   {"pdf", "excel"}};
+        templates["SALES_MONTHLY"] = {"月次売上レポート",   {"pdf", "excel"}};
+        templates["SALES_DEPT"]    = {"部門別売上レポート", {"pdf", "excel"}};
     }
 
     bool exists(const string& id) const {
@@ -1563,6 +1563,13 @@ public:
 
     ReportTemplate get(const string& id) const {
         return templates.at(id);
+    }
+
+    bool supportsFormat(const string& id, const string& format) const {
+        for (const string& s : templates.at(id).supportedFormats) {
+            if (s == format) return true;
+        }
+        return false;
     }
 };
 ```
@@ -1730,6 +1737,23 @@ public:
     void addWatermark() {
         cout << "[ReportRenderingApi] 透かし描画APIを呼び出し。" << endl;
     }
+    // ファイル出力もこの描画API境界の先で行う（実システムでは
+    // PDF/Excel書き出し。掲載コードではデモ用ファイルで代替）
+    bool fileExists(const string& path) const {
+        ifstream input(path);
+        return input.good();
+    }
+    bool writeFile(const string& path, const string& formatLabel) {
+        ofstream output(path);
+        if (!output) return false;
+        output << formatLabel << " report" << endl;
+        output.close();
+        if (!output) { remove(path.c_str()); return false; }
+        return true;
+    }
+    bool removeFile(const string& path) {
+        return remove(path.c_str()) == 0;
+    }
 };
 
 // GraphFeature: グラフ追加の装飾
@@ -1776,15 +1800,11 @@ string formatName(OutputFormat format) {
     return format == OutputFormat::Pdf ? "PDF" : "Excel";
 }
 
-bool fileExists(const string& path) {
-    ifstream input(path);
-    return input.good();
-}
-
 class GenerateReportAction : public IReportAction {
     ReportSkeleton* generator;
     string outputPath;
     OutputFormat format;
+    ReportRenderingApi renderer; // ファイル出力も描画API境界を通す
     bool created = false;
 public:
     GenerateReportAction(
@@ -1801,7 +1821,7 @@ public:
         if (created) {
             return {false, "同じ操作は再実行できません。"};
         }
-        if (fileExists(outputPath)) {
+        if (renderer.fileExists(outputPath)) {
             return {false,
                     outputPath + " は既に存在するため上書きしません。"};
         }
@@ -1813,15 +1833,8 @@ public:
             return {false, string("生成失敗: ") + e.what()};
         }
 
-        // サンプルでは形式名を記録したデモ用ファイルを実際に作成する
-        ofstream output(outputPath);
-        if (!output) {
-            return {false, outputPath + " を作成できません。"};
-        }
-        output << formatName(format) << " report" << endl;
-        output.close();
-        if (!output) {
-            remove(outputPath.c_str());
+        // ファイル書き出しは描画API境界へ委譲する（骨格は媒体を知らない）
+        if (!renderer.writeFile(outputPath, formatName(format))) {
             return {false, outputPath + " の書き込みに失敗しました。"};
         }
         created = true;
@@ -1841,7 +1854,7 @@ public:
             handleNoFileToUndo();
             return;
         }
-        if (remove(outputPath.c_str()) == 0) {
+        if (renderer.removeFile(outputPath)) {
             created = false;
             cout << "[コマンド] " << outputPath
                  << " を削除してアンドゥ完了。" << endl;
@@ -1871,11 +1884,17 @@ class BatchApplication {
         history.push_back(action);
     }
 
-    ReportTemplate requireTemplate(const string& id) {
+    ReportTemplate requireTemplate(const string& id,
+                                   const string& format) {
         if (!registry.exists(id)) {
             throw invalid_argument(
                 "テンプレートID '" + id
                 + "' は登録されていません。");
+        }
+        if (!registry.supportsFormat(id, format)) {
+            throw invalid_argument(
+                "テンプレート '" + id
+                + "' は形式 '" + format + "' に未対応です。");
         }
         return registry.get(id);
     }
@@ -1889,7 +1908,7 @@ class BatchApplication {
         cout << "--- ケース1: 月次レポートPDF ---"
              << endl;
         ReportTemplate tmpl
-            = requireTemplate("SALES_MONTHLY");
+            = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
         executeAndRemember(new GenerateReportAction(
             new MonthlyReport(),
@@ -1897,14 +1916,14 @@ class BatchApplication {
             OutputFormat::Pdf));
         reportLog.add(
             "SALES_MONTHLY", tmpl.name,
-            tmpl.format, "成功");
+            "pdf", "成功");
     }
 
     void scenarioMonthlyExcel() {
         cout << "--- ケース2: 月次レポートExcel ---"
              << endl;
         ReportTemplate tmpl
-            = requireTemplate("SALES_MONTHLY");
+            = requireTemplate("SALES_MONTHLY", "excel");
         printTemplate(tmpl);
         executeAndRemember(new GenerateReportAction(
             new MonthlyReport(),
@@ -1919,7 +1938,7 @@ class BatchApplication {
         cout << "--- ケース3: 月次本文＋グラフ"
              << "＋透かしPDF ---" << endl;
         ReportTemplate tmpl
-            = requireTemplate("SALES_MONTHLY");
+            = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
         executeAndRemember(new GenerateReportAction(
             new WatermarkFeature(
@@ -1929,14 +1948,14 @@ class BatchApplication {
             OutputFormat::Pdf));
         reportLog.add(
             "SALES_MONTHLY", tmpl.name,
-            tmpl.format, "成功");
+            "pdf", "成功");
     }
 
     void scenarioGenerateAndCancel() {
         cout << "--- ケース4: 月次PDFを生成して"
              << "取り消す ---" << endl;
         ReportTemplate tmpl
-            = requireTemplate("SALES_MONTHLY");
+            = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
         auto* action = new GenerateReportAction(
             new MonthlyReport(),
@@ -1949,7 +1968,7 @@ class BatchApplication {
         history.pop_back();
         reportLog.add(
             "SALES_MONTHLY", tmpl.name,
-            tmpl.format, "キャンセル");
+            "pdf", "キャンセル");
     }
 
     void scenarioBatch() {
@@ -1957,7 +1976,7 @@ class BatchApplication {
              << "一括生成 ---" << endl;
 
         ReportTemplate weekly
-            = requireTemplate("SALES_WEEKLY");
+            = requireTemplate("SALES_WEEKLY", "pdf");
         printTemplate(weekly);
         executeAndRemember(new GenerateReportAction(
             new WeeklyReport(),
@@ -1965,10 +1984,10 @@ class BatchApplication {
             OutputFormat::Pdf));
         reportLog.add(
             "SALES_WEEKLY", weekly.name,
-            weekly.format, "成功");
+            "pdf", "成功");
 
         ReportTemplate monthly
-            = requireTemplate("SALES_MONTHLY");
+            = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(monthly);
         executeAndRemember(new GenerateReportAction(
             new MonthlyReport(),
@@ -1976,10 +1995,10 @@ class BatchApplication {
             OutputFormat::Pdf));
         reportLog.add(
             "SALES_MONTHLY", monthly.name,
-            monthly.format, "成功");
+            "pdf", "成功");
 
         ReportTemplate dept
-            = requireTemplate("SALES_DEPT");
+            = requireTemplate("SALES_DEPT", "pdf");
         printTemplate(dept);
         executeAndRemember(new GenerateReportAction(
             new DeptReport(),
@@ -1987,7 +2006,7 @@ class BatchApplication {
             OutputFormat::Pdf));
         reportLog.add(
             "SALES_DEPT", dept.name,
-            dept.format, "成功");
+            "pdf", "成功");
         cout << "[一括生成] 3操作を履歴へ追加"
              << endl;
     }
@@ -1996,7 +2015,7 @@ class BatchApplication {
         cout << "--- ケース6: グラフ付き月次PDFを"
              << "取り消す ---" << endl;
         ReportTemplate tmpl
-            = requireTemplate("SALES_MONTHLY");
+            = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
         auto* action = new GenerateReportAction(
             new GraphFeature(
@@ -2010,14 +2029,14 @@ class BatchApplication {
         history.pop_back();
         reportLog.add(
             "SALES_MONTHLY", tmpl.name,
-            tmpl.format, "キャンセル");
+            "pdf", "キャンセル");
     }
 
     void scenarioRetryAfterFailure() {
         cout << "--- ケース7: グラフ描画失敗後に"
              << "同じ操作を再実行 ---" << endl;
         ReportTemplate tmpl
-            = requireTemplate("SALES_MONTHLY");
+            = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
         bool graphAvailable = false;
         auto* action = new GenerateReportAction(
@@ -2033,7 +2052,7 @@ class BatchApplication {
                  << result.message << endl;
             reportLog.add(
                 "SALES_MONTHLY", tmpl.name,
-                tmpl.format, "失敗");
+                "pdf", "失敗");
             graphAvailable = true;
             cout << "[ジョブ] 同じ生成操作を"
                  << "再実行します。" << endl;
@@ -2042,7 +2061,7 @@ class BatchApplication {
         if (result.success) {
             reportLog.add(
                 "SALES_MONTHLY", tmpl.name,
-                tmpl.format, "成功");
+                "pdf", "成功");
         }
         history.push_back(action);
     }
