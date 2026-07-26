@@ -249,6 +249,31 @@ classDiagram
 
 `OrderProcessor` が `CustomerDatabase` で顧客情報を取得し、`PaymentCalculator` で支払金額を計算します。`CartPreviewService` は同じ `PaymentCalculator` を利用します。
 
+**現状システムの処理シーケンス**
+
+クラス図は「誰が誰を持つか」という静的な関係を示します。次のシーケンス図は、正常系（会員種別あり・キャンペーン中）で、注文1件を処理する間に各クラスがどの順で呼ばれ、どの値を受け渡すかを時系列で示します。1-4の現状コードを読む前の地図として使います。
+
+```mermaid
+sequenceDiagram
+    participant Main as main（購入フォーム相当）
+    participant OP as OrderProcessor
+    participant DB as CustomerDatabase
+    participant PC as PaymentCalculator
+    participant R as CheckoutResultRenderer
+    Main->>OP: process(order, campaign)
+    OP->>DB: exists(customerId)
+    DB-->>OP: true（登録あり）
+    OP->>DB: get(customerId)
+    DB-->>OP: CustomerInfo（memberType）
+    OP->>PC: calculate(order, memberType, campaign)
+    Note right of PC: 会員種別とキャンペーン状態から<br>小計を出し割引額を算出する
+    PC-->>OP: 支払金額（int）
+    OP->>R: 支払金額を渡して表示
+    R-->>Main: 金額プレビュー／確定表示
+```
+
+図から読み取れるのは、`OrderProcessor` が「顧客の存在確認 → 顧客情報の取得 → 支払金額の計算 → 結果表示」の順に各クラスを呼び、割引額の算出は `PaymentCalculator::calculate()` の内側で行われる、という現状の呼び出し順序です。どのクラスがどの値（`memberType`・`int` 金額）を受け渡すかを、この時系列で確認できます。
+
 **この章での簡略化**
 
 1-3で登場クラスと責任を確認したので、掲載コードで何を代替しているかを整理してからフェーズ1の現状コードへ進みます。
