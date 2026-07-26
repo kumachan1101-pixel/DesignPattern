@@ -200,6 +200,28 @@ classDiagram
 
 この図が示す通り、`main()` は `MenuDatabase` から商品情報を取り出し、その値を使って `CustomDrink` を組み立てています。`CustomDrink` は、ドリンクの基本情報とすべてのトッピング情報を受け取り、注文名と合計金額を返す構成になっています。
 
+**現状システムの処理シーケンス**
+
+静的な関係に続けて、正常系（トッピング付き注文1件）で各クラスがどの順に呼ばれ何を受け渡すかを時系列で示します。価格・名称を組み立てる具体の分岐は `CustomDrink` の注記に、エラー系はメモとして添えます。1-4の現状コードを読む前の地図です。
+
+```mermaid
+sequenceDiagram
+    participant Main as main（注文画面相当）
+    participant DB as MenuDatabase
+    participant CD as CustomDrink
+    Main->>DB: get(menuId)
+    DB-->>Main: MenuItem（商品名・基本価格）
+    Main->>CD: new CustomDrink(baseName, basePrice, hasMilk, hasWhip, hasSyrup)
+    Main->>CD: getPrice()
+    CD-->>Main: 合計金額（int）
+    Main->>CD: getDescription()
+    CD-->>Main: 注文名称（string）
+    Note right of CD: 具体の分岐（現状の価格・名称の組み立て）<br>合計は基本価格から開始 ／ hasMilk なら50円 ／ hasWhip なら70円 ／ hasSyrup なら30円を加算<br>説明も同じフラグでミルク等の語を連結する
+    Note over Main,DB: エラー系（メモ）: menuId が未登録なら CustomDrink を組み立てず注文不可
+```
+
+図から読み取れるのは、`main()` がメニューを引いて `CustomDrink` を1個組み立て、`getPrice()`／`getDescription()` を呼ぶこと、合計金額と名称は `CustomDrink` 内部の `hasMilk`／`hasWhip`／`hasSyrup` フラグの分岐で決まることです。トッピングごとの加算・連結が1クラスに集まっている呼び出し順を、この時系列と注記で確認できます。
+
 
 **この章での簡略化**
 
