@@ -533,6 +533,8 @@ public:
         }
         PartnerConfig cfg = db.get(partnerId);
         string data = dataCatalog.load(request.target);
+        cout << "[送信先] " << cfg.name
+             << " (" << cfg.endpoint << ")" << endl;
         DeliveryResult result{"失敗", false, "未対応の連携先"};
         if (partnerId == "PARTNER_A") {
             SystemAClient client; // A社向けクライアントを生成
@@ -597,9 +599,11 @@ int main() {
 実行結果：
 
 ```
+[送信先] 物流会社A (logistics-a.example)
 A社へ送信(1件): 注文 ORD001
 実行結果を保存(1件): [PARTNER_A] 物流会社A -> 成功
 完了通知(1件): 物流会社A 連携完了
+[送信先] 在庫会社B (stock-b.example)
 B社へ送信(1件): 在庫 SKU001
 実行結果を保存(2件): [PARTNER_B] 在庫会社B -> 成功
 完了通知(1件): 在庫会社B 連携完了
@@ -1794,6 +1798,8 @@ public:
         // 生成分離構造を抽象Creator経由で呼び出す
         IExternalClient* client = creator->createClient();
         string data = dataCatalog.load(request.target);
+        cout << "[送信先] " << cfg.name
+             << " (" << cfg.endpoint << ")" << endl;
         DeliveryResult r = client->send(data, apiHealthy);
         batchLog.add(partnerId, cfg.name, r.status);
         string note = r.success ? (cfg.name + " 連携完了")
@@ -1935,14 +1941,17 @@ int main() {
 
 ```
 --- 行1: A社月次バッチ ---
+[送信先] 物流会社A (logistics-a.example)
 A社へ転送: 注文 ORD001
 実行結果を保存(1件): [PARTNER_A] 物流会社A -> 成功
 Slack通知(1件): 物流会社A 連携完了
 --- 変更要求: C社月次バッチ（今回追加） ---
+[送信先] 配送会社C (delivery-c.example)
 C社へ転送: 注文 ORD001
 実行結果を保存(2件): [PARTNER_C] 配送会社C -> 成功
 Slack通知(2件): 配送会社C 連携完了
 --- 行3: D社日次バッチ（新規D社追加後） ---
+[送信先] 配送会社D (delivery-d.example)
 D社へ転送: 注文 ORD001
 実行結果を保存(3件): [PARTNER_D] 配送会社D -> 成功
 Slack通知(3件): 配送会社D 連携完了
@@ -1952,11 +1961,13 @@ B社へ転送: 在庫 SKU001
 実行結果を保存(4件): [PARTNER_B] 在庫会社B -> 成功
 Slack通知(4件): 在庫会社B 手動連携完了
 --- 行5: A社月次バッチ（API障害・Slack＋メール通知） ---
+[送信先] 物流会社A (logistics-a.example)
 A社へ転送: 注文 ORD001
 実行結果を保存(5件): [PARTNER_A] 物流会社A -> 失敗
 Slack通知(5件): 物流会社A 連携失敗: A社: API障害
 Email通知(1件): 物流会社A 連携失敗: A社: API障害
 --- 行6: B社バッチ（Slack＋ログ基盤） ---
+[送信先] 在庫会社B (stock-b.example)
 B社へ転送: 在庫 SKU001
 実行結果を保存(6件): [PARTNER_B] 在庫会社B -> 成功
 Slack通知(6件): 在庫会社B 連携完了

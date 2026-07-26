@@ -408,7 +408,8 @@ public:
         // 承認権限額チェック
         if (!approvers.canApprove(approverId, amount)) {
             ApproverInfo info = approvers.get(approverId);
-            cout << "エラー：" << info.name << " の承認上限（"
+            cout << "エラー：" << info.name << "（" << info.role
+                 << "）の承認上限（"
                  << info.approvalLimit << "円）を超えています。" << endl;
             return;
         }
@@ -472,7 +473,7 @@ REQ002：審査待ち → 完了
 ---
 エラー：承認者ID APR999 はデータベースに存在しません。
 ---
-エラー：田中 部長 の承認上限（100000円）を超えています。
+エラー：田中 部長（manager）の承認上限（100000円）を超えています。
 ```
 
 動作例テーブルの「申請提出」「最終承認」「未登録ID」「承認上限超過」に対応しています。現行コードを読む段階で確認すべきことは、`WorkflowManager` が状態文字列・通知文・承認額チェックをまとめて扱っている、という事実です。
@@ -819,7 +820,8 @@ public:
         }
         if (!approvers.canApprove(approverId, amount)) {
             ApproverInfo info = approvers.get(approverId);
-            cout << "エラー：" << info.name << " の承認上限（"
+            cout << "エラー：" << info.name << "（" << info.role
+                 << "）の承認上限（"
                  << info.approvalLimit << "円）を超えています。" << endl;
             return;
         }
@@ -1853,7 +1855,8 @@ class BatchApplication {
         if (!db.canApprove(id, amount)) {
             ApproverInfo info = db.get(id);
             cout << "エラー：" << info.name
-                 << " の承認上限（"
+                 << "（" << info.role << "）"
+                 << "の承認上限（"
                  << info.approvalLimit
                  << "円）を超えています。" << endl;
             return false;
@@ -2102,7 +2105,7 @@ public:
 --- エラー例1: 不正な承認者ID ---
 エラー：承認者ID APR999 はデータベースに存在しません。
 --- エラー例2: 承認上限超過 ---
-エラー：田中 部長 の承認上限（100000円）を超えています。
+エラー：田中 部長（manager）の承認上限（100000円）を超えています。
 ```
 
 最後に承認ログを出力し、`main()` から実行します。
