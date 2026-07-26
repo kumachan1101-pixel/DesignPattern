@@ -300,8 +300,8 @@ classDiagram
 
 | 承認者ID | 氏名 | 役職 | 承認可能額上限 |
 |---|---|---|---|
-| APR001 | 田中 部長 | manager | 100,000円 |
-| APR002 | 佐藤 取締役 | director | 1,000,000円 |
+| APR001 | 田中 課長 | manager | 100,000円 |
+| APR002 | 佐藤 部長 | director | 1,000,000円 |
 | APR003 | 鈴木 代表 | executive | 上限なし（99,999,999円） |
 
 承認可能額を超える申請や未登録のIDを指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
@@ -325,8 +325,8 @@ class ApproverDatabase {
     map<string, ApproverInfo> records;
 public:
     ApproverDatabase() {
-        records["APR001"] = {"田中 部長",   "manager",   100000};
-        records["APR002"] = {"佐藤 取締役", "director",  1000000};
+        records["APR001"] = {"田中 課長",   "manager",   100000};
+        records["APR002"] = {"佐藤 部長",   "director",  1000000};
         records["APR003"] = {"鈴木 代表",   "executive", 99999999};
     }
 
@@ -452,7 +452,7 @@ int main() {
     // エラー：存在しない承認者ID
     wm.process("REQ001", "提出", 50000, "APR999");
     cout << "---" << endl;
-    // エラー：田中 部長の上限（10万円）を超える申請
+    // エラー：田中 課長の上限（10万円）を超える申請
     wm.process("REQ001", "提出", 200000, "APR001");
     return 0;
 }
@@ -473,7 +473,7 @@ REQ002：審査待ち → 完了
 ---
 エラー：承認者ID APR999 はデータベースに存在しません。
 ---
-エラー：田中 部長（manager）の承認上限（100000円）を超えています。
+エラー：田中 課長（manager）の承認上限（100000円）を超えています。
 ```
 
 動作例テーブルの「申請提出」「最終承認」「未登録ID」「承認上限超過」に対応しています。現行コードを読む段階で確認すべきことは、`WorkflowManager` が状態文字列・通知文・承認額チェックをまとめて扱っている、という事実です。
@@ -505,13 +505,14 @@ REQ002：審査待ち → 完了
 | 承認判定ルール | 金額固定閾値 | 来期から部署ごとの承認上限へ差し替え |
 | 通知の送り方 | 状態更新処理の中で即時送信 | 状態保存後に通知処理を分離して呼び、送信先ごとの成否を記録する。キュー化・後送りは対象外 |
 
-今回変えるのは状態遷移・通知・承認判定の責任配置です。申請状態、承認者マスター、通知先データの保存方法は仕様変更の対象ではないため、次の共通基盤は変更前後で維持します。
+今回変えるのは状態遷移・通知・承認判定の責任配置です。承認者マスターと通知先データの保存方法は仕様変更の対象ではないため、次の共通基盤は変更前後で維持します。
 
 | 変更対象外の共通基盤 | 変更前 | 変更後 |
 |---|---|---|
-| `WorkflowCaseRepository` | 申請状態を保存・取得する | **変更なし** |
 | `ApproverDatabase` | 承認者情報を保存・取得する | **変更なし** |
 | `NotificationTargetRepository` | 通知先を保存・取得する | **変更なし** |
+
+`WorkflowCaseRepository` は、申請IDをキーに状態を保存・取得する**役割は維持**しますが、状態遷移を各状態クラスへ分ける対策（P1）に伴い、保存する値が状態名の文字列から状態オブジェクト（`IWorkflowPhase*`）へ置き換わります。これは基盤都合の保存方式変更ではなく、P1の解決（状態分離）の一部です。したがって上の「変更対象外」には含めません。
 
 **この章が扱う複雑さ**
 
@@ -1116,7 +1117,7 @@ classDiagram
         +process(requestId, operation, amount, approverId)
         -notify(requestId)
     }
-    class WorkflowCaseRepository { +getState(id) string }
+    class WorkflowCaseRepository { +loadPhase(id) IWorkflowPhase }
     class NotificationTargetRepository { +getTarget(id) string }
     class ApproverDatabase { +canApprove(id, amount) bool }
     WorkflowManager --> WorkflowCaseRepository : 状態を読み書き
@@ -1124,7 +1125,7 @@ classDiagram
     WorkflowManager --> ApproverDatabase : 承認者確認に使う
 
     note for WorkflowManager "【残す】進行の公開入口\n【P1・移す】状態遷移の条件分岐\n【P2・移す】通知先ごとの通知\n【P3・移す】金額・承認者の判定"
-    note for WorkflowCaseRepository "【維持】状態の保存・取得"
+    note for WorkflowCaseRepository "【P1】状態の保存・取得（保存値を文字列→状態オブジェクトへ置換）"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
     cssClass "WorkflowManager" focus
@@ -1149,6 +1150,7 @@ classDiagram
     class RejectedPhase
     class CompletedPhase
     class DirectorApprovalRule
+    class DepartmentApprovalRule
     class ApproverDatabase
     class WorkflowCaseRepository
     class NotificationTargetRepository
@@ -1176,6 +1178,7 @@ classDiagram
     IWorkflowPhase <|.. RejectedPhase
     IWorkflowPhase <|.. CompletedPhase
     IApprovalRule <|.. DirectorApprovalRule
+    IApprovalRule <|.. DepartmentApprovalRule
     WorkflowManager --> ApproverDatabase
     WorkflowManager --> WorkflowCaseRepository
     WorkflowManager --> NotificationTargetRepository
@@ -1380,8 +1383,8 @@ class ApproverDatabase {
     map<string, ApproverInfo> records;
 public:
     ApproverDatabase() {
-        records["APR001"] = {"田中 部長",   "manager",   100000};
-        records["APR002"] = {"佐藤 取締役", "director",  1000000};
+        records["APR001"] = {"田中 課長",   "manager",   100000};
+        records["APR002"] = {"佐藤 部長",   "director",  1000000};
         records["APR003"] = {"鈴木 代表",   "executive", 99999999};
     }
 
@@ -1440,8 +1443,8 @@ public:
 | 種類 | コード上の値 | 仕様上の意味 | 使われる場所 |
 |---|---|---|---|
 | 申請ID | `REQ001` など | 1件の申請を識別するID | `WorkflowCaseRepository` が現在状態を保存・取得するキー |
-| 承認者ID | `APR001` | 田中 部長。承認上限100,000円 | `ApproverDatabase` の存在確認・上限額チェック |
-| 承認者ID | `APR002` | 佐藤 取締役。承認上限1,000,000円 | 緊急申請や部長承認の正常ケース |
+| 承認者ID | `APR001` | 田中 課長。承認上限100,000円 | `ApproverDatabase` の存在確認・上限額チェック |
+| 承認者ID | `APR002` | 佐藤 部長。承認上限1,000,000円 | 緊急申請や部長承認の正常ケース |
 | 承認者ID | `APR999` | 登録されていない承認者ID | 未登録IDエラーの確認 |
 | 金額閾値 | `100000` | 課長承認ルールの上限額 | `ManagerApprovalRule` と `ApproverDatabase` の検証 |
 | 金額閾値 | `1000000` | 部長承認ルールの上限額 | `DirectorApprovalRule` と `ApproverDatabase` の検証 |
@@ -1582,6 +1585,20 @@ class DirectorApprovalRule : public IApprovalRule {
 public:
     bool canApprove(int amount) override {
         return amount <= 1000000;
+    }
+};
+
+// 部署別承認ルール：部署ごとに設定した上限で判定する。
+// 来期の「部署ごとに承認上限を差し替える」制度を、この1クラスの
+// 差し替えで実現する（部署ごとに別インスタンスを注入する）。
+class DepartmentApprovalRule : public IApprovalRule {
+    string department;
+    int limit;
+public:
+    DepartmentApprovalRule(const string& dept, int deptLimit)
+        : department(dept), limit(deptLimit) {}
+    bool canApprove(int amount) override {
+        return amount <= limit;
     }
 };
 ```
@@ -1893,7 +1910,7 @@ public:
             wf1.addListener(&email);
             wf1.addListener(&chat);
             wf1.process(WorkflowEvent::SubmitNormal);
-            approvalLog.add("APR001", "田中 部長", 50000, "承認");
+            approvalLog.add("APR001", "田中 課長", 50000, "承認");
         }
 ```
 
@@ -1918,7 +1935,7 @@ public:
             wf2.addListener(&email);
             wf2.addListener(&chat);
             wf2.process(WorkflowEvent::SubmitEmergency);
-            approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
+            approvalLog.add("APR002", "佐藤 部長", 500000, "承認");
         }
 ```
 
@@ -1943,7 +1960,7 @@ public:
             wf3.addListener(&email);
             wf3.addListener(&chat);
             wf3.process(WorkflowEvent::Approve, {50000});
-            approvalLog.add("APR001", "田中 部長", 50000, "承認");
+            approvalLog.add("APR001", "田中 課長", 50000, "承認");
         }
 ```
 
@@ -1971,7 +1988,7 @@ public:
             wf4.addListener(&email);
             wf4.addListener(&chat);
             wf4.process(WorkflowEvent::Approve, {500000});
-            approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
+            approvalLog.add("APR002", "佐藤 部長", 500000, "承認");
         }
 ```
 
@@ -1998,7 +2015,7 @@ public:
             wf5.addListener(&email);
             wf5.addListener(&chat);
             wf5.process(WorkflowEvent::Reject);
-            approvalLog.add("APR001", "田中 部長", 50000, "却下");
+            approvalLog.add("APR001", "田中 課長", 50000, "却下");
         }
 ```
 
@@ -2025,7 +2042,7 @@ public:
             wf6.addListener(&email);
             wf6.addListener(&chat);
             wf6.process(WorkflowEvent::FinalApprove, {500000});
-            approvalLog.add("APR002", "佐藤 取締役", 500000, "承認");
+            approvalLog.add("APR002", "佐藤 部長", 500000, "承認");
         }
 ```
 
@@ -2052,7 +2069,7 @@ public:
         wf7.addListener(&email);
         wf7.addListener(&chat);
         wf7.process(WorkflowEvent::Resubmit);
-        approvalLog.add("APR001", "田中 部長", 0, "差し戻し");
+        approvalLog.add("APR001", "田中 課長", 0, "差し戻し");
 ```
 
 行7の実行結果：
@@ -2087,6 +2104,37 @@ public:
 [通知失敗] channel=chat（状態は保持、他の通知は継続）
 ```
 
+行9は、来期の「部署ごとに承認上限を差し替える」制度を、判定ルール（P3）の差し替えだけで先取りする例です。承認者本人（APR002）は権限額を満たしていても、差し替えた部署別ルール（開発部・上限30万）が申請額を超過と判断すれば、承認へ進めません。状態遷移・通知の骨格はそのまま、判定ルール1クラスを差し替えるだけで制度が変わることを示します。
+
+```cpp
+        // 行9: 部署別承認上限を判定ルール(P3)の差し替えで先取りする。
+        //      開発部の上限は30万円。50万円は部署上限を超えるため、
+        //      承認者の権限内でも承認済みへ進めない。
+        cout << "--- 行9: 部署別上限ルールへ差し替え"
+             << "（開発部・上限30万） ---" << endl;
+        DepartmentApprovalRule devRule("開発部", 300000);
+        PendingPhase deptPending(&devRule, &approved, &rejected);
+        if (validateApprover("APR002", 500000)) {
+            cases.create("REQ009", &deptPending);
+            notificationTargets.setTargets(
+                "REQ009", {{"申請者", Channel::Email}});
+            WorkflowManager wf9(cases, notificationTargets, "REQ009");
+            wf9.addListener(&email);
+            wf9.addListener(&chat);
+            wf9.process(WorkflowEvent::Approve, {500000});
+            approvalLog.add("APR002", "佐藤 部長", 500000, "部署上限超過");
+        }
+```
+
+行9の実行結果：
+
+```text
+--- 行9: 部署別上限ルールへ差し替え（開発部・上限30万） ---
+[メール送信 11件目] To:申請者 / 上位承認者への確認が必要です
+```
+
+差し替えた `DepartmentApprovalRule`（開発部・上限30万）が50万円を上限超過と判断したため、`PendingPhase` は承認済みへ遷移せず、審査待ちのまま「上位承認者への確認が必要」と通知します。判定ルール1クラスを差し替えただけで、状態遷移・通知の骨格には手を入れていません。
+
 エラー例は、存在しない承認者IDと、承認上限の超過です。どちらも検証で処理を中断します。
 
 ```cpp
@@ -2105,7 +2153,7 @@ public:
 --- エラー例1: 不正な承認者ID ---
 エラー：承認者ID APR999 はデータベースに存在しません。
 --- エラー例2: 承認上限超過 ---
-エラー：田中 部長（manager）の承認上限（100000円）を超えています。
+エラー：田中 課長（manager）の承認上限（100000円）を超えています。
 ```
 
 最後に承認ログを出力し、`main()` から実行します。
@@ -2127,16 +2175,17 @@ int main() {
 
 ```text
 --- 承認ログ ---
-[APR001] 田中 部長 50000円 -> 承認
-[APR002] 佐藤 取締役 500000円 -> 承認
-[APR001] 田中 部長 50000円 -> 承認
-[APR002] 佐藤 取締役 500000円 -> 承認
-[APR001] 田中 部長 50000円 -> 却下
-[APR002] 佐藤 取締役 500000円 -> 承認
-[APR001] 田中 部長 0円 -> 差し戻し
+[APR001] 田中 課長 50000円 -> 承認
+[APR002] 佐藤 部長 500000円 -> 承認
+[APR001] 田中 課長 50000円 -> 承認
+[APR002] 佐藤 部長 500000円 -> 承認
+[APR001] 田中 課長 50000円 -> 却下
+[APR002] 佐藤 部長 500000円 -> 承認
+[APR001] 田中 課長 0円 -> 差し戻し
+[APR002] 佐藤 部長 500000円 -> 部署上限超過
 ```
 
-変更後の受入条件7行と同じ順序で、通常申請は課長承認を経由し、緊急申請は課長を飛ばして部長承認で完了することを確認できます。`ManagerApprovalRule`と`DirectorApprovalRule`は、それぞれ対応する審査状態へ注入されています。エラーケースでは、`ApproverDatabase` による承認者IDの存在確認と権限額の検証が機能し、処理を中断していることも確認できます。
+変更後の受入条件7行と同じ順序で、通常申請は課長承認を経由し、緊急申請は課長を飛ばして部長承認で完了することを確認できます。`ManagerApprovalRule`と`DirectorApprovalRule`は、それぞれ対応する審査状態へ注入されています。行9では、来期の部署別上限制度を `DepartmentApprovalRule` の差し替えだけで先取りし、状態遷移・通知の骨格を変えずに承認判定（P3）を入れ替えられることを確認できます。エラーケースでは、`ApproverDatabase` による承認者IDの存在確認と権限額の検証が機能し、処理を中断していることも確認できます。
 `WorkflowManager` は申請IDから現在の `IWorkflowPhase` と通知先データを読み込みます。状態実装は許可するイベントを処理し、`transitionTo()` を通じてRepository上の現在状態を更新します。その後、保存済みの通知先データを読み出し、`email` や `chat` に対応する通知スタブが送信します。
 
 
@@ -2149,6 +2198,7 @@ classDiagram
     class RejectedPhase
     class CompletedPhase
     class DirectorApprovalRule
+    class DepartmentApprovalRule
     class ApproverDatabase
     class WorkflowCaseRepository
     class NotificationTargetRepository
@@ -2176,6 +2226,7 @@ classDiagram
     IWorkflowPhase <|.. RejectedPhase
     IWorkflowPhase <|.. CompletedPhase
     IApprovalRule <|.. DirectorApprovalRule
+    IApprovalRule <|.. DepartmentApprovalRule
     WorkflowManager --> ApproverDatabase
     WorkflowManager --> WorkflowCaseRepository
     WorkflowManager --> NotificationTargetRepository
