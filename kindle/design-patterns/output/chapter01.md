@@ -1314,7 +1314,7 @@ classDiagram
     note for PaymentCalculator "【P2・残した】小計計算\n具体的な式を知らない"
     note for OrderProcessor "選択したルールで\n計算役・プレビュー役を生成"
     note for IDiscountRule "【P1】matches条件\n【P2】apply計算\n具象実装はmain()が生成・所有"
-    note for RuleSelector "【P1・新設】登録順にmatchesを評価\nmain()が生成・ルール登録"
+    note for RuleSelector "【P1・新設】全matchesを評価しpriority最高を選ぶ\nmain()が生成・ルール登録"
     note for PremiumDiscount "【P1】Premium条件\n【P2】20%引き"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
@@ -1327,7 +1327,7 @@ classDiagram
 |---|---|---|---|
 | P2 | `PaymentCalculator` を小計計算と契約利用だけにする | `apply(int)` を定義し、具体式を具象ルールへ移す | ステップ1 |
 | P1 | 具象ルールへ条件判定を移す | `matches()` を各施策クラスへ置く | ステップ2 |
-| P1 | `RuleSelector` と登録関係を追加する | 登録順に `matches()` を呼ぶ固定ループを実装する | ステップ3 |
+| P1 | `RuleSelector` と登録関係を追加する | 登録された全ルールの `matches()` を呼び、一致の中から `priority()` 最高を選ぶ固定ループを実装する | ステップ3 |
 | P1・P2 | 図外の組み立て場所で依存関係を成立させる | `main()`が具象ルールとSelectorを生成・所有・登録し、Selectorを`OrderProcessor`へ注入する | ステップ3 |
 | P1・P2 | `OrderProcessor`から計算役・プレビュー役への生成依存を追加する | 選択済み`IDiscountRule&`で`PaymentCalculator`と`CartPreviewService`を生成する | ステップ3 |
 
@@ -1513,7 +1513,7 @@ struct PaymentResult {
 | 接続点を変える観点 | システム全体での設計判断 | 変えたくない側が知らなくなる詳細 |
 |---|---|---|
 | 何を分離するか | P1の適用条件とP2の計算式を施策ごとの具象ルールへ置く | 具体条件と計算式 |
-| どこで生成・選択するか | `main()` が生成・所有し、`RuleSelector` が登録順に選ぶ | 具体クラスの生成方法と選択条件 |
+| どこで生成・選択するか | `main()` が生成・所有し、`RuleSelector` が一致の中から `priority()` 最高を選ぶ | 具体クラスの生成方法と選択条件 |
 | どう依存を渡すか | Selectorには登録、計算とプレビューには `const IDiscountRule&` を注入する | 選択済みルールの具体名 |
 | 安定側はどう実行するか | Selectorは `matches()`、計算側は `apply()` だけを呼ぶ | 条件・式・生成の詳細 |
 
@@ -1525,7 +1525,7 @@ struct PaymentResult {
 
 | 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |
 |---|---|---|---|
-| P1：割引ルールの種類 | 新しい条件を加えても、共通の選択手順・注文処理・プレビュー・既存施策を変えない | 条件を具象ルールの `matches()` へ置き、`RuleSelector::select()` は登録順に同じ操作を呼ぶ。`main()` は具象ルールを登録する | サマーセールの条件は対象ルールと登録へ収まり、Selector・利用側・既存ルールは具体条件を知らない |
+| P1：割引ルールの種類 | 新しい条件を加えても、共通の選択手順・注文処理・プレビュー・既存施策を変えない | 条件を具象ルールの `matches()` へ置き、`RuleSelector::select()` は登録された全ルールへ同じ `matches()` を呼び一致の中から `priority()` 最高を選ぶ。`main()` は具象ルールを登録する | サマーセールの条件は対象ルールと登録へ収まり、Selector・利用側・既存ルールは具体条件を知らない |
 | P2：割引の計算方法 | 新しい式を加えても、小計計算と既存施策の式を変えない | 式を同じ具象ルールの `apply(int)` へ置き、`PaymentCalculator` は小計を渡して戻り値を受け取る | パーセント引き・逐次割引は対象ルール内へ収まり、小計計算は `int`→`int` の契約だけを使う |
 | P1・P2を接続したシステム全体 | 施策追加の変更対象を施策固有の知識へ限定する | `main()` が生成・所有・登録し、選択した `IDiscountRule&` を計算とプレビューへ注入する | 条件・式・生成の詳細が安定側から外れ、二つの変化軸が一つの実行経路として動く |
 
@@ -2095,7 +2095,7 @@ classDiagram
     note for PaymentCalculator "【P2・残した】小計計算\n具体的な式を知らない"
     note for OrderProcessor "選択したルールで\n計算役・プレビュー役を生成"
     note for IDiscountRule "【P1】matches条件\n【P2】apply計算\n具象実装はmain()が生成・所有"
-    note for RuleSelector "【P1・新設】登録順にmatchesを評価\nmain()が生成・ルール登録"
+    note for RuleSelector "【P1・新設】全matchesを評価しpriority最高を選ぶ\nmain()が生成・ルール登録"
     note for PremiumDiscount "【P1】Premium条件\n【P2】20%引き"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
@@ -2130,7 +2130,7 @@ sequenceDiagram
     M->>DB: get(customerId)
     DB-->>M: CustomerInfo
     M->>S: select(memberType, context)
-    loop 登録順に評価
+    loop 登録された全ルールを評価
         S->>I: matches(memberType, context)
         I-->>S: true / false
     end
@@ -2167,7 +2167,7 @@ graph LR
 | `CampaignContext` | `isSummerSale` を追加する | 新しい判定材料そのものは入力として必要なので残る |
 | `CartPreviewService` | **修正せず、今回の個別回帰確認から外す** | 選ばれた `IDiscountRule` を受け取るだけにした |
 | 3-2には分離先がなかった | `SummerSaleDiscount` と登録行を追加する | 施策固有の変更先を新しく作った |
-| 3-2には存在しなかった選択役 | **`RuleSelector` は修正しない** | 具体条件を持たず、登録順に `matches()` を呼ぶ固定処理にした |
+| 3-2には存在しなかった選択役 | **`RuleSelector` は修正しない** | 具体条件を持たず、全ルールの `matches()` を呼び一致の中から `priority()` 最高を選ぶ固定処理にした |
 
 この結果は、コードを書く前に確定した採用設計を完成コードへ統合した後に得たものです。関数抽出やFactoryだけでは `PaymentCalculator` または選択側の分岐が残るため、この変更影響にはなりません。CIで既存テスト一式を実行することと、変更影響として個別に再確認する範囲は区別します。
 
@@ -2178,7 +2178,7 @@ graph LR
 | サマーセール5%を既存割引後へ逐次適用 | `PaymentCalculator` の if 文と適用順を修正 | 条件と式を持つ `SummerSaleDiscount` と組み合わせルールを追加し、優先順に登録 |
 | クーポン割引（定額）を追加 | `PaymentCalculator` の if 文を修正 | `CouponDiscount` を新規作成し、`main()` に1行登録。Selectorは無変更 |
 | プレミアム割引率を変更 | `PaymentCalculator` の計算式を直接修正 | `PremiumDiscount` の計算式のみ修正 |
-| 割引の適用順序を変更 | `PaymentCalculator` の分岐順序を修正し、既存ケースを広く再確認 | 組み合わせルールまたは `main()` の登録順だけを見直す |
+| 割引の適用順序を変更 | `PaymentCalculator` の分岐順序を修正し、既存ケースを広く再確認 | 組み合わせルールまたは各ルールの `priority()` だけを見直す |
 | 顧客情報取得が失敗 | `OrderProcessor` の顧客取得エラーとして扱う | 変更なし。外部境界の失敗であり、割引ルール差し替えの構造には混ぜない |
 
 ---
@@ -2215,7 +2215,7 @@ graph LR
 | 個別の割引計算の実行 | `PaymentCalculator`（if-else直書き） | `PremiumDiscount` 等の各実装クラス |
 | 各割引の適用条件 | `PaymentCalculator` の `if-else` | 各実装クラスの `matches()` |
 | 一致するルールの選択手順 | `PaymentCalculator` の分岐順 | `RuleSelector` の固定ループ |
-| ルールの優先順位 | `if-else` の記述順 | `main()` の登録順 |
+| ルールの優先順位 | `if-else` の記述順 | 各ルールの `priority()`（登録順に依存しない） |
 | 割引ルールの契約定義 | —（なし） | `IDiscountRule` |
 
 ### 複雑さを足しても対策は変わるか
