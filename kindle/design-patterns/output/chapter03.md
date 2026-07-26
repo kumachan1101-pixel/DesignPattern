@@ -1506,25 +1506,27 @@ class TicketReservation;
 // 状態ごとの振る舞いを定義するインターフェース
 class IReservationState {
 public:
-    virtual void reserve(TicketReservation* ctx) {
+    // 既定は「その状態では不可」を返すだけなので ctx は使わない。
+    // 仮引数名を省略して未使用警告を出さず、派生側は ctx を受け取り上書きする。
+    virtual void reserve(TicketReservation*) {
         std::cout << "現在予約できません\n";
     }
-    virtual void pay(TicketReservation* ctx) {
+    virtual void pay(TicketReservation*) {
         std::cout << "支払いに適した状態ではありません\n";
     }
-    virtual void cancel(TicketReservation* ctx) {
+    virtual void cancel(TicketReservation*) {
         std::cout << "キャンセルできません\n";
     }
-    virtual void addToWaitlist(TicketReservation* ctx) {
+    virtual void addToWaitlist(TicketReservation*) {
         std::cout << "キャンセル待ちに登録できません\n";
     }
-    virtual void promoteBySystem(TicketReservation* ctx) {
+    virtual void promoteBySystem(TicketReservation*) {
         std::cout << "システム昇格の対象ではありません\n";
     }
-    virtual void hold(TicketReservation* ctx) {
+    virtual void hold(TicketReservation*) {
         std::cout << "保留できません\n";
     }
-    virtual void expire(TicketReservation* ctx) {
+    virtual void expire(TicketReservation*) {
         std::cout << "期限切れ処理は行えません\n";
     }
     virtual ~IReservationState() = default;
