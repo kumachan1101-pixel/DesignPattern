@@ -9,16 +9,26 @@ on:
     paths:
       - "kindle/design-patterns/**"
       - ".github/workflows/validate-design-pattern-book.yml"
+  workflow_dispatch:
+    inputs:
+      enforce_release:
+        description: "Enforce release readiness"
+        required: true
+        default: false
+        type: boolean
 
 jobs:
   validate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Validate chapter structure and residue
-        run: python kindle/design-patterns/script/validate_book.py
-      - name: Detect new review risks and compile published C++ examples
-        run: python kindle/design-patterns/script/audit_book.py --check-baseline
+      - name: Run push quality gate
+        run: python kindle/design-patterns/script/run_completion_gate.py
+      - name: Enforce release completion
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.enforce_release }}
+        run: python kindle/design-patterns/script/run_completion_gate.py --release
