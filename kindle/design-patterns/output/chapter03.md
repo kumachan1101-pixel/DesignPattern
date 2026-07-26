@@ -572,7 +572,7 @@ int main() {
 | Reserved（予約済み） | —— | → Paid | → Available |
 | Paid（支払済み） | —— | —— | —— |
 | Waitlisted（キャンセル待ち） | —— | —— | —— |
-| Held（一時保留） | —— | → Paid | —— |
+| Held（一時保留） | —— | → Paid | → Available |
 
 【表2a：キャンセル待ち系の操作】
 

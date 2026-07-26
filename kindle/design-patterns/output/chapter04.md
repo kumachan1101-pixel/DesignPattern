@@ -199,7 +199,7 @@ flowchart LR
 | ------------------- | ----------------- | -------------------------------------- |
 | `StoreDataImporter` | 直営店CSVの取り込み処理を進める | カンマ区切り、ヘッダー行ありのCSVを開き、解析し、保存する         |
 | `FCDataImporter`    | FC店CSVの取り込み処理を進める | タブ区切り、ヘッダーなし、不正行スキップありのCSVを開き、解析し、保存する |
-| `SalesRow` | パース済みの売上1行を表す | 売上金額の受け渡し（この例では金額のみを集計） |
+| `SalesRow` | パース済みの売上1行を表す | 商品ID・商品名・金額の受け渡し |
 | `ImportResult` | 取り込み1回の結果を表す | 形式名・保存件数・スキップ件数の受け渡し |
 | `ImportSchema` | 形式1件の必須列定義を表す | 形式名・必須列の受け渡し |
 | `SchemaRegistry`    | インポートスキーマの登録・参照   | インポートタイプごとの必須カラム定義を保持し、タイプの存在確認と取得を担う  |
@@ -228,6 +228,8 @@ classDiagram
         +get(key) vector~string~
     }
     class SalesRow {
+        +id string
+        +name string
         +amount long
     }
     class ImportResult {
@@ -370,9 +372,8 @@ static vector<string> splitLine(const string& line, char delim) {
     return cols;
 }
 
-// パース済みの売上1行（CSVは id,name,amount の3列だが、
-// この例で集計に使うのは金額のみ。列の存在確認は検証で行う）
-struct SalesRow { long amount; };
+// パース済みの売上1行（商品ID・商品名・金額）
+struct SalesRow { string id; string name; long amount; };
 
 // インポート1回分の結果（void をやめ、件数を返す）
 struct ImportResult { string schemaName; int saved; int skipped; };
@@ -452,7 +453,7 @@ public:
         for (size_t i = 1; i < rawLines.size(); ++i) {
             vector<string> c = splitLine(rawLines[i], ',');
             if (c.size() < 3) continue;
-            rows.push_back({stol(c[2])});
+            rows.push_back({c[0], c[1], stol(c[2])});
         }
         cout << "カンマ区切りで" << rows.size() << "件を読み込む\n";
 
@@ -491,7 +492,7 @@ public:
         for (size_t i = 0; i < rawLines.size(); ++i) {
             vector<string> c = splitLine(rawLines[i], '\t');
             if (c.size() < 3) { ++skipped; continue; }
-            rows.push_back({stol(c[2])});
+            rows.push_back({c[0], c[1], stol(c[2])});
         }
         cout << "タブ区切りで" << rows.size() << "件を読み込み、"
              << skipped << "件をスキップ\n";
@@ -835,7 +836,7 @@ public:
         for (size_t i = 1; i < rawLines.size(); ++i) {
             vector<string> c = splitLine(rawLines[i], ',');
             if (c.size() < 5) { ++skipped; continue; }   // ランク/ポイント列が不足
-            rows.push_back({stol(c[2])});
+            rows.push_back({c[0], c[1], stol(c[2])});
         }
         cout << "カンマ区切りで会員ランク・ポイント列まで解析（有効"
              << rows.size() << "件・スキップ" << skipped << "件）\n";
@@ -1009,7 +1010,7 @@ ImportResult StoreDataImporter::import() {
     for (size_t i = 1; i < rawLines.size(); ++i) {
         vector<string> c = splitLine(rawLines[i], ',');
         if (c.size() < 3) continue;
-        rows.push_back({stol(c[2])});
+        rows.push_back({c[0], c[1], stol(c[2])});
     }
 
     // 骨格の後段
@@ -1023,7 +1024,9 @@ ImportResult StoreDataImporter::import() {
 
 | 課題ID・接続点 | 接続するデータ | 変わる側 | 守る側 |
 |---|---|---|---|
-| P1：形式別処理 ↔ `import()` の骨格 | 取得した行、検証済み行、保存件数、`ImportResult` | 形式ごとのパース・行検証、取得元・保存先のアクセス実装 | 取得→形式確認→パース→行検証→保存→結果作成の業務順序 |
+| P1：形式別処理 ↔ `import()` の骨格 | 取得した行、検証済み行、保存件数、`ImportResult` | 形式ごとのパース・行検証（業務都合で変わる） | 取得→形式確認→パース→行検証→保存→結果作成の業務順序 |
+
+`import()` にはもう一つ、取得元・保存先のアクセス実装（ファイル／DB／オブジェクトストレージ）も同居していますが、これは形式追加とは別の**基盤都合**で変わる軸です。本章が分離を教える主課題はP1（形式別処理）に絞り、取得元・保存先のアクセスは骨格が保存媒体を知らずに済むよう境界クラス（`ImportFileGateway`／`SalesImportRepository`）の裏へ隔離する実装詳細として扱います（保存媒体の具体は論点から外します）。
 
 ### 何を変え、何を守るか
 
@@ -1040,7 +1043,7 @@ ImportResult StoreDataImporter::import() {
 
 ---
 > **📌 システム全体の課題（確定）**
-> 取込の業務順序と、形式ごとのパース／行検証、取得元・保存先のアクセス方法を独立して変更できるようにする。形式や保存媒体が変わっても、業務順序と既存形式を意識せず取込を実行できるシステムにする。
+> 取込の業務順序を守りながら、形式ごとのパース／行検証（P1）を独立して差し替えられるようにする。取得元・保存先のアクセスは境界クラスの裏へ隔離し、骨格が保存媒体を知らずに取込を実行できるシステムにする。形式が増えても、業務順序と既存形式・保存媒体を意識せず取込を実行できる状態を目指す。
 ---
 
 **着目する共通点：** 現状コードはすでに共通点を持っています。どのImporterも `import()` が「開く→パース→保存→閉じる」を進め、同じ `ImportResult` を返すという同じ骨格にそろっています（手順の共通点）。現場では、この骨格すら形式ごとにばらばらなことも多く、その意味で現状コードはすでに良い出発点です。共通点があるからこそ、呼び出し元や骨格の順序を変えず、変わる「形式ごとのパース」だけを差し替え可能にすれば済みます。フェーズ6では、この共通の骨格を1か所へ引き上げ、差分だけを分ける構造を、課題と組み合わせて決めます。
@@ -1181,7 +1184,7 @@ public:
         for (size_t i = 1; i < rawLines.size(); ++i) {
             vector<string> c = splitLine(rawLines[i], ',');
             if (c.size() < 5) { ++skipped; continue; }   // EC固有の列数
-            rows.push_back({stol(c[2])});
+            rows.push_back({c[0], c[1], stol(c[2])});
         }
         long pointBonus = 0;                        // (2') EC固有：ポイント付与
         for (auto& r : rows) pointBonus += r.amount / 100;
@@ -1249,7 +1252,7 @@ protected:
         for (size_t i = 1; i < lines.size(); ++i) {
             vector<string> c = splitLine(lines[i], ',');
             bool ok = (c.size() >= 3);
-            SalesRow r = ok ? SalesRow{stol(c[2])} : SalesRow{};
+            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
             out.push_back({r, ok});
         }
         return out;
@@ -1350,7 +1353,7 @@ static vector<string> splitLine(const string& line, char delim) {
 }
 
 // ---- ドメインデータ型（void をやめ、実データを受け渡す）----
-struct SalesRow { long amount; };
+struct SalesRow { string id; string name; long amount; };
 struct ParsedRow { SalesRow row; bool wellFormed; };
 struct ValidationResult {
     vector<SalesRow> validRows;
@@ -1418,6 +1421,11 @@ public:
         cout << "DBへ" << rows.size() << "件を保存しました。"
              << " 保存金額合計: " << before
              << "円 -> " << totalAmount << "円\n";
+        if (!rows.empty()) {
+            const SalesRow& s = rows.front();
+            cout << "  先頭行: " << s.id << " " << s.name
+                 << " " << s.amount << "円\n";
+        }
         return (int)rows.size();
     }
     long savedAmount() const { return totalAmount; }
@@ -1479,7 +1487,7 @@ protected:
         for (size_t i = 1; i < lines.size(); ++i) {          // 1行目=ヘッダー
             vector<string> c = splitLine(lines[i], ',');
             bool ok = (c.size() >= 3);
-            SalesRow r = ok ? SalesRow{stol(c[2])} : SalesRow{};
+            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
             out.push_back({r, ok});
         }
         return out;
@@ -1510,7 +1518,7 @@ protected:
         for (size_t i = 0; i < lines.size(); ++i) {          // ヘッダーなし
             vector<string> c = splitLine(lines[i], '\t');
             bool ok = (c.size() >= 3);
-            SalesRow r = ok ? SalesRow{stol(c[2])} : SalesRow{};
+            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
             out.push_back({r, ok});
         }
         return out;
@@ -1543,7 +1551,7 @@ protected:
             vector<string> c = splitLine(lines[i], ',');
             // id,name,amount,rank,point
             bool ok = (c.size() >= 5);
-            SalesRow r = ok ? SalesRow{stol(c[2])} : SalesRow{};
+            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
             out.push_back({r, ok});
         }
         return out;
@@ -1664,6 +1672,7 @@ public:
 [直営店] ヘッダー行をスキップし、カンマ区切りで解析します。
 [直営店] 必須列を検証しました（有効10件 / スキップ0件）。
 DBへ10件を保存しました。 保存金額合計: 0円 -> 10000円
+  先頭行: S001 商品1 1000円
 ファイルをクローズしました。
 [非同期] FC店 の実行を開始します。
 ファイルをオープンしました。
@@ -1671,6 +1680,7 @@ DBへ10件を保存しました。 保存金額合計: 0円 -> 10000円
 [FC店] 先頭行からタブ区切りで解析します。
 [FC店] 不正行を検証しました（有効5件 / スキップ0件）。
 DBへ5件を保存しました。 保存金額合計: 10000円 -> 20000円
+  先頭行: F001 商品1 2000円
 ファイルをクローズしました。
 ```
 
@@ -1694,6 +1704,7 @@ DBへ5件を保存しました。 保存金額合計: 10000円 -> 20000円
 [EC店] 不正行を検証しました（有効8件 / スキップ2件）。
 [EC店] ポイントボーナスを計算しました（8件・合計240pt）。
 DBへ8件を保存しました。 保存金額合計: 20000円 -> 44000円
+  先頭行: E001 商品1 3000円
 ファイルをクローズしました。
 ```
 
