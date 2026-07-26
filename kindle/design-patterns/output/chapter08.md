@@ -1728,6 +1728,8 @@ classDiagram
     class PaymentStatusClient
     class ProcessorRegistry
     class PaymentLog
+    class CustomerDirectory
+    class OrderBook
     class PaymentWorker
     class WebhookController
     class PaymentApplication
@@ -1749,6 +1751,8 @@ classDiagram
     WebhookController --> PaymentApplication : 完了通知
     CreditCardProcessor --> PaymentGatewayClient : 認証API
     PaymentApplication --> PaymentLog : 記録
+    PaymentApplication --> CustomerDirectory : 顧客照合
+    PaymentApplication --> OrderBook : 注文照合
 
     note for IPaymentProcessor "【P1・新設】pay(request)の共通契約"
     note for PaymentApplication "【P1・残した】決済フロー\ncreateProcessorで生成を委ねる"
@@ -2028,6 +2032,56 @@ public:
     }
 };
 ```
+
+**1-b2. 顧客・注文の保持データ（事前登録）**
+
+決済要求が参照する顧客と注文を、システムが事前に保持します。`ProcessorRegistry` と同じデータ層で、要求に載る `customerId`・`orderId`・金額を照合する土台です（第1章 `CustomerDatabase`、第9章 `UserDatabase` と同じ「登録済みデータへ照合する」形）。
+
+```cpp
+// 事前保持：顧客（customerId → 氏名）
+struct CustomerRecord { string name; };
+
+class CustomerDirectory {
+    map<string, CustomerRecord> records;
+public:
+    CustomerDirectory() {
+        records["C001"] = {"田中 一郎"};
+        records["C002"] = {"佐藤 花子"};
+        records["C003"] = {"鈴木 次郎"};
+        records["C004"] = {"高橋 三郎"};
+        records["C005"] = {"伊藤 四郎"};
+        records["C006"] = {"渡辺 五郎"};
+        records["C007"] = {"山本 六郎"};
+        records["C008"] = {"中村 七郎"};
+        records["C020"] = {"小林 八郎"};
+    }
+    bool exists(const string& id) const { return records.count(id) > 0; }
+    CustomerRecord get(const string& id) const { return records.at(id); }
+};
+
+// 事前保持：注文（orderId → 顧客ID・請求金額）
+struct OrderRecord { string customerId; int amount; };
+
+class OrderBook {
+    map<string, OrderRecord> records;
+public:
+    OrderBook() {
+        records["ORD-1001"] = {"C001", 1000};
+        records["ORD-1002"] = {"C002", 2000};
+        records["ORD-1003"] = {"C003", 500};
+        records["ORD-1004"] = {"C004", 800};
+        records["ORD-1005"] = {"C005", 600};
+        records["ORD-1006"] = {"C006", 300};
+        records["ORD-1007"] = {"C007", 200};
+        records["ORD-1008"] = {"C008", 1200};
+        records["ORD-2001"] = {"C020", 3000};
+    }
+    bool exists(const string& id) const { return records.count(id) > 0; }
+    OrderRecord get(const string& id) const { return records.at(id); }
+};
+```
+
+`customerId`・`orderId` は、この保持データに存在するもの以外は受け付けません。金額も注文の登録額と一致するかを照合します。
 
 **1-c. 決済ログ**
 
@@ -2312,6 +2366,8 @@ protected:
     createProcessor(const string& type) = 0;
 
     PaymentStatusClient statusClient;
+    CustomerDirectory customers;   // 事前保持：顧客
+    OrderBook orders;              // 事前保持：注文
 
 public:
     virtual ~PaymentApplication() = default;
@@ -2322,6 +2378,24 @@ public:
             return {PaymentStatus::Failed,
                     "金額は1円以上で指定してください。",
                     false, "INVALID_AMOUNT", {}};
+        }
+        // 事前保持データと照合：注文・顧客・金額が登録済みか
+        if (!orders.exists(request.orderId)) {
+            return {PaymentStatus::Failed,
+                    "未登録の注文です: " + request.orderId,
+                    false, "UNKNOWN_ORDER", {}};
+        }
+        OrderRecord ord = orders.get(request.orderId);
+        if (ord.customerId != request.customerId
+            || ord.amount != request.amount) {
+            return {PaymentStatus::Failed,
+                    "注文内容が保持データと一致しません",
+                    false, "ORDER_MISMATCH", {}};
+        }
+        if (!customers.exists(request.customerId)) {
+            return {PaymentStatus::Failed,
+                    "未登録の顧客です: " + request.customerId,
+                    false, "UNKNOWN_CUSTOMER", {}};
         }
         IPaymentProcessor* proc
             = createProcessor(request.methodId);
@@ -2735,6 +2809,8 @@ classDiagram
     class PaymentStatusClient
     class ProcessorRegistry
     class PaymentLog
+    class CustomerDirectory
+    class OrderBook
     class PaymentWorker
     class WebhookController
     class PaymentApplication
@@ -2756,6 +2832,8 @@ classDiagram
     WebhookController --> PaymentApplication : 完了通知
     CreditCardProcessor --> PaymentGatewayClient : 認証API
     PaymentApplication --> PaymentLog : 記録
+    PaymentApplication --> CustomerDirectory : 顧客照合
+    PaymentApplication --> OrderBook : 注文照合
 
     note for IPaymentProcessor "【P1・新設】pay(request)の共通契約"
     note for PaymentApplication "【P1・残した】決済フロー\ncreateProcessorで生成を委ねる"
