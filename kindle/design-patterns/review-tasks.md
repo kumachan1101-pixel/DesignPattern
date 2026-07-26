@@ -1,10 +1,10 @@
 # 読者視点レビュー タスク一覧
 
-## 2026-07-26 第0章起点・全章意味整合監査（origin/main `2032cdf`）
+## 2026-07-26 第0章起点・全章意味整合監査（修正完了、基準 `4a08caf`）
 
-**判定：FAIL（意味上の矛盾あり・本文修正は未着手）**
+**判定：PASS（CONS-001〜038対応済み・横断監査0件）**
 
-第0章から第12章、あとがきまでを通読し、前工程の判断、現状仕様、変更要求、課題ID、採用構造、最終コード、結果確認が同じ意味で接続しているかを監査した。`validate_book.py`、`audit_book.py`、`check_kindle.py`、`check_execution_output.py` は通過しているが、これらは下記の意味上の矛盾を検出できていない。したがって、過去の章別PASSは作業履歴として残すが、**意味整合性のPASS判定としては本監査が優先**する。
+第0章から第12章、あとがきまでの意味上の矛盾をCONS-001〜038として修正した。全パターン章に「要求→課題→構造→コード→結果」と「変更前→変更後の不変条件」の照合表を追加し、テンプレートと構造検査でも必須化した。変更した掲載コードは全章で再コンパイル・実行し、本文の出力例との一致を確認した。`validate_book.py`、`audit_book.py`、`check_kindle.py`、`check_execution_output.py` はすべてPASSし、`audit_book.py` の残存指摘は0件である。
 
 > **完了状態の管理：** 下記CONSタスクの状態と根拠は `quality/completion-gate.json` で管理する。通常pushでは `python script/run_completion_gate.py`、出版完了判定では `python script/run_completion_gate.py --release` を実行する。運用の正本は `rules/completion-gate.md` を参照する。
 

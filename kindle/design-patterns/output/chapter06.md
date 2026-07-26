@@ -1014,7 +1014,6 @@ P1をクラス図の変更として書くと、次の3操作になります。
 
 ```mermaid
 classDiagram
-    class CustomDrink
     class MenuDatabase
     class OrderApplication
     class OrderLog
@@ -1199,7 +1198,7 @@ struct OrderResult {
 
 ### 7-1：解決後のコード（全体）
 
-ステップ5で決断した構造を、実行可能な完全なコードとして組み上げます。トッピングの種類を管理していたフラグや `if` 文をなくし、基本ドリンクとトッピングを同じ `IDrink` というインターフェース（契約）で統一して扱えるように変更しています。トッピングの価格・表示名・販売可否は各クラスに散らさず、`ToppingCatalog`（保存データ）へ寄せました。注文は `OrderRequest`（トッピングIDと個数のデータ）として受け取り、`OrderAssembler` が販売可否を確認してから組み立てます。オブジェクトの組み立ての責任は、この `OrderAssembler` と `OrderApplication` に集約しています。
+フェーズ6で比較した二つの完成構造から、内側価格に依存する追加料を見据えて採用した装飾連結構造を、実行可能なコードとして組み上げます。`OrderApplication`はユースケースの入口と依存の所有を担い、実際の検証・生成・連結は`OrderAssembler`だけが担います。トッピングの価格・表示名・販売可否は`ToppingCatalog`へ寄せ、`OrderAssembler`が`OrderRequest`の順に部品を生成して所有連結します。
 
 **IDrink インターフェース（契約）：**
 
@@ -1330,9 +1329,13 @@ public:
 ```cpp
 // 変わらない処理の骨格：基本のドリンク
 class Coffee : public IDrink {
+    string name;
+    int basePrice;
 public:
-    int getPrice() const override { return 400; }
-    string getDescription() const override { return "ホットコーヒー"; }
+    Coffee(const string& itemName, int price)
+        : name(itemName), basePrice(price) {}
+    int getPrice() const override { return basePrice; }
+    string getDescription() const override { return name; }
 };
 ```
 
@@ -1478,7 +1481,8 @@ public:
             }
         }
         // 手順2：検証を通ったので、選択順・個数だけ基本ドリンクへ重ねる
-        IDrink* drink = new Coffee();
+        MenuItem base = db.get(req.baseItemId);
+        IDrink* drink = new Coffee(base.name, base.basePrice);
         for (const auto& line : req.toppings) {
             for (int i = 0; i < line.quantity; ++i) {
                 drink = wrapOne(line.toppingId, drink);
@@ -1505,11 +1509,12 @@ class OrderApplication {
 private:
     MenuDatabase db;
     ToppingCatalog catalog;
+    OrderAssembler assembler;
+    OrderLog log;
 public:
-    void run() {
-        OrderAssembler assembler(db, catalog);
-        OrderLog log;
+    OrderApplication() : assembler(db, catalog) {}
 
+    void run() {
         vector<OrderRequest> requests = {
             {"DRINK001", {}},
             {"DRINK001", {{"Milk", 1}}},
@@ -1543,7 +1548,6 @@ public:
     }
 
     void testOrderCalculation() {
-        OrderAssembler assembler(db, catalog);
         OrderResult r1 = assembler.assemble({"DRINK001", {}});
         assert(r1.totalPrice == 400);
         OrderResult r6 = assembler.assemble(
@@ -1602,7 +1606,6 @@ int main() {
 
 ```mermaid
 classDiagram
-    class CustomDrink
     class MenuDatabase
     class OrderApplication
     class OrderLog
@@ -1649,6 +1652,19 @@ classDiagram
 | P1 | `IDrink`、基本ドリンク、全トッピング、カタログと組み立て | 選択順に1段ずつ包むことで価格・説明を合成し、フラグや組み合わせクラスを使わなかった | 新トッピングは1クラスとカタログ登録で追加できる |
 
 1行は、一つの完成システムを唯一の変化軸から追跡した結果です。装飾連結構造がP1の完了条件を維持しています。
+
+#### 要求→課題→構造→コード→結果の追跡
+
+| 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
+|---|---|---|---|
+| R1：任意トッピングの組み合わせ／P1 | 条件集中をDrinkの装飾チェーンへ分離。コード：`IDrink`、`ToppingWrapper` 群、`OrderAssembler` | 選択順に説明と価格が合成され、Matcha・Chocoも同じ経路で処理 | 新トッピング、カタログ登録 |
+
+#### 変更前→変更後の不変条件照合
+
+| 変更対象外 | 変更前 | 変更後 | 確認根拠 |
+|---|---|---|---|
+| メニュー取得 | `MenuDatabase` から `MenuItem` を取得 | 同じ名前・基本価格をCoffeeへ渡す | 7-1の注文名と価格 |
+| 注文入力 | 基本商品IDとトッピング列 | 同じ入力を `OrderAssembler` が解釈 | 正常・未登録トッピングケース |
 
 ### 7-2：動作シーケンス図
 
@@ -1763,7 +1779,9 @@ graph LR
 | ドリンクの価格・名前の提供 | `CustomDrink`（全組み合わせをif-elseで直書き） | `Coffee` / `Milk` / `Matcha` 等の個別クラス |
 | トッピングの連鎖的な価格加算 | `CustomDrink`（フラグで直書き） | `Milk` / `Matcha` 等のラッパークラス |
 | トッピングの販売可否 | 未整理、または呼び出し側の個別判定 | `ToppingCatalog` |
-| トッピングの表示順 | `CustomDrink` 内の `if` 文の並び | `OrderApplication` の組み立て順 |
+| トッピングの表示順 | `CustomDrink` 内の `if` 文の並び | `OrderRequest`の順を解釈する`OrderAssembler` |
+| 注文部品の検証・生成・連結 | `CustomDrink`と呼び出し元へ分散 | `OrderAssembler` |
+| ユースケース入口と依存の所有 | `main()`相当 | `OrderApplication`（`OrderAssembler`と`OrderLog`を所有） |
 | ドリンク契約の定義 | —（なし） | `IDrink` |
 | トッピング連鎖の仲介役定義 | —（なし） | `ToppingWrapper` |
 
@@ -1830,7 +1848,7 @@ graph LR
 3. 最近入った変更要求、または次に来そうな変更要求は何か。
 4. その変更で、触りたくない場所まで修正や再テストが広がるか。
 5. 変えたいものと守りたいものを分けると、接続点には何を残すべきか。
-6. 何もしない、関数化、クラス分離、契約導入、登録/組み立て移動のうち、どこまで進めるのが今回の文脈に合うか。
+6. 全課題を満たす完成構造が複数成立するか。成立するなら、責任配置・変更影響・導入コストの差は何か。
 
 ## パターン解説：Decorator パターン
 

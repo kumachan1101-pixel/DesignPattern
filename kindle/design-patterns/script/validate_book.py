@@ -32,14 +32,8 @@ CORE_CHAPTERS = [
     "chapter12.md",
 ]
 
-# 直近の★指摘を横断反映した範囲。第11・12章は別作業中のため、
-# この追加契約の対象へはまだ含めない。
-REVIEWED_CHAPTERS = {
-    "chapter01.md", "chapter02.md", "chapter03.md",
-    "chapter04.md", "chapter05.md", "chapter06.md",
-    "chapter07.md", "chapter08.md", "chapter09_2.md",
-    "chapter10.md",
-}
+# 直近の★指摘を横断反映した全パターン章。
+REVIEWED_CHAPTERS = set(CORE_CHAPTERS)
 
 # 第3ラウンドの「システム全体図／内部図＋現状型完全一致」を
 # 全章の継続契約として検証する。
@@ -1778,7 +1772,7 @@ def check_phase1_input_contract_use(text: str, path: Path) -> list[Issue]:
          "7-1でSyncRequestが実行入口から消えています", s71),
         (final, "dataCatalog.load(request.target)",
          "7-1で同期対象がデータ取得先の選択に使われていません", s71),
-        (final, "client->send(data, apiHealthy)",
+        (final, "client.send(data, apiHealthy)",
          "7-1で取得した同期データが外部送信へ渡っていません", s71),
     ]
     for section, token, message, start in required:
@@ -1907,6 +1901,61 @@ def check_state_automation(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def check_end_to_end_traceability(text: str, path: Path) -> list[Issue]:
+    """Require the two semantic hand-off tables introduced by CONS-007/038."""
+    issues: list[Issue] = []
+    trace_heading = "#### 要求→課題→構造→コード→結果の追跡"
+    invariant_heading = "#### 変更前→変更後の不変条件照合"
+    section72 = text.find("### 7-2：動作シーケンス図")
+
+    for heading, required_tokens in (
+        (
+            trace_heading,
+            (
+                "確定要求ID",
+                "課題ID",
+                "構造差分",
+                "コード適用先",
+                "実行結果",
+                "残る変更先",
+            ),
+        ),
+        (
+            invariant_heading,
+            ("変更対象外", "変更前", "変更後", "確認根拠"),
+        ),
+    ):
+        start = text.find(heading)
+        if start < 0:
+            issues.append(Issue(path, 1, f"{heading} がありません"))
+            continue
+        if section72 >= 0 and start > section72:
+            issues.append(Issue(
+                path,
+                line_number(text, start),
+                f"{heading} は完成コード直後、7-2より前に置いてください",
+            ))
+        end = text.find("\n#### ", start + len(heading))
+        if end < 0 or (section72 >= 0 and end > section72):
+            end = section72 if section72 >= 0 else len(text)
+        section = text[start:end]
+        for token in required_tokens:
+            if token not in section:
+                issues.append(Issue(
+                    path,
+                    line_number(text, start),
+                    f"{heading} に「{token}」がありません",
+                ))
+        data_rows = re.findall(r"(?m)^\|[^-\n][^\n]*\|$", section)
+        if len(data_rows) < 2:
+            issues.append(Issue(
+                path,
+                line_number(text, start),
+                f"{heading} に具体的な照合行がありません",
+            ))
+    return issues
+
+
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
@@ -1931,6 +1980,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase1_input_contract_use(text, path))
         issues.extend(check_recent_star_contracts(text, path))
         issues.extend(check_state_automation(text, path))
+        issues.extend(check_end_to_end_traceability(text, path))
     return issues
 
 

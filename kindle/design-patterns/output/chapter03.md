@@ -1178,6 +1178,7 @@ classDiagram
         +reserve()
         +pay()
         +cancel()
+        +expire()
     }
     class IReservationState {
         <<interface>>
@@ -1185,6 +1186,7 @@ classDiagram
         +pay(ctx)
         +cancel(ctx)
         +promoteBySystem(ctx)
+        +expire(ctx)
     }
     class EventInfo
     class ReservationRecord
@@ -1196,6 +1198,7 @@ classDiagram
     class PaidState
     class WaitlistedState
     class HeldState
+    class ReservationExpiryScheduler
     class BatchApplication
     TicketReservation o--> IReservationState
     TicketReservation --> EventDatabase
@@ -1209,14 +1212,16 @@ classDiagram
     IReservationState <|.. PaidState
     IReservationState <|.. WaitlistedState
     IReservationState <|.. HeldState
+    ReservationExpiryScheduler ..> TicketReservation : timeout時にexpire
     BatchApplication --> TicketReservation
+    BatchApplication --> ReservationExpiryScheduler
 
     note for IReservationState "【P1・新設】状態ごとの振る舞いの共通契約"
     note for ReservedState "【P1・新設】予約状態の振る舞いと解放時の自動昇格呼び出し"
     note for ReservationWaitlist "【P2・新設】待機者の探索・削除・先頭選択"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "IReservationState,AvailableState,ReservedState,PaidState,WaitlistedState,HeldState,ReservationWaitlist" focus
+    cssClass "IReservationState,AvailableState,ReservedState,PaidState,WaitlistedState,HeldState,ReservationWaitlist,ReservationExpiryScheduler" focus
 ```
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
@@ -1357,7 +1362,7 @@ public:
 **システム全体の実装結果：達成。** P1とP2が一つの予約経路で接続され、フェーズ5で目指した状態を実現しました。実際の動作と変更影響はフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
-採用した設計（ステップ2：状態の契約と委譲）を、実際のコードに実装します。これにより、これまで`TicketReservation`が抱え込んでいた複雑な条件分岐を、個別の状態クラスへ移します。
+フェーズ6で確定したP1・P2を同時に満たす設計を、実際のコードに実装します。`TicketReservation`が抱えていた状態分岐を各状態クラスへ移し、キャンセル待ちの探索・先頭選択・自動昇格を`ReservationWaitlist`へ移します。
 
 この設計変更の最大の価値は、今後「キャンセル待ち」や「特別優待」といった新しい状態がどれだけ増えても、既存の業務フローの条件分岐を変更せず、新しい状態クラスと組み立て設定を追加することで機能拡張ができる安定性を手に入れたことです。
 
@@ -1705,6 +1710,15 @@ void HeldState::expire(TicketReservation* ctx) {
     ctx->promoteNextWaitlisted();
 }
 
+// タイマー基盤から期限切れイベントを予約へ渡す境界。
+// 利用者や運用者がexpire()を手動実行する構造にはしない。
+class ReservationExpiryScheduler {
+public:
+    void onHoldExpired(TicketReservation& reservation) {
+        reservation.expire();
+    }
+};
+
 // 状態オブジェクト取得関数の実体
 IReservationState* availableState() {
     static AvailableState state;
@@ -1740,6 +1754,7 @@ class BatchApplication {
     EventDatabase db;
     ReservationHistory history;
     ReservationWaitlist waitlist;
+    ReservationExpiryScheduler expiryScheduler;
 
     bool validateExists(const std::string& eventId) {
         if (!db.exists(eventId)) {
@@ -1859,7 +1874,8 @@ public:
                                     "EVT001", i4.title);
             seat4.reserve();
             seat4.hold();
-            seat4.expire();
+            // 24時間経過を模したタイマーイベント。利用者操作ではない。
+            expiryScheduler.onHoldExpired(seat4);
         }
 ```
 
@@ -1996,6 +2012,7 @@ classDiagram
         +reserve()
         +pay()
         +cancel()
+        +expire()
     }
     class IReservationState {
         <<interface>>
@@ -2003,6 +2020,7 @@ classDiagram
         +pay(ctx)
         +cancel(ctx)
         +promoteBySystem(ctx)
+        +expire(ctx)
     }
     class EventInfo
     class ReservationRecord
@@ -2014,6 +2032,7 @@ classDiagram
     class PaidState
     class WaitlistedState
     class HeldState
+    class ReservationExpiryScheduler
     class BatchApplication
     TicketReservation o--> IReservationState
     TicketReservation --> EventDatabase
@@ -2027,14 +2046,16 @@ classDiagram
     IReservationState <|.. PaidState
     IReservationState <|.. WaitlistedState
     IReservationState <|.. HeldState
+    ReservationExpiryScheduler ..> TicketReservation : timeout時にexpire
     BatchApplication --> TicketReservation
+    BatchApplication --> ReservationExpiryScheduler
 
     note for IReservationState "【P1・新設】状態ごとの振る舞いの共通契約"
     note for ReservedState "【P1・新設】予約状態の振る舞いと解放時の自動昇格呼び出し"
     note for ReservationWaitlist "【P2・新設】待機者の探索・削除・先頭選択"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "IReservationState,AvailableState,ReservedState,PaidState,WaitlistedState,HeldState,ReservationWaitlist" focus
+    cssClass "IReservationState,AvailableState,ReservedState,PaidState,WaitlistedState,HeldState,ReservationWaitlist,ReservationExpiryScheduler" focus
 ```
 
 章末のState骨格図では `TicketReservation` がContext、`IReservationState` がState、5つの状態クラスがConcreteStateに対応します。掲載コードに登場する在庫・履歴・待ち行列・組み立てクラスも省略せず記載しています。予約数の増減と待機者の自動昇格は状態処理からコンテキスト経由で実行され、`BatchApplication` はシナリオを起動するだけです。
@@ -2045,6 +2066,20 @@ classDiagram
 |---|---|---|---|
 | P1 | 全 `IReservationState` 実装と `TicketReservation` の委譲 | 公開操作は現在状態へ一律委譲し、中心クラスの文字列分岐が消えた | 状態追加で `TicketReservation` の状態選択分岐を増やさない |
 | P2 | `ReservationWaitlist` と `ReservedState::cancel()` | キャンセルで50/50→49/50となった直後、先頭待機者が自動昇格して50/50へ戻った | 利用側は `cancel()` だけを呼び、手動のキュー操作・昇格操作はない |
+
+#### 要求→課題→構造→コード→結果の追跡
+
+| 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
+|---|---|---|---|
+| R1：予約状態の追加／P1 | 状態条件を各Stateへ分離。コード：全 `IReservationState`、`TicketReservation` | 予約済み・待機・保留が状態ごとの操作として実行された | 新Stateと遷移先の組み立て |
+| R2：取消時の自動昇格／P2 | 待機列を予約取消の遷移へ接続。コード：`ReservationWaitlist`、`ReservedState::cancel()` | 49/50の直後に先頭待機者が昇格し50/50へ戻った | 待機順序ポリシー |
+
+#### 変更前→変更後の不変条件照合
+
+| 変更対象外 | 変更前 | 変更後 | 確認根拠 |
+|---|---|---|---|
+| イベント・定員データ | `EventDatabase` が保持 | 同じRepositoryと数値を更新 | 満席前後の50/50ログ |
+| 利用側の取消入口 | 予約に `cancel()` | 同じ入口だけを呼ぶ | 自動昇格シナリオの呼び出しコード |
 
 ### 7-2：動作シーケンス図
 
@@ -2079,6 +2114,28 @@ sequenceDiagram
 ```
 
 `BatchApplication` は昇格を呼びません。`ReservedState::cancel()` が座席解放後に待ち行列を進め、`WaitlistedState` が同じ席を確保して `Reserved` へ遷移します。したがって途中で運用者が介入する空白はありません。
+
+期限切れも同様に、利用者や運用者が予約の状態を手動で進めません。掲載コードでは実際の時計を待たないため、`ReservationExpiryScheduler`の`onHoldExpired()`をタイマー基盤から届くイベントのスタブとして使います。
+
+```mermaid
+sequenceDiagram
+    participant Timer as Timer基盤
+    participant S as ReservationExpiryScheduler
+    participant C as TicketReservation
+    participant H as HeldState
+    participant DB as EventDatabase
+    participant WQ as ReservationWaitlist
+
+    Timer->>S: 保留24時間経過
+    S->>C: expire()
+    C->>H: expire(ctx)
+    H->>DB: cancelSeat(eventId)
+    H->>C: setState(Available)
+    H->>C: promoteNextWaitlisted()
+    C->>WQ: popNext(eventId)
+```
+
+`main()`は`BatchApplication::run()`を起動するだけで、期限切れを直接呼びません。実運用ではTimer基盤が時刻を監視し、期限到達時に同じスケジューラ境界を呼びます。
 
 ### 7-3：変更影響グラフ（改善後）
 
@@ -2139,8 +2196,8 @@ graph LR
 | 🟣 フェーズ3：問題特定 | 新しい状態（一時保留など）の追加を試み、全メソッドの修正が不可避になる「痛み」を確認しました。 |
 | 🟠 フェーズ4：原因分析 | 状態管理のルールと業務ロジックが同じ場所に混在していることが、システムを脆くしている根本原因だと突き止めました。 |
 | 🟡 フェーズ5：課題定義 | 公開操作と状態固有の振る舞いの境界を定め、状態追加時に条件分岐を増やさない課題を定めた |
-| 🔴 フェーズ6：対策検討 | ステップ1〜2を比較し、状態の契約を導入して現在の状態へ委譲するステップ2を採用しました。 |
-| 🟢 フェーズ7：対策実施 | 状態を個別のクラスへ分割し、業務クラスから直接的な条件分岐を取り除きました。 |
+| 🔴 フェーズ6：対策検討 | P1の状態判断とP2の待ち行列を同時に分離する最終構造を確定し、状態契約→状態実装→自動昇格接続の順でコードへ反映した。 |
+| 🟢 フェーズ7：対策実施 | 状態を個別クラスへ分け、待ち行列の探索・先頭選択と席解放直後の昇格を`ReservationWaitlist`へ集約した。 |
 
 ### 責任の移動
 
@@ -2152,6 +2209,8 @@ graph LR
 | 各状態での操作可否の判断 | `TicketReservation`（if-else直書き） | `ReservedState` 等の各実装クラス |
 | 状態遷移後の状態値の設定 | `TicketReservation`（if-else直書き） | `ReservedState` 等の各実装クラス |
 | 状態の振る舞い契約の定義 | —（なし） | `IReservationState` |
+| キャンセル待ちの探索・先頭選択 | 呼び出し元の手順 | `ReservationWaitlist` |
+| 席解放後の昇格 | 手動呼び出しになり得る | `TicketReservation`から`ReservationWaitlist`へ自動委譲 |
 
 ### 複雑さを足しても対策は変わるか
 
@@ -2174,7 +2233,7 @@ graph LR
 | 1. 変動箇所の識別 | フェーズ2のヒアリングを通じて、「状態の種類」と「状態遷移ルール」が頻繁に変わることを特定したこと。 |
 | 2. 痛みの発生源の判断 | フェーズ4の分析で、「状態（ステータス）」と「その状態での振る舞い」が同じクラスに混在していることが、条件分岐の爆発という痛みの根本原因だと突き止めたこと。 |
 | 3. 構造改善の説明 | 新しい状態を追加するとき、`TicketReservation`の条件分岐ではなく、状態クラスと遷移の組み立てを変更する設計を実現したこと。 |
-| 4. 状態追加の判断 | フェーズ6のステップ比較で、変更頻度に応じてどのステップで止めるかを判断する基準を得たこと。 |
+| 4. 状態追加の判断 | フェーズ6で、P1・P2を残さない最終構造を先に確定し、状態追加と待ち行列変更の影響先を分けたこと。 |
 
 ### 3つの設計原則はどう適用されたか
 
@@ -2222,7 +2281,7 @@ graph LR
 3. 最近入った変更要求、または次に来そうな変更要求は何か。
 4. その変更で、触りたくない場所まで修正や再テストが広がるか。
 5. 変えたいものと守りたいものを分けると、接続点には何を残すべきか。
-6. 何もしない、関数化、クラス分離、契約導入、登録/組み立て移動のうち、どこまで進めるのが今回の文脈に合うか。
+6. 全課題を満たす完成構造が複数成立するか。成立するなら、責任配置・変更影響・導入コストの差は何か。
 
 ## パターン解説：State パターン
 

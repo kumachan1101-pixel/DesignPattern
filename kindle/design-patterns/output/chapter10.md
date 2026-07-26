@@ -330,6 +330,7 @@ classDiagram
 #include <string>
 #include <vector>
 #include <map>
+#include <memory>
 
 using namespace std;
 
@@ -385,7 +386,7 @@ public:
 };
 ```
 
-Z社は、連携先追加や有効判定を本章の設計課題にするための存在ではありません。「登録済みだが停止中」と「未登録」を現状仕様どおり区別できるかを確認するエラー動作用のデータです。今回変える通信・通知・生成の三つの接続点とは切り離し、設定確認の処理と結果保存方法は変更前後で維持します。
+Z社は、連携先追加や有効判定を本章の設計課題にするための存在ではありません。「登録済みだが停止中」と「未登録」を現状仕様どおり区別できるかを確認するエラー動作用のデータです。今回変える外部連携と通知の二つの変化軸とは切り離し、設定確認の処理と結果保存方法は変更前後で維持します。
 
 **③ 同期対象データの取得（OrderDataSource / InventoryDataSource / SyncDataCatalog）**
 
@@ -543,6 +544,7 @@ public:
             SystemBClient client; // B社向けクライアントを生成
             result = client.send(data);
         }
+        cout << "[送信結果詳細] " << result.message << endl;
         batchLog.add(partnerId, cfg.name, result.status);
         NotificationService notifier;
         notifier.notify(cfg.name + (result.success ? " 連携完了" : " 連携失敗"));
@@ -601,10 +603,12 @@ int main() {
 ```
 [送信先] 物流会社A (logistics-a.example)
 A社へ送信(1件): 注文 ORD001
+[送信結果詳細] A社: 13バイト送信
 実行結果を保存(1件): [PARTNER_A] 物流会社A -> 成功
 完了通知(1件): 物流会社A 連携完了
 [送信先] 在庫会社B (stock-b.example)
 B社へ送信(1件): 在庫 SKU001
+[送信結果詳細] B社: 13バイト送信
 実行結果を保存(2件): [PARTNER_B] 在庫会社B -> 成功
 完了通知(1件): 在庫会社B 連携完了
 エラー: パートナー [分析会社Z] は現在無効です。処理を中断します。
@@ -636,6 +640,8 @@ B社へ送信(1件): 在庫 SKU001
 
 「お疲れ様。現在運用している外部連携バッチなんだけど、来週から新たにC社とも連携することになったんだ。それに加えて、連携処理の結果を社内のSlackへ自動通知するようにしてほしいという要望が出ている。データ転送のロジックを修正するついでに、通知処理についても何か良い仕組みを取り入れられないかな？」
 
+運用チームからは実行条件も続けて提示されました。「A社・B社・C社の定時ジョブは一つのバッチで登録順に流してほしい。1社の送信が失敗しても、その結果を保存してSlackへ通知し、残りの会社は続けてほしい」。したがって、順次実行と途中失敗後の継続は推測ではなく今回の確定要件です。
+
 **仕様変更の内容**
 
 変更要求を受けて、現在の仕様がどう変わるかを整理します。
@@ -657,13 +663,13 @@ B社へ送信(1件): 在庫 SKU001
 | 行 | シナリオ | 操作・外部状態 | 変更後の結果 |
 |---|---|---|---|
 | 1 | A社月次バッチ | A社へ正常送信する | 送信成功を記録し、Slackへ完了通知する |
-| 2 | C社タイムアウト | C社への送信がタイムアウトする | 実運用では3回リトライ後に失敗を記録し、Slackへ失敗通知する |
+| 2 | 参考：C社タイムアウト | C社への送信がタイムアウトする | **今回対象外**。再試行回数が確定した後に別要件として扱う |
 | 3 | 新規D社追加後 | D社向け日次バッチを実行する | D社向けクライアントで送信し、Slackへ完了通知する |
 | 4 | B社手動トリガー | B社へ正常送信する | 手動送信に成功し、Slackへ完了通知する |
-| 5 | A社API障害 | A社への送信が失敗し、監視チーム通知が有効 | 失敗を記録し、Slackとメールへ通知して後続ジョブを続ける |
+| 5 | A社API障害＋通知部分失敗 | A社送信が失敗し、メール基盤も停止中 | 送信失敗、Slack成功、Email失敗を別々に記録し、後続ジョブを続ける |
 | 6 | 通知先追加後 | B社へ正常送信し、ログ通知を有効化する | 送信成功を記録し、Slackとログ基盤へ通知する |
 
-行2のタイムアウト・リトライ制御そのものは本章の設計対象外とし、動作仕様として残します。行1・3〜6はフェーズ7の完成コードで実行します。
+行2は将来の検討例であり、今回の受入条件には含めません。行1・3〜6はフェーズ7の完成コードで実行し、行5では通知の部分失敗も記録します。
 
 **この章が扱う複雑さ**
 
@@ -734,7 +740,7 @@ flowchart LR
 
 - 「C社の追加」と「D社の追加」は入力の「連携先ジョブ列」と、その先の認証・形式変換・送信に現れる。
 - 「Slack通知の追加」は送信の成功・失敗どちらの後にも現れ、通知先の一覧側の変化として整理できる。
-- 「順次実行」は複数ジョブを順に流す実行骨格で、あるジョブの送信失敗があっても後続ジョブと通知は止めない。順次実行・通知・生成が図の上でも別々の箱に現れ、独立した変化軸だという整理と一致する。
+- 「順次実行」は複数ジョブを順に流す実行骨格で、あるジョブの送信失敗があっても後続ジョブと通知は止めない。通信Clientの生成は外部連携軸を実装する手段であり、独立した業務上の変化軸とは数えない。
 - 水色の「既存と同じ形式で保存→バッチ実行結果」は1-1から変わらない。変更する通信・通知・実行構造が、既存の`DeliveryResult`と`BatchLog`へ接続し直されるだけである。
 
 変更後も、失敗条件は正常系図へ混ぜずに別で確認します。
@@ -784,8 +790,8 @@ Slack通知は成功・失敗を問わず送る要求のため、送信失敗時
 | --- | --- | --- |
 | C社との外部連携を追加する | `BatchExecutor` に `SystemCClient` の生成と呼び出しロジックを追加 | PM「来週からC社とも連携」 |
 | Slackへの完了通知を追加する | `BatchExecutor` 内に Slack への通知処理を挿入 | PM「Slackへ自動通知してほしい」 |
-| 複数連携先を順次実行する | `BatchExecutor` にジョブ列を順に流す実行処理を追加 | PM「連携処理の結果を通知」＝複数ジョブ前提 |
-| 送信失敗でも後続と通知を止めない | `BatchExecutor` に成否判定と失敗通知の分岐を追加 | PM「成功・失敗を問わず通知」 |
+| 複数連携先を順次実行する | `BatchExecutor` にジョブ列を順に流す実行処理を追加 | 運用チーム「A社・B社・C社を一つのバッチで登録順に流す」 |
+| 送信失敗でも後続と通知を止めない | `BatchExecutor` に成否判定と失敗通知の分岐を追加 | 運用チーム「1社が失敗しても結果を保存・通知して残りを続ける」 |
 
 ### ヒアリングに向けた背景確認
 
@@ -821,7 +827,7 @@ Slack通知は成功・失敗を問わず送る要求のため、送信失敗時
 | Slack以外にメール・ログ基盤への通知が追加される（通知処理全体が変わる） | 検討中 | 運用担当者「ログ収集基盤も検討中」 |
 | 順次実行の途中失敗の扱いが増える（送信成否の判定と失敗通知の分岐が変わる） | 連携先の増加に伴い | 運用担当者「結果の通知という仕組みは変わらない」 |
 
-なお、バッチの実行フロー自体は今回の変更対象ではなく、当面安定と見る前提です（運用担当者「仕組み自体は今回は変えない」。次の2-5で現状と並べて確定します）。
+なお、今回追加するのは「複数ジョブを登録順に流し、途中失敗後も続行する」という外側の実行骨格です。各社固有の再試行回数やバックオフは未確定なので今回対象外とします。この二つを混同しません。
 
 フェーズ2で「何を変え、何を守るか」が確定しました。次のフェーズ3では、この変更要求を現在のコードで実行しようとすると何が起きるか、その痛みを確認します。
 
@@ -1006,13 +1012,13 @@ graph LR
 | 順次実行の途中で送信が失敗したとき、後続ジョブや通知の扱いを実行本体で書き分ける必要がある | 外部手順の混在（ジョブを順に流す骨格と、各ジョブの通信詳細・成否判定が同じ場所にある） |
 
 
-生成・通信・通知という3つの根本原因は**それぞれ独立した変化軸**です。
+独立した業務上の変化軸は、外部連携と通知の二つです。生成は外部連携を利用側から分離するために決める実装責任であり、三つ目の課題として水増ししません。
 
 - 連携先が増えても通知先は変わりません
 - 通知先が増えても連携先クライアントの生成方法は変わりません
-- 生成の仕組みが変わっても複数サブシステムの窓口の役割は変わりません
+- Clientの生成・所有方法は、外部連携境界を成立させるP1の組み立て判断として通信と一緒に追跡します
 
-3つが独立しているからこそ、1つの構造だけでは解決しきれません。一方で、順次実行という外部手順の骨格は、各連携先の通信詳細が変わっても守りたい部分です。送信失敗の扱いはこの骨格側へ寄せ、生成・通信・通知の3軸とは分けて考えます。この4つ目の観点は、変化軸ではなく「守る骨格」として整理します。
+二つの変化軸は独立しています。一方、順次実行は各連携先の通信詳細が変わっても守りたい骨格です。送信失敗の扱いはこの骨格側へ寄せます。Client生成はP1の外部連携境界をどう組み立てるかという設計判断として扱い、別の要求軸にはしません。
 
 ### 4-2：変わるもの/変わってほしくないもの
 
@@ -1028,7 +1034,7 @@ graph LR
 
 連携先の追加は今後も発生する「変わる見込み」ですが、バッチ全体の転送フローは今回の変更要求では守りたい骨格です。「ジョブを順に流し、あるジョブが失敗しても後続と通知は止めない」という順次実行の骨格も、各社の通信詳細が変わっても守りたい部分です。変わるのは各ジョブの送信成否そのものであり、順に流すという外部手順は守りたい側にあります。本来、これらは別の責務として分離されるべきものであり、同じクラス内で扱われていること自体が設計上の歪みを生んでいます。
 
-### 4-3：3つの接続点に漏れている知識を確認する
+### 4-3：二つの接続点と組み立て責任に漏れている知識を確認する
 
 ここでの「確認すること」は、前節までに見つけた原因から抽出します。まず、原因文から「守りたい骨格」と「変わる差分」を分けます。次に、その差分を動かすために骨格側が知ってしまっている名前・条件・順序・型を拾います。最後に、接続点に残す最小の約束を、値・型・操作・イベントとして書きます。
 
@@ -1050,12 +1056,12 @@ graph LR
 
 ---
 > **📌 原因（確定）**
-> 以下の3つの独立した根本原因が重なっている：
+> 以下の2つの独立した根本原因と、外部連携軸の組み立て不備が重なっている：
 > 1. **外部手順の知識の漏出**：連携先ごとの通信詳細と順次実行の骨格が密結合している。
 > 2. **通知先の知識の漏出**：通知サービスが増えるたびにバッチ本体の修正が必要になっている。
-> 3. **生成の知識の漏出**：クライアントの生成条件・具象クラス名への依存がバッチ本体に残っている。
+> - **P1の組み立て不備**：クライアントの生成・所有と具象クラス名への依存が、外部連携の利用側に残っている。
 >
-> これらの変更理由（通信手段、通知先、生成条件）はそれぞれ異なる頻度で発生するため、1つのクラスに混在していることで影響確認コストが発生し続ける。
+> 外部連携と通知は変更理由が異なります。生成・所有は外部連携を差し替え可能にするため、P1の通信境界と同時に解く必要があります。
 ---
 
 フェーズ4で根本原因が言語化できました。次のフェーズ5では、解決する課題を具体的に定義していきます。
@@ -1063,23 +1069,23 @@ graph LR
 ---
 
 ## 🟡 フェーズ5：課題定義 ―― 解くべき接続点を定める
-フェーズ4で、「外部連携ロジック（通信）」「連携先クライアントの生成」「イベント通知」という3つの変化軸が `BatchExecutor` 内で密結合していることが根本原因だと特定しました。連携先ごとに異なる通信プロトコル、将来増えるであろう連携先の生成ロジック、そして通知手段の多様化を、現在の構造のまま扱い続けることは限界に達しています。
+フェーズ4で、独立した変化軸は「外部連携」と「イベント通知」の二つであり、具体Clientの生成・所有は外部連携軸の組み立て責任だと確定しました。手段を三つ並べるために課題を分けず、二つの変更理由を一つの実行骨格へどう接続するかを考えます。
 
 ### 接続点を特定する
 
 接続点は、クラス図の線やインターフェース名から探すのではなく、変更要求を当てて特定します。まず、その要求で変えたい側と変えたくない側を分けます。次に、両者がどのメソッド呼び出し・引数・戻り値・生成・イベントでつながっているかを見ます。そのつながりのうち、変更要求のたびに知識が漏れて修正が波及する場所が、ここで解くべき接続点です。
 
-今回のリファクタリングで「何を解決する必要があるか」を整理すると、接続点が3つあることが分かります。
+今回のリファクタリングで「何を解決する必要があるか」を整理すると、接続点は二つです。
 
 - **接続点A**：`BatchExecutor` ←→ 各外部システム（SystemA/B/C）の通信境界
 - **接続点B**：`BatchExecutor` ←→ 通知サービス（NotificationService）の通知境界
-- **接続点C**：`BatchExecutor` 内部での具体クライアントクラスの生成境界
+- **P1の組み立て責任**：接続点Aへ渡すClientの生成・所有を`BatchExecutor`の外へ置く
 
-現在、`BatchExecutor` はこれら3つの接続点に対して、具体的なクラスを直接生成し、メソッドを直接呼び出すため、それぞれの変更理由が同じクラスへ集まっています。連携先（接続点A）の増殖、通知手段（接続点B）の多様化、そして生成ロジック（接続点C）の散在という、3つの異なる変化軸が1つのクラス内で絡み合っているのが最大の課題です。
+現在、`BatchExecutor`は接続点A・Bの具体クラスを直接生成・利用しています。外部連携の追加では通信実装とClient生成が同じ理由で変わり、通知先追加は別の理由で変わります。この二軸が同じクラスへ集まることが課題です。
 
 分離対象の責務を呼び出しているのは `BatchExecutor` クラス自身です。このクラスが連携先・通知先・生成の「詳細」をすべて知っていることが現在の制限事項です。この設計を改善することで、`BatchExecutor` は「バッチの実行順序（フロー）」だけを管理し、実際の処理（通信・通知・生成）は外部化されたクラスに任せることができます。
 
-言い換えると、解くべき課題は次の3点です。接続点Aでは、連携先の通信詳細を `BatchExecutor` から隠すこと。接続点Bでは、通知手段の多様化に対応できる柔軟な仕組みを持つこと。接続点Cでは、連携先クライアントの生成ロジックを1か所に集約すること。この3点を独立して変更できる構造を作ることが、フェーズ6での目標になります。
+言い換えると、解くべき課題は二つです。P1では通信詳細とそのClientの生成・所有を`BatchExecutor`から外します。P2では通知手段と通知結果の記録を外します。二つを同じ送信→保存→通知の骨格へ接続することが、フェーズ6の目標です。
 
 ```cpp
 // 現在の BatchExecutor.execute() が知っていること（全部）
@@ -1118,40 +1124,39 @@ void SlackNotifier::notify(string message) {
 }
 ```
 
-P1〜P3で追う接続は、`BatchExecutor` 内の呼び出し行だけではありません。送信データが外部Clientでどう使われ、`DeliveryResult` がログと通知へどう渡るか、具体Clientがどこで生成されるかまでを両端で確認します。
+P1・P2で追う接続は、`BatchExecutor`内の呼び出し行だけではありません。送信データが外部Clientでどう使われ、`DeliveryResult`がログと通知へどう渡るか、P1の具体Clientがどこで生成・所有されるかまでを両端で確認します。
 
-3-2の変更影響とフェーズ4の原因を、三つの接続点として一表にまとめます。
+3-2の変更影響とフェーズ4の原因を、二つの接続点として一表にまとめます。
 
 | 課題ID・接続点 | 接続するデータ | 変わる側 | 守る側 |
 |---|---|---|---|
-| P1：外部通信 → バッチ骨格 | `SyncRequest`から取得した送信データ、`DeliveryResult` | 連携先ごとのAPI・認証・通信手順 | 同期対象データの取得、バッチの実行順、結果の扱い、他連携先 |
+| P1：外部連携 → バッチ骨格 | `SyncRequest`から取得した送信データ、`DeliveryResult`、生成したClient | 連携先ごとのAPI・認証・通信手順とClientの生成・所有 | 同期対象データの取得、バッチの実行順、結果の扱い、他連携先 |
 | P2：通知 → バッチ骨格 | 実行イベント、通知受付結果 | 通知手段・宛先・失敗処理 | 送信確定のタイミング、他通知、バッチの成否 |
-| P3：生成 → バッチ入口・手動入口 | 連携先ID、利用可能な外部Client | 具体Clientの選択・生成条件 | `SyncRequest`とデータ取得、両入口が共有するApplicationと同一の送信フロー |
 
-システム全体の課題は、通信・通知・生成の三軸を `BatchExecutor` から外し、バッチ骨格には各契約の呼び出しだけを残すことです。三軸は独立して変わっても、同じ実行フローの中で接続されなければなりません。
+システム全体の課題は、P1の通信・生成・所有とP2の通知を`BatchExecutor`から外し、骨格には各契約の呼び出しだけを残すことです。二軸は独立して変わっても、同じ実行フローの中で接続されなければなりません。
 
 ---
 > **📌 課題（確定）**
-> 解くべき課題は3つある。接続点Aでは、連携先クライアントの通信詳細（`SystemAClient` 等が持つ固有の送信処理）を `BatchExecutor` から切り離し、連携先が増えても `BatchExecutor` を変更しなくて済む構造にすること。接続点Bでは、通知先（`NotificationService` 等）を `BatchExecutor` から切り離し、通知先が増えても `BatchExecutor` を変更しなくて済む仕組みを持つこと。接続点Cでは、連携先クライアントの生成ロジックを `BatchExecutor` から切り離し、どのクライアントを生成するかを1か所で管理できるようにすること。
+> 解くべき課題は2つある。P1では、連携先クライアントの通信詳細と生成・所有を`BatchExecutor`から切り離し、連携先追加をClient実装・Creator・組み立てへ限定する。P2では、通知先と通知失敗処理を`BatchExecutor`から切り離し、通知先追加をNotifier実装・登録へ限定する。
 ---
 
-フェーズ5で「何を解くか」が確定しました。次のフェーズ6では、P1〜P3を入力に一つの完成システムを設計します。
+フェーズ5で「何を解くか」が確定しました。次のフェーズ6では、P1・P2を入力に一つの完成システムを設計します。
 
-**着目する共通点：** 現状コードはすでに共通点を持っています。どの連携先クライアントも `send(data)→DeliveryResult` という同じ形で送信し、`BatchExecutor` はどの連携も同じ実行フローに載せています（データと流れの共通点）。現場では、連携先ごとに送信の呼び口がばらばらなことも多く、その意味で現状コードはすでに良い出発点です。共通点があるからこそ、実行フローの骨格を変えず、変わる「通信（P1）・通知（P2）・生成（P3）」の3軸だけを別々の契約へ外に出せば済みます。フェーズ6では、この共通点と3つの課題を組み合わせて、一つの完成システムを設計します。
+**着目する共通点：** 現状コードはすでに共通点を持っています。どの連携先クライアントも`send(data)→DeliveryResult`という同じ形で送信し、`BatchExecutor`はどの連携も同じ実行フローに載せています。共通点があるからこそ、P1では通信と生成・所有を同じ外部連携境界へ、P2では通知を別の境界へ外せます。フェーズ6では二つの課題を同時に満たす一つのシステムを設計します。
 
 ## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-P1〜P3を、次の三つの観点で一つの完成構造へ変換します。
+P1・P2を、次の三つの観点で一つの完成構造へ変換します。
 
 #### 接続点の分離・配置・組み立てを決める
 
-| 接続点を変える観点 | システム全体の考え方 | P1〜P3のコードへの反映 |
+| 接続点を変える観点 | システム全体の考え方 | P1・P2のコードへの反映 |
 |---|---|---|
-| 分離方法 | バッチ骨格には外部送信・通知・Client生成の契約だけを残し、具体的な通信・通知・生成判断を外す | P1は `IExternalClient`、P2は `INotifier`、P3は `IClientCreator` を境界にする |
+| 分離方法 | バッチ骨格には外部送信・通知の契約だけを残し、具体的な通信・通知・生成判断を外す | P1は`IExternalClient`と`IClientCreator`、P2は`INotifier`を境界にする |
 | 配置場所 | API詳細は各Client、通知手段は各Notifier、具体Clientの選択は各Creatorへ置く | 三つの具象クラス群へ変更理由ごとに配置する |
 | 組み立て方法（生成・所有・登録・注入） | 組み立て側がCreatorとNotifierを生成・所有・登録し、共有Applicationへ注入する。入口は連携先IDを渡し、CreatorがClientを選択・生成、Executorが契約だけを実行する | バッチ入口と手動入口は同じApplicationを共有する |
 
-表の左から右へ読むと、P1〜P3の三つの変化軸が、それぞれの契約・配置を持ちながら、一つのComposition Rootから共通実行フローへ接続されます。
+表の左から右へ読むと、P1の通信・生成・所有とP2の通知が、それぞれの契約・配置を持ちながら、一つのComposition Rootから共通実行フローへ接続されます。
 
 #### システム全体の最終構造を決める
 
@@ -1166,7 +1171,7 @@ P1〜P3を、次の三つの観点で一つの完成構造へ変換します。
 | フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
 | フェーズ2の変化予測 | 連携先・通知先・生成条件は別チームが増やす | 毎回変わる責任へ `【移す】` と注記する |
 | フェーズ4の原因 | `BatchExecutor` に通信・通知・生成が混在する | 同じクラスの中で `【残す】` と `【移す】` を分ける |
-| フェーズ5の接続点 | 実行順は残し、通信・通知・生成を各契約へ委ねればよい | P1を `IExternalClient`、P2を `INotifier`、P3を `IClientCreator` へ置く |
+| フェーズ5の接続点 | 実行順は残し、外部連携と通知を各契約へ委ねればよい | P1を`IExternalClient`と`IClientCreator`、P2を`INotifier`へ置く |
 
 **薄い黄色が今回変える責任、薄い水色が変更前後で維持する共通基盤**です。変更前では `BatchExecutor` の `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。`SyncRequest`、`SyncDataCatalog`、`PartnerDatabase`、`DeliveryResult`、`BatchLog`は作り替えず、新しい通信・通知・生成構造から同じ基盤へ接続します。
 
@@ -1233,7 +1238,7 @@ classDiagram
     BatchExecutor ..> SystemBClient : 生成・送信
     BatchExecutor ..> NotificationService : 通知
 
-    note for BatchExecutor "【残す】バッチの実行順（骨格）\n【P1・移す】連携先ごとの通信詳細\n【P2・移す】通知先ごとの通知\n【P3・移す】具体Clientの生成"
+    note for BatchExecutor "【残す】バッチの実行順（骨格）\n【P1・移す】通信詳細とClient生成・所有\n【P2・移す】通知先ごとの通知"
     note for NotificationService "【P2・移す】通知先の実装"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
@@ -1242,13 +1247,13 @@ classDiagram
     cssClass "SyncRequest,OrderDataSource,InventoryDataSource,SyncDataCatalog,PartnerConfig,PartnerDatabase,DeliveryResult,BatchRecord,BatchLog" stable
 ```
 
-変更前は `BatchExecutor` が通信・通知・生成の3責務を抱え、連携先追加・通知追加・生成条件変更のいずれでも同じクラスの `execute()` を開きます。
+変更前は`BatchExecutor`が外部連携と通知の二軸を抱え、さらにP1のClient生成まで自分で行うため、連携先追加・通知追加のどちらでも同じ`execute()`を開きます。
 
-P1〜P3をクラス図の変更として書くと、次の3操作になります。
+P1・P2をクラス図の変更として書くと、次の3操作になります。
 
 1. P1：連携先が満たす通信の窓口契約 `IExternalClient`（`send`）を新設する（窓口構造）。
 2. P2：通知先が満たす共通契約 `INotifier`（`onComplete`）を新設し、登録リストで扱う（通知分離構造）。
-3. P3：生成を担う契約 `IClientCreator`（`createClient`）を新設し、生成を1か所へ寄せる（生成分離構造）。
+3. P1：生成を担う契約`IClientCreator`（`createClient`）を新設し、外部連携の生成・所有を利用側から外す（生成分離構造）。
 
 変更後は、`BatchExecutor` が実行順だけを持ち、通信・通知・生成がそれぞれの契約の裏へ移り、`execute()` の混在分岐が消えたことを確認します。
 
@@ -1263,6 +1268,8 @@ classDiagram
     class PartnerConfig
     class PartnerDatabase
     class DeliveryResult
+    class NotificationResult
+    class NotificationLog
     class BatchRecord
     class BatchLog
     class BatchApplication
@@ -1286,8 +1293,7 @@ classDiagram
     SyncDataCatalog --> InventoryDataSource : 在庫なら取得
     BatchExecutor ..> SyncRequest : 入力
     BatchExecutor --> SyncDataCatalog : 同期データを取得
-    ManualTriggerController ..> SyncRequest : 入力
-    ManualTriggerController --> SyncDataCatalog : 同期データを取得
+    ManualTriggerController --> BatchExecutor : 同じexecuteを起動
     BatchExecutor --> IClientCreator
     BatchExecutor --> INotifier
     IClientCreator <|.. SystemAClientCreator
@@ -1304,14 +1310,16 @@ classDiagram
     IClientCreator <|.. SystemDClientCreator
     PartnerDatabase *-- PartnerConfig : 設定を保存
     BatchLog *-- BatchRecord : 結果を保存
+    NotificationLog *-- NotificationResult : 通知結果を保存
+    INotifier ..> NotificationResult : 返す
     IExternalClient ..> DeliveryResult : 返す
     BatchExecutor ..> DeliveryResult : 受け取る
-    ManualTriggerController ..> DeliveryResult : 受け取る
     BatchExecutor --> PartnerDatabase : 既存設定を参照
     BatchExecutor --> BatchLog : 既存方式で保存
-    ManualTriggerController --> BatchLog : 既存方式で保存
+    BatchExecutor --> NotificationLog : 通知成否を保存
     BatchApplication *-- PartnerDatabase : 所有
     BatchApplication *-- BatchLog : 所有
+    BatchApplication *-- NotificationLog : 所有
     BatchApplication *-- OrderDataSource : 所有
     BatchApplication *-- InventoryDataSource : 所有
     BatchApplication *-- SyncDataCatalog : 所有
@@ -1320,11 +1328,11 @@ classDiagram
 
     note for IExternalClient "【P1・新設】通信の窓口契約（窓口構造）"
     note for INotifier "【P2・新設】通知の共通契約（通知分離構造）"
-    note for IClientCreator "【P3・新設】生成の契約（生成分離構造）"
+    note for IClientCreator "【P1・新設】外部連携Clientの生成契約"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
     classDef stable fill:#E0F7FA,stroke:#0891B2,stroke-width:2px,color:#222222
-    cssClass "IExternalClient,SystemAClient,INotifier,SlackNotifier,IClientCreator,SystemAClientCreator" focus
+    cssClass "IExternalClient,SystemAClient,INotifier,SlackNotifier,IClientCreator,SystemAClientCreator,NotificationResult,NotificationLog" focus
     cssClass "SyncRequest,OrderDataSource,InventoryDataSource,SyncDataCatalog,PartnerConfig,PartnerDatabase,DeliveryResult,BatchRecord,BatchLog" stable
 ```
 
@@ -1334,13 +1342,13 @@ classDiagram
 |---|---|---|---|
 | P1 | 通信の窓口契約 `IExternalClient` を新設する | 各Clientが `send()` を実装し通信詳細を閉じる | ステップ1 |
 | P2 | 通知の共通契約 `INotifier` を新設する | 各Notifierが `onComplete()` を実装し登録制にする | ステップ2 |
-| P3 | 生成契約 `IClientCreator` を新設する | 各Creatorが `createClient()` を実装し生成を集約する | ステップ3 |
+| P1 | 生成契約`IClientCreator`を新設する | 各Creatorが`createClient()`を実装し所有権を返す | ステップ3 |
 
-このクラス図が、P1〜P3を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
+このクラス図が、P1・P2を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
 #### 課題箇所のおさらい（フェーズ3の関連コード）
 
-統合表で特定した箇所だけを振り返ります。P1は通信の直呼び、P2は通知サービスの直生成・直呼び、P3は具体Clientの生成分岐です。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+統合表で特定した箇所だけを振り返ります。P1は通信の直呼びと具体Clientの生成分岐、P2は通知サービスの直生成・直呼びです。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
 
 ```cpp
 // 現状：通信・通知・生成が execute() に混在する
@@ -1349,10 +1357,10 @@ DeliveryResult BatchExecutor::execute(const SyncRequest& request) {
     std::string data = dataCatalog.load(request.target); // 変更対象外
     DeliveryResult result{"失敗", false, "未対応"};
     if (partnerId == "A") {
-        SystemAClient client;   // P3: 具体クラスを生成
+        SystemAClient client;   // P1: 通信と同じ理由で具体Clientを生成
         result = client.send(data); // P1: 通信の詳細を知っている
     } else if (partnerId == "B") {
-        SystemBClient client;   // P3
+        SystemBClient client;   // P1
         result = client.send(data); // P1
     }
     batchLog.add(partnerId, partnerId + "社", result.status); // 変更対象外
@@ -1388,18 +1396,22 @@ public:
 class INotifier {
 public:
     virtual ~INotifier() = default;
-    virtual void onComplete(const std::string& message) = 0;
+    virtual NotificationResult
+        onComplete(const std::string& message) = 0;
 };
 
 class SlackNotifier : public INotifier {
 public:
-    void onComplete(const std::string& message) override { /* Slack送信 */ }
+    NotificationResult
+    onComplete(const std::string& message) override {
+        return {"Slack", true, message};
+    }
 };
 ```
 
 **P2との対応：** `INotifier <|.. SlackNotifier` の実装関係を実装しました（通知分離構造）。`EmailNotifier`・`LogNotifier` も同じ形で、`BatchExecutor` は具体通知先を知りません。
 
-#### 実装ステップ3（P3）：生成契約 `IClientCreator` を定め、生成を1か所へ寄せる
+#### 実装ステップ3（P1）：生成契約`IClientCreator`で所有権を外へ出す
 
 具体Clientの生成を各Creatorへ移し、`BatchExecutor` は `IClientCreator` 経由で生成します。バッチ入口と手動入口は同じCreator登録を共有します。
 
@@ -1407,16 +1419,18 @@ public:
 class IClientCreator {
 public:
     virtual ~IClientCreator() = default;
-    virtual IExternalClient* createClient() = 0;
+    virtual std::unique_ptr<IExternalClient> createClient() = 0;
 };
 
 class SystemAClientCreator : public IClientCreator {
 public:
-    IExternalClient* createClient() override { return new SystemAClient(); }
+    std::unique_ptr<IExternalClient> createClient() override {
+        return std::unique_ptr<IExternalClient>(new SystemAClient());
+    }
 };
 ```
 
-**P3との対応：** `IClientCreator <|.. SystemAClientCreator` と `SystemAClientCreator --> SystemAClient` を実装しました（生成分離構造）。ここで通信・通知・生成の3構造が独立したまま `BatchExecutor` に共存しました。
+**P1との対応：** `IClientCreator <|.. SystemAClientCreator`と`SystemAClientCreator --> SystemAClient`を実装しました。通信とClient生成は同じ外部連携軸に属しますが、利用と生成の責任は別クラスへ置きます。P2の通知境界とは独立したまま、同じ実行骨格へ接続します。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
@@ -1427,19 +1441,23 @@ class BatchExecutor {
     std::vector<INotifier*> notifiers;   // P2: 登録された通知先
     PartnerDatabase& partners;
     BatchLog& log;
+    NotificationLog& notificationLog;
     SyncDataCatalog& dataCatalog;         // 変更対象外の取得境界
 public:
     void addNotifier(INotifier* n) { notifiers.push_back(n); }
     DeliveryResult execute(
         IClientCreator* creator,
         const SyncRequest& request) {
-        IExternalClient* client = creator->createClient();   // P3
+        std::unique_ptr<IExternalClient> client
+            = creator->createClient();                       // P1の生成・所有
         std::string data = dataCatalog.load(request.target); // 既存の取得
         DeliveryResult r = client->send(data);               // P1
         log.add(request.partnerId,
                 partners.get(request.partnerId).name, r.status);
         for (auto* n : notifiers) {
-            n->onComplete(request.partnerId);                // P2
+            NotificationResult nr
+                = n->onComplete(request.partnerId);          // P2
+            notificationLog.add(nr);
         }
         return r;
     }
@@ -1448,7 +1466,7 @@ public:
 
 | 接続点を変える観点 | システム全体での設計判断 | 変えたくない側が知らなくなる詳細 |
 |---|---|---|
-| 何を分離するか | P1を `IExternalClient`、P2を `INotifier`、P3を `IClientCreator` へ置く | 連携先の通信・通知先・生成条件 |
+| 何を分離するか | P1を`IExternalClient`と`IClientCreator`、P2を`INotifier`へ置く | 連携先の通信・生成・所有と通知先 |
 | どこで生成・選択するか | 組み立て側（`BatchApplication`）がCreatorとNotifierを注入する | 具体Client・具体Notifierの選択 |
 | どう依存を渡すか | 実行時にCreatorを渡し、Notifierは登録で渡す | 各契約の実体 |
 | 安定側はどう実行するか | `BatchExecutor` は実行順どおりに委譲するだけ | 通信・通知・生成の中身 |
@@ -1461,11 +1479,11 @@ Client・Notifier・Creatorは組み立て側が所有し、`BatchExecutor` は�
 |---|---|---|---|
 | P1：外部通信 | 連携先追加・API変更をバッチ骨格と他連携先へ波及させない | `IExternalClient` と各Client | 対象Clientへ通信詳細が閉じた |
 | P2：通知 | 通知追加でバッチ本体の分岐を増やさない | `INotifier` の登録リスト | 新Notifierと登録へ変更が閉じた |
-| P3：生成 | 両入口から具体Client生成を外す | `IClientCreator` と共有Application | Client選択がCreatorへ集まり、両入口が同じ経路を使う |
-| P1〜P3を接続したシステム全体 | 実行順と送信確定・成否を維持する | `execute()` が三契約を順に利用する | 三軸を独立させたまま同じバッチ骨格で動く |
+| P1：生成・所有 | 両入口から具体Client生成を外す | `IClientCreator`と共有Application | Client選択がCreatorへ集まり、生成物をRAIIで破棄する |
+| P1・P2を接続したシステム全体 | 実行順と送信確定・成否を維持する | `execute()`が外部連携と通知の契約を順に利用する | 二軸を独立させたまま同じバッチ骨格で動く |
 | 変更対象外：入力・取得・結果・保存 | 既存の入力契約、同期データ取得、結果契約、保存方法を維持する | `SyncRequest`、`SyncDataCatalog`、`DeliveryResult`、`BatchLog` をそのまま利用する | 対策前後で無関係なデータ差分を作っていない |
 
-**システム全体の実装結果：達成。** P1〜P3が一つの実行経路で接続され、フェーズ5で目指した状態を実現しました。実際の動作と変更影響はフェーズ7で確認します。
+**システム全体の実装結果：達成。** P1・P2が一つの実行経路で接続され、フェーズ5で目指した状態を実現しました。実際の動作と変更影響はフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 ステップ3（外部連携・通知・生成の知識を別々の役割へ移す案）を実装し、外部連携と通知処理の責務をそれぞれ独立したクラスへカプセル化（変更の影響を1クラス内に閉じ込めること）します。
@@ -1487,6 +1505,7 @@ Client・Notifier・Creatorは組み立て側が所有し、`BatchExecutor` は�
 #include <string>
 #include <vector>
 #include <map>
+#include <memory>
 
 using namespace std;
 
@@ -1591,30 +1610,59 @@ struct DeliveryResult {
 次に、通知先ごとの送信方法を個別クラスへ分けるためのインターフェースと、その実装を定義します。
 
 ```cpp
-// 通知のインターフェース（通知契約）
+struct NotificationResult {
+    string channel;
+    bool success;
+    string message;
+};
+
+class NotificationLog {
+    vector<NotificationResult> records;
+public:
+    void add(const NotificationResult& result) {
+        records.push_back(result);
+        cout << "通知結果を保存(" << records.size() << "件): "
+             << result.channel << " -> "
+             << (result.success ? "成功" : "失敗");
+        if (!result.message.empty()) cout << " (" << result.message << ")";
+        cout << endl;
+    }
+    int size() const { return (int)records.size(); }
+};
+
+// 通知のインターフェース（通知受付結果を返す契約）
 class INotifier {
 public:
     virtual ~INotifier() {}
-    virtual void onComplete(string result) = 0;
+    virtual NotificationResult onComplete(string result) = 0;
 };
 
 // Slack通知の具体的な実装（受け取った通知を蓄積する）
 class SlackNotifier : public INotifier {
     vector<string> inbox;
 public:
-    void onComplete(string result) {
+    NotificationResult onComplete(string result) {
         inbox.push_back(result);
         cout << "Slack通知(" << inbox.size() << "件): " << result << endl;
+        return {"Slack", true, "受付完了"};
     }
 };
 
 // メール通知の具体的な実装
 class EmailNotifier : public INotifier {
     vector<string> inbox;
+    bool available;
 public:
-    void onComplete(string result) {
+    explicit EmailNotifier(bool isAvailable = true)
+        : available(isAvailable) {}
+    NotificationResult onComplete(string result) {
+        if (!available) {
+            cout << "Email通知失敗: " << result << endl;
+            return {"Email", false, "メール基盤停止"};
+        }
         inbox.push_back(result);
         cout << "Email通知(" << inbox.size() << "件): " << result << endl;
+        return {"Email", true, "受付完了"};
     }
 };
 
@@ -1622,9 +1670,10 @@ public:
 class LogNotifier : public INotifier {
     vector<string> inbox;
 public:
-    void onComplete(string result) {
+    NotificationResult onComplete(string result) {
         inbox.push_back(result);
         cout << "ログ基盤へ記録(" << inbox.size() << "件): " << result << endl;
+        return {"Log", true, "記録完了"};
     }
 };
 ```
@@ -1725,34 +1774,34 @@ public:
 class IClientCreator {
 public:
     virtual ~IClientCreator() = default;
-    virtual IExternalClient* createClient() = 0;
+    virtual unique_ptr<IExternalClient> createClient() = 0;
 };
 
 class SystemAClientCreator : public IClientCreator {
 public:
-    IExternalClient* createClient() override {
-        return new SystemAClient();
+    unique_ptr<IExternalClient> createClient() override {
+        return unique_ptr<IExternalClient>(new SystemAClient());
     }
 };
 
 class SystemBClientCreator : public IClientCreator {
 public:
-    IExternalClient* createClient() override {
-        return new SystemBClient();
+    unique_ptr<IExternalClient> createClient() override {
+        return unique_ptr<IExternalClient>(new SystemBClient());
     }
 };
 
 class SystemCClientCreator : public IClientCreator {
 public:
-    IExternalClient* createClient() override {
-        return new SystemCClient();
+    unique_ptr<IExternalClient> createClient() override {
+        return unique_ptr<IExternalClient>(new SystemCClient());
     }
 };
 
 class SystemDClientCreator : public IClientCreator {
 public:
-    IExternalClient* createClient() override {
-        return new SystemDClient();
+    unique_ptr<IExternalClient> createClient() override {
+        return unique_ptr<IExternalClient>(new SystemDClient());
     }
 };
 ```
@@ -1766,16 +1815,18 @@ public:
 ```cpp
 // 送信→結果保存→通知（バッチ・手動の両入口が共有する後段処理）
 static DeliveryResult deliverResult(
-        IExternalClient* client, const string& data,
+        IExternalClient& client, const string& data,
         const string& partnerId, const string& partnerName,
-        BatchLog& batchLog, const vector<INotifier*>& notifiers,
+        BatchLog& batchLog, NotificationLog& notificationLog,
+        const vector<INotifier*>& notifiers,
         bool apiHealthy, const string& kind) {
-    DeliveryResult r = client->send(data, apiHealthy);
+    DeliveryResult r = client.send(data, apiHealthy);
     batchLog.add(partnerId, partnerName, r.status);
     string note = r.success ? (partnerName + " " + kind + "連携完了")
                             : (partnerName + " " + kind + "連携失敗: " + r.message);
     for (auto* notifier : notifiers) {
-        notifier->onComplete(note);
+        NotificationResult result = notifier->onComplete(note);
+        notificationLog.add(result);
     }
     return r;
 }
@@ -1785,18 +1836,22 @@ class BatchExecutor {
     vector<INotifier*> notifiers;
     PartnerDatabase& db;
     BatchLog& batchLog;
+    NotificationLog& notificationLog;
     SyncDataCatalog& dataCatalog;
 public:
     BatchExecutor(PartnerDatabase& database, BatchLog& log,
+                  NotificationLog& notifications,
                   SyncDataCatalog& catalog)
-        : db(database), batchLog(log), dataCatalog(catalog) {}
+        : db(database), batchLog(log),
+          notificationLog(notifications), dataCatalog(catalog) {}
 
     void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
 
     // 送信結果を受け取り、通知内容へ反映して DeliveryResult を返す
     DeliveryResult execute(IClientCreator* creator,
                            const SyncRequest& request,
-                           bool apiHealthy = true) {
+                           bool apiHealthy = true,
+                           const string& kind = "") {
         const string& partnerId = request.partnerId;
         if (!db.exists(partnerId)) {
             cout << "エラー: パートナーID [" << partnerId
@@ -1815,13 +1870,14 @@ public:
         }
 
         // 生成分離構造を抽象Creator経由で呼び出す
-        IExternalClient* client = creator->createClient();
+        unique_ptr<IExternalClient> client = creator->createClient();
         string data = dataCatalog.load(request.target);
         cout << "[送信先] " << cfg.name
              << " (" << cfg.endpoint << ")" << endl;
         // 送信・保存・通知は手動入口と共有の後段処理へ委譲する
-        return deliverResult(client, data, partnerId, cfg.name,
-                             batchLog, notifiers, apiHealthy, "");
+        return deliverResult(*client, data, partnerId, cfg.name,
+                             batchLog, notificationLog, notifiers,
+                             apiHealthy, kind);
     }
 };
 ```
@@ -1834,31 +1890,22 @@ public:
 
 ```cpp
 class ManualTriggerController {
-    IExternalClient* client;
-    BatchLog& batchLog;
-    SyncDataCatalog& dataCatalog;
-    vector<INotifier*> notifiers;
+    BatchExecutor& executor;
+    IClientCreator& creator;
 public:
-    ManualTriggerController(IExternalClient* c, BatchLog& log,
-                            SyncDataCatalog& catalog)
-        : client(c), batchLog(log), dataCatalog(catalog) {}
-    void addNotifier(INotifier* notifier) {
-        notifiers.push_back(notifier);
-    }
+    ManualTriggerController(BatchExecutor& e, IClientCreator& c)
+        : executor(e), creator(c) {}
     DeliveryResult triggerSync(const SyncRequest& request,
-                               string partnerName,
                                bool apiHealthy = true) {
         cout << "[ManualTrigger] " << request.partnerId
               << " への手動同期を実行。" << endl;
-        string data = dataCatalog.load(request.target);
-        // 送信・保存・通知はバッチ入口と共有の後段処理へ委譲する
-        return deliverResult(client, data, request.partnerId, partnerName,
-                             batchLog, notifiers, apiHealthy, "手動");
+        // 手動入口は起動方法だけを担当し、同じユースケースへ委譲する。
+        return executor.execute(&creator, request, apiHealthy, "手動");
     }
 };
 ```
 
-`ManualTriggerController` は手動起点の入口だけを担い、送信・結果保存・通知の後段処理は `BatchExecutor` と共有の `deliverResult()` へ委譲します。これにより「送信→保存→通知」を二重に実装せず、通知文の種別（バッチ／手動）だけを引数で切り替えます。両入口が同じ後段処理を通るため、結果保存と通知の契約が経路によってずれることはありません。
+`ManualTriggerController`は手動起点だけを担い、Client生成、データ取得、送信、結果保存、通知のすべてを同じ`BatchExecutor::execute()`へ委譲します。後段関数だけでなくユースケース全体を共有するため、バッチ入口と手動入口で検証・生成・保存の規則が分岐しません。
 
 **⑩ 組み立てと実行（BatchApplication / main）**
 
@@ -1868,6 +1915,7 @@ public:
 class BatchApplication {
     PartnerDatabase db;
     BatchLog batchLog;
+    NotificationLog notificationLog;
     OrderDataSource orders;
     InventoryDataSource inventory;
     SyncDataCatalog dataCatalog;
@@ -1877,7 +1925,7 @@ public:
 
     void run() {
         SlackNotifier slack;
-        EmailNotifier email;
+        EmailNotifier email(false);  // 行5で通知部分失敗を実証する
         LogNotifier log;
         SystemAClientCreator creatorA;
         SystemBClientCreator creatorB;
@@ -1885,33 +1933,34 @@ public:
         SystemDClientCreator creatorD;
 
         cout << "--- 行1: A社月次バッチ ---" << endl;
-        BatchExecutor executorA(db, batchLog, dataCatalog);
+        BatchExecutor executorA(db, batchLog, notificationLog, dataCatalog);
         executorA.addNotifier(&slack);
         executorA.execute(
             &creatorA, {"PARTNER_A", SyncTarget::Orders});
 
         cout << "--- 変更要求: C社月次バッチ（今回追加） ---" << endl;
-        BatchExecutor executorC(db, batchLog, dataCatalog);
+        BatchExecutor executorC(db, batchLog, notificationLog, dataCatalog);
         executorC.addNotifier(&slack);
         executorC.execute(
             &creatorC, {"PARTNER_C", SyncTarget::Orders});
 
         cout << "--- 行3: D社日次バッチ（新規D社追加後） ---" << endl;
-        BatchExecutor executorD(db, batchLog, dataCatalog);
+        BatchExecutor executorD(db, batchLog, notificationLog, dataCatalog);
         executorD.addNotifier(&slack);
         executorD.execute(
             &creatorD, {"PARTNER_D", SyncTarget::Orders});
 
         cout << "--- 行4: B社手動トリガー ---" << endl;
-        PartnerConfig cfgB = db.get("PARTNER_B");
-        IExternalClient* bClient = creatorB.createClient();
-        ManualTriggerController manual(bClient, batchLog, dataCatalog);
-        manual.addNotifier(&slack);
+        BatchExecutor executorManual(
+            db, batchLog, notificationLog, dataCatalog);
+        executorManual.addNotifier(&slack);
+        ManualTriggerController manual(executorManual, creatorB);
         manual.triggerSync(
-            {"PARTNER_B", SyncTarget::Inventory}, cfgB.name);
+            {"PARTNER_B", SyncTarget::Inventory});
 
         cout << "--- 行5: A社月次バッチ（API障害・Slack＋メール通知） ---" << endl;
-        BatchExecutor executorFail(db, batchLog, dataCatalog);
+        BatchExecutor executorFail(
+            db, batchLog, notificationLog, dataCatalog);
         executorFail.addNotifier(&slack);
         executorFail.addNotifier(&email);
         // 外部APIが障害中（apiHealthy=false）。失敗を記録し次のジョブへ進む
@@ -1919,19 +1968,21 @@ public:
             &creatorA, {"PARTNER_A", SyncTarget::Orders}, false);
 
         cout << "--- 行6: B社バッチ（Slack＋ログ基盤） ---" << endl;
-        BatchExecutor executorB(db, batchLog, dataCatalog);
+        BatchExecutor executorB(db, batchLog, notificationLog, dataCatalog);
         executorB.addNotifier(&slack);
         executorB.addNotifier(&log);
         executorB.execute(
             &creatorB, {"PARTNER_B", SyncTarget::Inventory});
 
         cout << "--- 無効パートナーZ社の実行試行 ---" << endl;
-        BatchExecutor executorZ(db, batchLog, dataCatalog);
+        BatchExecutor executorZ(db, batchLog, notificationLog, dataCatalog);
         executorZ.execute(
             &creatorA, {"PARTNER_Z", SyncTarget::Orders});
 
         cout << "\n--- バッチ実行ログ（" << batchLog.size() << "件） ---\n";
         batchLog.printAll();
+        cout << "--- 通知結果ログ（" << notificationLog.size()
+             << "件） ---\n";
     }
 };
 
@@ -1954,33 +2005,41 @@ int main() {
 A社へ転送: 注文 ORD001
 実行結果を保存(1件): [PARTNER_A] 物流会社A -> 成功
 Slack通知(1件): 物流会社A 連携完了
+通知結果を保存(1件): Slack -> 成功 (受付完了)
 --- 変更要求: C社月次バッチ（今回追加） ---
 [送信先] 配送会社C (delivery-c.example)
 C社へ転送: 注文 ORD001
 実行結果を保存(2件): [PARTNER_C] 配送会社C -> 成功
 Slack通知(2件): 配送会社C 連携完了
+通知結果を保存(2件): Slack -> 成功 (受付完了)
 --- 行3: D社日次バッチ（新規D社追加後） ---
 [送信先] 配送会社D (delivery-d.example)
 D社へ転送: 注文 ORD001
 実行結果を保存(3件): [PARTNER_D] 配送会社D -> 成功
 Slack通知(3件): 配送会社D 連携完了
+通知結果を保存(3件): Slack -> 成功 (受付完了)
 --- 行4: B社手動トリガー ---
 [ManualTrigger] PARTNER_B への手動同期を実行。
 B社へ転送: 在庫 SKU001
 実行結果を保存(4件): [PARTNER_B] 在庫会社B -> 成功
 Slack通知(4件): 在庫会社B 手動連携完了
+通知結果を保存(4件): Slack -> 成功 (受付完了)
 --- 行5: A社月次バッチ（API障害・Slack＋メール通知） ---
 [送信先] 物流会社A (logistics-a.example)
 A社へ転送: 注文 ORD001
 実行結果を保存(5件): [PARTNER_A] 物流会社A -> 失敗
 Slack通知(5件): 物流会社A 連携失敗: A社: API障害
-Email通知(1件): 物流会社A 連携失敗: A社: API障害
+通知結果を保存(5件): Slack -> 成功 (受付完了)
+Email通知失敗: 物流会社A 連携失敗: A社: API障害
+通知結果を保存(6件): Email -> 失敗 (メール基盤停止)
 --- 行6: B社バッチ（Slack＋ログ基盤） ---
 [送信先] 在庫会社B (stock-b.example)
 B社へ転送: 在庫 SKU001
 実行結果を保存(6件): [PARTNER_B] 在庫会社B -> 成功
 Slack通知(6件): 在庫会社B 連携完了
+通知結果を保存(7件): Slack -> 成功 (受付完了)
 ログ基盤へ記録(1件): 在庫会社B 連携完了
+通知結果を保存(8件): Log -> 成功 (記録完了)
 --- 無効パートナーZ社の実行試行 ---
 エラー: パートナー [分析会社Z] は現在無効です。処理を中断します。
 実行結果を保存(7件): [PARTNER_Z] 分析会社Z -> スキップ（無効）
@@ -1993,9 +2052,10 @@ Slack通知(6件): 在庫会社B 連携完了
 [PARTNER_A] 物流会社A -> 失敗
 [PARTNER_B] 在庫会社B -> 成功
 [PARTNER_Z] 分析会社Z -> スキップ（無効）
+--- 通知結果ログ（8件） ---
 ```
 
-1-5の変更後動作例の行1・3〜6と、変更要求で追加したC社連携のケースに一致しています。行5ではA社の外部APIが障害中（`apiHealthy=false`）で、1-4からある`DeliveryResult`が失敗（API障害）を返します。その結果を1-4と同じ`BatchLog`へ5件目として保存し、Slackとメールへ通知した後も、行6のジョブを続けています。変えたのは結果契約や保存方法ではなく、その結果を受けて通知先を選び、後続ジョブへ進む実行構造です。`BatchExecutor`と`ManualTriggerController`はどちらも同じ`BatchLog`と`INotifier`を利用するため、実行経路が異なっても結果保存と通知の契約は揃います。行2（タイムアウト・リトライ）は、リトライ制御そのものが論点外のため動作仕様として残します。
+1-5の変更後動作例の行1・3〜6と、変更要求で追加したC社連携のケースに一致しています。行5ではA社送信が失敗し、`BatchLog`へ送信失敗を保存します。Slack通知は成功、停止中のEmail通知は失敗として別の`NotificationLog`へ保存し、それでも行6のジョブを続けます。`BatchExecutor`と`ManualTriggerController`は同じ`execute()`を使うため、検証・Client生成・送信・保存・通知の規則が経路でずれません。行2のタイムアウト再試行は、回数が未確定のため今回の受入条件から外しています。
 
 この実装により、`BatchExecutor` は通信の詳細や通知の仕組みを知ることなく、送信結果の受け取りとフローの統括に専念できるようになりました。
 
@@ -2010,6 +2070,8 @@ classDiagram
     class PartnerConfig
     class PartnerDatabase
     class DeliveryResult
+    class NotificationResult
+    class NotificationLog
     class BatchRecord
     class BatchLog
     class BatchApplication
@@ -2033,8 +2095,7 @@ classDiagram
     SyncDataCatalog --> InventoryDataSource : 在庫なら取得
     BatchExecutor ..> SyncRequest : 入力
     BatchExecutor --> SyncDataCatalog : 同期データを取得
-    ManualTriggerController ..> SyncRequest : 入力
-    ManualTriggerController --> SyncDataCatalog : 同期データを取得
+    ManualTriggerController --> BatchExecutor : 同じexecuteを起動
     BatchExecutor --> IClientCreator
     BatchExecutor --> INotifier
     IClientCreator <|.. SystemAClientCreator
@@ -2051,14 +2112,16 @@ classDiagram
     IClientCreator <|.. SystemDClientCreator
     PartnerDatabase *-- PartnerConfig : 設定を保存
     BatchLog *-- BatchRecord : 結果を保存
+    NotificationLog *-- NotificationResult : 通知結果を保存
+    INotifier ..> NotificationResult : 返す
     IExternalClient ..> DeliveryResult : 返す
     BatchExecutor ..> DeliveryResult : 受け取る
-    ManualTriggerController ..> DeliveryResult : 受け取る
     BatchExecutor --> PartnerDatabase : 既存設定を参照
     BatchExecutor --> BatchLog : 既存方式で保存
-    ManualTriggerController --> BatchLog : 既存方式で保存
+    BatchExecutor --> NotificationLog : 通知成否を保存
     BatchApplication *-- PartnerDatabase : 所有
     BatchApplication *-- BatchLog : 所有
+    BatchApplication *-- NotificationLog : 所有
     BatchApplication *-- OrderDataSource : 所有
     BatchApplication *-- InventoryDataSource : 所有
     BatchApplication *-- SyncDataCatalog : 所有
@@ -2067,11 +2130,11 @@ classDiagram
 
     note for IExternalClient "【P1・新設】通信の窓口契約（窓口構造）"
     note for INotifier "【P2・新設】通知の共通契約（通知分離構造）"
-    note for IClientCreator "【P3・新設】生成の契約（生成分離構造）"
+    note for IClientCreator "【P1・新設】外部連携Clientの生成契約"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
     classDef stable fill:#E0F7FA,stroke:#0891B2,stroke-width:2px,color:#222222
-    cssClass "IExternalClient,SystemAClient,INotifier,SlackNotifier,IClientCreator,SystemAClientCreator" focus
+    cssClass "IExternalClient,SystemAClient,INotifier,SlackNotifier,IClientCreator,SystemAClientCreator,NotificationResult,NotificationLog" focus
     cssClass "SyncRequest,OrderDataSource,InventoryDataSource,SyncDataCatalog,PartnerConfig,PartnerDatabase,DeliveryResult,BatchRecord,BatchLog" stable
 ```
 
@@ -2083,8 +2146,22 @@ classDiagram
 |---|---|---|---|
 | P1 | 全 `IExternalClient` 実装と `BatchExecutor` | 連携先固有通信はClientへ閉じ、バッチ骨格は結果だけを受け取った | 固有通信を `BatchExecutor` へ戻さない |
 | P2 | 全 `INotifier` 実装と通知登録 | 通知先追加がNotifierの追加と組み立て側の登録へ閉じた | 通知先追加でバッチ骨格を変更しない |
-| P3 | 全 `IClientCreator` 実装、`BatchApplication`、手動入口 | バッチと手動入口が同じCreator群を利用した | 手動入口へ別の生成判断を実装しない |
+| P1（生成・所有） | 全`IClientCreator`実装、`BatchApplication`、手動入口 | 両入口が同じCreatorとユースケースを利用し、生成物を`unique_ptr`で所有した | 手動入口へ別の生成判断を実装せず、実行後に自動破棄する |
 | 変更対象外 | `SyncRequest`、`SyncDataCatalog`、`DeliveryResult`、`BatchRecord`、`BatchLog` | 1-4と同じ入力・取得・結果・保存方法のまま、指定した注文・在庫が送信され、保存件数が実行ごとに増えた | 仕様変更と無関係な入力・データ・保存差分を作らない |
+
+#### 要求→課題→構造→コード→結果の追跡
+
+| 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
+|---|---|---|---|
+| R1：C/D社追加と手動入口共通化／P1 | 通信とClient生成を契約へ分離し、全入口を同じ実行骨格へ接続。コード：全Client／Creator、`BatchExecutor`、`ManualTriggerController` | A〜D社と手動入口が同じ検証・保存・通知を通過 | 新Client・Creator・組み立て登録 |
+| R2：Slack・Email・ログ通知／P2 | 通知先をNotifier群へ分離し、結果を別ログへ保存。コード：全 `INotifier`、`NotificationLog` | Email失敗を記録してSlack成功と後続ジョブを維持 | 新Notifierと登録 |
+
+#### 変更前→変更後の不変条件照合
+
+| 変更対象外 | 変更前 | 変更後 | 確認根拠 |
+|---|---|---|---|
+| 同期入力・取得 | `SyncRequest` で対象を選び `SyncDataCatalog` から取得 | 同じ入力が同じデータ取得へ到達 | 注文・在庫の送信内容 |
+| 送信結果・保存 | `DeliveryResult` を `BatchLog` へ保存 | 同じ契約・同じレコード形式 | 7件のバッチ実行ログ |
 
 ### 7-2：動作シーケンス図
 
@@ -2121,7 +2198,7 @@ sequenceDiagram
     BL-->>BE: 保存件数 1
     BE->>SN: obs->onComplete("物流会社A 連携完了")
     Note right of BE: INotifier* 経由（抽象）
-    SN-->>BE: 完了
+    SN-->>BE: NotificationResult
     BE-->>BA: DeliveryResult
     BA-->>main: 完了
 ```
@@ -2140,13 +2217,13 @@ graph LR
     T2 -. "影響なし" .-> B["IExternalClient / IClientCreator / BatchExecutor ✅"]
 ```
 
-フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、P1・P3の連携先追加は `IExternalClient`／`IClientCreator` の実装1組へ、P2の通知先追加は `INotifier` の実装1クラスと登録へ限定されました。`BatchExecutor` は3つの契約を別々に保持するため、どの軸の変更も他軸へ飛び火しません。
+フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、P1の連携先追加は`IExternalClient`／`IClientCreator`の実装1組へ、P2の通知先追加は`INotifier`の実装1クラスと登録へ限定されました。生成はP1の組み立て責任であり、独立した第三の変化軸ではありません。
 
 | 3-2で影響した場所 | 修正後 | 構造変更との対応 |
 |---|---|---|
 | `execute()` の通信直呼び（P1） | **修正しない** | 通信を窓口構造の裏へ移した |
 | `execute()` の通知直生成・直呼び（P2） | Notifier追加と `addNotifier` 1行 | 通知を通知分離構造へ移した |
-| `execute()` の具体Client生成分岐（P3） | Creatorを1クラス追加する | 生成を生成分離構造へ移した |
+| `execute()` の具体Client生成分岐（P1） | Creatorを1クラス追加する | P1の生成責任を生成分離構造へ移した |
 
 ### 7-4：変更シナリオ表
 
@@ -2184,8 +2261,8 @@ graph LR
 | 🟣 フェーズ2：仮説立案 | 「連携先の生成」と「通知」を独立させる仮説を立てた。確定変更と将来リスクを別々に管理した。 |
 | 🟣 フェーズ3：問題特定 | `BatchExecutor` がすべての詳細を知っていることによる修正の連鎖（痛み）を確認した。 |
 | 🟠 フェーズ4：原因分析 | 責務の混在を「具体クラスへの直接依存」という構造的負債として特定した。 |
-| 🟡 フェーズ5：課題定義 | 通信境界（接続点A）・通知境界（接続点B）・生成境界（接続点C）の3点を接続点として特定し、各軸の疎結合化を課題とした。 |
-| 🔴 フェーズ6：対策検討 | 窓口→通知分離→生成分離の3ステップを並べ、ステップ3（3構造）まで採用した。 |
+| 🟡 フェーズ5：課題定義 | 外部連携P1と通知P2の二つを接続点として特定し、Client生成・所有はP1の組み立て責任として同時に追跡した。 |
+| 🔴 フェーズ6：対策検討 | P1・P2を同時に満たす窓口×通知分離×生成分離の完成構造を確定し、3ステップは採用構造の実装順とした。 |
 | 🟢 フェーズ7：対策実施 | 各責務をインターフェース経由で分離し、バッチ本体の変更耐性を高めた。採用した構造の役割が 窓口構造 × 通知分離構造 × 生成分離構造と呼ばれることを確認した。 |
 
 ### 使った構造 × 解消した根本原因
@@ -2211,7 +2288,7 @@ graph LR
 
 ### 複雑さを足しても対策は変わるか
 
-| 追加した複雑さ | 見えた原因 | 定めた課題 | 採用構造（3軸分離） |
+| 追加した複雑さ | 見えた原因 | 定めた課題 | 採用構造（2軸分離） |
 |---|---|---|---|
 | 順次バッチ実行 | 実行順の骨格と各ジョブの通信詳細が同居 | 順に流す外部手順と通信詳細を分ける | 実行順は `BatchExecutor` に残し、送信は窓口構造の裏へ |
 | 通知イベント | 通知先追加が実行本体へ波及 | 通知の発生と通知先一覧を分ける | 通知分離構造の `INotifier` リストへ登録する |
@@ -2229,7 +2306,7 @@ graph LR
 | **得られること** | **この章のどこで示したか** |
 | --- | --- |
 | 得られること1：各構造がどの「変化」に対応するかを識別できる | フェーズ6のステップ1〜3で、各構造が登場する順序と理由を段階的に示した。 |
-| 得られること2：複数の接続点をどこで分離するか判断できる | フェーズ5で、通信境界（接続点A）・通知境界（接続点B）・生成境界（接続点C）の3点を特定した。 |
+| 得られること2：複数の接続点をどこで分離するか判断できる | フェーズ5で外部連携P1と通知P2を特定し、生成・所有をP1の組み立て責任として区別した。 |
 | 得られること3：疎結合な連携アーキテクチャの構築方法を説明できる | フェーズ7の変更シナリオ表で、変更の局所化を実証した。 |
 | 得られること4：「通信・通知・生成」の3つの責務が混在するコードを整理できる | フェーズ2の仮説立案とヒアリングで、外部連携先の通信詳細・通知先・クライアント生成という変動する仕様を特定した。 |
 
@@ -2269,7 +2346,7 @@ graph LR
 3. 最近入った変更要求、または次に来そうな変更要求は何か。
 4. その変更で、触りたくない場所まで修正や再テストが広がるか。
 5. 変えたいものと守りたいものを分けると、接続点には何を残すべきか。
-6. 何もしない、関数化、クラス分離、契約導入、登録/組み立て移動のうち、どこまで進めるのが今回の文脈に合うか。
+6. 全課題を満たす完成構造が複数成立するか。成立するなら、責任配置・変更影響・導入コストの差は何か。
 
 ## パターン解説：Facade × Observer × Factory Method
 
@@ -2359,7 +2436,7 @@ public:
 
 外部連携バッチ処理というドメインと Facade × Observer × Factory Method の組み合わせの関係を一言で言うなら、「通信の窓口・通知・生成」という3種類の責務はそれぞれ変わる理由が異なり、どの責務がどう変わるかを先に分析することが複合適用の出発点になる、ということです。`BatchExecutor` の各行から変化軸を読み解き、必要な境界を作った結果が三つのパターンの役割に対応した——その順序が、この章の最も重要なメッセージです。
 
-7つのフェーズを通じて、読者は `BatchExecutor` が連携先・通知先・生成方法のすべてを知っているという観察から始まり、3種類の接続点を識別する分析を経て、それぞれの境界に合うパターンを当てるという判断へと進みました。フェーズ2の仮説立案とヒアリングで「外部連携先と通知先は今後も追加・変更が続く」と確認した時点で問題の輪郭が見え、フェーズ5で通信境界・通知境界・生成境界という3つの接続点を特定した時点で、それぞれに異なる解が必要なことが見えました。1つのパターンで解決しきれないという気づきが、次のパターンへ進む根拠になります。
+7つのフェーズを通じて、`BatchExecutor` が連携先・通知先・生成方法のすべてを知っているという観察から始まりました。フェーズ4〜5で通信・通知・生成の全変化軸を先に確定し、フェーズ6で三つを同時に分離する一つの最終システムを決めています。Facade・Observer・Factory Methodは順番に試した候補ではなく、確定済みの各接続点へ責任が重ならないよう配置した結果に付く名前です。コードだけを契約、具体実装、組み立ての理解順に分けて反映しました。
 
 あなたのコードの中にも、1つのクラスが複数の外部サービスの生成・呼び出し・通知をまとめて担っている箇所があるはずです。「それぞれの責務はどの業務機能に属するか」を問うことが、どの境界にどのパターンを当てるかを見つける入口になります。
 

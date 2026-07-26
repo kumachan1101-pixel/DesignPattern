@@ -523,19 +523,25 @@ int main() {
     if (!registry.exists(type1)) {
         cout << "[エラー] 未登録のインポートタイプ: " << type1 << "\n"; return 1;
     }
-    cout << "--- 行1: " << registry.get(type1).name << " ---\n";
+    ImportSchema schema1 = registry.get(type1);
+    cout << "--- 行1: " << schema1.name << "（必須列"
+         << schema1.requiredColumns.size() << "）---\n";
     StoreDataImporter storeNormal(SampleFileStore::get("store-normal"));
     ImportResult r1 = storeNormal.import();
-    cout << "インポート成功: " << r1.saved << "件追加\n";
+    cout << r1.schemaName << " インポート成功: "
+         << r1.saved << "件追加\n";
 
     string type2 = "fc";
     if (!registry.exists(type2)) {
         cout << "[エラー] 未登録のインポートタイプ: " << type2 << "\n"; return 1;
     }
-    cout << "--- 行2: " << registry.get(type2).name << " ---\n";
+    ImportSchema schema2 = registry.get(type2);
+    cout << "--- 行2: " << schema2.name << "（必須列"
+         << schema2.requiredColumns.size() << "）---\n";
     FCDataImporter fcNormal(SampleFileStore::get("fc-normal"));
     ImportResult r2 = fcNormal.import();
-    cout << "インポート成功: " << r2.saved << "件更新\n";
+    cout << r2.schemaName << " インポート成功: "
+         << r2.saved << "件更新\n";
 
     cout << "--- 行3: 直営店空ファイル ---\n";
     StoreDataImporter storeEmpty(SampleFileStore::get("store-empty"));
@@ -572,18 +578,18 @@ int main() {
 実行結果：
 
 ```text
---- 行1: 直営店データ ---
+--- 行1: 直営店データ（必須列3）---
 直営店CSVを開く
 カンマ区切りで10件を読み込む
 10件をDBへ追加
 ファイルを閉じる
-インポート成功: 10件追加
---- 行2: FC店データ ---
+直営店データ インポート成功: 10件追加
+--- 行2: FC店データ（必須列3）---
 FC店CSVを開く
 タブ区切りで5件を読み込み、0件をスキップ
 5件をDBへ更新
 ファイルを閉じる
-インポート成功: 5件更新
+FC店データ インポート成功: 5件更新
 --- 行3: 直営店空ファイル ---
 直営店CSVを開く
 カンマ区切りで0件を読み込む
@@ -1269,9 +1275,9 @@ protected:
 
 **P1との対応：** `AbstractImporter <|-- StoreDataImporter` の継承と、形式差分だけを持つフックを実装しました。FC店・EC店も同じ形で差分だけを実装します。
 
-#### 実装ステップ3（P1）：保存・取得を外部境界へ委譲する
+#### 実装ステップ3（不変条件）：既存の取得・保存方式を骨格へ接続する
 
-骨格が保存媒体を知らないよう、ファイル取得とDB保存を境界クラスへ委譲し、組み立て側から注入します。骨格の順序は変えず、`open()` と `save()` を呼ぶだけにします。
+ここは新しい変化軸の対策ではありません。1-4と同じメモリ上の行一覧を取得し、保存件数を表示するスタブを、共通骨格から呼べるように接続します。実ファイルや永続DBへの移行は今回の要求にないため、保存表現や永続化の有無は変えません。
 
 ```cpp
 ImportFileGateway gateway;
@@ -1282,7 +1288,7 @@ StoreDataImporter store(gateway, repo);   // 骨格へ境界を注入
 ImportResult r = store.import();          // 固定順序で実行
 ```
 
-**P1との対応：** `AbstractImporter --> ImportFileGateway` / `SalesImportRepository` の利用関係を実装しました。ここで共通骨格と形式差分が一つの構造として接続されました。
+**不変条件との対応：** `ImportFileGateway`の内側は1-4の`SampleFileStore`と同じ`map<string, vector<string>>`、`SalesImportRepository::save()`は1-4と同じ件数表示だけです。境界名は骨格から呼ぶ役割を示しますが、保存媒体や永続化仕様を追加していません。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
@@ -1413,14 +1419,9 @@ public:
     }
 };
 class SalesImportRepository {
-    long totalAmount = 0;
 public:
     int save(const vector<SalesRow>& rows) {
-        long before = totalAmount;
-        for (auto& r : rows) totalAmount += r.amount;
-        cout << "DBへ" << rows.size() << "件を保存しました。"
-             << " 保存金額合計: " << before
-             << "円 -> " << totalAmount << "円\n";
+        cout << "DBへ" << rows.size() << "件を保存しました。\n";
         if (!rows.empty()) {
             const SalesRow& s = rows.front();
             cout << "  先頭行: " << s.id << " " << s.name
@@ -1428,11 +1429,10 @@ public:
         }
         return (int)rows.size();
     }
-    long savedAmount() const { return totalAmount; }
 };
 ```
 
-ファイルI/OとDBは本章の論点外なので、どちらも実物ではなくスタブにしています。`ImportFileGateway` は実ファイルを読み書きせず、`prepareSample()` でメモリ上にサンプルCSV（行の配列）を用意し、`open()` はそれを返すだけです。`SalesImportRepository.save()` も、受け取った `SalesRow` を件数として数えるだけのスタブです。重要なのは、骨格 `import()` が `gateway.open()` と `repo.save()` を呼ぶだけで**保存媒体の実体を知らない**点です。実運用でファイル・DB・オブジェクトストレージのどれになっても、差し替わるのはこの2つの境界クラスの内側だけで、骨格は変わりません（この点は本節の後半で改めて確認します）。
+ファイルI/OとDBは本章の論点外なので、どちらも1-4と同じインメモリのスタブです。`ImportFileGateway`は`SampleFileStore`と同じく行配列を保持して返し、`SalesImportRepository.save()`も受け取った行の件数を表示するだけで、永続化や累積金額という新しい仕様を足しません。変えたのは共通骨格から呼ぶ位置であり、保存方法ではありません。
 
 **AbstractImporterクラス（骨格の定義）：**
 
@@ -1719,7 +1719,13 @@ DBへ8件を保存しました。 保存金額合計: 20000円 -> 44000円
 private:
     void printResult(const ImportResult& r) {
         if (!registry.exists(r.schemaType)) return;
+        ImportSchema schema = registry.get(r.schemaType);
+        if (schema.name != r.schemaName) {
+            cout << "[エラー] スキーマ表示名が一致しません\n";
+            return;
+        }
         cout << "[" << r.schemaType << "] " << r.schemaName
+             << "（必須列" << schema.requiredColumns.size() << "）"
              << " 保存" << r.saved << "件 / スキップ" << r.skipped << "件 -> "
              << (r.success ? "成功" : "失敗") << "\n";
     }
@@ -1768,9 +1774,9 @@ int main() {
 
 ```text
 --- インポート結果ログ ---
-[store] 直営店データ 保存10件 / スキップ0件 -> 成功
-[fc] FC店データ 保存5件 / スキップ0件 -> 成功
-[ec] EC店データ 保存8件 / スキップ2件 -> 成功
+[store] 直営店データ（必須列3） 保存10件 / スキップ0件 -> 成功
+[fc] FC店データ（必須列3） 保存5件 / スキップ0件 -> 成功
+[ec] EC店データ（必須列5） 保存8件 / スキップ2件 -> 成功
 [エラー] 未登録のインポートタイプ: online — 処理を中断します
 ```
 
@@ -1838,6 +1844,19 @@ classDiagram
 | P1 | `AbstractImporter::import()`、形式別Importer、`SchemaRegistry` | 共通順序は1か所で実行され、形式別クラスは解析・検証差分だけを提供した | 新形式で共通骨格を複製せず、形式実装と登録だけを追加できる |
 
 1行は、一つの完成システムを唯一の変化軸から追跡した結果です。骨格固定構造がP1の完了条件を維持しています。
+
+#### 要求→課題→構造→コード→結果の追跡
+
+| 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
+|---|---|---|---|
+| R1：EC形式追加と共通手順維持／P1 | 取込順を骨格へ、形式差を派生へ分離。コード：`AbstractImporter::import()`、各Importer、`SchemaRegistry` | 直営・FC・ECが同じ順序で処理され、形式別件数を保存 | 新Importer、Schema登録、形式固有検証 |
+
+#### 変更前→変更後の不変条件照合
+
+| 変更対象外 | 変更前 | 変更後 | 確認根拠 |
+|---|---|---|---|
+| 取込結果契約 | `ImportResult` を返す | 同じ成功・保存・スキップ情報を返す | 1-4と7-1の結果ログ |
+| データ保存境界 | 読み取った行をRepositoryへ保存 | 同じ行表現を `SalesImportRepository` へ渡す | 7-1の保存件数・先頭行出力 |
 
 ### 7-2：動作シーケンス図
 
@@ -2014,7 +2033,7 @@ graph LR
 3. 最近入った変更要求、または次に来そうな変更要求は何か。
 4. その変更で、触りたくない場所まで修正や再テストが広がるか。
 5. 変えたいものと守りたいものを分けると、接続点には何を残すべきか。
-6. 何もしない、関数化、クラス分離、契約導入、登録/組み立て移動のうち、どこまで進めるのが今回の文脈に合うか。
+6. 全課題を満たす完成構造が複数成立するか。成立するなら、責任配置・変更影響・導入コストの差は何か。
 
 ## パターン解説：Template Method パターン
 

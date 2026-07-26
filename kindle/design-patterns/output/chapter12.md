@@ -52,7 +52,7 @@
 | 審査待ち | 申請が提出され、登録済み承認者の確認を待っている |
 | 完了 | 登録済み承認者が承認し、処理が完了した |
 
-現状には、課長承認後に部長承認を待つ「承認済み」状態や、「却下」「再申請」はありません。これらは1-5の変更要求で初めて追加します。
+現状には、課長承認後に部長承認を待つ「承認済み」状態や「却下」はありません。これらは1-5の変更要求で初めて追加します。再申請は依頼に含まれていないため、本章の実装対象には加えません。
 
 **現在の状態遷移マトリクス**
 
@@ -76,7 +76,7 @@ flowchart TD
     C -->|No| E([承認不可])
 ```
 
-このフローで見ておく点は、現状ではすべての申請が同じ順序を通り、1回の承認で完了することです。緊急申請の近道、課長承認後の部長承認、却下と再申請はまだなく、通知も状態が変わった後に申請IDごとの固定の相手へ送られます。
+このフローで見ておく点は、現状ではすべての申請が同じ順序を通り、1回の承認で完了することです。緊急申請の近道、課長承認後の部長承認、却下はまだなく、通知も状態が変わった後に申請IDごとの固定の相手へ送られます。
 
 10万円という閾値を設けているのは、「一定額以上の支出には上位者の確認が必要」という会社の内部規程に基づくためです。ただし「10万円」という数字自体は会社や規程によって異なり、組織が変わるたびに見直しが必要になる部分でもあります。
 
@@ -94,7 +94,11 @@ flowchart TD
 
 ここまでで、状態の種類、状態遷移、承認上限、通知先の意味を説明しました。まず、このシステムがどのデータを記憶し、処理時に何を読み出すのかを整理します。そのうえで、代表ケースを使って入力がどの処理で使われ、どの出力に変わるかを正常系の流れとして確認します。
 
+最も大きな境界は、「利用者 → 承認ワークフローシステム → 外部の通知送信サービス」です。まずこの境界を固定し、その内側に保存データと処理を配置します。
+
 **システム全体図：利用者・承認ワークフローシステム・保存データ**
+
+この図では、最も大きな境界である利用者→対象システム→外部サービスを先に読み、その内側の保存データを確認します。
 
 ```mermaid
 flowchart LR
@@ -512,7 +516,7 @@ REQ002：審査待ち → 完了
 | `ApproverDatabase` | 承認者情報を保存・取得する | **変更なし** |
 | `NotificationTargetRepository` | 通知先を保存・取得する | **変更なし** |
 
-`WorkflowCaseRepository` は、申請IDをキーに状態を保存・取得する**役割は維持**しますが、状態遷移を各状態クラスへ分ける対策（P1）に伴い、保存する値が状態名の文字列から状態オブジェクト（`IWorkflowPhase*`）へ置き換わります。これは基盤都合の保存方式変更ではなく、P1の解決（状態分離）の一部です。したがって上の「変更対象外」には含めません。
+`WorkflowCaseRepository` と `NotificationTargetRepository` は、保存方式も変更対象ではありません。前者は変更後も「申請ID→状態ID文字列」、後者も「申請ID→通知先データ文字列」を保存します。状態IDから状態オブジェクトへの解決、通知先データから送信対象への解決はRepositoryの外に置きます。状態分離を導入するために、仕様変更のない保存表現まで変える必要はありません。
 
 **この章が扱う複雑さ**
 
@@ -520,7 +524,7 @@ REQ002：審査待ち → 完了
 
 | 追加する複雑さ | 具体例 | この章で見ること |
 |---|---|---|
-| 申請イベント | 通常申請・緊急申請・承認・却下・再申請を操作として渡す | 状態ごとに、受け付けるイベントと次状態を分けられるか |
+| 申請イベント | 通常申請・緊急申請・承認・却下を操作として渡す | 状態ごとに、受け付けるイベントと次状態を分けられるか |
 | 状態保存 | 申請IDごとの現在状態を読み書きする | 利用側が状態を持たず、保存済み状態で振る舞いが変わるか |
 | 通知処理の分離 | 状態保存後に通知先を読み、送信結果を個別に受け取る | 通知を状態更新の直接処理から切り離せるか |
 | 承認ルール差し替え | 課長・部長・部署別の承認上限を入れ替える | 判定ルールを状態遷移と別軸で差し替えられるか |
@@ -542,7 +546,6 @@ REQ002：審査待ち → 完了
 | 優先審査待ち + 部長承認操作 | 緊急申請 | 完了状態へ移行 | 申請者・部長・決済部門に通知 |
 | 審査待ち + 却下操作 | — | 却下状態へ移行 | 申請者に通知 |
 | 承認済み + 部長承認操作 | 通常申請 | 完了状態へ移行 | 申請者・課長・部長・決済部門に通知 |
-| 却下状態 + 再申請操作 | — | 審査待ち状態に戻る | 管理者に通知 |
 
 変更後にこのシステムが「何をする必要があるか」を確認できました。
 
@@ -550,13 +553,13 @@ REQ002：審査待ち → 完了
 
 受入条件を状態遷移として整理します。「優先審査待ち」は今回追加する緊急申請ルートの到達状態であり、現行コードにはまだ存在しません。
 
-| 現在の状態 | 課長/部長承認 | 却下 | 再申請 |
-| --- | --- | --- | --- |
-| 審査待ち | 課長 → 承認済み | → 却下 | —— |
-| 優先審査待ち | 部長 → 完了 | → 却下 | —— |
-| 承認済み | 部長 → 完了 | —— | —— |
-| 却下 | —— | —— | → 審査待ち |
-| 完了 | —— | —— | —— |
+| 現在の状態 | 課長/部長承認 | 却下 |
+| --- | --- | --- |
+| 審査待ち | 課長 → 承認済み | → 却下 |
+| 優先審査待ち | 部長 → 完了 | → 却下 |
+| 承認済み | 部長 → 完了 | —— |
+| 却下 | —— | —— |
+| 完了 | —— | —— |
 
 ```mermaid
 stateDiagram-v2
@@ -567,7 +570,6 @@ stateDiagram-v2
     優先審査待ち --> 完了 : 部長承認
     優先審査待ち --> 却下 : 却下
     承認済み --> 完了 : 部長承認
-    却下 --> 審査待ち : 再申請
 ```
 
 通常申請は課長承認を経て部長承認へ進みますが、緊急申請は課長承認を飛ばし、優先審査待ちから部長承認で完了します。同じ承認イベントでも、現在状態によって適用する判定ルールと次状態が変わります。
@@ -588,7 +590,6 @@ flowchart TD
     F --> J{部長が最終承認できる金額か}
     J -->|Yes| K([完了<br>申請者・課長・部長・決済部門へ通知])
     J -->|No| L([承認不可])
-    G -->|再申請| C
 ```
 
 この図を見ると、変更後は「状態の進み方」と「通知先」が同時に増えていることが分かります。緊急申請では審査待ちを飛ばして優先審査待ちへ進み、完了時には決済部門も通知対象になります。つまり、後続フェーズで見るべき差分は状態遷移だけではなく、状態ごとの通知先データでもあります。
@@ -610,7 +611,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    U["【利用者】<br>通常・緊急申請、承認、却下、再申請"]:::actor
+    U["【利用者】<br>通常・緊急申請、承認、却下"]:::actor
     subgraph SYS["【システム境界】承認ワークフローシステム"]
         WM["【処理】ワークフロー進行<br>状態・判定・通知を分けて接続"]:::process
         CS[("【内部データ】WorkflowCaseRepository<br>作成中・審査待ち・優先審査待ち<br>承認済み・却下・完了")]:::data
@@ -1085,6 +1086,8 @@ public:
 
 ## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
+#### 接続点の分離・配置・組み立てを決める
+
 P1〜P3を、次の三つの観点で一つの完成構造へ変換します。
 
 | 接続点を変える観点 | システム全体の考え方 | P1〜P3のコードへの反映 |
@@ -1092,6 +1095,8 @@ P1〜P3を、次の三つの観点で一つの完成構造へ変換します。
 | 分離方法 | 進行骨格には状態操作・通知・承認判定の契約だけを残し、具体条件を外す | P1は `IWorkflowPhase`、P2は `INotificationListener`、P3は `IApprovalRule` を境界にする |
 | 配置場所 | 遷移判断は各Phase、送信手段は各Listener、承認可否は各Ruleへ置く | 三つの具象クラス群へ変更理由ごとに配置する |
 | 組み立て方法 | 組み立て側が初期Phase・Rule・Listenerを生成・所有し、Managerへ注入・登録する。状態側が次Phaseを選択し、Managerが所有を引き継ぎ、状態保存後に登録Listenerへ通知する | 生成・所有・登録・選択・注入と実行順を一つの経路にする |
+
+#### システム全体の最終構造を決める
 
 最終構造は、状態分離構造・通知分離構造・ルール差し替え構造を `WorkflowManager` の進行骨格で接続する一つのシステムです。一部だけを切り出す形は三課題を完了しない途中状態なので比較しません。
 
@@ -1117,7 +1122,7 @@ classDiagram
         +process(requestId, operation, amount, approverId)
         -notify(requestId)
     }
-    class WorkflowCaseRepository { +loadPhase(id) IWorkflowPhase }
+    class WorkflowCaseRepository { +getState(id) string }
     class NotificationTargetRepository { +getTarget(id) string }
     class ApproverDatabase { +canApprove(id, amount) bool }
     WorkflowManager --> WorkflowCaseRepository : 状態を読み書き
@@ -1125,7 +1130,7 @@ classDiagram
     WorkflowManager --> ApproverDatabase : 承認者確認に使う
 
     note for WorkflowManager "【残す】進行の公開入口\n【P1・移す】状態遷移の条件分岐\n【P2・移す】通知先ごとの通知\n【P3・移す】金額・承認者の判定"
-    note for WorkflowCaseRepository "【P1】状態の保存・取得（保存値を文字列→状態オブジェクトへ置換）"
+    note for WorkflowCaseRepository "【維持】状態ID文字列の保存・取得"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
     cssClass "WorkflowManager" focus
@@ -1158,7 +1163,13 @@ classDiagram
     class ApprovalLog
     class BatchApplication
     class WorkflowEvent
+    class WorkflowResult
+    class NotificationTarget
+    class DeliveryResult
     class WorkflowManager
+    class WorkflowPhaseResolver
+    class NotificationTargetResolver
+    class NotificationDeliveryLog
     class IWorkflowPhase { <<interface>> }
     class PendingPhase
     class PriorityPendingPhase
@@ -1172,6 +1183,13 @@ classDiagram
     PendingPhase --> IApprovalRule
     IApprovalRule <|.. ManagerApprovalRule
     WorkflowManager --> INotificationListener
+    WorkflowManager --> WorkflowPhaseResolver
+    WorkflowManager --> NotificationTargetResolver
+    WorkflowManager --> NotificationDeliveryLog
+    WorkflowPhaseResolver o--> IWorkflowPhase : 状態IDから解決
+    NotificationTargetResolver ..> NotificationTarget : 文字列から解決
+    INotificationListener ..> DeliveryResult : 返す
+    NotificationDeliveryLog *-- DeliveryResult : 全結果を保存
     INotificationListener <|.. EmailNotifier
     IWorkflowPhase <|.. DraftPhase
     IWorkflowPhase <|.. ApprovedPhase
@@ -1179,19 +1197,19 @@ classDiagram
     IWorkflowPhase <|.. CompletedPhase
     IApprovalRule <|.. DirectorApprovalRule
     IApprovalRule <|.. DepartmentApprovalRule
-    WorkflowManager --> ApproverDatabase
     WorkflowManager --> WorkflowCaseRepository
     WorkflowManager --> NotificationTargetRepository
     INotificationListener <|.. ChatNotifier
-    WorkflowManager --> ApprovalLog
     BatchApplication --> WorkflowManager
+    BatchApplication --> ApproverDatabase
+    BatchApplication --> ApprovalLog
 
     note for IWorkflowPhase "【P1・新設】状態遷移の契約（状態分離構造）"
     note for INotificationListener "【P2・新設】通知の契約（通知分離構造）"
     note for IApprovalRule "【P3・新設】承認判定の契約（ルール差し替え構造）"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "IWorkflowPhase,DraftPhase,PendingPhase,INotificationListener,EmailNotifier,IApprovalRule,ManagerApprovalRule" focus
+    cssClass "IWorkflowPhase,DraftPhase,PendingPhase,INotificationListener,EmailNotifier,IApprovalRule,ManagerApprovalRule,WorkflowPhaseResolver,NotificationTargetResolver,NotificationDeliveryLog" focus
 ```
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
@@ -1349,7 +1367,7 @@ Phase・Listener・Ruleは組み立て側が生成・注入し、`WorkflowManage
 
 ### 7-1：解決後のコード（全体）
 
-ステップ3で決断した構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて確認します。
+フェーズ6でP1〜P3を同時に満たすものとして確定した、状態分離・通知分離・ルール差し替えの複合構造を実行可能なコードとして組み上げます。各実装ステップは採用済み構造の責任を理解しやすい順に反映したものです。
 
 **0. 承認者マスターデータ（ApproverDatabase）**
 
@@ -1400,13 +1418,10 @@ public:
         records[id] = info;           // 実行中の承認者マスタへ追加
     }
 
-    bool canApprove(const string& id, int amount) const {
-        return records.at(id).approvalLimit >= amount;
-    }
 };
 ```
 
-`ApproverDatabase` は `BatchApplication` が唯一のインスタンスを保持し、`WorkflowManager` を組み立てる前にIDと権限額の検証に使います。
+`ApproverDatabase` は `BatchApplication` が唯一のインスタンスを保持し、承認者IDの存在確認と、ルールを組み立てるための承認者情報の取得に使います。実行時の承認可否は `IApprovalRule` だけが判定します。これにより、Applicationの事前判定とRuleに同じ上限値を持つ二重化を避けます。
 
 承認ログ（`ApprovalLog`）はシステム起動時は空で、承認・却下・差し戻しが行われるたびに1件追記されます。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
 
@@ -1446,19 +1461,18 @@ public:
 | 承認者ID | `APR001` | 田中 課長。承認上限100,000円 | `ApproverDatabase` の存在確認・上限額チェック |
 | 承認者ID | `APR002` | 佐藤 部長。承認上限1,000,000円 | 緊急申請や部長承認の正常ケース |
 | 承認者ID | `APR999` | 登録されていない承認者ID | 未登録IDエラーの確認 |
-| 金額閾値 | `100000` | 課長承認ルールの上限額 | `ManagerApprovalRule` と `ApproverDatabase` の検証 |
-| 金額閾値 | `1000000` | 部長承認ルールの上限額 | `DirectorApprovalRule` と `ApproverDatabase` の検証 |
+| 金額閾値 | 承認者マスターの `approvalLimit` | 現行の役職別承認上限 | 組み立て時に役職別Ruleへ渡す唯一の値 |
+| 金額閾値 | 部署別Ruleへ注入する設定値 | 来期の部署別承認上限 | `DepartmentApprovalRule` のインスタンスごとに保持 |
 | イベント | `SubmitNormal` | 通常申請を提出する操作 | `DraftPhase` が審査待ちへ進める |
 | イベント | `SubmitEmergency` | 緊急申請を提出する操作 | `DraftPhase` が優先審査待ちへ進める |
 | イベント | `Approve` | 現在状態で承認する操作 | `PendingPhase` / `PriorityPendingPhase` が処理する |
 | イベント | `Reject` | 現在状態で却下する操作 | `PendingPhase` が却下へ進める |
 | イベント | `FinalApprove` | 承認済み申請を最終承認する操作 | `ApprovedPhase` が完了へ進める |
-| イベント | `Resubmit` | 却下された申請を再申請する操作 | `RejectedPhase` が審査待ちへ戻す |
 | Phase名 | `DraftPhase` | 作成中の状態 | Repositoryから現在状態として取得され、提出イベントを処理する |
 | Phase名 | `PendingPhase` | 審査待ちの状態 | 課長承認・却下を処理する |
 | Phase名 | `PriorityPendingPhase` | 緊急申請の優先審査待ち状態 | 緊急申請の承認を処理する |
 | Phase名 | `ApprovedPhase` | 承認済みの状態 | 部長の最終承認を処理する |
-| Phase名 | `RejectedPhase` | 却下状態 | 再申請を処理する |
+| Phase名 | `RejectedPhase` | 却下状態 | この章の確定要求では後続遷移を持たない |
 | Phase名 | `CompletedPhase` | 完了状態 | この章の仕様では後続遷移を持たない |
 | 通知チャネル | `email` | メール通知として送る | `EmailNotifier` が処理する |
 | 通知チャネル | `chat` | チャット通知として送る | `ChatNotifier` が処理する |
@@ -1471,6 +1485,7 @@ public:
 class IApprovalRule {
 public:
     virtual bool canApprove(int amount) = 0;
+    virtual string description() const = 0;
     virtual ~IApprovalRule() = default;
 };
 
@@ -1483,6 +1498,14 @@ struct NotificationTarget {
 struct DeliveryResult {
     bool success;
     string channel;
+    string recipientName;
+    string message;
+};
+
+struct WorkflowResult {
+    bool stateChanged;
+    string stateId;
+    string message;
 };
 
 // 通知リスナーの契約（変わる理由：通知手段の追加）
@@ -1501,8 +1524,7 @@ enum class WorkflowEvent {
     SubmitEmergency,
     Approve,
     Reject,
-    FinalApprove,
-    Resubmit
+    FinalApprove
 };
 
 struct ApprovalRequest {
@@ -1512,8 +1534,8 @@ struct ApprovalRequest {
 // 状態遷移の契約（変わる理由：承認フロー変更・新ルート追加）
 class IWorkflowPhase {
 public:
-    virtual string name() const = 0;
-    virtual void handle(
+    virtual string id() const = 0;
+    virtual WorkflowResult handle(
         class WorkflowManager* wm,
         WorkflowEvent event,
         const ApprovalRequest& request
@@ -1526,22 +1548,39 @@ public:
 
 ```cpp
 class WorkflowCaseRepository {
-    map<string, IWorkflowPhase*> currentPhaseByRequestId;
+    map<string, string> states;
 public:
-    void create(const string& requestId, IWorkflowPhase* initialPhase) {
-        currentPhaseByRequestId[requestId] = initialPhase;
+    void create(const string& requestId, const string& initialStateId) {
+        states[requestId] = initialStateId;
     }
 
-    IWorkflowPhase* loadPhase(const string& requestId) const {
-        auto it = currentPhaseByRequestId.find(requestId);
-        if (it == currentPhaseByRequestId.end()) {
+    string getState(const string& requestId) const {
+        auto it = states.find(requestId);
+        if (it == states.end()) {
             throw invalid_argument("申請IDが存在しません: " + requestId);
         }
         return it->second;
     }
 
-    void savePhase(const string& requestId, IWorkflowPhase* phase) {
-        currentPhaseByRequestId[requestId] = phase;
+    void saveState(const string& requestId, const string& stateId) {
+        states[requestId] = stateId;
+    }
+};
+
+// 保存された状態IDを実行用のPhaseへ解決する。Repositoryは具象を知らない。
+class WorkflowPhaseResolver {
+    map<string, IWorkflowPhase*> phases;
+public:
+    void add(IWorkflowPhase* phase) {
+        phases[phase->id()] = phase;
+    }
+
+    IWorkflowPhase* resolve(const string& stateId) const {
+        auto it = phases.find(stateId);
+        if (it == phases.end()) {
+            throw invalid_argument("未登録の状態IDです: " + stateId);
+        }
+        return it->second;
     }
 };
 ```
@@ -1550,21 +1589,42 @@ public:
 
 ```cpp
 class NotificationTargetRepository {
-    map<string, vector<NotificationTarget>> targetsByRequestId;
+    map<string, string> targets;
 public:
-    void setTargets(
-        const string& requestId,
-        const vector<NotificationTarget>& targets
-    ) {
-        targetsByRequestId[requestId] = targets;
+    void saveTarget(const string& requestId, const string& targetData) {
+        targets[requestId] = targetData;
     }
 
-    vector<NotificationTarget> loadTargets(const string& requestId) const {
-        auto it = targetsByRequestId.find(requestId);
-        if (it == targetsByRequestId.end()) {
-            return {};
+    string getTarget(const string& requestId) const {
+        auto it = targets.find(requestId);
+        if (it == targets.end()) {
+            return "";
         }
         return it->second;
+    }
+};
+
+// "宛先:channel|宛先:channel" を実行時の通知対象へ変換する。
+class NotificationTargetResolver {
+public:
+    vector<NotificationTarget> resolve(const string& data) const {
+        vector<NotificationTarget> result;
+        size_t begin = 0;
+        while (begin < data.size()) {
+            size_t end = data.find('|', begin);
+            string item = data.substr(
+                begin, end == string::npos ? string::npos : end - begin);
+            size_t separator = item.find(':');
+            if (separator != string::npos) {
+                result.push_back({
+                    item.substr(0, separator),
+                    item.substr(separator + 1)
+                });
+            }
+            if (end == string::npos) break;
+            begin = end + 1;
+        }
+        return result;
     }
 };
 ```
@@ -1572,19 +1632,28 @@ public:
 **2. 承認判定ルールの具体実装（ルール差し替え構造）**
 
 ```cpp
-// 課長承認ルール：10万円以下を承認可能
+// 役職別ルール：上限値は承認者マスターから組み立て時に受け取る
 class ManagerApprovalRule : public IApprovalRule {
+    int limit;
 public:
+    explicit ManagerApprovalRule(int approvalLimit) : limit(approvalLimit) {}
     bool canApprove(int amount) override {
-        return amount <= 100000;
+        return amount <= limit;
+    }
+    string description() const override {
+        return "課長上限" + to_string(limit) + "円";
     }
 };
 
-// 部長承認ルール：100万円以下を承認可能
 class DirectorApprovalRule : public IApprovalRule {
+    int limit;
 public:
+    explicit DirectorApprovalRule(int approvalLimit) : limit(approvalLimit) {}
     bool canApprove(int amount) override {
-        return amount <= 1000000;
+        return amount <= limit;
+    }
+    string description() const override {
+        return "部長上限" + to_string(limit) + "円";
     }
 };
 
@@ -1599,6 +1668,9 @@ public:
         : department(dept), limit(deptLimit) {}
     bool canApprove(int amount) override {
         return amount <= limit;
+    }
+    string description() const override {
+        return department + "上限" + to_string(limit) + "円";
     }
 };
 ```
@@ -1619,7 +1691,7 @@ public:
         inbox.push_back(msg);
         cout << "[メール送信 " << inbox.size() << "件目] To:"
              << target.recipientName << " / " << msg << endl;
-        return {true, Channel::Email};
+        return {true, Channel::Email, target.recipientName, msg};
     }
 };
 
@@ -1636,12 +1708,37 @@ public:
         string msg
     ) override {
         if (willFail) {
-            return {false, Channel::Chat};
+            return {false, Channel::Chat, target.recipientName, msg};
         }
         inbox.push_back(msg);
         cout << "[チャット通知 " << inbox.size() << "件目] To:"
              << target.recipientName << " / " << msg << endl;
-        return {true, Channel::Chat};
+        return {true, Channel::Chat, target.recipientName, msg};
+    }
+};
+
+class NotificationDeliveryLog {
+    vector<DeliveryResult> records;
+public:
+    void add(const DeliveryResult& result) {
+        records.push_back(result);
+    }
+    int size() const {
+        return static_cast<int>(records.size());
+    }
+    int failureCount() const {
+        return static_cast<int>(count_if(
+            records.begin(), records.end(),
+            [](const DeliveryResult& r) { return !r.success; }));
+    }
+    void printFailures() const {
+        for (const auto& r : records) {
+            if (!r.success) {
+                cout << "[通知失敗記録] To:" << r.recipientName
+                     << " channel=" << r.channel
+                     << " message=" << r.message << endl;
+            }
+        }
     }
 };
 ```
@@ -1658,6 +1755,9 @@ class WorkflowManager {
     // WorkflowManagerより長く生存する
     WorkflowCaseRepository& cases;
     NotificationTargetRepository& notificationTargets;
+    WorkflowPhaseResolver& phaseResolver;
+    NotificationTargetResolver& targetResolver;
+    NotificationDeliveryLog& deliveryLog;
     string requestId;
     IWorkflowPhase* phase = nullptr;  // 非所有
     vector<INotificationListener*> listeners;  // 非所有
@@ -1665,11 +1765,17 @@ public:
     WorkflowManager(
         WorkflowCaseRepository& cases,
         NotificationTargetRepository& notificationTargets,
+        WorkflowPhaseResolver& phaseResolver,
+        NotificationTargetResolver& targetResolver,
+        NotificationDeliveryLog& deliveryLog,
         const string& requestId
     ) : cases(cases),
         notificationTargets(notificationTargets),
+        phaseResolver(phaseResolver),
+        targetResolver(targetResolver),
+        deliveryLog(deliveryLog),
         requestId(requestId) {
-        phase = cases.loadPhase(requestId);
+        phase = phaseResolver.resolve(cases.getState(requestId));
     }
 
     void addListener(INotificationListener* listener) {
@@ -1686,29 +1792,47 @@ public:
             listeners.end());
     }
 
-    void process(WorkflowEvent event, const ApprovalRequest& request = {0}) {
-        if (phase) phase->handle(this, event, request);
+    WorkflowResult process(
+        WorkflowEvent event,
+        const ApprovalRequest& request = {0}
+    ) {
+        if (!phase) {
+            return {false, "", "現在状態がありません。"};
+        }
+        return phase->handle(this, event, request);
     }
 
-    void transitionTo(IWorkflowPhase* next, const string& message) {
+    WorkflowResult transitionTo(
+        IWorkflowPhase* next,
+        const string& message
+    ) {
         if (!next) {
             throw invalid_argument("状態にnullは設定できません。");
         }
         phase = next;
-        cases.savePhase(requestId, phase);
-        cout << "状態: " << phase->name() << endl;
+        cases.saveState(requestId, phase->id());
+        cout << "状態: " << phase->id() << endl;
         notifyAll(message);
+        return {true, phase->id(), message};
+    }
+
+    WorkflowResult unchanged(const string& reason) const {
+        cout << "状態変更なし: " << phase->id()
+             << "（" << reason << "）" << endl;
+        return {false, phase->id(), reason};
     }
 
     void notifyAll(const string& msg) {
         // 通知開始時点の送信手段と通知先データを使う
         auto snapshot = listeners;
-        auto targets = notificationTargets.loadTargets(requestId);
+        auto targets = targetResolver.resolve(
+            notificationTargets.getTarget(requestId));
         for (const auto& target : targets) {
             for (auto* listener : snapshot) {
                 if (listener->supports(target.channel)) {
                     DeliveryResult r =
                         listener->onStatusChanged(target, msg);
+                    deliveryLog.add(r);
                     if (!r.success) {
                         // 状態保存は済んでおり巻き戻さない。
                         // 失敗した通知だけ記録し、他は続行する
@@ -1725,7 +1849,7 @@ public:
 
 この例では、状態グラフ、申請状態Repository、通知先Repository、通知送信スタブを`BatchApplication`の中で組み立てます。利用側は現在状態も通知先も直接指定せず、申請IDを指定して処理を実行します。通知送信スタブを動的に破棄する実運用では、破棄前に`removeListener()`を呼ぶ契約が必要です。所有関係の設計については、チームのコーディング規約に従って判断してください。重複登録と`null`は`addListener()`で拒否し、通知中の登録変更に左右されないよう通知開始時点のスナップショットを使います。
 
-`notifyAll()` は、状態保存（`transitionTo()` 内の `savePhase()`）が済んだ後に呼ばれます。掲載コードでは `onStatusChanged()` が送信可否を `DeliveryResult` で返し、成功時はスタブが `std::cout` で送信内容を表示します。1件の送信が失敗しても、状態保存は巻き戻さず、失敗した通知だけを記録して残りの通知を続けます。実システムではさらに通知を `NotificationQueue` へ積んで後から送りますが、この「通知失敗を状態遷移から切り離す」振る舞いは、通知の責任が `INotificationListener` 側にあるからこそ、`WorkflowManager` の実行骨格へ染み出さずに済みます。キュー化・再送のスケジューリングは基盤側の関心なので、この章のコードには含めません。
+`notifyAll()` は、状態保存（`transitionTo()` 内の `saveState()`）が済んだ後にだけ呼ばれます。状態が変わらない不正操作や承認不可では `unchanged()` が結果を返し、通知しません。掲載コードでは `onStatusChanged()` が送信可否を `DeliveryResult` で返し、全件を `NotificationDeliveryLog` に保存します。1件の送信が失敗しても、状態保存は巻き戻さず、失敗した通知だけを記録して残りの通知を続けます。
 
 **5. 状態クラスの具体実装（状態分離構造 × ルール差し替え構造の組み合わせ）**
 
@@ -1736,17 +1860,19 @@ class DraftPhase : public IWorkflowPhase {
 public:
     DraftPhase(IWorkflowPhase* p, IWorkflowPhase* pp)
         : pending(p), priorityPending(pp) {}
-    string name() const override { return "作成中"; }
-    void handle(
+    string id() const override { return "作成中"; }
+    WorkflowResult handle(
         WorkflowManager* wm,
         WorkflowEvent event,
         const ApprovalRequest&
     ) override {
         if (event == WorkflowEvent::SubmitNormal) {
-            wm->transitionTo(pending, "申請を受け付けました");
+            return wm->transitionTo(pending, "申請を受け付けました");
         } else if (event == WorkflowEvent::SubmitEmergency) {
-            wm->transitionTo(priorityPending, "緊急申請を受け付けました");
+            return wm->transitionTo(
+                priorityPending, "緊急申請を受け付けました");
         }
+        return wm->unchanged("現在状態では実行できない操作です");
     }
 };
 
@@ -1762,29 +1888,31 @@ public:
         IWorkflowPhase* reject
     ) : rule(r), approved(a), rejected(reject) {}
 
-    string name() const override { return "審査待ち"; }
+    string id() const override { return "審査待ち"; }
 
-    void handle(
+    WorkflowResult handle(
         WorkflowManager* wm,
         WorkflowEvent event,
         const ApprovalRequest& request
     ) override {
         if (event == WorkflowEvent::Approve) {
             if (rule->canApprove(request.amount)) {
-                wm->transitionTo(approved, "承認されました");
+                return wm->transitionTo(approved, "承認されました");
             } else {
-                wm->notifyAll("上位承認者への確認が必要です");
+                return wm->unchanged(
+                    "承認不可: " + rule->description());
             }
         } else if (event == WorkflowEvent::Reject) {
-            wm->transitionTo(rejected, "申請が却下されました");
+            return wm->transitionTo(rejected, "申請が却下されました");
         }
+        return wm->unchanged("現在状態では実行できない操作です");
     }
 };
 
 class PriorityPendingPhase : public PendingPhase {
 public:
     using PendingPhase::PendingPhase;
-    string name() const override { return "優先審査待ち"; }
+    string id() const override { return "優先審査待ち"; }
 };
 
 class ApprovedPhase : public IWorkflowPhase {
@@ -1793,47 +1921,46 @@ class ApprovedPhase : public IWorkflowPhase {
 public:
     ApprovedPhase(IApprovalRule* r, IWorkflowPhase* c)
         : rule(r), completed(c) {}
-    string name() const override { return "承認済み"; }
-    void handle(
+    string id() const override { return "承認済み"; }
+    WorkflowResult handle(
         WorkflowManager* wm,
         WorkflowEvent event,
         const ApprovalRequest& request
     ) override {
         if (event == WorkflowEvent::FinalApprove) {
             if (rule->canApprove(request.amount)) {
-                wm->transitionTo(completed, "部長承認が完了しました");
+                return wm->transitionTo(
+                    completed, "部長承認が完了しました");
             } else {
-                wm->notifyAll("部長の承認上限を超えています");
+                return wm->unchanged(
+                    "承認不可: " + rule->description());
             }
         }
+        return wm->unchanged("現在状態では実行できない操作です");
     }
 };
 
 class RejectedPhase : public IWorkflowPhase {
-    IWorkflowPhase* pending = nullptr;
 public:
-    void setPending(IWorkflowPhase* p) { pending = p; }
-    string name() const override { return "却下"; }
-    void handle(
+    string id() const override { return "却下"; }
+    WorkflowResult handle(
         WorkflowManager* wm,
-        WorkflowEvent event,
+        WorkflowEvent,
         const ApprovalRequest&
     ) override {
-        if (event == WorkflowEvent::Resubmit && pending) {
-            wm->transitionTo(pending, "再申請を受け付けました");
-        }
+        return wm->unchanged("却下後の操作は本章の要求範囲外です");
     }
 };
 
 class CompletedPhase : public IWorkflowPhase {
 public:
-    string name() const override { return "完了"; }
-    void handle(
-        WorkflowManager*,
+    string id() const override { return "完了"; }
+    WorkflowResult handle(
+        WorkflowManager* wm,
         WorkflowEvent,
         const ApprovalRequest&
     ) override {
-        // 完了状態からの遷移は、この動作仕様では定義しない
+        return wm->unchanged("完了状態からの遷移はありません");
     }
 };
 ```
@@ -1846,7 +1973,7 @@ public:
 | `PendingPhase` | 審査待ち | 課長承認または却下イベントを受けたとき | 承認済みに進めるか、却下へ進めるか |
 | `PriorityPendingPhase` | 優先審査待ち | 緊急申請の部長承認イベントを受けたとき | 完了へ進めるか、却下へ進めるか |
 | `ApprovedPhase` | 承認済み | 部長の最終承認イベントを受けたとき | 完了へ進めるか |
-| `RejectedPhase` | 却下 | 再申請イベントを受けたとき | 審査待ちへ戻すか |
+| `RejectedPhase` | 却下 | 却下済み申請に操作が来たとき | 状態を変えずエラー結果を返す |
 | `CompletedPhase` | 完了 | 完了済み申請に操作が来たとき | この章の仕様では遷移しない |
 
 **6. 組み立てと実行（BatchApplication と main）**
@@ -1860,22 +1987,17 @@ class BatchApplication {
     ApproverDatabase db;
 
     // 承認者IDを検証し、問題があれば処理を中断する
-    bool validateApprover(
-        const string& id, int amount
-    ) {
+    bool validateApprover(const string& id) {
         if (!db.exists(id)) {
             cout << "エラー：承認者ID " << id
                  << " はデータベースに存在しません。"
                  << endl;
             return false;
         }
-        if (!db.canApprove(id, amount)) {
-            ApproverInfo info = db.get(id);
-            cout << "エラー：" << info.name
-                 << "（" << info.role << "）"
-                 << "の承認上限（"
-                 << info.approvalLimit
-                 << "円）を超えています。" << endl;
+        ApproverInfo info = db.get(id);
+        if (info.name.empty() || info.role.empty()) {
+            cout << "エラー：承認者 " << id
+                 << " の氏名または役職が未設定です。" << endl;
             return false;
         }
         return true;
@@ -1884,8 +2006,10 @@ class BatchApplication {
 public:
     void run() {
         ApprovalLog approvalLog;
-        ManagerApprovalRule managerRule;
-        DirectorApprovalRule directorRule;
+        ManagerApprovalRule managerRule(
+            db.get("APR001").approvalLimit);
+        DirectorApprovalRule directorRule(
+            db.get("APR002").approvalLimit);
         EmailNotifier email;
         ChatNotifier chat;
 
@@ -1897,16 +2021,25 @@ public:
         PriorityPendingPhase priorityPending(
             &directorRule, &completed, &rejected);
         DraftPhase draft(&pending, &priorityPending);
-        rejected.setPending(&pending);
+        WorkflowPhaseResolver phaseResolver;
+        for (IWorkflowPhase* phase : vector<IWorkflowPhase*>{
+                 &draft, &pending, &priorityPending,
+                 &approved, &rejected, &completed}) {
+            phaseResolver.add(phase);
+        }
         WorkflowCaseRepository cases;
         NotificationTargetRepository notificationTargets;
+        NotificationTargetResolver targetResolver;
+        NotificationDeliveryLog deliveryLog;
         // 受入条件 行1：REQ001を作成中として登録し、通常申請を提出
         cout << "--- 行1: 通常申請書提出 ---" << endl;
-        if (validateApprover("APR001", 50000)) {
-            cases.create("REQ001", &draft);
-            notificationTargets.setTargets(
-                "REQ001", {{"課長", Channel::Email}});
-            WorkflowManager wf1(cases, notificationTargets, "REQ001");
+        if (validateApprover("APR001")) {
+            cases.create("REQ001", draft.id());
+            notificationTargets.saveTarget(
+                "REQ001", "課長:email");
+            WorkflowManager wf1(
+                cases, notificationTargets, phaseResolver,
+                targetResolver, deliveryLog, "REQ001");
             wf1.addListener(&email);
             wf1.addListener(&chat);
             wf1.process(WorkflowEvent::SubmitNormal);
@@ -1927,11 +2060,13 @@ public:
 ```cpp
         // 受入条件 行2：REQ002を作成中として登録し、緊急申請を提出
         cout << "--- 行2: 緊急申請書提出 ---" << endl;
-        if (validateApprover("APR002", 500000)) {
-            cases.create("REQ002", &draft);
-            notificationTargets.setTargets(
-                "REQ002", {{"部長", Channel::Chat}});
-            WorkflowManager wf2(cases, notificationTargets, "REQ002");
+        if (validateApprover("APR002")) {
+            cases.create("REQ002", draft.id());
+            notificationTargets.saveTarget(
+                "REQ002", "部長:chat");
+            WorkflowManager wf2(
+                cases, notificationTargets, phaseResolver,
+                targetResolver, deliveryLog, "REQ002");
             wf2.addListener(&email);
             wf2.addListener(&chat);
             wf2.process(WorkflowEvent::SubmitEmergency);
@@ -1952,11 +2087,13 @@ public:
 ```cpp
         // 受入条件 行3：REQ003は審査待ちとして保存済み
         cout << "--- 行3: 審査待ち→課長承認操作 ---" << endl;
-        if (validateApprover("APR001", 50000)) {
-            cases.create("REQ003", &pending);
-            notificationTargets.setTargets(
-                "REQ003", {{"申請者", Channel::Email}, {"部長", Channel::Chat}});
-            WorkflowManager wf3(cases, notificationTargets, "REQ003");
+        if (validateApprover("APR001")) {
+            cases.create("REQ003", pending.id());
+            notificationTargets.saveTarget(
+                "REQ003", "申請者:email|部長:chat");
+            WorkflowManager wf3(
+                cases, notificationTargets, phaseResolver,
+                targetResolver, deliveryLog, "REQ003");
             wf3.addListener(&email);
             wf3.addListener(&chat);
             wf3.process(WorkflowEvent::Approve, {50000});
@@ -1978,13 +2115,13 @@ public:
 ```cpp
         // 受入条件 行4：REQ004は優先審査待ちとして保存済み
         cout << "--- 行4: 優先審査待ち→部長承認操作 ---" << endl;
-        if (validateApprover("APR002", 500000)) {
-            cases.create("REQ004", &priorityPending);
-            notificationTargets.setTargets(
-                "REQ004",
-                {{"申請者", Channel::Email}, {"部長", Channel::Chat},
-                 {"決済部門", Channel::Email}});
-            WorkflowManager wf4(cases, notificationTargets, "REQ004");
+        if (validateApprover("APR002")) {
+            cases.create("REQ004", priorityPending.id());
+            notificationTargets.saveTarget(
+                "REQ004", "申請者:email|部長:chat|決済部門:email");
+            WorkflowManager wf4(
+                cases, notificationTargets, phaseResolver,
+                targetResolver, deliveryLog, "REQ004");
             wf4.addListener(&email);
             wf4.addListener(&chat);
             wf4.process(WorkflowEvent::Approve, {500000});
@@ -2007,11 +2144,13 @@ public:
 ```cpp
         // 受入条件 行5：REQ005は審査待ちとして保存済み
         cout << "--- 行5: 審査待ち→却下操作 ---" << endl;
-        if (validateApprover("APR001", 50000)) {
-            cases.create("REQ005", &pending);
-            notificationTargets.setTargets(
-                "REQ005", {{"申請者", Channel::Email}});
-            WorkflowManager wf5(cases, notificationTargets, "REQ005");
+        if (validateApprover("APR001")) {
+            cases.create("REQ005", pending.id());
+            notificationTargets.saveTarget(
+                "REQ005", "申請者:email");
+            WorkflowManager wf5(
+                cases, notificationTargets, phaseResolver,
+                targetResolver, deliveryLog, "REQ005");
             wf5.addListener(&email);
             wf5.addListener(&chat);
             wf5.process(WorkflowEvent::Reject);
@@ -2032,13 +2171,14 @@ public:
 ```cpp
         // 受入条件 行6：REQ006は承認済みとして保存済み
         cout << "--- 行6: 承認済み→部長承認操作 ---" << endl;
-        if (validateApprover("APR002", 500000)) {
-            cases.create("REQ006", &approved);
-            notificationTargets.setTargets(
+        if (validateApprover("APR002")) {
+            cases.create("REQ006", approved.id());
+            notificationTargets.saveTarget(
                 "REQ006",
-                {{"申請者", Channel::Email}, {"課長", Channel::Email},
-                 {"部長", Channel::Chat}, {"決済部門", Channel::Email}});
-            WorkflowManager wf6(cases, notificationTargets, "REQ006");
+                "申請者:email|課長:email|部長:chat|決済部門:email");
+            WorkflowManager wf6(
+                cases, notificationTargets, phaseResolver,
+                targetResolver, deliveryLog, "REQ006");
             wf6.addListener(&email);
             wf6.addListener(&chat);
             wf6.process(WorkflowEvent::FinalApprove, {500000});
@@ -2057,94 +2197,117 @@ public:
 [メール送信 8件目] To:決済部門 / 部長承認が完了しました
 ```
 
-行7は、却下からの再申請です。
+行7は、通知失敗でも状態保存と他通知は継続です。
 
 ```cpp
-        // 受入条件 行7：REQ007は却下として保存済み
-        cout << "--- 行7: 却下→再申請操作 ---" << endl;
-        cases.create("REQ007", &rejected);
-        notificationTargets.setTargets(
-            "REQ007", {{"課長", Channel::Email}});
-        WorkflowManager wf7(cases, notificationTargets, "REQ007");
+        // 行7: チャット通知が失敗しても状態保存は保たれ、他は続く
+        cout << "--- 行7: 通知失敗と状態保持 ---" << endl;
+        cases.create("REQ007", draft.id());
+        notificationTargets.saveTarget(
+            "REQ007", "申請者:email|課長:chat");
+        WorkflowManager wf7(
+            cases, notificationTargets, phaseResolver,
+            targetResolver, deliveryLog, "REQ007");
+        ChatNotifier chatDown(true);   // チャット基盤が不調
         wf7.addListener(&email);
-        wf7.addListener(&chat);
-        wf7.process(WorkflowEvent::Resubmit);
-        approvalLog.add("APR001", "田中 課長", 0, "差し戻し");
+        wf7.addListener(&chatDown);
+        WorkflowResult row7 =
+            wf7.process(WorkflowEvent::SubmitNormal);
+        cout << "[処理結果] changed=" << row7.stateChanged
+             << ", state=" << row7.stateId
+             << ", message=" << row7.message << endl;
 ```
 
 行7の実行結果：
 
 ```text
---- 行7: 却下→再申請操作 ---
+--- 行7: 通知失敗と状態保持 ---
 状態: 審査待ち
-[メール送信 9件目] To:課長 / 再申請を受け付けました
+[メール送信 9件目] To:申請者 / 申請を受け付けました
+[通知失敗] channel=chat（状態は保持、他の通知は継続）
+[処理結果] changed=1, state=審査待ち, message=申請を受け付けました
 ```
 
-行8は、通知失敗でも状態保存と他通知は継続です。
+行8は、来期の「部署ごとに承認上限を差し替える」制度を、判定ルール（P3）の差し替えだけで確認します。同じ50万円に対し、開発部（上限30万円）は不承認、営業部（上限80万円）は承認となるため、部署設定が実際の結果へ使われたことをコードと出力で照合できます。
 
 ```cpp
-        // 行8: チャット通知が失敗しても状態保存は保たれ、他は続く
-        cout << "--- 行8: 通知失敗と状態保持 ---" << endl;
-        cases.create("REQ008", &draft);
-        notificationTargets.setTargets(
-            "REQ008", {{"申請者", Channel::Email}, {"課長", Channel::Chat}});
-        WorkflowManager wf8(cases, notificationTargets, "REQ008");
-        ChatNotifier chatDown(true);   // チャット基盤が不調
-        wf8.addListener(&email);
-        wf8.addListener(&chatDown);
-        wf8.process(WorkflowEvent::SubmitNormal);
+        cout << "--- 行8: 部署別上限ルールの差 ---" << endl;
+        DepartmentApprovalRule devRule("開発部", 300000);
+        DepartmentApprovalRule salesRule("営業部", 800000);
+        PendingPhase devPending(&devRule, &approved, &rejected);
+        PendingPhase salesPending(&salesRule, &approved, &rejected);
+        phaseResolver.add(&devPending);
+
+        if (validateApprover("APR002")) {
+            cases.create("REQ008", devPending.id());
+            notificationTargets.saveTarget(
+                "REQ008", "申請者:email");
+            WorkflowManager devWorkflow(
+                cases, notificationTargets, phaseResolver,
+                targetResolver, deliveryLog, "REQ008");
+            devWorkflow.addListener(&email);
+            WorkflowResult devResult =
+                devWorkflow.process(WorkflowEvent::Approve, {500000});
+            cout << "[開発部] changed=" << devResult.stateChanged
+                 << ", state=" << devResult.stateId
+                 << ", message=" << devResult.message << endl;
+
+            // 同じ状態IDの実行戦略を営業部用Ruleへ差し替える
+            phaseResolver.add(&salesPending);
+            cases.create("REQ009", salesPending.id());
+            notificationTargets.saveTarget(
+                "REQ009", "申請者:email");
+            WorkflowManager salesWorkflow(
+                cases, notificationTargets, phaseResolver,
+                targetResolver, deliveryLog, "REQ009");
+            salesWorkflow.addListener(&email);
+            WorkflowResult salesResult =
+                salesWorkflow.process(WorkflowEvent::Approve, {500000});
+            cout << "[営業部] changed=" << salesResult.stateChanged
+                 << ", state=" << salesResult.stateId
+                 << ", message=" << salesResult.message << endl;
+            approvalLog.add(
+                "APR002", "佐藤 部長", 500000, "部署別判定を確認");
+        }
 ```
 
 行8の実行結果：
 
 ```text
---- 行8: 通知失敗と状態保持 ---
-状態: 審査待ち
-[メール送信 10件目] To:申請者 / 申請を受け付けました
-[通知失敗] channel=chat（状態は保持、他の通知は継続）
+--- 行8: 部署別上限ルールの差 ---
+状態変更なし: 審査待ち（承認不可: 開発部上限300000円）
+[開発部] changed=0, state=審査待ち, message=承認不可: 開発部上限300000円
+状態: 承認済み
+[メール送信 10件目] To:申請者 / 承認されました
+[営業部] changed=1, state=承認済み, message=承認されました
 ```
 
-行9は、来期の「部署ごとに承認上限を差し替える」制度を、判定ルール（P3）の差し替えだけで先取りする例です。承認者本人（APR002）は権限額を満たしていても、差し替えた部署別ルール（開発部・上限30万）が申請額を超過と判断すれば、承認へ進めません。状態遷移・通知の骨格はそのまま、判定ルール1クラスを差し替えるだけで制度が変わることを示します。
+開発部では状態も通知回数も変わらず、営業部では同じ操作が承認済みへ進みます。承認不可を通知イベントとして扱わず、`WorkflowResult` で呼び出し元へ返すため、「状態が変わったときだけ通知する」という契約も崩れません。
 
-```cpp
-        // 行9: 部署別承認上限を判定ルール(P3)の差し替えで先取りする。
-        //      開発部の上限は30万円。50万円は部署上限を超えるため、
-        //      承認者の権限内でも承認済みへ進めない。
-        cout << "--- 行9: 部署別上限ルールへ差し替え"
-             << "（開発部・上限30万） ---" << endl;
-        DepartmentApprovalRule devRule("開発部", 300000);
-        PendingPhase deptPending(&devRule, &approved, &rejected);
-        if (validateApprover("APR002", 500000)) {
-            cases.create("REQ009", &deptPending);
-            notificationTargets.setTargets(
-                "REQ009", {{"申請者", Channel::Email}});
-            WorkflowManager wf9(cases, notificationTargets, "REQ009");
-            wf9.addListener(&email);
-            wf9.addListener(&chat);
-            wf9.process(WorkflowEvent::Approve, {500000});
-            approvalLog.add("APR002", "佐藤 部長", 500000, "部署上限超過");
-        }
-```
-
-行9の実行結果：
-
-```text
---- 行9: 部署別上限ルールへ差し替え（開発部・上限30万） ---
-[メール送信 11件目] To:申請者 / 上位承認者への確認が必要です
-```
-
-差し替えた `DepartmentApprovalRule`（開発部・上限30万）が50万円を上限超過と判断したため、`PendingPhase` は承認済みへ遷移せず、審査待ちのまま「上位承認者への確認が必要」と通知します。判定ルール1クラスを差し替えただけで、状態遷移・通知の骨格には手を入れていません。
-
-エラー例は、存在しない承認者IDと、承認上限の超過です。どちらも検証で処理を中断します。
+エラー例は、存在しない承認者IDと、承認不可です。IDの存在確認はApplication、金額による承認可否は注入済みRuleが一度だけ判定します。
 
 ```cpp
         // エラーケース：存在しないID
         cout << "--- エラー例1: 不正な承認者ID ---" << endl;
-        validateApprover("APR999", 50000);
+        validateApprover("APR999");
 
-        // エラーケース：上限超過（APR001の上限は10万円）
+        // エラーケース：課長Ruleの上限超過。状態も通知も変えない
         cout << "--- エラー例2: 承認上限超過 ---" << endl;
-        validateApprover("APR001", 200000);
+        cases.create("REQ010", pending.id());
+        notificationTargets.saveTarget("REQ010", "申請者:email");
+        phaseResolver.add(&pending);
+        WorkflowManager invalidApproval(
+            cases, notificationTargets, phaseResolver,
+            targetResolver, deliveryLog, "REQ010");
+        invalidApproval.addListener(&email);
+        WorkflowResult invalidResult =
+            invalidApproval.process(WorkflowEvent::Approve, {200000});
+        cout << "[処理結果] changed=" << invalidResult.stateChanged
+             << ", state=" << invalidResult.stateId
+             << ", message=" << invalidResult.message << endl;
+        cout << "[通知記録] total=" << deliveryLog.size()
+             << ", failed=" << deliveryLog.failureCount() << endl;
+        deliveryLog.printFailures();
 ```
 
 エラー例の実行結果：
@@ -2153,13 +2316,17 @@ public:
 --- エラー例1: 不正な承認者ID ---
 エラー：承認者ID APR999 はデータベースに存在しません。
 --- エラー例2: 承認上限超過 ---
-エラー：田中 課長（manager）の承認上限（100000円）を超えています。
+状態変更なし: 審査待ち（承認不可: 課長上限100000円）
+[処理結果] changed=0, state=審査待ち, message=承認不可: 課長上限100000円
+[通知記録] total=15, failed=1
+[通知失敗記録] To:課長 channel=chat message=申請を受け付けました
 ```
 
 最後に承認ログを出力し、`main()` から実行します。
 
 ```cpp
-        cout << "\n--- 承認ログ ---\n";
+        cout << "\n--- 承認ログ（" << approvalLog.size()
+             << "件） ---\n";
         approvalLog.printAll();
     }
 };
@@ -2174,19 +2341,18 @@ int main() {
 承認ログの実行結果：
 
 ```text
---- 承認ログ ---
+--- 承認ログ（7件） ---
 [APR001] 田中 課長 50000円 -> 承認
 [APR002] 佐藤 部長 500000円 -> 承認
 [APR001] 田中 課長 50000円 -> 承認
 [APR002] 佐藤 部長 500000円 -> 承認
 [APR001] 田中 課長 50000円 -> 却下
 [APR002] 佐藤 部長 500000円 -> 承認
-[APR001] 田中 課長 0円 -> 差し戻し
-[APR002] 佐藤 部長 500000円 -> 部署上限超過
+[APR002] 佐藤 部長 500000円 -> 部署別判定を確認
 ```
 
-変更後の受入条件7行と同じ順序で、通常申請は課長承認を経由し、緊急申請は課長を飛ばして部長承認で完了することを確認できます。`ManagerApprovalRule`と`DirectorApprovalRule`は、それぞれ対応する審査状態へ注入されています。行9では、来期の部署別上限制度を `DepartmentApprovalRule` の差し替えだけで先取りし、状態遷移・通知の骨格を変えずに承認判定（P3）を入れ替えられることを確認できます。エラーケースでは、`ApproverDatabase` による承認者IDの存在確認と権限額の検証が機能し、処理を中断していることも確認できます。
-`WorkflowManager` は申請IDから現在の `IWorkflowPhase` と通知先データを読み込みます。状態実装は許可するイベントを処理し、`transitionTo()` を通じてRepository上の現在状態を更新します。その後、保存済みの通知先データを読み出し、`email` や `chat` に対応する通知スタブが送信します。
+変更後の受入条件6行と同じ順序で、通常申請は課長承認を経由し、緊急申請は課長を飛ばして部長承認で完了することを確認できます。`ManagerApprovalRule`と`DirectorApprovalRule`の上限は承認者マスターから一度だけ組み立て時に渡されます。行8では、開発部と営業部へ異なる `DepartmentApprovalRule` を注入し、同額の申請で結果が変わることを確認できます。エラーケースでは、未登録IDは処理前に中断し、承認不可は状態・通知を変えず `WorkflowResult` を返します。
+`WorkflowManager` はRepositoryから状態ID文字列と通知先データ文字列を読み、Resolverで実行用オブジェクトへ変換します。Repositoryの保存表現は変更前と同じです。状態実装は許可するイベントを処理し、`transitionTo()` を通じてRepository上の状態IDを更新します。通知結果は成功・失敗とも `NotificationDeliveryLog` に残ります。
 
 
 #### 解決後のクラス構成
@@ -2206,7 +2372,13 @@ classDiagram
     class ApprovalLog
     class BatchApplication
     class WorkflowEvent
+    class WorkflowResult
+    class NotificationTarget
+    class DeliveryResult
     class WorkflowManager
+    class WorkflowPhaseResolver
+    class NotificationTargetResolver
+    class NotificationDeliveryLog
     class IWorkflowPhase { <<interface>> }
     class PendingPhase
     class PriorityPendingPhase
@@ -2220,6 +2392,13 @@ classDiagram
     PendingPhase --> IApprovalRule
     IApprovalRule <|.. ManagerApprovalRule
     WorkflowManager --> INotificationListener
+    WorkflowManager --> WorkflowPhaseResolver
+    WorkflowManager --> NotificationTargetResolver
+    WorkflowManager --> NotificationDeliveryLog
+    WorkflowPhaseResolver o--> IWorkflowPhase : 状態IDから解決
+    NotificationTargetResolver ..> NotificationTarget : 文字列から解決
+    INotificationListener ..> DeliveryResult : 返す
+    NotificationDeliveryLog *-- DeliveryResult : 全結果を保存
     INotificationListener <|.. EmailNotifier
     IWorkflowPhase <|.. DraftPhase
     IWorkflowPhase <|.. ApprovedPhase
@@ -2227,19 +2406,19 @@ classDiagram
     IWorkflowPhase <|.. CompletedPhase
     IApprovalRule <|.. DirectorApprovalRule
     IApprovalRule <|.. DepartmentApprovalRule
-    WorkflowManager --> ApproverDatabase
     WorkflowManager --> WorkflowCaseRepository
     WorkflowManager --> NotificationTargetRepository
     INotificationListener <|.. ChatNotifier
-    WorkflowManager --> ApprovalLog
     BatchApplication --> WorkflowManager
+    BatchApplication --> ApproverDatabase
+    BatchApplication --> ApprovalLog
 
     note for IWorkflowPhase "【P1・新設】状態遷移の契約（状態分離構造）"
     note for INotificationListener "【P2・新設】通知の契約（通知分離構造）"
     note for IApprovalRule "【P3・新設】承認判定の契約（ルール差し替え構造）"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "IWorkflowPhase,DraftPhase,PendingPhase,INotificationListener,EmailNotifier,IApprovalRule,ManagerApprovalRule" focus
+    cssClass "IWorkflowPhase,DraftPhase,PendingPhase,INotificationListener,EmailNotifier,IApprovalRule,ManagerApprovalRule,WorkflowPhaseResolver,NotificationTargetResolver,NotificationDeliveryLog" focus
 ```
 
 完成後はStateが状態遷移、Strategyが承認判定、Observerが通知を担当します。状態保存と通知先取得はRepository境界に残り、パターンの役割へ混ぜません。
@@ -2252,9 +2431,25 @@ classDiagram
 | P2 | 全Listener実装、登録、通知結果ログ | 保存成功後に一律通知し、1件失敗でも他通知を継続した | 通知先追加を実装と登録だけで行う |
 | P3 | 全 `IApprovalRule` 実装と処理先頭の判定 | 不許可では状態・通知を変えず、理由をログへ残した | 部署別上限変更で状態・通知を変更しない |
 
+#### 要求→課題→構造→コード→結果の追跡
+
+| 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
+|---|---|---|---|
+| R1：通常二段階・緊急短縮ルート／P1 | 遷移条件をPhaseへ、状態ID解決をResolverへ分離。コード：全Phase、`WorkflowManager`、`WorkflowPhaseResolver` | 通常は承認済み経由、緊急は優先審査から完了 | 新Phase、遷移接続、Resolver登録 |
+| R2：状態別の複数通知／P2 | 送信手段をListenerへ分離し結果を保存。コード：全Listener、`NotificationDeliveryLog` | 状態保存後だけ通知し、1件失敗も全件記録 | 新Listener、通知先データ |
+| R3：部署別承認上限／P3 | 承認可否を注入Ruleへ一本化。コード：全 `IApprovalRule`、各PendingPhase | 同額で開発部は不承認、営業部は承認 | 部署別Rule設定 |
+
+#### 変更前→変更後の不変条件照合
+
+| 変更対象外 | 変更前 | 変更後 | 確認根拠 |
+|---|---|---|---|
+| 申請状態の保存表現 | 申請ID→状態文字列 | 同じ状態ID文字列を保存 | `getState()`／`saveState()` と実行結果 |
+| 通知先の保存表現 | 申請ID→通知先データ文字列 | 同じ文字列をRepositoryが保持 | `getTarget()` とResolverの分離 |
+| 承認者マスター | ID・氏名・役職・上限を保存 | 同じ情報を取得し、Rule組み立てに利用 | 未登録IDと上限判定ケース |
+
 ### 7-2：動作シーケンス図
 
-ステップ3で到達した3構造複合設計の実行時のオブジェクト間のやり取りを可視化します。`BatchApplication` が依存関係を注入し、`WorkflowManager` が具象クラスを知らずに抽象インターフェース経由で処理を委譲する流れが確認できます。
+フェーズ6で確定した3構造複合設計の実行時のやり取りを可視化します。`BatchApplication` が依存関係を注入し、`WorkflowManager` が具象クラスを知らずに抽象インターフェース経由で処理を委譲する流れが確認できます。
 
 ```mermaid
 sequenceDiagram
@@ -2269,11 +2464,11 @@ sequenceDiagram
 
     B->>R: 生成（ManagerApprovalRule）
     B->>P: 生成（rule と遷移先を注入）
-    B->>C: create("REQ003", pending)
-    B->>N: setTargets("REQ003", 申請者/部長)
-    B->>WM: new WorkflowManager(cases, notificationTargets, "REQ003")
-    WM->>C: loadPhase("REQ003")
-    C-->>WM: PendingPhase
+    B->>C: create("REQ003", "審査待ち")
+    B->>N: saveTarget("REQ003", 通知先データ)
+    B->>WM: Resolver群とLogを注入して生成
+    WM->>C: getState("REQ003")
+    C-->>WM: "審査待ち"
     B->>WM: addListener（メール送信・チャット送信）
     B->>WM: process(Approve, {50000})
     activate WM
@@ -2284,10 +2479,10 @@ sequenceDiagram
     R-->>P: true（承認可能）
     deactivate R
     P->>WM: transitionTo(approved, "承認されました")
-    WM->>C: savePhase("REQ003", approved)
+    WM->>C: saveState("REQ003", "承認済み")
     WM->>A: 次回の現在状態になる
-    WM->>N: loadTargets("REQ003")
-    N-->>WM: 申請者(email), 部長(chat)
+    WM->>N: getTarget("REQ003")
+    N-->>WM: "申請者:email|部長:chat"
     WM->>L: onStatusChanged（通知先データに従って送信）
     deactivate P
     deactivate WM
@@ -2353,7 +2548,7 @@ graph LR
 | 🟣 フェーズ3：問題特定 | 緊急ルート追加を試み、影響が全体に波及する「通知の二重送信バグ」が発生することを確認した |
 | 🟠 フェーズ4：原因分析 | 変わる理由が異なる3つのもの（状態遷移・通知・判定）が同じ場所にいることが痛みの根本と特定した |
 | 🟡 フェーズ5：課題定義 | 3つの変化軸を独立して差し替え可能な部品として分離することを課題として定義した |
-| 🔴 フェーズ6：対策検討 | 状態→通知→判定の3ステップで各構造の限界を確認し、3構造統合（状態分離構造 + 通知分離構造 + ルール差し替え構造）まで進化させる決断を下した |
+| 🔴 フェーズ6：対策検討 | P1〜P3を同時に満たす3構造統合（状態分離構造＋通知分離構造＋ルール差し替え構造）を先に確定し、責任単位で3段階に分けてコードへ反映した |
 | 🟢 フェーズ7：対策実施 | 最終コードを実装し、変更影響グラフで変更の局所化を確認した |
 
 ### 使った構造 × 解消した根本原因
@@ -2396,7 +2591,7 @@ graph LR
 | --- | --- |
 | 1. 変動箇所の識別 | フェーズ2の業務機能の所在表と変わる理由の分析で、変更理由の種類（状態・通知・判定）を識別した |
 | 2. 接続点の診断 | フェーズ4で、状態・通知・判定の知識が同じクラスへ集まる3つの原因を特定した |
-| 3. 複合設計の説明 | フェーズ6の段階的進化で、3構造が自然に選ばれる過程を示した |
+| 3. 複合設計の説明 | フェーズ5で三軸を先に確定し、フェーズ6で全P-IDを満たす責任配置を一度に決めた根拠を示した |
 | 4. 変更影響の局所化 | フェーズ7の変更シナリオ表で、変更の中心が新しい実装クラスへ移る構造を示した |
 
 ### 3つの設計原則はどう適用されたか
@@ -2438,7 +2633,7 @@ graph LR
 3. 最近入った変更要求、または次に来そうな変更要求は何か。
 4. その変更で、触りたくない場所まで修正や再テストが広がるか。
 5. 変えたいものと守りたいものを分けると、接続点には何を残すべきか。
-6. 何もしない、関数化、クラス分離、契約導入、登録/組み立て移動のうち、どこまで進めるのが今回の文脈に合うか。
+6. 全課題を満たす完成構造が複数成立するか。成立するなら、責任配置・変更影響・導入コストの差は何か。
 
 ## パターン解説：複合適用
 
@@ -2452,7 +2647,8 @@ classDiagram
     class Listener { <<通知>> }
     class Rule { <<判定ルール>> }
     Phase ..> Rule : 承認可否を確認する
-    Phase --> Listener : 状態変更を通知する
+    Phase --> Context : 遷移を依頼する
+    Context --> Listener : 保存後に通知する
 ```
 
 状態管理の仕組みが「今の状態での振る舞い」を整理し、判定ルールの仕組みが「承認の可否」を判定し、通知の仕組みが「変更の伝搬」を担うことで、複雑なワークフローを整理しています。

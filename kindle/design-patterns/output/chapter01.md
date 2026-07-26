@@ -2113,6 +2113,20 @@ classDiagram
 
 2行は別々の採用結果ではなく、一つの完成システムを2つの変化軸から追跡した結果です。両方が同時に成立し、フェーズ5で定めた変わる側と守る側の境界を維持しています。
 
+#### 要求→課題→構造→コード→結果の追跡
+
+| 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
+|---|---|---|---|
+| R1：サマーセール条件追加／P1 | 条件分岐をルール群と選択器へ分離。コード：`SummerSaleDiscount::matches()`、`RuleSelector` への登録 | 対象注文だけサマーセールが選択された | 新条件クラスと組み立て時の登録 |
+| R2：割引の逐次適用／P2 | 計算式を各Ruleへ移し、計算器は契約だけを実行。コード：各 `apply()`、`PaymentCalculator::calculate()` | 複数割引が優先度順に反映された | 対象Ruleの式・優先度 |
+
+#### 変更前→変更後の不変条件照合
+
+| 変更対象外 | 変更前 | 変更後 | 確認根拠 |
+|---|---|---|---|
+| 顧客・注文の取得 | `CustomerDatabase` から取得 | 同じID・同じ取得契約 | 現状コードと完成コードのDB呼び出し |
+| 結果表示 | `CheckoutResultRenderer` へ渡す | 同じ結果境界へ渡す | 7-1の正常・エラー出力 |
+
 ### 7-2：動作シーケンス図
 
 フェーズ6で採用したルール差し替え構造について、実行時のオブジェクト間のやり取りを可視化します。`main()` がルールを登録し、`RuleSelector` が共通契約で選び、`PaymentCalculator` が具象クラスを知らずに処理を委譲する流れを確認できます。
@@ -2152,14 +2166,14 @@ sequenceDiagram
 graph LR
     T1["変更要求：サマーセール追加"]
         -->|新規追加| F1["SummerSaleDiscount<br>（matchesとapply）"]
-    T1 -->|登録を追加| F2["main / Composition Root<br>（優先順位）"]
+    T1 -->|所有・登録を追加| F2["main / Composition Root<br>（登録順は自由）"]
     T1 -->|入力項目を追加| F3["CampaignContext<br>（isSummerSale）"]
     F1 -.->|追加ルールの動作確認| T2["SummerSaleDiscountのテスト"]
     F2 -.->|選択結果の確認| T3["RuleSelectorの選択テスト"]
     F3 -.->|入力の受け渡し確認| T3
 ```
 
-フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、`PaymentCalculator` と `CartPreviewService` は変更先から消えました。さらに、条件を各ルールの `matches()` へ分けたため、`RuleSelector` の固定ループも変更しません。新しい判定材料が必要な場合の `CampaignContext`、新しいルール、登録順だけが影響範囲として残ります。
+フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、`PaymentCalculator` と `CartPreviewService` は変更先から消えました。さらに、条件を各ルールの `matches()` へ分けたため、`RuleSelector` の固定ループも変更しません。影響範囲として残るのは、新しい判定材料が必要な場合の`CampaignContext`、新しいルールクラス内の`matches()`・`apply()`・`priority()`、その所有・登録だけです。登録順は変更対象ではありません。
 
 | 3-2で影響した場所 | 修正後 | 構造変更との対応 |
 |---|---|---|

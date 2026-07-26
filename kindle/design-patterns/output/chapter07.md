@@ -424,7 +424,7 @@ public:
         }
         ProductInfo info = db.get(productId);
         if (quantity <= 0 || quantity > info.stock) {
-            cout << "[エラー] 商品 " << productId
+            cout << "[エラー] 商品 " << productId << "（" << info.name << "）"
                  << " は " << quantity << " 個出庫できません。現在在庫: "
                  << info.stock << endl;
             return;
@@ -433,12 +433,12 @@ public:
         int before = info.stock;
         info.stock -= quantity;
         db.save(productId, info);
-        cout << "商品 " << productId
+        cout << "商品 " << productId << "（" << info.name << "）"
              << " の在庫を " << quantity << " 減らしました。在庫: "
              << before << " -> " << info.stock << endl;
 
         if (db.isBelowThreshold(productId, info.stock)) {
-            string message = "商品 " + productId
+            string message = "商品 " + productId + "（" + info.name + "）"
                            + " の在庫が閾値以下です。";
             notifyAll(message);
         }
@@ -455,7 +455,7 @@ public:
         int before = info.stock;
         info.stock += quantity;
         db.save(productId, info);
-        cout << "商品 " << productId
+        cout << "商品 " << productId << "（" << info.name << "）"
              << " の在庫を " << quantity << " 補充しました。在庫: "
              << before << " -> " << info.stock << endl;
     }
@@ -508,19 +508,19 @@ int main() {
 
 ```text
 --- 行1: PRD001を5減らす ---
-商品 PRD001 の在庫を 5 減らしました。在庫: 50 -> 45
+商品 PRD001（ワイヤレスマウス） の在庫を 5 減らしました。在庫: 50 -> 45
 
 --- 行2: PRD002を1減らす ---
-商品 PRD002 の在庫を 1 減らしました。在庫: 3 -> 2
-Email(1件): 商品 PRD002 の在庫が閾値以下です。
-Dashboard(1件): 商品 PRD002 の在庫が閾値以下です。
-Chat(1件): 商品 PRD002 の在庫が閾値以下です。
+商品 PRD002（USBハブ） の在庫を 1 減らしました。在庫: 3 -> 2
+Email(1件): 商品 PRD002（USBハブ） の在庫が閾値以下です。
+Dashboard(1件): 商品 PRD002（USBハブ） の在庫が閾値以下です。
+Chat(1件): 商品 PRD002（USBハブ） の在庫が閾値以下です。
 
 --- 行3: PRD001を20補充する ---
-商品 PRD001 の在庫を 20 補充しました。在庫: 45 -> 65
+商品 PRD001（ワイヤレスマウス） の在庫を 20 補充しました。在庫: 45 -> 65
 
 --- 行4: PRD003を1減らす ---
-[エラー] 商品 PRD003 は 1 個出庫できません。現在在庫: 0
+[エラー] 商品 PRD003（キーボード） は 1 個出庫できません。現在在庫: 0
 
 --- 行5: 存在しない商品IDを操作する ---
 [エラー] 商品ID PRD999 はマスタに存在しません。処理を中断します。
@@ -1763,6 +1763,19 @@ classDiagram
 |---|---|---|---|
 | P1 | 全 `INotification` 実装、`InventoryManager::attach/notifyAll()`、`StockAlert`、DB・ログ注入 | 在庫更新とログ記録の後、手段別の文面で一律配布し、成功・保留・失敗を集約して他通知を継続した | 通知手段追加で `InventoryManager` のメンバ・分岐・ループを増やさない |
 
+#### 要求→課題→構造→コード→結果の追跡
+
+| 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
+|---|---|---|---|
+| R1：通知手段追加と一部失敗の継続／P1 | 通知処理をObserver契約と登録リストへ分離。コード：全 `INotification`、`attach()`、`notifyAll()` | Email・Dashboard・Chat・SMSの成否を集約し、一部失敗後も継続 | 新Notifierと組み立て時の登録 |
+
+#### 変更前→変更後の不変条件照合
+
+| 変更対象外 | 変更前 | 変更後 | 確認根拠 |
+|---|---|---|---|
+| 商品・在庫の正本 | `ProductDatabase` の在庫を更新 | 同じ商品ID・商品名・数量を更新 | 在庫50→45などの数値ログ |
+| 在庫イベントログ | 更新結果を記録 | 通知の成否と独立して記録 | 通知失敗ケース後のログ |
+
 ### 7-2：動作シーケンス図
 
 ステップ3で到達した通知分離構造の実行時のやり取りを確認します。組み立て側が依存を注入・登録し、`InventoryManager` が在庫更新後の `StockAlert` を、具象クラスを知らずに配る流れです。
@@ -1949,7 +1962,7 @@ graph LR
 3. 最近入った変更要求、または次に来そうな変更要求は何か。
 4. その変更で、触りたくない場所まで修正や再テストが広がるか。
 5. 変えたいものと守りたいものを分けると、接続点には何を残すべきか。
-6. 何もしない、関数化、クラス分離、契約導入、登録/組み立て移動のうち、どこまで進めるのが今回の文脈に合うか。
+6. 全課題を満たす完成構造が複数成立するか。成立するなら、責任配置・変更影響・導入コストの差は何か。
 
 ## パターン解説：Observer パターン
 

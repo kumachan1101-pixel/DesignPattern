@@ -1355,6 +1355,7 @@ classDiagram
     class DataReader
     class IReportAction { <<interface>> }
     class GenerateReportAction
+    class ReportActionInvoker
     ReportSkeleton <|-- StandardReport
     ReportSkeleton <|-- MonthlyReport
     ReportSkeleton <|-- ReportFeature
@@ -1363,6 +1364,7 @@ classDiagram
     ReportFeature <|-- WatermarkFeature
     IReportAction <|.. GenerateReportAction
     GenerateReportAction *-- ReportSkeleton : 生成対象を所有
+    ReportActionInvoker o--> IReportAction : 成功履歴・再実行待ちを所有
     WeeklyReport --|> ReportSkeleton
     DeptReport --|> ReportSkeleton
     StandardReport *-- DataReader
@@ -1374,14 +1376,14 @@ classDiagram
     BatchApplication *-- TemplateRegistry : 検証に使用
     TemplateRegistry *-- ReportTemplate : 定義を保存
     BatchApplication *-- ReportLog : 結果を記録
-    BatchApplication o--> IReportAction : 履歴として所有
+    BatchApplication *-- ReportActionInvoker : 実行・履歴管理
 
     note for ReportSkeleton "【P1・新設】生成順を固定する骨格（骨格固定構造）"
     note for ReportFeature "【P2・新設】骨格を包む装飾（装飾連結構造）"
     note for IReportAction "【P3・新設】生成操作の履歴契約（操作記録構造）"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "ReportSkeleton,StandardReport,MonthlyReport,ReportFeature,GraphFeature,WatermarkFeature,IReportAction,GenerateReportAction" focus
+    cssClass "ReportSkeleton,StandardReport,MonthlyReport,ReportFeature,GraphFeature,WatermarkFeature,IReportAction,GenerateReportAction,ReportActionInvoker" focus
 ```
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
@@ -1470,15 +1472,15 @@ class GraphFeature : public ReportFeature {
 class IReportAction {
 public:
     virtual ~IReportAction() = default;
-    virtual void execute() = 0;
-    virtual void undo() = 0;
+    virtual JobResult execute() = 0;
+    virtual JobResult undo() = 0;
 };
 
 class GenerateReportAction : public IReportAction {
     ReportSkeleton* generator;    // 装飾済みの生成物でもよい
 public:
-    void execute() override { generator->generate(); }
-    void undo() override { /* 出力ファイルを削除 */ }
+    JobResult execute() override { /* 生成し、結果を返す */ }
+    JobResult undo() override { /* 出力を削除し、結果を返す */ }
 };
 ```
 
@@ -1524,7 +1526,7 @@ public:
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 ### 7-1：解決後のコード（全体）
 
-ステップ6で決断した構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて確認します。
+フェーズ6でP1〜P3を同時に満たすものとして確定した、骨格固定・装飾連結・操作記録の複合構造を実行可能なコードとして組み上げます。各実装ステップは採用済みの一つの構造を理解しやすい順に反映したものです。
 
 **1. 抽象基底クラスとインターフェース（契約）**
 
@@ -1614,7 +1616,7 @@ class IReportAction {
 public:
     virtual ~IReportAction() = default;
     virtual JobResult execute() = 0;
-    virtual void undo() = 0;  // ← 取り消し操作も契約に含める
+    virtual JobResult undo() = 0;  // ← 取り消し結果も呼び出し元へ返す
 };
 ```
 
@@ -1626,6 +1628,7 @@ struct SalesSummary { int count; long total; long average; };
 class DataReader {
     vector<int> sales;
 public:
+    DataReader() : sales{520, 610, 480, 700, 560, 640} {}
     explicit DataReader(vector<int> s) : sales(move(s)) {}
     SalesSummary readCSV() const {
         long total = 0;
@@ -1661,7 +1664,8 @@ class StandardReport : public ReportSkeleton {
 public:
     void renderBody() override {
         SalesSummary s = reader.readCSV();
-        cout << "本文を生成（合計" << s.total
+        cout << "本文を生成（件数" << s.count
+             << "・合計" << s.total
              << "・平均" << s.average << "）。" << endl;
     }
 };
@@ -1670,11 +1674,12 @@ public:
 ```cpp
 // MonthlyReport: 月次レポートの本体
 class MonthlyReport : public ReportSkeleton {
-    DataReader reader{{520, 610, 480, 700, 560, 640}};
+    DataReader reader;  // 1-4と同じ既定の月次売上データ
 public:
     void renderBody() override {
         SalesSummary s = reader.readCSV();
-        cout << "月次集計を本文として生成（合計" << s.total
+        cout << "月次集計を本文として生成（件数" << s.count
+             << "・合計" << s.total
              << "・平均" << s.average << "）。" << endl;
     }
 };
@@ -1687,7 +1692,8 @@ class WeeklyReport : public ReportSkeleton {
 public:
     void renderBody() override {
         SalesSummary s = reader.readCSV();
-        cout << "週次集計を本文として生成（合計" << s.total
+        cout << "週次集計を本文として生成（件数" << s.count
+             << "・合計" << s.total
              << "・平均" << s.average << "）。" << endl;
     }
 };
@@ -1700,7 +1706,8 @@ class DeptReport : public ReportSkeleton {
 public:
     void renderBody() override {
         SalesSummary s = reader.readCSV();
-        cout << "部門別集計を本文として生成（合計" << s.total
+        cout << "部門別集計を本文として生成（件数" << s.count
+             << "・合計" << s.total
              << "・平均" << s.average << "）。" << endl;
     }
 };
@@ -1844,23 +1851,18 @@ public:
         return {true, "生成完了"};
     }
 
-    void handleNoFileToUndo() {
-        cout << "[コマンド] この操作が生成したファイルはありません。"
-             << endl;
-    }
-
-    void undo() override {
+    JobResult undo() override {
         if (!created) {
-            handleNoFileToUndo();
-            return;
+            return {false, "この操作が生成したファイルはありません。"};
         }
         if (renderer.removeFile(outputPath)) {
             created = false;
             cout << "[コマンド] " << outputPath
                  << " を削除してアンドゥ完了。" << endl;
+            return {true, "アンドゥ完了"};
         } else {
-            cout << "[コマンド] " << outputPath
-                 << " は存在しないため削除できません。" << endl;
+            return {false,
+                    outputPath + " は存在しないため削除できません。"};
         }
     }
 };
@@ -1870,18 +1872,66 @@ public:
 
 具体的なクラス名（`MonthlyReport`等）を知る組み立て責任は `BatchApplication` に置きます。ただし、複数の動作例を一つの `run()` へべた書きしません。「月次PDF」「装飾付き」「取消」「一括生成」「失敗後の再実行」を名前付きシナリオ関数に分け、`run()` は実行順だけを示します。
 
-生成した操作オブジェクトは履歴が所有し、操作オブジェクトはレポート生成器を所有します。履歴から操作を削除すると、内側の装飾チェーンまでまとめて破棄されます。
+`ReportActionInvoker` が未完了操作と成功履歴を所有します。`BatchApplication` は履歴コンテナを直接操作せず、`execute()`・`retry()`・`undoLast()` という公開操作だけを呼びます。成功した操作だけが履歴へ移り、失敗した操作は再実行待ちとして1件だけ保持されます。操作オブジェクトはレポート生成器を所有するため、履歴または再実行待ちから外れると、内側の装飾チェーンまでまとめて破棄されます。
 
 ```cpp
+// ReportActionInvoker: 実行・再実行・取消と履歴所有を一か所に閉じる
+class ReportActionInvoker {
+    vector<unique_ptr<IReportAction>> history;
+    unique_ptr<IReportAction> pending;
+
+    JobResult executePending() {
+        JobResult result = pending->execute();
+        if (result.success) {
+            history.push_back(move(pending));
+        }
+        return result;
+    }
+
+public:
+    JobResult execute(unique_ptr<IReportAction> action) {
+        if (pending) {
+            return {false, "再実行待ちの操作が残っています。"};
+        }
+        pending = move(action);
+        return executePending();
+    }
+
+    JobResult retry() {
+        if (!pending) {
+            return {false, "再実行待ちの操作はありません。"};
+        }
+        return executePending();
+    }
+
+    void abandonPending() {
+        pending.reset();
+    }
+
+    JobResult undoLast() {
+        if (history.empty()) {
+            return {false, "取り消せる操作はありません。"};
+        }
+        JobResult result = history.back()->undo();
+        if (result.success) {
+            history.pop_back();
+        }
+        return result;
+    }
+
+    int historySize() const {
+        return static_cast<int>(history.size());
+    }
+};
+
 // BatchApplication: 組み立てとシナリオ実行を担う
 class BatchApplication {
-    vector<IReportAction*> history;
+    ReportActionInvoker invoker;
     TemplateRegistry registry;
     ReportLog reportLog;
 
-    void executeAndRemember(IReportAction* action) {
-        action->execute();
-        history.push_back(action);
+    JobResult executeAndRemember(unique_ptr<IReportAction> action) {
+        return invoker.execute(move(action));
     }
 
     ReportTemplate requireTemplate(const string& id,
@@ -1910,13 +1960,13 @@ class BatchApplication {
         ReportTemplate tmpl
             = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
-        executeAndRemember(new GenerateReportAction(
+        JobResult result = executeAndRemember(make_unique<GenerateReportAction>(
             new MonthlyReport(),
             "monthly.pdf",
             OutputFormat::Pdf));
         reportLog.add(
             "SALES_MONTHLY", tmpl.name,
-            "pdf", "成功");
+            "pdf", result.success ? "成功" : "失敗");
     }
 
     void scenarioMonthlyExcel() {
@@ -1925,13 +1975,13 @@ class BatchApplication {
         ReportTemplate tmpl
             = requireTemplate("SALES_MONTHLY", "excel");
         printTemplate(tmpl);
-        executeAndRemember(new GenerateReportAction(
+        JobResult result = executeAndRemember(make_unique<GenerateReportAction>(
             new MonthlyReport(),
             "monthly.xlsx",
             OutputFormat::Excel));
         reportLog.add(
             "SALES_MONTHLY", tmpl.name,
-            "excel", "成功");
+            "excel", result.success ? "成功" : "失敗");
     }
 
     void scenarioDecoratedPdf() {
@@ -1940,7 +1990,7 @@ class BatchApplication {
         ReportTemplate tmpl
             = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
-        executeAndRemember(new GenerateReportAction(
+        JobResult result = executeAndRemember(make_unique<GenerateReportAction>(
             new WatermarkFeature(
                 new GraphFeature(
                     new MonthlyReport())),
@@ -1948,7 +1998,7 @@ class BatchApplication {
             OutputFormat::Pdf));
         reportLog.add(
             "SALES_MONTHLY", tmpl.name,
-            "pdf", "成功");
+            "pdf", result.success ? "成功" : "失敗");
     }
 
     void scenarioGenerateAndCancel() {
@@ -1957,18 +2007,17 @@ class BatchApplication {
         ReportTemplate tmpl
             = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
-        auto* action = new GenerateReportAction(
-            new MonthlyReport(),
-            "cancel_monthly.pdf",
-            OutputFormat::Pdf);
-        action->execute();
-        history.push_back(action);
-        history.back()->undo();
-        delete history.back();
-        history.pop_back();
+        JobResult generated = executeAndRemember(
+            make_unique<GenerateReportAction>(
+                new MonthlyReport(),
+                "cancel_monthly.pdf",
+                OutputFormat::Pdf));
+        JobResult cancelled = generated.success
+            ? invoker.undoLast()
+            : generated;
         reportLog.add(
             "SALES_MONTHLY", tmpl.name,
-            "pdf", "キャンセル");
+            "pdf", cancelled.success ? "キャンセル" : "失敗");
     }
 
     void scenarioBatch() {
@@ -1978,36 +2027,40 @@ class BatchApplication {
         ReportTemplate weekly
             = requireTemplate("SALES_WEEKLY", "pdf");
         printTemplate(weekly);
-        executeAndRemember(new GenerateReportAction(
-            new WeeklyReport(),
-            "weekly.pdf",
-            OutputFormat::Pdf));
+        JobResult weeklyResult = executeAndRemember(
+            make_unique<GenerateReportAction>(
+                new WeeklyReport(),
+                "weekly.pdf",
+                OutputFormat::Pdf));
         reportLog.add(
             "SALES_WEEKLY", weekly.name,
-            "pdf", "成功");
+            "pdf", weeklyResult.success ? "成功" : "失敗");
 
         ReportTemplate monthly
             = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(monthly);
-        executeAndRemember(new GenerateReportAction(
-            new MonthlyReport(),
-            "batch_monthly.pdf",
-            OutputFormat::Pdf));
+        JobResult monthlyResult = executeAndRemember(
+            make_unique<GenerateReportAction>(
+                new MonthlyReport(),
+                "batch_monthly.pdf",
+                OutputFormat::Pdf));
         reportLog.add(
             "SALES_MONTHLY", monthly.name,
-            "pdf", "成功");
+            "pdf", monthlyResult.success ? "成功" : "失敗");
 
         ReportTemplate dept
             = requireTemplate("SALES_DEPT", "pdf");
         printTemplate(dept);
-        executeAndRemember(new GenerateReportAction(
-            new DeptReport(),
-            "dept.pdf",
-            OutputFormat::Pdf));
+        JobResult deptResult = executeAndRemember(
+            make_unique<GenerateReportAction>(
+                new DeptReport(),
+                "dept.pdf",
+                OutputFormat::Pdf));
         reportLog.add(
             "SALES_DEPT", dept.name,
-            "pdf", "成功");
-        cout << "[一括生成] 3操作を履歴へ追加"
+            "pdf", deptResult.success ? "成功" : "失敗");
+        cout << "[一括生成] 履歴件数: "
+             << invoker.historySize()
              << endl;
     }
 
@@ -2017,19 +2070,18 @@ class BatchApplication {
         ReportTemplate tmpl
             = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
-        auto* action = new GenerateReportAction(
-            new GraphFeature(
-                new MonthlyReport()),
-            "graph_monthly.pdf",
-            OutputFormat::Pdf);
-        action->execute();
-        history.push_back(action);
-        history.back()->undo();
-        delete history.back();
-        history.pop_back();
+        JobResult generated = executeAndRemember(
+            make_unique<GenerateReportAction>(
+                new GraphFeature(
+                    new MonthlyReport()),
+                "graph_monthly.pdf",
+                OutputFormat::Pdf));
+        JobResult cancelled = generated.success
+            ? invoker.undoLast()
+            : generated;
         reportLog.add(
             "SALES_MONTHLY", tmpl.name,
-            "pdf", "キャンセル");
+            "pdf", cancelled.success ? "キャンセル" : "失敗");
     }
 
     void scenarioRetryAfterFailure() {
@@ -2039,14 +2091,12 @@ class BatchApplication {
             = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
         bool graphAvailable = false;
-        auto* action = new GenerateReportAction(
+        JobResult result = executeAndRemember(make_unique<GenerateReportAction>(
             new GraphFeature(
                 new MonthlyReport(),
                 &graphAvailable),
             "retry_monthly.pdf",
-            OutputFormat::Pdf);
-
-        JobResult result = action->execute();
+            OutputFormat::Pdf));
         if (!result.success) {
             cout << "[ジョブ] 失敗: "
                  << result.message << endl;
@@ -2056,23 +2106,18 @@ class BatchApplication {
             graphAvailable = true;
             cout << "[ジョブ] 同じ生成操作を"
                  << "再実行します。" << endl;
-            result = action->execute();
+            result = invoker.retry();
         }
         if (result.success) {
             reportLog.add(
                 "SALES_MONTHLY", tmpl.name,
                 "pdf", "成功");
+        } else {
+            invoker.abandonPending();
         }
-        history.push_back(action);
     }
 
 public:
-    ~BatchApplication() {
-        for (auto* action : history) {
-            delete action;
-        }
-    }
-
     void run() {
         scenarioMonthlyPdf();
         scenarioMonthlyExcel();
@@ -2114,7 +2159,7 @@ int main() {
 --- ケース1: 月次レポートPDF ---
 テンプレート: 月次売上レポート
 CSV読み込み
-月次集計を本文として生成（合計3510・平均585）。
+月次集計を本文として生成（件数6・合計3510・平均585）。
 フッター生成
 [コマンド] PDF形式で monthly.pdf を生成して履歴に記録。
 ```
@@ -2127,7 +2172,7 @@ CSV読み込み
 --- ケース2: 月次レポートExcel ---
 テンプレート: 月次売上レポート
 CSV読み込み
-月次集計を本文として生成（合計3510・平均585）。
+月次集計を本文として生成（件数6・合計3510・平均585）。
 フッター生成
 [コマンド] Excel形式で monthly.xlsx を生成して履歴に記録。
 ```
@@ -2140,7 +2185,7 @@ CSV読み込み
 --- ケース3: 月次本文＋グラフ＋透かしPDF ---
 テンプレート: 月次売上レポート
 CSV読み込み
-月次集計を本文として生成（合計3510・平均585）。
+月次集計を本文として生成（件数6・合計3510・平均585）。
 [ReportRenderingApi] グラフ描画APIを呼び出し。
 [ReportRenderingApi] 透かし描画APIを呼び出し。
 フッター生成
@@ -2155,7 +2200,7 @@ CSV読み込み
 --- ケース4: 月次PDFを生成して取り消す ---
 テンプレート: 月次売上レポート
 CSV読み込み
-月次集計を本文として生成（合計3510・平均585）。
+月次集計を本文として生成（件数6・合計3510・平均585）。
 フッター生成
 [コマンド] PDF形式で cancel_monthly.pdf を生成して履歴に記録。
 [コマンド] cancel_monthly.pdf を削除してアンドゥ完了。
@@ -2169,20 +2214,20 @@ CSV読み込み
 --- ケース5: 週次・月次・部門別を一括生成 ---
 テンプレート: 週次売上レポート
 CSV読み込み
-週次集計を本文として生成（合計750・平均150）。
+週次集計を本文として生成（件数5・合計750・平均150）。
 フッター生成
 [コマンド] PDF形式で weekly.pdf を生成して履歴に記録。
 テンプレート: 月次売上レポート
 CSV読み込み
-月次集計を本文として生成（合計3510・平均585）。
+月次集計を本文として生成（件数6・合計3510・平均585）。
 フッター生成
 [コマンド] PDF形式で batch_monthly.pdf を生成して履歴に記録。
 テンプレート: 部門別売上レポート
 CSV読み込み
-部門別集計を本文として生成（合計1030・平均343）。
+部門別集計を本文として生成（件数3・合計1030・平均343）。
 フッター生成
 [コマンド] PDF形式で dept.pdf を生成して履歴に記録。
-[一括生成] 3操作を履歴へ追加
+[一括生成] 履歴件数: 6
 ```
 
 一括生成は並列処理ではなく、三つの独立した生成操作を順に実行し、それぞれを履歴へ残す処理です。
@@ -2193,7 +2238,7 @@ CSV読み込み
 --- ケース6: グラフ付き月次PDFを取り消す ---
 テンプレート: 月次売上レポート
 CSV読み込み
-月次集計を本文として生成（合計3510・平均585）。
+月次集計を本文として生成（件数6・合計3510・平均585）。
 [ReportRenderingApi] グラフ描画APIを呼び出し。
 フッター生成
 [コマンド] PDF形式で graph_monthly.pdf を生成して履歴に記録。
@@ -2208,11 +2253,11 @@ CSV読み込み
 --- ケース7: グラフ描画失敗後に同じ操作を再実行 ---
 テンプレート: 月次売上レポート
 CSV読み込み
-月次集計を本文として生成（合計3510・平均585）。
+月次集計を本文として生成（件数6・合計3510・平均585）。
 [ジョブ] 失敗: 生成失敗: グラフ描画APIが一時的に失敗しました
 [ジョブ] 同じ生成操作を再実行します。
 CSV読み込み
-月次集計を本文として生成（合計3510・平均585）。
+月次集計を本文として生成（件数6・合計3510・平均585）。
 [ReportRenderingApi] グラフ描画APIを呼び出し。
 フッター生成
 [コマンド] PDF形式で retry_monthly.pdf を生成して履歴に記録。
@@ -2259,6 +2304,7 @@ classDiagram
     class DataReader
     class IReportAction { <<interface>> }
     class GenerateReportAction
+    class ReportActionInvoker
     ReportSkeleton <|-- StandardReport
     ReportSkeleton <|-- MonthlyReport
     ReportSkeleton <|-- ReportFeature
@@ -2267,6 +2313,7 @@ classDiagram
     ReportFeature <|-- WatermarkFeature
     IReportAction <|.. GenerateReportAction
     GenerateReportAction *-- ReportSkeleton : 生成対象を所有
+    ReportActionInvoker o--> IReportAction : 成功履歴・再実行待ちを所有
     WeeklyReport --|> ReportSkeleton
     DeptReport --|> ReportSkeleton
     StandardReport *-- DataReader
@@ -2278,14 +2325,14 @@ classDiagram
     BatchApplication *-- TemplateRegistry : 検証に使用
     TemplateRegistry *-- ReportTemplate : 定義を保存
     BatchApplication *-- ReportLog : 結果を記録
-    BatchApplication o--> IReportAction : 履歴として所有
+    BatchApplication *-- ReportActionInvoker : 実行・履歴管理
 
     note for ReportSkeleton "【P1・新設】生成順を固定する骨格（骨格固定構造）"
     note for ReportFeature "【P2・新設】骨格を包む装飾（装飾連結構造）"
     note for IReportAction "【P3・新設】生成操作の履歴契約（操作記録構造）"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "ReportSkeleton,StandardReport,MonthlyReport,ReportFeature,GraphFeature,WatermarkFeature,IReportAction,GenerateReportAction" focus
+    cssClass "ReportSkeleton,StandardReport,MonthlyReport,ReportFeature,GraphFeature,WatermarkFeature,IReportAction,GenerateReportAction,ReportActionInvoker" focus
 ```
 
 完成後はTemplate Methodが帳票生成順序、Decoratorが追加機能、Commandが生成操作の履歴化を担当します。3構造が同じ責任を重複して持たないことを図で確認できます。
@@ -2298,9 +2345,24 @@ classDiagram
 | P2 | `IReport` と全Feature実装 | 装飾を連結して組み合わせ、フラグ分岐を使わなかった | 組み合わせクラスやフラグ分岐を増やさない |
 | P3 | `IReportAction` 実装と履歴 | 生成・再実行・取消を同じAction単位で管理した | 履歴が具体種別・装飾を判定しない |
 
+#### 要求→課題→構造→コード→結果の追跡
+
+| 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
+|---|---|---|---|
+| R1：レポート種別追加／P1 | 生成順を骨格へ、本文差を派生へ分離。コード：`ReportSkeleton`、全本文クラス | 月次・週次・部門別が同じ順序で生成 | 新本文クラスとTemplate登録 |
+| R2：装飾の組み合わせ／P2 | 装飾をFeatureチェーンへ分離。コード：`ReportFeature`、Graph／Watermark | 同じ成果物へ装飾を順に重ねた | 新Featureと組み立て |
+| R3：取消・失敗後の再実行／P3 | 操作と所有履歴をAction／Invokerへ分離。コード：`GenerateReportAction`、`ReportActionInvoker` | 成功だけを履歴へ保存し、失敗操作を同じ単位で再実行 | 新Action、再実行方針 |
+
+#### 変更前→変更後の不変条件照合
+
+| 変更対象外 | 変更前 | 変更後 | 確認根拠 |
+|---|---|---|---|
+| 売上集計 | `DataReader` が件数・合計・平均を計算 | 同じ既定データと計算契約を維持 | 件数6・合計3510・平均585の出力 |
+| テンプレート・描画境界 | `TemplateRegistry`／`ReportRenderingApi` | 同じ検証・外部描画境界 | 正常・未登録・描画失敗ケース |
+
 ### 7-2：動作シーケンス図
 
-ステップ6で到達した3構造複合の実行時のオブジェクト間のやり取りを可視化します。ケース3と同じく、`BatchApplication` が月次本文を作る `MonthlyReport` をグラフと透かしで順に包み、その完成した生成対象を `GenerateReportAction` へ渡します。これにより、本文差分・装飾・操作履歴が別の責任として接続される流れを確認できます。
+フェーズ6で確定した3構造複合システムの実行時のやり取りを可視化します。ケース3と同じく、`BatchApplication` が月次本文を作る `MonthlyReport` をグラフと透かしで順に包み、その完成した生成対象を `GenerateReportAction` へ渡します。これにより、本文差分・装飾・操作履歴が別の責任として接続される流れを確認できます。
 
 ```mermaid
 sequenceDiagram
@@ -2388,7 +2450,7 @@ graph LR
 | 🟣 フェーズ3：問題特定 | 骨格・装飾・履歴を同時に変えようとして影響が飛び火することを確認した |
 | 🟠 フェーズ4：原因分析 | 変わる理由が異なる3つのものが同じ場所にいることが痛みの根本と特定した |
 | 🟡 フェーズ5：課題定義 | 本文生成処理・装飾機能・履歴管理という3つの分離ターゲットを特定した |
-| 🔴 フェーズ6：対策検討 | 6ステップの段階的進化でそれぞれの限界を確認し、ステップ6（骨格固定構造 × 装飾連結構造 × 操作記録構造）まで進化させる決断を下した |
+| 🔴 フェーズ6：対策検討 | P1〜P3を同時に満たす骨格固定構造×装飾連結構造×操作記録構造を先に確定し、契約と責任の単位で3段階に分けてコードへ反映した |
 | 🟢 フェーズ7：対策実施 | 最終コードを実装し、変更影響グラフで変更の局所化を確認した |
 
 ### 責任の移動
@@ -2470,7 +2532,7 @@ graph LR
 3. 最近入った変更要求、または次に来そうな変更要求は何か。
 4. その変更で、触りたくない場所まで修正や再テストが広がるか。
 5. 変えたいものと守りたいものを分けると、接続点には何を残すべきか。
-6. 何もしない、関数化、クラス分離、契約導入、登録/組み立て移動のうち、どこまで進めるのが今回の文脈に合うか。
+6. 全課題を満たす完成構造が複数成立するか。成立するなら、責任配置・変更影響・導入コストの差は何か。
 
 ## パターン解説：複合適用
 
@@ -2552,7 +2614,7 @@ public:
 
 ### この章のまとめ
 
-レポート生成というドメインと Template Method × Decorator × Command の組み合わせの関係を一言で言うなら、「骨格・装飾・履歴」という3つの変化軸を1クラスで管理しようとすると、どれか1つを直すたびに他の2つが揺れる、ということです。軸を先に分析してから各パターンを順に当てることで、複合問題を段階的に解消できました。3つのパターンが同時に必要だと分かって一気に適用したのではなく、1つ目のパターンを当てた後に「まだ解決しきれていない部分がある」という気づきが次のパターンへ進む根拠になりました。
+レポート生成というドメインと Template Method × Decorator × Command の組み合わせの関係を一言で言うなら、「骨格・装飾・履歴」という3つの変化軸を1クラスで管理すると、どれか1つを直すたびに他の2つが揺れる、ということです。本章では三軸を先に分析し、全課題を同時に満たす責任配置を決めました。三つのパターンは順番に試した結果ではなく、骨格、装飾、履歴という独立した接続点へ別々の責任を置いた最終構造の名前です。
 
 7つのフェーズを通じて、読者はレポート生成クラスに骨格・装飾・履歴が混在しているという観察から始まり、フェーズ3で「どれか1つに集中すると他が崩れる」という複合問題の難しさを体感し、フェーズ6で骨格を固定する境界、装飾を重ねる境界、操作を記録する境界を段階的に積み上げる判断へと進みました。「1つの構造で全部解決しようとしない」という視点は、複合問題を前にしたときの最初の判断として、どの現場でも使えると思っています。変更理由を分けて考える習慣こそが、この章を通じて身についた最大のものだと感じています。
 

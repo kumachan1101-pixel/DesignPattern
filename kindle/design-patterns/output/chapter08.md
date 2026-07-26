@@ -854,6 +854,11 @@ public:
                     "未登録の顧客です: " + request.customerId,
                     false, "UNKNOWN_CUSTOMER", {}};
         }
+        CustomerRecord customer = customers.get(request.customerId);
+        if (customer.name.empty()) {
+            return {"失敗", "顧客名が登録されていません",
+                    false, "INVALID_CUSTOMER", {}};
+        }
 
         // 決済方法に応じてプロセッサを生成して実行
         if (type == "credit_card") {
@@ -1981,7 +1986,7 @@ struct PaymentResult {
 
 ### 7-1：解決後のコード（全体）
 
-ステップ3で決断した構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて確認します。
+フェーズ6で確定したP1を満たす生成分離構造を、実行可能な完全なコードとして組み上げます。実装ステップは、採用済み構造の契約・具象生成・組み立てを理解しやすい順に反映したものです。
 
 **1. データ構造とインターフェース**
 
@@ -2254,6 +2259,7 @@ public:
              << " order=" << orderId
              << " amount=" << amount
              << " phone=" << cvs.phoneNumber
+             << " store=" << cvs.storeCode
              << endl;
         PendingInfo p{"CVS-" + orderId};
         return {PaymentStatus::Pending,
@@ -2427,7 +2433,7 @@ public:
 };
 ```
 
-各Processorが自分の入力検証を行い、自分のAPI境界を呼び、自分のエラー対処（カードの `canRetry` 設定など）を完結しています。利用側は手段の違いを知りません。
+各Processorが自分の入力検証を行い、自分のAPI境界を呼び、自分のエラー対処（カードの`canRetry`設定など）を完結しています。利用側は手段固有の入力検証やAPI手順を知りません。ただし、共通結果契約に含めた`Pending`と`canRetry`は利用側も扱います。
 
 **4. 本体クラス（生成分離構造を持つCreator）**
 
@@ -2468,6 +2474,12 @@ public:
             return {PaymentStatus::Failed,
                     "未登録の顧客です: " + request.customerId,
                     false, "UNKNOWN_CUSTOMER", {}};
+        }
+        CustomerRecord customer = customers.get(request.customerId);
+        if (customer.name.empty()) {
+            return {PaymentStatus::Failed,
+                    "顧客名が登録されていません",
+                    false, "INVALID_CUSTOMER", {}};
         }
         IPaymentProcessor* proc
             = createProcessor(request.methodId);
@@ -2524,7 +2536,7 @@ protected:
 };
 ```
 
-`processPayment` は `IPaymentProcessor*` を取得して `pay(request)` を呼ぶだけです。生成の分岐で使う決済手段IDと、結果のステータス（`保留`／`失敗`）は、それぞれ `PaymentMethod`・`PaymentStatus` の名前付き定数へまとめ、直文字列の打ち間違いを防いでいます。手段固有の入力検証、API呼び出し手順、エラー対処は各Processorの内部で完結しています。同期/非同期の違いも結果のステータス（「成功」か「保留」か）として自然に表れ、利用側は区別する必要がありません。完了確認は `checkCompletion()` で汎用的に処理できます。
+`processPayment`は`IPaymentProcessor*`を取得して`pay(request)`を呼ぶだけです。生成の分岐で使う決済手段IDと、結果のステータス（`保留`／`失敗`）は、それぞれ`PaymentMethod`・`PaymentStatus`の名前付き定数へまとめています。手段固有の入力検証、API呼び出し手順、保留IDの作り方は各Processorの内部で完結します。一方、利用側の`executeCase`は共通契約として`Pending`を判定し、共通の`checkCompletion()`を呼びます。つまり利用側が知らないのは「どの手段がどのAPI・完了手順を使うか」であり、非同期状態そのものを知らないわけではありません。
 
 この構成は、利用側が同期ループで呼ぶ形に限りません。掲載コードの末尾では、決済会社から届くWebフックを受け取る `WebhookController`（署名を検証し、正しいものだけをジョブキューへ積む）と、キューを取り出して同じ `processPayment` を呼ぶ `PaymentWorker` を追加しています。イベント駆動（Webhook）で受け取り、ワーカーがキューから非同期に処理する構成でも、決済手段ごとの生成・処理は同じ Factory Method の裏に隠れたままです。実運用ではワーカーは別スレッドで動きますが、掲載コードでは実スレッドを使わず、キューを同期的に空にして投入順・処理順を確認します。ここで使う `std::queue` は先入れ先出し（FIFO）のコンテナで、`push()` で末尾へ積み、`front()` で先頭を見て `pop()` で取り出します。積んだ順に処理されるため、受け取った順序どおりに決済が進むことを確認できます。
 
@@ -2700,7 +2712,7 @@ int main() {
 ケース3の実行結果：
 
 ```
-[PaymentGateway] コンビニ番号発行 order=ORD-1003 amount=500 phone=09012345678
+[PaymentGateway] コンビニ番号発行 order=ORD-1003 amount=500 phone=09012345678 store=seven
 結果: convenience -> 保留 (番号発行済み 番号=CVS-98765)
   完了確認中... id=CVS-ORD-1003
 [状態確認API] id=CVS-ORD-1003
@@ -2925,9 +2937,22 @@ classDiagram
 
 1行は、一つの完成システムを一本の変化軸から追跡した結果です。生成分離構造がP1の完了条件を維持しています。
 
+#### 要求→課題→構造→コード→結果の追跡
+
+| 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
+|---|---|---|---|
+| R1：決済手段追加と入口統一／P1 | 手段固有処理と生成をProcessor／Creatorへ分離。コード：全 `IPaymentProcessor`、`createProcessor()`、各入口 | Credit・銀行・コンビニ・PayPayが同じ `PaymentResult` を返し、Worker／Webhookも同じ処理を利用 | 新Processorと生成登録 |
+
+#### 変更前→変更後の不変条件照合
+
+| 変更対象外 | 変更前 | 変更後 | 確認根拠 |
+|---|---|---|---|
+| 入出力契約 | `PaymentRequest`→`PaymentResult` | 同じフィールドと状態を使用 | 1-4と7-1の結果コード |
+| 結果保存 | `PaymentLog` に記録 | 同じ注文ID・成否を保存 | 正常・Pending・失敗ログ |
+
 ### 7-2：動作シーケンス図
 
-ステップ3で到達した生成分離構造の実行時のオブジェクト間のやり取りを可視化します。
+フェーズ6で確定した生成分離構造の実行時のオブジェクト間のやり取りを可視化します。
 
 > **図の読み方：** `createProcessor` はシーケンス図では独立した参加者として描かれていますが、実際には `PaymentApplication`（またはそのサブクラス）のメソッドです。
 
@@ -3001,7 +3026,7 @@ graph LR
 | 🟣 フェーズ2 | 入力構造体・処理モード・エラー対処の変動軸を確認し、ヒアリングで追加頻度を裏付けた |
 | 🟣 フェーズ3 | PayPay追加を試み、7か所に修正が広がることを確認した |
 | 🟠 フェーズ4 | 具体クラス名・入力検証・処理モード・エラー対処が利用側に混在していることを根本原因と特定した |
-| 🟡 フェーズ5 | `IPaymentProcessor*` を共通の接続点とし、手段固有の差分をProcessorへ閉じる課題を定めた |
+| 🟡 フェーズ5 | 現状の`PaymentRequest`→`PaymentResult`を接続データとし、手段固有の生成判断・入力検証・API手順が利用フローへ漏れない課題を定めた |
 | 🔴 フェーズ6 | P1を満たす最終構造は生成分離構造に一意に定まると確認し、採用クラス図を3ステップでコードへ反映した |
 | 🟢 フェーズ7 | 各Processorが入力検証・API呼び出し・エラー対処を内包する最終コードを実装し、変更の局所化を確認した |
 
@@ -3039,7 +3064,7 @@ graph LR
 **原則2「実装ではなくインターフェースに対してプログラムせよ」の現れ**
 
 - 具体化された場所：`PaymentApplication` の `processPayment` メソッド内の `IPaymentProcessor* processor`
-- 解説：具体的な決済クラスではなく `IPaymentProcessor` インターフェースだけを知ることで、手段固有の入力データが何であるか、同期なのか非同期なのか、エラー時にリトライできるのかを利用側が知らずに、`PaymentRequest` を渡して `PaymentResult` を受け取れる。
+- 解説：具体的な決済クラスではなく`IPaymentProcessor`だけを知るため、利用側は手段固有の入力検証・API手順・保留ID生成を知りません。ただし共通契約の`Pending`と`canRetry`は利用側が読み、完了確認と再試行を制御します。
 
 **原則3「継承より合成を優先せよ」の現れ**
 
@@ -3061,7 +3086,7 @@ graph LR
 5. 最近入った変更要求、または次に来そうな変更要求は何か。
 6. その変更で、触りたくない場所まで修正や再テストが広がるか。
 7. 変えたいものと守りたいものを分けると、接続点には何を残すべきか。
-8. 何もしない、関数化、クラス分離、契約導入、登録/組み立て移動のうち、どこまで進めるのが今回の文脈に合うか。
+8. 全課題を満たす完成構造が複数成立するか。成立するなら、責任配置・変更影響・導入コストの差は何か。
 
 ## パターン解説：Factory Method パターン
 
@@ -3155,6 +3180,8 @@ GoF（Gang of Four）とは、1994年に出版された書籍『Design Patterns�
 | factoryMethod | `createProcessor(string type)` |
 | Product | `IPaymentProcessor` |
 | ConcreteProduct | `CreditCardProcessor` / `BankTransferProcessor` / `ConvenienceStoreProcessor` / `PayPayProcessor` |
+
+本章の`DefaultPaymentApplication::createProcessor(type)`は、具象Creatorを決済手段ごとに分ける古典形ではなく、1つの具象Creatorが`type`を受けて選ぶ**パラメータ化Factory Method**です。この形は生成判断を1か所へ集めやすい反面、新しい決済手段の追加時には新Processorだけでなく`createProcessor()`の分岐も1行変更します。`processPayment()`や既存Processorは変更しませんが、生成側まで完全に閉じるわけではありません。生成分岐も変更したくない場合は、`methodId`と生成関数をレジストリへ登録する別構造が候補になります。本章は「利用フローから生成判断を外す」ことを目的に、この変種を採用しています。
 
 ### 使いどころと限界
 
