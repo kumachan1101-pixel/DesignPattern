@@ -683,9 +683,12 @@ B社へ送信(1件): 在庫 SKU001
 | 連携先 | A社（物流管理・月次バッチ） | ✅ 既存 | 変更なし |
 | 連携先 | B社（在庫管理・手動トリガー） | ✅ 既存 | 変更なし |
 | 連携先 | C社（配送管理・月次バッチ） | — | ✅ 新規追加 |
+| 連携先 | D社（配送管理・日次バッチ） | — | ✅ 追加（フェーズ7で拡張実証） |
 | 通知先 | Slack（成功・失敗通知） | — | ✅ 新規追加 |
+| 通知先 | メール（監視チームへの失敗通知） | — | ✅ 追加（フェーズ7で拡張実証） |
+| 通知先 | ログ基盤（連携ログの記録） | — | ✅ 追加（フェーズ7で拡張実証） |
 
-連携先と通知先は、それぞれ独立した変化軸です。「C社を追加する」変更と「Slack通知を追加する」変更は担当者も変更タイミングも異なります。
+連携先と通知先は、それぞれ独立した変化軸です。「C社を追加する」変更と「Slack通知を追加する」変更は担当者も変更タイミングも異なります。C社・Slackが今回の起点ですが、運用チームからは「この後もD社などの連携先や、メール・ログ基盤といった通知先を続けて足したい」と伝えられており、追加が実行本体を変えずに済むことが要求の核心です。そこでフェーズ7では、C社・Slackに加えてD社・メール・ログ基盤を後から差し込み、実行順の骨格を変えずに拡張できることまで実証します。
 
 **変更前後の入力・判定・加工・出力差分**
 
@@ -1761,6 +1764,22 @@ public:
 バッチ全体のフローを統括する窓口です。`IClientCreator` 経由でクライアントを生成し、送信結果を通知先へ反映します。生成する具体型も通知先の具体型も知りません。
 
 ```cpp
+// 送信→結果保存→通知（バッチ・手動の両入口が共有する後段処理）
+static DeliveryResult deliverResult(
+        IExternalClient* client, const string& data,
+        const string& partnerId, const string& partnerName,
+        BatchLog& batchLog, const vector<INotifier*>& notifiers,
+        bool apiHealthy, const string& kind) {
+    DeliveryResult r = client->send(data, apiHealthy);
+    batchLog.add(partnerId, partnerName, r.status);
+    string note = r.success ? (partnerName + " " + kind + "連携完了")
+                            : (partnerName + " " + kind + "連携失敗: " + r.message);
+    for (auto* notifier : notifiers) {
+        notifier->onComplete(note);
+    }
+    return r;
+}
+
 // バッチ全体のフローを統括するクラス（窓口構造）
 class BatchExecutor {
     vector<INotifier*> notifiers;
@@ -1800,14 +1819,9 @@ public:
         string data = dataCatalog.load(request.target);
         cout << "[送信先] " << cfg.name
              << " (" << cfg.endpoint << ")" << endl;
-        DeliveryResult r = client->send(data, apiHealthy);
-        batchLog.add(partnerId, cfg.name, r.status);
-        string note = r.success ? (cfg.name + " 連携完了")
-                                : (cfg.name + " 連携失敗: " + r.message);
-        for (auto* notifier : notifiers) {
-            notifier->onComplete(note);
-        }
-        return r;
+        // 送信・保存・通知は手動入口と共有の後段処理へ委譲する
+        return deliverResult(client, data, partnerId, cfg.name,
+                             batchLog, notifiers, apiHealthy, "");
     }
 };
 ```
@@ -1837,19 +1851,14 @@ public:
         cout << "[ManualTrigger] " << request.partnerId
               << " への手動同期を実行。" << endl;
         string data = dataCatalog.load(request.target);
-        DeliveryResult r = client->send(data, apiHealthy);
-        batchLog.add(request.partnerId, partnerName, r.status);
-        string note = r.success ? (partnerName + " 手動連携完了")
-                                : (partnerName + " 手動連携失敗: " + r.message);
-        for (auto* notifier : notifiers) {
-            notifier->onComplete(note);
-        }
-        return r;
+        // 送信・保存・通知はバッチ入口と共有の後段処理へ委譲する
+        return deliverResult(client, data, request.partnerId, partnerName,
+                             batchLog, notifiers, apiHealthy, "手動");
     }
 };
 ```
 
-`ManualTriggerController` も `BatchExecutor` と同様に、送信結果を同じ`BatchLog`へ保存してから、登録済みの通知先へ届けます。
+`ManualTriggerController` は手動起点の入口だけを担い、送信・結果保存・通知の後段処理は `BatchExecutor` と共有の `deliverResult()` へ委譲します。これにより「送信→保存→通知」を二重に実装せず、通知文の種別（バッチ／手動）だけを引数で切り替えます。両入口が同じ後段処理を通るため、結果保存と通知の契約が経路によってずれることはありません。
 
 **⑩ 組み立てと実行（BatchApplication / main）**
 
