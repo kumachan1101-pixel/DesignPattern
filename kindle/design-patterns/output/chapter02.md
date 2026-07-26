@@ -263,6 +263,37 @@ classDiagram
 
 `BatchTransferProcessor` は `TransferProcessor` を使って一括処理を行い、`TransferProcessor` が `Bank` と `SecurityAuthenticator` の両方を直接保持し、それぞれのメソッドを順番に呼び出してフローを制御しています。
 
+**現状システムの処理シーケンス**
+
+クラス図の静的な関係に続けて、正常系（振り込み成功）で1件の振り込みを処理する間に、各クラスがどの順で呼ばれ何を受け渡すかを時系列で示します。手段固有の具体の手順は `TransferProcessor` の注記に、エラー系はメモとして添えます。1-4の現状コードを読む前の地図です。
+
+```mermaid
+sequenceDiagram
+    participant Main as main（振込画面相当）
+    participant TP as TransferProcessor
+    participant DB as AccountDatabase
+    participant Bank as Bank（外部銀行）
+    participant Auth as SecurityAuthenticator
+    participant Hist as TransferHistory
+    Main->>TP: transfer(from, to, amount, otp)
+    TP->>DB: exists(from)
+    DB-->>TP: true（自社台帳に送金元あり）
+    TP->>Bank: verifyAccount(to)
+    Bank-->>TP: true（送金先あり）
+    TP->>Bank: checkBalance(from, amount)
+    Bank-->>TP: true（残高足りる）
+    TP->>Auth: promptOTP()
+    TP->>Auth: verifyOTP(otp)
+    Auth-->>TP: true（認証成功）
+    TP->>Bank: executeTransfer(from, to, amount)
+    TP->>Hist: add(fromName, toName, amount)
+    TP-->>Main: 振り込み完了
+    Note right of TP: 具体の分岐（現状の手順）<br>口座確認→残高確認→認証→送金→履歴記録を順に実行
+    Note over TP,Auth: エラー系（メモ）: 送金元/送金先口座なし・残高不足・認証失敗の<br>いずれかで、その場でfalseを返し以降を実行しない
+```
+
+図から読み取れるのは、`TransferProcessor` が銀行APIと認証の呼び出し手順（口座確認→残高確認→認証→送金→記録）を自分の中で順に握っていること、各ステップの失敗はメモのとおりその場で中断されること、成功時だけ `Bank` の残高が動き `TransferHistory` に1件記録されることです。
+
 ---
 
 ### 1-4：実装コード（現状）
