@@ -1503,3 +1503,25 @@ chapter00_2 の接続形態説明を充電器比喩（ライトニング直生�
 - `check_kindle.py`：15ファイル合格
 - `git diff --check`：合格
 - `validate_book.py`：今回の第11章・第12章の問題は0件。対象外である第8章の未対応★2件を1つの残存指摘として検出して失敗するため、R8全体のゲートは未完了
+
+### 2026-07-26 R8-01 全章監査：要求型・結果型・設定型の未使用フィールド解消
+
+R8-01（各フィールドが設定→参照→結果まで実際に使われているか。未使用フィールドは削除、説明に必要な値は利用コードと観測可能な結果を追加）の全章監査を、第1〜12章の struct フィールドについて機械走査（`.field` の参照有無）で実施。検出した未使用フィールドを、意味のある保持/結果データは観測可能化、装飾フィールドは削除の方針（ユーザー承認：フィールドごとに最適化）で解消した。
+
+| 章 | フィールド | 種別 | 対応 |
+|---|---|---|---|
+| 第8章 | `PaymentRequest::customerId` | 入力（顧客ID） | `OrderBook`/`CustomerDirectory` の事前保持データへ照合（現状1-4・完成7-1の両方）。死にフィールド解消 |
+| 第8章 | `PaymentRequest::orderId`・`amount` | 入力 | 同上。注文台帳の登録内容と一致照合（未登録注文・金額不一致エラー） |
+| 第8章 | `BankTransferInput::accountType` | 入力（口座種別） | 振込先発行ゲートウェイの出力へ `type=` を追加し観測可能化（1-4・7-1） |
+| 第8章 | `PendingInfo::checkUrl`・`expiresAt` | 結果メタ | 一度も参照・表示されない装飾のため削除（期限切れ判定は保留ID内の`EXPIRE`で実施済み） |
+| 第4章 | `SalesRow::id`・`name` | 入力（列） | この例の集計は金額のみのため削除。CSVは3列を保持し列存在は検証で確認する旨を明記 |
+| 第4章 | `ImportResult::ok`（フェーズ6版） | 結果 | 7-1版の同一フィールドは`success`で`printResult`が参照済み。フェーズ6版の名前ドリフト（`ok`）を`success`へ統一 |
+| 第6章 | `OrderResult::reason`・`price`（フェーズ6版） | 結果 | 7-1版は`error`・`totalPrice`で参照済み。フェーズ6版の名前ドリフトを7-1定義へ統一 |
+| 第7章 | `DeliveryResult::channel` | 結果（通知手段） | `notifyAll` の集計で保留・失敗の通知手段名を出力し観測可能化（7-1） |
+| 第9_2章 | `UserInfo::name` | 保持（氏名） | 仕様が「ユーザーIDから氏名・種別を検索」と約束。create出力へ`申請者=`を追加（1-4・7-1） |
+| 第10章 | `PartnerConfig::endpoint` | 設定（接続先） | `execute` に `[送信先] 名称 (endpoint)` を追加し観測可能化（1-4・7-1） |
+| 第12章 | `ApproverInfo::role` | 保持（役職） | 承認上限超過エラーへ役職を併記し観測可能化（1-4・7-1） |
+
+副次的に、第4章`ImportResult`（ok/success）・第6章`OrderResult`（reason/error・price/totalPrice）でフェーズ6採用構造と7-1完成構造のフィールド名ドリフトを発見し、7-1定義へ統一した。
+
+検証：`check_execution_output.py`（1〜12章の1-4/7-1が実出力一致）、`validate_book.py`（15ファイル）、`check_kindle.py`（15ファイル）、`audit_book.py`（0件）、`git diff --check` すべて合格。struct未使用フィールドの機械走査は全章CLEAN。

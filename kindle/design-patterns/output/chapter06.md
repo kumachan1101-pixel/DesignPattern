@@ -1172,8 +1172,8 @@ app.run({ "coffee", {"milk", "matcha"} });   // 要求＝基本＋トッピン�
 struct OrderResult {
     bool ok;             // 販売できたか
     string description;  // 表示名（連結済み）
-    int price;           // 合計価格
-    string reason;       // 失敗理由
+    int totalPrice;      // 合計価格
+    string error;        // 失敗理由
 };
 ```
 

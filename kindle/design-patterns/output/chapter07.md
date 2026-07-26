@@ -1527,9 +1527,15 @@ private:
         int accepted = 0, pending = 0, failed = 0;
         for (auto* o : observers) {
             DeliveryResult r = o->send(alert);
-            if (r.status == ACCEPTED)      accepted++;
-            else if (r.status == PENDING)  pending++;
-            else                           failed++;
+            if (r.status == ACCEPTED) {
+                accepted++;
+            } else if (r.status == PENDING) {
+                pending++;
+                cout << "  保留: " << r.channel << endl;
+            } else {
+                failed++;
+                cout << "  失敗: " << r.channel << endl;
+            }
         }
         cout << "[受付結果] 成功:" << accepted
              << " 保留:" << pending
@@ -1594,6 +1600,7 @@ Email(1件): 件名:在庫不足 / USBハブ(PRD002) 残2 閾値5
 Dashboard(1件): PRD002 | 残2 | 要発注
 Chat(1件): USBハブ 残2個。発注を確認してください。
 SMS(1件受付): 在庫警告 PRD002 残2
+  保留: SMS
 [受付結果] 成功:3 保留:1 失敗:0
 ```
 
@@ -1664,6 +1671,7 @@ Email(2件): 件名:在庫不足 / USBハブ(PRD002) 残1 閾値5
 Dashboard(2件): PRD002 | 残1 | 要発注
 Chat(2件): USBハブ 残1個。発注を確認してください。
 SMS: 受付失敗（後で再送対象）
+  失敗: SMS
 [受付結果] 成功:3 保留:0 失敗:1
 ```
 

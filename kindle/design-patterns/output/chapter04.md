@@ -199,7 +199,7 @@ flowchart LR
 | ------------------- | ----------------- | -------------------------------------- |
 | `StoreDataImporter` | 直営店CSVの取り込み処理を進める | カンマ区切り、ヘッダー行ありのCSVを開き、解析し、保存する         |
 | `FCDataImporter`    | FC店CSVの取り込み処理を進める | タブ区切り、ヘッダーなし、不正行スキップありのCSVを開き、解析し、保存する |
-| `SalesRow` | パース済みの売上1行を表す | 商品ID・商品名・金額の受け渡し |
+| `SalesRow` | パース済みの売上1行を表す | 売上金額の受け渡し（この例では金額のみを集計） |
 | `ImportResult` | 取り込み1回の結果を表す | 形式名・保存件数・スキップ件数の受け渡し |
 | `ImportSchema` | 形式1件の必須列定義を表す | 形式名・必須列の受け渡し |
 | `SchemaRegistry`    | インポートスキーマの登録・参照   | インポートタイプごとの必須カラム定義を保持し、タイプの存在確認と取得を担う  |
@@ -228,8 +228,6 @@ classDiagram
         +get(key) vector~string~
     }
     class SalesRow {
-        +id string
-        +name string
         +amount long
     }
     class ImportResult {
@@ -372,8 +370,9 @@ static vector<string> splitLine(const string& line, char delim) {
     return cols;
 }
 
-// パース済みの売上1行
-struct SalesRow { string id; string name; long amount; };
+// パース済みの売上1行（CSVは id,name,amount の3列だが、
+// この例で集計に使うのは金額のみ。列の存在確認は検証で行う）
+struct SalesRow { long amount; };
 
 // インポート1回分の結果（void をやめ、件数を返す）
 struct ImportResult { string schemaName; int saved; int skipped; };
@@ -453,7 +452,7 @@ public:
         for (size_t i = 1; i < rawLines.size(); ++i) {
             vector<string> c = splitLine(rawLines[i], ',');
             if (c.size() < 3) continue;
-            rows.push_back({c[0], c[1], stol(c[2])});
+            rows.push_back({stol(c[2])});
         }
         cout << "カンマ区切りで" << rows.size() << "件を読み込む\n";
 
@@ -492,7 +491,7 @@ public:
         for (size_t i = 0; i < rawLines.size(); ++i) {
             vector<string> c = splitLine(rawLines[i], '\t');
             if (c.size() < 3) { ++skipped; continue; }
-            rows.push_back({c[0], c[1], stol(c[2])});
+            rows.push_back({stol(c[2])});
         }
         cout << "タブ区切りで" << rows.size() << "件を読み込み、"
              << skipped << "件をスキップ\n";
@@ -836,7 +835,7 @@ public:
         for (size_t i = 1; i < rawLines.size(); ++i) {
             vector<string> c = splitLine(rawLines[i], ',');
             if (c.size() < 5) { ++skipped; continue; }   // ランク/ポイント列が不足
-            rows.push_back({c[0], c[1], stol(c[2])});
+            rows.push_back({stol(c[2])});
         }
         cout << "カンマ区切りで会員ランク・ポイント列まで解析（有効"
              << rows.size() << "件・スキップ" << skipped << "件）\n";
@@ -1010,7 +1009,7 @@ ImportResult StoreDataImporter::import() {
     for (size_t i = 1; i < rawLines.size(); ++i) {
         vector<string> c = splitLine(rawLines[i], ',');
         if (c.size() < 3) continue;
-        rows.push_back({c[0], c[1], stol(c[2])});
+        rows.push_back({stol(c[2])});
     }
 
     // 骨格の後段
@@ -1182,7 +1181,7 @@ public:
         for (size_t i = 1; i < rawLines.size(); ++i) {
             vector<string> c = splitLine(rawLines[i], ',');
             if (c.size() < 5) { ++skipped; continue; }   // EC固有の列数
-            rows.push_back({c[0], c[1], stol(c[2])});
+            rows.push_back({stol(c[2])});
         }
         long pointBonus = 0;                        // (2') EC固有：ポイント付与
         for (auto& r : rows) pointBonus += r.amount / 100;
@@ -1250,7 +1249,7 @@ protected:
         for (size_t i = 1; i < lines.size(); ++i) {
             vector<string> c = splitLine(lines[i], ',');
             bool ok = (c.size() >= 3);
-            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
+            SalesRow r = ok ? SalesRow{stol(c[2])} : SalesRow{};
             out.push_back({r, ok});
         }
         return out;
@@ -1292,7 +1291,7 @@ struct ImportResult {
     string schemaName;   // 表示名
     int saved;           // 保存できた件数
     int skipped;         // スキップした件数
-    bool ok;             // 成否
+    bool success;        // 成否
 };
 ```
 
@@ -1351,7 +1350,7 @@ static vector<string> splitLine(const string& line, char delim) {
 }
 
 // ---- ドメインデータ型（void をやめ、実データを受け渡す）----
-struct SalesRow { string id; string name; long amount; };
+struct SalesRow { long amount; };
 struct ParsedRow { SalesRow row; bool wellFormed; };
 struct ValidationResult {
     vector<SalesRow> validRows;
@@ -1480,7 +1479,7 @@ protected:
         for (size_t i = 1; i < lines.size(); ++i) {          // 1行目=ヘッダー
             vector<string> c = splitLine(lines[i], ',');
             bool ok = (c.size() >= 3);
-            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
+            SalesRow r = ok ? SalesRow{stol(c[2])} : SalesRow{};
             out.push_back({r, ok});
         }
         return out;
@@ -1511,7 +1510,7 @@ protected:
         for (size_t i = 0; i < lines.size(); ++i) {          // ヘッダーなし
             vector<string> c = splitLine(lines[i], '\t');
             bool ok = (c.size() >= 3);
-            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
+            SalesRow r = ok ? SalesRow{stol(c[2])} : SalesRow{};
             out.push_back({r, ok});
         }
         return out;
@@ -1544,7 +1543,7 @@ protected:
             vector<string> c = splitLine(lines[i], ',');
             // id,name,amount,rank,point
             bool ok = (c.size() >= 5);
-            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
+            SalesRow r = ok ? SalesRow{stol(c[2])} : SalesRow{};
             out.push_back({r, ok});
         }
         return out;

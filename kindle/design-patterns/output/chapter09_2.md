@@ -438,7 +438,8 @@ public:
                  << " は存在しません。" << endl;
             return;
         }
-        UserType userType = db.get(userId).userType;
+        UserInfo requester = db.get(userId);
+        UserType userType = requester.userType;
         Priority priority = calc.calculate(userType); // 優先度を判定
         Ticket t{
             ticketId,
@@ -448,8 +449,8 @@ public:
             ""
         };
         repo.save(t);
-        cout << "[" << ticketId << "] 作成 状態=Open 優先度="
-             << toString(priority) << endl;
+        cout << "[" << ticketId << "] 作成 申請者=" << requester.name
+             << " 状態=Open 優先度=" << toString(priority) << endl;
     }
     // 状態遷移と優先度判定を1メソッドの分岐で行う
     void updateStatus(const string& ticketId, const string& op,
@@ -552,8 +553,8 @@ int main() {
 実行結果：
 
 ```
-[TCK001] 作成 状態=Open 優先度=Normal
-[TCK002] 作成 状態=Open 優先度=High
+[TCK001] 作成 申請者=鈴木 次郎 状態=Open 優先度=Normal
+[TCK002] 作成 申請者=佐藤 花子 状態=Open 優先度=High
 [TCK001] assign: 状態 Open → InProgress 優先度=Normal 担当=AGT01
 [TCK001] resolve: 状態 InProgress → Resolved 優先度=Normal 担当=AGT01
 [TCK001] reopen: 状態 Resolved → Open 優先度=Normal 担当=AGT01
@@ -1945,11 +1946,13 @@ public:
                  << " は存在しません。" << endl;
             return;
         }
-        UserType category = users.get(userId).userType;
+        UserInfo requester = users.get(userId);
+        UserType category = requester.userType;
         Priority p = policies.priorityRule(category).getPriority();
         Ticket t{ticketId, userId, policies.initialPhase(), p, ""};
         repo.save(t);
-        cout << "[" << ticketId << "] 作成 状態=" << t.phase->name()
+        cout << "[" << ticketId << "] 作成 申請者=" << requester.name
+             << " 状態=" << t.phase->name()
              << " 優先度=" << toString(p) << endl;
         log.add(ticketId, EventType::Create, t.phase->name(), p);
     }
@@ -2048,9 +2051,9 @@ int main() {
 
 ```
 --- 行1: 依頼者 鈴木(standard)がTCK001を登録 ---
-[TCK001] 作成 状態=Open 優先度=Normal
+[TCK001] 作成 申請者=鈴木 次郎 状態=Open 優先度=Normal
 --- 行2: 依頼者 佐藤(premium)がTCK002を登録 ---
-[TCK002] 作成 状態=Open 優先度=High
+[TCK002] 作成 申請者=佐藤 花子 状態=Open 優先度=High
 ```
 
 行3〜行5で、TCK001をアサイン→解決→再受付します（状態がID単位で更新・保存される）。
@@ -2111,7 +2114,7 @@ int main() {
 
 ```
 --- 変更要求: 田中(corporate)のTCK003を登録し保留 ---
-[TCK003] 作成 状態=Open 優先度=High
+[TCK003] 作成 申請者=田中 一郎 状態=Open 優先度=High
   保留: 状態 Open → Pending
 ```
 
