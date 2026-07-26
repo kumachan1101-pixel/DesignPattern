@@ -541,7 +541,7 @@ public:
 
 #### ⑥ 実行して動作例と照合する（main）
 
-1-2の動作例テーブル（4行）と排他ルール・エラー条件を、実際に動かして確認します。
+1-2の動作例テーブル（4行）と排他ルール・エラー条件を、ケースごとにコードとその実行結果を並べて確認します（実行対象は1-4の現状コード）。まず依存を組み立て、動作例1（Premium会員・キャンペーンなし → 20%引き）を実行します。
 
 ```cpp
 int main() {
@@ -557,12 +557,36 @@ int main() {
     order1.items.push_back(Item("ワイヤレスイヤホン", 10000));
     context.isCampaignActive = false;
     processor.process(order1, context);
+```
 
+動作例1の実行結果（Premiumの20%引き）：
+
+```
+田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
+  条件: 会員=Premium, キャンペーン=なし
+  小計 10000円 → 支払金額 8000円
+```
+
+次に、動作例2（同じPremium会員にキャンペーンを当てても、排他ルールで優先は変わらない）を実行します。
+
+```cpp
     // 動作例2：同じPremium会員にキャンペーンを当てても優先は変わらない
     context.isCampaignActive = true;
     processor.process(order1, context);   // → 8000（キャンペーン無効）
     context.isCampaignActive = false;
+```
 
+動作例2の実行結果（キャンペーンありでもPremium優先で8000円のまま）：
+
+```
+田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
+  条件: 会員=Premium, キャンペーン=あり
+  小計 10000円 → 支払金額 8000円
+```
+
+続いて、動作例3（Regular会員・キャンペーンあり → 10%引き）を実行し、同じカートのプレビューも確認します。
+
+```cpp
     // 動作例3：C002（Regular）/ キャンペーンあり → 10%引き
     Order order2;
     order2.customerId = "C002";
@@ -572,14 +596,39 @@ int main() {
     std::cout << "  （上と同じ佐藤さんのカート）カートプレビュー: "
               << preview.getEstimatedTotal(order2, "Regular", context)
               << "円\n";
+```
 
+動作例3の実行結果（Regularの10%引き。プレビューも同じ金額を返す）：
+
+```
+佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
+  条件: 会員=Regular, キャンペーン=あり
+  小計 10000円 → 支払金額 9000円
+  （上と同じ佐藤さんのカート）カートプレビュー: 9000円
+```
+
+次に、動作例4（Regular会員・キャンペーンなし → 割引なし）を実行します。
+
+```cpp
     // 動作例4：C003（Regular）/ キャンペーンなし → 割引なし
     Order order3;
     order3.customerId = "C003";
     order3.items.push_back(Item("スマホケース", 3000));
     context.isCampaignActive = false;
     processor.process(order3, context);
+```
 
+動作例4の実行結果（割引なしで定価）：
+
+```
+鈴木 次郎 さんの注文: スマホケース 3000円
+  条件: 会員=Regular, キャンペーン=なし
+  小計 3000円 → 支払金額 3000円
+```
+
+最後に、エラー条件（存在しない顧客ID）を実行し、`main()` を終了します。
+
+```cpp
     // エラー条件：存在しない顧客ID
     Order order4;
     order4.customerId = "UNKNOWN";
@@ -590,29 +639,13 @@ int main() {
 }
 ```
 
-実行対象コード：1-4の現状コード
-対応する動作例：1-2の動作例テーブル、排他ルール、エラー条件
-確認したいこと：入力された会員種別とキャンペーン条件に応じて、支払金額が仕様どおりに計算されること
-★コードの処理と実行結果が紐づく形にして、８章のような形です
-
-実行結果：
+エラー条件の実行結果（存在しないIDは計算へ進まず中断）：
 
 ```
-田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
-  条件: 会員=Premium, キャンペーン=なし
-  小計 10000円 → 支払金額 8000円
-田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
-  条件: 会員=Premium, キャンペーン=あり
-  小計 10000円 → 支払金額 8000円
-佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
-  条件: 会員=Regular, キャンペーン=あり
-  小計 10000円 → 支払金額 9000円
-  （上と同じ佐藤さんのカート）カートプレビュー: 9000円
-鈴木 次郎 さんの注文: スマホケース 3000円
-  条件: 会員=Regular, キャンペーン=なし
-  小計 3000円 → 支払金額 3000円
 エラー: 顧客ID UNKNOWN は登録されていません
 ```
+
+各ケースのコードとその実行結果をその場で並べたので、離れた `main()` と出力を行き来せずに、入力された会員種別・キャンペーン条件と支払金額が仕様どおりかを照合できます（確認したいこと：排他ルールとエラー条件を含め、金額が仕様どおりに計算されること）。
 
 次の表は、`main()` で設定した各動作例の入力（条件・商品）と、その実行結果（小計→支払金額）を1行ずつ並べたものです。離れた `main()` と出力を行き来しなくても、入力と結果をその場で照合できます。
 
@@ -984,20 +1017,25 @@ graph LR
 
 **【変わる部分（変わり続けるif文と計算）】**
 
-1-3で示した `calculate` メソッドの割引判定ブロックが、キャンペーンのたびに変わる箇所です。
-★コード略さなないでください
+1-3で示した `calculate` メソッドの割引判定ブロックが、キャンペーンのたびに変わる箇所です。フェーズ3でサマーセールを足した後の割引判定を、省略せず全体で示します。
 
 ```cpp
+        // 割引：会員種別・キャンペーン・サマーセールで割引率を決める
         if (memberType == "Premium") {
-            total = total * 80 / 100;   // 20%引き
+            total = total * 80 / 100;              // 20%引き（サマーセール対象外）
         } else if (context.isSummerSale && context.isCampaignActive) {
-            total = (total * 90 / 100) * 95 / 100; // 複合割引
-        // ← 新しいキャンペーンが来るたびに、ここにelse ifが追加される
+            total = (total * 90 / 100) * 95 / 100; // 逐次割引（10%引き後に5%引き）
+        } else if (context.isSummerSale) {
+            total = total * 95 / 100;              // サマーセール5%引き
+        } else if (context.isCampaignActive) {
+            total = total * 90 / 100;              // キャンペーン10%引き
+        }
+        // ← 新しいキャンペーンが来るたびに、ここに else if が増え続ける
 ```
 
 **【変わってほしくない部分（守りたい骨格）】**
 
-1-3の `calculate` メソッドのうち、「商品を順に足して合計を出し、最終金額を返す」という骨格部分は変えたくありません。★コード略さなないでください
+1-3の `calculate` メソッドのうち、「商品を順に足して合計を出し、最終金額を返す」という骨格部分は変えたくありません。次のコードのうち、割引判定を挟む前後の小計計算と `return` が守りたい骨格です。
 
 ```cpp
         int total = 0;
@@ -1242,6 +1280,7 @@ classDiagram
         +matches(memberType, context) bool
         +apply(total) int
         +name() string
+        +priority() int
     }
     class RuleSelector {
         +add(rule)
@@ -1369,6 +1408,7 @@ public:
                          const CampaignContext& context) const = 0;
     virtual int apply(int total) const = 0;
     virtual std::string name() const = 0;
+    virtual int priority() const = 0;   // 一致が重なったときの優先度
     virtual ~IDiscountRule() = default;
 };
 
@@ -1380,6 +1420,7 @@ public:
     }
     int apply(int total) const override { return total * 80 / 100; }
     std::string name() const override { return "プレミアム割引"; }
+    int priority() const override { return 1; }
 };
 
 class SummerSaleDiscount : public IDiscountRule {
@@ -1390,6 +1431,7 @@ public:
     }
     int apply(int total) const override { return total * 95 / 100; }
     std::string name() const override { return "サマーセール割引"; }
+    int priority() const override { return 2; }
 };
 ```
 
@@ -1397,7 +1439,7 @@ public:
 
 #### 実装ステップ3（P1・P2）：具象ルールを生成・登録し、選択済みルールを注入する
 
-`main()`は具象ルールを生成・所有し、`RuleSelector`へ業務上の優先順で登録します。Selector自体も`main()`で生成し、`OrderProcessor`へ注入します。`RuleSelector`は施策固有の条件を持たず、登録された`IDiscountRule`へ同じ`matches()`を順番に問い合わせ、最初に一致したルールを返します。`OrderProcessor`は選択結果を受け取り、その参照で`PaymentCalculator`と`CartPreviewService`を生成します。
+`main()`は具象ルールを生成・所有し、`RuleSelector`へ登録します（登録順は自由でよく、業務上の優先順を利用者が意識する必要はありません）。Selector自体も`main()`で生成し、`OrderProcessor`へ注入します。`RuleSelector`は施策固有の条件を持たず、登録された`IDiscountRule`へ同じ`matches()`を問い合わせ、一致したルールのうち各ルールが宣言する`priority()`が最も高いものを返します。`OrderProcessor`は選択結果を受け取り、その参照で`PaymentCalculator`と`CartPreviewService`を生成します。
 
 ```cpp
 class RuleSelector {
@@ -1411,11 +1453,20 @@ public:
     const IDiscountRule& select(
             const std::string& memberType,
             const CampaignContext& context) const {
+        // 登録順ではなく、一致したルールのうち priority() が最も高いものを
+        // システムが選ぶ。利用者は登録順で優先度を意識しなくてよい。
+        const IDiscountRule* best = nullptr;
         for (const auto& registered : rules) {
             const IDiscountRule& rule = registered.get();
-            if (rule.matches(memberType, context)) return rule;
+            if (rule.matches(memberType, context)
+                && (best == nullptr
+                    || rule.priority() > best->priority())) {
+                best = &rule;
+            }
         }
-        throw std::logic_error("適用可能な割引ルールがありません");
+        if (best == nullptr)
+            throw std::logic_error("適用可能な割引ルールがありません");
+        return *best;
     }
 };
 
@@ -1432,7 +1483,7 @@ selector.add(premium);            // 排他ルールを最優先
 selector.add(summerAndCampaign);  // 併用条件を単独条件より先に評価
 selector.add(summer);
 selector.add(campaign);
-selector.add(none);               // 必ず最後に登録
+selector.add(none);               // 登録順は自由（priority()で選ばれる）
 
 // main()内：Selectorを安定側へ注入する
 OrderProcessor processor(db, renderer, selector);
@@ -1552,6 +1603,9 @@ public:
                          const CampaignContext& context) const = 0;
     virtual int apply(int total) const = 0;
     virtual std::string name() const = 0;
+    // 優先度：複数のルールが一致したとき、システムがどれを選ぶかの基準。
+    // 条件が具体的（当てはまる状況が狭い）なルールほど高くする。
+    virtual int priority() const = 0;
     virtual ~IDiscountRule() = default;
 };
 ```
@@ -1573,6 +1627,7 @@ public:
     }
     int apply(int total) const override { return total; }
     std::string name() const override { return "割引なし"; }
+    int priority() const override { return 0; }   // 常に一致する土台。最下位
 };
 
 class PremiumDiscount : public IDiscountRule {
@@ -1585,6 +1640,7 @@ public:
         return total * 80 / 100;
     }
     std::string name() const override { return "プレミアム割引"; }
+    int priority() const override { return 1; }   // 会員種別だけの単独条件
 };
 
 class SummerSaleAndCampaignDiscount : public IDiscountRule {
@@ -1601,6 +1657,7 @@ public:
     std::string name() const override {
         return "サマーセール+キャンペーン";
     }
+    int priority() const override { return 3; }   // 2条件が重なる最も具体的なルール
 };
 
 class SummerSaleDiscount : public IDiscountRule {
@@ -1613,6 +1670,7 @@ public:
         return total * 95 / 100;
     }
     std::string name() const override { return "サマーセール割引"; }
+    int priority() const override { return 2; }   // Regular＋1条件
 };
 
 class CampaignDiscount : public IDiscountRule {
@@ -1625,13 +1683,14 @@ public:
         return total * 90 / 100;
     }
     std::string name() const override { return "キャンペーン割引"; }
+    int priority() const override { return 2; }   // Regular＋1条件
 };
 ```
 
 - 各割引が `IDiscountRule` を実装した独立クラスです。適用条件と計算式（`* 80 / 100` など）は、同じ施策クラスの中にあります。
 - 逐次割引は `SummerSaleAndCampaignDiscount` という1つのルールとして表します（フェーズ5の方針）。
 - Premium以外のルールは `memberType == "Regular"` も自分で確認します。登録順だけに排他条件を隠さず、ルール単体でも適用条件を読めるようにするためです。
-- `NoDiscount` は「割引なし」を表し、必ず一致して定価を返します。最後に登録することで、Selectorがルール未選択にならないようにします。
+- `NoDiscount` は「割引なし」を表し、必ず一致して定価を返します。`priority()` を最下位（0）にしているので、他のどのルールも一致しないときだけ選ばれ、Selectorがルール未選択になりません。登録順に依存しません。
 
 **3. 本体クラス（コンテキスト）**
 計算を行う本体クラスです。具体的な割引ルールを知らず、インターフェースを通じて計算を委譲します。これにより、割引種別を選ぶ条件分岐を計算フローから外せます。
@@ -1671,7 +1730,7 @@ public:
 - `CartPreviewService` も同じ `rule` を受け取り、決済と同じ `PaymentResult` を返します。
 
 **4. ルール選択と利用（RuleSelector・OrderProcessor）**
-`RuleSelector` は具体的な条件やクラス名を知りません。組み立て側から登録されたルールへ同じ `matches()` を順に問い、最初に一致したルールを返します。`OrderProcessor` は CustomerDatabase・RuleSelector・PaymentCalculator を接続して注文処理全体を担います。
+`RuleSelector` は具体的な条件やクラス名を知りません。組み立て側から登録されたルールへ同じ `matches()` を問い、一致したルールのうち `priority()` が最も高いものを返します（登録順ではなく、システムが優先度で選びます）。`OrderProcessor` は CustomerDatabase・RuleSelector・PaymentCalculator を接続して注文処理全体を担います。
 
 ```cpp
 class RuleSelector {
@@ -1685,11 +1744,20 @@ public:
     const IDiscountRule& select(
             const std::string& memberType,
             const CampaignContext& context) const {
+        // 登録順ではなく、一致したルールのうち priority() が最も高いものを
+        // システムが選ぶ。利用者は登録順で優先度を意識しなくてよい。
+        const IDiscountRule* best = nullptr;
         for (const auto& registered : rules) {
             const IDiscountRule& rule = registered.get();
-            if (rule.matches(memberType, context)) return rule;
+            if (rule.matches(memberType, context)
+                && (best == nullptr
+                    || rule.priority() > best->priority())) {
+                best = &rule;
+            }
         }
-        throw std::logic_error("適用可能な割引ルールがありません");
+        if (best == nullptr)
+            throw std::logic_error("適用可能な割引ルールがありません");
+        return *best;
     }
 };
 
@@ -1769,26 +1837,27 @@ public:
 **5. 実行（main）と結果**
 1-5の変更後の動作例を、最終コードで再現します。
 
-1-5の変更後の動作例を、最終コードでシナリオごとに再現します。まず依存を組み立て、シナリオ1（Premium会員の20%引き）を実行します。★addで同じキャンペーンを複数登録したら２重で適用されてしまうのでは？そんなことはなかった。優先度を利用者が意識して、最初にマッチした条件で動作する形になっている。そもそも、優先度を利用者が意識するのはおかしいのでシステムを変えてほしい。システムが優先度を考えるべきです。
+1-5の変更後の動作例を、最終コードでシナリオごとに再現します。まず依存を組み立て、シナリオ1（Premium会員の20%引き）を実行します。ここで、`add()` の**登録順は優先度と無関係**です。どのルールを優先するかは各ルールの `priority()` を見て `RuleSelector` が決めるため、利用者は登録順を気にする必要がありません。そのことを示すために、あえて土台の `NoDiscount` を最初に、`PremiumDiscount` を最後に登録します（同じルールを重複登録しても、`select()` は一致した中の最高優先度を1つ返すだけで、二重には適用されません）。
 
 ```cpp
 int main() {
     CustomerDatabase db;
     CheckoutResultRenderer renderer;
 
-    // 具体ルールは組み立て側が所有し、業務上の優先順に登録する
-    PremiumDiscount premium;
-    SummerSaleAndCampaignDiscount summerAndCampaign;
-    SummerSaleDiscount summer;
-    CampaignDiscount campaign;
+    // 具体ルールは組み立て側が所有する。登録順は自由でよい。
+    // どれを優先するかは各ルールの priority() でシステムが決める。
     NoDiscount none;
+    CampaignDiscount campaign;
+    SummerSaleDiscount summer;
+    SummerSaleAndCampaignDiscount summerAndCampaign;
+    PremiumDiscount premium;
 
     RuleSelector selector;
-    selector.add(premium);
-    selector.add(summerAndCampaign);
-    selector.add(summer);
+    selector.add(none);              // あえて土台を最初に登録しても…
     selector.add(campaign);
-    selector.add(none);
+    selector.add(summer);
+    selector.add(summerAndCampaign);
+    selector.add(premium);           // …priority() で正しく選ばれる
 
     OrderProcessor processor(db, renderer, selector);
     CampaignContext context;
@@ -1992,6 +2061,7 @@ classDiagram
         +matches(memberType, context) bool
         +apply(total) int
         +name() string
+        +priority() int
     }
     class RuleSelector {
         +add(rule)
@@ -2062,7 +2132,7 @@ sequenceDiagram
         S->>I: matches(memberType, context)
         I-->>S: true / false
     end
-    S-->>M: 最初に一致したrule
+    S-->>M: 一致の中でpriority()最高のrule
     M->>P: 生成 (rule参照を注入)
     M->>P: calculate(order)
     activate P
@@ -2282,4 +2352,12 @@ GoF（Gang of Four）とは、1994年に出版された書籍『Design Patterns�
 
 あなたのコードの中にも、同じ条件分岐がいくつかのルールを束ねている箇所がきっとあるはずです。それぞれのケースが「どの業務機能に属する知識か」を問うことが、次の変化に備えた構造を見つける入口になります。
 
-★著者の思いは、割引判定と、割引処理が、それぞれ共通情報としてあり、契約として分離している点が、面白さがある点。割引判定が契約になっている事から、どの判定を使用するかのセレクターを用意している。
+### 著者の思い
+
+> この節は著者の思いを仮で書き起こしたものです。今後の推敲で表現を調整します。
+
+長い章を読んでくださってありがとうございました。この章で個人的に面白いと思っているのは、割引の「判定（どの割引に当てはまるか）」と「処理（いくら引くか）」が、どちらも同じ共通情報（注文・会員種別・キャンペーン状態）を入力に取りながら、`IDiscountRule` の `matches()` と `apply()` という別々の契約として分かれている点です。
+
+とくに、判定そのものが `matches()` という契約になっているからこそ、「どの判定を使うか」を選ぶ役割（`RuleSelector`）を独立して用意できます。選ぶ側は具体的な割引条件を知らず、登録されたルールへ同じ `matches()` を尋ねるだけ。計算する側も具体式を知らず、選ばれたルールの `apply()` を呼ぶだけです。判定と処理を別の契約に切り出すと、この「選ぶ」と「計算する」がそれぞれ独立して差し替えられるようになります。
+
+パターン名より先に、「この分岐の中に、変わる理由の違うものが何種類隠れているか」を見つける目を持ち帰ってもらえたら嬉しいです。仮の文章なので、後で言葉を整えます。
