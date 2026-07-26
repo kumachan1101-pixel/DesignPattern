@@ -278,7 +278,7 @@ flowchart LR
 | `CreditCardInput` | カード固有の入力値 | トークン・名義・セキュリティコード |
 | `BankTransferInput` | 銀行振込固有の入力値 | 振込名義・銀行コード・口座種別 |
 | `ConvenienceInput` | コンビニ払い固有の入力値 | 電話番号・メール・店舗コード |
-| `PendingInfo` | 非同期決済の追跡情報 | 保留ID・確認先・有効期限 |
+| `PendingInfo` | 非同期決済の追跡情報 | 完了確認用の保留ID |
 | `PaymentRequest` | 決済1件の要求 | 決済手段・金額・注文ID・手段固有入力 |
 | `PaymentResult` | 決済1件の結果 | 成功/保留/失敗・再試行可否・保留情報 |
 | `ProcessorConfig` | 決済手段1件の設定 | 名称・有効状態 |
@@ -461,8 +461,6 @@ struct ConvenienceInput {
 
 struct PendingInfo {
     string pendingId;  // 完了確認用ID
-    string checkUrl;   // 確認先（スタブでは表示用）
-    string expiresAt;  // 有効期限
 };
 
 // ---- 決済要求・結果 ----
@@ -634,11 +632,9 @@ public:
              << " amount=" << amount
              << " payer=" << bank.payerName
              << " bank=" << bank.bankCode
+             << " type=" << bank.accountType
              << endl;
-        PendingInfo p{
-            "BT-" + orderId,
-            "/api/bank/status/",
-            "2026-07-12"};
+        PendingInfo p{"BT-" + orderId};
         return {"保留",
                 "振込先発行済み 口座=mizuho-1234567",
                 false, "", p};
@@ -655,10 +651,7 @@ public:
              << " phone=" << cvs.phoneNumber
              << " store=" << cvs.storeCode
              << endl;
-        PendingInfo p{
-            "CVS-" + orderId,
-            "/api/cvs/status/",
-            "2026-07-08"};
+        PendingInfo p{"CVS-" + orderId};
         return {"保留",
                 "支払い番号発行済み 番号=CVS-98765",
                 false, "", p};
@@ -1011,7 +1004,7 @@ int main() {
 ケース2の実行結果：
 
 ```
-[決済API] 振込先発行 order=ORD-1002 amount=2000 payer=山田太郎 bank=0001
+[決済API] 振込先発行 order=ORD-1002 amount=2000 payer=山田太郎 bank=0001 type=ordinary
 結果: bank_transfer -> 保留 (振込先発行済み 口座=mizuho-1234567)
   完了確認中... id=BT-ORD-1002
 [状態確認API] id=BT-ORD-1002
@@ -1360,10 +1353,7 @@ public:
              << " amount=" << amount
              << " phone=" << cvs.phoneNumber
              << " store=" << cvs.storeCode << endl;
-        PendingInfo p{
-            "CVS-" + orderId,
-            "/api/cvs/status/",
-            "2026-07-08"};
+        PendingInfo p{"CVS-" + orderId};
         return {"保留",
                 "支払い番号発行済み 番号=CVS-98765",
                 false, "", p};
@@ -1379,10 +1369,7 @@ public:
              << " amount=" << amount
              << " token=" << pp.accessToken
              << endl;
-        PendingInfo p{
-            "PP-" + orderId,
-            "/api/paypay/status/",
-            "2026-07-10"};
+        PendingInfo p{"PP-" + orderId};
         return {"保留",
                 "PayPayセッション作成済み",
                 false, "", p};
@@ -2051,8 +2038,6 @@ struct PayPayInput {
 
 struct PendingInfo {
     string pendingId;
-    string checkUrl;
-    string expiresAt;
 };
 
 // ---- 決済要求・結果 ----
@@ -2253,11 +2238,9 @@ public:
              << " order=" << orderId
              << " amount=" << amount
              << " payer=" << bank.payerName
+             << " type=" << bank.accountType
              << endl;
-        PendingInfo p{
-            "BT-" + orderId,
-            "/api/bank/status/",
-            "2026-07-12"};
+        PendingInfo p{"BT-" + orderId};
         return {PaymentStatus::Pending,
                 "振込先発行済み 口座=mizuho-1234567",
                 false, "", p};
@@ -2272,10 +2255,7 @@ public:
              << " amount=" << amount
              << " phone=" << cvs.phoneNumber
              << endl;
-        PendingInfo p{
-            "CVS-" + orderId,
-            "/api/cvs/status/",
-            "2026-07-08"};
+        PendingInfo p{"CVS-" + orderId};
         return {PaymentStatus::Pending,
                 "番号発行済み 番号=CVS-98765",
                 false, "", p};
@@ -2290,10 +2270,7 @@ public:
              << " amount=" << amount
              << " token=" << pp.accessToken
              << endl;
-        PendingInfo p{
-            "PP-" + orderId,
-            "/api/paypay/status/",
-            "2026-07-10"};
+        PendingInfo p{"PP-" + orderId};
         return {PaymentStatus::Pending,
                 "PayPayセッション作成済み",
                 false, "", p};
@@ -2700,7 +2677,7 @@ int main() {
 ケース2の実行結果：
 
 ```
-[PaymentGateway] 振込先発行 order=ORD-1002 amount=2000 payer=山田太郎
+[PaymentGateway] 振込先発行 order=ORD-1002 amount=2000 payer=山田太郎 type=ordinary
 結果: bank_transfer -> 保留 (振込先発行済み 口座=mizuho-1234567)
   完了確認中... id=BT-ORD-1002
 [状態確認API] id=BT-ORD-1002
