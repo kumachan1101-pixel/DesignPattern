@@ -227,6 +227,27 @@ classDiagram
 
 この図から分かるのは、予約する、支払う、キャンセルするという操作が同じ予約管理クラスに集まっていることです。各操作の中で状態をどう判定しているかは、次の実装コードで確認します。
 
+**現状システムの処理シーケンス**
+
+静的な関係に続けて、正常系（予約→支払い）で各操作がどの順に呼ばれ、状態がどう遷移するかを時系列で示します。状態ごとの具体の分岐は `TicketReservation` の注記に、エラー系はメモとして添えます。1-4の現状コードを読む前の地図です。
+
+```mermaid
+sequenceDiagram
+    participant Main as main（予約画面相当）
+    participant TR as TicketReservation
+    participant DB as EventDatabase
+    Main->>TR: reserve()
+    TR->>DB: hasCapacity(eventId)
+    DB-->>TR: true（空席あり）
+    TR-->>Main: 予約完了（Available→Reserved）
+    Main->>TR: pay()
+    TR-->>Main: 支払い完了（Reserved→Paid）
+    Note right of TR: 具体の分岐（現状の状態遷移）<br>Available で reserve → Reserved<br>Reserved で pay → Paid ／ cancel → Available<br>Held で expire → Available（待ち行列の先頭を自動昇格）
+    Note over Main,TR: エラー系（メモ）: 現在状態に許可されない操作（例: Available で pay）は<br>handle*Error で拒否し、状態を変えない
+```
+
+図から読み取れるのは、公開操作（`reserve`／`pay`／`cancel`）が同じ `TicketReservation` に集まり、各操作が現在の `status` を見て遷移先を決めていること、席の空きは `EventDatabase.hasCapacity()` で確認すること、許可されない操作はメモのとおり状態を変えずに拒否されることです。状態ごとに「どの操作で何が起きるか」がこの時系列と注記で確認できます。
+
 
 **この章での簡略化**
 
