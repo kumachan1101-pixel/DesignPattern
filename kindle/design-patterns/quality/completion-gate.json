@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "book_status": "ready",
+  "book_status": "in_progress",
   "task_source": "review-tasks.md",
   "tasks": {
     "CONS-001": {"status": "done", "evidence": ["output/chapter00_2.md#フェーズ5"]},
@@ -40,24 +40,27 @@
     "CONS-035": {"status": "done", "evidence": ["output/chapter12.md#WorkflowResult", "output/chapter12.md#NotificationDeliveryLog"]},
     "CONS-036": {"status": "done", "evidence": ["output/chapter12.md#解決後のクラス構成"]},
     "CONS-037": {"status": "done", "evidence": ["output/epilogue.md#7フェーズ"]},
-    "CONS-038": {"status": "done", "evidence": ["templates/chapter-template.md#要求→課題→構造→コード→結果の追跡", "script/validate_book.py:1907", "audit-report.md#全章横断監査レポート"]}
+    "CONS-038": {"status": "done", "evidence": ["templates/chapter-template.md#要求→課題→構造→コード→結果の追跡", "script/validate_book.py:1907", "audit-report.md#全章横断監査レポート"]},
+    "CONS-039": {"status": "open", "evidence": []},
+    "CONS-040": {"status": "open", "evidence": []},
+    "CONS-041": {"status": "open", "evidence": []}
   },
   "chapters": {
     "chapter00_1.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter00_1.md#設計構造とデザインパターン"]},
     "chapter00_2.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter00_2.md#7フェーズ"]},
-    "chapter01.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter01.md#要求→課題→構造→コード→結果の追跡"]},
-    "chapter02.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter02.md#要求→課題→構造→コード→結果の追跡"]},
-    "chapter03.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter03.md#要求→課題→構造→コード→結果の追跡"]},
-    "chapter04.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter04.md#要求→課題→構造→コード→結果の追跡"]},
-    "chapter05.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter05.md#要求→課題→構造→コード→結果の追跡"]},
-    "chapter06.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter06.md#要求→課題→構造→コード→結果の追跡"]},
-    "chapter07.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter07.md#要求→課題→構造→コード→結果の追跡"]},
-    "chapter08.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter08.md#要求→課題→構造→コード→結果の追跡"]},
+    "chapter01.md": {"status": "pending", "reviewed_by": "", "evidence": []},
+    "chapter02.md": {"status": "pending", "reviewed_by": "", "evidence": []},
+    "chapter03.md": {"status": "pending", "reviewed_by": "", "evidence": []},
+    "chapter04.md": {"status": "pending", "reviewed_by": "", "evidence": []},
+    "chapter05.md": {"status": "pending", "reviewed_by": "", "evidence": []},
+    "chapter06.md": {"status": "pending", "reviewed_by": "", "evidence": []},
+    "chapter07.md": {"status": "pending", "reviewed_by": "", "evidence": []},
+    "chapter08.md": {"status": "pending", "reviewed_by": "", "evidence": []},
     "chapter09_1.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter09_1.md#第二部"]},
-    "chapter09_2.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter09_2.md#要求→課題→構造→コード→結果の追跡"]},
-    "chapter10.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter10.md#要求→課題→構造→コード→結果の追跡"]},
-    "chapter11.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter11.md#要求→課題→構造→コード→結果の追跡"]},
-    "chapter12.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/chapter12.md#要求→課題→構造→コード→結果の追跡"]},
+    "chapter09_2.md": {"status": "pending", "reviewed_by": "", "evidence": []},
+    "chapter10.md": {"status": "pending", "reviewed_by": "", "evidence": []},
+    "chapter11.md": {"status": "pending", "reviewed_by": "", "evidence": []},
+    "chapter12.md": {"status": "pending", "reviewed_by": "", "evidence": []},
     "epilogue.md": {"status": "pass", "reviewed_by": "Codex semantic audit 2026-07-26", "evidence": ["output/epilogue.md#7フェーズ"]}
   }
 }
