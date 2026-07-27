@@ -517,6 +517,8 @@ public:
 
 **main 関数**
 
+まず依存を組み立て、登録（鈴木standard・佐藤premiumのチケット作成）を実行します。
+
 ```cpp
 int main() {
     TicketManager manager;
@@ -525,21 +527,56 @@ int main() {
     manager.create("TCK001", "USR003");
     // 行2: 佐藤(premium)が登録 → 高優先度・受付中
     manager.create("TCK002", "USR002");
+```
 
+登録の実行結果：
+
+```
+[TCK001] 作成 申請者=鈴木 次郎 状態=Open 優先度=Normal
+[TCK002] 作成 申請者=佐藤 花子 状態=Open 優先度=High
+```
+
+続いて、TCK001の状態遷移（アサイン→解決→再受付）を実行します。
+
+```cpp
     // 行3: TCK001をアサイン → 対応中
     manager.updateStatus("TCK001", "assign", "AGT01");
     // 行4: TCK001を解決 → 解決済み
     manager.updateStatus("TCK001", "resolve");
     // 行5: TCK001を再受付 → 受付中（優先度を再計算）
     manager.updateStatus("TCK001", "reopen");
+```
 
+TCK001の状態遷移の実行結果：
+
+```
+[TCK001] assign: 状態 Open → InProgress 優先度=Normal 担当=AGT01
+[TCK001] resolve: 状態 InProgress → Resolved 優先度=Normal 担当=AGT01
+[TCK001] reopen: 状態 Resolved → Open 優先度=Normal 担当=AGT01
+```
+
+続いて、TCK002の状態遷移（アサイン→エスカレーション→解決）を実行します。
+
+```cpp
     // 行6: TCK002をアサイン → 対応中
     manager.updateStatus("TCK002", "assign", "AGT02");
     // 行7: TCK002をエスカレーション → 緊急対応中
     manager.updateStatus("TCK002", "escalate");
     // 行8: TCK002を解決 → 解決済み
     manager.updateStatus("TCK002", "resolve");
+```
 
+TCK002の状態遷移の実行結果：
+
+```
+[TCK002] assign: 状態 Open → InProgress 優先度=High 担当=AGT02
+[TCK002] escalate: 状態 InProgress → Escalated 優先度=High 担当=AGT02
+[TCK002] resolve: 状態 Escalated → Resolved 優先度=High 担当=AGT02
+```
+
+最後に、エラー（存在しないユーザーID）を実行し、`main()` を終了します。
+
+```cpp
     // 存在しないユーザーID
     manager.create("TCK004", "USR999");
 
@@ -547,22 +584,13 @@ int main() {
 }
 ```
 
-実行対象コード：1-4の現状コード
-対応する動作例：1-2の動作例テーブル
-確認したいこと：入力・操作に応じて状態と優先度がチケットID単位で保存・更新されること
-実行結果：
+エラー（存在しないユーザーID）の実行結果：
 
 ```
-[TCK001] 作成 申請者=鈴木 次郎 状態=Open 優先度=Normal
-[TCK002] 作成 申請者=佐藤 花子 状態=Open 優先度=High
-[TCK001] assign: 状態 Open → InProgress 優先度=Normal 担当=AGT01
-[TCK001] resolve: 状態 InProgress → Resolved 優先度=Normal 担当=AGT01
-[TCK001] reopen: 状態 Resolved → Open 優先度=Normal 担当=AGT01
-[TCK002] assign: 状態 Open → InProgress 優先度=High 担当=AGT02
-[TCK002] escalate: 状態 InProgress → Escalated 優先度=High 担当=AGT02
-[TCK002] resolve: 状態 Escalated → Resolved 優先度=High 担当=AGT02
 エラー: ユーザーID USR999 は存在しません。
 ```
+
+各ケースのコードとその実行結果をその場で並べたので、離れた `main()` と出力を行き来せずに照合できます（確認したいこと：入力・操作に応じて状態と優先度がチケットID単位で保存・更新されること）。
 
 > [!NOTE]
 > 実行結果は、1-2の動作例（行1〜行8）と存在しないユーザーのエラーに対応します。各更新行の先頭にチケットIDを出すため、`assign → resolve → reopen`がTCK001、`assign → escalate → resolve`がTCK002へ適用されたことを区別できます。状態は `TicketRepository` にチケットID単位で保存され、操作のたびに現在状態と優先度が更新されます。
