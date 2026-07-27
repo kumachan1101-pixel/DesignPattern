@@ -1104,6 +1104,8 @@ classDiagram
         +exists(type) bool
         +get(type) ImportSchema
     }
+    StoreDataImporter ..> SchemaRegistry : 登録を確認
+    FCDataImporter ..> SchemaRegistry : 登録を確認
     note for StoreDataImporter "【残す】直営店のパース・行検証\n【P1・移す】open→検証→保存→closeの共通骨格"
     note for FCDataImporter "【残す】FC店のパース・行検証\n【P1・移す】重複した共通骨格"
     note for SchemaRegistry "【維持】形式の登録・存在確認"

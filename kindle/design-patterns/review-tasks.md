@@ -1547,3 +1547,21 @@ R8-01（各フィールドが設定→参照→結果まで実際に使われて
 | 第12章 | 役職固定値（田中 部長/manager/10万）不一致、Repository変更なしと言いつつstring→IWorkflowPhase*、部署別上限未実装 | APR001=田中 課長・APR002=佐藤 部長へ整合。状態保存の値変更をP1の一部として宣言・図を修正。`DepartmentApprovalRule`をStrategyで実装し行9で差し替え実証 |
 
 検証：`check_execution_output.py`／`validate_book.py`（15）／`check_kindle.py`（15）／`audit_book.py`（0件）／`git diff --check` すべて合格。
+
+### 2026-07-27 クラス図の全クラス接続化（浮きクラス容認の規約を撤廃）
+
+第0章「クラス図の読み方（全章共通の規約）」にあった「他のクラスと線がつながっていないクラス（焦点の外で使われるクラス）が出てくることがある／浮いて見えるクラスには注記を添える」という記述を撤廃し、「載せるどのクラスも必ず何らかの関係線（継承・実装・利用・保持・依存）でつながる。関係線を引けないクラスは図から外して本文・表で説明する」へ変更した。`rules/checklist.md` の該当チェック（浮きクラスへの注記確認）も同じ基準へ更新した。
+
+機械走査（Mermaid classDiagram の孤立ノード検出）で見つかった各図の浮きクラスへ、実コード準拠の依存・利用線を追加した。
+
+| 章 | 図 | 浮いていたクラス | 追加した関係線 |
+|---|---|---|---|
+| 第1章 | フェーズ6/7 採用クラス図 | `PaymentResult` | `PaymentCalculator ..> PaymentResult`、`CartPreviewService ..> PaymentResult`（戻り値） |
+| 第2章 | フェーズ6/7 採用クラス図 | `TransferRequest`／`TransferResult` | `TransferProcessor ..> TransferRequest`（受け取る）、`IBankTransferService ..> TransferResult`（返す） |
+| 第4章 | 変更前クラス図（1-3再掲） | `StoreDataImporter`／`FCDataImporter`／`SchemaRegistry` | 各Importer `..> SchemaRegistry`（登録を確認。1-3注記「store/fcの登録を確認」に準拠） |
+| 第6章 | 変更前クラス図（1-3再掲） | `MenuDatabase`／`CustomDrink` | `MenuDatabase ..> CustomDrink`（商品情報が組み立てに渡る。1-3のMenuItem媒介を圧縮） |
+| 第8章 | 変更前クラス図 | `PaymentLog` | `PaymentApplication --> PaymentLog`（記録。変更後図と同じ関係） |
+| 第11章 | フェーズ6/7 採用クラス図 | `OutputFormat`（enum） | `GenerateReportAction ..> OutputFormat`（出力形式を保持） |
+| 第12章 | フェーズ6/7 採用クラス図 | `WorkflowEvent`（enum）／`WorkflowResult` | `IWorkflowPhase ..> WorkflowEvent`（受け取る）、`IWorkflowPhase ..> WorkflowResult`（返す） |
+
+追加線はいずれも既存コードにある生成・引数・戻り値・保持の関係で、新しい依存を発明していない。孤立ノード検出は全図で0件になった。検証：`validate_book.py`（15）／`check_kindle.py`（15）／`check_execution_output.py`（1-4/7-1一致）／`audit_book.py`（0件）／`run_completion_gate.py --release`（PASS）すべて合格。

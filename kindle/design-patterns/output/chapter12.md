@@ -1178,6 +1178,8 @@ classDiagram
     class INotificationListener { <<interface>> }
     class EmailNotifier
     WorkflowManager o--> IWorkflowPhase
+    IWorkflowPhase ..> WorkflowEvent : 受け取る
+    IWorkflowPhase ..> WorkflowResult : 返す
     IWorkflowPhase <|.. PendingPhase
     PendingPhase <|-- PriorityPendingPhase
     PendingPhase --> IApprovalRule
@@ -2387,6 +2389,8 @@ classDiagram
     class INotificationListener { <<interface>> }
     class EmailNotifier
     WorkflowManager o--> IWorkflowPhase
+    IWorkflowPhase ..> WorkflowEvent : 受け取る
+    IWorkflowPhase ..> WorkflowResult : 返す
     IWorkflowPhase <|.. PendingPhase
     PendingPhase <|-- PriorityPendingPhase
     PendingPhase --> IApprovalRule

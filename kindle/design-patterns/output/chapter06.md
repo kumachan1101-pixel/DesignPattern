@@ -991,6 +991,7 @@ classDiagram
         +getPrice() int
         +getDescription() string
     }
+    MenuDatabase ..> CustomDrink : 商品情報が組み立てに渡る
     note for MenuDatabase "Composition Rootが生成し、商品情報を取得する"
 
     note for CustomDrink "Composition RootがMenuItemから生成する\n【残す】価格・説明を返す契約\n【P1・移す】各トッピングのフラグ・価格・表示名・組み合わせ"

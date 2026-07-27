@@ -1303,6 +1303,8 @@ classDiagram
     OrderProcessor --> CheckoutResultRenderer : 使う
     CartPreviewService *--> PaymentCalculator : 持つ
     PaymentCalculator --> IDiscountRule : 使う
+    PaymentCalculator ..> PaymentResult : 返す
+    CartPreviewService ..> PaymentResult : 返す
     RuleSelector o--> IDiscountRule : 登録する
     RuleSelector ..> CampaignContext : 参照する
     IDiscountRule <|.. PremiumDiscount
@@ -2084,6 +2086,8 @@ classDiagram
     OrderProcessor --> CheckoutResultRenderer : 使う
     CartPreviewService *--> PaymentCalculator : 持つ
     PaymentCalculator --> IDiscountRule : 使う
+    PaymentCalculator ..> PaymentResult : 返す
+    CartPreviewService ..> PaymentResult : 返す
     RuleSelector o--> IDiscountRule : 登録する
     RuleSelector ..> CampaignContext : 参照する
     IDiscountRule <|.. PremiumDiscount

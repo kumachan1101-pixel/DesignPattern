@@ -1221,6 +1221,8 @@ classDiagram
     BankTransferService --> TransferHistory : 履歴を追加する
     BankTransferService --> Bank : 手順を呼ぶ
     BankTransferService --> SecurityAuthenticator : 手順を呼ぶ
+    TransferProcessor ..> TransferRequest : 受け取る
+    IBankTransferService ..> TransferResult : 返す
 
     note for TransferProcessor "【P1・残した】業務フロー\n手順を知らない\n【P2】契約だけに依存"
     note for BankTransferService "【P1・新設】銀行API手順を集約\n【P2】IBankTransferServiceを実装"
@@ -1858,6 +1860,8 @@ classDiagram
     BankTransferService --> TransferHistory : 履歴を追加する
     BankTransferService --> Bank : 手順を呼ぶ
     BankTransferService --> SecurityAuthenticator : 手順を呼ぶ
+    TransferProcessor ..> TransferRequest : 受け取る
+    IBankTransferService ..> TransferResult : 返す
 
     note for TransferProcessor "【P1・残した】業務フロー\n手順を知らない\n【P2】契約だけに依存"
     note for BankTransferService "【P1・新設】銀行API手順を集約\n【P2】IBankTransferServiceを実装"

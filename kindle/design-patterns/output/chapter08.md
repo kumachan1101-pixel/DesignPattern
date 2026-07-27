@@ -1787,6 +1787,7 @@ classDiagram
     PaymentApplication ..> ConvenienceStoreProcessor : uses
     PaymentApplication --> ProcessorRegistry : 存在・有効確認
     PaymentApplication --> PaymentStatusClient : 完了確認
+    PaymentApplication --> PaymentLog : 記録
     CreditCardProcessor --> PaymentGatewayClient : 認証API
 
     note for PaymentApplication "【残す】決済フローの進行\n【P1・移す】具体Processorの生成判断と手段固有のエラー対処"

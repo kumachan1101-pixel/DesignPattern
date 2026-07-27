@@ -1364,6 +1364,7 @@ classDiagram
     ReportFeature <|-- WatermarkFeature
     IReportAction <|.. GenerateReportAction
     GenerateReportAction *-- ReportSkeleton : 生成対象を所有
+    GenerateReportAction ..> OutputFormat : 出力形式を保持
     ReportActionInvoker o--> IReportAction : 成功履歴・再実行待ちを所有
     WeeklyReport --|> ReportSkeleton
     DeptReport --|> ReportSkeleton
@@ -2313,6 +2314,7 @@ classDiagram
     ReportFeature <|-- WatermarkFeature
     IReportAction <|.. GenerateReportAction
     GenerateReportAction *-- ReportSkeleton : 生成対象を所有
+    GenerateReportAction ..> OutputFormat : 出力形式を保持
     ReportActionInvoker o--> IReportAction : 成功履歴・再実行待ちを所有
     WeeklyReport --|> ReportSkeleton
     DeptReport --|> ReportSkeleton
