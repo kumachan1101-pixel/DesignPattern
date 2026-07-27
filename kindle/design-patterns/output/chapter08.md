@@ -3067,7 +3067,7 @@ graph LR
 | 3. 変更局所化の説明 | フェーズ7で、7か所の修正が2か所（新Processor＋生成分岐）に集約される構造を示した |
 | 4. 利用側が生成知識から解放される視点 | フェーズ6のステップ3で、processPaymentから手段固有の知識がすべて消える様子を示した |
 
-### 3つの設計原則はどう適用されたか
+### 第0章の3つの設計原則はどう適用されたか
 
 **原則1「変わるものをカプセル化せよ」の現れ**
 
@@ -3079,7 +3079,7 @@ graph LR
 - 具体化された場所：`PaymentApplication` の `processPayment` メソッド内の `IPaymentProcessor* processor`
 - 解説：具体的な決済クラスではなく`IPaymentProcessor`だけを知るため、利用側は手段固有の入力検証・API手順・保留ID生成を知りません。ただし共通契約の`Pending`と`canRetry`は利用側が読み、完了確認と再試行を制御します。
 
-**原則3「継承より合成を優先せよ」の現れ**
+**原則3「継承よりコンポジションを優先せよ」の現れ**
 
 - 具体化された場所：`DefaultPaymentApplication` の `createProcessor` で、各Processorに `PaymentGatewayClient` を注入している
 - 解説：各Processorは継承ではなく、外部APIの境界スタブへの参照を保持することで決済処理を実現している。API境界が変わっても、Processorの構造は変わらない。
