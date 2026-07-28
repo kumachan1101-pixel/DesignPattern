@@ -819,7 +819,8 @@ flowchart LR
 作業を進める中で、すぐに気づきました。「状態ごとのアクションとルールの条件分岐が混在していて、どちらが変わったときにどこを直せばいいか分からない」という感覚です。ステータスが一つ増えるだけで、「遷移の可否」「担当者への通知」「優先度計算」という、それぞれ変更理由の異なるロジックを一つの大きなメソッドの中で同時に考慮する必要があります。「状態を足したのにSLAのロジックも壊れたかもしれない」という不安が、常について回ります。
 
 実際に変更を加えたコードを見てみましょう。法人区分を追加するため
-`UserType` と `UserDatabase` のUSR001、優先度判定を変更します。保留状態を
+`UserType` に `Corporate` を足し、`UserDatabase` へ法人ユーザーUSR004を追加し、
+優先度判定を変更します。現状の3件（USR001〜USR003）の区分は据え置きます。保留状態を
 追加するため `TicketStatus`、`statusName()`、`updateStatus()` も変更します。
 `TicketRepository` と `create()` の処理順は1-4から変えません。
 
@@ -846,10 +847,11 @@ class UserDatabase {
     map<string, UserInfo> records;
 public:
     UserDatabase() {
-        // 変更要求の代表データとしてUSR001を法人区分へ変更する
-        records["USR001"] = {"田中 一郎", UserType::Corporate};
+        // 現状の3件は据え置き、変更要求の代表として法人ユーザーUSR004を追加する
+        records["USR001"] = {"田中 一郎", UserType::Standard};
         records["USR002"] = {"佐藤 花子", UserType::Premium};
         records["USR003"] = {"鈴木 次郎", UserType::Standard};
+        records["USR004"] = {"伊藤 四郎", UserType::Corporate};
     }
     bool exists(const string& id) const {
         return records.count(id) > 0;
@@ -965,14 +967,14 @@ public:
 確認したいこと：変更要求を現状構造へ当てはめたとき、修正箇所と痛みがどこに出るか
 
 上の差分を1-4の現状コードへ適用し、次の `main()` で代表ケースを実行します。
-`create()` は1-4と同じ処理ですが、変更後のUSR001と優先度判定を使うため、
+`create()` は1-4と同じ処理ですが、追加した法人ユーザーUSR004と優先度判定を使うため、
 法人のHigh優先度が保存されます。
 
 ```cpp
 int main() {
     TicketManager manager;
 
-    manager.create("TCK010", "USR001");
+    manager.create("TCK010", "USR004");
     manager.updateStatus("TCK010", "hold");
     manager.updateStatus("TCK010", "reopen");
 
@@ -980,7 +982,7 @@ int main() {
 }
 ```
 
-実行結果（`create("TCK010","USR001")` で法人チケットを登録し、保留・再受付する）：
+実行結果（`create("TCK010","USR004")` で法人チケットを登録し、保留・再受付する）：
 
 ```
 [TCK010] 作成 状態=Open 優先度=High
@@ -1334,7 +1336,7 @@ classDiagram
 
 フェーズ3で実際に変更したコードから、P1の `TicketStatus` 分岐と
 P2の `calculate()` だけを、改行も変えずに再掲します。
-`UserDatabase` のUSR001法人レコード、`TicketRepository`、`create()`、
+`UserDatabase` のUSR004法人レコード、`TicketRepository`、`create()`、
 保存とログ出力はフェーズ3のまま維持します。
 
 ```cpp
@@ -1695,9 +1697,10 @@ class UserDatabase {
     map<string, UserInfo> records;
 public:
     UserDatabase() {
-        records["USR001"] = {"田中 一郎", UserType::Corporate};
+        records["USR001"] = {"田中 一郎", UserType::Standard};
         records["USR002"] = {"佐藤 花子", UserType::Premium};
         records["USR003"] = {"鈴木 次郎", UserType::Standard};
+        records["USR004"] = {"伊藤 四郎", UserType::Corporate}; // 変更要求で追加した法人ユーザー
     }
     bool exists(const string& id) const { return records.count(id) > 0; }
     UserInfo get(const string& id) const { return records.at(id); }
@@ -2134,17 +2137,17 @@ int main() {
 変更要求として、法人ユーザーのTCK003を登録し保留（Pending）にします。
 
 ```cpp
-    cout << "--- 変更要求: 田中(corporate)のTCK003を登録し保留 ---"
+    cout << "--- 変更要求: 伊藤(corporate)のTCK003を登録し保留 ---"
          << endl;
-    svc.create("TCK003", "USR001");
+    svc.create("TCK003", "USR004");
     svc.hold("TCK003");
 ```
 
 変更要求の実行結果：
 
 ```
---- 変更要求: 田中(corporate)のTCK003を登録し保留 ---
-[TCK003] 作成 申請者=田中 一郎 状態=Open 優先度=High
+--- 変更要求: 伊藤(corporate)のTCK003を登録し保留 ---
+[TCK003] 作成 申請者=伊藤 四郎 状態=Open 優先度=High
   保留: 状態 Open → Pending
 ```
 
