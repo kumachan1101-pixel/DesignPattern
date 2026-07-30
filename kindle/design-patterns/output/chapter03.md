@@ -1968,9 +1968,6 @@ public:
         // 既存予約のキャンセルを起点に自動昇格
         std::cout << "--- シナリオ5: 満席からの自動昇格 ---\n";
         EventInfo full = db.get("EVT003");
-        TicketReservation attempted(availableState(), &db,
-                                    &history, &waitlist,
-                                    "EVT003", full.title);
         validateForReserve("EVT003"); // 50/50を表示して満席エラー
 
         TicketReservation waiting(availableState(), &db,
