@@ -1467,13 +1467,13 @@ public:
 class IClientCreator {
 public:
     virtual ~IClientCreator() = default;
-    virtual std::unique_ptr<IExternalClient> createClient() = 0;
+    virtual IExternalClient* createClient() = 0;
 };
 
 class SystemAClientCreator : public IClientCreator {
 public:
-    std::unique_ptr<IExternalClient> createClient() override {
-        return std::unique_ptr<IExternalClient>(new SystemAClient());
+    IExternalClient* createClient() override {
+        return new SystemAClient();
     }
 };
 ```
@@ -1496,8 +1496,7 @@ public:
     DeliveryResult execute(
         IClientCreator* creator,
         const SyncRequest& request) {
-        std::unique_ptr<IExternalClient> client
-            = creator->createClient();                       // P1の生成・所有
+        IExternalClient* client = creator->createClient();   // P1の生成・所有
         std::string data = dataCatalog.load(request.target); // 既存の取得
         DeliveryResult r = client->send(data);               // P1
         log.add(request.partnerId,
@@ -1507,6 +1506,7 @@ public:
                 = n->onComplete(request.partnerId);          // P2
             notificationLog.add(nr);
         }
+        delete client;                                       // 使い捨て後に破棄
         return r;
     }
 };
@@ -1822,34 +1822,34 @@ public:
 class IClientCreator {
 public:
     virtual ~IClientCreator() = default;
-    virtual unique_ptr<IExternalClient> createClient() = 0;
+    virtual IExternalClient* createClient() = 0;
 };
 
 class SystemAClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return unique_ptr<IExternalClient>(new SystemAClient());
+    IExternalClient* createClient() override {
+        return new SystemAClient();
     }
 };
 
 class SystemBClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return unique_ptr<IExternalClient>(new SystemBClient());
+    IExternalClient* createClient() override {
+        return new SystemBClient();
     }
 };
 
 class SystemCClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return unique_ptr<IExternalClient>(new SystemCClient());
+    IExternalClient* createClient() override {
+        return new SystemCClient();
     }
 };
 
 class SystemDClientCreator : public IClientCreator {
 public:
-    unique_ptr<IExternalClient> createClient() override {
-        return unique_ptr<IExternalClient>(new SystemDClient());
+    IExternalClient* createClient() override {
+        return new SystemDClient();
     }
 };
 ```
@@ -1918,14 +1918,16 @@ public:
         }
 
         // 生成分離構造を抽象Creator経由で呼び出す
-        unique_ptr<IExternalClient> client = creator->createClient();
+        IExternalClient* client = creator->createClient();
         string data = dataCatalog.load(request.target);
         cout << "[送信先] " << cfg.name
              << " (" << cfg.endpoint << ")" << endl;
         // 送信・保存・通知は手動入口と共有の後段処理へ委譲する
-        return deliverResult(*client, data, partnerId, cfg.name,
-                             batchLog, notificationLog, notifiers,
-                             apiHealthy, kind);
+        DeliveryResult r = deliverResult(*client, data, partnerId, cfg.name,
+                                         batchLog, notificationLog, notifiers,
+                                         apiHealthy, kind);
+        delete client;   // 使い捨てクライアントを破棄
+        return r;
     }
 };
 ```
@@ -2194,7 +2196,7 @@ classDiagram
 |---|---|---|---|
 | P1 | 全 `IExternalClient` 実装と `BatchExecutor` | 連携先固有通信はClientへ閉じ、バッチ骨格は結果だけを受け取った | 固有通信を `BatchExecutor` へ戻さない |
 | P2 | 全 `INotifier` 実装と通知登録 | 通知先追加がNotifierの追加と組み立て側の登録へ閉じた | 通知先追加でバッチ骨格を変更しない |
-| P1（生成・所有） | 全`IClientCreator`実装、`BatchApplication`、手動入口 | 両入口が同じCreatorとユースケースを利用し、生成物を`unique_ptr`で所有した | 手動入口へ別の生成判断を実装せず、実行後に自動破棄する |
+| P1（生成・所有） | 全`IClientCreator`実装、`BatchApplication`、手動入口 | 両入口が同じCreatorとユースケースを利用し、生成物を使い捨ての生ポインタで受け取った | 手動入口へ別の生成判断を実装せず、実行後に`delete`で破棄する |
 | 変更対象外 | `SyncRequest`、`SyncDataCatalog`、`DeliveryResult`、`BatchRecord`、`BatchLog` | 1-4と同じ入力・取得・結果・保存方法のまま、指定した注文・在庫が送信され、保存件数が実行ごとに増えた | 仕様変更と無関係な入力・データ・保存差分を作らない |
 
 #### 要求→課題→構造→コード→結果の追跡

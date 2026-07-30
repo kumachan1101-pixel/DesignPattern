@@ -1878,23 +1878,32 @@ public:
 ```cpp
 // ReportActionInvoker: 実行・再実行・取消と履歴所有を一か所に閉じる
 class ReportActionInvoker {
-    vector<unique_ptr<IReportAction>> history;
-    unique_ptr<IReportAction> pending;
+    vector<IReportAction*> history;
+    IReportAction* pending = nullptr;
 
     JobResult executePending() {
         JobResult result = pending->execute();
         if (result.success) {
-            history.push_back(move(pending));
+            history.push_back(pending);   // 所有権を履歴へ移す
+            pending = nullptr;
         }
         return result;
     }
 
 public:
-    JobResult execute(unique_ptr<IReportAction> action) {
+    ~ReportActionInvoker() {
+        for (IReportAction* action : history) {
+            delete action;
+        }
+        delete pending;
+    }
+
+    JobResult execute(IReportAction* action) {
         if (pending) {
+            delete action;                // 受け付けない操作は破棄する
             return {false, "再実行待ちの操作が残っています。"};
         }
-        pending = move(action);
+        pending = action;
         return executePending();
     }
 
@@ -1906,7 +1915,8 @@ public:
     }
 
     void abandonPending() {
-        pending.reset();
+        delete pending;
+        pending = nullptr;
     }
 
     JobResult undoLast() {
@@ -1915,6 +1925,7 @@ public:
         }
         JobResult result = history.back()->undo();
         if (result.success) {
+            delete history.back();
             history.pop_back();
         }
         return result;
@@ -1931,8 +1942,8 @@ class BatchApplication {
     TemplateRegistry registry;
     ReportLog reportLog;
 
-    JobResult executeAndRemember(unique_ptr<IReportAction> action) {
-        return invoker.execute(move(action));
+    JobResult executeAndRemember(IReportAction* action) {
+        return invoker.execute(action);
     }
 
     ReportTemplate requireTemplate(const string& id,
@@ -1961,7 +1972,7 @@ class BatchApplication {
         ReportTemplate tmpl
             = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
-        JobResult result = executeAndRemember(make_unique<GenerateReportAction>(
+        JobResult result = executeAndRemember(new GenerateReportAction(
             new MonthlyReport(),
             "monthly.pdf",
             OutputFormat::Pdf));
@@ -1976,7 +1987,7 @@ class BatchApplication {
         ReportTemplate tmpl
             = requireTemplate("SALES_MONTHLY", "excel");
         printTemplate(tmpl);
-        JobResult result = executeAndRemember(make_unique<GenerateReportAction>(
+        JobResult result = executeAndRemember(new GenerateReportAction(
             new MonthlyReport(),
             "monthly.xlsx",
             OutputFormat::Excel));
@@ -1991,7 +2002,7 @@ class BatchApplication {
         ReportTemplate tmpl
             = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
-        JobResult result = executeAndRemember(make_unique<GenerateReportAction>(
+        JobResult result = executeAndRemember(new GenerateReportAction(
             new WatermarkFeature(
                 new GraphFeature(
                     new MonthlyReport())),
@@ -2009,7 +2020,7 @@ class BatchApplication {
             = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
         JobResult generated = executeAndRemember(
-            make_unique<GenerateReportAction>(
+            new GenerateReportAction(
                 new MonthlyReport(),
                 "cancel_monthly.pdf",
                 OutputFormat::Pdf));
@@ -2029,7 +2040,7 @@ class BatchApplication {
             = requireTemplate("SALES_WEEKLY", "pdf");
         printTemplate(weekly);
         JobResult weeklyResult = executeAndRemember(
-            make_unique<GenerateReportAction>(
+            new GenerateReportAction(
                 new WeeklyReport(),
                 "weekly.pdf",
                 OutputFormat::Pdf));
@@ -2041,7 +2052,7 @@ class BatchApplication {
             = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(monthly);
         JobResult monthlyResult = executeAndRemember(
-            make_unique<GenerateReportAction>(
+            new GenerateReportAction(
                 new MonthlyReport(),
                 "batch_monthly.pdf",
                 OutputFormat::Pdf));
@@ -2053,7 +2064,7 @@ class BatchApplication {
             = requireTemplate("SALES_DEPT", "pdf");
         printTemplate(dept);
         JobResult deptResult = executeAndRemember(
-            make_unique<GenerateReportAction>(
+            new GenerateReportAction(
                 new DeptReport(),
                 "dept.pdf",
                 OutputFormat::Pdf));
@@ -2072,7 +2083,7 @@ class BatchApplication {
             = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
         JobResult generated = executeAndRemember(
-            make_unique<GenerateReportAction>(
+            new GenerateReportAction(
                 new GraphFeature(
                     new MonthlyReport()),
                 "graph_monthly.pdf",
@@ -2092,7 +2103,7 @@ class BatchApplication {
             = requireTemplate("SALES_MONTHLY", "pdf");
         printTemplate(tmpl);
         bool graphAvailable = false;
-        JobResult result = executeAndRemember(make_unique<GenerateReportAction>(
+        JobResult result = executeAndRemember(new GenerateReportAction(
             new GraphFeature(
                 new MonthlyReport(),
                 &graphAvailable),
