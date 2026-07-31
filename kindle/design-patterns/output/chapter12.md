@@ -1613,6 +1613,10 @@ public:
         states[requestId] = initialStateId;
     }
 
+    bool exists(const string& requestId) const {
+        return states.count(requestId) > 0;
+    }
+
     string getState(const string& requestId) const {
         auto it = states.find(requestId);
         if (it == states.end()) {
@@ -1834,7 +1838,11 @@ public:
         targetResolver(targetResolver),
         deliveryLog(deliveryLog),
         requestId(requestId) {
-        phase = phaseResolver.resolve(cases.getState(requestId));
+        // 未登録の申請IDでは phase を nullptr のままにし、
+        // process() 側の「現在状態がありません。」で穏当に扱う。
+        if (cases.exists(requestId)) {
+            phase = phaseResolver.resolve(cases.getState(requestId));
+        }
     }
 
     void addListener(INotificationListener* listener) {

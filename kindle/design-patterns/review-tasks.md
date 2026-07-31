@@ -1654,3 +1654,9 @@ review/logic-check/consistency/architecture-review の各基準を全章（思�
 - ch03:1971 シナリオ5の未使用変数 `attempted`（デッドコード）を削除（`full`・`validateForReserve`は維持、実行結果に影響なし）。
 
 **残P0（C++アセンブル＋g++コンパイル検証が必要・継続作業）**：ch07:1160 おさらいコードの未定義変数（フェーズ3実体の復元）、ch10/ch11 のunique_ptr→生ポインタ、ch12:1616 getState例外の未捕捉（ガード＋エラー条件表＋実行結果）。
+
+**P0 残り2件の是正（A方針）**：
+- ch12:1837 `WorkflowManager`コンストラクタが未登録申請IDで`getState()`例外→クラッシュしていた問題を、`WorkflowCaseRepository::exists()`を復活し、コンストラクタで存在確認してから`phase`解決する形へ修正。未登録IDでは`phase=nullptr`のままとし、既存の`process()`側「現在状態がありません。」で穏当に扱う。既存構築は全て登録済みID(REQ001/REQ002)のため実行結果は不変。クラス図(既に`+exists()`を掲載)との整合も回復。
+- ch07:1163 フェーズ6「課題箇所のおさらい」の`reduceStock`が未定義変数(`productName/stockAfter/threshold`)を参照していた問題を、振り返り対象であるフェーズ3の署名`reduceStock(productId, productName, stockAfter, threshold)`へ揃えて解消。※1-4(内部計算)と3-1(引数受け取り)で`reduceStock`署名が食い違う下位の不整合は別途(P2/consistency)に残す。
+
+これでP0(#75)は完了。検証：validate_book(15)/check_execution_output(コンパイル+照合)/audit(0件)/diff --check すべて緑。

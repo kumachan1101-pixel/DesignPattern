@@ -1165,8 +1165,10 @@ class InventoryManager {
     ChatNotifier     chat;
     SMSNotifier      sms;   // ← 通知先追加でメンバが増える
 public:
-    void reduceStock(std::string productId, int quantity) {
-        // 在庫更新・しきい値判定（維持）
+    void reduceStock(const std::string& productId,
+                     const std::string& productName,
+                     int stockAfter, int threshold) {
+        // 在庫更新・しきい値判定はフェーズ3のまま維持（ここでは通知箇所に注目）
         notifyAll({productId, productName, stockAfter, threshold});
     }
 private:
