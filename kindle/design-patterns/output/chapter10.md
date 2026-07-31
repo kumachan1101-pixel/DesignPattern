@@ -785,9 +785,9 @@ flowchart LR
 |---|---|---|---|
 | 連携先が未登録、または無効 | 連携先設定の確認時 | 連携先エラー | 外部送信なし、通知なし |
 | 実行条件を満たさない | 実行要求の確認時 | 実行条件エラー | 外部送信なし、通知なし |
-| C社API送信に失敗する | `PartnerApiClient` 呼び出し時 | 送信エラー | 失敗通知を送り、順次実行の後続ジョブは止めない |
-| 順次実行の途中ジョブが失敗する | `BatchJob` の `DeliveryResult` 確認時 | ジョブ単位の送信エラー | 失敗を記録し、次のジョブへ進む |
-| Slack通知に失敗する | `NotificationGateway` 呼び出し時 | 通知エラーまたはログ記録 | 本章の中心は連携先・通知先の分離であり、詳細な再送制御は扱わない |
+| C社API送信に失敗する | 外部送信の実行時 | 送信エラー | 失敗通知を送り、順次実行の後続ジョブは止めない |
+| 順次実行の途中ジョブが失敗する | 各ジョブの送信結果の確認時 | ジョブ単位の送信エラー | 失敗を記録し、次のジョブへ進む |
+| Slack通知に失敗する | 通知送信時 | 通知エラーまたはログ記録 | 本章の中心は連携先・通知先の分離であり、詳細な再送制御は扱わない |
 
 Slack通知は成功・失敗を問わず送る要求のため、送信失敗時の通知の扱いはフェーズ3で変更を試すときに確認します。順次実行の途中で送信が失敗しても、後続ジョブと通知は止めないという扱いも、変更後の骨格として押さえておきます。C社の追加とSlack通知が実際のコードでどこに現れるかも、フェーズ3の変更途中コードとフェーズ7の最終コード・実行結果で追います。
 
@@ -2230,7 +2230,7 @@ sequenceDiagram
     participant SA as SystemAClient
     Note over main: BatchApplicationが全具体型を組み立て
     main->>BA: app.run()
-    BA->>BE: new BatchExecutor(db, batchLog, dataCatalog)
+    BA->>BE: new BatchExecutor(db, batchLog, notificationLog, dataCatalog)
     BA->>SN: new SlackNotifier
     BA->>BE: addNotifier(&slackNotifier)
     BA->>BE: execute(&creatorA, {PARTNER_A, Orders})

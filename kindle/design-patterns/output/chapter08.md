@@ -1832,7 +1832,9 @@ classDiagram
     class OrderBook
     class PaymentWorker
     class WebhookController
-    class PaymentApplication
+    class PaymentApplication {
+        <<abstract>>
+    }
     class IPaymentProcessor { <<interface>> }
     class CreditCardProcessor
     class BankTransferProcessor
@@ -1844,7 +1846,7 @@ classDiagram
     IPaymentProcessor <|.. BankTransferProcessor
     IPaymentProcessor <|.. ConvenienceStoreProcessor
     IPaymentProcessor <|.. PayPayProcessor
-    PaymentApplication --> ProcessorRegistry : 存在・有効確認
+    DefaultPaymentApplication --> ProcessorRegistry : 存在・有効確認
     PaymentApplication --> PaymentStatusClient : 完了確認
     DefaultPaymentApplication --|> PaymentApplication
     PaymentWorker --> PaymentApplication : 非同期入口
@@ -1970,9 +1972,11 @@ PaymentResult processPayment(const PaymentRequest& request) {
 
 ```cpp
 struct PaymentResult {
-    string status;    // 成功・保留・失敗
-    bool canRetry;    // リトライ可否
-    string message;   // 理由や保留ID
+    string status;      // 成功・保留・失敗
+    string message;     // 理由や保留ID
+    bool canRetry;      // リトライ可否
+    string errorCode;   // エラー分類（成功時は空）
+    PendingInfo pending; // 保留時の追加情報（番号・期限など）
 };
 ```
 
@@ -2910,7 +2914,9 @@ classDiagram
     class OrderBook
     class PaymentWorker
     class WebhookController
-    class PaymentApplication
+    class PaymentApplication {
+        <<abstract>>
+    }
     class IPaymentProcessor { <<interface>> }
     class CreditCardProcessor
     class BankTransferProcessor
@@ -2922,7 +2928,7 @@ classDiagram
     IPaymentProcessor <|.. BankTransferProcessor
     IPaymentProcessor <|.. ConvenienceStoreProcessor
     IPaymentProcessor <|.. PayPayProcessor
-    PaymentApplication --> ProcessorRegistry : 存在・有効確認
+    DefaultPaymentApplication --> ProcessorRegistry : 存在・有効確認
     PaymentApplication --> PaymentStatusClient : 完了確認
     DefaultPaymentApplication --|> PaymentApplication
     PaymentWorker --> PaymentApplication : 非同期入口

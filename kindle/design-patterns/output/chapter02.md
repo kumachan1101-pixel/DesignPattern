@@ -1863,7 +1863,7 @@ ACC003: 470000円
 
 #### 解決後のクラス構成
 
-6-3で確定したクラス構成が完成コードでも成立しているかを確認します。薄い黄色は、変更前クラス図の責任を見直した結果、操作または依存を変更・新設したクラスです。`TransferProcessor` / `BatchTransferProcessor` がFacadeのClient、`BankTransferService` がFacade、DB・履歴・銀行API・認証がSubsystemに対応します。`IBankTransferService` は、具体窓口を知らずに差し替えるために追加した契約です。
+フェーズ6の対策検討クラス図で確定したクラス構成が完成コードでも成立しているかを確認します。薄い黄色は、変更前クラス図の責任を見直した結果、操作または依存を変更・新設したクラスです。`TransferProcessor` / `BatchTransferProcessor` が窓口を呼び出す利用側、`BankTransferService` が手順を集約する窓口、DB・履歴・銀行API・認証が窓口の背後で個別処理を担う部品に対応します。`IBankTransferService` は、具体窓口を知らずに差し替えるために追加した契約です。
 
 ```mermaid
 classDiagram

@@ -1660,3 +1660,13 @@ review/logic-check/consistency/architecture-review の各基準を全章（思�
 - ch07:1163 フェーズ6「課題箇所のおさらい」の`reduceStock`が未定義変数(`productName/stockAfter/threshold`)を参照していた問題を、振り返り対象であるフェーズ3の署名`reduceStock(productId, productName, stockAfter, threshold)`へ揃えて解消。※1-4(内部計算)と3-1(引数受け取り)で`reduceStock`署名が食い違う下位の不整合は別途(P2/consistency)に残す。
 
 これでP0(#75)は完了。検証：validate_book(15)/check_execution_output(コンパイル+照合)/audit(0件)/diff --check すべて緑。
+
+**P1 契約・図⇔コード不一致の是正（A方針・doc側を実装へ整合）**：
+- ch02:1866 「6-3で確定」→存在しない節番号のため「フェーズ6の対策検討クラス図で確定」へ。同文のFacade/Client/Subsystem名も窓口/利用側/背後部品の業務語へ（P3のch02分もここで完了）。
+- ch08 6-2 `PaymentResult` を3フィールド表記から実装の5フィールド（status/message/canRetry/errorCode/pending）へ。
+- ch08 変更後クラス図2枚（対策検討・解決後）：`PaymentApplication --> ProcessorRegistry` を実装どおり `DefaultPaymentApplication --> ProcessorRegistry` へ、`PaymentApplication` に `<<abstract>>` を付与（純粋仮想 createProcessor を持つため）。変更前図・1-3図は1-4実装どおりで非該当。
+- ch10 1-5エラー表の幽霊クラス名 `PartnerApiClient`/`BatchJob`/`NotificationGateway` を業務語彙へ（フェーズ1なので固有名を出さない）。
+- ch10 7-2シーケンス図の `new BatchExecutor(...)` を実装の4引数（notificationLog追加）へ。
+- ch12 6-2契約とP3接続点表の `approverId` 記述を実装へ整合（判定ルールは金額を受け取り、承認者IDは申請入口で存在確認）。
+
+**P1 保留（専用調査が必要）**：ch04 7-1の実行結果（1714等）に「保存金額合計: X円 -> Y円」が出るが、その文字列を出力するコードが存在しない（save()は件数＋先頭行のみ）。にもかかわらず`check_execution_output`が通過しており、照合スクリプトに死角がある疑い。実際の7-1を単独コンパイルして真の出力を確認し、コードか実行結果のどちらかへ揃える必要がある。安全な即修正ではないため保留。
