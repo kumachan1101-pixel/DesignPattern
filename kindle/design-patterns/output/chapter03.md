@@ -1604,6 +1604,9 @@ public:
     virtual void expire(TicketReservation*) {
         std::cout << "期限切れ処理は行えません\n";
     }
+    virtual void paymentFailed(TicketReservation*) {
+        std::cout << "決済失敗を扱える状態ではありません\n";
+    }
     virtual ~IReservationState() = default;
 };
 ```
@@ -1639,6 +1642,7 @@ public:
     void pay(TicketReservation* ctx) override;
     void cancel(TicketReservation* ctx) override;
     void hold(TicketReservation* ctx) override;
+    void paymentFailed(TicketReservation* ctx) override;
 };
 
 // Paid（支払い済み）状態：完了状態のため、オーバーライドなし（すべて拒否）
@@ -1656,6 +1660,7 @@ public:
     void pay(TicketReservation* ctx) override;
     void cancel(TicketReservation* ctx) override;
     void expire(TicketReservation* ctx) override;
+    void paymentFailed(TicketReservation* ctx) override;
 };
 ```
 
@@ -1713,6 +1718,7 @@ public:
     void addToWaitlist()   { state->addToWaitlist(this); }
     void hold()            { state->hold(this); }
     void expire()          { state->expire(this); }
+    void paymentFailed()   { state->paymentFailed(this); }
 };
 ```
 
@@ -1752,6 +1758,11 @@ void ReservedState::hold(TicketReservation* ctx) {
     std::cout << "保留にしました\n";
     ctx->setState(heldState());
 }
+void ReservedState::paymentFailed(TicketReservation* ctx) {
+    ctx->record("決済失敗");
+    std::cout << "決済に失敗しました。予約済みのまま再試行できます\n";
+    // 状態は変えず、予約済みのまま再試行を許す
+}
 
 void WaitlistedState::promoteBySystem(TicketReservation* ctx) {
     ctx->reserveSeat();
@@ -1778,6 +1789,11 @@ void HeldState::expire(TicketReservation* ctx) {
     std::cout << "保留期限が切れました\n";
     ctx->setState(availableState());
     ctx->promoteNextWaitlisted();
+}
+void HeldState::paymentFailed(TicketReservation* ctx) {
+    ctx->record("決済失敗");
+    std::cout << "決済に失敗しました。保留中のまま再試行できます\n";
+    // 状態は変えず、保留中のまま再試行を許す
 }
 
 // タイマー基盤から期限切れイベントを予約へ渡す境界。
@@ -2035,6 +2051,31 @@ public:
 エラー：イベントID EVT999 は存在しません
 ```
 
+シナリオ8は、決済失敗（予約済みのまま再試行できる）です。State構造なので、`IReservationState` に `paymentFailed` を足し、`Reserved`／`Held` だけが「状態を変えずに失敗を記録する」振る舞いで応じます。呼び出し元は現在状態を意識しません。
+
+```cpp
+        // シナリオ8：決済失敗 (Available → Reserved → 決済失敗、Reservedのまま)
+        std::cout << "--- シナリオ8: 決済失敗（再試行可能） ---\n";
+        if (validateForReserve("EVT001")) {
+            EventInfo i8 = db.get("EVT001");
+            TicketReservation seat8(availableState(), &db,
+                                    &history, &waitlist,
+                                    "EVT001", i8.title);
+            seat8.reserve();
+            seat8.paymentFailed();
+        }
+```
+
+シナリオ8の実行結果：
+
+```
+--- シナリオ8: 決済失敗（再試行可能） ---
+[在庫確認] EVT001 21/100
+[在庫] EVT001 21/100 -> 22/100
+予約完了しました
+決済に失敗しました。予約済みのまま再試行できます
+```
+
 最後に予約履歴を出力し、`main()` から実行します。
 
 ```cpp
@@ -2065,6 +2106,8 @@ int main() {
 [EVT003] 秋の映画会 -> キャンセル
 [EVT003] 秋の映画会 -> キャンセル待ちから自動昇格
 [EVT003] 秋の映画会 -> 決済
+[EVT001] 春の音楽祭 -> 予約
+[EVT001] 春の音楽祭 -> 決済失敗
 ```
 
 この実行結果は、フェーズ1の動作例テーブルと、フェーズ1-5で追加した仕様遷移の代表ケースに対応しています。EVT003は、まず `50/50` の満席が見え、その状態で再予約して満席エラーになり、既存予約のキャンセルで `50→49`、直後の自動昇格で `49→50` へ戻ります。利用側が昇格メソッドを呼ぶ行はありません。

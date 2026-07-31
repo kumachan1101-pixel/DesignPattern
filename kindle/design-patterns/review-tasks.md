@@ -1698,3 +1698,8 @@ review/logic-check/consistency/architecture-review の各基準を全章（思�
 - ch07 フェーズ5の「登録済み手段へ一律配布」→「変わる通知手段の集合へ同じ操作で伝え結果を集約」、「通知アダプター側」→「通知を担う側」。
 - ch10 課題ボックスの`Creator`/`Notifier`/`登録`の対策名→「生成を担う仕組み」「通知を担う実装とその登録先」等の中立語。
 - ch05は具体的なフェーズ5対策先出し箇所が特定されず対象外。
+
+**P6(B) ch03 paymentFailed 実装（分析に実装を合わせる）**：
+ch03は他章と逆で「分析＞実装」だった（決済失敗がフェーズ1-6と7-3/7-4に約20箇所織り込まれているのに7-1の`IReservationState`に未実装）。分析を壊すA(削除)ではなく、実装を分析へ追いつかせるBを採用。`IReservationState::paymentFailed`（既定は拒否）を追加し、`ReservedState`/`HeldState`が「状態を変えずに決済失敗を記録し再試行可能にする」振る舞いを実装。`TicketReservation::paymentFailed()`委譲と、シナリオ8（Available→Reserved→決済失敗、Reservedのまま）＋実行結果＋予約履歴2行を追加。check_execution_output（実コンパイル＋出力照合）で予測出力が的中し緑。7-3/7-4の記述（ReservedState/HeldStateが失敗時の状態維持と再試行可否を決める）が実装と一致。
+
+**P6 総括**：ch12(部署別上限→確定)、ch08(完了確認は対象外明記)、ch10(C社行追加)、ch03(paymentFailed実装)を是正。ch02 compensateは既存機能で誤検出のため据え置き。P6完了。
