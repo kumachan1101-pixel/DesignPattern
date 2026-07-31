@@ -1565,7 +1565,7 @@ public:
 
 **⑤ 操作履歴を保持しUndo/Redoを制御する仲介役クラス**
 
-実行ログ（`executionLog`）はシステム起動時は空で、操作が実行・取り消しされるたびに1件追記されます。`undoStack` とは異なり、削除されることなく全操作の記録として保持します。
+実行ログ（`executionLog`）はシステム起動時は空で、操作が実行・取り消しされるたびに1件追記されます。`undoStack` とは異なり、削除されることなく全操作の記録として保持します。なお `MAX_HISTORY` は `undoStack` が無制限に伸び続けないためのメモリ保護の安全弁で、仕様要件ではなく本章の動作例では上限に到達しません。
 
 ```cpp
 // 操作履歴を保持し、Undo/Redoを制御する仲介役
@@ -1573,7 +1573,7 @@ class ActionHistory {
     std::deque<IAction*> undoStack;
     std::vector<std::string> executionLog;  // 実行ログ（追記のみ）
     std::deque<IAction*> redoStack;
-    static const int MAX_HISTORY = 50;  // Undo履歴の上限。無制限だと古い操作が溜まり続けるため、メモリ保護の安全弁として設ける実装上の値（仕様要件ではなく、本章の動作例では到達しない）
+    static const int MAX_HISTORY = 50;  // Undo履歴の上限（メモリ保護の安全弁）
 public:
     bool execute(IAction* cmd) {
         if (!cmd->execute()) {
