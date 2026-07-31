@@ -70,6 +70,35 @@ def run_source(src: str) -> tuple[bool, str]:
         return True, run.stdout
 
 
+def fabricated_output_lines(output: str, sec: str) -> list[str]:
+    """本文の「実行結果ブロック」が、コードの出さない行を主張していないか。
+
+    lines_present_in_order は「実出力の各行が本文にあるか」だけを一方向で見る。
+    その逆——本文の実行結果ブロックにあってコードが出さない行（捏造出力）——は
+    検出できない（例：ch04「保存金額合計」）。ここでは、行の過半が実出力に一致
+    する“本物の出力ブロック”に限り、一致しない行を捏造候補として返す。
+    誤検出を避けるため、コードブロック・省略記号・要約行は対象外にする。
+    """
+    fab: list[str] = []
+    for info, body in re.findall(r"```([^\n]*)\n(.*?)```", sec, re.S):
+        if info.strip() == "cpp":
+            continue
+        lines = [l for l in body.splitlines() if l.strip()]
+        if not lines:
+            continue
+        matched = [l for l in lines if l in output or l.strip() in output]
+        # 過半が一致する＝プログラム出力を載せたブロックだけを対象にする
+        if len(matched) >= max(2, int(len(lines) * 0.6)):
+            for l in lines:
+                if l in output or l.strip() in output:
+                    continue
+                s = l.strip()
+                if s.startswith("...") or "略" in s:
+                    continue
+                fab.append(l)
+    return fab
+
+
 def lines_present_in_order(output: str, sec: str) -> list[str]:
     """Return output lines that are missing (or out of order) in sec."""
     missing: list[str] = []
@@ -123,6 +152,13 @@ def main() -> int:
                       f"実出力にあり本文にない行 {len(missing)} 件")
                 for m in missing[:6]:
                     print(f"    {m!r}")
+                problems += 1
+            fabricated = fabricated_output_lines(out, sec)
+            if fabricated:
+                print(f"{name} {head} 実行結果の捏造疑い: "
+                      f"本文の出力ブロックにありコードが出さない行 {len(fabricated)} 件")
+                for f in fabricated[:6]:
+                    print(f"    {f!r}")
                 problems += 1
     if problems == 0:
         print("OK: 全章の 1-4 / 7-1 実行結果が実出力と一致")
