@@ -1057,10 +1057,12 @@ class ReportSkeleton {
         renderer.addHeader(request.format);
 
         // 【変わる】レポート種別ごとの本文判断
-        if (request.reportType == "monthly") {
+        if (request.templateId == "SALES_MONTHLY") {
             renderer.addBody("月次売上", summary);
+        } else if (request.templateId == "SALES_WEEKLY") {
+            renderer.addBody("週次売上", summary);
         } else {
-            renderer.addBody("標準売上", summary);
+            renderer.addBody("部門別売上", summary);
         }
 
         // 【変わる】装飾の種類・有無・順序
@@ -1105,10 +1107,12 @@ class ReportSkeleton {
         SalesSummary summary = reader.readCSV();
         renderer.addHeader(request.format);
 
-        if (request.reportType == "monthly") {
+        if (request.templateId == "SALES_MONTHLY") {
             renderer.addBody("月次売上", summary);
+        } else if (request.templateId == "SALES_WEEKLY") {
+            renderer.addBody("週次売上", summary);
         } else {
-            renderer.addBody("標準売上", summary);
+            renderer.addBody("部門別売上", summary);
         }
 
         if (request.addGraph) {
@@ -1179,13 +1183,15 @@ public:
 
 **P1の現状接続：本文の選択**
 
-`ReportSkeleton::execute()` は `request.reportType` を読み、`SalesSummary` と本文名を `ReportRenderingApi::addBody()` へ渡します。呼び出し元が本文種別の判断を持つため、種別追加で共通手順を変更します。
+`ReportSkeleton::execute()` は `request.templateId` を読み、`SalesSummary` と本文名を `ReportRenderingApi::addBody()` へ渡します。呼び出し元が本文種別の判断を持つため、種別追加で共通手順を変更します。
 
 ```cpp
-if (request.reportType == "monthly") {
+if (request.templateId == "SALES_MONTHLY") {
     renderer.addBody("月次売上", summary);
+} else if (request.templateId == "SALES_WEEKLY") {
+    renderer.addBody("週次売上", summary);
 } else {
-    renderer.addBody("標準売上", summary);
+    renderer.addBody("部門別売上", summary);
 }
 ```
 
@@ -1246,7 +1252,7 @@ public:
 
 | 課題ID・接続点 | 接続するデータ | 変わる側 | 守る側 |
 |---|---|---|---|
-| P1：`execute()` → `addBody()` | `reportType`、`SalesSummary`、本文名 | 種別ごとの本文判断と本文生成 | 読込→本文→装飾→保存の順序 |
+| P1：`execute()` → `addBody()` | `templateId`、`SalesSummary`、本文名 | 種別ごとの本文判断と本文生成 | 読込→本文→装飾→保存の順序 |
 | P2：`execute()` → 描画API | `addGraph`、`addLogo`、適用順 | 装飾の種類・有無・順序 | 集計本文、既存描画API、完成ファイル |
 | P3：生成処理 ↔ 履歴 | `ReportRequest`、`outputPath` | 記録条件、再実行、取消方法 | テンプレート検証と一回の生成操作 |
 
