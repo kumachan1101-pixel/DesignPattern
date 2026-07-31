@@ -1573,7 +1573,7 @@ class ActionHistory {
     std::deque<IAction*> undoStack;
     std::vector<std::string> executionLog;  // 実行ログ（追記のみ）
     std::deque<IAction*> redoStack;
-    static const int MAX_HISTORY = 50;
+    static const int MAX_HISTORY = 50;  // Undo履歴の上限。無制限だと古い操作が溜まり続けるため、メモリ保護の安全弁として設ける実装上の値（仕様要件ではなく、本章の動作例では到達しない）
 public:
     bool execute(IAction* cmd) {
         if (!cmd->execute()) {

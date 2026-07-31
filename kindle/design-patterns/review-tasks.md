@@ -1703,3 +1703,8 @@ review/logic-check/consistency/architecture-review の各基準を全章（思�
 ch03は他章と逆で「分析＞実装」だった（決済失敗がフェーズ1-6と7-3/7-4に約20箇所織り込まれているのに7-1の`IReservationState`に未実装）。分析を壊すA(削除)ではなく、実装を分析へ追いつかせるBを採用。`IReservationState::paymentFailed`（既定は拒否）を追加し、`ReservedState`/`HeldState`が「状態を変えずに決済失敗を記録し再試行可能にする」振る舞いを実装。`TicketReservation::paymentFailed()`委譲と、シナリオ8（Available→Reserved→決済失敗、Reservedのまま）＋実行結果＋予約履歴2行を追加。check_execution_output（実コンパイル＋出力照合）で予測出力が的中し緑。7-3/7-4の記述（ReservedState/HeldStateが失敗時の状態維持と再試行可否を決める）が実装と一致。
 
 **P6 総括**：ch12(部署別上限→確定)、ch08(完了確認は対象外明記)、ch10(C社行追加)、ch03(paymentFailed実装)を是正。ch02 compensateは既存機能で誤検出のため据え置き。P6完了。
+
+**P7 仕様未予告の値を仕様・動作例へ前出し**：
+- ch05 `MAX_HISTORY=50` に根拠コメントを付与（Undo履歴のメモリ保護の安全弁・仕様要件ではなく動作例では未到達）。
+- ch11 1-2動作例に週次(5件/合計750/平均150)・部門別(3件/合計1030/平均343)の行を追加。週次・月次・部門別は1-1/1-3のTemplateRegistryに登録済みの現状機能で、7-1ケース5実行結果(2231/2241)と数値一致。
+- ch06 SeasonalMintは1-5複雑さ表(506行)に既出のため誤検出、据え置き。
