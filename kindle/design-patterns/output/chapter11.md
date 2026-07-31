@@ -2348,7 +2348,7 @@ classDiagram
     cssClass "ReportSkeleton,StandardReport,MonthlyReport,ReportFeature,GraphFeature,WatermarkFeature,IReportAction,GenerateReportAction,ReportActionInvoker" focus
 ```
 
-完成後はTemplate Methodが帳票生成順序、Decoratorが追加機能、Commandが生成操作の履歴化を担当します。3構造が同じ責任を重複して持たないことを図で確認できます。
+完成後は骨格固定構造が帳票生成順序、装飾連結構造が追加機能、操作記録構造が生成操作の履歴化を担当します。3構造が同じ責任を重複して持たないことを図で確認できます。
 
 #### 変更軸ごとの完成コード追跡
 

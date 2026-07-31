@@ -1817,7 +1817,7 @@ P1をクラス図の変更として書くと、次の3操作になります。
 2. P1：具体Processorを選んで生成する判断を、生成メソッド `createProcessor` の1か所へ移す。
 3. P1：`processPayment` は生成されたProcessorへ `pay(request)` を委譲するだけにする。
 
-変更後は、`PaymentApplication` から具体クラス名と手段固有分岐が消え、生成が `createProcessor`、手段固有差分が各Processorへ移ったことを確認します。図中の `createProcessor` は `PaymentApplication` が宣言する仮想メソッドで、具体クラスの選択・生成は子クラス `DefaultPaymentApplication`（`--|>` で継承）が上書きします。これがFactory Methodの形で、7-1の完成コード（`DefaultPaymentApplication::createProcessor()`、`PaymentWorker`、`WebhookController`、追加手段 `PayPayProcessor`）と図が一致します。
+変更後は、`PaymentApplication` から具体クラス名と手段固有分岐が消え、生成が `createProcessor`、手段固有差分が各Processorへ移ったことを確認します。図中の `createProcessor` は `PaymentApplication` が宣言する仮想メソッドで、具体クラスの選択・生成は子クラス `DefaultPaymentApplication`（`--|>` で継承）が上書きします。これが生成分離構造の形で、7-1の完成コード（`DefaultPaymentApplication::createProcessor()`、`PaymentWorker`、`WebhookController`、追加手段 `PayPayProcessor`）と図が一致します。
 
 **採用した変更後のクラス図：**
 
@@ -1999,7 +1999,7 @@ struct PaymentResult {
 **システム全体の実装結果：達成。** P1が生成分離構造として決済経路へ接続され、フェーズ5で目指した状態を実現しました。実行結果と変更影響は、完成コードを示した後のフェーズ7で確認します。
 
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
-生成するオブジェクトの種類（決済手段）を、利用側から隠蔽するメソッドに集約し、利用側がインターフェースを通じてインスタンスを得る構造——これが **生成分離構造（ファクトリーメソッド）** と呼ばれています。
+生成するオブジェクトの種類（決済手段）を、利用側から隠蔽するメソッドに集約し、利用側がインターフェースを通じてインスタンスを得る構造——これを本書では **生成分離構造** と呼びます。
 
 ### 7-1：解決後のコード（全体）
 

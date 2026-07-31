@@ -2047,7 +2047,7 @@ int main() {
 
 #### 解決後のクラス構成
 
-フェーズ6の採用後クラス図と同じMermaid定義を再掲します。設計から完成まで構造は変えていないため、クラスの順序・操作・関係・注記・色も同じです。`PaymentCalculator` と `CartPreviewService` がContext、`IDiscountRule` がStrategy、各割引クラスがConcreteStrategyに対応します。`RuleSelector` は、具体条件を知らずに登録ルールを選ぶ、このシステム固有の役割です。
+フェーズ6の採用後クラス図と同じMermaid定義を再掲します。設計から完成まで構造は変えていないため、クラスの順序・操作・関係・注記・色も同じです。`PaymentCalculator` と `CartPreviewService` が計算を依頼する利用側、`IDiscountRule` が差し替え可能なルール契約、各割引クラスがその具象ルールに対応します。`RuleSelector` は、具体条件を知らずに登録ルールを選ぶ、このシステム固有の役割です。
 
 ```mermaid
 classDiagram
@@ -2118,7 +2118,7 @@ classDiagram
     cssClass "OrderProcessor,PaymentCalculator,IDiscountRule,RuleSelector,PremiumDiscount,CampaignDiscount,SummerSaleDiscount,SummerSaleAndCampaignDiscount,NoDiscount" focus
 ```
 
-現状では、割引条件と計算式が `PaymentCalculator` の内部に集まっていました。完成後は、計算を依頼する2つのContextが同じStrategyの契約を参照し、適用条件と計算式は各具象ルールへ移っています。`RuleSelector` 自体には施策固有の条件分岐がないため、新しい集約点へ移しただけではありません。
+現状では、割引条件と計算式が `PaymentCalculator` の内部に集まっていました。完成後は、計算を依頼する2つの利用側が同じルール契約を参照し、適用条件と計算式は各具象ルールへ移っています。`RuleSelector` 自体には施策固有の条件分岐がないため、新しい集約点へ移しただけではありません。
 
 #### 変更軸ごとの完成コード追跡
 
@@ -2256,7 +2256,7 @@ graph LR
 |---|---|---|---|
 | キャンペーン後にサマーセールを適用する逐次割引 | 適用順序が計算本体の分岐に埋まっている | 割引後金額を返す契約を守りつつ、適用順序をルール側へ寄せる | 組み合わせルールとして `IDiscountRule` の実装に閉じる |
 | Premiumは他割引と併用しない排他条件 | 選択条件が `PaymentCalculator` に漏れている | 計算本体と選択役は具体条件を知らない形にする | `PremiumDiscount::matches()` が条件を持ち、最優先でSelectorへ登録する |
-| 顧客情報取得失敗 | 外部境界の失敗であり、割引計算の変化軸とは違う | 割引ルールの接続点へ失敗処理を混ぜない | `OrderProcessor` の顧客取得エラーとして扱い、Strategyの対象外にする |
+| 顧客情報取得失敗 | 外部境界の失敗であり、割引計算の変化軸とは違う | 割引ルールの接続点へ失敗処理を混ぜない | `OrderProcessor` の顧客取得エラーとして扱い、割引ルール差し替え（接続点）の対象外にする |
 
 ---
 

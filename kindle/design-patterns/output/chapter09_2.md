@@ -2277,7 +2277,7 @@ stateDiagram-v2
 | 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
 |---|---|---|---|
 | R1：問い合わせ状態の拡張／P1 | 状態固有の許可操作と遷移をPhaseへ分離。コード：全 `ITicketPhase`、`TicketService` | 保留・再開を含む状態遷移がPhase単位で実行された | 新Phaseと遷移接続 |
-| R2：優先度ルール差し替え／P2 | SLA・顧客区分判定をStrategyへ分離。コード：全 `IPriorityRule`、`TicketPolicySet` | 法人・期限条件で優先度が変わり、状態遷移は不変 | 新RuleとPolicySet設定 |
+| R2：優先度ルール差し替え／P2 | SLA・顧客区分判定をルール差し替え構造へ分離。コード：全 `IPriorityRule`、`TicketPolicySet` | 法人・期限条件で優先度が変わり、状態遷移は不変 | 新RuleとPolicySet設定 |
 
 #### 変更前→変更後の不変条件照合
 
