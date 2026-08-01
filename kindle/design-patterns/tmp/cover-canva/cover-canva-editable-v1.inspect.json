@@ -1,0 +1,26 @@
+{
+  "ndjson": "{\"kind\":\"slide\",\"id\":\"sl/wxv0cd\",\"slide\":1,\"title\":\"デザインパターンで学ぶ\",\"textShapes\":6}\n{\"kind\":\"textbox\",\"id\":\"sh/v6d4netk\",\"slide\":1,\"name\":\"タイトル1\",\"text\":\"デザインパターンで学ぶ\",\"textPreview\":\"デザインパターンで学ぶ\",\"textChars\":11,\"textLines\":1,\"bbox\":[58,43,908,104]}\n{\"kind\":\"textbox\",\"id\":\"sh/u543e9sz\",\"slide\":1,\"name\":\"タイトル2\",\"text\":\"C++ソフトウェア設計\",\"textPreview\":\"C++ソフトウェア設計\",\"textChars\":11,\"textLines\":1,\"bbox\":[58,151,908,118]}\n{\"kind\":\"shape\",\"id\":\"sh/5cfmtobm\",\"slide\":1,\"name\":\"タイトル下罫線\",\"bbox\":[60,286,904,5]}\n{\"kind\":\"textbox\",\"id\":\"sh/4b6lkja1\",\"slide\":1,\"name\":\"サブタイトル\",\"text\":\"分離と再結合で、設計を決める思考プロセス\",\"textPreview\":\"分離と再結合で、設計を決める思考プロセス\",\"textChars\":20,\"textLines\":1,\"bbox\":[76,306,872,52]}\n{\"kind\":\"textbox\",\"id\":\"sh/jax4retg\",\"slide\":1,\"name\":\"帯見出し\",\"text\":\"パターンを当てはめる前に、\\n設計すべき構造を見つける。\",\"textPreview\":\"パターンを当てはめる前に、 | 設計すべき構造を見つける。\",\"textChars\":27,\"textLines\":2,\"bbox\":[58,1256,908,94]}\n{\"kind\":\"textbox\",\"id\":\"sh/i9o3i9sv\",\"slide\":1,\"name\":\"帯説明\",\"text\":\"現状を捉え、結合部分の課題を見つけ、責任を分離し、\\n動くシステムとして再結合する。\",\"textPreview\":\"現状を捉え、結合部分の課題を見つけ、責任を分離し、 | 動くシステムとして再結合する。\",\"textChars\":41,\"textLines\":2,\"bbox\":[58,1362,908,76]}\n{\"kind\":\"textbox\",\"id\":\"sh/lgv2hkb2\",\"slide\":1,\"name\":\"帯結論\",\"text\":\"型ではなく、デザインパターンに至る考え方を学ぶ。\",\"textPreview\":\"型ではなく、デザインパターンに至る考え方を学ぶ。\",\"textChars\":24,\"textLines\":1,\"bbox\":[58,1454,908,42]}\n{\"kind\":\"image\",\"id\":\"im/lonulc72\",\"slide\":1,\"name\":\"\",\"alt\":\"分離と再結合を表す、文字なしのソフトウェア設計イラスト\",\"bbox\":[0,0,1024,1536]}",
+  "truncated": false,
+  "metadata": {
+    "revision": "v52ilz",
+    "target": {
+      "id": "pr/06rc21"
+    },
+    "kind": {
+      "requested": "slide,shape,textbox,image",
+      "tokens": [
+        "slide",
+        "shape",
+        "textbox",
+        "image"
+      ]
+    },
+    "include": {
+      "tokens": []
+    },
+    "exclude": {
+      "tokens": []
+    },
+    "notices": []
+  }
+}

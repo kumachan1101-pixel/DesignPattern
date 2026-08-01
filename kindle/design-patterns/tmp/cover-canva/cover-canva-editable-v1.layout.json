@@ -1,0 +1,583 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/wxv0cd",
+    "id": "wxv0cd",
+    "slide": 1,
+    "layoutId": "0c596144-5098-41d2-8f3d-0295dfc0f324",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "87c237c0-b9f0-42ef-810d-6784622ec0b9",
+    "masterLayoutName": "Master",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1024,
+      "height": 1536
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Noto Sans JP"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "0c596144-5098-41d2-8f3d-0295dfc0f324",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "87c237c0-b9f0-42ef-810d-6784622ec0b9",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "87c237c0-b9f0-42ef-810d-6784622ec0b9",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "image",
+      "scope": "slide",
+      "aid": "im/lonulc72",
+      "id": "1",
+      "bbox": [
+        0,
+        0,
+        1024,
+        1536
+      ],
+      "alt": "分離と再結合を表す、文字なしのソフトウェア設計イラスト",
+      "contentType": "image/png",
+      "imageFit": "cover",
+      "asset": {
+        "assetId": "3ce1410e-6f7d-4640-8c62-32c53c95b946",
+        "contentType": "image/png",
+        "byteLength": 1759494
+      }
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/v6d4netk",
+      "id": "2",
+      "name": "タイトル1",
+      "bbox": [
+        58,
+        43,
+        908,
+        104
+      ],
+      "geometry": "rect",
+      "text": "デザインパターンで学ぶ",
+      "textPreview": "デザインパターンで学ぶ",
+      "resolvedFontSize": 70,
+      "resolvedTextStyle": {
+        "anchor": 2,
+        "fontSize": 70,
+        "typeface": "Noto Sans JP",
+        "color": "#050505",
+        "bold": true,
+        "alignment": "center",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "デザインパターンで学ぶ"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "デザインパターンで学ぶ",
+          "resolvedTextStyle": {
+            "fontSize": 70,
+            "typeface": "Noto Sans JP",
+            "color": "#050505",
+            "bold": true,
+            "alignment": "center"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "デザインパターンで学ぶ",
+              "fontSize": 70,
+              "typeface": "Noto Sans JP",
+              "color": "#050505",
+              "bold": true,
+              "alignment": "center"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/u543e9sz",
+      "id": "3",
+      "name": "タイトル2",
+      "bbox": [
+        58,
+        151,
+        908,
+        118
+      ],
+      "geometry": "rect",
+      "text": "C++ソフトウェア設計",
+      "textPreview": "C++ソフトウェア設計",
+      "resolvedFontSize": 82,
+      "resolvedTextStyle": {
+        "anchor": 2,
+        "fontSize": 82,
+        "typeface": "Noto Sans JP",
+        "color": "#050505",
+        "bold": true,
+        "alignment": "center",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "C++ソフトウェア設計"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "C++ソフトウェア設計",
+          "resolvedTextStyle": {
+            "fontSize": 82,
+            "typeface": "Noto Sans JP",
+            "color": "#050505",
+            "bold": true,
+            "alignment": "center"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "C++ソフトウェア設計",
+              "fontSize": 82,
+              "typeface": "Noto Sans JP",
+              "color": "#050505",
+              "bold": true,
+              "alignment": "center"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/5cfmtobm",
+      "id": "4",
+      "name": "タイトル下罫線",
+      "bbox": [
+        60,
+        286,
+        904,
+        5
+      ],
+      "geometry": "rect",
+      "fillColor": "#123F91",
+      "lineColor": "#123F91",
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/4b6lkja1",
+      "id": "5",
+      "name": "サブタイトル",
+      "bbox": [
+        76,
+        306,
+        872,
+        52
+      ],
+      "geometry": "rect",
+      "text": "分離と再結合で、設計を決める思考プロセス",
+      "textPreview": "分離と再結合で、設計を決める思考プロセス",
+      "resolvedFontSize": 30,
+      "resolvedTextStyle": {
+        "anchor": 2,
+        "fontSize": 30,
+        "typeface": "Noto Sans JP",
+        "color": "#111827",
+        "bold": true,
+        "alignment": "center",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "分離と再結合で、設計を決める思考プロセス"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "分離と再結合で、設計を決める思考プロセス",
+          "resolvedTextStyle": {
+            "fontSize": 30,
+            "typeface": "Noto Sans JP",
+            "color": "#111827",
+            "bold": true,
+            "alignment": "center"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "分離と再結合で、設計を決める思考プロセス",
+              "fontSize": 30,
+              "typeface": "Noto Sans JP",
+              "color": "#111827",
+              "bold": true,
+              "alignment": "center"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/jax4retg",
+      "id": "6",
+      "name": "帯見出し",
+      "bbox": [
+        58,
+        1256,
+        908,
+        94
+      ],
+      "geometry": "rect",
+      "text": "パターンを当てはめる前に、\n設計すべき構造を見つける。",
+      "textPreview": "パターンを当てはめる前に、 | 設計すべき構造を見つける。",
+      "resolvedFontSize": 38,
+      "resolvedTextStyle": {
+        "anchor": 2,
+        "fontSize": 38,
+        "typeface": "Noto Sans JP",
+        "color": "#FFFFFF",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "パターンを当てはめる前に、"
+          },
+          {
+            "index": 2,
+            "text": "設計すべき構造を見つける。"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "パターンを当てはめる前に、",
+          "resolvedTextStyle": {
+            "fontSize": 38,
+            "typeface": "Noto Sans JP",
+            "color": "#FFFFFF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "パターンを当てはめる前に、",
+              "fontSize": 38,
+              "typeface": "Noto Sans JP",
+              "color": "#FFFFFF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "設計すべき構造を見つける。",
+          "resolvedTextStyle": {
+            "fontSize": 38,
+            "typeface": "Noto Sans JP",
+            "color": "#FFFFFF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "設計すべき構造を見つける。",
+              "fontSize": 38,
+              "typeface": "Noto Sans JP",
+              "color": "#FFFFFF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 7,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/i9o3i9sv",
+      "id": "7",
+      "name": "帯説明",
+      "bbox": [
+        58,
+        1362,
+        908,
+        76
+      ],
+      "geometry": "rect",
+      "text": "現状を捉え、結合部分の課題を見つけ、責任を分離し、\n動くシステムとして再結合する。",
+      "textPreview": "現状を捉え、結合部分の課題を見つけ、責任を分離し、 | 動くシステムとして再結合する。",
+      "resolvedFontSize": 27,
+      "resolvedTextStyle": {
+        "anchor": 2,
+        "fontSize": 27,
+        "typeface": "Noto Sans JP",
+        "color": "#FFFFFF",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "現状を捉え、結合部分の課題を見つけ、責任を分離し、"
+          },
+          {
+            "index": 2,
+            "text": "動くシステムとして再結合する。"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "現状を捉え、結合部分の課題を見つけ、責任を分離し、",
+          "resolvedTextStyle": {
+            "fontSize": 27,
+            "typeface": "Noto Sans JP",
+            "color": "#FFFFFF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "現状を捉え、結合部分の課題を見つけ、責任を分離し、",
+              "fontSize": 27,
+              "typeface": "Noto Sans JP",
+              "color": "#FFFFFF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "動くシステムとして再結合する。",
+          "resolvedTextStyle": {
+            "fontSize": 27,
+            "typeface": "Noto Sans JP",
+            "color": "#FFFFFF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "動くシステムとして再結合する。",
+              "fontSize": 27,
+              "typeface": "Noto Sans JP",
+              "color": "#FFFFFF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 8,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/lgv2hkb2",
+      "id": "8",
+      "name": "帯結論",
+      "bbox": [
+        58,
+        1454,
+        908,
+        42
+      ],
+      "geometry": "rect",
+      "text": "型ではなく、デザインパターンに至る考え方を学ぶ。",
+      "textPreview": "型ではなく、デザインパターンに至る考え方を学ぶ。",
+      "resolvedFontSize": 25,
+      "resolvedTextStyle": {
+        "anchor": 2,
+        "fontSize": 25,
+        "typeface": "Noto Sans JP",
+        "color": "#FFE38A",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "型ではなく、デザインパターンに至る考え方を学ぶ。"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "型ではなく、デザインパターンに至る考え方を学ぶ。",
+          "resolvedTextStyle": {
+            "fontSize": 25,
+            "typeface": "Noto Sans JP",
+            "color": "#FFE38A",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "型ではなく、デザインパターンに至る考え方を学ぶ。",
+              "fontSize": 25,
+              "typeface": "Noto Sans JP",
+              "color": "#FFE38A",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}
