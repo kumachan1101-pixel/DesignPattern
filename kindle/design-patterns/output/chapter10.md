@@ -1126,13 +1126,12 @@ graph LR
 
 見つけた接続点には、解くべき課題として上から順に **P1・P2…** の番号（課題ID）を付けます。以降のフェーズ6（対策）・フェーズ7（実装・結果）まで同じIDで追跡できるようにするための目印で、まずはこの後の一覧表で整理します。
 
-今回のリファクタリングで「何を解決する必要があるか」を整理すると、接続点は二つです。
+今回のリファクタリングで「何を解決する必要があるか」を整理すると、接続点は二つです。上から順に、課題IDとして **P1・P2** を付けます。
 
-- **接続点A**：`BatchExecutor` ←→ 各外部システム（SystemA/B/C）の通信境界
-- **接続点B**：`BatchExecutor` ←→ 通知サービス（NotificationService）の通知境界
-- **P1の組み立て責任**：接続点Aへ渡すClientの生成・所有を`BatchExecutor`の外へ置く
+- **P1（外部連携の接続点）**：`BatchExecutor` ←→ 各外部システム（SystemA/B/C）の通信境界。ここへ渡すClientの生成・所有も、連携先追加という同じ理由で変わるため、P1の組み立て責任として一緒に扱います。
+- **P2（通知の接続点）**：`BatchExecutor` ←→ 通知サービス（NotificationService）の通知境界。
 
-現在、`BatchExecutor`は接続点A・Bの具体クラスを直接生成・利用しています。外部連携の追加では通信実装とClient生成が同じ理由で変わり、通知先追加は別の理由で変わります。この二軸が同じクラスへ集まることが課題です。
+現在、`BatchExecutor`はP1・P2の具体クラスを直接生成・利用しています。外部連携の追加では通信実装とClient生成が同じ理由で変わり、通知先追加は別の理由で変わります。この二軸が同じクラスへ集まることが課題です。
 
 分離対象の責務を呼び出しているのは `BatchExecutor` クラス自身です。このクラスが連携先・通知先・生成の「詳細」をすべて知っていることが現在の制限事項です。この設計を改善することで、`BatchExecutor` は「バッチの実行順序（フロー）」だけを管理し、実際の処理（通信・通知・生成）は外部化されたクラスに任せることができます。
 
@@ -1146,14 +1145,14 @@ DeliveryResult execute(const SyncRequest& request) {
     DeliveryResult result{"失敗", false, "未対応"};
     if (partnerId == "A") {
         SystemAClient client;   // ← 具体クラスを生成している（P1の組み立て：生成・所有）
-        result = client.send(data); // ← 通信の詳細を知っている（接続点A）
+        result = client.send(data); // ← 通信の詳細を知っている（P1：通信境界）
     } else if (partnerId == "B") {
         SystemBClient client;   // ← 具体クラスを生成している（P1の組み立て：生成・所有）
-        result = client.send(data); // ← 通信の詳細を知っている（接続点A）
+        result = client.send(data); // ← 通信の詳細を知っている（P1：通信境界）
     }
     batchLog.add(partnerId, partnerId + "社", result.status); // 既存の保存方法
-    NotificationService n;      // ← 通知サービスの実装を知っている（接続点B）
-    n.notify(result.status);     // ← 通知の詳細を知っている（接続点B）
+    NotificationService n;      // ← 通知サービスの実装を知っている（P2：通知境界）
+    n.notify(result.status);     // ← 通知の詳細を知っている（P2：通知境界）
     return result;
 }
 ```
