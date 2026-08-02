@@ -1159,17 +1159,46 @@ acceptedRequests.push_back(request);
 この表と完了状態が、そのままフェーズ6の入力です。要求の受入は要求ID、設計課題の解消は課題ID、今回の変更影響は変更IDで別々に追跡します。
 ## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-対策を考える前に、フェーズ3で痛みを生んだ変更途中コードを、課題に関係する部分だけ手元に戻します。ここを出発点に、何をどこへ分けるかを決めていきます。
+**ここからしばらくは抽象の話です。** 個々のクラスへ入る前に、この章で「何を、どんな構造へ変えるのか」を先に決めます。
+
+#### まず全体像 ―― どんな構造へ変えるか（抽象）
+
+フェーズ4で、一つの`ReportGenerator`が「本文の中身」「装飾の種類と順序」「生成実行と履歴」という**別々の理由で変わる3つの判断**を、同じ生成処理へ抱えていることを確認しました。対策は、この3つを別々の責任へ分け、最後に一本の実行経路へ結び直すことです。
+
+```text
+現在：ReportGenerator.generate() が
+      本文判断 ＋ 装飾判断 ＋ 履歴操作 を全部持つ
+                      ↓
+変更後：3つの変わる理由を別責任へ分け、一直線の経路へ再結合する
+   本文の中身   → 骨格を固定し本文だけ差し替える（骨格固定＝Template Method）
+   装飾の種類順 → 一つの文書へ装飾を順に重ねる（装飾連結＝Decorator）
+   生成と履歴   → 要求を操作として記録・再実行する（操作記録＝Command）
+守る範囲：読込→ヘッダー→本文→フッターの生成順、売上集計、描画・出力境界、内部診断DebugLog
+```
+
+まだクラスの中身は見ません。この段階でつかんでほしいのは「3つの変わる理由を3つの構造へ分け、最後に一本へつなぐ」という筋だけです。各課題で「誰が具体を作り、誰が具体を知らずに実行するか」も、先に抽象の対応表で示します。
+
+| 課題ID | 分ける判断（抽象） | 採用する構造 | 共通契約 | 具体を生成する場所 | 具体を知らず実行する場所 |
+|---|---|---|---|---|---|
+| 課題ID1 | 本文の中身 | 骨格固定（Template Method） | `IReport.create()` | `ReportAssembler` | `ReportGenerationService` |
+| 課題ID2 | 装飾の種類・順序 | 装飾連結（Decorator） | `IReport.create()` | `ReportAssembler` | `ReportGenerationService` |
+| 課題ID3 | 生成実行と履歴 | 操作記録（Command） | `IReportAction.execute()` | `ReportApplication` | `ReportActionHistory` |
+
+**ここから具体へ入ります。** まず分ける対象の“もと”のコードを手元に戻し、次に課題ID1→課題ID2→課題ID3の順で、判断を一つずつ構造へ移します。
 
 #### 課題箇所のおさらい（フェーズ3の関連コード）
 
-課題に関係する、本文判断・装飾判断・履歴操作だけを再掲します。いずれも一つの`ReportGenerator`の生成処理へ集まっていました。★以下コード、どのクラス喉の処理の部分の抜粋なのか？以下は抜粋の集まりなのか？
+分ける対象は、フェーズ3で痛みを生んだ変更途中の`ReportGenerator::generate()`という**一つのメソッド**です。その中に、上で挙げた3つの判断が同居しています。関係する3箇所だけを、それぞれ何の判断かを添えて抜き出します（同じメソッド内の連続した抜粋です）。
 
 ```cpp
+// すべて ReportGenerator::generate() の内部。3つの判断が同居している
+
+// ① 本文の判断：テンプレートIDを見て本文の中身を選ぶ（→課題ID1）
 if (request.templateId == "SALES_MONTHLY_EXECUTIVE") {
     renderer.addStandardBody(
         document, "役員向け月次専用本文", summary);
 }
+// ② 装飾の判断：装飾の種類と適用順をここで分岐する（→課題ID2）
 for (DecorationType type : request.decorations) {
     if (type == DecorationType::Graph) {
         renderer.addGraph(document);
@@ -1179,14 +1208,16 @@ for (DecorationType type : request.decorations) {
         renderer.addWatermark(document);
     }
 }
+// ③ 履歴の判断：受け付けた要求をこの生成処理の中で保存する（→課題ID3）
 acceptedRequests.push_back(request);
 return execute(request, templateName);
 ```
 
-#### 接続点の分離・配置・組み立てを決める
+この①②③を、次から課題ID1→課題ID2→課題ID3の順に、それぞれ別の責任へ移していきます。
 
-ここでは完成案を一つずつ試しません。課題ID1〜課題ID3を同時に満たす最終構造を、観察した事実から順に導きます。
-★以下の、なぜ、が続きますが、疑問が出る背景が理解できていません。
+#### 接続点の分離・配置・組み立てを決める（抽象：なぜ分けられるか）
+
+具体クラスの実装へ入る前に、各課題で「**なぜ分けられるのか**」——別々の理由で変わり、共通部分を守れるのか——を、上のコードを根拠に確認します。ここはまだ抽象です。具体クラスの実装は、この後の「設計判断ごとの部分クラス図」で課題ごとに示します。
 #### 課題ID1：なぜ本文だけを委ねるのか
 
 週次、通常月次、役員向け月次、部門別を比べると、売上読込、ヘッダー、フッターは共通です。変わるのはSalesSummaryから作る本文だけです。
@@ -1202,19 +1233,7 @@ return execute(request, templateName);
 #### 課題ID3：なぜ要求を操作として保持するのか
 
 再実行に必要なのは、完成したReportDocumentではありません。テンプレートID、形式、装飾列、出力先を含むReportRequestです。これを実行前に保持し、実行と取消を同じ単位へ持たせれば、履歴側は具体本文や装飾を知る必要がありません。
-★以下の再結合、いきなりこの考えが出てくるのは唐突すぎる。どんなロジックなのか。
-#### 三つをどう再結合するか
-
-1. ReportApplicationがReportRequestを受け付ける。
-2. GenerateReportActionへ完全な要求と実行窓口を注入する。
-3. ReportActionHistoryがActionを先に所有してからexecute()する。
-4. ReportGenerationServiceが要求を検証する。
-5. ReportAssemblerがテンプレートIDから本文実装を生成する。
-6. ReportAssemblerが装飾列の順にReportFeatureを連結する。
-7. Actionが完成文書を出力し、同じActionを再実行・取消できる。
-8. ReportApplicationが各操作結果を、従来どおりDebugLogへ診断記録する。
-
-この直列経路で課題ID1〜課題ID3が一つのシステムになります。
+以上で、3つの判断が「別々の理由で変わり、共通部分を守れる」ことを確認しました。**この3つを一本の実行経路へ戻す“再結合”は、各課題を具体クラスへ分けた後**、後半の「システム全体の最終構造を決める」で扱います。ここではまだ経路を組み立てません。分離方法・配置場所・組み立て方法の方針だけを、先に一覧にしておきます。
 
 | 接続点を変える観点 | システム全体の判断 | 生成・所有・注入 |
 |---|---|---|
@@ -1225,7 +1244,7 @@ return execute(request, templateName);
 
 #### 設計判断ごとの部分クラス図
 
-課題ID1では、共通生成順を`ReportSkeleton`へ置き、本文だけを具体レポートへ委ねます。★浮いているクラスはやめて
+**課題ID1（本文）：骨格固定構造で分ける。**〔全体：本文→装飾→履歴→再結合／いまここ：本文の分離〕まず部分クラス図で、共通契約`IReport`・共通順の骨格`ReportSkeleton`・具体本文と、それらを生成する`ReportAssembler`の関係を示します。生成側の`ReportAssembler`も図へ含めるので、具体本文が宙に浮きません。
 
 ```mermaid
 classDiagram
@@ -1243,30 +1262,68 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-`ReportAssembler`を生成側として図へ含めたため、本文クラスだけがシステムから浮いていません。構造差分を作るコードの核は次です。
+図の`ReportAssembler`が本文を生成する側です。採用後コードを、契約→骨格→具体の順に示します（3つで一続きのまとまりです）。
+
+まず共通契約`IReport`と、共通順を固定する骨格`ReportSkeleton`です。
 
 ```cpp
+// 採用後コード：共通契約と骨格（IReportとReportSkeleton）
+class IReport {
+public:
+    virtual ~IReport() = default;
+    virtual ReportDocument create() = 0;   // 一つの文書を作る共通契約
+};
+
 class ReportSkeleton : public IReport {
 protected:
-    virtual void renderBody(
-        ReportDocument& document,
-        const SalesSummary& summary) = 0;
+    DataReader& reader;
+    ReportRenderingApi& renderer;
+    OutputFormat format;
+    // 本文だけを具体クラスへ委ねる差し替え点
+    virtual void renderBody(ReportDocument& document,
+                            const SalesSummary& summary) = 0;
 public:
-    ReportDocument create() final {
+    ReportSkeleton(DataReader& r, ReportRenderingApi& re, OutputFormat f)
+        : reader(r), renderer(re), format(f) {}
+    ReportDocument create() final {          // 共通順はここで固定（上書き不可）
         SalesSummary summary = reader.readCSV();
         ReportDocument document;
         renderer.addHeader(document, format);
-        renderBody(document, summary);
+        renderBody(document, summary);       // ← ここだけ具体本文へ
         renderer.addFooter(document);
         return document;
     }
 };
 ```
 
-変更途中コードの本文ID分岐を`create()`から外し、具体本文の`renderBody()`へ移す変更です。生成者は本文実装を選びますが、共通順は本文IDを知りません。
-★MonthlyReportの具体は出さないの？IReportの定義は？コードが部分的過ぎて意味わからない
+次に、その差し替え点`renderBody()`だけを実装する具体本文です。通常月次と役員向けを別クラスにします。
 
-課題ID2では、各装飾も`IReport`として内側の文書を保持し、入力順に包める構造へ変えます。
+```cpp
+// 採用後コード：具体本文（renderBody だけを実装する）
+class MonthlyReport : public ReportSkeleton {
+public:
+    using ReportSkeleton::ReportSkeleton;
+protected:
+    void renderBody(ReportDocument& document,
+                    const SalesSummary& summary) override {
+        renderer.addStandardBody(document, "月次売上レポート", summary);
+    }
+};
+
+class ExecutiveMonthlyReport : public ReportSkeleton {   // 変更ID1で追加
+public:
+    using ReportSkeleton::ReportSkeleton;
+protected:
+    void renderBody(ReportDocument& document,
+                    const SalesSummary& summary) override {
+        renderer.addExecutiveBody(document, summary);     // 役員向け専用本文
+    }
+};
+```
+
+継承の要点を整理します。**共通なのは**`create()`の生成順（読込→ヘッダー→本文→フッター）で、`ReportSkeleton`が`final`で固定します。**変わるのは**`renderBody()`だけで、各具体本文が上書きします。変更途中コードにあった「テンプレートIDを見て本文を選ぶif」は`create()`から消え、**本文を選んで生成するのは`ReportAssembler`、本文の中身を持つのは各具体クラス**へ移りました。`create()`を呼ぶ実行側（`ReportGenerationService`）は`IReport`として呼ぶだけで、具体本文を判定しません。だから役員向けを1クラス足しても、共通順と既存本文（`MonthlyReport`等）は一切変わりません。
+
+**課題ID2（装飾）：装飾連結構造で分ける。**〔全体：本文→装飾→履歴→再結合／いまここ：装飾の分離〕各装飾も`IReport`を実装し、さらに**内側の`IReport`を1つ所有**します（継承と合成の両方）。同じ契約なので、装飾を装飾で包めます。
 
 ```mermaid
 classDiagram
@@ -1286,23 +1343,65 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-ここでも`ReportAssembler`を連結する側として示し、装飾クラスを単独の型一覧にしていません。コードでは、各部品が具体的な装飾を一つだけ加えます。
+採用後コードを、基底→具体→組み立ての順に示します。まず装飾の基底`ReportFeature`です。内側`IReport`を所有し、デストラクタで破棄します（所有権はこの外側Featureにあります）。
 
 ```cpp
+// 採用後コード：装飾の基底（内側の IReport を所有する）
+class ReportFeature : public IReport {
+protected:
+    IReport* wrapped;              // 内側の文書（本文または別の装飾）
+    ReportRenderingApi& renderer;
+public:
+    ReportFeature(IReport* inner, ReportRenderingApi& re)
+        : wrapped(inner), renderer(re) {}
+    ~ReportFeature() override { delete wrapped; }   // 内側を破棄
+};
+```
+
+各具体装飾は、内側を作ってから自分の要素を1つ足すだけです。前後順は持ちません。
+
+```cpp
+// 採用後コード：具体装飾（1つだけ足す。順序判断は持たない）
 class GraphFeature : public ReportFeature {
 public:
     using ReportFeature::ReportFeature;
     ReportDocument create() override {
+        ReportDocument document = wrapped->create();  // 内側を先に生成
+        renderer.addGraph(document);                  // グラフを1つ追加
+        return document;
+    }
+};
+
+class LogoFeature : public ReportFeature {
+public:
+    using ReportFeature::ReportFeature;
+    ReportDocument create() override {
         ReportDocument document = wrapped->create();
-        renderer.addGraph(document);
+        renderer.addLogo(document);                   // ロゴを1つ追加
         return document;
     }
 };
 ```
 
-変更途中コードの装飾種類分岐は、各Featureと組み立て側へ分かれます。Featureは前後順を判断せず、Assemblerが入力列の順に連結します。
+順序を決めるのは各装飾ではなく、組み立てる`ReportAssembler`です。装飾列を先頭から走査し、いま持っている`IReport`を内側として次の装飾で包み直します。
 
-課題ID3では、完全な`ReportRequest`を`GenerateReportAction`が保持し、履歴は同じ操作契約だけで実行・取消します。
+```cpp
+// 採用後コード：ReportAssembler が入力順に本文を装飾で包む
+IReport* report = /* 課題ID1で選んだ本文（MonthlyReport 等） */;
+for (DecorationType type : request.decorations) {
+    if (type == DecorationType::Graph) {
+        report = new GraphFeature(report, renderer);  // 外側へ包む
+    } else if (type == DecorationType::Logo) {
+        report = new LogoFeature(report, renderer);
+    } else {
+        report = new WatermarkFeature(report, renderer);
+    }
+}
+```
+
+変更途中コードにあった「装飾の種類と順序を分岐するfor-if」は、**各Featureの「1つ足す」**と**Assemblerの「入力順に包む」**へ分かれました。`create()`を呼ぶ実行側は、最外側も`IReport`として呼ぶだけで、何段の装飾が付いているかを知りません。装飾を1種足すときも、新しいFeatureを1クラスとAssemblerの1分岐を足すだけで、本文生成には触れません。
+
+**課題ID3（履歴）：操作記録構造で分ける。**〔全体：本文→装飾→履歴→再結合／いまここ：操作履歴の分離〕完全な`ReportRequest`を`GenerateReportAction`が保持し、履歴は同じ操作契約`IReportAction`だけで実行・取消します。
 
 ```mermaid
 classDiagram
@@ -1323,29 +1422,80 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-受付側、履歴、操作、実行先までを接続したため、`ReportRequest`とActionが図の中で孤立しません。コードでは、受付時に完全要求を持つActionを履歴が所有します。★関数だけ書かれても、どのクラスの話なのか分からない
+採用後コードを、契約→操作→履歴→入口の順に、どのクラスのメソッドかを明記して示します。まず操作契約`IReportAction`と、完全な要求を保持する`GenerateReportAction`です。
 
 ```cpp
-OperationResult submit(ReportRequest request) {
-    IReportAction* action =
-        new GenerateReportAction(service, request);
-    return history.submit(action);
+// 採用後コード：操作契約と、要求を保持する操作
+class IReportAction {
+public:
+    virtual ~IReportAction() = default;
+    virtual OperationResult execute() = 0;   // 実行
+    virtual OperationResult undo() = 0;       // 取消
+};
+
+class GenerateReportAction : public IReportAction {
+    ReportGenerationService& service;    // 実行を委譲する先（注入で受け取る）
+    ReportRequest storedRequest;         // 完全な要求を値で保持
+public:
+    GenerateReportAction(ReportGenerationService& s, ReportRequest r)
+        : service(s), storedRequest(move(r)) {}
+    OperationResult execute() override {
+        return service.generate(storedRequest);   // 本文・装飾の種類は知らない
+    }
+    OperationResult undo() override {
+        return service.removeArtifact(storedRequest.outputPath);
+    }
+};
+```
+
+次に、Actionを所有してから実行する履歴`ReportActionHistory`と、Actionを生成してServiceを注入する入口`ReportApplication`です。
+
+```cpp
+// 採用後コード：ReportActionHistory のメソッド（Action を所有してから実行）
+OperationResult ReportActionHistory::submit(IReportAction* action) {
+    accepted.push_back(action);            // 先に所有（vector が生存を持つ）
+    return accepted.back()->execute();     // 契約 execute() だけを呼ぶ
 }
 
-OperationResult ReportActionHistory::submit(
-    IReportAction* action) {
-    accepted.push_back(action);
-    return accepted.back()->execute();
+// 採用後コード：ReportApplication のメソッド（Action を生成し Service を注入）
+OperationResult ReportApplication::submit(ReportRequest request) {
+    IReportAction* action = new GenerateReportAction(service, request);
+    return history.submit(action);         // 生成した Action を履歴へ渡す
 }
 ```
 
-変更途中コードの`acceptedRequests.push_back(request)`を、生成本体の内部状態ではなく、Application→Action→Historyの所有関係へ移す変更です。
+変更途中コードにあった`acceptedRequests.push_back(request)`は、生成本体の内部状態から、`ReportApplication`が生成し`ReportActionHistory`が所有する**Actionの列**へ移りました。具体Actionを作るのは`ReportApplication`だけで、`ReportActionHistory`は`IReportAction`として`execute()`/`undo()`を呼ぶだけです。だから再実行・取消のとき、履歴は本文や装飾の種類を判定しません。
 
-三図は採用全体図の抜粋です。次のコードでは本文、装飾、操作履歴を別々に実装し、最後に一つの生成ユースケースへ接続します。
+以上で3つの判断を、それぞれ骨格固定・装飾連結・操作記録の3構造へ分けました。次に、これらを一本の実行経路へ再結合します。
 
-#### システム全体の最終構造を決める
+#### システム全体の最終構造を決める（再結合）
 
-課題ID1〜課題ID3を同時に満たす最終構造は、骨格固定構造・装飾連結構造・操作記録構造を直列に再結合する一つのシステムです。途中の部分分離は完了条件を満たさないため、完成案として比較しません。
+3つに分けた責任を、一本の実行経路へ戻します（**ここは抽象→具体の順で示します**）。まず抽象的な経路です。「誰が具体を作り、誰が契約だけで実行するか」を決めて再結合します。
+
+```text
+ReportApplication（要求受付・Action生成・Service注入）
+  → ReportActionHistory（Actionを所有し execute() を呼ぶ）
+    → GenerateReportAction（保持した要求を Service へ渡す）
+      → ReportGenerationService（検証し Assembler で組み立て、create() を呼ぶ）
+        → ReportAssembler（本文を選び生成し、装飾で入力順に包む）
+          → IReport.create()（骨格→本文→装飾が順に動く）
+```
+
+具体を知るのは`ReportAssembler`（本文・装飾を生成）と`ReportApplication`（Actionを生成）だけです。`ReportGenerationService`は`IReport`として、`ReportActionHistory`は`IReportAction`として、契約だけを呼びます。
+
+次に具体入力で、生成されるオブジェクトの形を確かめます。「役員向け月次・装飾Logo→Graph」を受け付けると、`ReportAssembler`は本文`ExecutiveMonthlyReport`を作り、装飾列の順に外側へ包むので、次の入れ子ができます。
+
+```text
+GraphFeature（最外側）
+  └─ LogoFeature
+       └─ ExecutiveMonthlyReport（最内側＝本文）
+```
+
+- **実行順**（`create()`は外側から呼ばれ、内側から仕上がる）：Graph.create → Logo.create → Executive.create（骨格が読込→ヘッダー→役員本文→フッター）→ 戻りながらロゴ追加 → グラフ追加。入力順（Logo→Graph）どおりに装飾が乗ります。
+- **破棄順**：最外側`GraphFeature`のデストラクタが`delete wrapped`で内側`LogoFeature`を、続けて`ExecutiveMonthlyReport`を破棄します。所有は外→内で連鎖します。
+- **診断**：`ReportApplication`が各操作の成否だけを`DebugLog`へ記録します。課題ID1〜3の外側で、再実行・取消の判断には関与しません。
+
+この一本の経路が、課題ID1〜課題ID3を同時に満たす最終構造です。途中までしか分けない案は、この経路を最後まで通せないため完成案として比較しません。次に、この構造を変更前後のクラス図で確定します。
 
 ### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
