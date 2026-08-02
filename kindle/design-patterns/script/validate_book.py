@@ -1117,11 +1117,24 @@ def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
         missing = [name for name, offset in offsets.items() if offset < 0]
         return [Issue(path, 1, f"フェーズ6比較の必須要素がありません: {', '.join(missing)}")]
 
+    # おさらい（変更前コードの再掲）は1つの小節であり、その終わりは
+    # 直後に現れる次の見出し（###/####）である。適用後の段階コードは
+    # 「おさらい小節より後・適用結果より前」に置かれる。おさらいを
+    # フェーズ6の前半に置く章（本文先出し型）でも後半に置く章でも同じ
+    # 判定になるよう、6-1固定ではなくおさらい小節の終端で区切る。
+    recap_line_end = text.find("\n", offsets["recap"])
+    recap_next = re.search(
+        r"(?m)^#{1,6} ", text[recap_line_end + 1:]
+    )
+    recap_end = (
+        recap_line_end + 1 + recap_next.start()
+        if recap_next else offsets["step61"]
+    )
     recap_blocks = extract_cpp_blocks(
-        text[offsets["recap"]:offsets["step61"]]
+        text[offsets["recap"]:recap_end]
     )
     stage_blocks = extract_cpp_blocks(
-        text[offsets["step61"]:offsets["stage_end"]]
+        text[recap_end:offsets["stage_end"]]
     )
     phase7_code = "\n\n".join(extract_cpp_blocks(
         text[offsets["section71"]:offsets["section72"]]
@@ -1135,8 +1148,8 @@ def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
         ))
     if len(stage_blocks) < 2:
         issues.append(Issue(
-            path, line_number(text, offsets["step61"]),
-            "6-1/6-2に最小変更と次の変更を示す段階C++コードが不足しています",
+            path, line_number(text, recap_end),
+            "採用設計の段階C++コード（おさらい後・適用結果前）が不足しています",
         ))
     if not phase7_code:
         issues.append(Issue(
