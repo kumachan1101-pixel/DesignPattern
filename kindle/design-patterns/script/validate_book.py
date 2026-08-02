@@ -2162,6 +2162,39 @@ def check_explanation_regression(text: str, path: Path) -> list[Issue]:
                     "責任・入力・処理・副作用の箇条書き説明がありません",
                 ))
 
+    for case_id in ("A1", "A2", "A3", "A4"):
+        function_token = f"void scenario{case_id}("
+        function_start = text.find(function_token)
+        code_end = text.find("```", function_start)
+        result_label = f"実行結果（{case_id}）："
+        result_start = text.find(result_label, code_end)
+        next_cpp = text.find("```cpp", code_end + 3)
+        if (
+            function_start < 0
+            or code_end < 0
+            or result_start < 0
+            or (next_cpp >= 0 and result_start > next_cpp)
+        ):
+            issues.append(Issue(
+                path,
+                line_number(text, max(function_start, 0)),
+                f"第11章{case_id}の実行コード直後に対応結果がありません",
+            ))
+            continue
+        output_start = text.find("```", result_start)
+        output_end = text.find("```", output_start + 3)
+        expected_output = f"--- {case_id}:"
+        if (
+            output_start < 0
+            or output_end < 0
+            or expected_output not in text[output_start:output_end]
+        ):
+            issues.append(Issue(
+                path,
+                line_number(text, result_start),
+                f"第11章{case_id}の結果ブロックが実行ケースと対応していません",
+            ))
+
     phase7_start = text.find("### 7-1：解決後のコード（全体）")
     list_start = text.find("#### 完成後のクラス一覧", phase7_start)
     diagram_start = text.find("#### 完成後のクラス図", list_start)

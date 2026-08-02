@@ -2155,7 +2155,7 @@ public:
 - `replayLast()`と`undoLast()`は、最後のActionへ同じ契約で委譲し、本文IDや装飾種別を判断しません。
 - 取消後も受付履歴を残すため、`undoLast()`は成果物だけを削除し、`vector`からActionを除きません。
 
-##### 12. ReportApplicationとmain
+##### 12. ReportApplicationと実行シナリオ
 
 ```cpp
 class ReportApplication {
@@ -2195,10 +2195,17 @@ void printResult(const OperationResult& result) {
          << (result.success ? "成功" : "失敗")
          << "（" << result.message << "）" << endl;
 }
+```
 
-int main() {
-    ReportApplication application;
+- `ReportApplication::submit()`は要求から`GenerateReportAction`を生成し、`ReportActionHistory`へ所有権を渡します。具体Actionを生成する場所はここだけです。
+- `replayLast()`と`undoLast()`は履歴へ委譲し、本文や装飾の詳細を知りません。
+- `DataReader`、`TemplateRegistry`、`ReportRenderingApi`はApplicationが一度だけ所有し、参照としてAssemblerとServiceへ注入します。
+- `printResult()`は各シナリオが受け取った`OperationResult`を同じ形式で表示します。
 
+**A1：通常月次を維持する実行コード**
+
+```cpp
+void scenarioA1(ReportApplication& application) {
     cout << "--- A1: 通常月次は標準本文 ---" << endl;
     printResult(application.submit({
         "SALES_MONTHLY",
@@ -2206,44 +2213,12 @@ int main() {
         {},
         "a1_monthly_demo.txt"
     }));
-
-    cout << "--- A2: 役員向け・ロゴ→グラフ ---" << endl;
-    printResult(application.submit({
-        "SALES_MONTHLY_EXECUTIVE",
-        OutputFormat::Pdf,
-        {DecorationType::Logo, DecorationType::Graph},
-        "a2_executive_demo.txt"
-    }));
-
-    cout << "--- A3: 役員向け・グラフ→ロゴ ---" << endl;
-    printResult(application.submit({
-        "SALES_MONTHLY_EXECUTIVE",
-        OutputFormat::Excel,
-        {DecorationType::Graph, DecorationType::Logo},
-        "a3_order_demo.txt"
-    }));
-
-    cout << "--- A4: 同じ要求を再実行して取消 ---" << endl;
-    printResult(application.submit({
-        "SALES_MONTHLY_EXECUTIVE",
-        OutputFormat::Pdf,
-        {DecorationType::Logo, DecorationType::Graph},
-        "a4_replay_demo.txt"
-    }));
-    printResult(application.replayLast());
-    printResult(application.undoLast());
-    cout << "要求履歴件数: "
-         << application.historySize() << endl;
-    return 0;
 }
 ```
 
-- `ReportApplication::submit()`は要求から`GenerateReportAction`を生成し、`ReportActionHistory`へ所有権を渡します。具体Actionを生成する場所はここだけです。
-- `replayLast()`と`undoLast()`は履歴へ委譲し、本文や装飾の詳細を知りません。
-- `main()`はA1〜A4を順に実行し、通常月次の維持、役員向け本文、二通りの装飾順、同じ要求の再実行と取消を受入条件どおり観測します。
-- `DataReader`、`TemplateRegistry`、`ReportRenderingApi`は`main()`が一度だけ生成し、参照としてAssemblerとServiceへ注入します。
+- R1で役員向け月次を追加した後も、既存の`SALES_MONTHLY`を指定して標準本文が生成されることを確認します。
 
-#### 実行結果
+実行結果（A1）：
 
 ```
 --- A1: 通常月次は標準本文 ---
@@ -2255,6 +2230,27 @@ CSV読込: 6件・合計3510・平均585
 フッター生成
 デモ成果物を保存: a1_monthly_demo.txt（実PDFではない）
 操作結果: 成功（生成完了）
+```
+
+**A2：役員向け本文へロゴ→グラフを適用する実行コード**
+
+```cpp
+void scenarioA2(ReportApplication& application) {
+    cout << "--- A2: 役員向け・ロゴ→グラフ ---" << endl;
+    printResult(application.submit({
+        "SALES_MONTHLY_EXECUTIVE",
+        OutputFormat::Pdf,
+        {DecorationType::Logo, DecorationType::Graph},
+        "a2_executive_demo.txt"
+    }));
+}
+```
+
+- R1の役員向け専用本文と、R2の入力順`Logo→Graph`が同じ成果物へ反映されることを確認します。
+
+実行結果（A2）：
+
+```
 --- A2: 役員向け・ロゴ→グラフ ---
 要求履歴へ受付: 2件目
 テンプレート: 役員向け月次売上レポート
@@ -2266,6 +2262,27 @@ CSV読込: 6件・合計3510・平均585
 装飾適用: グラフ
 デモ成果物を保存: a2_executive_demo.txt（実PDFではない）
 操作結果: 成功（生成完了）
+```
+
+**A3：役員向け本文へグラフ→ロゴを適用する実行コード**
+
+```cpp
+void scenarioA3(ReportApplication& application) {
+    cout << "--- A3: 役員向け・グラフ→ロゴ ---" << endl;
+    printResult(application.submit({
+        "SALES_MONTHLY_EXECUTIVE",
+        OutputFormat::Excel,
+        {DecorationType::Graph, DecorationType::Logo},
+        "a3_order_demo.txt"
+    }));
+}
+```
+
+- A2と同じ二装飾を逆順で渡し、R2が固定順ではなく入力列の順を使うことを比較します。
+
+実行結果（A3）：
+
+```
 --- A3: 役員向け・グラフ→ロゴ ---
 要求履歴へ受付: 3件目
 テンプレート: 役員向け月次売上レポート
@@ -2277,6 +2294,32 @@ CSV読込: 6件・合計3510・平均585
 装飾適用: ロゴ
 デモ成果物を保存: a3_order_demo.txt（実Excelではない）
 操作結果: 成功（生成完了）
+```
+
+**A4：同じ要求を再実行して成果物を取り消す実行コード**
+
+```cpp
+void scenarioA4(ReportApplication& application) {
+    cout << "--- A4: 同じ要求を再実行して取消 ---" << endl;
+    printResult(application.submit({
+        "SALES_MONTHLY_EXECUTIVE",
+        OutputFormat::Pdf,
+        {DecorationType::Logo, DecorationType::Graph},
+        "a4_replay_demo.txt"
+    }));
+    printResult(application.replayLast());
+    printResult(application.undoLast());
+    cout << "要求履歴件数: "
+         << application.historySize() << endl;
+}
+```
+
+- R3の完全な要求を4件目として受付後、同じActionを再実行し、同じ出力先の成果物を削除します。
+- 取消後も受付履歴は4件のままで、履歴を成功結果や監査ログとして扱っていないことを確認します。
+
+実行結果（A4）：
+
+```
 --- A4: 同じ要求を再実行して取消 ---
 要求履歴へ受付: 4件目
 テンプレート: 役員向け月次売上レポート
@@ -2303,6 +2346,33 @@ CSV読込: 6件・合計3510・平均585
 操作結果: 成功（取消完了）
 要求履歴件数: 4
 ```
+
+**A1〜A4を一つのApplicationで実行するmain**
+
+```cpp
+int main() {
+    ReportApplication application;
+    scenarioA1(application);
+    scenarioA2(application);
+    scenarioA3(application);
+    scenarioA4(application);
+    return 0;
+}
+```
+
+- 一つの`ReportApplication`をA1〜A4で共有するため、受付件数が1→4と増え、A4の再実行・取消が同じ履歴へ接続されます。
+- 各シナリオのコード直後に対応する実行結果を置いたため、入力と結果を離れた一括出力から探す必要はありません。
+
+#### 実行結果
+
+実行ログはA1〜A4の各コード直後へ配置しました。ここでは、要求単位の判定だけを一覧にします。
+
+| ケース | 対応要求 | コード直後で確認した結果 |
+|---|---|---|
+| A1 | R1・既存月次の維持 | 通常月次は標準本文のまま生成成功 |
+| A2 | R1・R2 | 役員向け専用本文へロゴ→グラフの順で適用 |
+| A3 | R2 | 同じ二装飾をグラフ→ロゴの逆順で適用 |
+| A4 | R3 | 完全な要求を再実行し、成果物だけを取消。履歴4件を維持 |
 
 #### 変更軸ごとの完成コード追跡
 
