@@ -2122,6 +2122,15 @@ def check_explanation_regression(text: str, path: Path) -> list[Issue]:
         "**クラス図に出てくる主なメンバーと操作**",
         "+generate(request) bool",
         "+writePreview(document, path, format) bool",
+        "#### 内部デバッグログ",
+        "#### DebugLog",
+        "##### 2. DebugLog",
+        "class DebugLog",
+        "現行システムに最初からある内部基盤",
+        "| DebugLog | 変更対象外・内部基盤 | 変更しない | 維持 |",
+        "デバッグログ件数: 0->1・event=generate・result=success",
+        "デバッグログ件数: 6",
+        "要求履歴4件と診断ログ6件",
         "### パターンの骨格",
         "### この章の実装との対応",
         "### 抽象骨格の実行シーケンス",
@@ -2161,6 +2170,34 @@ def check_explanation_regression(text: str, path: Path) -> list[Issue]:
                     f"第11章{label}のC++ブロック直後に"
                     "責任・入力・処理・副作用の箇条書き説明がありません",
                 ))
+
+    if explanation_ranges:
+        current_cpp = "\n".join(re.findall(
+            r"```cpp\s*\n(.*?)```",
+            text[current_start:current_end],
+            re.DOTALL,
+        ))
+        final_cpp = "\n".join(re.findall(
+            r"```cpp\s*\n(.*?)```",
+            text[final_start:final_end],
+            re.DOTALL,
+        ))
+        debug_pattern = re.compile(
+            r"class\s+DebugLog\s*\{.*?\n\};",
+            re.DOTALL,
+        )
+        current_debug = debug_pattern.search(current_cpp)
+        final_debug = debug_pattern.search(final_cpp)
+        if not current_debug or not final_debug:
+            issues.append(Issue(
+                path, 1,
+                "第11章の現状コードと完成コードの両方にDebugLogが必要です",
+            ))
+        elif current_debug.group(0) != final_debug.group(0):
+            issues.append(Issue(
+                path, line_number(text, final_start),
+                "第11章のDebugLogは仕様変更せず、現状と完成後で同じ実装を維持してください",
+            ))
 
     for case_id in ("A1", "A2", "A3", "A4"):
         function_token = f"void scenario{case_id}("

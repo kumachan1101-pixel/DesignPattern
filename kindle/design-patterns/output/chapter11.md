@@ -69,6 +69,12 @@
 
 したがって、掲載コードが作るデモファイルは、有効なPDF・Excelではありません。確認できるのは、どの本文と装飾がどの順番で一つの成果物へ渡されたか、出力境界が呼ばれたか、という設計対象の振る舞いです。
 
+#### 内部デバッグログ
+
+現行システムは、処理の成否を調査するため、実行したイベント名と成功・失敗を`DebugLog`へメモリ記録します。記録のたびに、内部件数が何件から何件へ変わったかも標準出力へ表示します。現状のイベント名は`generate`です。
+
+これは利用者が指定する業務機能ではなく、開発・保守時に処理経過を確認する内部診断機能です。テンプレート選択やレポート生成の入力には使わず、プロセス終了時に消えます。
+
 #### システム全体図
 
 最も大きな境界は、利用者→レポート生成システム→描画／出力サービスです。対象システムの内側にあるテンプレート設定と売上データ、外側にある描画／出力サービスを分けて示します。
@@ -98,27 +104,29 @@ flowchart LR
     D --> B["ヘッダーと<br/>標準本文を生成"]
     B --> E["選択された装飾を<br/>固定順で適用"]
     E --> O["フッターを加え<br/>出力境界へ渡す"]
-    O --> F["完成レポート"]
+    O --> L["DebugLogへ<br/>成否を記録"]
+    V -->|"検証失敗"| L
+    L --> F["生成結果を返す"]
 ```
 
 **エラー条件**
 
 | 条件 | 結果 | 副作用 |
 |---|---|---|
-| テンプレートIDが未登録 | 未登録エラー | デモ成果物を保存しない |
-| 出力形式が非対応 | 未対応形式エラー | デモ成果物を保存しない |
-| デモ成果物を開けない | 出力失敗 | 成功扱いにしない |
+| テンプレートIDが未登録 | 未登録エラー | デモ成果物を保存せず、generate失敗をDebugLogへ一件記録 |
+| 出力形式が非対応 | 未対応形式エラー | デモ成果物を保存せず、generate失敗をDebugLogへ一件記録 |
+| デモ成果物を開けない | 出力失敗 | 成功扱いにせず、generate失敗をDebugLogへ一件記録 |
 
 ### 1-2：動作例テーブル
 
 コードを読む前に、現状の入力から結果を予測します。
 
-| ケース | 入力 | 期待する本文 | 装飾順と結果 |
+| ケース | 入力 | 期待する本文 | 装飾順・出力・診断結果 |
 |---|---|---|---|
-| C1 | SALES_MONTHLY、pdf、グラフあり | 月次の標準本文 | グラフを加え、月次レポートを出力 |
-| C2 | SALES_WEEKLY、excel、ロゴあり | 週次の標準本文 | ロゴを加え、週次レポートを出力 |
-| C3 | SALES_DEPT、pdf、三装飾あり | 部門別の標準本文 | グラフ→ロゴ→透かしで出力 |
-| E1 | UNKNOWN、pdf | ― | 未登録エラー、出力なし |
+| C1 | SALES_MONTHLY、pdf、グラフあり | 月次の標準本文 | グラフを加えて出力。DebugLogはgenerate成功、0→1件 |
+| C2 | SALES_WEEKLY、excel、ロゴあり | 週次の標準本文 | ロゴを加えて出力。DebugLogはgenerate成功、0→1件 |
+| C3 | SALES_DEPT、pdf、三装飾あり | 部門別の標準本文 | グラフ→ロゴ→透かしで出力。DebugLogはgenerate成功、0→1件 |
+| E1 | UNKNOWN、pdf | ― | 出力せず未登録エラー。DebugLogはgenerate失敗、0→1件 |
 
 ### 1-3：登場クラスとクラス構成図
 
@@ -131,8 +139,9 @@ flowchart LR
 | `DataReader` | 売上データを読み込み、集計する |
 | `ReportDocument` | 一つの完成文書へ入る要素を保持する |
 | `ReportRenderingApi` | ヘッダー、本文、装飾、フッター、出力の外部境界を表す |
+| `DebugLog` | 実行イベントと成否をメモリ記録し、件数変化を表示する |
 | `ReportGenerator` | 読込から出力までを固定順で進め、本文と装飾も判断する |
-| `ReportApplication` | 生成要求を受け、検証後にReportGeneratorを呼ぶ |
+| `ReportApplication` | 生成要求を受け、検証後にReportGeneratorを呼び、結果をDebugLogへ記録する |
 
 ```mermaid
 classDiagram
@@ -140,7 +149,13 @@ classDiagram
     class ReportApplication {
         -registry : TemplateRegistry
         -generator : ReportGenerator
+        -debugLog : DebugLog
         +generate(request) bool
+    }
+    class DebugLog {
+        -entries : vector
+        +write(event, success)
+        +size() int
     }
     class ReportRequest {
         +templateId : string
@@ -191,6 +206,7 @@ classDiagram
     ReportApplication *-- TemplateRegistry : 検証
     TemplateRegistry *-- ReportTemplate : 登録
     ReportApplication *-- ReportGenerator : 生成依頼
+    ReportApplication *-- DebugLog : 実行状況を記録
     ReportGenerator *-- DataReader : 読込
     DataReader --> SalesSummary : 集計
     ReportGenerator --> ReportDocument : 組み立て
@@ -211,7 +227,8 @@ classDiagram
 | DataReader | sales、readCSV() | 6件の売上を読み、件数・合計・平均を返す |
 | ReportGenerator | reader、renderer、generate() | 読込から出力まで進め、本文と装飾も判断する |
 | ReportRenderingApi | addHeader()～writePreview() | 一つのReportDocumentへ要素を追加し、デモ成果物を保存する |
-| ReportApplication | registry、generator、generate() | 入力を検証し、生成処理へ接続する |
+| DebugLog | entries、write()、size() | イベントと成否をメモリへ追加し、件数変化を表示する |
+| ReportApplication | registry、generator、debugLog、generate() | 入力を検証し、生成処理へ接続して結果を診断記録する |
 
 図では責任と接続を確認し、各操作の条件分岐や失敗時の戻り値は、次の現状コードで確認します。
 
@@ -222,11 +239,12 @@ classDiagram
 | コードブロック | クラス | 見る責任 |
 |---|---|---|
 | 1 | 値と要求 | 入力・集計・文書 |
-| 2 | DataReader | 売上集計 |
-| 3 | ReportRenderingApi | 描画・デモ出力境界 |
-| 4 | TemplateRegistry | テンプレート検証 |
-| 5 | ReportGenerator | 固定順の生成と装飾判断 |
-| 6 | ReportApplication、main | 入力受付と実行 |
+| 2 | DebugLog | 内部診断記録と件数変化 |
+| 3 | DataReader | 売上集計 |
+| 4 | ReportRenderingApi | 描画・デモ出力境界 |
+| 5 | TemplateRegistry | テンプレート検証 |
+| 6 | ReportGenerator | 固定順の生成と装飾判断 |
+| 7 | ReportApplication、main | 入力受付、実行、診断記録 |
 
 #### 値と要求
 
@@ -276,6 +294,34 @@ struct ReportTemplate {
 - `ReportRequest`は、テンプレートID、形式、三つの装飾フラグ、出力先という1-1の入力を一回分にまとめます。
 - `SalesSummary`はDataReaderの集計結果、`ReportDocument`は描画APIへ渡す一つの完成文書、`ReportTemplate`は登録済み名称と対応形式を保持します。
 - これらは処理を選ぶクラスではなく、クラス間を流れる値と契約です。
+
+#### DebugLog
+
+```cpp
+class DebugLog {
+    vector<string> entries;
+public:
+    void write(const string& event, bool success) {
+        int before = static_cast<int>(entries.size());
+        entries.push_back(
+            event + ":" + (success ? "success" : "failure"));
+        cout << "デバッグログ件数: " << before
+             << "->" << entries.size()
+             << "・event=" << event
+             << "・result="
+             << (success ? "success" : "failure")
+             << endl;
+    }
+
+    int size() const {
+        return static_cast<int>(entries.size());
+    }
+};
+```
+
+- `write()`は、イベント名と成否を一件追加し、`entries`の件数が何件から何件へ変わったかを表示します。
+- 記録内容は診断に必要な最小情報だけで、テンプレート、装飾、出力先を復元する完全な要求ではありません。
+- `size()`は診断件数の確認用です。レポート生成の可否や再実行対象を決める判定には使いません。
 
 #### DataReader
 
@@ -460,17 +506,20 @@ public:
 class ReportApplication {
     TemplateRegistry registry;
     ReportGenerator generator;
+    DebugLog debugLog;
 public:
     bool generate(const ReportRequest& request) {
         if (!registry.exists(request.templateId)) {
             cout << "エラー: 未登録テンプレート "
                  << request.templateId << endl;
+            debugLog.write("generate", false);
             return false;
         }
         if (!registry.supportsFormat(
                 request.templateId, request.format)) {
             cout << "エラー: 未対応形式 "
                  << formatName(request.format) << endl;
+            debugLog.write("generate", false);
             return false;
         }
 
@@ -478,8 +527,10 @@ public:
             registry.get(request.templateId);
         cout << "テンプレート: "
              << reportTemplate.name << endl;
-        return generator.generate(
+        bool success = generator.generate(
             request, reportTemplate.name);
+        debugLog.write("generate", success);
+        return success;
     }
 };
 
@@ -497,9 +548,9 @@ int main() {
 }
 ```
 
-- `ReportApplication::generate()`は、テンプレートIDと対応形式を検証してから`ReportGenerator`へ同じ要求を渡します。エラー時は生成・保存へ進みません。
+- `ReportApplication::generate()`は、テンプレートIDと対応形式を検証してから`ReportGenerator`へ同じ要求を渡します。エラー時は生成・保存へ進みませんが、その失敗結果も`DebugLog`へ記録します。
 - `main()`は、月次・PDF・グラフあり・ロゴあり・透かしなし・出力先というC1の入力を組み立てます。
-- 利用者入力の受付と、テンプレート検証、生成本体の呼び出しがどこで接続されるかを示すブロックです。
+- 利用者入力の受付、テンプレート検証、生成本体の呼び出し、内部診断記録がどこで接続されるかを示すブロックです。
 
 実行対象コード：1-4の現状コード
 
@@ -516,9 +567,10 @@ CSV読込: 6件・合計3510・平均585
 装飾適用: ロゴ
 フッター生成
 デモ成果物を保存: current_monthly_pdf_demo.txt（実PDFではない）
+デバッグログ件数: 0->1・event=generate・result=success
 ```
 
-現状の入力、集計、固定された装飾順、出力境界が、1-1と1-2の説明どおりに動きました。
+現状の入力、集計、固定された装飾順、出力境界、内部診断ログが、1-1と1-2の説明どおりに動きました。
 
 ### 1-5：変更要求
 
@@ -544,14 +596,17 @@ CSV読込: 6件・合計3510・平均585
 | 既存テンプレート | 週次、通常月次、部門別を残す |
 | 既存装飾 | グラフ、ロゴ、透かしを残す |
 | デモ出力 | 有効なPDF/Excelではなく、内容確認用テキストを保存する |
+| 内部デバッグログ | イベント名と成否をメモリ記録し、件数変化を表示する。要求履歴の正本にはしない |
 
 上表の各項目は、変更後も意味を変更なしとして維持します。
+
+`DebugLog`は現行システムに最初からある内部基盤なので、R1〜R3には含めません。R3で追加する要求履歴は、完全な`ReportRequest`を再実行・取消のために保持する別の業務上の記録です。デバッグログを要求履歴へ流用しません。
 
 #### 今回実装しないもの
 
 - バックグラウンドジョブ、スケジューラ、並列実行
 - 失敗した操作だけを自動で再試行する専用キュー
-- 生成結果を別用途へ集計する監査ログ
+- 生成結果を別用途へ集計する業務監査ログ（既存のDebugLogとは別）
 - HTML形式
 - 履歴の永続化と上限管理
 
@@ -578,7 +633,7 @@ CSV読込: 6件・合計3510・平均585
 |---|---|---|---|
 | H1 | すべて標準本文 | R1：テンプレートごとの本文が増える | ReportGenerator::generate() |
 | H2 | boolと固定if順 | R2：装飾の種類・有無・順序が組合せで変わる | 三装飾のif |
-| H3 | 履歴なし | R3：受付、実行、再実行、取消の規則が変わる | 現状には接続点がない |
+| H3 | 再実行に使える要求履歴はない。DebugLogはイベント名と成否だけを持つ | R3：完全な要求の受付、実行、再実行、取消の規則が変わる | 現状には要求履歴の接続点がない |
 
 ここでは「変わりそう」という仮説までです。どのクラスへ分けるかは決めません。
 
@@ -624,12 +679,13 @@ CSV読込: 6件・合計3510・平均585
 | 役員向け月次本文 | R1・確定 | はい | はい |
 | 指定順の装飾 | R2・確定 | はい | はい |
 | 要求履歴・再実行・取消 | R3・確定 | はい | はい |
+| DebugLog | 変更対象外・内部基盤 | 変更しない | 維持 |
 | HTML | F1・将来 | いいえ | いいえ |
 | 当時CSVの保存 | F2・将来 | いいえ | いいえ |
 | 履歴永続化・上限 | F3・将来 | いいえ | いいえ |
-| 自動再試行・監査ログ | 対象外 | いいえ | いいえ |
+| 自動再試行・業務監査ログ | 対象外 | いいえ | いいえ |
 
-次のフェーズへ渡す材料はR1〜R3だけです。
+次のフェーズで変更試行する材料はR1〜R3だけです。`DebugLog`は、R1〜R3の実行結果を従来どおり記録する変更対象外の内部基盤として継続します。
 
 ---
 
@@ -639,7 +695,7 @@ CSV読込: 6件・合計3510・平均585
 
 R1〜R3を、現状のReportGeneratorを中心とする構造へそのまま追加します。ここで見るのは、要求を実現できるかだけではなく、どの責任へ修正が集まるかです。
 
-> **中間コードの継続条件：** `DataReader`の売上集計、`TemplateRegistry`のID・形式検証、`ReportRenderingApi`の描画・デモ出力、`ReportApplication`の受付入口を維持します。変更試行ではR1〜R3だけを追加します。
+> **中間コードの継続条件：** `DataReader`の売上集計、`TemplateRegistry`のID・形式検証、`ReportRenderingApi`の描画・デモ出力、`DebugLog`の内部診断記録、`ReportApplication`の受付入口を維持します。変更試行ではR1〜R3だけを追加します。
 
 #### 変更するクラス
 
@@ -652,7 +708,7 @@ R1〜R3を、現状のReportGeneratorを中心とする構造へそのまま追�
 
 #### 変更しないクラス
 
-DataReader、SalesSummary、ReportDocument、ReportRenderingApiは、1-5で維持すると決めた契約をそのまま使います。
+DataReader、SalesSummary、ReportDocument、ReportRenderingApi、DebugLogは、1-5で維持すると決めた契約をそのまま使います。
 
 #### ReportGeneratorへ要求を直接追加したコード
 
@@ -727,27 +783,61 @@ public:
             acceptedRequests.back().outputPath.c_str()) == 0;
     }
 };
+
+class ChangedReportApplication {
+    ChangedReportGenerator generator;
+    DebugLog debugLog;
+public:
+    bool submit(const ChangedReportRequest& request,
+                const string& templateName) {
+        bool success = generator.submit(request, templateName);
+        debugLog.write("submit", success);
+        return success;
+    }
+
+    bool replayLast(const string& templateName) {
+        bool success = generator.replayLast(templateName);
+        debugLog.write("replay", success);
+        return success;
+    }
+
+    bool undoLast() {
+        bool success = generator.undoLast();
+        debugLog.write("undo", success);
+        return success;
+    }
+
+    int debugLogSize() const {
+        return debugLog.size();
+    }
+};
 ```
+
+- `ChangedReportGenerator`はR1〜R3の本文判断、装飾判断、要求履歴を一か所へ直接追加した変更試行です。
+- `ChangedReportApplication`は各操作をGeneratorへ委譲し、返された成否を既存の`DebugLog`へ自動記録します。ログ記録を実行コード側の手順にはしません。
+- 診断責任は分離されたままですが、R1〜R3の異なる変更理由はGeneratorへ集中しています。次に見る痛みはこの集中です。
 
 #### 変更要求を実行するmain
 
 ```cpp
 int main() {
-    ChangedReportGenerator generator;
+    ChangedReportApplication application;
     ChangedReportRequest request{
         "SALES_MONTHLY_EXECUTIVE",
         OutputFormat::Pdf,
         {DecorationType::Logo, DecorationType::Graph},
         "phase3_executive_demo.txt"
     };
-    bool generated = generator.submit(
+    bool generated = application.submit(
         request, "役員向け月次売上レポート");
-    bool replayed = generator.replayLast(
+    bool replayed = application.replayLast(
         "役員向け月次売上レポート");
-    bool undone = generator.undoLast();
+    bool undone = application.undoLast();
     cout << "変更試行: 生成=" << generated
          << "・再実行=" << replayed
          << "・取消=" << undone << endl;
+    cout << "デバッグログ件数: "
+         << application.debugLogSize() << endl;
     return generated && replayed && undone ? 0 : 1;
 }
 ```
@@ -757,10 +847,16 @@ int main() {
 実行結果：
 
 ```
+デバッグログ件数: 0->1・event=submit・result=success
+デバッグログ件数: 1->2・event=replay・result=success
+デバッグログ件数: 2->3・event=undo・result=success
 変更試行: 生成=1・再実行=1・取消=1
+デバッグログ件数: 3
 ```
 
 この変更試行はR1〜R3を動かせます。しかし、一つのChangedReportGeneratorが次の知識をすべて持ちます。
+
+`DebugLog`のクラスと記録形式はフェーズ1から変更していません。`ChangedReportApplication`がR3で増えた受付・再実行・取消の各結果を自動的に従来の診断境界へ渡すため、`main()`がログ運用を手動で行う必要はありません。三件の診断記録から要求を復元することはできず、要求履歴の代わりにはなりません。
 
 - どのIDが役員向け月次か
 - 各本文をどう描くか
@@ -781,15 +877,19 @@ graph LR
     R1["R1<br/>役員向け本文"] --> G["ChangedReportGenerator"]
     R2["R2<br/>指定順装飾"] --> G
     R3["R3<br/>再実行・取消"] --> G
-    G --> D["DataReader<br/>変更なし"]
-    G --> A["ReportRenderingApi<br/>変更なし"]
+    R3 --> APP["ChangedReportApplication"]
+    APP --> G
+    APP --> L["DebugLog<br/>変更なし"]:::stable
+    G --> D["DataReader<br/>変更なし"]:::stable
+    G --> A["ReportRenderingApi<br/>変更なし"]:::stable
     G --> H["受付要求のvector"]
 
     classDef pain fill:#FDE2E2,stroke:#C62828,stroke-width:2px,color:#222
+    classDef stable fill:#DDEBF7,stroke:#5B9BD5,stroke-width:1.5px,color:#222
     cssClass "G" pain
 ```
 
-三つの要求は同じクラスを変更起点にし、変更対象外の読込・描画境界まで同時に読み直させます。
+三つの要求は同じGeneratorを変更起点にし、R3では入口も増えます。一方、DebugLogはApplicationから結果を受け取るだけで、クラス自体は変わりません。痛みはログの存在ではなく、変更対象外の読込・描画境界を抱えたGeneratorへR1〜R3の判断が集中することです。
 
 ### 3-3：痛みの言語化
 
@@ -897,27 +997,35 @@ classDiagram
         +undoLast()
         -execute(request)
     }
+    class ChangedReportApplication
+    class DebugLog
     class DataReader
     class ReportRenderingApi
     class AcceptedRequests
 
+    ChangedReportApplication *-- ChangedReportGenerator
+    ChangedReportApplication *-- DebugLog
     ChangedReportGenerator *-- DataReader
     ChangedReportGenerator *-- ReportRenderingApi
     ChangedReportGenerator *-- AcceptedRequests
 
     note for ChangedReportGenerator "【残す】生成順\n【分けたい】本文判断\n【分けたい】装飾判断\n【分けたい】履歴操作"
+    note for DebugLog "【守る】event・result\n件数変化を診断記録"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222
+    classDef stable fill:#DDEBF7,stroke:#5B9BD5,stroke-width:1.5px,color:#222
     cssClass "ChangedReportGenerator" focus
+    cssClass "DebugLog,DataReader,ReportRenderingApi" stable
 ```
 
-図で着目するのは、クラス数ではなく、一つの箱の中に異なる変更理由が四つ並んでいることです。
+図で着目するのは、クラス数ではなく、薄い黄色の一つの箱に異なる変更理由が四つ並んでいることです。水色のDebugLogは別責任のまま維持され、要求履歴を所有していません。
 
 ### 4-3：変わる部分と守る部分
 
 | 区分 | 内容 | 根拠 |
 |---|---|---|
 | 守る | 売上読込、集計値、テンプレート検証、描画・出力境界 | 1-5で変更対象外 |
+| 守る | DebugLogのイベント・成否記録と件数表示 | 現行の内部診断基盤であり、R1〜R3の変更対象ではない |
 | 守る | 読込→ヘッダー→本文→フッターの基本順 | 全テンプレートで共通 |
 | 変わる | テンプレートごとの本文 | R1 |
 | 変わる | 装飾の種類・組合せ・順序 | R2 |
@@ -930,6 +1038,8 @@ classDiagram
 | 共通順→本文 | テンプレートIDのifと本文内容 | 本文追加で共通順を修正 |
 | 本文→装飾 | 列挙値、具体API、呼出順 | 装飾追加で生成本体を修正 |
 | 受付→生成 | vectorの保存時点、再実行、削除 | 履歴規則変更で生成本体を修正 |
+
+`DebugLog`は、これら三つの接続点の判断には参加しません。処理結果を受け取って診断記録するだけなので、P1〜P3で分離する変更理由から外して守ります。
 
 次のフェーズでは、この三つを「何を達成すべき課題か」へ変換します。分離先のクラス名はまだ決めません。
 
@@ -1020,7 +1130,8 @@ P1〜P3を個別に切り出すだけでは完了ではありません。最終�
 2. R2の装飾列から、P2の部品を入力順に組み立てる。
 3. R3の受付で、P1とP2を含む完全な要求をP3の単位として記録する。
 4. 再実行時も、同じ要求から本文と装飾列を組み立て直す。
-5. 変更対象外のDataReader、TemplateRegistry、ReportRenderingApiの意味を変えない。
+5. 変更対象外のDataReader、TemplateRegistry、ReportRenderingApi、DebugLogの意味を変えない。
+6. DebugLogの診断件数と、ReportActionHistoryの受付要求件数を別々に確認でき、前者を再実行・取消の正本にしない。
 
 フェーズ6で考える問いは、P1〜P3をどの契約へ分けるか、具体クラスをどこで生成するか、それらをどの順に接続して安定側へ渡すか、です。
 
@@ -1057,6 +1168,7 @@ P1〜P3を個別に切り出すだけでは完了ではありません。最終�
 5. ReportAssemblerがテンプレートIDから本文実装を生成する。
 6. ReportAssemblerが装飾列の順にReportFeatureを連結する。
 7. Actionが完成文書を出力し、同じActionを再実行・取消できる。
+8. ReportApplicationが各操作結果を、従来どおりDebugLogへ診断記録する。
 
 この直列経路でP1〜P3が一つのシステムになります。
 
@@ -1065,6 +1177,7 @@ P1〜P3を個別に切り出すだけでは完了ではありません。最終�
 | 分離方法 | P1は共通順と本文、P2は文書と装飾、P3は受付と操作を別契約にする | 共通データだけを契約で渡す |
 | 配置場所 | P1本文、P2装飾、P3履歴規則を各変更主体の近くに置く | AssemblerとHistoryが具体物を所有する |
 | 組み立て方法 | P1本文→P2指定順装飾→P3 Actionの順で再結合する | ApplicationがServiceをActionへ注入する |
+| 内部診断 | P1〜P3の外側で、各操作の成否だけを記録する | ApplicationがDebugLogを所有する |
 
 #### システム全体の最終構造を決める
 
@@ -1083,19 +1196,23 @@ classDiagram
     direction TB
     class ReportApplication
     class ReportGenerator
+    class DebugLog
     class DataReader
     class TemplateRegistry
     class ReportRenderingApi
 
     ReportApplication *-- ReportGenerator
     ReportApplication *-- TemplateRegistry
+    ReportApplication *-- DebugLog
     ReportGenerator *-- DataReader
     ReportGenerator *-- ReportRenderingApi
 
     note for ReportGenerator "【残す】生成順\n【移す】本文判断\n装飾判断・履歴操作"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222
+    classDef stable fill:#DDEBF7,stroke:#5B9BD5,stroke-width:1.5px,color:#222
     cssClass "ReportGenerator" focus
+    cssClass "DebugLog,DataReader,TemplateRegistry,ReportRenderingApi" stable
 ```
 
 **採用した変更後のクラス図**
@@ -1104,6 +1221,11 @@ classDiagram
 classDiagram
     direction TB
     class ReportApplication
+    class DebugLog {
+        -entries : vector
+        +write(event, success)
+        +size() int
+    }
     class ReportActionHistory
     class IReportAction
     class GenerateReportAction
@@ -1158,6 +1280,7 @@ classDiagram
 
     ReportApplication *-- ReportActionHistory
     ReportApplication *-- ReportGenerationService
+    ReportApplication *-- DebugLog : 診断記録
     ReportApplication ..> ReportRequest : 受け取る
     ReportApplication ..> OperationResult : 返す
     ReportActionHistory o--> IReportAction : 受付順に所有
@@ -1203,7 +1326,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222
     classDef stable fill:#DDEBF7,stroke:#5B9BD5,stroke-width:1.5px,color:#222
     cssClass "ReportApplication,ReportActionHistory,IReportAction,GenerateReportAction,ReportGenerationService,ReportAssembler,IReport,ReportSkeleton,MonthlyReport,ExecutiveMonthlyReport,WeeklyReport,DepartmentReport,ReportFeature,GraphFeature,LogoFeature,WatermarkFeature" focus
-    cssClass "DataReader,TemplateRegistry,ReportRenderingApi" stable
+    cssClass "DebugLog,DataReader,TemplateRegistry,ReportRenderingApi" stable
 ```
 
 採用するクラス図と責任配置は、コードを書く前に確定しています。次のコードは試行錯誤ではなく、この一つの完成構造を理解しやすい順に反映します。
@@ -1319,6 +1442,7 @@ OperationResult submit(ReportRequest request) {
 | 装飾組み立て | ReportAssembler | GraphFeature等→次のFeature/Service | 最外側のunique_ptr |
 | 実行 | GenerateReportAction | 同じReportRequest→Service | Actionが要求を値で保持 |
 | 出力 | ReportGenerationService | ReportDocument→RenderingApi | 実行中のローカル値 |
+| 内部診断 | ReportApplication | OperationResult→DebugLog | ApplicationがDebugLogを所有 |
 
 #### 組み立て時のシーケンス
 
@@ -1326,6 +1450,7 @@ OperationResult submit(ReportRequest request) {
 sequenceDiagram
     participant U as 利用者
     participant A as ReportApplication
+    participant L as DebugLog
     participant H as ReportActionHistory
     participant C as GenerateReportAction
     participant S as ReportGenerationService
@@ -1341,6 +1466,8 @@ sequenceDiagram
     B-->>S: 指定順に装飾済みIReport
     S-->>C: OperationResult
     C-->>H: OperationResult
+    H-->>A: OperationResult
+    A->>L: write(submit, success)
 ```
 
 #### システム全体のコード適用結果
@@ -1350,8 +1477,9 @@ sequenceDiagram
 | P1：本文 | 共通順が本文IDを判断しない | ReportSkeletonと各Report | 役員向け追加で共通順を変更しない |
 | P2：装飾 | 入力順を同じ部品で表す | ReportFeatureとassemble() | Logo→GraphとGraph→Logoを表現できる |
 | P3：履歴 | 完全な要求を受付時に記録 | GenerateReportActionとHistory | 同じ要求を再実行・取消できる |
+| 変更対象外：診断 | 操作履歴と混同せず成否を記録 | フェーズ1と同じDebugLog | event・resultと件数変化を継続表示する |
 
-**システム全体の実装結果：達成。** P1〜P3は、Application→Action→Service→Assembler→Reportの一つの経路で接続されました。
+**システム全体の実装結果：達成。** P1〜P3は、Application→Action→Service→Assembler→Reportの一つの経路で接続されました。その結果はApplicationから既存のDebugLogへ渡されますが、診断記録はこの実行経路を選択しません。
 
 ### 6-3：コードレベルの変更を確定する
 
@@ -1370,6 +1498,7 @@ sequenceDiagram
 | R1・P1 | 骨格固定。Assemblerが本文クラスを生成 | ReportSkeleton、ExecutiveMonthlyReport | A1、A2 |
 | R2・P2 | 装飾連結。Assemblerが入力順に連結 | Graph/Logo/WatermarkFeature | A2、A3 |
 | R3・P3 | 操作記録。ApplicationがActionをHistoryへ渡す | GenerateReportAction、ReportActionHistory | A4 |
+| 変更対象外 | 内部診断。Applicationが結果だけを渡す | DebugLog | 1-4、A1〜A4 |
 
 このクラス図、所有表、シーケンス、コード変更表が、フェーズ7へ渡す完成設計です。
 
@@ -1392,6 +1521,7 @@ sequenceDiagram
 | 要求 | ReportRequest | テンプレート、形式、装飾列、出力先を保持する |
 | 結果 | OperationResult | 実行・再実行・取消の成否と説明を返す |
 | 設定 | ReportTemplate | テンプレート名称と対応形式を保持する |
+| 内部基盤 | DebugLog | イベントと成否をメモリ記録し、件数変化を表示する。要求履歴には使わない |
 | 既存境界 | DataReader | 売上データを読み、集計する |
 | 既存境界 | TemplateRegistry | テンプレートを登録・検索・検証する |
 | 既存境界 | ReportRenderingApi | 文書要素の描画、デモ保存、削除を担当する |
@@ -1418,6 +1548,11 @@ sequenceDiagram
 classDiagram
     direction TB
     class ReportApplication
+    class DebugLog {
+        -entries : vector
+        +write(event, success)
+        +size() int
+    }
     class ReportActionHistory
     class IReportAction
     class GenerateReportAction
@@ -1472,6 +1607,7 @@ classDiagram
 
     ReportApplication *-- ReportActionHistory
     ReportApplication *-- ReportGenerationService
+    ReportApplication *-- DebugLog : 診断記録
     ReportApplication ..> ReportRequest : 受け取る
     ReportApplication ..> OperationResult : 返す
     ReportActionHistory o--> IReportAction : 受付順に所有
@@ -1516,7 +1652,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222
     classDef stable fill:#DDEBF7,stroke:#5B9BD5,stroke-width:1.5px,color:#222
     cssClass "ReportApplication,ReportActionHistory,IReportAction,GenerateReportAction,ReportGenerationService,ReportAssembler,IReport,ReportSkeleton,MonthlyReport,ExecutiveMonthlyReport,WeeklyReport,DepartmentReport,ReportFeature,GraphFeature,LogoFeature,WatermarkFeature" focus
-    cssClass "DataReader,TemplateRegistry,ReportRenderingApi" stable
+    cssClass "DebugLog,DataReader,TemplateRegistry,ReportRenderingApi" stable
 ```
 
 #### 完成後の実行シーケンス
@@ -1524,6 +1660,7 @@ classDiagram
 ```mermaid
 sequenceDiagram
     participant A as ReportApplication
+    participant L as DebugLog
     participant H as ReportActionHistory
     participant C as GenerateReportAction
     participant S as ReportGenerationService
@@ -1542,6 +1679,8 @@ sequenceDiagram
     O-->>S: 保存結果
     S-->>C: OperationResult
     C-->>H: OperationResult
+    H-->>A: OperationResult
+    A->>L: write(submit, success)
 ```
 
 以下のコードブロックはクラス単位で分けています。すべてを上から結合すると、一つのC++14プログラムとして実行できます。
@@ -1605,7 +1744,35 @@ struct ReportTemplate {
 - `OperationResult`は、実行側と履歴側が成否を受け渡す内部契約です。R1〜R3へ新しい業務機能を追加するものではありません。
 - `ReportTemplate`は1-4と同じ名称・対応形式を保持します。
 
-##### 2. DataReader
+##### 2. DebugLog
+
+```cpp
+class DebugLog {
+    vector<string> entries;
+public:
+    void write(const string& event, bool success) {
+        int before = static_cast<int>(entries.size());
+        entries.push_back(
+            event + ":" + (success ? "success" : "failure"));
+        cout << "デバッグログ件数: " << before
+             << "->" << entries.size()
+             << "・event=" << event
+             << "・result="
+             << (success ? "success" : "failure")
+             << endl;
+    }
+
+    int size() const {
+        return static_cast<int>(entries.size());
+    }
+};
+```
+
+- フェーズ1の`DebugLog`と同じコードです。イベント名と成否を一件追加し、内部件数の変化を表示します。
+- R3の`ReportActionHistory`と異なり、完全な`ReportRequest`やActionを保持しません。このログから再実行・取消は行えません。
+- 最終構造でも変更機能として追加したのではなく、従来の内部診断境界へ新しい操作結果を渡します。
+
+##### 3. DataReader
 
 ```cpp
 class DataReader {
@@ -1630,7 +1797,7 @@ public:
 - 1-4と同じ6件を読み、件数6・合計3,510・平均585を返します。
 - R1〜R3では売上データと集計式を変更しないため、本文や装飾の具体型を知りません。
 
-##### 3. ReportRenderingApi
+##### 4. ReportRenderingApi
 
 ```cpp
 class ReportRenderingApi {
@@ -1712,7 +1879,7 @@ public:
 - `addExecutiveBody()`はR1、`removePreview()`はR3によって同じ境界へ追加されました。前者は役員向け本文を描き、後者は取消対象のデモ成果物を削除します。
 - 本物のPDF・Excelは生成せず、文書要素と呼出順をプレーンテキストで観測する契約も維持します。
 
-##### 4. TemplateRegistry
+##### 5. TemplateRegistry
 
 ```cpp
 class TemplateRegistry {
@@ -1759,7 +1926,7 @@ public:
 - R1の役員向け月次テンプレートを一件追加し、通常月次は別IDのまま残します。
 - 本文クラスの生成や装飾順は知らず、テンプレート設定の保持と検証だけを担当します。
 
-##### 5. IReportとReportSkeleton
+##### 6. IReportとReportSkeleton
 
 ```cpp
 class IReport {
@@ -1801,7 +1968,7 @@ public:
 - `ReportSkeleton::create()`は「読込→ヘッダー→本文→フッター」を固定し、本文だけを`renderBody()`へ委ねます。
 - 実際の`readCSV()`も基底クラスから呼ぶため、表示だけでなく生成処理の共通順そのものを一か所に置いています。
 
-##### 6. 本文クラス
+##### 7. 本文クラス
 
 **MonthlyReport**
 
@@ -1871,7 +2038,7 @@ protected:
 - 部門別の標準本文を生成します。四つの本文クラスは同じ共通順を使い、本文内容だけを所有します。
 - 通常月次と役員向け月次を別クラスにしたため、R1により役員向けだけを変え、通常月次を維持できます。
 
-##### 7. ReportFeatureと各装飾
+##### 8. ReportFeatureと各装飾
 
 **ReportFeature**
 
@@ -1940,7 +2107,7 @@ public:
 - 内側で文書を生成した後、透かしを一つ追加します。
 - すべてのFeatureは同じ規則で一要素だけを加えます。`ReportAssembler`が入力列の先頭から包むため、入力順と実行順が一致します。
 
-##### 8. ReportAssembler
+##### 9. ReportAssembler
 
 ```cpp
 class ReportAssembler {
@@ -1994,7 +2161,7 @@ public:
 - 具体クラスを知る場所は`ReportAssembler`です。`ReportApplication`や履歴側は本文クラスやFeatureを直接生成しません。
 - `unique_ptr`を外側へ移すたびに所有権も移るため、最外側の`IReport`が装飾列全体を所有します。
 
-##### 9. ReportGenerationService
+##### 10. ReportGenerationService
 
 ```cpp
 class ReportGenerationService {
@@ -2056,7 +2223,7 @@ public:
 - 失敗は`OperationResult`で返し、デモ成果物を保存できた場合だけ成功にします。
 - `removeArtifact()`は取消時の削除境界ですが、履歴件数や再実行対象を決める規則は持ちません。
 
-##### 10. GenerateReportAction
+##### 11. GenerateReportAction
 
 ```cpp
 class IReportAction {
@@ -2111,7 +2278,7 @@ public:
 - `GenerateReportAction`は完全な`ReportRequest`を値で保持し、生成と削除を`ReportGenerationService`へ委譲します。
 - 成功後も`execute()`を拒否しないため、同じテンプレート、形式、装飾順、出力先で再生成できます。
 
-##### 11. ReportActionHistory
+##### 12. ReportActionHistory
 
 ```cpp
 class ReportActionHistory {
@@ -2155,7 +2322,7 @@ public:
 - `replayLast()`と`undoLast()`は、最後のActionへ同じ契約で委譲し、本文IDや装飾種別を判断しません。
 - 取消後も受付履歴を残すため、`undoLast()`は成果物だけを削除し、`vector`からActionを除きません。
 
-##### 12. ReportApplicationと実行シナリオ
+##### 13. ReportApplicationと実行シナリオ
 
 ```cpp
 class ReportApplication {
@@ -2165,6 +2332,7 @@ class ReportApplication {
     ReportAssembler assembler;
     ReportGenerationService service;
     ReportActionHistory history;
+    DebugLog debugLog;
 public:
     ReportApplication()
         : assembler(reader, renderer),
@@ -2174,19 +2342,29 @@ public:
         unique_ptr<IReportAction> action =
             make_unique<GenerateReportAction>(
                 service, move(request));
-        return history.submit(move(action));
+        OperationResult result = history.submit(move(action));
+        debugLog.write("submit", result.success);
+        return result;
     }
 
     OperationResult replayLast() {
-        return history.replayLast();
+        OperationResult result = history.replayLast();
+        debugLog.write("replay", result.success);
+        return result;
     }
 
     OperationResult undoLast() {
-        return history.undoLast();
+        OperationResult result = history.undoLast();
+        debugLog.write("undo", result.success);
+        return result;
     }
 
     int historySize() const {
         return history.size();
+    }
+
+    int debugLogSize() const {
+        return debugLog.size();
     }
 };
 
@@ -2197,9 +2375,10 @@ void printResult(const OperationResult& result) {
 }
 ```
 
-- `ReportApplication::submit()`は要求から`GenerateReportAction`を生成し、`ReportActionHistory`へ所有権を渡します。具体Actionを生成する場所はここだけです。
-- `replayLast()`と`undoLast()`は履歴へ委譲し、本文や装飾の詳細を知りません。
-- `DataReader`、`TemplateRegistry`、`ReportRenderingApi`はApplicationが一度だけ所有し、参照としてAssemblerとServiceへ注入します。
+- `ReportApplication::submit()`は要求から`GenerateReportAction`を生成し、`ReportActionHistory`へ所有権を渡します。具体Actionを生成する場所はここだけです。返された成否は、従来の`DebugLog`へ診断記録します。
+- `replayLast()`と`undoLast()`は履歴へ委譲し、本文や装飾の詳細を知りません。各結果も同じ診断境界へ渡します。
+- `DataReader`、`TemplateRegistry`、`ReportRenderingApi`、`DebugLog`はApplicationが一度だけ所有します。前者三つはAssemblerとServiceへ参照注入し、DebugLogはApplicationだけが利用します。
+- `historySize()`は受付要求数、`debugLogSize()`は診断イベント数を返します。二つを別メソッドにすることで、診断ログを要求履歴の正本として扱わないことをコードで明示します。
 - `printResult()`は各シナリオが受け取った`OperationResult`を同じ形式で表示します。
 
 **A1：通常月次を維持する実行コード**
@@ -2229,6 +2408,7 @@ CSV読込: 6件・合計3510・平均585
 月次売上レポート 標準本文: 件数6・合計3510・平均585
 フッター生成
 デモ成果物を保存: a1_monthly_demo.txt（実PDFではない）
+デバッグログ件数: 0->1・event=submit・result=success
 操作結果: 成功（生成完了）
 ```
 
@@ -2261,6 +2441,7 @@ CSV読込: 6件・合計3510・平均585
 装飾適用: ロゴ
 装飾適用: グラフ
 デモ成果物を保存: a2_executive_demo.txt（実PDFではない）
+デバッグログ件数: 1->2・event=submit・result=success
 操作結果: 成功（生成完了）
 ```
 
@@ -2293,6 +2474,7 @@ CSV読込: 6件・合計3510・平均585
 装飾適用: グラフ
 装飾適用: ロゴ
 デモ成果物を保存: a3_order_demo.txt（実Excelではない）
+デバッグログ件数: 2->3・event=submit・result=success
 操作結果: 成功（生成完了）
 ```
 
@@ -2311,11 +2493,13 @@ void scenarioA4(ReportApplication& application) {
     printResult(application.undoLast());
     cout << "要求履歴件数: "
          << application.historySize() << endl;
+    cout << "デバッグログ件数: "
+         << application.debugLogSize() << endl;
 }
 ```
 
 - R3の完全な要求を4件目として受付後、同じActionを再実行し、同じ出力先の成果物を削除します。
-- 取消後も受付履歴は4件のままで、履歴を成功結果や監査ログとして扱っていないことを確認します。
+- 取消後も受付履歴は4件のままです。一方、診断ログは4回のsubmit、1回のreplay、1回のundoを記録して6件になります。件数と内容が異なる二つの記録を並べ、要求履歴を成功結果やデバッグログとして扱っていないことを確認します。
 
 実行結果（A4）：
 
@@ -2330,6 +2514,7 @@ CSV読込: 6件・合計3510・平均585
 装飾適用: ロゴ
 装飾適用: グラフ
 デモ成果物を保存: a4_replay_demo.txt（実PDFではない）
+デバッグログ件数: 3->4・event=submit・result=success
 操作結果: 成功（生成完了）
 要求履歴から再実行: SALES_MONTHLY_EXECUTIVE
 テンプレート: 役員向け月次売上レポート
@@ -2340,11 +2525,14 @@ CSV読込: 6件・合計3510・平均585
 装飾適用: ロゴ
 装飾適用: グラフ
 デモ成果物を保存: a4_replay_demo.txt（実PDFではない）
+デバッグログ件数: 4->5・event=replay・result=success
 操作結果: 成功（生成完了）
 要求履歴から取消: SALES_MONTHLY_EXECUTIVE
 デモ成果物を取消: a4_replay_demo.txt
+デバッグログ件数: 5->6・event=undo・result=success
 操作結果: 成功（取消完了）
 要求履歴件数: 4
+デバッグログ件数: 6
 ```
 
 **A1〜A4を一つのApplicationで実行するmain**
@@ -2372,7 +2560,7 @@ int main() {
 | A1 | R1・既存月次の維持 | 通常月次は標準本文のまま生成成功 |
 | A2 | R1・R2 | 役員向け専用本文へロゴ→グラフの順で適用 |
 | A3 | R2 | 同じ二装飾をグラフ→ロゴの逆順で適用 |
-| A4 | R3 | 完全な要求を再実行し、成果物だけを取消。履歴4件を維持 |
+| A4 | R3 | 完全な要求を再実行し、成果物だけを取消。要求履歴4件と診断ログ6件を別々に維持 |
 
 #### 変更軸ごとの完成コード追跡
 
@@ -2382,7 +2570,7 @@ int main() {
 |---|---|---|---|
 | P1 | ReportSkeletonと各本文クラス | 通常月次と役員向け本文を分けた | 共通順を変えず役員向けを追加 |
 | P2 | 各FeatureとReportAssembler | 入力列どおり装飾した | A2/A3で逆順二通りを確認 |
-| P3 | Action、History、Application | 受付要求を再実行・取消した | A4で履歴4件と結果を確認 |
+| P3 | Action、History、Application | 受付要求を再実行・取消した | A4で要求履歴4件、診断ログ6件、各結果を確認 |
 
 #### 要求→課題→構造→コード→結果の追跡
 
@@ -2390,7 +2578,7 @@ int main() {
 |---|---|---|---|
 | R1：通常月次を保ち、役員向けだけ専用本文にする／P1 | 骨格と本文を分離。ReportSkeleton、ExecutiveMonthlyReport | A1/A2で通常月次と役員向け本文を確認 | 新本文と登録・選択 |
 | R2：装飾の種類を順序付きで受け、その順に適用する／P2 | 装飾連結。各Feature、ReportAssembler | A2/A3で指定順を確認 | 新Featureと組み立て |
-| R3：受け付けた完全な生成要求を記録し、再実行・取消する／P3 | 操作記録。GenerateReportAction、History | A4で再実行・取消を確認 | Actionと履歴方針 |
+| R3：受け付けた完全な生成要求を記録し、再実行・取消する／P3 | 操作記録。GenerateReportAction、History | A4で再実行・取消、要求履歴4件と診断ログ6件の分離を確認 | Actionと履歴方針 |
 
 #### 変更前→変更後の不変条件照合
 
@@ -2400,6 +2588,7 @@ int main() {
 | テンプレート検証 | exists/get/supportsFormat | 同じAPIへ一件登録 | TemplateRegistry |
 | 描画・出力境界 | ReportRenderingApiで描画・デモ保存 | 既存操作を維持し、R1の役員本文とR3の削除操作だけを追加 | A1〜A4 |
 | 既存本文・装飾 | 三本文・三装飾 | すべて維持 | 各Report・Feature |
+| 内部デバッグログ | event・resultを記録し件数変化を表示 | 同じDebugLogをApplicationから利用 | 1-4とA1〜A4 |
 
 ### 7-2：動作シーケンス図
 
@@ -2409,6 +2598,7 @@ A4の再実行までを追います。再実行時も、履歴にあるActionか
 sequenceDiagram
     participant U as 利用者
     participant A as ReportApplication
+    participant L as DebugLog
     participant H as ReportActionHistory
     participant C as GenerateReportAction
     participant S as ReportGenerationService
@@ -2423,15 +2613,27 @@ sequenceDiagram
     B-->>S: Logoの外側にGraphを連結
     S->>O: writePreview(document)
     O-->>S: 成功
+    S-->>C: OperationResult
+    C-->>H: OperationResult
+    H-->>A: OperationResult
+    A->>L: write(submit, success)
     U->>A: replayLast()
     A->>H: replayLast()
     H->>C: execute()
     C->>S: 同じstoredRequest
     S->>O: 同じ出力先を再生成
+    S-->>C: OperationResult
+    C-->>H: OperationResult
+    H-->>A: OperationResult
+    A->>L: write(replay, success)
     U->>A: undoLast()
     A->>H: undoLast()
     H->>C: undo()
     C->>S: removeArtifact(path)
+    S-->>C: OperationResult
+    C-->>H: OperationResult
+    H-->>A: OperationResult
+    A->>L: write(undo, success)
 ```
 
 ### 7-3：変更影響グラフ（改善後）
@@ -2452,6 +2654,7 @@ graph LR
     ST["ReportSkeletonの共通順"]:::stable
     DR["DataReader"]:::stable
     API["ReportRenderingApi"]:::stable
+    LOG["DebugLog"]:::stable
 
     classDef stable fill:#DDEBF7,stroke:#5B9BD5,stroke-width:1.5px,color:#222
 ```
@@ -2467,6 +2670,8 @@ graph LR
 | R1・P1 | ExecutiveMonthlyReport等。A1/A2で本文を分離 | ReportSkeletonの共通順、既存本文 | 新本文クラスと登録・選択 |
 | R2・P2 | 各Featureとassemble()。A2/A3で順序一致 | 本文クラス、履歴 | 新Featureと列挙値・組み立て |
 | R3・P3 | Action/History/Application。A4で再実行・取消 | 本文・装飾の具体型 | Actionまたは履歴方針 |
+
+`DebugLog`は改善後も水色の安定側です。R1〜R3から修正線は伸びず、Applicationが返却結果だけを渡します。
 
 ---
 
@@ -2503,6 +2708,7 @@ graph LR
 | ReportGeneratorが装飾ifと順序を持つ | 各FeatureとReportAssemblerが装飾と順序を持つ |
 | ReportGeneratorが要求vectorを操作 | Actionが要求を持ち、Historyが受付順に所有する |
 | ReportGeneratorがすべてを生成 | Application→Action→Service→Assemblerの経路で再結合する |
+| Applicationが実行成否をDebugLogへ記録 | 同じ。要求履歴とは別の内部診断責任として維持する |
 
 ### 使った構造とデザインパターン名
 
@@ -2515,6 +2721,8 @@ graph LR
 | 要求を実行・取消できる単位で記録する | Command | GenerateReportActionとReportActionHistory |
 
 三つのパターンを先に当てはめたのではありません。三つの独立した接続課題を解いた構造に、後から既知の名前を対応づけています。
+
+`DebugLog`はこの三パターンの役ではありません。フェーズ1から存在する診断基盤を安定側に残し、Applicationが各操作の`OperationResult`から成否だけを渡しています。
 
 ---
 
@@ -2546,7 +2754,7 @@ graph LR
 
 | 原則 | 本章で行ったこと |
 |---|---|
-| 変わるものと守るものを分ける | 本文・装飾・履歴を変動側、生成順・売上・境界を安定側にした |
+| 変わるものと守るものを分ける | 本文・装飾・履歴を変動側、生成順・売上・描画境界・DebugLogを安定側にした |
 | 分離して再結合する | Report、Feature、Actionへ分け、AssemblerとApplicationで再接続した |
 | 変更影響を結果で確認する | フェーズ3と7-3を同じ要求粒度で比較し、R1〜R3の実行結果を示した |
 
