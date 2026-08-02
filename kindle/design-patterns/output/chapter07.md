@@ -574,6 +574,12 @@ Chat(1件): 商品 PRD002（USBハブ） の在庫が閾値以下です。
 
 「在庫が少なくなった時に、倉庫担当者のスマホへSMS（ショートメッセージ）で直接通知を送れるようにしたいんだ。今はメールだけだから、どうしても確認が遅れて発注が漏れることがあってね。来月の店舗改装のタイミングで運用を変えたいから、なんとか対応してくれないか？」
 
+依頼とSMS境界の制約を、一つの確定要求として固定します。
+
+| 要求ID | 確定要求 | 入力 | 受入条件 |
+|---|---|---|---|
+| R1 | 在庫警告の通知先へ非同期SMSを追加し、受付失敗でも在庫更新と他通知を止めない | 商品ID、更新後在庫、SMS宛先、SMS受付結果 | 閾値到達時に4手段へ通知し、SMSの成功・保留・失敗を個別結果として残す |
+
 なるほど、倉庫担当者のスマホへのSMS通知ですね。バックヤードで作業中の担当者にとって、メールよりも気づきやすい手段が必要というのは、現場のオペレーションとして理にかなっています。
 
 **仕様変更の内容**
@@ -1289,6 +1295,121 @@ DB、ログ、通知アダプターは組み立て側が生成・所有します
 
 まず、商品マスタと送信結果の型、そしてすべての通知先が実装する契約となるインターフェースを定義します。
 
+#### 完成後のクラス一覧
+
+完成コードで定義する型を先に一覧化します。各型の依存方向と実現関係は、直後のクラス図で確認します。
+
+- `ProductDatabase`、`StockEventLog`、`StockAlert`、`InventoryManager`
+- `INotification`、`EmailNotifier`、`DashboardUpdater`、`ChatNotifier`
+- `SMSNotifier`
+
+#### 完成後のクラス図
+
+```mermaid
+classDiagram
+    direction LR
+    class ProductDatabase {
+        +get(id) ProductInfo
+        +save(id, info)
+    }
+    class StockEventLog {
+        +add(event)
+        +printAll()
+    }
+    class StockAlert {
+        +productId
+        +productName
+        +stock
+        +threshold
+    }
+    class InventoryManager {
+        -ProductDatabase& db
+        -StockEventLog& eventLog
+        -vector~INotification*~ observers
+        +attach(observer)
+        +detach(observer)
+        +reduceStock(id, quantity)
+        +restoreStock(id, quantity)
+        -notifyAll(alert)
+    }
+    class INotification {
+        <<interface>>
+        +send(alert) DeliveryResult
+    }
+    class EmailNotifier { +send(alert) DeliveryResult }
+    class DashboardUpdater { +send(alert) DeliveryResult }
+    class ChatNotifier { +send(alert) DeliveryResult }
+    class SMSNotifier { +send(alert) DeliveryResult }
+    InventoryManager --> ProductDatabase : 注入・在庫更新
+    InventoryManager --> StockEventLog : 注入・自動記録
+    InventoryManager o--> INotification : 登録・一律通知
+    InventoryManager ..> StockAlert : 作成
+    INotification <|.. EmailNotifier
+    INotification <|.. DashboardUpdater
+    INotification <|.. ChatNotifier
+    INotification <|.. SMSNotifier
+
+    note for INotification "【P1・新設】警告データと受付結果の共通契約"
+    note for EmailNotifier "【P1・配置】手段別の文面・送信・受付結果"
+    note for InventoryManager "【P1・安定側】在庫更新後に警告を一律配布"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "InventoryManager,INotification,EmailNotifier,DashboardUpdater,ChatNotifier,SMSNotifier" focus
+```
+
+章末のObserver骨格図では、`InventoryManager` がSubject、`INotification` がObserver、各通知クラスがConcreteObserverに対応します。
+
+#### 完成後の実行シーケンス
+
+ステップ3で到達した通知分離構造の実行時のやり取りを確認します。組み立て側が依存を注入・登録し、`InventoryManager` が在庫更新後の `StockAlert` を、具象クラスを知らずに配る流れです。
+
+```mermaid
+sequenceDiagram
+    participant M as main
+    participant IM as InventoryManager
+    participant E as EmailNotifier
+    participant D as DashboardUpdater
+    participant C as ChatNotifier
+    participant S as SMSNotifier
+
+    M->>E: 生成
+    M->>D: 生成
+    M->>C: 生成
+    M->>S: 生成
+    M->>IM: 生成
+    M->>IM: attach(&email)
+    M->>IM: attach(&dashboard)
+    M->>IM: attach(&chat)
+    M->>IM: attach(&sms)
+    M->>IM: reduceStock("PRD002", 1)
+    activate IM
+    IM->>IM: StockAlert(PRD002, 残2, 閾値5)を作成
+    IM->>IM: notifyAll(alert)
+    IM->>E: send(alert)
+    activate E
+    E-->>IM: DeliveryResult(成功)
+    deactivate E
+    IM->>D: send(alert)
+    activate D
+    D-->>IM: DeliveryResult(成功)
+    deactivate D
+    IM->>C: send(alert)
+    activate C
+    C-->>IM: DeliveryResult(成功)
+    deactivate C
+    IM->>S: send(alert)
+    activate S
+    S-->>IM: DeliveryResult(保留/非同期)
+    deactivate S
+    IM->>IM: 受付結果を集計(成功3 保留1 失敗0)
+    IM-->>M: 在庫更新完了
+    deactivate IM
+```
+
+同期の3件は成功を即返し、非同期のSMSは保留を返します。通知元は結果の内訳を分岐せず、成功・保留・失敗の件数を数えるだけで済みます。SMSが受付失敗を返しても、集計の失敗件数が増えるだけで通知ループの構造は変わりません。
+
+#### 完成コード
+
 ```cpp
 #include <iostream>
 #include <vector>
@@ -1733,62 +1854,6 @@ SMS: 受付失敗（後で再送対象）
 
 このコードにより、`InventoryManager` は通知先の具体的な実装ではなく `INotification` という契約へ依存します。契約が安定している限り、新しい通知方法や、同期・非同期・部分失敗の違いは通知クラス側と `DeliveryResult` に閉じ、`InventoryManager` の通知ループへ分岐を増やさずに済みます。
 
-#### 解決後のクラス構成
-
-```mermaid
-classDiagram
-    direction LR
-    class ProductDatabase {
-        +get(id) ProductInfo
-        +save(id, info)
-    }
-    class StockEventLog {
-        +add(event)
-        +printAll()
-    }
-    class StockAlert {
-        +productId
-        +productName
-        +stock
-        +threshold
-    }
-    class InventoryManager {
-        -ProductDatabase& db
-        -StockEventLog& eventLog
-        -vector~INotification*~ observers
-        +attach(observer)
-        +detach(observer)
-        +reduceStock(id, quantity)
-        +restoreStock(id, quantity)
-        -notifyAll(alert)
-    }
-    class INotification {
-        <<interface>>
-        +send(alert) DeliveryResult
-    }
-    class EmailNotifier { +send(alert) DeliveryResult }
-    class DashboardUpdater { +send(alert) DeliveryResult }
-    class ChatNotifier { +send(alert) DeliveryResult }
-    class SMSNotifier { +send(alert) DeliveryResult }
-    InventoryManager --> ProductDatabase : 注入・在庫更新
-    InventoryManager --> StockEventLog : 注入・自動記録
-    InventoryManager o--> INotification : 登録・一律通知
-    InventoryManager ..> StockAlert : 作成
-    INotification <|.. EmailNotifier
-    INotification <|.. DashboardUpdater
-    INotification <|.. ChatNotifier
-    INotification <|.. SMSNotifier
-
-    note for INotification "【P1・新設】警告データと受付結果の共通契約"
-    note for EmailNotifier "【P1・配置】手段別の文面・送信・受付結果"
-    note for InventoryManager "【P1・安定側】在庫更新後に警告を一律配布"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "InventoryManager,INotification,EmailNotifier,DashboardUpdater,ChatNotifier,SMSNotifier" focus
-```
-
-章末のObserver骨格図では、`InventoryManager` がSubject、`INotification` がObserver、各通知クラスがConcreteObserverに対応します。
-
 #### 変更軸ごとの完成コード追跡
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |
@@ -1799,7 +1864,7 @@ classDiagram
 
 | 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
 |---|---|---|---|
-| R1：通知手段追加と一部失敗の継続／P1 | 通知処理をObserver契約と登録リストへ分離。コード：全 `INotification`、`attach()`、`notifyAll()` | Email・Dashboard・Chat・SMSの成否を集約し、一部失敗後も継続 | 新Notifierと組み立て時の登録 |
+| R1：在庫警告の通知先へ非同期SMSを追加し、受付失敗でも在庫更新と他通知を止めない／P1 | 通知処理をObserver契約と登録リストへ分離。コード：全 `INotification`、`attach()`、`notifyAll()` | Email・Dashboard・Chat・SMSの成否を集約し、一部失敗後も継続 | 新Notifierと組み立て時の登録 |
 
 #### 変更前→変更後の不変条件照合
 
@@ -1808,54 +1873,9 @@ classDiagram
 | 商品・在庫の正本 | `ProductDatabase` の在庫を更新 | 同じ商品ID・商品名・数量を更新 | 在庫50→45などの数値ログ |
 | 在庫イベントログ | 更新結果を記録 | 通知の成否と独立して記録 | 通知失敗ケース後のログ |
 
-### 7-2：動作シーケンス図
+### 7-2：動作シーケンス図の検証
 
-ステップ3で到達した通知分離構造の実行時のやり取りを確認します。組み立て側が依存を注入・登録し、`InventoryManager` が在庫更新後の `StockAlert` を、具象クラスを知らずに配る流れです。
-
-```mermaid
-sequenceDiagram
-    participant M as main
-    participant IM as InventoryManager
-    participant E as EmailNotifier
-    participant D as DashboardUpdater
-    participant C as ChatNotifier
-    participant S as SMSNotifier
-
-    M->>E: 生成
-    M->>D: 生成
-    M->>C: 生成
-    M->>S: 生成
-    M->>IM: 生成
-    M->>IM: attach(&email)
-    M->>IM: attach(&dashboard)
-    M->>IM: attach(&chat)
-    M->>IM: attach(&sms)
-    M->>IM: reduceStock("PRD002", 1)
-    activate IM
-    IM->>IM: StockAlert(PRD002, 残2, 閾値5)を作成
-    IM->>IM: notifyAll(alert)
-    IM->>E: send(alert)
-    activate E
-    E-->>IM: DeliveryResult(成功)
-    deactivate E
-    IM->>D: send(alert)
-    activate D
-    D-->>IM: DeliveryResult(成功)
-    deactivate D
-    IM->>C: send(alert)
-    activate C
-    C-->>IM: DeliveryResult(成功)
-    deactivate C
-    IM->>S: send(alert)
-    activate S
-    S-->>IM: DeliveryResult(保留/非同期)
-    deactivate S
-    IM->>IM: 受付結果を集計(成功3 保留1 失敗0)
-    IM-->>M: 在庫更新完了
-    deactivate IM
-```
-
-同期の3件は成功を即返し、非同期のSMSは保留を返します。通知元は結果の内訳を分岐せず、成功・保留・失敗の件数を数えるだけで済みます。SMSが受付失敗を返しても、集計の失敗件数が増えるだけで通知ループの構造は変わりません。
+完成クラス図と実行シーケンスは、完成コードへ入る前に示しました。ここまでのコード、要求追跡表、不変条件照合を証拠として、次節で変更影響を再確認します。
 
 ### 7-3：変更影響グラフ（改善後）
 

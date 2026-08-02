@@ -685,6 +685,13 @@ int main() {
 
 この変更要求では、割引を**加算**するのではなく、すでに適用された割引後の金額に次の割引を掛ける**逐次割引**として扱います。つまり、キャンペーン10%引きとサマーセール5%引きが重なった場合は「合計15%引き」ではなく、「10,000円 → 9,000円 → 8,550円」と計算します。
 
+依頼文を、実行結果で判定できる確定要求へ分けます。
+
+| 要求ID | 確定要求 | 入力 | 受入条件 |
+|---|---|---|---|
+| R1 | Regular会員へサマーセール5%を追加し、Premium会員は対象外にする | 会員種別、サマーセールフラグ | Regularかつセール中だけ5%が適用され、Premiumの20%は変わらない |
+| R2 | 既存キャンペーンと重なる場合は逐次割引する | キャンペーンフラグ、R1適用前の金額 | 10,000円へ10%引き後に5%引きを適用し、8,550円になる |
+
 リリースは来週末。既存の `if` 文の隙間に `else if` を追加すれば間に合うかもしれません。
 
 
@@ -1555,6 +1562,126 @@ struct PaymentResult {
 **1. データの定義とインフラ（CustomerDatabase）**
 注文データ・顧客情報クラスはリファクタリング前後で変わりません。割引ロジックの分離が、これらのクラスに影響しないことを確認してください。
 
+#### 完成後のクラス一覧
+
+完成コードで定義する型を先に一覧化します。各型の依存方向と実現関係は、直後のクラス図で確認します。
+
+- `Item`、`Order`、`CampaignContext`、`CustomerInfo`
+- `CustomerDatabase`、`CheckoutResultRenderer`、`OrderProcessor`、`PaymentResult`
+- `PaymentCalculator`、`CartPreviewService`、`IDiscountRule`、`RuleSelector`
+- `PremiumDiscount`、`CampaignDiscount`、`SummerSaleDiscount`、`SummerSaleAndCampaignDiscount`
+- `NoDiscount`
+
+#### 完成後のクラス図
+
+フェーズ6の採用後クラス図と同じMermaid定義を再掲します。設計から完成まで構造は変えていないため、クラスの順序・操作・関係・注記・色も同じです。`PaymentCalculator` と `CartPreviewService` が計算を依頼する利用側、`IDiscountRule` が差し替え可能なルール契約、各割引クラスがその具象ルールに対応します。`RuleSelector` は、具体条件を知らずに登録ルールを選ぶ、このシステム固有の役割です。
+
+```mermaid
+classDiagram
+    direction LR
+    class Item
+    class Order
+    class CampaignContext
+    class CustomerInfo
+    class CustomerDatabase
+    class CheckoutResultRenderer
+    class OrderProcessor {
+        -CustomerDatabase& db
+        -RuleSelector& selector
+        +process(Order, CampaignContext)
+    }
+    class PaymentResult
+    class PaymentCalculator {
+        -IDiscountRule& rule
+        +calculate(Order) PaymentResult
+    }
+    class CartPreviewService {
+        -PaymentCalculator calculator
+        +getEstimatedTotal(Order) PaymentResult
+    }
+    class IDiscountRule {
+        <<interface>>
+        +matches(memberType, context) bool
+        +apply(total) int
+        +name() string
+        +priority() int
+    }
+    class RuleSelector {
+        +add(rule)
+        +select(memberType, context) IDiscountRule
+    }
+    class PremiumDiscount
+    class CampaignDiscount
+    class SummerSaleDiscount
+    class SummerSaleAndCampaignDiscount
+    class NoDiscount
+
+    Order o--> Item
+    CustomerDatabase o--> CustomerInfo
+    OrderProcessor --> CustomerDatabase : 使う
+    OrderProcessor --> RuleSelector : 選ぶ
+    OrderProcessor --> PaymentCalculator : 組み立てる
+    OrderProcessor --> CartPreviewService : 組み立てる
+    OrderProcessor --> CheckoutResultRenderer : 使う
+    CartPreviewService *--> PaymentCalculator : 持つ
+    PaymentCalculator --> IDiscountRule : 使う
+    PaymentCalculator ..> PaymentResult : 返す
+    CartPreviewService ..> PaymentResult : 返す
+    RuleSelector o--> IDiscountRule : 登録する
+    RuleSelector ..> CampaignContext : 参照する
+    IDiscountRule <|.. PremiumDiscount
+    IDiscountRule <|.. CampaignDiscount
+    IDiscountRule <|.. SummerSaleDiscount
+    IDiscountRule <|.. SummerSaleAndCampaignDiscount
+    IDiscountRule <|.. NoDiscount
+
+    note for PaymentCalculator "【P2・残した】小計計算\n具体的な式を知らない"
+    note for OrderProcessor "選択したルールで\n計算役・プレビュー役を生成"
+    note for IDiscountRule "【P1】matches条件\n【P2】apply計算\n具象実装はmain()が生成・所有"
+    note for RuleSelector "【P1・新設】全matchesを評価しpriority最高を選ぶ\nmain()が生成・ルール登録"
+    note for PremiumDiscount "【P1】Premium条件\n【P2】20%引き"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "OrderProcessor,PaymentCalculator,IDiscountRule,RuleSelector,PremiumDiscount,CampaignDiscount,SummerSaleDiscount,SummerSaleAndCampaignDiscount,NoDiscount" focus
+```
+
+現状では、割引条件と計算式が `PaymentCalculator` の内部に集まっていました。完成後は、計算を依頼する2つの利用側が同じルール契約を参照し、適用条件と計算式は各具象ルールへ移っています。`RuleSelector` 自体には施策固有の条件分岐がないため、新しい集約点へ移しただけではありません。
+
+#### 完成後の実行シーケンス
+
+フェーズ6で採用したルール差し替え構造について、実行時のオブジェクト間のやり取りを可視化します。`main()` がルールを登録し、`RuleSelector` が共通契約で選び、`PaymentCalculator` が具象クラスを知らずに処理を委譲する流れを確認できます。
+
+```mermaid
+sequenceDiagram
+    participant M as main / OrderProcessor
+    participant DB as CustomerDatabase
+    participant S as RuleSelector
+    participant P as PaymentCalculator
+    participant I as 登録済みIDiscountRule
+
+    M->>DB: exists(customerId)
+    DB-->>M: true
+    M->>DB: get(customerId)
+    DB-->>M: CustomerInfo
+    M->>S: select(memberType, context)
+    loop 登録された全ルールを評価
+        S->>I: matches(memberType, context)
+        I-->>S: true / false
+    end
+    S-->>M: 一致の中でpriority()最高のrule
+    M->>P: 生成 (rule参照を注入)
+    M->>P: calculate(order)
+    activate P
+    P->>I: apply(total)
+    activate I
+    I-->>P: 割引後金額
+    deactivate I
+    P-->>M: finalPrice
+    deactivate P
+```
+
+#### 完成コード
+
 ```cpp
 #include <iostream>
 #include <string>
@@ -2047,81 +2174,6 @@ int main() {
 
 小計→支払金額を1-5「変更後の動作例」と照らすと、リファクタリング後も同じ金額になることを確認できます。カートプレビューも同じ計算を共有するため支払金額と一致します。
 
-#### 解決後のクラス構成
-
-フェーズ6の採用後クラス図と同じMermaid定義を再掲します。設計から完成まで構造は変えていないため、クラスの順序・操作・関係・注記・色も同じです。`PaymentCalculator` と `CartPreviewService` が計算を依頼する利用側、`IDiscountRule` が差し替え可能なルール契約、各割引クラスがその具象ルールに対応します。`RuleSelector` は、具体条件を知らずに登録ルールを選ぶ、このシステム固有の役割です。
-
-```mermaid
-classDiagram
-    direction LR
-    class Item
-    class Order
-    class CampaignContext
-    class CustomerInfo
-    class CustomerDatabase
-    class CheckoutResultRenderer
-    class OrderProcessor {
-        -CustomerDatabase& db
-        -RuleSelector& selector
-        +process(Order, CampaignContext)
-    }
-    class PaymentResult
-    class PaymentCalculator {
-        -IDiscountRule& rule
-        +calculate(Order) PaymentResult
-    }
-    class CartPreviewService {
-        -PaymentCalculator calculator
-        +getEstimatedTotal(Order) PaymentResult
-    }
-    class IDiscountRule {
-        <<interface>>
-        +matches(memberType, context) bool
-        +apply(total) int
-        +name() string
-        +priority() int
-    }
-    class RuleSelector {
-        +add(rule)
-        +select(memberType, context) IDiscountRule
-    }
-    class PremiumDiscount
-    class CampaignDiscount
-    class SummerSaleDiscount
-    class SummerSaleAndCampaignDiscount
-    class NoDiscount
-
-    Order o--> Item
-    CustomerDatabase o--> CustomerInfo
-    OrderProcessor --> CustomerDatabase : 使う
-    OrderProcessor --> RuleSelector : 選ぶ
-    OrderProcessor --> PaymentCalculator : 組み立てる
-    OrderProcessor --> CartPreviewService : 組み立てる
-    OrderProcessor --> CheckoutResultRenderer : 使う
-    CartPreviewService *--> PaymentCalculator : 持つ
-    PaymentCalculator --> IDiscountRule : 使う
-    PaymentCalculator ..> PaymentResult : 返す
-    CartPreviewService ..> PaymentResult : 返す
-    RuleSelector o--> IDiscountRule : 登録する
-    RuleSelector ..> CampaignContext : 参照する
-    IDiscountRule <|.. PremiumDiscount
-    IDiscountRule <|.. CampaignDiscount
-    IDiscountRule <|.. SummerSaleDiscount
-    IDiscountRule <|.. SummerSaleAndCampaignDiscount
-    IDiscountRule <|.. NoDiscount
-
-    note for PaymentCalculator "【P2・残した】小計計算\n具体的な式を知らない"
-    note for OrderProcessor "選択したルールで\n計算役・プレビュー役を生成"
-    note for IDiscountRule "【P1】matches条件\n【P2】apply計算\n具象実装はmain()が生成・所有"
-    note for RuleSelector "【P1・新設】全matchesを評価しpriority最高を選ぶ\nmain()が生成・ルール登録"
-    note for PremiumDiscount "【P1】Premium条件\n【P2】20%引き"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "OrderProcessor,PaymentCalculator,IDiscountRule,RuleSelector,PremiumDiscount,CampaignDiscount,SummerSaleDiscount,SummerSaleAndCampaignDiscount,NoDiscount" focus
-```
-
-現状では、割引条件と計算式が `PaymentCalculator` の内部に集まっていました。完成後は、計算を依頼する2つの利用側が同じルール契約を参照し、適用条件と計算式は各具象ルールへ移っています。`RuleSelector` 自体には施策固有の条件分岐がないため、新しい集約点へ移しただけではありません。
-
 #### 変更軸ごとの完成コード追跡
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | システム全体で維持できた範囲 |
@@ -2135,8 +2187,8 @@ classDiagram
 
 | 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
 |---|---|---|---|
-| R1：サマーセール条件追加／P1 | 条件分岐をルール群と選択器へ分離。コード：`SummerSaleDiscount::matches()`、`RuleSelector` への登録 | 対象注文だけサマーセールが選択された | 新条件クラスと組み立て時の登録 |
-| R2：割引の逐次適用／P2 | 計算式を各Ruleへ移し、計算器は契約だけを実行。コード：各 `apply()`、`PaymentCalculator::calculate()` | 複数割引が優先度順に反映された | 対象Ruleの式・優先度 |
+| R1：Regular会員へサマーセール5%を追加し、Premium会員は対象外にする／P1 | 条件分岐をルール群と選択器へ分離。コード：`SummerSaleDiscount::matches()`、`RuleSelector` への登録 | 対象注文だけサマーセールが選択された | 新条件クラスと組み立て時の登録 |
+| R2：既存キャンペーンと重なる場合は逐次割引する／P2 | 計算式を各Ruleへ移し、計算器は契約だけを実行。コード：各 `apply()`、`PaymentCalculator::calculate()` | 複数割引が優先度順に反映された | 対象Ruleの式・優先度 |
 
 #### 変更前→変更後の不変条件照合
 
@@ -2145,38 +2197,9 @@ classDiagram
 | 顧客・注文の取得 | `CustomerDatabase` から取得 | 同じID・同じ取得契約 | 現状コードと完成コードのDB呼び出し |
 | 結果表示 | `CheckoutResultRenderer` へ渡す | 同じ結果境界へ渡す | 7-1の正常・エラー出力 |
 
-### 7-2：動作シーケンス図
+### 7-2：動作シーケンス図の検証
 
-フェーズ6で採用したルール差し替え構造について、実行時のオブジェクト間のやり取りを可視化します。`main()` がルールを登録し、`RuleSelector` が共通契約で選び、`PaymentCalculator` が具象クラスを知らずに処理を委譲する流れを確認できます。
-
-```mermaid
-sequenceDiagram
-    participant M as main / OrderProcessor
-    participant DB as CustomerDatabase
-    participant S as RuleSelector
-    participant P as PaymentCalculator
-    participant I as 登録済みIDiscountRule
-
-    M->>DB: exists(customerId)
-    DB-->>M: true
-    M->>DB: get(customerId)
-    DB-->>M: CustomerInfo
-    M->>S: select(memberType, context)
-    loop 登録された全ルールを評価
-        S->>I: matches(memberType, context)
-        I-->>S: true / false
-    end
-    S-->>M: 一致の中でpriority()最高のrule
-    M->>P: 生成 (rule参照を注入)
-    M->>P: calculate(order)
-    activate P
-    P->>I: apply(total)
-    activate I
-    I-->>P: 割引後金額
-    deactivate I
-    P-->>M: finalPrice
-    deactivate P
-```
+完成クラス図と実行シーケンスは、完成コードへ入る前に示しました。ここまでのコード、要求追跡表、不変条件照合を証拠として、次節で変更影響を再確認します。
 
 ### 7-3：変更影響グラフ（改善後）
 

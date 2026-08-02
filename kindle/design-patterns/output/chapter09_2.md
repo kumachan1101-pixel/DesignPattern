@@ -613,6 +613,13 @@ TCK002の状態遷移の実行結果：
 
 この章でいう「SLAを厳格に運用する」とは、今回実装する「法人ユーザーをHighとする優先度ルール」と、次期候補の「一次回答期限超過を自動検出してHighへ引き上げる監視」を区別して管理することです。今回の変更要求は、前者の優先度ルール追加と「保留中」の状態追加という、二つの大きな柱です。期限監視は将来リスクとしてフェーズ2で記録しますが、掲載コードには入れません。
 
+今回の二つの柱を、実行結果で判定できる確定要求へ分けます。
+
+| 要求ID | 確定要求 | 入力 | 受入条件 |
+|---|---|---|---|
+| R1 | 法人ユーザーを登録・再受付・エスカレーション時にHighとする | ユーザー区分、対象操作 | 3操作で法人はHighとなり、一般・プレミアムの既存結果は変わらない |
+| R2 | Pending状態と、Open/InProgressからの保留、Pendingからの再受付を追加する | 保存済み状態、保留・再受付操作 | 許可された遷移だけが保存され、再受付時はR1の優先度を再計算する |
+
 **仕様変更の内容**
 
 変更要求を受けて、現在の仕様がどう変わるかを整理します。
@@ -1637,6 +1644,96 @@ PolicySetをServiceより先に生成します。したがって、`Ticket` が�
 次のコードでは、7-1を単独で実行できるよう、継続する定義も含めて再掲します。
 監査ログ用のイベント名だけは、完成コードでログを一貫して出すための表示語彙です。
 
+#### 完成後のクラス一覧
+
+完成コードで定義する型を先に一覧化します。各型の依存方向と実現関係は、直後のクラス図で確認します。
+
+- `TicketService`、`TicketPolicySet`、`TicketRepository`、`UserDatabase`
+- `StaffDirectory`、`TicketEventLog`、`Ticket`、`ITicketPhase`
+- `OpenPhase`、`InProgressPhase`、`EscalatedPhase`、`ResolvedPhase`
+- `PendingPhase`、`IPriorityRule`、`CorporatePriority`、`PremiumPriority`
+- `NormalPriority`
+
+#### 完成後のクラス図
+
+```mermaid
+classDiagram
+    class TicketService
+    class TicketPolicySet
+    class TicketRepository
+    class UserDatabase
+    class StaffDirectory
+    class TicketEventLog
+    class Ticket
+    class ITicketPhase { <<interface>> }
+    class OpenPhase
+    class InProgressPhase
+    class EscalatedPhase
+    class ResolvedPhase
+    class PendingPhase
+    class IPriorityRule { <<interface>> }
+    class CorporatePriority
+    class PremiumPriority
+    class NormalPriority
+    TicketService --> TicketRepository : チケット保存
+    TicketService --> UserDatabase : 依頼者照会
+    TicketService --> StaffDirectory : 担当者照会
+    TicketService --> TicketEventLog : 監査記録
+    TicketService --> TicketPolicySet : 状態・ルールを利用
+    TicketPolicySet o--> ITicketPhase : 状態を所有・配線
+    TicketPolicySet o--> IPriorityRule : ルールを所有・選択
+    TicketRepository --> Ticket : 保存
+    Ticket --> ITicketPhase : 現在状態
+    ITicketPhase <|.. OpenPhase
+    ITicketPhase <|.. InProgressPhase
+    ITicketPhase <|.. EscalatedPhase
+    ITicketPhase <|.. ResolvedPhase
+    ITicketPhase <|.. PendingPhase
+    IPriorityRule <|.. CorporatePriority
+    IPriorityRule <|.. PremiumPriority
+    IPriorityRule <|.. NormalPriority
+
+    note for ITicketPhase "【P1・新設】状態ごとの振る舞いの共通契約"
+    note for IPriorityRule "【P2・新設】優先度判定の差し替え可能な契約"
+    note for TicketPolicySet "【新設】具体状態・具体ルールを生成・所有・配線"
+    note for TicketService "【新設】抽象契約を使って公開操作・保存・ログを実行"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "TicketService,TicketPolicySet,ITicketPhase,OpenPhase,InProgressPhase,EscalatedPhase,ResolvedPhase,PendingPhase,IPriorityRule,CorporatePriority,PremiumPriority,NormalPriority" focus
+```
+
+完成後は状態ごとの処理と優先度判定を分離します。`TicketPolicySet` が
+具体部品を組み立て、`TicketService` は抽象契約だけを使い、`Ticket` 実体が
+現在状態を保持します。この図はフェーズ6で確定した採用図と同じ定義です。
+
+#### 完成後の実行シーケンス
+
+ルール差し替え構造 × 状態分離構造の実行時のやり取りを、TCK002のエスカレーション（`InProgress → Escalated`）で可視化します。`TicketService` が具象クラスを知らずに抽象インターフェース経由で状態遷移と優先度判定を委譲し、結果を `TicketRepository` へ保存する流れが確認できます。
+
+```mermaid
+sequenceDiagram
+    participant Main as main
+    participant Svc as TicketService
+    participant Repo as TicketRepository
+    participant Ph as InProgressPhase
+    participant Rule as PremiumPriority
+    Main->>Svc: escalate("TCK002")
+    Svc->>Repo: get("TCK002")
+    Repo-->>Svc: Ticket（現在状態）
+    Svc->>Ph: escalate()
+    Note right of Svc: ITicketPhase* 経由
+    Ph-->>Svc: EscalatedPhase*（次状態）
+    Svc->>Rule: getPriority()
+    Note right of Svc: IPriorityRule* 経由
+    Rule-->>Svc: Priority::High
+    Svc->>Repo: save(Ticket)
+    Svc-->>Main: 状態=Escalated 優先度=High
+```
+
+---
+
+#### 完成コード
+
 ```cpp
 #include <iostream>
 #include <string>
@@ -2194,58 +2291,6 @@ int main() {
 
 行1〜8で、状態がチケットID単位で保存・追跡され、優先度が登録時に決まって以降引き継がれ（TCK002はHighのまま、再受付・エスカレーションで再計算）、担当者がアサインで保存されることを確認できます。エスカレーション（行7）では `InProgress → Escalated` へ遷移し、その後（行8）`Escalated → Resolved` へ進みます。変更要求の `Pending`（保留中）と法人向けの高優先度も落とさず追えています。
 
-#### 解決後のクラス構成
-
-```mermaid
-classDiagram
-    class TicketService
-    class TicketPolicySet
-    class TicketRepository
-    class UserDatabase
-    class StaffDirectory
-    class TicketEventLog
-    class Ticket
-    class ITicketPhase { <<interface>> }
-    class OpenPhase
-    class InProgressPhase
-    class EscalatedPhase
-    class ResolvedPhase
-    class PendingPhase
-    class IPriorityRule { <<interface>> }
-    class CorporatePriority
-    class PremiumPriority
-    class NormalPriority
-    TicketService --> TicketRepository : チケット保存
-    TicketService --> UserDatabase : 依頼者照会
-    TicketService --> StaffDirectory : 担当者照会
-    TicketService --> TicketEventLog : 監査記録
-    TicketService --> TicketPolicySet : 状態・ルールを利用
-    TicketPolicySet o--> ITicketPhase : 状態を所有・配線
-    TicketPolicySet o--> IPriorityRule : ルールを所有・選択
-    TicketRepository --> Ticket : 保存
-    Ticket --> ITicketPhase : 現在状態
-    ITicketPhase <|.. OpenPhase
-    ITicketPhase <|.. InProgressPhase
-    ITicketPhase <|.. EscalatedPhase
-    ITicketPhase <|.. ResolvedPhase
-    ITicketPhase <|.. PendingPhase
-    IPriorityRule <|.. CorporatePriority
-    IPriorityRule <|.. PremiumPriority
-    IPriorityRule <|.. NormalPriority
-
-    note for ITicketPhase "【P1・新設】状態ごとの振る舞いの共通契約"
-    note for IPriorityRule "【P2・新設】優先度判定の差し替え可能な契約"
-    note for TicketPolicySet "【新設】具体状態・具体ルールを生成・所有・配線"
-    note for TicketService "【新設】抽象契約を使って公開操作・保存・ログを実行"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "TicketService,TicketPolicySet,ITicketPhase,OpenPhase,InProgressPhase,EscalatedPhase,ResolvedPhase,PendingPhase,IPriorityRule,CorporatePriority,PremiumPriority,NormalPriority" focus
-```
-
-完成後は状態ごとの処理と優先度判定を分離します。`TicketPolicySet` が
-具体部品を組み立て、`TicketService` は抽象契約だけを使い、`Ticket` 実体が
-現在状態を保持します。この図はフェーズ6で確定した採用図と同じ定義です。
-
 #### 変更後の状態遷移仕様との照合
 
 1-5で確定した変更後の状態遷移仕様と、完成コードのPhase配線を照合します。
@@ -2278,8 +2323,8 @@ stateDiagram-v2
 
 | 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
 |---|---|---|---|
-| R1：問い合わせ状態の拡張／P1 | 状態固有の許可操作と遷移をPhaseへ分離。コード：全 `ITicketPhase`、`TicketService` | 保留・再開を含む状態遷移がPhase単位で実行された | 新Phaseと遷移接続 |
-| R2：優先度ルール差し替え／P2 | SLA・顧客区分判定をルール差し替え構造へ分離。コード：全 `IPriorityRule`、`TicketPolicySet` | 法人・期限条件で優先度が変わり、状態遷移は不変 | 新RuleとPolicySet設定 |
+| R1：法人ユーザーを登録・再受付・エスカレーション時にHighとする／P2 | 法人を含む顧客区分判定をルール差し替え構造へ分離。コード：全 `IPriorityRule`、`TicketPolicySet` | 登録・再受付・エスカレーションで法人がHighとなり、未確定の期限監視は実行されなかった | 新RuleとPolicySet設定 |
+| R2：Pending状態と、Open/InProgressからの保留、Pendingからの再受付を追加する／P1 | 状態固有の許可操作と遷移をPhaseへ分離。コード：全 `ITicketPhase`、`TicketService` | Open／InProgressから保留し、Pendingから再受付できた | 新Phaseと遷移接続 |
 
 #### 変更前→変更後の不変条件照合
 
@@ -2288,31 +2333,9 @@ stateDiagram-v2
 | チケット保存 | `TicketRepository` に `Ticket` を保存 | 同じID・本文・状態データを保存 | 1-4と7-1の取得・保存コード |
 | 利用者情報 | `UserDatabase` から区分を取得 | 同じ利用者IDからRule入力へ渡す | 法人ケースの実行結果 |
 
-### 7-2：動作シーケンス図
+### 7-2：動作シーケンス図の検証
 
-ルール差し替え構造 × 状態分離構造の実行時のやり取りを、TCK002のエスカレーション（`InProgress → Escalated`）で可視化します。`TicketService` が具象クラスを知らずに抽象インターフェース経由で状態遷移と優先度判定を委譲し、結果を `TicketRepository` へ保存する流れが確認できます。
-
-```mermaid
-sequenceDiagram
-    participant Main as main
-    participant Svc as TicketService
-    participant Repo as TicketRepository
-    participant Ph as InProgressPhase
-    participant Rule as PremiumPriority
-    Main->>Svc: escalate("TCK002")
-    Svc->>Repo: get("TCK002")
-    Repo-->>Svc: Ticket（現在状態）
-    Svc->>Ph: escalate()
-    Note right of Svc: ITicketPhase* 経由
-    Ph-->>Svc: EscalatedPhase*（次状態）
-    Svc->>Rule: getPriority()
-    Note right of Svc: IPriorityRule* 経由
-    Rule-->>Svc: Priority::High
-    Svc->>Repo: save(Ticket)
-    Svc-->>Main: 状態=Escalated 優先度=High
-```
-
----
+完成クラス図と実行シーケンスは、完成コードへ入る前に示しました。ここまでのコード、要求追跡表、不変条件照合を証拠として、次節で変更影響を再確認します。
 
 ### 7-3：変更影響グラフ（改善後）
 

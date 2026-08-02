@@ -652,6 +652,13 @@ ACC003: 470000円
 
 さらに、これに続いて「銀行側の送金APIのインターフェースもセキュリティ強化のため、送金時のパラメータに『トランザクションID』が必須になります」とのこと。
 
+依頼文を、実行結果で判定できる確定要求へ分けます。
+
+| 要求ID | 確定要求 | 入力 | 受入条件 |
+|---|---|---|---|
+| R1 | 認証を、認証コード発行と取引ID付き照合の2段階へ変える | 認証コード、発行時に返る取引ID | 発行した取引IDと認証コードの組み合わせで照合し、誤りなら送金しない |
+| R2 | 検証済み取引IDを送金APIの必須入力にする | 送金元、振込先、金額、検証済み取引ID | 同じ取引IDを送金へ渡し、成功時だけ残高と履歴を更新する |
+
 リリースは来月の頭。
 
 **仕様変更の内容**
@@ -1450,6 +1457,108 @@ struct TransferResult {
 **1. 自社台帳・外部銀行・認証（AccountDatabase / Bank / SecurityAuthenticator）**
 残高を保持し実際に送金する `Bank`、名義を持つ自社台帳 `AccountDatabase`、コードを照合する認証です。今後も銀行側の仕様変更で変わりますが、それを `TransferProcessor` は知らなくてよくなります。
 
+#### 完成後のクラス一覧
+
+完成コードで定義する型を先に一覧化します。各型の依存方向と実現関係は、直後のクラス図で確認します。
+
+- `TransferRequest`、`TransferResult`、`AccountDatabase`、`TransferHistory`
+- `Bank`、`SecurityAuthenticator`、`Application`、`TransferProcessor`
+- `BatchTransferProcessor`、`IBankTransferService`、`BankTransferService`
+
+#### 完成後のクラス図
+
+フェーズ6の対策検討クラス図で確定したクラス構成が完成コードでも成立しているかを確認します。薄い黄色は、変更前クラス図の責任を見直した結果、操作または依存を変更・新設したクラスです。`TransferProcessor` / `BatchTransferProcessor` が窓口を呼び出す利用側、`BankTransferService` が手順を集約する窓口、DB・履歴・銀行API・認証が窓口の背後で個別処理を担う部品に対応します。`IBankTransferService` は、具体窓口を知らずに差し替えるために追加した契約です。
+
+```mermaid
+classDiagram
+    direction LR
+    class TransferRequest
+    class TransferResult
+    class AccountDatabase
+    class TransferHistory
+    class Bank
+    class SecurityAuthenticator
+    class Application {
+        +run()
+    }
+    class TransferProcessor {
+        -IBankTransferService& service
+        +transfer(request)
+    }
+    class BatchTransferProcessor {
+        -IBankTransferService& service
+        +processPayroll(from, transfers)
+    }
+    class IBankTransferService {
+        <<interface>>
+        +performTransfer(request) TransferResult
+        +performApprovedBatchTransfer(from, to, amount) TransferResult
+        +compensate(from, to, amount)
+    }
+    class BankTransferService
+
+    Application ..> BankTransferService : 生成する
+    Application --> TransferProcessor : 組み立てる
+    Application --> BatchTransferProcessor : 組み立てる
+    TransferProcessor --> IBankTransferService : 使う
+    BatchTransferProcessor --> IBankTransferService : 使う
+    IBankTransferService <|.. BankTransferService
+    BankTransferService --> AccountDatabase : 名義を引く
+    BankTransferService --> TransferHistory : 履歴を追加する
+    BankTransferService --> Bank : 手順を呼ぶ
+    BankTransferService --> SecurityAuthenticator : 手順を呼ぶ
+    TransferProcessor ..> TransferRequest : 受け取る
+    IBankTransferService ..> TransferResult : 返す
+
+    note for TransferProcessor "【P1・残した】業務フロー\n手順を知らない\n【P2】契約だけに依存"
+    note for BankTransferService "【P1・新設】銀行API手順を集約\n【P2】IBankTransferServiceを実装"
+    note for IBankTransferService "【P2・新設】窓口契約\nperformTransferなど"
+    note for Application "【P2・新設】具体窓口を生成・注入"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "TransferProcessor,BatchTransferProcessor,IBankTransferService,BankTransferService,Application" focus
+```
+
+現状では、銀行API手順と具体依存の生成が `TransferProcessor` の内部に集まっていました。完成後は、振込を依頼する2つのClientが同じ窓口契約を参照し、手順は `BankTransferService` の内側へ、具体窓口の生成は `Application` へ移っています。`IBankTransferService` 自体には手順がないため、新しい集約点へ移しただけではありません。
+
+#### 完成後の実行シーケンス
+
+具体窓口構造に抽象インターフェースを加えた最終構造の、実行時のオブジェクト間のやり取りを可視化します。`Application` が依存関係を組み立て、`TransferProcessor` が具象クラスを知らずに抽象インターフェース経由で処理を委譲する流れが確認できます。
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant T as TransferProcessor
+    participant F as IBankTransferService<br/>(BankTransferService)
+    participant DB as AccountDatabase
+    participant G as Bank
+    participant A as SecurityAuthenticator
+
+    App->>DB: 生成 (AccountDatabase)
+    App->>F: 生成 (BankTransferService, db)
+    App->>T: 生成 (facade を注入)
+    App->>T: transfer(from, to, amount, otp)
+    activate T
+    T->>F: performTransfer(from, to, amount, otp)
+    activate F
+    F->>DB: exists(from)
+    DB-->>F: true
+    F->>DB: exists(to)
+    DB-->>F: true
+    F->>DB: get(from).balance >= amount
+    DB-->>F: true
+    F->>A: requestOTP()
+    A-->>F: txId
+    F->>A: verifyOTP(otp, txId)
+    F->>G: executeTransfer(to, amount, txId)
+    F-->>T: true
+    deactivate F
+    T-->>App: 振り込み完了
+    deactivate T
+```
+
+#### 完成コード
+
 ```cpp
 #include <iostream>
 #include <map>
@@ -1868,62 +1977,6 @@ ACC003: 470000円
 動作例テーブルの全5ケースに加え、バッチ途中失敗と補償を確認しました。残高は銀行側で実際に増減し、行3は残高照会、行4はOTP照合で弾かれ、補償では送金先から送金元へ残高が戻ります。失敗した要求は残高を更新しません。
 
 
-#### 解決後のクラス構成
-
-フェーズ6の対策検討クラス図で確定したクラス構成が完成コードでも成立しているかを確認します。薄い黄色は、変更前クラス図の責任を見直した結果、操作または依存を変更・新設したクラスです。`TransferProcessor` / `BatchTransferProcessor` が窓口を呼び出す利用側、`BankTransferService` が手順を集約する窓口、DB・履歴・銀行API・認証が窓口の背後で個別処理を担う部品に対応します。`IBankTransferService` は、具体窓口を知らずに差し替えるために追加した契約です。
-
-```mermaid
-classDiagram
-    direction LR
-    class TransferRequest
-    class TransferResult
-    class AccountDatabase
-    class TransferHistory
-    class Bank
-    class SecurityAuthenticator
-    class Application {
-        +run()
-    }
-    class TransferProcessor {
-        -IBankTransferService& service
-        +transfer(request)
-    }
-    class BatchTransferProcessor {
-        -IBankTransferService& service
-        +processPayroll(from, transfers)
-    }
-    class IBankTransferService {
-        <<interface>>
-        +performTransfer(request) TransferResult
-        +performApprovedBatchTransfer(from, to, amount) TransferResult
-        +compensate(from, to, amount)
-    }
-    class BankTransferService
-
-    Application ..> BankTransferService : 生成する
-    Application --> TransferProcessor : 組み立てる
-    Application --> BatchTransferProcessor : 組み立てる
-    TransferProcessor --> IBankTransferService : 使う
-    BatchTransferProcessor --> IBankTransferService : 使う
-    IBankTransferService <|.. BankTransferService
-    BankTransferService --> AccountDatabase : 名義を引く
-    BankTransferService --> TransferHistory : 履歴を追加する
-    BankTransferService --> Bank : 手順を呼ぶ
-    BankTransferService --> SecurityAuthenticator : 手順を呼ぶ
-    TransferProcessor ..> TransferRequest : 受け取る
-    IBankTransferService ..> TransferResult : 返す
-
-    note for TransferProcessor "【P1・残した】業務フロー\n手順を知らない\n【P2】契約だけに依存"
-    note for BankTransferService "【P1・新設】銀行API手順を集約\n【P2】IBankTransferServiceを実装"
-    note for IBankTransferService "【P2・新設】窓口契約\nperformTransferなど"
-    note for Application "【P2・新設】具体窓口を生成・注入"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "TransferProcessor,BatchTransferProcessor,IBankTransferService,BankTransferService,Application" focus
-```
-
-現状では、銀行API手順と具体依存の生成が `TransferProcessor` の内部に集まっていました。完成後は、振込を依頼する2つのClientが同じ窓口契約を参照し、手順は `BankTransferService` の内側へ、具体窓口の生成は `Application` へ移っています。`IBankTransferService` 自体には手順がないため、新しい集約点へ移しただけではありません。
-
 #### 変更軸ごとの完成コード追跡
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | システム全体で維持できた範囲 |
@@ -1937,8 +1990,8 @@ classDiagram
 
 | 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
 |---|---|---|---|
-| R1：通常・給与振込の手順統一／P1 | 銀行API手順を共通窓口へ集約。コード：`BankTransferService::performTransfer()`、両Processor | 通常・給与とも認証から送金まで同じ順序で完了 | 銀行窓口実装 |
-| R2：銀行窓口の差し替え／P2 | 利用側の具象生成を組み立て境界へ移動。コード：`IBankTransferService`、`Application` の注入 | 呼び出し元を変えず具象窓口を交換可能 | 組み立て時の生成・注入 |
+| R1：認証を、認証コード発行と取引ID付き照合の2段階へ変える／P1 | 2段階認証を窓口へ集約。コード：`BankTransferService::performTransfer()`、`SecurityAuthenticator` | 発行した取引IDと認証コードを照合し、不一致時は送金しない | 銀行窓口内の認証実装 |
+| R2：検証済み取引IDを送金APIの必須入力にする／P1・P2 | 認証から送金へ同じ取引IDを引き渡し、利用側の具象依存を組み立て境界へ移動。コード：`BankTransferService`、`IBankTransferService`、`Application` | 取引ID付き送金だけが成功し、成功時だけ残高と履歴が更新された | 銀行窓口実装と組み立て時の注入 |
 
 #### 変更前→変更後の不変条件照合
 
@@ -1947,41 +2000,9 @@ classDiagram
 | 口座検証 | `AccountDatabase` を参照 | 同じ口座・残高検証 | 1-4と7-1の正常・エラーケース |
 | 振込履歴 | `TransferHistory` に保存 | 同じ取引IDと結果を保存 | 実行結果の履歴件数 |
 
-### 7-2：動作シーケンス図
+### 7-2：動作シーケンス図の検証
 
-具体窓口構造に抽象インターフェースを加えた最終構造の、実行時のオブジェクト間のやり取りを可視化します。`Application` が依存関係を組み立て、`TransferProcessor` が具象クラスを知らずに抽象インターフェース経由で処理を委譲する流れが確認できます。
-
-```mermaid
-sequenceDiagram
-    participant App as Application
-    participant T as TransferProcessor
-    participant F as IBankTransferService<br/>(BankTransferService)
-    participant DB as AccountDatabase
-    participant G as Bank
-    participant A as SecurityAuthenticator
-
-    App->>DB: 生成 (AccountDatabase)
-    App->>F: 生成 (BankTransferService, db)
-    App->>T: 生成 (facade を注入)
-    App->>T: transfer(from, to, amount, otp)
-    activate T
-    T->>F: performTransfer(from, to, amount, otp)
-    activate F
-    F->>DB: exists(from)
-    DB-->>F: true
-    F->>DB: exists(to)
-    DB-->>F: true
-    F->>DB: get(from).balance >= amount
-    DB-->>F: true
-    F->>A: requestOTP()
-    A-->>F: txId
-    F->>A: verifyOTP(otp, txId)
-    F->>G: executeTransfer(to, amount, txId)
-    F-->>T: true
-    deactivate F
-    T-->>App: 振り込み完了
-    deactivate T
-```
+完成クラス図と実行シーケンスは、完成コードへ入る前に示しました。ここまでのコード、要求追跡表、不変条件照合を証拠として、次節で変更影響を再確認します。
 
 ### 7-3：変更影響グラフ（改善後）
 

@@ -45,12 +45,15 @@ def expected_chapters() -> set[str]:
     return names
 
 
-def evidence_reference(reference: str) -> tuple[Path, int | None] | None:
-    """Return the referenced repository path and optional line number."""
+def evidence_reference(
+    reference: str,
+) -> tuple[Path, int | None, str | None] | None:
+    """Return repository path plus an existing heading or line number."""
     if not isinstance(reference, str) or not reference.strip():
         return None
     raw_value = reference.strip()
-    has_anchor = "#" in raw_value and bool(raw_value.split("#", 1)[1])
+    anchor = raw_value.split("#", 1)[1].strip() if "#" in raw_value else None
+    has_anchor = bool(anchor)
     value = raw_value.split("#", 1)[0]
     line_match = re.search(r":(\d+)$", value)
     line_number = int(line_match.group(1)) if line_match else None
@@ -60,7 +63,7 @@ def evidence_reference(reference: str) -> tuple[Path, int | None] | None:
     path = Path(value)
     if path.is_absolute() or ".." in path.parts:
         return None
-    return BOOK_ROOT / path, line_number
+    return BOOK_ROOT / path, line_number, anchor
 
 
 def validate_evidence(
@@ -76,7 +79,7 @@ def validate_evidence(
         if parsed is None:
             errors.append(f"{owner}: 不正な根拠参照です: {reference!r}")
             continue
-        path, line_number = parsed
+        path, line_number, anchor = parsed
         if not path.exists():
             errors.append(f"{owner}: 根拠ファイルが存在しません: {reference}")
         elif line_number is not None:
@@ -85,6 +88,18 @@ def validate_evidence(
                 errors.append(
                     f"{owner}: 根拠行が範囲外です: {reference} "
                     f"（全{line_count}行）"
+                )
+        elif anchor is not None:
+            headings = {
+                match.group(1).strip()
+                for match in re.finditer(
+                    r"(?m)^#{1,6}\s+(.+?)\s*$",
+                    path.read_text(encoding="utf-8"),
+                )
+            }
+            if anchor not in headings:
+                errors.append(
+                    f"{owner}: 根拠見出しが存在しません: {reference}"
                 )
 
 

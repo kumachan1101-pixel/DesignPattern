@@ -407,7 +407,7 @@ classDiagram
 | 完了確認 | `BT-`／`CVS-` で始まる | 入金確認成功 |
 | 完了確認 | それ以外 | 不明な保留ID失敗 |
 
-入力不足はProcessorがAPIを呼ぶ前に失敗させ、境界スタブには検証済み入力だけを渡します。返金、不正検知、3Dセキュア、Webhookの再送制御などは、生成責任という本章の論点から外れるため境界の先に置きます。
+入力不足はProcessorがAPIを呼ぶ前に失敗させ、境界スタブには検証済み入力だけを渡します。返金、不正検知、3Dセキュアなどは、生成責任という本章の論点から外れるため境界の先に置きます。
 
 
 ---
@@ -1183,6 +1183,13 @@ PayPay対応です。PayPayは外部のQRコード決済サービスであり、
 - **処理タイプ**: 非同期。決済セッションを作成して保留を返し、完了確認で結果を取得する
 - **エラー**: PayPay固有のエラー（トークン無効、セッション期限切れ）がある
 
+依頼文とPayPay境界の制約を、実行結果で判定できる確定要求へ分けます。
+
+| 要求ID | 確定要求 | 入力 | 受入条件 |
+|---|---|---|---|
+| R1 | PayPay固有データを検証して決済セッションを作る | アクセストークン、マーチャントID、注文ID、金額 | 入力不足・無効トークンを失敗として返し、正常時はPayPay保留IDを返す |
+| R2 | PayPayの保留IDで完了状態を確認する | PayPay保留ID | 完了時は成功、期限切れ時は失敗を既存`PaymentResult`で返す |
+
 **仕様変更の内容**
 
 | 決済手段 | 変更前 | 変更後 |
@@ -1622,7 +1629,7 @@ graph LR
 
 これらの知識が `PaymentApplication` と呼び出し側に漏れているため、決済手段を追加するたびに、生成の分岐、エラー処理の追記、完了確認の対応が必要になります。
 
-このうち①〜③（と付随するリトライ判定）は、生成判断を分離することで `PaymentApplication` から外せます。一方、④の完了確認は「非同期決済の結果を後から受け取る」利用側（ワーカー／Webフック）の責任であり、生成の分離とは別軸のため、本章の生成分離構造の対象には含めません。7-1でも、生成判断だけを構造へ移し、完了確認の呼び出しは利用側に残しています。
+このうち①〜③（と付随するリトライ判定）は、生成判断を分離することで`PaymentApplication`から外せます。一方、④の完了確認は`PaymentApplication::checkCompletion()`から状態確認境界へ委譲する既存の利用フローです。7-1でも、生成判断だけを構造へ移し、完了確認の呼び出し順は保ちます。
 
 ### 4-2：変わるもの/変わってほしくないもの
 
@@ -1728,15 +1735,15 @@ public:
 
 | 課題ID・接続点 | 接続するデータ | 変わる側 | 守る側 |
 |---|---|---|---|
-| P1：具体Processorの生成・実行 → `PaymentApplication::processPayment()` | `PaymentRequest` を渡し、`PaymentResult` を受け取る | 具体Processor、手段固有の入力検証・処理モード・エラー対処 | `PaymentRequest`→`PaymentResult` の利用フロー、Worker・Webhookの入口、外部Clientとログの境界 |
+| P1：具体Processorの生成・実行 → `PaymentApplication::processPayment()` | `PaymentRequest` を渡し、`PaymentResult` を受け取る | 具体Processor、手段固有の入力検証・処理モード・エラー対処 | `PaymentRequest`→`PaymentResult` の利用フロー、顧客・注文照合、外部Clientとログの境界 |
 
-システム全体の課題は、決済手段の選択・生成と手段固有の処理を `PaymentApplication` の利用フローから外し、利用側には「要求を渡して共通結果を受け取る」という約束だけを残すことです。新しい決済手段を追加しても、Worker・Webhook・決済結果の記録経路へ変更を波及させません。約束をどの型・メソッドで表すかはフェーズ6で決めます。
+システム全体の課題は、決済手段の選択・生成と手段固有の処理を`PaymentApplication`の利用フローから外し、利用側には「要求を渡して共通結果を受け取る」という約束だけを残すことです。新しい決済手段を追加しても、顧客・注文照合や決済結果の記録経路へ変更を波及させません。約束をどの型・メソッドで表すかはフェーズ6で決めます。
 
 **現状のままでよい場面**：決済手段が1種類で固定されるなら、利用処理で生成する単純さを保つ判断もあります。今回は決済手段が増えるため、利用フローから生成判断と手段固有の知識を分ける設計を検討します。
 
 ---
 > **📌 システム全体の課題（確定）**
-> 「注文処理から見た決済フロー（`processPayment`）」と「決済プロセッサーの生成ロジック（具体クラスの選択と `new`）」を切り離す。接続点に残す約束は `PaymentRequest` → `PaymentResult` にそろえ、具体クラス名・手段固有の入力検証・処理モード判定・エラー対処を `PaymentApplication` から取り除く。新しい決済手段を追加しても、利用フロー・Worker・Webhookを変更しないシステムにする。
+> 「注文処理から見た決済フロー（`processPayment`）」と「決済プロセッサーの生成ロジック（具体クラスの選択と`new`）」を切り離す。接続点に残す約束は`PaymentRequest`→`PaymentResult`にそろえ、具体クラス名・手段固有の入力検証・処理モード判定・エラー対処を`PaymentApplication`から取り除く。新しい決済手段を追加しても、照合・結果保存を変更しないシステムにする。
 ---
 
 問題・原因・課題の3点が揃いました。次のフェーズ6では、このP1から直接、完成システムの構造を決めます。
@@ -1821,7 +1828,7 @@ P1をクラス図の変更として書くと、次の3操作になります。
 2. P1：具体Processorを選んで生成する判断を、生成メソッド `createProcessor` の1か所へ移す。
 3. P1：`processPayment` は生成されたProcessorへ `pay(request)` を委譲するだけにする。
 
-変更後は、`PaymentApplication` から具体クラス名と手段固有分岐が消え、生成が `createProcessor`、手段固有差分が各Processorへ移ったことを確認します。図中の `createProcessor` は `PaymentApplication` が宣言する仮想メソッドで、具体クラスの選択・生成は子クラス `DefaultPaymentApplication`（`--|>` で継承）が上書きします。これが生成分離構造の形で、7-1の完成コード（`DefaultPaymentApplication::createProcessor()`、`PaymentWorker`、`WebhookController`、追加手段 `PayPayProcessor`）と図が一致します。
+変更後は、`PaymentApplication`から具体クラス名と手段固有分岐が消え、生成が`createProcessor`、手段固有差分が各Processorへ移ったことを確認します。図中の`createProcessor`は`PaymentApplication`が宣言する仮想メソッドで、具体クラスの選択・生成は子クラス`DefaultPaymentApplication`（`--|>`で継承）が上書きします。これが生成分離構造の形で、7-1の`DefaultPaymentApplication::createProcessor()`と追加手段`PayPayProcessor`に一致します。
 
 **採用した変更後のクラス図：**
 
@@ -1834,8 +1841,6 @@ classDiagram
     class PaymentLog
     class CustomerDirectory
     class OrderBook
-    class PaymentWorker
-    class WebhookController
     class PaymentApplication {
         <<abstract>>
     }
@@ -1853,8 +1858,6 @@ classDiagram
     DefaultPaymentApplication --> ProcessorRegistry : 存在・有効確認
     PaymentApplication --> PaymentStatusClient : 完了確認
     DefaultPaymentApplication --|> PaymentApplication
-    PaymentWorker --> PaymentApplication : 非同期入口
-    WebhookController --> PaymentApplication : 完了通知
     CreditCardProcessor --> PaymentGatewayClient : 認証API
     PaymentApplication --> PaymentLog : 記録
     PaymentApplication --> CustomerDirectory : 顧客照合
@@ -1998,7 +2001,6 @@ struct PaymentResult {
 | 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |
 |---|---|---|---|
 | P1：決済手段 | 手段追加を具象Processorと生成・設定登録へ限定する | `IPaymentProcessor`、各Processor、`createProcessor()`、`ProcessorRegistry` | `processPayment()` は具体型・手段固有入力・同期非同期を知らず `pay()` だけを呼ぶ |
-| P1を適用したシステム全体 | Worker・Webhook・ログを同じ契約のまま維持する | 外側がRegistry・Client・Logを生成・所有・注入し、Applicationが要求ごとにProcessorを生成・破棄する | 手段追加が安定した入口へ波及せず、成功・保留・失敗を同じ結果型で返せた |
 
 **システム全体の実装結果：達成。** P1が生成分離構造として決済経路へ接続され、フェーズ5で目指した状態を実現しました。実行結果と変更影響は、完成コードを示した後のフェーズ7で確認します。
 
@@ -2013,13 +2015,91 @@ struct PaymentResult {
 
 手段固有の入力データ、保留情報、決済要求・結果、共通インターフェースを定義します。
 
+#### 完成後のクラス一覧
+
+完成コードで定義する型を先に一覧化します。各型の依存方向と実現関係は、直後のクラス図で確認します。
+
+- `DefaultPaymentApplication`、`PaymentGatewayClient`、`PaymentStatusClient`、`ProcessorRegistry`
+- `PaymentLog`、`CustomerDirectory`、`OrderBook`、`PaymentApplication`
+- `IPaymentProcessor`、`CreditCardProcessor`、`BankTransferProcessor`、`ConvenienceStoreProcessor`
+- `PayPayProcessor`
+
+#### 完成後のクラス図
+
+```mermaid
+classDiagram
+    class DefaultPaymentApplication
+    class PaymentGatewayClient
+    class PaymentStatusClient
+    class ProcessorRegistry
+    class PaymentLog
+    class CustomerDirectory
+    class OrderBook
+    class PaymentApplication {
+        <<abstract>>
+    }
+    class IPaymentProcessor { <<interface>> }
+    class CreditCardProcessor
+    class BankTransferProcessor
+    class ConvenienceStoreProcessor
+    class PayPayProcessor
+
+    PaymentApplication ..> IPaymentProcessor : createProcessor
+    IPaymentProcessor <|.. CreditCardProcessor
+    IPaymentProcessor <|.. BankTransferProcessor
+    IPaymentProcessor <|.. ConvenienceStoreProcessor
+    IPaymentProcessor <|.. PayPayProcessor
+    DefaultPaymentApplication --> ProcessorRegistry : 存在・有効確認
+    PaymentApplication --> PaymentStatusClient : 完了確認
+    DefaultPaymentApplication --|> PaymentApplication
+    CreditCardProcessor --> PaymentGatewayClient : 認証API
+    PaymentApplication --> PaymentLog : 記録
+    PaymentApplication --> CustomerDirectory : 顧客照合
+    PaymentApplication --> OrderBook : 注文照合
+
+    note for IPaymentProcessor "【P1・新設】pay(request)の共通契約"
+    note for PaymentApplication "【P1・残した】決済フロー\ncreateProcessorで生成を委ねる"
+    note for PayPayProcessor "【P1・新設した追加手段】"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "IPaymentProcessor,CreditCardProcessor,BankTransferProcessor,ConvenienceStoreProcessor,PayPayProcessor,PaymentApplication" focus
+```
+
+章末のFactory Method骨格図では、`PaymentApplication` がCreator、`createProcessor` がFactory Method、`IPaymentProcessor` と各実装がProduct群に対応します。
+
+#### 完成後の実行シーケンス
+
+フェーズ6で確定した生成分離構造の実行時のオブジェクト間のやり取りを可視化します。
+
+> **図の読み方：** `createProcessor` はシーケンス図では独立した参加者として描かれていますが、実際には `PaymentApplication`（またはそのサブクラス）のメソッドです。
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant PA as PaymentApplication
+    participant CP as createProcessor
+    participant CC as CreditCardProcessor
+
+    main->>PA: processPayment(PaymentRequest)
+    PA->>CP: createProcessor("credit_card")
+    Note right of PA: 生成をメソッドに委譲
+    CP->>CC: new CreditCardProcessor()
+    CC-->>CP: インスタンス
+    CP-->>PA: IPaymentProcessor*
+    PA->>CC: processor->pay(request)
+    Note right of CC: 入力検証・API呼び出し・<br>エラー対処はProcessor内部
+    CC-->>PA: PaymentResult
+    PA-->>main: PaymentResult
+```
+
+#### 完成コード
+
 ```cpp
 #include <iostream>
 #include <map>
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <queue>
 
 using namespace std;
 
@@ -2559,69 +2639,7 @@ protected:
 
 `processPayment`は`IPaymentProcessor*`を取得して`pay(request)`を呼ぶだけです。生成の分岐で使う決済手段IDと、結果のステータス（`保留`／`失敗`）は、それぞれ`PaymentMethod`・`PaymentStatus`の名前付き定数へまとめています。手段固有の入力検証、API呼び出し手順、保留IDの作り方は各Processorの内部で完結します。一方、利用側の`executeCase`は共通契約として`Pending`を判定し、共通の`checkCompletion()`を呼びます。つまり利用側が知らないのは「どの手段がどのAPI・完了手順を使うか」であり、非同期状態そのものを知らないわけではありません。
 
-この構成は、利用側が同期ループで呼ぶ形に限りません。掲載コードの末尾では、決済会社から届くWebフックを受け取る `WebhookController`（署名を検証し、正しいものだけをジョブキューへ積む）と、キューを取り出して同じ `processPayment` を呼ぶ `PaymentWorker` を追加しています。イベント駆動（Webhook）で受け取り、ワーカーがキューから非同期に処理する構成でも、決済手段ごとの生成・処理は同じ Factory Method の裏に隠れたままです。実運用ではワーカーは別スレッドで動きますが、掲載コードでは実スレッドを使わず、キューを同期的に空にして投入順・処理順を確認します。ここで使う `std::queue` は先入れ先出し（FIFO）のコンテナで、`push()` で末尾へ積み、`front()` で先頭を見て `pop()` で取り出します。積んだ順に処理されるため、受け取った順序どおりに決済が進むことを確認できます。
-
-> [!NOTE] ポーリング以外のアーキテクチャ（Webhook等）への応用
-> 本章では、コードを1つの関数内で上から下へ流して確認できるよう、非同期決済の結果を「自ら状態確認APIへ問い合わせる（ポーリングする）」システム構成として記述しています。
-> しかし現実のシステムでは、決済会社から結果がHTTPリクエストで通知される**イベント駆動（Webhook）方式**や、非同期キューを使って**別スレッドのワーカー**で結果を処理する構成も一般的です。
-> アーキテクチャが変わっても、「決済手段ごとに必要な処理手順が異なる」という本質は変わりません。イベント方式であっても、Webhookを受け取るコントローラー側で Factory Method を使って対応するProcessorを生成し、署名検証や結果判定といった手段固有の処理をインターフェースの裏に隠蔽することで、本章と全く同じパターンの恩恵（利用側ロジックの単純化）を得ることができます。
-
-
-**5. イベント駆動の入口とワーカー（WebhookEvent / WebhookController / PaymentWorker）**
-
-決済会社からのWebフックを受け取る入口と、キューからジョブを取り出して処理するワーカーです。どちらも `PaymentApplication` を通じて処理し、決済手段ごとの詳細は知りません。
-
-```cpp
-// 外部（決済会社）から届くWebフックイベント
-struct WebhookEvent {
-    string methodId;
-    string signature;   // 署名。"valid" 以外は不正として拒否する
-    PaymentRequest payload;
-};
-
-// Webフックを受け取り、署名を検証してジョブキューへ積む入口
-class WebhookController {
-    queue<PaymentRequest>& jobs;
-public:
-    explicit WebhookController(queue<PaymentRequest>& q)
-        : jobs(q) {}
-    bool receive(const WebhookEvent& ev) {
-        if (ev.signature != "valid") {
-            cout << "[Webhook] 署名検証に失敗: "
-                 << ev.methodId << endl;
-            return false;
-        }
-        cout << "[Webhook] 受理してキューへ: "
-             << ev.methodId << endl;
-        jobs.push(ev.payload);
-        return true;
-    }
-};
-
-// キューからジョブを取り出し、Factory経由で処理するワーカー
-// 実運用では別スレッドで動くが、ここでは同期的にキューを空にする
-class PaymentWorker {
-    PaymentApplication& app;
-    queue<PaymentRequest>& jobs;
-public:
-    PaymentWorker(PaymentApplication& a,
-                  queue<PaymentRequest>& q)
-        : app(a), jobs(q) {}
-    void drain() {
-        while (!jobs.empty()) {
-            PaymentRequest req = jobs.front();
-            jobs.pop();
-            PaymentResult r = app.processPayment(req);
-            cout << "[ワーカー] " << req.methodId
-                 << " -> " << r.status << endl;
-        }
-    }
-};
-```
-
-`WebhookController` は署名検証だけを行ってジョブをキューへ積み、`PaymentWorker` はキューを順に処理します。アーキテクチャが同期呼び出しからイベント駆動へ変わっても、決済手段ごとの生成・処理は `PaymentApplication` の裏に隠れたままです。
-
-**6. 組み立てと実行（main）**
+**5. 組み立てと実行（main）**
 
 各部品を組み立て、代表シナリオをケースごとに実行します。まず各ケース共通の「実行・再試行・保留時の完了確認・ログ記録」を補助関数にまとめます。
 
@@ -2861,20 +2879,9 @@ int main() {
 結果: credit_card -> 成功 (クレジット認証済み id=AUTH001)
 ```
 
-最後に、イベント駆動（Webhook）＋ワーカーでも同じFactoryが再利用されることと、各ケースの記録を確認します。
+最後に、各ケースの記録を確認します。
 
 ```cpp
-    // イベント駆動（Webhook）＋ワーカーで同じFactoryを再利用する
-    cout << "\n--- Webhook + ワーカー ---\n";
-    queue<PaymentRequest> jobs;
-    WebhookController controller(jobs);
-    PaymentWorker worker(app, jobs);
-    WebhookEvent e1{PaymentMethod::CreditCard, "valid", r1};
-    WebhookEvent e2{PaymentMethod::PayPay, "bad", r4};
-    controller.receive(e1);   // 署名OK→キューへ
-    controller.receive(e2);   // 署名NG→拒否
-    worker.drain();           // キューを取り出しFactoryで処理
-
     cout << "\n--- 決済ログ ---\n";
     payLog.printAll();
 
@@ -2882,15 +2889,9 @@ int main() {
 }
 ```
 
-Webhook・決済ログの実行結果：
+決済ログの実行結果：
 
 ```
---- Webhook + ワーカー ---
-[Webhook] 受理してキューへ: credit_card
-[Webhook] 署名検証に失敗: paypay
-[PaymentGateway] カード認証 order=ORD-1001 amount=1000 token=tok_abc
-[ワーカー] credit_card -> 成功
-
 --- 決済ログ ---
 [credit_card] 1000円 -> 成功
 [bank_transfer] 2000円 -> 成功
@@ -2905,58 +2906,11 @@ Webhook・決済ログの実行結果：
 
 新しく追加したPayPay決済も含めて、同期決済（カード）は即座に成功し、非同期決済（銀行振込・コンビニ・PayPay）は保留→完了確認→成功の流れが動いています。カードAPI失敗、入力不足、無効・未登録の各エラーも `processPayment` の骨格に手を加えることなく表現できています。
 
-#### 解決後のクラス構成
-
-```mermaid
-classDiagram
-    class DefaultPaymentApplication
-    class PaymentGatewayClient
-    class PaymentStatusClient
-    class ProcessorRegistry
-    class PaymentLog
-    class CustomerDirectory
-    class OrderBook
-    class PaymentWorker
-    class WebhookController
-    class PaymentApplication {
-        <<abstract>>
-    }
-    class IPaymentProcessor { <<interface>> }
-    class CreditCardProcessor
-    class BankTransferProcessor
-    class ConvenienceStoreProcessor
-    class PayPayProcessor
-
-    PaymentApplication ..> IPaymentProcessor : createProcessor
-    IPaymentProcessor <|.. CreditCardProcessor
-    IPaymentProcessor <|.. BankTransferProcessor
-    IPaymentProcessor <|.. ConvenienceStoreProcessor
-    IPaymentProcessor <|.. PayPayProcessor
-    DefaultPaymentApplication --> ProcessorRegistry : 存在・有効確認
-    PaymentApplication --> PaymentStatusClient : 完了確認
-    DefaultPaymentApplication --|> PaymentApplication
-    PaymentWorker --> PaymentApplication : 非同期入口
-    WebhookController --> PaymentApplication : 完了通知
-    CreditCardProcessor --> PaymentGatewayClient : 認証API
-    PaymentApplication --> PaymentLog : 記録
-    PaymentApplication --> CustomerDirectory : 顧客照合
-    PaymentApplication --> OrderBook : 注文照合
-
-    note for IPaymentProcessor "【P1・新設】pay(request)の共通契約"
-    note for PaymentApplication "【P1・残した】決済フロー\ncreateProcessorで生成を委ねる"
-    note for PayPayProcessor "【P1・新設した追加手段】"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "IPaymentProcessor,CreditCardProcessor,BankTransferProcessor,ConvenienceStoreProcessor,PayPayProcessor,PaymentApplication" focus
-```
-
-章末のFactory Method骨格図では、`PaymentApplication` がCreator、`createProcessor` がFactory Method、`IPaymentProcessor` と各実装がProduct群に対応します。
-
 #### 変更軸ごとの完成コード追跡
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | システム全体で維持できた範囲 |
 |---|---|---|---|
-| P1 | 全 `IPaymentProcessor` 実装、生成メソッド、`PaymentApplication`、Worker・Webhook | 同期・非同期入口は同じ `processPayment()` を使い、手段固有知識はProcessorと生成側に閉じた | 新決済でWorker・Webhookを変更せず、Processor実装と生成登録だけを追加できる |
+| P1 | 全`IPaymentProcessor`実装、生成メソッド、`PaymentApplication` | 利用側は同じ`processPayment()`と`checkCompletion()`を使い、手段固有知識はProcessorと生成側に閉じた | 新決済で照合・結果保存を変更せず、Processor実装と生成登録だけを追加できる |
 
 1行は、一つの完成システムを一本の変化軸から追跡した結果です。生成分離構造がP1の完了条件を維持しています。
 
@@ -2964,7 +2918,8 @@ classDiagram
 
 | 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
 |---|---|---|---|
-| R1：決済手段追加と入口統一／P1 | 手段固有処理と生成をProcessor／Creatorへ分離。コード：全 `IPaymentProcessor`、`createProcessor()`、各入口 | Credit・銀行・コンビニ・PayPayが同じ `PaymentResult` を返し、Worker／Webhookも同じ処理を利用 | 新Processorと生成登録 |
+| R1：PayPay固有データを検証して決済セッションを作る／P1 | PayPay入力検証とAPI境界をProcessor／Creatorへ分離。コード：`PayPayProcessor`、`createProcessor()` | 正常入力は保留IDを返し、不足・無効入力は失敗した | PayPayProcessorと生成登録 |
+| R2：PayPayの保留IDで完了状態を確認する／P1 | 保留IDによる状態確認をPayPay境界へ配置し、既存`PaymentResult`へ変換 | 完了と期限切れが既存入口から同じ結果契約で返った | PayPay状態確認境界 |
 
 #### 変更前→変更後の不変条件照合
 
@@ -2973,30 +2928,9 @@ classDiagram
 | 入出力契約 | `PaymentRequest`→`PaymentResult` | 同じフィールドと状態を使用 | 1-4と7-1の結果コード |
 | 結果保存 | `PaymentLog` に記録 | 同じ注文ID・成否を保存 | 正常・Pending・失敗ログ |
 
-### 7-2：動作シーケンス図
+### 7-2：動作シーケンス図の検証
 
-フェーズ6で確定した生成分離構造の実行時のオブジェクト間のやり取りを可視化します。
-
-> **図の読み方：** `createProcessor` はシーケンス図では独立した参加者として描かれていますが、実際には `PaymentApplication`（またはそのサブクラス）のメソッドです。
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant PA as PaymentApplication
-    participant CP as createProcessor
-    participant CC as CreditCardProcessor
-
-    main->>PA: processPayment(PaymentRequest)
-    PA->>CP: createProcessor("credit_card")
-    Note right of PA: 生成をメソッドに委譲
-    CP->>CC: new CreditCardProcessor()
-    CC-->>CP: インスタンス
-    CP-->>PA: IPaymentProcessor*
-    PA->>CC: processor->pay(request)
-    Note right of CC: 入力検証・API呼び出し・<br>エラー対処はProcessor内部
-    CC-->>PA: PaymentResult
-    PA-->>main: PaymentResult
-```
+完成クラス図と実行シーケンスは、完成コードへ入る前に示しました。ここまでのコード、要求追跡表、不変条件照合を証拠として、次節で変更影響を再確認します。
 
 ### 7-3：変更影響グラフ（改善後）
 

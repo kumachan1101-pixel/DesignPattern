@@ -552,6 +552,15 @@ int main() {
 
 運営担当は、この機能が実装されれば、直前キャンセルによる空き枠を減らし、収益が大きく改善すると期待しています。ここで整理しておくと、「キャンセル待ち」とは予約枠が満杯のときに空き待ちを登録する状態、「予約一時保留」とは予約を確保したまま決済の期限を延期する状態です。
 
+依頼文を、実行結果で判定できる確定要求へ分けます。
+
+| 要求ID | 確定要求 | 入力 | 受入条件 |
+|---|---|---|---|
+| R1 | 満席時にキャンセル待ちへ登録し、空席発生時に先頭を自動昇格する | イベントID、利用者ID、満席状態、予約済み取消 | 取消で49/50になった直後、先頭待機者が予約済みとなり50/50へ戻る |
+| R2 | 予約済みを24時間の一時保留へ移し、期限切れで席を解放する | 予約済み状態、一時保留操作、期限切れイベント | 保留中は席を確保し、期限切れ時は空席へ戻して待機者がいれば自動昇格する |
+
+決済失敗時に状態を変えない戻り値と、期限切れイベントを受けるスケジューラ境界は、R1・R2を安全に実行するための内部契約です。独立した利用者要求として数えません。
+
 実際の予約システムでは、入力は利用者のボタン操作だけではありません。キャンセルで空席が出たときの予約昇格イベント、保留期限を過ぎたときのタイマーイベント、決済APIから返る失敗結果も、予約状態を動かす入力になります。この章では、それらを「状態によって扱いが変わる入力」として同じ粒度で整理します。
 
 **仕様変更の内容**
@@ -1446,6 +1455,130 @@ public:
 
 1-4と同じ、イベントの定員と予約数を持つ在庫クラスです。
 
+#### 完成後のクラス一覧
+
+完成コードで定義する型を先に一覧化します。各型の依存方向と実現関係は、直後のクラス図で確認します。
+
+- `TicketReservation`、`IReservationState`、`EventInfo`、`ReservationRecord`
+- `EventDatabase`、`ReservationHistory`、`ReservationWaitlist`、`AvailableState`
+- `ReservedState`、`PaidState`、`WaitlistedState`、`HeldState`
+- `ReservationExpiryScheduler`、`BatchApplication`
+
+#### 完成後のクラス図
+
+```mermaid
+classDiagram
+    class TicketReservation {
+        -IReservationState* state
+        +reserve()
+        +pay()
+        +cancel()
+        +expire()
+    }
+    class IReservationState {
+        <<interface>>
+        +reserve(ctx)
+        +pay(ctx)
+        +cancel(ctx)
+        +promoteBySystem(ctx)
+        +expire(ctx)
+    }
+    class EventInfo
+    class ReservationRecord
+    class EventDatabase
+    class ReservationHistory
+    class ReservationWaitlist
+    class AvailableState
+    class ReservedState
+    class PaidState
+    class WaitlistedState
+    class HeldState
+    class ReservationExpiryScheduler
+    class BatchApplication
+    TicketReservation o--> IReservationState
+    TicketReservation --> EventDatabase
+    TicketReservation --> ReservationHistory
+    TicketReservation --> ReservationWaitlist
+    ReservationWaitlist o--> TicketReservation : waiting
+    EventDatabase o--> EventInfo
+    ReservationHistory o--> ReservationRecord
+    IReservationState <|.. AvailableState
+    IReservationState <|.. ReservedState
+    IReservationState <|.. PaidState
+    IReservationState <|.. WaitlistedState
+    IReservationState <|.. HeldState
+    ReservationExpiryScheduler ..> TicketReservation : timeout時にexpire
+    BatchApplication --> TicketReservation
+    BatchApplication --> ReservationExpiryScheduler
+
+    note for IReservationState "【P1・新設】状態ごとの振る舞いの共通契約"
+    note for ReservedState "【P1・新設】予約状態の振る舞いと解放時の自動昇格呼び出し"
+    note for ReservationWaitlist "【P2・新設】待機者の探索・削除・先頭選択"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "IReservationState,AvailableState,ReservedState,PaidState,WaitlistedState,HeldState,ReservationWaitlist,ReservationExpiryScheduler" focus
+```
+
+章末のState骨格図では `TicketReservation` がContext、`IReservationState` がState、5つの状態クラスがConcreteStateに対応します。掲載コードに登場する在庫・履歴・待ち行列・組み立てクラスも省略せず記載しています。予約数の増減と待機者の自動昇格は状態処理からコンテキスト経由で実行され、`BatchApplication` はシナリオを起動するだけです。
+
+#### 完成後の実行シーケンス
+
+満席イベントの既存予約に `cancel()` が呼ばれたとき、空席作成から待機者の自動昇格までをどのクラスが担うか確認します。
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant BA as BatchApplication
+    participant C as 既存TicketReservation
+    participant RS as ReservedState
+    participant DB as EventDatabase
+    participant WQ as ReservationWaitlist
+    participant W as 待機TicketReservation
+    participant WS as WaitlistedState
+
+    main->>BA: run()
+    BA->>C: cancel()
+    C->>RS: cancel(ctx)
+    RS->>DB: cancelSeat(EVT003)
+    DB-->>RS: 50/50 -> 49/50
+    RS->>C: setState(Available)
+    RS->>C: promoteNextWaitlisted()
+    C->>WQ: popNext(EVT003)
+    WQ-->>C: waiting
+    C->>W: promoteBySystem()
+    W->>WS: promoteBySystem(ctx)
+    WS->>DB: reserveSeat(EVT003)
+    DB-->>WS: 49/50 -> 50/50
+    WS->>W: setState(Reserved)
+    W-->>BA: 自動昇格完了
+```
+
+`BatchApplication` は昇格を呼びません。`ReservedState::cancel()` が座席解放後に待ち行列を進め、`WaitlistedState` が同じ席を確保して `Reserved` へ遷移します。したがって途中で運用者が介入する空白はありません。
+
+期限切れも同様に、利用者や運用者が予約の状態を手動で進めません。掲載コードでは実際の時計を待たないため、`ReservationExpiryScheduler`の`onHoldExpired()`をタイマー基盤から届くイベントのスタブとして使います。
+
+```mermaid
+sequenceDiagram
+    participant Timer as Timer基盤
+    participant S as ReservationExpiryScheduler
+    participant C as TicketReservation
+    participant H as HeldState
+    participant DB as EventDatabase
+    participant WQ as ReservationWaitlist
+
+    Timer->>S: 保留24時間経過
+    S->>C: expire()
+    C->>H: expire(ctx)
+    H->>DB: cancelSeat(eventId)
+    H->>C: setState(Available)
+    H->>C: promoteNextWaitlisted()
+    C->>WQ: popNext(eventId)
+```
+
+`main()`は`BatchApplication::run()`を起動するだけで、期限切れを直接呼びません。実運用ではTimer基盤が時刻を監視し、期限到達時に同じスケジューラ境界を呼びます。
+
+#### 完成コード
+
 ```cpp
 #include <iostream>
 #include <string>
@@ -2115,63 +2248,6 @@ int main() {
 この実行結果は、フェーズ1の動作例テーブルと、フェーズ1-5で追加した仕様遷移の代表ケースに対応しています。EVT003は、まず `50/50` の満席が見え、その状態で再予約して満席エラーになり、既存予約のキャンセルで `50→49`、直後の自動昇格で `49→50` へ戻ります。利用側が昇格メソッドを呼ぶ行はありません。
 
 
-#### 解決後のクラス構成
-
-```mermaid
-classDiagram
-    class TicketReservation {
-        -IReservationState* state
-        +reserve()
-        +pay()
-        +cancel()
-        +expire()
-    }
-    class IReservationState {
-        <<interface>>
-        +reserve(ctx)
-        +pay(ctx)
-        +cancel(ctx)
-        +promoteBySystem(ctx)
-        +expire(ctx)
-    }
-    class EventInfo
-    class ReservationRecord
-    class EventDatabase
-    class ReservationHistory
-    class ReservationWaitlist
-    class AvailableState
-    class ReservedState
-    class PaidState
-    class WaitlistedState
-    class HeldState
-    class ReservationExpiryScheduler
-    class BatchApplication
-    TicketReservation o--> IReservationState
-    TicketReservation --> EventDatabase
-    TicketReservation --> ReservationHistory
-    TicketReservation --> ReservationWaitlist
-    ReservationWaitlist o--> TicketReservation : waiting
-    EventDatabase o--> EventInfo
-    ReservationHistory o--> ReservationRecord
-    IReservationState <|.. AvailableState
-    IReservationState <|.. ReservedState
-    IReservationState <|.. PaidState
-    IReservationState <|.. WaitlistedState
-    IReservationState <|.. HeldState
-    ReservationExpiryScheduler ..> TicketReservation : timeout時にexpire
-    BatchApplication --> TicketReservation
-    BatchApplication --> ReservationExpiryScheduler
-
-    note for IReservationState "【P1・新設】状態ごとの振る舞いの共通契約"
-    note for ReservedState "【P1・新設】予約状態の振る舞いと解放時の自動昇格呼び出し"
-    note for ReservationWaitlist "【P2・新設】待機者の探索・削除・先頭選択"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "IReservationState,AvailableState,ReservedState,PaidState,WaitlistedState,HeldState,ReservationWaitlist,ReservationExpiryScheduler" focus
-```
-
-章末のState骨格図では `TicketReservation` がContext、`IReservationState` がState、5つの状態クラスがConcreteStateに対応します。掲載コードに登場する在庫・履歴・待ち行列・組み立てクラスも省略せず記載しています。予約数の増減と待機者の自動昇格は状態処理からコンテキスト経由で実行され、`BatchApplication` はシナリオを起動するだけです。
-
 #### 変更軸ごとの完成コード追跡
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | 受け入れ条件の最終確認 |
@@ -2183,8 +2259,8 @@ classDiagram
 
 | 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
 |---|---|---|---|
-| R1：予約状態の追加／P1 | 状態条件を各Stateへ分離。コード：全 `IReservationState`、`TicketReservation` | 予約済み・待機・保留が状態ごとの操作として実行された | 新Stateと遷移先の組み立て |
-| R2：取消時の自動昇格／P2 | 待機列を予約取消の遷移へ接続。コード：`ReservationWaitlist`、`ReservedState::cancel()` | 49/50の直後に先頭待機者が昇格し50/50へ戻った | 待機順序ポリシー |
+| R1：満席時にキャンセル待ちへ登録し、空席発生時に先頭を自動昇格する／P1・P2 | 満席判断をStateへ、先頭選択を`ReservationWaitlist`へ分離し、席解放処理から自動昇格を接続。コード：`AvailableState::reserve()`、`WaitingState`、`ReservationWaitlist`、`ReservedState::cancel()` | 満席時に待機登録し、取消で49/50になった直後に先頭待機者が昇格して50/50へ戻った | 新State、待機順序ポリシー、席解放との接続 |
+| R2：予約済みを24時間の一時保留へ移し、期限切れで席を解放する／P1・P2 | 保留中の判断を`HeldState`へ置き、`ReservationExpiryScheduler`の期限切れ入力を同じ席解放・自動昇格経路へ接続 | 保留中は席数を維持し、期限切れ直後に席を解放して待機者を昇格した | 保留期限入力、`HeldState`、スケジューラ登録 |
 
 #### 変更前→変更後の不変条件照合
 
@@ -2193,61 +2269,9 @@ classDiagram
 | イベント・定員データ | `EventDatabase` が保持 | 同じRepositoryと数値を更新 | 満席前後の50/50ログ |
 | 利用側の取消入口 | 予約に `cancel()` | 同じ入口だけを呼ぶ | 自動昇格シナリオの呼び出しコード |
 
-### 7-2：動作シーケンス図
+### 7-2：動作シーケンス図の検証
 
-満席イベントの既存予約に `cancel()` が呼ばれたとき、空席作成から待機者の自動昇格までをどのクラスが担うか確認します。
-
-```mermaid
-sequenceDiagram
-    participant main
-    participant BA as BatchApplication
-    participant C as 既存TicketReservation
-    participant RS as ReservedState
-    participant DB as EventDatabase
-    participant WQ as ReservationWaitlist
-    participant W as 待機TicketReservation
-    participant WS as WaitlistedState
-
-    main->>BA: run()
-    BA->>C: cancel()
-    C->>RS: cancel(ctx)
-    RS->>DB: cancelSeat(EVT003)
-    DB-->>RS: 50/50 -> 49/50
-    RS->>C: setState(Available)
-    RS->>C: promoteNextWaitlisted()
-    C->>WQ: popNext(EVT003)
-    WQ-->>C: waiting
-    C->>W: promoteBySystem()
-    W->>WS: promoteBySystem(ctx)
-    WS->>DB: reserveSeat(EVT003)
-    DB-->>WS: 49/50 -> 50/50
-    WS->>W: setState(Reserved)
-    W-->>BA: 自動昇格完了
-```
-
-`BatchApplication` は昇格を呼びません。`ReservedState::cancel()` が座席解放後に待ち行列を進め、`WaitlistedState` が同じ席を確保して `Reserved` へ遷移します。したがって途中で運用者が介入する空白はありません。
-
-期限切れも同様に、利用者や運用者が予約の状態を手動で進めません。掲載コードでは実際の時計を待たないため、`ReservationExpiryScheduler`の`onHoldExpired()`をタイマー基盤から届くイベントのスタブとして使います。
-
-```mermaid
-sequenceDiagram
-    participant Timer as Timer基盤
-    participant S as ReservationExpiryScheduler
-    participant C as TicketReservation
-    participant H as HeldState
-    participant DB as EventDatabase
-    participant WQ as ReservationWaitlist
-
-    Timer->>S: 保留24時間経過
-    S->>C: expire()
-    C->>H: expire(ctx)
-    H->>DB: cancelSeat(eventId)
-    H->>C: setState(Available)
-    H->>C: promoteNextWaitlisted()
-    C->>WQ: popNext(eventId)
-```
-
-`main()`は`BatchApplication::run()`を起動するだけで、期限切れを直接呼びません。実運用ではTimer基盤が時刻を監視し、期限到達時に同じスケジューラ境界を呼びます。
+完成クラス図と実行シーケンスは、完成コードへ入る前に示しました。ここまでのコード、要求追跡表、不変条件照合を証拠として、次節で変更影響を再確認します。
 
 ### 7-3：変更影響グラフ（改善後）
 

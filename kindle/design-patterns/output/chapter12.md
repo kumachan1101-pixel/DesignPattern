@@ -527,6 +527,16 @@ REQ002：審査待ち → 完了
 
 「今の仕組みは、申請を提出した後に承認者が1回承認すれば完了します。来期から通常申請は課長承認の後に部長承認を必要とし、緊急申請だけは課長を飛ばして部長が直接承認できるようにしてください。部長が承認した直後には決済部門へも通知し、却下された場合は申請者へ通知する必要があります。さらに、承認上限は部署ごとに差し替えられるようにしてください」
 
+依頼文を、実行結果で判定できる確定要求へ分けます。
+
+| 要求ID | 確定要求 | 入力 | 受入条件 |
+|---|---|---|---|
+| R1 | 通常申請を課長→部長の2段階、緊急申請を部長へ直接進む経路にする | 申請ID、申請種別、承認操作、承認者ID | 通常は2回、緊急は部長の1回で完了し、許可されない役職では状態を変えない |
+| R2 | 部長承認後は決済部門へ、却下時は申請者へ通知する | 保存後状態、申請IDに登録済みの通知先 | 状態保存後に該当通知だけを送り、送信先ごとの結果を返す |
+| R3 | 承認上限を部署ごとに差し替える | 部署、役職、申請金額、承認上限設定 | 同額でも部署設定に応じて承認可否が変わり、判定箇所は一つになる |
+
+通知先ごとの成否を返す結果型と失敗記録は、R2を安全に実行する内部契約です。通知のキュー化、自動再送、再申請は今回の対象外です。
+
 現行の1段階承認を、通常時は2段階、緊急時は課長を省略する経路へ変更し、状態ごとの通知と承認判定も拡張する要求です。
 
 **仕様変更の内容**
@@ -538,7 +548,7 @@ REQ002：審査待ち → 完了
 | 承認ルート | 提出後、登録済み承認者の1回承認で完了 | 通常時は課長→部長の2段階。緊急時は課長を省略して部長へ直接 |
 | 部長承認後の通知 | 関係者のみ | 関係者 + 決済部門（新規追加） |
 | 却下時の通知 | なし | 申請者に即座にアラート（新規追加） |
-| 承認判定ルール | 金額固定閾値 | 部署ごとの承認上限へ差し替え（来期制度を見越して本章で先行実装） |
+| 承認判定ルール | 金額固定閾値 | 今回要求として、部署ごとの承認上限へ差し替え |
 | 通知の送り方 | 状態更新処理の中で即時送信 | 状態保存後に通知処理を分離して呼び、送信先ごとの成否を記録する。キュー化・後送りは対象外 |
 
 今回変えるのは状態遷移・通知・承認判定の責任配置です。承認者マスターと通知先データの保存方法は仕様変更の対象ではないため、次の共通基盤は変更前後で維持します。
@@ -764,12 +774,11 @@ flowchart TD
 
 ### 2-2：今回の変更で確実に変わること
 
-今回の変更要求から確定している変更は4点です。
+今回の変更要求から確定している変更は、1-5で定義したR1〜R3の3点です。
 
-- **承認ルートの追加**：緊急時に課長をスキップして部長へ直接通知する
-- **部長承認後の通知先拡張**：決済部門への通知を自動追加する
-- **却下時のアラート追加**：申請者への即時アラートを実装する
-- **承認上限の部署別化**：金額固定閾値を部署ごとの承認上限（課長は50万まで、部長は500万まで等）へ差し替える。来期の制度変更として確実性が高いため、本章で先行して実装する（2-4の将来リスクから確定変更へ引き上げ）
+- **R1：承認ルートの変更**：通常申請は課長承認後に部長承認へ進み、緊急申請は課長を省略して部長が直接承認する
+- **R2：状態に応じた通知**：部長承認後は決済部門へ、却下後は申請者へ、状態保存後に通知する
+- **R3：承認上限の部署別化**：金額固定閾値を部署ごとの承認上限（課長は50万まで、部長は500万まで等）へ差し替える
 
 ただし「これらの変更が1回限りか、今後も続くか」によって、どこまで設計を変えるべきかが大きく変わります。関係者に確認します。
 
@@ -804,7 +813,7 @@ flowchart TD
 | 通知先リストの拡張・変更が繰り返される | 継続的に | 関連部署への通知追加ニーズが言及された |
 | 通知の送信失敗を記録し再送する運用が求められる | 継続的に | 実運用でキュー化した場合、送信先の停止で届かない事例への対応が必要 |
 
-> **注：** 「金額閾値から部署ごとの承認上限へ」の変更は、運用担当者が「来期から部署ごとに承認上限を設けたい」と明言しており、確実性が最も高い変化でした。「確定変更」と「将来リスク」の境界は曖昧になりえますが、本章ではこの近期計画を確定変更（2-2）へ引き上げ、先行して実装します。将来リスクであっても確実性が高ければ、今の設計判断で織り込むという例です。
+> **分類の確認：** 部署別承認上限は1-5の依頼文に含まれるR3であり、将来リスクから先行実装する機能ではありません。キュー化・自動再送は将来リスクのまま、完成コードへ入れません。
 
 フェーズ2で「今変わること（確定）」と「将来変わるかもしれないこと（リスク）」を分けて整理できました。次のフェーズ3では、現在の構造で変更を試みたときに何が起きるかを確認します。
 
@@ -1435,6 +1444,131 @@ Phase・Listener・Ruleは組み立て側が生成・注入し、`WorkflowManage
 **0. 承認者マスターデータ（ApproverDatabase）**
 
 `BatchApplication` が組み立てを開始する前に、承認者IDと権限情報を持つマスターデータを定義します。これによって、承認者IDが不正な場合や権限額を超えた場合にエラーを早期に検出できます。
+
+#### 完成後のクラス一覧
+
+完成コードで定義する型を先に一覧化します。各型の依存方向と実現関係は、直後のクラス図で確認します。
+
+- `DraftPhase`、`ApprovedPhase`、`RejectedPhase`、`CompletedPhase`
+- `DirectorApprovalRule`、`DepartmentApprovalRule`、`ApproverDatabase`、`WorkflowCaseRepository`
+- `NotificationTargetRepository`、`ChatNotifier`、`ApprovalLog`、`BatchApplication`
+- `WorkflowEvent`、`WorkflowResult`、`NotificationTarget`、`DeliveryResult`
+- `WorkflowManager`、`WorkflowPhaseResolver`、`NotificationTargetResolver`、`NotificationDeliveryLog`
+- `IWorkflowPhase`、`PendingPhase`、`PriorityPendingPhase`、`IApprovalRule`
+- `ManagerApprovalRule`、`INotificationListener`、`EmailNotifier`
+
+#### 完成後のクラス図
+
+```mermaid
+classDiagram
+    class DraftPhase
+    class ApprovedPhase
+    class RejectedPhase
+    class CompletedPhase
+    class DirectorApprovalRule
+    class DepartmentApprovalRule
+    class ApproverDatabase
+    class WorkflowCaseRepository
+    class NotificationTargetRepository
+    class ChatNotifier
+    class ApprovalLog
+    class BatchApplication
+    class WorkflowEvent
+    class WorkflowResult
+    class NotificationTarget
+    class DeliveryResult
+    class WorkflowManager
+    class WorkflowPhaseResolver
+    class NotificationTargetResolver
+    class NotificationDeliveryLog
+    class IWorkflowPhase { <<interface>> }
+    class PendingPhase
+    class PriorityPendingPhase
+    class IApprovalRule { <<interface>> }
+    class ManagerApprovalRule
+    class INotificationListener { <<interface>> }
+    class EmailNotifier
+    WorkflowManager o--> IWorkflowPhase
+    IWorkflowPhase ..> WorkflowEvent : 受け取る
+    IWorkflowPhase ..> WorkflowResult : 返す
+    IWorkflowPhase <|.. PendingPhase
+    PendingPhase <|-- PriorityPendingPhase
+    PendingPhase --> IApprovalRule
+    IApprovalRule <|.. ManagerApprovalRule
+    WorkflowManager --> INotificationListener
+    WorkflowManager --> WorkflowPhaseResolver
+    WorkflowManager --> NotificationTargetResolver
+    WorkflowManager --> NotificationDeliveryLog
+    WorkflowPhaseResolver o--> IWorkflowPhase : 状態IDから解決
+    NotificationTargetResolver ..> NotificationTarget : 文字列から解決
+    INotificationListener ..> DeliveryResult : 返す
+    NotificationDeliveryLog *-- DeliveryResult : 全結果を保存
+    INotificationListener <|.. EmailNotifier
+    IWorkflowPhase <|.. DraftPhase
+    IWorkflowPhase <|.. ApprovedPhase
+    IWorkflowPhase <|.. RejectedPhase
+    IWorkflowPhase <|.. CompletedPhase
+    IApprovalRule <|.. DirectorApprovalRule
+    IApprovalRule <|.. DepartmentApprovalRule
+    WorkflowManager --> WorkflowCaseRepository
+    WorkflowManager --> NotificationTargetRepository
+    INotificationListener <|.. ChatNotifier
+    BatchApplication --> WorkflowManager
+    BatchApplication --> ApproverDatabase
+    BatchApplication --> ApprovalLog
+
+    note for IWorkflowPhase "【P1・新設】状態遷移の契約（状態分離構造）"
+    note for INotificationListener "【P2・新設】通知の契約（通知分離構造）"
+    note for IApprovalRule "【P3・新設】承認判定の契約（ルール差し替え構造）"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "IWorkflowPhase,DraftPhase,PendingPhase,INotificationListener,EmailNotifier,IApprovalRule,ManagerApprovalRule,WorkflowPhaseResolver,NotificationTargetResolver,NotificationDeliveryLog" focus
+```
+
+完成後はStateが状態遷移、Strategyが承認判定、Observerが通知を担当します。状態保存と通知先取得はRepository境界に残り、パターンの役割へ混ぜません。
+
+#### 完成後の実行シーケンス
+
+フェーズ6で確定した3構造複合設計の実行時のやり取りを可視化します。`BatchApplication` が依存関係を注入し、`WorkflowManager` が具象クラスを知らずに抽象インターフェース経由で処理を委譲する流れが確認できます。
+
+```mermaid
+sequenceDiagram
+    participant B as BatchApplication
+    participant C as WorkflowCaseRepository
+    participant N as NotificationTargetRepository
+    participant WM as WorkflowManager
+    participant P as PendingPhase<br/>(IWorkflowPhase)
+    participant A as ApprovedPhase<br/>(IWorkflowPhase)
+    participant R as ManagerApprovalRule<br/>(IApprovalRule)
+    participant L as INotificationListener[]
+
+    B->>R: 生成（ManagerApprovalRule）
+    B->>P: 生成（rule と遷移先を注入）
+    B->>C: create("REQ003", "審査待ち")
+    B->>N: saveTarget("REQ003", 通知先データ)
+    B->>WM: Resolver群とLogを注入して生成
+    WM->>C: getState("REQ003")
+    C-->>WM: "審査待ち"
+    B->>WM: addListener（メール送信・チャット送信）
+    B->>WM: process(Approve, {50000})
+    activate WM
+    WM->>P: handle(wm, Approve, request)
+    activate P
+    P->>R: canApprove(amount)
+    activate R
+    R-->>P: true（承認可能）
+    deactivate R
+    P->>WM: transitionTo(approved, "承認されました")
+    WM->>C: saveState("REQ003", "承認済み")
+    WM->>A: 次回の現在状態になる
+    WM->>N: getTarget("REQ003")
+    N-->>WM: "申請者:email|部長:chat"
+    WM->>L: onStatusChanged（通知先データに従って送信）
+    deactivate P
+    deactivate WM
+```
+
+#### 完成コード
 
 ```cpp
 #include <iostream>
@@ -2426,76 +2560,6 @@ int main() {
 `WorkflowManager` はRepositoryから状態ID文字列と通知先データ文字列を読み、Resolverで実行用オブジェクトへ変換します。Repositoryの保存表現は変更前と同じです。状態実装は許可するイベントを処理し、`transitionTo()` を通じてRepository上の状態IDを更新します。通知結果は成功・失敗とも `NotificationDeliveryLog` に残ります。
 
 
-#### 解決後のクラス構成
-
-```mermaid
-classDiagram
-    class DraftPhase
-    class ApprovedPhase
-    class RejectedPhase
-    class CompletedPhase
-    class DirectorApprovalRule
-    class DepartmentApprovalRule
-    class ApproverDatabase
-    class WorkflowCaseRepository
-    class NotificationTargetRepository
-    class ChatNotifier
-    class ApprovalLog
-    class BatchApplication
-    class WorkflowEvent
-    class WorkflowResult
-    class NotificationTarget
-    class DeliveryResult
-    class WorkflowManager
-    class WorkflowPhaseResolver
-    class NotificationTargetResolver
-    class NotificationDeliveryLog
-    class IWorkflowPhase { <<interface>> }
-    class PendingPhase
-    class PriorityPendingPhase
-    class IApprovalRule { <<interface>> }
-    class ManagerApprovalRule
-    class INotificationListener { <<interface>> }
-    class EmailNotifier
-    WorkflowManager o--> IWorkflowPhase
-    IWorkflowPhase ..> WorkflowEvent : 受け取る
-    IWorkflowPhase ..> WorkflowResult : 返す
-    IWorkflowPhase <|.. PendingPhase
-    PendingPhase <|-- PriorityPendingPhase
-    PendingPhase --> IApprovalRule
-    IApprovalRule <|.. ManagerApprovalRule
-    WorkflowManager --> INotificationListener
-    WorkflowManager --> WorkflowPhaseResolver
-    WorkflowManager --> NotificationTargetResolver
-    WorkflowManager --> NotificationDeliveryLog
-    WorkflowPhaseResolver o--> IWorkflowPhase : 状態IDから解決
-    NotificationTargetResolver ..> NotificationTarget : 文字列から解決
-    INotificationListener ..> DeliveryResult : 返す
-    NotificationDeliveryLog *-- DeliveryResult : 全結果を保存
-    INotificationListener <|.. EmailNotifier
-    IWorkflowPhase <|.. DraftPhase
-    IWorkflowPhase <|.. ApprovedPhase
-    IWorkflowPhase <|.. RejectedPhase
-    IWorkflowPhase <|.. CompletedPhase
-    IApprovalRule <|.. DirectorApprovalRule
-    IApprovalRule <|.. DepartmentApprovalRule
-    WorkflowManager --> WorkflowCaseRepository
-    WorkflowManager --> NotificationTargetRepository
-    INotificationListener <|.. ChatNotifier
-    BatchApplication --> WorkflowManager
-    BatchApplication --> ApproverDatabase
-    BatchApplication --> ApprovalLog
-
-    note for IWorkflowPhase "【P1・新設】状態遷移の契約（状態分離構造）"
-    note for INotificationListener "【P2・新設】通知の契約（通知分離構造）"
-    note for IApprovalRule "【P3・新設】承認判定の契約（ルール差し替え構造）"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "IWorkflowPhase,DraftPhase,PendingPhase,INotificationListener,EmailNotifier,IApprovalRule,ManagerApprovalRule,WorkflowPhaseResolver,NotificationTargetResolver,NotificationDeliveryLog" focus
-```
-
-完成後はStateが状態遷移、Strategyが承認判定、Observerが通知を担当します。状態保存と通知先取得はRepository境界に残り、パターンの役割へ混ぜません。
-
 #### 変更軸ごとの完成コード追跡
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |
@@ -2508,9 +2572,9 @@ classDiagram
 
 | 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
 |---|---|---|---|
-| R1：通常二段階・緊急短縮ルート／P1 | 遷移条件をPhaseへ、状態ID解決をResolverへ分離。コード：全Phase、`WorkflowManager`、`WorkflowPhaseResolver` | 通常は承認済み経由、緊急は優先審査から完了 | 新Phase、遷移接続、Resolver登録 |
-| R2：状態別の複数通知／P2 | 送信手段をListenerへ分離し結果を保存。コード：全Listener、`NotificationDeliveryLog` | 状態保存後だけ通知し、1件失敗も全件記録 | 新Listener、通知先データ |
-| R3：部署別承認上限／P3 | 承認可否を注入Ruleへ一本化。コード：全 `IApprovalRule`、各PendingPhase | 同額で開発部は不承認、営業部は承認 | 部署別Rule設定 |
+| R1：通常申請を課長→部長の2段階、緊急申請を部長へ直接進む経路にする／P1 | 遷移条件をPhaseへ、状態ID解決をResolverへ分離。コード：全Phase、`WorkflowManager`、`WorkflowPhaseResolver` | 通常は承認済み経由、緊急は優先審査から完了 | 新Phase、遷移接続、Resolver登録 |
+| R2：部長承認後は決済部門へ、却下時は申請者へ通知する／P2 | 送信手段をListenerへ分離し結果を保存。コード：全Listener、`NotificationDeliveryLog` | 状態保存後だけ通知し、1件失敗も全件記録 | 新Listener、通知先データ |
+| R3：承認上限を部署ごとに差し替える／P3 | 承認可否を注入Ruleへ一本化。コード：全 `IApprovalRule`、各PendingPhase | 同額で開発部は不承認、営業部は承認 | 部署別Rule設定 |
 
 #### 変更前→変更後の不変条件照合
 
@@ -2520,46 +2584,9 @@ classDiagram
 | 通知先の保存表現 | 申請ID→通知先データ文字列 | 同じ文字列をRepositoryが保持 | `getTarget()` とResolverの分離 |
 | 承認者マスター | ID・氏名・役職・上限を保存 | 同じ情報を取得し、Rule組み立てに利用 | 未登録IDと上限判定ケース |
 
-### 7-2：動作シーケンス図
+### 7-2：動作シーケンス図の検証
 
-フェーズ6で確定した3構造複合設計の実行時のやり取りを可視化します。`BatchApplication` が依存関係を注入し、`WorkflowManager` が具象クラスを知らずに抽象インターフェース経由で処理を委譲する流れが確認できます。
-
-```mermaid
-sequenceDiagram
-    participant B as BatchApplication
-    participant C as WorkflowCaseRepository
-    participant N as NotificationTargetRepository
-    participant WM as WorkflowManager
-    participant P as PendingPhase<br/>(IWorkflowPhase)
-    participant A as ApprovedPhase<br/>(IWorkflowPhase)
-    participant R as ManagerApprovalRule<br/>(IApprovalRule)
-    participant L as INotificationListener[]
-
-    B->>R: 生成（ManagerApprovalRule）
-    B->>P: 生成（rule と遷移先を注入）
-    B->>C: create("REQ003", "審査待ち")
-    B->>N: saveTarget("REQ003", 通知先データ)
-    B->>WM: Resolver群とLogを注入して生成
-    WM->>C: getState("REQ003")
-    C-->>WM: "審査待ち"
-    B->>WM: addListener（メール送信・チャット送信）
-    B->>WM: process(Approve, {50000})
-    activate WM
-    WM->>P: handle(wm, Approve, request)
-    activate P
-    P->>R: canApprove(amount)
-    activate R
-    R-->>P: true（承認可能）
-    deactivate R
-    P->>WM: transitionTo(approved, "承認されました")
-    WM->>C: saveState("REQ003", "承認済み")
-    WM->>A: 次回の現在状態になる
-    WM->>N: getTarget("REQ003")
-    N-->>WM: "申請者:email|部長:chat"
-    WM->>L: onStatusChanged（通知先データに従って送信）
-    deactivate P
-    deactivate WM
-```
+完成クラス図と実行シーケンスは、完成コードへ入る前に示しました。ここまでのコード、要求追跡表、不変条件照合を証拠として、次節で変更影響を再確認します。
 
 ### 7-3：変更影響グラフ（改善後）
 

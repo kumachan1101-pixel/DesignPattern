@@ -48,6 +48,10 @@ def main() -> int:
             "Published execution output",
             [python, str(SCRIPT_DIR / "check_execution_output.py")],
         ),
+        (
+            "Unused C++ inputs",
+            [python, str(SCRIPT_DIR / "check_unused_cpp_inputs.py")],
+        ),
     ]
 
     failed = [label for label, command in checks if not run(label, command)]

@@ -508,6 +508,14 @@ int main() {
 
 「利用者から、誤って登録したデータを簡単に取り消したいという要望が多く届いています。来週までに、直近の操作を取り消す『Undo機能』と、取り消した操作をやり直す『Redo機能』を実装してください。あわせて、月初の定型支出をまとめて登録する『一括登録』も、途中で失敗したら成功分を巻き戻す形で入れてほしいのです」と、プロダクトマネージャーから連絡がありました。
 
+依頼文を、実行結果で判定できる確定要求へ分けます。
+
+| 要求ID | 確定要求 | 入力 | 受入条件 |
+|---|---|---|---|
+| R1 | 直前の収入・支出操作を取り消す | Undo操作、実行済み履歴 | 対象操作が逆向きに実行され、残高と収支データが操作前へ戻る |
+| R2 | Undoした同じ操作をやり直す | Redo操作、Undo済み履歴 | 同じ金額・カテゴリの操作が再実行され、実行済み履歴へ戻る |
+| R3 | 複数操作を一括実行し、途中失敗時に成功分を巻き戻す | 順序付き操作列、各保存結果 | 失敗時は成功済み操作を逆順に取り消し、開始前の残高へ戻る |
+
 なるほど、ボタンクリックという「操作」を記録しておき、それを巻き戻したり再適用したりする必要があるのですね。一括登録も、複数の操作を1つの操作単位として扱えれば、途中失敗時の巻き戻しが素直に書けそうです。
 
 **仕様変更の内容**
@@ -1287,6 +1295,86 @@ public:
 
 まず、カテゴリデータと、保存・表示を担う境界クラスです。
 
+#### 完成後のクラス一覧
+
+完成コードで定義する型を先に一覧化します。各型の依存方向と実現関係は、直後のクラス図で確認します。
+
+- `CategoryDatabase`、`LedgerRepository`、`BalanceViewRenderer`、`ImportService`
+- `IAction`、`AddExpenseAction`、`AddIncomeAction`、`ActionHistory`
+- `BudgetApp`、`ExpenseManager`、`IncomeManager`
+
+#### 完成後のクラス図
+
+```mermaid
+classDiagram
+    class CategoryDatabase
+    class LedgerRepository {
+        -currentBalance int
+        +balance() int
+    }
+    class BalanceViewRenderer
+    class ImportService
+    class IAction {
+        <<interface>>
+        +execute() bool
+        +undo() bool
+    }
+    class AddExpenseAction
+    class AddIncomeAction
+    class ActionHistory
+    class BudgetApp
+    class ExpenseManager
+    class IncomeManager
+    IAction <|.. AddExpenseAction
+    IAction <|.. AddIncomeAction
+    ActionHistory o--> IAction
+    BudgetApp --> ActionHistory
+    AddExpenseAction --> ExpenseManager
+    AddIncomeAction --> IncomeManager
+    ExpenseManager --> LedgerRepository
+    IncomeManager --> LedgerRepository
+    ExpenseManager --> CategoryDatabase
+    IncomeManager --> CategoryDatabase
+    ExpenseManager --> BalanceViewRenderer
+    IncomeManager --> BalanceViewRenderer
+    ImportService --> ActionHistory
+
+    note for IAction "【P1・新設】実行と取消の共通契約"
+    note for AddExpenseAction "【P1・新設】実行値と逆操作を内包する操作部品"
+    note for ActionHistory "【P1・新設】種別を見ず履歴へ積む実行・取消の仲介"
+    note for LedgerRepository "【P2・新設】収支レコードと現在残高の唯一の正本"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "IAction,AddExpenseAction,AddIncomeAction,ActionHistory,LedgerRepository" focus
+```
+
+章末のCommand骨格図では、`IAction` がCommand、各AddActionがConcreteCommand、`ActionHistory` がInvoker、各ManagerがReceiverに対応します。`BudgetApp` は操作を受け取りますが、具体的なManagerのメソッドやUndo手順は知りません。
+
+#### 完成後の実行シーケンス
+
+```mermaid
+sequenceDiagram
+    participant main
+    participant CH as ActionHistory
+    participant BA as BudgetApp
+    participant AEC as AddExpenseAction
+    Note over main: 具体型を組み立てる主な組み立て場所
+    main->>CH: new ActionHistory
+    main->>BA: new BudgetApp(history: ActionHistory*)
+    main->>AEC: AddExpenseAction cmd(...)
+    main->>BA: onAddExpenseClick(&cmd)
+    BA->>CH: history->execute(cmd)
+    Note right of BA: ActionHistory*経由
+    CH->>AEC: cmd->execute()
+    Note right of CH: IAction*としてスタックに追加して実行
+    AEC-->>CH: 成功/失敗
+    CH->>CH: 成功時だけ履歴へ積む
+    CH-->>BA: 完了
+    BA-->>main: 完了
+```
+
+#### 完成コード
+
 ```cpp
 #include <deque>
 #include <iostream>
@@ -1812,53 +1900,6 @@ Undo / Redo の実行結果：
 支出1,000円と収入5,000円の登録後は残高4,000円、2回のUndo後は0円、Redo後は-1,000円になります。3件合計3,100円の支出をインポートすると-4,100円になり、3件をロールバックすると-1,000円へ戻ります。各ログで一つの `LedgerRepository` の残高が変更前→変更後として見え、UIやManagerが差額を計算していないことを確認できます。
 
 この実装により、UIは操作オブジェクトのポインタを履歴へ渡すだけでよくなり、支出・収入ごとの実行手順を管理する必要がなくなりました。操作オブジェクトの生成と画面への割り当ては組み立て側に残ります。
-#### 解決後のクラス構成
-
-```mermaid
-classDiagram
-    class CategoryDatabase
-    class LedgerRepository {
-        -currentBalance int
-        +balance() int
-    }
-    class BalanceViewRenderer
-    class ImportService
-    class IAction {
-        <<interface>>
-        +execute() bool
-        +undo() bool
-    }
-    class AddExpenseAction
-    class AddIncomeAction
-    class ActionHistory
-    class BudgetApp
-    class ExpenseManager
-    class IncomeManager
-    IAction <|.. AddExpenseAction
-    IAction <|.. AddIncomeAction
-    ActionHistory o--> IAction
-    BudgetApp --> ActionHistory
-    AddExpenseAction --> ExpenseManager
-    AddIncomeAction --> IncomeManager
-    ExpenseManager --> LedgerRepository
-    IncomeManager --> LedgerRepository
-    ExpenseManager --> CategoryDatabase
-    IncomeManager --> CategoryDatabase
-    ExpenseManager --> BalanceViewRenderer
-    IncomeManager --> BalanceViewRenderer
-    ImportService --> ActionHistory
-
-    note for IAction "【P1・新設】実行と取消の共通契約"
-    note for AddExpenseAction "【P1・新設】実行値と逆操作を内包する操作部品"
-    note for ActionHistory "【P1・新設】種別を見ず履歴へ積む実行・取消の仲介"
-    note for LedgerRepository "【P2・新設】収支レコードと現在残高の唯一の正本"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "IAction,AddExpenseAction,AddIncomeAction,ActionHistory,LedgerRepository" focus
-```
-
-章末のCommand骨格図では、`IAction` がCommand、各AddActionがConcreteCommand、`ActionHistory` がInvoker、各ManagerがReceiverに対応します。`BudgetApp` は操作を受け取りますが、具体的なManagerのメソッドやUndo手順は知りません。
-
 #### 変更軸ごとの完成コード追跡
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | システム全体での結果 |
@@ -1870,8 +1911,9 @@ classDiagram
 
 | 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
 |---|---|---|---|
-| R1：収支操作のUndo／Redo／P1 | 操作をActionとして履歴の単位へ分離。コード：全 `IAction`、`ActionHistory` | 追加・取消・再実行を同じ契約で処理し、失敗時は履歴を維持 | 新Actionと生成箇所 |
-| R2：残高の正本統一／P2 | レコードと残高更新を台帳へ集約。コード：`LedgerRepository`、各Manager | すべての入口とUndo／Redoが同じ残高を参照 | 台帳の永続化方式 |
+| R1：直前の収入・支出操作を取り消す／P1・P2 | 操作をActionとして履歴単位へ分離し、台帳の同じレコードを逆向きに更新。コード：全`IAction`、`ActionHistory`、`LedgerRepository` | 支出・収入の取消後に残高と収支データが操作前へ戻った | 新Actionと生成箇所 |
+| R2：Undoした同じ操作をやり直す／P1・P2 | Undo済みActionを同じ入力で再実行し、台帳と履歴を更新。コード：`ActionHistory::redo()`、`LedgerRepository` | 同じ金額・カテゴリが再適用され、実行済み履歴へ戻った | 履歴の保存方式 |
+| R3：複数操作を一括実行し、途中失敗時に成功分を巻き戻す／P1・P2 | 操作列を順に実行し、失敗時は成功済みActionだけを逆順に取消。コード：複合Action、`LedgerRepository` | 途中失敗後の残高が一括開始前と一致した | 新しい複合Actionと生成箇所 |
 
 #### 変更前→変更後の不変条件照合
 
@@ -1880,28 +1922,9 @@ classDiagram
 | カテゴリ検証 | `CategoryDatabase` で種別を確認 | 同じID・種別を各Managerで確認 | 正常・カテゴリ不一致ケース |
 | 金額入力 | 収入・支出額を受け取る | 同じ金額が台帳レコードへ入る | 実行結果の残高推移 |
 
-### 7-2：動作シーケンス図
+### 7-2：動作シーケンス図の検証
 
-```mermaid
-sequenceDiagram
-    participant main
-    participant CH as ActionHistory
-    participant BA as BudgetApp
-    participant AEC as AddExpenseAction
-    Note over main: 具体型を組み立てる主な組み立て場所
-    main->>CH: new ActionHistory
-    main->>BA: new BudgetApp(history: ActionHistory*)
-    main->>AEC: AddExpenseAction cmd(...)
-    main->>BA: onAddExpenseClick(&cmd)
-    BA->>CH: history->execute(cmd)
-    Note right of BA: ActionHistory*経由
-    CH->>AEC: cmd->execute()
-    Note right of CH: IAction*としてスタックに追加して実行
-    AEC-->>CH: 成功/失敗
-    CH->>CH: 成功時だけ履歴へ積む
-    CH-->>BA: 完了
-    BA-->>main: 完了
-```
+完成クラス図と実行シーケンスは、完成コードへ入る前に示しました。ここまでのコード、要求追跡表、不変条件照合を証拠として、次節で変更影響を再確認します。
 
 ### 7-3：変更影響グラフ（改善後）
 

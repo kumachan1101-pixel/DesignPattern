@@ -312,9 +312,8 @@ sequenceDiagram
 | ファイルの読み書き | **現状コード**：`vector<string>`を直接保持。**最終コード**：`ImportFileGateway`で取得 | 本物のファイルAPI／オブジェクトストレージ |
 | DB保存 | **現状コード**：件数を表示。**最終コード**：`SalesImportRepository`で保存件数・金額を保持 | 本物のDBドライバ・トランザクション |
 | 形式バージョン確認                   | **スタブ**：メッセージ表示のみ                                      | メタデータの実検証                 |
-| 同期/非同期の実行                   | **スタブ**：スケジューラは逐次実行で代替（決定的な出力のため）                      | ワーカースレッド等で並行実行            |
 
-論点は「開く→変換する→保存する→閉じる」という手順の骨格と、形式ごとに変わるパース処理をどこで分けるかです。現状コードは、ファイル行の取得と保存表示をImporterが直接持っています。文字コード変換と実スレッドは、扱わない理由を最終コード前で補足します。
+論点は「開く→変換する→保存する→閉じる」という手順の骨格と、形式ごとに変わるパース処理をどこで分けるかです。現状コードは、ファイル行の取得と保存表示をImporterが直接持っています。文字コード変換を扱わない理由は、最終コード前で補足します。
 
 ---
 
@@ -664,6 +663,15 @@ FC店CSVを開く
 
 ある日、店舗運営部の担当者から連絡がありました。「来月から、ネット通販（ECサイト）の売上データもこのシステムで取り込みたい。フォーマットは既存の直営店用と似ているが、会員ランクやポイント付与情報といったEC特有の項目が含まれるため、読み込み後の計算処理が少し追加される。また、データ整合性と互換性を保証するため、すべての形式（直営店・FC店・新規のEC店）について、ファイルを開いた直後にファイルメタデータの形式バージョンを確認する機能も共通で追加してほしい」と。
 
+依頼文を、実行結果で判定できる確定要求へ分けます。
+
+| 要求ID | 確定要求 | 入力 | 受入条件 |
+|---|---|---|---|
+| R1 | ECサイト形式を追加し、会員ランクとポイントを解析・計算する | EC店CSV、会員ランク、ポイント項目 | 正常なEC行だけを保存し、EC固有の計算済み結果を返す |
+| R2 | 全形式で、ファイルを開いた直後に形式バージョンを確認する | 直営店・FC店・EC店ファイルのメタデータ | 対応バージョンだけ解析へ進み、不一致時は保存せず終了する |
+
+行単位検証を置く位置と`ImportResult`の件数・失敗理由は、R1・R2を既存の取込経路へ接続する内部契約です。既存のFC店にある不正行スキップと結果契約を保ち、要求にない新しい業務機能として数えません。
+
 なるほど、店舗のデータとECサイトのデータ。どちらも「ファイルを取得する → バージョンを検証する → 解析する → 行単位で検証する → 保存する → 取込結果を返す」という大きな流れは共通のはずですが、一部の計算ルールやパースルールだけが異なるのですね。
 
 変更要求によって仕様がどう変わるのかを体系的に整理します。
@@ -672,9 +680,9 @@ FC店CSVを開く
 | --- | --- | --- |
 | 対応フォーマット | 直営店・FC店の2形式 | 直営店・FC店・EC店の3形式 |
 | バージョンチェック | なし | 全形式でファイルオープン直後に実行 |
-| 行単位検証 | FC店の不正行スキップのみ | 全形式で検証位置をそろえ、形式ごとの検証内容だけ変える |
+| 行単位検証 | FC店の不正行スキップと結果記録 | 既存動作を保ち、EC店にも形式固有の検証を定義する |
 | EC向け計算処理 | なし | EC店のみ（ポイント付与・会員ランク割引） |
-| 取込結果 | 成功メッセージ中心 | 成功件数、スキップ件数、失敗理由を結果として残す |
+| 取込結果 | 成功件数、スキップ件数、失敗理由を`ImportResult`へ残す | **変更なし** |
 
 **この章が扱う複雑さ**
 
@@ -811,7 +819,7 @@ flowchart LR
 
 ### ヒアリングに向けた背景確認
 
-このシステムは、ある小売店舗で日々の売上データを管理するために使われています。各店舗のPOSレジから出力される売上データをCSVファイルとして受け取り、システムへ取り込むのが主な役割です。インポートされたデータは夜間バッチで一括処理されるほか、管理画面からも手動でアップロードできる仕組みになっています。
+このシステムは、ある小売店舗で日々の売上データを管理するために使われています。各店舗のPOSレジから出力される売上データをCSVファイルとして受け取り、形式ごとにシステムへ取り込むのが主な役割です。
 
 当初は1種類のCSVフォーマットだけを読み込んでいましたが、店舗網の拡大とともに、店舗形態や仕入れ先によって「日付の形式」「ヘッダー行の有無」「カンマ区切りかタブ区切りか」といった細かな違いがあるCSVが持ち込まれるようになりました。
 
@@ -1106,7 +1114,7 @@ ImportResult StoreDataImporter::import() {
 |---|---|---|
 | 分離方法 | 変わる部分と守る骨格をどの契約で切るか | P1：`import()` の業務順序から、形式別の `parseData()`／`validateRows()` と、取得・保存操作を切る。行一覧、検証結果、保存件数、`ImportResult` を接続点へ残す |
 | 配置場所 | 切り出した責任をどこへ置くか | P1：業務順序を `AbstractImporter`、形式差分を各Importer、取得を `ImportFileGateway`、保存を `SalesImportRepository` へ置く |
-| 組み立て方法（生成・所有・登録・注入） | 誰がどう接続するか | P1：`BatchApplication` が境界と形式別Importerを生成・所有し、Gateway／Repositoryを基底へ注入する。`ImportScheduler` にジョブを登録して選択・実行する |
+| 組み立て方法（生成・所有・登録・注入） | 誰がどう接続するか | P1：`BatchApplication` が境界と形式別Importerを生成・所有し、Gateway／Repositoryを基底へ注入して順に実行する |
 
 #### システム全体の最終構造を決める
 
@@ -1174,10 +1182,7 @@ classDiagram
     class SchemaRegistry
     class ImportFileGateway
     class SalesImportRepository
-    class ImportScheduler
-    class BatchImportJob
     class BatchApplication
-    class ManualImportController
     class AbstractImporter {
         +import() ImportResult
         #parseData()*
@@ -1194,10 +1199,7 @@ classDiagram
     AbstractImporter --> ImportFileGateway : 使う
     AbstractImporter --> SalesImportRepository : 使う
     StoreDataImporter --> SchemaRegistry : 参照する
-    BatchImportJob --> AbstractImporter : 実行する
-    ImportScheduler --> BatchImportJob : 束ねる
-    BatchApplication --> ImportScheduler : 起動する
-    ManualImportController --> BatchApplication : 手動起動する
+    BatchApplication --> AbstractImporter : 生成・実行する
 
     note for AbstractImporter "【P1・新設】共通骨格を1か所へ固定\nparse/validateは純粋仮想フック"
     note for StoreDataImporter "【P1・残した】直営店のパース・行検証だけ"
@@ -1352,7 +1354,7 @@ struct ImportResult {
 |---|---|---|
 | 分離方法 | P1の形式ごとのパース・行検証を派生クラスのフックへ置く | 形式ごとの読み方 |
 | 配置場所 | 業務順序を基底、形式差分を派生、取得・保存を境界へ置く | 具体形式と保存媒体の詳細 |
-| 組み立て方法 | `BatchApplication` が生成・所有し、境界を注入、ジョブをSchedulerへ登録する | 具体形式クラスの生成・選択 |
+| 組み立て方法 | `BatchApplication` が生成・所有し、境界を注入して各Importerを実行する | 具体形式クラスの生成・選択 |
 
 参照で非所有の依存を保持するため、`main()` の境界オブジェクトはImporterより長く生存させます。
 
@@ -1378,14 +1380,79 @@ struct ImportResult {
 
 **スキーマ定義・ドメイン型・SchemaRegistryクラス：**
 
+#### 完成後のクラス一覧
+
+完成コードで定義する型を先に一覧化します。各型の依存方向と実現関係は、直後のクラス図で確認します。
+
+- `SchemaRegistry`、`ImportFileGateway`、`SalesImportRepository`、`BatchApplication`
+- `AbstractImporter`、`StoreDataImporter`、`FCDataImporter`、`ECDataImporter`
+
+#### 完成後のクラス図
+
+```mermaid
+classDiagram
+    direction LR
+    class SchemaRegistry
+    class ImportFileGateway
+    class SalesImportRepository
+    class BatchApplication
+    class AbstractImporter {
+        +import() ImportResult
+        #parseData()*
+        #validateRows()*
+        #afterParse()
+    }
+    class StoreDataImporter
+    class FCDataImporter
+    class ECDataImporter
+
+    AbstractImporter <|-- StoreDataImporter
+    AbstractImporter <|-- FCDataImporter
+    AbstractImporter <|-- ECDataImporter
+    AbstractImporter --> ImportFileGateway : 使う
+    AbstractImporter --> SalesImportRepository : 使う
+    StoreDataImporter --> SchemaRegistry : 参照する
+    BatchApplication --> AbstractImporter : 生成・実行する
+
+    note for AbstractImporter "【P1・新設】共通骨格を1か所へ固定\nparse/validateは純粋仮想フック"
+    note for StoreDataImporter "【P1・残した】直営店のパース・行検証だけ"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "AbstractImporter,StoreDataImporter,FCDataImporter,ECDataImporter" focus
+```
+
+章末のTemplate Method骨格図では `AbstractImporter.import()` が共通の骨格、3つのImporterが個別ステップを実装する具象クラスに対応します。ファイル取得とDB保存は骨格へ直書きせず、それぞれの外部境界へ委譲します。
+
+#### 完成後の実行シーケンス
+
+R1のEC取込も、既存の直営店・FC店も、同じ骨格を通ります。R2のバージョン確認が解析より前に1回だけ実行され、形式固有処理だけが派生クラスへ切り替わる流れを示します。
+
+```mermaid
+sequenceDiagram
+    participant A as BatchApplication
+    participant I as AbstractImporter
+    participant G as ImportFileGateway
+    participant C as 形式別Importer
+    participant R as SalesImportRepository
+    A->>I: import()
+    I->>G: open() → checkFormatVersion()
+    I->>C: parseData() → validateRows()
+    I->>C: afterParse()
+    I->>R: save(validRows)
+    I->>G: close()
+    I-->>A: ImportResult
+```
+
+`BatchApplication`が知るのは、組み立てたImporterへ`import()`を依頼することだけです。骨格は基底クラス、形式差分は派生クラス、ファイル取得と保存は境界クラスに分かれています。
+
+#### 完成コード
+
 ```cpp
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
 #include <map>
-#include <queue>
-#include <functional>
 using namespace std;
 
 // 店舗形式ID（スキーマ登録と各Importerの型宣言で使う定数）
@@ -1623,60 +1690,9 @@ protected:
 
 各サブクラスは形式ごとの `parseData()` と `validateRows()` を実装し、必要な場合だけ `afterParse()` を追加します。ファイルの開閉、バージョンチェック、DB保存、結果記録へ進む順序は基底クラスが担当します。
 
-**呼び出し側（非同期の夜間バッチ／同期の手動アップロード）：**
-
-夜間バッチと手動アップロードは、同じ `import()` を呼びますが、実行の仕方が違います。夜間バッチは複数形式を**非同期**にまとめて流し、手動アップロードはその場で**同期**実行して即座に結果を返します。この同期/非同期の違いは呼び出し側に閉じており、テンプレートメソッド `import()` 自体は同期のままです。
-
-ここで初めて使う `std::function<ImportResult()>` は、「引数なしで呼ぶと `ImportResult` を返す処理」を値として保持する型です。`std::queue` はその処理と表示ラベルを先入れ先出しで保持します。`submit()` は処理を実行せずキューへ積み、`runAll()` が先頭から取り出して呼びます。掲載コードは別スレッドを起動しないため、`[非同期]` は受付と実行を分けた構成を示すラベルであり、処理自体は決定的な順序で逐次実行されます。
-
-```cpp
-// ---- 非同期実行を模したスケジューラ ----
-// 実運用ではワーカースレッドで並行実行するが、掲載コードでは決定的な出力のため逐次実行で代替する。
-class ImportScheduler {
-    queue<function<ImportResult()>> tasks;
-    queue<string> labels;
-public:
-    void submit(const string& label, function<ImportResult()> task) {
-        cout << "[非同期] " << label << " をキューへ投入しました。\n";
-        tasks.push(move(task)); labels.push(label);
-    }
-    vector<ImportResult> awaitAll() {
-        vector<ImportResult> results;
-        while (!tasks.empty()) {
-            cout << "[非同期] " << labels.front() << " の実行を開始します。\n";
-            results.push_back(tasks.front()());
-            tasks.pop(); labels.pop();
-        }
-        return results;
-    }
-};
-
-// 夜間バッチ：複数形式を非同期に投入する
-class BatchImportJob {
-    ImportScheduler& scheduler;
-public:
-    explicit BatchImportJob(ImportScheduler& s) : scheduler(s) {}
-    void enqueue(const string& label, AbstractImporter* importer) {
-        scheduler.submit(label, [importer]{ return importer->import(); });
-    }
-};
-
-// 手動アップロード：同期で即時実行し、結果をその場で返す
-class ManualImportController {
-public:
-    ImportResult importNow(AbstractImporter* importer) {
-        cout << "[同期] 手動アップロードを即時実行します。\n";
-        return importer->import();
-    }
-};
-
-```
-
-`BatchImportJob` は `ImportScheduler` に処理を投入して後でまとめて待ち、`ManualImportController` はその場で `import()` を呼びます。どちらも受け取るのは `AbstractImporter*` だけで、「どの具体クラスか」を知りません。新しいインポート形式が増えても、どちらの呼び出し元も修正は不要です。`ImportScheduler` は実運用ではワーカースレッドで並行実行する部分ですが、掲載コードでは出力を決定的にするため逐次実行で代替しています（ファイルI/OやDBと同じく、本章の設計論点から外れる部分の簡略化です）。
-
 **BatchApplicationクラス（組み立て）：**
 
-実行対象は7-1の完成コードです。確認したいのは、外部から見える結果を保ちながら、夜間バッチ（非同期）と手動アップロード（同期）が同じ `import()` 骨格を使えることです。ここでは実行フェーズごとにコードと結果を並べます。まず組み立てて、夜間バッチで直営店・FC店を非同期に処理します。
+`BatchApplication`は境界と3形式のImporterを組み立て、同じ`import()`骨格を順に実行します。今回の要求にないスケジューラ、非同期キュー、手動アップロード入口は追加しません。
 
 ```cpp
 // ---- 依存関係の組み立てを担うクラス ----
@@ -1684,7 +1700,6 @@ class BatchApplication {
     SchemaRegistry registry;
     ImportFileGateway gateway;
     SalesImportRepository repo;
-    ImportScheduler scheduler;
 public:
     void run() {
         // 実ファイルではなく、メモリ上にサンプルCSVを用意する
@@ -1696,68 +1711,13 @@ public:
         FCDataImporter    fc(gateway, repo);
         ECDataImporter    ec(gateway, repo);
 
-        // 夜間バッチ：直営店・FC店を非同期でまとめて処理
-        cout << "==== 夜間バッチ（非同期） ====\n";
-        BatchImportJob batch(scheduler);
-        batch.enqueue("直営店", &store);
-        batch.enqueue("FC店", &fc);
-        vector<ImportResult> batchResults = scheduler.awaitAll();
-```
+        vector<ImportResult> results;
+        results.push_back(store.import());
+        results.push_back(fc.import());
+        results.push_back(ec.import());
 
-夜間バッチ（非同期）の実行結果：
-
-```text
-==== 夜間バッチ（非同期） ====
-[非同期] 直営店 をキューへ投入しました。
-[非同期] FC店 をキューへ投入しました。
-[非同期] 直営店 の実行を開始します。
-ファイルをオープンしました。
-[全共通] 形式バージョンを確認しました。
-[直営店] ヘッダー行をスキップし、カンマ区切りで解析します。
-[直営店] 必須列を検証しました（有効10件 / スキップ0件）。
-DBへ10件を保存しました。
-  先頭行: S001 商品1 1000円
-ファイルをクローズしました。
-[非同期] FC店 の実行を開始します。
-ファイルをオープンしました。
-[全共通] 形式バージョンを確認しました。
-[FC店] 先頭行からタブ区切りで解析します。
-[FC店] 不正行を検証しました（有効5件 / スキップ0件）。
-DBへ5件を保存しました。
-  先頭行: F001 商品1 2000円
-ファイルをクローズしました。
-```
-
-次に、手動アップロードでEC店を同期実行します。
-
-```cpp
-        // 手動アップロード：EC店を同期で即時処理
-        cout << "\n==== 手動アップロード（同期） ====\n";
-        ManualImportController manual;
-        ImportResult ecResult = manual.importNow(&ec);
-```
-
-手動アップロード（同期）の実行結果：
-
-```text
-==== 手動アップロード（同期） ====
-[同期] 手動アップロードを即時実行します。
-ファイルをオープンしました。
-[全共通] 形式バージョンを確認しました。
-[EC店] カンマ区切りで会員ランク・ポイント列まで解析します。
-[EC店] 不正行を検証しました（有効8件 / スキップ2件）。
-[EC店] ポイントボーナスを計算しました（8件・合計240pt）。
-DBへ8件を保存しました。
-  先頭行: E001 商品1 3000円
-ファイルをクローズしました。
-```
-
-最後にインポート結果ログを出力します（未登録タイプ "online" はエラーで中断）。以降の `printResult`／`reportUnknown` とサンプルCSVは `BatchApplication` の内部ヘルパーです。
-
-```cpp
         cout << "\n--- インポート結果ログ ---\n";
-        for (auto& r : batchResults) printResult(r);
-        printResult(ecResult);
+        for (auto& r : results) printResult(r);
         reportUnknown("online");   // 未登録タイプはエラーで中断
     }
 private:
@@ -1804,7 +1764,7 @@ private:
 };
 ```
 
-`main()` は `BatchApplication` を組み立てて `run()` を呼ぶだけで、具体クラスの知識・同期/非同期の使い分けはすべて `BatchApplication` に閉じています。
+`main()`は`BatchApplication`を組み立てて`run()`を呼ぶだけで、具体クラスの生成と境界の注入はすべて`BatchApplication`に閉じています。
 
 ```cpp
 int main() {
@@ -1814,9 +1774,32 @@ int main() {
 }
 ```
 
-インポート結果ログの実行結果：
+**実行結果：**
 
 ```text
+ファイルをオープンしました。
+[全共通] 形式バージョンを確認しました。
+[直営店] ヘッダー行をスキップし、カンマ区切りで解析します。
+[直営店] 必須列を検証しました（有効10件 / スキップ0件）。
+DBへ10件を保存しました。
+  先頭行: S001 商品1 1000円
+ファイルをクローズしました。
+ファイルをオープンしました。
+[全共通] 形式バージョンを確認しました。
+[FC店] 先頭行からタブ区切りで解析します。
+[FC店] 不正行を検証しました（有効5件 / スキップ0件）。
+DBへ5件を保存しました。
+  先頭行: F001 商品1 2000円
+ファイルをクローズしました。
+ファイルをオープンしました。
+[全共通] 形式バージョンを確認しました。
+[EC店] カンマ区切りで会員ランク・ポイント列まで解析します。
+[EC店] 不正行を検証しました（有効8件 / スキップ2件）。
+[EC店] ポイントボーナスを計算しました（8件・合計240pt）。
+DBへ8件を保存しました。
+  先頭行: E001 商品1 3000円
+ファイルをクローズしました。
+
 --- インポート結果ログ ---
 [store] 直営店データ（必須列3） 保存10件 / スキップ0件 -> 成功
 [fc] FC店データ（必須列3） 保存5件 / スキップ0件 -> 成功
@@ -1824,11 +1807,11 @@ int main() {
 [エラー] 未登録のインポートタイプ: online — 処理を中断します
 ```
 
-フェーズ2で予告された共通の「バージョンチェック」は基底クラスへ1回追加し、形式ごとの行検証は `validateRows()` へ置き、EC店だけの計算処理は `afterParse()` へ置きました。変更理由の異なる処理が、それぞれ対応する場所へ分かれています。夜間バッチは直営店・FC店を**非同期**にまとめて流し、手動アップロードはEC店を**同期**で即時実行していますが、どちらも同じ `import()` を呼ぶだけで、骨格の順序は変わりません。未登録タイプ（"online"）は `SchemaRegistry.exists()` で検出し、結果出力の際にエラーを出力します。
+R2の共通バージョンチェックは基底クラスへ1回だけ置き、形式ごとの行検証は`validateRows()`へ、R1のEC計算は`afterParse()`へ置きました。3形式とも同じ`import()`を呼び、骨格の順序は変わりません。未登録タイプ（"online"）は`SchemaRegistry.exists()`で検出し、結果出力の際にエラーを出力します。
 
 このコードは `BatchApplication` が実行時にメモリ上へ `store_sales.csv`・`fc_sales.csv`・`ec_sales.csv` 相当のサンプルCSVを用意し（ディスクにファイルは作りません）、それを `gateway.open()` で読み込んで件数を数えます。上の実行結果の「10件」「5件」「2件スキップ」「240pt」は、この用意したCSVの実データから算出した値で、`storeCsv()`／`fcCsv()`／`ecCsv()` の中身を書き換えれば結果もその場で変わります。空ファイル・大量データなど全仕様を網羅するコードではないため、それらは実際のデータを使うテストで確認します。
 
-`main()` はキックするだけで、具体クラスの知識・同期/非同期の使い分け・`SchemaRegistry` の参照は `BatchApplication` に閉じています。
+`main()`はキックするだけで、具体クラスの知識と`SchemaRegistry`の参照は`BatchApplication`に閉じています。
 
 **補足：保存媒体が変わったら？（骨格とゲートウェイの境界）**
 
@@ -1838,48 +1821,6 @@ int main() {
 - **壊れるのは「手順の順序そのもの」が変わるときです。** たとえば「開く前に一部を保存する」「開かずにストリームから逐次読みながら保存する」のように順序が別物になる形式が来た場合、`open→…→close` という骨格の前提が合わなくなります。これはこの章の設計の限界で、パターン解説の「使いどころと限界」で扱います。
 
 言い換えると、この章で「変わってほしくない」と置いたのは**手順の順序**であって、**保存媒体**ではありません。保存媒体は最初からゲートウェイの裏に隔離してある、というのが7-1の構造です。
-
-#### 解決後のクラス構成
-
-```mermaid
-classDiagram
-    direction LR
-    class SchemaRegistry
-    class ImportFileGateway
-    class SalesImportRepository
-    class ImportScheduler
-    class BatchImportJob
-    class BatchApplication
-    class ManualImportController
-    class AbstractImporter {
-        +import() ImportResult
-        #parseData()*
-        #validateRows()*
-        #afterParse()
-    }
-    class StoreDataImporter
-    class FCDataImporter
-    class ECDataImporter
-
-    AbstractImporter <|-- StoreDataImporter
-    AbstractImporter <|-- FCDataImporter
-    AbstractImporter <|-- ECDataImporter
-    AbstractImporter --> ImportFileGateway : 使う
-    AbstractImporter --> SalesImportRepository : 使う
-    StoreDataImporter --> SchemaRegistry : 参照する
-    BatchImportJob --> AbstractImporter : 実行する
-    ImportScheduler --> BatchImportJob : 束ねる
-    BatchApplication --> ImportScheduler : 起動する
-    ManualImportController --> BatchApplication : 手動起動する
-
-    note for AbstractImporter "【P1・新設】共通骨格を1か所へ固定\nparse/validateは純粋仮想フック"
-    note for StoreDataImporter "【P1・残した】直営店のパース・行検証だけ"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "AbstractImporter,StoreDataImporter,FCDataImporter,ECDataImporter" focus
-```
-
-章末のTemplate Method骨格図では `AbstractImporter.import()` が共通の骨格、3つのImporterが個別ステップを実装する具象クラスに対応します。ファイル取得とDB保存は骨格へ直書きせず、それぞれの外部境界へ委譲します。
 
 #### 変更軸ごとの完成コード追跡
 
@@ -1893,7 +1834,8 @@ classDiagram
 
 | 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
 |---|---|---|---|
-| R1：EC形式追加と共通手順維持／P1 | 取込順を骨格へ、形式差を派生へ分離。コード：`AbstractImporter::import()`、各Importer、`SchemaRegistry` | 直営・FC・ECが同じ順序で処理され、形式別件数を保存 | 新Importer、Schema登録、形式固有検証 |
+| R1：ECサイト形式を追加し、会員ランクとポイントを解析・計算する／P1 | 取込順を骨格へ、EC解析・計算を派生へ分離。コード：`AbstractImporter::import()`、`ECImporter`、`SchemaRegistry` | 正常なEC行だけが計算・保存され、件数が既存`ImportResult`へ残った | 新Importer、Schema登録、EC固有検証 |
+| R2：全形式で、ファイルを開いた直後に形式バージョンを確認する／P1 | ファイルオープン直後の共通手順へバージョン確認を配置。コード：`AbstractImporter::import()`、各Importerのメタデータ | 3形式が解析前に同じ順序で確認され、不一致時は保存しない | 対応バージョンの設定 |
 
 #### 変更前→変更後の不変条件照合
 
@@ -1902,46 +1844,9 @@ classDiagram
 | 取込結果契約 | `ImportResult` を返す | 同じ成功・保存・スキップ情報を返す | 1-4と7-1の結果ログ |
 | データ保存境界 | 読み取った行をRepositoryへ保存 | 同じ行表現を `SalesImportRepository` へ渡す | 7-1の保存件数・先頭行出力 |
 
-### 7-2：動作シーケンス図
+### 7-2：動作シーケンス図の検証
 
-ステップ2で到達した骨格固定構造の実行時のやり取りを可視化します。夜間バッチ（非同期）と手動アップロード（同期）が、同じ `import()` を別々の呼び出し方で使う様子と、`import()` が骨格の順序どおりに各ステップの戻り値を受け渡して `ImportResult` を返す流れが確認できます。
-
-```mermaid
-sequenceDiagram
-    participant B as BatchApplication
-    participant SC as ImportScheduler
-    participant AI as AbstractImporter<br/>(Store / FC)
-    participant MC as ManualImportController
-    participant EC as ECDataImporter
-
-    Note over B,AI: 夜間バッチ（非同期）
-    B->>SC: submit("直営店"), submit("FC店")
-    B->>SC: awaitAll()
-    activate SC
-    SC->>AI: import()
-    activate AI
-    AI->>AI: open() → checkFormatVersion()
-    AI->>AI: parseData() 戻り値 ParsedRow列
-    AI->>AI: validateRows() 戻り値 ValidationResult
-    AI->>AI: afterParse() → save() → close()
-    AI-->>SC: ImportResult
-    deactivate AI
-    SC-->>B: vector<ImportResult>
-    deactivate SC
-
-    Note over B,EC: 手動アップロード（同期）
-    B->>MC: importNow(&ec)
-    activate MC
-    MC->>EC: import()
-    activate EC
-    EC->>EC: 同じ骨格 + afterParse()（ポイント計算）
-    EC-->>MC: ImportResult
-    deactivate EC
-    MC-->>B: ImportResult
-    deactivate MC
-```
-
-夜間バッチは `ImportScheduler` に処理を投入して非同期にまとめて待ち、手動アップロードは `ManualImportController` が同期で即時実行します。呼び出し方は違っても、どちらも `AbstractImporter*` 経由で同じ `import()` を呼ぶだけで、`import()` の中では共通処理を基底クラスが実行し、`parseData()`／`validateRows()`／必要に応じた `afterParse()` だけがサブクラスの実装へ切り替わります。各ステップの戻り値が次のステップへ渡り、最後に `ImportResult` が呼び出し元へ返ります。これが骨格固定構造の動きです。
+完成クラス図と実行シーケンスは、完成コードへ入る前に示しました。ここまでのコード、要求追跡表、不変条件照合を証拠として、次節で変更影響を再確認します。
 
 ### 7-3：変更影響グラフ（改善後）
 

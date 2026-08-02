@@ -3,378 +3,72 @@
   "book_status": "ready",
   "task_source": "review-tasks.md",
   "tasks": {
-    "CONS-001": {
-      "status": "done",
-      "evidence": [
-        "output/chapter00_2.md#フェーズ5"
-      ]
-    },
-    "CONS-002": {
-      "status": "done",
-      "evidence": [
-        "output/chapter00_2.md#確定変更と将来リスク"
-      ]
-    },
-    "CONS-003": {
-      "status": "done",
-      "evidence": [
-        "output/chapter00_1.md#標準の7フェーズ",
-        "output/epilogue.md#7フェーズ"
-      ]
-    },
-    "CONS-004": {
-      "status": "done",
-      "evidence": [
-        "output/chapter00_2.md#各フェーズ"
-      ]
-    },
-    "CONS-005": {
-      "status": "done",
-      "evidence": [
-        "output/chapter00_1.md#設計構造とデザインパターン"
-      ]
-    },
-    "CONS-006": {
-      "status": "done",
-      "evidence": [
-        "output/chapter09_1.md#第二部",
-        "output/chapter09_2.md#フェーズ6"
-      ]
-    },
-    "CONS-007": {
-      "status": "done",
-      "evidence": [
-        "output/chapter01.md#変更前→変更後の不変条件照合",
-        "output/chapter12.md#変更前→変更後の不変条件照合"
-      ]
-    },
-    "CONS-008": {
-      "status": "done",
-      "evidence": [
-        "output/chapter01.md#変更軸ごとの完成コード追跡"
-      ]
-    },
-    "CONS-009": {
-      "status": "done",
-      "evidence": [
-        "output/chapter02.md#フェーズ6"
-      ]
-    },
-    "CONS-010": {
-      "status": "done",
-      "evidence": [
-        "output/chapter03.md#状態遷移"
-      ]
-    },
-    "CONS-011": {
-      "status": "done",
-      "evidence": [
-        "output/chapter03.md#要求→課題→構造→コード→結果の追跡"
-      ]
-    },
-    "CONS-012": {
-      "status": "done",
-      "evidence": [
-        "output/chapter03.md#ReservationExpiryScheduler"
-      ]
-    },
-    "CONS-013": {
-      "status": "done",
-      "evidence": [
-        "output/chapter04.md#変更前→変更後の不変条件照合"
-      ]
-    },
-    "CONS-014": {
-      "status": "done",
-      "evidence": [
-        "output/chapter05.md#確定要求"
-      ]
-    },
-    "CONS-015": {
-      "status": "done",
-      "evidence": [
-        "output/chapter05.md#フェーズ1"
-      ]
-    },
-    "CONS-016": {
-      "status": "done",
-      "evidence": [
-        "output/chapter05.md#フェーズ6"
-      ]
-    },
-    "CONS-017": {
-      "status": "done",
-      "evidence": [
-        "output/chapter06.md#採用理由"
-      ]
-    },
-    "CONS-018": {
-      "status": "done",
-      "evidence": [
-        "output/chapter06.md#解決後のクラス構成"
-      ]
-    },
-    "CONS-019": {
-      "status": "done",
-      "evidence": [
-        "output/chapter07.md#使いどころと限界"
-      ]
-    },
-    "CONS-020": {
-      "status": "done",
-      "evidence": [
-        "output/chapter08.md#変更前→変更後の不変条件照合"
-      ]
-    },
-    "CONS-021": {
-      "status": "done",
-      "evidence": [
-        "output/chapter08.md#Factory Method"
-      ]
-    },
-    "CONS-022": {
-      "status": "done",
-      "evidence": [
-        "output/chapter08.md#Pending"
-      ]
-    },
-    "CONS-023": {
-      "status": "done",
-      "evidence": [
-        "output/chapter09_1.md#第二部",
-        "output/chapter09_2.md#システム全体"
-      ]
-    },
-    "CONS-024": {
-      "status": "done",
-      "evidence": [
-        "output/chapter09_2.md#変更理由"
-      ]
-    },
-    "CONS-025": {
-      "status": "done",
-      "evidence": [
-        "output/chapter10.md#変更要求"
-      ]
-    },
-    "CONS-026": {
-      "status": "done",
-      "evidence": [
-        "output/chapter10.md#P1（生成・所有）"
-      ]
-    },
-    "CONS-027": {
-      "status": "done",
-      "evidence": [
-        "output/chapter10.md#NotificationResult"
-      ]
-    },
-    "CONS-028": {
-      "status": "done",
-      "evidence": [
-        "output/chapter10.md#ManualTriggerController"
-      ]
-    },
-    "CONS-029": {
-      "status": "done",
-      "evidence": [
-        "output/chapter11.md#変更前→変更後の不変条件照合"
-      ]
-    },
-    "CONS-030": {
-      "status": "done",
-      "evidence": [
-        "output/chapter11.md#ReportActionInvoker"
-      ]
-    },
-    "CONS-031": {
-      "status": "done",
-      "evidence": [
-        "output/chapter11.md#要求→課題→構造→コード→結果の追跡"
-      ]
-    },
-    "CONS-032": {
-      "status": "done",
-      "evidence": [
-        "output/chapter12.md#変更要求"
-      ]
-    },
-    "CONS-033": {
-      "status": "done",
-      "evidence": [
-        "output/chapter12.md#WorkflowPhaseResolver"
-      ]
-    },
-    "CONS-034": {
-      "status": "done",
-      "evidence": [
-        "output/chapter12.md#DepartmentApprovalRule"
-      ]
-    },
-    "CONS-035": {
-      "status": "done",
-      "evidence": [
-        "output/chapter12.md#WorkflowResult",
-        "output/chapter12.md#NotificationDeliveryLog"
-      ]
-    },
-    "CONS-036": {
-      "status": "done",
-      "evidence": [
-        "output/chapter12.md#解決後のクラス構成"
-      ]
-    },
-    "CONS-037": {
-      "status": "done",
-      "evidence": [
-        "output/epilogue.md#7フェーズ"
-      ]
-    },
-    "CONS-038": {
-      "status": "done",
-      "evidence": [
-        "templates/chapter-template.md#要求→課題→構造→コード→結果の追跡",
-        "script/validate_book.py:1907",
-        "audit-report.md#全章横断監査レポート"
-      ]
-    },
-    "CONS-039": {
-      "status": "done",
-      "evidence": [
-        "output/chapter12.md#現在の申請状態一覧",
-        "output/chapter01.md#登録済みの顧客",
-        "review-tasks.md#CONS-039"
-      ]
-    },
-    "CONS-040": {
-      "status": "done",
-      "evidence": [
-        "output/chapter04.md#対策検討のクラス図",
-        "output/chapter12.md#着目する共通点",
-        "review-tasks.md#CONS-040"
-      ]
-    },
-    "CONS-041": {
-      "status": "done",
-      "evidence": [
-        "output/chapter02.md#登録済みの口座",
-        "output/chapter12.md#登録済みの承認者",
-        "review-tasks.md#CONS-041"
-      ]
-    }
+    "CONS-001": {"status": "done", "evidence": ["output/chapter00_2.md#🟡 フェーズ5：課題定義 ―― 解くべき接続点を洗い出す"]},
+    "CONS-002": {"status": "done", "evidence": ["output/chapter00_2.md#🟣 フェーズ2：仮説立案 ―― 何が変わるかを観察し、ヒアリングで裏付ける"]},
+    "CONS-003": {"status": "done", "evidence": ["output/epilogue.md#学んだ考え方を、それぞれの設計へつなげる"]},
+    "CONS-004": {"status": "done", "evidence": ["output/chapter00_2.md#私がたどり着いた「7つのフェーズ」"]},
+    "CONS-005": {"status": "done", "evidence": ["output/chapter00_1.md#すべての構造を貫く3つの原則"]},
+    "CONS-006": {"status": "done", "evidence": ["output/chapter09_2.md#🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める"]},
+    "CONS-007": {"status": "done", "evidence": ["output/chapter01.md#変更前→変更後の不変条件照合"]},
+    "CONS-008": {"status": "done", "evidence": ["output/chapter01.md#変更軸ごとの完成コード追跡"]},
+    "CONS-009": {"status": "done", "evidence": ["output/chapter02.md#6-2：システム全体の契約とデータ配置を確定する"]},
+    "CONS-010": {"status": "done", "evidence": ["output/chapter03.md#7-1：解決後のコード（全体）"]},
+    "CONS-011": {"status": "done", "evidence": ["output/chapter03.md#要求→課題→構造→コード→結果の追跡"]},
+    "CONS-012": {"status": "done", "evidence": ["output/chapter03.md#完成コード"]},
+    "CONS-013": {"status": "done", "evidence": ["output/chapter04.md#変更前→変更後の不変条件照合"]},
+    "CONS-014": {"status": "done", "evidence": ["output/chapter05.md#1-5：変更要求"]},
+    "CONS-015": {"status": "done", "evidence": ["output/chapter05.md#1-4：実装コード（現状）"]},
+    "CONS-016": {"status": "done", "evidence": ["output/chapter05.md#6-2：システム全体の契約とデータ配置を確定する"]},
+    "CONS-017": {"status": "done", "evidence": ["output/chapter06.md#システム全体の最終構造を決める"]},
+    "CONS-018": {"status": "done", "evidence": ["output/chapter06.md#完成後のクラス図"]},
+    "CONS-019": {"status": "done", "evidence": ["output/chapter07.md#使いどころと限界"]},
+    "CONS-020": {"status": "done", "evidence": ["output/chapter08.md#変更前→変更後の不変条件照合"]},
+    "CONS-021": {"status": "done", "evidence": ["output/chapter08.md#パターン解説：Factory Method パターン"]},
+    "CONS-022": {"status": "done", "evidence": ["output/chapter08.md#1-5：変更要求"]},
+    "CONS-023": {"status": "done", "evidence": ["output/chapter09_2.md#システム全体の最終構造を決める"]},
+    "CONS-024": {"status": "done", "evidence": ["output/chapter09_2.md#2-5：変わる見込みと当面安定の前提を確定する"]},
+    "CONS-025": {"status": "done", "evidence": ["output/chapter10.md#1-5：変更要求"]},
+    "CONS-026": {"status": "done", "evidence": ["output/chapter10.md#変更軸ごとの完成コード追跡"]},
+    "CONS-027": {"status": "done", "evidence": ["output/chapter10.md#6-2：システム全体の契約とデータ配置を確定する"]},
+    "CONS-028": {"status": "done", "evidence": ["output/chapter10.md#完成コード"]},
+    "CONS-029": {"status": "done", "evidence": ["output/chapter11.md#変更前→変更後の不変条件照合"]},
+    "CONS-030": {"status": "done", "evidence": ["output/chapter11.md#完成コード"]},
+    "CONS-031": {"status": "done", "evidence": ["output/chapter11.md#要求→課題→構造→コード→結果の追跡"]},
+    "CONS-032": {"status": "done", "evidence": ["output/chapter12.md#1-5：変更要求"]},
+    "CONS-033": {"status": "done", "evidence": ["output/chapter12.md#実装ステップ1（P1）：状態遷移の契約 `IWorkflowPhase` を定める"]},
+    "CONS-034": {"status": "done", "evidence": ["output/chapter12.md#実装ステップ3（P3）：承認判定の契約 `IApprovalRule` を差し替え可能にする"]},
+    "CONS-035": {"status": "done", "evidence": ["output/chapter12.md#要求→課題→構造→コード→結果の追跡"]},
+    "CONS-036": {"status": "done", "evidence": ["output/chapter12.md#完成後のクラス図"]},
+    "CONS-037": {"status": "done", "evidence": ["output/epilogue.md#学んだ考え方を、それぞれの設計へつなげる"]},
+    "CONS-038": {"status": "done", "evidence": ["templates/chapter-template.md#要求→課題→構造→コード→結果の追跡", "script/validate_book.py:1971"]},
+    "CONS-039": {"status": "done", "evidence": ["output/chapter01.md#1-1：このシステムの仕様", "output/chapter12.md#1-1：このシステムの仕様"]},
+    "CONS-040": {"status": "done", "evidence": ["output/chapter04.md#対策検討のクラス図：1-3の責任と依存をどう変えるか", "output/chapter12.md#対策検討のクラス図：1-3の責任と依存をどう変えるか"]},
+    "CONS-041": {"status": "done", "evidence": ["output/chapter02.md#1-1：このシステムの仕様", "output/chapter12.md#1-1：このシステムの仕様"]},
+    "CONS-042": {"status": "done", "evidence": ["output/chapter11.md#1-5：変更要求"]},
+    "CONS-043": {"status": "done", "evidence": ["output/chapter11.md#2-4：ヒアリングで判明した将来リスク"]},
+    "CONS-044": {"status": "done", "evidence": ["output/chapter11.md#6-2：生成・所有・注入・実行を確定する"]},
+    "CONS-045": {"status": "done", "evidence": ["output/chapter11.md#完成後のクラス一覧"]},
+    "CONS-046": {"status": "done", "evidence": ["script/check_completion_gate.py:69", "rules/completion-gate.md#出版完了の確認"]},
+    "CONS-047": {"status": "done", "evidence": ["output/epilogue.md#AIと一緒に考える時代だからこそ"]},
+    "CONS-048": {"status": "done", "evidence": ["script/validate_book.py:1971", "output/chapter09_2.md#要求→課題→構造→コード→結果の追跡"]},
+    "CONS-049": {"status": "done", "evidence": ["output/chapter04.md#要求→課題→構造→コード→結果の追跡", "output/chapter08.md#要求→課題→構造→コード→結果の追跡", "output/chapter10.md#要求→課題→構造→コード→結果の追跡"]}
   },
   "chapters": {
-    "chapter00_1.md": {
-      "status": "pass",
-      "reviewed_by": "Codex semantic audit 2026-07-26",
-      "evidence": [
-        "output/chapter00_1.md#設計構造とデザインパターン"
-      ]
-    },
-    "chapter00_2.md": {
-      "status": "pass",
-      "reviewed_by": "Codex semantic audit 2026-07-26",
-      "evidence": [
-        "output/chapter00_2.md#7フェーズ"
-      ]
-    },
-    "chapter01.md": {
-      "status": "pass",
-      "reviewed_by": "CONS-039/040/041 情報開示順レビュー 2026-07-27",
-      "evidence": [
-        "output/chapter01.md#フェーズ1情報開示順"
-      ]
-    },
-    "chapter02.md": {
-      "status": "pass",
-      "reviewed_by": "CONS-039/040/041 情報開示順レビュー 2026-07-27",
-      "evidence": [
-        "output/chapter02.md#フェーズ1情報開示順"
-      ]
-    },
-    "chapter03.md": {
-      "status": "pass",
-      "reviewed_by": "CONS-039/040/041 情報開示順レビュー 2026-07-27",
-      "evidence": [
-        "output/chapter03.md#フェーズ1情報開示順"
-      ]
-    },
-    "chapter04.md": {
-      "status": "pass",
-      "reviewed_by": "CONS-039/040/041 情報開示順レビュー 2026-07-27",
-      "evidence": [
-        "output/chapter04.md#フェーズ1情報開示順"
-      ]
-    },
-    "chapter05.md": {
-      "status": "pass",
-      "reviewed_by": "CONS-039/040/041 情報開示順レビュー 2026-07-27",
-      "evidence": [
-        "output/chapter05.md#フェーズ1情報開示順"
-      ]
-    },
-    "chapter06.md": {
-      "status": "pass",
-      "reviewed_by": "CONS-039/040/041 情報開示順レビュー 2026-07-27",
-      "evidence": [
-        "output/chapter06.md#フェーズ1情報開示順"
-      ]
-    },
-    "chapter07.md": {
-      "status": "pass",
-      "reviewed_by": "CONS-039/040/041 情報開示順レビュー 2026-07-27",
-      "evidence": [
-        "output/chapter07.md#フェーズ1情報開示順"
-      ]
-    },
-    "chapter08.md": {
-      "status": "pass",
-      "reviewed_by": "CONS-039/040/041 情報開示順レビュー 2026-07-27",
-      "evidence": [
-        "output/chapter08.md#フェーズ1情報開示順"
-      ]
-    },
-    "chapter09_1.md": {
-      "status": "pass",
-      "reviewed_by": "Codex semantic audit 2026-07-26",
-      "evidence": [
-        "output/chapter09_1.md#第二部"
-      ]
-    },
-    "chapter09_2.md": {
-      "status": "pass",
-      "reviewed_by": "CONS-039/040/041 情報開示順レビュー 2026-07-27",
-      "evidence": [
-        "output/chapter09_2.md#フェーズ1情報開示順"
-      ]
-    },
-    "chapter10.md": {
-      "status": "pass",
-      "reviewed_by": "CONS-039/040/041 情報開示順レビュー 2026-07-27",
-      "evidence": [
-        "output/chapter10.md#フェーズ1情報開示順"
-      ]
-    },
-    "chapter11.md": {
-      "status": "pass",
-      "reviewed_by": "CONS-039/040/041 情報開示順レビュー 2026-07-27",
-      "evidence": [
-        "output/chapter11.md#フェーズ1情報開示順"
-      ]
-    },
-    "chapter12.md": {
-      "status": "pass",
-      "reviewed_by": "CONS-039/040/041 情報開示順レビュー 2026-07-27",
-      "evidence": [
-        "output/chapter12.md#フェーズ1情報開示順"
-      ]
-    },
-    "epilogue.md": {
-      "status": "pass",
-      "reviewed_by": "Codex semantic audit 2026-07-26",
-      "evidence": [
-        "output/epilogue.md#7フェーズ"
-      ]
-    }
+    "chapter00_1.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter00_1.md#はじめに"]},
+    "chapter00_2.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter00_2.md#私がたどり着いた「7つのフェーズ」"]},
+    "chapter01.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter01.md#要求→課題→構造→コード→結果の追跡"]},
+    "chapter02.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter02.md#要求→課題→構造→コード→結果の追跡"]},
+    "chapter03.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter03.md#要求→課題→構造→コード→結果の追跡"]},
+    "chapter04.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter04.md#要求→課題→構造→コード→結果の追跡"]},
+    "chapter05.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter05.md#要求→課題→構造→コード→結果の追跡"]},
+    "chapter06.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter06.md#要求→課題→構造→コード→結果の追跡"]},
+    "chapter07.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter07.md#要求→課題→構造→コード→結果の追跡"]},
+    "chapter08.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter08.md#要求→課題→構造→コード→結果の追跡"]},
+    "chapter09_1.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter09_1.md#第二部　応用編 ―― 複数構造の融合"]},
+    "chapter09_2.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter09_2.md#要求→課題→構造→コード→結果の追跡"]},
+    "chapter10.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter10.md#要求→課題→構造→コード→結果の追跡"]},
+    "chapter11.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter11.md#要求→課題→構造→コード→結果の追跡"]},
+    "chapter12.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter12.md#要求→課題→構造→コード→結果の追跡"]},
+    "epilogue.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/epilogue.md#最後に"]}
   }
 }

@@ -488,6 +488,14 @@ int main() {
 
 **仕様変更の内容**
 
+変更内容を、実行結果で判定できる確定要求へ分けます。
+
+| 要求ID | 確定要求 | 入力 | 受入条件 |
+|---|---|---|---|
+| R1 | Matcha（60円）とChoco（40円）を追加する | 基本ドリンク、追加トッピング | 既存トッピングと同じ方法で名称と価格へ加算される |
+| R2 | 利用者が指定した順にトッピングを重ねる | 順序付きトッピング列 | 出力名が入力順と一致し、合計価格も全要素を反映する |
+| R3 | 販売停止・在庫切れのトッピングを注文前に拒否する | トッピングID、販売可否 | 注文を生成せず販売不可エラーを返す |
+
 変更要求を受けて、選択できるトッピングがどう変わるかを整理します。
 
 | 項目 | 変更前 | 変更後 |
@@ -1266,6 +1274,104 @@ struct OrderResult {
 
 注文ログ（`OrderLog`）はシステム起動時は空で、注文が確定するたびに1件追記されます。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
 
+#### 完成後のクラス一覧
+
+完成コードで定義する型を先に一覧化します。各型の依存方向と実現関係は、直後のクラス図で確認します。
+
+- `MenuDatabase`、`OrderApplication`、`OrderLog`、`IDrink`
+- `Coffee`、`ToppingWrapper`、`Milk`、`Whip`
+- `Matcha`、`Choco`、`Syrup`、`ToppingCatalog`
+- `OrderAssembler`
+
+#### 完成後のクラス図
+
+```mermaid
+classDiagram
+    class MenuDatabase
+    class OrderApplication
+    class OrderLog
+    class IDrink { <<interface>> }
+    class Coffee
+    class ToppingWrapper
+    class Milk
+    class Whip
+    class Matcha
+    class Choco
+    class Syrup
+    class ToppingCatalog
+    class OrderAssembler
+
+    IDrink <|.. Coffee
+    IDrink <|.. ToppingWrapper
+    ToppingWrapper o--> IDrink
+    ToppingWrapper <|-- Milk
+    ToppingWrapper <|-- Whip
+    ToppingWrapper <|-- Matcha
+    ToppingWrapper <|-- Choco
+    ToppingWrapper <|-- Syrup
+    ToppingWrapper ..> ToppingCatalog
+    OrderAssembler ..> ToppingCatalog
+    OrderAssembler ..> MenuDatabase
+    OrderAssembler ..> IDrink
+    OrderApplication --> OrderAssembler
+    OrderApplication --> OrderLog
+
+    note for IDrink "【P1・新設】価格・説明の共通契約"
+    note for ToppingWrapper "【P1・新設】内側のIDrinkを包み自分ぶんを足す"
+    note for ToppingCatalog "【P1・新設】価格・販売可否を持つ"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "IDrink,ToppingWrapper,Milk,Whip,Matcha,Choco,Syrup,ToppingCatalog,OrderAssembler" focus
+```
+
+この図は、装飾の連結（`IDrink` を軸にした包む構造）に加え、価格・販売可否を持つ `ToppingCatalog` と、要求から組み立てる `OrderAssembler` を示しています。章末のDecorator骨格図では、`IDrink` がComponent、`Coffee` がConcreteComponent、`ToppingWrapper` がDecorator、各トッピングがConcreteDecoratorに対応します。`ToppingCatalog` と `OrderAssembler` は、Decorator本体の外側で価格データと組み立てを支える役割です。
+
+#### 完成後の実行シーケンス
+
+装飾連結構造の実行時のオブジェクト間のやり取りを可視化します。`OrderApplication` がオブジェクトを組み立て、`getPrice()` の呼び出しがデコレータチェーンを連鎖していく様子が確認できます。
+
+```mermaid
+sequenceDiagram
+    participant OA as OrderApplication
+    participant Ma as Matcha
+    participant Wh as Whip
+    participant Sy as Syrup
+    participant Mi as Milk
+    participant C as Coffee
+
+    OA->>C: new Coffee()
+    OA->>Mi: new Milk(coffee)
+    OA->>Sy: new Syrup(milk)
+    OA->>Wh: new Whip(syrup)
+    OA->>Ma: new Matcha(whip)
+    OA->>Ma: getPrice()
+    activate Ma
+    Ma->>Wh: baseDrink->getPrice()
+    activate Wh
+    Wh->>Sy: baseDrink->getPrice()
+    activate Sy
+    Sy->>Mi: baseDrink->getPrice()
+    activate Mi
+    Mi->>C: baseDrink->getPrice()
+    activate C
+    C-->>Mi: 400
+    deactivate C
+    Mi-->>Sy: 450（400+50）
+    deactivate Mi
+    Sy-->>Wh: 480（450+30）
+    deactivate Sy
+    Wh-->>Ma: 550（480+70）
+    deactivate Wh
+    Ma-->>OA: 610（550+60）
+    deactivate Ma
+```
+
+`OrderApplication` は `IDrink*` という型だけを通じてチェーンを呼び出します。内部で何層に連鎖しているかの知識は、組み立て部分にだけ閉じています。
+
+---
+
+#### 完成コード
+
 ```cpp
 #include <iostream>
 #include <string>
@@ -1664,49 +1770,6 @@ int main() {
 
 ---
 
-#### 解決後のクラス構成
-
-```mermaid
-classDiagram
-    class MenuDatabase
-    class OrderApplication
-    class OrderLog
-    class IDrink { <<interface>> }
-    class Coffee
-    class ToppingWrapper
-    class Milk
-    class Whip
-    class Matcha
-    class Choco
-    class Syrup
-    class ToppingCatalog
-    class OrderAssembler
-
-    IDrink <|.. Coffee
-    IDrink <|.. ToppingWrapper
-    ToppingWrapper o--> IDrink
-    ToppingWrapper <|-- Milk
-    ToppingWrapper <|-- Whip
-    ToppingWrapper <|-- Matcha
-    ToppingWrapper <|-- Choco
-    ToppingWrapper <|-- Syrup
-    ToppingWrapper ..> ToppingCatalog
-    OrderAssembler ..> ToppingCatalog
-    OrderAssembler ..> MenuDatabase
-    OrderAssembler ..> IDrink
-    OrderApplication --> OrderAssembler
-    OrderApplication --> OrderLog
-
-    note for IDrink "【P1・新設】価格・説明の共通契約"
-    note for ToppingWrapper "【P1・新設】内側のIDrinkを包み自分ぶんを足す"
-    note for ToppingCatalog "【P1・新設】価格・販売可否を持つ"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "IDrink,ToppingWrapper,Milk,Whip,Matcha,Choco,Syrup,ToppingCatalog,OrderAssembler" focus
-```
-
-この図は、装飾の連結（`IDrink` を軸にした包む構造）に加え、価格・販売可否を持つ `ToppingCatalog` と、要求から組み立てる `OrderAssembler` を示しています。章末のDecorator骨格図では、`IDrink` がComponent、`Coffee` がConcreteComponent、`ToppingWrapper` がDecorator、各トッピングがConcreteDecoratorに対応します。`ToppingCatalog` と `OrderAssembler` は、Decorator本体の外側で価格データと組み立てを支える役割です。
-
 #### 変更軸ごとの完成コード追跡
 
 | 課題ID | 完成コードの適用先 | 実装後に起きたこと | システム全体で維持できた範囲 |
@@ -1719,7 +1782,9 @@ classDiagram
 
 | 確定要求ID・課題ID | 構造差分・コード適用先 | 実行結果 | 残る変更先 |
 |---|---|---|---|
-| R1：任意トッピングの組み合わせ／P1 | 条件集中をDrinkの装飾チェーンへ分離。コード：`IDrink`、`ToppingWrapper` 群、`OrderAssembler` | 選択順に説明と価格が合成され、Matcha・Chocoも同じ経路で処理 | 新トッピング、カタログ登録 |
+| R1：Matcha（60円）とChoco（40円）を追加する／P1 | 追加処理をDrinkの装飾部品へ分離。コード：`IDrink`、各`ToppingWrapper`、`OrderAssembler` | Matcha・Chocoが既存と同じ経路で名称・価格へ反映された | 新トッピングとカタログ登録 |
+| R2：利用者が指定した順にトッピングを重ねる／P1 | `OrderAssembler`が入力列の順に装飾部品を連結 | 入力順と出力名が一致し、価格も全要素を合算した | 組み立て入力の順序 |
+| R3：販売停止・在庫切れのトッピングを注文前に拒否する／P1 | 組み立て前にカタログの販売可否を確認。コード：`OrderAssembler`、トッピング設定 | 販売停止・在庫切れではDrinkを生成しなかった | カタログの販売可否データ |
 
 #### 変更前→変更後の不変条件照合
 
@@ -1728,49 +1793,9 @@ classDiagram
 | メニュー取得 | `MenuDatabase` から `MenuItem` を取得 | 同じ名前・基本価格をCoffeeへ渡す | 7-1の注文名と価格 |
 | 注文入力 | 基本商品IDとトッピング列 | 同じ入力を `OrderAssembler` が解釈 | 正常・未登録トッピングケース |
 
-### 7-2：動作シーケンス図
+### 7-2：動作シーケンス図の検証
 
-装飾連結構造の実行時のオブジェクト間のやり取りを可視化します。`OrderApplication` がオブジェクトを組み立て、`getPrice()` の呼び出しがデコレータチェーンを連鎖していく様子が確認できます。
-
-```mermaid
-sequenceDiagram
-    participant OA as OrderApplication
-    participant Ma as Matcha
-    participant Wh as Whip
-    participant Sy as Syrup
-    participant Mi as Milk
-    participant C as Coffee
-
-    OA->>C: new Coffee()
-    OA->>Mi: new Milk(coffee)
-    OA->>Sy: new Syrup(milk)
-    OA->>Wh: new Whip(syrup)
-    OA->>Ma: new Matcha(whip)
-    OA->>Ma: getPrice()
-    activate Ma
-    Ma->>Wh: baseDrink->getPrice()
-    activate Wh
-    Wh->>Sy: baseDrink->getPrice()
-    activate Sy
-    Sy->>Mi: baseDrink->getPrice()
-    activate Mi
-    Mi->>C: baseDrink->getPrice()
-    activate C
-    C-->>Mi: 400
-    deactivate C
-    Mi-->>Sy: 450（400+50）
-    deactivate Mi
-    Sy-->>Wh: 480（450+30）
-    deactivate Sy
-    Wh-->>Ma: 550（480+70）
-    deactivate Wh
-    Ma-->>OA: 610（550+60）
-    deactivate Ma
-```
-
-`OrderApplication` は `IDrink*` という型だけを通じてチェーンを呼び出します。内部で何層に連鎖しているかの知識は、組み立て部分にだけ閉じています。
-
----
+完成クラス図と実行シーケンスは、完成コードへ入る前に示しました。ここまでのコード、要求追跡表、不変条件照合を証拠として、次節で変更影響を再確認します。
 
 ### 7-3：変更影響グラフ（改善後）
 

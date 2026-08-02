@@ -225,9 +225,10 @@ SYSTEM_STRUCTURE_CLASS_TOKENS = {
         "ManualTriggerController", "SyncRequest", "SyncDataCatalog",
     ],
     "chapter11.md": [
-        "ReportSkeleton", "StandardReport", "MonthlyReport",
-        "ReportFeature", "GraphFeature", "WatermarkFeature",
-        "IReportAction", "GenerateReportAction",
+        "ReportSkeleton", "MonthlyReport", "ExecutiveMonthlyReport",
+        "ReportFeature", "GraphFeature", "LogoFeature",
+        "WatermarkFeature", "IReportAction", "GenerateReportAction",
+        "ReportActionHistory", "ReportAssembler",
     ],
     "chapter12.md": [
         "IWorkflowPhase", "WorkflowManager", "DraftPhase", "PendingPhase",
@@ -291,8 +292,9 @@ SYSTEM_STRUCTURE_RESULT_TOKENS = {
         "IClientCreator", "INotifier",
     ],
     "chapter11.md": [
+        "変更要求：役員向け月次本文", "ExecutiveMonthlyReport",
         "変更要求：装飾機能の追加", "ReportFeature",
-        "ReportSkeleton", "IReportAction",
+        "変更要求：再実行・取消", "IReportAction",
     ],
     "chapter12.md": [
         "変更要求：状態・遷移の追加", "IWorkflowPhase",
@@ -748,6 +750,11 @@ def check_system_structure_phase6(
         )
         completed_heading = text.find("#### 解決後のクラス構成", p6)
         completed_end = text.find("#### 変更軸ごとの完成コード追跡", completed_heading)
+        if completed_heading < 0:
+            completed_heading = text.find("#### 完成後のクラス図", p6)
+            completed_end = text.find(
+                "#### 完成後の実行シーケンス", completed_heading
+            )
         completed_sec = (
             text[completed_heading:completed_end]
             if 0 <= completed_heading < completed_end else ""
@@ -758,7 +765,12 @@ def check_system_structure_phase6(
             re.DOTALL,
         )
         if phase6_class_diagrams and completed_diagrams:
-            if phase6_class_diagrams[-1].strip() != completed_diagrams[0].strip():
+            normalize_diagram = lambda diagram: "\n".join(
+                line.rstrip()
+                for line in diagram.splitlines()
+                if line.strip()
+            )
+            if normalize_diagram(phase6_class_diagrams[-1]) != normalize_diagram(completed_diagrams[0]):
                 issues.append(Issue(
                     path, line_number(text, completed_heading),
                     "対策検討の採用後クラス図と対策完成後のクラス図は同じMermaid定義にしてください",
@@ -1956,6 +1968,125 @@ def check_end_to_end_traceability(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def check_requirement_semantics_and_phase7_order(
+    text: str, path: Path
+) -> list[Issue]:
+    """Keep requirement meaning, final design, and code in one checked chain."""
+    issues: list[Issue] = []
+    requirement_start = text.find("### 1-5：変更要求")
+    phase2_start = text.find("## 🟣 フェーズ2", requirement_start)
+    trace_heading = "#### 要求→課題→構造→コード→結果の追跡"
+    trace_start = text.find(trace_heading)
+    trace_end = text.find("\n#### ", trace_start + len(trace_heading))
+    if min(requirement_start, phase2_start, trace_start, trace_end) < 0:
+        return issues
+
+    requirement_table_start = text.find(
+        "| 要求ID | 確定要求", requirement_start, phase2_start
+    )
+    requirement_table_end = text.find("\n\n", requirement_table_start)
+    requirement_section = (
+        text[requirement_table_start:requirement_table_end]
+        if requirement_table_start >= 0 and requirement_table_end >= 0
+        else text[requirement_start:phase2_start]
+    )
+    trace_section = text[trace_start:trace_end]
+    requirement_rows = re.findall(
+        r"(?m)^\|\s*(R\d+)\s*\|\s*([^|]+)", requirement_section
+    )
+    trace_rows = re.findall(
+        r"(?m)^\|\s*(R\d+)([^|]*)\|", trace_section
+    )
+    requirement_ids = [item[0] for item in requirement_rows]
+    trace_ids = [item[0] for item in trace_rows]
+    expected_ids = [f"R{index}" for index in range(1, len(requirement_ids) + 1)]
+    if not requirement_ids:
+        issues.append(Issue(
+            path, line_number(text, requirement_start),
+            "1-5に入力・受入条件を持つ確定要求IDがありません",
+        ))
+    elif requirement_ids != expected_ids:
+        issues.append(Issue(
+            path, line_number(text, requirement_start),
+            f"確定要求IDはR1から連番にしてください: {requirement_ids}",
+        ))
+    if trace_ids != requirement_ids:
+        issues.append(Issue(
+            path, line_number(text, trace_start),
+            f"1-5と完成コード追跡の要求IDを同じ順序にしてください: "
+            f"{requirement_ids} != {trace_ids}",
+        ))
+    trace_by_id = dict(trace_rows)
+    for requirement_id, meaning in requirement_rows:
+        normalized_meaning = " ".join(meaning.split())
+        trace_label = " ".join(trace_by_id.get(requirement_id, "").split())
+        if normalized_meaning not in trace_label:
+            issues.append(Issue(
+                path, line_number(text, trace_start),
+                f"{requirement_id}の意味が1-5から完成コード追跡へ"
+                f"同じ文言で引き継がれていません: {normalized_meaning}",
+            ))
+
+    phase7_start = text.find("### 7-1：", phase2_start)
+    phase7_end = text.find("### 7-2：", phase7_start)
+    if min(phase7_start, phase7_end) < 0:
+        return issues
+    phase7 = text[phase7_start:phase7_end]
+    ordered = [
+        "#### 完成後のクラス一覧",
+        "#### 完成後のクラス図",
+        "#### 完成後の実行シーケンス",
+        "#### 完成コード",
+        "```cpp",
+    ]
+    cursor = 0
+    positions: dict[str, int] = {}
+    for token in ordered:
+        position = phase7.find(token, cursor)
+        if position < 0:
+            issues.append(Issue(
+                path, line_number(text, phase7_start),
+                f"フェーズ7のコード前に「{token}」を置いてください",
+            ))
+            break
+        positions[token] = position
+        cursor = position + len(token)
+
+    if all(token in positions for token in ordered):
+        diagram_start = positions["#### 完成後のクラス図"]
+        diagram_end = positions["#### 完成後の実行シーケンス"]
+        code_start = positions["#### 完成コード"]
+        diagram = phase7[diagram_start:diagram_end]
+        code = phase7[code_start:]
+        diagram_classes = set(re.findall(
+            r"(?m)^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)", diagram
+        ))
+        cpp = "\n".join(re.findall(
+            r"```cpp\s*\n(.*?)```", code, re.DOTALL
+        ))
+        code_classes = set(re.findall(
+            r"(?m)^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)", cpp
+        ))
+        code_types = set(re.findall(
+            r"(?m)^\s*(?:class|struct|namespace)\s+"
+            r"([A-Za-z_][A-Za-z0-9_]*)", cpp
+        ))
+        code_types.update(re.findall(
+            r"(?m)^\s*enum\s+class\s+([A-Za-z_][A-Za-z0-9_]*)", cpp
+        ))
+        missing_from_diagram = sorted(code_classes - diagram_classes)
+        missing_from_code = sorted(diagram_classes - code_types)
+        if missing_from_diagram or missing_from_code:
+            issues.append(Issue(
+                path, line_number(text, phase7_start + diagram_start),
+                "完成クラス図と完成コードのクラス集合が一致しません: "
+                f"図に不足={missing_from_diagram}, "
+                f"コードに不足={missing_from_code}",
+            ))
+
+    return issues
+
+
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
@@ -1971,6 +2102,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase6_complete_comparison_code(text, path))
         issues.extend(check_phase6_baseline(text, path))
         issues.extend(check_phase6_continuity(text, path))
+        issues.extend(check_requirement_semantics_and_phase7_order(text, path))
         issues.extend(check_phase6_step_chain(text, path))
         issues.extend(check_phase7_continuity(text, path))
         issues.extend(check_intermediate_boundary_continuity(text, path))
