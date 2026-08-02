@@ -137,15 +137,55 @@ flowchart LR
 ```mermaid
 classDiagram
     direction TB
-    class ReportApplication
-    class ReportRequest
-    class TemplateRegistry
-    class ReportTemplate
-    class ReportGenerator
-    class DataReader
-    class SalesSummary
-    class ReportDocument
-    class ReportRenderingApi
+    class ReportApplication {
+        -registry : TemplateRegistry
+        -generator : ReportGenerator
+        +generate(request) bool
+    }
+    class ReportRequest {
+        +templateId : string
+        +format : OutputFormat
+        +addGraph : bool
+        +addLogo : bool
+        +addWatermark : bool
+        +outputPath : string
+    }
+    class TemplateRegistry {
+        -templates : map
+        +exists(id) bool
+        +get(id) ReportTemplate
+        +supportsFormat(id, format) bool
+    }
+    class ReportTemplate {
+        +name : string
+        +supportedFormats : vector
+    }
+    class ReportGenerator {
+        -reader : DataReader
+        -renderer : ReportRenderingApi
+        +generate(request, templateName) bool
+    }
+    class DataReader {
+        -sales : vector
+        +readCSV() SalesSummary
+    }
+    class SalesSummary {
+        +count : int
+        +total : long
+        +average : long
+    }
+    class ReportDocument {
+        +parts : vector
+    }
+    class ReportRenderingApi {
+        +addHeader(document, format)
+        +addStandardBody(document, title, summary)
+        +addGraph(document)
+        +addLogo(document)
+        +addWatermark(document)
+        +addFooter(document)
+        +writePreview(document, path, format) bool
+    }
 
     ReportApplication --> ReportRequest : 受け取る
     ReportApplication *-- TemplateRegistry : 検証
@@ -161,6 +201,19 @@ classDiagram
 ```
 
 薄い黄色のReportGeneratorが、現在の生成処理をまとめて担当しています。この時点では、現状の要求を満たして動作しています。
+
+**クラス図に出てくる主なメンバーと操作**
+
+| クラス | 保持するもの・操作 | 現状でできること |
+|---|---|---|
+| ReportRequest | templateId、format、三つの装飾フラグ、outputPath | 利用者が指定した一回分の生成条件を運ぶ |
+| TemplateRegistry | templates、exists()、get()、supportsFormat() | IDの存在と対応形式を検証し、名称を返す |
+| DataReader | sales、readCSV() | 6件の売上を読み、件数・合計・平均を返す |
+| ReportGenerator | reader、renderer、generate() | 読込から出力まで進め、本文と装飾も判断する |
+| ReportRenderingApi | addHeader()～writePreview() | 一つのReportDocumentへ要素を追加し、デモ成果物を保存する |
+| ReportApplication | registry、generator、generate() | 入力を検証し、生成処理へ接続する |
+
+図では責任と接続を確認し、各操作の条件分岐や失敗時の戻り値は、次の現状コードで確認します。
 
 ### 1-4：実装コード（現状）
 
@@ -219,6 +272,11 @@ struct ReportTemplate {
 };
 ```
 
+- `OutputFormat`は、利用者が指定するPDF・Excelを名前付きの値として表します。
+- `ReportRequest`は、テンプレートID、形式、三つの装飾フラグ、出力先という1-1の入力を一回分にまとめます。
+- `SalesSummary`はDataReaderの集計結果、`ReportDocument`は描画APIへ渡す一つの完成文書、`ReportTemplate`は登録済み名称と対応形式を保持します。
+- これらは処理を選ぶクラスではなく、クラス間を流れる値と契約です。
+
 #### DataReader
 
 ```cpp
@@ -240,6 +298,10 @@ public:
     }
 };
 ```
+
+- `sales`は、1-1で示した6件の売上データを保持します。
+- `readCSV()`は全件を合計し、件数・合計・平均を`SalesSummary`として返します。
+- 本文や装飾、出力形式は知らず、売上の読込と集計だけを担当します。
 
 #### ReportRenderingApi
 
@@ -304,11 +366,12 @@ public:
         return true;
     }
 
-    bool removePreview(const string& path) const {
-        return remove(path.c_str()) == 0;
-    }
 };
 ```
+
+- 各`add...()`は同じ`ReportDocument`へ表示要素を一つ追加します。呼び出し順は`parts`の順として観測できます。
+- `writePreview()`は指定パスへプレーンテキストのデモ成果物を保存します。有効なPDF・Excelを生成する処理ではありません。
+- ファイルを開けない場合は`false`を返し、書込完了に失敗した場合は不完全なデモ成果物を削除します。
 
 #### TemplateRegistry
 
@@ -350,6 +413,10 @@ public:
 };
 ```
 
+- コンストラクタは1-1の週次・月次・部門別テンプレートを登録します。
+- `exists()`は未登録ID、`supportsFormat()`は非対応形式を生成前に拒否するための判定です。
+- `get()`は検証済みIDから名称と対応形式を返します。本文生成やファイル出力は担当しません。
+
 #### ReportGenerator
 
 ```cpp
@@ -382,6 +449,10 @@ public:
     }
 };
 ```
+
+- `generate()`は、売上読込→ヘッダー→標準本文→装飾→フッター→保存という現状の処理順を進めます。
+- 標準本文の生成だけでなく、三つのboolを読み、グラフ→ロゴ→透かしという固定順で具体APIを選びます。
+- したがって、現状では正しく動作しますが、生成順と装飾判断が同じクラスに置かれていることをコードから確認できます。
 
 #### ReportApplicationとmain
 
@@ -425,6 +496,10 @@ int main() {
     return application.generate(request) ? 0 : 1;
 }
 ```
+
+- `ReportApplication::generate()`は、テンプレートIDと対応形式を検証してから`ReportGenerator`へ同じ要求を渡します。エラー時は生成・保存へ進みません。
+- `main()`は、月次・PDF・グラフあり・ロゴあり・透かしなし・出力先というC1の入力を組み立てます。
+- 利用者入力の受付と、テンプレート検証、生成本体の呼び出しがどこで接続されるかを示すブロックです。
 
 実行対象コード：1-4の現状コード
 
@@ -489,6 +564,15 @@ CSV読込: 6件・合計3510・平均585
 ### 2-1：変わりそうな仕様の見当をつける
 
 フェーズ1の入力、処理順、クラス図へR1〜R3を重ね、どこが今後も変わりそうかを見ます。
+
+見当は、次の順で作ります。
+
+1. 1-1と1-2から、今回変わる入力・判定・加工・出力を拾う。
+2. その仕様を1-3の責任と1-4のメソッドへ対応づける。
+3. 現状と要求の差を、「何が増えるか」「何が置き換わるか」「何を残すか」に分ける。
+4. クラスの分け方はまだ決めず、変更が集まりそうなコード上の場所までを仮説にする。
+
+この手順により、パターン名や完成コードから逆算せず、フェーズ1で読者が確認した事実からH1〜H3を再現できます。
 
 | 見当ID | フェーズ1で見た事実 | 要求と変化の見当 | 現状コードの場所 |
 |---|---|---|---|
@@ -639,8 +723,8 @@ public:
         if (acceptedRequests.empty()) {
             return false;
         }
-        return renderer.removePreview(
-            acceptedRequests.back().outputPath);
+        return remove(
+            acceptedRequests.back().outputPath.c_str()) == 0;
     }
 };
 ```
@@ -742,6 +826,59 @@ graph LR
 | 受付履歴と再実行・取消規則 | 操作運用の変更 | 不要にしたい |
 
 したがって、ReportGeneratorの役割が不明なのではありません。「共通順を進める」という役割を保ちたいのに、その役割と異なる変更理由の詳細まで知ったことが根本原因です。
+
+この判断の根拠を、フェーズ3の変更試行コードの関連部分で確認します。
+
+```cpp
+class ChangedReportGenerator {
+    DataReader reader;                         // 【守る】売上読込
+    ReportRenderingApi renderer;              // 【守る】描画・出力境界
+    vector<ChangedReportRequest> acceptedRequests;
+
+    bool execute(const ChangedReportRequest& request,
+                 const string& templateName) {
+        SalesSummary summary = reader.readCSV();
+        ReportDocument document;
+        renderer.addHeader(document, request.format);
+
+        // 【P1の原因】共通順が本文IDと本文内容を判断する
+        if (request.templateId == "SALES_MONTHLY_EXECUTIVE") {
+            renderer.addStandardBody(
+                document, "役員向け月次専用本文", summary);
+        } else {
+            renderer.addStandardBody(
+                document, templateName, summary);
+        }
+
+        // 【P2の原因】共通順が装飾種別と具体APIを判断する
+        for (DecorationType type : request.decorations) {
+            if (type == DecorationType::Graph) {
+                renderer.addGraph(document);
+            } else if (type == DecorationType::Logo) {
+                renderer.addLogo(document);
+            } else {
+                renderer.addWatermark(document);
+            }
+        }
+
+        renderer.addFooter(document);
+        return renderer.writePreview(
+            document, request.outputPath, request.format);
+    }
+
+public:
+    bool submit(const ChangedReportRequest& request,
+                const string& templateName) {
+        // 【P3の原因】生成本体が受付履歴の保存時点も決める
+        acceptedRequests.push_back(request);
+        return execute(request, templateName);
+    }
+};
+```
+
+- 【守る】の2行は、今回の要求に関係なく維持する読込・描画境界です。
+- P1〜P3の注釈は、それぞれ別の要求で変わる判断ですが、同じクラスのメンバーとメソッドに集まっています。
+- したがって、単にメソッドが長いことではなく、異なる変更理由が同じ責任境界を通過することが原因だと判断できます。
 
 ### 4-2：変わるもの/変わってほしくないもの
 
@@ -862,8 +999,8 @@ bool undoLast() {
     if (acceptedRequests.empty()) {
         return false;
     }
-    return renderer.removePreview(
-        acceptedRequests.back().outputPath);
+    return remove(
+        acceptedRequests.back().outputPath.c_str()) == 0;
 }
 ```
 
@@ -985,29 +1122,79 @@ classDiagram
     class DataReader
     class TemplateRegistry
     class ReportRenderingApi
+    class OutputFormat {
+        <<enumeration>>
+        Pdf
+        Excel
+    }
+    class DecorationType {
+        <<enumeration>>
+        Graph
+        Logo
+        Watermark
+    }
+    class SalesSummary {
+        +count : int
+        +total : long
+        +average : long
+    }
+    class ReportDocument {
+        +parts : vector
+    }
+    class ReportRequest {
+        +templateId : string
+        +format : OutputFormat
+        +decorations : vector
+        +outputPath : string
+    }
+    class OperationResult {
+        +success : bool
+        +message : string
+    }
+    class ReportTemplate {
+        +name : string
+        +supportedFormats : vector
+    }
 
     ReportApplication *-- ReportActionHistory
     ReportApplication *-- ReportGenerationService
+    ReportApplication ..> ReportRequest : 受け取る
+    ReportApplication ..> OperationResult : 返す
     ReportActionHistory o--> IReportAction : 受付順に所有
+    ReportActionHistory ..> OperationResult : 返す
     IReportAction <|.. GenerateReportAction
     GenerateReportAction --> ReportGenerationService : 実行を依頼
+    GenerateReportAction *-- ReportRequest : 完全な要求を保持
     ReportGenerationService --> ReportAssembler : 組み立て
     ReportGenerationService --> TemplateRegistry : 検証
     ReportGenerationService --> ReportRenderingApi : 出力・取消
+    ReportGenerationService ..> ReportRequest : 利用
+    ReportGenerationService ..> OperationResult : 返す
     ReportAssembler --> DataReader : 注入
     ReportAssembler --> ReportRenderingApi : 注入
     ReportAssembler --> IReport : 生成
+    ReportAssembler ..> ReportRequest : 選択条件
+    ReportAssembler ..> DecorationType : 順に選択
 
     IReport <|.. ReportSkeleton
+    IReport ..> ReportDocument : 生成
     ReportSkeleton <|-- MonthlyReport
     ReportSkeleton <|-- ExecutiveMonthlyReport
     ReportSkeleton <|-- WeeklyReport
     ReportSkeleton <|-- DepartmentReport
+    ReportSkeleton ..> SalesSummary : 本文へ渡す
     IReport <|.. ReportFeature
     ReportFeature o--> IReport : 内側を所有
     ReportFeature <|-- GraphFeature
     ReportFeature <|-- LogoFeature
     ReportFeature <|-- WatermarkFeature
+    DataReader ..> SalesSummary : 集計
+    TemplateRegistry *-- ReportTemplate : 登録
+    ReportTemplate ..> OutputFormat : 対応形式
+    ReportRequest ..> OutputFormat : 指定
+    ReportRequest ..> DecorationType : 指定順
+    ReportRenderingApi ..> ReportDocument : 描画・保存
+    ReportRenderingApi ..> OutputFormat : 形式
 
     note for ReportSkeleton "【P1・新設】共通順\n本文だけ委譲"
     note for ReportFeature "【P2・新設】文書を受け\n装飾を一つ追加"
@@ -1196,13 +1383,34 @@ sequenceDiagram
 
 #### 完成後のクラス一覧
 
-| 分類 | クラス | 責任 |
+| 分類 | 型 | 責任 |
 |---|---|---|
-| 既存境界 | DataReader、TemplateRegistry、ReportRenderingApi | 売上、テンプレート、描画・出力 |
-| P1 | IReport、ReportSkeleton、各Report | 共通順と本文差分 |
-| P2 | ReportFeature、各Feature、ReportAssembler | 装飾部品と入力順の組み立て |
-| P3 | IReportAction、GenerateReportAction、ReportActionHistory | 受付要求の実行・再実行・取消 |
-| 接続 | ReportGenerationService、ReportApplication | 検証・組み立て・受付入口 |
+| 入力値 | OutputFormat | PDF・Excelという要求形式を表す列挙型 |
+| 入力値 | DecorationType | グラフ・ロゴ・透かしという装飾種別を表す列挙型 |
+| 値 | SalesSummary | 売上の件数・合計・平均を保持する |
+| 値 | ReportDocument | 一つの成果物へ入る本文・装飾の順序を保持する |
+| 要求 | ReportRequest | テンプレート、形式、装飾列、出力先を保持する |
+| 結果 | OperationResult | 実行・再実行・取消の成否と説明を返す |
+| 設定 | ReportTemplate | テンプレート名称と対応形式を保持する |
+| 既存境界 | DataReader | 売上データを読み、集計する |
+| 既存境界 | TemplateRegistry | テンプレートを登録・検索・検証する |
+| 既存境界 | ReportRenderingApi | 文書要素の描画、デモ保存、削除を担当する |
+| P1契約 | IReport | 一つのReportDocumentを生成する共通契約 |
+| P1骨格 | ReportSkeleton | 読込→ヘッダー→本文→フッターを固定する |
+| P1本文 | MonthlyReport | 通常月次の標準本文を生成する |
+| P1本文 | ExecutiveMonthlyReport | 役員向け月次だけ専用本文を生成する |
+| P1本文 | WeeklyReport | 週次の標準本文を生成する |
+| P1本文 | DepartmentReport | 部門別の標準本文を生成する |
+| P2基底 | ReportFeature | 内側のIReportを所有し、装飾を連結する基底 |
+| P2装飾 | GraphFeature | 文書へグラフを一つ追加する |
+| P2装飾 | LogoFeature | 文書へロゴを一つ追加する |
+| P2装飾 | WatermarkFeature | 文書へ透かしを一つ追加する |
+| P1・P2組立 | ReportAssembler | 本文を選び、入力順に装飾を連結する |
+| 接続 | ReportGenerationService | 検証、組み立て、生成、出力、取消を接続する |
+| P3契約 | IReportAction | execute()とundo()を持つ操作契約 |
+| P3操作 | GenerateReportAction | 完全な要求を値で保持し、生成・取消を委譲する |
+| P3履歴 | ReportActionHistory | Actionを受付順に所有し、再実行・取消を委譲する |
+| 入口 | ReportApplication | 要求からActionを生成し、Historyへ渡す |
 
 #### 完成後のクラス図
 
@@ -1228,28 +1436,78 @@ classDiagram
     class DataReader
     class TemplateRegistry
     class ReportRenderingApi
+    class OutputFormat {
+        <<enumeration>>
+        Pdf
+        Excel
+    }
+    class DecorationType {
+        <<enumeration>>
+        Graph
+        Logo
+        Watermark
+    }
+    class SalesSummary {
+        +count : int
+        +total : long
+        +average : long
+    }
+    class ReportDocument {
+        +parts : vector
+    }
+    class ReportRequest {
+        +templateId : string
+        +format : OutputFormat
+        +decorations : vector
+        +outputPath : string
+    }
+    class OperationResult {
+        +success : bool
+        +message : string
+    }
+    class ReportTemplate {
+        +name : string
+        +supportedFormats : vector
+    }
 
     ReportApplication *-- ReportActionHistory
     ReportApplication *-- ReportGenerationService
+    ReportApplication ..> ReportRequest : 受け取る
+    ReportApplication ..> OperationResult : 返す
     ReportActionHistory o--> IReportAction : 受付順に所有
+    ReportActionHistory ..> OperationResult : 返す
     IReportAction <|.. GenerateReportAction
     GenerateReportAction --> ReportGenerationService : 実行を依頼
+    GenerateReportAction *-- ReportRequest : 完全な要求を保持
     ReportGenerationService --> ReportAssembler : 組み立て
     ReportGenerationService --> TemplateRegistry : 検証
     ReportGenerationService --> ReportRenderingApi : 出力・取消
+    ReportGenerationService ..> ReportRequest : 利用
+    ReportGenerationService ..> OperationResult : 返す
     ReportAssembler --> DataReader : 注入
     ReportAssembler --> ReportRenderingApi : 注入
     ReportAssembler --> IReport : 生成
+    ReportAssembler ..> ReportRequest : 選択条件
+    ReportAssembler ..> DecorationType : 順に選択
     IReport <|.. ReportSkeleton
+    IReport ..> ReportDocument : 生成
     ReportSkeleton <|-- MonthlyReport
     ReportSkeleton <|-- ExecutiveMonthlyReport
     ReportSkeleton <|-- WeeklyReport
     ReportSkeleton <|-- DepartmentReport
+    ReportSkeleton ..> SalesSummary : 本文へ渡す
     IReport <|.. ReportFeature
     ReportFeature o--> IReport : 内側を所有
     ReportFeature <|-- GraphFeature
     ReportFeature <|-- LogoFeature
     ReportFeature <|-- WatermarkFeature
+    DataReader ..> SalesSummary : 集計
+    TemplateRegistry *-- ReportTemplate : 登録
+    ReportTemplate ..> OutputFormat : 対応形式
+    ReportRequest ..> OutputFormat : 指定
+    ReportRequest ..> DecorationType : 指定順
+    ReportRenderingApi ..> ReportDocument : 描画・保存
+    ReportRenderingApi ..> OutputFormat : 形式
 
     note for ReportSkeleton "【P1・新設】共通順\n本文だけ委譲"
     note for ReportFeature "【P2・新設】文書を受け\n装飾を一つ追加"
@@ -1341,7 +1599,11 @@ struct ReportTemplate {
 };
 ```
 
-OperationResultは実行側と履歴側が成否を受け渡す内部契約です。R1〜R3へ新しい業務機能を追加するものではありません。
+- `OutputFormat`と`DecorationType`は、要求に含まれる形式と順序付き装飾を名前付きの値として表します。
+- `ReportRequest`は、R3で再実行する完全な要求です。テンプレートID、形式、装飾列、出力先を値として保持します。
+- `SalesSummary`と`ReportDocument`は、読込結果と一つの成果物を処理間で渡します。
+- `OperationResult`は、実行側と履歴側が成否を受け渡す内部契約です。R1〜R3へ新しい業務機能を追加するものではありません。
+- `ReportTemplate`は1-4と同じ名称・対応形式を保持します。
 
 ##### 2. DataReader
 
@@ -1365,7 +1627,8 @@ public:
 };
 ```
 
-1-4と同じ6件を読み、同じ集計値を返します。
+- 1-4と同じ6件を読み、件数6・合計3,510・平均585を返します。
+- R1〜R3では売上データと集計式を変更しないため、本文や装飾の具体型を知りません。
 
 ##### 3. ReportRenderingApi
 
@@ -1445,7 +1708,9 @@ public:
 };
 ```
 
-描画・出力境界の意味は1-4と同じです。役員向け本文を描く操作だけがR1により追加されました。
+- ヘッダー、標準本文、三装飾、フッター、デモ成果物の保存は1-4と同じ外部境界です。
+- `addExecutiveBody()`はR1、`removePreview()`はR3によって同じ境界へ追加されました。前者は役員向け本文を描き、後者は取消対象のデモ成果物を削除します。
+- 本物のPDF・Excelは生成せず、文書要素と呼出順をプレーンテキストで観測する契約も維持します。
 
 ##### 4. TemplateRegistry
 
@@ -1490,7 +1755,9 @@ public:
 };
 ```
 
-既存APIは変えず、R1の役員向けテンプレートを一件登録しています。
+- `exists()`、`get()`、`supportsFormat()`という1-4のAPIと検証順を変えていません。
+- R1の役員向け月次テンプレートを一件追加し、通常月次は別IDのまま残します。
+- 本文クラスの生成や装飾順は知らず、テンプレート設定の保持と検証だけを担当します。
 
 ##### 5. IReportとReportSkeleton
 
@@ -1530,9 +1797,13 @@ public:
 };
 ```
 
-create()が「読込→ヘッダー→本文→フッター」を固定します。実際のreadCSV()も基底クラスから呼ぶため、表示だけを共通化しているのではありません。
+- `IReport::create()`は、本文クラスと装飾クラスが同じ`ReportDocument`を返すための共通契約です。
+- `ReportSkeleton::create()`は「読込→ヘッダー→本文→フッター」を固定し、本文だけを`renderBody()`へ委ねます。
+- 実際の`readCSV()`も基底クラスから呼ぶため、表示だけでなく生成処理の共通順そのものを一か所に置いています。
 
 ##### 6. 本文クラス
+
+**MonthlyReport**
 
 ```cpp
 class MonthlyReport : public ReportSkeleton {
@@ -1547,6 +1818,10 @@ protected:
 };
 ```
 
+- 通常月次の標準本文を生成します。R1で役員向けが増えても、この既存本文は置き換えません。
+
+**ExecutiveMonthlyReport**
+
 ```cpp
 class ExecutiveMonthlyReport : public ReportSkeleton {
 public:
@@ -1558,6 +1833,10 @@ protected:
     }
 };
 ```
+
+- R1で追加する役員向け月次だけの本文です。共通順を再実装せず、`renderBody()`だけを差し替えます。
+
+**WeeklyReport**
 
 ```cpp
 class WeeklyReport : public ReportSkeleton {
@@ -1572,6 +1851,10 @@ protected:
 };
 ```
 
+- 週次の標準本文を生成します。役員向け月次の追加による修正を受けません。
+
+**DepartmentReport**
+
 ```cpp
 class DepartmentReport : public ReportSkeleton {
 public:
@@ -1585,9 +1868,12 @@ protected:
 };
 ```
 
-通常月次と役員向け月次は別クラスです。R1により役員向けだけを変え、通常月次を維持できます。
+- 部門別の標準本文を生成します。四つの本文クラスは同じ共通順を使い、本文内容だけを所有します。
+- 通常月次と役員向け月次を別クラスにしたため、R1により役員向けだけを変え、通常月次を維持できます。
 
 ##### 7. ReportFeatureと各装飾
+
+**ReportFeature**
 
 ```cpp
 class ReportFeature : public IReport {
@@ -1602,6 +1888,11 @@ public:
 };
 ```
 
+- 内側の`IReport`を`unique_ptr`で所有し、同じ描画境界を参照する装飾基底です。
+- 自分では装飾種別を判断せず、具体Featureが`create()`へ一つの表示要素を追加できる接続を用意します。
+
+**GraphFeature**
+
 ```cpp
 class GraphFeature : public ReportFeature {
 public:
@@ -1613,6 +1904,10 @@ public:
     }
 };
 ```
+
+- 内側で文書を生成した後、グラフを一つ追加して同じ文書を返します。
+
+**LogoFeature**
 
 ```cpp
 class LogoFeature : public ReportFeature {
@@ -1626,6 +1921,10 @@ public:
 };
 ```
 
+- 内側で文書を生成した後、ロゴを一つ追加します。グラフとの前後はこのクラスでは決めません。
+
+**WatermarkFeature**
+
 ```cpp
 class WatermarkFeature : public ReportFeature {
 public:
@@ -1638,7 +1937,8 @@ public:
 };
 ```
 
-すべてのFeatureは、内側の文書を作ってから自分の装飾を一つ加えます。ReportAssemblerが入力列の先頭から包むため、入力順と実行順が一致します。
+- 内側で文書を生成した後、透かしを一つ追加します。
+- すべてのFeatureは同じ規則で一要素だけを加えます。`ReportAssembler`が入力列の先頭から包むため、入力順と実行順が一致します。
 
 ##### 8. ReportAssembler
 
@@ -1690,7 +1990,9 @@ public:
 };
 ```
 
-具体クラスを知る場所はReportAssemblerです。利用側は本文クラスやFeatureを直接newしません。
+- `assemble()`はテンプレートIDから本文クラスを一つ選び、装飾列を先頭から走査して対応Featureで包み直します。
+- 具体クラスを知る場所は`ReportAssembler`です。`ReportApplication`や履歴側は本文クラスやFeatureを直接生成しません。
+- `unique_ptr`を外側へ移すたびに所有権も移るため、最外側の`IReport`が装飾列全体を所有します。
 
 ##### 9. ReportGenerationService
 
@@ -1750,7 +2052,9 @@ public:
 };
 ```
 
-検証、組み立て、出力を一つの生成ユースケースとして接続します。履歴規則は持ちません。
+- `generate()`はテンプレートIDと形式を検証し、Assemblerで本文・装飾を組み立て、文書を生成して出力境界へ渡します。
+- 失敗は`OperationResult`で返し、デモ成果物を保存できた場合だけ成功にします。
+- `removeArtifact()`は取消時の削除境界ですが、履歴件数や再実行対象を決める規則は持ちません。
 
 ##### 10. GenerateReportAction
 
@@ -1803,7 +2107,9 @@ public:
 };
 ```
 
-Actionは完全なReportRequestを値で保持します。成功後もexecute()を拒否しないため、同じ設定と出力先で再生成できます。
+- `IReportAction`は、実行と取消を同じ単位で扱う契約です。
+- `GenerateReportAction`は完全な`ReportRequest`を値で保持し、生成と削除を`ReportGenerationService`へ委譲します。
+- 成功後も`execute()`を拒否しないため、同じテンプレート、形式、装飾順、出力先で再生成できます。
 
 ##### 11. ReportActionHistory
 
@@ -1845,7 +2151,9 @@ public:
 };
 ```
 
-submit()はActionをvectorへ移してからexecute()します。成功した結果だけを記録するのではなく、受け付けた要求を正本にするためです。
+- `submit()`はActionを`vector`へ移して所有してから`execute()`します。成功結果ではなく、受け付けた要求を履歴の正本にするためです。
+- `replayLast()`と`undoLast()`は、最後のActionへ同じ契約で委譲し、本文IDや装飾種別を判断しません。
+- 取消後も受付履歴を残すため、`undoLast()`は成果物だけを削除し、`vector`からActionを除きません。
 
 ##### 12. ReportApplicationとmain
 
@@ -1929,6 +2237,11 @@ int main() {
     return 0;
 }
 ```
+
+- `ReportApplication::submit()`は要求から`GenerateReportAction`を生成し、`ReportActionHistory`へ所有権を渡します。具体Actionを生成する場所はここだけです。
+- `replayLast()`と`undoLast()`は履歴へ委譲し、本文や装飾の詳細を知りません。
+- `main()`はA1〜A4を順に実行し、通常月次の維持、役員向け本文、二通りの装飾順、同じ要求の再実行と取消を受入条件どおり観測します。
+- `DataReader`、`TemplateRegistry`、`ReportRenderingApi`は`main()`が一度だけ生成し、参照としてAssemblerとServiceへ注入します。
 
 #### 実行結果
 
@@ -2015,7 +2328,7 @@ CSV読込: 6件・合計3510・平均585
 |---|---|---|---|
 | 売上データ・集計 | 6件、3,510、585 | 同じ | 1-4とA1〜A4 |
 | テンプレート検証 | exists/get/supportsFormat | 同じAPIへ一件登録 | TemplateRegistry |
-| 描画・出力境界 | ReportRenderingApi | 同じデモ出力契約 | A1〜A4 |
+| 描画・出力境界 | ReportRenderingApiで描画・デモ保存 | 既存操作を維持し、R1の役員本文とR3の削除操作だけを追加 | A1〜A4 |
 | 既存本文・装飾 | 三本文・三装飾 | すべて維持 | 各Report・Feature |
 
 ### 7-2：動作シーケンス図
@@ -2100,6 +2413,18 @@ graph LR
 | P3 | 受付要求と実行・再実行・取消の接続を見直す |
 | 解決 | 骨格固定構造、装飾連結構造、操作記録構造を生成時に直列接続する |
 
+### フェーズとこの章でやったこと
+
+| フェーズ | この章で行ったこと | 読者が確定できたこと |
+|---|---|---|
+| 1：現状把握 | 入力、テンプレート、売上、処理順、クラス、コードを対応づけた | 現状はReportGeneratorが標準本文と固定順装飾を進める |
+| 2：仮説立案 | フェーズ1の事実へR1〜R3を重ね、H1〜H3を確認した | 本文、装飾順、履歴規則が別々に変わる |
+| 3：問題特定 | R1〜R3を現状構造へ直接追加した | 三要求の修正起点がChangedReportGeneratorへ集中する |
+| 4：原因分析 | 共通順に漏れた本文ID、装飾種別、履歴規則をコードで確認した | 元の責任と異なる三つの変更理由が同居している |
+| 5：課題定義 | 接続点をP1〜P3へ変換し、システム全体の完了条件を決めた | 何を分け、何を契約として守るかが決まった |
+| 6：対策検討 | 分離・配置・生成・所有・注入・実行を一つの完成構造へした | コードを書く前に最終クラス図と実行経路が決まった |
+| 7：対策実施 | クラス単位で実装し、A1〜A4で要求を確認した | R1〜R3が同時に成立し、変更起点が分かれた |
+
 ### 責任の移動
 
 | 変更前の責任 | 変更後の責任 |
@@ -2125,6 +2450,16 @@ graph LR
 
 ## 振り返り
 
+### 「この章を読むと得られること」は手に入ったか
+
+| 章冒頭で約束したこと | 章内で確認した場所 | 到達した状態 |
+|---|---|---|
+| 要求を入力と受入条件へ変換する | 1-5、2-2 | R1〜R3を実行ケースで判定できる |
+| 元の責任と漏れ込んだ知識を区別する | 3-1、4-1 | 共通順と本文・装飾・履歴の変更理由を分けられる |
+| 三つの変化軸を見分ける | 4-3、5-1 | P1〜P3として別々の接続課題へ変換できる |
+| 生成・選択・所有・注入・実行まで設計する | 6-2、完成クラス図 | 分離した部品を実行可能な一システムへ再結合できる |
+| 要求から結果まで追跡する | 6-4、7-1 | R-ID、P-ID、クラス、コード、A1〜A4を一列で説明できる |
+
 本章では、変更要求を受けてすぐにクラスを増やしませんでした。
 
 1. R1〜R3を入力と受入条件まで分けた。
@@ -2149,6 +2484,10 @@ graph LR
 
 ## あなたのコードで考えてみてください
 
+- あなたのシステムは、誰が何を達成するために使うものですか。
+- 入力、判定・加工、出力を一つずつ挙げると、どのクラスが担当していますか。
+- 最近入った複数の変更要求は、それぞれ同じ理由で変わるものですか、それとも別の理由ですか。
+- その要求を現在のコードへ直接追加すると、どのクラスと再テスト範囲へ変更が集中しますか。
 - 共通手順を進めるクラスが、具体種別の名前まで判断していませんか。
 - 複数の追加処理をboolで受け、固定順のifとして並べていませんか。
 - 履歴が「要求」「成功結果」「監査ログ」のどれなのか曖昧になっていませんか。
@@ -2158,6 +2497,137 @@ graph LR
 ---
 
 ## パターン解説：Template Method × Decorator × Command
+
+### パターンの骨格
+
+本章で導いた三つの構造を題材名から離して表すと、次の関係になります。
+
+```mermaid
+classDiagram
+    direction TB
+    class TemplateBase {
+        +templateMethod()
+        #variableStep()*
+    }
+    class ConcreteVariant {
+        #variableStep()
+    }
+    class Component {
+        <<interface>>
+        +operation()*
+    }
+    class BaseComponent {
+        +operation()
+    }
+    class Decorator {
+        -wrapped : Component
+        +operation()
+    }
+    class ConcreteDecorator {
+        +operation()
+    }
+    class Command {
+        <<interface>>
+        +execute()*
+        +undo()*
+    }
+    class ConcreteCommand {
+        -request
+        +execute()
+        +undo()
+    }
+    class Invoker {
+        -history : Command
+        +submit(command)
+        +replay()
+        +undo()
+    }
+    class Receiver {
+        +perform(request)
+        +cancel(request)
+    }
+
+    TemplateBase <|-- ConcreteVariant
+    Component <|.. BaseComponent
+    Component <|.. Decorator
+    Decorator o--> Component : 内側を所有
+    Decorator <|-- ConcreteDecorator
+    Command <|.. ConcreteCommand
+    ConcreteCommand --> Receiver : 要求を委譲
+    Invoker o--> Command : 受付順に所有
+```
+
+- Template Methodは、全体の順序を`templateMethod()`へ置き、変わる一部だけを`variableStep()`へ委ねます。
+- Decoratorは、同じ`Component`契約の内側を所有し、処理結果へ一機能ずつ追加します。
+- Commandは、完全な要求とReceiverへの接続を一つの操作へ閉じ、Invokerがその操作を履歴として所有します。
+
+三つは別々の目的を持ちます。Template Methodが順序、Decoratorが追加処理の組合せ、Commandが操作の時間的な扱いを担当します。
+
+### この章の実装との対応
+
+```mermaid
+classDiagram
+    direction TB
+    class ReportActionHistory
+    class IReportAction
+    class GenerateReportAction
+    class ReportGenerationService
+    class ReportAssembler
+    class IReport
+    class ReportSkeleton
+    class ExecutiveMonthlyReport
+    class ReportFeature
+    class LogoFeature
+
+    ReportActionHistory o--> IReportAction : Invoker→Command
+    IReportAction <|.. GenerateReportAction
+    GenerateReportAction --> ReportGenerationService : Receiverへ委譲
+    ReportGenerationService --> ReportAssembler : 本文と装飾を組み立て
+    ReportAssembler --> IReport : 生成
+    IReport <|.. ReportSkeleton
+    ReportSkeleton <|-- ExecutiveMonthlyReport : 本文だけ差替え
+    IReport <|.. ReportFeature
+    ReportFeature o--> IReport : 内側を所有
+    ReportFeature <|-- LogoFeature : 一装飾を追加
+```
+
+| 抽象構造の役割 | 本章の型 | 本章で担当したこと |
+|---|---|---|
+| TemplateBase | ReportSkeleton | 読込→ヘッダー→本文→フッターを固定する |
+| ConcreteVariant | MonthlyReport等 | テンプレートごとの本文だけを生成する |
+| Component | IReport | ReportDocumentを返す共通契約になる |
+| Decorator | ReportFeature | 内側のIReportを所有する |
+| ConcreteDecorator | GraphFeature、LogoFeature、WatermarkFeature | 文書へ一装飾を追加する |
+| Command | IReportAction | execute()とundo()を共通化する |
+| ConcreteCommand | GenerateReportAction | 完全なReportRequestを保持する |
+| Invoker | ReportActionHistory | Actionを受付順に所有し、再実行・取消を委譲する |
+| Receiver | ReportGenerationService | 検証、生成、出力、削除を実行する |
+
+### 抽象骨格の実行シーケンス
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Invoker
+    participant Command
+    participant Receiver
+    participant Decorator
+    participant TemplateBase
+
+    Client->>Invoker: submit(command)
+    Note over Invoker: 実行前にCommandを所有
+    Invoker->>Command: execute()
+    Command->>Receiver: perform(storedRequest)
+    Receiver->>Decorator: operation()
+    Decorator->>TemplateBase: templateMethod()
+    TemplateBase->>TemplateBase: variableStep()
+    TemplateBase-->>Decorator: base result
+    Decorator-->>Receiver: feature-added result
+    Receiver-->>Command: result
+    Command-->>Invoker: result
+```
+
+この順序では、Invokerは具体的な本文や装飾を知りません。Commandが保持した要求をReceiverへ渡し、Receiverの内側でTemplate MethodとDecoratorが一つの成果物を作ります。
 
 ### Template Method
 
@@ -2177,6 +2647,13 @@ graph LR
 - 装飾を組み合わせないなら、Decoratorの連結コストは不要です。
 - 再実行・取消・キューイングが不要なら、Commandとして操作を保存する価値は小さくなります。
 - 本物のPDF/Excel生成、非同期ジョブ、履歴永続化は別の設計課題です。本章の構造だけで自動的に提供されるものではありません。
+
+### 過剰適用になる例
+
+- 本文が一種類で生成順も変わらないなら、派生クラスを作らず一つの生成関数で十分です。
+- 装飾が一種類だけで組合せも順序指定もないなら、Decoratorの連結は不要です。
+- 再実行・取消を要求されていないなら、生成要求をCommandとして履歴所有する必要はありません。
+- 「三つのパターンを使う章だから」という理由で一度に導入せず、P1〜P3のように独立した課題が実際に存在する場合だけ組み合わせます。
 
 ### この章のまとめ
 

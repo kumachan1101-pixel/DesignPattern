@@ -51,7 +51,8 @@
     "CONS-046": {"status": "done", "evidence": ["script/check_completion_gate.py:69", "rules/completion-gate.md#出版完了の確認"]},
     "CONS-047": {"status": "done", "evidence": ["output/epilogue.md#AIと一緒に考える時代だからこそ"]},
     "CONS-048": {"status": "done", "evidence": ["script/validate_book.py:1971", "output/chapter09_2.md#要求→課題→構造→コード→結果の追跡"]},
-    "CONS-049": {"status": "done", "evidence": ["output/chapter04.md#要求→課題→構造→コード→結果の追跡", "output/chapter08.md#要求→課題→構造→コード→結果の追跡", "output/chapter10.md#要求→課題→構造→コード→結果の追跡"]}
+    "CONS-049": {"status": "done", "evidence": ["output/chapter04.md#要求→課題→構造→コード→結果の追跡", "output/chapter08.md#要求→課題→構造→コード→結果の追跡", "output/chapter10.md#要求→課題→構造→コード→結果の追跡"]},
+    "CONS-050": {"status": "done", "evidence": ["output/chapter11.md#フェーズとこの章でやったこと", "output/chapter11.md#パターンの骨格"]}
   },
   "chapters": {
     "chapter00_1.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter00_1.md#はじめに"]},
@@ -67,7 +68,7 @@
     "chapter09_1.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter09_1.md#第二部　応用編 ―― 複数構造の融合"]},
     "chapter09_2.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter09_2.md#要求→課題→構造→コード→結果の追跡"]},
     "chapter10.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter10.md#要求→課題→構造→コード→結果の追跡"]},
-    "chapter11.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter11.md#要求→課題→構造→コード→結果の追跡"]},
+    "chapter11.md": {"status": "pass", "reviewed_by": "Codex explanation regression audit 2026-08-02", "evidence": ["output/chapter11.md#要求→課題→構造→コード→結果の追跡", "output/chapter11.md#この章の実装との対応"]},
     "chapter12.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter12.md#要求→課題→構造→コード→結果の追跡"]},
     "epilogue.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/epilogue.md#最後に"]}
   }

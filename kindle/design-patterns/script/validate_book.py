@@ -2087,6 +2087,128 @@ def check_requirement_semantics_and_phase7_order(
     return issues
 
 
+def check_explanation_regression(text: str, path: Path) -> list[Issue]:
+    """Keep the reader-facing explanation that structural checks cannot infer."""
+    issues: list[Issue] = []
+
+    for heading in (
+        "### フェーズとこの章でやったこと",
+        "### 「この章を読むと得られること」は手に入ったか",
+    ):
+        if heading not in text:
+            issues.append(Issue(
+                path, 1, f"章末の学習内容を回収する「{heading}」がありません",
+            ))
+
+    pattern_start = text.find("## パターン解説：")
+    if pattern_start < 0:
+        issues.append(Issue(path, 1, "章末のパターン解説がありません"))
+    else:
+        pattern_section = text[pattern_start:]
+        if pattern_section.count("```mermaid") < 2:
+            issues.append(Issue(
+                path, line_number(text, pattern_start),
+                "パターン解説には抽象構造図と章固有の対応図を置いてください",
+            ))
+
+    if path.name != "chapter11.md":
+        return issues
+
+    required_tokens = (
+        "見当は、次の順で作ります。",
+        "【P1の原因】",
+        "【P2の原因】",
+        "【P3の原因】",
+        "**クラス図に出てくる主なメンバーと操作**",
+        "+generate(request) bool",
+        "+writePreview(document, path, format) bool",
+        "### パターンの骨格",
+        "### この章の実装との対応",
+        "### 抽象骨格の実行シーケンス",
+        "### 過剰適用になる例",
+    )
+    for token in required_tokens:
+        if token not in text:
+            issues.append(Issue(
+                path, 1, f"第11章の説明デグレ防止要素がありません: {token}",
+            ))
+
+    explanation_ranges: list[tuple[str, int, int]] = []
+    current_start = text.find("### 1-4：実装コード（現状）")
+    current_end = text.find("### 1-5：変更要求", current_start)
+    final_start = text.find("#### 完成コード")
+    final_end = text.find("#### 実行結果", final_start)
+    if min(current_start, current_end, final_start, final_end) >= 0:
+        explanation_ranges = [
+            ("1-4", current_start, current_end),
+            ("7-1", final_start, final_end),
+        ]
+
+    for label, start, end in explanation_ranges:
+        section = text[start:end]
+        blocks = list(re.finditer(r"```cpp\s*\n(.*?)```", section, re.DOTALL))
+        for index, block in enumerate(blocks):
+            next_start = (
+                blocks[index + 1].start()
+                if index + 1 < len(blocks)
+                else len(section)
+            )
+            explanation = section[block.end():next_start]
+            if not re.search(r"(?m)^-\s+", explanation):
+                issues.append(Issue(
+                    path,
+                    line_number(text, start + block.start()),
+                    f"第11章{label}のC++ブロック直後に"
+                    "責任・入力・処理・副作用の箇条書き説明がありません",
+                ))
+
+    phase7_start = text.find("### 7-1：解決後のコード（全体）")
+    list_start = text.find("#### 完成後のクラス一覧", phase7_start)
+    diagram_start = text.find("#### 完成後のクラス図", list_start)
+    sequence_start = text.find("#### 完成後の実行シーケンス", diagram_start)
+    code_start = text.find("#### 完成コード", sequence_start)
+    result_start = text.find("#### 実行結果", code_start)
+    if min(
+        phase7_start, list_start, diagram_start,
+        sequence_start, code_start, result_start,
+    ) >= 0:
+        listing = text[list_start:diagram_start]
+        diagram = text[diagram_start:sequence_start]
+        cpp = "\n".join(re.findall(
+            r"```cpp\s*\n(.*?)```",
+            text[code_start:result_start],
+            re.DOTALL,
+        ))
+        declared_types = set(re.findall(
+            r"(?m)^\s*(?:class|struct)\s+([A-Za-z_]\w*)", cpp
+        ))
+        declared_types.update(re.findall(
+            r"(?m)^\s*enum\s+class\s+([A-Za-z_]\w*)", cpp
+        ))
+        missing_from_list = sorted(
+            name for name in declared_types
+            if not re.search(rf"\b{re.escape(name)}\b", listing)
+        )
+        missing_from_diagram = sorted(
+            name for name in declared_types
+            if not re.search(rf"(?m)^\s*class\s+{re.escape(name)}\b", diagram)
+        )
+        if missing_from_list:
+            issues.append(Issue(
+                path, line_number(text, list_start),
+                "第11章の完成後クラス一覧に型名が不足しています: "
+                + ", ".join(missing_from_list),
+            ))
+        if missing_from_diagram:
+            issues.append(Issue(
+                path, line_number(text, diagram_start),
+                "第11章の完成後クラス図に型名が不足しています: "
+                + ", ".join(missing_from_diagram),
+            ))
+
+    return issues
+
+
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
@@ -2113,6 +2235,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_recent_star_contracts(text, path))
         issues.extend(check_state_automation(text, path))
         issues.extend(check_end_to_end_traceability(text, path))
+        issues.extend(check_explanation_regression(text, path))
     return issues
 
 
