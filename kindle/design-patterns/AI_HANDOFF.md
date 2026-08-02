@@ -6,28 +6,32 @@
 
 ## 現在の引き継ぎ状態
 
-最初に`NEXT_AI_HANDOFF.md`を読み、CONS-065を担当する場合は`CONS-065_AI_INSTRUCTIONS.md`も全文読む。そこに登録した残件だけを現在タスクとして扱う。本文のCONS-001〜063は完了済みで、CONS-064は対応途中、全章の対策検討コード読解順を直すCONS-065は未着手である。第11章には追加★が5件残り、validatorと完了台帳も未完了なので、現在の本文をreadyと判定しない。`TASK.md`と`RESTRUCTURE_PLAN.md`は過去の検討履歴であり、現在のタスク正本ではない。
+最初に`NEXT_AI_HANDOFF.md`と`AUTHOR_FEEDBACK_MASTER.md`を全文読む。CONS-065を担当する場合は`CONS-065_AI_INSTRUCTIONS.md`、独立監査を担当する場合は`CONS-066_AI_INSTRUCTIONS.md`も全文読む。そこに登録した残件だけを現在タスクとして扱う。本文のCONS-001〜063は完了済みで、CONS-064は対応途中、全章の動作像・フェーズ間接続・対策検討コード読解順を直すCONS-065は未着手、CONS-066は先行タスク待ちである。第11章には追加★が5件残り、validatorと完了台帳も未完了なので、現在の本文をreadyと判定しない。`TASK.md`と`RESTRUCTURE_PLAN.md`は過去の検討履歴であり、現在のタスク正本ではない。
 
 ## 絶対に守る優先順位
 
-1. 章構成の正本は `templates/chapter-template.md`。
-2. 第0章の思想は `output/chapter00_2.md`。
-3. 品質判定は `rules/checklist.md`。
-4. 文章・図・コード提示の書き方は `rules/writing-rules.md`。
-5. 接続点と設計判断は `rules/connection-point-review.md` と `rules/design-decision-guide.md`。
-6. Agent は補助役。Agent の記載が上記と食い違う場合は、テンプレートとチェックリストを優先する。
-7. 既存の第0〜12章とあとがきは本文ゲートを通過済みである。新しい根拠なしに旧計画へ戻したり、全面改稿したりしない。
+1. 現在の未反映指摘と統合判断は `AUTHOR_FEEDBACK_MASTER.md`、実行順は `NEXT_AI_HANDOFF.md`。
+2. CONS-065・066の作業中は、それぞれのAI指示書を全文適用する。
+3. 章構成の正本は `templates/chapter-template.md`。ただし、CONS-065で確定した内容を反映するまで、上記の未反映指摘を優先する。
+4. 第0章の思想は `output/chapter00_2.md`。
+5. 品質判定は `rules/checklist.md`。
+6. 文章・図・コード提示の書き方は `rules/writing-rules.md`。
+7. 接続点と設計判断は `rules/connection-point-review.md` と `rules/design-decision-guide.md`。
+8. Agent は補助役。Agent の記載が上記と食い違う場合は、現在の引き継ぎ、テンプレート、チェックリストを優先する。
+9. 既存の第0〜12章とあとがきはCONS-001〜063時点の本文ゲートを通過済みである。新しい根拠なしに旧計画へ戻したり、全面改稿したりしない。
 
 ## まず読む順序
 
 1. `NEXT_AI_HANDOFF.md`
 2. `AI_HANDOFF.md`
-3. `review-tasks.md` 冒頭の現在残件
-4. `ai-context.md`
-5. `CLAUDE.md`
-6. `templates/chapter-template.md`
-7. `output/chapter00_2.md`
-8. `rules/checklist.md`
+3. `AUTHOR_FEEDBACK_MASTER.md`
+4. `CONS-065_AI_INSTRUCTIONS.md`または`CONS-066_AI_INSTRUCTIONS.md`
+5. `review-tasks.md` 冒頭の現在残件
+6. `ai-context.md`
+7. `CLAUDE.md`
+8. `templates/chapter-template.md`
+9. `output/chapter00_2.md`
+10. `rules/checklist.md`
 
 章を実際に書く、直す、レビューする場合だけ、追加で次を読む。
 
