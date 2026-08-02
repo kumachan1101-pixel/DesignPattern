@@ -52,6 +52,10 @@ def main() -> int:
             "Unused C++ inputs",
             [python, str(SCRIPT_DIR / "check_unused_cpp_inputs.py")],
         ),
+        (
+            "Mermaid rendering",
+            [python, str(SCRIPT_DIR / "check_mermaid.py")],
+        ),
     ]
 
     failed = [label for label, command in checks if not run(label, command)]

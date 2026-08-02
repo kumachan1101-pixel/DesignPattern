@@ -1806,7 +1806,7 @@ def check_phase1_input_contract_use(text: str, path: Path) -> list[Issue]:
 
 
 def check_recent_star_contracts(text: str, path: Path) -> list[Issue]:
-    """直近の★指摘から抽出した第1〜10章の横断契約を確認する。"""
+    """直近の★指摘から抽出した全パターン章の横断契約を確認する。"""
     if path.name not in REVIEWED_CHAPTERS:
         return []
 
@@ -1814,8 +1814,16 @@ def check_recent_star_contracts(text: str, path: Path) -> list[Issue]:
     if "★" in text:
         issues.append(Issue(
             path, line_number(text, text.find("★")),
-            "第1〜10章に未対応の★指摘が残っています",
+            "パターン章に未対応の★指摘が残っています",
         ))
+    for block in extract_cpp_blocks(text):
+        match = re.search(r"\b(?:unique_ptr|make_unique)\b", block)
+        if match:
+            issues.append(Issue(
+                path, line_number(text, text.find(block) + match.start()),
+                "掲載コードではスマートポインタを使わず、"
+                "生成・所有・破棄を生ポインタで明示してください",
+            ))
 
     p3 = text.find("## 🟣 フェーズ3")
     p4 = text.find("## 🟠 フェーズ4", p3)
@@ -1838,19 +1846,16 @@ def check_recent_star_contracts(text: str, path: Path) -> list[Issue]:
     p5 = text.find("## 🟡 フェーズ5")
     p6 = text.find("## 🔴 フェーズ6", p5)
     phase5 = text[p5:p6] if 0 <= p5 < p6 else ""
-    if "```cpp" not in phase5:
-        issues.append(Issue(
-            path, line_number(text, p5),
-            "フェーズ5の接続点に、呼び出し元・接続先・結果利用を追う関連コードがありません",
-        ))
     for token in (
-        "| 課題ID・接続点 | 接続するデータ | 変わる側 | 守る側 |",
-        "変わる側", "守る側",
+        "### 5-1：原因から課題候補を洗い出す",
+        "### 5-2：課題候補をシステム全体で評価する",
+        "### 5-3：課題IDと接続点を確定する",
+        "| 課題ID・接続点 | 接続するもの・変わる側 | 守る側 | 完了条件 |",
     ):
         if token not in phase5:
             issues.append(Issue(
                 path, line_number(text, p5),
-                f"フェーズ5の接続点定義に「{token}」がありません",
+                f"フェーズ5の原因→候補→評価→確定に「{token}」がありません",
             ))
 
     _, phase6 = _phase6_section(text)
@@ -1911,6 +1916,299 @@ def check_state_automation(text: str, path: Path) -> list[Issue]:
                     path, line_number(text, text.find(match.group(0))),
                     "状態不変のエラーを状態遷移図の自己遷移に含めています",
                 ))
+    return issues
+
+
+def _mermaid_diagrams(section: str, diagram_type: str) -> list[str]:
+    """Extract Mermaid definitions of one type from a Markdown section."""
+    return re.findall(
+        rf"```mermaid\s*\n({re.escape(diagram_type)}.*?)(?=\n```)",
+        section,
+        re.DOTALL,
+    )
+
+
+def _normalized_diagram(diagram: str) -> str:
+    return "\n".join(line.rstrip() for line in diagram.splitlines() if line.strip())
+
+
+def _require_sequential_ids(
+    ids: list[str], prefix: str, path: Path, line: int, label: str,
+    width: int = 0,
+) -> list[Issue]:
+    if not ids:
+        return [Issue(path, line, f"{label}にID行がありません")]
+    expected = [
+        f"{prefix}{index:0{width}d}" if width else f"{prefix}{index}"
+        for index in range(1, len(ids) + 1)
+    ]
+    if ids != expected:
+        return [Issue(
+            path, line,
+            f"{label}のIDは重複・欠番なしの連番にしてください: "
+            f"実際={ids}, 期待={expected}",
+        )]
+    return []
+
+
+def check_phase5_phase6_reasoning_contract(
+    text: str, path: Path,
+) -> list[Issue]:
+    """Check the cause-to-issue reasoning and adopted-design implementation flow."""
+    issues: list[Issue] = []
+    p5 = text.find("## 🟡 フェーズ5")
+    p6 = text.find("## 🔴 フェーズ6", p5)
+    p7 = text.find("## 🟢 フェーズ7", p6)
+    if min(p5, p6, p7) < 0:
+        return issues
+    phase5 = text[p5:p6]
+    phase6 = text[p6:p7]
+
+    h51 = phase5.find("### 5-1：原因から課題候補を洗い出す")
+    h52 = phase5.find("### 5-2：課題候補をシステム全体で評価する")
+    h53 = phase5.find("### 5-3：課題IDと接続点を確定する")
+    if min(h51, h52, h53) < 0 or not (h51 < h52 < h53):
+        issues.append(Issue(
+            path, line_number(text, p5),
+            "フェーズ5は原因→課題候補→システム全体評価→課題確定の順にしてください",
+        ))
+        return issues
+
+    for token, message in (
+        ("| 原因として確定した事実 | そのままだと残る痛み | 課題候補 | 候補を導いた理由 |",
+         "5-1に原因から候補を導いた理由がありません"),
+        ("| 課題候補 | 必要性・他候補との関係 | 統合／分割の判断 | 採否 |",
+         "5-2に候補の必要性・重複・統合・分割の評価がありません"),
+        ("| 課題ID・接続点 | 接続するもの・変わる側 | 守る側 | 完了条件 |",
+         "5-3に接続点と完了条件を持つ確定課題表がありません"),
+        ("変更IDと課題IDは一対一とは限らない",
+         "変更IDと課題IDを別管理する理由がありません"),
+        ("📌 **システム全体の完了状態**",
+         "課題別ではなくシステム全体の完了状態がありません"),
+    ):
+        if token not in phase5:
+            issues.append(Issue(path, line_number(text, p5), message))
+
+    issue_ids = re.findall(
+        r"(?m)^\|\s*(課題ID\d+)：[^|]+\|", phase5[h53:]
+    )
+    issues.extend(_require_sequential_ids(
+        issue_ids, "課題ID", path, line_number(text, p5 + h53), "5-3の課題",
+    ))
+
+    partial_heading = "#### 設計判断ごとの部分クラス図"
+    recap_heading = "#### 課題箇所のおさらい（フェーズ3の関連コード）"
+    partial_start = phase6.find(partial_heading)
+    recap_start = phase6.find(recap_heading)
+    final_structure_start = phase6.find("#### システム全体の最終構造を決める")
+    if (
+        partial_start < 0 or final_structure_start < 0 or recap_start < 0
+        or not (partial_start < final_structure_start < recap_start)
+    ):
+        issues.append(Issue(
+            path, line_number(text, p6),
+            "フェーズ6は設計理由→判断ごとの部分クラス図→"
+            "システム全体の最終構造→関連コードの順にしてください",
+        ))
+        return issues
+
+    partial_section = phase6[partial_start:final_structure_start]
+    partial_diagrams = _mermaid_diagrams(partial_section, "classDiagram")
+    if len(partial_diagrams) < len(issue_ids):
+        issues.append(Issue(
+            path, line_number(text, p6 + partial_start),
+            "設計判断ごとの部分クラス図が不足しています: "
+            f"図={len(partial_diagrams)}, 課題={len(issue_ids)}",
+        ))
+    for index, diagram in enumerate(partial_diagrams, 1):
+        if "classDef focus" not in diagram or not re.search(
+            r"(?:cssClass\s+|^\s*class\s+\w+\s+focus\s*$)", diagram, re.MULTILINE
+        ):
+            issues.append(Issue(
+                path, line_number(text, p6 + partial_start),
+                f"部分クラス図{index}に着目箇所の色指定がありません",
+            ))
+
+    adopted_marker = "**採用した変更後のクラス図"
+    adopted_start = phase6.find(adopted_marker)
+    adopted_section = (
+        phase6[adopted_start:recap_start]
+        if 0 <= adopted_start < recap_start else ""
+    )
+    adopted_diagrams = _mermaid_diagrams(adopted_section, "classDiagram")
+    completed_start = text.find("#### 完成後のクラス図", p7)
+    completed_end = text.find("#### 完成後の実行シーケンス", completed_start)
+    completed_section = (
+        text[completed_start:completed_end]
+        if 0 <= completed_start < completed_end else ""
+    )
+    completed_diagrams = _mermaid_diagrams(completed_section, "classDiagram")
+    if not adopted_diagrams or not completed_diagrams:
+        issues.append(Issue(
+            path, line_number(text, p6),
+            "フェーズ6の採用クラス図とフェーズ7の完成クラス図を照合できません",
+        ))
+    else:
+        adopted = adopted_diagrams[-1]
+        completed = completed_diagrams[0]
+        if _normalized_diagram(adopted) != _normalized_diagram(completed):
+            issues.append(Issue(
+                path, line_number(text, completed_start),
+                "フェーズ6で採用した全体クラス図とフェーズ7の完成クラス図が一致しません",
+            ))
+        adopted_classes = _diagram_class_names(adopted)
+        for index, diagram in enumerate(partial_diagrams, 1):
+            extras = sorted(_diagram_class_names(diagram) - adopted_classes)
+            if extras:
+                issues.append(Issue(
+                    path, line_number(text, p6 + partial_start),
+                    f"部分クラス図{index}に採用全体図にない型があります: {extras}",
+                ))
+    return issues
+
+
+def check_requirement_baseline_contract(text: str, path: Path) -> list[Issue]:
+    """Keep current requirements, change requests, final requirements, and evidence separate."""
+    issues: list[Issue] = []
+    current_start = text.find("#### 現行要求ベースライン")
+    current_end = text.find("### 1-2：", current_start)
+    change_start = text.find("### 1-5：変更要求")
+    phase2_start = re.search(r"(?m)^## .*?フェーズ2", text[change_start:])
+    phase2 = change_start + phase2_start.start() if phase2_start else -1
+    final_start = text.find("#### 変更後要求ベースライン", change_start, phase2)
+    evidence_start = text.find("#### 最終要求の実装・受入エビデンス")
+    evidence_end = text.find("\n#### ", evidence_start + 5)
+    if min(current_start, current_end, change_start, phase2, final_start,
+           evidence_start, evidence_end) < 0:
+        issues.append(Issue(
+            path, 1,
+            "現行要求→変更依頼→変更後要求→受入エビデンスの管理節が不足しています",
+        ))
+        return issues
+
+    current_section = text[current_start:current_end]
+    change_section = text[change_start:phase2]
+    final_section = text[final_start:phase2]
+    evidence_section = text[evidence_start:evidence_end]
+    current_rows = re.findall(
+        r"(?m)^\|\s*(要求ID\d+)\s*\|\s*([^|]+?)\s*\|", current_section
+    )
+    change_rows = re.findall(
+        r"(?m)^\|\s*(変更ID\d+)\s*\|\s*([^|]+?)\s*\|", change_section
+    )
+    final_rows = re.findall(
+        r"(?m)^\|\s*(要求ID\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|",
+        final_section,
+    )
+    evidence_rows = re.findall(
+        r"(?m)^\|\s*(要求ID\d+)\s*\|\s*([^|]+?)\s*\|", evidence_section
+    )
+    current_ids = [row[0] for row in current_rows]
+    change_ids = [row[0] for row in change_rows]
+    final_ids = [row[0] for row in final_rows]
+    evidence_ids = [row[0] for row in evidence_rows]
+    line = line_number(text, current_start)
+    issues.extend(_require_sequential_ids(
+        current_ids, "要求ID", path, line, "現行要求ベースライン",
+    ))
+    issues.extend(_require_sequential_ids(
+        change_ids, "変更ID", path, line_number(text, change_start), "変更依頼",
+    ))
+    issues.extend(_require_sequential_ids(
+        final_ids, "要求ID", path, line_number(text, final_start), "変更後要求ベースライン",
+    ))
+    missing_existing = [req_id for req_id in current_ids if req_id not in final_ids]
+    if missing_existing:
+        issues.append(Issue(
+            path, line_number(text, final_start),
+            "変更後要求から既存要求が消失しています: " + ", ".join(missing_existing),
+        ))
+    for change_id in change_ids:
+        if not re.search(rf"\b{re.escape(change_id)}\b", final_section):
+            issues.append(Issue(
+                path, line_number(text, final_start),
+                f"{change_id}が変更後要求の根拠変更IDに反映されていません",
+            ))
+    if evidence_ids != final_ids:
+        issues.append(Issue(
+            path, line_number(text, evidence_start),
+            "最終要求エビデンスは変更後ベースラインの全要求IDを"
+            f"同じ順序で照合してください: {evidence_ids} != {final_ids}",
+        ))
+    final_meaning = {req_id: " ".join(meaning.split()) for req_id, _, meaning in final_rows}
+    for req_id, meaning in evidence_rows:
+        normalized = " ".join(meaning.split())
+        if final_meaning.get(req_id) != normalized:
+            issues.append(Issue(
+                path, line_number(text, evidence_start),
+                f"{req_id}の最終要求文が変更後ベースラインと一致しません",
+            ))
+    if re.search(r"(?m)^\|\s*変更ID\d+\s*[/／]\s*課題ID\d+", evidence_section):
+        issues.append(Issue(
+            path, line_number(text, evidence_start),
+            "要求受入表で変更IDと課題IDを一行に統合しないでください",
+        ))
+    return issues
+
+
+def check_new_end_to_end_traceability(text: str, path: Path) -> list[Issue]:
+    """Check separate requirement evidence, design-effect evidence, and invariants."""
+    issues: list[Issue] = []
+    section72 = text.find("### 7-2：動作シーケンス図")
+    required = (
+        (
+            "#### 最終要求の実装・受入エビデンス",
+            ("要求ID", "最終要求", "適用コード", "実行シナリオ・観測結果", "判定"),
+            r"(?m)^\|\s*要求ID\d+\s*\|",
+        ),
+        (
+            "#### 設計課題の構造改善結果",
+            ("課題ID", "構造差分・コード適用先", "確認できた効果", "残る変更先"),
+            r"(?m)^\|\s*課題ID\d+\s*\|",
+        ),
+        (
+            "#### 変更前→変更後の不変条件照合",
+            ("変更対象外", "変更前", "変更後", "確認根拠"),
+            r"(?m)^\|[^-\n][^\n]*\|$",
+        ),
+    )
+    positions: list[int] = []
+    for heading, tokens, row_pattern in required:
+        start = text.find(heading)
+        positions.append(start)
+        if start < 0:
+            issues.append(Issue(path, 1, f"{heading}がありません"))
+            continue
+        if section72 >= 0 and start > section72:
+            issues.append(Issue(
+                path, line_number(text, start),
+                f"{heading}は完成コード直後、7-2より前に置いてください",
+            ))
+        end = text.find("\n#### ", start + len(heading))
+        if end < 0 or (section72 >= 0 and end > section72):
+            end = section72 if section72 >= 0 else len(text)
+        section = text[start:end]
+        for token in tokens:
+            if token not in section:
+                issues.append(Issue(
+                    path, line_number(text, start), f"{heading}に「{token}」がありません",
+                ))
+        if not re.search(row_pattern, section):
+            issues.append(Issue(
+                path, line_number(text, start), f"{heading}に具体的な照合行がありません",
+            ))
+    if all(position >= 0 for position in positions) and positions != sorted(positions):
+        issues.append(Issue(
+            path, line_number(text, min(positions)),
+            "完成コード後は要求受入→設計課題の効果→不変条件の順で照合してください",
+        ))
+    if "#### 要求→課題→構造→コード→結果の追跡" in text:
+        issues.append(Issue(
+            path, 1,
+            "要求と設計課題を強制的に一表へ統合する旧追跡表が残っています",
+        ))
+    if "|`n|" in text:
+        issues.append(Issue(path, 1, "Markdown表に文字列`nが残っています"))
     return issues
 
 
@@ -2107,42 +2405,42 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
             "2-4の将来リスク表を「リスクID・将来リスク・時期・根拠」の4列にしてください",
         ))
     risk_rows = re.findall(
-        r"(?m)^\|\s*(F\d+)\s*\|\s*([^|]+)\|",
+        r"(?m)^\|\s*(リスクID\d+)\s*\|\s*([^|]+)\|",
         risk_section,
     )
     risk_ids = [risk_id for risk_id, _ in risk_rows]
-    expected_ids = [f"F{index}" for index in range(1, len(risk_ids) + 1)]
+    expected_ids = [f"リスクID{index}" for index in range(1, len(risk_ids) + 1)]
     if not risk_ids:
         issues.append(Issue(
             path, line_number(text, risk_start),
-            "2-4にF1から始まる将来リスクIDがありません",
+            "2-4にリスクID1から始まる将来リスクIDがありません",
         ))
     elif risk_ids != expected_ids:
         issues.append(Issue(
             path, line_number(text, risk_start),
-            f"将来リスクIDはF1から連番にしてください: {risk_ids}",
+            f"将来リスクIDはリスクID1から連番にしてください: {risk_ids}",
         ))
 
     phase3_start = text.find("## 🟣 フェーズ3：", risk_end)
     forecast_section = text[risk_end:phase3_start]
     forecast_header = (
-        "| F-ID・変化軸 | 変わる見込み | 変えられるようにする部分 | "
+        "| リスクID・変化軸 | 変わる見込み | 変えられるようにする部分 | "
         "当面安定として守る部分 |"
     )
     if forecast_header not in forecast_section:
         issues.append(Issue(
             path, line_number(text, risk_end),
-            "2-5をF-ID・変わる見込み・変えられる部分・守る部分の4列にしてください",
+            "2-5をリスクID・変わる見込み・変えられる部分・守る部分の4列にしてください",
         ))
     forecast_rows = re.findall(
-        r"(?m)^\|\s*(F\d+)\s*[：:]\s*([^|]+)\|\s*([^|]+)\|",
+        r"(?m)^\|\s*(リスクID\d+)\s*[：:]\s*([^|]+)\|\s*([^|]+)\|",
         forecast_section,
     )
     forecast_ids = [risk_id for risk_id, _, _ in forecast_rows]
     if forecast_ids != risk_ids:
         issues.append(Issue(
             path, line_number(text, risk_end),
-            "2-4と2-5のF-IDを同じ順序で対応させてください: "
+            "2-4と2-5のリスクIDを同じ順序で対応させてください: "
             f"{risk_ids} != {forecast_ids}",
         ))
     forecast_by_id = {
@@ -2173,7 +2471,7 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
     if design_start < 0:
         issues.append(Issue(
             path, line_number(text, phase6_start),
-            "フェーズ6にF-IDを採用構造へ再適用する6-5がありません",
+            "フェーズ6にリスクIDを採用構造へ再適用する6-5がありません",
         ))
         return issues
 
@@ -2193,14 +2491,14 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
             ))
 
     design_rows = re.findall(
-        r"(?m)^\|\s*(F\d+)\s*[：:]\s*([^|]+)\|",
+        r"(?m)^\|\s*(リスクID\d+)\s*[：:]\s*([^|]+)\|",
         design_section,
     )
     design_ids = [risk_id for risk_id, _ in design_rows]
     if design_ids != risk_ids:
         issues.append(Issue(
             path, line_number(text, design_start),
-            "2-4と6-5のF-IDを同じ順序で対応させてください: "
+            "2-4と6-5のリスクIDを同じ順序で対応させてください: "
             f"{risk_ids} != {design_ids}",
         ))
 
@@ -2216,12 +2514,12 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
             ))
 
     for match in re.finditer(
-        r"(?m)^\|\s*F\d+\s*[：:].*\|$", design_section
+        r"(?m)^\|\s*リスクID\d+\s*[：:].*\|$", design_section
     ):
         if "完成コードへ追加しない" not in match.group(0):
             issues.append(Issue(
                 path, line_number(text, design_start + match.start()),
-                "F-ID行ごとに未確定機能を完成コードへ追加しない判断を明記してください",
+                "リスクID行ごとに未確定機能を完成コードへ追加しない判断を明記してください",
             ))
 
     phase4_start = text.find("## 🟠 フェーズ4：", phase3_start)
@@ -2232,57 +2530,58 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
     )
     for label, offset, section in scoped_sections:
         match = re.search(
-            r"将来|未来|F-ID|この先|もし、さらに|"
+            r"将来|未来|リスクID|この先|もし、さらに|"
             r"増えるたび|追加するたび|変わるたび|変更のたび|予告された|"
-            r"^\|\s*F\d+\s*[：:]",
+            r"^\|\s*リスクID\d+\s*[：:]",
             section,
             re.MULTILINE,
         )
         if match:
             issues.append(Issue(
                 path, line_number(text, offset + match.start()),
-                f"{label}にはF-IDや未確定の変化を持ち込まず、確定R-IDだけを扱ってください",
+                f"{label}にはリスクIDや未確定の変化を持ち込まず、"
+                "今回確定した変更ID／変更後要求IDだけを扱ってください",
             ))
 
     requirement_start = text.find("### 1-5：変更要求")
     phase2_start = text.find("## 🟣 フェーズ2：", requirement_start)
     requirement_section = text[requirement_start:phase2_start]
-    requirement_rows = re.findall(
-        r"(?m)^\|\s*(R\d+)\s*\|\s*([^|]+)\|",
+    change_rows = re.findall(
+        r"(?m)^\|\s*(変更ID\d+)\s*\|\s*([^|]+)\|",
         requirement_section,
     )
     scenario_start = text.find("### 7-4：変更シナリオ表", phase7_start)
     scenario_section = text[scenario_start:phase7_end]
     if (
-        "| 確定要求 | フェーズ1の現状構造での影響 | 完成構造での結果 |"
+        "| 変更依頼 | フェーズ1の現状構造での影響 | 完成構造での結果 |"
         not in scenario_section
     ):
         issues.append(Issue(
             path, line_number(text, scenario_start),
-            "7-4を確定要求・現状構造の影響・完成構造の結果の3列にしてください",
+            "7-4を変更依頼・現状構造の影響・完成構造の結果の3列にしてください",
         ))
     scenario_rows = re.findall(
-        r"(?m)^\|\s*(R\d+)\s*[：:]\s*([^|]+)\|",
+        r"(?m)^\|\s*(変更ID\d+)\s*[：:]\s*([^|]+)\|",
         scenario_section,
     )
-    requirement_ids = [requirement_id for requirement_id, _ in requirement_rows]
-    scenario_ids = [requirement_id for requirement_id, _ in scenario_rows]
-    if scenario_ids != requirement_ids:
+    change_ids = [change_id for change_id, _ in change_rows]
+    scenario_ids = [change_id for change_id, _ in scenario_rows]
+    if scenario_ids != change_ids:
         issues.append(Issue(
             path, line_number(text, scenario_start),
-            "1-5と7-4のR-IDを同じ順序で対応させてください: "
-            f"{requirement_ids} != {scenario_ids}",
+            "1-5と7-4の変更IDを同じ順序で対応させてください: "
+            f"{change_ids} != {scenario_ids}",
         ))
     scenario_by_id = dict(scenario_rows)
-    for requirement_id, meaning in requirement_rows:
+    for change_id, meaning in change_rows:
         expected_meaning = " ".join(meaning.split())
         scenario_meaning = " ".join(
-            scenario_by_id.get(requirement_id, "").split()
+            scenario_by_id.get(change_id, "").split()
         )
         if scenario_meaning != expected_meaning:
             issues.append(Issue(
                 path, line_number(text, scenario_start),
-                f"{requirement_id}の確定要求が1-5から7-4へ"
+                f"{change_id}の変更依頼が1-5から7-4へ"
                 f"同じ文言で引き継がれていません: {expected_meaning}",
             ))
 
@@ -2303,7 +2602,7 @@ def check_overview_phase_scope(text: str, path: Path) -> list[Issue]:
         ("第0章のフェーズ7", phase7_start, text[phase7_start:phase7_end]),
     )
     forbidden = re.compile(
-        r"将来|未来|F-ID|この先|もし、さらに|"
+        r"将来|未来|リスクID|この先|もし、さらに|"
         r"増えるたび|追加するたび|変わるたび|変更のたび|予告された"
     )
     for label, offset, section in sections:
@@ -2312,7 +2611,8 @@ def check_overview_phase_scope(text: str, path: Path) -> list[Issue]:
             issues.append(Issue(
                 path,
                 line_number(text, offset + match.start()),
-                f"{label}には未確定の変化を持ち込まず、確定R-IDだけを説明してください",
+                f"{label}には未確定の変化を持ち込まず、"
+                "今回確定した変更ID／変更後要求IDだけを説明してください",
             ))
     return issues
 
@@ -2346,9 +2646,9 @@ def check_explanation_regression(text: str, path: Path) -> list[Issue]:
 
     required_tokens = (
         "見当は、次の順で作ります。",
-        "【P1の原因】",
-        "【P2の原因】",
-        "【P3の原因】",
+        "【課題ID1の原因】",
+        "【課題ID2の原因】",
+        "【課題ID3の原因】",
         "**クラス図に出てくる主なメンバーと操作**",
         "+generate(request) bool",
         "+writePreview(document, path, format) bool",
@@ -2509,23 +2809,150 @@ def check_explanation_regression(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def check_standard_id_glossary(text: str, path: Path) -> list[Issue]:
+    """標準IDを日本語で定義し、英字略語や標準外IDを残さない。"""
+    issues: list[Issue] = []
+    if path.name == "chapter00_2.md":
+        for token in (
+            "### 本書の番号の読み方",
+            "| 表記例 | 意味 | 採番する場所 | 何を追うか |",
+            "| 要求ID1 | システムが満たす要求 |",
+            "| 変更ID1 | 今回届いた変更依頼 |",
+            "| リスクID1 | 将来変わる可能性 |",
+            "| 課題ID1 | 構造として解く設計課題 |",
+        ):
+            if token not in text:
+                issues.append(Issue(
+                    path, 1, f"第0章の標準ID用語表に「{token}」がありません",
+                ))
+    if path.name in REVIEWED_CHAPTERS and re.search(r"\bH\d+\b", text):
+        issues.append(Issue(
+            path, line_number(text, re.search(r"\bH\d+\b", text).start()),
+            "標準外のH-IDを使わず、仮説の内容名を日本語で示してください",
+        ))
+    if path.name in REVIEWED_CHAPTERS:
+        old_tracking_id = re.search(
+            r"(?m)^\|\s*(?:REQ-\d+|CR\d+|F\d+|P\d+)\s*[|：:]", text,
+        )
+        if old_tracking_id:
+            issues.append(Issue(
+                path, line_number(text, old_tracking_id.start()),
+                "追跡番号は要求ID・変更ID・リスクID・課題IDの日本語表記にしてください",
+            ))
+    return issues
+
+
+def check_phase1_system_overview(text: str, path: Path) -> list[Issue]:
+    """要求表より前に、システムの大筋と代替境界を説明する。"""
+    issues: list[Issue] = []
+    phase11 = text.find("### 1-1：")
+    phase12 = text.find("### 1-2：", phase11)
+    if min(phase11, phase12) < 0:
+        return issues
+
+    section = text[phase11:phase12]
+    heading = "#### 最初にシステム全体をつかむ"
+    overview = section.find(heading)
+    baseline = section.find("#### 現行要求ベースライン")
+    if overview < 0:
+        issues.append(Issue(
+            path, line_number(text, phase11),
+            "1-1冒頭にシステム全体を説明する見出しがありません: " + heading,
+        ))
+        return issues
+    if baseline < 0 or overview > baseline:
+        issues.append(Issue(
+            path, line_number(text, phase11 + overview),
+            "システム全体の要約は現行要求ベースラインより前に置いてください",
+        ))
+
+    overview_end = section.find("\n#### ", overview + len(heading))
+    if overview_end < 0:
+        overview_end = len(section)
+    overview_text = section[overview:overview_end]
+    for token in (
+        "**入力：**",
+        "**処理：**",
+        "**出力：**",
+        "**掲載コードでの代替：**",
+    ):
+        if token not in overview_text:
+            issues.append(Issue(
+                path, line_number(text, phase11 + overview),
+                f"1-1の全体要約に「{token}」がありません",
+            ))
+    if "以降" not in overview_text or "詳細" not in overview_text:
+        issues.append(Issue(
+            path, line_number(text, phase11 + overview),
+            "1-1の全体要約から後続の体系的な詳細説明への接続がありません",
+        ))
+    return issues
+
+
+def check_phase2_interview_plan(text: str, path: Path) -> list[Issue]:
+    """2-1の見当を質問へ変換してから2-3で回答する流れを確認する。"""
+    issues: list[Issue] = []
+    phase21 = text.find("### 2-1：")
+    phase22 = text.find("### 2-2：", phase21)
+    phase23 = text.find("### 2-3：", phase22)
+    phase24 = text.find("### 2-4：", phase23)
+    if min(phase21, phase22, phase23, phase24) < 0:
+        return issues
+
+    planning = text[phase21:phase22]
+    interview = text[phase23:phase24]
+    heading = "#### ヒアリングで確認すること"
+    header = "| 見当 | 現時点の仮説 | 確認する質問 | 確認先 |"
+    for token in (heading, header):
+        if token not in planning:
+            issues.append(Issue(
+                path, line_number(text, phase21),
+                f"2-1で見当を質問へ変換する「{token}」がありません",
+            ))
+
+    plan_start = planning.find(heading)
+    plan_table = planning[plan_start:] if plan_start >= 0 else ""
+    rows = [
+        line for line in plan_table.splitlines()
+        if re.match(r"^\|.+\|.+\|.+\|.+\|$", line)
+        and line != header
+        and not re.match(r"^\|[-:|]+\|$", line.replace(" ", ""))
+    ]
+    if not rows:
+        issues.append(Issue(
+            path, line_number(text, phase21),
+            "2-1のヒアリング計画に具体的な質問行がありません",
+        ))
+    interviewer_count = interview.count("開発者")
+    if interviewer_count < len(rows):
+        issues.append(Issue(
+            path, line_number(text, phase23),
+            "2-3は2-1で決めた各質問へ答える順で構成してください: "
+            f"計画={len(rows)}件, 開発者の質問={interviewer_count}件",
+        ))
+    return issues
+
+
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
     issues.extend(check_duplicate_headings(text, path))
     issues.extend(check_banned_patterns(text, path))
     issues.extend(check_overview_phase_scope(text, path))
+    issues.extend(check_standard_id_glossary(text, path))
     if core:
         issues.extend(find_in_order(text, REQUIRED_PHASES, path))
         issues.extend(find_in_order(text, REQUIRED_NUMBERED_SECTIONS, path))
         issues.extend(check_required_chapter_structures(text, path))
+        issues.extend(check_phase1_system_overview(text, path))
         issues.extend(check_error_condition_last(text, path))
         issues.extend(check_boundary_error_marker(text, path))
-        issues.extend(check_phase6_design(text, path))
+        issues.extend(check_phase2_interview_plan(text, path))
+        issues.extend(check_phase5_phase6_reasoning_contract(text, path))
         issues.extend(check_phase6_complete_comparison_code(text, path))
         issues.extend(check_phase6_baseline(text, path))
         issues.extend(check_phase6_continuity(text, path))
-        issues.extend(check_requirement_semantics_and_phase7_order(text, path))
+        issues.extend(check_requirement_baseline_contract(text, path))
         issues.extend(check_future_risk_traceability(text, path))
         issues.extend(check_phase6_step_chain(text, path))
         issues.extend(check_phase7_continuity(text, path))
@@ -2536,7 +2963,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase1_input_contract_use(text, path))
         issues.extend(check_recent_star_contracts(text, path))
         issues.extend(check_state_automation(text, path))
-        issues.extend(check_end_to_end_traceability(text, path))
+        issues.extend(check_new_end_to_end_traceability(text, path))
         issues.extend(check_explanation_regression(text, path))
     return issues
 
