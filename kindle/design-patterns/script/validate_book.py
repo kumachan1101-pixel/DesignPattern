@@ -105,7 +105,7 @@ PHASE7_SCENARIO_TOKENS = {
     "chapter06.md": ["Matcha", "Choco"],
     "chapter07.md": ["SMS", "非同期"],
     "chapter08.md": ["PayPay", "PaymentResult"],
-    "chapter09_2.md": ["保留中", "法人"],
+    "chapter09_2.md": ["Pending", "法人"],
     "chapter10.md": ["C社", "Slack"],
     "chapter11.md": ["月次", "再実行"],
     "chapter12.md": ["緊急申請", "決済部門", "却下"],
@@ -2123,6 +2123,53 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
             f"将来リスクIDはF1から連番にしてください: {risk_ids}",
         ))
 
+    phase3_start = text.find("## 🟣 フェーズ3：", risk_end)
+    forecast_section = text[risk_end:phase3_start]
+    forecast_header = (
+        "| F-ID・変化軸 | 変わる見込み | 変えられるようにする部分 | "
+        "当面安定として守る部分 |"
+    )
+    if forecast_header not in forecast_section:
+        issues.append(Issue(
+            path, line_number(text, risk_end),
+            "2-5をF-ID・変わる見込み・変えられる部分・守る部分の4列にしてください",
+        ))
+    forecast_rows = re.findall(
+        r"(?m)^\|\s*(F\d+)\s*[：:]\s*([^|]+)\|\s*([^|]+)\|",
+        forecast_section,
+    )
+    forecast_ids = [risk_id for risk_id, _, _ in forecast_rows]
+    if forecast_ids != risk_ids:
+        issues.append(Issue(
+            path, line_number(text, risk_end),
+            "2-4と2-5のF-IDを同じ順序で対応させてください: "
+            f"{risk_ids} != {forecast_ids}",
+        ))
+    forecast_by_id = {
+        risk_id: (meaning, outlook)
+        for risk_id, meaning, outlook in forecast_rows
+    }
+    for risk_id, meaning in risk_rows:
+        expected_meaning = " ".join(meaning.split())
+        actual_meaning, outlook = forecast_by_id.get(risk_id, ("", ""))
+        if " ".join(actual_meaning.split()) != expected_meaning:
+            issues.append(Issue(
+                path, line_number(text, risk_end),
+                f"{risk_id}の将来リスクが2-4から2-5へ"
+                f"同じ文言で引き継がれていません: {expected_meaning}",
+            ))
+        if " ".join(outlook.split()) != "はい":
+            issues.append(Issue(
+                path, line_number(text, risk_end),
+                f"{risk_id}の変わる見込みを「はい」として設計条件へ渡してください",
+            ))
+    for token in ("フェーズ6", "設計条件"):
+        if token not in forecast_section:
+            issues.append(Issue(
+                path, line_number(text, risk_end),
+                f"2-5に目的を示す「{token}」がありません",
+            ))
+
     if design_start < 0:
         issues.append(Issue(
             path, line_number(text, phase6_start),
@@ -2177,6 +2224,96 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
                 "F-ID行ごとに未確定機能を完成コードへ追加しない判断を明記してください",
             ))
 
+    phase4_start = text.find("## 🟠 フェーズ4：", phase3_start)
+    phase7_end = text.find("## 整理", phase7_start)
+    scoped_sections = (
+        ("フェーズ3", phase3_start, text[phase3_start:phase4_start]),
+        ("フェーズ7", phase7_start, text[phase7_start:phase7_end]),
+    )
+    for label, offset, section in scoped_sections:
+        match = re.search(
+            r"将来|未来|F-ID|この先|もし、さらに|"
+            r"増えるたび|追加するたび|変わるたび|変更のたび|予告された|"
+            r"^\|\s*F\d+\s*[：:]",
+            section,
+            re.MULTILINE,
+        )
+        if match:
+            issues.append(Issue(
+                path, line_number(text, offset + match.start()),
+                f"{label}にはF-IDや未確定の変化を持ち込まず、確定R-IDだけを扱ってください",
+            ))
+
+    requirement_start = text.find("### 1-5：変更要求")
+    phase2_start = text.find("## 🟣 フェーズ2：", requirement_start)
+    requirement_section = text[requirement_start:phase2_start]
+    requirement_rows = re.findall(
+        r"(?m)^\|\s*(R\d+)\s*\|\s*([^|]+)\|",
+        requirement_section,
+    )
+    scenario_start = text.find("### 7-4：変更シナリオ表", phase7_start)
+    scenario_section = text[scenario_start:phase7_end]
+    if (
+        "| 確定要求 | フェーズ1の現状構造での影響 | 完成構造での結果 |"
+        not in scenario_section
+    ):
+        issues.append(Issue(
+            path, line_number(text, scenario_start),
+            "7-4を確定要求・現状構造の影響・完成構造の結果の3列にしてください",
+        ))
+    scenario_rows = re.findall(
+        r"(?m)^\|\s*(R\d+)\s*[：:]\s*([^|]+)\|",
+        scenario_section,
+    )
+    requirement_ids = [requirement_id for requirement_id, _ in requirement_rows]
+    scenario_ids = [requirement_id for requirement_id, _ in scenario_rows]
+    if scenario_ids != requirement_ids:
+        issues.append(Issue(
+            path, line_number(text, scenario_start),
+            "1-5と7-4のR-IDを同じ順序で対応させてください: "
+            f"{requirement_ids} != {scenario_ids}",
+        ))
+    scenario_by_id = dict(scenario_rows)
+    for requirement_id, meaning in requirement_rows:
+        expected_meaning = " ".join(meaning.split())
+        scenario_meaning = " ".join(
+            scenario_by_id.get(requirement_id, "").split()
+        )
+        if scenario_meaning != expected_meaning:
+            issues.append(Issue(
+                path, line_number(text, scenario_start),
+                f"{requirement_id}の確定要求が1-5から7-4へ"
+                f"同じ文言で引き継がれていません: {expected_meaning}",
+            ))
+
+    return issues
+
+
+def check_overview_phase_scope(text: str, path: Path) -> list[Issue]:
+    """Keep the overview's phase 3 and 7 descriptions on confirmed work."""
+    if path.name != "chapter00_2.md":
+        return []
+    issues: list[Issue] = []
+    phase3_start = text.find("## 🟣 フェーズ3：")
+    phase4_start = text.find("## 🟠 フェーズ4：", phase3_start)
+    phase7_start = text.find("## 🟢 フェーズ7：")
+    phase7_end = text.find("### 設計構造とデザインパターンの関係", phase7_start)
+    sections = (
+        ("第0章のフェーズ3", phase3_start, text[phase3_start:phase4_start]),
+        ("第0章のフェーズ7", phase7_start, text[phase7_start:phase7_end]),
+    )
+    forbidden = re.compile(
+        r"将来|未来|F-ID|この先|もし、さらに|"
+        r"増えるたび|追加するたび|変わるたび|変更のたび|予告された"
+    )
+    for label, offset, section in sections:
+        match = forbidden.search(section)
+        if match:
+            issues.append(Issue(
+                path,
+                line_number(text, offset + match.start()),
+                f"{label}には未確定の変化を持ち込まず、確定R-IDだけを説明してください",
+            ))
     return issues
 
 
@@ -2220,7 +2357,7 @@ def check_explanation_regression(text: str, path: Path) -> list[Issue]:
         "##### 2. DebugLog",
         "class DebugLog",
         "現行システムに最初からある内部基盤",
-        "| DebugLog | 変更対象外・内部基盤 | 変更しない | 維持 |",
+        "`DebugLog`は変更対象外の内部基盤として維持します",
         "デバッグログ件数: 0->1・event=generate・result=success",
         "デバッグログ件数: 6",
         "要求履歴4件と診断ログ6件",
@@ -2377,6 +2514,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
     issues = check_fences(text, path)
     issues.extend(check_duplicate_headings(text, path))
     issues.extend(check_banned_patterns(text, path))
+    issues.extend(check_overview_phase_scope(text, path))
     if core:
         issues.extend(find_in_order(text, REQUIRED_PHASES, path))
         issues.extend(find_in_order(text, REQUIRED_NUMBERED_SECTIONS, path))
