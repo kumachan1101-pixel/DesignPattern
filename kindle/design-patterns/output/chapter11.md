@@ -12,7 +12,7 @@
 - 元のクラスの責任と、変更によって漏れ込んだ知識を区別できる。
 - 共通手順、順番付き追加処理、操作履歴という三つの変化軸を見分けられる。
 - クラスを分けるだけでなく、生成、選択、所有、依存注入、実行まで設計できる。
-- 要求、課題ID、クラス図、コード、実行結果を一つの線で追跡できる。
+- 機能・要求の受入と、痛みから導いた課題の構造改善を、別々の線で追跡できる。
 
 ---
 
@@ -1089,6 +1089,36 @@ classDiagram
 
 フェーズ4で確定した原因は、まだ課題そのものではありません。まず変えるべき構造を候補として導き、システム全体で候補の関係を整理してから、解くべき接続点を確定します。
 
+#### 課題候補をコード事実へ戻して確認する
+
+フェーズ5は要求IDを課題IDへ変換する工程ではありません。フェーズ3・4で確認した変更途中コードのうち、同じクラスへ集まった次の三箇所を起点にします。
+
+```cpp
+// 本文IDと本文内容の判断
+if (request.templateId == "SALES_MONTHLY_EXECUTIVE") {
+    renderer.addStandardBody(
+        document, "役員向け月次専用本文", summary);
+}
+
+// 装飾種類と適用順の判断
+for (DecorationType type : request.decorations) {
+    if (type == DecorationType::Graph) {
+        renderer.addGraph(document);
+    }
+}
+
+// 受付要求を保存する判断
+acceptedRequests.push_back(request);
+```
+
+| コードで観測した事実 | フェーズ4で確定した原因 | 次に検討する問い |
+|---|---|---|
+| 共通生成順の中で本文IDと本文内容を判断する | 共通順と本文差分が同じ責任にある | 共通順を変えず、本文差分だけを変更できるか |
+| 同じ生成処理が装飾列を走査し、具体APIを選ぶ | 文書生成と装飾種類・順序が同じ責任にある | 一つの文書へ装飾を同じ規則で重ねられるか |
+| 生成本体が受付要求の保存時点を決める | 生成実行と履歴運用が同じ責任にある | 完全要求を生成詳細から独立した操作として扱えるか |
+
+ここではコードの三箇所を、変更すべきクラス名へ直ちに置き換えません。「どの判断を共通順から外せば、観測した痛みが減るか」という問いへ変え、次の候補表へ渡します。
+
 ### 5-1：原因から課題候補を洗い出す
 
 | 原因として確定した事実 | そのままだと残る痛み | 課題候補 | 候補を導いた理由 |
@@ -1170,10 +1200,12 @@ classDiagram
 
 ```mermaid
 classDiagram
+    class ReportAssembler
     class IReport { <<interface>> }
     class ReportSkeleton
     class MonthlyReport
     class ExecutiveMonthlyReport
+    ReportAssembler ..> ReportSkeleton : 本文実装を生成
     IReport <|.. ReportSkeleton
     ReportSkeleton <|-- MonthlyReport
     ReportSkeleton <|-- ExecutiveMonthlyReport
@@ -1182,14 +1214,38 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
+`ReportAssembler`を生成側として図へ含めたため、本文クラスだけがシステムから浮いていません。構造差分を作るコードの核は次です。
+
+```cpp
+class ReportSkeleton : public IReport {
+protected:
+    virtual void renderBody(
+        ReportDocument& document,
+        const SalesSummary& summary) = 0;
+public:
+    ReportDocument create() final {
+        SalesSummary summary = reader.readCSV();
+        ReportDocument document;
+        renderer.addHeader(document, format);
+        renderBody(document, summary);
+        renderer.addFooter(document);
+        return document;
+    }
+};
+```
+
+変更途中コードの本文ID分岐を`create()`から外し、具体本文の`renderBody()`へ移す変更です。生成者は本文実装を選びますが、共通順は本文IDを知りません。
+
 課題ID2では、各装飾も`IReport`として内側の文書を保持し、入力順に包める構造へ変えます。
 
 ```mermaid
 classDiagram
+    class ReportAssembler
     class IReport { <<interface>> }
     class ReportFeature
     class GraphFeature
     class LogoFeature
+    ReportAssembler ..> ReportFeature : 入力順に連結
     IReport <|.. ReportFeature
     ReportFeature o--> IReport : 内側
     ReportFeature <|-- GraphFeature
@@ -1200,22 +1256,60 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
+ここでも`ReportAssembler`を連結する側として示し、装飾クラスを単独の型一覧にしていません。コードでは、各部品が具体的な装飾を一つだけ加えます。
+
+```cpp
+class GraphFeature : public ReportFeature {
+public:
+    using ReportFeature::ReportFeature;
+    ReportDocument create() override {
+        ReportDocument document = wrapped->create();
+        renderer.addGraph(document);
+        return document;
+    }
+};
+```
+
+変更途中コードの装飾種類分岐は、各Featureと組み立て側へ分かれます。Featureは前後順を判断せず、Assemblerが入力列の順に連結します。
+
 課題ID3では、完全な`ReportRequest`を`GenerateReportAction`が保持し、履歴は同じ操作契約だけで実行・取消します。
 
 ```mermaid
 classDiagram
+    class ReportApplication
     class ReportActionHistory
     class IReportAction { <<interface>> }
     class GenerateReportAction
     class ReportRequest
+    class ReportGenerationService
+    ReportApplication *-- ReportActionHistory : 所有
     ReportActionHistory o--> IReportAction : 受付順に所有
     IReportAction <|.. GenerateReportAction
     GenerateReportAction *-- ReportRequest : 完全な要求
+    GenerateReportAction --> ReportGenerationService : 実行を委譲
     class ReportActionHistory focus
     class IReportAction focus
     class GenerateReportAction focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
+
+受付側、履歴、操作、実行先までを接続したため、`ReportRequest`とActionが図の中で孤立しません。コードでは、受付時に完全要求を持つActionを履歴が所有します。
+
+```cpp
+OperationResult submit(ReportRequest request) {
+    IReportAction* action =
+        new GenerateReportAction(service, request);
+    return history.submit(action);
+}
+
+OperationResult ReportActionHistory::submit(
+    IReportAction* action) {
+    accepted.push_back(action);
+    return accepted.back()->execute();
+}
+```
+
+変更途中コードの`acceptedRequests.push_back(request)`を、生成本体の内部状態ではなく、Application→Action→Historyの所有関係へ移す変更です。
 
 三図は採用全体図の抜粋です。次のコードでは本文、装飾、操作履歴を別々に実装し、最後に一つの生成ユースケースへ接続します。
 
@@ -1380,6 +1474,7 @@ classDiagram
 #### 課題箇所のおさらい（フェーズ3の関連コード）
 
 課題に関係する、本文判断・装飾判断・履歴操作だけを再掲します。
+★おさらいするなら、このフェーズの先頭の方が良い
 
 ```cpp
 if (request.templateId == "SALES_MONTHLY_EXECUTIVE") {
@@ -1422,7 +1517,9 @@ void renderBody(ReportDocument& document,
 ```
 
 #### 実装ステップ2（課題ID2）：指定順の装飾連結
-本書では、所有権管理の記法を増やさないため、他章と同じ生ポインタを使います。各Featureが内側の`IReport`を所有し、デストラクタで破棄します。`std::unique_ptr`と`std::make_unique`の意味は第0章で補足しますが、本章の掲載コードでは使いません。
+本書では、所有権管理の記法を増やさないため、他章と同じ生ポインタを使います。各Featureが内側の`IReport`を所有し、デストラクタで破棄します。`std::unique_ptr`と`std::make_unique`の意味は第0章で補足しますが、本章の掲載コードでは使いません。★ここはどういう意味？
+
+★下のコードも部分的過ぎてよくわからない。対策前の話なのか対策後なのか。
 
 ```cpp
 ReportDocument create() override {
@@ -1528,13 +1625,15 @@ sequenceDiagram
 
 「本文判定をヘルパー関数へ移すだけ」では、生成本体がID分岐を持つことは変わりません。「装飾ifを別メソッドへ移すだけ」でも、種類と順序の知識は同じクラスに残ります。課題ID1〜課題ID3の完了条件を同時に満たさないため、これらは別の完成案として比較する対象ではありません。
 
-### 6-4：要求から結果までの設計トレース
+### 6-4：課題から完成構造までの設計トレース
 
-| 要求・課題 | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
+この表は設計課題だけを追います。変更要求の受入はフェーズ7の機能ID・要求ID表、変更影響は7-4の変更ID表で別に確認します。
+
+| 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
 |---|---|---|---|
-| 変更ID1・課題ID1 | 骨格固定。Assemblerが本文クラスを生成 | ReportSkeleton、ExecutiveMonthlyReport | A1、A2 |
-| 変更ID2・課題ID2 | 装飾連結。Assemblerが入力順に連結 | Graph/Logo/WatermarkFeature | A2、A3 |
-| 変更ID3・課題ID3 | 操作記録。ApplicationがActionをHistoryへ渡す | GenerateReportAction、ReportActionHistory | A4 |
+| 課題ID1 | 骨格固定。Assemblerが本文クラスを生成 | ReportSkeleton、ExecutiveMonthlyReport | 共通順から本文ID判断が消える |
+| 課題ID2 | 装飾連結。Assemblerが入力順に連結 | Graph/Logo/WatermarkFeature | 装飾部品が順序判断を持たない |
+| 課題ID3 | 操作記録。ApplicationがActionをHistoryへ渡す | GenerateReportAction、ReportActionHistory | 履歴が本文・装飾判断を持たない |
 | 変更対象外 | 内部診断。Applicationが結果だけを渡す | DebugLog | 1-4、A1〜A4 |
 
 このクラス図、所有表、シーケンス、コード変更表が、フェーズ7へ渡す完成設計です。
@@ -2591,6 +2690,7 @@ CSV読込: 6件・合計3510・平均585
 ```
 
 **A1〜A4を一つのApplicationで実行するmain**
+★以下を先にもってきてよ。
 
 ```cpp
 int main() {
@@ -2700,7 +2800,7 @@ sequenceDiagram
 
 フェーズ3の変更影響グラフと同じ要求粒度で確認します。
 
-変更要求：役員向け月次本文はExecutiveMonthlyReport、変更要求：装飾機能の追加はReportFeature、変更要求：再実行・取消はIReportActionを修正起点にします。
+変更要求：役員向け月次本文はExecutiveMonthlyReport、変更要求：装飾機能の追加はReportFeature、変更要求：再実行・取消はIReportActionを修正起点にします。★以下の浮いているブロックは？浮いていると意味が分からない。
 
 ```mermaid
 graph LR
