@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "book_status": "ready",
+  "book_status": "in_progress",
   "task_source": "review-tasks.md",
   "tasks": {
     "CONS-001": {"status": "done", "evidence": ["output/chapter00_2.md#🟡 フェーズ5：課題定義 ―― 原因から課題を検討して確定する"]},
@@ -65,7 +65,8 @@
     "CONS-060": {"status": "done", "evidence": ["output/chapter01.md#ヒアリングで確認すること", "output/chapter11.md#ヒアリングで確認すること", "templates/chapter-template.md#ヒアリングで確認すること", "script/validate_book.py:2831"]},
     "CONS-061": {"status": "done", "evidence": ["output/chapter00_1.md#はじめに", "output/chapter11.md#実装ステップ2（課題ID2）：指定順の装飾連結", "rules/writing-rules.md:116", "script/validate_book.py:1819"]},
     "CONS-062": {"status": "done", "evidence": ["output/chapter00_2.md#本書の番号の読み方", "output/chapter01.md#現行要求ベースライン", "script/validate_book.py:2812"]},
-    "CONS-063": {"status": "done", "evidence": ["output/chapter01.md#最初にシステム全体をつかむ", "output/chapter12.md#最初にシステム全体をつかむ", "templates/chapter-template.md#最初にシステム全体をつかむ", "script/validate_book.py:2845"]}
+    "CONS-063": {"status": "done", "evidence": ["output/chapter01.md#最初にシステム全体をつかむ", "output/chapter12.md#最初にシステム全体をつかむ", "templates/chapter-template.md#最初にシステム全体をつかむ", "script/validate_book.py:2845"]},
+    "CONS-064": {"status": "open", "evidence": []}
   },
   "chapters": {
     "chapter00_1.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter00_1.md#はじめに"]},
