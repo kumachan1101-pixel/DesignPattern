@@ -53,7 +53,8 @@
     "CONS-048": {"status": "done", "evidence": ["script/validate_book.py:1971", "output/chapter09_2.md#要求→課題→構造→コード→結果の追跡"]},
     "CONS-049": {"status": "done", "evidence": ["output/chapter04.md#要求→課題→構造→コード→結果の追跡", "output/chapter08.md#要求→課題→構造→コード→結果の追跡", "output/chapter10.md#要求→課題→構造→コード→結果の追跡"]},
     "CONS-050": {"status": "done", "evidence": ["output/chapter11.md#フェーズとこの章でやったこと", "output/chapter11.md#パターンの骨格"]},
-    "CONS-051": {"status": "done", "evidence": ["output/chapter11.md#内部デバッグログ", "output/chapter11.md#変更前→変更後の不変条件照合"]}
+    "CONS-051": {"status": "done", "evidence": ["output/chapter11.md#内部デバッグログ", "output/chapter11.md#変更前→変更後の不変条件照合"]},
+    "CONS-052": {"status": "done", "evidence": ["output/chapter00_2.md#対策検討の進め方 ―― システム全体の構造をコードへ落とす", "output/chapter11.md#6-5：将来リスクに対する設計上の確認"]}
   },
   "chapters": {
     "chapter00_1.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter00_1.md#はじめに"]},

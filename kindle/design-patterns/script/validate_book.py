@@ -66,6 +66,7 @@ REQUIRED_NUMBERED_SECTIONS = [
     "### 4-1：痛みの根源を探る",
     "### 4-2：変わるもの/変わってほしくないもの",
     "### 4-3：",
+    "### 6-5：将来リスクに対する設計上の確認",
     "### 7-1：解決後のコード（全体）",
     "### 7-2：動作シーケンス図",
     "### 7-3：変更影響グラフ（改善後）",
@@ -2087,6 +2088,98 @@ def check_requirement_semantics_and_phase7_order(
     return issues
 
 
+def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
+    """Trace future risks into design evaluation without implementing them."""
+    issues: list[Issue] = []
+    risk_start = text.find("### 2-4：ヒアリングで判明した将来リスク")
+    risk_end = text.find("### 2-5：", risk_start)
+    phase6_start = text.find("## 🔴 フェーズ6：")
+    phase7_start = text.find("## 🟢 フェーズ7：", phase6_start)
+    design_heading = "### 6-5：将来リスクに対する設計上の確認"
+    design_start = text.find(design_heading, phase6_start, phase7_start)
+    if min(risk_start, risk_end, phase6_start, phase7_start) < 0:
+        return issues
+
+    risk_section = text[risk_start:risk_end]
+    if "| リスクID | 将来リスク | 時期の目安 | 根拠 |" not in risk_section:
+        issues.append(Issue(
+            path, line_number(text, risk_start),
+            "2-4の将来リスク表を「リスクID・将来リスク・時期・根拠」の4列にしてください",
+        ))
+    risk_rows = re.findall(
+        r"(?m)^\|\s*(F\d+)\s*\|\s*([^|]+)\|",
+        risk_section,
+    )
+    risk_ids = [risk_id for risk_id, _ in risk_rows]
+    expected_ids = [f"F{index}" for index in range(1, len(risk_ids) + 1)]
+    if not risk_ids:
+        issues.append(Issue(
+            path, line_number(text, risk_start),
+            "2-4にF1から始まる将来リスクIDがありません",
+        ))
+    elif risk_ids != expected_ids:
+        issues.append(Issue(
+            path, line_number(text, risk_start),
+            f"将来リスクIDはF1から連番にしてください: {risk_ids}",
+        ))
+
+    if design_start < 0:
+        issues.append(Issue(
+            path, line_number(text, phase6_start),
+            "フェーズ6にF-IDを採用構造へ再適用する6-5がありません",
+        ))
+        return issues
+
+    design_section = text[design_start:phase7_start]
+    required_tokens = (
+        "リスクID・将来リスク",
+        "採用構造での考慮",
+        "将来の主な変更先",
+        "今回の判断",
+        "完成コードへ追加しない",
+    )
+    for token in required_tokens:
+        if token not in design_section:
+            issues.append(Issue(
+                path, line_number(text, design_start),
+                f"6-5の将来リスク設計確認に「{token}」がありません",
+            ))
+
+    design_rows = re.findall(
+        r"(?m)^\|\s*(F\d+)\s*[：:]\s*([^|]+)\|",
+        design_section,
+    )
+    design_ids = [risk_id for risk_id, _ in design_rows]
+    if design_ids != risk_ids:
+        issues.append(Issue(
+            path, line_number(text, design_start),
+            "2-4と6-5のF-IDを同じ順序で対応させてください: "
+            f"{risk_ids} != {design_ids}",
+        ))
+
+    design_by_id = dict(design_rows)
+    for risk_id, meaning in risk_rows:
+        normalized_meaning = " ".join(meaning.split())
+        design_meaning = " ".join(design_by_id.get(risk_id, "").split())
+        if normalized_meaning != design_meaning:
+            issues.append(Issue(
+                path, line_number(text, design_start),
+                f"{risk_id}の将来リスクが2-4から6-5へ"
+                f"同じ文言で引き継がれていません: {normalized_meaning}",
+            ))
+
+    for match in re.finditer(
+        r"(?m)^\|\s*F\d+\s*[：:].*\|$", design_section
+    ):
+        if "完成コードへ追加しない" not in match.group(0):
+            issues.append(Issue(
+                path, line_number(text, design_start + match.start()),
+                "F-ID行ごとに未確定機能を完成コードへ追加しない判断を明記してください",
+            ))
+
+    return issues
+
+
 def check_explanation_regression(text: str, path: Path) -> list[Issue]:
     """Keep the reader-facing explanation that structural checks cannot infer."""
     issues: list[Issue] = []
@@ -2295,6 +2388,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase6_baseline(text, path))
         issues.extend(check_phase6_continuity(text, path))
         issues.extend(check_requirement_semantics_and_phase7_order(text, path))
+        issues.extend(check_future_risk_traceability(text, path))
         issues.extend(check_phase6_step_chain(text, path))
         issues.extend(check_phase7_continuity(text, path))
         issues.extend(check_intermediate_boundary_continuity(text, path))
