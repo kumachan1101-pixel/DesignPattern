@@ -25,6 +25,8 @@
 
 ### 必ず続ける作業
 
+CONS-065を担当するAIは、作業開始前に`CONS-065_AI_INSTRUCTIONS.md`を全文読み、その順序・用語・完了条件に従う。
+
 1. `output/chapter11.md`に残る5件の★を、指摘の意図まで反映して0件にする。
    - 1477行前後：フェーズ3関連コードのおさらいをフェーズ6の先頭へ移す。
    - 1520行前後：生ポインタの所有者、破棄責任、所有権移動を平易に説明する。
@@ -49,9 +51,10 @@
 
 1. `NEXT_AI_HANDOFF.md`（このファイル）
 2. `AI_HANDOFF.md`
-3. `review-tasks.md` 冒頭の「次AI引き継ぎ残件」
-4. `quality/completion-gate.json`
-5. 作業対象に対応する正本
+3. `CONS-065_AI_INSTRUCTIONS.md`
+4. `review-tasks.md` 冒頭の「次AI引き継ぎ残件」
+5. `quality/completion-gate.json`
+6. 作業対象に対応する正本
 
 `TASK.md`と`RESTRUCTURE_PLAN.md`は過去の検討履歴であり、現在のタスク正本として使わない。本文を直す場合の正本は`templates/chapter-template.md`、現在の完了状態と残件の正本は`review-tasks.md`冒頭である。
 
