@@ -4,6 +4,10 @@
 このファイルは、章生成・レビュー・修正を別のAIが担当するときの最初の入口である。
 ここに書かれた優先順位を守れば、過去章や古いAgent記載に引っ張られにくくなる。
 
+## 現在の引き継ぎ状態
+
+最初に`NEXT_AI_HANDOFF.md`を読み、そこに登録した残件だけを現在タスクとして扱う。本文のCONS-001〜063は完了済みである。`TASK.md`と`RESTRUCTURE_PLAN.md`は過去の検討履歴であり、現在のタスク正本ではない。
+
 ## 絶対に守る優先順位
 
 1. 章構成の正本は `templates/chapter-template.md`。
@@ -12,16 +16,18 @@
 4. 文章・図・コード提示の書き方は `rules/writing-rules.md`。
 5. 接続点と設計判断は `rules/connection-point-review.md` と `rules/design-decision-guide.md`。
 6. Agent は補助役。Agent の記載が上記と食い違う場合は、テンプレートとチェックリストを優先する。
-7. 既存の1章以降は移行途中の本文であり、正本ではない。
+7. 既存の第0〜12章とあとがきは本文ゲートを通過済みである。新しい根拠なしに旧計画へ戻したり、全面改稿したりしない。
 
 ## まず読む順序
 
-1. `AI_HANDOFF.md`
-2. `ai-context.md`
-3. `CLAUDE.md`
-4. `templates/chapter-template.md`
-5. `output/chapter00_2.md`
-6. `rules/checklist.md`
+1. `NEXT_AI_HANDOFF.md`
+2. `AI_HANDOFF.md`
+3. `review-tasks.md` 冒頭の現在残件
+4. `ai-context.md`
+5. `CLAUDE.md`
+6. `templates/chapter-template.md`
+7. `output/chapter00_2.md`
+8. `rules/checklist.md`
 
 章を実際に書く、直す、レビューする場合だけ、追加で次を読む。
 
