@@ -1154,6 +1154,30 @@ acceptedRequests.push_back(request);
 この表と完了状態が、そのままフェーズ6の入力です。要求の受入は要求ID、設計課題の解消は課題ID、今回の変更影響は変更IDで別々に追跡します。
 ## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
+対策を考える前に、フェーズ3で痛みを生んだ変更途中コードを、課題に関係する部分だけ手元に戻します。ここを出発点に、何をどこへ分けるかを決めていきます。
+
+#### 課題箇所のおさらい（フェーズ3の関連コード）
+
+課題に関係する、本文判断・装飾判断・履歴操作だけを再掲します。いずれも一つの`ReportGenerator`の生成処理へ集まっていました。
+
+```cpp
+if (request.templateId == "SALES_MONTHLY_EXECUTIVE") {
+    renderer.addStandardBody(
+        document, "役員向け月次専用本文", summary);
+}
+for (DecorationType type : request.decorations) {
+    if (type == DecorationType::Graph) {
+        renderer.addGraph(document);
+    } else if (type == DecorationType::Logo) {
+        renderer.addLogo(document);
+    } else {
+        renderer.addWatermark(document);
+    }
+}
+acceptedRequests.push_back(request);
+return execute(request, templateName);
+```
+
 #### 接続点の分離・配置・組み立てを決める
 
 ここでは完成案を一つずつ試しません。課題ID1〜課題ID3を同時に満たす最終構造を、観察した事実から順に導きます。
@@ -1471,29 +1495,6 @@ classDiagram
 | 課題ID2   | 装飾を同じ契約の連結にする   | decorations順にIReportポインタをFeatureで包む | 2      |
 | 課題ID3   | 要求操作を履歴所有にする    | submit後execute、同じActionでreplay/undo | 3      |
 
-#### 課題箇所のおさらい（フェーズ3の関連コード）
-
-課題に関係する、本文判断・装飾判断・履歴操作だけを再掲します。
-★おさらいするなら、このフェーズの先頭の方が良い
-
-```cpp
-if (request.templateId == "SALES_MONTHLY_EXECUTIVE") {
-    renderer.addStandardBody(
-        document, "役員向け月次専用本文", summary);
-}
-for (DecorationType type : request.decorations) {
-    if (type == DecorationType::Graph) {
-        renderer.addGraph(document);
-    } else if (type == DecorationType::Logo) {
-        renderer.addLogo(document);
-    } else {
-        renderer.addWatermark(document);
-    }
-}
-acceptedRequests.push_back(request);
-return execute(request, templateName);
-```
-
 ### 6-1：採用設計へ本文と装飾を反映する
 
 #### 実装ステップ1（課題ID1）：共通順と本文差分
@@ -1517,9 +1518,18 @@ void renderBody(ReportDocument& document,
 ```
 
 #### 実装ステップ2（課題ID2）：指定順の装飾連結
-本書では、所有権管理の記法を増やさないため、他章と同じ生ポインタを使います。各Featureが内側の`IReport`を所有し、デストラクタで破棄します。`std::unique_ptr`と`std::make_unique`の意味は第0章で補足しますが、本章の掲載コードでは使いません。★ここはどういう意味？
 
-★下のコードも部分的過ぎてよくわからない。対策前の話なのか対策後なのか。
+装飾は、各`ReportFeature`が内側の`IReport`を1つ持つ合成関係で連結します。所有と破棄の責任を先に決めておきます。
+
+- **所有者**：外側の`ReportFeature`が、コンストラクタで受け取った内側の`IReport*`を持ちます。
+- **破棄**：各Featureのデストラクタが内側の`IReport`を`delete`し、最外側から内側へ連鎖して破棄されます。
+- **所有権の移動**：`ReportAssembler`が本文レポートを生成し、装飾列の順に新しいFeatureで包むたびに、それまで持っていたポインタの所有を新しい外側Featureへ渡します。最後に残る最外側の`IReport`だけを実行側（Service）が破棄します。
+
+所有権を型で表す`std::unique_ptr`・`std::make_unique`は使わず、他章と同じ生ポインタで所有関係を示します（記法の意味は第0章で補足）。
+
+次の2つは、どちらも**採用後のコード**です。1つ目は装飾1個分の実装、2つ目はそれらを入力順に連結する組み立て側です。
+
+**採用後コード：`LogoFeature::create()`（`ReportFeature`を継承する装飾の一例）**
 
 ```cpp
 ReportDocument create() override {
@@ -1528,6 +1538,10 @@ ReportDocument create() override {
     return document;
 }
 ```
+
+内側`wrapped`の`create()`を呼んでから、自分の装飾を1つ足すだけです。前後順や他の装飾種類は判断しません。`GraphFeature`・`WatermarkFeature`も同じ形で、追加する装飾だけが異なります。
+
+**採用後コード：`ReportAssembler`が装飾列を入力順に包む部分**
 
 ```cpp
 for (DecorationType type : request.decorations) {
@@ -1540,6 +1554,8 @@ for (DecorationType type : request.decorations) {
     }
 }
 ```
+
+いま持っている`report`を内側として、新しいFeatureで包み直していきます。変更途中コードでは`renderer.addGraph()`などを固定順に直接呼んでいましたが、採用後は`request.decorations`の入力順がそのまま入れ子構造になります。
 
 ### 6-2：生成・所有・注入・実行を確定する
 
@@ -2535,6 +2551,30 @@ void printResult(const OperationResult& result) {
 - `historySize()`は受付要求数、`debugLogSize()`は診断イベント数を返します。二つを別メソッドにすることで、診断ログを要求履歴の正本として扱わないことをコードで明示します。
 - `printResult()`は各シナリオが受け取った`OperationResult`を同じ形式で表示します。
 
+**A1〜A4を一つのApplicationで実行するmain**
+
+先に、四つのシナリオを呼ぶ`main()`を示します。この後のA1〜A4は、すべてこの一つの`ReportApplication`を共有し、上から順に実行されます。各シナリオの定義はこの後に置くため、呼び出し側を先に見せられるよう前方宣言だけを添えています。
+
+```cpp
+// 各シナリオはこの後で定義する（呼び出し側を先に見せるための前方宣言）
+void scenarioA1(ReportApplication& application);
+void scenarioA2(ReportApplication& application);
+void scenarioA3(ReportApplication& application);
+void scenarioA4(ReportApplication& application);
+
+int main() {
+    ReportApplication application;
+    scenarioA1(application);
+    scenarioA2(application);
+    scenarioA3(application);
+    scenarioA4(application);
+    return 0;
+}
+```
+
+- 一つの`ReportApplication`をA1〜A4で共有するため、受付件数が1→4と増え、A4の再実行・取消が同じ履歴へ接続されます。
+- 各シナリオのコード直後に対応する実行結果を置いたため、入力と結果を離れた一括出力から探す必要はありません。
+
 **A1：通常月次を維持する実行コード**
 
 ```cpp
@@ -2689,23 +2729,6 @@ CSV読込: 6件・合計3510・平均585
 デバッグログ件数: 6
 ```
 
-**A1〜A4を一つのApplicationで実行するmain**
-★以下を先にもってきてよ。
-
-```cpp
-int main() {
-    ReportApplication application;
-    scenarioA1(application);
-    scenarioA2(application);
-    scenarioA3(application);
-    scenarioA4(application);
-    return 0;
-}
-```
-
-- 一つの`ReportApplication`をA1〜A4で共有するため、受付件数が1→4と増え、A4の再実行・取消が同じ履歴へ接続されます。
-- 各シナリオのコード直後に対応する実行結果を置いたため、入力と結果を離れた一括出力から探す必要はありません。
-
 #### 実行結果
 
 実行ログはA1〜A4の各コード直後へ配置しました。ここでは、要求単位の判定だけを一覧にします。
@@ -2800,26 +2823,27 @@ sequenceDiagram
 
 フェーズ3の変更影響グラフと同じ要求粒度で確認します。
 
-変更要求：役員向け月次本文はExecutiveMonthlyReport、変更要求：装飾機能の追加はReportFeature、変更要求：再実行・取消はIReportActionを修正起点にします。★以下の浮いているブロックは？浮いていると意味が分からない。
+変更ID1〜変更ID3が、それぞれどのクラスを修正起点にするかを示します。**実線**は変更起点から修正が伸びる先、**点線**は修正箇所が利用するだけで変更しない安定境界（水色）です。安定境界も孤立させず、どの修正箇所から使われるかを点線でつなぎます。
 
 ```mermaid
 graph LR
     C1["変更ID1<br/>役員向け本文"] --> B1["ExecutiveMonthlyReport"]
-    変更ID1 --> REG["TemplateRegistryの登録"]
+    C1 --> REG["TemplateRegistryへ登録"]
     C2["変更ID2<br/>装飾追加・順序"] --> F["対象Feature"]
-    変更ID2 --> ASM["ReportAssembler"]
+    C2 --> ASM["ReportAssembler"]
     C3["変更ID3<br/>履歴規則"] --> H["ReportActionHistory"]
-    変更ID3 --> C["GenerateReportAction"]
+    C3 --> GA["GenerateReportAction"]
 
-    ST["ReportSkeletonの共通順"]:::stable
-    DR["DataReader"]:::stable
-    API["ReportRenderingApi"]:::stable
-    LOG["DebugLog"]:::stable
+    B1 -.共通順を再利用.-> ST["ReportSkeletonの共通順"]
+    B1 -.売上を読む.-> DR["DataReader"]
+    F -.描画を呼ぶ.-> API["ReportRenderingApi"]
+    H -.成否を記録.-> LOG["DebugLog"]
 
+    class ST,DR,API,LOG stable
     classDef stable fill:#DDEBF7,stroke:#5B9BD5,stroke-width:1.5px,color:#222
 ```
 
-変更要求ごとに修正起点が分かれ、共通順、売上読込、描画・出力境界を同時に変更する必要がなくなりました。
+実線でたどると変更ID1〜変更ID3の修正起点は交わりません。点線でつながる`ReportSkeleton`の共通順・`DataReader`・`ReportRenderingApi`・`DebugLog`は、修正箇所から利用されるだけで変更されない安定境界です。フェーズ3では一つの`ReportGenerator`へ集まっていた修正が変更要求ごとに分かれ、共通順・売上読込・描画出力・診断を同時に変更する必要がなくなりました。
 
 ### 7-4：変更シナリオ表
 

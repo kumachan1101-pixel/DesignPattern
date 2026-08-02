@@ -2001,14 +2001,23 @@ def check_phase5_phase6_reasoning_contract(
     partial_start = phase6.find(partial_heading)
     recap_start = phase6.find(recap_heading)
     final_structure_start = phase6.find("#### システム全体の最終構造を決める")
-    if (
-        partial_start < 0 or final_structure_start < 0 or recap_start < 0
-        or not (partial_start < final_structure_start < recap_start)
-    ):
+    if partial_start < 0 or final_structure_start < 0 or recap_start < 0:
         issues.append(Issue(
             path, line_number(text, p6),
-            "フェーズ6は設計理由→判断ごとの部分クラス図→"
-            "システム全体の最終構造→関連コードの順にしてください",
+            "フェーズ6に部分クラス図・システム全体の最終構造・"
+            "課題箇所のおさらいのいずれかがありません",
+        ))
+        return issues
+    # CONS-065移行期は二つの順序を許容する。
+    #   旧: 部分クラス図 → システム全体の最終構造 → 課題箇所のおさらい
+    #   新: 課題箇所のおさらい（先頭） → 部分クラス図 → システム全体の最終構造
+    recap_first = recap_start < partial_start < final_structure_start
+    recap_last = partial_start < final_structure_start < recap_start
+    if not (recap_first or recap_last):
+        issues.append(Issue(
+            path, line_number(text, p6),
+            "フェーズ6は「おさらい→部分クラス図→システム全体の最終構造」"
+            "または「部分クラス図→システム全体の最終構造→おさらい」の順にしてください",
         ))
         return issues
 
@@ -2031,10 +2040,15 @@ def check_phase5_phase6_reasoning_contract(
 
     adopted_marker = "**採用した変更後のクラス図"
     adopted_start = phase6.find(adopted_marker)
-    adopted_section = (
-        phase6[adopted_start:recap_start]
-        if 0 <= adopted_start < recap_start else ""
-    )
+    # 採用クラス図の節は、次の「### 」見出し（6-1）までとする。
+    # おさらいが先頭・末尾どちらにあっても同じ範囲になる。
+    if adopted_start >= 0:
+        adopted_end = phase6.find("\n### ", adopted_start + 1)
+        if adopted_end < 0:
+            adopted_end = len(phase6)
+        adopted_section = phase6[adopted_start:adopted_end]
+    else:
+        adopted_section = ""
     adopted_diagrams = _mermaid_diagrams(adopted_section, "classDiagram")
     completed_start = text.find("#### 完成後のクラス図", p7)
     completed_end = text.find("#### 完成後の実行シーケンス", completed_start)
@@ -2730,7 +2744,9 @@ def check_explanation_regression(text: str, path: Path) -> list[Issue]:
             ))
 
     for case_id in ("A1", "A2", "A3", "A4"):
-        function_token = f"void scenario{case_id}("
+        # 定義（`{` で始まる本体）を探す。main を先に見せるための
+        # 前方宣言（`;` で終わる）はスキップする。
+        function_token = f"void scenario{case_id}(ReportApplication& application) {{"
         function_start = text.find(function_token)
         code_end = text.find("```", function_start)
         result_label = f"実行結果（{case_id}）："
