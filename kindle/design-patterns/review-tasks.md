@@ -2009,3 +2009,13 @@ ch04 7-1を単独コンパイル実行し、`save()`の真の出力が「DBへN�
 ゲート：validate_book／check_kindle／check_execution_output／audit_book／git diff --check すべてPASS。check_mermaid はmmdc未インストールのため未実行だが、本追加はtextブロックと表のみでmermaid図を一切変更していない（差分中のmermaidフェンス追加は0件）。
 
 **機能ID廃止（①）＋フェーズ6深化（②）の著者判断は、正本・全章とも完了。**
+
+## 2026-08-03 機能ID廃止の波及整合（agents/ ＋ 履歴文書）
+
+ユーザー指摘（0章・テンプレ・エージェント等の不整合確認）を受け全リポジトリを再走査し、正本の機能ID廃止に未追従だった箇所を是正：
+
+- **agents/（5ファイル）**：`logic-check-agent`／`review-agent`／`chapter-agent`／`consistency-agent`／`orchestrator` のフェーズ1・5・7チェック項目・追跡分離記述から機能IDを除去し、要求ID・変更ID・課題ID追跡へ統一。既存動作の維持・消失は継続要求の回帰で検出する旨へ。CLAUDE.md完了条件#7（agents/skillsに古い判断基準を残さない）に適合。
+- **skills/・chapter00_1**：機能ID参照なし（確認済み・変更不要）。
+- **履歴/引き継ぎ文書**：`NEXT_AI_HANDOFF.md`・`AUTHOR_FEEDBACK_MASTER.md`（自称正本）・`CONS-065/066_AI_INSTRUCTIONS.md` の冒頭へ「2026-08-03 更新・機能ID廃止／フェーズ6深化済み・現行方針はCLAUDE/テンプレ/rules/agents/review-tasksを正とする」旨の超越バナーを追加（履歴は書き換えず無効化を明示）。
+
+再走査の結果、生きた正本（CLAUDE.md・ai-context・AI_HANDOFF・templates・rules・agents・第0章・全章）に残る「機能ID」は、すべて「設けない」注記か禁止指示の明示のみ。全ゲートPASS。
