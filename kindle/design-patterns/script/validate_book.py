@@ -2148,6 +2148,11 @@ def check_requirement_baseline_contract(text: str, path: Path) -> list[Issue]:
         r"(?m)^\|\s*(要求ID\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|",
         final_section,
     )
+    # 変更後ベースライン直後の「変更前→変更後の要求対照」表（#92）で同じ
+    # 要求IDを再掲するため、二重計上しないよう最初の出現だけ残す。
+    _seen_final: set[str] = set()
+    final_rows = [(rid, col2, col3) for rid, col2, col3 in final_rows
+                  if not (rid in _seen_final or _seen_final.add(rid))]
     evidence_rows = re.findall(
         r"(?m)^\|\s*(要求ID\d+)\s*\|\s*([^|]+?)\s*\|", evidence_section
     )
