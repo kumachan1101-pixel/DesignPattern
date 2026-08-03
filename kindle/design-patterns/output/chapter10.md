@@ -35,6 +35,15 @@
 
 **代表的な動作（先に動かして全体像をつかむ）：** 詳細に入る前に、このシステムを一度動かした様子を見ます。運用者が「連携先A社・同期対象は注文」を指定してバッチを1件実行すると、内部は連携先設定の確認→社内データ取得→外部APIへ送信→結果保存→社内通知の順に進みます（同じ入力の完全なコードと実行結果は1-4に掲載します）。
 
+**入力（`main()` で実行する呼び出し）：**
+
+```cpp
+// 連携先ID=PARTNER_A（物流会社A）へ、同期対象=注文（SyncTarget::Orders）を1件同期する
+executor.execute({"PARTNER_A", SyncTarget::Orders});
+```
+
+**出力：**
+
 ```
 [送信先] 物流会社A (logistics-a.example)
 A社へ送信(1件): 注文 ORD001
@@ -1607,8 +1616,8 @@ Client・Notifier・Creatorは組み立て側が所有し、`BatchExecutor` は�
 
 | 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
 |---|---|---|---|
-| 課題ID1（通信） | 窓口固定。連携先ごとの通信を契約の裏へ隠す | `IExternalClient`、各社Client | 実行フローから通信手順の判断が消える |
-| 課題ID1（生成） | 生成分離。Applicationが各Creatorを所有し、CreatorがClientを生成・破棄する | `IClientCreator`、各社Creator | 具体Clientの選択・生成がCreatorへ集まる |
+| 課題ID1（通信） | 窓口固定。連携先ごとの通信を契約の裏へ隠す | `IExternalClient`／`SystemAClient`／`SystemBClient`／`SystemCClient` | 実行フローから通信手順の判断が消える |
+| 課題ID1（生成） | 生成分離。Applicationが各Creatorを所有し、CreatorがClientを生成・破棄する | `IClientCreator`／`SystemAClientCreator`／`SystemBClientCreator`／`SystemCClientCreator` | 具体Clientの選択・生成がCreatorへ集まる |
 | 課題ID2（通知） | 通知連結。Applicationが各Notifierを登録し、Executorが結果を配る | `INotifier`、`SlackNotifier`、`NotificationLog` | 通知先の追加・失敗が送信継続へ波及しない |
 | 変更対象外 | 送信結果・保存。Executorは結果だけを渡す | `DeliveryResult`、`BatchLog` | 1-4、5件のバッチ実行ログ |
 
