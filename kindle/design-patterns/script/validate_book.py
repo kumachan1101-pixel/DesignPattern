@@ -2962,6 +2962,37 @@ def check_phase2_interview_plan(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+_CPP_BLOCK_RE = re.compile(r"```cpp\n(.*?)```", re.DOTALL)
+# 関数呼び出しの引数位置に直接 `new` を書く「投げっぱなしnew」。所有者へ束ねず
+# その場で渡すため、誰も delete しないリークか、共有シングルトン設計との矛盾に
+# なりやすい（ch03 setState(new ...)、ch05 run(new ...) の実欠陥がこの形だった）。
+# 代入形 `X* p = new Y` / 返却形 `return new Y` / 装飾連結 `p = new Deco(p,..)` は
+# 所有が明確なため対象外。
+_ARG_NEW_RE = re.compile(r"[A-Za-z_]\w*\s*\(\s*new\s+[A-Z]")
+
+
+def check_raw_new_argument_ownership(text: str, path: Path) -> list[Issue]:
+    """cppブロック内で、関数/コンストラクタ引数位置の生 `new` を検出する。
+
+    掲載コードは生ポインタ方式で、所有は代入・返却・装飾連結で明示し、破棄は
+    所有者のデストラクタか使用直後の delete で行う規約。引数位置へ直接 new する形は
+    所有者が定まらずリーク/設計矛盾になりやすいため、機械的に検出して見直しを促す。
+    """
+    issues: list[Issue] = []
+    for m in _CPP_BLOCK_RE.finditer(text):
+        block = m.group(1)
+        block_start = m.start(1)
+        for hit in _ARG_NEW_RE.finditer(block):
+            ln = line_number(text, block_start + hit.start())
+            issues.append(Issue(
+                path, ln,
+                "引数位置の生 `new`（投げっぱなしnew）です。所有者を定めて"
+                "代入・返却・装飾連結の形にし、破棄先を明示してください: "
+                f"{hit.group(0)}",
+            ))
+    return issues
+
+
 def check_problem_cause_id_lists(text: str, path: Path) -> list[Issue]:
     """各方法論章はフェーズ3末に問題ID一覧、フェーズ4末に原因ID一覧を持つ。
 
@@ -2992,6 +3023,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
     issues.extend(check_banned_patterns(text, path))
     issues.extend(check_overview_phase_scope(text, path))
     issues.extend(check_standard_id_glossary(text, path))
+    issues.extend(check_raw_new_argument_ownership(text, path))
     if core:
         issues.extend(find_in_order(text, REQUIRED_PHASES, path))
         issues.extend(find_in_order(text, REQUIRED_NUMBERED_SECTIONS, path))

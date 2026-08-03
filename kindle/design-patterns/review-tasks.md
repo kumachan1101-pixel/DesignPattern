@@ -2092,3 +2092,15 @@ ch04 7-1を単独コンパイル実行し、`save()`の真の出力が「DBへN�
   これらをコラム化すると仕様・コード解説が断片化し、合意スコープ((A)は本文維持)に反するため移設しない。
 
 結論：本タスクはch01の1件で実質完了。ch02-12は独立(B)ブロック不在を機械＋精読で確認。全ゲート通過。
+
+## 2026-08-03 生ポインタ所有権の機械チェック追加＋ch06/08確認（#100）、ch11見出し改称（#101）
+
+**#100 機械チェック**：所有権監査(#97-99)で、ゲートがリークを検出できない死角と、非コンパイルの図解に混入する「投げっぱなしnew」が根因と判明。再発防止として validate_book.py に `check_raw_new_argument_ownership` を追加。cppブロック内で関数/コンストラクタ引数位置の生 `new`（`識別子(new 大文字…` の形）を検出する。これはch03の `setState(new AvailableState())`、ch05の `run(new AddExpenseAction(...))` の実欠陥の形。代入形 `X* p = new Y`・返却形 `return new Y`・装飾連結 `p = new Deco(p,..)` は所有が明確なため対象外。現行の全cppブロックで検出0件（=規約適合を機械確認）、合成テストで両バグ形を検出・安全形を非検出を確認。全章対象（coreに限らない）。
+
+**ch06/ch08 最終確認**：
+- ch06：Decoratorの破棄カスケード。`~ToppingWrapper(){ delete baseDrink; }` で内側を破棄し、最外の `delete drink` が鎖全体を解放。argument-position new なし、返却形/代入形のみ。健全。
+- ch08：`createProcessor()` が `return new XProcessor(...)`（返却形）で生成、`processPayment()` は生成後の唯一経路で `delete proc`（未登録・顧客名空の早期returnは生成前）。生ポインタ所有を本文(2063/2716)で明示。健全。
+
+**#101**：ch11 6-2「読者が考えそうな別案」→「部分対策を最終候補にしない理由」へ改称（内容＝部分対策を完成案に数えない理由の説明に一致、不自然さ解消）。
+
+全ゲート（validate/kindle/execution/audit/diff-check、py_compile）PASS。
