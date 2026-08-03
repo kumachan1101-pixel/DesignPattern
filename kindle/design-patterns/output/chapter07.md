@@ -709,6 +709,14 @@ flowchart LR
 
 部分失敗と非同期のSMSは、正常系の在庫更新を止めません。通知先が1件でも失敗すると在庫記録まで止まってしまう作りは避け、通知元は「イベントを出して受付結果を集める」ところまでを責務とします。通知先が1つ増えるだけの変更が、実際のコードではどれだけの修正になるかを、フェーズ3で変更を試すコードで確認します。
 
+**フェーズ1のまとめ：今回追う変更ID一覧**
+
+このフェーズで確定した変更依頼を一覧にして締めます。フェーズ2でこの変更IDを仮説・ヒアリングへ、フェーズ3で試して痛みへ、と順につなぎます。
+
+| 変更ID | 変更依頼の要点 | 対象の現行要求ID |
+|---|---|---|
+| 変更ID1 | 在庫警告の通知先へ非同期SMSを追加し、受付失敗でも在庫更新と他通知を止めない | 要求ID3、要求ID4 |
+
 ---
 
 ## 🟣 フェーズ2：仮説立案 ―― 何が変わるかを観察し、ヒアリングで裏付ける
@@ -1250,11 +1258,9 @@ classDiagram
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 課題ID1 | 共通契約 `INotification` を新設する | `send(const StockAlert&)` を純粋仮想で定義し `DeliveryResult` を返す | ステップ1 |
-| 課題ID1 | 各通知手段を契約実装へ移す | `EmailNotifier` などが手段別の文面を作って `send()` する | ステップ2 |
-| 課題ID1 | 通知元を登録・一律配布へ変える | `InventoryManager` がDB・ログの注入を受け、`attach` と `notifyAll` を持つ | ステップ3 |
+| 課題ID1 | 共通契約 `INotification` を新設し、各通知手段を実装、通知元を登録・一律配布へ変える | `send(const StockAlert&)` を定義、`EmailNotifier` などが手段別文面を作り、`InventoryManager` が `attach` で登録し一律 `send` する | 課題ID1節（①〜⑥） |
 
 このクラス図が、課題ID1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
@@ -1286,26 +1292,38 @@ private:
 };
 ```
 
-### 6-1：採用設計をコードへ段階的に反映する
+### 課題ID1：通知手段の種類と実行を在庫更新から分離する
 
-採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+**【課題ID1の原因】** 問題ID1・問題ID2・問題ID3（通知手段と成否が在庫管理へ混在）＝原因ID1（通知先のクラス名・送信方法・成否まで在庫管理が抱える）。この原因を分離対象にします。
 
-#### 実装ステップ1（課題ID1）：通知の共通契約 `INotification` を定める
+**この課題（何を解きたいか）：** 通知先を1つ足すだけで `InventoryManager` のメンバ・コンストラクタ・`notifyAll()` が連動し、同期・非同期・部分失敗の判断まで通知元へ入る——問題ID1〜問題ID3（痛み）／原因ID1です。**在庫変化の事実を配るだけにし、通知先を共通契約で登録・差し替え可能にする**のが課題ID1です。
 
-すべての通知手段が満たす契約 `INotification` を定義します。入力は手段別に文面を作れる `StockAlert`、戻り値は成功・保留・失敗を持つ `DeliveryResult` に揃えます。
+**どう解決するか（方針）：** 通知先を共通契約へ揃え、通知元は登録済みへ一律配布します（通知分離構造＝Observer）。①契約 →③具体 →④生成 →⑤登録（注入）→⑥実行 の順で組み立てます（②骨格は無し）。
+
+```mermaid
+classDiagram
+    class InventoryManager
+    class INotification { <<interface>> }
+    class EmailNotifier
+    InventoryManager o--> INotification : attachで登録し一律配布
+    INotification <|.. EmailNotifier
+    class INotification focus
+    class EmailNotifier focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**① 共通契約 `INotification` を定義する。** 入力は手段別に文面を作れる `StockAlert`、戻り値は成功・保留・失敗を持つ `DeliveryResult` に揃えます。通知元は種別を知らず `send()` だけを呼びます。
 
 ```cpp
 struct DeliveryResult {
     enum State { Accepted, Pending, Failed } state;
 };
-
 struct StockAlert {
     std::string productId;
     std::string productName;
     int stock;
     int threshold;
 };
-
 class INotification {
 public:
     virtual ~INotification() = default;
@@ -1313,11 +1331,7 @@ public:
 };
 ```
 
-**課題ID1との対応：** `INotification` を新設しました。通知元は種別を知らず、`send()` だけを呼び、`DeliveryResult` を集めます。
-
-#### 実装ステップ2（課題ID1）：各通知先を契約実装へ移す
-
-各通知手段は文面・送信方法・受付結果を自分の中に閉じ、`send()` で共通の `DeliveryResult` を返します。通知元は一律に呼べます。
+**③ 各通知先が文面・送信方法・受付結果を自分の中に閉じる。** `DashboardUpdater`・`ChatNotifier`・`SMSNotifier` も同じ入力から手段別文面を作り、同期・非同期の差を内側に持ちます。
 
 ```cpp
 class EmailNotifier : public INotification {
@@ -1329,20 +1343,29 @@ public:
 };
 ```
 
-**課題ID1との対応：** `INotification <|.. EmailNotifier` の実装関係を実装しました。`DashboardUpdater`・`ChatNotifier`・`SMSNotifier` も同じ入力から手段別の文面を作り、同期非同期の差を内側に持ちます。
-
-#### 実装ステップ3（課題ID1）：通知元を登録・一律配布へ変える
-
-`InventoryManager` は通知アダプターを `attach` で登録リストへ持ち、在庫更新とログ記録の後に `StockAlert` を一律配布して結果を集約します。手段別のメンバも分岐も持ちません。
+**④ 生成と⑤ 登録（注入）。** 各通知先を組み立て側で生成・所有し、`InventoryManager::attach()` で登録リストへ加えます（借用参照）。手段別のメンバも分岐も持ちません。
 
 ```cpp
 InventoryManager manager(productDatabase, stockEventLog);
-manager.attach(&emailNotifier);
+manager.attach(&emailNotifier);   // ⑤ 登録（借用参照）
 manager.attach(&smsNotifier);
-manager.reduceStock("PRD002", 1);  // 在庫更新・自動記録→登録先へ一律 send
 ```
 
-**課題ID1との対応：** `InventoryManager o--> INotification` の登録関係を実装しました。ここで通知元と通知先が一つの通知分離構造として接続されました。
+**⑥ 実行部は登録リストへ一律配布するだけ。** 在庫更新とログ記録の後に `StockAlert` を登録先へ順に `send()` し、`DeliveryResult` を集約します。1件失敗しても在庫更新と他通知は止めません。
+
+```cpp
+manager.reduceStock("PRD002", 1);  // ⑥ 在庫更新・記録→登録先へ一律 send
+```
+
+これで課題ID1の完了条件「新通知は登録だけで加わり、1件失敗しても在庫更新と他通知が完了する」を満たします。通知元と通知先が一つの通知分離構造として接続されました。
+
+### 6-1：生成・所有・実行順のまとめ
+
+課題ID1を一本の実行経路へ束ね直します。上の課題別展開は試行錯誤の履歴ではなく、完成構造を理解できる単位へ分けた実装順です。
+
+- 所有：各Notifierは組み立て側が生成・所有し、`InventoryManager` は `INotification*` を登録リストで借用（非所有）。
+- 実行順：`reduceStock()` → 在庫更新 → `StockEventLog` へ自動記録 → 登録先へ一律 `send()` → `DeliveryResult` を集約。
+- 通知の成否は在庫更新を巻き戻さず、通知手段の同期・非同期・失敗は各Notifierの内側に閉じます。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
