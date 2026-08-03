@@ -786,6 +786,15 @@ flowchart LR
 
 図に加わった「取引ID」の受け渡しが実際にコードのどこへ書かれるかは、フェーズ3で変更を試すコードと、フェーズ7の最終コード・実行結果で追います。
 
+**フェーズ1のまとめ：今回追う変更ID一覧**
+
+このフェーズで確定した変更依頼を一覧にして締めます。フェーズ2でこの変更IDを仮説・ヒアリングへ、フェーズ3で一つずつ試して痛みへ、と順につなぎます。
+
+| 変更ID | 変更依頼の要点 | 対象の現行要求ID |
+|---|---|---|
+| 変更ID1 | 認証を、認証コード発行と取引ID付き照合の2段階へ変える | 要求ID3 |
+| 変更ID2 | 検証済み取引IDを送金APIの必須入力にする | 要求ID4 |
+
 フェーズ1でシステムの現状と変更要求が把握できました。次のフェーズ2では、「何を変え、何を守るか」を整理します。
 
 ---
@@ -1392,12 +1401,10 @@ classDiagram
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-| 課題ID  | クラス図をどう変えるか                                             | コードレベルで何をするか                                                 | 実装ステップ |
+| 課題ID  | クラス図をどう変えるか                                             | コードレベルで何をするか                                                 | 詳しく解く節 |
 | ----- | ------------------------------------------------------- | ------------------------------------------------------------ | ------ |
-| 課題ID1    | `TransferProcessor` から手順を外し `BankTransferService` へ集約する | 手順一式を `performTransfer` / `performApprovedBatchTransfer` へ移す | ステップ1  |
-| 課題ID2    | `BankTransferService` の前に契約 `IBankTransferService` を置く  | 契約をpure virtualで宣言し `BankTransferService` でoverrideする        | ステップ2  |
-| 課題ID2    | 具体窓口の生成・注入を `Application` へ移す                           | `Application` が生成し、呼び出し元へ契約参照を注入する                           | ステップ3  |
-| 課題ID1・課題ID2 | 2つの呼び出し元の関連を契約中心へ変える                                    | `TransferProcessor` と `BatchTransferProcessor` へ同じ契約を注入する    | ステップ3  |
+| 課題ID1    | `TransferProcessor` から手順を外し `BankTransferService` へ集約する | 手順一式を窓口の `performTransfer` へ移し、呼び出し元は1回呼ぶだけにする | 課題ID1節（③⑥） |
+| 課題ID2    | 契約 `IBankTransferService` を切り出し、生成・注入を `Application` へ移す | 契約をpure virtualで宣言、`BankTransferService` でoverride、`Application` が生成し2入口へ契約を注入 | 課題ID2節（①〜⑥） |
 
 このクラス図が、課題ID1・課題ID2を統合したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
@@ -1421,13 +1428,28 @@ private:
 };
 ```
 
-### 6-1：採用設計をコードへ段階的に反映する
+### 課題ID1：銀行API手順を振込業務フローから分離する
 
-採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+**【課題ID1の原因】** 問題ID1・問題ID2（外部手順の混在による波及と分岐増）＝原因ID1（`TransferProcessor` が銀行APIの呼出順序・手順を抱える）。この原因を分離対象にします。
 
-#### 実装ステップ1（課題ID1）：手順を窓口クラスへ集約する
+**この課題（何を解きたいか）：** 認証・送金の手順を足すたび、呼び出し元に並んだ手順を書き換える——問題ID1・問題ID2（痛み）／原因ID1です。**口座確認→認証→送金→履歴の手順を1つの窓口の内側へ集約し、呼び出し元は1回呼ぶだけ**にするのが課題ID1です。
 
-変更前は、口座確認→残高確認→認証→送金→履歴という手順が呼び出し元に並んでいました。この手順一式を `BankTransferService` の内側へ移し、通常振込と給与バッチの重複手順も同じクラスへまとめます。
+**どう解決するか（方針）：** 手順一式を窓口クラスの内側へ隠します（窓口集約構造＝Facade）。この課題ではまず具体窓口へ手順を寄せます。①〜⑥のうち、ここは③具体窓口 →⑥単一呼び出し に相当し、契約の切り出しと差し替えは課題ID2で行います（②骨格は無し）。
+
+```mermaid
+classDiagram
+    class BankTransferService
+    class Bank
+    class SecurityAuthenticator
+    class TransferHistory
+    BankTransferService --> Bank : 送金API
+    BankTransferService --> SecurityAuthenticator : 認証手順
+    BankTransferService --> TransferHistory : 記録
+    class BankTransferService focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**③ 具体窓口 `BankTransferService` が手順一式を内側に持つ。** 通常振込と給与バッチの重複手順も同じ窓口へまとまります。
 
 ```cpp
 class BankTransferService {
@@ -1438,7 +1460,6 @@ class BankTransferService {
 public:
     BankTransferService(AccountDatabase& d, Bank& b, TransferHistory& h)
         : db(d), bank(b), history(h) {}
-
     TransferResult performTransfer(const TransferRequest& req) {
         if (!db.exists(req.fromAccount))
             return {false, "送金元口座なし"};
@@ -1458,11 +1479,31 @@ public:
 };
 ```
 
-**課題ID1との対応：** 手順を `BankTransferService` へ集約し、呼び出し元は `performTransfer(req)` を1回呼ぶだけになります。手順が変わっても、変更先はこの窓口の内側だけです。ただしこの段階では窓口が具体クラスのままで、差し替えはできません（課題ID2は未達）。
+**⑥ 呼び出し元は `performTransfer(req)` を1回呼ぶだけ。** 手順が変わっても変更先はこの窓口の内側に閉じます。これで課題ID1の完了条件「利用側がAPI手順を知らず、一つの振込操作だけを呼べる」を満たします。ただしこの段階では窓口が具体クラスのままで差し替えできません（課題ID2で解きます）。
 
-#### 実装ステップ2（課題ID2）：窓口契約を切り出し、呼び出し元を契約へ向ける
+### 課題ID2：振込実装の選択を利用側から外す
 
-窓口を差し替え可能にするため、呼び出し元が依存する契約 `IBankTransferService` を切り出します。`BankTransferService` はその実装になり、呼び出し元は契約参照だけを保持します。
+**【課題ID2の原因】** 問題ID3（実装差替えで複数入口が一緒に変わる）＝原因ID2（利用側が具体的な振込実装を直接選ぶ）。この原因を分離対象にします。
+
+**この課題（何を解きたいか）：** 接続先変更やテスト用実装への差替えのたび、単発・一括の複数入口が具象実装に依存して一緒に変わる——問題ID3（痛み）／原因ID2です。**窓口を差し替え可能にし、2つの入口へ同じ契約を注入する**のが課題ID2です。
+
+**どう解決するか（方針）：** 窓口契約を切り出し、外から依存注入します（契約差し替え構造＝Adapter＋依存注入）。①契約 →③実装 →④生成 →⑤注入 →⑥実行 の順で組み立てます（②骨格は無し）。
+
+```mermaid
+classDiagram
+    class TransferProcessor
+    class BatchTransferProcessor
+    class IBankTransferService { <<interface>> }
+    class BankTransferService
+    TransferProcessor --> IBankTransferService : 契約だけに依存
+    BatchTransferProcessor --> IBankTransferService : 同じ契約
+    IBankTransferService <|.. BankTransferService
+    class IBankTransferService focus
+    class BankTransferService focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**① 共通契約 `IBankTransferService` を切り出す。** 呼び出し元は `performTransfer()` の結果 `TransferResult` だけを受け取ります。
 
 ```cpp
 class IBankTransferService {
@@ -1470,15 +1511,23 @@ public:
     virtual TransferResult performTransfer(const TransferRequest& req) = 0;
     virtual ~IBankTransferService() = default;
 };
+```
 
+**③ 具体窓口が契約を実装する。** 課題ID1の `BankTransferService` を契約実装へ変えます（手順集約はそのまま）。
+
+```cpp
 class BankTransferService : public IBankTransferService {
-    // ステップ1の手順集約はそのまま override する
 public:
     TransferResult performTransfer(const TransferRequest& req) override;
+    // 手順集約は課題ID1のとおり
 };
+```
 
+**⑤ 呼び出し元は契約参照だけを保持する。** `TransferProcessor` は具体窓口名を知りません（給与バッチ入口も同じ契約に向けます）。
+
+```cpp
 class TransferProcessor {
-    IBankTransferService& service;              // 契約だけに依存
+    IBankTransferService& service;   // 契約だけに依存
 public:
     explicit TransferProcessor(IBankTransferService& service)
         : service(service) {}
@@ -1489,11 +1538,7 @@ public:
 };
 ```
 
-**課題ID2との対応：** `TransferProcessor --> IBankTransferService` の依存関係を実装しました。呼び出し元は具体窓口名を知らず、契約だけを保持します。同じ契約を給与バッチにも渡せば、2つの入口が別々に手順を持つ問題も解けます。
-
-#### 実装ステップ3（課題ID1・課題ID2）：組み立て側で生成・注入し、2つの入口へ同じ契約を渡す
-
-具体窓口の生成と選択は業務クラスの外側へ集めます。`Application`（Composition Root）が `BankTransferService` を生成し、`TransferProcessor` と `BatchTransferProcessor` へ同じ契約参照を注入します。
+**④ 生成と⑤ 注入は組み立て側で。** `Application`（Composition Root）が具体窓口を生成・所有し、2つの入口へ同じ契約参照を注入します。
 
 ```cpp
 class Application {
@@ -1501,16 +1546,23 @@ public:
     void run() {
         AccountDatabase db;
         TransferHistory history;
-        BankTransferService service(db, history);   // 具体窓口を生成する組み立て箇所
-        TransferProcessor processor(service);        // 契約を注入
-        BatchTransferProcessor batch(service);       // 同じ契約を注入
-
+        BankTransferService service(db, history);   // ④ 具体窓口を生成・所有
+        TransferProcessor processor(service);        // ⑤ 契約を注入
+        BatchTransferProcessor batch(service);       // ⑤ 同じ契約を注入
         processor.transfer({"ACC001", "ACC002", 5000, "999999"});
     }
 };
 ```
 
-**課題ID1・課題ID2との対応：** `Application --> BankTransferService` の生成関係と、2つの入口への契約注入を実装しました。ここで2つの変化軸が一つの実行経路として接続されました。
+**⑥ 実行部は契約経由で呼ぶだけ。** 各入口は `service.performTransfer(req)` を呼び、具体窓口を知りません。これで課題ID2の完了条件「具体実装の差替えで利用側の呼出手順が変わらない」を満たします。
+
+### 6-1：生成・所有・実行順のまとめ
+
+課題ID1・課題ID2を一本の実行経路へ束ね直します。上の課題別展開は試行錯誤の履歴ではなく、完成構造を理解できる単位へ分けた実装順です。
+
+- 窓口：`Application` が `BankTransferService` を生成・所有し、`TransferProcessor`／`BatchTransferProcessor` は契約参照（非所有）を保持。
+- 実行順：各入口が `performTransfer(req)` を1回呼び、窓口の内側で口座確認→認証→送金→履歴が順に走る。
+- 2つの変化軸（手順の集約と実装の差し替え）が、同じ契約 `IBankTransferService` を通して一つの実行経路として接続されます。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
