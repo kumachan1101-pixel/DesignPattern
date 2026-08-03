@@ -569,9 +569,6 @@ def check_system_structure_phase6(
          "フェーズ6にシステム全体のコード適用結果がありません"),
         ("| 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |",
          "フェーズ6に課題定義とコードの対応表がありません"),
-        ("#### 実装ステップ1", "採用設計の実装ステップ1がありません"),
-        ("#### 実装ステップ2", "採用設計の実装ステップ2がありません"),
-        ("#### 実装ステップ3", "採用設計の実装ステップ3がありません"),
         ("**システム全体の実装結果：達成。**",
          "採用設計によるシステム全体の達成確認がありません"),
     ]
@@ -579,13 +576,33 @@ def check_system_structure_phase6(
         if token not in sec:
             issues.append(Issue(path, ln, msg))
 
+    # フェーズ6のコード展開は「課題ID別H3節（①〜⑥）」を正とする（ch11形式）。
+    # 移行期は旧「実装ステップ1/2/3」形式も許容し、どちらか一方が必須。
+    has_per_issue = "### 課題ID1：" in sec
+    has_impl_steps = "#### 実装ステップ1" in sec
+    if not (has_per_issue or has_impl_steps):
+        issues.append(Issue(
+            path, ln,
+            "フェーズ6のコード展開がありません（課題ID別H3節『### 課題ID1：…』"
+            "の①契約→②骨格→③具体→④生成→⑤注入→⑥実行、または移行期の実装ステップ1/2/3）",
+        ))
+    if has_per_issue:
+        # ch11形式では、各課題節が生成・注入・実行の骨子を含むこと。
+        for token, msg in (
+            ("この課題（何を解きたいか）", "課題ID別節に『この課題（何を解きたいか）』がありません"),
+            ("どう解決するか（方針）", "課題ID別節に『どう解決するか（方針）』がありません"),
+        ):
+            if token not in sec:
+                issues.append(Issue(path, ln, msg))
+
     mapping_columns = (
         "課題ID",
         "クラス図をどう変えるか",
         "コードレベルで何をするか",
-        "実装ステップ",
     )
-    if not all(column in sec for column in mapping_columns):
+    # 4列目は旧「実装ステップ」または新「詳しく解く節」のどちらでもよい。
+    if (not all(column in sec for column in mapping_columns)
+            or not ("実装ステップ" in sec or "詳しく解く節" in sec)):
         issues.append(Issue(
             path, ln,
             "クラス図の変更とコード変更を対応させる表がありません",
