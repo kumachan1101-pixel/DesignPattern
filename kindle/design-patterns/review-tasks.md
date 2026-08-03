@@ -2054,3 +2054,16 @@ ch04 7-1を単独コンパイル実行し、`save()`の真の出力が「DBへN�
 - 全12章で5→6引き継ぎ文が「要求の受入は要求ID、設計課題の解消は課題ID、変更影響は変更ID」で統一（機能ID言及ゼロ）。
 
 **留保（監査の深さの明示）**：本監査は各章の論理の連結組織（フェーズ遷移・痛み→原因→課題→対策→受入の鎖）を対象とし、飛躍検出に必要な範囲を精読した。全章の全散文・全コードブロックの逐語校正ではない。この範囲では飛躍・断絶は検出されなかった。本監査による本文変更なし。
+
+## 2026-08-03 生ポインタ所有権（new/delete）の全章監査と是正（#97-99）
+
+`ReportAssembler::assemble` の `new` を起点にした所有権監査を、`new` を持つ全方法論章へ展開した。判定と対応：
+
+- **ch03（実欠陥・修正）**：フェーズ6の状態遷移が `ctx.setState(new AvailableState())`。だが最終コード(7-1)は状態を関数ローカル静的（`availableState()` 等のMeyersシングルトン）で共有し `new` しない設計。フェーズ6の `new` は (a) 誰も `delete` せずリーク、(b) 最終シングルトン設計と矛盾、の二重欠陥。→ `ctx.setState(availableState()); // 共有シングルトンへ遷移（new/deleteは不要）` へ是正。
+- **ch05（健全・明文化）**：最終コード(7-1)は `AddExpenseAction cmd1(...)` 等スタック生成で、`ActionHistory` の `undoStack/redoStack` が持つ `IAction*` は**借用**。所有者は `main()`。よってデストラクタで `delete` するとスタック破壊＝誤り（デストラクタ追加は不可）。実欠陥は6-1図解の `app.run(new AddExpenseAction(...))` 1箇所（孤立newでリーク＋最終の借用モデルと不整合）のみ。→ 図解を `AddExpenseAction cmd(...); app.run(&cmd);` の借用形へ是正＋本文に「借用参照。所有はmain。ActionHistoryは生成も破棄もしない」を明記。
+- **ch10（健全・明文化）**：最終コード(7-1)は `createClient()` の使い捨てClientを生成した `execute()` が全経路で `delete`（未登録・無効の早期returnは生成前なので破棄漏れなし）。`notifiers` の `INotifier*` は借用（実体 `SlackNotifier` は `run()` のスタック）。実欠陥なし。→ 本文に生成所有（Client）と借用（Notifier）の破棄責任の区別を明記。
+- **ch11（健全・前回検証済）**：`assemble()` は if/else-if/else で正確に1回 `new`（種類選択と装飾の二重newなし）、装飾は `report = new GraphFeature(report, renderer)` で旧 `report` を内側に捕捉、`~ReportFeature` が `wrapped` を、サービスが `report` を `delete`。
+
+**再発防止の観点（#100へ継続）**：ゲート（compile/run/出力照合）は短命デモのリークを検出できない。非コンパイルのフェーズ6図解に孤立newが混入しても素通りする（ch03/ch05がこれ）。`new` と `delete`/借用注記の対応を機械チェックする案を #100 で検討する。
+
+全ゲート（validate/kindle/execution/audit/diff-check）PASS。mmdc（Mermaid CLI）は当環境に未導入だが、本是正はmermaid図を変更していないため描画影響なし。

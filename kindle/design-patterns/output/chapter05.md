@@ -1316,7 +1316,8 @@ public:
 ```cpp
 ActionHistory history;
 BudgetApp app(&history);
-app.run(new AddExpenseAction(expenseManager, 1000, "Food"));
+AddExpenseAction cmd(expenseManager, 1000, "Food");
+app.run(&cmd);    // 操作の所有は呼び出し元。履歴は IAction* を借用する
 history.undo();   // 種別を見ず、直前の IAction::undo() を呼ぶ
 ```
 
@@ -1823,7 +1824,7 @@ public:
 
 ```
 
-`ActionHistory` は `IAction*` として操作オブジェクトを受け取り、スタックで管理します。具体的な操作クラスは知りません。Undo/Redoの実行に失敗した場合は、対象の操作を元のスタックに残す順序にしています。
+`ActionHistory` は `IAction*` として操作オブジェクトを受け取り、`undoStack`／`redoStack` で管理します。具体的な操作クラスは知りません。ここで保持する `IAction*` は**借用参照**で、操作オブジェクトの所有は生成元（`main()`）にあります。`ActionHistory` は生成も破棄もしないため、`undoStack` からあふれた操作を `delete` することはなく、`main()` の各操作オブジェクトが自身のスコープ終了時にまとめて破棄されます。Undo/Redoの実行に失敗した場合は、対象の操作を元のスタックに残す順序にしています。
 
 **⑥ 呼び出し元と組み立て（main）**
 

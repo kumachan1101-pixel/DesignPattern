@@ -1451,8 +1451,8 @@ public:
 class ReservedState : public IReservationState {
 public:
     void cancel(TicketReservation& ctx) override {
-        ctx.releaseSeatAndPromote();   // 席解放→自動昇格へ接続（課題ID2へ橋渡し）
-        ctx.setState(new AvailableState());
+        ctx.releaseSeatAndPromote();     // 席解放→自動昇格へ接続（課題ID2へ橋渡し）
+        ctx.setState(availableState());  // 共有シングルトンの状態へ遷移（new/deleteは不要）
     }
     // reserve()/pay() は各状態が自分の可否を実装する
 };

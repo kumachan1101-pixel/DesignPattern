@@ -2137,6 +2137,8 @@ public:
 
 `execute()` は1件の共通処理、`executeBatch()` は変更ID3・変更ID4の順次実行を担います。`executeBatch()`はジョブ列を登録順に走査し、失敗結果も保存・通知してから次のジョブへ進みます。したがって、`main()`が失敗後の続行を手動で呼び分けるのではありません。
 
+所有関係を整理します。`createClient()` が返す `IExternalClient*` は使い捨てで、生成した `execute()` が所有し、送信後に `delete` して破棄します（未登録・無効の早期returnは生成前なので破棄漏れは起きません）。一方 `notifiers` が保持する `INotifier*` は**借用参照**で、実体の `SlackNotifier` は `BatchApplication::run()` がスタックに持ち、`BatchExecutor` は生成も破棄もしません。生成して所有するもの（Client）と、外から借りて使うだけのもの（Notifier）を、破棄責任の有無で区別しています。
+
 **⑨ 手動トリガーのクラス（ManualTriggerController）**
 
 手動同期の起点となるクラスです。指定した連携先へ同期を実行し、結果を通知先へ届けます。
