@@ -2962,6 +2962,29 @@ def check_phase2_interview_plan(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def check_problem_cause_id_lists(text: str, path: Path) -> list[Issue]:
+    """各方法論章はフェーズ3末に問題ID一覧、フェーズ4末に原因ID一覧を持つ。
+
+    設計線 変更ID→問題ID→原因ID→課題ID を追跡可能にするため、フェーズ3の痛みへ
+    問題ID、フェーズ4の構造原因へ原因IDを採番し、5-3末で通し一覧に束ねる。
+    """
+    issues: list[Issue] = []
+    checks = [
+        ("| 問題ID |", "フェーズ3末に問題ID一覧の表がありません（変更ID→問題IDの採番）"),
+        ("問題ID1", "問題ID1が定義されていません（フェーズ3の痛みへの採番）"),
+        ("| 原因ID |", "フェーズ4末に原因ID一覧の表がありません（問題ID→原因IDの対応）"),
+        ("原因ID1", "原因ID1が定義されていません（フェーズ4の構造原因への採番）"),
+        (
+            "| 問題ID（フェーズ3の痛み） | 原因ID（フェーズ4の構造原因） | 課題ID（達成目標） |",
+            "5-3末に問題ID→原因ID→課題IDの通し一覧がありません",
+        ),
+    ]
+    for token, msg in checks:
+        if token not in text:
+            issues.append(Issue(path, 1, msg))
+    return issues
+
+
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
@@ -2978,6 +3001,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_boundary_error_marker(text, path))
         issues.extend(check_phase2_interview_plan(text, path))
         issues.extend(check_phase5_phase6_reasoning_contract(text, path))
+        issues.extend(check_problem_cause_id_lists(text, path))
         issues.extend(check_phase6_complete_comparison_code(text, path))
         issues.extend(check_phase6_baseline(text, path))
         issues.extend(check_phase6_continuity(text, path))
