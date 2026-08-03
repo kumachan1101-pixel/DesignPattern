@@ -764,6 +764,15 @@ flowchart LR
 
 増えた状態と操作の組み合わせが実際にコードのどこへ書かれるかは、フェーズ3で変更を試すコードと、フェーズ7の最終コード・実行結果で追います。
 
+**フェーズ1のまとめ：今回追う変更ID一覧**
+
+このフェーズで確定した変更依頼を一覧にして締めます。フェーズ2でこの変更IDを仮説・ヒアリングへ、フェーズ3で一つずつ試して痛みへ、と順につなぎます。
+
+| 変更ID | 変更依頼の要点 | 対象の現行要求ID |
+|---|---|---|
+| 変更ID1 | 満席時にキャンセル待ちへ登録し、空席発生時に先頭を自動昇格する | 要求ID4、要求ID6 |
+| 変更ID2 | 予約済みを24時間の一時保留へ移し、期限切れで席を解放する | 要求ID3、要求ID7 |
+
 フェーズ1でシステムの現状と変更要求が把握できました。次のフェーズ2では、「何を変え、何を守るか」を整理します。
 
 ---
@@ -1405,11 +1414,10 @@ classDiagram
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 課題ID1 | 共通契約 `IReservationState` を新設する | `reserve/pay/cancel/promoteBySystem` を純粋仮想で定義する | ステップ1 |
-| 課題ID1 | 各状態を契約実装へ移す | 5つの状態クラスが振る舞いを実装し `TicketReservation` は委譲する | ステップ2 |
-| 課題ID2 | 待ち行列を専用クラスへ移す | `ReservationWaitlist` が探索・削除・先頭選択を持ち自動昇格を接続する | ステップ3 |
+| 課題ID1 | 共通契約 `IReservationState` と5状態を新設し委譲へ変える | `reserve/pay/cancel/promoteBySystem` を純粋仮想で定義、各状態が振る舞いを実装、`TicketReservation` は共有状態を保持して委譲 | 課題ID1節（①〜⑥） |
+| 課題ID2 | 待ち行列を専用クラスへ移す | `ReservationWaitlist` が探索・削除・先頭選択を持ち、`ReservedState::cancel()` の1点で自動昇格を接続する | 課題ID2節（③⑤⑥） |
 
 このクラス図が、課題ID1・課題ID2を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
@@ -1444,17 +1452,30 @@ public:
 };
 ```
 
-### 6-1：採用設計をコードへ段階的に反映する
+### 課題ID1：状態固有の動作と遷移を各状態クラスへ分離する
 
-採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+**【課題ID1の原因】** 問題ID1・問題ID2（状態追加で複数操作を横断修正・確認）＝原因ID1（`TicketReservation` が現在状態の判断と処理フローを同居）。この原因を分離対象にします。
 
-#### 実装ステップ1（課題ID1）：状態の共通契約 `IReservationState` を定める
+**この課題（何を解きたいか）：** 状態を1種足すたび、`reserve/pay/cancel/expire` の複数メソッドへ分岐が増え、修正漏れが受入不成立へ直結する——問題ID1・問題ID2（痛み）／原因ID1です。**公開入口は現在状態へ委譲するだけにし、状態ごとの可否と遷移だけを差し替えられる**ようにするのが課題ID1です。
 
-すべての状態が満たす契約 `IReservationState` を定義します。以降、`TicketReservation` はこの契約だけを軸に操作を委譲します。
+**どう解決するか（方針）：** 状態を共通契約の裏へ出し、公開操作は現在状態へ委譲します（状態分離構造＝State）。①契約 →③具体 →④生成 →⑤保持・遷移 →⑥委譲 の順で組み立てます（②骨格は無し）。
+
+```mermaid
+classDiagram
+    class TicketReservation
+    class IReservationState { <<interface>> }
+    class ReservedState
+    TicketReservation o--> IReservationState : 現在状態を保持し委譲
+    IReservationState <|.. ReservedState
+    class IReservationState focus
+    class ReservedState focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**① 共通契約 `IReservationState` を定義する。** すべての状態が満たす操作を宣言し、`TicketReservation` はこの契約だけを軸に委譲します。
 
 ```cpp
 class TicketReservation;
-
 class IReservationState {
 public:
     virtual ~IReservationState() = default;
@@ -1465,32 +1486,55 @@ public:
 };
 ```
 
-**課題ID1との対応：** `IReservationState` を新設しました。公開操作は状態を判定せず、現在状態へ委譲します。
-
-#### 実装ステップ2（課題ID1）：各状態を契約実装へ移し、委譲だけにする
-
-各状態クラスが自分の振る舞いと遷移を持ちます。`TicketReservation` は現在状態へ委譲するだけで、`status` 文字列分岐を持ちません。
+**③ 各状態が自分の振る舞いと遷移だけを実装する（`status` 文字列分岐は持たない）。**
 
 ```cpp
 class ReservedState : public IReservationState {
 public:
     void cancel(TicketReservation& ctx) override {
-        ctx.releaseSeatAndPromote();     // 席解放→自動昇格へ接続（課題ID2へ橋渡し）
-        ctx.setState(availableState());  // 共有シングルトンの状態へ遷移（new/deleteは不要）
+        ctx.releaseSeatAndPromote();     // 席解放→自動昇格（課題ID2へ橋渡し）
+        ctx.setState(availableState());  // ⑤ 共有状態へ遷移
     }
     // reserve()/pay() は各状態が自分の可否を実装する
 };
 ```
 
-**課題ID1との対応：** `IReservationState <|.. ReservedState` などの実装関係と `TicketReservation o--> IReservationState` の委譲を実装しました。状態追加は新しい状態クラスと遷移元だけで済みます。
+**④ 状態は関数ローカルの静的オブジェクトを共有する（生成・破棄を持たない）。** 遷移のたびに `new` せず、共有シングルトンを指すため所有・破棄の問題が起きません。
 
-#### 実装ステップ3（課題ID2）：待ち行列を専用クラスへ分離し、自動昇格を接続する
+```cpp
+IReservationState* availableState() {
+    static AvailableState state;   // 共有シングルトン（new/deleteは不要）
+    return &state;
+}
+```
 
-待機者の探索・削除・先頭選択を `ReservationWaitlist` へ移します。`ReservedState::cancel()` が席解放後に先頭1件を自動昇格させる接続だけは維持します。
+**⑤ `TicketReservation` が現在状態を保持し、⑥ 公開操作は現在状態へ委譲するだけ。** 状態名も分岐条件も持たず、`setState()` で次状態へ移ります。状態追加は新しい状態クラスと遷移元だけで済み、課題ID1の完了条件「状態追加が新状態動作と遷移登録に閉じる」を満たします。
+
+### 課題ID2：待ち行列と席解放処理を専用の係へ分離する
+
+**【課題ID2の原因】** 問題ID3（キャンセル待ちで昇格・待機順が散在）＝原因ID2（待ち行列の責任が状態処理へ絡む）。この原因を分離対象にします。
+
+**この課題（何を解きたいか）：** キャンセル待ちの追加で、席解放後の自動昇格と待機順の管理が予約本体の各所へ散らばる——問題ID3（痛み）／原因ID2です。**待機者の探索・削除・先頭選択を専用の係へ寄せ、席解放直後に先頭1件だけ自動昇格する接続を1点に保つ**のが課題ID2です。
+
+**どう解決するか（方針）：** 待ち行列を専用クラスへ分離し、状態処理からは1点だけで接続します。③具体 →⑤接続 →⑥実行 に相当します（①契約は状態側の `promoteBySystem()` を使うため新設せず、②骨格も無し）。
+
+```mermaid
+classDiagram
+    class ReservedState
+    class TicketReservation
+    class ReservationWaitlist
+    ReservedState --> TicketReservation : releaseSeatAndPromote()
+    TicketReservation --> ReservationWaitlist : promoteFront()
+    ReservationWaitlist o--> TicketReservation : 先頭を昇格
+    class ReservationWaitlist focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**③ 待機者の探索・削除・先頭選択を `ReservationWaitlist` が持つ。**
 
 ```cpp
 class ReservationWaitlist {
-    std::deque<TicketReservation*> waiting;   // 先着順
+    std::deque<TicketReservation*> waiting;   // 先着順（借用参照）
 public:
     void add(TicketReservation* r) { waiting.push_back(r); }
     void promoteFront() {           // 席解放直後に先頭1件だけ昇格
@@ -1502,7 +1546,15 @@ public:
 };
 ```
 
-**課題ID1との対応：** `ReservationWaitlist o--> TicketReservation` と、`TicketReservation --> ReservationWaitlist` の接続を実装しました。ここで状態分離構造と待ち行列分離構造が1点で接続されました。
+**⑤ 状態処理からは1点だけで接続する。** `ReservedState::cancel()` が席解放後に `releaseSeatAndPromote()` を通じて `ReservationWaitlist::promoteFront()` を呼びます。**⑥ 実行**では先頭1件が `promoteBySystem()` で自動昇格します。これで課題ID2の完了条件「取消・期限切れから自動昇格まで一つのユースケースで完了する」を満たし、状態分離構造と待ち行列分離構造が1点で接続されます。
+
+### 6-1：生成・所有・実行順のまとめ
+
+課題ID1・課題ID2を一本の実行経路へ束ね直します。上の課題別展開は試行錯誤の履歴ではなく、完成構造を理解できる単位へ分けた実装順です。
+
+- 状態オブジェクト：関数ローカルの静的（共有シングルトン）で、`new`／`delete` を持たない。
+- 待ち行列：`ReservationWaitlist` は `TicketReservation*` を借用参照で保持（所有は予約側）。
+- 実行順：公開操作→現在状態へ委譲→（取消なら）席解放→`promoteFront()`→先頭を `promoteBySystem()`。2つの変化軸（状態・待ち行列）が `ReservedState::cancel()` の1点で接続されます。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
