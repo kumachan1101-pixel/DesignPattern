@@ -1576,9 +1576,9 @@ Phase・Listener・Ruleは組み立て側が生成・注入し、`WorkflowManage
 
 | 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
 |---|---|---|---|
-| 課題ID1（状態遷移） | 状態分離。Managerが現在Phaseへ委ね、状態側が次Phaseを選び所有を引き継ぐ | `IWorkflowPhase`、各状態Phase | 進行骨格から状態ごとの遷移判断が消える |
-| 課題ID2（通知） | 通知連結。Managerが各Listenerを登録し、状態保存後に配る | `INotificationListener`、各Listener、配送ログ | 通知先の追加・失敗が状態遷移と他通知へ波及しない |
-| 課題ID3（承認判定） | 規則差し替え。承認Phaseが注入された`IApprovalRule`へ可否を委ねる | `IApprovalRule`、部署別Rule | 上限変更が判定規則と設定に閉じる |
+| 課題ID1（状態遷移） | 状態分離。Managerが現在Phaseへ委ね、状態側が次Phaseを選び所有を引き継ぐ | `IWorkflowPhase`、`DraftPhase`／`PendingPhase`／`PriorityPendingPhase`／`ApprovedPhase`／`RejectedPhase`／`CompletedPhase` | 進行骨格から状態ごとの遷移判断が消える |
+| 課題ID2（通知） | 通知連結。Managerが各Listenerを登録し、状態保存後に配る | `INotificationListener`、`EmailNotifier`／`ChatNotifier`、配送ログ | 通知先の追加・失敗が状態遷移と他通知へ波及しない |
+| 課題ID3（承認判定） | 規則差し替え。承認Phaseが注入された`IApprovalRule`へ可否を委ねる | `IApprovalRule`、`ManagerApprovalRule`／`DirectorApprovalRule`／`DepartmentApprovalRule` | 上限変更が判定規則と設定に閉じる |
 | 変更対象外 | 状態・通知先の保存。Managerは保存表現を変えず利用する | 状態Repository、通知先Repository | 変更前後で保存表現が不変 |
 
 このクラス図、コード適用結果、シーケンス、コード変更表が、フェーズ7へ渡す完成設計です。

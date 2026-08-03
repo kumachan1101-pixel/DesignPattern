@@ -1360,9 +1360,9 @@ struct OrderResult {
 
 | 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
 |---|---|---|---|
-| 課題ID1（機能連結） | 機能連結。各Wrapperが内側の`IDrink`を包み自分ぶんを足し、`OrderAssembler`が入力順に連結 | `IDrink`、各`ToppingWrapper`、`OrderAssembler` | 種類追加が新部品と登録に閉じる |
+| 課題ID1（機能連結） | 機能連結。各Wrapperが内側の`IDrink`を包み自分ぶんを足し、`OrderAssembler`が入力順に連結 | `IDrink`、`Milk`／`Whip`／`Syrup`／`Matcha`／`Choco`、`OrderAssembler` | 種類追加が新部品と登録に閉じる |
 | 課題ID1（データ配置） | データ分離。価格・販売可否を`ToppingCatalog`へ寄せる | `ToppingCatalog` | 部品が価格・販売状態を自前で持たない |
-| 変更対象外 | 基本ドリンクの価格・説明契約。基本は変更しない | 基本ドリンク（`Coffee`ほか） | 1-4、注文名・合計金額 |
+| 変更対象外 | 基本ドリンクの価格・説明契約。基本は変更しない | `Coffee`（基本ドリンク） | 1-4、注文名・合計金額 |
 
 このクラス図、コード適用結果、シーケンス、コード変更表が、フェーズ7へ渡す完成設計です。
 

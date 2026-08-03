@@ -1381,7 +1381,7 @@ DB、ログ、通知アダプターは組み立て側が生成・所有します
 
 | 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
 |---|---|---|---|
-| 課題ID1（通知手段） | 通知連結。`InventoryManager`が登録リストへ一律配布し、各アダプターが文面・送信・受付結果を持つ | `INotification::send()`、`StockAlert`、各通知アダプター、`attach()` | 手段追加が具象クラスと登録に閉じ、1件失敗しても他通知が続く |
+| 課題ID1（通知手段） | 通知連結。`InventoryManager`が登録リストへ一律配布し、各アダプターが文面・送信・受付結果を持つ | `INotification::send()`、`StockAlert`、`EmailNotifier`／`DashboardUpdater`／`ChatNotifier`／`SMSNotifier`、`attach()` | 手段追加が具象クラスと登録に閉じ、1件失敗しても他通知が続く |
 | 変更対象外 | 在庫更新・閾値判定・ログ。事実を作る側は変えない | `InventoryManager::reduceStock()`、`ProductDatabase`、`StockEventLog` | 1-4、在庫50→45 |
 
 このクラス図、コード適用結果、シーケンス、コード変更表が、フェーズ7へ渡す完成設計です。

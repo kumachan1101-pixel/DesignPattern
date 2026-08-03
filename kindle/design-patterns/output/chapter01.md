@@ -1683,7 +1683,7 @@ struct PaymentResult {
 
 | 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
 |---|---|---|---|
-| 課題ID1（選択条件） | ルール差し替え。`main()`が各ルールを生成・登録し、`RuleSelector`が一致から優先度最高を選ぶ | `IDiscountRule::matches()`、各施策ルール、`RuleSelector` | 施策追加が新ルールと登録に閉じ、選択側が具体条件を持たない |
+| 課題ID1（選択条件） | ルール差し替え。`main()`が各ルールを生成・登録し、`RuleSelector`が一致から優先度最高を選ぶ | `IDiscountRule::matches()`、`PremiumDiscount`／`CampaignDiscount`／`SummerSaleDiscount`／`SummerSaleAndCampaignDiscount`／`NoDiscount`、`RuleSelector` | 施策追加が新ルールと登録に閉じ、選択側が具体条件を持たない |
 | 課題ID2（計算式） | ルール差し替え。骨格は契約`apply()`だけを呼ぶ | `IDiscountRule::apply()`、`PaymentCalculator` | 計算側が個別式を知らず、同じ操作で逐次適用できる |
 | 変更対象外 | 会員情報の取得と購入結果の表示。骨格はそのまま利用する | `CustomerDatabase`、`CheckoutResultRenderer` | 1-4、登録・未登録の既存動作 |
 

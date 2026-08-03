@@ -1546,7 +1546,7 @@ public:
 
 | 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
 |---|---|---|---|
-| 課題ID1（予約状態） | 状態分離。`TicketReservation`が現在状態へ委譲し、各状態が遷移先を持つ | `IReservationState`、各状態クラス | 状態追加が新状態と遷移登録に閉じる |
+| 課題ID1（予約状態） | 状態分離。`TicketReservation`が現在状態へ委譲し、各状態が遷移先を持つ | `IReservationState`、`AvailableState`／`ReservedState`／`PaidState`／`WaitlistedState`／`HeldState` | 状態追加が新状態と遷移登録に閉じる |
 | 課題ID2（待ち行列） | 待ち行列分離。`ReservedState::cancel()`が`promoteFront()`を呼び自動昇格 | `ReservationWaitlist`、`ReservedState::cancel()` | 席解放直後にシステムが先頭を自動昇格する |
 | 変更対象外 | 公開入口・座席数更新・履歴。委譲先だけが振る舞いを変える | `TicketReservation`の公開操作、`EventDatabase` | 1-4、50/50→49/50→50/50 |
 

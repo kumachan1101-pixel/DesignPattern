@@ -1460,7 +1460,7 @@ struct ImportResult {
 | 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
 |---|---|---|---|
 | 課題ID1（骨格） | 骨格固定。業務順序を基底の1か所へ固定 | `AbstractImporter::import()` | 共通手順追加が骨格1か所の変更で済む |
-| 課題ID1（形式差分） | フック分離。形式ごとの解析・行検証を派生フックへ残す | 各Importerの`parseData()`／`validateRows()` | 形式追加が差分クラスと登録に閉じる |
+| 課題ID1（形式差分） | フック分離。形式ごとの解析・行検証を派生フックへ残す | `StoreDataImporter`／`FCDataImporter`／`ECDataImporter` の`parseData()`／`validateRows()` | 形式追加が差分クラスと登録に閉じる |
 | 変更対象外 | 取得・保存・取込結果。基底が契約経由で利用する | `ImportFileGateway`、`SalesImportRepository`、`ImportResult` | 1-4、正常行だけ保存し件数・理由を返す |
 
 このクラス図、コード適用結果、シーケンス、コード変更表が、フェーズ7へ渡す完成設計です。
