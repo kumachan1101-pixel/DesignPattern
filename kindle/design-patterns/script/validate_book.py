@@ -66,7 +66,7 @@ REQUIRED_NUMBERED_SECTIONS = [
     "### 4-1：痛みの根源を探る",
     "### 4-2：変わるもの/変わってほしくないもの",
     "### 4-3：",
-    "### 6-5：将来リスクに対する設計上の確認",
+    "### 6-4：将来リスクに対する設計上の確認",
     "### 7-1：解決後のコード（全体）",
     "### 7-2：動作シーケンス図",
     "### 7-3：変更影響グラフ（改善後）",
@@ -2420,7 +2420,7 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
     risk_end = text.find("### 2-5：", risk_start)
     phase6_start = text.find("## 🔴 フェーズ6：")
     phase7_start = text.find("## 🟢 フェーズ7：", phase6_start)
-    design_heading = "### 6-5：将来リスクに対する設計上の確認"
+    design_heading = "### 6-4：将来リスクに対する設計上の確認"
     design_start = text.find(design_heading, phase6_start, phase7_start)
     if min(risk_start, risk_end, phase6_start, phase7_start) < 0:
         return issues
@@ -2498,7 +2498,7 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
     if design_start < 0:
         issues.append(Issue(
             path, line_number(text, phase6_start),
-            "フェーズ6にリスクIDを採用構造へ再適用する6-5がありません",
+            "フェーズ6にリスクIDを採用構造へ再適用する6-4がありません",
         ))
         return issues
 
@@ -2514,7 +2514,7 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
         if token not in design_section:
             issues.append(Issue(
                 path, line_number(text, design_start),
-                f"6-5の将来リスク設計確認に「{token}」がありません",
+                f"6-4の将来リスク設計確認に「{token}」がありません",
             ))
 
     design_rows = re.findall(
@@ -2525,7 +2525,7 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
     if design_ids != risk_ids:
         issues.append(Issue(
             path, line_number(text, design_start),
-            "2-4と6-5のリスクIDを同じ順序で対応させてください: "
+            "2-4と6-4のリスクIDを同じ順序で対応させてください: "
             f"{risk_ids} != {design_ids}",
         ))
 
@@ -2536,7 +2536,7 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
         if normalized_meaning != design_meaning:
             issues.append(Issue(
                 path, line_number(text, design_start),
-                f"{risk_id}の将来リスクが2-4から6-5へ"
+                f"{risk_id}の将来リスクが2-4から6-4へ"
                 f"同じ文言で引き継がれていません: {normalized_meaning}",
             ))
 
