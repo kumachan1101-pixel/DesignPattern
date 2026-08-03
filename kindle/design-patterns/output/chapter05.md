@@ -681,6 +681,16 @@ flowchart LR
 
 既存の2つの登録操作をUndo対象として記録し、新たに「Undo実行」という履歴操作を加える点が、この変更の核心です。
 
+**フェーズ1のまとめ：今回追う変更ID一覧**
+
+このフェーズで確定した変更依頼を一覧にして締めます。フェーズ2でこの変更IDを仮説・ヒアリングへ、フェーズ3で一つずつ試して痛みへ、と順につなぎます。
+
+| 変更ID | 変更依頼の要点 | 対象の現行要求ID |
+|---|---|---|
+| 変更ID1 | 直前の収入・支出操作を取り消す | 要求ID5 |
+| 変更ID2 | Undoした同じ操作をやり直す | 要求ID6 |
+| 変更ID3 | 複数操作を一括実行し、途中失敗時に成功分を巻き戻す | 要求ID7 |
+
 ---
 
 ## 🟣 フェーズ2：仮説立案 ―― 何が変わるかを観察し、ヒアリングで裏付ける
@@ -1258,11 +1268,10 @@ classDiagram
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 課題ID1 | 共通契約 `IAction` を新設する | `execute()`／`undo()` を純粋仮想で定義する | ステップ1 |
-| 課題ID1 | 実行値と逆操作を操作部品へ移す | `AddExpenseAction` が値を内包し実行先を呼ぶ | ステップ2 |
-| 課題ID1 | 実行・取消・履歴を仲介役へ集める | `ActionHistory` がスタックで積み、`BudgetApp` は操作を渡す | ステップ3 |
+| 課題ID1 | 共通契約 `IAction` と操作部品を新設し、UI・バッチを契約経由にする | `execute()`／`undo()` を純粋仮想で定義、`AddExpenseAction` が値と逆操作を内包、`BudgetApp` は操作を渡すだけ | 課題ID1節（①〜⑥） |
+| 課題ID2 | `ActionHistory` の履歴・補償と `LedgerRepository` の正本を接続する | Undo/Redoスタックで成否管理、`ImportService` が一括失敗時に逆順ロールバック、台帳を残高の正本にする | 課題ID2節（③⑤⑥） |
 
 このクラス図が、課題ID1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
@@ -1290,13 +1299,29 @@ public:
 };
 ```
 
-### 6-1：採用設計をコードへ段階的に反映する
+### 課題ID1：実行可能な操作を同じ操作単位（契約）へ分離する
 
-採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+**【課題ID1の原因】** 問題ID1・問題ID2（実行手段の混在で入口へ分岐集中）＝原因ID1（操作が意図と実行手順を抱えオブジェクト化されない）。この原因を分離対象にします。
 
-#### 実装ステップ1（課題ID1）：実行と取消の共通契約 `IAction` を定める
+**この課題（何を解きたいか）：** 実行・Undo・Redo・一括補償の条件分岐が同じ入口 `UIButtons` へ集中し、画面が実行の詳細を知りすぎる——問題ID1・問題ID2（痛み）／原因ID1です。**操作をオブジェクトにして、UIもバッチも同じ契約で実行・取消できる**ようにするのが課題ID1です。
 
-すべての操作が満たす契約 `IAction` を定義します。以降、UIも履歴もこの契約だけを軸に操作を扱います。
+**どう解決するか（方針）：** 「実行したい操作」を部品（オブジェクト）にして、実行手段を依頼側から切り離します（操作記録構造＝Command）。①契約 →③具体 →④生成 →⑤注入 →⑥実行 の順で組み立てます（②骨格は無し）。
+
+```mermaid
+classDiagram
+    class BudgetApp
+    class ActionHistory
+    class IAction { <<interface>> }
+    class AddExpenseAction
+    BudgetApp --> ActionHistory : 操作を渡すだけ
+    ActionHistory o--> IAction : 実行・取消
+    IAction <|.. AddExpenseAction
+    class IAction focus
+    class AddExpenseAction focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**① 共通契約 `IAction` を定義する。** 利用側は種別を知らず、`execute()`／`undo()` だけを呼びます。
 
 ```cpp
 class IAction {
@@ -1307,12 +1332,7 @@ public:
 };
 ```
 
-**課題ID1との対応：** `IAction` を新設しました。利用側は種別を知らず、`execute()`／`undo()` だけを呼びます。
-
-#### 実装ステップ2（課題ID1）：実行値と逆操作を操作部品へ移す
-
-各操作は実行に必要な値（金額・カテゴリ）と実行先を内包し、`execute()` で実行、`undo()` で逆操作を呼びます。UIは値も逆操作も持ちません。Kindleでは横幅が狭いため、コンストラクタや委譲関数も役割を追える複数行で示します。この表記を全章の標準にします。
-
+**③ 各操作が実行値と逆操作を内包する（UIは値も逆操作も持たない）。**
 
 ```cpp
 class AddExpenseAction : public IAction {
@@ -1331,21 +1351,70 @@ public:
 };
 ```
 
-**課題ID1との対応：** `IAction <|.. AddExpenseAction` の実装関係を実装しました。`AddIncomeAction` も同じ形で、実行先が `IncomeManager` に変わるだけです。
-
-#### 実装ステップ3（課題ID1）：実行・取消・履歴を仲介役へ集める
-
-`ActionHistory` が操作を受け取って実行し、成功したものだけをスタックへ積みます。`BudgetApp` は操作を渡すだけで、種別も逆操作も知りません。
+**④ 生成・⑤ 注入。** 操作は呼び出し元（`main()`）がスタック生成・所有し、`ActionHistory` は `IAction*` を借用します。`BudgetApp` は履歴へ操作を渡すだけです。
 
 ```cpp
 ActionHistory history;
 BudgetApp app(&history);
-AddExpenseAction cmd(expenseManager, 1000, "Food");
-app.run(&cmd);    // 操作の所有は呼び出し元。履歴は IAction* を借用する
-history.undo();   // 種別を見ず、直前の IAction::undo() を呼ぶ
+AddExpenseAction cmd(expenseManager, 1000, "Food"); // ④ 生成・所有はmain
+app.run(&cmd);    // ⑤ 履歴は IAction* を借用（非所有）
 ```
 
-**課題ID1との対応：** `ActionHistory o--> IAction` と `BudgetApp --> ActionHistory` の関連を実装しました。ここで実行・取消・履歴が一つの操作記録構造として接続されました。
+**⑥ 実行部は契約だけを呼ぶ。** `ActionHistory` は種別を見ず、直前の `IAction::undo()` を呼びます。これで課題ID1の完了条件「UIとバッチが同じ操作契約で実行・取消できる」を満たします。
+
+```cpp
+history.undo();   // ⑥ 種別を見ず契約だけ呼ぶ
+```
+
+### 課題ID2：操作効果・補償と台帳・履歴を分離する
+
+**【課題ID2の原因】** 問題ID3（補償・巻戻し範囲を外側が判断）＝原因ID2（実行・取消・補償がまとまらず台帳・履歴規則が漏れる）。この原因を分離対象にします。
+
+**この課題（何を解きたいか）：** 複合操作や保存失敗時の補償で「何をどの順で戻すか」をUIや履歴管理側が知る必要がある——問題ID3（痛み）／原因ID2です。**成功操作だけを履歴へ積み、失敗時は対象範囲だけを逆順に戻せる**ようにし、残高は台帳を正本にするのが課題ID2です。
+
+**どう解決するか（方針）：** 実行・取消・再実行・補償を「同じ操作の別の向き」として `ActionHistory` へまとめ、残高は `LedgerRepository` を正本にします。③具体（履歴・台帳）→⑤接続（一括入口）→⑥補償 に相当します（①契約は課題ID1の `IAction` を使い、②骨格も無し）。
+
+```mermaid
+classDiagram
+    class ActionHistory
+    class IAction { <<interface>> }
+    class ImportService
+    ActionHistory o--> IAction : undoStack / redoStack
+    ImportService --> ActionHistory : 一括実行し失敗時に補償
+    class ActionHistory focus
+    class ImportService focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**③ `ActionHistory` が成否で履歴を管理する。** 成功した操作だけを `undoStack` へ積み、Undoで `redoStack` へ移します。台帳（`LedgerRepository`）を正本にした結果に応じて件数と残高が戻ります。
+
+```cpp
+void undo() {
+    if (undoStack.empty()) return;
+    IAction* cmd = undoStack.back();
+    undoStack.pop_back();
+    if (!cmd->undo()) { undoStack.push_back(cmd); return; } // 失敗は残す
+    redoStack.push_back(cmd);   // 成功した操作だけRedo対象へ
+}
+```
+
+**⑤ 一括入口と⑥ 逆順補償。** `ImportService` はUIと同じ `ActionHistory` を共有し、一括実行の途中失敗時に、成功済み操作だけを逆順に取り消します（`rollback`）。
+
+```cpp
+void rollback(int count) {              // 成功済みcount件を逆順に戻す
+    for (int i = 0; i < count; i++) history->undo();
+}
+```
+
+これで課題ID2の完了条件「成功操作だけ記録し、失敗時は対象範囲だけ逆順に戻せる」を満たします。UI・バッチのどちらの入口から実行しても、同じ履歴と補償が働きます。
+
+### 6-1：生成・所有・実行順のまとめ
+
+課題ID1・課題ID2を一本の実行経路へ束ね直します。上の課題別展開は試行錯誤の履歴ではなく、完成構造を理解できる単位へ分けた実装順です。
+
+- 操作オブジェクト：`main()` がスタック生成・所有し、`ActionHistory` は `IAction*` を借用（非所有）。
+- 台帳：`LedgerRepository` を残高の正本にし、`execute()`／`undo()` が更新・補償する。
+- 実行順：入口（UI／`ImportService`）→ `ActionHistory` が `execute()` し成功だけ積む → Undo/Redo/一括失敗時は逆順 `undo()`。2つの変化軸（操作単位と補償・履歴）が同じ `ActionHistory` で接続されます。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
