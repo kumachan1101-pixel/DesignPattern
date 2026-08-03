@@ -1303,6 +1303,15 @@ flowchart LR
 
 種別が1つ増えるだけの変更が、実際のコードではどれだけの修正になるかを、フェーズ3で変更を試すコードで確認します。
 
+**フェーズ1のまとめ：今回追う変更ID一覧**
+
+このフェーズで確定した変更依頼を一覧にして締めます。フェーズ2でこの変更IDを仮説・ヒアリングへ、フェーズ3で一つずつ試して痛みへ、と順につなぎます。
+
+| 変更ID | 変更依頼の要点 | 対象の現行要求ID |
+|---|---|---|
+| 変更ID1 | PayPay固有データを検証して決済セッションを作る | 要求ID7 |
+| 変更ID2 | PayPayの保留IDで完了状態を確認する | 要求ID6 |
+
 フェーズ1でシステムの現状と変更要求が把握できました。次のフェーズ2では、「何を変え、何を守るか」を整理します。
 
 ## 🟣 フェーズ2：仮説立案 ―― 何が変わるかを観察し、ヒアリングで裏付ける
@@ -1964,11 +1973,9 @@ classDiagram
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 課題ID1 | 共通契約 `IPaymentProcessor` を新設する | `pay(request)` を純粋仮想で定義し各Processorが実装する | ステップ1 |
-| 課題ID1 | 生成判断を生成メソッドへ寄せる | `createProcessor(type)` に具体クラスの選択・生成を集める | ステップ2 |
-| 課題ID1 | 利用フローを契約中心へ変える | `processPayment` は `createProcessor` の結果へ `pay()` を委譲する | ステップ3 |
+| 課題ID1 | 共通契約 `IPaymentProcessor` を新設し、生成判断を生成メソッドへ寄せ、利用フローを契約中心へ変える | `pay(request)` を純粋仮想で定義し各Processorが実装、`createProcessor(type)` に具体クラスの選択・生成を集め、`processPayment` はその結果へ `pay()` を委譲する | 課題ID1節（①〜⑥） |
 
 このクラス図が、課題ID1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
@@ -1994,13 +2001,27 @@ PaymentResult processPayment(const PaymentRequest& request) {
 }
 ```
 
-### 6-1：採用設計をコードへ段階的に反映する
+### 課題ID1：決済方式の生成・処理を利用フローから分離する
 
-採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+**【課題ID1の原因】** 問題ID1・問題ID2（手段固有の生成・検証・処理モードが決済フローへ混在）＝原因ID1（`PaymentApplication` が具体クラス名・入力検証・処理モード判定・リトライ判定を持つ）。この原因を分離対象にします（問題ID3の完了確認は既存フローとして守る側に置きます）。
 
-#### 実装ステップ1（課題ID1）：共通契約 `IPaymentProcessor` を定める
+**この課題（何を解きたいか）：** PayPayを足すだけで、統括者が具体クラス名・固有検証・非同期保留・エラー対処を抱え、7か所へ波及する——問題ID1・問題ID2（痛み）／原因ID1です。**どの方式を作るかの生成判断を一つの生成メソッドへ寄せ、利用フローは共通契約だけを呼ぶ**ようにするのが課題ID1です。
 
-各決済手段が満たす契約 `pay(request)` を定義し、既存Processorをその実装にします。手段固有の入力検証・API手順・エラー対処は各Processorの内側に閉じます。この契約化ができるのは、フェーズ5で確認したとおり、すべての決済要求がすでに `PaymentRequest` という共通の入力にまとまっているからです。もし手段ごとに引数の形がばらばらだったら、まず入出力の型を `PaymentRequest`／`PaymentResult` へそろえる作業が先に必要になります。共通点が先にそろっているからこそ、契約を1本かぶせるだけで実装を差し替えられます。
+**どう解決するか（方針）：** 決済方式を共通契約の裏へ隠し、生成判断を生成メソッドへ集めます（生成分離構造＝Factory Method）。①契約 →③具体 →④生成 →⑤注入 →⑥実行 の順で組み立てます（②骨格は無し）。
+
+```mermaid
+classDiagram
+    class PaymentApplication
+    class IPaymentProcessor { <<interface>> }
+    class CreditCardProcessor
+    PaymentApplication ..> IPaymentProcessor : createProcessorで生成し委譲
+    IPaymentProcessor <|.. CreditCardProcessor
+    class IPaymentProcessor focus
+    class CreditCardProcessor focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**① 共通契約 `IPaymentProcessor` を定義する。** すべての方式が `PaymentRequest` を受けて `PaymentResult` を返せます（フェーズ5で入出力が既にそろっているため、契約を1本かぶせるだけで差し替えられます）。
 
 ```cpp
 class IPaymentProcessor {
@@ -2008,61 +2029,57 @@ public:
     virtual ~IPaymentProcessor() = default;
     virtual PaymentResult pay(const PaymentRequest& request) = 0;
 };
+```
 
+**③ 各方式が固有の検証・API手順・エラー対処を内側に閉じる。**
+
+```cpp
 class CreditCardProcessor : public IPaymentProcessor {
     PaymentGatewayClient& gateway;
 public:
     explicit CreditCardProcessor(PaymentGatewayClient& g) : gateway(g) {}
     PaymentResult pay(const PaymentRequest& request) override {
-        // カード固有の検証と認証API。canRetry（残高不足は不可、
-        // 通信タイムアウトは可）はゲートウェイの結果に含まれる
+        // カード固有の検証と認証API。canRetryはゲートウェイ結果に含む
         return gateway.authorizeCreditCard(
             request.orderId, request.amount, request.creditCard);
     }
 };
 ```
 
-**課題ID1との対応：** `IPaymentProcessor <|.. CreditCardProcessor` の実装関係を実装しました。手段固有のエラー対処が利用フローから各Processorの内側へ移りました。
-
-#### 実装ステップ2（課題ID1）：生成判断を生成メソッドへ寄せる
-
-具体クラスを選んで生成する判断を、`createProcessor(type)` の1か所へ集めます。新しい手段はここへ1行足すだけになります。
+**④ どの具体を生成するかを、生成メソッド `createProcessor()` の1か所へ閉じる。** 新方式はここへ1行足すだけです。`new` した使い捨てProcessorを生ポインタで返し、**所有は呼び出した `processPayment()` が持ち、使用後に `delete` します**（⑥で破棄）。
 
 ```cpp
-class PaymentApplication {
-protected:
-    virtual IPaymentProcessor* createProcessor(const string& type) {
-        if (type == "credit_card") return new CreditCardProcessor(gateway);
-        if (type == "bank_transfer") return new BankTransferProcessor(gateway);
-        if (type == "convenience")
-            return new ConvenienceStoreProcessor(gateway);
-        return nullptr;
-    }
-    // ...
-};
+virtual IPaymentProcessor* createProcessor(const string& type) {
+    if (type == "credit_card") return new CreditCardProcessor(gateway);
+    if (type == "bank_transfer") return new BankTransferProcessor(gateway);
+    if (type == "convenience") return new ConvenienceStoreProcessor(gateway);
+    return nullptr;
+}
 ```
 
-**課題ID1との対応：** `PaymentApplication ..> IPaymentProcessor : createProcessor` の依存関係（生成して一時的に使う）を実装しました。生成判断は1か所へ集まり、利用フローからは消えました。
-
-#### 実装ステップ3（課題ID1）：利用フローを委譲だけにする
-
-`processPayment` は `createProcessor` で得たProcessorへ `pay(request)` を委譲するだけにします。具体クラス名も手段固有分岐も持ちません。
+**⑤ 注入と⑥ 実行。** `processPayment()` は生成メソッドでProcessorを得て、`pay(request)` へ委譲するだけです。具体クラス名も手段固有分岐も持たず、使用後に `delete` します。
 
 ```cpp
 PaymentResult processPayment(const PaymentRequest& request) {
     if (!registry.isActive(request.methodId))
         return {"失敗", false, "無効な決済手段"};
-    IPaymentProcessor* proc = createProcessor(request.methodId);
-    PaymentResult r = proc->pay(request);
-    delete proc;                 // 使い終わったら破棄する
+    IPaymentProcessor* proc = createProcessor(request.methodId); // ④生成・所有
+    PaymentResult r = proc->pay(request);                        // ⑥ 契約だけ呼ぶ
+    delete proc;                                                 // 使い捨て後に破棄
     log.record(request, r);
     return r;
 }
 ```
 
-**生ポインタと所有権について：** `createProcessor()` は `new` で作った具体Processorを生ポインタ（`IPaymentProcessor*`）で返します。生ポインタは「指すだけ」で所有権を持たないため、使い終わったら誰かが明示的に `delete` しないとメモリリークになります。ここでは1回の決済で作って使い捨てる一時的な部品なので、`pay()` を呼んだ直後に `delete proc` で破棄します。本書は他言語と読み比べやすいよう全章で生ポインタを使い、所有権の管理より構造の変化に集中しています。実務のC++では、この `new`／`delete` を手書きする代わりに `std::unique_ptr<IPaymentProcessor>`（単独所有・スコープを抜けると自動 `delete`）を使うのが安全で、共有して持ち回るなら `std::shared_ptr` を使います。
+`createProcessor()` が返す生ポインタは所有権を持たないため、1回の決済で作って使い捨てるこの部品は `pay()` 直後に `delete proc` で破棄します（実務のC++では `std::unique_ptr` が安全ですが、本書は他言語と読み比べやすいよう生ポインタで統一します）。これで課題ID1の完了条件「方式追加が新方式実装と生成登録に閉じ、利用フローが変わらない」を満たします。
 
-**課題ID1との対応：** `processPayment` が契約だけを呼ぶ形になりました。ここで生成判断と手段固有差分が一つの生成分離構造として接続されました。
+### 6-1：生成・所有・破棄と実行順のまとめ
+
+課題ID1を一本の実行経路へ束ね直します。上の課題別展開は試行錯誤の履歴ではなく、完成構造を理解できる単位へ分けた実装順です。
+
+- 生成・所有・破棄：`createProcessor()` が `new` で生成、`processPayment()` が所有し `pay()` 直後に `delete`（早期returnは生成前なので破棄漏れなし）。
+- 実行順：手段有効性の確認 → `createProcessor()` → `pay()` → `delete` → `log.record()`。
+- 問題ID3の完了確認（`checkCompletion()`）は既存の状態確認フローとして守る側に置き、生成分離とは独立に呼び出し順を保ちます。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
