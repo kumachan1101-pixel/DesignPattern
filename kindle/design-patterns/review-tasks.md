@@ -1995,3 +1995,17 @@ ch04 7-1を単独コンパイル実行し、`save()`の真の出力が「DBへN�
 - 第11章の得られること文「機能・要求の受入と…」も「要求の受入・回帰と…」へ整合。
 
 ゲート：validate_book／check_kindle／check_execution_output／audit_book／git diff --check すべてPASS。残り：**第3段階**＝各章フェーズ6を第11章の深さへ。
+
+## 2026-08-03 フェーズ6深化（第3段階完了：全12方法論章）
+
+著者判断②「フェーズ6を全章第11章と同じ深さへ」を完了。第11章を参照実装に、各章のフェーズ6へ次を追加（既存の接続点3観点表・部分クラス図・段階コード・システム全体は維持）：
+
+- **冒頭「まず全体像 ―― どんな構造へ変えるか（抽象）」**：フェーズ4で確認した「別々の理由で変わる判断」を、具体クラスの前に散文＋textブロックで先出し。変わる理由→構造→パターン名の対応と「守る範囲」を明示し、パターン名から設計を選ばない姿勢を各章で明記。組合せ章（ch10/12/09_2）は複数軸、単一パターン章（ch01/02/04/05/06/07/08）は「骨格 vs 変わる側」に框組みを調整。
+- **末尾「6-4：課題から完成構造までの設計トレース」**：課題ID→採用構造と生成・接続場所→完成コードの主な場所→確認の一望表。要求ID受入（フェーズ7）・変更ID影響（7-4）と別線であることを明記し、フェーズ7へ渡す完成設計として締める。
+- 組合せ章（ch10）には「ここから具体へ入ります」の移行文も追加。
+
+対象と主な構造：ch01 Strategy／ch02 Facade／ch03 State＋待ち行列／ch04 Template Method／ch05 Command＋正本一元化／ch06 Decorator／ch07 Observer／ch08 Factory Method／ch09_2 State×Strategy／ch10 Facade×FactoryMethod×Observer／ch12 State×Observer×Strategy（ch11は参照実装で既済）。
+
+ゲート：validate_book／check_kindle／check_execution_output／audit_book／git diff --check すべてPASS。check_mermaid はmmdc未インストールのため未実行だが、本追加はtextブロックと表のみでmermaid図を一切変更していない（差分中のmermaidフェンス追加は0件）。
+
+**機能ID廃止（①）＋フェーズ6深化（②）の著者判断は、正本・全章とも完了。**
