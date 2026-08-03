@@ -2140,6 +2140,10 @@ def check_requirement_baseline_contract(text: str, path: Path) -> list[Issue]:
     change_rows = re.findall(
         r"(?m)^\|\s*(変更ID\d+)\s*\|\s*([^|]+?)\s*\|", change_section
     )
+    # フェーズ1末の「変更ID一覧」で同じIDを再掲する締め（#94）を二重計上しない。
+    _seen: set[str] = set()
+    change_rows = [(cid, mean) for cid, mean in change_rows
+                   if not (cid in _seen or _seen.add(cid))]
     final_rows = re.findall(
         r"(?m)^\|\s*(要求ID\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|",
         final_section,
@@ -2594,6 +2598,10 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
         r"(?m)^\|\s*(変更ID\d+)\s*\|\s*([^|]+)\|",
         requirement_section,
     )
+    # フェーズ1末の変更ID一覧（#94）の再掲を二重計上しない。文言照合は初出を使う。
+    _seen2: set[str] = set()
+    change_rows = [(cid, mean) for cid, mean in change_rows
+                   if not (cid in _seen2 or _seen2.add(cid))]
     scenario_start = text.find("### 7-4：変更シナリオ表", phase7_start)
     scenario_section = text[scenario_start:phase7_end]
     if (
