@@ -893,7 +893,7 @@ flowchart LR
 追加するため `TicketStatus`、`statusName()`、`updateStatus()` も変更します。
 `TicketRepository` と `create()` の処理順は1-4から変えません。
 
-> **中間コードの継続条件：** `UserDatabase` の存在確認・ユーザー種別取得と、`TicketRepository` へのチケット保存は維持します。`Priority` と `toString()` も1-4の定義をそのまま使います。以下の `updateStatus()` は保存済みチケットを読み書きする1-4の構造へ、保留（`Pending`）の分岐を書き足したものです。
+> **抜粋の前提（周辺は現状のまま）：** `UserDatabase` の存在確認・ユーザー種別取得と、`TicketRepository` へのチケット保存は維持します。`Priority` と `toString()` も1-4の定義をそのまま使います。以下の `updateStatus()` は保存済みチケットを読み書きする1-4の構造へ、保留（`Pending`）の分岐を書き足したものです。
 
 `statusName()` は、列挙型の状態をエラー表示と遷移ログへ出すための変換関数です。
 この後の `操作不可`、`変更前`、`変更後` の3箇所で呼びます。`Pending` を

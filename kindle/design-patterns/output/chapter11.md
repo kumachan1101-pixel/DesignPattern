@@ -766,7 +766,7 @@ CSV読込: 6件・合計3510・平均585
 
 変更ID1〜変更ID3を、現状のReportGeneratorを中心とする構造へそのまま追加します。ここで見るのは、要求を実現できるかだけではなく、どの責任へ修正が集まるかです。
 
-> **中間コードの継続条件：** `DataReader`の売上集計、`TemplateRegistry`のID・形式検証、`ReportRenderingApi`の描画・デモ出力、`DebugLog`の内部診断記録、`ReportApplication`の受付入口を維持します。変更試行では変更ID1〜変更ID3だけを追加します。
+> **抜粋の前提（周辺は現状のまま）：** `DataReader`の売上集計、`TemplateRegistry`のID・形式検証、`ReportRenderingApi`の描画・デモ出力、`DebugLog`の内部診断記録、`ReportApplication`の受付入口を維持します。変更試行では変更ID1〜変更ID3だけを追加します。
 
 #### 変更するクラス
 

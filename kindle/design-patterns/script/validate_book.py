@@ -1290,10 +1290,10 @@ def check_intermediate_boundary_continuity(
         sections.append(("フェーズ6", phase6, text[phase6:phase7]))
     issues: list[Issue] = []
     for label, offset, section in sections:
-        if "中間コードの継続条件" not in section:
+        if "抜粋の前提（周辺は現状のまま）" not in section:
             issues.append(
                 Issue(path, line_number(text, offset),
-                      f"{label}に中間コードの継続条件がありません")
+                      f"{label}に抜粋の前提（周辺は現状のまま）がありません")
             )
         for token in tokens:
             if token not in section:

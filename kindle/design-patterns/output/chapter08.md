@@ -1400,7 +1400,7 @@ flowchart LR
 
 「PayPay対応」の要求を、フェーズ1の現状コードで実装しようと試みます。PayPayを追加するには、次の修正が必要です。
 
-> **中間コードの継続条件：** 以下はPayPay追加で触るクラス・関数を、既存の類似処理と周辺の責任が見える範囲で示します。`ProcessorRegistry` の手段確認、`PaymentGatewayClient` / `PaymentStatusClient` の外部境界、`PaymentLog` の記録は維持します。変更行だけの断片にはせず、どの既存構造へ何を足すのかを追える形にします。
+> **抜粋の前提（周辺は現状のまま）：** 以下はPayPay追加で触るクラス・関数を、既存の類似処理と周辺の責任が見える範囲で示します。`ProcessorRegistry` の手段確認、`PaymentGatewayClient` / `PaymentStatusClient` の外部境界、`PaymentLog` の記録は維持します。変更行だけの断片にはせず、どの既存構造へ何を足すのかを追える形にします。
 
 **修正1：PayPay固有の入力構造体を追加**
 

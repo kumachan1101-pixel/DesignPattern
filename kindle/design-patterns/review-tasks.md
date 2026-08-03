@@ -2104,3 +2104,13 @@ ch04 7-1を単独コンパイル実行し、`save()`の真の出力が「DBへN�
 **#101**：ch11 6-2「読者が考えそうな別案」→「部分対策を最終候補にしない理由」へ改称（内容＝部分対策を完成案に数えない理由の説明に一致、不自然さ解消）。
 
 全ゲート（validate/kindle/execution/audit/diff-check、py_compile）PASS。
+
+## 2026-08-03 「中間コードの継続条件」ラベルを平易化（#96）
+
+著者が「意味がわからない・著者向け文言のよう」と指摘。フェーズ3の差分抜粋の前に置く、周辺の現状コード（DB/検証/保存/履歴など）が維持されることを示す見出し。読者向けに平易化した：
+
+- **改称**：`中間コードの継続条件` → `抜粋の前提（周辺は現状のまま）`
+- **対象**：本文10章（ch01/02/03/05/06/07/08/09_2/10/11）＋正本（templates/chapter-template.md、rules/checklist.md、rules/phase-consistency-check.md、rules/review-history-gate.md）＋script/validate_book.py（必須チェックの照合文字列とエラーメッセージ）。
+- rules/recurrence-prevention.md の過去エントリ（日付つき記録）は当時の名称のまま保持。
+
+全ゲート（validate/kindle、py_compile）PASS。#92（変更前/後の横並び退避）・#94（フェーズ1末の変更ID一覧）・#95（全章2-4の将来リスク監査）は著者判断（実施可）を受領済みだが、本ターンは着手せず保留。

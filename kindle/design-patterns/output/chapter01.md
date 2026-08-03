@@ -917,7 +917,7 @@ flowchart LR
 
 「サマーセール：Regular会員に5%オフを追加」を現在の `PaymentCalculator` に追加してみます。変更前のコードはこうでした。
 
-> **中間コードの継続条件：** ここから示すのは割引計算部分の差分です。`OrderProcessor` が `CustomerDatabase` から会員種別を取得し、`CheckoutResultRenderer` へ結果を渡す外側の流れは、フェーズ1の現状コードから変更しません。省略は削除を意味しません。
+> **抜粋の前提（周辺は現状のまま）：** ここから示すのは割引計算部分の差分です。`OrderProcessor` が `CustomerDatabase` から会員種別を取得し、`CheckoutResultRenderer` へ結果を渡す外側の流れは、フェーズ1の現状コードから変更しません。省略は削除を意味しません。
 
 ```cpp
 if (memberType == "Premium") {
