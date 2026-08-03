@@ -623,6 +623,16 @@ flowchart LR
 
 しかし、「これは1回限りの変更なのか、今後も続くのか」をすぐにコードで対応する前に確認しておきたいと思います。
 
+**フェーズ1のまとめ：今回追う変更ID一覧**
+
+このフェーズで確定した変更依頼を一覧にして締めます。フェーズ2でこの変更IDを仮説・ヒアリングへ、フェーズ3で一つずつ試して痛みへ、と順につなぎます。
+
+| 変更ID | 変更依頼の要点 | 対象の現行要求ID |
+|---|---|---|
+| 変更ID1 | Matcha（60円）とChoco（40円）を追加する | 要求ID2 |
+| 変更ID2 | 利用者が指定した順にトッピングを重ねる | 要求ID2 |
+| 変更ID3 | 販売停止・在庫切れのトッピングを注文前に拒否する | 要求ID3 |
+
 フェーズ1でシステムの現状と変更要求が把握できました。次のフェーズ2では、「何を変え、何を守るか」を整理します。
 
 ---
@@ -1214,11 +1224,9 @@ classDiagram
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 課題ID1 | 共通契約 `IDrink` を新設する | `getPrice()`/`getDescription()` を純粋仮想で定義し `Coffee` が実装する | ステップ1 |
-| 課題ID1 | トッピングを包む部品へ移す | `ToppingWrapper` が内側の `IDrink` を持ち、自分ぶんを足す | ステップ2 |
-| 課題ID1 | 価格・組み立てを外側へ分ける | `ToppingCatalog` と `OrderAssembler` を追加する | ステップ3 |
+| 課題ID1 | 共通契約 `IDrink` を新設し、トッピングを包む部品と組み立て役へ分ける | `getPrice()`/`getDescription()` を定義し `Coffee` が実装、`ToppingWrapper` が内側を包み、価格は `ToppingCatalog`、組み立ては `OrderAssembler` | 課題ID1節（①〜⑥） |
 
 このクラス図が、課題ID1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
@@ -1252,13 +1260,35 @@ public:
 };
 ```
 
-### 6-1：採用設計をコードへ段階的に反映する
+### 課題ID1：トッピングを独立部品へ分離し、入力順に組み立てる
 
-採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+**【課題ID1の原因】** 問題ID1・問題ID2・問題ID3（追加のたび複数箇所と呼び出し側が連動）＝原因ID1（基本骨格とトッピングの知識が `CustomDrink` に同居）。この原因を分離対象にします。
 
-#### 実装ステップ1（課題ID1）：共通契約 `IDrink` を定め、基本ドリンクを実装にする
+**この課題（何を解きたいか）：** トッピングを1種足すたび、メンバ・コンストラクタ・`getPrice()`・`getDescription()`と呼び出し側まで連動修正する——問題ID1〜問題ID3（痛み）／原因ID1です。**基本とトッピングを同じ契約にそろえ、トッピングは内側を包んで自分ぶんだけを足す**ようにして、種類追加を新部品と登録に閉じるのが課題ID1です。
 
-価格と説明を返す共通契約 `IDrink` を定義し、基本ドリンク `Coffee` をその実装にします。以降はこの契約だけを軸に組み立てます。
+**どう解決するか（方針）：** トッピングを「内側のドリンクを包む部品」にして入力順に重ねます（装飾連結構造＝Decorator）。①契約 →③具体（基本・部品）→④生成（包み上げ）→⑤配置（カタログ）→⑥実行（連鎖）の順で組み立てます（②骨格は無し）。
+
+```mermaid
+classDiagram
+    class IDrink { <<interface>> }
+    class Coffee
+    class ToppingWrapper
+    class Milk
+    class OrderAssembler
+    class ToppingCatalog
+    IDrink <|.. Coffee
+    IDrink <|.. ToppingWrapper
+    ToppingWrapper o--> IDrink : 内側を包む
+    ToppingWrapper <|-- Milk
+    OrderAssembler ..> IDrink : 入力順に包む
+    OrderAssembler ..> ToppingCatalog : 価格・販売可否
+    class IDrink focus
+    class ToppingWrapper focus
+    class OrderAssembler focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**① 共通契約 `IDrink` を定義し、③ 基本ドリンク `Coffee` を実装にする。** 基本は自分の価格・説明だけを持ち、トッピングを知りません。
 
 ```cpp
 class IDrink {
@@ -1267,23 +1297,14 @@ public:
     virtual int getPrice() const = 0;
     virtual string getDescription() const = 0;
 };
-
 class Coffee : public IDrink {
 public:
-    int getPrice() const override {
-        return 400;
-    }
-    string getDescription() const override {
-        return "ホットコーヒー";
-    }
+    int getPrice() const override { return 400; }
+    string getDescription() const override { return "ホットコーヒー"; }
 };
 ```
 
-**課題ID1との対応：** `IDrink <|.. Coffee` の実装関係を実装しました。基本ドリンクは自分の価格・説明だけを持ち、トッピングを知りません。
-
-#### 実装ステップ2（課題ID1）：トッピングを内側のドリンクを包む部品にする
-
-各トッピングは内側の `IDrink` を1つ持ち、`getPrice()` で内側の価格へ自分ぶんを足します。包む順で任意の組み合わせを表せるため、組み合わせクラスは要りません。
+**③ トッピングは内側の `IDrink` を1つ包む部品にする。** 包む順で任意の組み合わせを表せるため、組み合わせクラスは要りません。内側は所有し、デストラクタで破棄します（連鎖で全体が解放されます）。
 
 ```cpp
 class ToppingWrapper : public IDrink {
@@ -1294,7 +1315,7 @@ protected:
 public:
     ToppingWrapper(IDrink* d, ToppingCatalog* c, string id)
         : inner(d), catalog(c), toppingId(id) {}
-    ~ToppingWrapper() override { delete inner; }
+    ~ToppingWrapper() override { delete inner; }   // 内側を破棄（連鎖）
     int getPrice() const override {
         return inner->getPrice() + catalog->priceOf(toppingId);
     }
@@ -1302,27 +1323,32 @@ public:
         return inner->getDescription() + " + " + catalog->nameOf(toppingId);
     }
 };
-
 class Milk : public ToppingWrapper {
 public:
-    using ToppingWrapper::ToppingWrapper;
+    using ToppingWrapper::ToppingWrapper;   // Whip/Matcha/Choco/Syrupも同形
 };
 ```
 
-**課題ID1との対応：** `ToppingWrapper o--> IDrink` の包含と `ToppingWrapper <|-- Milk` の派生を実装しました。`Whip`・`Matcha`・`Choco`・`Syrup` も同じ形で、価格差分だけがカタログ側にあります。
+**⑤ 価格・表示名・販売可否は `ToppingCatalog` へ配置する。** 各部品は価格・販売状態を自前で持たず、カタログへ問い合わせます（データ配置）。
 
-#### 実装ステップ3（課題ID1）：価格・販売可否をカタログへ、組み立てを組み立て役へ分ける
-
-価格・表示名・販売可否は `ToppingCatalog` に置き、注文要求からドリンクを包み上げる責任は `OrderAssembler` に置きます。基本ドリンク側の分岐は増えません。
+**④ 生成（包み上げ）と⑥ 実行（連鎖）。** `OrderAssembler` が基本ドリンクを入力順にトッピングで包み、`getPrice()`／`getDescription()` を連鎖させて `OrderResult` を返します。基本ドリンク側の分岐は増えません。
 
 ```cpp
 OrderApplication app;
 app.run({ "coffee", {"milk", "matcha"} });   // 要求＝基本＋トッピング列
-// OrderAssembler が Coffee を Milk→Matcha の順に包み、
-// getPrice()/getDescription() を連鎖させて OrderResult を返す
+// OrderAssembler が Coffee を Milk→Matcha の順に包み（④）、
+// getPrice()/getDescription() を連鎖（⑥）して OrderResult を返す
 ```
 
-**課題ID1との対応：** `OrderAssembler ..> ToppingCatalog` / `IDrink` の組み立て関係を実装しました。ここで基本ドリンクとトッピングが一つの装飾連結構造として接続されました。
+これで課題ID1の完了条件「販売可能な部品だけを入力順に重ね、種類追加が新部品と登録に閉じる」を満たします。基本ドリンクとトッピングが一つの装飾連結構造として接続されました。
+
+### 6-1：生成・所有・実行順のまとめ
+
+課題ID1を一本の実行経路へ束ね直します。上の課題別展開は試行錯誤の履歴ではなく、完成構造を理解できる単位へ分けた実装順です。
+
+- 所有：各 `ToppingWrapper` が内側 `IDrink` を所有し、`~ToppingWrapper` が `delete inner`。最外の1つを破棄すると連鎖で全体が解放される。
+- 配置：価格・表示名・販売可否は `ToppingCatalog`（部品は自前で持たない）。
+- 実行順：`OrderAssembler` が基本→トッピングを入力順に包み、`getPrice()`／`getDescription()` を内側から外側へ連鎖して名称と合計価格を得ます。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
