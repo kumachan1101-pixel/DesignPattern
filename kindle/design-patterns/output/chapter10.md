@@ -1487,11 +1487,10 @@ classDiagram
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 課題ID1 | 通信の窓口契約 `IExternalClient` を新設する | 各Clientが `send()` を実装し通信詳細を閉じる | ステップ1 |
-| 課題ID2 | 通知の共通契約 `INotifier` を新設する | 各Notifierが `onComplete()` を実装し登録制にする | ステップ2 |
-| 課題ID1 | 生成契約`IClientCreator`を新設する | 各Creatorが`createClient()`を実装し所有権を返す | ステップ3 |
+| 課題ID1 | 通信窓口 `IExternalClient` と生成役 `IClientCreator` を新設する | 各Clientが `send()`、各Creatorが `createClient()` を実装し通信・生成・所有を閉じる | 課題ID1節（①〜⑥） |
+| 課題ID2 | 通知の共通契約 `INotifier` を新設する | 各Notifierが `onComplete()` を実装し登録制にする | 課題ID2節（①〜⑥） |
 
 このクラス図が、課題ID1・課題ID2を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
@@ -1521,13 +1520,35 @@ DeliveryResult BatchExecutor::execute(const SyncRequest& request) {
 }
 ```
 
-### 6-1：採用設計をコードへ段階的に反映する
+### 課題ID1：連携先固有の生成・通信をバッチ骨格から分離する
 
-採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+**【課題ID1の原因】** 問題ID1・問題ID3（連携先の通信詳細と具体クライアント生成・失敗処理が骨格へ密結合）＝原因ID1（外部手順の知識の漏出）。この原因を分離対象にします。
 
-#### 実装ステップ1（課題ID1）：通信の窓口契約 `IExternalClient` を定める
+**この課題（何を解きたいか）：** C社を足すだけで、`execute()` が具体Clientの生成分岐と各社の送信詳細まで抱える——問題ID1・問題ID3（痛み）／原因ID1（外部手順の漏出）です。**バッチの実行順は固定したまま、連携先ごとの生成と通信だけを差し替えられる**ようにするのが課題ID1です。
 
-連携先ごとの通信詳細を窓口の裏へ隠します。`BatchExecutor` は `send()` の結果だけを受け取り、各社固有の送信処理を知りません。
+**どう解決するか（方針）：** 通信の窓口を共通契約の裏へ隠し（窓口固定構造＝Facade）、どの具体Clientを作るかの生成判断も生成役へ寄せます（生成分離構造＝Factory Method）。骨格を持たない生成・委譲の構造なので、①契約 →③具体 →④生成 →⑤注入 →⑥実行 の順で組み立てます（②骨格は無し）。
+
+この課題で新設するのは、通信窓口 `IExternalClient` と生成役 `IClientCreator` の2契約です。
+
+```mermaid
+classDiagram
+    class BatchExecutor
+    class IExternalClient { <<interface>> }
+    class SystemAClient
+    class IClientCreator { <<interface>> }
+    class SystemAClientCreator
+    BatchExecutor ..> IClientCreator : createClient()で生成を依頼
+    BatchExecutor ..> IExternalClient : send()の結果だけ受け取る
+    IExternalClient <|.. SystemAClient
+    IClientCreator <|.. SystemAClientCreator
+    SystemAClientCreator ..> SystemAClient : 生成
+    class IExternalClient focus
+    class IClientCreator focus
+    class SystemAClientCreator focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**① 共通契約 `IExternalClient` を定義する。** `BatchExecutor` は `send()` の結果 `DeliveryResult`（1-4から存在）だけを受け取り、各社固有の送信手順を知りません。
 
 ```cpp
 class IExternalClient {
@@ -1537,11 +1558,68 @@ public:
 };
 ```
 
-**課題ID1との対応：** `IExternalClient` を新設しました（窓口構造）。戻り値には1-4から存在する`DeliveryResult`をそのまま使います。`SystemAClient`〜`SystemCClient`が実装し、通信詳細だけを各Clientへ閉じます。ここで結果契約を新設・変更しているわけではありません。
+**③ 具体Clientが送信詳細だけを実装する（実行順は書かない）。** `SystemBClient`・`SystemCClient` も同じ形で、宛先と通信手順だけが変わります。
 
-#### 実装ステップ2（課題ID2）：通知の共通契約 `INotifier` を定め、登録制にする
+```cpp
+class SystemAClient : public IExternalClient {
+public:
+    DeliveryResult send(const std::string& data) override {
+        // A社APIへ転送（通信詳細はこのクラスに閉じる）
+        return {"成功", true, "A社受付: " + data};
+    }
+};
+```
 
-通知先を `INotifier` に揃え、`BatchExecutor` は登録リストへ一律配布します。通知先追加はNotifier1クラスと登録に閉じます。
+**④ どの具体を生成するかを、生成役 `IClientCreator` の一箇所へ閉じる。** `createClient()` は `new` した使い捨てClientを生ポインタで返し、**所有は呼び出した `execute()` が持ち、送信後に `delete` する**（⑥で破棄）。
+
+```cpp
+class IClientCreator {
+public:
+    virtual ~IClientCreator() = default;
+    virtual IExternalClient* createClient() = 0;
+};
+class SystemAClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemAClient();   // 所有は呼び出し側（execute）へ渡す
+    }
+};
+```
+
+**⑤ 生成役を安定側へ注入する。** 組み立て役 `BatchApplication` が各Creatorを所有し、`execute()` へ実行時に `IClientCreator*` を渡します（具体Clientの選択は骨格に漏れません）。
+
+**⑥ 実行部は契約だけを呼ぶ。** `BatchExecutor::execute()` は、渡されたCreatorで生成→`send()`→`delete` の順に契約だけを呼び、A社かC社かを知りません（コード全体は6-2に示します）。
+
+```cpp
+IExternalClient* client = creator->createClient(); // ④で生成、所有はここ
+DeliveryResult r = client->send(data);             // ⑥ 契約だけ呼ぶ
+// …結果保存・通知…
+delete client;                                     // 使い捨て後に破棄
+```
+
+これで課題ID1の完了条件「連携先追加がClient・処理・生成登録に閉じ、バッチ順序が変わらない」を満たします。課題ID2の通知境界とは独立したまま、同じ実行骨格へ接続します。
+
+### 課題ID2：通知先の種類と配送をバッチ骨格から分離する
+
+**【課題ID2の原因】** 問題ID2（通知先の追加・仕様変更でバッチ本体が変わる）＝原因ID2（通知先の知識の漏出）。この原因を分離対象にします。
+
+**この課題（何を解きたいか）：** Slackを足すだけで、`execute()` が具体通知先の生成と送信詳細を抱える——問題ID2（痛み）／原因ID2（通知先の漏出）です。**送信結果の配送を、通知先の種類を知らずに一律配布できる**ようにするのが課題ID2です。
+
+**どう解決するか（方針）：** 通知先を共通契約へ揃え、登録済みの通知先へ一律配布します（通知分離構造＝Observer）。骨格を持たない登録・配布の構造なので、①契約 →③具体 →④生成 →⑤注入 →⑥実行 の順で組み立てます（②骨格は無し）。
+
+```mermaid
+classDiagram
+    class BatchExecutor
+    class INotifier { <<interface>> }
+    class SlackNotifier
+    BatchExecutor --> INotifier : 登録リストへ結果を配布
+    INotifier <|.. SlackNotifier
+    class INotifier focus
+    class SlackNotifier focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**① 共通契約 `INotifier` を定義する。** `BatchExecutor` は `onComplete()` の受付結果 `NotificationResult` だけを受け取ります。
 
 ```cpp
 class INotifier {
@@ -1550,38 +1628,38 @@ public:
     virtual NotificationResult
         onComplete(const std::string& message) = 0;
 };
+```
 
+**③ 具体通知先が送信詳細だけを実装する。**
+
+```cpp
 class SlackNotifier : public INotifier {
 public:
     NotificationResult
     onComplete(const std::string& message) override {
-        return {"Slack", true, message};
+        return {"Slack", true, message};   // Slack送信の詳細はここに閉じる
     }
 };
 ```
 
-**課題ID2との対応：** `INotifier <|.. SlackNotifier` の実装関係を実装しました（通知分離構造）。`BatchExecutor` は具体通知先を知りません。
-
-#### 実装ステップ3（課題ID1）：生成契約`IClientCreator`で所有権を外へ出す
-
-具体Clientの生成を各Creatorへ移し、`BatchExecutor` は `IClientCreator` 経由で生成します。バッチ入口と手動入口は同じCreator登録を共有します。
+**④ 生成と⑤ 注入（登録）。** 組み立て役 `BatchApplication` が `SlackNotifier` を生成・所有し（借用参照として渡す）、`addNotifier()` で登録して注入します。
 
 ```cpp
-class IClientCreator {
-public:
-    virtual ~IClientCreator() = default;
-    virtual IExternalClient* createClient() = 0;
-};
-
-class SystemAClientCreator : public IClientCreator {
-public:
-    IExternalClient* createClient() override {
-        return new SystemAClient();
-    }
-};
+SlackNotifier slack;               // ④ 生成・所有は組み立て側
+batch.addNotifier(&slack);         // ⑤ 登録で注入（借用参照）
 ```
 
-**課題ID1との対応：** `IClientCreator <|.. SystemAClientCreator`と`SystemAClientCreator --> SystemAClient`を実装しました。通信とClient生成は同じ外部連携軸に属しますが、利用と生成の責任は別クラスへ置きます。課題ID2の通知境界とは独立したまま、同じ実行骨格へ接続します。
+**⑥ 実行部は登録リストを一律に回すだけ。** `execute()` は登録済み `INotifier` へ順に `onComplete()` を呼び、Slackかメールかを知りません。1件の通知が失敗しても送信確定と後続ジョブは止めません（コード全体は6-2）。
+
+これで課題ID2の完了条件「通知追加・失敗が登録先と個別結果に閉じ、後続送信を止めない」を満たします。
+
+### 6-1：生成・所有・破棄と実行順のまとめ
+
+課題ID1・課題ID2を一本の実行経路へ束ね直します。採用するクラス図と責任配置はコードを書く前に確定しており、上の課題別展開は試行錯誤の履歴ではなく、完成構造を理解できる単位へ分けた実装順です。生成・所有・破棄・実行順は次の6-2の組み立てコードで一望します。
+
+- Client：`execute()` が `createClient()` で生成・所有し、送信後に `delete`（使い捨て）。
+- Notifier：`BatchApplication` が生成・所有し、`BatchExecutor` は借用参照を登録リストで保持（非所有）。
+- Creator／Notifierの生存期間が `BatchExecutor` より長いことを、6-2の組み立てで確認します。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
