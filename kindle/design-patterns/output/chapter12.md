@@ -798,6 +798,16 @@ flowchart TD
 
 ---
 
+**フェーズ1のまとめ：今回追う変更ID一覧**
+
+このフェーズで確定した変更依頼を一覧にして締めます。フェーズ2でこの変更IDを仮説・ヒアリングへ、フェーズ3で一つずつ試して痛みへ、と順につなぎます。
+
+| 変更ID | 変更依頼の要点 | 対象の現行要求ID |
+|---|---|---|
+| 変更ID1 | 通常申請を課長→部長の2段階、緊急申請を部長へ直接進む経路にする | 要求ID1・要求ID2 |
+| 変更ID2 | 部長承認後は決済部門へ、却下時は申請者へ通知する | 要求ID6 |
+| 変更ID3 | 承認上限を部署ごとに差し替える | 要求ID3 |
+
 フェーズ1でシステムの現状と変更要求が把握できました。次のフェーズ2では、「何を変え、何を守るか」を整理します。
 
 ## 🟣 フェーズ2：仮説立案 ―― 何が変わるかを観察し、ヒアリングで裏付ける
@@ -1438,11 +1448,11 @@ classDiagram
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 課題ID1 | 状態遷移の契約 `IWorkflowPhase` を新設する | 各Phaseが `handle()` で遷移判断を持つ | ステップ1 |
-| 課題ID2 | 通知の契約 `INotificationListener` を新設する | 各Notifierが `onStatusChanged()` を実装し登録制にする | ステップ2 |
-| 課題ID3 | 承認判定の契約 `IApprovalRule` を新設する | 各Ruleが `canApprove()` を実装し差し替える | ステップ3 |
+| 課題ID1 | 状態遷移の契約 `IWorkflowPhase` を新設し、現在状態へ委譲する | 各Phaseが `handle()` で許可イベントと遷移先を持つ | 課題ID1節（①〜⑥） |
+| 課題ID2 | 通知の契約 `INotificationListener` を新設し、登録制にする | 各Notifierが `onStatusChanged()` を実装し、状態確定後に一律配布する | 課題ID2節（①〜⑥） |
+| 課題ID3 | 承認判定の契約 `IApprovalRule` を新設し、差し替え可能にする | 各Ruleが `canApprove()` を実装し、承認Phaseが委譲する | 課題ID3節（①〜⑥） |
 
 このクラス図が、課題ID1〜課題ID3を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
@@ -1465,13 +1475,27 @@ void WorkflowManager::process(const std::string& requestId,
 }
 ```
 
-### 6-1：採用設計をコードへ段階的に反映する
+### 課題ID1：状態固有の操作可否と遷移を進行処理から分離する
 
-採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+**【課題ID1の原因】** 問題ID1（承認ルート追加で状態遷移を同時修正）＝原因ID1（状態遷移ルールの直書き）。この原因を分離対象にします。
 
-#### 実装ステップ1（課題ID1）：状態遷移の契約 `IWorkflowPhase` を定める
+**この課題（何を解きたいか）：** 承認ルートを1つ足すだけで、`process()` の状態別 `if` 連鎖と各遷移の副作用まで触る——問題ID1（痛み）／原因ID1（状態遷移の直書き）です。**公開入口は状態を判定せず、状態ごとの許可操作と遷移先だけを差し替えられる**ようにするのが課題ID1です。
 
-各状態が満たす契約 `IWorkflowPhase` を定義し、遷移判断を各Phaseへ移します。`WorkflowManager` は現在状態へイベントを渡すだけです。
+**どう解決するか（方針）：** 状態ごとの振る舞いを共通契約の裏へ揃え、現在状態へイベントを委譲します（状態分離構造＝State）。骨格を持たない委譲の構造なので、①契約 →③具体 →④生成 →⑤注入 →⑥実行 の順で組み立てます（②骨格は無し）。
+
+```mermaid
+classDiagram
+    class WorkflowManager
+    class IWorkflowPhase { <<interface>> }
+    class DraftPhase
+    WorkflowManager o--> IWorkflowPhase : 現在状態へ委譲
+    IWorkflowPhase <|.. DraftPhase
+    class IWorkflowPhase focus
+    class DraftPhase focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**① 共通契約 `IWorkflowPhase` を定義する。** `WorkflowManager` は `handle()` へ `WorkflowEvent` を渡すだけで、状態別の遷移条件を知りません。
 
 ```cpp
 class WorkflowManager;
@@ -1481,7 +1505,11 @@ public:
     virtual ~IWorkflowPhase() = default;
     virtual void handle(WorkflowManager& wm, WorkflowEvent ev) = 0;
 };
+```
 
+**③ 具体状態が許可イベントと遷移先だけを実装する（進行骨格は書かない）。** `DraftPhase` は提出イベントで審査待ちへ進みます。`PendingPhase`／`ApprovedPhase`／`RejectedPhase`／`CompletedPhase` も同じ形で、許可するイベントだけを処理します。
+
+```cpp
 class DraftPhase : public IWorkflowPhase {
     void handle(WorkflowManager& wm, WorkflowEvent ev) override {
         if (ev == WorkflowEvent::Submit) wm.transitionTo(/* 審査待ち */);
@@ -1489,11 +1517,37 @@ class DraftPhase : public IWorkflowPhase {
 };
 ```
 
-**課題ID1との対応：** `IWorkflowPhase <|.. DraftPhase` の実装関係と `WorkflowManager o--> IWorkflowPhase` の委譲を実装しました（状態分離構造）。状態追加は新Phaseと遷移元だけで済みます。
+**④ 生成・⑤ 注入。** 具体Phaseの生成・所有と状態IDからの解決は組み立て側（`BatchApplication`）と `WorkflowPhaseResolver` に閉じ、`WorkflowManager` は非所有の契約ポインタを受け取ります（生成の全体像は6-1・6-2）。
 
-#### 実装ステップ2（課題ID2）：通知の契約 `INotificationListener` を定め、登録制にする
+**⑥ 実行部は現在状態へ委譲するだけ。** `WorkflowManager::process()` は現在Phaseへ `handle()` を委譲し、どの状態かを知りません（コード全体は6-2）。
 
-通知先を `INotificationListener` に揃え、`WorkflowManager` は状態確定後に登録リスナーへ一律配布します。通知先追加は実装と登録に閉じます。
+```cpp
+void process(WorkflowEvent ev) { phase->handle(*this, ev); } // ⑥ 委譲
+```
+
+これで課題ID1の完了条件「経路追加が新しいPhaseと遷移登録に閉じ、公開入口・状態保存を変えない」を満たします。課題ID2の通知境界・課題ID3の承認判定とは独立したまま、同じ進行経路へ接続します。
+
+### 課題ID2：状態確定後の通知配送を状態遷移から分離する
+
+**【課題ID2の原因】** 問題ID2（通知先追加・失敗が状態遷移へ混在）＝原因ID2（通知先とタイミングの混在）。この原因を分離対象にします。
+
+**この課題（何を解きたいか）：** チャット通知を1つ足すだけで、`process()` が具体通知先の呼び出しと失敗処理まで抱える——問題ID2（痛み）／原因ID2（通知先の混在）です。**状態確定後の配送を、通知先の種類を知らずに一律配布できる**ようにするのが課題ID2です。
+
+**どう解決するか（方針）：** 通知先を共通契約へ揃え、状態保存後に登録済みの通知先へ一律配布します（通知分離構造＝Observer）。骨格を持たない登録・配布の構造なので、①契約 →③具体 →④生成 →⑤注入 →⑥実行 の順で組み立てます（②骨格は無し）。
+
+```mermaid
+classDiagram
+    class WorkflowManager
+    class INotificationListener { <<interface>> }
+    class EmailNotifier
+    WorkflowManager --> INotificationListener : 登録リストへ配布
+    INotificationListener <|.. EmailNotifier
+    class INotificationListener focus
+    class EmailNotifier focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**① 共通契約 `INotificationListener` を定義する。** `WorkflowManager` は状態確定後に `onStatusChanged()` を呼ぶだけで、具体通知先を知りません。
 
 ```cpp
 class INotificationListener {
@@ -1502,18 +1556,49 @@ public:
     virtual void onStatusChanged(const std::string& requestId,
                                  const std::string& newState) = 0;
 };
+```
 
+**③ 具体通知先が送信詳細だけを実装する。** `EmailNotifier` はメール送信の詳細を閉じ込めます。`ChatNotifier` も同じ形で、宛先と通信手順だけが変わります。
+
+```cpp
 class EmailNotifier : public INotificationListener {
     void onStatusChanged(const std::string& id,
                          const std::string& s) override { /* メール送信 */ }
 };
 ```
 
-**課題ID2との対応：** `INotificationListener <|.. EmailNotifier` の実装関係を実装しました（通知分離構造）。`ChatNotifier` も同じ形で、`WorkflowManager` は具体通知先を知りません。
+**④ 生成・⑤ 注入（登録）。** 組み立て側が `EmailNotifier`・`ChatNotifier` を生成・所有し（借用参照として渡す）、`addListener()` で登録して注入します（全体像は6-1・6-2）。
 
-#### 実装ステップ3（課題ID3）：承認判定の契約 `IApprovalRule` を差し替え可能にする
+```cpp
+EmailNotifier email;               // ④ 生成・所有は組み立て側
+wm.addListener(&email);            // ⑤ 登録で注入（借用参照）
+```
 
-承認可否の判定を `IApprovalRule` へ切り出し、状態（Phase）が判定を委ねます。SLA・部署別上限の変更はRule1クラスの差し替えに閉じます。
+**⑥ 実行部は登録リストを一律に回すだけ。** `transitionTo()` は状態保存後に登録済み `INotificationListener` へ順に `onStatusChanged()` を呼び、メールかチャットかを知りません。1件の失敗で状態遷移や他通知を止めません（コード全体は6-2）。
+
+これで課題ID2の完了条件「通知追加・失敗が登録先と個別結果に閉じ、状態遷移と他通知を変えない」を満たします。
+
+### 課題ID3：承認判定を状態処理から分離する
+
+**【課題ID3の原因】** 問題ID3（判定ルール変更で全体を読み解く）＝原因ID3（判定ルールのハードコード）。この原因を分離対象にします。
+
+**この課題（何を解きたいか）：** 部署別上限を変えるだけで、金額・承認者の判定が状態処理へ直書きされ、全体を読み解く必要がある——問題ID3（痛み）／原因ID3（判定のハードコード）です。**承認可否の判定を、状態処理を知らずに差し替えられる**ようにするのが課題ID3です。
+
+**どう解決するか（方針）：** 承認判定を差し替え可能なルール契約の裏へ揃え、承認状態が判定を委ねます（規則差し替え構造＝Strategy）。骨格を持たない委譲の構造なので、①契約 →③具体 →④生成 →⑤注入 →⑥実行 の順で組み立てます（②骨格は無し）。
+
+```mermaid
+classDiagram
+    class PendingPhase
+    class IApprovalRule { <<interface>> }
+    class ManagerApprovalRule
+    PendingPhase --> IApprovalRule : 可否を委ねる
+    IApprovalRule <|.. ManagerApprovalRule
+    class IApprovalRule focus
+    class ManagerApprovalRule focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**① 共通契約 `IApprovalRule` を定義する。** 承認状態は `canApprove()` の可否だけを受け取り、上限額や部署別規則を知りません。
 
 ```cpp
 class IApprovalRule {
@@ -1521,7 +1606,11 @@ public:
     virtual ~IApprovalRule() = default;
     virtual bool canApprove(const std::string& approverId, int amount) = 0;
 };
+```
 
+**③ 具体ルールが判定だけを実装する。** `ManagerApprovalRule` は課長承認上限で可否を返します。`DirectorApprovalRule`・`DepartmentApprovalRule` も同じ契約を実装し、上限変更はルール1クラスの差し替えに閉じます。
+
+```cpp
 class ManagerApprovalRule : public IApprovalRule {
     bool canApprove(const std::string& approverId, int amount) override {
         return amount <= 500000;   // 課長承認上限
@@ -1529,7 +1618,20 @@ class ManagerApprovalRule : public IApprovalRule {
 };
 ```
 
-**課題ID3との対応：** `IApprovalRule <|.. ManagerApprovalRule` と `PendingPhase --> IApprovalRule` を実装しました（ルール差し替え構造）。ここで状態分離・通知分離・ルール差し替えの3構造が独立したまま接続されました。
+**④ 生成・⑤ 注入。** 具体ルールの生成・所有と選択は組み立て側に閉じ、承認Phaseは注入された `IApprovalRule` を借用参照で保持します（全体像は6-1・6-2）。
+
+**⑥ 実行部は注入されたルールへ委譲するだけ。** 承認イベントの処理時に `canApprove()` の結果で次状態を選び、どのルールかを知りません（コード全体は6-2）。
+
+これで課題ID3の完了条件「上限変更が新しいルールクラスと設定に閉じ、状態遷移を変えない」を満たします。ここで状態分離・通知分離・ルール差し替えの3構造が独立したまま接続されました。
+
+### 6-1：生成・所有・破棄と実行順のまとめ
+
+課題ID1〜課題ID3を一本の進行経路へ束ね直します。採用するクラス図と責任配置はコードを書く前に確定しており、上の課題別展開は試行錯誤の履歴ではなく、完成構造を理解できる単位へ分けた実装順です。Phase・Listener・Ruleの生成・所有・選択は組み立て側（`BatchApplication`）に集め、`WorkflowManager` は非所有の契約ポインタを保持します。
+
+- Phase：組み立て側が生成・所有し、`WorkflowPhaseResolver` が状態IDから解決。`WorkflowManager` は現在Phaseを借用参照で保持（非所有）。
+- Listener：組み立て側が生成・所有し、`WorkflowManager` は登録リストで借用参照を保持（非所有）。
+- Rule：組み立て側が生成・所有し、承認Phaseが借用参照で保持（非所有）。
+- 所有側（`BatchApplication`）の生存期間が `WorkflowManager` より長いことを、次の6-2の組み立てコードで一望します。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
