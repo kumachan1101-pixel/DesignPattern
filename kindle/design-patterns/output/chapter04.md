@@ -832,6 +832,15 @@ flowchart LR
 
 図に加わった「形式バージョンの確認」「行単位検証」「EC店だけの計算」が実際にコードのどこへ書かれるかは、フェーズ3で変更を試すコードと、フェーズ7の最終コード・実行結果で追います。
 
+**フェーズ1のまとめ：今回追う変更ID一覧**
+
+このフェーズで確定した変更依頼を一覧にして締めます。フェーズ2でこの変更IDを仮説・ヒアリングへ、フェーズ3で一つずつ試して痛みへ、と順につなぎます。
+
+| 変更ID | 変更依頼の要点 | 対象の現行要求ID |
+|---|---|---|
+| 変更ID1 | ECサイト形式を追加し、会員ランクとポイントを解析・計算する | 要求ID1、要求ID3 |
+| 変更ID2 | 全形式で、ファイルを開いた直後に形式バージョンを確認する | 要求ID2 |
+
 フェーズ1でシステムの現状と変更要求が把握できました。次のフェーズ2では、「何を変え、何を守るか」を整理します。
 
 ## 🟣 フェーズ2：仮説立案 ―― 何が変わるかを観察し、ヒアリングで裏付ける
@@ -1296,11 +1305,9 @@ classDiagram
 
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 実装ステップ |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 課題ID1 | 共通骨格を `AbstractImporter` へ固定する | `import()` に固定順序を書き、可変部を純粋仮想フックにする | ステップ1 |
-| 課題ID1 | 形式差分を派生クラスへ残す | 各Importerで `parseData()` / `validateRows()` を override する | ステップ2 |
-| 課題ID1 | 保存・取得を外部境界へ委譲する | `ImportFileGateway` / `SalesImportRepository` を骨格へ注入する | ステップ3 |
+| 課題ID1 | 共通骨格を `AbstractImporter` へ固定し、形式差分を派生へ残す | `import()` に固定順序を書き可変部を純粋仮想フックに、各Importerが `parseData()`/`validateRows()` を実装、`ImportFileGateway`/`SalesImportRepository` を注入 | 課題ID1節（①〜⑥） |
 
 このクラス図が、課題ID1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
@@ -1333,13 +1340,29 @@ public:
 };
 ```
 
-### 6-1：採用設計をコードへ段階的に反映する
+### 課題ID1：形式固有処理と取込骨格を分離する
 
-採用するクラス図と責任配置は、コードを書く前に確定しています。ここからの区切りは試行錯誤の履歴ではありません。完成形を理解できる大きさに分け、各ステップで「クラス図のどの操作・関連を実装したか」を確認します。
+**【課題ID1の原因】** 問題ID1・問題ID2・問題ID3（手順の重複と全クラス同時修正）＝原因ID1（各Importerが処理の骨格と形式固有のパース・行検証を同じ `import()` へ混在）。この原因を分離対象にします。
 
-#### 実装ステップ1（課題ID1）：共通骨格を基底クラスへ固定する
+**この課題（何を解きたいか）：** 新形式を足すたび共通手順を複製し、共通手順に修正が入ると全Importerを同時修正する——問題ID1〜問題ID3（痛み）／原因ID1です。**開く→形式確認→解析→行検証→保存→閉じるの順序を1か所に固定し、形式ごとの解析・行検証だけを差し替えられる**ようにするのが課題ID1です。
 
-全形式で同じだった open→検証→パース→行検証→保存→close の順序を `AbstractImporter::import()` の1か所へ固定します。形式で変わるステップは純粋仮想フックにし、派生クラスへ委ねます。
+**どう解決するか（方針）：** 共通順序を基底クラスの骨格へ固定し、変わる部分だけを派生のフックへ外へ出します（骨格固定構造＝Template Method）。この章は骨格を持つので、①契約（フック宣言）→②骨格（固定順）→③具体（フック実装）→④生成 →⑤注入 →⑥実行 の順で組み立てます。
+
+```mermaid
+classDiagram
+    class AbstractImporter
+    class StoreDataImporter
+    class ImportFileGateway
+    class SalesImportRepository
+    AbstractImporter <|-- StoreDataImporter
+    AbstractImporter --> ImportFileGateway : 取得・保存境界
+    AbstractImporter --> SalesImportRepository : 保存
+    class AbstractImporter focus
+    class StoreDataImporter focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**①② 基底 `AbstractImporter` が、フックを宣言（①契約）し、共通順を `import()` へ固定する（②骨格）。** 形式で変わるステップは純粋仮想フックにして派生へ委ねます。
 
 ```cpp
 class AbstractImporter {
@@ -1349,19 +1372,18 @@ public:
     AbstractImporter(ImportFileGateway& g, SalesImportRepository& r)
         : gateway(g), repo(r) {}
     virtual ~AbstractImporter() = default;
-
-    // 骨格：この順序だけを1か所に固定する
+    // ② 骨格：この順序だけを1か所に固定する
     ImportResult import() {
         vector<string> lines = gateway.open(filePath());
         gateway.checkFormatVersion();
-        vector<ParsedRow> parsed = parseData(lines);      // 形式差分
-        ValidationResult v = validateRows(parsed);        // 形式差分
+        vector<ParsedRow> parsed = parseData(lines);      // ③ 形式差分
+        ValidationResult v = validateRows(parsed);        // ③ 形式差分
         afterParse(v.validRows);                          // 任意フック
         int saved = repo.save(v.validRows);
         gateway.close();
         return { schemaType(), schemaName(), saved, v.skipped, true };
     }
-protected:
+protected:                                        // ① 契約（差し替え点）
     virtual string filePath() const = 0;
     virtual string schemaType() const = 0;
     virtual string schemaName() const = 0;
@@ -1371,11 +1393,7 @@ protected:
 };
 ```
 
-**課題ID1との対応：** `AbstractImporter::import()` の固定順序を実装しました。骨格はここ1か所だけになり、形式ごとの読み方は純粋仮想フックの向こう側へ隠れます。
-
-#### 実装ステップ2（課題ID1）：形式差分を派生クラスのフックへ残す
-
-各形式は、骨格を持たず `parseData()` / `validateRows()` の中身だけを実装します。共通順序は基底クラスにあるため、直営店もFC店も骨格を複製しません。
+**③ 各形式は骨格を持たず、フックの中身だけを実装する。** 直営店もFC店もEC店も共通順を複製しません。
 
 ```cpp
 class StoreDataImporter : public AbstractImporter {
@@ -1405,22 +1423,30 @@ protected:
 };
 ```
 
-**課題ID1との対応：** `AbstractImporter <|-- StoreDataImporter` の継承と、形式差分だけを持つフックを実装しました。FC店・EC店も同じ形で差分だけを実装します。
-
-#### 実装ステップ3（不変条件）：既存の取得・保存方式を骨格へ接続する
-
-ここは新しい変化軸の対策ではありません。1-4と同じメモリ上の行一覧を取得し、保存件数を表示するスタブを、共通骨格から呼べるように接続します。実ファイルや永続DBへの移行は今回の要求にないため、保存表現や永続化の有無は変えません。
+**④ 生成と⑤ 注入。** 取得・保存の境界（`ImportFileGateway`／`SalesImportRepository`）を組み立て側で生成し、派生Importerへ注入します。これらは1-4の既存境界のままで、保存媒体や永続化仕様は追加しません。
 
 ```cpp
 ImportFileGateway gateway;
 SalesImportRepository repo;
 gateway.prepareSample("store_sales.csv", storeCsv);
-
-StoreDataImporter store(gateway, repo);   // 骨格へ境界を注入
-ImportResult r = store.import();          // 固定順序で実行
+StoreDataImporter store(gateway, repo);   // ④⑤ 骨格へ境界を注入
 ```
 
-**不変条件との対応：** `ImportFileGateway`の内側は1-4の`SampleFileStore`と同じ`map<string, vector<string>>`、`SalesImportRepository::save()`は1-4と同じ件数表示だけです。境界名は骨格から呼ぶ役割を示しますが、保存媒体や永続化仕様を追加していません。
+**⑥ 実行部は骨格の固定順を1回呼ぶだけ。** 派生の種類にかかわらず `import()` が同じ順序で走り、形式差分だけがフックの向こうで変わります。
+
+```cpp
+ImportResult r = store.import();          // ⑥ 固定順序で実行
+```
+
+これで課題ID1の完了条件「形式追加は差分処理だけ、共通手順追加は骨格1か所だけの変更で済む」を満たします。`ImportFileGateway` の内側は1-4の `SampleFileStore` と同じ `map<string, vector<string>>`、`save()` は1-4と同じ件数表示のままです。
+
+### 6-1：生成・所有・実行順のまとめ
+
+課題ID1を一本の実行経路へ束ね直します。上の課題別展開は試行錯誤の履歴ではなく、完成構造を理解できる単位へ分けた実装順です。
+
+- 骨格：`AbstractImporter::import()` が共通順を1か所に固定し、派生はフックだけを実装。
+- 境界：`ImportFileGateway`／`SalesImportRepository` を組み立て側が生成・所有し、Importerへ注入（1-4の既存仕様のまま）。
+- 実行順：`import()` → open → 形式確認 → `parseData()`（③）→ `validateRows()`（③）→ save → close。形式差分だけが骨格の外で差し替わります。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
