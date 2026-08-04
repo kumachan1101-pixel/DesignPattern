@@ -1083,10 +1083,10 @@ classDiagram
     ToppingWrapper o--> IDrink : 内側
     ToppingWrapper <|-- Matcha
     ToppingWrapper <|-- Choco
-    class IDrink focus
-    class ToppingWrapper focus
-    class Matcha focus
-    class Choco focus
+    class IDrink:::focus
+    class ToppingWrapper:::focus
+    class Matcha:::focus
+    class Choco:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1100,8 +1100,8 @@ classDiagram
     OrderAssembler ..> ToppingWrapper : 入力順に生成
     OrderAssembler ..> IDrink : 完成品を返す
     ToppingWrapper o--> IDrink : 重ねる
-    class OrderAssembler focus
-    class ToppingWrapper focus
+    class OrderAssembler:::focus
+    class ToppingWrapper:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1295,9 +1295,9 @@ classDiagram
     ToppingWrapper <|-- Milk
     OrderAssembler ..> IDrink : 入力順に包む
     OrderAssembler ..> ToppingCatalog : 価格・販売可否
-    class IDrink focus
-    class ToppingWrapper focus
-    class OrderAssembler focus
+    class IDrink:::focus
+    class ToppingWrapper:::focus
+    class OrderAssembler:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 

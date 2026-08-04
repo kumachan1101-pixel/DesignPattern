@@ -1218,8 +1218,8 @@ classDiagram
     AbstractImporter <|-- StoreDataImporter
     AbstractImporter <|-- FCDataImporter
     AbstractImporter <|-- ECDataImporter
-    class AbstractImporter focus
-    class ECDataImporter focus
+    class AbstractImporter:::focus
+    class ECDataImporter:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1371,8 +1371,8 @@ classDiagram
     AbstractImporter <|-- StoreDataImporter
     AbstractImporter --> ImportFileGateway : 取得・保存境界
     AbstractImporter --> SalesImportRepository : 保存
-    class AbstractImporter focus
-    class StoreDataImporter focus
+    class AbstractImporter:::focus
+    class StoreDataImporter:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 

@@ -1298,9 +1298,9 @@ classDiagram
     WorkflowPhaseResolver o--> IWorkflowPhase : 状態を所有
     IWorkflowPhase <|.. PendingPhase
     PendingPhase <|-- PriorityPendingPhase
-    class IWorkflowPhase focus
-    class PendingPhase focus
-    class PriorityPendingPhase focus
+    class IWorkflowPhase:::focus
+    class PendingPhase:::focus
+    class PriorityPendingPhase:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1315,9 +1315,9 @@ classDiagram
     WorkflowManager --> INotificationListener : 状態確定後に通知
     INotificationListener <|.. EmailNotifier
     INotificationListener <|.. ChatNotifier
-    class INotificationListener focus
-    class EmailNotifier focus
-    class ChatNotifier focus
+    class INotificationListener:::focus
+    class EmailNotifier:::focus
+    class ChatNotifier:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1334,8 +1334,8 @@ classDiagram
     IApprovalRule <|.. ManagerApprovalRule
     IApprovalRule <|.. DirectorApprovalRule
     IApprovalRule <|.. DepartmentApprovalRule
-    class IApprovalRule focus
-    class DepartmentApprovalRule focus
+    class IApprovalRule:::focus
+    class DepartmentApprovalRule:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1503,8 +1503,8 @@ classDiagram
     class DraftPhase
     WorkflowManager o--> IWorkflowPhase : 現在状態へ委譲
     IWorkflowPhase <|.. DraftPhase
-    class IWorkflowPhase focus
-    class DraftPhase focus
+    class IWorkflowPhase:::focus
+    class DraftPhase:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1555,8 +1555,8 @@ classDiagram
     class EmailNotifier
     WorkflowManager --> INotificationListener : 登録リストへ配布
     INotificationListener <|.. EmailNotifier
-    class INotificationListener focus
-    class EmailNotifier focus
+    class INotificationListener:::focus
+    class EmailNotifier:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1606,8 +1606,8 @@ classDiagram
     class ManagerApprovalRule
     PendingPhase --> IApprovalRule : 可否を委ねる
     IApprovalRule <|.. ManagerApprovalRule
-    class IApprovalRule focus
-    class ManagerApprovalRule focus
+    class IApprovalRule:::focus
+    class ManagerApprovalRule:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 

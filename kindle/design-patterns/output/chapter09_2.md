@@ -1278,9 +1278,9 @@ classDiagram
     TicketPolicySet o--> ITicketPhase : 生成・所有
     ITicketPhase <|.. OpenPhase
     ITicketPhase <|.. PendingPhase
-    class TicketPolicySet focus
-    class ITicketPhase focus
-    class PendingPhase focus
+    class TicketPolicySet:::focus
+    class ITicketPhase:::focus
+    class PendingPhase:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1297,8 +1297,8 @@ classDiagram
     IPriorityRule <|.. CorporatePriority
     IPriorityRule <|.. PremiumPriority
     IPriorityRule <|.. NormalPriority
-    class IPriorityRule focus
-    class CorporatePriority focus
+    class IPriorityRule:::focus
+    class CorporatePriority:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1570,8 +1570,8 @@ classDiagram
     class OpenPhase
     TicketService --> ITicketPhase : 現在状態へ操作を委譲
     ITicketPhase <|.. OpenPhase
-    class ITicketPhase focus
-    class OpenPhase focus
+    class ITicketPhase:::focus
+    class OpenPhase:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1644,8 +1644,8 @@ classDiagram
     class CorporatePriority
     TicketPolicySet --> IPriorityRule : 区分で選び判定を委ねる
     IPriorityRule <|.. CorporatePriority
-    class IPriorityRule focus
-    class CorporatePriority focus
+    class IPriorityRule:::focus
+    class CorporatePriority:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 

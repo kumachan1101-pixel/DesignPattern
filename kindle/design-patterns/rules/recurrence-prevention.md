@@ -147,3 +147,13 @@
 **対応**：(1) 6件の根拠アンカーを現行見出しへ再同期（章本文は無変更、`status: done`も維持）。(2) `mmdc`を`npx @mermaid-js/mermaid-cli`＋Chromium(`--no-sandbox`)で導入し、統合ゲートを最後まで実行して全229図の実描画＋台帳同期を確認。
 
 **再発防止**：(1) 見出しを変える章改稿の完了条件へ「`completion-gate.json`のevidenceアンカーを新見出しへ更新」を明記する。行番号参照（`file:N`）より見出し参照（`file#見出し`）は改稿に弱いので、改稿頻度の高い章では行参照も検討する。(2) `mmdc`未導入でも台帳ドリフトを検出できるよう、`check_completion_gate.py`は`run_completion_gate.py`と**独立に**必ず実行する運用とする（mmdc非依存）。(3) 「ツールが無いため実行されず緑と見なす」を禁止し、完了条件#15（全図実レンダリング）は実際に`mmdc`で描画した証跡がある場合のみ緑とする。
+
+## 2026-08-04 classDiagramの`class X focus`がphantom浮きクラスを量産し、検証器が誤構文を受理していた
+
+**事象**：読者から「対策検討のクラス図に浮いているクラスが多数ある」と指摘。ソースのグラフ接続解析では浮きクラス0件だったが、**実際にMermaid CLIでレンダリングすると、`IWorkflowPhasefocus`・`DraftPhasefocus`のような関係線を持たないphantomノードが現れていた**。全13章のclassDiagramの着色指定`class X focus`（スペース形）が原因で、合計103箇所。
+
+**原因（真因）**：Mermaidのclassifierで、classDiagramの`class X focus`は「Xに着色クラスfocusを適用」ではなく**「Xfocusという別クラスの新規宣言」**と解釈され、関係線のない孤立ノードを生む。正しい着色は`class X:::focus`または`cssClass "X" focus`。flowchartでは逆に`class X focus`（スペース形）が正しいため、図種で構文が異なる。**さらに`validate_book.py`のフェーズ6着色チェックが`^\s*class\s+\w+\s+focus\s*$`（＝phantom生成形）を"正しい着色"として明示的に受理していた**ため、誤構文が全章へ伝播・固定化していた。加えて、これまでの浮きクラス検査はソースのグラフ接続だけを見ており、**レンダリング結果のノード数を実測していなかった**ため、phantomを検出できなかった（「ツールで実描画せず緑と見なす」問題の再現）。
+
+**対応**：(1) 全103箇所を`class X:::focus`へ一括修正（flowchartの1件のみスペース形へ戻す）。(2) `validate_book.py`の着色チェックを`:::focus`／`cssClass`要求へ改め、phantom生成形を受理しないようにした。(3) 新チェック`check_class_diagram_focus_syntax`を追加し、classDiagram内の`class X <style>`スペース形を機械的に不合格にする（flowchartは対象外）。(4) 全112枚のclassDiagramを個別レンダリングし、SVGノード数と宣言クラス数の一致（phantom0件）を実測確認。(5) checklistへ「classDiagramの着色は`:::`」を追記。
+
+**再発防止**：(1) 浮きクラス検査は「ソースの接続解析」だけでなく「実レンダリングSVGのノード数＝宣言クラス数」を必ず実測する。(2) 検証器が特定構文を"正しい"と受理する条件は、実レンダリング結果で裏取りしてから固定する（誤構文を受理する検査は誤りを量産する）。(3) 図種（classDiagram／flowchart）で着色構文が異なる点をchecklist・validatorの両方で担保する。

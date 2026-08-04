@@ -1311,9 +1311,9 @@ classDiagram
     IClientCreator <|.. SystemCClientCreator
     SystemCClientCreator --> SystemCClient : 生成
     IExternalClient <|.. SystemCClient
-    class IClientCreator focus
-    class IExternalClient focus
-    class SystemCClientCreator focus
+    class IClientCreator:::focus
+    class IExternalClient:::focus
+    class SystemCClientCreator:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1326,9 +1326,9 @@ classDiagram
     class SlackNotifier
     BatchExecutor --> INotifier : 結果を通知
     INotifier <|.. SlackNotifier
-    class BatchExecutor focus
-    class INotifier focus
-    class SlackNotifier focus
+    class BatchExecutor:::focus
+    class INotifier:::focus
+    class SlackNotifier:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1565,9 +1565,9 @@ classDiagram
     IExternalClient <|.. SystemAClient
     IClientCreator <|.. SystemAClientCreator
     SystemAClientCreator ..> SystemAClient : 生成
-    class IExternalClient focus
-    class IClientCreator focus
-    class SystemAClientCreator focus
+    class IExternalClient:::focus
+    class IClientCreator:::focus
+    class SystemAClientCreator:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1637,8 +1637,8 @@ classDiagram
     class SlackNotifier
     BatchExecutor --> INotifier : 登録リストへ結果を配布
     INotifier <|.. SlackNotifier
-    class INotifier focus
-    class SlackNotifier focus
+    class INotifier:::focus
+    class SlackNotifier:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 

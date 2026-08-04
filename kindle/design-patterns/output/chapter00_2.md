@@ -849,9 +849,9 @@ classDiagram
     PaymentCalculator --> IDiscountRule : 共通操作だけを呼ぶ
     IDiscountRule <|.. SummerSaleRule
 
-    class PaymentCalculator focus
-    class IDiscountRule focus
-    class SummerSaleRule focus
+    class PaymentCalculator:::focus
+    class IDiscountRule:::focus
+    class SummerSaleRule:::focus
     classDef focus fill:#fff2cc,stroke:#d6b656,stroke-width:2px
 ```
 

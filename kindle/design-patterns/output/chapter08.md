@@ -1865,9 +1865,9 @@ classDiagram
     PaymentApplication ..> IPaymentProcessor : createProcessor
     IPaymentProcessor <|.. CreditCardProcessor
     IPaymentProcessor <|.. PayPayProcessor
-    class PaymentApplication focus
-    class IPaymentProcessor focus
-    class PayPayProcessor focus
+    class PaymentApplication:::focus
+    class IPaymentProcessor:::focus
+    class PayPayProcessor:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -2027,8 +2027,8 @@ classDiagram
     class CreditCardProcessor
     PaymentApplication ..> IPaymentProcessor : createProcessorで生成し委譲
     IPaymentProcessor <|.. CreditCardProcessor
-    class IPaymentProcessor focus
-    class CreditCardProcessor focus
+    class IPaymentProcessor:::focus
+    class CreditCardProcessor:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 

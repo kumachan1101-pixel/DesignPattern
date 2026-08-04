@@ -1150,9 +1150,9 @@ classDiagram
     INotification <|.. DashboardUpdater
     INotification <|.. ChatNotifier
     INotification <|.. SMSNotifier
-    class InventoryManager focus
-    class INotification focus
-    class SMSNotifier focus
+    class InventoryManager:::focus
+    class INotification:::focus
+    class SMSNotifier:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1318,8 +1318,8 @@ classDiagram
     class EmailNotifier
     InventoryManager o--> INotification : attachで登録し一律配布
     INotification <|.. EmailNotifier
-    class INotification focus
-    class EmailNotifier focus
+    class INotification:::focus
+    class EmailNotifier:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 

@@ -2061,7 +2061,7 @@ def check_phase5_phase6_reasoning_contract(
         ))
     for index, diagram in enumerate(partial_diagrams, 1):
         if "classDef focus" not in diagram or not re.search(
-            r"(?:cssClass\s+|^\s*class\s+\w+\s+focus\s*$)", diagram, re.MULTILINE
+            r"(?:cssClass\s+|:::focus\b)", diagram, re.MULTILINE
         ):
             issues.append(Issue(
                 path, line_number(text, p6 + partial_start),
@@ -3046,9 +3046,45 @@ def check_problem_cause_id_lists(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+CLASS_STYLE_NAMES = (
+    "focus", "pain", "stable", "changed", "normal", "pending",
+    "data", "decision", "process", "input", "output", "result",
+    "actor", "boundary", "external", "system",
+)
+
+
+def check_class_diagram_focus_syntax(text: str, path: Path) -> list[Issue]:
+    """classDiagram で `class X focus`（スペース形）を禁止する。
+
+    Mermaid の classDiagram では `class X focus` は着色ではなく
+    「Xfocus」という別ノードの新規宣言と解釈され、関係線を持たない
+    phantom（浮きクラス）を生む。着色は `class X:::focus` か
+    `cssClass "X" focus` を使う。flowchart では逆にスペース形が正しい
+    ため、classDiagram ブロックだけを対象にする。
+    """
+    issues: list[Issue] = []
+    style_alt = "|".join(CLASS_STYLE_NAMES)
+    phantom = re.compile(
+        rf"^\s*class\s+[A-Za-z_]\w*\s+(?:{style_alt})\s*$", re.MULTILINE
+    )
+    for m in re.finditer(r"```mermaid\s*\n(.*?)```", text, re.DOTALL):
+        body = m.group(1)
+        first = body.strip().splitlines()[0].strip() if body.strip() else ""
+        if not first.startswith("classDiagram"):
+            continue
+        if phantom.search(body):
+            bad = phantom.search(body).group(0).strip()
+            issues.append(Issue(
+                path, line_number(text, m.start()),
+                f"classDiagramの着色は `:::` を使ってください（phantom浮きクラスを生む禁止構文）: {bad}",
+            ))
+    return issues
+
+
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
+    issues.extend(check_class_diagram_focus_syntax(text, path))
     issues.extend(check_duplicate_headings(text, path))
     issues.extend(check_banned_patterns(text, path))
     issues.extend(check_overview_phase_scope(text, path))

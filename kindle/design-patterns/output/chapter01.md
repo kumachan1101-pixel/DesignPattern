@@ -1306,9 +1306,9 @@ classDiagram
     OrderProcessor --> RuleSelector : 選択を依頼
     RuleSelector o--> IDiscountRule : 登録・評価
     IDiscountRule <|.. SummerSaleDiscount
-    class RuleSelector focus
-    class IDiscountRule focus
-    class SummerSaleDiscount focus
+    class RuleSelector:::focus
+    class IDiscountRule:::focus
+    class SummerSaleDiscount:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1323,8 +1323,8 @@ classDiagram
     PaymentCalculator --> IDiscountRule : applyを呼ぶ
     IDiscountRule <|.. PremiumDiscount
     IDiscountRule <|.. CampaignDiscount
-    class PaymentCalculator focus
-    class IDiscountRule focus
+    class PaymentCalculator:::focus
+    class IDiscountRule:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1540,9 +1540,9 @@ classDiagram
     OrderProcessor --> RuleSelector : select()で問い合わせ
     RuleSelector --> IDiscountRule : matches()/priority()を問う
     IDiscountRule <|.. PremiumDiscount
-    class RuleSelector focus
-    class IDiscountRule focus
-    class PremiumDiscount focus
+    class RuleSelector:::focus
+    class IDiscountRule:::focus
+    class PremiumDiscount:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1650,8 +1650,8 @@ classDiagram
     class PaymentCalculator
     class IDiscountRule { <<interface>> }
     PaymentCalculator --> IDiscountRule : apply()だけを呼ぶ
-    class PaymentCalculator focus
-    class IDiscountRule focus
+    class PaymentCalculator:::focus
+    class IDiscountRule:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 

@@ -1288,8 +1288,8 @@ classDiagram
     TicketReservation o--> IReservationState : 現在状態
     IReservationState <|.. ReservedState
     IReservationState <|.. HeldState
-    class TicketReservation focus
-    class IReservationState focus
+    class TicketReservation:::focus
+    class IReservationState:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1305,9 +1305,9 @@ classDiagram
     ReservedState ..> TicketReservation : 取消で席を解放
     HeldState ..> TicketReservation : 期限切れで席を解放
     ReservationWaitlist o--> TicketReservation : 待機者
-    class ReservationWaitlist focus
-    class ReservedState focus
-    class HeldState focus
+    class ReservationWaitlist:::focus
+    class ReservedState:::focus
+    class HeldState:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1482,8 +1482,8 @@ classDiagram
     class ReservedState
     TicketReservation o--> IReservationState : 現在状態を保持し委譲
     IReservationState <|.. ReservedState
-    class IReservationState focus
-    class ReservedState focus
+    class IReservationState:::focus
+    class ReservedState:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1541,7 +1541,7 @@ classDiagram
     ReservedState --> TicketReservation : releaseSeatAndPromote()
     TicketReservation --> ReservationWaitlist : promoteFront()
     ReservationWaitlist o--> TicketReservation : 先頭を昇格
-    class ReservationWaitlist focus
+    class ReservationWaitlist:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 

@@ -1341,8 +1341,8 @@ classDiagram
     IReport <|.. ReportSkeleton
     ReportSkeleton <|-- MonthlyReport
     ReportSkeleton <|-- ExecutiveMonthlyReport
-    class ReportSkeleton focus
-    class ExecutiveMonthlyReport focus
+    class ReportSkeleton:::focus
+    class ExecutiveMonthlyReport:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1473,9 +1473,9 @@ classDiagram
     ReportFeature o--> IReport : 内側を1つ所有
     ReportFeature <|-- GraphFeature
     ReportFeature <|-- LogoFeature
-    class ReportFeature focus
-    class GraphFeature focus
-    class LogoFeature focus
+    class ReportFeature:::focus
+    class GraphFeature:::focus
+    class LogoFeature:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1579,9 +1579,9 @@ classDiagram
     IReportAction <|.. GenerateReportAction
     GenerateReportAction *-- ReportRequest : 完全な要求
     GenerateReportAction --> ReportGenerationService : 実行を委譲
-    class ReportActionHistory focus
-    class IReportAction focus
-    class GenerateReportAction focus
+    class ReportActionHistory:::focus
+    class IReportAction:::focus
+    class GenerateReportAction:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 

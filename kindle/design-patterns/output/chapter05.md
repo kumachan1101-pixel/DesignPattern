@@ -1149,9 +1149,9 @@ classDiagram
     IAction <|.. AddExpenseAction
     IAction <|.. AddIncomeAction
     BudgetApp --> IAction : 実行を依頼
-    class IAction focus
-    class AddExpenseAction focus
-    class AddIncomeAction focus
+    class IAction:::focus
+    class AddExpenseAction:::focus
+    class AddIncomeAction:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1166,8 +1166,8 @@ classDiagram
     ActionHistory o--> IAction : 実行済み・取消済み
     IAction <|.. AddExpenseAction
     AddExpenseAction --> LedgerRepository : 同じ記録を更新・取消
-    class ActionHistory focus
-    class LedgerRepository focus
+    class ActionHistory:::focus
+    class LedgerRepository:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1330,8 +1330,8 @@ classDiagram
     BudgetApp --> ActionHistory : 操作を渡すだけ
     ActionHistory o--> IAction : 実行・取消
     IAction <|.. AddExpenseAction
-    class IAction focus
-    class AddExpenseAction focus
+    class IAction:::focus
+    class AddExpenseAction:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1395,8 +1395,8 @@ classDiagram
     class ImportService
     ActionHistory o--> IAction : undoStack / redoStack
     ImportService --> ActionHistory : 一括実行し失敗時に補償
-    class ActionHistory focus
-    class ImportService focus
+    class ActionHistory:::focus
+    class ImportService:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 

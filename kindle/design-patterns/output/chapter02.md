@@ -1255,8 +1255,8 @@ classDiagram
     IBankTransferService <|.. BankTransferService
     BankTransferService --> Bank : 送金手順
     BankTransferService --> SecurityAuthenticator : 認証手順
-    class IBankTransferService focus
-    class BankTransferService focus
+    class IBankTransferService:::focus
+    class BankTransferService:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1272,8 +1272,8 @@ classDiagram
     Application --> BatchTransferProcessor : 組み立て
     TransferProcessor --> IBankTransferService : 注入
     BatchTransferProcessor --> IBankTransferService : 注入
-    class Application focus
-    class IBankTransferService focus
+    class Application:::focus
+    class IBankTransferService:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1458,7 +1458,7 @@ classDiagram
     BankTransferService --> Bank : 送金API
     BankTransferService --> SecurityAuthenticator : 認証手順
     BankTransferService --> TransferHistory : 記録
-    class BankTransferService focus
+    class BankTransferService:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
@@ -1511,8 +1511,8 @@ classDiagram
     TransferProcessor --> IBankTransferService : 契約だけに依存
     BatchTransferProcessor --> IBankTransferService : 同じ契約
     IBankTransferService <|.. BankTransferService
-    class IBankTransferService focus
-    class BankTransferService focus
+    class IBankTransferService:::focus
+    class BankTransferService:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
