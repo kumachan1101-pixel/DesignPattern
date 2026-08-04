@@ -1841,19 +1841,21 @@ public:
 
     void run() {
         vector<OrderRequest> requests = {
-            {"DRINK001", {}},
-            {"DRINK001", {{"Milk", 1}}},
-            {"DRINK001", {{"Milk", 1}, {"Syrup", 1}}},
-            {"DRINK001", {{"Milk", 1}, {"Whip", 1}}},
-            {"DRINK001", {{"Syrup", 1}, {"Whip", 1}}},
-            {"DRINK001", {{"Whip", 2}}},
-            {"DRINK001", {{"Milk", 1}, {"Syrup", 1}, {"Whip", 1}}},
+            {"DRINK001", {}},                          // 基本のみ（トッピングなし）
+            {"DRINK001", {{"Milk", 1}}},               // ミルク1種を1個
+            {"DRINK001", {{"Milk", 1}, {"Syrup", 1}}}, // ミルク＋シロップ
+            {"DRINK001", {{"Milk", 1}, {"Whip", 1}}},  // ミルク＋ホイップ
+            {"DRINK001", {{"Syrup", 1}, {"Whip", 1}}}, // 指定順(Syrup→Whip)が表示名に反映
+            {"DRINK001", {{"Whip", 2}}},               // 同一トッピングを個数2で
+            {"DRINK001", {{"Milk", 1}, {"Syrup", 1}, {"Whip", 1}}}, // 3種盛り
+            // 抹茶を足した4種
             {"DRINK001", {{"Milk", 1}, {"Syrup", 1},
                           {"Whip", 1}, {"Matcha", 1}}},
-            {"DRINK001", {{"Choco", 1}}},
+            {"DRINK001", {{"Choco", 1}}},              // 追加種類チョコ単体
+            // 抹茶＋チョコ混在
             {"DRINK001", {{"Milk", 1}, {"Matcha", 1}, {"Choco", 1}}},
-            {"DRINK999", {{"Milk", 1}}},
-            {"DRINK001", {{"SeasonalMint", 1}}},
+            {"DRINK999", {{"Milk", 1}}},               // 未登録メニュー → エラー
+            {"DRINK001", {{"SeasonalMint", 1}}},       // 販売停止トッピング → エラー
         };
 
         for (const auto& req : requests) {
