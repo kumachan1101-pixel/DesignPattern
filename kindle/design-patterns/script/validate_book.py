@@ -2902,7 +2902,7 @@ def check_standard_id_glossary(text: str, path: Path) -> list[Issue]:
 
 
 def check_phase1_system_overview(text: str, path: Path) -> list[Issue]:
-    """要求表より前に、システムの大筋と代替境界を説明する。"""
+    """実行結果で動作像を先に作り、その後で入力と仕様を説明する。"""
     issues: list[Issue] = []
     phase11 = text.find("### 1-1：")
     phase12 = text.find("### 1-2：", phase11)
@@ -2910,15 +2910,68 @@ def check_phase1_system_overview(text: str, path: Path) -> list[Issue]:
         return issues
 
     section = text[phase11:phase12]
+    result_heading = "#### まず実行結果から動きをつかむ"
+    result_label = "**代表的な実行結果：**"
+    input_label = "**この結果を生む入力"
     heading = "#### 最初にシステム全体をつかむ"
+    result_heading_pos = section.find(result_heading)
+    result = section.find(result_label)
+    input_example = section.find(input_label)
     overview = section.find(heading)
     baseline = section.find("#### 現行要求ベースライン")
+
+    for token, position, message in (
+        (result_heading, result_heading_pos,
+         "1-1冒頭に代表実行結果の見出しがありません"),
+        (result_label, result,
+         "代表実行結果のラベルがありません"),
+        (input_label, input_example,
+         "代表実行結果に対応する入力・mainの説明がありません"),
+    ):
+        if position < 0:
+            issues.append(Issue(
+                path, line_number(text, phase11), f"{message}: {token}",
+            ))
+
     if overview < 0:
         issues.append(Issue(
             path, line_number(text, phase11),
             "1-1冒頭にシステム全体を説明する見出しがありません: " + heading,
         ))
         return issues
+
+    ordered_positions = (
+        result_heading_pos, result, input_example, overview, baseline,
+    )
+    if all(position >= 0 for position in ordered_positions) and not (
+        result_heading_pos < result < input_example < overview < baseline
+    ):
+        issues.append(Issue(
+            path, line_number(text, phase11),
+            "1-1は代表実行結果→結果の読み方→入力・main→システム全体要約→現行要求の順にしてください",
+        ))
+
+    if result >= 0 and input_example >= 0:
+        result_text = section[result:input_example]
+        if "```" not in result_text:
+            issues.append(Issue(
+                path, line_number(text, phase11 + result),
+                "代表実行結果に、読者が最初に確認できる出力ブロックがありません",
+            ))
+        if "この出力から" not in result_text:
+            issues.append(Issue(
+                path, line_number(text, phase11 + result),
+                "代表実行結果の直後に、一連の動きの読み方がありません",
+            ))
+
+    if input_example >= 0 and overview >= 0:
+        input_text = section[input_example:overview]
+        if "```cpp" not in input_text:
+            issues.append(Issue(
+                path, line_number(text, phase11 + input_example),
+                "代表実行結果に対応する入力・mainのC++抜粋がありません",
+            ))
+
     if baseline < 0 or overview > baseline:
         issues.append(Issue(
             path, line_number(text, phase11 + overview),

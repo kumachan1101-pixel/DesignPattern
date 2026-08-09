@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "book_status": "in_progress",
+  "book_status": "ready",
   "task_source": "review-tasks.md",
   "tasks": {
     "CONS-001": {"status": "done", "evidence": ["output/chapter00_2.md#🟡 フェーズ5：課題定義 ―― 原因から課題を検討して確定する"]},
@@ -66,26 +66,26 @@
     "CONS-061": {"status": "done", "evidence": ["output/chapter00_1.md#はじめに", "output/chapter11.md#課題ID2：装飾を、本文へ順番どおり重ねられるようにする", "rules/writing-rules.md:116", "script/validate_book.py:1819"]},
     "CONS-062": {"status": "done", "evidence": ["output/chapter00_2.md#本書の番号の読み方", "output/chapter01.md#現行要求ベースライン", "script/validate_book.py:2812"]},
     "CONS-063": {"status": "done", "evidence": ["output/chapter01.md#最初にシステム全体をつかむ", "output/chapter12.md#最初にシステム全体をつかむ", "templates/chapter-template.md#最初にシステム全体をつかむ", "script/validate_book.py:2845"]},
-    "CONS-064": {"status": "open", "evidence": []},
-    "CONS-065": {"status": "open", "evidence": []},
-    "CONS-066": {"status": "open", "evidence": []}
+    "CONS-064": {"status": "done", "evidence": ["review-tasks.md#2026-08-10 代表実行結果先行・正本同期・最終ゲート"]},
+    "CONS-065": {"status": "done", "evidence": ["review-tasks.md#2026-08-10 代表実行結果先行・正本同期・最終ゲート"]},
+    "CONS-066": {"status": "done", "evidence": ["review-tasks.md#2026-08-10 代表実行結果先行・正本同期・最終ゲート"]}
   },
   "chapters": {
     "chapter00_1.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter00_1.md#はじめに"]},
     "chapter00_2.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter00_2.md#私がたどり着いた「7つのフェーズ」"]},
-    "chapter01.md": {"status": "pass", "reviewed_by": "Codex cross-chapter audit 2026-08-02", "evidence": ["output/chapter01.md#最終要求の実装・受入エビデンス"]},
-    "chapter02.md": {"status": "pass", "reviewed_by": "Codex cross-chapter audit 2026-08-02", "evidence": ["output/chapter02.md#最終要求の実装・受入エビデンス"]},
-    "chapter03.md": {"status": "pass", "reviewed_by": "Codex cross-chapter audit 2026-08-02", "evidence": ["output/chapter03.md#最終要求の実装・受入エビデンス"]},
-    "chapter04.md": {"status": "pass", "reviewed_by": "Codex cross-chapter audit 2026-08-02", "evidence": ["output/chapter04.md#最終要求の実装・受入エビデンス"]},
-    "chapter05.md": {"status": "pass", "reviewed_by": "Codex cross-chapter audit 2026-08-02", "evidence": ["output/chapter05.md#最終要求の実装・受入エビデンス"]},
-    "chapter06.md": {"status": "pass", "reviewed_by": "Codex cross-chapter audit 2026-08-02", "evidence": ["output/chapter06.md#最終要求の実装・受入エビデンス"]},
-    "chapter07.md": {"status": "pass", "reviewed_by": "Codex cross-chapter audit 2026-08-02", "evidence": ["output/chapter07.md#最終要求の実装・受入エビデンス"]},
-    "chapter08.md": {"status": "pass", "reviewed_by": "Codex cross-chapter audit 2026-08-02", "evidence": ["output/chapter08.md#最終要求の実装・受入エビデンス"]},
+    "chapter01.md": {"status": "pass", "reviewed_by": "Codex result-first and final gate audit 2026-08-10", "evidence": ["output/chapter01.md#まず実行結果から動きをつかむ", "output/chapter01.md#最終要求の実装・受入エビデンス"]},
+    "chapter02.md": {"status": "pass", "reviewed_by": "Codex result-first and final gate audit 2026-08-10", "evidence": ["output/chapter02.md#まず実行結果から動きをつかむ", "output/chapter02.md#最終要求の実装・受入エビデンス"]},
+    "chapter03.md": {"status": "pass", "reviewed_by": "Codex result-first and final gate audit 2026-08-10", "evidence": ["output/chapter03.md#まず実行結果から動きをつかむ", "output/chapter03.md#最終要求の実装・受入エビデンス"]},
+    "chapter04.md": {"status": "pass", "reviewed_by": "Codex result-first and final gate audit 2026-08-10", "evidence": ["output/chapter04.md#まず実行結果から動きをつかむ", "output/chapter04.md#最終要求の実装・受入エビデンス"]},
+    "chapter05.md": {"status": "pass", "reviewed_by": "Codex result-first and final gate audit 2026-08-10", "evidence": ["output/chapter05.md#まず実行結果から動きをつかむ", "output/chapter05.md#最終要求の実装・受入エビデンス"]},
+    "chapter06.md": {"status": "pass", "reviewed_by": "Codex result-first and final gate audit 2026-08-10", "evidence": ["output/chapter06.md#まず実行結果から動きをつかむ", "output/chapter06.md#最終要求の実装・受入エビデンス"]},
+    "chapter07.md": {"status": "pass", "reviewed_by": "Codex result-first and final gate audit 2026-08-10", "evidence": ["output/chapter07.md#まず実行結果から動きをつかむ", "output/chapter07.md#最終要求の実装・受入エビデンス"]},
+    "chapter08.md": {"status": "pass", "reviewed_by": "Codex result-first and final gate audit 2026-08-10", "evidence": ["output/chapter08.md#まず実行結果から動きをつかむ", "output/chapter08.md#最終要求の実装・受入エビデンス"]},
     "chapter09_1.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/chapter09_1.md#第二部　応用編 ―― 複数構造の融合"]},
-    "chapter09_2.md": {"status": "pass", "reviewed_by": "Codex cross-chapter audit 2026-08-02", "evidence": ["output/chapter09_2.md#最終要求の実装・受入エビデンス"]},
-    "chapter10.md": {"status": "pass", "reviewed_by": "Codex cross-chapter audit 2026-08-02", "evidence": ["output/chapter10.md#最終要求の実装・受入エビデンス"]},
-    "chapter11.md": {"status": "pass", "reviewed_by": "Codex cross-chapter audit 2026-08-02", "evidence": ["output/chapter11.md#内部デバッグログ", "output/chapter11.md#最終要求の実装・受入エビデンス", "output/chapter11.md#この章の実装との対応"]},
-    "chapter12.md": {"status": "pass", "reviewed_by": "Codex cross-chapter audit 2026-08-02", "evidence": ["output/chapter12.md#最終要求の実装・受入エビデンス"]},
+    "chapter09_2.md": {"status": "pass", "reviewed_by": "Codex result-first and final gate audit 2026-08-10", "evidence": ["output/chapter09_2.md#まず実行結果から動きをつかむ", "output/chapter09_2.md#最終要求の実装・受入エビデンス"]},
+    "chapter10.md": {"status": "pass", "reviewed_by": "Codex result-first and final gate audit 2026-08-10", "evidence": ["output/chapter10.md#まず実行結果から動きをつかむ", "output/chapter10.md#最終要求の実装・受入エビデンス"]},
+    "chapter11.md": {"status": "pass", "reviewed_by": "Codex result-first and final gate audit 2026-08-10", "evidence": ["output/chapter11.md#まず実行結果から動きをつかむ", "output/chapter11.md#内部デバッグログ", "output/chapter11.md#最終要求の実装・受入エビデンス", "output/chapter11.md#この章の実装との対応"]},
+    "chapter12.md": {"status": "pass", "reviewed_by": "Codex result-first and final gate audit 2026-08-10", "evidence": ["output/chapter12.md#まず実行結果から動きをつかむ", "output/chapter12.md#最終要求の実装・受入エビデンス"]},
     "epilogue.md": {"status": "pass", "reviewed_by": "Codex requirement audit 2026-08-02", "evidence": ["output/epilogue.md#最後に"]}
   }
 }
