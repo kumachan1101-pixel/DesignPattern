@@ -1600,6 +1600,7 @@ public:
     virtual ~IReportAction() = default;
     virtual OperationResult execute() = 0;   // 実行
     virtual OperationResult undo() = 0;       // 取消
+    virtual const ReportRequest& request() const = 0;  // 履歴表示用の要求
 };
 
 class GenerateReportAction : public IReportAction {

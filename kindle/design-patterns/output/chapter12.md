@@ -1722,13 +1722,13 @@ Phase・Listener・Ruleは組み立て側が生成・注入し、`WorkflowManage
 
 | フェーズ6で切り出した契約 | フェーズ6の最小形 | フェーズ7の本番形（肉付け） |
 |---|---|---|
-| 状態（`IWorkflowPhase`） | `next(operation)` が次状態の文字列を返す | `handle(wm, WorkflowEvent, request)`。操作を列挙型 `WorkflowEvent` にし、状態を6つ（作成中〜完了）へ細分化 |
-| 通知（`INotificationListener`） | `onChanged(reqId, from, to)` で宛先へ送る | 送信手段（メール／チャット）と配信失敗（`DeliveryResult`）を扱い、`notifyAll()` で登録リスナーへ配信 |
-| 判定（`IApprovalRule`） | `canApprove(approverId, amount)` | 役職別ルール（`ManagerApprovalRule` ほか）として実装 |
+| 状態（`IWorkflowPhase`） | `handle(WorkflowManager&, WorkflowEvent)` が遷移を担う | `handle(wm, WorkflowEvent, request)` へ要求を渡し、状態を6つ（作成中〜完了）へ細分化。役職照合もここで行う |
+| 通知（`INotificationListener`） | `onStatusChanged(requestId, newState)` で宛先へ送る | 送信手段（メール／チャット）と配信失敗（`DeliveryResult`）を扱い、`notifyAll()` で登録リスナーへ配信 |
+| 判定（`IApprovalRule`） | `canApprove(amount)` | 上限をマスターから注入する役職別ルール（`ManagerApprovalRule` ほか）として実装 |
 
-契約の名前と役割は同じで、変わるのは「操作を文字列から列挙型へ」「通知に送信手段と失敗処理を足す」といった実運用向けの詳細だけです。以下を、この対応を思い出しながら読んでください。
+契約の名前と役割は同じで、変わるのは「`handle()` へ要求データを渡す」「通知に送信手段と失敗処理を足す」「判定ルールの上限を注入にする」といった実運用向けの詳細だけです。以下を、この対応を思い出しながら読んでください。
 
-フェーズ6の短い例では、`DraftPhase` が申請受付と承認判定をまとめていました。フェーズ7では状態分離構造の役割を明確にするため、状態を作成中・審査待ち・優先審査待ち・承認済み・却下・完了へ細かく分け、承認イベントを列挙型（`WorkflowEvent`）で表します。
+フェーズ6の短い例では状態を3つ（作成中・審査待ち・承認済み）に絞っていました。フェーズ7では状態分離構造の役割を明確にするため、状態を作成中・審査待ち・優先審査待ち・承認済み・却下・完了へ細かく分け、承認イベントを列挙型（`WorkflowEvent`）で表します。
 
 - `DraftPhase`：通常申請・緊急申請のイベントを受け、審査待ちへ遷移する。
 - `PendingPhase` / `PriorityPendingPhase`：承認・却下のイベントを受け、判定ルールを使って次状態を選ぶ。

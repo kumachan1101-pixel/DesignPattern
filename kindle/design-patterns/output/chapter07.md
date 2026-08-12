@@ -1388,10 +1388,13 @@ manager.reduceStock("PRD002", 1);  // ⑥ 在庫更新・記録→登録先へ�
 
 ```cpp
 class StockEventLog {
-    std::vector<StockEvent> events;   // 確定した在庫変動の記録
+    std::vector<StockEvent> records;  // 確定した在庫変動の記録
 public:
-    void record(const StockEvent& e) { events.push_back(e); }
-    int count() const { return (int)events.size(); }
+    void add(const std::string& productId, const std::string& productName,
+             const std::string& eventType, int amount,
+             int stockBefore, int stockAfter, int threshold);
+    void printAll() const;
+    int size() const { return (int)records.size(); }
 };
 ```
 

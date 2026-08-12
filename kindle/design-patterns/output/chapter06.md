@@ -1337,12 +1337,13 @@ public:
         return inner->getPrice() + catalog->priceOf(toppingId);
     }
     string getDescription() const override {
-        return inner->getDescription() + " + " + catalog->nameOf(toppingId);
+        return inner->getDescription() + " + " + catalog->labelOf(toppingId);
     }
 };
 class Milk : public ToppingWrapper {
 public:
-    using ToppingWrapper::ToppingWrapper;   // Whip/Matcha/Choco/Syrupも同形
+    Milk(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Milk") {}   // Whip/Matcha/Choco/Syrupも同形
 };
 ```
 
@@ -1351,8 +1352,9 @@ public:
 **④ 生成（包み上げ）と⑥ 実行（連鎖）。** `OrderAssembler` が基本ドリンクを入力順にトッピングで包み、`getPrice()`／`getDescription()` を連鎖させて `OrderResult` を返します。基本ドリンク側の分岐は増えません。
 
 ```cpp
-OrderApplication app;
-app.run({ "coffee", {"milk", "matcha"} });   // 要求＝基本＋トッピング列
+// 注文要求＝基本ドリンクIDと、トッピングID・個数の並び
+OrderRequest request{ "DRINK001", { {"Milk", 1}, {"Matcha", 1} } };
+OrderResult result = assembler.build(request);
 // OrderAssembler が Coffee を Milk→Matcha の順に包み（④）、
 // getPrice()/getDescription() を連鎖（⑥）して OrderResult を返す
 ```

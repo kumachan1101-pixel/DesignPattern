@@ -1593,6 +1593,7 @@ public:
     virtual ITicketPhase* escalate() { return reject("エスカレーション"); }
     virtual ITicketPhase* reopen()   { return reject("再受付"); }
     virtual ITicketPhase* hold()     { return reject("保留"); }
+    virtual ITicketPhase* sendBack() { return reject("差し戻し"); }
 protected:
     ITicketPhase* reject(const std::string& op) {
         std::cout << "  操作不可: この状態では「" << op

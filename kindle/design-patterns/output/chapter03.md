@@ -1498,22 +1498,27 @@ classDiagram
 class TicketReservation;
 class IReservationState {
 public:
+    // 既定は「その状態では不可」。各状態は許す操作だけを上書きする。
+    virtual void reserve(TicketReservation*) { /* 不可メッセージ */ }
+    virtual void pay(TicketReservation*) { /* 不可メッセージ */ }
+    virtual void cancel(TicketReservation*) { /* 不可メッセージ */ }
+    virtual void addToWaitlist(TicketReservation*) { /* 不可メッセージ */ }
+    virtual void promoteBySystem(TicketReservation*) { /* 不可メッセージ */ }
     virtual ~IReservationState() = default;
-    virtual void reserve(TicketReservation& ctx) = 0;
-    virtual void pay(TicketReservation& ctx) = 0;
-    virtual void cancel(TicketReservation& ctx) = 0;
-    virtual void promoteBySystem(TicketReservation& ctx) = 0;
 };
 ```
+
+純粋仮想（`= 0`）ではなく既定実装つきにしているのは、`PaidState` のように「どの操作も受け付けない」状態を、1つも上書きしない空のクラスとして書けるようにするためです。期限切れ（`hold` / `expire`）と決済失敗（`paymentFailed`）の操作は1-5の変更要求で加わるので、契約への追加は7-1で示します。
 
 **③ 各状態が自分の振る舞いと遷移だけを実装する（`status` 文字列分岐は持たない）。**
 
 ```cpp
 class ReservedState : public IReservationState {
 public:
-    void cancel(TicketReservation& ctx) override {
-        ctx.releaseSeatAndPromote();     // 席解放→自動昇格（課題ID2へ橋渡し）
-        ctx.setState(availableState());  // ⑤ 共有状態へ遷移
+    void cancel(TicketReservation* ctx) override {
+        ctx->cancelSeat();                // 席を解放
+        ctx->promoteNextWaitlisted();     // 待機者を昇格（課題ID2へ橋渡し）
+        ctx->setState(availableState());  // ⑤ 共有状態へ遷移
     }
     // reserve()/pay() は各状態が自分の可否を実装する
 };
@@ -1543,8 +1548,8 @@ classDiagram
     class ReservedState
     class TicketReservation
     class ReservationWaitlist
-    ReservedState --> TicketReservation : releaseSeatAndPromote()
-    TicketReservation --> ReservationWaitlist : promoteFront()
+    ReservedState --> TicketReservation : promoteNextWaitlisted()
+    TicketReservation --> ReservationWaitlist : popNext(eventId)
     ReservationWaitlist o--> TicketReservation : 先頭を昇格
     class ReservationWaitlist:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
@@ -1554,19 +1559,23 @@ classDiagram
 
 ```cpp
 class ReservationWaitlist {
-    std::deque<TicketReservation*> waiting;   // 先着順（借用参照）
+    // イベントIDごとの先着順（借用参照）
+    std::map<std::string, std::deque<TicketReservation*>> queues;
 public:
-    void add(TicketReservation* r) { waiting.push_back(r); }
-    void promoteFront() {           // 席解放直後に先頭1件だけ昇格
-        if (waiting.empty()) return;
-        TicketReservation* next = waiting.front();
-        waiting.pop_front();
-        next->promoteBySystem();
+    void enqueue(const std::string& eventId, TicketReservation* r) {
+        queues[eventId].push_back(r);
+    }
+    TicketReservation* popNext(const std::string& eventId) {
+        auto& q = queues[eventId];
+        if (q.empty()) return nullptr;
+        TicketReservation* next = q.front();
+        q.pop_front();
+        return next;                // 昇格の呼び出しは状態側が行う
     }
 };
 ```
 
-**⑤ 状態処理からは1点だけで接続する。** `ReservedState::cancel()` が席解放後に `releaseSeatAndPromote()` を通じて `ReservationWaitlist::promoteFront()` を呼びます。**⑥ 実行**では先頭1件が `promoteBySystem()` で自動昇格します。これで課題ID2の完了条件「取消・期限切れから自動昇格まで一つのユースケースで完了する」を満たし、状態分離構造と待ち行列分離構造が1点で接続されます。
+**⑤ 状態処理からは1経路だけで接続する。** 席を解放する各状態処理が `promoteNextWaitlisted()` を通じて `ReservationWaitlist::popNext()` を呼びます。**⑥ 実行**では先頭1件が `promoteBySystem()` で自動昇格します。これで課題ID2の完了条件「取消・期限切れから自動昇格まで一つのユースケースで完了する」を満たし、状態分離構造と待ち行列分離構造が1点で接続されます。
 
 ### 6-1：生成・所有・実行順のまとめ
 
@@ -1574,7 +1583,7 @@ public:
 
 - 状態オブジェクト：関数ローカルの静的（共有シングルトン）で、`new`／`delete` を持たない。
 - 待ち行列：`ReservationWaitlist` は `TicketReservation*` を借用参照で保持（所有は予約側）。
-- 実行順：公開操作→現在状態へ委譲→（取消なら）席解放→`promoteFront()`→先頭を `promoteBySystem()`。2つの変化軸（状態・待ち行列）が `ReservedState::cancel()` の1点で接続されます。
+- 実行順：公開操作→現在状態へ委譲→（席を解放するなら）`cancelSeat()`→`promoteNextWaitlisted()`→`popNext()`→先頭を `promoteBySystem()`。2つの変化軸（状態・待ち行列）は、この共通の1経路で接続されます。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
@@ -1607,7 +1616,7 @@ public:
 | 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |
 |---|---|---|---|
 | 課題ID1：予約状態 | 状態追加で公開操作と既存状態を変えない | `IReservationState` と状態クラスへ委譲 | 新状態と遷移元へ変更が閉じた |
-| 課題ID2：待ち行列 | 待ち行列方針と自動昇格を利用者の手動操作にしない | `ReservationWaitlist` と `ReservedState::cancel()`→`promoteFront()` | 席解放直後にシステムが先頭を自動昇格した |
+| 課題ID2：待ち行列 | 待ち行列方針と自動昇格を利用者の手動操作にしない | `ReservationWaitlist` と席を解放する各状態処理→`promoteNextWaitlisted()` | 席解放直後にシステムが先頭を自動昇格した |
 | 課題ID1・課題ID2を接続したシステム全体 | 公開操作・座席・履歴更新を維持する | 状態処理が待ち行列へ自動接続される | 二軸を一つの予約経路で動かし、入口と副作用を維持した |
 
 **システム全体の実装結果：達成。** 課題ID1と課題ID2が一つの予約経路で接続され、フェーズ5で目指した状態を実現しました。実際の動作と変更影響はフェーズ7で確認します。
@@ -1619,7 +1628,7 @@ public:
 | 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
 |---|---|---|---|
 | 課題ID1（予約状態） | 状態分離。`TicketReservation`が現在状態へ委譲し、各状態が遷移先を持つ | `IReservationState`、`AvailableState`／`ReservedState`／`PaidState`／`WaitlistedState`／`HeldState` | 状態追加が新状態と遷移登録に閉じる |
-| 課題ID2（待ち行列） | 待ち行列分離。`ReservedState::cancel()`が`promoteFront()`を呼び自動昇格 | `ReservationWaitlist`、`ReservedState::cancel()` | 席解放直後にシステムが先頭を自動昇格する |
+| 課題ID2（待ち行列） | 待ち行列分離。席を解放する各状態処理が`promoteNextWaitlisted()`を呼び自動昇格 | `ReservationWaitlist`、`ReservedState::cancel()`／`HeldState::cancel()`／`HeldState::expire()` | 席解放直後にシステムが先頭を自動昇格する |
 | 変更対象外 | 公開入口・座席数更新・履歴。委譲先だけが振る舞いを変える | `TicketReservation`の公開操作、`EventDatabase` | 1-4、50/50→49/50→50/50 |
 
 このクラス図、コード適用結果、シーケンス、コード変更表が、フェーズ7へ渡す完成設計です。

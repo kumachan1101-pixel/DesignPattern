@@ -1580,7 +1580,10 @@ classDiagram
 class IExternalClient {
 public:
     virtual ~IExternalClient() = default;
-    virtual DeliveryResult send(const std::string& data) = 0;
+    // apiHealthy は、1-5のエラー条件「外部API送信に失敗する」を掲載コードで
+    // 再現するためのスタブ入力。実システムでは通信結果そのものにあたる。
+    virtual DeliveryResult send(const std::string& data,
+                                bool apiHealthy) = 0;
 };
 ```
 
@@ -1589,8 +1592,10 @@ public:
 ```cpp
 class SystemAClient : public IExternalClient {
 public:
-    DeliveryResult send(const std::string& data) override {
+    DeliveryResult send(const std::string& data,
+                        bool apiHealthy) override {
         // A社APIへ転送（通信詳細はこのクラスに閉じる）
+        if (!apiHealthy) return {"失敗", false, "A社: API障害"};
         return {"成功", true, "A社受付: " + data};
     }
 };
@@ -1618,7 +1623,7 @@ public:
 
 ```cpp
 IExternalClient* client = creator->createClient(); // ④で生成、所有はここ
-DeliveryResult r = client->send(data);             // ⑥ 契約だけ呼ぶ
+DeliveryResult r = client->send(data, apiHealthy); // ⑥ 契約だけ呼ぶ
 // …結果保存・通知…
 delete client;                                     // 使い捨て後に破棄
 ```
@@ -1705,7 +1710,7 @@ public:
         const SyncRequest& request) {
         IExternalClient* client = creator->createClient();   // 課題ID1の生成・所有
         std::string data = dataCatalog.load(request.target); // 既存の取得
-        DeliveryResult r = client->send(data);               // 課題ID1
+        DeliveryResult r = client->send(data, apiHealthy);   // 課題ID1
         log.add(request.partnerId,
                 partners.get(request.partnerId).name, r.status);
         for (auto* n : notifiers) {

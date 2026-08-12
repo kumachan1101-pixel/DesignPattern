@@ -1298,21 +1298,30 @@ classDiagram
 統合表で特定した箇所だけを振り返ります。課題ID1は `UIButtons` が持つ操作種別の履歴文字列と、取り消し時の種別分岐です。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
 
 ```cpp
-// 現状：UIが実行先・引数・逆操作・履歴種別をすべて抱える
+// 3-1から抜粋：UIが実行先・引数・逆操作・履歴種別をすべて抱える
 class UIButtons {
     ExpenseManager em;
     IncomeManager im;
-    std::vector<std::string> history;   // 種別文字列で履歴を持つ
+    std::vector<HistoryItem> history;   // 種別文字列つきの履歴
+    int balance = 0;
 public:
-    void onAddExpenseClick() {
-        em.addExpense(1000, "Food");
-        history.push_back("Expense");
+    void onAddExpenseClick(int amount, const std::string& categoryId) {
+        int delta = em.addExpense(amount, categoryId);
+        if (delta == 0) return;
+        balance += delta;
+        history.push_back({"Expense", amount, categoryId});   // 種別を文字列で持つ
     }
+
     void undo() {
-        if (history.back() == "Expense") {
-            // em.undoExpense(...) をUIが種別ごとに知る必要がある
+        if (history.empty()) return;
+        HistoryItem last = history.back();
+        if (last.type == "Expense") {                          // UIが種別ごとに
+            balance += em.removeExpense(last.amount, last.categoryId);
+        } else if (last.type == "Income") {                    // 逆操作を知っている
+            balance += im.removeIncome(last.amount, last.categoryId);
         }
-        // Income・Transfer が増えるたびに else if が伸びる
+        history.pop_back();
+        // Transfer が増えるたびに else if が伸びる
     }
 };
 ```
@@ -1374,7 +1383,7 @@ public:
 ```cpp
 ActionHistory history;
 BudgetApp app(&history);
-AddExpenseAction cmd(expenseManager, 1000, "Food"); // ④ 生成・所有はmain
+AddExpenseAction cmd(expenseManager, 1000, "CAT002"); // ④ 生成・所有はmain
 app.run(&cmd);    // ⑤ 履歴は IAction* を借用（非所有）
 ```
 
