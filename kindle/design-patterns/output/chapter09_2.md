@@ -2242,6 +2242,11 @@ class TicketService {
     void applyTransition(const string& ticketId, ITicketPhase* next,
                          const string& eventType) {
         if (!next) return;                 // 操作不可（rejectで通知済み）
+        if (!repo.exists(ticketId)) {          // 仕様のエラー条件
+            cout << "エラー: チケットID " << ticketId
+                 << " は存在しません。" << endl;
+            return;
+        }
         Ticket& t = repo.get(ticketId);
         string before = t.phase->name();
         t.phase = next;
@@ -2273,6 +2278,11 @@ public:
         log.add(ticketId, EventType::Create, t.phase->name(), p);
     }
     void assign(const string& ticketId, const string& assigneeId) {
+        if (!repo.exists(ticketId)) {          // 仕様のエラー条件
+            cout << "エラー: チケットID " << ticketId
+                 << " は存在しません。" << endl;
+            return;
+        }
         Ticket& t = repo.get(ticketId);
         string before = t.phase->name();
         ITicketPhase* next = t.phase->assign();
@@ -2292,6 +2302,11 @@ public:
                         EventType::Resolve);
     }
     void escalate(const string& ticketId) {
+        if (!repo.exists(ticketId)) {          // 仕様のエラー条件
+            cout << "エラー: チケットID " << ticketId
+                 << " は存在しません。" << endl;
+            return;
+        }
         Ticket& t = repo.get(ticketId);
         ITicketPhase* next = t.phase->escalate();
         if (!next) return;
@@ -2308,6 +2323,11 @@ public:
                 t.priority);
     }
     void sendBack(const string& ticketId) {
+        if (!repo.exists(ticketId)) {          // 仕様のエラー条件
+            cout << "エラー: チケットID " << ticketId
+                 << " は存在しません。" << endl;
+            return;
+        }
         Ticket& t = repo.get(ticketId);
         ITicketPhase* next = t.phase->sendBack();
         if (!next) return;
@@ -2319,6 +2339,11 @@ public:
         log.add(ticketId, "差し戻し", t.phase->name(), t.priority);
     }
     void reopen(const string& ticketId) {
+        if (!repo.exists(ticketId)) {          // 仕様のエラー条件
+            cout << "エラー: チケットID " << ticketId
+                 << " は存在しません。" << endl;
+            return;
+        }
         Ticket& t = repo.get(ticketId);
         ITicketPhase* next = t.phase->reopen();
         if (!next) return;
@@ -2481,6 +2506,8 @@ int main() {
     svc.create("TCK004", "USR999");
     cout << "--- エラー: 許可されない操作 ---" << endl;
     svc.reopen("TCK003");           // InProgress からは再受付できない
+    cout << "--- エラー: 未登録チケットID ---" << endl;
+    svc.assign("TCK999", "AGT01");  // 保存されていないチケット
 ```
 
 エラー例の実行結果：
@@ -2490,6 +2517,8 @@ int main() {
 エラー: ユーザーID USR999 は存在しません。
 --- エラー: 許可されない操作 ---
   操作不可: この状態では「再受付」できません。
+--- エラー: 未登録チケットID ---
+エラー: チケットID TCK999 は存在しません。
 ```
 
 許可されない操作は状態クラスが拒否し、状態も優先度も変わりません。要求ID5の受入条件はこの1行で確認できます。どの操作を許すかは各状態クラスが持つので、`TicketService` 側に「この状態のときは何ができるか」という分岐は残りません。
