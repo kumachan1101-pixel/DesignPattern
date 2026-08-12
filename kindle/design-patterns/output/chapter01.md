@@ -2299,6 +2299,31 @@ int main() {
   カートプレビュー: 9500円
 ```
 
+シナリオ4bは、Regular会員へキャンペーン単独（10%引き）です。1-2動作例の行3にあたり、サマーセール追加後も変わらないことを確認する継続要求（要求ID3）の回帰です。
+
+```cpp
+    // C002（Regular）/ キャンペーンのみ → 10%引き（変更前と同じ）
+    std::cout << "\n--- シナリオ4b: キャンペーン単独 ---\n";
+    Order order4b;
+    order4b.customerId = "C002";
+    order4b.items.push_back(Item("ワイヤレスイヤホン", 10000));
+    context.isCampaignActive = true;
+    context.isSummerSale = false;
+    processor.process(order4b, context);
+```
+
+シナリオ4bの実行結果：
+
+```
+--- シナリオ4b: キャンペーン単独 ---
+佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
+  条件: 会員=Regular, キャンペーン=あり, サマーセール=なし
+  小計 10000円 → 適用 キャンペーン割引 → 支払金額 9000円
+  カートプレビュー: 9000円
+```
+
+サマーセールを追加しても、キャンペーン単独の支払金額は変更前と同じ9,000円のままです。要求ID3の回帰はこの1件で確認できます。
+
 シナリオ5は、Regular会員で割引なしです。
 
 ```cpp
@@ -2385,7 +2410,7 @@ int main() {
 |---|---|---|---|
 | 要求ID1 | 商品リストの小計から最終支払金額を計算する | `PaymentCalculator::calculate()` | 10,000円の小計と割引後金額を出力<br/>**判定:** 合格 |
 | 要求ID2 | Premium会員へ20%割引を適用し、他割引と併用しない | `PremiumDiscount`、`RuleSelector` | セール併用でも8,000円<br/>**判定:** 合格 |
-| 要求ID3 | Regular会員はキャンペーン中だけ10%割引する | `CampaignDiscount` | キャンペーンのみ9,000円<br/>**判定:** 合格 |
+| 要求ID3 | Regular会員はキャンペーン中だけ10%割引する | `CampaignDiscount` | シナリオ4bでキャンペーン単独9,000円（変更前と同額）<br/>**判定:** 合格 |
 | 要求ID4 | 顧客IDから会員種別を取得する | `CustomerDatabase`、`OrderProcessor` | 登録顧客を取得し、未登録IDをエラー表示<br/>**判定:** 合格 |
 | 要求ID5 | 計算結果を購入結果として表示する | `CheckoutResultRenderer` | 顧客・小計・適用割引・支払額を表示<br/>**判定:** 合格 |
 | 要求ID6 | Regularへサマーセール5%を追加し、既存割引後へ逐次適用する | `SummerSaleDiscount`、`SummerSaleAndCampaignDiscount` | セールのみ9,500円、併用8,550円、Premium対象外<br/>**判定:** 合格 |
