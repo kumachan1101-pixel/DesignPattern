@@ -27,6 +27,35 @@
 - コンパイル可否・表の列数・特定表現の混入 → 機械チェック向き（audit / validate へ）。
 - 「分かりやすいか」「粒度が仕様に紐づくか」「同じ対象を追えているか」 → 人の判断。checklist と phase-consistency-check の観点を使い、Agent レビューで担保する。
 
+## Mermaid検証を動かす（mmdcが無い環境）
+
+`check_mermaid.py` は `mmdc`（Mermaid CLI）をPATHから探す。入っていない環境では、
+Playwright用のChromiumが `/opt/pw-browsers/chromium` にあればそれを流用できる。
+
+```sh
+# 1. Chromiumの再ダウンロードを避けて mermaid-cli を入れる
+PUPPETEER_SKIP_DOWNLOAD=1 npm install @mermaid-js/mermaid-cli
+
+# 2. puppeteer設定（rootで動かすので --no-sandbox が要る）
+cat > pptr.json <<'JSON'
+{ "executablePath": "/opt/pw-browsers/chromium",
+  "args": ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"] }
+JSON
+
+# 3. check_mermaid.py は -p を渡さないので、ラッパーで注入する
+mkdir -p bin && cat > bin/mmdc <<'SH'
+#!/bin/sh
+exec "$PWD/node_modules/.bin/mmdc" -p "$PWD/pptr.json" "$@"
+SH
+chmod +x bin/mmdc
+
+# 4. 実行
+PATH="$PWD/bin:$PATH" python3 script/check_mermaid.py
+```
+
+`PUPPETEER_EXECUTABLE_PATH` や `PUPPETEER_CONFIG_FILE` を環境変数で渡しても
+mermaid-cli には効かない（`-p` でしか読まれない）。ラッパーを挟むのが確実。
+
 ## 検査が生きているかの確認
 
 `validate_book.py` は「現在の本文が通るか」しか見ないため、チェックが空振りしていても気づけない。2026-08-12に追加した4系統には負のテストを用意した。
