@@ -798,7 +798,7 @@ flowchart LR
 
 このフェーズで確定した変更依頼を一覧にして締めます。フェーズ2でこの変更IDを仮説・ヒアリングへ、フェーズ3で一つずつ試して痛みへ、と順につなぎます。
 
-| 変更ID | 変更依頼の要点 | 対象の現行要求ID |
+| 変更ID | 変更依頼の要点 | 関係する要求ID（追加は変更後ID） |
 |---|---|---|
 | 変更ID1 | 法人ユーザーを登録・再受付・エスカレーション時にHighとする | 要求ID1・要求ID4 |
 | 変更ID2 | Pending状態と、Open/InProgressからの保留・Pendingからの再受付を追加する | 要求ID2・要求ID3・要求ID4 |
@@ -1081,7 +1081,7 @@ int main() {
 実行結果（`create("TCK010","USR004")` で法人チケットを登録し、保留・再受付する）：
 
 ```
-[TCK010] 作成 状態=Open 優先度=High
+[TCK010] 作成 申請者=伊藤 四郎 状態=Open 優先度=High
 [TCK010] hold: 状態 Open → Pending 優先度=High
 [TCK010] reopen: 状態 Pending → Open 優先度=High
 ```
@@ -1795,7 +1795,7 @@ PolicySetをServiceより先に生成します。したがって、`Ticket` が�
 | 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
 |---|---|---|---|
 | 課題ID1（状態処理） | 状態分離。`TicketService`が現在Phaseへ委譲し、各状態が次状態を返す | `ITicketPhase`、`OpenPhase`／`InProgressPhase`／`PendingPhase`／`ResolvedPhase`／`EscalatedPhase` | 状態追加が新状態と遷移登録に閉じる |
-| 課題ID2（優先度判定） | 規則差し替え。`TicketPolicySet`が全ルールを配線し、注入された`IPriorityRule`へ委ねる | `IPriorityRule`、`SinglePriority`／`PremiumPriority`／`CorporatePriority`／`NormalPriority`、`TicketPolicySet` | 区分追加が新ルールと注入に閉じる |
+| 課題ID2（優先度判定） | 規則差し替え。`TicketPolicySet`が全ルールを配線し、注入された`IPriorityRule`へ委ねる | `IPriorityRule`、`PremiumPriority`／`CorporatePriority`／`NormalPriority`、`TicketPolicySet` | 区分追加が新ルールと注入に閉じる |
 | 変更対象外 | 公開操作・保存。進行入口は委譲先だけが変わる | `TicketService`の公開操作、`TicketRepository` | 1-4、保存済み状態から再開 |
 
 このクラス図、コード適用結果、シーケンス、コード変更表が、フェーズ7へ渡す完成設計です。

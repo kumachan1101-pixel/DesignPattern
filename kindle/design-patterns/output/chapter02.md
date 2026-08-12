@@ -805,7 +805,7 @@ flowchart LR
 
 このフェーズで確定した変更依頼を一覧にして締めます。フェーズ2でこの変更IDを仮説・ヒアリングへ、フェーズ3で一つずつ試して痛みへ、と順につなぎます。
 
-| 変更ID | 変更依頼の要点 | 対象の現行要求ID |
+| 変更ID | 変更依頼の要点 | 関係する要求ID（追加は変更後ID） |
 |---|---|---|
 | 変更ID1 | 認証を、認証コード発行と取引ID付き照合の2段階へ変える | 要求ID3 |
 | 変更ID2 | 検証済み取引IDを送金APIの必須入力にする | 要求ID4 |
@@ -833,7 +833,7 @@ flowchart LR
 | 口座確認・残高確認 | 判定、外部API呼び出し | `transfer()` 冒頭の `verifyAccount` / `checkBalance` 呼び出し | 銀行APIの入力や確認順序が変わる可能性がある |
 | OTP認証 | 判定、認証手順 | `transfer()` 中盤の `promptOTP` / `verifyOTP` 呼び出し | 新仕様では`requestOTP`が取引IDを返すため、戻り値・引数・順序が変わる |
 | 送金実行 | 加工、外部API呼び出し | `transfer()` 後半の `executeTransfer` 呼び出し | 送金APIが取引IDや冪等キーを要求すると変わる |
-| 残高更新・履歴 | 保存 | `transfer()` 成功分岐の `db.transfer` / `history.add` | 外部送金確定後だけ行うという条件は維持したい |
+| 残高更新・履歴 | 保存 | `transfer()` 成功分岐の `bank.executeTransfer` / `history.add` | 外部送金確定後だけ行うという条件は維持したい |
 | 振り込みの大枠 | 入力から確認・認証・送金へ進む順序 | `TransferProcessor.transfer()` | この章の変更要求では、順序の大枠は当面維持する前提で見る |
 
 この表から、今回の検討対象は「銀行API確認」「OTP認証」「送金API呼び出し」の3つに絞れます。これらが同じ場所に書かれていて困るかどうかは、フェーズ3で変更を入れてから確認します。
@@ -2301,7 +2301,7 @@ graph LR
 
 **原則2「実装ではなくインターフェースに対してプログラムせよ」の現れ**
 
-- 具体化された場所：`TransferProcessor` のメンバ変数 `IBankTransferService* facade`
+- 具体化された場所：`TransferProcessor` のメンバ変数 `IBankTransferService& service`
 - 解説：業務クラスは「どのようなAPIか」ではなく、「振り込みを実行する（`performTransfer`）」という窓口のインターフェースに対して命令を送るようになった。
 
 **原則3「継承よりコンポジションを優先せよ」の現れ**
