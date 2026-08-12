@@ -1715,7 +1715,8 @@ public:
     ImportResult import() {
         vector<string> lines = gateway.open(filePath());    // (1) 開く
         string version = gateway.checkFormatVersion();      // (2) バージョン確認（全共通）
-        if (version != expectedVersion()) {                 //     不一致なら解析も保存もしない
+        // 不一致なら解析も保存もしない
+        if (version != expectedVersion()) {
             cout << "  形式バージョン不一致(" << version
                  << "≠" << expectedVersion() << ")のため中止します。\n";
             gateway.close();                                // (7) 閉じるだけは必ず通る
@@ -1728,7 +1729,8 @@ public:
         afterParse(v.validRows);                            // (5) 任意フック（EC店のみ）
         int saved = repo.save(v.validRows);                 // (6) 保存
         gateway.close();                                    // (7) 閉じる
-        ImportResult ok = { schemaType(), schemaName(), saved, v.skipped, true, {} };
+        ImportResult ok = { schemaType(), schemaName(),
+                            saved, v.skipped, true, {} };
         ok.reasons = v.reasons;                             //     失敗理由を結果へ載せる
         return ok;
     }
@@ -1913,7 +1915,8 @@ public:
         printResult(empty.import());
 
         cout << "\n--- 回帰2: FC店 全行不正 ---\n";
-        gateway.prepareSample("fc_broken.csv", "F001,商品1,2000\nF002,商品2,2000\n");
+        gateway.prepareSample("fc_broken.csv",
+                              "F001,商品1,2000\nF002,商品2,2000\n");
         FCBrokenImporter broken(gateway, repo);
         printResult(broken.import());
 
