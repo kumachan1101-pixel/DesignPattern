@@ -1636,6 +1636,7 @@ struct ImportResult {
     int saved;
     int skipped;
     bool success;
+    vector<string> reasons;   // 保存できなかった行の理由
 };
 
 // ---- スキーマ ----
@@ -1713,18 +1714,29 @@ public:
     // テンプレートメソッド。戻り値は ImportResult（void をやめる）。
     ImportResult import() {
         vector<string> lines = gateway.open(filePath());    // (1) 開く
-        gateway.checkFormatVersion();                       // (2) バージョン確認（全共通）
+        string version = gateway.checkFormatVersion();      // (2) バージョン確認（全共通）
+        if (version != expectedVersion()) {                 //     不一致なら解析も保存もしない
+            cout << "  形式バージョン不一致(" << version
+                 << "≠" << expectedVersion() << ")のため中止します。\n";
+            gateway.close();                                // (7) 閉じるだけは必ず通る
+            ImportResult ng = { schemaType(), schemaName(), 0, 0, false };
+            ng.reasons.push_back("形式バージョン不一致");
+            return ng;
+        }
         vector<ParsedRow> parsed = parseData(lines);        // (3) 形式ごとのパース
         ValidationResult v = validateRows(parsed);          // (4) 形式ごとの行検証
         afterParse(v.validRows);                            // (5) 任意フック（EC店のみ）
         int saved = repo.save(v.validRows);                 // (6) 保存
         gateway.close();                                    // (7) 閉じる
-        return { schemaType(), schemaName(), saved, v.skipped, true };
+        ImportResult ok = { schemaType(), schemaName(), saved, v.skipped, true };
+        ok.reasons = v.reasons;                             //     失敗理由を結果へ載せる
+        return ok;
     }
 protected:
     virtual string filePath() const = 0;
     virtual string schemaType() const = 0;
     virtual string schemaName() const = 0;
+    virtual string expectedVersion() const { return "v1"; } // 既定は現行形式
     virtual vector<ParsedRow> parseData(const vector<string>& lines) = 0;
     virtual ValidationResult validateRows(const vector<ParsedRow>& parsed) = 0;
     virtual void afterParse(const vector<SalesRow>&) {}     // 既定は何もしない任意フック
@@ -1797,6 +1809,27 @@ protected:
              << "件 / スキップ" << v.skipped << "件）。\n";
         return v;
     }
+};
+
+// ---- 回帰確認用（骨格もパースも変えず、読む先と期待バージョンだけ差し替える）----
+class StoreEmptyImporter : public StoreDataImporter {   // 空ファイル
+public:
+    using StoreDataImporter::StoreDataImporter;
+protected:
+    string filePath() const override { return "store_empty.csv"; }
+};
+class FCBrokenImporter : public FCDataImporter {        // 全行タブ分割不可
+public:
+    using FCDataImporter::FCDataImporter;
+protected:
+    string filePath() const override { return "fc_broken.csv"; }
+};
+class StoreV2Importer : public StoreDataImporter {      // 形式バージョン不一致
+public:
+    using StoreDataImporter::StoreDataImporter;
+protected:
+    string filePath()        const override { return "store_v2.csv"; }
+    string expectedVersion() const override { return "v2"; }
 };
 
 // ---- EC店（カンマ区切り・会員ランク/ポイント・後処理あり）----
@@ -1872,6 +1905,22 @@ public:
         cout << "\n--- インポート結果ログ ---\n";
         for (auto& r : results) printResult(r);
         reportUnknown("online");   // 未登録タイプはエラーで中断
+
+        // 継続要求の回帰：1-2の動作例にある異常系を同じ完成コードで確認する
+        cout << "\n--- 回帰1: 直営店 空ファイル ---\n";
+        gateway.prepareSample("store_empty.csv", "id,name,amount\n");
+        StoreEmptyImporter empty(gateway, repo);
+        printResult(empty.import());
+
+        cout << "\n--- 回帰2: FC店 全行不正 ---\n";
+        gateway.prepareSample("fc_broken.csv", "F001,商品1,2000\nF002,商品2,2000\n");
+        FCBrokenImporter broken(gateway, repo);
+        printResult(broken.import());
+
+        cout << "\n--- 回帰3: 形式バージョン不一致 ---\n";
+        gateway.prepareSample("store_v2.csv", storeCsv());
+        StoreV2Importer v2(gateway, repo);
+        printResult(v2.import());
     }
 private:
     void printResult(const ImportResult& r) {
@@ -1885,6 +1934,8 @@ private:
              << "（必須列" << schema.requiredColumns.size() << "）"
              << " 保存" << r.saved << "件 / スキップ" << r.skipped << "件 -> "
              << (r.success ? "成功" : "失敗") << "\n";
+        for (size_t i = 0; i < r.reasons.size(); ++i)   // 要求ID4：理由も出す
+            cout << "    理由" << (i + 1) << ": " << r.reasons[i] << "\n";
     }
     void reportUnknown(const string& type) {
         if (!registry.exists(type))
@@ -1957,10 +2008,44 @@ DBへ8件を保存しました。
 [store] 直営店データ（必須列3） 保存10件 / スキップ0件 -> 成功
 [fc] FC店データ（必須列3） 保存5件 / スキップ0件 -> 成功
 [ec] EC店データ（必須列5） 保存8件 / スキップ2件 -> 成功
+    理由1: EC必須列(ランク/ポイント)不足
+    理由2: EC必須列(ランク/ポイント)不足
 [エラー] 未登録のインポートタイプ: online — 処理を中断します
+
+--- 回帰1: 直営店 空ファイル ---
+ファイルをオープンしました。
+[全共通] 形式バージョンを確認しました。
+[直営店] ヘッダー行をスキップし、カンマ区切りで解析します。
+[直営店] 必須列を検証しました（有効0件 / スキップ0件）。
+DBへ0件を保存しました。
+ファイルをクローズしました。
+[store] 直営店データ（必須列3） 保存0件 / スキップ0件 -> 成功
+
+--- 回帰2: FC店 全行不正 ---
+ファイルをオープンしました。
+[全共通] 形式バージョンを確認しました。
+[FC店] 先頭行からタブ区切りで解析します。
+[FC店] 不正行を検証しました（有効0件 / スキップ2件）。
+DBへ0件を保存しました。
+ファイルをクローズしました。
+[fc] FC店データ（必須列3） 保存0件 / スキップ2件 -> 成功
+    理由1: タブ分割不可
+    理由2: タブ分割不可
+
+--- 回帰3: 形式バージョン不一致 ---
+ファイルをオープンしました。
+[全共通] 形式バージョンを確認しました。
+  形式バージョン不一致(v1≠v2)のため中止します。
+ファイルをクローズしました。
+[store] 直営店データ（必須列3） 保存0件 / スキップ0件 -> 失敗
+    理由1: 形式バージョン不一致
 ```
 
 変更ID2の共通バージョンチェックは基底クラスへ1回だけ置き、形式ごとの行検証は`validateRows()`へ、変更ID1のEC計算は`afterParse()`へ置きました。3形式とも同じ`import()`を呼び、骨格の順序は変わりません。未登録タイプ（"online"）は`SchemaRegistry.exists()`で検出し、結果出力の際にエラーを出力します。
+
+回帰1〜3は、1-2の動作例と変更ID2の受入条件を完成コードで確認するためのシナリオです。回帰1と回帰2は、フェーズ1から続く「空ファイルでも手順を最後まで通す」「不正行はスキップして件数と理由を返す」という既存動作が、骨格を基底クラスへ移した後も変わっていないことを示します。読む先を差し替えただけで骨格もパースも共有しているため、確認のために書き足したのは `filePath()` の1メソッドだけです。
+
+回帰3は、変更ID2の受入条件「不一致時は解析・保存せず終了」を満たすことを示します。`import()` は `checkFormatVersion()` の戻り値を `expectedVersion()` と比べ、違えば `parseData()` にも `repo.save()` にも進まず、`close()` だけを通して失敗理由を返します。骨格に判定を1か所置いたので、この中止条件は3形式すべてに同時に効きます。
 
 このコードは `BatchApplication` が実行時にメモリ上へ `store_sales.csv`・`fc_sales.csv`・`ec_sales.csv` 相当のサンプルCSVを用意し（ディスクにファイルは作りません）、それを `gateway.open()` で読み込んで件数を数えます。上の実行結果の「10件」「5件」「2件スキップ」「240pt」は、この用意したCSVの実データから算出した値で、`storeCsv()`／`fcCsv()`／`ecCsv()` の中身を書き換えれば結果もその場で変わります。空ファイル・大量データなど全仕様を網羅するコードではないため、それらは実際のデータを使うテストで確認します。
 
@@ -1982,9 +2067,9 @@ DBへ8件を保存しました。
 | 要求ID | 最終要求 | 適用コード | 実行シナリオ・観測結果・判定 |
 |---|---|---|---|
 | 要求ID1 | 直営店・FC店・EC店の3形式を取り込む | 各`AbstractImporter`派生、`SchemaRegistry` | 3形式を選択して処理<br/>**判定:** 合格 |
-| 要求ID2 | 開く→形式バージョン確認→解析→行検証→保存→閉じる順を全形式で守る | `AbstractImporter::import()` | 不一致時は解析・保存なし、close実行<br/>**判定:** 合格 |
+| 要求ID2 | 開く→形式バージョン確認→解析→行検証→保存→閉じる順を全形式で守る | `AbstractImporter::import()`、`expectedVersion()` | 回帰3で不一致(v1≠v2)を検出し、解析・保存なしでcloseだけ実行<br/>**判定:** 合格 |
 | 要求ID3 | 形式ごとの解析と、EC固有の会員ランク・ポイント計算を行う | `ECDataImporter` | EC正常行から計算済み結果<br/>**判定:** 合格 |
-| 要求ID4 | 不正行を保存せず、成功・スキップ件数と失敗理由を返す | `ImportResult`、保存境界 | 正常行だけ保存し件数・理由を出力<br/>**判定:** 合格 |
+| 要求ID4 | 不正行を保存せず、成功・スキップ件数と失敗理由を返す | `ImportResult.reasons`、保存境界 | EC2件と回帰2の2件で件数と理由を出力。回帰1の空ファイルも0件で完走<br/>**判定:** 合格 |
 
 上の表は継続（要求ID4）・変更（要求ID1・要求ID2・要求ID3）を同じ順序で並べ、変わらなかった既存要求も回帰対象に含めています。継続要求が合格していることで、既存動作が落ちていないことを確認できます。要求の受入・回帰はここで完了します。課題IDへ直接対応付けず、以下では変更試行の痛みから導いた構造課題だけを別に確認します。
 
