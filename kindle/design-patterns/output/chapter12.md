@@ -1615,13 +1615,13 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**① 共通契約 `IApprovalRule` を定義する。** 承認状態は `canApprove()` の可否だけを受け取り、上限額や部署別規則を知りません。
+**① 共通契約 `IApprovalRule` を定義する。** 承認状態は `canApprove()` の可否だけを受け取り、上限額や部署別規則を知りません。承認者が誰かはPhase側の役職照合で扱うため、判定契約は金額だけを取ります。
 
 ```cpp
 class IApprovalRule {
 public:
     virtual ~IApprovalRule() = default;
-    virtual bool canApprove(const std::string& approverId, int amount) = 0;
+    virtual bool canApprove(int amount) = 0;   // 判定に要るのは金額だけ
 };
 ```
 
@@ -1629,8 +1629,11 @@ public:
 
 ```cpp
 class ManagerApprovalRule : public IApprovalRule {
-    bool canApprove(const std::string& approverId, int amount) override {
-        return amount <= 500000;   // 課長承認上限
+    int limit;                                  // 上限はマスターから注入
+public:
+    explicit ManagerApprovalRule(int l) : limit(l) {}
+    bool canApprove(int amount) override {
+        return amount <= limit;                 // 課長承認上限（現行10万円）
     }
 };
 ```
@@ -2022,6 +2025,7 @@ enum class WorkflowEvent {
 
 struct ApprovalRequest {
     int amount;
+    string approverRole;   // 要求ID2：このイベントを実行する人の役職
 };
 
 // 状態遷移の契約（変わる理由：承認フロー変更・新ルート追加）
@@ -2295,7 +2299,7 @@ public:
 
     WorkflowResult process(
         WorkflowEvent event,
-        const ApprovalRequest& request = {0}
+        const ApprovalRequest& request = {0, ""}
     ) {
         if (!phase) {
             return {false, "", "現在状態がありません。"};
@@ -2397,6 +2401,11 @@ public:
         const ApprovalRequest& request
     ) override {
         if (event == WorkflowEvent::Approve) {
+            if (request.approverRole != "課長") {   // 要求ID2：役職照合
+                return wm->unchanged(
+                    "権限不足: この操作は課長のみ実行できます（要求者: "
+                    + request.approverRole + "）");
+            }
             if (rule->canApprove(request.amount)) {
                 return wm->transitionTo(approved, "承認されました");
             } else {
@@ -2429,6 +2438,11 @@ public:
         const ApprovalRequest& request
     ) override {
         if (event == WorkflowEvent::FinalApprove) {
+            if (request.approverRole != "部長") {   // 要求ID2：役職照合
+                return wm->unchanged(
+                    "権限不足: この操作は部長のみ実行できます（要求者: "
+                    + request.approverRole + "）");
+            }
             if (rule->canApprove(request.amount)) {
                 return wm->transitionTo(
                     completed, "部長承認が完了しました");
@@ -2597,7 +2611,7 @@ public:
                 targetResolver, deliveryLog, "REQ003");
             wf3.addListener(&email);
             wf3.addListener(&chat);
-            wf3.process(WorkflowEvent::Approve, {50000});
+            wf3.process(WorkflowEvent::Approve, {50000, "課長"});
             approvalLog.add("APR001", "田中 課長", 50000, "承認");
         }
 ```
@@ -2625,7 +2639,7 @@ public:
                 targetResolver, deliveryLog, "REQ004");
             wf4.addListener(&email);
             wf4.addListener(&chat);
-            wf4.process(WorkflowEvent::Approve, {500000});
+            wf4.process(WorkflowEvent::Approve, {500000, "課長"});
             approvalLog.add("APR002", "佐藤 部長", 500000, "承認");
         }
 ```
@@ -2682,7 +2696,7 @@ public:
                 targetResolver, deliveryLog, "REQ006");
             wf6.addListener(&email);
             wf6.addListener(&chat);
-            wf6.process(WorkflowEvent::FinalApprove, {500000});
+            wf6.process(WorkflowEvent::FinalApprove, {500000, "部長"});
             approvalLog.add("APR002", "佐藤 部長", 500000, "承認");
         }
 ```
@@ -2748,7 +2762,7 @@ public:
                 targetResolver, deliveryLog, "REQ008");
             devWorkflow.addListener(&email);
             WorkflowResult devResult =
-                devWorkflow.process(WorkflowEvent::Approve, {500000});
+                devWorkflow.process(WorkflowEvent::Approve, {500000, "課長"});
             cout << "[開発部] changed=" << devResult.stateChanged
                  << ", state=" << devResult.stateId
                  << ", message=" << devResult.message << endl;
@@ -2763,7 +2777,7 @@ public:
                 targetResolver, deliveryLog, "REQ009");
             salesWorkflow.addListener(&email);
             WorkflowResult salesResult =
-                salesWorkflow.process(WorkflowEvent::Approve, {500000});
+                salesWorkflow.process(WorkflowEvent::Approve, {500000, "課長"});
             cout << "[営業部] changed=" << salesResult.stateChanged
                  << ", state=" << salesResult.stateId
                  << ", message=" << salesResult.message << endl;
@@ -2802,13 +2816,28 @@ public:
             targetResolver, deliveryLog, "REQ010");
         invalidApproval.addListener(&email);
         WorkflowResult invalidResult =
-            invalidApproval.process(WorkflowEvent::Approve, {200000});
+            invalidApproval.process(WorkflowEvent::Approve, {200000, "課長"});
         cout << "[処理結果] changed=" << invalidResult.stateChanged
              << ", state=" << invalidResult.stateId
              << ", message=" << invalidResult.message << endl;
         cout << "[通知記録] total=" << deliveryLog.size()
              << ", failed=" << deliveryLog.failureCount() << endl;
         deliveryLog.printFailures();
+
+        // エラーケース：役職が権限を持たない。状態も通知も変えない
+        cout << "--- エラー例3: 権限のない役職で最終承認 ---" << endl;
+        cases.create("REQ011", approved.id());
+        notificationTargets.saveTarget("REQ011", "申請者:email");
+        phaseResolver.add(&approved);
+        WorkflowManager wrongRole(
+            cases, notificationTargets, phaseResolver,
+            targetResolver, deliveryLog, "REQ011");
+        wrongRole.addListener(&email);
+        WorkflowResult roleResult =
+            wrongRole.process(WorkflowEvent::FinalApprove, {50000, "課長"});
+        cout << "[処理結果] changed=" << roleResult.stateChanged
+             << ", state=" << roleResult.stateId
+             << ", message=" << roleResult.message << endl;
 ```
 
 エラー例の実行結果：
@@ -2821,7 +2850,12 @@ public:
 [処理結果] changed=0, state=審査待ち, message=承認不可: 課長上限100000円
 [通知記録] total=15, failed=1
 [通知失敗記録] To:課長 channel=chat message=申請を受け付けました
+--- エラー例3: 権限のない役職で最終承認 ---
+状態変更なし: 承認済み（権限不足: この操作は部長のみ実行できます（要求者: 課長））
+[処理結果] changed=0, state=承認済み, message=権限不足: この操作は部長のみ実行できます（要求者: 課長）
 ```
+
+エラー例3は、要求ID2「権限不一致では状態を変えない」を確認するシナリオです。承認済み状態の申請へ課長の役職で最終承認を要求すると、`ApprovedPhase` が金額判定に進む前に役職を照合し、状態を変えないまま理由を返します。役職の許可は各Phaseが持つため、承認順序（課長→部長）は組み立て側の呼び出し順ではなく状態側の契約で守られます。
 
 最後に承認ログを出力し、`main()` から実行します。
 
@@ -2863,7 +2897,7 @@ int main() {
 | 要求ID | 最終要求 | 適用コード | 実行シナリオ・観測結果・判定 |
 |---|---|---|---|
 | 要求ID1 | 通常申請は課長→部長、緊急申請は部長へ直接進める | 各`IWorkflowPhase`、`WorkflowPhaseResolver` | 通常2回・緊急1回で完了<br/>**判定:** 合格 |
-| 要求ID2 | 許可された役職・順序の承認だけ状態を進める | 各Phase、`ApproverDatabase` | 権限不一致で状態不変<br/>**判定:** 合格 |
+| 要求ID2 | 許可された役職・順序の承認だけ状態を進める | 各Phaseの役職照合、`ApproverDatabase` | エラー例3で課長の役職による最終承認を拒否し、状態は承認済みのまま不変<br/>**判定:** 合格 |
 | 要求ID3 | 部署・役職ごとの承認上限で可否を判定する | 各`IApprovalRule` | 同額で部署により結果が変化<br/>**判定:** 合格 |
 | 要求ID4 | 申請状態と通知先データを既存形式で保存・取得する | 両RepositoryとResolver | 変更前後で状態・通知先の保存表現不変<br/>**判定:** 合格 |
 | 要求ID5 | 未登録申請・許可されない操作を拒否する | `WorkflowManager`、各Phase | エラー時に状態・通知件数不変<br/>**判定:** 合格 |
