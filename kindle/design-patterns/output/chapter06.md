@@ -44,7 +44,7 @@
 
 ```cpp
 // 商品DRINK001（ホットコーヒー）を、トッピングなし（milk/whip/syrup=false）で1点注文
-showOrder(1, "DRINK001", false, false, false);
+showOrder(db, 1, "DRINK001", false, false, false);
 ```
 
 同じ入力を含む完全なコードと実行結果は1-4に掲載します。
@@ -65,6 +65,7 @@ showOrder(1, "DRINK001", false, false, false);
 | 要求ID1 | 登録済みの基本ドリンクを選ぶ | ドリンク名と基本価格を取得し、未登録IDを拒否する |
 | 要求ID2 | Milk・Whip・Syrupを組み合わせて注文名と合計金額へ反映する | 選択した各トッピングの名称と価格が加算される |
 | 要求ID3 | 利用不可の組合せや不正入力を拒否する | エラー時に注文を確定しない |
+| 要求ID4 | 確定した注文の注文名と合計金額を記録する | 注文ごとに注文内容と合計金額が残る |
 
 本章の追跡は**要求IDと変更ID**で行います（利用者・運用者から見た「まとまった働き」を束ねる機能IDは設けません）。変更で各要求IDの内容がどう変わるか——継続・変更・追加——は、1-5「変更後要求ベースライン」の「変更種別・根拠となる変更ID」列で追えます。既存動作が落ちていないかは、フェーズ7の要求ID別回帰で確認します。
 
@@ -411,25 +412,26 @@ public:
 
 ```cpp
 // 呼び出し側のコード（モバイルアプリを想定）
+// 1行分の注文を表示する（mainから呼ぶ表示ヘルパー）
+void showOrder(MenuDatabase& db, int row, const string& itemId,
+               bool milk, bool whip, bool syrup) {
+    cout << "--- 行" << row << " ---" << endl;
+    if (!db.exists(itemId)) {
+        cout << "エラー：メニューID " << itemId
+             << " は存在しません" << endl;
+        return;
+    }
+    MenuItem item = db.get(itemId);
+    CustomDrink order(
+        item.name, item.basePrice, milk, whip, syrup);
+    cout << "注文内容: " << order.getDescription() << endl;
+    cout << "合計金額: " << order.getPrice() << "円" << endl;
+}
+
 int main() {
     MenuDatabase db;
 
-    auto showOrder = [&](int row, const string& itemId,
-                         bool milk, bool whip, bool syrup) {
-        cout << "--- 行" << row << " ---" << endl;
-        if (!db.exists(itemId)) {
-            cout << "エラー：メニューID " << itemId
-                 << " は存在しません" << endl;
-            return;
-        }
-        MenuItem item = db.get(itemId);
-        CustomDrink order(
-            item.name, item.basePrice, milk, whip, syrup);
-        cout << "注文内容: " << order.getDescription() << endl;
-        cout << "合計金額: " << order.getPrice() << "円" << endl;
-    };
-
-    showOrder(1, "DRINK001", false, false, false);
+    showOrder(db, 1, "DRINK001", false, false, false);
 ```
 
 行1（ホットコーヒー・トッピングなし）の実行結果：
@@ -443,7 +445,7 @@ int main() {
 続いて、行2（＋Milk）を実行します。
 
 ```cpp
-    showOrder(2, "DRINK001", true,  false, false);
+    showOrder(db, 2, "DRINK001", true,  false, false);
 ```
 
 行2（＋Milk）の実行結果：
@@ -457,7 +459,7 @@ int main() {
 続いて、行3（＋Milk＋Syrup）を実行します。
 
 ```cpp
-    showOrder(3, "DRINK001", true,  false, true);
+    showOrder(db, 3, "DRINK001", true,  false, true);
 ```
 
 行3（＋Milk＋Syrup）の実行結果：
@@ -471,7 +473,7 @@ int main() {
 続いて、行4（＋Milk＋Whip）を実行します。
 
 ```cpp
-    showOrder(4, "DRINK001", true,  true,  false);
+    showOrder(db, 4, "DRINK001", true,  true,  false);
 ```
 
 行4（＋Milk＋Whip）の実行結果：
@@ -485,7 +487,7 @@ int main() {
 続いて、行5（＋Whip＋Syrup）を実行します。
 
 ```cpp
-    showOrder(5, "DRINK001", false, true,  true);
+    showOrder(db, 5, "DRINK001", false, true,  true);
 ```
 
 行5（＋Whip＋Syrup）の実行結果：
@@ -499,7 +501,7 @@ int main() {
 最後に、行6（存在しないメニューID）を実行し、`main()` を終了します。
 
 ```cpp
-    showOrder(6, "DRINK999", false, false, false);
+    showOrder(db, 6, "DRINK999", false, false, false);
 
     return 0;
 }
@@ -544,6 +546,7 @@ int main() {
 | 要求ID1 | 継続<br/>根拠: — | 登録済みの基本ドリンクを選ぶ | ドリンク名と基本価格を取得し、未登録IDを拒否する |
 | 要求ID2 | 変更<br/>根拠: 変更ID1, 変更ID2 | Matcha・Chocoを含む複数トッピングを指定順で重ねる | 入力順に名称が並び、全要素の価格が加算される |
 | 要求ID3 | 変更<br/>根拠: 変更ID3 | 販売停止・在庫切れ・不正なトッピングを拒否する | 理由を返し、注文名・金額を確定しない |
+| 要求ID4 | 継続<br/>根拠: — | 確定した注文の注文名と合計金額を記録する | 注文ごとに注文内容と合計金額が残る |
 
 **変更前→変更後の要求対照（今回変える要求IDだけ）**
 
@@ -560,7 +563,7 @@ int main() {
 
 | 項目 | 変更前 | 変更後 |
 |---|---|---|
-| トッピングの種類 | Milk・Syrup・Whip（3種） | **Milk・Syrup・Whip・Matcha・Choco（5種）** |
+| トッピングの種類 | Milk・Syrup・Whip（3種） | **Milk・Syrup・Whip・Matcha・Choco（5種）＋販売停止の登録例としてSeasonalMint** |
 | 抹茶パウダー（Matcha） | 選択不可 | **+60円で追加可能** |
 | チョコチップ（Choco） | 選択不可 | **+40円で追加可能** |
 | 重ね順 | フラグの判定順（Milk → Whip → Syrup）に表示 | **注文で指定した順のまま価格と表示名へ反映** |
@@ -1353,7 +1356,7 @@ public:
 
 ```cpp
 // 注文要求＝基本ドリンクIDと、トッピングID・個数の並び
-OrderRequest request{ "DRINK001", { {"Milk", 1}, {"Matcha", 1} } };
+OrderRequest request{ "DRINK001", { "Milk", "Matcha" } };
 OrderResult result = assembler.build(request);
 // OrderAssembler が Coffee を Milk→Matcha の順に包み（④）、
 // getPrice()/getDescription() を連鎖（⑥）して OrderResult を返す
@@ -1491,23 +1494,25 @@ classDiagram
 
 #### 完成後の実行シーケンス
 
-装飾連結構造の実行時のオブジェクト間のやり取りを可視化します。`OrderApplication` がオブジェクトを組み立て、`getPrice()` の呼び出しがデコレータチェーンを連鎖していく様子が確認できます。
+装飾連結構造の実行時のオブジェクト間のやり取りを可視化します。`OrderApplication` が `OrderAssembler` へ組み立てを委ね、`OrderAssembler` が `wrapOne()` で選択順に包み、`getPrice()` の呼び出しがデコレータチェーンを連鎖していく様子が確認できます。
 
 ```mermaid
 sequenceDiagram
     participant OA as OrderApplication
+    participant AS as OrderAssembler
     participant Ma as Matcha
     participant Wh as Whip
     participant Sy as Syrup
     participant Mi as Milk
     participant C as Coffee
 
-    OA->>C: new Coffee()
-    OA->>Mi: new Milk(coffee)
-    OA->>Sy: new Syrup(milk)
-    OA->>Wh: new Whip(syrup)
-    OA->>Ma: new Matcha(whip)
-    OA->>Ma: getPrice()
+    OA->>AS: assemble(request)
+    AS->>C: new Coffee(name, basePrice)
+    AS->>Mi: wrapOne("Milk", coffee)
+    AS->>Sy: wrapOne("Syrup", milk)
+    AS->>Wh: wrapOne("Whip", syrup)
+    AS->>Ma: wrapOne("Matcha", whip)
+    AS->>Ma: getPrice()
     activate Ma
     Ma->>Wh: baseDrink->getPrice()
     activate Wh
@@ -1525,7 +1530,8 @@ sequenceDiagram
     deactivate Sy
     Wh-->>Ma: 550（480+70）
     deactivate Wh
-    Ma-->>OA: 610（550+60）
+    Ma-->>AS: 610（550+60）
+    AS-->>OA: OrderResult{610円}
     deactivate Ma
 ```
 
@@ -1744,20 +1750,15 @@ public:
 
 佐藤マネージャーが要求した「抹茶パウダーの追加」も「チョコチップの追加」も、変更の中心はそれぞれの追加クラスと組み立てコードに移ります。中心となる既存クラスには、抹茶やチョコの条件分岐を追加していません。
 
-**注文要求・結果の型（ToppingLine / OrderRequest / OrderResult）：**
+**注文要求・結果の型（OrderRequest / OrderResult）：**
 
-注文は `OrderRequest`（基本ドリンクIDと、トッピングID・個数の並び）という要求オブジェクトで表します。個数や種類は `new Whip(new Whip(...))` のような入れ子ではなく、要求データとして持ちます。`OrderResult` は注文名・金額、または失敗理由を返します。
+注文は `OrderRequest`（基本ドリンクIDと、選択順のトッピングID列）という要求オブジェクトで表します。どの種類をどの順で重ねるかは `new Whip(new Milk(...))` のような入れ子ではなく、要求データとして持ちます。`OrderResult` は注文名・金額、または失敗理由を返します。
 
 ```cpp
-// 注文明細（要求オブジェクト）：トッピングIDと個数をデータで持つ
-struct ToppingLine {
-    string toppingId;
-    int quantity;
-};
-
+// 注文要求：基本ドリンクIDと、選択順のトッピングID列をデータで持つ
 struct OrderRequest {
     string baseItemId;
-    vector<ToppingLine> toppings;
+    vector<string> toppingIds;
 };
 
 // 注文結果（結果オブジェクト）：成功可否・注文名・金額・エラー理由
@@ -1801,23 +1802,21 @@ public:
                     "メニューID " + req.baseItemId + " は存在しません"};
         }
         // 手順1：全トッピングの登録と販売可否を先に確認する
-        for (const auto& line : req.toppings) {
-            if (!catalog.exists(line.toppingId)) {
+        for (const auto& toppingId : req.toppingIds) {
+            if (!catalog.exists(toppingId)) {
                 return {false, "", 0,
-                        "トッピング " + line.toppingId + " は未対応です"};
+                        "トッピング " + toppingId + " は未対応です"};
             }
-            if (!catalog.onSale(line.toppingId)) {
-                return {false, "", 0, "トッピング " + line.toppingId
+            if (!catalog.onSale(toppingId)) {
+                return {false, "", 0, "トッピング " + toppingId
                         + " は販売停止または在庫切れです"};
             }
         }
-        // 手順2：検証を通ったので、選択順・個数だけ基本ドリンクへ重ねる
+        // 手順2：検証を通ったので、選択順に基本ドリンクへ重ねる
         MenuItem base = db.get(req.baseItemId);
         IDrink* drink = new Coffee(base.name, base.basePrice);
-        for (const auto& line : req.toppings) {
-            for (int i = 0; i < line.quantity; ++i) {
-                drink = wrapOne(line.toppingId, drink);
-            }
+        for (const auto& toppingId : req.toppingIds) {
+            drink = wrapOne(toppingId, drink);
         }
         OrderResult r{true, drink->getDescription(),
                       drink->getPrice(), ""};
@@ -1848,20 +1847,19 @@ public:
     void run() {
         vector<OrderRequest> requests = {
             {"DRINK001", {}},                          // 基本のみ（トッピングなし）
-            {"DRINK001", {{"Milk", 1}}},               // ミルク1種を1個
-            {"DRINK001", {{"Milk", 1}, {"Syrup", 1}}}, // ミルク＋シロップ
-            {"DRINK001", {{"Milk", 1}, {"Whip", 1}}},  // ミルク＋ホイップ
-            {"DRINK001", {{"Syrup", 1}, {"Whip", 1}}}, // 指定順(Syrup→Whip)が表示名に反映
-            {"DRINK001", {{"Whip", 2}}},               // 同一トッピングを個数2で
-            {"DRINK001", {{"Milk", 1}, {"Syrup", 1}, {"Whip", 1}}}, // 3種盛り
+            {"DRINK001", {"Milk"}},               // ミルク1種を1個
+            {"DRINK001", {"Milk", "Syrup"}}, // ミルク＋シロップ
+            {"DRINK001", {"Milk", "Whip"}},  // ミルク＋ホイップ
+            {"DRINK001", {"Syrup", "Whip"}}, // 指定順(Syrup→Whip)が表示名に反映
+            {"DRINK001", {"Milk", "Syrup", "Whip"}}, // 3種盛り
             // 抹茶を足した4種
-            {"DRINK001", {{"Milk", 1}, {"Syrup", 1},
-                          {"Whip", 1}, {"Matcha", 1}}},
-            {"DRINK001", {{"Choco", 1}}},              // 追加種類チョコ単体
+            {"DRINK001", {"Milk", "Syrup",
+                          "Whip", "Matcha"}},
+            {"DRINK001", {"Choco"}},              // 追加種類チョコ単体
             // 抹茶＋チョコ混在
-            {"DRINK001", {{"Milk", 1}, {"Matcha", 1}, {"Choco", 1}}},
-            {"DRINK999", {{"Milk", 1}}},               // 未登録メニュー → エラー
-            {"DRINK001", {{"SeasonalMint", 1}}},       // 販売停止トッピング → エラー
+            {"DRINK001", {"Milk", "Matcha", "Choco"}},
+            {"DRINK999", {"Milk"}},               // 未登録メニュー → エラー
+            {"DRINK001", {"SeasonalMint"}},       // 販売停止トッピング → エラー
         };
 
         for (const auto& req : requests) {
@@ -1884,7 +1882,7 @@ public:
         OrderResult r1 = assembler.assemble({"DRINK001", {}});
         assert(r1.totalPrice == 400);
         OrderResult r6 = assembler.assemble(
-            {"DRINK001", {{"Milk", 1}, {"Syrup", 1}, {"Whip", 1}}});
+            {"DRINK001", {"Milk", "Syrup", "Whip"}});
         assert(r6.totalPrice == 550);
     }
 };
@@ -1910,7 +1908,6 @@ int main() {
 ホットコーヒー + Milk + Syrup → 480円
 ホットコーヒー + Milk + Whip → 520円
 ホットコーヒー + Syrup + Whip → 500円
-ホットコーヒー + Whip + Whip → 540円
 ホットコーヒー + Milk + Syrup + Whip → 550円
 ホットコーヒー + Milk + Syrup + Whip + Matcha → 610円
 ホットコーヒー + Choco → 440円
@@ -1924,14 +1921,13 @@ int main() {
 [DRINK001] ホットコーヒー + Milk + Syrup 480円
 [DRINK001] ホットコーヒー + Milk + Whip 520円
 [DRINK001] ホットコーヒー + Syrup + Whip 500円
-[DRINK001] ホットコーヒー + Whip + Whip 540円
 [DRINK001] ホットコーヒー + Milk + Syrup + Whip 550円
 [DRINK001] ホットコーヒー + Milk + Syrup + Whip + Matcha 610円
 [DRINK001] ホットコーヒー + Choco 440円
 [DRINK001] ホットコーヒー + Milk + Matcha + Choco 550円
 ```
 
-各注文は `OrderRequest`（基本ドリンクIDとトッピングID・個数の並び）として渡し、`OrderAssembler` がメニューとトッピングの販売可否を確認してから、選択順・個数ぶんだけドリンクを包みます。5行目の「ホットコーヒー + Syrup + Whip」は、フェーズ1ではフラグの判定順によって「ホットコーヒー + Whip + Syrup」と表示されていたケースです。変更後は注文で指定した Syrup → Whip の順が表示名に反映され、価格500円は変わりません。6行目の「ホットコーヒー + Whip + Whip」は、ホイップを個数2で頼んだ結果です。`Whip` を二重に書くのではなく、要求データの個数として表しています。価格と表示名は各トッピングクラスが持たず、`ToppingCatalog`（保存データ）から読みます。`DRINK999` は未登録メニュー、`SeasonalMint` は `ToppingCatalog` で販売停止としているため、どちらも注文結果を作らずエラー理由だけを返しています。
+各注文は `OrderRequest`（基本ドリンクIDと、選択順のトッピングID列）として渡し、`OrderAssembler` がメニューとトッピングの販売可否を確認してから、選択順にドリンクを包みます。5行目の「ホットコーヒー + Syrup + Whip」は、フェーズ1ではフラグの判定順によって「ホットコーヒー + Whip + Syrup」と表示されていたケースです。変更後は注文で指定した Syrup → Whip の順が表示名に反映され、価格500円は変わりません。価格と表示名は各トッピングクラスが持たず、`ToppingCatalog`（保存データ）から読みます。`DRINK999` は未登録メニュー、`SeasonalMint` は `ToppingCatalog` で販売停止としているため、どちらも注文結果を作らずエラー理由だけを返しています。
 
 ---
 
@@ -1944,6 +1940,7 @@ int main() {
 | 要求ID1 | 登録済みの基本ドリンクを選ぶ | メニュー取得、`Coffee` | 名称・基本価格を取得し未登録IDを拒否<br/>**判定:** 合格 |
 | 要求ID2 | Matcha・Chocoを含む複数トッピングを指定順で重ねる | 各`ToppingWrapper`、`OrderAssembler` | 入力順の名称と全要素の合計価格<br/>**判定:** 合格 |
 | 要求ID3 | 販売停止・在庫切れ・不正なトッピングを拒否する | トッピング設定、`OrderAssembler` | 理由を返し注文を生成しない<br/>**判定:** 合格 |
+| 要求ID4 | 確定した注文の注文名と合計金額を記録する | `OrderLog`、`OrderApplication` | 注文ログ9件に注文名と合計金額が並ぶ<br/>**判定:** 合格 |
 
 上の表は継続（要求ID1）・変更（要求ID2・要求ID3）を同じ順序で並べ、変わらなかった既存要求も回帰対象に含めています。継続要求が合格していることで、既存動作が落ちていないことを確認できます。要求の受入・回帰はここで完了します。課題IDへ直接対応付けず、以下では変更試行の痛みから導いた構造課題だけを別に確認します。
 
