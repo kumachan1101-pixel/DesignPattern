@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Run the same book quality gate locally and in GitHub Actions."""
+"""本文ゲートと出版パッケージゲートを走らせる（ローカルとGitHub Actions共通）。
+
+判定を2つに分けている（GATE-001）。
+
+  manuscript ready   : 引数なし。原稿が書けているか（構造・コード・図・実行結果）
+  KDP package ready  : --package。その原稿を1冊へ束ねられるか（目次・成果物）
+
+原稿がすべてPASSしていても、目次から章が抜けていれば本は組めない。逆に
+出版直前でなければパッケージ検査を毎回回す必要もないので、既定は本文ゲート
+だけにしてある。--release は完了台帳の全項目完了まで要求する最終判定。
+"""
 
 from __future__ import annotations
 
@@ -29,6 +39,11 @@ def main() -> int:
         action="store_true",
         help="全タスク完了・全章レビューPASSを必須にする",
     )
+    parser.add_argument(
+        "--package",
+        action="store_true",
+        help="出版パッケージ検査（目次・成果物）まで含めて判定する",
+    )
     args = parser.parse_args()
 
     python = sys.executable
@@ -56,7 +71,17 @@ def main() -> int:
             "Mermaid rendering",
             [python, str(SCRIPT_DIR / "check_mermaid.py")],
         ),
+        (
+            "Recurrence checks alive",
+            [python, str(SCRIPT_DIR / "test_recurrence_checks.py")],
+        ),
     ]
+
+    if args.package or args.release:
+        checks.append((
+            "Publish package",
+            [python, str(SCRIPT_DIR / "check_publish_package.py")],
+        ))
 
     failed = [label for label, command in checks if not run(label, command)]
     print("\n=== Quality gate result ===")
@@ -64,9 +89,12 @@ def main() -> int:
         print("FAIL: " + ", ".join(failed))
         return 1
     if args.release:
-        print("PASS: 出版完了条件を含む全ゲートに合格しました")
+        print("PASS: 出版完了条件を含む全ゲートに合格しました（KDP package ready）")
+    elif args.package:
+        print("PASS: 本文と出版パッケージの両ゲートに合格しました（KDP package ready）")
     else:
-        print("PASS: 通常push用ゲートに合格しました（出版完了判定ではありません）")
+        print("PASS: 本文ゲートに合格しました（manuscript ready）")
+        print("      出版パッケージの判定は --package を付けて実行します")
     return 0
 
 

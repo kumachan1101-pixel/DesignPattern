@@ -130,7 +130,7 @@ P0横断のうち、第4章（LOGIC-401／402／408）、第7章（LOGIC-702／7
 | PUBLISH-002 | P0 | PUBLISH-001待ち | Kindle Previewerで端末別表示を確認する | 表・コード・図・目次・改ページの表示不具合が0件 |
 | META-001 | P1 | ユーザー確認待ち | 最終書名・サブタイトル・著者名・紹介文・採用表紙を確定する | 原稿、KDP入力、表紙の表記が一致する |
 | EDIT-001 | P1 | PUBLISH-001待ち | 生成成果物を初見読者として最終通読する | 指摘を場所・理由・完了条件付きで記録し、修正後ゲートPASS |
-| GATE-001 | P1 | 未着手 | 本文ゲートと出版パッケージゲートを分け、後者へ目次・成果物検査を追加する | manuscript readyとKDP package readyを別々に判定できる |
+| GATE-001 | P1 | 完了 | `run_completion_gate.py` を引数なし＝本文ゲート（manuscript ready）、`--package`＝出版パッケージまで（KDP package ready）へ分けた。後者は `check_publish_package.py` で目次のファイル対応表・載せ漏れ・章名一致・画像実在・結合順を検査する | manuscript readyとKDP package readyを別々に判定できる（EPUB／KPF生成物の検査はPUBLISH-001で追加） |
 
 ## 2026-08-02 第11章★5件解消（CONS-065基準章・著者レビュー待ち）
 
