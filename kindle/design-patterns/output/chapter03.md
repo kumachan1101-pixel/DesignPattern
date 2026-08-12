@@ -299,7 +299,7 @@ sequenceDiagram
     TR-->>Main: 予約完了（Available→Reserved）
     Main->>TR: pay()
     TR-->>Main: 支払い完了（Reserved→Paid）
-    Note right of TR: 具体の分岐（現状の状態遷移）<br>Available で reserve → Reserved<br>Reserved で pay → Paid ／ cancel → Available<br>Held で expire → Available（待ち行列の先頭を自動昇格）
+    Note right of TR: 具体の分岐（現状の状態遷移）<br>Available で reserve → Reserved<br>Reserved で pay → Paid ／ cancel → Available<br>Paid は完了状態（どの操作も受け付けない）
     Note over Main,TR: エラー系（メモ）: 現在状態に許可されない操作（例: Available で pay）は<br>handle*Error で拒否し、状態を変えない
 ```
 

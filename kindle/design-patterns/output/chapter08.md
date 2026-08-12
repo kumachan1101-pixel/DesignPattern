@@ -1519,9 +1519,13 @@ public:
 
 **修正5：`processPayment()` にPayPayの分岐を追加**
 
+> **抜粋の前提（周辺は現状のまま）：** `OrderBook`・`CustomerDirectory` による注文と顧客の照合は1-4のまま維持します。以下は追加した分岐が読みやすいよう、その照合部の再掲を省いた抜粋です。
+
 ```cpp
 class PaymentApplication {
     ProcessorRegistry registry;
+    OrderBook orders;                // 現状のまま（照合に使う）
+    CustomerDirectory customers;     // 現状のまま（照合に使う）
     PaymentGatewayClient gatewayClient;
     PaymentStatusClient statusClient;
 public:
@@ -1629,11 +1633,12 @@ PayPay対応には7か所の修正が必要でした。入力構造体の追加�
 int main() {
     PaymentApplication app;
 
+    // 注文台帳に登録済みの注文で試す（照合は現状のまま通る）
     PaymentRequest request;
     request.methodId = "paypay";
-    request.amount = 1500;
-    request.orderId = "ORD-PP01";
-    request.customerId = "C008";
+    request.amount = 3000;
+    request.orderId = "ORD-2001";
+    request.customerId = "C020";
     request.payPay = {"pp_token", "merchant_01"};
 
     PaymentResult result = app.processPayment(request);
@@ -1658,9 +1663,9 @@ int main() {
 実行結果：
 
 ```
-[決済API] PayPay決済 order=ORD-PP01 amount=1500 token=pp_token
+[決済API] PayPay決済 order=ORD-2001 amount=3000 token=pp_token
 結果: paypay -> 保留 (PayPayセッション作成済み)
-[状態確認API] id=PP-ORD-PP01
+[状態確認API] id=PP-ORD-2001
 完了結果: 成功 (PayPay決済確認済み)
 ```
 
