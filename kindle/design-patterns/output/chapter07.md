@@ -61,9 +61,9 @@ manager.reduceStock("PRD001", 5);
 |---|---|---|
 | 要求ID1 | 登録商品の入出庫で在庫数を更新する | 対象IDと変更前→変更後の数量を記録する |
 | 要求ID2 | 出庫後在庫が閾値以下なら通知する | 閾値到達時だけ不足通知が発生する |
-| 要求ID3 | 起動時に登録された全通知先へ同じ在庫イベントを送る | メールとダッシュボードが各1件受け取る |
+| 要求ID3 | 起動時に登録された全通知先へ同じ在庫イベントを送る | メール・ダッシュボード・チャットが各1件受け取る |
 | 要求ID4 | 未登録商品・不正数量・在庫不足を拒否する | エラー時に在庫数と通知件数を変えない |
-| 要求ID5 | 在庫の内部数値変化をログへ残す | 商品ID・変更前→変更後・単位・閾値を確認できる |
+| 要求ID5 | 在庫の内部数値変化を実行ログへ残す | 商品ID・変更前→変更後・単位を確認できる（閾値は通知文面にだけ出る） |
 
 本章の追跡は**要求IDと変更ID**で行います（利用者・運用者から見た「まとまった働き」を束ねる機能IDは設けません）。変更で各要求IDの内容がどう変わるか——継続・変更・追加——は、1-5「変更後要求ベースライン」の「変更種別・根拠となる変更ID」列で追えます。既存動作が落ちていないかは、フェーズ7の要求ID別回帰で確認します。
 
@@ -630,8 +630,7 @@ Chat(1件): 商品 PRD002（USBハブ） の在庫が閾値以下です。
 | 要求ID2 | 継続<br/>根拠: — | 出庫後在庫が閾値以下なら通知する | 閾値到達時だけ不足通知が発生する |
 | 要求ID3 | 変更<br/>根拠: 変更ID1 | 登録済み通知先へ在庫イベントを送り、非同期SMSも受け付ける | 全4手段の個別結果が残る |
 | 要求ID4 | 変更<br/>根拠: 変更ID1 | 不正在庫操作と個別通知失敗を局所化する | 在庫更新成功後の1通知失敗で他通知を止めない |
-| 要求ID5 | 継続<br/>根拠: — | 在庫の内部数値変化をログへ残す | 商品ID・変更前→変更後・単位・閾値を確認できる |
-
+| 要求ID5 | 変更<br/>根拠: 変更ID1 | 在庫の内部数値変化を在庫変動ログへ残す | 商品ID・変更前→変更後・単位・閾値をログだけで確認できる |
 **変更前→変更後の要求対照（今回変える要求IDだけ）**
 
 現行ベースラインと変更後ベースラインを往復せずに済むよう、今回変える要求IDだけを取り出し、変更前と変更後を同じ行へ並べます。
@@ -640,8 +639,9 @@ Chat(1件): 商品 PRD002（USBハブ） の在庫が閾値以下です。
 |---|---|---|---|
 | 要求ID3 | 起動時に登録された全通知先へ同じ在庫イベントを送る | 登録済み通知先へ在庫イベントを送り、非同期SMSも受け付ける | 変更ID1 |
 | 要求ID4 | 未登録商品・不正数量・在庫不足を拒否する | 不正在庫操作と個別通知失敗を局所化する | 変更ID1 |
+| 要求ID5 | 在庫の内部数値変化を実行ログへ残す（閾値は通知文面にだけ出る） | 在庫の内部数値変化を在庫変動ログへ残す（閾値もログに含む） | 変更ID1 |
 
-要求ID1・要求ID2・要求ID5は継続（変更前＝変更後）のため対照表には載せません。変更後ベースラインで内容を確認できます。
+要求ID1・要求ID2は継続（変更前＝変更後）のため対照表には載せません。変更後ベースラインで内容を確認できます。要求ID5を変更に含めたのは、通知手段が4つへ増えると「閾値を下回ったから警告した」という判断根拠を通知文面から拾うのが不安定になり、ログ側に閾値をそろえる必要が生じたためです。
 
 なるほど、倉庫担当者のスマホへのSMS通知ですね。バックヤードで作業中の担当者にとって、メールよりも気づきやすい手段が必要というのは、現場のオペレーションとして理にかなっています。
 
@@ -1649,7 +1649,9 @@ struct StockEvent {
     std::string productName;
     std::string eventType;  // "入荷", "出荷", "閾値警告"
     int amount;
+    int stockBefore;
     int stockAfter;
+    int threshold;
 };
 
 // 在庫変動ログを管理するクラス
@@ -1657,15 +1659,18 @@ class StockEventLog {
     std::vector<StockEvent> records;
 public:
     void add(const std::string& productId, const std::string& productName,
-             const std::string& eventType, int amount, int stockAfter) {
-        records.push_back({productId, productName,
-                           eventType, amount, stockAfter});
+             const std::string& eventType, int amount,
+             int stockBefore, int stockAfter, int threshold) {
+        records.push_back({productId, productName, eventType,
+                           amount, stockBefore, stockAfter, threshold});
     }
     void printAll() const {
+        // 要求ID5：商品ID・変更前→変更後・単位・閾値をそろえて残す
         for (const auto& r : records) {
             std::cout << "[" << r.productId << "] " << r.productName
                       << " " << r.eventType << " " << r.amount
-                      << "個 (残:" << r.stockAfter << ")" << std::endl;
+                      << "個 (" << r.stockBefore << "->" << r.stockAfter
+                      << " 閾値:" << r.threshold << ")" << std::endl;
         }
     }
     int size() const { return (int)records.size(); }
@@ -1801,14 +1806,16 @@ public:
         int before = info.stock;
         info.stock -= quantity;
         db.save(productId, info);
-        eventLog.add(productId, info.name, "出荷", quantity, info.stock);
+        eventLog.add(productId, info.name, "出荷", quantity,
+                     before, info.stock, info.alertThreshold);
         cout << "商品 " << productId
              << " の在庫を " << quantity << " 減らしました。"
              << " 在庫: " << before
              << " -> " << info.stock << endl;
 
         if (db.isBelowThreshold(productId, info.stock)) {
-            eventLog.add(productId, info.name, "閾値警告", quantity, info.stock);
+            eventLog.add(productId, info.name, "閾値警告", quantity,
+                         before, info.stock, info.alertThreshold);
             notifyAll({productId, info.name, info.stock, info.alertThreshold});
         }
     }
@@ -1824,7 +1831,8 @@ public:
         int before = info.stock;
         info.stock += quantity;
         db.save(productId, info);
-        eventLog.add(productId, info.name, "入荷", quantity, info.stock);
+        eventLog.add(productId, info.name, "入荷", quantity,
+                     before, info.stock, info.alertThreshold);
         cout << "商品 " << productId
              << " の在庫を " << quantity
              << " 補充しました。在庫: " << before
@@ -2000,13 +2008,15 @@ SMS: 受付失敗（後で再送対象）
 
 ```
 --- 在庫変動ログ ---
-[PRD001] ワイヤレスマウス 出荷 5個 (残:45)
-[PRD002] USBハブ 出荷 1個 (残:2)
-[PRD002] USBハブ 閾値警告 1個 (残:2)
-[PRD001] ワイヤレスマウス 入荷 20個 (残:65)
-[PRD002] USBハブ 出荷 1個 (残:1)
-[PRD002] USBハブ 閾値警告 1個 (残:1)
+[PRD001] ワイヤレスマウス 出荷 5個 (50->45 閾値:10)
+[PRD002] USBハブ 出荷 1個 (3->2 閾値:5)
+[PRD002] USBハブ 閾値警告 1個 (3->2 閾値:5)
+[PRD001] ワイヤレスマウス 入荷 20個 (45->65 閾値:10)
+[PRD002] USBハブ 出荷 1個 (2->1 閾値:5)
+[PRD002] USBハブ 閾値警告 1個 (2->1 閾値:5)
 ```
+
+各行に商品ID・種別・数量と単位・変更前→変更後・閾値がそろっています。要求ID5の受入条件はこの6行で確認できます。閾値をログ側にも持たせているため、通知文面を読まなくても「残1が閾値5を下回ったから警告が出た」という判断の根拠をログだけで追えます。
 
 行2は同期3件＋非同期SMS1件で「成功3・保留1・失敗0」、行6はSMSの受付失敗で「成功3・保留0・失敗1」となり、部分失敗でも在庫更新と他通知は止まっていないことが確認できます。SMSを非同期の保留から受付失敗へ差し替えても、`InventoryManager` の通知ループには一切手を入れていません。
 
@@ -2020,11 +2030,11 @@ SMS: 受付失敗（後で再送対象）
 |---|---|---|---|
 | 要求ID1 | 登録商品の入出庫で在庫数を更新する | `InventoryManager`、`ProductDatabase` | 商品IDと変更前→変更後の数量を出力<br/>**判定:** 合格 |
 | 要求ID2 | 出庫後在庫が閾値以下なら通知する | `InventoryManager::reduceStock()` | 閾値到達時だけ不足通知<br/>**判定:** 合格 |
-| 要求ID3 | 登録済み通知先へ在庫イベントを送り、非同期SMSも受け付ける | `INotification`一覧、`SMSNotifier` | 全4手段の個別結果を記録<br/>**判定:** 合格 |
+| 要求ID3 | 登録済み通知先へ在庫イベントを送り、非同期SMSも受け付ける | `INotification`一覧、`SMSNotifier` | 行6で成功3・失敗1として全4手段の受付結果を集計<br/>**判定:** 合格 |
 | 要求ID4 | 不正在庫操作と個別通知失敗を局所化する | 在庫検証、`notifyAll()` | 1通知失敗後も在庫更新と他通知が完了<br/>**判定:** 合格 |
-| 要求ID5 | 在庫の内部数値変化をログへ残す | 在庫イベントログ | 商品ID・変更前→変更後・単位・閾値を出力<br/>**判定:** 合格 |
+| 要求ID5 | 在庫の内部数値変化を在庫変動ログへ残す | `StockEvent`、`StockEventLog` | 在庫変動ログ6行に商品ID・変更前→変更後・単位・閾値が並ぶ<br/>**判定:** 合格 |
 
-上の表は継続（要求ID1・要求ID2・要求ID5）・変更（要求ID3・要求ID4）を同じ順序で並べ、変わらなかった既存要求も回帰対象に含めています。継続要求が合格していることで、既存動作が落ちていないことを確認できます。要求の受入・回帰はここで完了します。課題IDへ直接対応付けず、以下では変更試行の痛みから導いた構造課題だけを別に確認します。
+上の表は継続（要求ID1・要求ID2）・変更（要求ID3・要求ID4・要求ID5）を同じ順序で並べ、変わらなかった既存要求も回帰対象に含めています。継続要求が合格していることで、既存動作が落ちていないことを確認できます。要求の受入・回帰はここで完了します。課題IDへ直接対応付けず、以下では変更試行の痛みから導いた構造課題だけを別に確認します。
 
 #### 設計課題の構造改善結果
 

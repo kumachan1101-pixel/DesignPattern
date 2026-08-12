@@ -1719,7 +1719,7 @@ public:
             cout << "  形式バージョン不一致(" << version
                  << "≠" << expectedVersion() << ")のため中止します。\n";
             gateway.close();                                // (7) 閉じるだけは必ず通る
-            ImportResult ng = { schemaType(), schemaName(), 0, 0, false };
+            ImportResult ng = { schemaType(), schemaName(), 0, 0, false, {} };
             ng.reasons.push_back("形式バージョン不一致");
             return ng;
         }
@@ -1728,7 +1728,7 @@ public:
         afterParse(v.validRows);                            // (5) 任意フック（EC店のみ）
         int saved = repo.save(v.validRows);                 // (6) 保存
         gateway.close();                                    // (7) 閉じる
-        ImportResult ok = { schemaType(), schemaName(), saved, v.skipped, true };
+        ImportResult ok = { schemaType(), schemaName(), saved, v.skipped, true, {} };
         ok.reasons = v.reasons;                             //     失敗理由を結果へ載せる
         return ok;
     }
