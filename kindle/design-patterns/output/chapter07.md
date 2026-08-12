@@ -1243,7 +1243,7 @@ classDiagram
         +attach(observer)
         +detach(observer)
         +reduceStock(id, quantity)
-        +restoreStock(id, quantity)
+        +replenishStock(id, quantity)
         -notifyAll(alert)
     }
     class INotification {
@@ -1490,7 +1490,7 @@ classDiagram
         +attach(observer)
         +detach(observer)
         +reduceStock(id, quantity)
-        +restoreStock(id, quantity)
+        +replenishStock(id, quantity)
         -notifyAll(alert)
     }
     class INotification {
@@ -1811,7 +1811,7 @@ public:
         db.save(productId, info);
         eventLog.add(productId, info.name, "出荷", quantity,
                      before, info.stock, info.alertThreshold);
-        cout << "商品 " << productId
+        cout << "商品 " << productId << "（" << info.name << "）"
              << " の在庫を " << quantity << " 減らしました。"
              << " 在庫: " << before
              << " -> " << info.stock << endl;
@@ -1823,7 +1823,7 @@ public:
         }
     }
 
-    void restoreStock(string productId, int quantity) {
+    void replenishStock(string productId, int quantity) {
         if (!db.exists(productId)) {
             cout << "[エラー] 商品ID " << productId
                  << " はマスタに存在しません。処理を中断します。"
@@ -1836,7 +1836,7 @@ public:
         db.save(productId, info);
         eventLog.add(productId, info.name, "入荷", quantity,
                      before, info.stock, info.alertThreshold);
-        cout << "商品 " << productId
+        cout << "商品 " << productId << "（" << info.name << "）"
              << " の在庫を " << quantity
              << " 補充しました。在庫: " << before
              << " -> " << info.stock
@@ -1901,7 +1901,7 @@ int main() {
 
 ```
 --- 行1: 在庫が閾値を超えたまま減少（通知なし） ---
-商品 PRD001 の在庫を 5 減らしました。 在庫: 50 -> 45
+商品 PRD001（ワイヤレスマウス） の在庫を 5 減らしました。 在庫: 50 -> 45
 ```
 
 行2は、在庫が閾値以下に下がり、同期3件＋非同期SMS1件へ通知するケースです。
@@ -1917,7 +1917,7 @@ int main() {
 
 ```
 --- 行2: 在庫が閾値以下に減少（同期3件＋非同期SMS） ---
-商品 PRD002 の在庫を 1 減らしました。 在庫: 3 -> 2
+商品 PRD002（USBハブ） の在庫を 1 減らしました。 在庫: 3 -> 2
 Email(1件): 件名:在庫不足 / USBハブ(PRD002) 残2 閾値5
 Dashboard(1件): PRD002 | 残2 | 要発注
 Chat(1件): USBハブ 残2個。発注を確認してください。
@@ -1930,7 +1930,7 @@ SMS(1件受付): 在庫警告 PRD002 残2
 
 ```cpp
     cout << "--- 行3: 在庫が補充された（閾値超え） ---" << endl;
-    manager.restoreStock("PRD001", 20);
+    manager.replenishStock("PRD001", 20);
     cout << endl;
 ```
 
@@ -1938,7 +1938,7 @@ SMS(1件受付): 在庫警告 PRD002 残2
 
 ```
 --- 行3: 在庫が補充された（閾値超え） ---
-商品 PRD001 の在庫を 20 補充しました。在庫: 45 -> 65（通知なし）
+商品 PRD001（ワイヤレスマウス） の在庫を 20 補充しました。在庫: 45 -> 65（通知なし）
 ```
 
 行4は、在庫0の商品を出庫しようとするエラーです。
@@ -1988,7 +1988,7 @@ SMS(1件受付): 在庫警告 PRD002 残2
 
 ```
 --- 行6: SMSだけ受付失敗（部分失敗） ---
-商品 PRD002 の在庫を 1 減らしました。 在庫: 2 -> 1
+商品 PRD002（USBハブ） の在庫を 1 減らしました。 在庫: 2 -> 1
 Email(2件): 件名:在庫不足 / USBハブ(PRD002) 残1 閾値5
 Dashboard(2件): PRD002 | 残1 | 要発注
 Chat(2件): USBハブ 残1個。発注を確認してください。
