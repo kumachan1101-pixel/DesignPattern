@@ -1925,7 +1925,6 @@ classDiagram
     PaymentApplication ..> ConvenienceStoreProcessor : uses
     PaymentApplication --> ProcessorRegistry : 存在・有効確認
     PaymentApplication --> PaymentStatusClient : 完了確認
-    PaymentApplication --> PaymentLog : 記録
     CreditCardProcessor --> PaymentGatewayClient : 認証API
 
     note for PaymentApplication "【残す】決済フローの進行<br/>【課題ID1・移す】具体Processorの生成判断と手段固有のエラー対処"
@@ -1974,7 +1973,6 @@ classDiagram
     PaymentApplication --> PaymentStatusClient : 完了確認
     DefaultPaymentApplication --|> PaymentApplication
     CreditCardProcessor --> PaymentGatewayClient : 認証API
-    PaymentApplication --> PaymentLog : 記録
     PaymentApplication --> CustomerDirectory : 顧客照合
     PaymentApplication --> OrderBook : 注文照合
 
@@ -2061,14 +2059,21 @@ public:
 };
 ```
 
-**④ どの具体を生成するかを、生成メソッド `createProcessor()` の1か所へ閉じる。** 新方式はここへ1行足すだけです。`new` した使い捨てProcessorを生ポインタで返し、**所有は呼び出した `processPayment()` が持ち、使用後に `delete` します**（⑥で破棄）。
+**④ どの具体を生成するかを、生成メソッド `createProcessor()` の1か所へ閉じる。** 新方式はここへ1行足すだけです。`new` した使い捨てProcessorを生ポインタで返し、**所有は呼び出した `processPayment()` が持ち、使用後に `delete` します**（⑥で破棄）。登録の有無と有効・無効の判定もこの1か所で行い、通らない要求は例外で止めます。
 
 ```cpp
-virtual IPaymentProcessor* createProcessor(const string& type) {
-    if (type == "credit_card") return new CreditCardProcessor(gateway);
-    if (type == "bank_transfer") return new BankTransferProcessor(gateway);
-    if (type == "convenience") return new ConvenienceStoreProcessor(gateway);
-    return nullptr;
+IPaymentProcessor* createProcessor(const string& type) override {
+    if (!registry.exists(type))
+        throw invalid_argument("未登録の決済方法です: " + type);
+    if (!registry.isActive(type))
+        throw invalid_argument(registry.get(type).name + " は現在無効です。");
+    if (type == PaymentMethod::CreditCard)
+        return new CreditCardProcessor(gatewayClient);
+    if (type == PaymentMethod::BankTransfer)
+        return new BankTransferProcessor(gatewayClient);
+    if (type == PaymentMethod::Convenience)
+        return new ConvenienceStoreProcessor(gatewayClient);
+    throw invalid_argument("生成できない決済方法です: " + type);
 }
 ```
 
@@ -2076,15 +2081,15 @@ virtual IPaymentProcessor* createProcessor(const string& type) {
 
 ```cpp
 PaymentResult processPayment(const PaymentRequest& request) {
-    if (!registry.isActive(request.methodId))
-        return {"失敗", false, "無効な決済手段"};
+    // 注文・顧客の照合は現状のまま（7-1に全文）
     IPaymentProcessor* proc = createProcessor(request.methodId); // ④生成・所有
-    PaymentResult r = proc->pay(request);                        // ⑥ 契約だけ呼ぶ
+    PaymentResult result = proc->pay(request);                   // ⑥ 契約だけ呼ぶ
     delete proc;                                                 // 使い捨て後に破棄
-    log.record(request, r);
-    return r;
+    return result;
 }
 ```
+
+> **抜粋の前提：** `createProcessor()` は `PaymentApplication` の純粋仮想を `DefaultPaymentApplication` が実装した形で、`registry` と `gatewayClient` はその具象側が持ちます。`processPayment()` の冒頭にある注文・顧客の照合と、決済ログの記録は現状のまま維持します。ログを取るのは組み立て側（`main()` の `executeCase`）で、`PaymentApplication` は記録しません。全文は7-1で示します。
 
 `createProcessor()` が返す生ポインタは所有権を持たないため、1回の決済で作って使い捨てるこの部品は `pay()` 直後に `delete proc` で破棄します（実務のC++では `std::unique_ptr` が安全ですが、本書は他言語と読み比べやすいよう生ポインタで統一します）。これで課題ID1の完了条件「方式追加が新方式実装と生成登録に閉じ、利用フローが変わらない」を満たします。
 
@@ -2200,7 +2205,6 @@ classDiagram
     PaymentApplication --> PaymentStatusClient : 完了確認
     DefaultPaymentApplication --|> PaymentApplication
     CreditCardProcessor --> PaymentGatewayClient : 認証API
-    PaymentApplication --> PaymentLog : 記録
     PaymentApplication --> CustomerDirectory : 顧客照合
     PaymentApplication --> OrderBook : 注文照合
 
@@ -2622,6 +2626,11 @@ public:
                     "銀行コードが不足しています",
                     false, "MISSING_BANK", {}};
         }
+        if (req.bankTransfer.accountType.empty()) {
+            return {PaymentStatus::Failed,
+                    "口座種別が不足しています",
+                    false, "MISSING_ACCOUNT_TYPE", {}};
+        }
         return gateway.issueBankTransfer(
             req.orderId, req.amount,
             req.bankTransfer);
@@ -2647,6 +2656,11 @@ public:
             return {PaymentStatus::Failed,
                     "メールアドレスが不足しています",
                     false, "MISSING_EMAIL", {}};
+        }
+        if (req.convenience.storeCode.empty()) {
+            return {PaymentStatus::Failed,
+                    "店舗コードが不足しています",
+                    false, "MISSING_STORE", {}};
         }
         return gateway.issueConvenienceCode(
             req.orderId, req.amount,
@@ -2823,10 +2837,14 @@ static void executeCase(PaymentApplication& app,
                        result.status, result.errorCode);
         }
     } catch (const invalid_argument& e) {
+        // 例外経路でも、1-4と同じエラーコードをログへ残す
+        string reason = e.what();
+        string code = reason.find("未登録") != string::npos
+                      ? "UNKNOWN_METHOD" : "DISABLED";
         cout << "結果: " << req.methodId << " -> 失敗 ("
-             << e.what() << ")" << endl;
+             << reason << ")" << endl;
         payLog.add(req.methodId, req.amount,
-                   PaymentStatus::Failed, "");
+                   PaymentStatus::Failed, code);
     }
 }
 ```
@@ -3046,13 +3064,13 @@ int main() {
 [paypay] 3000円 -> 成功
 [credit_card] 800円 -> 失敗 (AUTH_DECLINED)
 [credit_card] 600円 -> 失敗 (MISSING_HOLDER)
-[crypto] 300円 -> 失敗
-[unknown] 200円 -> 失敗
+[crypto] 300円 -> 失敗 (DISABLED)
+[unknown] 200円 -> 失敗 (UNKNOWN_METHOD)
 [credit_card] 1200円 -> 成功
 ```
-
-新しく追加したPayPay決済も含めて、同期決済（カード）は即座に成功し、非同期決済（銀行振込・コンビニ・PayPay）は保留→完了確認→成功の流れが動いています。カードAPI失敗、入力不足、無効・未登録の各エラーも `processPayment` の骨格に手を加えることなく表現できています。
-
+| 要求ID2 | 銀行振込固有入力を検証し、振込先を発行する | `BankTransferProcessor` | 名義・銀行コード・口座種別の3項目を空チェックし、通った要求だけ入金待ち<br/>**判定:** 合格 |
+| 要求ID3 | コンビニ固有入力を検証し、支払番号を発行する | `ConvenienceStoreProcessor` | 電話・メール・店舗コードの3項目を空チェックし、通った要求だけ支払番号を発行<br/>**判定:** 合格 |
+| 要求ID4 | 決済結果を注文IDごとに保存する | `PaymentLog`、`executeCase` | 完了・保留・失敗と外部参照を保存。例外経路もDISABLED／UNKNOWN_METHODのエラーコードを残す<br/>**判定:** 合格 |
 #### 最終要求の実装・受入エビデンス
 
 変更後要求ベースラインの全有効要求IDを同じ順序で照合します。今回変わらなかった既存要求も対象にするため、要求の消失を検出できます。
