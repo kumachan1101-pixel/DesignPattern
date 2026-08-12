@@ -1416,6 +1416,7 @@ classDiagram
     TicketPolicySet o--> IPriorityRule : ルールを所有・選択
     TicketRepository --> Ticket : 保存
     Ticket --> ITicketPhase : 現在状態
+    TicketService --> ITicketPhase : 現在状態へ操作を委譲
     ITicketPhase <|.. OpenPhase
     ITicketPhase <|.. InProgressPhase
     ITicketPhase <|.. EscalatedPhase
@@ -1868,6 +1869,7 @@ classDiagram
     TicketPolicySet o--> IPriorityRule : ルールを所有・選択
     TicketRepository --> Ticket : 保存
     Ticket --> ITicketPhase : 現在状態
+    TicketService --> ITicketPhase : 現在状態へ操作を委譲
     ITicketPhase <|.. OpenPhase
     ITicketPhase <|.. InProgressPhase
     ITicketPhase <|.. EscalatedPhase
@@ -1900,18 +1902,23 @@ sequenceDiagram
     participant Svc as TicketService
     participant Repo as TicketRepository
     participant Ph as InProgressPhase
+    participant Set as TicketPolicySet
     participant Rule as PremiumPriority
     Main->>Svc: escalate("TCK002")
+    Svc->>Repo: exists("TCK002")
+    Repo-->>Svc: true
     Svc->>Repo: get("TCK002")
     Repo-->>Svc: Ticket（現在状態）
     Svc->>Ph: escalate()
     Note right of Svc: ITicketPhase* 経由
     Ph-->>Svc: EscalatedPhase*（次状態）
+    Svc->>Set: priorityRule(userType)
+    Set-->>Svc: IPriorityRule&
     Svc->>Rule: getPriority()
-    Note right of Svc: IPriorityRule* 経由
+    Note right of Svc: IPriorityRule& 経由
     Rule-->>Svc: Priority::High
     Svc->>Repo: save(Ticket)
-    Svc-->>Main: 状態=Escalated 優先度=High
+    Svc-->>Main: 標準出力へ 状態=Escalated 優先度=High
 ```
 
 ---

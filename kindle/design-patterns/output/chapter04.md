@@ -1267,8 +1267,12 @@ classDiagram
         +exists(type) bool
         +get(type) ImportSchema
     }
-    StoreDataImporter ..> SchemaRegistry : 登録を確認
-    FCDataImporter ..> SchemaRegistry : 登録を確認
+    class Main {
+        +main()
+    }
+    Main ..> SchemaRegistry : 登録を確認
+    Main ..> StoreDataImporter : 生成・実行する
+    Main ..> FCDataImporter : 生成・実行する
     note for StoreDataImporter "【残す】直営店のパース・行検証<br/>【課題ID1・移す】open→検証→保存→closeの共通骨格"
     note for FCDataImporter "【残す】FC店のパース・行検証<br/>【課題ID1・移す】重複した共通骨格"
     note for SchemaRegistry "【維持】形式の登録・存在確認"
@@ -1311,7 +1315,7 @@ classDiagram
     AbstractImporter <|-- ECDataImporter
     AbstractImporter --> ImportFileGateway : 使う
     AbstractImporter --> SalesImportRepository : 使う
-    StoreDataImporter --> SchemaRegistry : 参照する
+    BatchApplication --> SchemaRegistry : 参照する
     BatchApplication --> AbstractImporter : 生成・実行する
 
     note for AbstractImporter "【課題ID1・新設】共通骨格を1か所へ固定<br/>parse/validateは純粋仮想フック"
@@ -1564,7 +1568,7 @@ classDiagram
     AbstractImporter <|-- ECDataImporter
     AbstractImporter --> ImportFileGateway : 使う
     AbstractImporter --> SalesImportRepository : 使う
-    StoreDataImporter --> SchemaRegistry : 参照する
+    BatchApplication --> SchemaRegistry : 参照する
     BatchApplication --> AbstractImporter : 生成・実行する
 
     note for AbstractImporter "【課題ID1・新設】共通骨格を1か所へ固定<br/>parse/validateは純粋仮想フック"
