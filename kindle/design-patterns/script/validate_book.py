@@ -3099,6 +3099,187 @@ def check_problem_cause_id_lists(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def _section_between(text: str, head: str, end: str) -> tuple[int, str]:
+    """`### head` から `### end` の直前までを返す。無ければ (-1, "")。"""
+    a = re.search(rf"^### {re.escape(head)}", text, re.M)
+    if not a:
+        return -1, ""
+    b = re.search(rf"^### {re.escape(end)}", text[a.start() + 1:], re.M)
+    stop = a.start() + 1 + b.start() if b else len(text)
+    return a.start(), text[a.start():stop]
+
+
+def check_evidence_scenario_reference(text: str, path: Path) -> list[Issue]:
+    """7-1の受入エビデンス表が、実行結果に存在しない観測結果を主張していないか。
+
+    2026-08-12のロジック監査（LOGIC-001）で9章に見つかった症状。エビデンス表は
+    「合格」と書いているのに、その受入条件を確認する実行シナリオが7-1の実行結果に
+    無い、という食い違いが検出できなかった。
+
+    完全な意味照合は機械にはできないため、ここでは「観測結果欄が参照している
+    シナリオ名・ラベルが、同じ7-1節の実行結果ブロックに実在するか」だけを見る。
+    観測結果欄がラベルを1つも参照していない場合は対象外（従来どおりの散文記述を
+    許す）。ラベルを参照しているのに実行結果へ無ければ、書いた本人が実行して
+    いない可能性が高い。
+    """
+    issues: list[Issue] = []
+    start, section = _section_between(text, "7-1：", "7-2：")
+    if start < 0:
+        return issues
+    marker = "#### 最終要求の実装・受入エビデンス"
+    at = section.find(marker)
+    if at < 0:
+        return issues
+    evidence = section[at:]
+    # 実行結果ブロック（```text / ``` のうち cpp 以外）を集める
+    outputs = "\n".join(
+        body for info, body in re.findall(r"```([^\n]*)\n(.*?)```", section, re.S)
+        if info.strip() != "cpp"
+    )
+    # 観測結果欄が参照しがちなラベル表記
+    label_re = re.compile(r"(?:シナリオ|ケース|行|回帰|エラー例|A)\s?([0-9]+[a-z]?)")
+    for row in re.findall(r"(?m)^\|\s*(要求ID\d+)\s*\|([^\n]*)$", evidence):
+        req_id, rest = row
+        cells = [c.strip() for c in rest.split("|")]
+        if len(cells) < 3:
+            continue
+        observed = cells[2]
+        if "判定" not in observed:
+            continue
+        for label in set(label_re.findall(observed)):
+            # 「行1」「シナリオ4b」「A5」「回帰2」などが実行結果に現れるか
+            if not re.search(rf"(?:シナリオ|ケース|行|回帰|エラー例|A){re.escape(label)}\b",
+                             outputs):
+                issues.append(Issue(
+                    path, line_number(text, start + at),
+                    f"{req_id}の観測結果が参照するシナリオ「{label}」が"
+                    f"7-1の実行結果にありません（受入エビデンスは実行した範囲だけを書く）",
+                ))
+    return issues
+
+
+def check_phase6_phase7_contract_match(text: str, path: Path) -> list[Issue]:
+    """フェーズ6で示した契約クラスのメソッド集合が、7-1完成コードと一致するか。
+
+    2026-08-12のロジック監査（LOGIC-003）で9章に見つかった症状。フェーズ6が
+    「確定します」「採用後コード」と示した契約が、7-1では別シグネチャ・別
+    メソッド名になっていた（第8章はコンパイルできない断片だった）。
+
+    対象は純粋仮想を持つ契約クラス（`class I...` かつ `= 0` を含む）に限る。
+    フェーズ6は抜粋なので、7-1に無いメソッドがフェーズ6にある場合だけを警告する
+    （7-1側が多いのは「後で追加する」と書けば許される）。
+    """
+    issues: list[Issue] = []
+    p6_start, p6 = _phase6_section(text)
+    if p6_start < 0:
+        return issues
+    _, p7 = _section_between(text, "7-1：", "7-2：")
+    if not p7:
+        return issues
+
+    def contracts(section: str) -> dict[str, set[str]]:
+        found: dict[str, set[str]] = {}
+        for block in re.findall(r"```cpp\s*\n(.*?)```", section, re.S):
+            for m in re.finditer(
+                r"class\s+(I[A-Z]\w*)\s*(?:final\s*)?\{(.*?)\n\};", block, re.S
+            ):
+                name, body = m.group(1), m.group(2)
+                if "= 0" not in body:
+                    continue
+                methods = set(re.findall(r"virtual[^;{]*?\b(\w+)\s*\(", body))
+                found.setdefault(name, set()).update(methods)
+        return found
+
+    p6_contracts = contracts(p6)
+    p7_contracts = contracts(p7)
+    for name, p6_methods in p6_contracts.items():
+        if name not in p7_contracts:
+            continue
+        missing = p6_methods - p7_contracts[name] - {"~" + name}
+        missing = {m for m in missing if not m.startswith("~")}
+        if missing:
+            issues.append(Issue(
+                path, line_number(text, p6_start),
+                f"フェーズ6の契約 {name} にあるメソッド {sorted(missing)} が"
+                f"7-1完成コードにありません（フェーズ6の契約は7-1から抜粋する）",
+            ))
+    return issues
+
+
+def check_change_id_requirement_scope(text: str, path: Path) -> list[Issue]:
+    """「フェーズ1のまとめ：変更ID一覧」の列名と中身が食い違っていないか。
+
+    2026-08-12のロジック監査（LOGIC-007）で見つかった症状。列名が「対象の現行
+    要求ID」なのに、現行ベースラインに無い追加要求IDが並んでいた（テンプレート
+    由来で全12章が同じ列名を持っていた）。
+
+    列名が「現行」を名乗る場合だけ、挙がっている要求IDが現行ベースラインに
+    実在するかを検査する。
+    """
+    issues: list[Issue] = []
+    m = re.search(r"(?m)^\|\s*変更ID\s*\|\s*変更依頼の要点\s*\|\s*([^|]+?)\s*\|", text)
+    if not m:
+        return issues
+    column = m.group(1)
+    if "現行" not in column:
+        return issues
+    # 現行要求ベースライン（1-1）の要求ID集合
+    head = text.find("| 要求ID | 現行要求 | 受入条件 |")
+    if head < 0:
+        return issues
+    tail = text.find("\n\n", head)
+    current = set(re.findall(r"要求ID\d+", text[head:tail if tail > 0 else head + 2000]))
+    rows = re.findall(r"(?m)^\|\s*(変更ID\d+)\s*\|[^|]*\|([^|]*)\|", text[m.start():])
+    for change_id, cell in rows:
+        for req in re.findall(r"要求ID\d+", cell):
+            if req not in current:
+                issues.append(Issue(
+                    path, line_number(text, m.start()),
+                    f"変更ID一覧の列名が「{column}」なのに、{change_id}の行へ現行"
+                    f"ベースラインに無い{req}が入っています"
+                    f"（列名を『関係する要求ID（追加は変更後ID）』等へ）",
+                ))
+    return issues
+
+
+def check_step_reference_target(text: str, path: Path) -> list[Issue]:
+    """本文の「ステップN」参照に、対応する見出しが同じ章にあるか。
+
+    2026-08-12のロジック監査（LOGIC-008）で9章に見つかった症状。第0章が
+    フェーズ6の旧ステップ方式の規定を保持したままで、実章は課題ID別①〜⑥へ
+    移行済みだったため、「フェーズ6のステップ3」のような参照先のない記述が
+    残っていた。
+
+    フェーズ6・フェーズ7を指すステップ参照だけを対象にする（処理手順としての
+    「4ステップの流れ」「差し替えるステップ」は正当な用法なので除外）。
+    """
+    issues: list[Issue] = []
+    pattern = re.compile(
+        r"(フェーズ[67]の|実装)?ステップ([0-9１-９]+)(?:〜[0-9１-９]+)?"
+    )
+    for m in pattern.finditer(text):
+        prefix = text[max(0, m.start() - 12):m.start()]
+        in_scope = (
+            m.group(1) is not None
+            or "フェーズ6の" in prefix
+            or "フェーズ7の" in prefix
+        )
+        if not in_scope:
+            continue
+        num = m.group(2)
+        # 対応する見出し（### ステップN / **ステップN** など）があるか
+        if re.search(rf"(?m)^#+\s*.*ステップ{num}", text):
+            continue
+        if re.search(rf"(?m)^\s*ステップ{num}：", text):
+            continue
+        issues.append(Issue(
+            path, line_number(text, m.start()),
+            f"「ステップ{num}」を参照していますが、対応する見出しが章内にありません"
+            f"（フェーズ6は課題ID別①〜⑥構成）",
+        ))
+    return issues
+
+
 CLASS_STYLE_NAMES = (
     "focus", "pain", "stable", "changed", "normal", "pending",
     "data", "decision", "process", "input", "output", "result",
@@ -3169,6 +3350,10 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_state_automation(text, path))
         issues.extend(check_new_end_to_end_traceability(text, path))
         issues.extend(check_explanation_regression(text, path))
+        issues.extend(check_evidence_scenario_reference(text, path))
+        issues.extend(check_phase6_phase7_contract_match(text, path))
+        issues.extend(check_change_id_requirement_scope(text, path))
+        issues.extend(check_step_reference_target(text, path))
     return issues
 
 
