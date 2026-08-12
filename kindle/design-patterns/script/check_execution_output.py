@@ -36,9 +36,9 @@ SECTIONS = [
 ]
 
 # 実出力そのものではなく要約を掲載している節（誤りではない）
-EXEMPT = {
-    ("chapter05.md", "7-1："),  # 操作のまとまりごとの要約表記
-}
+# chapter05.md の 7-1 は要約表記のため除外していたが、掲載結果が実出力と
+# 別物になっていた（LOGIC-501）。実出力へ差し替えたので除外を解除した。
+EXEMPT: set[tuple[str, str]] = set()
 
 
 def section_text(text: str, head: str, end: str) -> str | None:
