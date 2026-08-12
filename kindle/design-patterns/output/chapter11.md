@@ -167,7 +167,7 @@ flowchart LR
 | 条件 | 結果 | 副作用 |
 |---|---|---|
 | テンプレートIDが未登録 | 未登録エラー | デモ成果物を保存せず、generate失敗をDebugLogへ一件記録 |
-| 出力形式が非対応 | 未対応形式エラー | デモ成果物を保存せず、generate失敗をDebugLogへ一件記録 |
+| 出力形式が非対応 | 未対応形式エラー | デモ成果物を保存せず、generate失敗をDebugLogへ一件記録。掲載コードの登録データは全テンプレートがpdf・excelの両方に対応するため、この条件はサンプル実行では発生しない |
 | デモ成果物を開けない | 出力失敗 | 成功扱いにせず、generate失敗をDebugLogへ一件記録 |
 
 ### 1-2：動作例テーブル
@@ -1451,7 +1451,7 @@ ReportDocument doc = report->create();        // 契約 create() を呼ぶだけ
 delete report;                                 // 生成物なので破棄
 ```
 
-**⑦ これで課題ID1が解ける。完了条件（＝課題が解けたことを検証する条件）：** 本文を1種増やすとき変えるのは「新しい具体本文クラス1つ＋`ReportAssembler`の分岐1つ」だけで、共通順（`ReportSkeleton::create()`）・既存本文・実行側は変わらないこと。フェーズ7のケース1（通常月次）とケース2（役員向け）で、この不変を実際に確認します。
+**⑦ これで課題ID1が解ける。完了条件（＝課題が解けたことを検証する条件）：** 本文を1種増やすとき変えるのは「新しい具体本文クラス1つ＋`ReportAssembler`の分岐1つ＋`TemplateRegistry`への登録1行」だけで、共通順（`ReportSkeleton::create()`）・既存本文・実行側は変わらないこと。フェーズ7のA1（通常月次）とA2（役員向け）で、この不変を実際に確認します。
 
 **課題ID1でやめず、課題ID2・課題ID3へ続けます。** ただし④の`ReportAssembler`、⑤⑥の`ReportApplication`・`ReportGenerationService`は、装飾・履歴の分離でも同じ組み立ての中心になります。次はそこへ装飾を足します。
 
@@ -1561,7 +1561,7 @@ ReportDocument doc = report->create();        // 最外側の create() を呼ぶ
 delete report;                                 // 最外側を破棄→内側へ連鎖破棄
 ```
 
-**⑦ これで課題ID2が解ける。完了条件：** 装飾を1種増やすとき変えるのは「新しいFeature1クラス＋`ReportAssembler`の分岐1つ」だけで、本文生成（課題ID1）と実行側は不変。装飾順を入れ替えると出力順も入れ替わる。フェーズ7のケース2（Logo→Graph）とケース3（Graph→Logo）で確認します。
+**⑦ これで課題ID2が解ける。完了条件：** 装飾を1種増やすとき変えるのは「新しいFeature1クラス＋`ReportAssembler`の分岐1つ」だけで、本文生成（課題ID1）と実行側は不変。装飾順を入れ替えると出力順も入れ替わる。フェーズ7のA2（Logo→Graph）とA3（Graph→Logo）で確認します。
 
 ### 課題ID3：生成の実行を、記録・再実行できる操作にする
 
@@ -1637,7 +1637,7 @@ OperationResult ReportApplication::submit(ReportRequest request) {
 
 なお、この章での**依存注入**は、上の④——`ReportApplication`が`new GenerateReportAction(service, request)`で、生成済みの`service`（アプリ起動時に一度だけ作った`ReportGenerationService`）をActionへ外から渡すところ——です。Action自身は`service`を作らず、受け取って使います。
 
-**⑦ これで課題ID3が解ける。完了条件：** 受け付けた同じ要求を再実行・取消でき、履歴が本文・装飾の種類を判定しないこと。フェーズ7のケース4（同じ要求を再実行して取消）で、要求履歴4件と診断ログ6件が別物として維持されることを確認します。
+**⑦ これで課題ID3が解ける。完了条件：** 受け付けた同じ要求を再実行・取消でき、履歴が本文・装飾の種類を判定しないこと。フェーズ7のA4（同じ要求を再実行して取消）で、要求履歴4件と診断ログ6件が別物として維持されることを確認します。
 
 以上で3つの判断を、それぞれ骨格固定・装飾連結・操作記録の3構造へ分けました。次に、これらを一本の実行経路へ再結合します。
 
@@ -2792,6 +2792,7 @@ void scenarioA1(ReportApplication& application);
 void scenarioA2(ReportApplication& application);
 void scenarioA3(ReportApplication& application);
 void scenarioA4(ReportApplication& application);
+void scenarioA5(ReportApplication& application);
 
 int main() {
     ReportApplication application;
@@ -2799,6 +2800,7 @@ int main() {
     scenarioA2(application);
     scenarioA3(application);
     scenarioA4(application);
+    scenarioA5(application);
     return 0;
 }
 ```
@@ -2921,6 +2923,19 @@ void scenarioA4(ReportApplication& application) {
     cout << "デバッグログ件数: "
          << application.debugLogSize() << endl;
 }
+
+void scenarioA5(ReportApplication& application) {
+    // 要求ID1の回帰：1-1のエラー条件と1-2のエラー例1を完成コードで確認する
+    cout << "--- A5: 未登録IDでは生成しない ---" << endl;
+    printResult(application.submit({
+        "UNKNOWN",
+        OutputFormat::Pdf,
+        {},
+        "a5_unknown_demo.txt"
+    }));
+    cout << "要求履歴件数: "
+         << application.historySize() << endl;
+}
 ```
 
 - 変更ID3の完全な要求を4件目として受付後、同じActionを再実行し、同じ出力先の成果物を削除します。
@@ -2970,6 +2985,19 @@ CSV読込: 6件・合計3510・平均585
 | A2 | 変更ID1・変更ID2 | 役員向け専用本文へロゴ→グラフの順で適用 |
 | A3 | 変更ID2 | 同じ二装飾をグラフ→ロゴの逆順で適用 |
 | A4 | 変更ID3 | 完全な要求を再実行し、成果物だけを取消。要求履歴4件と診断ログ6件を別々に維持 |
+| A5 | 要求ID1の回帰 | 未登録テンプレートIDでは生成せず、失敗を診断ログへ記録 |
+
+A5の実行結果：
+
+```text
+--- A5: 未登録IDでは生成しない ---
+要求履歴へ受付: 5件目
+デバッグログ件数: 6->7・event=submit・result=failure
+操作結果: 失敗（未登録テンプレート: UNKNOWN）
+要求履歴件数: 5
+```
+
+1-2のエラー例1（UNKNOWN, pdf）にあたるケースです。成果物は保存されず、診断ログには失敗が1件だけ増えます。受付履歴は「何を要求されたか」の記録なので失敗した要求も5件目として残り、成功結果を表す記録ではないことがここでも確認できます。
 
 #### 最終要求の実装・受入エビデンス
 
@@ -2977,7 +3005,7 @@ CSV読込: 6件・合計3510・平均585
 
 | 要求ID | 最終要求 | 適用コード | 実行シナリオ・観測結果・判定 |
 |---|---|---|---|
-| 要求ID1 | 登録テンプレートIDと対応出力形式を検証する | `TemplateRegistry`、`ReportGenerationService` | 未登録・非対応形式では生成なし<br/>**判定:** 合格 |
+| 要求ID1 | 登録テンプレートIDと対応出力形式を検証する | `TemplateRegistry`、`ReportGenerationService` | A5で未登録IDを拒否し成果物なし・診断ログへ失敗1件。非対応形式は登録データが全形式対応のため発生しない<br/>**判定:** 合格 |
 | 要求ID2 | 入力された売上データの件数・合計・平均を計算する | `DataReader`、`SalesSummary` | A1〜A4で入力した6件から件数6・合計3,510・平均585を算出<br/>**判定:** 合格 |
 | 要求ID3 | 既存3本文を保ち、役員向け月次だけ専用本文にする | 各`ReportSkeleton`派生 | 通常月次と役員向けが異なり既存本文不変<br/>**判定:** 合格 |
 | 要求ID4 | グラフ・ロゴ・透かしを入力順で重ねる | 各`ReportFeature`、`ReportAssembler` | A2・A3で入力順どおり<br/>**判定:** 合格 |
