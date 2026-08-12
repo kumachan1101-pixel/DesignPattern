@@ -1285,7 +1285,7 @@ public:
 |---|---|---|
 | 分離方法 | 進行骨格には状態操作・通知・承認判定の契約だけを残し、具体条件を外す | 課題ID1は `IWorkflowPhase`、課題ID2は `INotificationListener`、課題ID3は `IApprovalRule` を境界にする |
 | 配置場所 | 遷移判断は各Phase、送信手段は各Listener、承認可否は各Ruleへ置く | 三つの具象クラス群へ変更理由ごとに配置する |
-| 組み立て方法 | 組み立て側が初期Phase・Rule・Listenerを生成・所有し、Managerへ注入・登録する。状態側が次Phaseを選択し、Managerが所有を引き継ぎ、状態保存後に登録Listenerへ通知する | 生成・所有・登録・選択・注入と実行順を一つの経路にする |
+| 組み立て方法 | 組み立て側が初期Phase・Rule・Listenerを生成・所有し、Managerへ注入・登録する。状態側が次Phaseを選択し、Managerが参照を切り替え、状態保存後に登録Listenerへ通知する | 生成・所有・登録・選択・注入と実行順を一つの経路にする |
 
 #### 設計判断ごとの部分クラス図
 
@@ -1695,7 +1695,7 @@ Phase・Listener・Ruleは組み立て側が生成・注入し、`WorkflowManage
 
 | 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
 |---|---|---|---|
-| 課題ID1（状態遷移） | 状態分離。Managerが現在Phaseへ委ね、状態側が次Phaseを選び所有を引き継ぐ | `IWorkflowPhase`、`DraftPhase`／`PendingPhase`／`PriorityPendingPhase`／`ApprovedPhase`／`RejectedPhase`／`CompletedPhase` | 進行骨格から状態ごとの遷移判断が消える |
+| 課題ID1（状態遷移） | 状態分離。Managerが現在Phaseへ委ね、状態側が次Phaseを選びManagerが参照を切り替える | `IWorkflowPhase`、`DraftPhase`／`PendingPhase`／`PriorityPendingPhase`／`ApprovedPhase`／`RejectedPhase`／`CompletedPhase` | 進行骨格から状態ごとの遷移判断が消える |
 | 課題ID2（通知） | 通知連結。Managerが各Listenerを登録し、状態保存後に配る | `INotificationListener`、`EmailNotifier`／`ChatNotifier`、配送ログ | 通知先の追加・失敗が状態遷移と他通知へ波及しない |
 | 課題ID3（承認判定） | 規則差し替え。承認Phaseが注入された`IApprovalRule`へ可否を委ねる | `IApprovalRule`、`ManagerApprovalRule`／`DirectorApprovalRule`／`DepartmentApprovalRule` | 上限変更が判定規則と設定に閉じる |
 | 変更対象外 | 状態・通知先の保存。Managerは保存表現を変えず利用する | 状態Repository、通知先Repository | 変更前後で保存表現が不変 |
