@@ -18,3 +18,6 @@ kindle/design-patterns/output/script*.py
 kindle/design-patterns/output/find.py
 kindle/design-patterns/output/temp*.txt
 kindle/design-patterns/output/tmp.txt
+
+# check_mermaid.py がローカルへ入れる Mermaid CLI（setup_mermaid.sh で再取得）
+kindle/design-patterns/script/.mermaid-tools/

@@ -27,6 +27,14 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # 品質ゲートの Mermaid rendering が mmdc を必要とする。
+      # Chromium は ubuntu-latest 同梱の google-chrome を check_mermaid.py が
+      # 自動で見つけるため、ここでは落とさない。
+      - name: Install Mermaid CLI
+        run: bash kindle/design-patterns/script/setup_mermaid.sh
       - name: Run push quality gate
         run: python kindle/design-patterns/script/run_completion_gate.py
       - name: Enforce release completion
