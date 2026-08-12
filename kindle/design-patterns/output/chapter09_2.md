@@ -64,7 +64,7 @@ manager.create("TCK002", "USR002"); // プレミアム(佐藤)が作成 → Open
 | 要求ID1 | 登録ユーザーの種別から初期優先度を決める | 一般はNormal、プレミアムはHighになる |
 | 要求ID2 | Open・InProgress・Escalated・Resolvedの状態遷移を管理する | 状態ごとに許可された操作だけ成功する |
 | 要求ID3 | チケットの状態と優先度を保存・取得する | 次の操作が保存済み状態から始まる |
-| 要求ID4 | 担当者割当・解決・再受付・エスカレーションを処理する | 操作後の状態と優先度が規則どおりになる |
+| 要求ID4 | 担当者割当・解決・再受付・エスカレーション・差し戻しを処理する | 操作後の状態と優先度が規則どおりになる |
 | 要求ID5 | 未登録ユーザー・チケット、許可されない操作を拒否する | エラー時に保存状態を変えない |
 
 本章の追跡は**要求IDと変更ID**で行います（利用者・運用者から見た「まとまった働き」を束ねる機能IDは設けません）。変更で各要求IDの内容がどう変わるか——継続・変更・追加——は、1-5「変更後要求ベースライン」の「変更種別・根拠となる変更ID」列で追えます。既存動作が落ちていないかは、フェーズ7の要求ID別回帰で確認します。
@@ -670,7 +670,7 @@ TCK002の状態遷移の実行結果：
 | 要求ID1 | 変更<br/>根拠: 変更ID1 | 一般はNormal、プレミアムと法人はHighとして優先度を計算する | 登録・再受付・エスカレーションで法人がHighになる |
 | 要求ID2 | 変更<br/>根拠: 変更ID2 | 既存4状態にPendingを加え、許可された状態遷移だけを行う | Open/InProgressから保留し、Pendingから再受付できる |
 | 要求ID3 | 継続<br/>根拠: 変更ID2 | チケットの状態と優先度を保存・取得する | Pendingを含む次操作が保存済み状態から始まる |
-| 要求ID4 | 変更<br/>根拠: 変更ID1, 変更ID2 | 担当者割当・解決・再受付・エスカレーション・保留を処理する | 各操作後の状態と優先度が規則どおりになる |
+| 要求ID4 | 変更<br/>根拠: 変更ID1, 変更ID2 | 担当者割当・解決・再受付・エスカレーション・差し戻し・保留を処理する | 各操作後の状態と優先度が規則どおりになる |
 | 要求ID5 | 継続<br/>根拠: — | 未登録入力・許可されない操作を拒否する | エラー時に保存状態を変えない |
 
 **変更前→変更後の要求対照（今回変える要求IDだけ）**
@@ -681,7 +681,7 @@ TCK002の状態遷移の実行結果：
 |---|---|---|---|
 | 要求ID1 | 登録ユーザーの種別から初期優先度を決める | 一般はNormal、プレミアムと法人はHighとして優先度を計算する | 変更ID1 |
 | 要求ID2 | Open・InProgress・Escalated・Resolvedの状態遷移を管理する | 既存4状態にPendingを加え、許可された状態遷移だけを行う | 変更ID2 |
-| 要求ID4 | 担当者割当・解決・再受付・エスカレーションを処理する | 担当者割当・解決・再受付・エスカレーション・保留を処理する | 変更ID1・変更ID2 |
+| 要求ID4 | 担当者割当・解決・再受付・エスカレーション・差し戻しを処理する | 担当者割当・解決・再受付・エスカレーション・差し戻し・保留を処理する | 変更ID1・変更ID2 |
 
 要求ID3・要求ID5は継続（変更前＝変更後）のため対照表には載せません。変更後ベースラインで内容を確認できます。
 
@@ -2306,6 +2306,17 @@ public:
         log.add(ticketId, EventType::Escalate, t.phase->name(),
                 t.priority);
     }
+    void sendBack(const string& ticketId) {
+        Ticket& t = repo.get(ticketId);
+        ITicketPhase* next = t.phase->sendBack();
+        if (!next) return;
+        string before = t.phase->name();
+        t.phase = next;
+        repo.save(t);
+        cout << "  差し戻し: 状態 " << before
+             << " → " << t.phase->name() << endl;
+        log.add(ticketId, "差し戻し", t.phase->name(), t.priority);
+    }
     void reopen(const string& ticketId) {
         Ticket& t = repo.get(ticketId);
         ITicketPhase* next = t.phase->reopen();
@@ -2433,11 +2444,42 @@ int main() {
   保留: 状態 Open → Pending
 ```
 
-エラー例として、存在しないユーザーIDで登録を試みます。
+続けて、保留にした法人チケットを再受付し、アサインしてからエスカレーションします。変更ID1「3操作で法人はHigh」と変更ID2「再受付時は優先度を再計算する」を、同じ法人チケットで通して確認します。あわせて、InProgressからの保留（要求ID2）と、エスカレーション後の差し戻し（要求ID4）も試します。
+
+```cpp
+    cout << "--- 変更要求: TCK003を再受付し、アサイン・保留・エスカレーション ---"
+         << endl;
+    svc.reopen("TCK003");           // Pending → Open（優先度を再計算）
+    svc.assign("TCK003", "AGT01");  // Open → InProgress
+    svc.hold("TCK003");             // InProgress → Pending
+    svc.reopen("TCK003");           // Pending → Open
+    svc.assign("TCK003", "AGT01");
+    svc.escalate("TCK003");         // InProgress → Escalated
+    svc.sendBack("TCK003");         // Escalated → InProgress（差し戻し）
+```
+
+再受付・エスカレーションの実行結果：
+
+```
+--- 変更要求: TCK003を再受付し、アサイン・保留・エスカレーション ---
+  再受付: 状態 Pending → Open 優先度=High
+  アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
+  保留: 状態 InProgress → Pending
+  再受付: 状態 Pending → Open 優先度=High
+  アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
+  エスカレーション: 状態 InProgress → Escalated 優先度=High
+  差し戻し: 状態 Escalated → InProgress
+```
+
+法人ユーザーの優先度は、作成・再受付・エスカレーションのどの操作でもHighのままです。優先度の再計算は状態遷移のたびに `TicketPolicySet` 経由で同じルールへ問い合わせるため、操作ごとに別の判定を書き足す必要がありません。保留は Open からも InProgress からも入れます。
+
+エラー例として、存在しないユーザーIDでの登録と、現在状態で許可されていない操作を試みます。
 
 ```cpp
     cout << "--- エラー: 存在しないユーザー ---" << endl;
     svc.create("TCK004", "USR999");
+    cout << "--- エラー: 許可されない操作 ---" << endl;
+    svc.reopen("TCK003");           // InProgress からは再受付できない
 ```
 
 エラー例の実行結果：
@@ -2445,7 +2487,11 @@ int main() {
 ```
 --- エラー: 存在しないユーザー ---
 エラー: ユーザーID USR999 は存在しません。
+--- エラー: 許可されない操作 ---
+  操作不可: この状態では「再受付」できません。
 ```
+
+許可されない操作は状態クラスが拒否し、状態も優先度も変わりません。要求ID5の受入条件はこの1行で確認できます。どの操作を許すかは各状態クラスが持つので、`TicketService` 側に「この状態のときは何ができるか」という分岐は残りません。
 
 最後に監査ログを出力し、`main()` を終了します。
 
@@ -2470,7 +2516,16 @@ int main() {
 [TCK002] 解決 状態=Resolved 優先度=High
 [TCK003] 作成 状態=Open 優先度=High
 [TCK003] 保留 状態=Pending 優先度=High
+[TCK003] 再受付 状態=Open 優先度=High
+[TCK003] アサイン 状態=InProgress 優先度=High
+[TCK003] 保留 状態=Pending 優先度=High
+[TCK003] 再受付 状態=Open 優先度=High
+[TCK003] アサイン 状態=InProgress 優先度=High
+[TCK003] エスカレーション 状態=Escalated 優先度=High
+[TCK003] 差し戻し 状態=InProgress 優先度=High
 ```
+
+法人チケットTCK003の行を縦に読むと、作成・再受付・エスカレーションのいずれでも優先度がHighのままであることが追えます。変更ID1「3操作で法人はHigh」と変更ID2「再受付時は優先度を再計算する」は、この監査ログで確認できます。
 
 行1〜8で、状態がチケットID単位で保存・追跡され、優先度が登録時に決まって以降引き継がれ（TCK002はHighのまま、再受付・エスカレーションで再計算）、担当者がアサインで保存されることを確認できます。エスカレーション（行7）では `InProgress → Escalated` へ遷移し、その後（行8）`Escalated → Resolved` へ進みます。変更要求の `Pending`（保留中）と法人向けの高優先度も落とさず追えています。
 
@@ -2501,11 +2556,11 @@ stateDiagram-v2
 
 | 要求ID | 最終要求 | 適用コード | 実行シナリオ・観測結果・判定 |
 |---|---|---|---|
-| 要求ID1 | 一般はNormal、プレミアムと法人はHighとして優先度を計算する | 各`IPriorityRule`、`TicketPolicySet` | 登録・再受付・エスカレーションで法人High<br/>**判定:** 合格 |
-| 要求ID2 | 既存4状態にPendingを加え、許可された状態遷移だけを行う | 各`ITicketPhase` | Open/InProgressから保留、Pendingから再受付<br/>**判定:** 合格 |
+| 要求ID1 | 一般はNormal、プレミアムと法人はHighとして優先度を計算する | 各`IPriorityRule`、`TicketPolicySet` | 監査ログのTCK003で作成・再受付・エスカレーションとも法人High<br/>**判定:** 合格 |
+| 要求ID2 | 既存4状態にPendingを加え、許可された状態遷移だけを行う | 各`ITicketPhase` | TCK003でOpen→Pending、InProgress→Pending、Pending→Openを実行<br/>**判定:** 合格 |
 | 要求ID3 | チケットの状態と優先度を保存・取得する | `TicketRepository` | Pendingを含む次操作が保存状態から開始<br/>**判定:** 合格 |
-| 要求ID4 | 担当者割当・解決・再受付・エスカレーション・保留を処理する | `TicketService`、各Phase | 操作後の状態・優先度が規則どおり<br/>**判定:** 合格 |
-| 要求ID5 | 未登録入力・許可されない操作を拒否する | 各Directory・Phase | エラー時に保存状態不変<br/>**判定:** 合格 |
+| 要求ID4 | 担当者割当・解決・再受付・エスカレーション・差し戻し・保留を処理する | `TicketService`、各Phase | TCK003で6操作を通し、状態・優先度が規則どおり。差し戻しはEscalated→InProgress<br/>**判定:** 合格 |
+| 要求ID5 | 未登録入力・許可されない操作を拒否する | 各Directory・Phase | 未登録USR999を拒否し、InProgressからの再受付は「操作不可」で状態不変<br/>**判定:** 合格 |
 
 上の表は継続（要求ID3・要求ID5）・変更（要求ID1・要求ID2・要求ID4）を同じ順序で並べ、変わらなかった既存要求も回帰対象に含めています。継続要求が合格していることで、既存動作が落ちていないことを確認できます。要求の受入・回帰はここで完了します。課題IDへ直接対応付けず、以下では変更試行の痛みから導いた構造課題だけを別に確認します。
 
