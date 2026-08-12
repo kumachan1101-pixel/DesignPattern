@@ -72,7 +72,7 @@ processor.transfer("ACC001", "ACC002", 5000, "999999");
 
 本章の追跡は**要求IDと変更ID**で行います（利用者・運用者から見た「まとまった働き」を束ねる機能IDは設けません）。変更で各要求IDの内容がどう変わるか——継続・変更・追加——は、1-5「変更後要求ベースライン」の「変更種別・根拠となる変更ID」列で追えます。既存動作が落ちていないかは、フェーズ7の要求ID別回帰で確認します。
 
-「振込先口座番号」「送金金額」を入力として受け取り、銀行の外部システムを通じて以下の手順で振り込みを完了させます。成功時は送金元残高を減らし、送金先残高を増やし、振り込み履歴を1件保存します。失敗時は残高も履歴も変更しません。
+「送金元口座ID」「送金先口座ID」「送金金額」「OTP」を入力として受け取り、銀行の外部システムを通じて以下の手順で振り込みを完了させます。成功時は送金元残高を減らし、送金先残高を増やし、振り込み履歴を1件保存します。失敗時は残高も履歴も変更しません。
 
 この手順の順番には業務上の理由があります。「口座が存在しない相手に送金しようとする」「残高が足りないのに認証コードを発行する」といった無駄なコストを避けるため、この章のシステムでは安価な確認（口座・残高）を先に行い、コストのかかる認証・送金を後回しにしています。
 
@@ -168,7 +168,7 @@ flowchart LR
 
 | 手順 | 入力 | 成功時に次へ渡すもの |
 |---|---|---|
-| ① 口座確認 | 振込先口座ID | 有効な振込先口座 |
+| ① 口座確認 | 送金元口座ID・振込先口座ID | 有効な送金元・振込先口座 |
 | ② 残高確認 | 送金元口座ID・送金額 | 送金可能という確認結果 |
 | ③ OTP認証 | 利用者が入力した認証コード | 本人確認済みという結果 |
 | ④ 送金実行 | 口座・金額 | 送金受付結果 |
@@ -243,7 +243,7 @@ flowchart LR
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
 | `AccountDatabase` | 自社台帳（口座名義の保持・検索） | 口座名義の照会 |
-| `Bank` | 外部銀行（残高保持・照会・送金・補償） | 仕様①口座確認・②残高確認・④送金 |
+| `Bank` | 外部銀行（残高保持・照会・送金） | 仕様①口座確認・②残高確認・④送金 |
 | `SecurityAuthenticator` | 認証制御（コード発行・照合） | 仕様③認証 |
 | `TransferRecord` | 振り込み1件分のデータ | 振り込み履歴の1レコード |
 | `TransferHistory` | 振り込み履歴の管理 | 成功した振り込みの記録・一覧表示 |
@@ -1504,7 +1504,7 @@ public:
 
 **この課題（何を解きたいか）：** 接続先変更やテスト用実装への差替えのたび、単発・一括の複数入口が具象実装に依存して一緒に変わる——問題ID3（痛み）／原因ID2です。**窓口を差し替え可能にし、2つの入口へ同じ契約を注入する**のが課題ID2です。
 
-**どう解決するか（方針）：** 窓口契約を切り出し、外から依存注入します（契約差し替え構造＝Adapter＋依存注入）。①契約 →③実装 →④生成 →⑤注入 →⑥実行 の順で組み立てます（②骨格は無し）。
+**どう解決するか（方針）：** 窓口契約を切り出し、外から依存注入します（窓口契約＋依存注入）。①契約 →③実装 →④生成 →⑤注入 →⑥実行 の順で組み立てます（②骨格は無し）。
 
 ```mermaid
 classDiagram
@@ -1562,8 +1562,9 @@ class Application {
 public:
     void run() {
         AccountDatabase db;
+        Bank bank;
         TransferHistory history;
-        BankTransferService service(db, history);   // ④ 具体窓口を生成・所有
+        BankTransferService service(db, bank, history); // ④ 具体窓口を生成・所有
         TransferProcessor processor(service);        // ⑤ 契約を注入
         BatchTransferProcessor batch(service);       // ⑤ 同じ契約を注入
         processor.transfer({"ACC001", "ACC002", 5000, "999999"});
@@ -1726,25 +1727,28 @@ sequenceDiagram
     participant DB as AccountDatabase
     participant G as Bank
     participant A as SecurityAuthenticator
+    participant H as TransferHistory
 
     App->>DB: 生成 (AccountDatabase)
-    App->>F: 生成 (BankTransferService, db)
-    App->>T: 生成 (facade を注入)
-    App->>T: transfer(from, to, amount, otp)
+    App->>F: 生成 (BankTransferService, db, bank, history)
+    App->>T: 生成 (service を注入)
+    App->>T: transfer(req)
     activate T
-    T->>F: performTransfer(from, to, amount, otp)
+    T->>F: performTransfer(req)
     activate F
-    F->>DB: exists(from)
+    F->>DB: exists(req.fromAccount)
     DB-->>F: true
-    F->>DB: exists(to)
-    DB-->>F: true
-    F->>DB: get(from).balance >= amount
-    DB-->>F: true
+    F->>G: verifyAccount(req.toAccount)
+    G-->>F: true
+    F->>G: checkBalance(req.fromAccount, req.amount)
+    G-->>F: true
     F->>A: requestOTP()
     A-->>F: txId
-    F->>A: verifyOTP(otp, txId)
-    F->>G: executeTransfer(to, amount, txId)
-    F-->>T: true
+    F->>A: verifyOTP(req.otp, txId)
+    A-->>F: true
+    F->>G: executeTransfer(from, to, amount, txId)
+    F->>H: add(ownerName(from), ownerName(to), amount)
+    F-->>T: TransferResult{true, "振り込み完了"}
     deactivate F
     T-->>App: 振り込み完了
     deactivate T
@@ -2253,7 +2257,7 @@ graph LR
 | **フェーズ** | **この章でやったこと** |
 |---|---|
 | 🔵 フェーズ1：現状把握 | 仕様と動作例テーブルを確認した後、コードをクラス単位で読んだ。クラス構成図と変更要求を把握した |
-| 🟣 フェーズ2：仮説立案 | 業務機能の所在表と変わる理由の分析で、`TransferProcessor` が外部システムの詳細を多く抱え込んでいる状態を整理した。今回の確定変更とヒアリングで判明した将来リスクを分けて扱った |
+| 🟣 フェーズ2：仮説立案 | 仕様候補とフェーズ1のコード位置を対応させた表で、`TransferProcessor` が外部システムの詳細を多く抱え込んでいる状態を整理した。今回の確定変更とヒアリングで判明した将来リスクを分けて扱った |
 | 🟣 フェーズ3：問題特定 | API変更の適用を試み、影響が `TransferProcessor` を経由して全体に飛び火することを確認した |
 | 🟠 フェーズ4：原因分析 | 振り込み業務のフローと銀行APIの技術詳細が同じ場所にいることが痛みの根本と特定した |
 | 🟡 フェーズ5：課題定義 | 手順の集約を課題ID1、窓口の差し替えを課題ID2として分け、振込依頼・振込結果の接続点を定めた |
@@ -2287,7 +2291,7 @@ graph LR
 
 | **得られること** | **この章のどこで示したか** |
 |---|---|
-| 1. 依存の広がりを識別 | フェーズ2の変わる理由の分析で、`TransferProcessor` のほぼ全行がインフラ・システム管理の業務機能に属する知識であることを発見した |
+| 1. 依存の広がりを識別 | フェーズ2の仕様候補とコード位置の対応表で、変更候補の3つ（銀行API確認・OTP認証・送金API呼び出し）がいずれも `TransferProcessor.transfer()` の中にあることを確認した |
 | 2. 接続点の診断 | フェーズ4で、銀行APIのクラス名と呼び出し順序が業務側へ漏れている状態を確認した |
 | 3. 変更局所化の説明 | フェーズ7の変更シナリオ表で、変更が窓口構造とその内側のサブシステムへ集まり、業務側へ波及しにくい構造を示した |
 | 4. 境界線の引き方 | フェーズ5の課題定義とフェーズ2のヒアリングを通じて、「どの業務機能に属するか」を境界線の根拠にする原則を体験した |
@@ -2421,7 +2425,7 @@ bool performTransferSteps(Bank& bank, SecurityAuthenticator& auth,
 }
 ```
 
-呼び出し元は `performTransferSteps(...)` を1回呼ぶだけになり、手順の重複と漏れ（課題ID1）は解消します。しかしこの関数は差し替えの単位になりません。テスト時に外部通信を止める、または別銀行へ接続する必要が生じると、関数の中身へ分岐を入れるか、呼び出し側を書き換えることになります。これは要求IDではなく、フェーズ3・4で観測した依存の広がりから定めた課題ID2が残ることを意味します。課題ID2の完了条件「修正が組み立ての1か所に収まる」を満たせないため、本章では手順の集約と差し替えの単位を兼ねられる窓口クラス＋契約の形を採用しました。逆に言えば、差し替えを設計条件にしないシステムでは、この関数案で止める判断が成立します。
+呼び出し元は `performTransferSteps(...)` を1回呼ぶだけになり、手順の重複と漏れ（課題ID1）は解消します。しかしこの関数は差し替えの単位になりません。テスト時に外部通信を止める、または別銀行へ接続する必要が生じると、関数の中身へ分岐を入れるか、呼び出し側を書き換えることになります。これは要求IDではなく、フェーズ3・4で観測した依存の広がりから定めた課題ID2が残ることを意味します。課題ID2の完了条件「具体実装の差替えで利用側の呼出手順が変わらない」を満たせないため、本章では手順の集約と差し替えの単位を兼ねられる窓口クラス＋契約の形を採用しました。逆に言えば、差し替えを設計条件にしないシステムでは、この関数案で止める判断が成立します。
 
 ### この章のまとめ
 
