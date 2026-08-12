@@ -1451,7 +1451,6 @@ classDiagram
     class WorkflowCaseRepository
     class NotificationTargetRepository
     class ChatNotifier
-    class ApprovalLog
     class BatchApplication
     class WorkflowEvent
     class WorkflowResult
@@ -1495,7 +1494,6 @@ classDiagram
     INotificationListener <|.. ChatNotifier
     BatchApplication --> WorkflowManager
     BatchApplication --> ApproverDatabase
-    BatchApplication --> ApprovalLog
 
     note for IWorkflowPhase "【課題ID1・新設】状態遷移の契約（状態分離構造）"
     note for INotificationListener "【課題ID2・新設】通知の契約（通知分離構造）"
@@ -1792,7 +1790,7 @@ Phase・Listener・Ruleは組み立て側が生成・注入し、`WorkflowManage
 
 - `DraftPhase`、`ApprovedPhase`、`RejectedPhase`、`CompletedPhase`
 - `DirectorApprovalRule`、`DepartmentApprovalRule`、`ApproverDatabase`、`WorkflowCaseRepository`
-- `NotificationTargetRepository`、`ChatNotifier`、`ApprovalLog`、`BatchApplication`
+- `NotificationTargetRepository`、`ChatNotifier`、`BatchApplication`
 - `WorkflowEvent`、`WorkflowResult`、`NotificationTarget`、`DeliveryResult`
 - `WorkflowManager`、`WorkflowPhaseResolver`、`NotificationTargetResolver`、`NotificationDeliveryLog`
 - `IWorkflowPhase`、`PendingPhase`、`PriorityPendingPhase`、`IApprovalRule`
@@ -1812,7 +1810,6 @@ classDiagram
     class WorkflowCaseRepository
     class NotificationTargetRepository
     class ChatNotifier
-    class ApprovalLog
     class BatchApplication
     class WorkflowEvent
     class WorkflowResult
@@ -1856,7 +1853,6 @@ classDiagram
     INotificationListener <|.. ChatNotifier
     BatchApplication --> WorkflowManager
     BatchApplication --> ApproverDatabase
-    BatchApplication --> ApprovalLog
 
     note for IWorkflowPhase "【課題ID1・新設】状態遷移の契約（状態分離構造）"
     note for INotificationListener "【課題ID2・新設】通知の契約（通知分離構造）"
@@ -1960,34 +1956,6 @@ public:
 ```
 
 `ApproverDatabase` は `BatchApplication` が唯一のインスタンスを保持し、承認者IDの存在確認と、ルールを組み立てるための承認者情報の取得に使います。実行時の承認可否は `IApprovalRule` だけが判定します。これにより、Applicationの事前判定とRuleに同じ上限値を持つ二重化を避けます。
-
-承認ログ（`ApprovalLog`）はシステム起動時は空で、承認・却下・差し戻しが行われるたびに1件追記されます。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
-
-```cpp
-struct ApprovalRecord {
-    std::string approverId;    // "APR001", "APR002", "APR003"
-    std::string approverName;  // "田中部長", "佐藤取締役", "鈴木代表"
-    int amount;
-    std::string decision;      // "承認", "却下", "差し戻し"
-};
-
-// 承認ログを管理するクラス
-class ApprovalLog {
-    std::vector<ApprovalRecord> records;
-public:
-    void add(const std::string& approverId, const std::string& approverName,
-             int amount, const std::string& decision) {
-        records.push_back({approverId, approverName, amount, decision});
-    }
-    void printAll() const {
-        for (const auto& r : records) {
-            std::cout << "[" << r.approverId << "] " << r.approverName
-                      << " " << r.amount << "円 -> " << r.decision << std::endl;
-        }
-    }
-    int size() const { return (int)records.size(); }
-};
-```
 
 **コードで使う値の対応表**
 
@@ -2562,7 +2530,6 @@ class BatchApplication {
 
 public:
     void run() {
-        ApprovalLog approvalLog;
         ManagerApprovalRule managerRule(
             db.get("APR001").approvalLimit);
         DirectorApprovalRule directorRule(
@@ -2600,7 +2567,6 @@ public:
             wf1.addListener(&email);
             wf1.addListener(&chat);
             wf1.process(WorkflowEvent::SubmitNormal);
-            approvalLog.add("APR001", "田中 課長", 50000, "承認");
         }
 ```
 
@@ -2627,7 +2593,6 @@ public:
             wf2.addListener(&email);
             wf2.addListener(&chat);
             wf2.process(WorkflowEvent::SubmitEmergency);
-            approvalLog.add("APR002", "佐藤 部長", 500000, "承認");
         }
 ```
 
@@ -2654,7 +2619,6 @@ public:
             wf3.addListener(&email);
             wf3.addListener(&chat);
             wf3.process(WorkflowEvent::Approve, {50000, "課長"});
-            approvalLog.add("APR001", "田中 課長", 50000, "承認");
         }
 ```
 
@@ -2682,7 +2646,6 @@ public:
             wf4.addListener(&email);
             wf4.addListener(&chat);
             wf4.process(WorkflowEvent::Approve, {500000, "課長"});
-            approvalLog.add("APR002", "佐藤 部長", 500000, "承認");
         }
 ```
 
@@ -2711,7 +2674,6 @@ public:
             wf5.addListener(&email);
             wf5.addListener(&chat);
             wf5.process(WorkflowEvent::Reject);
-            approvalLog.add("APR001", "田中 課長", 50000, "却下");
         }
 ```
 
@@ -2739,7 +2701,6 @@ public:
             wf6.addListener(&email);
             wf6.addListener(&chat);
             wf6.process(WorkflowEvent::FinalApprove, {500000, "部長"});
-            approvalLog.add("APR002", "佐藤 部長", 500000, "承認");
         }
 ```
 
@@ -2823,8 +2784,6 @@ public:
             cout << "[営業部] changed=" << salesResult.stateChanged
                  << ", state=" << salesResult.stateId
                  << ", message=" << salesResult.message << endl;
-            approvalLog.add(
-                "APR002", "佐藤 部長", 500000, "部署別判定を確認");
         }
 ```
 
@@ -2899,12 +2858,9 @@ public:
 
 エラー例3は、要求ID2「権限不一致では状態を変えない」を確認するシナリオです。承認済み状態の申請へ課長の役職で最終承認を要求すると、`ApprovedPhase` が金額判定に進む前に役職を照合し、状態を変えないまま理由を返します。役職の許可は各Phaseが持つため、承認順序（課長→部長）は組み立て側の呼び出し順ではなく状態側の契約で守られます。
 
-最後に承認ログを出力し、`main()` から実行します。
+最後に、`main()` から実行します。
 
 ```cpp
-        cout << "\n--- 承認ログ（" << approvalLog.size()
-             << "件） ---\n";
-        approvalLog.printAll();
     }
 };
 
@@ -2915,20 +2871,7 @@ int main() {
 }
 ```
 
-承認ログの実行結果：
-
-```text
---- 承認ログ（7件） ---
-[APR001] 田中 課長 50000円 -> 承認
-[APR002] 佐藤 部長 500000円 -> 承認
-[APR001] 田中 課長 50000円 -> 承認
-[APR002] 佐藤 部長 500000円 -> 承認
-[APR001] 田中 課長 50000円 -> 却下
-[APR002] 佐藤 部長 500000円 -> 承認
-[APR002] 佐藤 部長 500000円 -> 部署別判定を確認
-```
-
-変更後の受入条件6行と同じ順序で、通常申請は課長承認を経由し、緊急申請は課長を飛ばして部長承認で完了することを確認できます。`ManagerApprovalRule`と`DirectorApprovalRule`の上限は承認者マスターから一度だけ組み立て時に渡されます。行8では、開発部と営業部へ異なる `DepartmentApprovalRule` を注入し、同額の申請で結果が変わることを確認できます。エラーケースでは、未登録IDは処理前に中断し、承認不可は状態・通知を変えず `WorkflowResult` を返します。
+行1〜行8の実行結果を通して読むと、変更後の受入条件6行と同じ順序で、通常申請は課長承認を経由し、緊急申請は課長を飛ばして部長承認で完了することを確認できます。`ManagerApprovalRule`と`DirectorApprovalRule`の上限は承認者マスターから一度だけ組み立て時に渡されます。行8では、開発部と営業部へ異なる `DepartmentApprovalRule` を注入し、同額の申請で結果が変わることを確認できます。エラーケースでは、未登録IDは処理前に中断し、承認不可は状態・通知を変えず `WorkflowResult` を返します。
 `WorkflowManager` はRepositoryから状態ID文字列と通知先データ文字列を読み、Resolverで実行用オブジェクトへ変換します。Repositoryの保存表現は変更前と同じです。状態実装は許可するイベントを処理し、`transitionTo()` を通じてRepository上の状態IDを更新します。通知結果は成功・失敗とも `NotificationDeliveryLog` に残ります。
 
 
