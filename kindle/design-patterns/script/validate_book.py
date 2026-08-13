@@ -394,6 +394,16 @@ BANNED_PATTERNS = [
 ]
 
 
+# validate_book.py が本文へ要求する表頭。テンプレートとも共有するため定数化する。
+# ここを変えたら templates/chapter-template.md も同じ語へ直す
+# （check_validator_template_sync が片方だけの変更を検出する）。
+REQUIRED_TABLE_HEADERS = (
+    "| 原因ID・確定した事実 | そのままだと残る痛み | 課題候補 | 候補を導いた理由 |",
+    "| 課題候補 | 必要性・他候補との関係 | 統合／分割の判断 | 採否 |",
+    "| 課題ID・接続点 | 接続するもの・変わる側 | 守る側 | 完了条件 |",
+)
+
+
 @dataclass
 class Issue:
     path: Path
@@ -2015,11 +2025,11 @@ def check_phase5_phase6_reasoning_contract(
         return issues
 
     for token, message in (
-        ("| 原因として確定した事実 | そのままだと残る痛み | 課題候補 | 候補を導いた理由 |",
+        (REQUIRED_TABLE_HEADERS[0],
          "5-1に原因から候補を導いた理由がありません"),
-        ("| 課題候補 | 必要性・他候補との関係 | 統合／分割の判断 | 採否 |",
+        (REQUIRED_TABLE_HEADERS[1],
          "5-2に候補の必要性・重複・統合・分割の評価がありません"),
-        ("| 課題ID・接続点 | 接続するもの・変わる側 | 守る側 | 完了条件 |",
+        (REQUIRED_TABLE_HEADERS[2],
          "5-3に接続点と完了条件を持つ確定課題表がありません"),
         ("変更IDと課題IDは一対一とは限らない",
          "変更IDと課題IDを別管理する理由がありません"),
@@ -3290,6 +3300,38 @@ def check_step_reference_target(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def check_validator_template_sync(_text: str, path: Path) -> list[Issue]:
+    """validate_book.py が期待する表頭が、テンプレートと本文で生きているか。
+
+    2026-08-13に起きた症状。著者指摘AF-20260813-093を受けてフェーズ5-1の表頭を
+    `原因として確定した事実` から `原因ID・確定した事実` へ変えたとき、全12章と
+    第0章は直したが templates/chapter-template.md と validate_book.py が旧語の
+    ままだった。結果、全12章が同じ検査で落ち、CIが赤くなった。
+
+    recurrence-prevention.md は「テンプレートの項目名を変えたら validator も
+    同じ語へ更新する」と定めているが、破ったことを検出する手段が無かった。
+    ここでは validator が本文へ要求する表頭が、テンプレートにも存在するかを
+    見る。どちらかを直し忘れれば落ちる。
+
+    章ごとに回す必要はないので、先頭の章を処理するときだけ実行する。
+    """
+    issues: list[Issue] = []
+    if path.name != CORE_CHAPTERS[0]:
+        return issues
+    template = BOOK_ROOT / "templates" / "chapter-template.md"
+    if not template.exists():
+        return issues
+    template_text = template.read_text(encoding="utf-8")
+    for header in REQUIRED_TABLE_HEADERS:
+        if header not in template_text:
+            issues.append(Issue(
+                template, 1,
+                f"validate_book.py が本文へ要求する表頭がテンプレートにありません: "
+                f"{header}（片方だけ直すと全章が同じ検査で落ちます）",
+            ))
+    return issues
+
+
 CLASS_STYLE_NAMES = (
     "focus", "pain", "stable", "changed", "normal", "pending",
     "data", "decision", "process", "input", "output", "result",
@@ -3487,6 +3529,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase6_phase7_contract_match(text, path))
         issues.extend(check_change_id_requirement_scope(text, path))
         issues.extend(check_step_reference_target(text, path))
+        issues.extend(check_validator_template_sync(text, path))
     return issues
 
 

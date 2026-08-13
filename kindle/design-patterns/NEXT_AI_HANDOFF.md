@@ -66,7 +66,7 @@
 | PUBLISH-002 | PUBLISH-001待ち | Kindle Previewerで端末別表示を確認する |
 | META-001 | ユーザー確認待ち | 書名・サブタイトル・著者名・紹介文・採用表紙を確定する |
 | EDIT-001 | PUBLISH-001待ち | 生成成果物を初見読者として最終通読する |
-| GATE-001 | 未着手 | 本文ゲートと出版パッケージゲートを分ける |
+| GATE-001 | 完了 | 本文ゲートと出版パッケージゲートを分けた。`run_completion_gate.py` 引数なし＝manuscript ready、`--package`＝KDP package ready。後者は `check_publish_package.py` が目次・成果物・結合順を検査する |
 
 本文が`ready`でも、KDP入稿用成果物が完成したことを意味しない。
 

@@ -113,6 +113,20 @@ broken = t.replace(
 cases.append(("REVIEW-009 4-2比較表", V.check_phase42_comparison_header, broken))
 
 print("再発防止チェックの負のテスト（わざと壊した本文を検出できるか）\n")
+# 5) 2026-08-13: validator とテンプレートの表頭同期漏れ
+#    本文だけ直してテンプレート／validator を放置すると全12章が同じ検査で落ちる
+_tmpl = Path("templates/chapter-template.md")
+_orig = _tmpl.read_text(encoding="utf-8")
+try:
+    _tmpl.write_text(
+        _orig.replace(V.REQUIRED_TABLE_HEADERS[0],
+                      "| 原因として確定した事実 | そのままだと残る痛み | 課題候補 | 候補を導いた理由 |"),
+        encoding="utf-8")
+    _found = V.check_validator_template_sync("", OUT / V.CORE_CHAPTERS[0])
+finally:
+    _tmpl.write_text(_orig, encoding="utf-8")
+cases.append(("SYNC-001 テンプレート同期", lambda *_: _found, ""))
+
 ng = 0
 for name, fn, txt in cases:
     found = fn(txt, Path("dummy.md"))
