@@ -3483,6 +3483,35 @@ def check_phase6_overview_diagram(text: str, path: Path) -> list[Issue]:
     return []
 
 
+def check_observed_problem_only(text: str, path: Path) -> list[Issue]:
+    """問題IDの行へ、試していない変更の「見込み」を書かない。
+
+    2026-08-13に見つかった症状。第6章のフェーズ3は変更ID1（Matcha・Choco追加）
+    しか当てておらず、変更ID2の入力順と変更ID3の販売可否は試していないのに、
+    問題ID3として
+    `販売停止・表示順を足すと…（変更ID1の試行から見込まれる痛み）`
+    と表へ載せていた。問題IDの列見出しは「観測した痛み」であり、
+    見込みを観測として記録すると、後続の原因ID・課題IDが実測でない前提の上に積む。
+
+    3-1のコードは 1-4 / 7-1 と違って audit_book.py の実行検査対象ではないため、
+    「コードが無いのに痛みだけ書いてある」状態を機械では検出できていなかった。
+    ここでは推量の語だけを見る。痛みが未観測なら、表へ載せる前に実際に当てる。
+    """
+    issues: list[Issue] = []
+    guess = re.compile(r"見込ま|想定され|予想され|と思われ|だろう|かもしれ")
+    for m in re.finditer(r"(?m)^\|\s*問題ID\d+\s*\|.*$", text):
+        row = m.group(0)
+        g = guess.search(row)
+        if g:
+            issues.append(Issue(
+                path, line_number(text, m.start()),
+                f"問題IDの行に推量の語「{g.group(0)}」があります。問題IDは"
+                "観測した痛みだけを書く欄なので、実際に変更を当ててから記録して"
+                "ください",
+            ))
+    return issues
+
+
 def check_scenario_label_literal(text: str, path: Path) -> list[Issue]:
     """動作例の行ラベルは、変数から組み立てず文字列リテラルで出す。
 
@@ -3574,6 +3603,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
     issues.extend(check_standard_id_glossary(text, path))
     issues.extend(check_table_column_consistency(text, path))
     issues.extend(check_scenario_label_literal(text, path))
+    issues.extend(check_observed_problem_only(text, path))
     issues.extend(check_raw_new_argument_ownership(text, path))
     if core:
         issues.extend(check_common_phase_headings(text, path))
