@@ -1056,6 +1056,87 @@ OTP検証（txId=TX-9001）
 
 「振り込みを実行する」という業務上の命令を処理している`TransferProcessor`が、変更ID1で追加した「取引IDを保持する」という一時的な状態管理まで背負いました。その結果、認証変更のために振り込み処理全体を修正・再テストしています。
 
+**変更ID3（一括振込の途中失敗時に、完了済みを逆順で取り消し、取り消しも履歴へ残す）を当てはめる**
+
+残る変更ID3も同じ構造へ当てはめます。まず、取り消しを行う銀行APIを外部境界へ足します。
+
+```cpp
+    // 変更ID3：完了済みを取り消す銀行API
+    void cancelTransfer(const std::string& from,
+                        const std::string& to, int amount,
+                        const std::string& txId) {
+        std::cout << "取消: " << from << "→" << to << " "
+                  << amount << "円（txId=" << txId << "）\n";
+    }
+```
+
+次に、一括振込の本体です。完了した件を覚えておき、途中で失敗したら逆順に取り消します。取り消しも履歴へ残します。
+
+```cpp
+// 一括振込の1件分
+struct BatchItem { std::string to; int amount; };
+// 変更ID3：履歴へ残す1行（取り消しも記録する）
+struct HistoryLine { std::string kind; std::string to; int amount; };
+
+    // 変更ID2：一括側にも取引IDが要る。承認済みなのでOTPは省く。
+    std::string batchTxId = "TX-9002";
+    std::vector<BatchItem> done;
+    bool aborted = false;
+    for (size_t i = 0; i < items.size(); ++i) {
+        if (!bank.verifyAccount(items[i].to)) {
+            std::cout << "エラー: 口座 " << items[i].to
+                      << " が確認できません\n";
+            aborted = true;
+            break;
+        }
+        bank.executeTransfer("ACC001", items[i].to,
+                             items[i].amount, batchTxId);
+        history.push_back({"送金", items[i].to, items[i].amount});
+        done.push_back(items[i]);
+    }
+    if (aborted) {
+        // 変更ID3：完了済みを逆順で取り消し、取り消しも履歴へ残す
+        std::cout << "一括振込を中止し、完了分を逆順で取り消します\n";
+        for (size_t k = done.size(); k > 0; --k) {
+            const BatchItem& d = done[k - 1];
+            bank.cancelTransfer("ACC001", d.to, d.amount, batchTxId);
+            history.push_back({"取消", d.to, d.amount});
+        }
+    }
+```
+
+3件のうち3件目を未登録口座にして実行します。
+
+実行対象コード：3-1の変更ID1〜変更ID3を当てはめたコード
+対応する動作例：変更要求後の代表ケース（承認済み一括振込3件・3件目が失敗）
+確認したいこと：完了分を逆順で戻して履歴へ残せるか、そのために何が業務フロー側へ増えたか
+
+実行結果：
+
+```text
+--- 変更ID3: 承認済み一括振込（3件目で失敗） ---
+口座確認: ACC002
+送金: ACC001→ACC002 30000円（txId=TX-9002）
+口座確認: ACC003
+送金: ACC001→ACC003 40000円（txId=TX-9002）
+口座確認: ACC999
+エラー: 口座 ACC999 が確認できません
+一括振込を中止し、完了分を逆順で取り消します
+取消: ACC001→ACC003 40000円（txId=TX-9002）
+取消: ACC001→ACC002 30000円（txId=TX-9002）
+
+--- 履歴 ---
+送金: ACC002 50000円
+送金: ACC002 30000円
+送金: ACC003 40000円
+取消: ACC003 40000円
+取消: ACC002 30000円
+```
+
+逆順で取り消され、取り消しも履歴へ2件残りました。要求は満たせています。
+
+ただし、そのために業務フロー側が新しく次の3つを知ることになりました。どこまで完了したかを覚える `done`、どの順で戻すかという逆順ループ、そして「取り消しも履歴に残す」という記録規則です。さらに変更ID2の取引IDは、単発の `transfer()` だけでなく一括側の送金・取消の両方へ渡す必要があり、銀行APIの引数変更が入口の数だけ波及しました。認証の手順、送金の引数、補償の順序という3つの別々の変更理由が、すべて同じ業務フローのメソッドへ入っています。
+
 ### 3-2：変更影響グラフ
 
 ```mermaid
@@ -1085,8 +1166,8 @@ graph LR
 | 問題ID | 観測した痛み（変更途中コード） | 起点の変更ID |
 |---|---|---|
 | 問題ID1 | 認証手順と送金引数の追加で、業務フロー本体 `TransferProcessor` を直接書き換え、振込全体を回帰確認した | 変更ID1・変更ID2 |
-| 問題ID2 | 再試行・結果照会・保留など通信の都合を足すたび、振込業務のメソッドへ分岐が増える（変更ID1・ID2の試行から予見される痛み） | 変更ID2 |
-| 問題ID3 | 変更ID2のtxId必須化が `transfer()` だけでなく `transferApprovedBatch()` へも波及し、単発・一括の複数入口が銀行APIの具象手順に依存して一緒に変わる | 変更ID2 |
+| 問題ID2 | 変更ID3の補償で、どこまで完了したかを覚える`done`・逆順ループ・取り消しの記録規則の3つが業務フロー側へ入った | 変更ID3 |
+| 問題ID3 | 変更ID2のtxId必須化が単発の送金だけでなく一括側の送金・取消の両方へ波及し、複数の入口が銀行APIの具象手順に依存して一緒に変わる | 変更ID2 |
 
 フェーズ3で「変更が辛い」ことが確認できました。次のフェーズ4では、なぜ辛いのかを構造的に言語化します。
 

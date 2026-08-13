@@ -884,6 +884,7 @@ class UIButtons {
     ExpenseManager em;
     IncomeManager im;
     std::vector<HistoryItem> history;
+    std::vector<HistoryItem> redoStack;  // 変更ID2で追加
     int balance = 0;
 public:
     explicit UIButtons(CategoryDatabase& db) : em(db), im(db) {}
@@ -922,8 +923,69 @@ public:
                 last.amount, last.categoryId);
         }
         history.pop_back();
+        redoStack.push_back(last);      // 変更ID2：やり直し用に退避
         std::cout << "Undo後残高: " << before
                   << " -> " << balance << "円\n";
+    }
+```
+
+変更ID2のRedoは、Undoで退避した操作をもう一度実行します。同じ種別分岐を、今度は順方向でもう一組書きます。
+
+```cpp
+    // 変更ID2：Undoした操作をもう一度実行する
+    void redo() {
+        if (redoStack.empty()) return;
+        HistoryItem last = redoStack.back();
+        redoStack.pop_back();
+        int before = balance;
+        if (last.type == "Expense") {           // ← 同じ種別分岐が3つ目
+            balance += em.addExpense(
+                last.amount, last.categoryId);
+        } else if (last.type == "Income") {
+            balance += im.addIncome(
+                last.amount, last.categoryId);
+        }
+        history.push_back(last);
+        std::cout << "Redo後残高: " << before
+                  << " -> " << balance << "円\n";
+    }
+```
+
+変更ID3の一括実行は、成功した操作を覚えておき、途中で失敗したら逆順に戻します。順方向の種別分岐と逆操作の種別分岐が、さらに一組ずつ増えます。
+
+```cpp
+    // 変更ID3：複数操作を一括実行し、途中失敗なら成功分を巻き戻す
+    void runBatch(const std::vector<HistoryItem>& items) {
+        std::vector<HistoryItem> done;
+        for (size_t i = 0; i < items.size(); ++i) {
+            const HistoryItem& it = items[i];
+            int delta = 0;
+            if (it.type == "Expense") {         // ← 同じ種別分岐が4つ目
+                delta = em.addExpense(it.amount, it.categoryId);
+            } else if (it.type == "Income") {
+                delta = im.addIncome(it.amount, it.categoryId);
+            }
+            if (delta == 0) {
+                std::cout << "一括実行が失敗したので巻き戻します\n";
+                for (size_t k = done.size(); k > 0; --k) {
+                    const HistoryItem& d = done[k - 1];
+                    if (d.type == "Expense") {  // ← 逆操作の分岐が5つ目
+                        balance += em.removeExpense(
+                            d.amount, d.categoryId);
+                    } else if (d.type == "Income") {
+                        balance += im.removeIncome(
+                            d.amount, d.categoryId);
+                    }
+                    history.pop_back();
+                }
+                std::cout << "巻き戻し後残高: " << balance << "円\n";
+                return;
+            }
+            balance += delta;
+            history.push_back(it);
+            done.push_back(it);
+        }
+        std::cout << "一括実行後残高: " << balance << "円\n";
     }
 };
 ```
@@ -937,13 +999,23 @@ int main() {
     buttons.onAddExpenseClick(1000, "CAT002");
     buttons.onAddIncomeClick(5000, "CAT001");
     buttons.undo();
+
+    std::cout << "\n--- 変更ID2: Undoした収入登録をやり直す ---\n";
+    buttons.redo();
+
+    std::cout << "\n--- 変更ID3: 一括実行（途中で失敗） ---\n";
+    std::vector<HistoryItem> batch;
+    batch.push_back({"Expense", 300, "CAT002"});
+    batch.push_back({"Income", 700, "CAT001"});
+    batch.push_back({"Expense", 500, "CAT999"});  // 未登録カテゴリで失敗
+    buttons.runBatch(batch);
     return 0;
 }
 ```
 
 実行対象コード：3-1の変更試行コード<br>
-対応する動作例：支出登録、収入登録、直前の収入登録をUndo<br>
-確認したいこと：Undo後に残高が直前の状態へ戻り、その実現に必要な修正がどの責任へ広がるか
+対応する動作例：支出登録、収入登録、Undo、Redo、一括実行の途中失敗<br>
+確認したいこと：変更ID1〜変更ID3を満たせるか、その実現に必要な修正がどの責任へ広がるか
 
 実行結果：
 
@@ -954,11 +1026,25 @@ int main() {
 現在残高: -1000 -> 4000円
 収入取消: 5000円 [CAT001]
 Undo後残高: 4000 -> -1000円
+
+--- 変更ID2: Undoした収入登録をやり直す ---
+収入追加: 5000円 [CAT001]
+Redo後残高: -1000 -> 4000円
+
+--- 変更ID3: 一括実行（途中で失敗） ---
+支出追加: 300円 [CAT002]
+収入追加: 700円 [CAT001]
+一括実行が失敗したので巻き戻します
+収入取消: 700円 [CAT001]
+支出取消: 300円 [CAT002]
+巻き戻し後残高: 4000円
 ```
 
-Undo後の残高は`4000円`から、収入登録前の`-1000円`へ戻りました。変更ID1は実現できています。ただし、そのために、各Managerへ逆操作を追加し、`HistoryItem`へ復元データを持たせ、`UIButtons`へ操作種別の分岐と残高更新を同時に追加しました。変更ID2のRedoと変更ID3の一括補償も、同じ三つの責任（逆操作・復元データ・種別分岐）へ手を入れることになります。ここで試したのは変更ID1だけですが、`undo()` の分岐が種別ごとに伸びる形は変更ID2・変更ID3でも変わりません。
+変更ID1のUndoでは、残高が`4000円`から収入登録前の`-1000円`へ戻りました。変更ID2のRedoでは、退避した収入登録をもう一度実行して`4000円`へ戻せています。変更ID3の一括実行では、3件目が未登録カテゴリ`CAT999`で失敗したため、成功済みの収入700円と支出300円を逆順に取り消し、一括実行前の`4000円`へ戻りました。三つとも要求は満たせています。
 
-つまり変更ID1〜変更ID3は「関数を1つ足せば動く」変更ではありません。**各マネージャへ逆操作を足し、呼び出し元の`UIButtons`が操作種別・逆操作・復元データ・実行順を知る形になりました。** 局所的なメソッド追加では済まず、今回の要求だけで責任が`UIButtons`へ集中しています。
+ただし、そのために各Managerへ逆操作を追加し、`HistoryItem`へ復元データを持たせ、`UIButtons`へ操作種別の分岐を書き続けました。種別を見る `if (type == "Expense")` は、`onAddExpenseClick`／`onAddIncomeClick` の入口に加えて、`undo()`・`redo()`・`runBatch()` の順方向・`runBatch()` の巻き戻しと、同じ形で5組に増えています。収支以外の操作種別（たとえば振替）を1つ足せば、この5か所すべてへ同じ分岐を書き足すことになります。
+
+つまり変更ID1〜変更ID3は「関数を1つ足せば動く」変更ではありませんでした。**各マネージャへ逆操作を足し、呼び出し元の`UIButtons`が操作種別・逆操作・復元データ・実行順を知る形になりました。** 局所的なメソッド追加では済まず、今回の要求だけで責任が`UIButtons`へ集中しています。
 
 ### 3-2：変更影響グラフ
 
@@ -999,7 +1085,8 @@ graph LR
 |---|---|---|
 | 問題ID1 | 実行・Undo・Redo・一括補償の条件分岐が同じ入口 `UIButtons` へ集中する | 変更ID1・変更ID2・変更ID3 |
 | 問題ID2 | 画面が「どのクラスのどのメソッドを何の引数で呼ぶか」まで知り、実行の詳細を知りすぎている | 変更ID1 |
-| 問題ID3 | 複合操作や保存失敗時の補償で「何をどの順で戻すか」をUIや履歴管理側が知る必要がある | 変更ID3 |
+| 問題ID3 | 一括実行の途中失敗で「何をどの順で戻すか」を`UIButtons`が知り、巻き戻し用の逆順ループと種別分岐を`runBatch()`の中へ書いた | 変更ID3 |
+| 問題ID4 | 操作種別を見る同じ分岐が、入口2か所・`undo()`・`redo()`・`runBatch()`の順方向と巻き戻しで5組に増えた。種別を1つ足すと5か所すべてへ同じ分岐を書き足す | 変更ID1・変更ID2・変更ID3 |
 
 （操作の「意図」と「実行手段」の混在が問題の核心だと確認できました。次のフェーズ4では、なぜこの混在が起きているのかを構造的に分析します。）
 

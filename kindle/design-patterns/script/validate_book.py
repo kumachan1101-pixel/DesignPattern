@@ -3496,9 +3496,15 @@ def check_observed_problem_only(text: str, path: Path) -> list[Issue]:
     3-1のコードは 1-4 / 7-1 と違って audit_book.py の実行検査対象ではないため、
     「コードが無いのに痛みだけ書いてある」状態を機械では検出できていなかった。
     ここでは推量の語だけを見る。痛みが未観測なら、表へ載せる前に実際に当てる。
+
+    初版の語彙に「予見され」が無く、第2章の問題ID2と第10章の問題ID3にあった
+    「（変更ID1・ID2の試行から予見される痛み）」を素通りさせた。同じ書き方の
+    ゆれを取りこぼさないよう、語を足すときは全章へ試走して誤検出を確かめる。
     """
     issues: list[Issue] = []
-    guess = re.compile(r"見込ま|想定され|予想され|と思われ|だろう|かもしれ")
+    guess = re.compile(
+        r"見込ま|想定され|予想され|予見され|見込み|と思われ|だろう|かもしれ"
+    )
     for m in re.finditer(r"(?m)^\|\s*問題ID\d+\s*\|.*$", text):
         row = m.group(0)
         g = guess.search(row)

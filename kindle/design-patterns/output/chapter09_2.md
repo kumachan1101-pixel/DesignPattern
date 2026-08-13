@@ -1022,6 +1022,9 @@ public:
                 t.status = TicketStatus::Escalated;
                 t.priority = calc.calculate(db.get(t.userId).userType);
                 changed = true;
+            } else if (op == "hold") {                // ← 追加
+                t.status = TicketStatus::Pending;
+                changed = true;
             }
             break;
         case TicketStatus::Escalated:
@@ -1074,19 +1077,28 @@ int main() {
     manager.updateStatus("TCK010", "hold");
     manager.updateStatus("TCK010", "reopen");
 
+    manager.create("TCK011", "USR004");
+    manager.updateStatus("TCK011", "assign", "AGT01");
+    manager.updateStatus("TCK011", "hold");
+    manager.updateStatus("TCK011", "reopen");
+
     return 0;
 }
 ```
 
-実行結果（`create("TCK010","USR004")` で法人チケットを登録し、保留・再受付する）：
+実行結果（法人チケットを登録し、Openからの保留とInProgressからの保留を両方試す）：
 
 ```
 [TCK010] 作成 申請者=伊藤 四郎 状態=Open 優先度=High
 [TCK010] hold: 状態 Open → Pending 優先度=High
 [TCK010] reopen: 状態 Pending → Open 優先度=High
+[TCK011] 作成 申請者=伊藤 四郎 状態=Open 優先度=High
+[TCK011] assign: 状態 Open → InProgress 優先度=High
+[TCK011] hold: 状態 InProgress → Pending 優先度=High
+[TCK011] reopen: 状態 Pending → Open 優先度=High
 ```
 
-動作は正しくなっています。しかし `PriorityCalculator`（SLAルール）と `TicketManager::updateStatus()`（状態遷移）の両方を修正しており、「状態追加（保留中）」と「SLAルール変更（法人）」という2つの異なる変化が、同じ `updateStatus` メソッドの分岐と優先度呼び出しに絡み合っています。
+動作は正しくなっています。変更ID2の保留は Open と InProgress の2か所へ同じ `else if (op == "hold")` を書き足すことになり、どちらか一方を書き忘れても他方は動くため、抜けに気づけません。また `Pending` を `TicketStatus` へ足しただけではログに出ないので、`statusName()` の変換分岐にも同じ値を追加しています。しかも `PriorityCalculator`（SLAルール）と `TicketManager::updateStatus()`（状態遷移）の両方を修正しており、「状態追加（保留中）」と「SLAルール変更（法人）」という2つの異なる変化が、同じ `updateStatus` メソッドの分岐と優先度呼び出しに絡み合っています。
 
 ### 3-2：変更影響グラフ
 
@@ -1123,6 +1135,7 @@ graph LR
 |---|---|---|
 | 問題ID1 | 状態遷移と優先度計算が密に絡み、片方をいじると他方のロジックを無意識に壊す恐怖がある | 変更ID1・変更ID2 |
 | 問題ID2 | Pending追加で、本来別軸の優先度計算と既存遷移までテスト対象になり、変更が局所化できない | 変更ID2 |
+| 問題ID4 | 保留への遷移を Open と InProgress の2つの `case` へ同じ形で書き足し、`statusName()` の変換分岐にも同じ値を足した。一方だけ書き忘れても他方は動くため、抜けに気づけない | 変更ID2 |
 | 問題ID3 | 状態遷移とルール判定が同じ `updateStatus` の一続きの `if` に押し込まれ、状態側を直したつもりが優先度再計算を落とす取り違えが起きる | 変更ID1・変更ID2 |
 
 フェーズ3で「変更が辛い」という事実が確認できました。次のフェーズ4では、なぜ辛いのかを構造的に言語化します。
@@ -1522,6 +1535,9 @@ public:
             } else if (op == "escalate") {
                 t.status = TicketStatus::Escalated;
                 t.priority = calc.calculate(db.get(t.userId).userType);
+                changed = true;
+            } else if (op == "hold") {                // ← 追加
+                t.status = TicketStatus::Pending;
                 changed = true;
             }
             break;
