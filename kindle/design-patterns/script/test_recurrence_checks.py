@@ -112,6 +112,13 @@ broken = t.replace(
     "| **変わり続けるもの（取込形式）** | **変わってほしくないもの（登録処理）** |", 1)
 cases.append(("REVIEW-009 4-2比較表", V.check_phase42_comparison_header, broken))
 
+# 14) TABLE-001: 第0章の番号表で「表記例」と「意味」を1セルへ潰す
+t = (OUT/"chapter00_2.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "| 原因ID1 | 痛みを生む構造上の原因 |",
+    "| 原因ID1：痛みを生む構造上の原因 |", 1)
+cases.append(("TABLE-001 表の列数", V.check_table_column_consistency, broken))
+
 print("再発防止チェックの負のテスト（わざと壊した本文を検出できるか）\n")
 # 5) 2026-08-13: validator とテンプレートの表頭同期漏れ
 #    本文だけ直してテンプレート／validator を放置すると全12章が同じ検査で落ちる

@@ -2898,6 +2898,8 @@ def check_standard_id_glossary(text: str, path: Path) -> list[Issue]:
             "| 要求ID1 | システムが満たす要求 |",
             "| 変更ID1 | 今回届いた変更依頼 |",
             "| リスクID1 | 将来変わる可能性 |",
+            "| 問題ID1 | 変更を試して観測した痛み |",
+            "| 原因ID1 | 痛みを生む構造上の原因 |",
             "| 課題ID1 | 構造として解く設計課題 |",
         ):
             if token not in text:
@@ -3332,6 +3334,53 @@ def check_validator_template_sync(_text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def _table_cell_count(row: str) -> int:
+    """表の行のセル数を数える。バッククォート内の `|` は区切りにしない。"""
+    body = row.strip()
+    if body.startswith("|"):
+        body = body[1:]
+    if body.endswith("|"):
+        body = body[:-1]
+    cells = 1
+    in_code = False
+    for ch in body:
+        if ch == "`":
+            in_code = not in_code
+        elif ch == "|" and not in_code:
+            cells += 1
+    return cells
+
+
+def check_table_column_consistency(text: str, path: Path) -> list[Issue]:
+    """表の各行のセル数を、その表の表頭とそろえる。
+
+    2026-08-13に見つかった症状。第0章「本書の番号の読み方」の原因ID行が
+    `| 原因ID1：痛みを生む構造上の原因 | フェーズ4 | … |` と3列になっており、
+    表頭4列に対して「表記例」と「意味」が1セルへ潰れていた。Kindleでは列が
+    ずれて表示される。
+
+    既存の check_kindle.py は「4列を超えないか」だけを見るため、列が足りない
+    行は素通りしていた。check_standard_id_glossary も原因ID行を見ていなかった。
+    ここでは表頭とデータ行のセル数一致を全表で見る。
+    """
+    issues: list[Issue] = []
+    lines = text.split("\n")
+    for start, end in _tables_in(lines):
+        header_cells = _table_cell_count(lines[start])
+        for idx in range(start + 1, end + 1):
+            row = lines[idx]
+            if re.fullmatch(r"\|[\s:\-|]+\|", row.strip()):
+                continue
+            cells = _table_cell_count(row)
+            if cells != header_cells:
+                issues.append(Issue(
+                    path, idx + 1,
+                    f"表の列数が表頭と違います（表頭{header_cells}列・この行"
+                    f"{cells}列）。区切りの `|` の過不足を直してください",
+                ))
+    return issues
+
+
 CLASS_STYLE_NAMES = (
     "focus", "pain", "stable", "changed", "normal", "pending",
     "data", "decision", "process", "input", "output", "result",
@@ -3495,6 +3544,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
     issues.extend(check_banned_patterns(text, path))
     issues.extend(check_overview_phase_scope(text, path))
     issues.extend(check_standard_id_glossary(text, path))
+    issues.extend(check_table_column_consistency(text, path))
     issues.extend(check_raw_new_argument_ownership(text, path))
     if core:
         issues.extend(check_common_phase_headings(text, path))
