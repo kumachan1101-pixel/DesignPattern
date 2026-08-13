@@ -3483,6 +3483,34 @@ def check_phase6_overview_diagram(text: str, path: Path) -> list[Issue]:
     return []
 
 
+def check_scenario_label_literal(text: str, path: Path) -> list[Issue]:
+    """動作例の行ラベルは、変数から組み立てず文字列リテラルで出す。
+
+    2026-08-13に見つかった症状。第6章の1-4が
+    `void showOrder(MenuDatabase& db, int row, ...)` として行番号を引数で受け、
+    `cout << "--- 行" << row << " ---"` と組み立てていた。呼び出し側は
+    「モバイルアプリを想定」と書かれているのに、動作例テーブルの何行目かを
+    渡さないと呼べない。行番号はどの要求IDにも無い執筆上の目印であり、
+    それを業務コードの入力へ混ぜていた。
+
+    check_unused_cpp_inputs.py は「使われない引数」を見るが、この row は
+    表示に使われていたため素通りした。ここでは行ラベルを変数から作る書き方を
+    禁じる。ラベルは main() 側のリテラルで出せば、呼び出し規約を汚さない。
+    """
+    issues: list[Issue] = []
+    pattern = re.compile(r'"-{2,}\s*行"\s*<<|<<\s*"\s*行"\s*<<')
+    for block in re.finditer(r"```cpp\s*\n(.*?)```", text, re.S):
+        m = pattern.search(block.group(1))
+        if m:
+            issues.append(Issue(
+                path, line_number(text, block.start(1) + m.start()),
+                "動作例の行ラベルを変数から組み立てないでください。行番号は"
+                "要求ではなく執筆上の目印なので、呼び出し側へ渡させず "
+                "main() のリテラルで出します",
+            ))
+    return issues
+
+
 def check_ignored_verification_results(text: str, path: Path) -> list[Issue]:
     """成否を返す既知の検証・照会呼び出しが単独文で捨てられていないか。"""
     issues: list[Issue] = []
@@ -3545,6 +3573,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
     issues.extend(check_overview_phase_scope(text, path))
     issues.extend(check_standard_id_glossary(text, path))
     issues.extend(check_table_column_consistency(text, path))
+    issues.extend(check_scenario_label_literal(text, path))
     issues.extend(check_raw_new_argument_ownership(text, path))
     if core:
         issues.extend(check_common_phase_headings(text, path))

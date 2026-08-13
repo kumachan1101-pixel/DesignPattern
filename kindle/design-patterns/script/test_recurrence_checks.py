@@ -119,6 +119,16 @@ broken = t.replace(
     "| 原因ID1：痛みを生む構造上の原因 |", 1)
 cases.append(("TABLE-001 表の列数", V.check_table_column_consistency, broken))
 
+# 15) INPUT-001: 第6章の表示ヘルパーへ行番号を引数で戻す
+t = (OUT/"chapter06.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "void showOrder(MenuDatabase& db, const string& itemId,\n"
+    "               bool milk, bool whip, bool syrup) {\n",
+    "void showOrder(MenuDatabase& db, int row, const string& itemId,\n"
+    "               bool milk, bool whip, bool syrup) {\n"
+    '    cout << "--- 行" << row << " ---" << endl;\n', 1)
+cases.append(("INPUT-001 行ラベルの組み立て", V.check_scenario_label_literal, broken))
+
 print("再発防止チェックの負のテスト（わざと壊した本文を検出できるか）\n")
 # 5) 2026-08-13: validator とテンプレートの表頭同期漏れ
 #    本文だけ直してテンプレート／validator を放置すると全12章が同じ検査で落ちる

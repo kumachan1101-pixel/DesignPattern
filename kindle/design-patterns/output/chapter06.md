@@ -44,7 +44,7 @@
 
 ```cpp
 // 商品DRINK001（ホットコーヒー）を、トッピングなし（milk/whip/syrup=false）で1点注文
-showOrder(db, 1, "DRINK001", false, false, false);
+showOrder(db, "DRINK001", false, false, false);
 ```
 
 同じ入力を含む完全なコードと実行結果は1-4に掲載します。
@@ -408,14 +408,13 @@ public:
 
 **③ 実行して動作例と照合する（main）**
 
-共通の注文表示は `showOrder` ラムダにまとめ、以降は各行の注文を呼び出します。まず依存を組み立て、行1（ホットコーヒー・トッピングなし）を実行します。
+共通の注文表示は `showOrder` 関数にまとめ、以降は各行の注文を呼び出します。`showOrder` が受け取るのは注文そのもの（メニューIDとトッピングの選択）だけです。動作例テーブルの何行目かは注文の一部ではないので、照合用のラベルは `main()` 側で出します。まず依存を組み立て、行1（ホットコーヒー・トッピングなし）を実行します。
 
 ```cpp
 // 呼び出し側のコード（モバイルアプリを想定）
-// 1行分の注文を表示する（mainから呼ぶ表示ヘルパー）
-void showOrder(MenuDatabase& db, int row, const string& itemId,
+// 1件分の注文を表示する（mainから呼ぶ表示ヘルパー）
+void showOrder(MenuDatabase& db, const string& itemId,
                bool milk, bool whip, bool syrup) {
-    cout << "--- 行" << row << " ---" << endl;
     if (!db.exists(itemId)) {
         cout << "エラー：メニューID " << itemId
              << " は存在しません" << endl;
@@ -431,7 +430,8 @@ void showOrder(MenuDatabase& db, int row, const string& itemId,
 int main() {
     MenuDatabase db;
 
-    showOrder(db, 1, "DRINK001", false, false, false);
+    cout << "--- 行1 ---" << endl;
+    showOrder(db, "DRINK001", false, false, false);
 ```
 
 行1（ホットコーヒー・トッピングなし）の実行結果：
@@ -445,7 +445,8 @@ int main() {
 続いて、行2（＋Milk）を実行します。
 
 ```cpp
-    showOrder(db, 2, "DRINK001", true,  false, false);
+    cout << "--- 行2 ---" << endl;
+    showOrder(db, "DRINK001", true,  false, false);
 ```
 
 行2（＋Milk）の実行結果：
@@ -459,7 +460,8 @@ int main() {
 続いて、行3（＋Milk＋Syrup）を実行します。
 
 ```cpp
-    showOrder(db, 3, "DRINK001", true,  false, true);
+    cout << "--- 行3 ---" << endl;
+    showOrder(db, "DRINK001", true,  false, true);
 ```
 
 行3（＋Milk＋Syrup）の実行結果：
@@ -473,7 +475,8 @@ int main() {
 続いて、行4（＋Milk＋Whip）を実行します。
 
 ```cpp
-    showOrder(db, 4, "DRINK001", true,  true,  false);
+    cout << "--- 行4 ---" << endl;
+    showOrder(db, "DRINK001", true,  true,  false);
 ```
 
 行4（＋Milk＋Whip）の実行結果：
@@ -487,7 +490,8 @@ int main() {
 続いて、行5（＋Whip＋Syrup）を実行します。
 
 ```cpp
-    showOrder(db, 5, "DRINK001", false, true,  true);
+    cout << "--- 行5 ---" << endl;
+    showOrder(db, "DRINK001", false, true,  true);
 ```
 
 行5（＋Whip＋Syrup）の実行結果：
@@ -501,7 +505,8 @@ int main() {
 最後に、行6（存在しないメニューID）を実行し、`main()` を終了します。
 
 ```cpp
-    showOrder(db, 6, "DRINK999", false, false, false);
+    cout << "--- 行6 ---" << endl;
+    showOrder(db, "DRINK999", false, false, false);
 
     return 0;
 }
