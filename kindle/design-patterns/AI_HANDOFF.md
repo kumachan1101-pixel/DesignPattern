@@ -6,7 +6,7 @@
 
 ## 現在の引き継ぎ状態
 
-最初に`NEXT_AI_HANDOFF.md`と`AUTHOR_FEEDBACK_MASTER.md`を全文読む。本文の整合タスクCONS-001〜066は完了済みで、編集用`★`も残っていない。新しい指摘は新しい連番タスクとして登録し、完了済みのCONS-064〜066を再実行しない。`TASK.md`、`RESTRUCTURE_PLAN.md`、`CONS-065_AI_INSTRUCTIONS.md`、`CONS-066_AI_INSTRUCTIONS.md`は完了履歴であり、現在の作業指示ではない。
+最初に`NEXT_AI_HANDOFF.md`、`author-feedback-20260813.md`、`AUTHOR_FEEDBACK_MASTER.md`を全文読む。本文の整合タスクCONS-001〜066と著者指摘AF-20260813-001〜087は完了済みだが、最新コミット`a80dc09`で追加された編集用`★`10件がAF-20260813-088〜097として未対応登録されている。現在の最優先はこの10件であり、本文には追跡元として`★`を残してある。完了済みのCONS-064〜066を再実行しない。`TASK.md`、`RESTRUCTURE_PLAN.md`、`CONS-065_AI_INSTRUCTIONS.md`、`CONS-066_AI_INSTRUCTIONS.md`は完了履歴であり、現在の作業指示ではない。
 
 ## 絶対に守る優先順位
 

@@ -12,11 +12,18 @@
 
 1. `NEXT_AI_HANDOFF.md`
 2. `AI_HANDOFF.md`
-3. このファイル
-4. `templates/chapter-template.md`
-5. `rules/checklist.md`
-6. `rules/phase-consistency-check.md`
-7. 作業対象の章
+3. `author-feedback-20260813.md`の未対応AF-20260813-088〜097
+4. このファイル
+5. `templates/chapter-template.md`
+6. `rules/checklist.md`
+7. `rules/phase-consistency-check.md`
+8. 作業対象の章
+
+## 2026-08-13の最新未対応指摘
+
+コミット`a80dc09`で追加された`★`10件は、`author-feedback-20260813.md`のAF-20260813-088〜097へ登録済みである。標準ライブラリ説明、先取り・メタ記述、章間構成、コード分割、原因ID追跡、Undo履歴操作、宣言と実装の提示意図が対象となる。
+
+この10件はまだ本文・正本・検証へ反映していないため、以下の既存基準だけを根拠に完了扱いしてはならない。各タスクで著者意図と現行仕様を照合し、採用判断、本文変更、横断監査、再発防止を記録してから、この正本の該当基準へ統合する。
 
 ## 著者の中心要求
 
