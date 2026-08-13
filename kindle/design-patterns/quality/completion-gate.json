@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "book_status": "in_progress",
+  "book_status": "ready",
   "task_source": "review-tasks.md",
   "tasks": {
     "CONS-001": {"status": "done", "evidence": ["output/chapter00_2.md#🟡 フェーズ5：課題定義 ―― 原因から課題を検討して確定する"]},
