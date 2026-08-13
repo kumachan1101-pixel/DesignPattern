@@ -46,7 +46,7 @@
     "CONS-041": {"status": "done", "evidence": ["output/chapter02.md#1-1：このシステムの仕様", "output/chapter12.md#1-1：このシステムの仕様"]},
     "CONS-042": {"status": "done", "evidence": ["output/chapter11.md#1-5：変更要求"]},
     "CONS-043": {"status": "done", "evidence": ["output/chapter11.md#2-4：ヒアリングで判明した将来リスク"]},
-    "CONS-044": {"status": "done", "evidence": ["output/chapter11.md#6-1：生成・所有・破棄と実行順のまとめ"]},
+    "CONS-044": {"status": "done", "evidence": ["output/chapter11.md#6-1：生成・所有・実行順のまとめ"]},
     "CONS-045": {"status": "done", "evidence": ["output/chapter11.md#完成後のクラス一覧"]},
     "CONS-046": {"status": "done", "evidence": ["script/check_completion_gate.py:69", "rules/completion-gate.md#出版完了の確認"]},
     "CONS-047": {"status": "done", "evidence": ["output/epilogue.md#AIと一緒に考える時代だからこそ"]},

@@ -597,12 +597,18 @@ int main() {
 
 運営担当は、この機能が実装されれば、直前キャンセルによる空き枠を減らし、収益が大きく改善すると期待しています。ここで整理しておくと、「キャンセル待ち」とは予約枠が満杯のときに空き待ちを登録する状態、「予約一時保留」とは予約を確保したまま決済の期限を延期する状態です。
 
-依頼文を、実行結果で判定できる変更依頼へ分けます。★満席になってキャンセル待ちが残っていたらどうなるのか。２４時間の期限切れとは別で、ユーザーがキャンセルを行うことはできるのか。予約して一時保留せずに放置したら、ずっと予約済み状態を維持できるのか。仕様バグはないか。
+依頼文を、実行結果で判定できる変更依頼へ分けます。先に曖昧さをなくすため、本章では次の業務ルールを固定します。
+
+- 満席時の通常の予約要求は、システムが空席数を確認して自動的にキャンセル待ちへ登録する。利用者が満席を判断して別操作を選ぶ必要はない。
+- 空席が1席出るたびに待ち行列の先頭1件だけを自動昇格し、後続の待機者は先着順のまま残る。複数席空けば、席数分だけ同じ処理を繰り返す。
+- 利用者は `Reserved` と `Held` のどちらからも明示的にキャンセルできる。いずれも席を解放し、待機者がいれば自動昇格する。
+- 通常の `Reserved` は15分の決済期限を持つ。利用者が明示的に一時保留を選ぶと `Held` へ移り、期限が24時間へ延長される。どちらも期限切れはスケジューラから届き、席を解放する。
+- 本章ではキャンセル待ち自体の取り下げ、イベント開始時刻との厳密な比較、プロセス再起動後のタイマー復元は扱わない。
 
 | 変更依頼ID | 確定した変更内容 | 入力 | 受入条件 |
 |---|---|---|---|
-| 変更ID1 | 満席時にキャンセル待ちへ登録し、空席発生時に先頭を自動昇格する | イベントID、満席状態、予約済み取消 | 取消で49/50になった直後、先頭待機者が予約済みとなり50/50へ戻る |
-| 変更ID2 | 予約済みを24時間の一時保留へ移し、期限切れで席を解放する | 予約済み状態、一時保留操作、期限切れイベント | 保留中は席を確保し、期限切れ時は空席へ戻して待機者がいれば自動昇格する |
+| 変更ID1 | 満席時の予約要求を自動でキャンセル待ちへ登録し、空席発生時に先頭を自動昇格する | イベントID、満席状態、予約要求、予約済み取消 | 予約要求だけで待機登録され、取消で49/50になった直後、先頭待機者が予約済みとなり50/50へ戻る |
+| 変更ID2 | 通常の15分決済期限を、明示的な一時保留で24時間へ延長し、期限切れで席を解放する | 予約済み状態、一時保留操作、期限切れイベント | Reserved/Heldの期限中は席を確保し、期限切れ時は空席へ戻して待機者がいれば自動昇格する |
 
 #### 変更後要求ベースライン
 
@@ -613,8 +619,8 @@ int main() {
 | 要求ID3 | 変更<br/>根拠: 変更ID2 | 予約済みまたは一時保留から支払済みへ遷移する | 支払成功時だけPaidになる |
 | 要求ID4 | 変更<br/>根拠: 変更ID1 | 予約取消で席を解放し、待機者がいれば先頭を同じ処理内で自動昇格する | 50/50→49/50→50/50と件数変化し、手動昇格を要しない |
 | 要求ID5 | 継続<br/>根拠: — | 許可されない操作や決済失敗では状態と予約数を変えない | エラー前後の状態・件数が一致する |
-| 要求ID6 | 追加<br/>根拠: 変更ID1 | 満席時にキャンセル待ちへ登録する | 待機順を保存し、空席発生時に先頭から昇格する |
-| 要求ID7 | 追加<br/>根拠: 変更ID2 | 予約済みを24時間一時保留し、期限切れで席を解放する | 保留中は席を確保し、期限切れ後は待機者を自動昇格する |
+| 要求ID6 | 追加<br/>根拠: 変更ID1 | 満席時の予約要求をシステムがキャンセル待ちへ登録する | 利用者は予約操作だけを行い、待機順を保存して空席発生時に先頭から昇格する |
+| 要求ID7 | 追加<br/>根拠: 変更ID2 | Reservedは15分、一時保留したHeldは24時間の期限を持ち、期限切れで席を解放する | 期限中は席を確保し、期限切れ後は待機者を自動昇格する |
 
 **変更前→変更後の要求対照（今回変える要求IDだけ）**
 
@@ -624,8 +630,8 @@ int main() {
 |---|---|---|---|
 | 要求ID3 | 予約済みを支払済みへ遷移する | 予約済みまたは一時保留から支払済みへ遷移する | 変更ID2 |
 | 要求ID4 | 予約済みをキャンセルして予約可能へ戻し、予約数を1減らす | 予約取消で席を解放し、待機者がいれば先頭を同じ処理内で自動昇格する | 変更ID1 |
-| 要求ID6 | （新規・現行なし） | 満席時にキャンセル待ちへ登録する | 変更ID1 |
-| 要求ID7 | （新規・現行なし） | 予約済みを24時間一時保留し、期限切れで席を解放する | 変更ID2 |
+| 要求ID6 | （新規・現行なし） | 満席時の予約要求をシステムがキャンセル待ちへ登録する | 変更ID1 |
+| 要求ID7 | （新規・現行なし） | Reservedは15分、一時保留したHeldは24時間の期限を持ち、期限切れで席を解放する | 変更ID2 |
 
 要求ID1・要求ID2・要求ID5は継続（変更前＝変更後）のため対照表には載せません。変更後ベースラインで内容を確認できます。
 
@@ -653,9 +659,10 @@ int main() {
 
 | 現在の状態 | 操作 | 遷移先 | 処理内容 |
 |---|---|---|---|
-| Available | addToWaitlist | Waitlisted | キャンセル待ちリストに追加する |
+| Available | reserve（満席時） | Waitlisted | 通常の予約要求をキャンセル待ちへ自動登録する |
 | Waitlisted | promoteBySystem | Reserved | 空席発生時にシステムが予約へ昇格する |
-| Reserved | hold | Held | 予約を確保したまま24時間決済を保留する |
+| Reserved | hold | Held | 通常の15分期限を24時間へ延長する |
+| Reserved | expire | Available | 通常の15分決済期限が切れ、予約枠を空きに戻す |
 | Held | pay | Paid | 保留期限内に決済を完了する |
 | Held | cancel | Available | 保留中の予約を取り消し、予約枠を空きに戻す |
 | Held | expire | Available | 保留期限（24時間）が切れ、予約枠を空きに戻す |
@@ -665,16 +672,17 @@ int main() {
 
 各遷移が「誰の・何をきっかけに」起きるかを、時間の流れで並べると次のようになります。
 
-1. **予約する（Available→Reserved）**：利用者が「予約」を押した瞬間に在庫から1席が引かれ、予約済み（未払い）になります。この章の仕様では、**Reserved に自動の期限はありません**。一時保留を選ばず、支払いもキャンセルもしなければ、予約はそのまま維持されます。実運用では「未払いのまま15分で自動解放」のような短いタイムアウトを併設するのが普通ですが、それは5.の期限切れと同じ考え方（現在状態が期限切れイベントを受けて次状態を決める）で追加できるため、この章では明示的な保留（Held）の24時間タイマーだけを扱います。
-2. **一時保留する（Reserved→Held）**：利用者が「一時保留」を選ぶと、席を確保したまま決済期限を24時間に延ばします。ここで初めて「24時間の保留タイマー」が動き出します。**予約のまま放置すると自動で保留になるのではなく、保留は利用者が明示的に選ぶ操作**です。
+1. **予約する（Available→Reserved／Waitlisted）**：利用者は常に「予約」を押します。空席があれば席数から1席を引いて予約済み（未払い）となり、満席ならシステムが自動でキャンセル待ちへ登録します。`Reserved` の標準決済期限は15分です。
+2. **一時保留する（Reserved→Held）**：利用者が明示的に「一時保留」を選ぶと、席を確保したまま決済期限を24時間へ延長します。予約の放置を自動で保留へ変える操作ではありません。
 3. **支払う（Reserved／Held→Paid）**：期限内に決済すると確定します。
-4. **期限切れ（Held→Available）**：**保留に入ってから24時間**が経過しても未払いなら、タイマーイベントが枠を空きに戻します。空いた1席は、キャンセル待ち（Waitlisted）の先頭が自動昇格して受け取ります。
+4. **期限切れ（Reserved／Held→Available）**：Reservedは15分、Heldは24時間が経過しても未払いなら、タイマーイベントが枠を空きに戻します。空いた1席は、キャンセル待ち（Waitlisted）の先頭が自動昇格して受け取ります。
 5. **決済失敗（Reserved／Held を維持）**：決済APIが失敗を返しても状態は進めず、同じ状態のまま再試行できます。
 
 現状の `if` 文を使った状態分岐ロジックに、この2状態と、操作・イベントによる6種類の遷移/状態維持を追加することになります。
 
-**この章が扱う複雑さ**
-★この項目は何を示すのか見直したい。タイマーを実際に扱わず、ユーザーがコールすることで保留期限切れにしているのでは？実システムとの差分について説明すべきではないのか。
+**実システムのイベントと掲載コードでの模擬方法**
+
+実運用では、期限時刻を永続化し、バックグラウンドのタイマー基盤が期限到来を検知して予約システムへイベントを送ります。掲載コードは実時間を待たず、テスト用の `BatchApplication` がタイマー基盤の代役として `ReservationExpiryScheduler::onPaymentDeadlineExpired()` を直接呼びます。呼び出し行は利用者操作の実装ではなく、外部タイマーからイベントが届いた状況を即時再現するテストハーネスです。時刻計算・ジョブ再実行・永続化は省略しても、予約オブジェクトが期限切れイベントを受けた後の遷移は実際に動かします。
 
 | 入力の種類 | 具体例 | 状態に与える影響 | この章で見ること |
 |---|---|---|---|
@@ -701,7 +709,7 @@ int main() {
 
 【表2a：キャンセル待ち系の操作】
 
-| 現在の状態 | waitlist登録 | 予約昇格 |
+| 現在の状態 | 満席時の予約要求 | 予約昇格 |
 |---|---|---|
 | Available（予約可能） | → Waitlisted | —— |
 | Reserved（予約済み） | —— | —— |
@@ -725,9 +733,10 @@ stateDiagram-v2
     Available --> Reserved : 予約する
     Reserved --> Paid : 支払う
     Reserved --> Available : キャンセルする
-    Available --> Waitlisted : waitlist登録
+    Available --> Waitlisted : 満席時の予約要求
     Waitlisted --> Reserved : 予約済みキャンセル後に自動昇格
     Reserved --> Held : 一時保留
+    Reserved --> Available : 15分期限切れ
     Held --> Paid : 支払う
     Held --> Available : キャンセルする
     Held --> Available : 期限切れ
@@ -753,7 +762,7 @@ stateDiagram-v2
 ```mermaid
 flowchart LR
     A[(検証済み予約<br>Available / Reserved / Paid<br>Waitlisted / Held)]:::data --> B[イベント存在・空席・操作可否を確認]:::process
-    C[/操作・イベント<br>予約・支払い・キャンセル<br>waitlist登録・予約昇格・一時保留・期限切れ・決済失敗/]:::input --> B
+    C[/操作・イベント<br>予約・支払い・キャンセル<br>予約昇格・一時保留・期限切れ・決済失敗/]:::input --> B
     D[/イベントID<br>EVT001: 春の音楽祭<br>EVT002: 夏のフェス<br>EVT003: 秋の映画会/]:::input --> B
     B --> F[状態ごとの処理を実行]:::process
     F --> G[次の状態を決める]:::process
@@ -768,7 +777,7 @@ flowchart LR
 
 この図から読み取ることは、次の3点です。
 
-- 新しい入力は「Waitlisted・Held」の2状態と「waitlist登録・予約昇格・一時保留・期限切れ・決済失敗」の5操作/イベントで、図の箱そのものは増えていない。
+- 新しい入力は「Waitlisted・Held」の2状態と「満席時の自動待機登録・予約昇格・一時保留・期限切れ・決済失敗」の5操作/イベントで、図の箱そのものは増えていない。
 - 増えるのは「操作は現在状態で可能か」で受け付ける組み合わせと、「次の状態を決める」の行き先である。
 - 受け付けられない組み合わせは、変更後も既存の「操作不可エラー」として扱う。
 
@@ -906,7 +915,7 @@ flowchart LR
 | 仕様 | 修正対象メソッド |
 |---|---|
 | `Held`（一時保留）：イベント開始24時間前まで予約枠を仮押さえする状態 | `pay()` / `cancel()` の両メソッドに `else if (status == "Held")` の追加が必要。また、保留期限切れを処理する `expire()` が必要。 |
-| `Waitlisted`（キャンセル待ち）：予約枠が満杯のときに空き待ちを登録する状態 | `addToWaitlist()` で待ち行列へ登録し、`cancel()` / `expire()` による空席発生直後に先頭を自動昇格させる処理が必要。 |
+| `Waitlisted`（キャンセル待ち）：予約枠が満杯のときに空き待ちを登録する状態 | `reserve()` の満席分岐で待ち行列へ自動登録し、`cancel()` / `expire()` による空席発生直後に先頭を自動昇格させる処理が必要。 |
 | 決済失敗：決済APIが失敗したら予約を消さずに再試行可能な状態へ戻す | `pay()` の中で、`Reserved` からの失敗と `Held` からの失敗を分けて扱う必要がある。 |
 
 この仕様を今の `TicketReservation` クラスに当てはめてみます。追加した箇所が分かるよう、コメントで「追加」と明示します。座席在庫の存在確認・空席判定・座席の増減は1-4の `EventDatabase` がそのまま担うため、この抜粋では在庫まわりを省き、状態遷移に絡む部分へ集中します。新しく登場する待ち行列は、0章「共有データの持ち方」の全章共通規約に従い、在庫（`EventDatabase`）と同じく組み立て側が所有する共有ストアとしてコンストラクタで外から受け取ります。グローバルな `static` で持つと生成順や実行順に依存し、どのインスタンスがいつ書いたのか追えなくなるためです。こうすると、在庫も待ち行列も「外から渡される共有ストア」で管理場所がそろいます。関数の先頭と主要データにはコメントを付けます。
@@ -914,14 +923,14 @@ flowchart LR
 ```cpp
 #include <iostream>
 #include <string>
-#include <vector>
+#include <deque>
 
 // 変更後の TicketReservation（Held・Waitlisted を追加した状態）
 // 在庫（EventDatabase）は1-4のものをそのまま使う想定で、この抜粋では
 // 状態遷移と、状態処理に絡む待ち行列だけを示す。
 class TicketReservation {
     // --- データ ---
-    std::vector<TicketReservation*>& waitlist;  // 共有の待ち行列（外部から注入）
+    std::deque<TicketReservation*>& waitlist;  // 共有の待ち行列（借用ポインタ）
     std::string status;  // 状態 Available/Reserved/Paid/Held/Waitlisted
 
     // 空席発生時にシステムが呼ぶ内部遷移（利用側からは呼ばせない）
@@ -934,8 +943,8 @@ class TicketReservation {
     // 待ち行列の先頭を1件だけ取り出して昇格させる
     void promoteNextWaitlisted() {
         if (waitlist.empty()) return;
-        TicketReservation* next = waitlist.front();　★０章で使い方説明したか。これは、参照だけで削除されないという事でよいか。
-        waitlist.erase(waitlist.begin());　★こちらで削除している？
+        TicketReservation* next = waitlist.front();
+        waitlist.pop_front();
         next->promoteBySystem();
     }
 
@@ -945,17 +954,22 @@ class TicketReservation {
     void handlePayError()      { std::cout << "支払いに適した状態ではありません\n"; }
     void handleCancelError()   { std::cout << "キャンセルできません\n"; }
     void handleExpireError()   { std::cout << "期限切れ処理は行えません\n"; }
-    void handleWaitlistError() { std::cout << "キャンセル待ちに登録できません\n"; }
 public:
     // 共有の待ち行列を受け取り、初期状態は予約可能
-    explicit TicketReservation(std::vector<TicketReservation*>& waitlist)
+    explicit TicketReservation(std::deque<TicketReservation*>& waitlist)
         : waitlist(waitlist), status("Available") {}
 
-    // 予約する（Available のときだけ予約済みへ）
-    void reserve() {
+    // 通常の予約要求。満席判定結果は周辺のEventDatabaseからシステムが渡す。
+    void reserve(bool hasCapacity = true) {
         if (status == "Available") {
-            status = "Reserved";
-            std::cout << "予約完了しました\n";
+            if (hasCapacity) {
+                status = "Reserved";
+                std::cout << "予約完了しました\n";
+            } else {
+                status = "Waitlisted";
+                waitlist.push_back(this);
+                std::cout << "満席のためキャンセル待ちに登録しました\n";
+            }
         } else {
             handleReserveError();
         }
@@ -995,28 +1009,20 @@ public:
             handleCancelError();
         }
     }
-    // 保留期限切れ（Held のときだけ枠を解放 ← 新規追加）
+    // 決済期限切れ（Reservedは15分、Heldは24時間で枠を解放）
     void expire() {                      // ← 新規追加
-        if (status == "Held") {
+        if (status == "Reserved" || status == "Held") {
             status = "Available";
-            std::cout << "保留期限が切れました\n";
+            std::cout << "決済期限が切れました\n";
             promoteNextWaitlisted();
         } else {
             handleExpireError();
         }
     }
-    // キャンセル待ちに登録（Available のときだけ待ち行列へ ← 新規追加）
-    void addToWaitlist() {               // ← 新規追加
-        if (status == "Available") {
-            status = "Waitlisted";
-            waitlist.push_back(this);
-            std::cout << "キャンセル待ちに登録しました\n";
-        } else {
-            handleWaitlistError();
-        }
-    }
 };
 ```
+
+`front()` は先頭の借用ポインタを読むだけで、予約オブジェクトを削除しません。続く `pop_front()` がキューからそのポインタ1件を除きますが、参照先の `TicketReservation` は呼び出し側が所有したままです。第0章で説明した `deque` の「先頭参照」と「先頭要素の除去」を、この待ち行列へ適用しています。
 
 この変更後コードを、代表シナリオごとに実行します。
 
@@ -1029,7 +1035,7 @@ public:
 ```cpp
 int main() {
     // 全予約で共有する待ち行列（在庫と同じく組み立て側が持ち、外から渡す）
-    std::vector<TicketReservation*> waitlist;
+    std::deque<TicketReservation*> waitlist;
 
     // シナリオ1：予約 → 保留 → 支払い
     TicketReservation t1(waitlist);
@@ -1062,18 +1068,17 @@ int main() {
 ```text
 予約完了しました
 保留にしました
-保留期限が切れました
+決済期限が切れました
 ---
 ```
 
-最後に、シナリオ3（キャンセル→自動昇格→支払い）を実行し、`main()` を終了します。
-★キャンセル待ちの登録って、システム側でやってくれないの？ユーザー側は満席かどうか知りようがないのでは？システムとして破綻してないか。
+最後に、シナリオ3（満席時の自動待機登録→キャンセル→自動昇格→支払い）を実行し、`main()` を終了します。この抜粋では `false` が周辺の `EventDatabase::hasCapacity()` による満席判定結果を表し、利用者は通常の `reserve()` 以外の待機登録操作を選びません。
 ```cpp
     // シナリオ3：既存予約のキャンセル → 待ち行列の先頭を自動昇格 → 支払い
     TicketReservation occupied(waitlist);
     occupied.reserve();
     TicketReservation waiting(waitlist);
-    waiting.addToWaitlist();
+    waiting.reserve(false);        // システムが満席判定を渡し、自動待機登録
     occupied.cancel();             // 利用側が行うのはキャンセルだけ
     waiting.pay();                 // 昇格済みなので支払える
 
@@ -1085,7 +1090,7 @@ int main() {
 
 ```text
 予約完了しました
-キャンセル待ちに登録しました
+満席のためキャンセル待ちに登録しました
 予約をキャンセルしました
 空席発生を検知し、予約へ自動昇格しました
 支払い完了しました
@@ -1162,10 +1167,9 @@ graph LR
 
 > **「変わらないもの」と「変わってほしくないもの」は異なります。** 「変わらないもの」は経験的事実（今まで変わっていない）、「変わってほしくないもの」は設計意図（ここを安定させてほかを守りたい）です。ここで整理するのは後者です。
 
-原因分析の結果から、「変わり続けるもの」と「変わってほしくないもの」を整理します。
-★以下の赤丸と緑丸を使っている箇所と使っていない箇所がある。使っている方で統一した方が良いか。
+原因分析の結果から、「変わり続けるもの」と「変わってほしくないもの」を整理します。分類は色付き記号に頼らず、列名と各行の内容で示します。
 
-| **変わり続けるもの（🔴）** | **変わってほしくないもの（🟢）** |
+| **変わり続けるもの** | **変わってほしくないもの** |
 |---|---|
 | 状態の種類（キャンセル待ち、保留中などの追加） | 予約システムとしての基本的な業務フロー |
 | 各状態における振る舞い（状態ごとのアクション） | 状態を管理するという概念（状態があること自体） |
@@ -1174,7 +1178,8 @@ graph LR
 私たちが守りたいのは「予約管理」という概念であり、増え続ける「状態の種類」や「状態ごとの細かなルール」は、安定した業務フローから切り離す必要がある存在なのです。
 
 ### 4-3：接続点に漏れている状態の知識を確認する
-★この項目は他の章では見つからなかった。この項目を記載するのが期待なのか期待ではないのか。テンプレはどうなっているのか。あるべき姿にテンプレや各章を修正してほしい。
+
+4-3は、原因から対策へ飛ばず、「境界に残す最小の約束」を確定するための全パターン章共通セクションです。テンプレートと全章を同じ見出し構成で横断確認します。本章では、状態名・分岐条件を利用側へ漏らさず、現在状態へ操作を委譲することが接続点です。
 
 ここでの「確認すること」は、前節までに見つけた原因から抽出します。まず、原因文から「守りたい骨格」と「変わる差分」を分けます。次に、その差分を動かすために骨格側が知ってしまっている名前・条件・順序・型を拾います。最後に、接続点に残す最小の約束を、値・型・操作・イベントとして書きます。
 
@@ -1255,14 +1260,13 @@ graph LR
 
 フェーズ4で、一つの`TicketReservation`が「公開操作（予約・支払い・取消）」の中に「状態ごとの振る舞い（操作可否・遷移先）」と「待ち行列と席解放後の自動昇格」を条件分岐で抱えていることを確認しました。対策は、状態ごとの振る舞いを状態オブジェクトへ分け、待ち行列は専用の係へ寄せることです。ここで使う中心構造は、第一部で扱った基本構造です。構造名（と対応するパターン名）を語彙として併記しますが、パターン名から設計を選ぶのではなく、上で確認した「状態ごとに変わる振る舞い」から必要な構造を導きます。
 
-```text
-現在：TicketReservation が
-      公開操作 ＋ 状態ごとの振る舞い ＋ 待ち行列と自動昇格 を分岐で持つ
-                      ↓
-変更後：状態ごとの振る舞いを状態オブジェクトへ分け、待ち行列は専用の係へ寄せる
-   状態ごとの操作可否・遷移先   → 各状態が自分の振る舞いを持つ（状態分離＝State）→ 課題ID1
-   待ち順序と席解放後の自動昇格 → 待ち行列の係へ寄せ一つのユースケースで完了する（待ち行列分離）→ 課題ID2
-守る範囲：公開入口（予約・支払い・取消）、座席数の更新、履歴の契約
+```mermaid
+flowchart TB
+    A[現在<br/>公開操作・状態分岐・待ち行列が<br/>TicketReservationに混在] --> B[分離判断<br/>状態の振る舞いと待ち行列を<br/>別責任へ出す]
+    B --> C[課題ID1<br/>各状態が操作可否と遷移を持つ<br/>状態分離＝State]
+    B --> D[課題ID2<br/>待ち順序と自動昇格を<br/>待ち行列の係へ寄せる]
+    C --> E[守る範囲<br/>予約・支払い・取消の入口、座席更新、履歴契約]
+    D --> E
 ```
 
 まだクラスの中身は見ません。この段階でつかんでほしいのは「状態ごとの振る舞いを状態オブジェクトへ分け（課題ID1）、待ち行列と自動昇格を専用の係へ寄せて（課題ID2）、公開入口は現在状態へ委譲するだけにする」という筋だけです。「どのクラスが生成し、どの契約で実行するか」という具体の結論は、この後の課題ID1・課題ID2で決めていきます。決めた結論をまとめて振り返る表は、フェーズ6の末尾（6-3 設計トレース）に置きます。ここでは先に結論表を出しません。
@@ -1349,7 +1353,7 @@ classDiagram
 
 ```mermaid
 classDiagram
-    direction LR
+    direction TB
     class EventDatabase {
         +exists(id)
         +hasCapacity(id)
@@ -1393,11 +1397,13 @@ classDiagram
     }
     class IReservationState {
         <<interface>>
-        +reserve(ctx)
-        +pay(ctx)
-        +cancel(ctx)
-        +promoteBySystem(ctx)
-        +expire(ctx)
+        +reserve(reservation)
+        +pay(reservation)
+        +cancel(reservation)
+        +promoteBySystem(reservation)
+        +hold(reservation)
+        +expire(reservation)
+        +paymentFailed(reservation)
     }
     class EventInfo
     class ReservationRecord
@@ -1481,7 +1487,7 @@ public:
 
 **この課題（何を解きたいか）：** 状態を1種足すたび、`reserve/pay/cancel/expire` の複数メソッドへ分岐が増え、修正漏れが受入不成立へ直結する——問題ID1・問題ID2（痛み）／原因ID1です。**公開入口は現在状態へ委譲するだけにし、状態ごとの可否と遷移だけを差し替えられる**ようにするのが課題ID1です。
 
-**どう解決するか（方針）：** 状態を共通契約の裏へ出し、公開操作は現在状態へ委譲します（状態分離構造＝State）。①契約 →③具体 →④生成 →⑤保持・遷移 →⑥委譲 の順で組み立てます（②骨格は無し）。★この番号の流れは何か。０章で記載している内容だったか。説明済みならこの★だけ消してください。突如現れたように見えたので。
+**どう解決するか（方針）：** 状態を共通契約の裏へ出し、公開操作は現在状態へ委譲します（状態分離構造＝State）。①契約 →③具体 →④生成 →⑤保持・遷移 →⑥委譲 の順で組み立てます（②骨格は無し）。①〜⑥は第0章で定義した全章共通の読み順で、Stateには固定骨格がないため②を使いません。
 
 ```mermaid
 classDiagram
@@ -1505,7 +1511,6 @@ public:
     virtual void reserve(TicketReservation*) { /* 不可メッセージ */ }
     virtual void pay(TicketReservation*) { /* 不可メッセージ */ }
     virtual void cancel(TicketReservation*) { /* 不可メッセージ */ }
-    virtual void addToWaitlist(TicketReservation*) { /* 不可メッセージ */ }
     virtual void promoteBySystem(TicketReservation*) { /* 不可メッセージ */ }
     virtual ~IReservationState() = default;
 };
@@ -1518,10 +1523,10 @@ public:
 ```cpp
 class ReservedState : public IReservationState {
 public:
-    void cancel(TicketReservation* ctx) override {
-        ctx->cancelSeat();                // 席を解放
-        ctx->promoteNextWaitlisted();     // 待機者を昇格（課題ID2へ橋渡し）
-        ctx->setState(availableState());  // ⑤ 共有状態へ遷移
+    void cancel(TicketReservation* reservation) override {
+        reservation->cancelSeat();                // 席を解放
+        reservation->promoteNextWaitlisted();     // 待機者を昇格（課題ID2へ橋渡し）
+        reservation->setState(availableState());  // ⑤ 共有状態へ遷移
     }
     // reserve()/pay() は各状態が自分の可否を実装する
 };
@@ -1572,15 +1577,19 @@ public:
         auto& q = queues[eventId];
         if (q.empty()) return nullptr;
         TicketReservation* next = q.front();
-        q.pop_front();　★ライブラリの使い方は０章で説明済みでよいか。説明していないなら０章で説明して。
+        q.pop_front();
         return next;                // 昇格の呼び出しは状態側が行う
     }
 };
 ```
 
+`front()` で先頭の借用ポインタを読み、`pop_front()` でキュー内のその1件だけを除きます。参照先の予約オブジェクトは削除しません。この `deque` の操作と所有権は第0章の標準ライブラリ説明にも反映しています。
+
 **⑤ 状態処理からは1経路だけで接続する。** 席を解放する各状態処理が `promoteNextWaitlisted()` を通じて `ReservationWaitlist::popNext()` を呼びます。**⑥ 実行**では先頭1件が `promoteBySystem()` で自動昇格します。これで課題ID2の完了条件「取消・期限切れから自動昇格まで一つのユースケースで完了する」を満たし、状態分離構造と待ち行列分離構造が1点で接続されます。
 
-### 6-1：生成・所有・実行順のまとめ　★この項目８章にない。意図的か。他にも、項目が差分がないだろうか。テンプレ通りにできているのか。
+### 6-1：生成・所有・実行順のまとめ
+
+この節は完成構造をコードへ渡す前に、生成・所有・注入・実行順を確定する全パターン章共通の節です。章ごとの差ではなくテンプレート上の必須構成として扱い、第8章を含む全章の有無を横断確認します。
 
 課題ID1・課題ID2を一本の実行経路へ束ね直します。上の課題別展開は試行錯誤の履歴ではなく、完成構造を理解できる単位へ分けた実装順です。
 
@@ -1683,11 +1692,13 @@ classDiagram
     }
     class IReservationState {
         <<interface>>
-        +reserve(ctx)
-        +pay(ctx)
-        +cancel(ctx)
-        +promoteBySystem(ctx)
-        +expire(ctx)
+        +reserve(reservation)
+        +pay(reservation)
+        +cancel(reservation)
+        +promoteBySystem(reservation)
+        +hold(reservation)
+        +expire(reservation)
+        +paymentFailed(reservation)
     }
     class EventInfo
     class ReservationRecord
@@ -1744,7 +1755,7 @@ sequenceDiagram
 
     main->>BA: run()
     BA->>C: cancel()
-    C->>RS: cancel(ctx)
+    C->>RS: cancel(reservation)
     RS->>DB: cancelSeat(EVT003)
     DB-->>RS: 50/50 -> 49/50
     RS->>C: setState(Available)
@@ -1752,7 +1763,7 @@ sequenceDiagram
     C->>WQ: popNext(EVT003)
     WQ-->>C: waiting
     C->>W: promoteBySystem()
-    W->>WS: promoteBySystem(ctx)
+    W->>WS: promoteBySystem(reservation)
     WS->>DB: reserveSeat(EVT003)
     DB-->>WS: 49/50 -> 50/50
     WS->>W: setState(Reserved)
@@ -1761,7 +1772,7 @@ sequenceDiagram
 
 `BatchApplication` は昇格を呼びません。`ReservedState::cancel()` が座席解放後に待ち行列を進め、`WaitlistedState` が同じ席を確保して `Reserved` へ遷移します。したがって途中で運用者が介入する空白はありません。
 
-期限切れも同様に、利用者や運用者が予約の状態を手動で進めません。掲載コードでは実際の時計を待たないため、`ReservationExpiryScheduler`の`onHoldExpired()`をタイマー基盤から届くイベントのスタブとして使います。
+期限切れも同様に、利用者や運用者が予約の状態を手動で進めません。掲載コードでは実際の時計を待たないため、`ReservationExpiryScheduler`の`onPaymentDeadlineExpired()`をタイマー基盤から届くイベントのスタブとして使います。
 
 ```mermaid
 sequenceDiagram
@@ -1774,7 +1785,7 @@ sequenceDiagram
 
     Timer->>S: 保留24時間経過
     S->>C: expire()
-    C->>H: expire(ctx)
+    C->>H: expire(reservation)
     H->>DB: cancelSeat(eventId)
     H->>C: setState(Available)
     H->>C: promoteNextWaitlisted()
@@ -1829,7 +1840,7 @@ public:
         }
         int before = event.reserved;
         ++event.reserved;
-        std::cout << "[在庫] " << id << " "
+        std::cout << "[予約数] " << id << " "
                   << before << "/" << event.capacity
                   << " -> " << event.reserved << "/" << event.capacity;
         if (event.reserved == event.capacity) std::cout << "（満席）";
@@ -1840,7 +1851,7 @@ public:
         auto& event = records.at(id);
         int before = event.reserved;
         if (event.reserved > 0) --event.reserved;
-        std::cout << "[在庫] " << id << " "
+        std::cout << "[予約数] " << id << " "
                   << before << "/" << event.capacity
                   << " -> " << event.reserved << "/" << event.capacity
                   << std::endl;
@@ -1922,8 +1933,8 @@ class TicketReservation;
 // 状態ごとの振る舞いを定義するインターフェース
 class IReservationState {
 public:
-    // 既定は「その状態では不可」を返すだけなので ctx は使わない。★ctxとは？
-    // 仮引数名を省略して未使用警告を出さず、派生側は ctx を受け取り上書きする。
+    // 引数は操作対象の予約コンテキスト（TicketReservation*）。
+    // 既定実装では使わないため仮引数名を省略し、派生側では reservation と名付ける。
     virtual void reserve(TicketReservation*) {
         std::cout << "現在予約できません\n";
     }
@@ -1932,9 +1943,6 @@ public:
     }
     virtual void cancel(TicketReservation*) {
         std::cout << "キャンセルできません\n";
-    }
-    virtual void addToWaitlist(TicketReservation*) {
-        std::cout << "キャンセル待ちに登録できません\n";
     }
     virtual void promoteBySystem(TicketReservation*) {
         std::cout << "システム昇格の対象ではありません\n";
@@ -1952,60 +1960,7 @@ public:
 };
 ```
 
-**⑤ 各状態クラス（AvailableState / ReservedState / PaidState / WaitlistedState / HeldState）**
-
-5つの状態に対応する状態クラスを宣言し、それぞれが必要なアクションをオーバーライドします。
-
-```cpp
-// 各状態クラスの事前宣言と、共有する状態オブジェクトの取得関数
-class AvailableState;
-class ReservedState;
-class PaidState;
-class WaitlistedState;
-class HeldState;
-
-IReservationState* availableState();
-IReservationState* reservedState();
-IReservationState* paidState();
-IReservationState* waitlistedState();
-IReservationState* heldState();
-
-// Available（予約可能）状態：予約またはキャンセル待ちを受け付けられる
-class AvailableState : public IReservationState {
-public:
-    void reserve(TicketReservation* ctx) override;
-    void addToWaitlist(TicketReservation* ctx) override;
-};
-
-// Reserved（予約済み）状態：支払い、キャンセル、または保留を待つ
-class ReservedState : public IReservationState {
-public:
-    void pay(TicketReservation* ctx) override;
-    void cancel(TicketReservation* ctx) override;
-    void hold(TicketReservation* ctx) override;
-    void paymentFailed(TicketReservation* ctx) override;
-};
-
-// Paid（支払い済み）状態：完了状態のため、オーバーライドなし（すべて拒否）
-class PaidState : public IReservationState {};
-
-// Waitlisted（キャンセル待ち）状態：予約への昇格を待つ
-class WaitlistedState : public IReservationState {
-public:
-    void promoteBySystem(TicketReservation* ctx) override;
-};
-
-// Held（一時保留）状態：保留中からの支払い、キャンセル、期限切れを処理する
-class HeldState : public IReservationState {
-public:
-    void pay(TicketReservation* ctx) override;
-    void cancel(TicketReservation* ctx) override;
-    void expire(TicketReservation* ctx) override;
-    void paymentFailed(TicketReservation* ctx) override;
-};
-```
-
-**⑥ 予約操作のコンテキスト（TicketReservation）**
+**⑤ 予約操作のコンテキスト（TicketReservation）**
 
 状態クラスを保持し、操作を現在の状態に委譲する中心クラス（コンテキスト）です。
 
@@ -2035,12 +1990,14 @@ public:
           waitlist(waitlist),
           eventId(eventId), title(title) {}
 
-    // 状態遷移時に呼ばれる
-    void setState(IReservationState* s) { state = s; }　★古いオブジェクトは消さない？
+    // 状態遷移時に、共有状態オブジェクトへの借用ポインタを差し替える。
+    // 状態は関数ローカルstaticが所有するため、ここではdeleteしない。
+    void setState(IReservationState* nextState) { state = nextState; }
 
     // 状態遷移の副作用：在庫の増減と履歴の記録
     void reserveSeat() { db->reserveSeat(eventId); }
     void cancelSeat()  { db->cancelSeat(eventId); }
+    bool hasCapacity() const { return db->hasCapacity(eventId); }
     void record(const std::string& action) {
         history->add(eventId, title, action);
     }
@@ -2056,97 +2013,126 @@ public:
     void reserve()         { state->reserve(this); }
     void pay()             { state->pay(this); }
     void cancel()          { state->cancel(this); }
-    void addToWaitlist()   { state->addToWaitlist(this); }
     void hold()            { state->hold(this); }
     void expire()          { state->expire(this); }
     void paymentFailed()   { state->paymentFailed(this); }
 };
 ```
 
-状態オブジェクトは振る舞いだけを持つため、関数ローカルの静的オブジェクトを共有し、遷移のたびに `new` しない形にします。在庫の増減（`reserveSeat`/`cancelSeat`）と履歴記録は、呼び出し側が手動で行うのではなく、状態遷移の副作用として各状態のメソッド内から `ctx` 経由で実行します。さらに席を解放した状態処理が `promoteNextWaitlisted()` まで呼ぶため、キャンセルと自動昇格が1つのシステム処理として完結します。
+状態オブジェクトは振る舞いだけを持つため、関数ローカルの静的オブジェクトを共有し、遷移のたびに `new` しない形にします。`state` はそれらへの非所有ポインタなので、`setState()` は参照先を切り替えるだけです。古い状態オブジェクトはプログラム終了まで共有され、削除対象になりません。席数の増減（`reserveSeat`/`cancelSeat`）と履歴記録は、呼び出し側が手動で行うのではなく、状態遷移の副作用として各状態のメソッド内から予約コンテキスト経由で実行します。さらに席を解放した状態処理が `promoteNextWaitlisted()` まで呼ぶため、キャンセルと自動昇格が1つのシステム処理として完結します。
 
-**⑦ 各状態クラスのメソッド実装**
+**⑥ 各状態クラスとオーバーライド実装**
 
-各状態クラスのメソッド実装は以下のようになります。
+先に`TicketReservation`の完全な定義を置いたので、ここでは各状態クラスの宣言とオーバーライド実装を分断せず、クラス単位でまとめて読めます。状態取得関数の宣言だけは、状態同士の遷移先を互いに参照するためクラス定義の直前へ置きます。
 
 ```cpp
-// 各状態クラスのメソッド実装
-void AvailableState::reserve(TicketReservation* ctx) {
-    ctx->reserveSeat();
-    ctx->record("予約");
-    std::cout << "予約完了しました\n";
-    ctx->setState(reservedState());
-}
-void AvailableState::addToWaitlist(TicketReservation* ctx) {
-    ctx->joinWaitlist();
-    std::cout << "キャンセル待ちに登録しました\n";
-    ctx->setState(waitlistedState());
-}
+IReservationState* availableState();
+IReservationState* reservedState();
+IReservationState* paidState();
+IReservationState* waitlistedState();
+IReservationState* heldState();
 
-void ReservedState::pay(TicketReservation* ctx) {
-    ctx->record("決済");
-    std::cout << "支払い完了しました\n";
-    ctx->setState(paidState());
-}
-void ReservedState::cancel(TicketReservation* ctx) {
-    ctx->cancelSeat();
-    ctx->record("キャンセル");
-    std::cout << "予約をキャンセルしました\n";
-    ctx->setState(availableState());
-    ctx->promoteNextWaitlisted();
-}
-void ReservedState::hold(TicketReservation* ctx) {
-    std::cout << "保留にしました\n";
-    ctx->setState(heldState());
-}
-void ReservedState::paymentFailed(TicketReservation* ctx) {
-    ctx->record("決済失敗");
-    std::cout << "決済に失敗しました。予約済みのまま再試行できます\n";
-    // 状態は変えず、予約済みのまま再試行を許す
-}
+// Available（予約可能）：空席なら予約、満席なら自動待機登録する
+class AvailableState : public IReservationState {
+public:
+    void reserve(TicketReservation* reservation) override {
+        if (!reservation->hasCapacity()) {
+            reservation->joinWaitlist();
+            std::cout << "満席のためキャンセル待ちに登録しました\n";
+            reservation->setState(waitlistedState());
+            return;
+        }
+        reservation->reserveSeat();
+        reservation->record("予約");
+        std::cout << "予約完了しました\n";
+        reservation->setState(reservedState());
+    }
+};
 
-void WaitlistedState::promoteBySystem(TicketReservation* ctx) {
-    ctx->reserveSeat();
-    ctx->record("キャンセル待ちから自動昇格");
-    std::cout << "空席発生を検知し、予約へ自動昇格しました\n";
-    ctx->setState(reservedState());
-}
+// Reserved（予約済み）：支払い、取消、保留、期限切れを処理する
+class ReservedState : public IReservationState {
+public:
+    void pay(TicketReservation* reservation) override {
+        reservation->record("決済");
+        std::cout << "支払い完了しました\n";
+        reservation->setState(paidState());
+    }
+    void cancel(TicketReservation* reservation) override {
+        reservation->cancelSeat();
+        reservation->record("キャンセル");
+        std::cout << "予約をキャンセルしました\n";
+        reservation->setState(availableState());
+        reservation->promoteNextWaitlisted();
+    }
+    void hold(TicketReservation* reservation) override {
+        std::cout << "保留にしました\n";
+        reservation->setState(heldState());
+    }
+    void expire(TicketReservation* reservation) override {
+        reservation->cancelSeat();
+        reservation->record("通常決済期限切れ");
+        std::cout << "通常の決済期限が切れました\n";
+        reservation->setState(availableState());
+        reservation->promoteNextWaitlisted();
+    }
+    void paymentFailed(TicketReservation* reservation) override {
+        reservation->record("決済失敗");
+        std::cout << "決済に失敗しました。予約済みのまま再試行できます\n";
+    }
+};
 
-void HeldState::pay(TicketReservation* ctx) {
-    ctx->record("決済");
-    std::cout << "保留から支払い完了しました\n";
-    ctx->setState(paidState());
-}
-void HeldState::cancel(TicketReservation* ctx) {
-    ctx->cancelSeat();
-    ctx->record("キャンセル");
-    std::cout << "保留からキャンセルしました\n";
-    ctx->setState(availableState());
-    ctx->promoteNextWaitlisted();
-}
-void HeldState::expire(TicketReservation* ctx) {
-    ctx->cancelSeat();
-    ctx->record("キャンセル");
-    std::cout << "保留期限が切れました\n";
-    ctx->setState(availableState());
-    ctx->promoteNextWaitlisted();
-}
-void HeldState::paymentFailed(TicketReservation* ctx) {
-    ctx->record("決済失敗");
-    std::cout << "決済に失敗しました。保留中のまま再試行できます\n";
-    // 状態は変えず、保留中のまま再試行を許す
-}
+// Paid（支払い済み）：完了状態のため、すべて既定の拒否を使う
+class PaidState : public IReservationState {};
+
+// Waitlisted（キャンセル待ち）：システムからの昇格だけを受ける
+class WaitlistedState : public IReservationState {
+public:
+    void promoteBySystem(TicketReservation* reservation) override {
+        reservation->reserveSeat();
+        reservation->record("キャンセル待ちから自動昇格");
+        std::cout << "空席発生を検知し、予約へ自動昇格しました\n";
+        reservation->setState(reservedState());
+    }
+};
+
+// Held（一時保留）：支払い、取消、期限切れ、決済失敗を処理する
+class HeldState : public IReservationState {
+public:
+    void pay(TicketReservation* reservation) override {
+        reservation->record("決済");
+        std::cout << "保留から支払い完了しました\n";
+        reservation->setState(paidState());
+    }
+    void cancel(TicketReservation* reservation) override {
+        reservation->cancelSeat();
+        reservation->record("キャンセル");
+        std::cout << "保留からキャンセルしました\n";
+        reservation->setState(availableState());
+        reservation->promoteNextWaitlisted();
+    }
+    void expire(TicketReservation* reservation) override {
+        reservation->cancelSeat();
+        reservation->record("保留期限切れ");
+        std::cout << "保留期限が切れました\n";
+        reservation->setState(availableState());
+        reservation->promoteNextWaitlisted();
+    }
+    void paymentFailed(TicketReservation* reservation) override {
+        reservation->record("決済失敗");
+        std::cout << "決済に失敗しました。保留中のまま再試行できます\n";
+    }
+};
 
 // タイマー基盤から期限切れイベントを予約へ渡す境界。
 // 利用者や運用者がexpire()を手動実行する構造にはしない。
 class ReservationExpiryScheduler {
 public:
-    void onHoldExpired(TicketReservation& reservation) {
+    void onPaymentDeadlineExpired(TicketReservation& reservation) {
         reservation.expire();
     }
 };
 
-// 状態オブジェクト取得関数の実体
+// 状態オブジェクト取得関数。関数ローカルstaticが所有する。
 IReservationState* availableState() {
     static AvailableState state;
     return &state;
@@ -2169,7 +2155,7 @@ IReservationState* heldState() {
 }
 ```
 
-**⑧ 組み立てと実行（BatchApplication / main）**
+**⑦ 組み立てと実行（BatchApplication / main）**
 
 依存の組み立てと実行の責任を分離し、様々な遷移シナリオを検証します。
 
@@ -2192,19 +2178,14 @@ class BatchApplication {
         return true;
     }
 
-    // 予約前に必ず現在数を表示し、その後で満席エラーを返す
-    bool validateForReserve(const std::string& eventId) {
+    // 予約前に現在の席数を表示する。満席判定と待機登録はreserve()側が行う。
+    bool showAvailability(const std::string& eventId) {
         if (!validateExists(eventId)) return false;
         EventInfo info = db.get(eventId);
-        std::cout << "[在庫確認] " << eventId << " "
+        std::cout << "[席数確認] " << eventId << " "
                   << info.reserved << "/" << info.capacity;
         if (info.reserved == info.capacity) std::cout << "（満席）";
         std::cout << std::endl;
-        if (!db.hasCapacity(eventId)) {
-            std::cout << "エラー：" << info.title
-                      << " は満席です（状態は変更しません）\n";
-            return false;
-        }
         return true;
     }
 
@@ -2212,7 +2193,7 @@ public:
     void run() {
         // シナリオ1：通常予約フロー (Available → Reserved → Paid)
         std::cout << "--- シナリオ1: 通常予約 ---\n";
-        if (validateForReserve("EVT001")) {
+        if (showAvailability("EVT001")) {
             EventInfo i1 = db.get("EVT001");
             std::cout << "予約対象：" << i1.title << "\n";
             TicketReservation seat1(availableState(), &db,
@@ -2227,9 +2208,9 @@ public:
 
 ```
 --- シナリオ1: 通常予約 ---
-[在庫確認] EVT001 20/100
+[席数確認] EVT001 20/100
 予約対象：春の音楽祭
-[在庫] EVT001 20/100 -> 21/100
+[予約数] EVT001 20/100 -> 21/100
 予約完了しました
 支払い完了しました
 ```
@@ -2239,7 +2220,7 @@ public:
 ```cpp
         // シナリオ2：通常キャンセル (Available → Reserved → Available)
         std::cout << "--- シナリオ2: 通常キャンセル ---\n";
-        if (validateForReserve("EVT001")) {
+        if (showAvailability("EVT001")) {
             EventInfo i2 = db.get("EVT001");
             TicketReservation seat2(availableState(), &db,
                                     &history, &waitlist,
@@ -2249,14 +2230,13 @@ public:
         }
 ```
 
-シナリオ2の実行結果：
-★在庫ってあるけど、在席の方が適切？
+シナリオ2の実行結果です。「在席」は会場に現在いる人数を意味するため、予約枠については「席数確認」「予約数」と表記します。
 ```
 --- シナリオ2: 通常キャンセル ---
-[在庫確認] EVT001 21/100
-[在庫] EVT001 21/100 -> 22/100
+[席数確認] EVT001 21/100
+[予約数] EVT001 21/100 -> 22/100
 予約完了しました
-[在庫] EVT001 22/100 -> 21/100
+[予約数] EVT001 22/100 -> 21/100
 予約をキャンセルしました
 ```
 
@@ -2265,7 +2245,7 @@ public:
 ```cpp
         // シナリオ3：保留と支払い (Available → Reserved → Held → Paid)
         std::cout << "--- シナリオ3: 保留と支払い ---\n";
-        if (validateForReserve("EVT002")) {
+        if (showAvailability("EVT002")) {
             EventInfo i3 = db.get("EVT002");
             std::cout << "予約対象：" << i3.title << "\n";
             TicketReservation seat3(availableState(), &db,
@@ -2281,9 +2261,9 @@ public:
 
 ```
 --- シナリオ3: 保留と支払い ---
-[在庫確認] EVT002 499/500
+[席数確認] EVT002 499/500
 予約対象：夏のフェス
-[在庫] EVT002 499/500 -> 500/500（満席）
+[予約数] EVT002 499/500 -> 500/500（満席）
 予約完了しました
 保留にしました
 保留から支払い完了しました
@@ -2294,15 +2274,16 @@ public:
 ```cpp
         // シナリオ4：保留期限切れ (Available → Reserved → Held → Available)
         std::cout << "--- シナリオ4: 保留期限切れ ---\n";
-        if (validateForReserve("EVT001")) {
+        if (showAvailability("EVT001")) {
             EventInfo i4 = db.get("EVT001");
             TicketReservation seat4(availableState(), &db,
                                     &history, &waitlist,
                                     "EVT001", i4.title);
             seat4.reserve();
             seat4.hold();
-            // 24時間経過を模したタイマーイベント。利用者操作ではない。★利用者がコールしているのでは？簡易的なのでこれでよいがコメントが適切なのか。タイマーを模擬しているという事が分かるようにしてほしい。説明が既にされているなら良いが。
-            expiryScheduler.onHoldExpired(seat4);
+            // テストハーネスから「24時間経過」を即時注入する。
+            // 本番では利用者でなくタイマー基盤が同じ境界を呼ぶ。
+            expiryScheduler.onPaymentDeadlineExpired(seat4);
         }
 ```
 
@@ -2310,27 +2291,53 @@ public:
 
 ```
 --- シナリオ4: 保留期限切れ ---
-[在庫確認] EVT001 21/100
-[在庫] EVT001 21/100 -> 22/100
+[席数確認] EVT001 21/100
+[予約数] EVT001 21/100 -> 22/100
 予約完了しました
 保留にしました
-[在庫] EVT001 22/100 -> 21/100
+[予約数] EVT001 22/100 -> 21/100
 保留期限が切れました
+```
+
+シナリオ4aは、一時保留を選ばず `Reserved` の標準15分期限が切れた場合です。テストハーネスが同じ期限切れ境界へイベントを注入し、予約を放置しても席が永久に確保されないことを確認します。
+
+```cpp
+        // シナリオ4a：通常の15分決済期限切れ (Reserved → Available)
+        std::cout << "--- シナリオ4a: 通常決済期限切れ ---\n";
+        if (showAvailability("EVT001")) {
+            EventInfo i4a = db.get("EVT001");
+            TicketReservation seat4a(availableState(), &db,
+                                     &history, &waitlist,
+                                     "EVT001", i4a.title);
+            seat4a.reserve();
+            expiryScheduler.onPaymentDeadlineExpired(seat4a);
+        }
+```
+
+シナリオ4aの実行結果：
+
+```
+--- シナリオ4a: 通常決済期限切れ ---
+[席数確認] EVT001 21/100
+[予約数] EVT001 21/100 -> 22/100
+予約完了しました
+[予約数] EVT001 22/100 -> 21/100
+通常の決済期限が切れました
 ```
 
 シナリオ5は、満席→予約失敗→待機登録→既存予約のキャンセルで自動昇格です。
 
 ```cpp
-        // シナリオ5：満席確認 → 予約失敗 → 待機登録 →
+        // シナリオ5：満席確認 → 通常の予約要求で自動待機登録 →
         // 既存予約のキャンセルを起点に自動昇格
         std::cout << "--- シナリオ5: 満席からの自動昇格 ---\n";
         EventInfo full = db.get("EVT003");
-        validateForReserve("EVT003"); // 50/50を表示して満席エラー
+        showAvailability("EVT003"); // 50/50を表示。reserve()が満席を判定する
 
         TicketReservation waiting(availableState(), &db,
                                   &history, &waitlist,
                                   "EVT003", full.title);
-        waiting.addToWaitlist();
+        waiting.reserve(); // 利用者は通常の予約操作だけ。満席なので自動待機登録
 
         // 初期50件のうち1件を表す既存予約。利用側はcancel()だけを呼ぶ。
         TicketReservation occupied(reservedState(), &db,
@@ -2344,14 +2351,13 @@ public:
 
 ```
 --- シナリオ5: 満席からの自動昇格 ---
-[在庫確認] EVT003 50/50（満席）
-エラー：秋の映画会 は満席です（状態は変更しません）
+[席数確認] EVT003 50/50（満席）
 [待ち行列] EVT003 待機数=1
-キャンセル待ちに登録しました
-[在庫] EVT003 50/50 -> 49/50
+満席のためキャンセル待ちに登録しました
+[予約数] EVT003 50/50 -> 49/50
 予約をキャンセルしました
 [待ち行列] EVT003 待機数=0
-[在庫] EVT003 49/50 -> 50/50（満席）
+[予約数] EVT003 49/50 -> 50/50（満席）
 空席発生を検知し、予約へ自動昇格しました
 支払い完了しました
 ```
@@ -2370,9 +2376,9 @@ public:
         TicketReservation waiting2(availableState(), &db,
                                    &history, &waitlist,
                                    "EVT003", f2.title);
-        waiting2.addToWaitlist();
+        waiting2.reserve(); // 満席判定により自動待機登録
         // 24時間経過。席が空き、待機者が自動昇格する
-        expiryScheduler.onHoldExpired(held);
+        expiryScheduler.onPaymentDeadlineExpired(held);
 ```
 
 シナリオ5bの実行結果：
@@ -2381,11 +2387,11 @@ public:
 --- シナリオ5b: 期限切れからの自動昇格 ---
 保留にしました
 [待ち行列] EVT003 待機数=1
-キャンセル待ちに登録しました
-[在庫] EVT003 50/50 -> 49/50
+満席のためキャンセル待ちに登録しました
+[予約数] EVT003 50/50 -> 49/50
 保留期限が切れました
 [待ち行列] EVT003 待機数=0
-[在庫] EVT003 49/50 -> 50/50（満席）
+[予約数] EVT003 49/50 -> 50/50（満席）
 空席発生を検知し、予約へ自動昇格しました
 ```
 
@@ -2432,7 +2438,7 @@ public:
 ```cpp
         // シナリオ8：決済失敗 (Available → Reserved → 決済失敗、Reservedのまま)
         std::cout << "--- シナリオ8: 決済失敗（再試行可能） ---\n";
-        if (validateForReserve("EVT001")) {
+        if (showAvailability("EVT001")) {
             EventInfo i8 = db.get("EVT001");
             TicketReservation seat8(availableState(), &db,
                                     &history, &waitlist,
@@ -2446,8 +2452,8 @@ public:
 
 ```
 --- シナリオ8: 決済失敗（再試行可能） ---
-[在庫確認] EVT001 21/100
-[在庫] EVT001 21/100 -> 22/100
+[席数確認] EVT001 21/100
+[予約数] EVT001 21/100 -> 22/100
 予約完了しました
 決済に失敗しました。予約済みのまま再試行できます
 ```
@@ -2478,21 +2484,26 @@ int main() {
 [EVT002] 夏のフェス -> 予約
 [EVT002] 夏のフェス -> 決済
 [EVT001] 春の音楽祭 -> 予約
-[EVT001] 春の音楽祭 -> キャンセル
+[EVT001] 春の音楽祭 -> 保留期限切れ
+[EVT001] 春の音楽祭 -> 予約
+[EVT001] 春の音楽祭 -> 通常決済期限切れ
 [EVT003] 秋の映画会 -> キャンセル
 [EVT003] 秋の映画会 -> キャンセル待ちから自動昇格
 [EVT003] 秋の映画会 -> 決済
+[EVT003] 秋の映画会 -> 保留期限切れ
+[EVT003] 秋の映画会 -> キャンセル待ちから自動昇格
 [EVT001] 春の音楽祭 -> 予約
 [EVT001] 春の音楽祭 -> 決済失敗
 ```
 
-この実行結果は、フェーズ1の動作例テーブルと、フェーズ1-5で追加した仕様遷移の代表ケースに対応しています。EVT003は、まず `50/50` の満席が見え、その状態で再予約して満席エラーになり、既存予約のキャンセルで `50→49`、直後の自動昇格で `49→50` へ戻ります。利用側が昇格メソッドを呼ぶ行はありません。
+この実行結果は、フェーズ1の動作例テーブルと、フェーズ1-5で追加した仕様遷移の代表ケースに対応しています。EVT003は、まず `50/50` の満席が見え、通常の予約要求が自動待機登録になり、既存予約のキャンセルで `50→49`、直後の自動昇格で `49→50` へ戻ります。利用側が待機登録の専用メソッドを呼ぶ行はなく、利用側が昇格メソッドを呼ぶ行はありません。
 
 
 #### 最終要求の実装・受入エビデンス
 
-変更後要求ベースラインの全有効要求IDを同じ順序で照合します。今回変わらなかった既存要求も対象にするため、要求の消失を検出できます。
-★このエビデンスって、変更IDに対しては行わないの？この要求IDって、仕様変更前の要求IDではないよね？仕様変更後の要求IDとして紐づけているなら良いが、その点はっきりわかるように示してほしい、全章共通です。
+ここで照合する要求IDは、1-5の**変更後要求ベースラインにある最終有効要求ID**です。変更前だけの要求一覧ではありません。継続・変更・追加を同じ順序で確認するため、変更されなかった既存要求の消失も検出できます。
+
+変更IDの受入証拠も省略しません。要求ID表の後に、7-4で変更ID1・変更ID2を「どの最終要求へ反映し、どの実行結果で確認したか」の単位で再照合します。つまり、要求ID表は最終仕様全体の受入・回帰、変更ID表は今回の依頼差分の受入という二つの役割です。
 
 | 要求ID | 最終要求 | 適用コード | 実行シナリオ・観測結果・判定 |
 |---|---|---|---|
@@ -2501,8 +2512,8 @@ int main() {
 | 要求ID3 | 予約済みまたは一時保留から支払済みへ遷移する | `ReservedState`、`HeldState` | 支払成功時だけPaid<br/>**判定:** 合格 |
 | 要求ID4 | 予約取消で席を解放し、待機者がいれば先頭を同じ処理内で自動昇格する | `ReservedState::cancel()`、`ReservationWaitlist` | 50/50→49/50→50/50、手動昇格なし<br/>**判定:** 合格 |
 | 要求ID5 | 許可されない操作や決済失敗では状態と予約数を変えない | 各`IReservationState`実装 | エラー前後の状態・件数が一致<br/>**判定:** 合格 |
-| 要求ID6 | 満席時にキャンセル待ちへ登録する | `WaitlistedState`、`ReservationWaitlist` | 待機順を保存し先頭から昇格<br/>**判定:** 合格 |
-| 要求ID7 | 予約済みを24時間一時保留し、期限切れで席を解放する | `HeldState`、`ReservationExpiryScheduler` | シナリオ4で待機者なしの席解放、シナリオ5bで待機者ありの期限切れ→自動昇格<br/>**判定:** 合格 |
+| 要求ID6 | 満席時の予約要求をシステムがキャンセル待ちへ登録する | `AvailableState`、`WaitlistedState`、`ReservationWaitlist` | シナリオ5で `reserve()` だけを呼び自動登録、先頭から昇格<br/>**判定:** 合格 |
+| 要求ID7 | Reservedは15分、一時保留したHeldは24時間の期限を持ち、期限切れで席を解放する | `ReservedState`、`HeldState`、`ReservationExpiryScheduler` | シナリオ4aで通常期限、シナリオ4・5bで保留期限と自動昇格<br/>**判定:** 合格 |
 
 上の表は継続（要求ID1・要求ID2・要求ID5）・変更（要求ID3・要求ID4）・追加（要求ID6・要求ID7）を同じ順序で並べ、変わらなかった既存要求も回帰対象に含めています。継続要求が合格していることで、既存動作が落ちていないことを確認できます。要求の受入・回帰はここで完了します。課題IDへ直接対応付けず、以下では変更試行の痛みから導いた構造課題だけを別に確認します。
 
@@ -2553,8 +2564,8 @@ graph LR
 
 | 変更依頼 | フェーズ1の現状構造での影響 | 完成構造での結果 |
 |---|---|---|
-| 変更ID1：満席時にキャンセル待ちへ登録し、空席発生時に先頭を自動昇格する | `TicketReservation`の予約・取消へ待ち行列と昇格条件を追加 | `WaitlistedState`と`ReservationWaitlist`へ責任を分け、取消直後に49/50から先頭を自動昇格して50/50へ戻ることを確認 |
-| 変更ID2：予約済みを24時間の一時保留へ移し、期限切れで席を解放する | `TicketReservation`の複数操作へ一時保留の条件分岐を追加 | `HeldState`へ保留中の振る舞いを置き、期限切れで空席へ戻した後の自動昇格まで確認 |
+| 変更ID1：満席時の予約要求を自動でキャンセル待ちへ登録し、空席発生時に先頭を自動昇格する | `TicketReservation`の予約・取消へ待ち行列と昇格条件を追加 | 通常の`reserve()`だけで待機登録し、取消直後に49/50から先頭を自動昇格して50/50へ戻ることを確認 |
+| 変更ID2：通常の15分決済期限を、明示的な一時保留で24時間へ延長し、期限切れで席を解放する | `TicketReservation`の複数操作へ通常・保留の期限分岐を追加 | `ReservedState`と`HeldState`へ期限切れを置き、どちらも空席へ戻した後の自動昇格まで確認 |
 
 変更ID1・変更ID2の判断を状態クラスへ分けた代わりに、状態ごとのクラスと遷移の組み立てを管理するコストを引き受けます。
 
@@ -2670,7 +2681,9 @@ graph LR
 6. 全課題を満たす完成構造が複数成立するか。成立するなら、責任配置・変更影響・導入コストの差は何か。
 
 ## パターン解説：State パターン
-★ここで初めて、この章で使われているデザインパターンの話をするでよいか。その前段の説明は必要ないか。急にパターン説明が出てきて唐突すぎる。この章の対策後のシステム構造が、このパターンなのです、という話の流れが良いのではないか。
+
+ここまでに採用した「`TicketReservation` は公開入口を保ち、現在の `IReservationState` へ操作を委譲し、状態ごとのクラスが次の状態を決める」という完成構造には、既に知られた名前があります。それが **Stateパターン**です。先にパターン名から設計を選んだのではなく、変更の痛みと接続点から導いた構造を、ここで一般的な設計語彙へ対応づけます。
+
 Stateパターンは、オブジェクトの内部状態が変化したときに、そのオブジェクトの振る舞いを変更できるようにするパターンです。
 
 ### パターンの骨格
@@ -2725,37 +2738,35 @@ classDiagram
         +reserve()
         +pay()
         +cancel()
-        +addToWaitlist()
         +hold()
         +expire()
     }
     class IReservationState {
         <<interface>>
-        +reserve(ctx)
-        +pay(ctx)
-        +cancel(ctx)
-        +addToWaitlist(ctx)
-        +promoteBySystem(ctx)
-        +hold(ctx)
-        +expire(ctx)
+        +reserve(reservation)
+        +pay(reservation)
+        +cancel(reservation)
+        +promoteBySystem(reservation)
+        +hold(reservation)
+        +expire(reservation)
     }
     class AvailableState {
-        +reserve(ctx)
-        +addToWaitlist(ctx)
+        +reserve(reservation)
     }
     class ReservedState {
-        +pay(ctx)
-        +cancel(ctx)
-        +hold(ctx)
+        +pay(reservation)
+        +cancel(reservation)
+        +hold(reservation)
+        +expire(reservation)
     }
     class PaidState
     class HeldState {
-        +pay(ctx)
-        +cancel(ctx)
-        +expire(ctx)
+        +pay(reservation)
+        +cancel(reservation)
+        +expire(reservation)
     }
     class WaitlistedState {
-        +promoteBySystem(ctx)
+        +promoteBySystem(reservation)
     }
     class ReservationWaitlist
     class EventDatabase

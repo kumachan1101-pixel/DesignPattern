@@ -23,8 +23,9 @@
 
 ### 1-1：このシステムの仕様
 
-このシステムは、ネット銀行の**振り込み処理を実行**します。
-★もう少し説明追加してほしい。これだけだと、いきなり動き見せられても飛躍しすぎです。他の章も同様です。振込する際にどんなことをチェックして、どういう事をシステムで行っているか、システム概要を記載してほしい。
+このシステムは、ネット銀行の**振り込み処理を実行**します。利用者から送金元口座、送金先口座、金額、認証コードを受け取り、両口座が登録済みか、送金元の残高が十分か、認証コードが正しいかを順に確認します。すべて成功した場合だけ銀行へ送金を依頼し、送金元を減額、送金先を加算して、名義と金額を振込履歴へ保存します。どこかで失敗した場合は後続処理を止め、残高と履歴を変更しません。個別振込に加えて、事前承認済みの給与振込を複数件処理する入口も持ちます。
+
+この章で観察する中心は、振込金額の計算ではなく、台帳・銀行・認証・履歴という複数の境界を正しい順で呼ぶ手順です。まず代表的な成功結果を見てから、その出力を生む要求とコードへ進みます。
 #### まず実行結果から動きをつかむ
 
 詳細な仕様やコードへ入る前に、利用者がACC001からACC002へ5000円を個別振り込みした結果を見ます。
@@ -32,6 +33,7 @@
 **代表的な実行結果：**
 
 ```
+口座確認: ACC001 OK
 口座確認: ACC002 OK
 残高確認: ACC001 150000円 >= 5000円 OK
 認証コード入力受付
@@ -77,10 +79,11 @@ processor.transfer("ACC001", "ACC002", 5000, "999999");
 
 この手順の順番には業務上の理由があります。「口座が存在しない相手に送金しようとする」「残高が足りないのに認証コードを発行する」といった無駄なコストを避けるため、この章のシステムでは安価な確認（口座・残高）を先に行い、コストのかかる認証・送金を後回しにしています。
 
-この章で扱う現状仕様は、次の範囲です。★以下に送金元口座IDは入れないのか？
+この章で扱う現状仕様は、次の範囲です。
 
 | 仕様項目 | この章で扱う値 | 具体例 | 何に使うか |
 |---|---|---|---|
+| 送金元口座ID | 引き落とし元の口座ID | ACC001 | 口座存在、残高、名義を確認し、成功時に減額する |
 | 振込先口座番号 | 送金先の口座ID | ACC002 | 口座が存在するかを確認する |
 | 送金金額 | 1円以上の金額 | 10,000円 | 残高確認と送金実行に使う |
 | 認証コード | 利用者が入力するOTP | 999999 | 口座と残高が確認できた後に検証する |
@@ -176,7 +179,9 @@ flowchart LR
 | ⑤ 送金結果照会 | 送金受付結果 | 確定した送金結果 |
 | ⑥ 保存 | 確定した送金結果 | 更新後残高・振込履歴 |
 
-「失敗したら中止」というルールは、途中まで実行した状態で処理が止まることによる不整合（お金は引き落とされたのに振込先に届かない、など）を防ぐためです。料理のレシピと同じで、前の工程が成立していないと次の工程が意味をなさないため、この章のフェーズ1の現状コードではどのステップが失敗しても後続の手順を実行しません。★口座振り込み処理で失敗など、間違って振り込まれる心配についてどう説明するのか？保存処理での失敗はこのシステムではケアしていない事説明するのか。
+「失敗したら中止」というルールは、誤った口座への送金や、確認前の引き落としを防ぐためです。口座・残高・認証の各戻り値を確認し、失敗なら送金APIを呼びません。掲載コードの `Bank::executeTransfer()` は、両口座の残高変更を一つの同期処理として完了させる簡易モデルなので、「送金元だけ減って送金先が増えない」途中失敗は発生しない前提です。
+
+一方、実運用では送金API成功後に履歴保存だけ失敗する可能性があります。本章の掲載コードはメモリ上の `vector` への追加を成功前提とし、保存失敗、永続DBトランザクション、冪等キー、照会・再試行は扱いません。実システムでは、銀行の確定結果を先に記録できる永続キューや、同じ取引IDで再照会・再保存できる仕組みが必要です。本章はその詳細を窓口の内側へ置ける設計境界までを対象にします。
 
 **この仕様を決める業務機能**
 
@@ -189,7 +194,7 @@ flowchart LR
 
 この基本仕様を押さえたうえで、通信を伴う詳細条件とエラー条件を確認します。
 
-**この章が扱う複雑さ**　★この項目名、分かりづらくないか？実際のシステムでは複雑だが本システムでは簡易的にこうしているという説明でよいか。その内容が分かるタイトルにしてほしい。
+**実システムの複雑さと掲載コードでの簡略化**
 
 この章では、外部銀行APIを単純な1回の呼び出しとして扱いません。振り込みは、複数の確認を順番に通し、前のAPI応答を次のAPIへ渡す処理です。さらに実運用では、送金実行後の結果照会、タイムアウト、再試行も起こります。
 
@@ -217,7 +222,7 @@ flowchart LR
 
 ### 1-2：動作例テーブル
 
-仕様を定義したところで、入力に対する結果と保存後の状態を確認します。成功ケースでは送金元・送金先の残高と履歴件数が変わり、失敗ケースではいずれも変わりません。★通常振り込み成功とバッチ成功の違いは？
+仕様を定義したところで、入力に対する結果と保存後の状態を確認します。成功ケースでは送金元・送金先の残高と履歴件数が変わり、失敗ケースではいずれも変わりません。通常振込は利用者が入力したOTPを検証する単発処理です。バッチ振込は給与データなど事前承認済みの複数明細を処理する入口で、各明細のOTP入力を省略します。この表の「バッチ成功」は、その複数明細のうち1件を独立ケースとして示します。
 
 | ケース | 振込条件 | 処理後残高 | 結果・履歴 |
 |---|---|---|---|
@@ -239,7 +244,9 @@ flowchart LR
 
 `AccountDatabase` と `Bank` は境界が違います。`AccountDatabase` は自社が保持する口座の名義を読む台帳境界、`Bank` は別システムである外部銀行で、残高を保持し送金を実際に実行する通信境界です。
 
-掲載コードでは、台帳と銀行残高を `std::map`、外部への表示を `std::cout` で表します。ただし `Bank.executeTransfer()` は残高を実際に増減し、認証は入力コードを照合します。printは境界の先で起きる通信・保存・画面表示を手元で確認できる形に置き換えたもので、状態は実際に変化します。★以下の仕様①～④って何の番号？番号で管理するのか？要求IDと紐づけるのか？どういう記載方法にするのか全章そろえてほしい。今から大きな変更はしません。手順に番号を割り当てたという事なら、そのように説明を追加して。
+掲載コードでは、台帳と銀行残高を `std::map`、外部への表示を `std::cout` で表します。ただし `Bank.executeTransfer()` は残高を実際に増減し、認証は入力コードを照合します。printは境界の先で起きる通信・保存・画面表示を手元で確認できる形に置き換えたもので、状態は実際に変化します。
+
+次表の「手順①〜④」は、1-1「振り込みの基本手順」の読む順を短く参照したものです。要求を管理するIDではなく、複数クラスが一連の処理のどこを担当するかを示す案内番号です。要求の継続・変更・受入は、別の「要求ID」で追跡します。
 
 | クラス名 | 役割 | 担当する仕様 |
 |---|---|---|
@@ -335,10 +342,12 @@ sequenceDiagram
     participant Auth as SecurityAuthenticator
     participant Hist as TransferHistory
     Main->>TP: transfer(from, to, amount, otp)
-    TP->>DB: exists(from)
-    DB-->>TP: true（自社台帳に送金元あり）
+    TP->>Bank: verifyAccount(from)
+    Bank-->>TP: true（銀行に送金元あり）
+    TP->>DB: exists(from) / exists(to)
+    DB-->>TP: true（自社台帳に両口座あり）
     TP->>Bank: verifyAccount(to)
-    Bank-->>TP: true（送金先あり）
+    Bank-->>TP: true（銀行に送金先あり）
     TP->>Bank: checkBalance(from, amount)
     Bank-->>TP: true（残高足りる）
     TP->>Auth: promptOTP()
@@ -426,8 +435,10 @@ public:
         return ok;
     }
     bool checkBalance(const std::string& from, int amount) {
-        bool ok = balances[from] >= amount;
-        std::cout << "残高確認: " << from << " " << balances[from]
+        auto account = balances.find(from);
+        bool ok = account != balances.end() && account->second >= amount;
+        int currentBalance = account == balances.end() ? 0 : account->second;
+        std::cout << "残高確認: " << from << " " << currentBalance
                   << "円 >= " << amount << "円 "
                   << (ok ? "OK" : "NG") << "\n";
         return ok;
@@ -500,18 +511,17 @@ private:
     Bank& bank;
     TransferHistory& history;
     SecurityAuthenticator auth;
-public:
-    TransferProcessor(AccountDatabase& database, Bank& b,
-                      TransferHistory& hist)
-        : db(database), bank(b), history(hist) {}
 
-    bool transfer(const std::string& from, const std::string& to,
-                  int amount, const std::string& otp) {
-        if (!db.exists(from)) {　★送金先はチェックしないの？
+    bool validateAccountsAndBalance(const std::string& from,
+                                    const std::string& to,
+                                    int amount) {
+        bool sourceAtBank = bank.verifyAccount(from);
+        if (!db.exists(from) || !sourceAtBank) {
             std::cout << "エラー: 送金元口座なし\n";
             return false;
         }
-        if (!bank.verifyAccount(to)) {　★送金元はチェックしないの？
+        bool destinationAtBank = bank.verifyAccount(to);
+        if (!db.exists(to) || !destinationAtBank) {
             std::cout << "エラー: 送金先口座なし\n";
             return false;
         }
@@ -519,6 +529,16 @@ public:
             std::cout << "エラー: 残高不足\n";
             return false;
         }
+        return true;
+    }
+public:
+    TransferProcessor(AccountDatabase& database, Bank& b,
+                      TransferHistory& hist)
+        : db(database), bank(b), history(hist) {}
+
+    bool transfer(const std::string& from, const std::string& to,
+                  int amount, const std::string& otp) {
+        if (!validateAccountsAndBalance(from, to, amount)) return false;
         auth.promptOTP();
         if (!auth.verifyOTP(otp)) {
             std::cout << "エラー: 認証失敗\n";
@@ -532,18 +552,7 @@ public:
 
     bool transferApprovedBatch(const std::string& from,
                                const std::string& to, int amount) {
-        if (!db.exists(from)) {　transfer関数と同じチェックをしている。共通化できないか。
-            std::cout << "エラー: 送金元口座なし\n";
-            return false;
-        }
-        if (!bank.verifyAccount(to)) {
-            std::cout << "エラー: 送金先口座なし\n";
-            return false;
-        }
-        if (!bank.checkBalance(from, amount)) {
-            std::cout << "エラー: 残高不足\n";
-            return false;
-        }
+        if (!validateAccountsAndBalance(from, to, amount)) return false;
         bank.executeTransfer(from, to, amount);
         history.add(db.ownerName(from), db.ownerName(to), amount);
         std::cout << "振り込み完了（OTP不要）\n";
@@ -560,15 +569,20 @@ public:
                            TransferHistory& hist)
         : processor(database, b, hist) {}
     void processPayroll(
-            const std::string& from,
-            const std::vector<std::pair<std::string, int>>& transfers) {
-        for (const auto& t : transfers)
-            processor.transferApprovedBatch(from, t.first, t.second);★使い方あっているか？関数仕様と渡す変数名が意味合いが一致せず分からない。関数仕様が推測できるような変数名で渡して。transfersってそもそもどこからもらっているのか。
+            const std::string& payrollSourceAccount,
+            const std::vector<std::pair<std::string, int>>& payrollEntries) {
+        // payrollEntries は給与システムが作る「振込先口座・支給額」の一覧
+        for (const auto& entry : payrollEntries) {
+            const std::string& destinationAccount = entry.first;
+            int paymentAmount = entry.second;
+            processor.transferApprovedBatch(
+                payrollSourceAccount, destinationAccount, paymentAmount);
+        }
     }
 };
 ```
 
-`TransferProcessor` の二つのメソッドには「振り込みという業務フローの制御」と「銀行の具体的な呼び出し手順」が一緒に書かれています。バッチではOTPを省略できますが、口座確認・残高確認・送金という手順を通常振込とは別に記述しています。
+`TransferProcessor` の二つのメソッドには「振り込みという業務フローの制御」と「銀行の具体的な呼び出し手順」が一緒に書かれています。口座・残高の共通検証は `validateAccountsAndBalance()` へまとめましたが、バッチではOTPを省略するため、その後の認証・送金手順は通常振込と別の入口に残っています。`payrollEntries` は呼び出し元の給与システムが作る入力一覧で、各要素は「振込先口座・支給額」です。
 
 #### 呼び出し元と実行確認
 
@@ -589,6 +603,7 @@ int main() {
 
 ```
 --- 行1: 正常な個別振り込み ---
+口座確認: ACC001 OK
 口座確認: ACC002 OK
 残高確認: ACC001 150000円 >= 5000円 OK
 認証コード入力受付
@@ -608,6 +623,7 @@ int main() {
 
 ```
 --- 行2: 存在しない口座 ---
+口座確認: ACC001 OK
 口座確認: UNKNOWN NG
 エラー: 送金先口座なし
 ```
@@ -623,6 +639,7 @@ int main() {
 
 ```
 --- 行3: 残高不足 ---
+口座確認: ACC001 OK
 口座確認: ACC002 OK
 残高確認: ACC001 145000円 >= 1000000円 NG
 エラー: 残高不足
@@ -639,6 +656,7 @@ int main() {
 
 ```
 --- 行4: 認証失敗 ---
+口座確認: ACC001 OK
 口座確認: ACC002 OK
 残高確認: ACC001 145000円 >= 5000円 OK
 認証コード入力受付
@@ -667,6 +685,7 @@ int main() {
 
 ```
 --- 行5: 社内承認済みバッチ ---
+口座確認: ACC003 OK
 口座確認: ACC002 OK
 残高確認: ACC003 500000円 >= 30000円 OK
 送金実行: ACC003 -30000→470000円 / ACC002 +30000→65000円
@@ -702,11 +721,11 @@ ACC003: 470000円
 
 続けて、運用チームからも要望が出ました。「給与振込のような一括処理で、途中の1件が残高不足で止まったとき、それより前に送金済みの分がそのまま残ってしまいます。今は運用担当が手作業で戻しているので、途中で失敗したら完了済みを自動で取り消してほしい。監査のため、取り消した記録も履歴に残してください」。
 
-依頼文を、実行結果で判定できる変更依頼へ分けます。★以下にトランザクションIDの記載がないが？
+依頼文を、実行結果で判定できる変更依頼へ分けます。本章では銀行の説明に出てくる「トランザクションID」と、コード上の「取引ID（`txId`）」を同じ識別子として扱います。変更ID1で発行・照合し、変更ID2で同じ値を送金APIへ必須入力として渡します。
 
 | 変更依頼ID | 確定した変更内容 | 入力 | 受入条件 |
 |---|---|---|---|
-| 変更ID1 | 認証を、認証コード発行と取引ID付き照合の2段階へ変える | 認証コード、発行時に返る取引ID | 発行した取引IDと認証コードの組み合わせで照合し、誤りなら送金しない |
+| 変更ID1 | 認証を、認証コード発行と取引ID付き照合の2段階へ変える | 認証コード、発行時に返るトランザクションID（取引ID） | 発行した取引IDと認証コードの組み合わせで照合し、誤りなら送金しない |
 | 変更ID2 | 検証済み取引IDを送金APIの必須入力にする | 送金元、振込先、金額、検証済み取引ID | 同じ取引IDを送金へ渡し、成功時だけ残高と履歴を更新する |
 | 変更ID3 | 一括振込の途中失敗時に、完了済みを逆順で取り消し、取り消しも履歴へ残す | 完了済み送金の一覧 | 2件目が残高不足で止まると1件目が戻り、両口座の残高が開始前に戻る |
 
@@ -721,17 +740,27 @@ ACC003: 470000円
 | 要求ID5 | 継続<br/>根拠: —     | 単発振込の成功時だけ履歴を保存し、失敗時は残高・履歴を変えない    | 成功時1件保存、各失敗時は件数・残高不変になる            |
 | 要求ID6 | 継続<br/>根拠: —     | 承認済み一括振込は、OTP認証を省略して専用取引IDで各件を送金する | 行5で2件が送金され、履歴が2件増える                |
 | 要求ID7 | 追加<br/>根拠: 変更ID3 | 一括振込の途中失敗時に完了済みを逆順で取り消し、取り消しも履歴へ残す | 開始前の残高へ戻り、送金と取り消しが履歴に対で残る          |
-★全章に言える話だが、変更要求に関して、本システムではどのような簡易対応とするのかの説明が必要になるのでは？トランザクションIDってどうやって作られるのか？など、不明な状態で話が進んでいくことになり、コードを見て初めて実現方法が分かる形になるのはやめたい。
+
+**変更要求を試すための認証・補償モデル**
+
+全章共通の簡略化範囲は1-3の「実システムの複雑さと掲載コードでの簡略化」で説明済みです。ここでは今回の変更要求に固有の、取引ID付き認証と一括振込の補償だけを具体化します。
+
+- 認証システムは同期呼び出しで、`requestOTP()` のたびに連番から `TX-9001`、`TX-9002` のような取引IDを返す。実運用の乱数強度、失効時刻、利用者端末への配信は扱わない。
+- 発行した取引IDと正しいOTPの対応をメモリ上の表へ保持し、`verifyOTP(otp, txId)` がその組を照合する。照合済みの同じ取引IDを送金へ渡す。
+- 承認済みバッチは利用者OTPを使わず、掲載コードでは専用値 `APPROVED-BATCH` を送金APIへ渡す。実運用の承認ワークフローや署名は範囲外とする。
+- 一括処理の補償は、成功済み明細をメモリ上の一覧へ積み、失敗時に逆順で残高を戻して逆向きの履歴を追加する。補償自体の失敗やプロセス再起動後の再開には、永続化されたSagaログなどが必要だが本章では扱わない。
+
+この前提を先に固定し、以降のコードでは「どう作るか」を初めて明かすのではなく、ここで決めた簡易モデルを実装へ対応させます。
 
 **変更前→変更後の要求対照（今回変える要求IDだけ）**
 
 現行ベースラインと変更後ベースラインを往復せずに済むよう、今回変える要求IDだけを取り出し、変更前と変更後を同じ行へ並べます。
 
-| 要求ID | 変更前の要求（現行） | 変更後の有効要求 | 根拠変更ID |
-|---|---|---|---|
-| 要求ID3 | OTPを1段階で検証する | 認証コードを発行し、返された取引IDとOTPを照合する | 変更ID1 |
-| 要求ID4 | 認証成功後に送金し、両口座残高を更新する | 検証済みの同じ取引IDを必須入力として送金する | 変更ID2 |
-| 要求ID7 | （新規・現行なし） | 一括振込の途中失敗時に完了済みを逆順で取り消し、取り消しも履歴へ残す | 変更ID3 |
+| 要求ID  | 変更前の要求（現行）           | 変更後の有効要求                           | 根拠変更ID |
+| ----- | -------------------- | ---------------------------------- | ------ |
+| 要求ID3 | OTPを1段階で検証する         | 認証コードを発行し、返された取引IDとOTPを照合する        | 変更ID1  |
+| 要求ID4 | 認証成功後に送金し、両口座残高を更新する | 検証済みの同じ取引IDを必須入力として送金する            | 変更ID2  |
+| 要求ID7 | （新規・現行なし）            | 一括振込の途中失敗時に完了済みを逆順で取り消し、取り消しも履歴へ残す | 変更ID3  |
 
 要求ID1・要求ID2・要求ID5・要求ID6は継続（変更前＝変更後）のため対照表には載せません。変更後ベースラインで内容を確認できます。要求ID4の「検証済み取引ID」は単発振込の入口に対する条件で、承認済み一括振込（要求ID6）は現行どおりOTP検証を通らず専用取引IDを使います。両者を分けて追うため、バッチは要求ID6・要求ID7で確認します。
 
@@ -739,7 +768,7 @@ ACC003: 470000円
 
 **仕様変更の内容**
 
-変更要求を受けて、認証と送金の手順がどう変わるかを整理します。（この変更は「インフラ・システム管理の業務機能」に属する要求です）★取り消しの変更は？
+変更要求を受けて、認証・送金・一括処理失敗時の取り消しがどう変わるかを整理します。認証と送金APIは「インフラ・システム管理」、補償判断は「給与振込運用」の業務機能に属します。
 
 | 手順 | 変更前 | 変更後 |
 |---|---|---|
@@ -747,30 +776,32 @@ ACC003: 470000円
 | ② 残高確認 | 既存の残高確認を実行 | 同じ確認手順を継続 |
 | **③ 認証** | OTP（ワンタイムパスワード）1ステップで完了 | **「認証コードの発行」→「取引IDと認証コードの照合」の2ステップに変更** |
 | **④ 送金実行** | 振込先口座と金額だけを指定して送金 | **「トランザクションID」が必須パラメータとして追加** |
+| ⑤ 結果確定・保存 | 成功した単発・一括明細を履歴へ追加 | 同じ保存を継続 |
+| **⑥ 一括失敗時の補償** | 失敗前に成功した明細は残り、運用担当が手で戻す | **成功済み明細を逆順で取り消し、逆向き履歴も保存** |
 
-今回変えるのは認証と送金APIの契約です。口座情報の取得と送金履歴の保存は仕様変更の対象ではないため、次の共通基盤は変更前後で維持します。
+今回変えるのは認証と送金APIの契約、および一括失敗時の業務処理です。口座情報の取得方法と履歴の保存形式は変更前後で維持しますが、補償時にも既存の履歴追加操作を使うため、履歴の呼び出し箇所は増えます。
 
 | 変更対象外の共通基盤 | 変更前 | 変更後 |
 |---|---|---|
 | `AccountDatabase` | 口座情報と残高を取得する | **変更なし** |
-| `TransferHistory` | 送金結果を履歴へ保存する | **変更なし** |
+| `TransferHistory` | 送金結果を履歴へ保存する | 保存形式は変更なし。補償時は逆向き記録の保存にも使う |
 
 現行の認証では発行と検証の間に識別子を受け渡していませんでした。新仕様では `requestOTP()` の応答から取引IDを受け取り、`verifyOTP(otp, txId)` で検証します。検証済みの同じ取引IDを、`executeTransfer(from, to, amount, txId)` にも渡します。
 
 **変更前後の入力・判定・加工・出力差分**
 
-1-1の現状仕様を退避し、変更要求を当てた後の仕様と同じ粒度で並べます。以降の分析では、この差分を追います。★取り消しの変更は？全体的に抜けていないか？
+1-1の現状仕様を退避し、変更要求を当てた後の仕様と同じ粒度で並べます。単発振込の認証・送金だけでなく、一括振込の取り消し入力、判定、加工、出力も同じ表で追います。
 
 | 要素 | 変更前（1-1の現状仕様） | 変更後（今回の要求） | 差分として追うもの |
 |---|---|---|---|
-| 入力 | 振込先口座、送金金額、認証コード | 振込先口座、送金金額、認証コード、取引ID | 取引IDが認証と送金の間を流れる |
-| 判定 | 口座有効、残高十分、OTP一致 | 口座有効、残高十分、取引IDと認証コードの照合成功 | 認証判定が2段階になる |
-| 加工 | OTP検証後に送金する | 認証コードを発行し、取引ID付きで送金する | 認証発行と送金実行の手順が増える |
-| 出力 | 振込成功または各種エラー | 振込成功、認証発行エラー、照合エラー、送金エラー | どの手順で失敗したかを追う |
+| 入力 | 送金元・振込先口座、送金金額、認証コード。一括処理は給与明細一覧 | 単発は同じ入力と発行された取引ID。一括は給与明細一覧と処理中の成功済み明細一覧 | 取引IDが認証と送金の間を流れ、補償対象を成功済み一覧で追う |
+| 判定 | 口座有効、残高十分、OTP一致 | 左記に加え、取引IDと認証コードの照合成功、一括明細の途中失敗 | 認証判定が2段階になり、補償開始条件が増える |
+| 加工 | OTP検証後に送金。一括は成功分を残して中止 | 認証コードを発行し取引ID付きで送金。一括失敗時は成功済みを逆順で取り消す | 認証発行・取引ID受け渡し・補償手順が増える |
+| 出力 | 振込成功または各種エラー。成功分の履歴 | 振込成功、認証発行・照合・送金エラー。補償時は開始前残高と送金・逆向き履歴 | 失敗位置と、補償後の残高・履歴を追う |
 
 **変更後の入力・加工・出力**
 
-変更後の仕様を、1-1と同じ粒度で、正常系の入力・判定・加工・出力として確認します。1-1の図との差分は、認証が「発行」と「照合」の2ステップになることと、発行時に受け取る「取引ID」が送金実行にも受け渡されることの2点です。★以下で変更箇所が色塗りつぶししてはどうか。全章に該当する話
+変更後の仕様を、1-1と同じ粒度で、正常系の入力・判定・加工・出力として確認します。1-1の図との差分は、認証が「発行」と「照合」の2ステップになることと、発行時に受け取る「取引ID」が送金実行にも受け渡されることの2点です。図では変更した処理を黄色で示します。一括失敗時の補償は正常な単発振込へ混ぜず、直後の差分表とエラー条件で追います。
 
 ```mermaid
 flowchart LR
@@ -787,8 +818,10 @@ flowchart LR
 
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
+    classDef changed fill:#fef3c7,stroke:#d97706,stroke-width:3px,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    class P,G,H changed;
 ```
 
 この図から読み取ることは、次の3点です。
@@ -797,7 +830,7 @@ flowchart LR
 - 認証が「認証コードの発行」と「取引IDと認証コードの照合」の2ステップになり、発行の応答で受け取る「取引ID」という新しい値が加わる。
 - 取引IDは認証の中で完結せず、送金実行にも必須の値として受け渡される。
 
-変更後も、失敗条件は正常系図へ混ぜずに別で確認します。★このワードで検索すると、１章と５章がなくないか？ほかにもフォーマットの流れになっていない箇所がないか見直して。
+正常系の流れを示した後は、失敗条件を図へ混ぜず、同じ列構成の表で別に確認します。この「正常系図→失敗条件表」の順序は章テンプレートの共通ルールとして扱い、他章も横断確認します。
 
 | エラー条件              | どこで分かるか  | 出力      | 保存・通知などの副作用                 |
 | ------------------ | -------- | ------- | --------------------------- |
@@ -806,6 +839,7 @@ flowchart LR
 | 認証コードの発行に失敗する      | 認証コード発行時 | 認証発行エラー | 残高更新なし、履歴記録なし               |
 | 取引IDと認証コードの照合に失敗する | 認証コード検証時 | 認証エラー   | 残高更新なし、履歴記録なし               |
 | 取引ID付き送金に失敗する      | 送金実行時    | 送金エラー   | この章では外部API境界の詳細なリトライ処理は扱わない |
+| 一括振込の途中明細が失敗する | 各明細の口座・残高確認時 | 一括処理中断 | 成功済み明細を逆順で取り消し、逆向き履歴を追加する |
 
 図に加わった「取引ID」の受け渡しが実際にコードのどこへ書かれるかは、フェーズ3で変更を試すコードと、フェーズ7の最終コード・実行結果で追います。
 
@@ -921,11 +955,11 @@ flowchart LR
 > **抜粋の前提（周辺は現状のまま）：** 以下は認証・送金手順の差分抜粋です。フェーズ1の `AccountDatabase` による名義照会、`Bank` による残高確認と送金、`TransferHistory` への記録は変更せず、抜粋の前後で実行されます。`from`・`to`・`amount`・`otp` を直接書くのは、フェーズ1の公開入口と同じ位置引数を展開して手順の痛みを見せるためです。
 
 ```cpp
-bank.verifyAccount(to);
-bank.checkBalance(from, amount);
+if (!bank.verifyAccount(to)) return false;
+if (!bank.checkBalance(from, amount)) return false;
 
-auth.promptOTP();
-auth.verifyOTP(otp);
+auth.promptOTP();  // 戻り値を持たない、入力受付を表すコマンド
+if (!auth.verifyOTP(otp)) return false;
 
 bank.executeTransfer(from, to, amount);
 ```
@@ -935,14 +969,17 @@ bank.executeTransfer(from, to, amount);
 ```cpp
 bool transfer(const std::string& from, const std::string& to,
               int amount, const std::string& otp) {
-    bank.verifyAccount(to);
-    bank.checkBalance(from, amount);
+    if (!bank.verifyAccount(to)) return false;
+    if (!bank.checkBalance(from, amount)) return false;
 
     // 【痛み：認証の手順が変わる】既存コードを書き換える
     // 認証コードの発行応答から取引IDを受け取る
     std::string txId = auth.requestOTP();
     // 検証時に取引IDを渡す必要がある
-    auth.verifyOTP(otp, txId);　★戻り値を判定しないのか？
+    if (!auth.verifyOTP(otp, txId)) {
+        std::cout << "エラー: 認証失敗\n";
+        return false;
+    }
 
     // 【痛み：送金の仕様が変わる】取引IDを送金にも渡す
     bank.executeTransfer(from, to, amount, txId);
@@ -969,11 +1006,13 @@ struct Auth {
 };
 
 struct Bank {
-    void verifyAccount(const std::string& id) {
+    bool verifyAccount(const std::string& id) {
         std::cout << "口座確認: " << id << "\n";
+        return id == "ACC001" || id == "ACC002";
     }
-    void checkBalance(const std::string& from, int amount) {
+    bool checkBalance(const std::string& from, int amount) {
         std::cout << "残高確認: " << from << " " << amount << "円\n";
+        return from == "ACC001" && amount <= 150000;
     }
     void executeTransfer(const std::string& from,
                          const std::string& to, int amount,
@@ -986,10 +1025,10 @@ struct Bank {
 int main() {
     Auth auth;
     Bank bank;
-    bank.verifyAccount("ACC002");
-    bank.checkBalance("ACC001", 50000);
+    if (!bank.verifyAccount("ACC002")) return 1;
+    if (!bank.checkBalance("ACC001", 50000)) return 1;
     std::string txId = auth.requestOTP();
-    auth.verifyOTP("999999", txId);　★戻り値を判定しないのか？
+    if (!auth.verifyOTP("999999", txId)) return 1;
     bank.executeTransfer("ACC001", "ACC002", 50000, txId);
     std::cout << "振り込み完了\n";
     return 0;
@@ -1081,7 +1120,7 @@ graph LR
 
 ここで注意したいのは、`bank.verifyAccount()` や `bank.checkBalance()` という**呼び出しそのものは銀行APIの一部**だということです。メソッド名・引数・確認の仕方は銀行側の都合で変わり得るため、変わる側に属します。守りたいのは、その呼び出しではなく「**送金の前に口座と残高を確認し、認証を通し、送金したら記録する**」という業務手順の意図と順序です。
 
-| **変わり続けるもの（外部システムの詳細）** | **変わってほしくないもの（業務フローの骨格）** |
+| **変わり続けるもの** | **変わってほしくないもの** |
 |---|---|
 | 銀行APIの呼び出し一式（`verifyAccount`・`checkBalance`・`executeTransfer` の呼び方・パラメータ） | 「確認→認証→送金→記録」という業務手順の意図と順序 |
 | 認証手順（`promptOTP`・`verifyOTP` の発行・検証ステップ） | 振り込みという業務上の目的と、依頼へ成否を返すこと |
@@ -1104,7 +1143,7 @@ graph LR
             std::cout << "エラー: 残高不足\n";
             return false;
         }
-        auth.promptOTP();    ★戻り値は見ないのか                    // 変わる側：認証手順
+        auth.promptOTP();                       // 変わる側：voidの入力受付コマンド
         if (!auth.verifyOTP(otp)) {              // 変わる側：認証検証
             std::cout << "エラー: 認証失敗\n";
             return false;
@@ -1128,7 +1167,8 @@ graph LR
 現在、`TransferProcessor`は銀行APIのクラス名だけでなく、口座確認・認証・送金・確認という呼び出し順序まで知っています。接続点で必要なのは「振込を依頼し、結果を受け取ること」ですが、外部APIの技術的な手順が業務側へ漏れています。
 
 現在の `TransferProcessor` は、銀行APIという「特定の機器」に対して、専用のケーブルを直に配線しているような状態です。接続点の判断材料なので、漏れている手順を略さず全て示します。
-★全章のコードで、戻り値を参照していない箇所はないか。
+
+この章の完全なコードと実行用コードでは、成否を返す `bool`／`TransferResult` を必ず分岐または表示に使います。`promptOTP()` は入力受付を命令するだけの `void` 操作なので戻り値はありません。ほかの章についても、「成否を返す呼び出しを文として捨てていないか」を横断チェック項目へ追加します。
 
 **【銀行APIの手順が呼び出し元へ漏れているコード】**
 ```cpp
@@ -1140,10 +1180,10 @@ public:
     bool transfer(const std::string& from, const std::string& to,
                   int amount, const std::string& otp) {
         // ← 直接：銀行・認証の各手順を窓口なしに順に呼び出す
-        bank.verifyAccount(to);              // 手順1：口座確認
-        bank.checkBalance(from, amount);     // 手順2：残高確認
-        auth.promptOTP();                    // 手順3：認証コード受付
-        auth.verifyOTP(otp);                 // 手順4：認証検証
+        if (!bank.verifyAccount(to)) return false;          // 手順1：口座確認
+        if (!bank.checkBalance(from, amount)) return false; // 手順2：残高確認
+        auth.promptOTP();                                  // 手順3：voidの認証コード受付
+        if (!auth.verifyOTP(otp)) return false;             // 手順4：認証検証
         bank.executeTransfer(from, to, amount);  // 手順5：送金実行
         return true;
     }
@@ -1230,14 +1270,13 @@ public:
 
 フェーズ4で、`TransferProcessor`と`BatchTransferProcessor`が「振込を成立させる業務フロー」と「外部システムごとの呼び出し詳細（認証・送金APIの順序とパラメータ）」を同じ場所へ抱えていることを確認しました。対策は、外部呼び出しの詳細を一つの窓口の裏へ隠し、利用側は一つの振込操作だけを呼べるようにすることです。ここで使う構造は、第一部で扱った基本構造です。構造名（と対応するパターン名）を語彙として併記しますが、パターン名から設計を選ぶのではなく、上で確認した「変わる呼び出し詳細」から必要な構造を導きます。
 
-```text
-現在：TransferProcessor / BatchTransferProcessor が
-      振込業務フロー ＋ 銀行APIの認証・送金手順 を直接持つ
-                      ↓
-変更後：外部呼び出し詳細を一つの窓口の裏へ隠し、利用側は一つの操作だけを呼ぶ（窓口固定＝Facade）
-   銀行API手順（順序・パラメータ）   → 手順一式を窓口の内側へ集約する（performTransfer）→ 課題ID1
-   具体窓口の選択（接続先・テスト用） → 共通契約の裏で差し替え可能にする（IBankTransferService）→ 課題ID2
-守る範囲：口座確認・履歴保存・依頼結果の契約、単発／一括の利用フロー
+```mermaid
+flowchart TB
+    A[現在<br/>振込業務フローと銀行API手順が<br/>二つのProcessorに混在] --> B[分離判断<br/>外部手順を一つの窓口の裏へ隠す<br/>窓口固定＝Facade]
+    B --> C[課題ID1<br/>performTransferへ<br/>手順一式を集約]
+    B --> D[課題ID2<br/>IBankTransferServiceの裏で<br/>具体窓口を差し替える]
+    C --> E[守る範囲<br/>口座確認・履歴保存・結果契約・単発／一括フロー]
+    D --> E
 ```
 
 まだクラスの中身は見ません。この段階でつかんでほしいのは「外部呼び出しの詳細を窓口の裏へ集約（課題ID1）し、その窓口を契約で差し替え可能（課題ID2）にして、利用側は一つの操作だけを呼ぶ」という筋だけです。「どのクラスが生成し、どの契約で実行するか」という具体の結論は、この後の課題ID1・課題ID2で決めていきます。決めた結論をまとめて振り返る表は、フェーズ6の末尾（6-3 設計トレース）に置きます。ここでは先に結論表を出しません。
@@ -1320,7 +1359,7 @@ classDiagram
 
 ```mermaid
 classDiagram
-    direction LR
+    direction TB
     class BatchTransferProcessor {
         -TransferProcessor processor
         +processPayroll(from, transfers)
@@ -1374,13 +1413,13 @@ classDiagram
 3. 課題ID2：`BankTransferService` の前に共通契約 `IBankTransferService` を置く。
 4. 課題ID2：具体窓口の生成・注入を `Application`（組み立て側）へ移し、呼び出し元は契約だけを保持する。
 
-変更後は同じ2つの呼び出し元から読み、`TransferProcessor` の依存先が `IBankTransferService` に変わったこと、手順が `BankTransferService` へ移ったこと、生成が `Application` に分かれたことを確認します。★全章共通の指摘で、クラス図の読む方向が変わっている。
+変更後も現状図と同じく上から下へ読みます。2つの呼び出し元から、`TransferProcessor` の依存先が `IBankTransferService` に変わったこと、手順が `BankTransferService` へ移ったこと、生成が `Application` に分かれたことを確認します。
 
 **採用した変更後のクラス図：**
 
 ```mermaid
 classDiagram
-    direction LR
+    direction TB
     class TransferRequest
     class TransferResult
     class AccountDatabase
@@ -1439,12 +1478,12 @@ classDiagram
 
 #### 課題箇所のおさらい（フェーズ3の関連コード）
 
-統合表で特定した箇所だけを振り返ります。課題ID1は手順の並び、課題ID2はその手順を持つクラスの具体依存です。口座残高検証や履歴記録など、課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。★ここもコード抜粋になっている。どの部分の話なのか分からない。
+統合表で特定した箇所だけを振り返ります。最初の抜粋はフェーズ3の変更試行後にある `TransferProcessor::transfer(const std::string& from, const std::string& to, int amount, const std::string& otp)` の認証・送金部分です。口座・残高確認に成功した後、`otp` を入力に `requestOTP()` の応答 `txId` を照合し、同じ `from`・`to`・`amount`・`txId` を送金へ渡す位置を示します。省略した口座・残高の戻り値判定と履歴記録は、そのまま前後で実行されます。二つ目は同じクラスのメンバー宣言で、業務クラスが具体型を保持する依存を示します。
 
 ```cpp
 // 課題ID1：呼び出し元が銀行の手順を順に直接知っている
 std::string txId = auth.requestOTP();
-auth.verifyOTP(otp, txId);
+if (!auth.verifyOTP(otp, txId)) return false;
 bank.executeTransfer(from, to, amount, txId);
 ```
 
@@ -1490,9 +1529,11 @@ public:
     BankTransferService(AccountDatabase& d, Bank& b, TransferHistory& h)
         : db(d), bank(b), history(h) {}
     TransferResult performTransfer(const TransferRequest& req) {
-        if (!db.exists(req.fromAccount))
+        bool sourceAtBank = bank.verifyAccount(req.fromAccount);
+        if (!db.exists(req.fromAccount) || !sourceAtBank)
             return {false, "送金元口座なし"};
-        if (!bank.verifyAccount(req.toAccount))
+        bool destinationAtBank = bank.verifyAccount(req.toAccount);
+        if (!db.exists(req.toAccount) || !destinationAtBank)
             return {false, "送金先口座なし"};
         if (!bank.checkBalance(req.fromAccount, req.amount))
             return {false, "残高不足"};
@@ -1578,8 +1619,13 @@ public:
         TransferHistory history;
         BankTransferService service(db, bank, history); // ④ 具体窓口を生成・所有
         TransferProcessor processor(service);        // ⑤ 契約を注入
-        BatchTransferProcessor batch(service);       // ⑤ 同じ契約を注入　★batchは実行しないのか
+        BatchTransferProcessor batch(service);       // ⑤ 同じ契約を注入
         processor.transfer({"ACC001", "ACC002", 5000, "999999"});
+
+        std::vector<std::pair<std::string, int>> payrollEntries = {
+            {"ACC002", 30000}
+        };
+        batch.processPayroll("ACC003", payrollEntries); // ⑥ バッチ入口も実行
     }
 };
 ```
@@ -1677,7 +1723,7 @@ struct TransferResult {
 
 ```mermaid
 classDiagram
-    direction LR
+    direction TB
     class TransferRequest
     class TransferResult
     class AccountDatabase
@@ -1748,7 +1794,9 @@ sequenceDiagram
     activate T
     T->>F: performTransfer(req)
     activate F
-    F->>DB: exists(req.fromAccount)
+    F->>G: verifyAccount(req.fromAccount)
+    G-->>F: true
+    F->>DB: exists(req.fromAccount) / exists(req.toAccount)
     DB-->>F: true
     F->>G: verifyAccount(req.toAccount)
     G-->>F: true
@@ -1809,8 +1857,10 @@ public:
         return ok;
     }
     bool checkBalance(const std::string& from, int amount) {
-        bool ok = balances[from] >= amount;
-        std::cout << "残高確認: " << from << " " << balances[from]
+        auto account = balances.find(from);
+        bool ok = account != balances.end() && account->second >= amount;
+        int currentBalance = account == balances.end() ? 0 : account->second;
+        std::cout << "残高確認: " << from << " " << currentBalance
                   << "円 >= " << amount << "円 "
                   << (ok ? "OK" : "NG") << "\n";
         return ok;
@@ -1931,6 +1981,23 @@ private:
     Bank& bank;
     TransferHistory& history;
     SecurityAuthenticator auth;
+
+    TransferResult validateAccountsAndBalance(
+            const std::string& from,
+            const std::string& to,
+            int amount) {
+        bool sourceAtBank = bank.verifyAccount(from);
+        if (!db.exists(from) || !sourceAtBank)
+            return {false, "送金元口座なし"};
+
+        bool destinationAtBank = bank.verifyAccount(to);
+        if (!db.exists(to) || !destinationAtBank)
+            return {false, "送金先口座なし"};
+
+        if (!bank.checkBalance(from, amount))
+            return {false, "残高不足"};
+        return {true, "検証成功"};
+    }
 public:
     BankTransferService(AccountDatabase& database, Bank& b,
                         TransferHistory& hist)
@@ -1938,12 +2005,9 @@ public:
 
     TransferResult performTransfer(
             const TransferRequest& req) override {
-        if (!db.exists(req.fromAccount))
-            return {false, "送金元口座なし"};
-        if (!bank.verifyAccount(req.toAccount))
-            return {false, "送金先口座なし"};
-        if (!bank.checkBalance(req.fromAccount, req.amount))
-            return {false, "残高不足"};
+        TransferResult validation = validateAccountsAndBalance(
+            req.fromAccount, req.toAccount, req.amount);
+        if (!validation.success) return validation;
         std::string txId = auth.requestOTP();
         if (!auth.verifyOTP(req.otp, txId))
             return {false, "認証失敗"};
@@ -1957,11 +2021,9 @@ public:
     TransferResult performApprovedBatchTransfer(
             const std::string& from, const std::string& to,
             int amount) override {
-        if (!db.exists(from)) return {false, "送金元口座なし"};
-        if (!bank.verifyAccount(to))
-            return {false, "送金先口座なし"};
-        if (!bank.checkBalance(from, amount))
-            return {false, "残高不足"};
+        TransferResult validation =
+            validateAccountsAndBalance(from, to, amount);
+        if (!validation.success) return validation;
         bank.executeTransfer(from, to, amount, "APPROVED-BATCH");
         history.add(db.ownerName(from), db.ownerName(to), amount);
         return {true, "振り込み完了"};
@@ -2000,25 +2062,31 @@ public:
     explicit BatchTransferProcessor(IBankTransferService& s)
         : service(s) {}
     void processPayroll(
-            const std::string& from,
+            const std::string& payrollSourceAccount,
             const std::vector<std::pair<std::string, int>>&
-                transfers) {
-        std::vector<std::pair<std::string, int>> completed;
-        for (const auto& t : transfers) {
+                payrollEntries) {
+        std::vector<std::pair<std::string, int>> completedEntries;
+        for (const auto& entry : payrollEntries) {
+            const std::string& destinationAccount = entry.first;
+            int paymentAmount = entry.second;
             TransferResult r =
                 service.performApprovedBatchTransfer(
-                    from, t.first, t.second);
+                    payrollSourceAccount,
+                    destinationAccount,
+                    paymentAmount);
             if (r.success) {
                 std::cout << "振り込み完了（OTP不要）\n";
-                completed.push_back(t);
+                completedEntries.push_back(entry);
             } else {
                 std::cout << "一括処理を中断し、完了済み"
-                          << (int)completed.size()
+                          << (int)completedEntries.size()
                           << "件を取り消します\n";
-                for (int j = (int)completed.size() - 1;
+                for (int j = (int)completedEntries.size() - 1;
                      j >= 0; j--)
-                    service.compensate(from, completed[j].first,
-                                       completed[j].second);
+                    service.compensate(
+                        payrollSourceAccount,
+                        completedEntries[j].first,
+                        completedEntries[j].second);
                 return;
             }
         }
@@ -2050,6 +2118,7 @@ public:
 
 ```
 --- 行1: 正常な個別振り込み ---
+口座確認: ACC001 OK
 口座確認: ACC002 OK
 残高確認: ACC001 150000円 >= 5000円 OK
 認証コード発行: txId=TX-9001
@@ -2069,6 +2138,7 @@ public:
 
 ```
 --- 行2: 存在しない口座 ---
+口座確認: ACC001 OK
 口座確認: UNKNOWN NG
 エラー: 送金先口座なし
 ```
@@ -2084,6 +2154,7 @@ public:
 
 ```
 --- 行3: 残高不足 ---
+口座確認: ACC001 OK
 口座確認: ACC002 OK
 残高確認: ACC001 145000円 >= 1000000円 NG
 エラー: 残高不足
@@ -2100,6 +2171,7 @@ public:
 
 ```
 --- 行4: 認証失敗 ---
+口座確認: ACC001 OK
 口座確認: ACC002 OK
 残高確認: ACC001 145000円 >= 5000円 OK
 認証コード発行: txId=TX-9002
@@ -2119,6 +2191,7 @@ public:
 
 ```
 --- 行5: 社内承認済みバッチ ---
+口座確認: ACC003 OK
 口座確認: ACC002 OK
 残高確認: ACC003 500000円 >= 30000円 OK
 送金実行(txId=APPROVED-BATCH): ACC003 -30000→470000円 / ACC002 +30000→65000円
@@ -2137,10 +2210,12 @@ public:
 
 ```
 --- 行6: バッチ途中失敗と補償 ---
+口座確認: ACC003 OK
 口座確認: ACC002 OK
 残高確認: ACC003 470000円 >= 20000円 OK
 送金実行(txId=APPROVED-BATCH): ACC003 -20000→450000円 / ACC002 +20000→85000円
 振り込み完了（OTP不要）
+口座確認: ACC003 OK
 口座確認: ACC001 OK
 残高確認: ACC003 450000円 >= 600000円 NG
 一括処理を中断し、完了済み1件を取り消します
@@ -2422,10 +2497,10 @@ public:
 };
 ```
 
-★以下、コラムの見た目の形式にしてほしい。INFOのような。３章以降はこの項目がないが検討はしていないか。
-### コラム：採用しなかった構造：手順の関数化
-
-フェーズ6の最終構造決定で触れた「手順を自由関数へ切り出す」案が、実際にどんなコードになるかを示します。受け入れ条件課題ID1（手順変更の局所化）はこれでも解けるため、差し替え要求がない状況なら十分に選べる形です。
+> [!INFO]
+> **採用しなかった構造：手順の関数化**
+>
+> フェーズ6で比較した「手順を自由関数へ切り出す」案です。課題ID1の手順変更の局所化は解けるため、差し替え要求がない状況なら十分に選べます。採用しなかった案が読者の判断材料になる章だけに置く任意コラムで、形式は全章でこのINFOに統一します。
 
 ```cpp
 // 手順一式を1つの関数へ集約する（クラスも契約も作らない）

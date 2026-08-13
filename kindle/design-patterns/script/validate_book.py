@@ -80,7 +80,9 @@ PHASE6_BASELINE_HEADING = (
 # Phase 3で追加した代表要素。各改善ステップでコードとして扱うか、
 # 差分抜粋なら「維持している」と説明し、仕様を消さない。
 PHASE6_CONTINUITY_TOKENS = {
-    "chapter01.md": ["isSummerSale", "isCampaignActive"],
+    # Chapter 1の完成形は施策ごとのbool追加をやめ、汎用コードで状態を渡す。
+    # 変更要求の連続性は、対応する名前付きコードが最終コードに残ることで確認する。
+    "chapter01.md": ["CampaignCode::SummerSale", "CampaignCode::RegularCampaign"],
     "chapter02.md": ["txId", "requestOTP"],
     "chapter03.md": ["Held", "Waitlisted"],
     "chapter04.md": ["EC", "checkFormatVersion"],
@@ -380,6 +382,14 @@ BANNED_PATTERNS = [
             r"標準的な(?:設計|手順)|広く採用され|業界標準"
         ),
         "根拠のない「一般的・標準的」断定が残っています（範囲を「この章のシステムでは」に限定するか削除する）",
+    ),
+    (
+        re.compile(r"\*\*この章が扱う複雑さ\*\*"),
+        "著者向けの分類見出しではなく、題材固有の処理・変更点・確認点で名付けてください",
+    ),
+    (
+        re.compile(r"\*\*本章での簡易実現モデル\*\*"),
+        "変更要求固有の模擬方法は、認証・補償など対象を見出しへ出してください",
     ),
 ]
 
@@ -3315,16 +3325,139 @@ def check_class_diagram_focus_syntax(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def check_class_diagram_direction(text: str, path: Path) -> list[Issue]:
+    """classDiagram に明記する向きは TB へ統一する。"""
+    issues: list[Issue] = []
+    for match in re.finditer(
+        r"```mermaid\s*\n(classDiagram.*?)(?=\n```)", text, re.DOTALL
+    ):
+        diagram = match.group(1)
+        direction = re.search(r"(?m)^\s*direction\s+(\w+)\s*$", diagram)
+        if direction and direction.group(1) != "TB":
+            issues.append(Issue(
+                path,
+                line_number(text, match.start(1) + direction.start()),
+                "classDiagramの向きはdirection TBへ統一してください",
+            ))
+    return issues
+
+
+def check_common_phase_headings(text: str, path: Path) -> list[Issue]:
+    """全パターン章で共通に使うフェーズ小見出しを固定する。"""
+    issues: list[Issue] = []
+    required = (
+        "### 4-3：",
+        "### 6-1：生成・所有・実行順のまとめ",
+    )
+    for heading in required:
+        if heading not in text:
+            issues.append(Issue(
+                path,
+                1,
+                f"共通見出しがありません: {heading}",
+            ))
+    return issues
+
+
+def check_phase42_comparison_header(text: str, path: Path) -> list[Issue]:
+    """4-2の比較軸を全パターン章で同じ2列へ固定する。"""
+    start = text.find("### 4-2：")
+    end = text.find("### 4-3：", start)
+    if start < 0 or end < 0:
+        return []
+    section = text[start:end]
+    expected = "| **変わり続けるもの** | **変わってほしくないもの** |"
+    if expected in section:
+        return []
+    return [Issue(
+        path,
+        line_number(text, start),
+        "4-2の比較表は `変わり続けるもの` / `変わってほしくないもの` の2列へ統一してください",
+    )]
+
+
+def check_phase6_overview_diagram(text: str, path: Path) -> list[Issue]:
+    """フェーズ6の抽象全体像を、全章でMermaid図として示す。"""
+    start = text.find("#### まず全体像")
+    end = text.find("まだクラスの中身は見ません", start)
+    if start < 0 or end < 0:
+        return []
+    section = text[start:end]
+    if not re.search(r"```mermaid\s*\nflowchart\s+TB\b", section):
+        return [Issue(
+            path,
+            line_number(text, start),
+            "フェーズ6の全体像は現在→分離判断→課題ID→守る範囲をflowchart TBで図示してください",
+        )]
+    return []
+
+
+def check_ignored_verification_results(text: str, path: Path) -> list[Issue]:
+    """成否を返す既知の検証・照会呼び出しが単独文で捨てられていないか。"""
+    issues: list[Issue] = []
+    call_pattern = re.compile(
+        r"(?m)^\s*[A-Za-z_]\w*\s*(?:\.|->)\s*"
+        r"(?:verifyOTP|verifyAccount|checkBalance)\s*\([^;\n]*\)\s*;"
+        r"\s*(?://.*)?$"
+    )
+    for block in re.finditer(r"```cpp\s*\n(.*?)```", text, re.DOTALL):
+        for call in call_pattern.finditer(block.group(1)):
+            issues.append(Issue(
+                path,
+                line_number(text, block.start(1) + call.start()),
+                "検証・照会メソッドの戻り値を捨てず、判定・保存・返却に使ってください",
+            ))
+    return issues
+
+
+def check_long_text_blocks(text: str, path: Path) -> list[Issue]:
+    """Kindleで追いにくい長大な実行結果・整形済みテキストを禁止する。"""
+    issues: list[Issue] = []
+    for block in re.finditer(r"```text\s*\n(.*?)```", text, re.DOTALL):
+        line_count = len(block.group(1).splitlines())
+        if line_count >= 25:
+            issues.append(Issue(
+                path,
+                line_number(text, block.start()),
+                f"textブロックが{line_count}行あります。ケース単位に分け、各コードの直後へ対応結果を置いてください",
+            ))
+    return issues
+
+
+def check_separated_final_overrides(text: str, path: Path) -> list[Issue]:
+    """7-1完成コードでoverride宣言と実装を別掲載にしない。"""
+    start = text.find("### 7-1：")
+    end = text.find("### 7-2：", start)
+    if start < 0 or end < 0:
+        return []
+    section = text[start:end]
+    match = re.search(r"\boverride\s*;", section)
+    if not match:
+        return []
+    return [Issue(
+        path,
+        line_number(text, start + match.start()),
+        "7-1では具象クラスのoverride宣言と実装を分けず、クラス単位でまとめてください",
+    )]
+
+
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
     issues.extend(check_class_diagram_focus_syntax(text, path))
+    issues.extend(check_class_diagram_direction(text, path))
+    issues.extend(check_ignored_verification_results(text, path))
+    issues.extend(check_long_text_blocks(text, path))
+    issues.extend(check_separated_final_overrides(text, path))
     issues.extend(check_duplicate_headings(text, path))
     issues.extend(check_banned_patterns(text, path))
     issues.extend(check_overview_phase_scope(text, path))
     issues.extend(check_standard_id_glossary(text, path))
     issues.extend(check_raw_new_argument_ownership(text, path))
     if core:
+        issues.extend(check_common_phase_headings(text, path))
+        issues.extend(check_phase42_comparison_header(text, path))
+        issues.extend(check_phase6_overview_diagram(text, path))
         issues.extend(find_in_order(text, REQUIRED_PHASES, path))
         issues.extend(find_in_order(text, REQUIRED_NUMBERED_SECTIONS, path))
         issues.extend(check_required_chapter_structures(text, path))
