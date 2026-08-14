@@ -3763,23 +3763,6 @@ def check_long_text_blocks(text: str, path: Path) -> list[Issue]:
     return issues
 
 
-def check_separated_final_overrides(text: str, path: Path) -> list[Issue]:
-    """7-1完成コードでoverride宣言と実装を別掲載にしない。"""
-    start = text.find("### 7-1：")
-    end = text.find("### 7-2：", start)
-    if start < 0 or end < 0:
-        return []
-    section = text[start:end]
-    match = re.search(r"\boverride\s*;", section)
-    if not match:
-        return []
-    return [Issue(
-        path,
-        line_number(text, start + match.start()),
-        "7-1では具象クラスのoverride宣言と実装を分けず、クラス単位でまとめてください",
-    )]
-
-
 def check_run_locally_section(text: str, path: Path) -> list[Issue]:
     """全パターン章に「手元で動かすには」を1回だけ置く。
 
@@ -4041,7 +4024,14 @@ _CODE_ELLIPSIS = re.compile(
 )
 # 所属の手がかり。`Class::method`、`ClassName`、main()、行頭のclass/struct。
 _OWNER_HINT = re.compile(
-    r"`[A-Z]\w*::\w+|`[A-Z]\w*`|\bmain\s*\(|^\s*(?:class|struct)\s+\w+",
+    r"`[A-Z]\w*::\w+|`[A-Z]\w*`|\bmain\s*\("
+    r"|^\s*(?:class|struct|enum)\s+\w+"
+    r"|^\s*enum\s+class\s+\w+"
+    # `void TicketService::create(...)` のクラス外定義と、桁位置0から
+    # 始まる自由関数の宣言・定義は、コード自身が正体を明かしている。
+    # 断片は必ず字下げされているので、桁位置0かどうかで区別できる。
+    r"|^[\w:<>&*\s]*?\b[A-Z]\w*::[\w~]+\s*\("
+    r"|^[A-Za-z_][\w:<>&*]*\s+[\w~]+\s*\([^;{]*\)\s*[{;]",
     re.M,
 )
 _ATTRIBUTION_PHASES = {"3", "4", "6", "7"}
@@ -4238,7 +4228,6 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
     issues.extend(check_class_diagram_glossary(text, path))
     issues.extend(check_ignored_verification_results(text, path))
     issues.extend(check_long_text_blocks(text, path))
-    issues.extend(check_separated_final_overrides(text, path))
     issues.extend(check_long_final_cpp_blocks(text, path))
     issues.extend(check_executed_test_helpers(text, path))
     issues.extend(check_duplicate_headings(text, path))

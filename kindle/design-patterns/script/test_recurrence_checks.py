@@ -20,7 +20,6 @@ validate_book.py 本体は「現在の本文が通るか」しか見ないため
   REVIEW-005 フェーズ6全体像をテキストだけへ戻す
   REVIEW-006 複数ケースの実行結果を長い一括ブロックへ戻す
   REVIEW-007 変更固有の模擬方法を著者向け共通見出しへ戻す
-  REVIEW-008 完成コードのoverride宣言と実装を分断する
   REVIEW-009 4-2の比較表を章独自の列見出しへ戻す
   DOC-001   断片コードの所属明示・ブロック分割・省略記号
   DOC-003   フェーズ6の断片コードの掲載箇所ラベル
@@ -100,14 +99,6 @@ t = (OUT/"chapter02.md").read_text(encoding="utf-8")
 broken = t.replace("**変更要求を試すための認証・補償モデル**",
                    "**本章での簡易実現モデル**", 1)
 cases.append(("REVIEW-007 簡易実現見出し", V.check_banned_patterns, broken))
-
-# 12) REVIEW-008: 7-1でoverrideを宣言だけに戻す
-t = (OUT/"chapter03.md").read_text(encoding="utf-8")
-broken = t.replace(
-    "void reserve(TicketReservation* reservation) override {",
-    "void reserve(TicketReservation* reservation) override;\n"
-    "    void reserveBody(TicketReservation* reservation) {", 1)
-cases.append(("REVIEW-008 override分断", V.check_separated_final_overrides, broken))
 
 # 13) REVIEW-009: 4-2の比較表を章独自の列見出しへ戻す
 t = (OUT/"chapter04.md").read_text(encoding="utf-8")
