@@ -64,6 +64,10 @@ def main() -> int:
             [python, str(SCRIPT_DIR / "check_execution_output.py")],
         ),
         (
+            "Representative run in 1-1",
+            [python, str(SCRIPT_DIR / "check_representative_run.py")],
+        ),
+        (
             "Unused C++ inputs",
             [python, str(SCRIPT_DIR / "check_unused_cpp_inputs.py")],
         ),

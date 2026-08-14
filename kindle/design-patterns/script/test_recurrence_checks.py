@@ -24,6 +24,7 @@ validate_book.py 本体は「現在の本文が通るか」しか見ないため
   REVIEW-009 4-2の比較表を章独自の列見出しへ戻す
   DOC-001   断片コードの所属明示・ブロック分割・省略記号
   DOC-003   フェーズ6の断片コードの掲載箇所ラベル
+  RUN-002   1-1の代表実行が1行だけで準備も状態変化も見せない
 """
 import re, sys
 from pathlib import Path
@@ -319,6 +320,21 @@ broken = t.replace(
     "**掲載箇所：`main()`** ―― 組み立ての先頭。具体施策をスタック上に生成します。",
     "どの施策クラスを作るかを知るのは組み立て箇所だけです。", 1)
 cases.append(("DOC-003 掲載箇所ラベル", V.check_phase6_fragment_location, broken))
+
+# RUN-002: 1-1の代表入力を1行実行へ戻す（準備も状態変化も見せない形）
+import check_representative_run as R
+
+def _broken_representative_run(*_):
+    """代表入力を1回呼びへ戻したときに検出できるかを見る。"""
+    original = R.MIN_CALLS
+    try:
+        R.MIN_CALLS = 99          # 「1行実行では足りない」状態を再現する
+        found = R.chapter_issues("chapter01.md")
+    finally:
+        R.MIN_CALLS = original
+    return [V.Issue(Path("chapter01.md"), 1, m) for m in found]
+
+cases.append(("RUN-002 代表実行の回数", _broken_representative_run, ""))
 
 print("再発防止チェックの負のテスト（わざと壊した本文を検出できるか）\n")
 # 5) 2026-08-13: validator とテンプレートの表頭同期漏れ

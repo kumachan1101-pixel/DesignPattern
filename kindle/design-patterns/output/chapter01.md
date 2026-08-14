@@ -31,12 +31,22 @@ ECサイトの支払金額計算が何を入力として受け取り、どの処
 
 **代表入力（1-4の`main()`から抜粋）：**
 ```cpp
-Order order1;
-order1.customerId = "C001";                         // Premium会員の顧客ID
-order1.items.push_back(Item("ワイヤレスイヤホン", 10000)); // 商品：ワイヤレスイヤホン 10000円
-CampaignContext context;
-context.isCampaignActive = false;                    // 今回はキャンペーンなし
-processor.process(order1, context);   // 割引を判定して支払金額を表示
+    // 準備：顧客台帳・表示・注文入口を組み立てる
+    CustomerDatabase db;
+    CheckoutResultRenderer renderer;
+    OrderProcessor processor(db, renderer);
+    CampaignContext context;
+
+    // 注文を1件つくる（C001はPremium会員）
+    Order order1;
+    order1.customerId = "C001";
+    order1.items.push_back(Item("ワイヤレスイヤホン", 10000));
+
+    // 同じ注文へ、キャンペーン条件だけを変えて2回通す
+    context.isCampaignActive = false;   // キャンペーンなし
+    processor.process(order1, context);
+    context.isCampaignActive = true;    // キャンペーン中
+    processor.process(order1, context);
 ```
 
 この入力に対する代表的な実行結果は次のとおりです。
@@ -45,7 +55,12 @@ processor.process(order1, context);   // 割引を判定して支払金額を表
 田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Premium, キャンペーン=なし
   小計 10000円 → 支払金額 8000円
+田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
+  条件: 会員=Premium, キャンペーン=あり
+  小計 10000円 → 支払金額 8000円
 ```
+
+2回目に注目してください。**キャンペーンを有効にしても支払金額は8,000円のまま**です。Premium会員の20%引きが優先され、キャンペーンの10%引きは併用されません。1回だけ実行していたら、この「効かない」という仕様は見えませんでした。
 
 この入力と出力から、(1)顧客・商品・会員条件を受け取り、(2)会員種別とキャンペーンで割引を判定して金額を計算し、(3)小計と支払金額が表示される、という一連の動きが読み取れます。同じ入力を含む完全なコードと実行結果は1-4に掲載します。
 

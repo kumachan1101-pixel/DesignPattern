@@ -33,8 +33,22 @@
 **代表入力（1-4の`main()`から抜粋）：**
 
 ```cpp
-// 連携先ID=PARTNER_A（物流会社A）へ、同期対象=注文（SyncTarget::Orders）を1件同期する
-executor.execute({"PARTNER_A", SyncTarget::Orders});
+    // 準備：連携先台帳・実行ログ・データ取得元を組み立てる
+    PartnerDatabase db;
+    BatchLog batchLog;
+    OrderDataSource orders;
+    InventoryDataSource inventory;
+    SyncDataCatalog dataCatalog(orders, inventory);
+    BatchExecutor executor(db, batchLog, dataCatalog);
+
+    // 1回目：物流会社A（PARTNER_A）へ注文データを同期する
+    executor.execute({"PARTNER_A", SyncTarget::Orders});
+
+    // 2回目：同じ入口へ、別の連携先と別の同期対象を渡す
+    executor.execute({"PARTNER_B", SyncTarget::Inventory});
+
+    // 3回目：連携が無効になっている会社を指定する
+    executor.execute({"PARTNER_Z", SyncTarget::Orders});
 ```
 
 この入力に対する代表的な実行結果は次のとおりです。
@@ -45,7 +59,16 @@ A社へ送信(1件): 注文 ORD001
 [送信結果詳細] A社: 13バイト送信
 実行結果を保存(1件): [PARTNER_A] 物流会社A -> 成功
 完了通知(1件): 物流会社A 連携完了
+[送信先] 在庫会社B (stock-b.example)
+B社へ送信(1件): 在庫 SKU001
+[送信結果詳細] B社: 13バイト送信
+実行結果を保存(2件): [PARTNER_B] 在庫会社B -> 成功
+完了通知(1件): 在庫会社B 連携完了
+エラー: パートナー [分析会社Z] は現在無効です。処理を中断します。
+実行結果を保存(3件): [PARTNER_Z] 分析会社Z -> スキップ（無効）
 ```
+
+3回並べると、この章の骨格が見えます。**送信先も送るデータも違うのに、「設定を引く → データを取る → 送る → 結果を保存する → 通知する」という順序は変わりません。** 3回目は連携が無効なので送信せずに止まりますが、それでも実行ログには3件目として残ります。**保存件数が1→2→3と積み上がる**ことも、1回だけの実行では見えませんでした。
 
 この入力と出力から、(1)運用者が連携先IDと同期対象を指定し、(2)有効な連携先の確認→社内データ取得→外部API送信→結果保存→社内通知の順に進み、(3)連携先ごとの送信結果と通知結果が残る、という一連の動きが読み取れます。同じ入力を含む完全なコードと実行結果は1-4に掲載します。
 

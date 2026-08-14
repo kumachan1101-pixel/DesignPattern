@@ -29,14 +29,24 @@
 **代表入力（1-4の`main()`から抜粋）：**
 
 ```cpp
-ReportRequest request{
-    "SALES_MONTHLY", OutputFormat::Pdf,
-    true,  // グラフあり
-    true,  // ロゴあり
-    false, // 透かしなし
-    "current_monthly_pdf_demo.txt"
-};
-application.generate(request); // 検証→集計→本文→装飾→保存の順に実行
+    // 準備：テンプレート台帳と出力境界を持つ入口を作る
+    ReportApplication application;
+
+    // 1回目：月次・PDF・グラフあり・ロゴあり・透かしなし
+    ReportRequest request{
+        "SALES_MONTHLY", OutputFormat::Pdf,
+        true, true, false,
+        "current_monthly_pdf_demo.txt"
+    };
+    application.generate(request);
+
+    // 2回目：同じ入口へ、週次・Excel・透かしありを渡す
+    ReportRequest weekly{
+        "SALES_WEEKLY", OutputFormat::Excel,
+        false, false, true,
+        "current_weekly_excel_demo.txt"
+    };
+    application.generate(weekly);
 ```
 
 この入力に対する代表的な実行結果は次のとおりです。
@@ -51,7 +61,17 @@ CSV読込: 6件・合計3510・平均585
 フッター生成
 デモ成果物を保存: current_monthly_pdf_demo.txt（実PDFではない）
 デバッグログ件数: 0->1・event=generate・result=success
+テンプレート: 週次売上レポート
+CSV読込: 6件・合計3510・平均585
+ヘッダー生成: Excel
+週次売上レポート 標準本文: 件数6・合計3510・平均585
+装飾適用: 透かし
+フッター生成
+デモ成果物を保存: current_weekly_excel_demo.txt（実Excelではない）
+デバッグログ件数: 1->2・event=generate・result=success
 ```
+
+2回並べると、変わるものと変わらないものが分かれます。テンプレート名、形式、装飾、保存先は要求ごとに変わりますが、**「テンプレート確認 → 集計 → ヘッダー → 本文 → 装飾 → フッター → 保存」という順序は2回とも同じ**です。そして**デバッグログ件数が `0->1` から `1->2` へ積み上がります**。1回だけの実行では、この積み上がりも順序の不変性も見えませんでした。
 
 この入力と出力から、(1)利用者がテンプレートID・形式・装飾を指定し、(2)検証→集計→本文→装飾→保存の順に進み、(3)内部診断ログへ成否と件数の変化（0→1）が残る、という一連の動きが読み取れます。同じ入力を含む完全なコードと実行結果は1-4に掲載します。
 
@@ -603,6 +623,8 @@ public:
 
 int main() {
     ReportApplication application;
+
+    // 1回目：月次・PDF・グラフあり・ロゴあり・透かしなし
     ReportRequest request{
         "SALES_MONTHLY",
         OutputFormat::Pdf,
@@ -611,17 +633,41 @@ int main() {
         false,
         "current_monthly_pdf_demo.txt"
     };
-    return application.generate(request) ? 0 : 1;
+    bool first = application.generate(request);
+
+    // 2回目：同じ入口へ、週次・Excel・透かしありを渡す
+    ReportRequest weekly{
+        "SALES_WEEKLY",
+        OutputFormat::Excel,
+        false,
+        false,
+        true,
+        "current_weekly_excel_demo.txt"
+    };
+    bool second = application.generate(weekly);
+
+    // 3回目：登録されていないテンプレートIDを渡す
+    ReportRequest unknown{
+        "SALES_UNKNOWN",
+        OutputFormat::Pdf,
+        false,
+        false,
+        false,
+        "current_unknown_demo.txt"
+    };
+    application.generate(unknown);
+
+    return (first && second) ? 0 : 1;
 }
 ```
 
 - `ReportApplication::generate()`は、テンプレートIDと対応形式を検証してから`ReportGenerator`へ同じ要求を渡します。エラー時は生成・保存へ進みませんが、その失敗結果も`DebugLog`へ記録します。
-- `main()`は、月次・PDF・グラフあり・ロゴあり・透かしなし・出力先というケース1系の入力を組み立てます。
+- `main()`は、同じ入口へ3件の要求を順に渡します。月次・PDF・グラフとロゴ、週次・Excel・透かし、そして未登録テンプレートです。テンプレートも形式も装飾も変わりますが、呼ぶ操作は `generate()` の1つだけです。
 - 利用者入力の受付、テンプレート検証、生成本体の呼び出し、内部診断記録がどこで接続されるかを示すブロックです。
 
 実行対象コード：1-4の現状コード
 
-確認対象：ケース1を拡張し、月次標準本文へグラフとロゴが固定順で適用されること
+確認対象：テンプレート・形式・装飾を変えても同じ順序で処理が進み、内部診断ログが1件ずつ積み上がること
 
 実行結果：
 
@@ -635,9 +681,19 @@ CSV読込: 6件・合計3510・平均585
 フッター生成
 デモ成果物を保存: current_monthly_pdf_demo.txt（実PDFではない）
 デバッグログ件数: 0->1・event=generate・result=success
+テンプレート: 週次売上レポート
+CSV読込: 6件・合計3510・平均585
+ヘッダー生成: Excel
+週次売上レポート 標準本文: 件数6・合計3510・平均585
+装飾適用: 透かし
+フッター生成
+デモ成果物を保存: current_weekly_excel_demo.txt（実Excelではない）
+デバッグログ件数: 1->2・event=generate・result=success
+エラー: 未登録テンプレート SALES_UNKNOWN
+デバッグログ件数: 2->3・event=generate・result=failure
 ```
 
-現状の入力、集計、固定された装飾順、出力境界、内部診断ログが、1-1と1-2の説明どおりに動きました。
+現状の入力、集計、固定された装飾順、出力境界、内部診断ログが、1-1と1-2の説明どおりに動きました。3件を通すと、デバッグログ件数が `0->1`・`1->2`・`2->3` と積み上がり、失敗した3件目も `result=failure` として記録されることが分かります。
 
 > **手元で動かすには**
 > このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter11.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。`ReportRequest` の `OutputFormat::Pdf` を `OutputFormat::Excel` へ変え、出力パスを `"my_report_demo.txt"` などへ変えれば、ヘッダーの形式表記と保存先が変わった実行結果に表れます。装飾の有無を示す3つの真偽値を切り替えると、適用される装飾が増減します。**実行するとカレントディレクトリへ指定名のテキストファイルが実際に作られます。**中身はヘッダー・本文・装飾・フッターを並べたデモ用のプレビューで、PDFやExcelのファイル形式では書き出しません（形式名は文字列として出力へ現れるだけです）。CSVは実ファイルを読まず、`DataReader` が固定データで代替します。集計結果と内部診断ログはプロセス実行中だけ有効で、終了すると消えます。

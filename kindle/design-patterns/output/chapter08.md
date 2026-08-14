@@ -31,11 +31,24 @@
 
 **代表入力（1-4の`main()`から抜粋）：**
 ```cpp
-PaymentRequest r1;
-r1.methodId = "credit_card";                // クレジットカード決済
-r1.orderId = "ORD-1001";
-r1.creditCard = {"tok_abc", "YAMADA", "123"}; // トークン・名義・CVC
-executeCase(app, payLog, r1); // 手段別の入力検証→カード会社API→結果保存
+    // 準備：決済の入口と、結果を残す台帳を組み立てる
+    PaymentApplication app;
+    PaymentLog payLog;
+
+    // 1件目：クレジットカード（同期）
+    PaymentRequest r1;
+    r1.methodId = "credit_card";
+    r1.orderId = "ORD-1001";
+    r1.creditCard = {"tok_abc", "YAMADA", "123"}; // トークン・名義・CVC
+    executeCase(app, payLog, r1);
+
+    // 2件目：同じ入口へ、銀行振込（非同期）を渡す
+    PaymentRequest r2;
+    r2.methodId = "bank_transfer";
+    r2.orderId = "ORD-1002";
+    r2.bankTransfer
+        = {"山田太郎", "0001", "ordinary"};
+    executeCase(app, payLog, r2);
 ```
 
 この入力に対する代表的な実行結果は次のとおりです。
@@ -43,7 +56,15 @@ executeCase(app, payLog, r1); // 手段別の入力検証→カード会社API�
 ```
 [決済API] カード認証 order=ORD-1001 amount=1000 token=tok_abc holder=YAMADA
 結果: credit_card -> 成功 (クレジット認証済み id=AUTH001)
+
+[決済API] 振込先発行 order=ORD-1002 amount=2000 payer=山田太郎 bank=0001 type=ordinary
+結果: bank_transfer -> 保留 (振込先発行済み 口座=mizuho-1234567)
+  完了確認中... id=BT-ORD-1002
+[状態確認API] id=BT-ORD-1002
+  完了結果: 成功 (入金確認済み)
 ```
+
+2件並べると、この章が扱う幅が見えます。**同じ入口へ渡しているのに、決済手段によって必要な入力も、結果の返り方も違います。** カードはトークンと名義を渡してその場で「成功」が返りますが、銀行振込は振込人名と銀行コードを渡して一度「保留」が返り、後から状態を確認して初めて成功が確定します。金額は台帳の注文IDから引くので、利用側は渡しません。
 
 この入力と出力から、(1)注文・金額・支払手段・手段別の入力を渡し、(2)手段に応じた検証→外部API→結果保存の順に進み、(3)決済結果が表示される、という一連の動きが読み取れます。同じ入力を含む完全なコードと実行結果は1-4に掲載します。
 

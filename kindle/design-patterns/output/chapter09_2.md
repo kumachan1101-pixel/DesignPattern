@@ -28,23 +28,37 @@
 
 #### まず代表入力と実行結果から動きをつかむ
 
-詳細な仕様やコードへ入る前に、1-4の`main()`で担当者が問い合わせチケットを新規作成する入力を確認します。
+詳細な仕様やコードへ入る前に、1-4の`main()`から1件のチケットを追いかけます。このシステムは1回呼んで終わりではなく、**同じチケットへ操作を重ねるたびに状態と優先度が入れ替わる**ため、準備から複数回の操作までをまとめて見ます。
 
 **代表入力（1-4の`main()`から抜粋）：**
 
 ```cpp
-manager.create("TCK001", "USR003"); // 一般(鈴木)が作成 → Open・Normal
-manager.create("TCK002", "USR002"); // プレミアム(佐藤)が作成 → Open・High
+    // 準備：ユーザー台帳（鈴木=一般 / 佐藤=プレミアム）を持つ入口を作る
+    TicketManager manager;
+
+    // 一般ユーザーの鈴木が問い合わせチケットを登録する
+    manager.create("TCK001", "USR003");
+
+    // 同じチケットIDへ操作を重ねていく
+    manager.updateStatus("TCK001", "assign", "AGT01");
+    manager.updateStatus("TCK001", "escalate");
+    manager.updateStatus("TCK001", "resolve");
+    manager.updateStatus("TCK001", "reopen");
 ```
 
 この入力に対する代表的な実行結果は次のとおりです。
 
 ```
 [TCK001] 作成 申請者=鈴木 次郎 状態=Open 優先度=Normal
-[TCK002] 作成 申請者=佐藤 花子 状態=Open 優先度=High
+[TCK001] assign: 状態 Open → InProgress 優先度=Normal 担当=AGT01
+[TCK001] escalate: 状態 InProgress → Escalated 優先度=High 担当=AGT01
+[TCK001] resolve: 状態 Escalated → Resolved 優先度=High 担当=AGT01
+[TCK001] reopen: 状態 Resolved → Open 優先度=Normal 担当=AGT01
 ```
 
-この入力と出力から、(1)申請者と内容を受け取り、(2)検証→作成→状態・優先度の付与→保存の順に進み、(3)作成したチケットの状態と優先度が表示される、という一連の動きが読み取れます。同じ入力を含む完全なコードと実行結果は1-4に掲載します。
+1行ずつ追うと、このシステムが何をしているかが見えてきます。状態は `Open → InProgress → Escalated → Resolved → Open` と進み、優先度は登録時の `Normal` からエスカレーションで `High` へ上がり、再受付で `Normal` へ戻ります。**次の操作は、前の操作が保存した状態から始まります。** 4回目の `resolve` が `Escalated` から始まっているのはそのためです。
+
+この入力と出力から、(1)申請者と操作を受け取り、(2)保存済みの状態を読んで操作できるかを判定し、(3)成功したときだけ状態と優先度を更新して保存する、という一連の動きが読み取れます。同じ入力を含む完全なコードと実行結果は1-4に掲載します。
 
 #### 最初にシステム全体をつかむ
 
