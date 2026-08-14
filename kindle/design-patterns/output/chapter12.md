@@ -36,17 +36,8 @@
 **代表入力（1-4の`main()`から抜粋）：**
 
 ```cpp
-    // 準備：稟議台帳と承認者台帳を持つワークフローの入口を作る
-    WorkflowManager wm;
-
-    // 1回目：REQ001（作成中）を5万円で提出する
-    wm.process("REQ001", "提出", 50000, "APR001");
-
-    // 2回目：REQ002（審査待ち）を5万円で承認する
-    wm.process("REQ002", "承認", 50000, "APR001");
-
-    // 3回目：課長の上限（10万円）を超える金額で提出する
-    wm.process("REQ001", "提出", 200000, "APR001");
+// 稟議REQ001（作成中）を金額5万円で「提出」→ 審査待ちへ進み、次の承認者（課長）へ通知
+wm.process("REQ001", "提出", 50000, "APR001");
 ```
 
 この入力に対する代表的な実行結果は次のとおりです。
@@ -54,12 +45,7 @@
 ```
 REQ001：作成中 → 審査待ち
 課長へ通知
-REQ002：審査待ち → 完了
-部長へ通知
-エラー：田中 課長（manager）の承認上限（100000円）を超えています。
 ```
-
-3回並べると、何が判断を分けているかが見えます。1回目と2回目は**現在の状態**（作成中／審査待ち）で次の遷移先が決まり、通知先も変わります。3回目は状態ではなく**金額と承認者の上限**でエラーになり、状態は動きません。状態による分岐と、承認可否の判定という別々の理由が、同じ入口の中で並んでいます。
 
 この入力と出力から、(1)申請内容を受け取り、(2)検証→状態更新→通知の順に進み、(3)更新後の状態と通知先が表示される、という一連の動きが読み取れます。同じ入力を含む完全なコードと実行結果は1-4に掲載します。
 
@@ -841,7 +827,7 @@ flowchart TD
 | 金額が承認上限を超える | 差し替えた承認ルールの上限チェック | 承認不可 | 行わない |
 | 現在状態で操作できない | 保存済み状態とイベントの組み合わせ | 操作不可エラー | 行わない |
 | 通知先データがない | `NotificationTargetRepository` に通知先がない | 状態更新のみ。通知結果は空 | 状態保存は行う。通知は積まない |
-| 通知の送信が失敗する | 送信結果が失敗を返す | 状態は更新済み。該当通知だけ失敗を記録 | 状態保存は保つ。他の通知は続行 |
+| 通知の送信が失敗する | `DeliveryResult` が失敗を返す | 状態は更新済み。該当通知だけ失敗を記録 | 状態保存は保つ。他の通知は続行 |
 
 状態の追加・通知処理の分離・承認ルール差し替え・通知失敗が実際のコードでどこに現れるかは、フェーズ3で変更を試すコードと、フェーズ7の最終コード・実行結果で追います。キュー化・後送りは1-4で示したとおり対象外です。
 
@@ -1044,10 +1030,6 @@ public:
         }
         if (notifyPayment) cout << "決済部門へ通知" << endl;
     }
-```
-同じ `WorkflowManager` の続きで、公開操作 `process()` が呼ぶ `notify()` から先です。
-
-```cpp
 private:
     void notify(const string& requestId) {
         cout << targets.getTarget(requestId) << "へ通知" << endl;
@@ -1057,9 +1039,12 @@ private:
         return true;                              // 送信可否の判断もここへ入る
     }
 };
+
 ```
 
-変更要求後の代表ケースを、上のコードで通します。見るのは、変更要求を現状の構造へ当てはめたとき、修正箇所と痛みがどこに出るかです。
+実行対象コード：3-1の変更試行コード
+対応する動作例：変更要求後の代表ケース
+確認したいこと：変更要求を現状構造へ当てはめたとき、修正箇所と痛みがどこに出るか
 
 この変更後コードを、代表ケースごとに実行します。まずケース1（通常申請の提出）を実行します。
 
@@ -1079,7 +1064,7 @@ REQ001：作成中 → 審査待ち
 ---
 ```
 
-続いて、同じ `main()` の中でケース2（緊急申請の提出・課長スキップ）を実行します。
+続いて、ケース2（緊急申請の提出・課長スキップ）を実行します。
 
 ```cpp
     // 緊急申請の提出（課長スキップ）
@@ -1147,7 +1132,7 @@ graph LR
 > 変更ID1の状態遷移、変更ID2の申請者通知と送信結果、変更ID3の部署別承認判定を`WorkflowManager::process()`へ同時に追加した。承認時の通知は1件から2件へ増え、承認可否の判定は役職上限と部署別上限の2か所へ分かれ、三つの確定要求が同じメソッドで衝突した。
 ---
 
-観測した痛みへ`問題ID`を付け、どの変更IDから来たかを対応づけます。本章は状態・通知・承認判定の3軸なので、痛みも3つに対応します。
+観測した痛みへ`問題ID`を付け、どの変更IDから来たかを対応づけます。本章は状態・通知・承認判定の3軸なので、痛みも3つに対応します。この問題IDが、フェーズ4の原因ID、フェーズ5の課題IDへ順につながります。
 
 | 問題ID | 観測した痛み（変更途中コード） | 起点の変更ID |
 |---|---|---|
@@ -1193,7 +1178,7 @@ graph LR
 | 各状態における通知先リスト | 承認フローの実行順序（入口から出口までの流れ） |
 | 金額や役職による承認可否判定 | 申請データが通過する状態遷移の基盤 |
 
-**【変わる部分（状態遷移・通知・判定が混在した if 文）】** `WorkflowManager::process()` の中で、状態×操作の分岐を並べている部分です。
+**【変わる部分（状態遷移・通知・判定が混在した if 文）】**
 ```cpp
         string current = cases.getState(requestId);
         if (current == "作成中" && operation == "提出") {
@@ -1209,7 +1194,7 @@ graph LR
             cout << "承認上限を超えています。" << endl;
 ```
 
-**【変わってほしくない部分（守りたい骨格）】** 同じ `WorkflowManager::process()` の中で、状態を読み、次状態を決め、保存し、通知するという4段の順序です。
+**【変わってほしくない部分（守りたい骨格）】**
 ```cpp
     void process(const string& requestId, const string& operation,
                  int amount, const string& approverId) {
@@ -1222,7 +1207,7 @@ graph LR
 ```
 
 ### 4-3：接続点に漏れている3つの知識を確認する
-
+★この項目、他の章にはないが、テンプレ通りにできているか
 ここでの「確認すること」は、前節までに見つけた原因から抽出します。まず、原因文から「守りたい骨格」と「変わる差分」を分けます。次に、その差分を動かすために骨格側が知ってしまっている名前・条件・順序・型を拾います。最後に、接続点に残す最小の約束を、値・型・操作・イベントとして書きます。
 
 原因によって、接続点で見る抽象観点は変わります。条件分岐が原因なら条件・定数・選択基準を見ます。処理手順が原因なら呼び出し順・前後条件・失敗時分岐を見ます。生成判断が原因なら具体クラス名・生成条件・登録場所を見ます。通知や外部連携が原因なら通知先・タイミング・成否の扱いを見ます。データや状態が原因なら、境界を流れる値・型・状態を見ます。
@@ -1295,7 +1280,7 @@ public:
 | 原因ID2：状態更新処理が通知先・送信処理を直接知る | 通知追加・失敗で状態保存まで影響する | 状態確定後の通知配送を状態遷移から分離する | 状態保存と通知配送は別の理由で変わる |
 | 原因ID3：同じ処理が部署・役職ごとの上限条件を持つ | 上限変更で状態遷移まで修正する | 承認判定を状態処理から分離する | 組織ルールと状態経路は別の理由で変わる |
 
-ここで挙げるのは、原因のどの構造を変える必要があるかまでです。それをどのクラスへどう置くかは、課題を確定してからフェーズ6で決めます。
+この段階では、解決クラス名・契約名・パターン名・生成場所を決めません。原因のどの構造を変える必要があるかだけを候補にします。
 
 ### 5-2：課題候補をシステム全体で評価する
 
@@ -1351,24 +1336,9 @@ flowchart TB
 
 第0章の「設計の醍醐味」の四拍子でいえば、この章は〈状態・通知・判定の共通契約を見つけて3軸を分離〉→〈各部品を生成〉→〈保持・登録・注入〉→〈ワークフロー進行は具体を意識しない〉という同じ順序をたどります。
 
-#### 構造ポイントの全貌 ―― どの責任がどこへ移るか
-
-課題ID1〜課題ID3の①〜⑥が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この表で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID節に同じ番号で置きます。
-
-| ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
-|---|---|---|---|
-| ① 契約 | `WorkflowManager::process()` の巨大 `if-else` → `IWorkflowPhase::handle()`、`INotificationListener::onStatusChanged()`、`IApprovalRule::canApprove()` | 状態・通知・承認判定を別々の契約へ切り出す | ③のoverride |
-| ② 骨格 | 状態・通知・判定が同居する `process()` → `process()` は委譲だけ、`transitionTo()` は保存と一律配布だけ | 3軸が増えても変えない制御順を固定する | ①の各契約 |
-| ③ 具体 | 分岐に埋もれた経路・通知・上限判定 → `DraftPhase::handle()`、`EmailNotifier::onStatusChanged()`、`DepartmentApprovalRule::canApprove()` | 状態別遷移・通知手段・判定規則を実装へ閉じる | ②の `transitionTo()` へ戻る |
-| ④ 生成 | `WorkflowManager` が全分岐を内包 → `BatchApplication` が Phase・Listener・Rule を生成・所有 | 具体の生成を組み立て側へ集める | ⑤の受渡行 |
-| ⑤ 注入 | 利用側が経路と通知先を判定 → `WorkflowManager wm(cases, resolver);`、`wm.addListener(&email);`、`PendingPhase pending(managerRule);` | 契約を借用参照として渡す・登録する（所有は④のまま） | ⑥が呼ぶ `process()` |
-| ⑥ 利用開始 | 呼び出し側が状態名と通知先を知る → `wm.process(WorkflowEvent::Submit);` | ④⑤で組み立てた同じ実体を使い、公開操作を1回呼ぶ | ②の `process()` |
-
-この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（①→⑥）ではなく④→⑤→⑥→②→①→③で、課題ID節の末尾に実行接続表として置きます。
-
 #### 接続点の分離・配置・組み立てを決める
 
-具体クラスへ入る前に、課題ID1〜課題ID3を「どう分け、どこへ置き、どう組み立てるか」という同じ三観点で一度に見渡します。実装はフェーズ7で行います。各課題が最終構造のどこへ着地するかの地図です。
+具体クラスへ入る前に、課題ID1〜課題ID3を「どう分け、どこへ置き、どう組み立てるか」という同じ三観点で一度に見渡します。まだ実装はしません。各課題が最終構造のどこへ着地するかの地図です。
 
 | 接続点を変える観点 | システム全体の考え方 | 課題ID1〜課題ID3のコードへの反映 |
 |---|---|---|
@@ -1621,58 +1591,13 @@ class DraftPhase : public IWorkflowPhase {
 };
 ```
 
-**④ 生成・所有。** 具体Phaseの生成・所有は組み立て側（`BatchApplication`）に閉じます。`WorkflowManager` は生成しません。
+**④ 生成・⑤ 注入。** 具体Phaseの生成・所有と状態IDからの解決は組み立て側（`BatchApplication`）と `WorkflowPhaseResolver` に閉じ、`WorkflowManager` は非所有の契約ポインタを受け取ります（生成の全体像は6-1・6-2）。
 
-**掲載箇所：`BatchApplication::run()`** ―― 組み立ての先頭。具体Phaseと解決役をローカル変数として作ります。
-
-```cpp
-DraftPhase draft;                  // ④ 生成・所有は組み立て側
-PendingPhase pending(managerRule);
-PriorityPendingPhase priorityPending(directorRule);
-WorkflowPhaseResolver resolver(draft, pending, priorityPending);
-```
-
-**⑤ 注入。** 生成済みPhaseを `WorkflowPhaseResolver` 経由で `WorkflowManager` へ渡します。Managerが受け取るのは非所有の契約ポインタ `IWorkflowPhase*` だけです。
-
-**掲載箇所：`BatchApplication::run()`** ―― ④の直後。解決役ごとManagerへ渡します。
+**②⑥ 状態委譲の安定骨格は、現在状態へイベントを委ねるだけ。** `WorkflowManager::process()` は現在Phaseへ `handle()` を委譲し、どの状態かを知りません（コード全体は6-2）。
 
 ```cpp
-WorkflowManager wm(cases, resolver);   // ⑤ 契約として注入（借用参照）
+void process(WorkflowEvent ev) { phase->handle(*this, ev); } // ⑥ 委譲
 ```
-
-**② 状態委譲の安定骨格。** `WorkflowManager::process()` は現在Phaseへ `handle()` を委譲するだけで、どの状態かを知りません。状態が増えてもこの1行は変わりません。
-
-**掲載箇所：`WorkflowManager::process(WorkflowEvent)`** ―― 公開入口の全文。現在状態へ委譲するだけです。
-
-```cpp
-void process(WorkflowEvent ev) {
-    phase->handle(*this, ev);      // ② 現在状態の契約を呼ぶ
-}
-```
-
-**⑥ 利用開始。** 申請者や承認者の操作を受けた入口が、公開操作 `WorkflowManager::process()` を呼びます。利用側が `handle()` や具体Phaseを直接呼ぶことはありません。
-
-**掲載箇所：`BatchApplication::run()`** ―― ⑤の直後。申請者と承認者の操作にあたる2行です。
-
-```cpp
-wm.process(WorkflowEvent::Submit);     // ⑥ 利用開始
-wm.process(WorkflowEvent::Approve);
-```
-
-#### 代表ケースの実行接続
-
-通常申請の提出1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
-
-| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
-|---|---|---|---|
-| 1. ④生成 | `BatchApplication`（組み立て側） | `DraftPhase draft;` ほか具体Phaseを生成・所有 | ⑤へ |
-| 2. ⑤注入 | `BatchApplication` | `WorkflowManager wm(cases, resolver);` で契約を借用参照として渡す | ⑥へ |
-| 3. ⑥利用開始 | 申請入口（`BatchApplication`） | `wm.process(WorkflowEvent::Submit);` | `WorkflowManager::process()` |
-| 4. ②安定骨格 | `WorkflowManager::process(WorkflowEvent)` | `phase->handle(*this, ev);` で現在状態へ委譲 | `IWorkflowPhase::handle()` |
-| 5. ①契約 | `IWorkflowPhase::handle(WorkflowManager&, WorkflowEvent)` | 現在Phaseへ動的ディスパッチする | `DraftPhase::handle()` |
-| 6. ③具体 | `DraftPhase::handle(WorkflowManager&, WorkflowEvent)` | 提出イベントを受けて次状態を選び `transitionTo()` を呼ぶ | ②の `transitionTo()` へ戻る |
-
-④で生成した `draft` と、⑤で渡した実体と、⑥の呼び出しから②が委譲する実体は同じものです。
 
 これで課題ID1の完了条件「経路追加が新しいPhaseと遷移登録に閉じ、公開入口・状態保存を変えない」を満たします。課題ID2の通知境界・課題ID3の承認判定とは独立したまま、同じ進行経路へ接続します。
 
@@ -1716,44 +1641,14 @@ class EmailNotifier : public INotificationListener {
 };
 ```
 
-**④ 生成・所有。** 組み立て側（`BatchApplication`）が具体通知先を生成し、所有します。
-
-**掲載箇所：`BatchApplication::run()`** ―― 組み立ての先頭。具体通知先を作ります。
+**④ 生成・⑤ 注入（登録）。** 組み立て側が `EmailNotifier`・`ChatNotifier` を生成・所有し（借用参照として渡す）、`addListener()` で登録して注入します（全体像は6-1・6-2）。
 
 ```cpp
 EmailNotifier email;               // ④ 生成・所有は組み立て側
-ChatNotifier chat;
-```
-
-**⑤ 注入（登録）。** 生成済みの通知先を `addListener()` で登録します。`WorkflowManager` が持つのは契約 `INotificationListener*` の借用参照だけです。
-
-**掲載箇所：`BatchApplication::run()`** ―― ④の直後。通知先を契約としてManagerへ登録します。
-
-```cpp
 wm.addListener(&email);            // ⑤ 登録で注入（借用参照）
-wm.addListener(&chat);
 ```
 
-**② 通知配布の安定骨格。** `WorkflowManager::transitionTo()` は状態を保存してから、登録済みリストを順に回して `onStatusChanged()` を呼びます。メールかチャットかを知らず、1件の失敗で状態遷移や他通知を止めません。
-
-**掲載箇所：`WorkflowManager::transitionTo(const std::string& s, const std::string& id)`** ―― 遷移確定の全文。保存してから登録先へ配ります。
-
-```cpp
-void transitionTo(const std::string& s, const std::string& id) {
-    cases.saveState(id, s);                      // ② 保存はRepositoryへ
-    for (auto* l : listeners) {
-        l->onStatusChanged(id, s);               // ② 登録順に契約を呼ぶ
-    }
-}
-```
-
-**⑥ 利用開始。** 通知そのものを利用側が呼ぶことはありません。⑥は課題ID1と同じ、組み立て側 `BatchApplication` からの `wm.process(...)` で、②の `transitionTo()` が状態確定後に自動で配布します。
-
-**掲載箇所：`BatchApplication::run()`** ―― 課題ID1と同じ操作の行。通知はこの行から②を通って自動で配られます。
-
-```cpp
-wm.process(WorkflowEvent::Approve);   // ⑥ 利用開始（通知は②から自動接続）
-```
+**②⑥ 通知配布の安定骨格は、登録リストを一律に回すだけ。** `transitionTo()` は状態保存後に登録済み `INotificationListener` へ順に `onStatusChanged()` を呼び、メールかチャットかを知りません。1件の失敗で状態遷移や他通知を止めません（コード全体は6-2）。
 
 これで課題ID2の完了条件「通知追加・失敗が登録先と個別結果に閉じ、状態遷移と他通知を変えない」を満たします。
 
@@ -1800,44 +1695,9 @@ public:
 };
 ```
 
-**④ 生成・所有。** 具体ルールの生成・所有は組み立て側（`BatchApplication`）に閉じます。
+**④ 生成・⑤ 注入。** 具体ルールの生成・所有と選択は組み立て側に閉じ、承認Phaseは注入された `IApprovalRule` を借用参照で保持します（全体像は6-1・6-2）。
 
-**掲載箇所：`BatchApplication::run()`** ―― 組み立ての先頭。承認上限の具体ルールを作ります。
-
-```cpp
-ManagerApprovalRule managerRule;       // ④ 生成・所有は組み立て側
-DirectorApprovalRule directorRule;
-```
-
-**⑤ 注入。** 生成済みルールを承認Phase `PendingPhase` のコンストラクタへ渡します。Phaseは契約 `IApprovalRule&` を借用参照で保持します。
-
-**掲載箇所：`BatchApplication::run()`** ―― ④の直後。承認Phaseの生成時にルールを渡します。
-
-```cpp
-PendingPhase pending(managerRule);     // ⑤ 契約として注入（借用参照）
-```
-
-**② 規則委譲の安定骨格。** `PendingPhase::handle()` は承認イベントを処理するとき、注入されたルールへ `canApprove()` を尋ね、その結果で次状態を選びます。どのルールかは知りません。
-
-```cpp
-void PendingPhase::handle(WorkflowManager& wm, WorkflowEvent ev) {
-    if (ev == WorkflowEvent::Approve) {
-        if (rule.canApprove(wm.currentAmount())) {  // ② 契約へ委譲
-            wm.transitionTo("承認済み", wm.currentId());
-        } else {
-            wm.reject("承認上限を超えています");
-        }
-    }
-}
-```
-
-**⑥ 利用開始。** 判定を利用側が呼ぶことはありません。⑥は課題ID1と同じ、組み立て側 `BatchApplication` からの `wm.process(...)` で、②の状態処理から自動で接続します。
-
-**掲載箇所：`BatchApplication::run()`** ―― 課題ID1・課題ID2と同じ操作の行。承認可否の判定はこの行から②を通って決まります。
-
-```cpp
-wm.process(WorkflowEvent::Approve);   // ⑥ 利用開始（判定は②から自動接続）
-```
+**②⑥ 規則委譲の安定骨格は、注入されたルールへ判定を委ねるだけ。** 承認イベントの処理時に `canApprove()` の結果で次状態を選び、どのルールかを知りません（コード全体は6-2）。
 
 これで課題ID3の完了条件「上限変更が新しいルールクラスと設定に閉じ、状態遷移を変えない」を満たします。ここで状態分離・通知分離・ルール差し替えの3構造が独立したまま接続されました。
 
@@ -2164,10 +2024,7 @@ struct DeliveryResult {
     string recipientName;
     string message;
 };
-```
-続いて `WorkflowResult` です。
 
-```cpp
 struct WorkflowResult {
     bool stateChanged;
     string stateId;
@@ -2199,10 +2056,6 @@ struct ApprovalRequest {
 };
 
 // 状態遷移の契約（変わる理由：承認フロー変更・新ルート追加）
-```
-続いて `IWorkflowPhase` です。
-
-```cpp
 class IWorkflowPhase {
 public:
     virtual string id() const = 0;
@@ -2480,10 +2333,7 @@ public:
         }
         return phase->handle(this, event, request);
     }
-```
-続いて `WorkflowManager::transitionTo()` です。
 
-```cpp
     WorkflowResult transitionTo(
         IWorkflowPhase* next,
         const string& message
@@ -2601,10 +2451,7 @@ public:
     using PendingPhase::PendingPhase;
     string id() const override { return "優先審査待ち"; }
 };
-```
-続いて `ApprovedPhase` です。
 
-```cpp
 class ApprovedPhase : public IWorkflowPhase {
     IApprovalRule* rule;
     IWorkflowPhase* completed;
@@ -2748,7 +2595,7 @@ public:
 [メール送信 1件目] To:課長 / 申請を受け付けました
 ```
 
-同じ `BatchApplication::run()` の続きで、行2は緊急申請の提出です。
+行2は、緊急申請の提出です。
 
 ```cpp
         // 受入条件 行2：REQ002を作成中として登録し、緊急申請を提出
@@ -2774,7 +2621,7 @@ public:
 [チャット通知 1件目] To:部長 / 緊急申請を受け付けました
 ```
 
-`BatchApplication::run()` はそのまま続き、行3は審査待ちからの課長承認です。
+行3は、審査待ちからの課長承認です。
 
 ```cpp
         // 受入条件 行3：REQ003は審査待ちとして保存済み
@@ -2801,7 +2648,7 @@ public:
 [チャット通知 2件目] To:部長 / 承認されました
 ```
 
-続く行4は、同じ `BatchApplication::run()` の中で優先審査待ちからの部長承認を実行します。
+行4は、優先審査待ちからの部長承認です。
 
 ```cpp
         // 受入条件 行4：REQ004は優先審査待ちとして保存済み
@@ -2829,7 +2676,7 @@ public:
 [メール送信 4件目] To:決済部門 / 承認されました
 ```
 
-行5は、同じ `BatchApplication::run()` の中で審査待ちからの却下を実行します。
+行5は、審査待ちからの却下です。
 
 ```cpp
         // 受入条件 行5：REQ005は審査待ちとして保存済み
@@ -2855,7 +2702,7 @@ public:
 [メール送信 5件目] To:申請者 / 申請が却下されました
 ```
 
-行6も同じ `BatchApplication::run()` の中で、承認済みからの部長承認です。
+行6は、承認済みからの部長承認です。
 
 ```cpp
         // 受入条件 行6：REQ006は承認済みとして保存済み
@@ -2885,7 +2732,7 @@ public:
 [メール送信 8件目] To:決済部門 / 部長承認が完了しました
 ```
 
-行7は、同じ `BatchApplication::run()` の中で、通知失敗でも状態保存と他通知が継続することを確認します。
+行7は、通知失敗でも状態保存と他通知は継続です。
 
 ```cpp
         // 行7: チャット通知が失敗しても状態保存は保たれ、他は続く
@@ -2916,7 +2763,7 @@ public:
 [処理結果] changed=1, state=審査待ち, message=申請を受け付けました
 ```
 
-行8も同じ `BatchApplication::run()` の中で、来期の「部署ごとに承認上限を差し替える」制度を、判定ルール（課題ID3）の差し替えだけで確認します。同じ50万円に対し、開発部（上限30万円）は不承認、営業部（上限80万円）は承認となるため、部署設定が実際の結果へ使われたことをコードと出力で照合できます。
+行8は、来期の「部署ごとに承認上限を差し替える」制度を、判定ルール（課題ID3）の差し替えだけで確認します。同じ50万円に対し、開発部（上限30万円）は不承認、営業部（上限80万円）は承認となるため、部署設定が実際の結果へ使われたことをコードと出力で照合できます。
 
 ```cpp
         cout << "--- 行8: 部署別上限ルールの差 ---" << endl;
@@ -3314,31 +3161,14 @@ classDiagram
 ```cpp
 // 2状態・固定ルール・通知先1件のフローに
 // 3つの仕組みを持ち込んだ過剰設計
-class IWorkflowPhase {
-public:
-    virtual ~IWorkflowPhase() = default;
-    virtual void handle(WorkflowManager&, WorkflowEvent) = 0;
-};
-class IApprovalRule {
-public:
-    virtual ~IApprovalRule() = default;
-    virtual bool canApprove(int amount) const = 0;   // 常に true を返すだけ
-};
-class INotificationListener {
-public:
-    virtual ~INotificationListener() = default;
-    virtual void onStatusChanged(const std::string& id,
-                                 const std::string& s) = 0;
-};
+class IWorkflowPhase { /* ... */ };
+class IApprovalRule { /* ... */ };
+class INotificationListener { /* ... */ };
 
 // インターフェースが3枚、実装クラスが6枚——
 // 変わらないルールのために構造だけが膨れ上がる
 
 // このケースは if 文で十分
-```
-続いて `SimpleApproval` です。
-
-```cpp
 class SimpleApproval {
 public:
     void approve() {

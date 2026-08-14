@@ -368,7 +368,7 @@ flowchart LR
 | `OrderRecord` | 保持している注文1件 | 注文の顧客ID・請求金額 |
 | `OrderBook` | 注文を事前保持するデータストア | 注文IDの存在確認・顧客/金額の照合 |
 
-各クラスの責任を把握したところで、クラス間の関係を図で整理します。
+各クラスの責任を把握したところで、クラス間の関係を図で整理します。★浮いているクラスがない？
 
 ```mermaid
 classDiagram
@@ -1978,7 +1978,7 @@ classDiagram
 3. 課題ID1：`processPayment` は生成されたProcessorへ `pay(request)` を委譲するだけにする。
 
 変更後は、`PaymentApplication`から具体クラス名と手段固有分岐が消え、生成が`createProcessor`、手段固有差分が各Processorへ移ったことを確認します。図中の`createProcessor`は`PaymentApplication`が宣言する仮想メソッドで、具体クラスの選択・生成は子クラス`DefaultPaymentApplication`（`--|>`で継承）が上書きします。これが生成分離構造の形で、7-1の`DefaultPaymentApplication::createProcessor()`と追加手段`PayPayProcessor`に一致します。
-
+★ログクラスが浮いているが、誰かが使っているのではないのか？
 **採用した変更後のクラス図：**
 
 ```mermaid
@@ -2147,7 +2147,7 @@ PaymentResult processPayment(const PaymentRequest& request) {
 ```cpp
 PaymentResult result = app.processPayment(request);   // ⑥ 利用開始
 ```
-
+★mainから順に説明していく方が、読む側はトレースしやすいのでは？番号順も変えるか？
 #### 代表ケースの実行接続
 
 カード決済1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
@@ -2161,7 +2161,7 @@ PaymentResult result = app.processPayment(request);   // ⑥ 利用開始
 | 5. ①契約 | `IPaymentProcessor::pay(const PaymentRequest&, int)` | 生成されたProcessorへ動的ディスパッチする | `CreditCardProcessor::pay()` |
 | 6. ③具体 | `CreditCardProcessor::pay(const PaymentRequest&, int)` | カード固有の検証と認証APIを実行し `PaymentResult` を返す | 戻り値を②が返す |
 
-この章の④は生成メソッドの中で起き、所有は②の `processPayment()` が持って使用後に破棄します。生成場所と所有者が分かれる点は第10章と同じ形です。
+この章の④は生成メソッドの中で起き、所有は②の `processPayment()` が持って使用後に破棄します。生成場所と所有者が分かれる点は第10章と同じ形です。★他の章の話しださないで。章完結の方針です。
 
 > **この抜粋の外は、現状のままです。** `createProcessor()` は `PaymentApplication` の純粋仮想を `DefaultPaymentApplication` が実装した形で、`registry` と `gatewayClient` はその具象側が持ちます。`processPayment()` の冒頭にある注文・顧客の照合と、決済ログの記録は現状のまま維持します。ログを取るのは組み立て側（`main()` の `executeCase`）で、`PaymentApplication` は記録しません。全文は7-1で示します。
 
