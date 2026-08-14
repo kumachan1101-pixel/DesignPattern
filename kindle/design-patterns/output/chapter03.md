@@ -1549,6 +1549,8 @@ public:
 
 **④ 状態は関数ローカルの静的オブジェクトを共有する（生成・破棄を持たない）。** 遷移のたびに `new` せず、共有シングルトンを指すため所有・破棄の問題が起きません。どのクラスにも属さない状態取得関数が、`AvailableState` の実体を1つだけ返します。
 
+**掲載箇所：自由関数 `availableState()`** ―― どのクラスにも属さない状態取得関数。各状態に同じ形の取得関数を1つずつ置きます。
+
 ```cpp
 IReservationState* availableState() {
     static AvailableState state;   // 共有シングルトン（new/deleteは不要）
@@ -1557,6 +1559,8 @@ IReservationState* availableState() {
 ```
 
 **⑤ 注入。** 生成した共有状態を、予約オブジェクトの初期状態として設定します。`TicketReservation` が持つのは契約 `IReservationState*` の借用ポインタだけです。
+
+**掲載箇所：`BatchApplication::run()`** ―― 予約オブジェクトを作る位置。組み立て側が初期状態を注入します。
 
 ```cpp
 TicketReservation seat(db, "EVT001");
@@ -1575,6 +1579,8 @@ void TicketReservation::setState(IReservationState* next) {
 ```
 
 **⑥ 利用開始。** 利用者の操作を受けた入口が、公開操作 `TicketReservation::cancel()` などを呼びます。利用側が状態クラスを直接呼ぶことはありません。
+
+**掲載箇所：`BatchApplication::run()`** ―― ⑤の直後。利用者操作にあたる呼び出しです。
 
 ```cpp
 seat.reserve();   // ⑥ 利用開始
@@ -1642,6 +1648,8 @@ public:
 
 **⑤ 注入。** 組み立て側が生成した `ReservationWaitlist` を、各予約オブジェクトが共有ストアとして受け取ります。
 
+**掲載箇所：`BatchApplication`（`waitlist` はメンバー、`seat` は `run()` のローカル）** ―― 待ち行列は組み立て側が所有し、各予約オブジェクトへ共有ストアとして渡します。
+
 ```cpp
 ReservationWaitlist waitlist;            // ④ 生成・所有は組み立て側
 TicketReservation seat(db, waitlist, "EVT001");  // ⑤ 共有ストアを注入
@@ -1658,6 +1666,8 @@ void TicketReservation::promoteNextWaitlisted() {
 ```
 
 **⑥ 利用開始。** 利用者が昇格を直接呼ぶことはありません。⑥は課題ID1と同じ `TicketReservation::cancel()` の呼び出しで、②の状態処理から自動接続します。
+
+**掲載箇所：`BatchApplication::run()`** ―― 課題ID1と同じ取消操作の1行。昇格はこの行から自動で続きます。
 
 ```cpp
 occupied.cancel();   // ⑥ 利用開始（昇格は②から自動接続）

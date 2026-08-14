@@ -3845,6 +3845,47 @@ def check_core_thesis(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+# フェーズ6の断片コードは、直前の1行で掲載箇所を宣言する。
+# 散文へ織り込むだけだと、読者はブロックを見た時点で所属が分からず、
+# 前の段落まで戻って探すことになる（著者指摘 AF-20260814-150）。
+FRAGMENT_LOCATION = re.compile(
+    r"^\*\*掲載箇所：.*?(?:`[A-Z]\w*::\w+\s*\(|`main\s*\(|`\w+\s*\()", re.M)
+# 型宣言そのものを載せるブロックと、`void Class::method(...)` のクラス外定義は、
+# コード自身が掲載箇所を宣言しているのでラベルを求めない。
+TYPE_DECLARATION_HEAD = re.compile(r"\s*(?:class|struct|enum|namespace)\s")
+QUALIFIED_DEFINITION_HEAD = re.compile(r"\s*[\w:<>&\*\s]+?\b[A-Z]\w*::\w+\s*\(")
+
+
+def check_phase6_fragment_location(text: str, path: Path) -> list[Issue]:
+    """フェーズ6の断片コードへ、掲載箇所ラベルが直前にあるかを見る。"""
+    body_text = text.replace("\r\n", "\n")
+    marks = _phase_marks(body_text)
+    issues: list[Issue] = []
+    for match in re.finditer(r"```cpp\n(.*?)```", body_text, re.S):
+        if _phase_at(marks, match.start()) != "6":
+            continue
+        # 先頭のコメント行は読み飛ばす。`// 新規：共通契約` の次行が
+        # `class IReport {` なら、宣言そのものが掲載箇所である。
+        head = next(
+            (ln for ln in match.group(1).split("\n")
+             if ln.strip() and not ln.lstrip().startswith("//")), "")
+        if TYPE_DECLARATION_HEAD.match(head):
+            continue
+        if QUALIFIED_DEFINITION_HEAD.match(head):
+            continue
+        before = body_text[:match.start()].rstrip("\n")
+        last_line = before.split("\n")[-1] if before else ""
+        if not FRAGMENT_LOCATION.match(last_line.strip()):
+            issues.append(Issue(
+                path, line_number(body_text, match.start()),
+                "フェーズ6の断片コードの直前へ掲載箇所を書いてください："
+                "`**掲載箇所：`Class::method(引数)`** ―― どの部分か`。"
+                "散文へ織り込むだけでは、読者がブロックを見た時点で"
+                "どのクラスのどの関数かを判断できません",
+            ))
+    return issues
+
+
 def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
     """フェーズ6の①〜⑥を、番号ごとに分けた見出しと実コードで示す。
 
@@ -4210,6 +4251,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_core_thesis(text, path))
         issues.extend(check_responsibility_table_scope(text, path))
         issues.extend(check_code_block_attribution(text, path))
+        issues.extend(check_phase6_fragment_location(text, path))
         issues.extend(check_phase6_numbered_step_titles(text, path))
         issues.extend(check_phase6_point_separation(text, path))
         issues.extend(check_stable_skeleton_explanation(text, path))

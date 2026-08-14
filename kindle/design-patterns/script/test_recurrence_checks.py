@@ -23,6 +23,7 @@ validate_book.py 本体は「現在の本文が通るか」しか見ないため
   REVIEW-008 完成コードのoverride宣言と実装を分断する
   REVIEW-009 4-2の比較表を章独自の列見出しへ戻す
   DOC-001   断片コードの所属明示・ブロック分割・省略記号
+  DOC-003   フェーズ6の断片コードの掲載箇所ラベル
 """
 import re, sys
 from pathlib import Path
@@ -311,6 +312,13 @@ t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace("    // C003（Regular）/ 割引なし",
                    "    // …（中略：割引判定）…", 1)
 cases.append(("DOC-001 コードの省略", V.check_code_block_attribution, broken))
+
+# DOC-003: フェーズ6の断片から掲載箇所ラベルを外す
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "**掲載箇所：`main()`** ―― 組み立ての先頭。具体施策をスタック上に生成します。",
+    "どの施策クラスを作るかを知るのは組み立て箇所だけです。", 1)
+cases.append(("DOC-003 掲載箇所ラベル", V.check_phase6_fragment_location, broken))
 
 print("再発防止チェックの負のテスト（わざと壊した本文を検出できるか）\n")
 # 5) 2026-08-13: validator とテンプレートの表頭同期漏れ

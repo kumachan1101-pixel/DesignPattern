@@ -1527,6 +1527,8 @@ classDiagram
 
 **① 契約：形式で変わるステップを純粋仮想フックとして宣言する。** 他章のように別のインターフェース型を作らず、基底クラス `AbstractImporter` の `protected` 側へ差し替え点を並べます。これがこの章の契約です。
 
+**掲載箇所：`AbstractImporter` クラスの `protected` 節** ―― 骨格 `import()` の内側から呼ぶ差し替え点の宣言部です。
+
 ```cpp
 protected:                                        // ① 契約（差し替え点）
     virtual string filePath() const = 0;
@@ -1594,6 +1596,8 @@ protected:
 
 **④ 生成・所有。** 取得・保存の境界と派生Importerを、組み立て側の `BatchApplication` が生成し所有します。これらは1-4の既存境界のままで、保存媒体や永続化仕様は追加しません。
 
+**掲載箇所：`BatchApplication`（`gateway`・`repo` はメンバー、`store` は `runStoreImport()` のローカル）** ―― 境界と派生Importerを生成し所有する位置です。
+
 ```cpp
 ImportFileGateway gateway;                // ④ 生成・所有は組み立て側
 SalesImportRepository repo;
@@ -1603,12 +1607,16 @@ StoreDataImporter store(gateway, repo);   // ④ 派生Importerを生成・所�
 
 **⑤ 注入。** 生成した境界を、基底 `AbstractImporter` のコンストラクタ引数として骨格へ渡します。骨格は境界の実体を所有せず、参照だけを保持します。
 
+**掲載箇所：`AbstractImporter::AbstractImporter(ImportFileGateway&, SalesImportRepository&)`** ―― 基底のコンストラクタ。境界を参照で受け取り、所有はしません。
+
 ```cpp
 AbstractImporter(ImportFileGateway& g, SalesImportRepository& r)
     : gateway(g), repo(r) {}              // ⑤ 境界を骨格へ注入
 ```
 
 **⑥ 利用開始。** 実行部が公開操作 `AbstractImporter::import()` を1回呼びます。派生の種類にかかわらず同じ順序が走り、形式差分だけがフックの向こうで変わります。利用側が `parseData()` を直接呼ぶことはありません。
+
+**掲載箇所：`BatchApplication::runStoreImport()`** ―― ④で派生Importerを作った直後。骨格の公開操作を1回呼びます。
 
 ```cpp
 ImportResult r = store.import();          // ⑥ 利用開始

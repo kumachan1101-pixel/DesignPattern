@@ -1589,6 +1589,8 @@ classDiagram
 
 統合表で特定した箇所だけを振り返ります。最初の抜粋はフェーズ3の変更試行後にある `TransferProcessor::transfer(const std::string& from, const std::string& to, int amount, const std::string& otp)` の認証・送金部分です。口座・残高確認に成功した後、`otp` を入力に `requestOTP()` の応答 `txId` を照合し、同じ `from`・`to`・`amount`・`txId` を送金へ渡す位置を示します。省略した口座・残高の戻り値判定と履歴記録は、そのまま前後で実行されます。二つ目は同じクラスのメンバー宣言で、業務クラスが具体型を保持する依存を示します。
 
+**掲載箇所：`TransferProcessor::transfer(const std::string& from, const std::string& to, int amount, const std::string& otp)`** ―― 口座・残高の確認に成功した後の、認証と送金の部分。前後の戻り値判定と履歴記録はそのまま実行されます。
+
 ```cpp
 // 課題ID1：呼び出し元が銀行の手順を順に直接知っている
 std::string txId = auth.requestOTP();
@@ -1659,6 +1661,8 @@ public:
 ```
 
 **⑥ 利用開始。** 呼び出し元は窓口 `BankTransferService` の公開操作 `performTransfer(req)` を1回呼ぶだけです。手順が変わっても変更先はこの窓口の内側に閉じます。
+
+**掲載箇所：`TransferProcessor::transfer(const TransferRequest&)`** ―― 入口の本体。窓口の公開操作を1回呼ぶ行です。
 
 ```cpp
 TransferResult result = service.performTransfer(req);  // ⑥ 利用開始
@@ -1737,6 +1741,8 @@ public:
 
 **⑤ 注入。** 同じ `Application::run()` の中で、生成済みの窓口を2つの入口へ同じ契約参照として渡します。入口は具体窓口名を知りません。
 
+**掲載箇所：`Application::run()`** ―― ④で窓口を生成した直後。2つの入口へ同じ契約参照を渡します。
+
 ```cpp
         TransferProcessor processor(service);   // ⑤ 契約を注入
         BatchTransferProcessor batch(service);  // ⑤ 同じ契約を注入
@@ -1752,6 +1758,8 @@ void TransferProcessor::transfer(const TransferRequest& req) {
 ```
 
 **⑥ 利用開始。** 同じ `Application::run()` の末尾で、組み立て役が単発入口とバッチ入口の公開操作を呼びます。
+
+**掲載箇所：`Application::run()`** ―― ⑤の直後、`run()` の末尾。単発入口とバッチ入口を呼びます。
 
 ```cpp
         processor.transfer({"ACC001", "ACC002", 5000, "999999"}); // ⑥ 利用開始

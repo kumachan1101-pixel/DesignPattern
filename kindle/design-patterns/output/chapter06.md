@@ -1553,6 +1553,8 @@ public:
 
 **⑥ 実行：組み立て結果を共通契約として呼ぶ。** `assemble()`は内側から外側へ`getPrice()`／`getDescription()`を連鎖させ、呼び出し元へ`OrderResult`を返します。基本ドリンク側へトッピング種別の分岐は増えません。
 
+**掲載箇所：`OrderApplication::run()`** ―― 注文要求を1件作って組み立て役へ渡す部分。7-1では同じ形の要求を `vector` に並べて順に流します。
+
 ```cpp
 OrderRequest request{"DRINK001", {"Milk", "Matcha"}};
 OrderResult result = assembler.assemble(request);

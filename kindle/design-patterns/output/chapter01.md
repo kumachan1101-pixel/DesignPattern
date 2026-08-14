@@ -1551,6 +1551,8 @@ classDiagram
 
 統合表で特定した箇所だけを振り返ります。課題ID1は条件分岐、課題ID2は各分岐内の式です。小計計算など、課題に関係しないコードは省略します。
 
+**掲載箇所：`PaymentCalculator::calculate(const Order&, const std::string&, const CampaignContext&)`** ―― 小計を出した後の割引判定部分。前後の小計計算と `return` は変更しません。
+
 ```cpp
 // サマーセール対応：Regular会員向けに条件を追加
 if (memberType == "Premium") {
@@ -1700,6 +1702,8 @@ public:
 
 **④ `main()` が全施策を生成・所有する。** どの施策クラスを作るかを知るのは組み立て箇所だけです（スタック上に生成し、`main()` のスコープが所有）。
 
+**掲載箇所：`main()`** ―― 組み立ての先頭。具体施策をスタック上に生成します。
+
 ```cpp
 PremiumDiscount premium;
 SummerSaleAndCampaignDiscount summerAndCampaign;
@@ -1709,6 +1713,8 @@ NoDiscount none;  // matches() は常に true
 ```
 
 **⑤ 選択役へ登録し、`OrderProcessor` へ注入する。** `RuleSelector` は施策を所有せず参照だけ登録します。登録順は自由で、優先は `priority()` で決まります。
+
+**掲載箇所：`main()`** ―― ④の直後。選択役へ参照を登録し、注文入口へ注入します。
 
 ```cpp
 RuleSelector selector;
@@ -1749,6 +1755,8 @@ public:
 ```
 
 **⑥ 利用開始。** 注文確定の入口 `OrderProcessor::process()` が、②の `select()` を呼びます。利用側が `matches()` や具体施策を直接呼ぶことはありません。
+
+**掲載箇所：`main()`** ―― ⑤の直後。利用者操作にあたる1行です。
 
 ```cpp
 processor.process(order, context);   // ⑥ 利用開始（main から）
@@ -1793,6 +1801,8 @@ classDiagram
 
 **③ 各施策が割引式だけを実装する。**（`apply()` 部分。上の③で示した各施策が同じ場所に持ちます。）
 
+**掲載箇所：`PremiumDiscount::apply(int)` と `SummerSaleDiscount::apply(int)`** ―― 上の③で示した各施策クラスが同じ場所に持つ計算面です。式だけを対比します。
+
 ```cpp
 // PremiumDiscount::apply → total * 80 / 100
 // SummerSaleDiscount::apply → total * 95 / 100
@@ -1800,10 +1810,18 @@ classDiagram
 
 **⑤ 選択済みルールを計算役へ注入する。** `OrderProcessor` は `selector.select()` の結果参照で `PaymentCalculator` を生成します（具体施策を知りません）。プレビューは要求ID6の独立した操作なので、`CartPreviewService` が同じDBとSelectorを使って別に選択・計算します。
 
+**掲載箇所：`OrderProcessor::process(const Order&, const CampaignContext&)`** ―― 顧客情報を取得した直後。選ばれたルールで計算役を組み立てます。
+
 ```cpp
 const IDiscountRule& rule = selector.select(memberType, context);
 PaymentCalculator calculator(rule);  // 具体ルールを知らない
+```
 
+プレビューは要求ID6の独立した操作なので、入口そのものは組み立て側で用意します。
+
+**掲載箇所：`main()`** ―― ⑤の注入行の並び。注文入口とは別に、同じDBとSelectorでプレビュー入口を作ります。
+
+```cpp
 // 注文確定とは別に、組み立て時に独立した入口を用意する
 CartPreviewService preview(db, selector);
 ```
@@ -1824,6 +1842,8 @@ public:
 ```
 
 **⑥ 利用開始。** 課題ID1と同じ `processor.process(order, context)` が起点です。②の `calculate()` は `OrderProcessor` の内側から呼ばれ、利用側が `apply()` を直接呼ぶことはありません。
+
+**掲載箇所：`main()`** ―― 課題ID1と同じ1行です。計算の差し替えは②の内側で起きます。
 
 ```cpp
 processor.process(order, context);   // ⑥ 利用開始（計算は②から自動接続）
