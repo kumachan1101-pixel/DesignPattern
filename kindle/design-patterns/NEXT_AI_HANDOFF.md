@@ -11,6 +11,7 @@
 - 第1〜12章のフェーズ1は、代表入力の生成・実行→対応する代表実行結果→結果から読み取れる動き→全体要約→詳細仕様の順で統一済み。
 - 第1〜12章のフェーズ6は、抽象的な全体像→課題別の構造変更→生成・注入・所有・実行→設計トレースの深さで統一済み。
 - 本文の編集用`★`は0件。新しい`★`が加わった場合は、本文を直す前に次のAF番号へ登録し、判断・変更先・横断監査結果を残してから削除する。
+- EPUB出版パイプラインはコミット`30cbeeb`で追加済み。出版作業では`publishing/README.md`を読み、`script/build_epub.py`で概要スライド、Mermaid、コード画像を結合する。旧BookProjectのスクリプトや独自の一時変換を正本にしない。
 - 作業開始時点で`.obsidian/workspace.json`にユーザーの未コミット変更がある。編集・ステージ・コミットしない。
 
 過去の`CONS-064〜066`指示書は完了記録であり、現在の作業指示ではない。`TASK.md`と`RESTRUCTURE_PLAN.md`も履歴である。
@@ -59,10 +60,10 @@
 
 | ID | 状態 | 内容 |
 |---|---|---|
-| PUBLISH-001 | 未着手 | EPUBまたはKPFを再生成できる出版ビルドを作る |
-| PUBLISH-002 | PUBLISH-001待ち | Kindle Previewerで端末別表示を確認する |
+| PUBLISH-001 | 完了 | `publishing/README.md`、`publishing/book.json`、`script/build_epub.py`を追加。概要スライドPDF分割、Mermaid／コード画像化、HTML／EPUB／MOBI／PDF結合を小規模E2Eで確認済み（コミット`30cbeeb`） |
+| PUBLISH-002 | 未着手 | 実際の全章成果物を生成し、Kindle Previewerで端末別表示を確認する |
 | META-001 | ユーザー確認待ち | 書名・サブタイトル・著者名・紹介文・採用表紙を確定する |
-| EDIT-001 | PUBLISH-001待ち | 生成成果物を初見読者として最終通読する |
+| EDIT-001 | 未着手 | 実際の全章生成成果物を初見読者として最終通読する |
 | GATE-001 | 完了 | 本文ゲートと出版パッケージゲートを分けた。`run_completion_gate.py` 引数なし＝manuscript ready、`--package`＝KDP package ready。後者は `check_publish_package.py` が目次・成果物・結合順を検査する |
 
 本文が`ready`でも、KDP入稿用成果物が完成したことを意味しない。

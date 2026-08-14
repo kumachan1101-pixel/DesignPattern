@@ -39,6 +39,22 @@
 8. `templates/chapter-template.md`
 9. `rules/checklist.md`
 
+## 出版・EPUB生成
+
+EPUB、MOBI、PDF、Kindle向けHTMLの作成・再生成・表示調整を依頼された場合は、独自の変換スクリプトを新しく作る前に `publishing/README.md` と `publishing/book.json` を読む。出版処理の正本は `script/build_epub.py` である。
+
+この出版パイプラインは、各章の概要スライド、Mermaid図、コード／実行結果をPNG化してから本文へ結合する。コード画像はC++等の言語を判定して配色し、長いブロックをKindle向けの高さへ分割する。原稿Markdownを画像参照へ書き換えず、生成物は `publishing/dist/` だけへ出力する。
+
+出版作業では、次の順序を守る。
+
+1. `python script/build_epub.py doctor` でPython依存関係、`wkhtmltoimage`、`mmdc`、`ebook-convert`を確認する。
+2. `python script/build_epub.py inventory` で章数、コード数、Mermaid数、未配置の概要スライドを確認する。
+3. 概要スライドPDFを受け取った場合は、`python script/build_epub.py slides --pdf "<PDF>"` で章別PNGへ分割し、画像を目視確認する。
+4. `python script/build_epub.py all --clean` でHTML、EPUB、MOBI、PDFを生成する。
+5. `publishing/dist/build-manifest.json` と生成ファイルを確認し、その後Kindle Previewerで端末別表示を確認する。
+
+`publishing/dist/` はGit管理対象外である。概要スライドの元PNGは `publishing/slides/` に置き、章とPDFページの対応は `publishing/book.json` の `slidePageOrder` を正本とする。
+
 ## 7フェーズ
 
 | フェーズ | 目的 | 主な出力 |

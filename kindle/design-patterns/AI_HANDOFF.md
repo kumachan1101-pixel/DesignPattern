@@ -6,7 +6,7 @@
 
 ## 現在の引き継ぎ状態
 
-最初に`NEXT_AI_HANDOFF.md`、`author-feedback-20260813.md`、`AUTHOR_FEEDBACK_MASTER.md`を全文読む。本文の整合タスクCONS-001〜066と著者指摘AF-20260813-001〜141は完了済みで、本文の`★`は0件、2026-08-14の統合ゲートはKDP package readyまでPASSしている。第7章は非同期SMSの受付IDを即時に記録し、後日のコールバックで最終配信完了・失敗へ更新する境界まで実装済みで、今回のUI操作変更はなしとヒアリングで確定した。第8章の`ERROR`／`TIMEOUT`契約は表・コード・実行結果で同期し、全12章の入力追跡表は1-4の現状コード・実行結果の後へ統一済み。完了済みタスクを再実行せず、新しい指摘が来た場合だけ先にAF番号へ登録してから修正する。`TASK.md`、`RESTRUCTURE_PLAN.md`、`CONS-065_AI_INSTRUCTIONS.md`、`CONS-066_AI_INSTRUCTIONS.md`は完了履歴であり、現在の作業指示ではない。
+最初に`NEXT_AI_HANDOFF.md`、`author-feedback-20260813.md`、`AUTHOR_FEEDBACK_MASTER.md`を全文読む。本文の整合タスクCONS-001〜066と著者指摘AF-20260813-001〜141は完了済みで、本文の`★`は0件、2026-08-14の統合ゲートはKDP package readyまでPASSしている。第7章は非同期SMSの受付IDを即時に記録し、後日のコールバックで最終配信完了・失敗へ更新する境界まで実装済みで、今回のUI操作変更はなしとヒアリングで確定した。第8章の`ERROR`／`TIMEOUT`契約は表・コード・実行結果で同期し、全12章の入力追跡表は1-4の現状コード・実行結果の後へ統一済み。完了済みタスクを再実行せず、新しい指摘が来た場合だけ先にAF番号へ登録してから修正する。`TASK.md`、`RESTRUCTURE_PLAN.md`、`CONS-065_AI_INSTRUCTIONS.md`、`CONS-066_AI_INSTRUCTIONS.md`は完了履歴であり、現在の作業指示ではない。EPUB等の出版データを作る場合は、コミット`30cbeeb`で追加された`publishing/README.md`を読み、`script/build_epub.py`を出版処理の正本として使う。
 
 ## 絶対に守る優先順位
 
@@ -18,6 +18,7 @@
 6. 接続点と設計判断は`rules/connection-point-review.md`と`rules/design-decision-guide.md`。
 7. Agentは補助役。食い違う場合は、著者判断、テンプレート、チェックリストを優先する。
 8. 既存の第0〜12章とあとがきは本文ゲートを通過済みである。新しい根拠なしに旧計画へ戻したり、全面改稿したりしない。
+9. EPUB・MOBI・PDF生成では`publishing/README.md`と`publishing/book.json`を読み、コードとMermaidを画像化して概要スライドと結合する既存パイプラインを使う。原稿Markdownを出版用画像参照へ直接書き換えない。
 
 ## まず読む順序
 
@@ -30,6 +31,12 @@
 7. `templates/chapter-template.md`
 8. `output/chapter00_2.md`
 9. `rules/checklist.md`
+
+出版・EPUB作業を行う場合だけ、追加で次を読む。
+
+- `publishing/README.md`
+- `publishing/book.json`
+- `script/build_epub.py`
 
 章を実際に書く、直す、レビューする場合だけ、追加で次を読む。
 

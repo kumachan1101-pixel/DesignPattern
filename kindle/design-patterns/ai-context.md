@@ -17,6 +17,8 @@
 9. `templates/chapter-template.md`
 10. `agents/chapter-agent.md`
 
+EPUB・MOBI・PDF生成、Kindle表示、コード／Mermaid画像化、章先頭の概要スライドを扱う場合は、上記に加えて `publishing/README.md` を読み、`script/build_epub.py` を使う。出版処理のために原稿Markdownを画像参照へ直接書き換えたり、別の一時ビルドを正本にしたりしない。章順、スライド順、表紙、出力形式は `publishing/book.json` を参照する。
+
 ## 本の目的
 
 デザインパターン名を暗記することではなく、変更要求を受けたときに次を説明できるようにする。
