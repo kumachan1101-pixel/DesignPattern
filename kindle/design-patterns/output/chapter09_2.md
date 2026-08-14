@@ -1675,17 +1675,23 @@ public:
 
 **④ 生成・所有。** 具体状態の生成・所有・配線は `TicketPolicySet` が持ちます（借用参照で相互接続）。`TicketService` も `Ticket` も具体状態を生成しません。
 
+**掲載箇所：`main()`** ―― 組み立ての先頭。具体状態と具体ルールの生成・所有・配線を一つの箱へ閉じます。
+
 ```cpp
 TicketPolicySet policies;    // ④ 具体状態・具体ルールを生成・所有
 ```
 
 **⑤ 注入。** 組み立て済みの `TicketPolicySet` を `TicketService` へ渡します。`Ticket` は現在状態への借用ポインタ `ITicketPhase*` だけを保持します。
 
+**掲載箇所：`main()`** ―― ④の直後。組み立て済みの部品をサービスへ渡します。
+
 ```cpp
 TicketService svc(repo, users, policies, log);  // ⑤ 契約群を注入
 ```
 
 **② 状態委譲の安定骨格。** `TicketService::assign()` は保存済みチケットを読み、現在状態へ委譲し、返った遷移先を保存するだけです。どの状態かは知りません。
+
+**掲載箇所：`TicketService::assign(const string& ticketId, const string& assigneeId)`** ―― 存在確認を終えた後の中核4行です。
 
 ```cpp
 Ticket& t = repo.get(ticketId);          // ② 保存済みを読む
@@ -1695,6 +1701,8 @@ t.phase = next; repo.save(t);            // ② 遷移後を保存
 ```
 
 **⑥ 利用開始。** 担当者の操作を受けた入口が、公開操作 `TicketService::assign()` を呼びます。利用側が `ITicketPhase::assign()` や具体状態を直接呼ぶことはありません。
+
+**掲載箇所：`main()`** ―― ⑤の直後。担当者のアサイン操作にあたる1行です。
 
 ```cpp
 svc.assign("TCK001", "AGT01");           // ⑥ 利用開始
@@ -1759,11 +1767,15 @@ public:
 
 **④ 生成・所有。** 具体ルールの生成・所有と区分による選択は `TicketPolicySet` の一箇所へ閉じます。
 
+**掲載箇所：`main()`** ―― 課題ID1と同じ組み立ての先頭。同じ箱が優先度ルールも所有します。
+
 ```cpp
 TicketPolicySet policies;    // ④ NormalPriority・PremiumPriority などを所有
 ```
 
 **⑤ 注入。** 組み立て済みの `TicketPolicySet` を `TicketService` へ渡します。`TicketService` はどの具体ルールがあるかを知りません。
+
+**掲載箇所：`main()`** ―― 課題ID1と同じ注入行です。状態と優先度の両方が同じ経路で渡ります。
 
 ```cpp
 TicketService svc(repo, users, policies, log);  // ⑤ 契約群を注入
@@ -1771,12 +1783,16 @@ TicketService svc(repo, users, policies, log);  // ⑤ 契約群を注入
 
 **② 規則選択の安定骨格。** `TicketService::create()` と `TicketService::reopen()` が、区分でルールを選んで `getPriority()` の結果を保存します。どのルールかは知りません。
 
+**掲載箇所：`TicketService::create(const string& ticketId, const string& userId)` と `TicketService::reopen(const string& ticketId)`** ―― 保存の直前で、区分から優先度を決める2行です。両方が同じ形を持ちます。
+
 ```cpp
 UserType category = users.get(userId).userType;
 Priority p = policies.priorityRule(category).getPriority(); // ② 契約へ委譲
 ```
 
 **⑥ 利用開始。** 判定を利用側が呼ぶことはありません。⑥は `main()` から呼ぶ課題ID1と同じ `svc.create(...)` や `svc.reopen(...)` で、②から自動接続します。
+
+**掲載箇所：`main()`** ―― 課題ID1と同じ起点。優先度の判定はこの行から②を通って自動で決まります。
 
 ```cpp
 svc.create("TCK001", "USR003");   // ⑥ 利用開始（判定は②から自動接続）
@@ -1854,6 +1870,8 @@ public:
 `TicketPolicySet` は全Phaseと全ルールを値メンバとして所有します。
 `TicketService` は組み立て済み部品、依頼者、担当者、保存先、監査ログを
 外から受け取ります。
+
+**掲載箇所：`TicketService::create(const std::string&, const std::string&)`** ―― 6-1で確定した完成形の全文です。
 
 ```cpp
 // TicketService 内：選択判断を持たず、組み立て済み部品へ問い合わせる

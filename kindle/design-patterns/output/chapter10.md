@@ -1736,12 +1736,16 @@ public:
 
 **⑤ 生成役を安定側へ注入する。** 組み立て役 `BatchApplication` が各Creatorを所有し、`execute()` へ実行時に `IClientCreator*` を渡します（具体Clientの選択は骨格に漏れません）。
 
+**掲載箇所：`BatchApplication::run()`** ―― 生成役を作り、実行時引数として窓口へ渡す2行です。
+
 ```cpp
 SystemAClientCreator creatorA;         // 生成役は組み立て側が所有
 batch.execute(request, &creatorA);     // ⑤ 生成役を契約として渡す
 ```
 
 **② 窓口の安定骨格。** `BatchExecutor::execute()` は、渡された生成役で生成→`send()`→`delete` の順を実行するだけで、A社かC社かを知りません。連携先が増えてもこの順序は変わりません。
+
+**掲載箇所：`BatchExecutor::execute(const SyncRequest&, IClientCreator*)`** ―― 設定を引いた後の中核。生成→送信→保存→通知→破棄の順を固定します。
 
 ```cpp
 IExternalClient* client = creator->createClient();  // ② 生成役へ委譲
@@ -1754,6 +1758,8 @@ delete client;                                      // ② 使い捨て後に破
 ```
 
 **⑥ 利用開始。** 組み立て役 `BatchApplication` が公開操作 `BatchExecutor::execute()` を呼びます。利用側が `createClient()` や具体Clientを直接呼ぶことはありません。
+
+**掲載箇所：`BatchApplication::run()`** ―― ⑤の直後。1件の連携ジョブを起動する行です。
 
 ```cpp
 batch.execute({"PARTNER_A", SyncTarget::Orders}, &creatorA); // ⑥ 利用開始
@@ -1821,17 +1827,23 @@ public:
 
 **④ 生成・所有。** 組み立て役 `BatchApplication` が具体通知先を生成し、所有します。
 
+**掲載箇所：`BatchApplication::run()`** ―― 組み立ての先頭。具体通知先をローカル変数として作ります。
+
 ```cpp
 SlackNotifier slack;               // ④ 生成・所有は組み立て側
 ```
 
 **⑤ 注入（登録）。** 生成済みの通知先を `addNotifier()` で登録します。`BatchExecutor` が持つのは契約 `INotifier*` の借用参照だけです。
 
+**掲載箇所：`BatchApplication::run()`** ―― ④の直後。通知先を契約として窓口へ登録します。
+
 ```cpp
 batch.addNotifier(&slack);         // ⑤ 登録で注入（借用参照）
 ```
 
 **② 通知配布の安定骨格。** `BatchExecutor::execute()` は送信確定のあと、登録済みリストを順に回して `onComplete()` を呼びます。Slackかメールかを知らず、1件の通知が失敗しても送信確定と後続ジョブは止めません。
+
+**掲載箇所：`BatchExecutor::execute(const SyncRequest&, IClientCreator*)`** ―― 送信結果を保存した直後の配布部分です。
 
 ```cpp
 for (INotifier* n : notifiers) {
@@ -1840,6 +1852,8 @@ for (INotifier* n : notifiers) {
 ```
 
 **⑥ 利用開始。** 通知そのものを利用側が呼ぶことはありません。⑥は課題ID1と同じ、組み立て役 `BatchApplication` からの `batch.execute(...)` で、②が送信確定後に自動で配布します。
+
+**掲載箇所：`BatchApplication::run()`** ―― 課題ID1と同じ起動行。通知はこの行から②を通って自動で配られます。
 
 ```cpp
 batch.execute(request, &creatorA);   // ⑥ 利用開始（通知は②から自動接続）

@@ -2014,6 +2014,8 @@ classDiagram
 
 統合表で特定した箇所だけを振り返ります。課題ID1は `processPayment` の振り分け `if` と、その中の具体Processor生成・手段固有のエラー対処です。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
 
+**掲載箇所：`PaymentApplication::processPayment(const PaymentRequest&)`** ―― 注文・顧客の照合を終えた後の、手段で振り分ける部分です。
+
 ```cpp
 // 現状：利用フローが具体クラスの生成とエラー対処を抱えている
 PaymentResult processPayment(const PaymentRequest& request) {
@@ -2081,6 +2083,8 @@ public:
 
 **④ どの具体を生成するかを、生成メソッドの1か所へ閉じる。** 生成メソッドは `DefaultPaymentApplication::createProcessor()` で、新方式はここへ1行足すだけです。`new` した使い捨てProcessorを生ポインタで返し、**所有は呼び出した `processPayment()` が持ち、使用後に `delete` します**（⑥で破棄）。登録の有無と有効・無効の判定もこの1か所で行い、通らない要求は例外で止めます。
 
+**掲載箇所：`DefaultPaymentApplication::createProcessor(const string&)`** ―― 生成メソッドの全文。具体クラス名を知るのはこの1か所だけです。
+
 ```cpp
 IPaymentProcessor* createProcessor(const string& type) override {
     if (!registry.exists(type))
@@ -2099,11 +2103,15 @@ IPaymentProcessor* createProcessor(const string& type) override {
 
 **⑤ 注入。** 生成メソッドが具体Processorへゲートウェイ参照を渡します。`PaymentApplication` は具体クラスを保持せず、生成のたびに契約ポインタを受け取ります。
 
+**掲載箇所：`DefaultPaymentApplication::createProcessor(const string&)`** ―― ④の分岐のうち1行。生成と同時にゲートウェイ参照を渡します。
+
 ```cpp
 return new CreditCardProcessor(gatewayClient);   // ⑤ 境界を具体へ注入
 ```
 
 **② 生成後の委譲・破棄を安定骨格として実行する。** `PaymentApplication::processPayment()` は生成メソッドでProcessorを得て、契約 `pay()` へ委譲し、使用後に `delete` します。具体クラス名も手段固有分岐も持ちません。
+
+**掲載箇所：`PaymentApplication::processPayment(const PaymentRequest&)`** ―― 上の現状コードと同じ位置。振り分け `if` が生成メソッドの呼び出し1行へ置き換わります。
 
 ```cpp
 PaymentResult processPayment(const PaymentRequest& request) {
@@ -2116,6 +2124,8 @@ PaymentResult processPayment(const PaymentRequest& request) {
 ```
 
 **⑥ 利用開始。** 決済入口が公開操作 `PaymentApplication::processPayment()` を呼びます。利用側が `createProcessor()` や具体Processorを直接呼ぶことはありません。
+
+**掲載箇所：自由関数 `executeCase(PaymentApplication&, PaymentLog&, const PaymentRequest&)`** ―― `main()` が各ケースで呼ぶ実行ヘルパーの先頭行です。
 
 ```cpp
 PaymentResult result = app.processPayment(request);   // ⑥ 利用開始

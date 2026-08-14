@@ -1600,6 +1600,8 @@ void InventoryManager::reduceStock(const std::string& productId,
 
 **④ 生成・所有。** 組み立て関数 `runInventoryScenario()` が、DB、ログ、全通知先、通知元（`InventoryManager`）、後日入口をローカル変数として生成し、所有します。生成するのはここ1か所だけです。
 
+**掲載箇所：自由関数 `runInventoryScenario()`** ―― どのクラスにも属さない組み立て関数の冒頭。すべての実体をここでローカル変数として作ります。
+
 ```cpp
 void runInventoryScenario() {
     ProductDatabase productDatabase;      // ④ 生成・所有
@@ -1616,6 +1618,8 @@ void runInventoryScenario() {
 
 **⑤ 注入・登録。** DBとログは `InventoryManager` のコンストラクタ引数で渡し、通知先は `attach()` で借用参照として登録します。通知元は具体型を受け取らず、契約 `INotification*` だけを持ちます。
 
+**掲載箇所：自由関数 `runInventoryScenario()`** ―― ④で全実体を生成した直後。通知先を契約として登録します。
+
 ```cpp
     // ④で生成した実体を、契約として通知元へ渡す
     manager.attach(&emailNotifier);       // ⑤ 登録（借用参照）
@@ -1625,6 +1629,8 @@ void runInventoryScenario() {
 ```
 
 **⑥ 利用開始。** 組み立て関数が公開入口 `InventoryManager::reduceStock()` を1回呼びます。後日のSMS完了は、外部基盤からの入口 `SMSDeliveryCallback::receive()` が別の起点として受けます。利用側が `notifyAll()` や個々の通知先を直接呼ぶことはありません。
+
+**掲載箇所：自由関数 `runInventoryScenario()`** ―― ⑤の直後、関数の末尾。出庫の起点と、後日届く完了通知の起点を並べます。
 
 ```cpp
     manager.reduceStock("PRD002", 1);     // ⑥ 利用開始（即時経路）

@@ -1611,6 +1611,8 @@ class DraftPhase : public IWorkflowPhase {
 
 **④ 生成・所有。** 具体Phaseの生成・所有は組み立て側（`BatchApplication`）に閉じます。`WorkflowManager` は生成しません。
 
+**掲載箇所：`BatchApplication::run()`** ―― 組み立ての先頭。具体Phaseと解決役をローカル変数として作ります。
+
 ```cpp
 DraftPhase draft;                  // ④ 生成・所有は組み立て側
 PendingPhase pending(managerRule);
@@ -1620,11 +1622,15 @@ WorkflowPhaseResolver resolver(draft, pending, priorityPending);
 
 **⑤ 注入。** 生成済みPhaseを `WorkflowPhaseResolver` 経由で `WorkflowManager` へ渡します。Managerが受け取るのは非所有の契約ポインタ `IWorkflowPhase*` だけです。
 
+**掲載箇所：`BatchApplication::run()`** ―― ④の直後。解決役ごとManagerへ渡します。
+
 ```cpp
 WorkflowManager wm(cases, resolver);   // ⑤ 契約として注入（借用参照）
 ```
 
 **② 状態委譲の安定骨格。** `WorkflowManager::process()` は現在Phaseへ `handle()` を委譲するだけで、どの状態かを知りません。状態が増えてもこの1行は変わりません。
+
+**掲載箇所：`WorkflowManager::process(WorkflowEvent)`** ―― 公開入口の全文。現在状態へ委譲するだけです。
 
 ```cpp
 void process(WorkflowEvent ev) {
@@ -1633,6 +1639,8 @@ void process(WorkflowEvent ev) {
 ```
 
 **⑥ 利用開始。** 申請者や承認者の操作を受けた入口が、公開操作 `WorkflowManager::process()` を呼びます。利用側が `handle()` や具体Phaseを直接呼ぶことはありません。
+
+**掲載箇所：`BatchApplication::run()`** ―― ⑤の直後。申請者と承認者の操作にあたる2行です。
 
 ```cpp
 wm.process(WorkflowEvent::Submit);     // ⑥ 利用開始
@@ -1698,6 +1706,8 @@ class EmailNotifier : public INotificationListener {
 
 **④ 生成・所有。** 組み立て側（`BatchApplication`）が具体通知先を生成し、所有します。
 
+**掲載箇所：`BatchApplication::run()`** ―― 組み立ての先頭。具体通知先を作ります。
+
 ```cpp
 EmailNotifier email;               // ④ 生成・所有は組み立て側
 ChatNotifier chat;
@@ -1705,12 +1715,16 @@ ChatNotifier chat;
 
 **⑤ 注入（登録）。** 生成済みの通知先を `addListener()` で登録します。`WorkflowManager` が持つのは契約 `INotificationListener*` の借用参照だけです。
 
+**掲載箇所：`BatchApplication::run()`** ―― ④の直後。通知先を契約としてManagerへ登録します。
+
 ```cpp
 wm.addListener(&email);            // ⑤ 登録で注入（借用参照）
 wm.addListener(&chat);
 ```
 
 **② 通知配布の安定骨格。** `WorkflowManager::transitionTo()` は状態を保存してから、登録済みリストを順に回して `onStatusChanged()` を呼びます。メールかチャットかを知らず、1件の失敗で状態遷移や他通知を止めません。
+
+**掲載箇所：`WorkflowManager::transitionTo(const std::string& s, const std::string& id)`** ―― 遷移確定の全文。保存してから登録先へ配ります。
 
 ```cpp
 void transitionTo(const std::string& s, const std::string& id) {
@@ -1722,6 +1736,8 @@ void transitionTo(const std::string& s, const std::string& id) {
 ```
 
 **⑥ 利用開始。** 通知そのものを利用側が呼ぶことはありません。⑥は課題ID1と同じ、組み立て側 `BatchApplication` からの `wm.process(...)` で、②の `transitionTo()` が状態確定後に自動で配布します。
+
+**掲載箇所：`BatchApplication::run()`** ―― 課題ID1と同じ操作の行。通知はこの行から②を通って自動で配られます。
 
 ```cpp
 wm.process(WorkflowEvent::Approve);   // ⑥ 利用開始（通知は②から自動接続）
@@ -1774,12 +1790,16 @@ public:
 
 **④ 生成・所有。** 具体ルールの生成・所有は組み立て側（`BatchApplication`）に閉じます。
 
+**掲載箇所：`BatchApplication::run()`** ―― 組み立ての先頭。承認上限の具体ルールを作ります。
+
 ```cpp
 ManagerApprovalRule managerRule;       // ④ 生成・所有は組み立て側
 DirectorApprovalRule directorRule;
 ```
 
 **⑤ 注入。** 生成済みルールを承認Phase `PendingPhase` のコンストラクタへ渡します。Phaseは契約 `IApprovalRule&` を借用参照で保持します。
+
+**掲載箇所：`BatchApplication::run()`** ―― ④の直後。承認Phaseの生成時にルールを渡します。
 
 ```cpp
 PendingPhase pending(managerRule);     // ⑤ 契約として注入（借用参照）
@@ -1800,6 +1820,8 @@ void PendingPhase::handle(WorkflowManager& wm, WorkflowEvent ev) {
 ```
 
 **⑥ 利用開始。** 判定を利用側が呼ぶことはありません。⑥は課題ID1と同じ、組み立て側 `BatchApplication` からの `wm.process(...)` で、②の状態処理から自動で接続します。
+
+**掲載箇所：`BatchApplication::run()`** ―― 課題ID1・課題ID2と同じ操作の行。承認可否の判定はこの行から②を通って決まります。
 
 ```cpp
 wm.process(WorkflowEvent::Approve);   // ⑥ 利用開始（判定は②から自動接続）

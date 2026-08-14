@@ -1342,6 +1342,8 @@ flowchart TB
 
 分ける対象は、フェーズ3で痛みを生んだ変更途中の`ReportGenerator::generate()`という**一つのメソッド**です。その中に、上で挙げた3つの判断が離れて同居しています。**同じメソッド内の3箇所を、間の処理を省略して別々に**抜き出します（`…（中略）…`は省略を表します）。
 
+**掲載箇所：`ReportGenerator::generate(const ReportRequest&, const string&)`** ―― 本文を描く部分（3つの判断のうち1つ目）。
+
 ```cpp
 // ① ReportGenerator::generate() 内、本文の判断（→課題ID1）
 if (request.templateId == "SALES_MONTHLY_EXECUTIVE") {
@@ -1350,6 +1352,8 @@ if (request.templateId == "SALES_MONTHLY_EXECUTIVE") {
 ```
 
 続く②は、同じ`ReportGenerator::generate()`の中で、本文の判断（①）の直後にある装飾の判断です。
+
+**掲載箇所：`ReportGenerator::generate(const ReportRequest&, const string&)`** ―― 本文の判断（①）の直後にある装飾の判断。
 
 ```cpp
 // ReportGenerator::generate(const ReportRequest&, const string&) の続き
@@ -1368,6 +1372,8 @@ for (DecorationType type : request.decorations) {
 ```
 
 最後の③も同じ`ReportGenerator::generate()`の中にあり、装飾の判断（②）の直後で履歴を積みます。
+
+**掲載箇所：`ReportGenerator::generate(const ReportRequest&, const string&)`** ―― 装飾の判断（②）の直後、メソッドの末尾。
 
 ```cpp
 // ReportGenerator::generate(const ReportRequest&, const string&) の続き
@@ -1504,6 +1510,8 @@ public:
 
 **⑥ 利用開始。** 実行側 `ReportGenerationService::generate()` が、`IReport` として `create()` を呼ぶだけです。具体本文を判定しません。
 
+**掲載箇所：`ReportGenerationService::generate(const ReportRequest&)`** ―― テンプレート検証を終えた後の生成部分。出力境界への受け渡しは省略しています。
+
 ```cpp
 // ReportGenerationService::generate() の本文生成部分（検証・出力は省略。全文はフェーズ7）
 IReport* report = assembler.assemble(req);   // 生成は Assembler に任せる
@@ -1629,6 +1637,8 @@ IReport* ReportAssembler::assemble(const ReportRequest& req) {
 
 **⑤ 注入。** 課題ID1と同じです。`renderer` は `ReportApplication` が起動時に生成して `ReportAssembler` へ注入し、各装飾は生成時に内側の `IReport*` と `renderer` を受け取ります。
 
+**掲載箇所：`ReportAssembler::assemble(const ReportRequest&)`** ―― 装飾列を先頭から回す中の1行。直前の `IReport*` を内側として包みます。
+
 ```cpp
 report = new GraphFeature(report, renderer);   // ⑤ 内側と描画境界を注入
 ```
@@ -1644,6 +1654,8 @@ ReportDocument GraphFeature::create() {
 ```
 
 **⑥ 利用開始。** 課題ID1と同じ入口です。実行側は `assemble()` が返した最外側を `IReport` として呼ぶだけで、装飾が何段付いているかを知りません。
+
+**掲載箇所：`ReportGenerationService::generate(const ReportRequest&)`** ―― 課題ID1と同じ位置・同じコード。装飾が何段付いても変わりません。
 
 ```cpp
 // ReportGenerationService::generate()（課題ID1と同じ。装飾の有無を意識しない）
