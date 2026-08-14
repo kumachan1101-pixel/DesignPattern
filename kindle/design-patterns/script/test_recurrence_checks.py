@@ -261,6 +261,11 @@ cases.append((
     broken,
 ))
 
+# RUN-001: 「手元で動かすには」節を欠落させる
+t = (OUT/"chapter08.md").read_text(encoding="utf-8")
+broken = t.replace("> **手元で動かすには**", "> **メモ**", 1)
+cases.append(("RUN-001 手元で動かすには", V.check_run_locally_section, broken))
+
 print("再発防止チェックの負のテスト（わざと壊した本文を検出できるか）\n")
 # 5) 2026-08-13: validator とテンプレートの表頭同期漏れ
 #    本文だけ直してテンプレート／validator を放置すると全12章が同じ検査で落ちる

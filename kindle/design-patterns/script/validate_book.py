@@ -3776,6 +3776,30 @@ def check_separated_final_overrides(text: str, path: Path) -> list[Issue]:
     )]
 
 
+def check_run_locally_section(text: str, path: Path) -> list[Issue]:
+    """全パターン章に「手元で動かすには」を1回だけ置く。
+
+    2026-08-14に見つかった症状。12章中10章にあり、第8章と第11章だけ欠けていた。
+    第11章は成果物ファイルを実際に書き出す章、第8章は非同期の完了確認がある章で、
+    むしろ手元で動かす説明が要る側だった。
+
+    節の中身が正しいかまでは機械で見られない（第4章は「保存件数が1件減る」、
+    第10章は「DBへ足せばその連携先でも実行できる」と、実際には起きないことを
+    書いていた）。ここでは有無だけを見る。中身は rules/checklist.md の観点で
+    「勧める操作を実際に実行して確かめたか」を人が確認する。
+    """
+    heading = "> **手元で動かすには**"
+    count = text.count(heading)
+    if count != 1:
+        return [Issue(
+            path, 1,
+            f"1-4の掲載コードと実行結果の後へ `{heading}` を1回だけ置いてください"
+            f"（現在{count}回）。読者が貼り付けて動かす手順と、その章で"
+            "実際に確認できる結果を書きます",
+        )]
+    return []
+
+
 def check_standard_simplification_section(text: str, path: Path) -> list[Issue]:
     """全パターン章で簡略化境界を1-3と1-4の間へ一度だけ置く。"""
     heading = "**この章での簡略化**"
@@ -4021,6 +4045,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
     issues.extend(check_raw_new_argument_ownership(text, path))
     if core:
         issues.extend(check_standard_simplification_section(text, path))
+        issues.extend(check_run_locally_section(text, path))
         issues.extend(check_core_thesis(text, path))
         issues.extend(check_responsibility_table_scope(text, path))
         issues.extend(check_phase6_numbered_step_titles(text, path))
