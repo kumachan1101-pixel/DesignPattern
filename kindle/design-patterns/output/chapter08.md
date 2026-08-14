@@ -33,9 +33,7 @@
 ```cpp
 PaymentRequest r1;
 r1.methodId = "credit_card";                // クレジットカード決済
-r1.amount = 1000;
 r1.orderId = "ORD-1001";
-r1.customerId = "C001";
 r1.creditCard = {"tok_abc", "YAMADA", "123"}; // トークン・名義・CVC
 executeCase(app, payLog, r1); // 手段別の入力検証→カード会社API→結果保存
 ```
@@ -66,7 +64,7 @@ executeCase(app, payLog, r1); // 手段別の入力検証→カード会社API�
 | 要求ID2 | 銀行振込の名義・銀行コード・口座種別を検証し、振込先を発行する | 必須値がそろう場合だけ入金待ちを返す |
 | 要求ID3 | コンビニ払いの電話番号・メール・店舗コードを検証し、支払番号を発行する | 必須値がそろう場合だけ入金待ちを返す |
 | 要求ID4 | 決済結果を注文IDごとに保存する | 完了・保留・失敗の状態と外部参照を取得できる |
-| 要求ID5 | 未登録決済方法や手段別の不正入力を拒否する | 外部決済を呼ばず、失敗理由を返す |
+| 要求ID5 | 未登録決済方法・未登録注文・未登録顧客や、手段別の不正入力を拒否する | 外部決済を呼ばず、失敗理由を返す |
 | 要求ID6 | 非同期決済は外部参照で完了確認し、保存状態を更新する | 入金確認後に保留から完了へ変わる |
 
 本章の追跡は**要求IDと変更ID**で行います。変更で各要求IDの内容がどう変わるか——継続・変更・追加——は、1-5「変更後要求ベースライン」の「変更種別・根拠となる変更ID」列で追えます。既存動作が落ちていないかは、フェーズ7の要求ID別回帰で確認します。
@@ -114,7 +112,7 @@ executeCase(app, payLog, r1); // 手段別の入力検証→カード会社API�
 | 手段別の加工 | 認証、振込先発行、支払い番号発行 | カード認証API、振込先発行API、番号発行API |
 | 決済結果 | 成功/保留/失敗、メッセージ、エラーコード、保留情報 | `成功: クレジット認証済み`, `保留: 振込先発行済み` |
 
-決済要求の `注文ID`・`顧客ID`・`金額` は自由入力ではなく、システムが事前に保持する顧客台帳・注文台帳に照合します。未登録の注文・顧客や、注文の登録額と食い違う金額は決済に進めません。事前に登録されている注文台帳（顧客台帳の氏名を含む）は次のとおりです。
+決済要求で利用側が指定するのは、決済方法・注文ID・手段固有の入力だけです。請求金額と注文者は注文台帳が持っているので、注文IDから引きます。未登録の注文IDは決済に進めません。引いた注文者が顧客台帳に実在し、氏名を持っていることも確認します。これは注文の持ち主を確かめる検査であり、振込名義（`payerName`）とは別物です。振込名義は代理振込を認めるため注文者と別人でもよく、利用側が決済時に指定します。事前に登録されている注文台帳（顧客台帳の氏名を含む）は次のとおりです。
 
 | 注文ID | 顧客（ID・氏名） | 請求金額 |
 |---|---|---|
@@ -377,13 +375,13 @@ classDiagram
         +checkCompletion(pendingId) PaymentResult
     }
     class CreditCardProcessor {
-        +pay(request) PaymentResult
+        +pay(request, amount) PaymentResult
     }
     class BankTransferProcessor {
-        +pay(request) PaymentResult
+        +pay(request, amount) PaymentResult
     }
     class ConvenienceStoreProcessor {
-        +pay(request) PaymentResult
+        +pay(request, amount) PaymentResult
     }
     class ProcessorRegistry {
         +exists(method)
@@ -515,9 +513,7 @@ struct PendingInfo {
 
 struct PaymentRequest {
     string methodId;
-    int amount;
     string orderId;
-    string customerId;
     // 手段固有データ（該当する1つだけをセット）
     CreditCardInput creditCard;
     BankTransferInput bankTransfer;
@@ -578,7 +574,7 @@ public:
 
 **(2)-2 顧客・注文の保持データ（ProcessorRegistry と同じデータ層）**
 
-決済要求に載る `customerId`・`orderId`・金額は、システムが事前に保持している顧客・注文と照合します。この保持データは現状コードの時点から存在します（第1章 `CustomerDatabase`、第9章 `UserDatabase` と同じ「登録済みデータへ照合する」形）。
+決済要求に載る `orderId` から、システムが事前に保持している注文と顧客を引きます。この保持データは現状コードの時点から存在します（第1章 `CustomerDatabase`、第9章 `UserDatabase` と同じ「登録済みデータへ照合する」形）。
 
 ```cpp
 // ---- 事前保持データ（顧客・注文） ----
@@ -620,13 +616,15 @@ public:
         records["ORD-1007"] = {"C007", 200};
         records["ORD-1008"] = {"C008", 1200};
         records["ORD-2001"] = {"C020", 3000};
+        // 注文者が顧客台帳にいない注文（拒否の確認用）
+        records["ORD-1010"] = {"C999", 900};
     }
     bool exists(const string& id) const { return records.count(id) > 0; }
     OrderRecord get(const string& id) const { return records.at(id); }
 };
 ```
 
-`customerId`・`orderId` は、この保持データに存在するもの以外は受け付けません。金額も注文の登録額と一致するかを照合します。
+`orderId` は、この保持データに存在するもの以外を受け付けません。請求金額と注文者はここから引くので、利用側は渡しません。引いた注文者が顧客台帳にいない場合、氏名が空の場合も決済へ進みません。
 
 **(3) 外部決済APIの境界スタブ（PaymentGatewayClient / PaymentStatusClient）**
 
@@ -758,7 +756,7 @@ public:
         : gateway(gw) {}
 
     PaymentResult pay(
-        const PaymentRequest& req) {
+        const PaymentRequest& req, int amount) {
         // カード固有の入力検証
         if (req.creditCard.cardToken.empty()) {
             return {"失敗",
@@ -777,7 +775,7 @@ public:
         }
         // 同期: 認証APIを呼んで即座に結果を返す
         return gateway.authorizeCreditCard(
-            req.orderId, req.amount,
+            req.orderId, amount,
             req.creditCard);
     }
 };
@@ -794,7 +792,7 @@ public:
         : gateway(gw) {}
 
     PaymentResult pay(
-        const PaymentRequest& req) {
+        const PaymentRequest& req, int amount) {
         // 振込固有の入力検証
         if (req.bankTransfer.payerName.empty()) {
             return {"失敗",
@@ -808,7 +806,7 @@ public:
         }
         // 非同期: 振込先を発行し、保留を返す
         return gateway.issueBankTransfer(
-            req.orderId, req.amount,
+            req.orderId, amount,
             req.bankTransfer);
     }
 };
@@ -825,7 +823,7 @@ public:
         : gateway(gw) {}
 
     PaymentResult pay(
-        const PaymentRequest& req) {
+        const PaymentRequest& req, int amount) {
         // コンビニ固有の入力検証
         if (req.convenience.phoneNumber.empty()) {
             return {"失敗",
@@ -839,7 +837,7 @@ public:
         }
         // 非同期: 支払い番号を発行し、保留を返す
         return gateway.issueConvenienceCode(
-            req.orderId, req.amount,
+            req.orderId, amount,
             req.convenience);
     }
 };
@@ -879,30 +877,20 @@ public:
                     cfg.name + " は現在無効です。",
                     false, "DISABLED", {}};
         }
-        if (request.amount < 1) {
-            return {"失敗",
-                    "金額は1円以上で指定してください。",
-                    false, "INVALID_AMOUNT", {}};
-        }
-        // 事前保持データと照合：注文・顧客・金額が登録済みか
+        // 注文台帳から請求金額と注文者を引く（利用側は渡さない）
         if (!orders.exists(request.orderId)) {
             return {"失敗",
                     "未登録の注文です: " + request.orderId,
                     false, "UNKNOWN_ORDER", {}};
         }
         OrderRecord ord = orders.get(request.orderId);
-        if (ord.customerId != request.customerId
-            || ord.amount != request.amount) {
+        // 注文者が顧客台帳に実在し、氏名を持つかを確認する
+        if (!customers.exists(ord.customerId)) {
             return {"失敗",
-                    "注文内容が保持データと一致しません",
-                    false, "ORDER_MISMATCH", {}};
-        }
-        if (!customers.exists(request.customerId)) {
-            return {"失敗",
-                    "未登録の顧客です: " + request.customerId,
+                    "未登録の顧客です: " + ord.customerId,
                     false, "UNKNOWN_CUSTOMER", {}};
         }
-        CustomerRecord customer = customers.get(request.customerId);
+        CustomerRecord customer = customers.get(ord.customerId);
         if (customer.name.empty()) {
             return {"失敗", "顧客名が登録されていません",
                     false, "INVALID_CUSTOMER", {}};
@@ -912,24 +900,30 @@ public:
         if (type == "credit_card") {
             CreditCardProcessor proc(gatewayClient);
             // canRetry はゲートウェイの結果に含まれる（失敗の種類で決まる）
-            return proc.pay(request);
+            return proc.pay(request, ord.amount);
         } else if (type == "bank_transfer") {
             BankTransferProcessor proc(
                 gatewayClient);
             PaymentResult result
-                = proc.pay(request);
+                = proc.pay(request, ord.amount);
             // 非同期: APIエラーならそのまま返す
             return result;
         } else if (type == "convenience") {
             ConvenienceStoreProcessor proc(
                 gatewayClient);
             PaymentResult result
-                = proc.pay(request);
+                = proc.pay(request, ord.amount);
             return result;
         }
         return {"失敗",
                 "未対応の決済種別です: " + type,
                 false, "UNSUPPORTED", {}};
+    }
+
+    // 台帳の請求金額を返す（記録・表示に使う）
+    int chargedAmount(const string& orderId) const {
+        return orders.exists(orderId)
+            ? orders.get(orderId).amount : 0;
     }
 
     // 保留決済の完了確認
@@ -1010,10 +1004,10 @@ static void executeCase(
             = app.checkCompletion(result.pending.pendingId);
         cout << "  完了結果: " << completion.status
              << " (" << completion.message << ")\n";
-        payLog.add(req.methodId, req.amount,
+        payLog.add(req.methodId, app.chargedAmount(req.orderId),
                    completion.status, completion.errorCode);
     } else {
-        payLog.add(req.methodId, req.amount,
+        payLog.add(req.methodId, app.chargedAmount(req.orderId),
                    result.status, result.errorCode);
     }
     cout << "\n";
@@ -1026,9 +1020,7 @@ int main() {
     // ケース1: カード正常（同期）
     PaymentRequest r1;
     r1.methodId = "credit_card";
-    r1.amount = 1000;
     r1.orderId = "ORD-1001";
-    r1.customerId = "C001";
     r1.creditCard = {"tok_abc", "YAMADA", "123"};
     executeCase(app, payLog, r1);
 ```
@@ -1046,9 +1038,7 @@ int main() {
     // ケース2: 銀行振込正常（非同期）
     PaymentRequest r2;
     r2.methodId = "bank_transfer";
-    r2.amount = 2000;
     r2.orderId = "ORD-1002";
-    r2.customerId = "C002";
     r2.bankTransfer
         = {"山田太郎", "0001", "ordinary"};
     executeCase(app, payLog, r2);
@@ -1068,9 +1058,7 @@ int main() {
     // ケース3: コンビニ正常（非同期）
     PaymentRequest r3;
     r3.methodId = "convenience";
-    r3.amount = 500;
     r3.orderId = "ORD-1003";
-    r3.customerId = "C003";
     r3.convenience
         = {"09012345678", "y@example.com", "seven"};
     executeCase(app, payLog, r3);
@@ -1090,9 +1078,7 @@ int main() {
     // ケース4: カードAPI失敗
     PaymentRequest r4;
     r4.methodId = "credit_card";
-    r4.amount = 800;
     r4.orderId = "ORD-1004";
-    r4.customerId = "C004";
     r4.creditCard
         = {"ERROR_DECLINED", "SUZUKI", "456"};
     executeCase(app, payLog, r4);
@@ -1109,9 +1095,7 @@ int main() {
     // ケース5: カード入力不足
     PaymentRequest r5;
     r5.methodId = "credit_card";
-    r5.amount = 600;
     r5.orderId = "ORD-1005";
-    r5.customerId = "C005";
     r5.creditCard = {"tok_xyz", "", "789"};
     executeCase(app, payLog, r5);
 ```
@@ -1126,9 +1110,7 @@ int main() {
     // ケース6: 無効な決済方法
     PaymentRequest r6;
     r6.methodId = "crypto";
-    r6.amount = 300;
     r6.orderId = "ORD-1006";
-    r6.customerId = "C006";
     executeCase(app, payLog, r6);
 ```
 
@@ -1142,9 +1124,7 @@ int main() {
     // ケース7: 未登録の決済方法
     PaymentRequest r7;
     r7.methodId = "unknown";
-    r7.amount = 200;
     r7.orderId = "ORD-1007";
-    r7.customerId = "C007";
     executeCase(app, payLog, r7);
 ```
 
@@ -1160,11 +1140,34 @@ int main() {
     // ケース8: カード一時失敗 → canRetryを見て再試行し成功
     PaymentRequest r8;
     r8.methodId = "credit_card";
-    r8.amount = 1200;
     r8.orderId = "ORD-1008";
-    r8.customerId = "C008";
     r8.creditCard = {"TIMEOUT_ONCE", "TANAKA", "321"};
     executeCase(app, payLog, r8);
+```
+
+続いて、注文台帳と顧客台帳での拒否を確認します。ケース9は台帳に無い注文ID、ケース10は注文者が顧客台帳にいない注文です。どちらも外部決済を呼びません。
+
+```cpp
+    // ケース9: 未登録の注文ID
+    PaymentRequest r9;
+    r9.methodId = "credit_card";
+    r9.orderId = "ORD-9999";
+    r9.creditCard = {"tok_abc", "YAMADA", "123"};
+    executeCase(app, payLog, r9);
+
+    // ケース10: 注文者が顧客台帳にいない注文
+    PaymentRequest r10;
+    r10.methodId = "credit_card";
+    r10.orderId = "ORD-1010";
+    r10.creditCard = {"tok_abc", "YAMADA", "123"};
+    executeCase(app, payLog, r10);
+```
+
+ケース9・ケース10の実行結果（どちらも外部決済APIの行が出ていません）：
+
+```
+結果: credit_card -> 失敗 (未登録の注文です: ORD-9999)
+結果: credit_card -> 失敗 (未登録の顧客です: C999)
 ```
 
 ケース8の実行結果（`executeCase` が `canRetry=true` を読み、実際に1回だけ再試行しています）：
@@ -1199,6 +1202,8 @@ int main() {
 [crypto] 300円 -> 失敗 (DISABLED)
 [unknown] 200円 -> 失敗 (UNKNOWN_METHOD)
 [credit_card] 1200円 -> 成功
+[credit_card] 0円 -> 失敗 (UNKNOWN_ORDER)
+[credit_card] 900円 -> 失敗 (UNKNOWN_CUSTOMER)
 ```
 
 このコードでは、`PaymentApplication` クラスが、どの決済手段のクラスを生成し、どう実行し、エラー時にどう対処するかをすべて直接知っています。
@@ -1214,8 +1219,8 @@ int main() {
 | 仕様入力 | コード上の受け取り口 | 実際に使う箇所 | 結果への現れ方 |
 |---|---|---|---|
 | 決済方法ID | `PaymentRequest::methodId` | `ProcessorRegistry` の存在・有効確認とProcessor選択 | 手段別処理、無効エラー、未登録エラーに分かれる |
-| 注文ID・金額 | `PaymentRequest::orderId` / `amount` | 金額検証、`OrderBook` との照合、各外部APIスタブ、`PaymentLog` | 未登録注文・金額不一致エラー、API結果の識別子、実行ログに反映される |
-| 顧客ID | `PaymentRequest::customerId` | `OrderBook` の注文所有者照合と `CustomerDirectory` の存在確認 | 注文内容不一致・未登録顧客エラーに分かれる |
+| 注文ID | `PaymentRequest::orderId` | `OrderBook` から請求金額と注文者を引く。引いた金額を各外部APIスタブと `PaymentLog` へ渡す | 未登録注文エラー、API結果の識別子、実行ログの金額に反映される |
+| 顧客（注文者） | `OrderBook` から引く（利用側は渡さない） | `CustomerDirectory` の存在確認と氏名の空チェック | 未登録顧客・顧客名未登録エラーに分かれる |
 | 手段固有データ | `creditCard` / `bankTransfer` / `convenience` | 各Processorの入力検証と対応API呼び出し | 成功・保留、または入力不足エラーになる |
 | 保留ID | `PaymentResult::pending` | `PaymentStatusClient::checkStatus()` | 非同期決済の最終的な成功・失敗へつながる |
 
@@ -1248,7 +1253,7 @@ PayPay対応です。PayPayは外部のQRコード決済サービスであり、
 | 要求ID2 | 継続<br/>根拠: — | 銀行振込固有入力を検証し、振込先を発行する | 必須値がそろう場合だけ入金待ちになる |
 | 要求ID3 | 継続<br/>根拠: — | コンビニ固有入力を検証し、支払番号を発行する | 電話番号・メール・店舗コードを照合する |
 | 要求ID4 | 継続<br/>根拠: — | 決済結果を注文IDごとに保存する | 完了・保留・失敗と外部参照を取得できる |
-| 要求ID5 | 継続<br/>根拠: — | 未登録方法や手段別の不正入力を拒否する | 外部決済を呼ばず失敗理由を返す |
+| 要求ID5 | 継続<br/>根拠: — | 未登録方法・未登録注文・未登録顧客や、手段別の不正入力を拒否する | 外部決済を呼ばず失敗理由を返す |
 | 要求ID6 | 変更<br/>根拠: 変更ID2 | 非同期決済は保留IDで完了確認し、保存状態を更新する | PayPayを含む保留決済が完了または失敗へ変わる |
 | 要求ID7 | 追加<br/>根拠: 変更ID1 | PayPay固有入力を検証して決済セッションを作る | 正常時だけPayPay保留IDを返す |
 
@@ -1435,7 +1440,6 @@ flowchart LR
 ```cpp
 struct PayPayInput {
     string accessToken;
-    string merchantId;
 };
 ```
 
@@ -1444,9 +1448,7 @@ struct PayPayInput {
 ```cpp
 struct PaymentRequest {
     string methodId;
-    int amount;
     string orderId;
-    string customerId;
     CreditCardInput creditCard;
     BankTransferInput bankTransfer;
     ConvenienceInput convenience;
@@ -1504,19 +1506,14 @@ public:
     PayPayProcessor(PaymentGatewayClient& gw)
         : gateway(gw) {}
     PaymentResult pay(
-        const PaymentRequest& req) {
+        const PaymentRequest& req, int amount) {
         if (req.payPay.accessToken.empty()) {
             return {"失敗",
                     "PayPayトークンが不足しています",
                     false, "MISSING_PP_TOKEN", {}};
         }
-        if (req.payPay.merchantId.empty()) {
-            return {"失敗",
-                    "マーチャントIDが不足しています",
-                    false, "MISSING_MERCHANT", {}};
-        }
         return gateway.chargePayPay(
-            req.orderId, req.amount, req.payPay);
+            req.orderId, amount, req.payPay);
     }
 };
 ```
@@ -1548,24 +1545,25 @@ public:
                     cfg.name + " は現在無効です。",
                     false, "DISABLED", {}};
         }
-        if (request.amount < 1) {
+        if (!orders.exists(request.orderId)) {
             return {"失敗",
-                    "金額は1円以上で指定してください。",
-                    false, "INVALID_AMOUNT", {}};
+                    "未登録の注文です: " + request.orderId,
+                    false, "UNKNOWN_ORDER", {}};
         }
+        OrderRecord ord = orders.get(request.orderId);
 
         if (type == "credit_card") {
             CreditCardProcessor proc(gatewayClient);
-            return proc.pay(request); // canRetryは結果に含む
+            return proc.pay(request, ord.amount); // canRetryは結果に含む
         } else if (type == "bank_transfer") {
             BankTransferProcessor proc(gatewayClient);
-            return proc.pay(request);
+            return proc.pay(request, ord.amount);
         } else if (type == "convenience") {
             ConvenienceStoreProcessor proc(gatewayClient);
-            return proc.pay(request);
+            return proc.pay(request, ord.amount);
         } else if (type == "paypay") {  // ← 追加
             PayPayProcessor proc(gatewayClient);
-            return proc.pay(request);
+            return proc.pay(request, ord.amount);
         }
         return {"失敗",
                 "未対応の決済種別です: " + type,
@@ -1640,10 +1638,8 @@ int main() {
     // 注文台帳に登録済みの注文で試す（照合は現状のまま通る）
     PaymentRequest request;
     request.methodId = "paypay";
-    request.amount = 3000;
     request.orderId = "ORD-2001";
-    request.customerId = "C020";
-    request.payPay = {"pp_token", "merchant_01"};
+    request.payPay = {"pp_token"};
 
     PaymentResult result = app.processPayment(request);
     cout << "結果: " << request.methodId
@@ -1753,10 +1749,10 @@ graph LR
 if (type == "credit_card") {
     CreditCardProcessor proc(gatewayClient);
     // 失敗の種類ごとの再試行可否（canRetry）は結果に含まれる
-    return proc.pay(request);
+    return proc.pay(request, ord.amount);
 } else if (type == "bank_transfer") {
     BankTransferProcessor proc(gatewayClient);
-    return proc.pay(request);
+    return proc.pay(request, ord.amount);
 }
 ```
 
@@ -1765,7 +1761,7 @@ if (type == "credit_card") {
 ```cpp
 PaymentResult result = app.processPayment(request);
 payLog.add(request.methodId,
-           request.amount,
+           app.chargedAmount(request.orderId),
            result.status,
            result.errorCode);
 ```
@@ -1911,13 +1907,13 @@ classDiagram
         +checkCompletion(pendingId) PaymentResult
     }
     class CreditCardProcessor {
-        +pay(request) PaymentResult
+        +pay(request, amount) PaymentResult
     }
     class BankTransferProcessor {
-        +pay(request) PaymentResult
+        +pay(request, amount) PaymentResult
     }
     class ConvenienceStoreProcessor {
-        +pay(request) PaymentResult
+        +pay(request, amount) PaymentResult
     }
     class ProcessorRegistry {
         +exists(method)
@@ -2009,13 +2005,13 @@ PaymentResult processPayment(const PaymentRequest& request) {
     const string& type = request.methodId;
     if (type == "credit_card") {
         CreditCardProcessor proc(gatewayClient);
-        return proc.pay(request); // canRetryは結果に含む（カード固有）
+        return proc.pay(request, ord.amount); // canRetryは結果に含む（カード固有）
     } else if (type == "bank_transfer") {
         BankTransferProcessor proc(gatewayClient);
-        return proc.pay(request);
+        return proc.pay(request, ord.amount);
     } else if (type == "convenience") {
         ConvenienceStoreProcessor proc(gatewayClient);
-        return proc.pay(request);
+        return proc.pay(request, ord.amount);
     }
     // ← 決済手段を足すたびにこの if が伸びる
 }
@@ -2047,7 +2043,8 @@ classDiagram
 class IPaymentProcessor {
 public:
     virtual ~IPaymentProcessor() = default;
-    virtual PaymentResult pay(const PaymentRequest& request) = 0;
+    virtual PaymentResult pay(
+        const PaymentRequest& request, int amount) = 0;
 };
 ```
 
@@ -2058,10 +2055,11 @@ class CreditCardProcessor : public IPaymentProcessor {
     PaymentGatewayClient& gateway;
 public:
     explicit CreditCardProcessor(PaymentGatewayClient& g) : gateway(g) {}
-    PaymentResult pay(const PaymentRequest& request) override {
+    PaymentResult pay(const PaymentRequest& request,
+                      int amount) override {
         // カード固有の検証と認証API。canRetryはゲートウェイ結果に含む
         return gateway.authorizeCreditCard(
-            request.orderId, request.amount, request.creditCard);
+            request.orderId, amount, request.creditCard);
     }
 };
 ```
@@ -2090,7 +2088,8 @@ IPaymentProcessor* createProcessor(const string& type) override {
 PaymentResult processPayment(const PaymentRequest& request) {
     // 注文・顧客の照合は現状のまま（7-1に全文）
     IPaymentProcessor* proc = createProcessor(request.methodId); // ④生成・所有
-    PaymentResult result = proc->pay(request);                   // ⑥ 契約だけ呼ぶ
+    // ⑥ 契約だけ呼ぶ
+    PaymentResult result = proc->pay(request, ord.amount);
     delete proc;                                                 // 使い捨て後に破棄
     return result;
 }
@@ -2295,7 +2294,6 @@ struct ConvenienceInput {
 
 struct PayPayInput {
     string accessToken;
-    string merchantId;
 };
 
 // ---- 保留決済の追跡情報 ----
@@ -2308,9 +2306,7 @@ struct PendingInfo {
 
 struct PaymentRequest {
     string methodId;
-    int amount;
     string orderId;
-    string customerId;
     CreditCardInput creditCard;
     BankTransferInput bankTransfer;
     ConvenienceInput convenience;
@@ -2331,7 +2327,7 @@ class IPaymentProcessor {
 public:
     virtual ~IPaymentProcessor() {}
     virtual PaymentResult pay(
-        const PaymentRequest& request) = 0;
+        const PaymentRequest& request, int amount) = 0;
 };
 ```
 
@@ -2379,7 +2375,7 @@ public:
 
 **1-b2. 顧客・注文の保持データ（事前登録）**
 
-決済要求が参照する顧客と注文を、システムが事前に保持します。`ProcessorRegistry` と同じデータ層で、要求に載る `customerId`・`orderId`・金額を照合する土台です（第1章 `CustomerDatabase`、第9章 `UserDatabase` と同じ「登録済みデータへ照合する」形）。
+決済要求が参照する顧客と注文を、システムが事前に保持します。`ProcessorRegistry` と同じデータ層で、要求に載る `orderId` から請求金額と注文者を引く土台です（第1章 `CustomerDatabase`、第9章 `UserDatabase` と同じ「登録済みデータへ照合する」形）。
 
 ```cpp
 // 事前保持：顧客（customerId → 氏名）
@@ -2419,13 +2415,15 @@ public:
         records["ORD-1007"] = {"C007", 200};
         records["ORD-1008"] = {"C008", 1200};
         records["ORD-2001"] = {"C020", 3000};
+        // 注文者が顧客台帳にいない注文（拒否の確認用）
+        records["ORD-1010"] = {"C999", 900};
     }
     bool exists(const string& id) const { return records.count(id) > 0; }
     OrderRecord get(const string& id) const { return records.at(id); }
 };
 ```
 
-`customerId`・`orderId` は、この保持データに存在するもの以外は受け付けません。金額も注文の登録額と一致するかを照合します。
+`orderId` は、この保持データに存在するもの以外を受け付けません。請求金額と注文者はここから引くので、利用側は渡しません。引いた注文者が顧客台帳にいない場合、氏名が空の場合も決済へ進みません。
 
 **1-c. 決済ログ**
 
@@ -2590,7 +2588,7 @@ public:
         : gateway(gw) {}
 
     PaymentResult pay(
-        const PaymentRequest& req) override {
+        const PaymentRequest& req, int amount) override {
         if (req.creditCard.cardToken.empty()) {
             return {PaymentStatus::Failed,
                     "カードトークンが不足しています",
@@ -2608,7 +2606,7 @@ public:
         }
         // canRetry はゲートウェイの結果に含まれる（失敗の種類で決まる）
         return gateway.authorizeCreditCard(
-            req.orderId, req.amount,
+            req.orderId, amount,
             req.creditCard);
     }
 };
@@ -2622,7 +2620,7 @@ public:
         : gateway(gw) {}
 
     PaymentResult pay(
-        const PaymentRequest& req) override {
+        const PaymentRequest& req, int amount) override {
         if (req.bankTransfer.payerName.empty()) {
             return {PaymentStatus::Failed,
                     "振込名義が不足しています",
@@ -2639,7 +2637,7 @@ public:
                     false, "MISSING_ACCOUNT_TYPE", {}};
         }
         return gateway.issueBankTransfer(
-            req.orderId, req.amount,
+            req.orderId, amount,
             req.bankTransfer);
     }
 };
@@ -2653,7 +2651,7 @@ public:
         : gateway(gw) {}
 
     PaymentResult pay(
-        const PaymentRequest& req) override {
+        const PaymentRequest& req, int amount) override {
         if (req.convenience.phoneNumber.empty()) {
             return {PaymentStatus::Failed,
                     "電話番号が不足しています",
@@ -2670,7 +2668,7 @@ public:
                     false, "MISSING_STORE", {}};
         }
         return gateway.issueConvenienceCode(
-            req.orderId, req.amount,
+            req.orderId, amount,
             req.convenience);
     }
 };
@@ -2684,19 +2682,14 @@ public:
         : gateway(gw) {}
 
     PaymentResult pay(
-        const PaymentRequest& req) override {
+        const PaymentRequest& req, int amount) override {
         if (req.payPay.accessToken.empty()) {
             return {PaymentStatus::Failed,
                     "PayPayトークンが不足しています",
                     false, "MISSING_PP_TOKEN", {}};
         }
-        if (req.payPay.merchantId.empty()) {
-            return {PaymentStatus::Failed,
-                    "マーチャントIDが不足しています",
-                    false, "MISSING_MERCHANT", {}};
-        }
         return gateway.chargePayPay(
-            req.orderId, req.amount,
+            req.orderId, amount,
             req.payPay);
     }
 };
@@ -2721,30 +2714,20 @@ public:
 
     PaymentResult processPayment(
         const PaymentRequest& request) {
-        if (request.amount < 1) {
-            return {PaymentStatus::Failed,
-                    "金額は1円以上で指定してください。",
-                    false, "INVALID_AMOUNT", {}};
-        }
-        // 事前保持データと照合：注文・顧客・金額が登録済みか
+        // 注文台帳から請求金額と注文者を引く（利用側は渡さない）
         if (!orders.exists(request.orderId)) {
             return {PaymentStatus::Failed,
                     "未登録の注文です: " + request.orderId,
                     false, "UNKNOWN_ORDER", {}};
         }
         OrderRecord ord = orders.get(request.orderId);
-        if (ord.customerId != request.customerId
-            || ord.amount != request.amount) {
+        // 注文者が顧客台帳に実在し、氏名を持つかを確認する
+        if (!customers.exists(ord.customerId)) {
             return {PaymentStatus::Failed,
-                    "注文内容が保持データと一致しません",
-                    false, "ORDER_MISMATCH", {}};
-        }
-        if (!customers.exists(request.customerId)) {
-            return {PaymentStatus::Failed,
-                    "未登録の顧客です: " + request.customerId,
+                    "未登録の顧客です: " + ord.customerId,
                     false, "UNKNOWN_CUSTOMER", {}};
         }
-        CustomerRecord customer = customers.get(request.customerId);
+        CustomerRecord customer = customers.get(ord.customerId);
         if (customer.name.empty()) {
             return {PaymentStatus::Failed,
                     "顧客名が登録されていません",
@@ -2753,9 +2736,15 @@ public:
         IPaymentProcessor* proc
             = createProcessor(request.methodId);
         PaymentResult result
-            = proc->pay(request);
+            = proc->pay(request, ord.amount);
         delete proc;
         return result;
+    }
+
+    // 台帳の請求金額を返す（記録・表示に使う）
+    int chargedAmount(const string& orderId) const {
+        return orders.exists(orderId)
+            ? orders.get(orderId).amount : 0;
     }
 
     // 保留決済の完了確認（汎用）
@@ -2839,10 +2828,10 @@ static void executeCase(PaymentApplication& app,
                 = app.checkCompletion(result.pending.pendingId);
             cout << "  完了結果: " << completion.status
                  << " (" << completion.message << ")" << endl;
-            payLog.add(req.methodId, req.amount,
+            payLog.add(req.methodId, app.chargedAmount(req.orderId),
                        completion.status, completion.errorCode);
         } else {
-            payLog.add(req.methodId, req.amount,
+            payLog.add(req.methodId, app.chargedAmount(req.orderId),
                        result.status, result.errorCode);
         }
     } catch (const invalid_argument& e) {
@@ -2852,7 +2841,7 @@ static void executeCase(PaymentApplication& app,
                       ? "UNKNOWN_METHOD" : "DISABLED";
         cout << "結果: " << req.methodId << " -> 失敗 ("
              << reason << ")" << endl;
-        payLog.add(req.methodId, req.amount,
+        payLog.add(req.methodId, app.chargedAmount(req.orderId),
                    PaymentStatus::Failed, code);
     }
 }
@@ -2872,9 +2861,7 @@ int main() {
     // ケース1: カード正常（同期）
     PaymentRequest r1;
     r1.methodId = PaymentMethod::CreditCard;
-    r1.amount = 1000;
     r1.orderId = "ORD-1001";
-    r1.customerId = "C001";
     r1.creditCard = {"tok_abc", "YAMADA", "123"};
     executeCase(app, payLog, r1);
 ```
@@ -2892,9 +2879,7 @@ int main() {
     // ケース2: 銀行振込正常（非同期）
     PaymentRequest r2;
     r2.methodId = PaymentMethod::BankTransfer;
-    r2.amount = 2000;
     r2.orderId = "ORD-1002";
-    r2.customerId = "C002";
     r2.bankTransfer = {"山田太郎", "0001", "ordinary"};
     executeCase(app, payLog, r2);
 ```
@@ -2915,9 +2900,7 @@ int main() {
     // ケース3: コンビニ正常（非同期）
     PaymentRequest r3;
     r3.methodId = PaymentMethod::Convenience;
-    r3.amount = 500;
     r3.orderId = "ORD-1003";
-    r3.customerId = "C003";
     r3.convenience = {"09012345678", "y@example.com", "seven"};
     executeCase(app, payLog, r3);
 ```
@@ -2938,10 +2921,8 @@ int main() {
     // ケース4: PayPay正常（非同期）
     PaymentRequest r4;
     r4.methodId = PaymentMethod::PayPay;
-    r4.amount = 3000;
     r4.orderId = "ORD-2001";
-    r4.customerId = "C020";
-    r4.payPay = {"pp_token_123", "MERCHANT001"};
+    r4.payPay = {"pp_token_123"};
     executeCase(app, payLog, r4);
 ```
 
@@ -2961,9 +2942,7 @@ int main() {
     // ケース5: カードAPI失敗（残高不足・canRetry=false）
     PaymentRequest r5;
     r5.methodId = PaymentMethod::CreditCard;
-    r5.amount = 800;
     r5.orderId = "ORD-1004";
-    r5.customerId = "C004";
     r5.creditCard = {"ERROR_DECLINED", "SUZUKI", "456"};
     executeCase(app, payLog, r5);
 ```
@@ -2981,9 +2960,7 @@ int main() {
     // ケース6: カード入力不足
     PaymentRequest r6;
     r6.methodId = PaymentMethod::CreditCard;
-    r6.amount = 600;
     r6.orderId = "ORD-1005";
-    r6.customerId = "C005";
     r6.creditCard = {"tok_xyz", "", "789"};
     executeCase(app, payLog, r6);
 ```
@@ -3000,9 +2977,7 @@ int main() {
     // ケース7: 無効な決済方法
     PaymentRequest r7;
     r7.methodId = "crypto";
-    r7.amount = 300;
     r7.orderId = "ORD-1006";
-    r7.customerId = "C006";
     executeCase(app, payLog, r7);
 ```
 
@@ -3018,9 +2993,7 @@ int main() {
     // ケース8: 未登録の決済方法
     PaymentRequest r8;
     r8.methodId = "unknown";
-    r8.amount = 200;
     r8.orderId = "ORD-1007";
-    r8.customerId = "C007";
     executeCase(app, payLog, r8);
 ```
 
@@ -3036,9 +3009,7 @@ int main() {
     // ケース9: カード一時失敗 → canRetryを見て再試行し成功
     PaymentRequest r9;
     r9.methodId = PaymentMethod::CreditCard;
-    r9.amount = 1200;
     r9.orderId = "ORD-1008";
-    r9.customerId = "C008";
     r9.creditCard = {"TIMEOUT_ONCE", "TANAKA", "321"};
     executeCase(app, payLog, r9);
 ```
@@ -3051,6 +3022,31 @@ int main() {
   再試行可能なため再試行します...
 [PaymentGateway] カード認証 order=ORD-1008 amount=1200 token=TIMEOUT_ONCE
 結果: credit_card -> 成功 (クレジット認証済み id=AUTH001)
+```
+
+続いて、注文台帳と顧客台帳での拒否を確認します。ケース10は台帳に無い注文ID、ケース11は注文者が顧客台帳にいない注文です。どちらも外部決済を呼びません。
+
+```cpp
+    // ケース10: 未登録の注文ID
+    PaymentRequest r10;
+    r10.methodId = PaymentMethod::CreditCard;
+    r10.orderId = "ORD-9999";
+    r10.creditCard = {"tok_abc", "YAMADA", "123"};
+    executeCase(app, payLog, r10);
+
+    // ケース11: 注文者が顧客台帳にいない注文
+    PaymentRequest r11;
+    r11.methodId = PaymentMethod::CreditCard;
+    r11.orderId = "ORD-1010";
+    r11.creditCard = {"tok_abc", "YAMADA", "123"};
+    executeCase(app, payLog, r11);
+```
+
+ケース10・ケース11の実行結果（どちらも外部決済APIの行が出ていません）：
+
+```
+結果: credit_card -> 失敗 (未登録の注文です: ORD-9999)
+結果: credit_card -> 失敗 (未登録の顧客です: C999)
 ```
 
 最後に、各ケースの記録を確認します。
@@ -3076,6 +3072,8 @@ int main() {
 [crypto] 300円 -> 失敗 (DISABLED)
 [unknown] 200円 -> 失敗 (UNKNOWN_METHOD)
 [credit_card] 1200円 -> 成功
+[credit_card] 0円 -> 失敗 (UNKNOWN_ORDER)
+[credit_card] 900円 -> 失敗 (UNKNOWN_CUSTOMER)
 ```
 | 要求ID2 | 銀行振込固有入力を検証し、振込先を発行する | `BankTransferProcessor` | 名義・銀行コード・口座種別の3項目を空チェックし、通った要求だけ入金待ち<br/>**判定:** 合格 |
 | 要求ID3 | コンビニ固有入力を検証し、支払番号を発行する | `ConvenienceStoreProcessor` | 電話・メール・店舗コードの3項目を空チェックし、通った要求だけ支払番号を発行<br/>**判定:** 合格 |
@@ -3090,7 +3088,7 @@ int main() {
 | 要求ID2 | 銀行振込固有入力を検証し、振込先を発行する | `BankTransferProcessor` | 正常時だけ入金待ち<br/>**判定:** 合格 |
 | 要求ID3 | コンビニ固有入力を検証し、支払番号を発行する | `ConvenienceStoreProcessor` | 電話・メール・店舗コードを照合<br/>**判定:** 合格 |
 | 要求ID4 | 決済結果を注文IDごとに保存する | `PaymentLog` | 完了・保留・失敗と外部参照を保存<br/>**判定:** 合格 |
-| 要求ID5 | 未登録方法や手段別の不正入力を拒否する | `ProcessorRegistry`、各Processor | 外部決済を呼ばず失敗理由を返す<br/>**判定:** 合格 |
+| 要求ID5 | 未登録方法・未登録注文・未登録顧客や、手段別の不正入力を拒否する | `ProcessorRegistry`、`OrderBook`、`CustomerDirectory`、各Processor | 未登録注文ORD-9999と、注文者が顧客台帳にいないORD-1010を拒否し、どちらも外部決済APIを呼ばない<br/>**判定:** 合格 |
 | 要求ID6 | 非同期決済は保留IDで完了確認し、保存状態を更新する | `PaymentApplication::checkCompletion()` | 保留から完了または失敗へ更新<br/>**判定:** 合格 |
 | 要求ID7 | PayPay固有入力を検証して決済セッションを作る | `PayPayProcessor` | 正常時だけPayPay保留IDを返す<br/>**判定:** 合格 |
 
