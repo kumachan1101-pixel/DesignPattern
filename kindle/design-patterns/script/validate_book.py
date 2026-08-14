@@ -1581,7 +1581,10 @@ def check_phase1_system_model_v3(text: str, path: Path) -> list[Issue]:
         r"(?:Database|Repository|Client|Service|Gateway|Manager|Executor|"
         r"Application|Result|Request|Config|Notifier)\b"
     )
-    leaked = sorted(set(implementation_name.findall(section11)))
+    # 代表入力は1-4 mainからの実コード抜粋なので型名を許可する。ここで禁じるのは、
+    # 仕様説明・システム図が1-3より前に実装設計を先取りすること。
+    section11_without_cpp = re.sub(r"```cpp\s*\n.*?```", "", section11, flags=re.S)
+    leaked = sorted(set(implementation_name.findall(section11_without_cpp)))
     if leaked:
         issues.append(Issue(
             path,
@@ -1751,8 +1754,11 @@ def check_phase1_input_contract_use(text: str, path: Path) -> list[Issue]:
         if min(s11, s14, s15) < 0:
             return issues
         current = text[s14:s15]
-        heading = "#### 仕様入力が現状コードで使われるまで"
-        if heading not in current:
+        headings = (
+            "#### 仕様入力が現状コードで使われるまで",
+            "#### 現状コードを読んだ後の入力追跡",
+        )
+        if not any(heading in current for heading in headings):
             issues.append(Issue(
                 path, line_number(text, s14),
                 "1-4に仕様入力→受け取り口→利用箇所→結果の追跡表がありません",
@@ -2202,6 +2208,25 @@ def check_requirement_baseline_contract(text: str, path: Path) -> list[Issue]:
                 path, line_number(text, final_start),
                 f"{change_id}が変更後要求の根拠変更IDに反映されていません",
             ))
+    summary_marker = "フェーズ1のまとめ：今回追う変更ID一覧"
+    summary_start = change_section.find(summary_marker)
+    if summary_start >= 0:
+        summary = change_section[summary_start:]
+        mapped_requirements: dict[str, set[str]] = {}
+        for match in re.finditer(
+            r"(?m)^\|\s*(変更ID\d+)\s*\|[^|]*\|\s*([^|]+?)\s*\|",
+            summary,
+        ):
+            mapped_requirements[match.group(1)] = set(
+                re.findall(r"要求ID\d+", match.group(2))
+            )
+        for req_id, root_cell, _ in final_rows:
+            for change_id in re.findall(r"変更ID\d+", root_cell):
+                if req_id not in mapped_requirements.get(change_id, set()):
+                    issues.append(Issue(
+                        path, line_number(text, final_start),
+                        f"{req_id}は{change_id}を根拠にしていますが、フェーズ1末の変更ID一覧で対応付けられていません",
+                    ))
     if evidence_ids != final_ids:
         issues.append(Issue(
             path, line_number(text, evidence_start),
@@ -2551,10 +2576,9 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
     design_section = text[design_start:phase7_start]
     required_tokens = (
         "リスクID・将来リスク",
-        "採用構造での考慮",
-        "将来の主な変更先",
-        "今回の判断",
-        "完成コードへ追加しない",
+        "現在の構造による備え",
+        "リスク発生時の変更先",
+        "守れる範囲・残る弱点",
     )
     for token in required_tokens:
         if token not in design_section:
@@ -2586,13 +2610,24 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
                 f"同じ文言で引き継がれていません: {normalized_meaning}",
             ))
 
+    weakness_words = re.compile(
+        r"残る|弱点|必要|未|ない|外側|保証|運用|規則|管理|再設計|"
+        r"再検討|変わる|課題|増える|複雑|競合|生存期間|順序|性能|制約"
+    )
     for match in re.finditer(
         r"(?m)^\|\s*リスクID\d+\s*[：:].*\|$", design_section
     ):
-        if "完成コードへ追加しない" not in match.group(0):
+        cells = [cell.strip() for cell in match.group(0).strip("|").split("|")]
+        final_cell = cells[-1] if cells else ""
+        if "完成コードへ追加しない" in final_cell:
             issues.append(Issue(
                 path, line_number(text, design_start + match.start()),
-                "リスクID行ごとに未確定機能を完成コードへ追加しない判断を明記してください",
+                "6-4の結論を将来機能の非実装だけにせず、守れる範囲と残る弱点を評価してください",
+            ))
+        elif not weakness_words.search(final_cell):
+            issues.append(Issue(
+                path, line_number(text, design_start + match.start()),
+                "6-4の最終列に、現在守れる範囲と残る弱点・制約を具体的に書いてください",
             ))
 
     phase4_start = text.find("## 🟠 フェーズ4：", phase3_start)
@@ -2924,7 +2959,7 @@ def check_standard_id_glossary(text: str, path: Path) -> list[Issue]:
 
 
 def check_phase1_system_overview(text: str, path: Path) -> list[Issue]:
-    """実行結果で動作像を先に作り、その後で入力と仕様を説明する。"""
+    """代表入力を先に示し、その結果とシステム全体像へつなぐ。"""
     issues: list[Issue] = []
     phase11 = text.find("### 1-1：")
     phase12 = text.find("### 1-2：", phase11)
@@ -2932,9 +2967,9 @@ def check_phase1_system_overview(text: str, path: Path) -> list[Issue]:
         return issues
 
     section = text[phase11:phase12]
-    result_heading = "#### まず実行結果から動きをつかむ"
-    result_label = "**代表的な実行結果：**"
-    input_label = "**この結果を生む入力"
+    result_heading = "#### まず代表入力と実行結果から動きをつかむ"
+    input_label = "**代表入力（1-4の`main()`から抜粋）：**"
+    result_label = "この入力に対する代表的な実行結果"
     heading = "#### 最初にシステム全体をつかむ"
     result_heading_pos = section.find(result_heading)
     result = section.find(result_label)
@@ -2945,10 +2980,10 @@ def check_phase1_system_overview(text: str, path: Path) -> list[Issue]:
     for token, position, message in (
         (result_heading, result_heading_pos,
          "1-1冒頭に代表実行結果の見出しがありません"),
-        (result_label, result,
-         "代表実行結果のラベルがありません"),
         (input_label, input_example,
          "代表実行結果に対応する入力・mainの説明がありません"),
+        (result_label, result,
+         "代表入力に対応する実行結果のラベルがありません"),
     ):
         if position < 0:
             issues.append(Issue(
@@ -2963,31 +2998,31 @@ def check_phase1_system_overview(text: str, path: Path) -> list[Issue]:
         return issues
 
     ordered_positions = (
-        result_heading_pos, result, input_example, overview, baseline,
+        result_heading_pos, input_example, result, overview, baseline,
     )
     if all(position >= 0 for position in ordered_positions) and not (
-        result_heading_pos < result < input_example < overview < baseline
+        result_heading_pos < input_example < result < overview < baseline
     ):
         issues.append(Issue(
             path, line_number(text, phase11),
-            "1-1は代表実行結果→結果の読み方→入力・main→システム全体要約→現行要求の順にしてください",
+            "1-1は代表入力・main→実行結果→結果の読み方→システム全体要約→現行要求の順にしてください",
         ))
 
-    if result >= 0 and input_example >= 0:
-        result_text = section[result:input_example]
+    if result >= 0 and overview >= 0:
+        result_text = section[result:overview]
         if "```" not in result_text:
             issues.append(Issue(
                 path, line_number(text, phase11 + result),
                 "代表実行結果に、読者が最初に確認できる出力ブロックがありません",
             ))
-        if "この出力から" not in result_text:
+        if "この入力と出力から" not in result_text:
             issues.append(Issue(
                 path, line_number(text, phase11 + result),
                 "代表実行結果の直後に、一連の動きの読み方がありません",
             ))
 
-    if input_example >= 0 and overview >= 0:
-        input_text = section[input_example:overview]
+    if input_example >= 0 and result >= 0:
+        input_text = section[input_example:result]
         if "```cpp" not in input_text:
             issues.append(Issue(
                 path, line_number(text, phase11 + input_example),
@@ -3064,6 +3099,152 @@ def check_phase2_interview_plan(text: str, path: Path) -> list[Issue]:
             "2-3は2-1で決めた各質問へ答える順で構成してください: "
             f"計画={len(rows)}件, 開発者の質問={interviewer_count}件",
         ))
+    return issues
+
+
+def check_phase22_change_list(text: str, path: Path) -> list[Issue]:
+    """2-2は1-5で確定した変更IDを、独自分類せず同じ一覧で受け取る。"""
+    change_start = text.find("### 1-5：変更要求")
+    phase2 = text.find("## 🟣 フェーズ2：", change_start)
+    phase22 = text.find("### 2-2：", phase2)
+    phase23 = text.find("### 2-3：", phase22)
+    if min(change_start, phase2, phase22, phase23) < 0:
+        return []
+
+    change_section = text[change_start:phase2]
+    rows = re.findall(
+        r"(?m)^\|\s*(変更ID\d+)\s*\|\s*([^|]+?)\s*\|", change_section
+    )
+    expected: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for change_id, summary in rows:
+        if change_id not in seen:
+            expected.append((change_id, summary.strip()))
+            seen.add(change_id)
+
+    section = text[phase22:phase23]
+    actual = [
+        (change_id, summary.strip())
+        for change_id, summary in re.findall(
+            r"(?m)^- \*\*(変更ID\d+)：(.+?)\*\*\s*$", section
+        )
+    ]
+    issues: list[Issue] = []
+    if actual != expected:
+        issues.append(Issue(
+            path, line_number(text, phase22),
+            "2-2の変更ID一覧が1-5の確定一覧と一致しません: "
+            f"1-5={expected} / 2-2={actual}",
+        ))
+    required_intro = (
+        "1-5で確定した変更IDを、そのまま今回確実に変わることとして確認します。"
+    )
+    if required_intro not in section:
+        issues.append(Issue(
+            path, line_number(text, phase22),
+            "2-2は1-5の確定済み変更IDを受け取る共通導入へ統一してください",
+        ))
+    if re.search(r"(?m)^\|", section) or "🔴" in section or "🟢" in section:
+        issues.append(Issue(
+            path, line_number(text, phase22),
+            "2-2へ章固有の表・色分類を足さず、変更IDの箇条書きへ統一してください",
+        ))
+    return issues
+
+
+def check_representative_input_preparation(text: str, path: Path) -> list[Issue]:
+    """1-1の代表入力は、業務入力の生成から公開操作への受け渡しまで示す。"""
+    label = "**代表入力（1-4の`main()`から抜粋）：**"
+    start = text.find(label)
+    if start < 0:
+        return []
+    result = text.find("この入力に対する代表的な実行結果", start)
+    section = text[start:result if result >= 0 else start + 1600]
+    match = re.search(r"```cpp\s*\n(.*?)```", section, re.S)
+    if not match:
+        return []
+    code = match.group(1)
+    issues: list[Issue] = []
+
+    declared = set(re.findall(r"(?m)^\s*[A-Z][A-Za-z0-9_:<>]*\s+([a-z_]\w*)\b", code))
+    assigned_roots = set(re.findall(r"(?m)^\s*([a-z_]\w*)\.\w+\s*=", code))
+    for name in sorted(assigned_roots - declared):
+        issues.append(Issue(
+            path, line_number(text, start),
+            f"代表入力 `{name}` の値を設定していますが、この抜粋内で入力を生成していません",
+        ))
+
+    pseudo = set(re.findall(r"(?m)^//.*?\b([a-z_]\w*)\s*=\s*\{", code))
+    for name in sorted(pseudo - declared):
+        issues.append(Issue(
+            path, line_number(text, start),
+            f"代表入力 `{name}` をコメントだけで準備せず、実コードで生成してください",
+        ))
+    return issues
+
+
+def check_phase14_input_trace_position(text: str, path: Path) -> list[Issue]:
+    """1-4の入力追跡表が現状コードと実行結果を読んだ後にあるか確認する。"""
+    s14 = text.find("### 1-4：")
+    s15 = text.find("### 1-5：", s14)
+    if not (0 <= s14 < s15):
+        return []
+
+    heading = "#### 仕様入力が現状コードで使われるまで"
+    phase14 = text[s14:s15]
+    count = phase14.count(heading)
+    if count != 1:
+        return [Issue(
+            path,
+            line_number(text, s14),
+            "1-4にはコード読解後の入力追跡表を1件だけ置いてください",
+        )]
+
+    trace_pos = phase14.find(heading)
+    last_fence = phase14.rfind("```")
+    if last_fence >= 0 and trace_pos < last_fence:
+        return [Issue(
+            path,
+            line_number(text, s14 + trace_pos),
+            "仕様入力の追跡表は、1-4の現状コードと実行結果を読んだ後へ置いてください",
+        )]
+    return []
+
+
+def check_payment_timeout_contract(text: str, path: Path) -> list[Issue]:
+    """第8章のTIMEOUT契約を簡略化表・コード・実行結果で一致させる。"""
+    if path.name != "chapter08.md":
+        return []
+
+    start = text.find("**この章での簡略化**")
+    end = text.find("### 1-4：", start)
+    simplification = text[start:end] if 0 <= start < end else ""
+    required_rules = (
+        "| カード認証 | トークンが `ERROR` で始まる | 認証失敗・再試行不可 |",
+        "| カード認証 | トークンが `TIMEOUT` で始まり、同じ注文IDでの初回試行 | 通信タイムアウト・再試行可能 |",
+        "| カード認証 | `TIMEOUT` の同じ注文IDでの2回目以降 | 認証成功 |",
+    )
+    issues: list[Issue] = []
+    for rule in required_rules:
+        if rule not in simplification:
+            issues.append(Issue(
+                path,
+                line_number(text, start),
+                f"第8章のスタブ判定規則にTIMEOUT契約が不足しています: {rule}",
+            ))
+
+    phase1_end = text.find("## 🟣 フェーズ2")
+    phase1 = text[:phase1_end if phase1_end >= 0 else len(text)]
+    for token, message in (
+        ('card.cardToken.find("TIMEOUT") == 0 && attempt == 1',
+         "TIMEOUTの初回だけ失敗するコードがありません"),
+        ('true, "NETWORK_TIMEOUT"',
+         "TIMEOUT失敗が再試行可能な結果を返していません"),
+        ("TIMEOUT_ONCE", "TIMEOUTの代表入力がありません"),
+        ("再試行可能なため再試行します", "TIMEOUT後の再試行結果がありません"),
+    ):
+        if token not in phase1:
+            issues.append(Issue(path, line_number(text, start), message))
     return issues
 
 
@@ -3595,14 +3776,241 @@ def check_separated_final_overrides(text: str, path: Path) -> list[Issue]:
     )]
 
 
+def check_standard_simplification_section(text: str, path: Path) -> list[Issue]:
+    """全パターン章で簡略化境界を1-3と1-4の間へ一度だけ置く。"""
+    heading = "**この章での簡略化**"
+    count = text.count(heading)
+    if count != 1:
+        return [Issue(
+            path, 1,
+            f"簡略化節は全章共通見出し `{heading}` で1回だけ置いてください（現在{count}回）",
+        )]
+    s13 = text.find("### 1-3：")
+    simple = text.find(heading)
+    s14 = text.find("### 1-4：", simple)
+    issues: list[Issue] = []
+    if min(s13, simple, s14) < 0 or not (s13 < simple < s14):
+        issues.append(Issue(
+            path, line_number(text, simple if simple >= 0 else 0),
+            "簡略化節は1-3の後、1-4の前へ置いてください",
+        ))
+        return issues
+    opening = text[simple + len(heading):simple + len(heading) + 240]
+    if re.search(r"1-3で.*(?:確認|整理)|現状コードへ進", opening):
+        issues.append(Issue(
+            path, line_number(text, simple),
+            "簡略化節を章構成のメタ説明から始めず、実行すること・代替すること・扱わないことを直接説明してください",
+        ))
+    return issues
+
+
+def check_core_thesis(text: str, path: Path) -> list[Issue]:
+    """「この章の核心」は題材名でなく、思考の型の判断軸を説明する。"""
+    start = text.find("### この章の核心")
+    if start < 0:
+        return [Issue(path, 1, "「この章の核心」見出しがありません")]
+    end = text.find("### ", start + len("### この章の核心"))
+    section = text[start:end if end >= 0 else start + 1200]
+    issues: list[Issue] = []
+    for token in ("場面では", "兆候", "判断軸"):
+        if token not in section:
+            issues.append(Issue(
+                path, line_number(text, start),
+                f"この章の核心に思考の型を示す「{token}」がありません",
+            ))
+    return issues
+
+
+def check_phase6_numbered_step_titles(text: str, path: Path) -> list[Issue]:
+    """フェーズ6の番号付きコード説明を、番号＋項目名＋具体の形へ固定する。"""
+    start = text.find("## 🔴 フェーズ6：")
+    end = text.find("## 🟢 フェーズ7：", start)
+    if min(start, end) < 0:
+        return []
+    section = text[start:end]
+    matches = list(re.finditer(r"(?m)^\*\*([①②③④⑤⑥]+)\s*([^\n]*)", section))
+    issues: list[Issue] = []
+    seen: set[str] = set()
+    for match in matches:
+        seen.update(re.findall(r"[①②③④⑤⑥]", match.group(0)))
+        title = match.group(2).split("。", 1)[0]
+        title = re.sub(r"[`*_：:（）()・\s]", "", title)
+        if "★" in match.group(0) or len(title) < 2:
+            issues.append(Issue(
+                path, line_number(text, start + match.start()),
+                "フェーズ6の番号付き説明は「番号＋共通項目名＋章固有の具体」で始めてください",
+            ))
+    for required in ("①", "②", "③", "⑥"):
+        if required not in seen:
+            issues.append(Issue(
+                path, line_number(text, start),
+                f"フェーズ6の段階説明に共通項目 {required} がありません",
+            ))
+    return issues
+
+
+def check_stable_skeleton_explanation(text: str, path: Path) -> list[Issue]:
+    """フェーズ6で安定する制御骨格を「なし」と扱わない。
+
+    骨格はTemplate Methodの基底アルゴリズムだけではない。Strategyの選択・
+    委譲、Observerの登録・反復、Commandの履歴移動など、具体実装が増減しても
+    維持する利用側の制御を②として説明する。
+    """
+    start = text.find("## 🔴 フェーズ6：")
+    end = text.find("## 🟢 フェーズ7：", start)
+    if min(start, end) < 0:
+        return []
+    section = text[start:end]
+    match = re.search(
+        r"骨格(?:は|も)?(?:無し|なし)|骨格を持たない", section
+    )
+    if not match:
+        return []
+    return [Issue(
+        path, line_number(text, start + match.start()),
+        "フェーズ6の②を「骨格なし」として省略しないでください。具体実装が変わっても維持する選択・委譲・反復・履歴移動などの安定骨格を示します",
+    )]
+
+
+def check_responsibility_table_scope(text: str, path: Path) -> list[Issue]:
+    """1-4の責任表へ簡略化説明を重複させない。"""
+    start = text.find("#### コードを読む前に：クラスの責任と境界")
+    if start < 0:
+        return []
+    code = text.find("```cpp", start)
+    section = text[start:code if code >= 0 else start + 1800]
+    if "掲載上の表現" in section:
+        return [Issue(
+            path, line_number(text, start),
+            "1-4の責任表へ簡略化の列を重複させず、責任と接続だけを示してください",
+        )]
+    return []
+
+
+def check_long_final_cpp_blocks(text: str, path: Path) -> list[Issue]:
+    """7-1の長い複数責任コードを、再結合可能な責任単位へ分割する。"""
+    start = text.find("### 7-1：")
+    end = text.find("### 7-2：", start)
+    if min(start, end) < 0:
+        return []
+    issues: list[Issue] = []
+    section = text[start:end]
+    for block in re.finditer(r"```cpp\s*\n(.*?)```", section, re.S):
+        code = block.group(1)
+        lines = len(code.splitlines())
+        types = re.findall(
+            r"(?m)^\s*(?:class|struct|enum\s+class)\s+([A-Za-z_]\w*)", code
+        )
+        if lines > 120 and len(types) > 1:
+            issues.append(Issue(
+                path, line_number(text, start + block.start()),
+                f"7-1のC++ブロックが{lines}行・{len(types)}型あります。責任・クラス単位へ分割してください",
+            ))
+    return issues
+
+
+def check_executed_test_helpers(text: str, path: Path) -> list[Issue]:
+    """7-1に掲載したテスト関数を未呼び出しのまま残さない。"""
+    start = text.find("### 7-1：")
+    end = text.find("### 7-2：", start)
+    if min(start, end) < 0:
+        return []
+    section = text[start:end]
+    code = "\n".join(re.findall(r"```cpp\s*\n(.*?)```", section, re.S))
+    issues: list[Issue] = []
+    names = set(re.findall(
+        r"\b(?:void|bool|int)\s+((?:test\w*|run\w*Tests?))\s*\(",
+        code, re.I,
+    ))
+    for name in names:
+        if len(re.findall(rf"\b{re.escape(name)}\s*\(", code)) < 2:
+            issues.append(Issue(
+                path, line_number(text, start),
+                f"7-1のテスト関数 `{name}()` が実行経路から呼ばれていません",
+            ))
+    return issues
+
+
+def check_class_diagram_glossary(text: str, path: Path) -> list[Issue]:
+    """第0章後半に、本書で使うクラス図の線種とコード上の意味を固定する。"""
+    if path.name != "chapter00_2.md":
+        return []
+    start = text.find("**クラス図の読み方（全章共通の規約）**")
+    end = text.find("対策検討では", start)
+    section = text[start:end] if 0 <= start < end else ""
+    required = (
+        "`Base <|-- Derived`", "`Contract <|.. Concrete`",
+        "`Owner *-- Part`", "`Holder o-- Part`", "`User --> Target`",
+        "`User ..> Value`",
+    )
+    missing = [token for token in required if token not in section]
+    if not missing:
+        return []
+    return [Issue(
+        path, 1,
+        "第0章のクラス図記法に規約行が不足しています: " + ", ".join(missing),
+    )]
+
+
+def check_change_diagram_highlight(text: str, path: Path) -> list[Issue]:
+    """1-5の変更後flowchartで、変更箇所だけを共通色で示す。"""
+    start = text.find("### 1-5：")
+    end = text.find("## 🟣 フェーズ2：", start)
+    if min(start, end) < 0:
+        return []
+    section = text[start:end]
+    issues: list[Issue] = []
+    for block in re.finditer(
+        r"```mermaid\s*\nflowchart\b(.*?)```", section, re.S
+    ):
+        diagram = block.group(0)
+        if "classDef changed" not in diagram or not re.search(
+            r"(?m)^\s*class\s+[^;]+\s+changed\s*;", diagram
+        ):
+            issues.append(Issue(
+                path, line_number(text, start + block.start()),
+                "変更後flowchartは追加・変更ノードだけを共通の `changed` 色で示してください",
+            ))
+    return issues
+
+
+def check_number_namespace(text: str, path: Path) -> list[Issue]:
+    """フェーズ別の読解番号を混用せず、機械置換の副作用も残さない。"""
+    issues: list[Issue] = []
+    corrupted = text.find("?6?")
+    if corrupted >= 0:
+        issues.append(Issue(
+            path, line_number(text, corrupted),
+            "番号の機械置換でC++三項演算子が `?6?` に破損しています",
+        ))
+
+    phase6 = text.find("## 🔴 フェーズ6：")
+    phase7 = text.find("## 🟢 フェーズ7：", phase6)
+    if min(phase6, phase7) < 0:
+        return issues
+
+    for match in re.finditer(r"[①②③④⑤⑥⑦⑧⑨⑩]", text):
+        if not (phase6 <= match.start() < phase7):
+            issues.append(Issue(
+                path, line_number(text, match.start()),
+                "丸数字①〜⑩はフェーズ6の設計反映順だけに使い、"
+                "フェーズ1は `(1)`、フェーズ3は `[試行1]`、"
+                "フェーズ7は `【1】` を使ってください",
+            ))
+    return issues
+
+
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
     issues.extend(check_class_diagram_focus_syntax(text, path))
     issues.extend(check_class_diagram_direction(text, path))
+    issues.extend(check_class_diagram_glossary(text, path))
     issues.extend(check_ignored_verification_results(text, path))
     issues.extend(check_long_text_blocks(text, path))
     issues.extend(check_separated_final_overrides(text, path))
+    issues.extend(check_long_final_cpp_blocks(text, path))
+    issues.extend(check_executed_test_helpers(text, path))
     issues.extend(check_duplicate_headings(text, path))
     issues.extend(check_banned_patterns(text, path))
     issues.extend(check_overview_phase_scope(text, path))
@@ -3612,6 +4020,13 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
     issues.extend(check_observed_problem_only(text, path))
     issues.extend(check_raw_new_argument_ownership(text, path))
     if core:
+        issues.extend(check_standard_simplification_section(text, path))
+        issues.extend(check_core_thesis(text, path))
+        issues.extend(check_responsibility_table_scope(text, path))
+        issues.extend(check_phase6_numbered_step_titles(text, path))
+        issues.extend(check_stable_skeleton_explanation(text, path))
+        issues.extend(check_number_namespace(text, path))
+        issues.extend(check_change_diagram_highlight(text, path))
         issues.extend(check_common_phase_headings(text, path))
         issues.extend(check_phase42_comparison_header(text, path))
         issues.extend(check_phase6_overview_diagram(text, path))
@@ -3622,6 +4037,10 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_error_condition_last(text, path))
         issues.extend(check_boundary_error_marker(text, path))
         issues.extend(check_phase2_interview_plan(text, path))
+        issues.extend(check_phase22_change_list(text, path))
+        issues.extend(check_representative_input_preparation(text, path))
+        issues.extend(check_phase14_input_trace_position(text, path))
+        issues.extend(check_payment_timeout_contract(text, path))
         issues.extend(check_phase5_phase6_reasoning_contract(text, path))
         issues.extend(check_problem_cause_id_lists(text, path))
         issues.extend(check_phase6_complete_comparison_code(text, path))

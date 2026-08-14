@@ -4,7 +4,7 @@
 
 ### この章の核心
 
-**ドリンク本体とトッピングの組み合わせが増えるたびに、条件分岐やクラスの数が際限なく膨れ上がる。こういう問題は、「守りたい基本の処理」と「後から重ねる追加機能」が同じ場所に混在しているシステムで起きている。**
+**基本の振る舞いへ複数の追加機能を任意の順で重ねる場面では、土台と追加責任を同じ契約で扱います。組み合わせごとのクラスや条件分岐が積のように増えているなら、独立して変わる追加機能を一つの固定構成へ焼き込んでいることが兆候です。各追加機能が内側の同じ契約へ処理を委ね、利用時に必要な順で合成できるかが判断軸になります。**
 
 ---
 
@@ -25,29 +25,27 @@
 
 ### 1-1：このシステムの仕様
 
-このシステムは、カフェのドリンク注文を**カスタマイズ**し、合計金額と注文名称を算出します。
+このシステムは、カフェのドリンク注文を**カスタマイズ**し、合計金額と注文名称を算出します。利用者から基本ドリンクIDと順序付きのトッピングIDを受け取り、メニュー表とトッピング表から名称、価格、販売可否を取得します。入力と販売可否を検証し、選択順に名称と価格を重ね、最終的な注文名称・合計金額または拒否理由を返します。
 
-#### まず実行結果から動きをつかむ
+#### まず代表入力と実行結果から動きをつかむ
 
-詳細な仕様やコードへ入る前に、利用者がホットコーヒーを1点注文した結果を見ます。
+詳細な仕様やコードへ入る前に、1-4の`main()`で利用者がホットコーヒーを1点注文する入力を確認します。
 
-**代表的な実行結果：**
-
-```
-注文内容: ホットコーヒー
-合計金額: 400円
-```
-
-この出力から、①注文する商品を入力し、②名称と価格を合成して合計を計算し、③注文内容と合計金額が表示される、という一連の動きが読み取れます。これを押さえてから、以降の要求・仕様・コードを読み進めます。
-
-**この結果を生む入力（1-4の`main()`から抜粋）：**
+**代表入力（1-4の`main()`から抜粋）：**
 
 ```cpp
 // 商品DRINK001（ホットコーヒー）を、トッピングなし（milk/whip/syrup=false）で1点注文
 showOrder(db, "DRINK001", false, false, false);
 ```
 
-同じ入力を含む完全なコードと実行結果は1-4に掲載します。
+この入力に対する代表的な実行結果は次のとおりです。
+
+```
+注文内容: ホットコーヒー
+合計金額: 400円
+```
+
+この入力と出力から、(1)注文する商品を受け取り、(2)名称と価格を合成して合計を計算し、(3)注文内容と合計金額が表示される、という一連の動きが読み取れます。同じ入力を含む完全なコードと実行結果は1-4に掲載します。
 
 #### 最初にシステム全体をつかむ
 
@@ -90,10 +88,8 @@ showOrder(db, "DRINK001", false, false, false);
 |---|---|---|
 | DRINK001 | ホットコーヒー | 400円 |
 | DRINK002 | アイスコーヒー | 450円 |
-| FOOD001 | サンドイッチ | 600円 |
-| FOOD002 | スコーン | 300円 |
 
-この章の現状仕様では、基本ドリンクの名前・価格だけを基本ドリンク表から取得します。トッピングは Milk・Syrup・Whip の3種類に固定され、利用者の選択は3つの有無として注文計算へ渡されます。トッピング名と価格も注文計算の条件分岐に直接書かれている状態です。
+この章の注文対象は基本ドリンクだけです。食品メニューは登録せず、ドリンク用トッピングを食品へ適用する経路も作りません。トッピングは Milk・Syrup・Whip の3種類に固定され、利用者の選択は3つの有無として注文計算へ渡されます。トッピング名と価格も注文計算の条件分岐に直接書かれている状態です。
 
 **システム全体図：注文作成とメニュー表の境界**
 
@@ -277,8 +273,6 @@ sequenceDiagram
 
 
 **この章での簡略化**
-★この項目が２章や９から１１章にない。本当に横並びでチェックできているのか。
-1-3でクラス構成を確認したので、掲載コードで何を代替しているかを整理してからフェーズ1の現状コードへ進みます。
 
 この章では、注文画面とレシート発行を省略し、注文名と金額の計算結果を中心に確認します。実システムなら画面表示やレシート発行は別の境界へ渡しますが、現状コードは `std::cout` で直接表示します。在庫引当、販売停止、任意のトッピング名の入力は扱わず、固定3種（Milk・Whip・Syrup）の真偽値だけを扱います。
 
@@ -288,42 +282,31 @@ sequenceDiagram
 
 #### コードを読む前に：クラスの責任と境界
 
-| 対象 | 呼び出しと内部処理 | 戻り値・副作用 | 掲載上の表現 |
-|---|---|---|---|
-| `MenuDatabase` | メニューIDから基本ドリンクを検索する | 商品名・基本価格 | `std::map`を基本ドリンク表として使う |
-| `CustomDrink` | 基本情報と3つの選択フラグを受ける | 合計金額・注文名称 | 価格と名称を `if` で直接加える |
-| 3つの真偽値 | Milk・Whip・Syrupの有無を保持する | 選択された固定トッピングだけを反映する | 現状では任意の種類・指定順を表せない |
-| `std::cout` | 計算後の名称と金額を受ける | 画面相当の表示 | 注文画面を標準出力で代替する |
+この表は、基本ドリンクと追加機能がどこで接続するかを示す読解用の地図です。画面やデータ表の代替方法は簡略化節へ集約しました。
 
-決済や在庫引当は扱わず、固定3種の選択、価格加算、名称生成だけを実物として動かします。
+| 対象 | 主な責任 | 接続先・結果 |
+|---|---|---|
+| `MenuDatabase` | メニューIDから基本ドリンクを検索する | 商品名・基本価格を返す |
+| `CustomDrink` | 基本情報と3つの選択フラグを受ける | 合計金額・注文名称を返す |
+| 3つの真偽値 | Milk・Whip・Syrupの有無を保持する | 選択された固定トッピングを計算へ渡す |
+| 表示処理 | 計算後の名称と金額を受ける | 注文結果として表示する |
 
-#### 仕様入力が現状コードで使われるまで
-
-1-1の代表例「ホットコーヒー + Milk + Syrup」を、メニューIDと3つの選択フラグから同じ名称・金額へつなげます。
-
-| 仕様入力 | コード上の受け取り口 | 実際に使う箇所 | 結果への現れ方 |
-|---|---|---|---|
-| 基本ドリンクID | `main()` の `itemId` | `MenuDatabase::exists()` / `get()` | 基本名・基本価格、または未登録エラーになる |
-| Milk・Whip・Syrupの選択 | `CustomDrink` コンストラクタの3フラグ | `getPrice()` / `getDescription()` の各 `if` | 選択した名称と追加料金が両方へ反映される |
-| 基本名・基本価格 | `MenuItem` から `CustomDrink` へ渡す | 名称と合計金額の初期値にする | 「ホットコーヒー」と400円が出力の土台になる |
+固定3種の選択が価格加算と名称生成へどう使われるかを次のコードで確認します。
 
 1-2の5つの正常系と未登録メニューIDを順に実行します。代表ケースは3行目の「ホットコーヒー + Milk + Syrup」です。
 
-このシステムには以下の4件のメニューデータがあらかじめ登録されています。
-★サンドイッチやスコーンにもシロップなど入れれるという事？ドリンクだけにした方が良い？
+このシステムには、注文対象となる次の2件の基本ドリンクがあらかじめ登録されています。食品は対象外なので、ドリンク用トッピングを食品へ適用する入力はありません。
 
 | メニューID | 商品名 | 基本価格 |
 |---|---|---|
 | DRINK001 | ホットコーヒー | 400円 |
 | DRINK002 | アイスコーヒー | 450円 |
-| FOOD001 | サンドイッチ | 600円 |
-| FOOD002 | スコーン | 300円 |
 
 登録されていないIDを指定するとエラーになります。コードを読む前にこの対応を把握しておくと、動作結果が追いやすくなります。
 
 コードは責任の固まりごとに分けて読みます。
 
-**① メニューデータを表すクラス（MenuItem / MenuDatabase）**
+**(1) メニューデータを表すクラス（MenuItem / MenuDatabase）**
 
 最初に、1-1の「メニュー」にあたるデータを持つ部分です。メニューIDから商品名・基本価格を引く役割を担い、エラー条件「登録されていないID」もここで判定します。
 
@@ -346,8 +329,6 @@ public:
     MenuDatabase() {
         items["DRINK001"] = {"ホットコーヒー", 400};
         items["DRINK002"] = {"アイスコーヒー", 450};
-        items["FOOD001"]  = {"サンドイッチ",   600};
-        items["FOOD002"]  = {"スコーン",        300};
     }
 
     bool exists(const string& id) const {
@@ -366,7 +347,7 @@ public:
 
 `MenuDatabase` は `std::map` でメニューIDと `MenuItem` を対応付けたマスターデータです。`exists()` でIDの存在確認、`get()` で商品情報の取得を行います。実システムの商品DBを、この章では実行終了まで覚えているインメモリの登録表で代替しています。
 
-**② カスタムドリンクを表すクラス（CustomDrink）**
+**(2) カスタムドリンクを表すクラス（CustomDrink）**
 
 この章の中心です。1-1の「注文内容の合成」——基本ドリンクにトッピングを重ねて金額と表示名を作る処理——に対応します。
 
@@ -407,7 +388,7 @@ public:
 
 `CustomDrink` は、基本ドリンクの名前・価格に加えて、トッピングの有無を `hasMilk` / `hasWhip` / `hasSyrup` の3つのフラグで保持します。`getPrice()` は各フラグを `if` で見て追加料金を足し、`getDescription()` は各フラグを見て表示名にトッピング名を足します。トッピングの種類と価格を、このクラスがすべて直接持っている点を押さえておきます。
 
-**③ 実行して動作例と照合する（main）**
+**(3) 実行して動作例と照合する（main）**
 
 共通の注文表示は `showOrder` 関数にまとめ、以降は各行の注文を呼び出します。`showOrder` が受け取るのは注文そのもの（メニューIDとトッピングの選択）だけです。動作例テーブルの何行目かは注文の一部ではないので、照合用のラベルは `main()` 側で出します。まず依存を組み立て、行1（ホットコーヒー・トッピングなし）を実行します。
 
@@ -531,6 +512,16 @@ int main() {
 > **手元で動かすには**
 > このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter06.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。たとえば `db.save("DRINK003", {"抹茶ラテ", 500});` で基本ドリンクを足し、その `DRINK003` を注文の基本ドリンクにしてトッピングを重ねれば、追加した商品の注文名と合計金額がその場の実行結果に表れます。メニューデータはプロセス実行中だけ有効で、終了すると消えます（永続化はこの章の論点ではありません）。
 
+#### 仕様入力が現状コードで使われるまで
+
+1-1の代表例「ホットコーヒー + Milk + Syrup」を、メニューIDと3つの選択フラグから同じ名称・金額へつなげます。
+
+| 仕様入力 | コード上の受け取り口 | 実際に使う箇所 | 結果への現れ方 |
+|---|---|---|---|
+| 基本ドリンクID | `main()` の `itemId` | `MenuDatabase::exists()` / `get()` | 基本名・基本価格、または未登録エラーになる |
+| Milk・Whip・Syrupの選択 | `CustomDrink` コンストラクタの3フラグ | `getPrice()` / `getDescription()` の各 `if` | 選択した名称と追加料金が両方へ反映される |
+| 基本名・基本価格 | `MenuItem` から `CustomDrink` へ渡す | 名称と合計金額の初期値にする | 「ホットコーヒー」と400円が出力の土台になる |
+
 ### 1-5：変更要求
 
 **変更要求の発生チーム：** 今回の変更要求は**商品企画部**から届いています。トッピングの種類・価格を管理するチームです。開発チームは受け手となります。この点は、フェーズ2で「どの業務機能に属する知識か」を確認する際に使います。
@@ -619,7 +610,7 @@ int main() {
 ```mermaid
 flowchart LR
     A[/検証済み基本ドリンク<br>DRINK001/]:::input --> E[基本価格を決める]:::process
-    C[/販売可能な追加トッピング<br>Milk・Syrup・Whip<br>Matcha・Choco/]:::input --> F[選択順に価格と表示名を重ねる]:::process
+    C[/販売可能な追加トッピング<br>Milk・Syrup・Whip<br>【追加】Matcha・Choco/]:::input --> F[【変更】販売可否を確認し<br>選択順に価格と表示名を重ねる]:::process
     E --> F
     F --> G([正常出力<br>合計金額・注文内容]):::normal
 
@@ -627,6 +618,8 @@ flowchart LR
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
+    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
+    class C,F changed;
 ```
 
 この図から読み取ることは、次の3点です。
@@ -705,13 +698,11 @@ flowchart LR
 
 ### 2-2：今回の変更で確実に変わること
 
-いきなりコードを修正するのではなく、はじめに今回の変更要求で「確実に変わること」を整理します。
+1-5で確定した変更IDを、そのまま今回確実に変わることとして確認します。章ごとに異なる色や記号は使わず、以降でも同じ変更IDで追跡します。
 
-- **トッピングの種類の追加**：「抹茶パウダー（Matcha）」と「チョコチップ（Choco）」を追加する
-- **販売可否の追加**：在庫切れ・販売停止のトッピングを注文作成前に拒否する
-- **表示順ルールの明確化**：選択された順番でスタッフ向け表示名を組み立てる
-- **`CustomDrink` クラスの修正**：新しいフラグ（`bool hasMatcha` 等）の追加とコンストラクタの変更が必要
-- **呼び出し側のコード修正**：コンストラクタ引数の増加に伴い、既存の呼び出し箇所をすべて修正する必要がある
+- **変更ID1：Matcha（60円）とChoco（40円）を追加する**
+- **変更ID2：利用者が指定した順にトッピングを重ねる**
+- **変更ID3：販売停止・在庫切れのトッピングを注文前に拒否する**
 
 ただし「この変更が1回限りか、今後も続くか」によって、どこまで設計を変えるべきかが大きく変わります。関係者に確認します。
 
@@ -721,7 +712,7 @@ flowchart LR
 
 このシステムは、全国展開する人気カフェチェーンのモバイルオーダーを裏側で支える注文管理システムです。お客様がスマートフォンから事前にドリンクを注文し、店舗でスムーズに受け取れる仕組みを提供しています。
 
-システムが立ち上がった当初、メニューは「コーヒー」や「紅茶」といったシンプルな基本ドリンクのみでした。しかし、ビジネスが成長し「自分好みにカスタマイズしたい」というお客様の声が大きくなるにつれて、ミルクの追加、ホイップの増量、シロップの変更など、多種多様なトッピング機能が追加されてきました。店舗のオペレーションと連動するため、注文システムは正確な「合計金額」と、ドリンクを作るスタッフに伝えるための「注文内容（名前）」を算出する重要な役割を担っています。★紅茶なんて今のメニューにないよね？
+システムが立ち上がった当初、メニューはホットコーヒーとアイスコーヒーというシンプルな基本ドリンクだけでした。しかし、ビジネスが成長し「自分好みにカスタマイズしたい」というお客様の声が大きくなるにつれて、ミルクの追加、ホイップの増量、シロップの変更など、多種多様なトッピング機能が追加されてきました。店舗のオペレーションと連動するため、注文システムは正確な「合計金額」と、ドリンクを作るスタッフに伝えるための「注文内容（名前）」を算出する重要な役割を担っています。
 
 ### 2-3：関係者ヒアリング
 
@@ -787,57 +778,59 @@ flowchart LR
 ## 🟣 フェーズ3：問題特定 ―― 変更の痛みを発見する
 ### 3-1：変更を試みる
 
-佐藤マネージャーからの要求通り、「抹茶パウダー」と「チョコチップ」を既存のシステムに追加してみましょう。
+> **抜粋の前提（周辺は現状のまま）：** 変更対象へ累積適用した部分だけを掲載し、商品検索など変更対象外の処理はフェーズ1のまま維持します。
 
-> **抜粋の前提（周辺は現状のまま）：** 以下は価格と表示名の分岐だけを抜き出します。フェーズ1の `MenuDatabase` による基本ドリンクIDの存在確認は維持します。現状のトッピング入力は固定3種の真偽値であり、任意IDの存在確認と販売可否を扱う `ToppingCatalog` は、変更要求を実装する過程で追加する境界です。
+変更ID1〜変更ID3は同じ現状構造へ順に加わるため、別々の断片ではなく、3件を累積適用した一つの変更途中コードで確認します。フェーズ1の `MenuDatabase` による基本ドリンクIDの存在確認は維持し、ここでは変更が集中する `CustomDrink` と呼び出し側を実行可能な最小構成にしています。抜粋していない周辺は現状のままであり、変更後の境界や部品を先取りしません。
 
-はじめに、トッピングの有無を管理している `CustomDrink` クラスを開きます。クラスのメンバ変数として、`bool hasMatcha;` と `bool hasChoco;` という2つのフラグを追加します。
-次に、初期化を行うためのコンストラクタの引数にも、この2つの真偽値（boolean）を追加する必要があります。
-そして、価格を計算する `getPrice` メソッドの中に `if (hasMatcha) total += 60;` および `if (hasChoco) total += 40;` の計算ロジックを足し、同様に `getDescription` メソッドの中にもトッピング名を組み立てる `if` 文を書き足します。
+「トッピングIDを`vector`へ積み、順に計算すればよい」という案は自然です。実際、フェーズ6の採用構造では順序付きのトッピングID列を使います。ただし、それは真偽値を並べる現状の入力契約と`CustomDrink`の責任を変える対策です。フェーズ3では対策を先取りせず、確定変更を現状構造へ当てたときの痛みを観測するため、既存の真偽値方式へ選択順と販売可否を追加します。
 
-抹茶を追加した後の `getPrice()` メソッド全体は、このようにif文が並ぶ形になります。
+**変更ID1〜3を累積適用した変更途中コード**
 
 ```cpp
-int getPrice() const {
-    int total = basePrice;
-    if (hasMilk)     total += 50;
-    if (hasWhip)     total += 70;
-    if (hasSyrup)    total += 30;
-    if (hasMatcha)   total += 60; // ← 抹茶パウダーを追加
-    if (hasChoco)    total += 40; // ← チョコチップを追加
-    return total;
+#include <iostream>
+#include <string>
+
+using namespace std;
+
+// 変更ID3：販売中かを種類別の真偽値で保持する
+struct ToppingSale {
+    bool milk;
+    bool whip;
+    bool syrup;
+    bool matcha;
+    bool choco;
+};
+
+// 変更ID3：CustomDrinkを作る前に、呼び出し側が販売可否を調べる
+bool canOrder(const ToppingSale& sale,
+              bool milk, bool whip, bool syrup,
+              bool matcha, bool choco, string& stopped) {
+    if (milk   && !sale.milk)   { stopped = "Milk";   return false; }
+    if (whip   && !sale.whip)   { stopped = "Whip";   return false; }
+    if (syrup  && !sale.syrup)  { stopped = "Syrup";  return false; }
+    if (matcha && !sale.matcha) { stopped = "Matcha"; return false; }
+    if (choco  && !sale.choco)  { stopped = "Choco";  return false; }
+    return true;
 }
-```
 
-`getPrice()` と同様に、`getDescription()` にも抹茶の処理を書き足す必要があります。
-
-```cpp
-string getDescription() const {
-    string desc = baseName;
-    if (hasMilk)     desc += " + Milk";
-    if (hasWhip)     desc += " + Whip";
-    if (hasSyrup)    desc += " + Syrup";
-    if (hasMatcha)   desc += " + Matcha"; // ← 抹茶パウダーを追加
-    if (hasChoco)    desc += " + Choco";  // ← チョコチップを追加
-    return desc;
-}
-```
-
-変更後のコードを実行すると、次のような結果になります。
-
-```cpp
-// 変更後の CustomDrink（抹茶・チョコチップフラグ追加後）
 class CustomDrink {
-    std::string baseName;
+    string baseName;
     int basePrice;
+    // 変更ID1：種類を増やすたびフラグを追加する
     bool hasMilk, hasWhip, hasSyrup, hasMatcha, hasChoco;
+    // 変更ID2：各フラグと別に選択順も追加する（0は未選択）
+    int milkSeq, whipSeq, syrupSeq, matchaSeq, chocoSeq;
 public:
-    CustomDrink(std::string name, int price,
+    CustomDrink(string name, int price,
                 bool milk, bool whip, bool syrup,
-                bool matcha, bool choco) // ← 引数が2つ増えた
+                bool matcha, bool choco,
+                int milkS, int whipS, int syrupS,
+                int matchaS, int chocoS)
         : baseName(name), basePrice(price),
           hasMilk(milk), hasWhip(whip), hasSyrup(syrup),
-          hasMatcha(matcha), hasChoco(choco) {}
+          hasMatcha(matcha), hasChoco(choco),
+          milkSeq(milkS), whipSeq(whipS), syrupSeq(syrupS),
+          matchaSeq(matchaS), chocoSeq(chocoS) {}
 
     int getPrice() const {
         int total = basePrice;
@@ -848,78 +841,7 @@ public:
         if (hasChoco)  total += 40;
         return total;
     }
-    std::string getDescription() const {
-        std::string desc = baseName;
-        if (hasMilk)   desc += " + Milk";
-        if (hasWhip)   desc += " + Whip";
-        if (hasSyrup)  desc += " + Syrup";
-        if (hasMatcha) desc += " + Matcha";
-        if (hasChoco)  desc += " + Choco";
-        return desc;
-    }
-};
 
-int main() {
-    // 新しいコンストラクタ呼び出し（引数7個）
-    CustomDrink order("ホットコーヒー", 400,
-                      true, false, false, true, true);
-    std::cout << order.getDescription() << std::endl;
-    std::cout << order.getPrice() << " 円" << std::endl;
-
-    // 既存の呼び出し（引数5個）はコンパイルエラーになるため
-    // コメントアウトして検証
-    // CustomDrink old("ホットコーヒー", 400, true, false, false);
-    //                                              ↑ 引数不足
-    return 0;
-}
-```
-
-実行対象コード：3-1の変更試行コード
-対応する動作例：変更要求後の代表ケース
-確認したいこと：変更要求を現状構造へ当てはめたとき、修正箇所と痛みがどこに出るか
-
-実行結果：
-
-```text
-ホットコーヒー + Milk + Matcha + Choco
-550 円
-```
-
-新しい注文（order）は正しく動き、期待される出力（ホットコーヒー 400円 + Milk 50円 + Matcha 60円 + Choco 40円 = 550円）が得られます。しかし、コメントアウトされている `old` のように、既存の5つの引数で呼び出している箇所は、コンストラクタの引数の数が合わないためすべてコンパイルエラーになります。
-
-つまり、この新しいトッピングを追加したクラスを導入するには、既存の「ホットコーヒーにミルクだけ」といった注文を生成しているモバイルアプリ側（呼び出し元）のコードをすべて探し出し、新しい引数（`false, false` など）を追加するように修正しなければならないのです。
-
-たった2つのトッピングを追加しようとしただけなのに、クラスの中をあちこち探し回って修正した上に、呼び出し側のコードまで直す必要に迫られる状況になっています。
-
-**変更ID2（利用者が指定した順にトッピングを重ねる）を当てはめる**
-
-★仕組みが良くわかりません。普通に考えるなら、トッピング用のクラスに分けて、Vectorに積む形にして、順番に取り出して計算するのが良いのでは？変更ID１から３を全てまとめたコードにしてくれないと、つながりが良くわからない。
-続けて、変更ID2を同じ構造へ当てはめます。フラグは「選んだかどうか」しか持たないため、選んだ順番を復元できません。順番を残すには、トッピングごとに選択順の番号を持たせることになります。
-
-```cpp
-class CustomDrink {
-    string baseName;
-    int basePrice;
-    bool hasMilk, hasWhip, hasSyrup, hasMatcha, hasChoco;
-    // 変更ID2：選択順（1から。0は未選択）をトッピングごとに持つ
-    int milkSeq, whipSeq, syrupSeq, matchaSeq, chocoSeq;
-public:
-    CustomDrink(string name, int price,
-                bool milk, bool whip, bool syrup,
-                bool matcha, bool choco,
-                int milkS, int whipS, int syrupS,
-                int matchaS, int chocoS) // ← 引数が5つ増えた
-        : baseName(name), basePrice(price),
-          hasMilk(milk), hasWhip(whip), hasSyrup(syrup),
-          hasMatcha(matcha), hasChoco(choco),
-          milkSeq(milkS), whipSeq(whipS), syrupSeq(syrupS),
-          matchaSeq(matchaS), chocoSeq(chocoS) {}
-```
-
-コンストラクタの引数は7個から12個へ増えます。`getDescription()` も、固定順に `if` を並べる形では書けません。選択順を1番から順に見て、その番号を持つトッピングを探す走査へ作り直します。
-
-```cpp
-    // 変更ID2：選択順に並べるため、順番を1つずつ走査する
     string getDescription() const {
         string desc = baseName;
         for (int seq = 1; seq <= 5; ++seq) {
@@ -931,113 +853,75 @@ public:
         }
         return desc;
     }
-```
+};
 
-同じ注文を、Milk→Syrupの順とSyrup→Milkの順で呼び分けて確かめます。
-
-```cpp
 int main() {
-    // 変更ID2：選択の有無と選択順を、呼び出し側がそろえて渡す
-    cout << "--- 変更ID2: Milk→Syrup の順で注文 ---" << endl;
-    CustomDrink a("ホットコーヒー", 400,
-                  true, false, true, false, false,
-                  1, 0, 2, 0, 0);
-    cout << a.getDescription() << endl;
-    cout << a.getPrice() << " 円" << endl;
+    ToppingSale sale{true, true, true, true, true};
 
-    cout << "\n--- 変更ID2: Syrup→Milk の順で注文 ---" << endl;
-    CustomDrink b("ホットコーヒー", 400,
-                  true, false, true, false, false,
-                  2, 0, 1, 0, 0);
-    cout << b.getDescription() << endl;
-    cout << b.getPrice() << " 円" << endl;
+    cout << "--- 変更ID1・2: Matcha・Chocoを指定順に追加 ---\n";
+    CustomDrink added("ホットコーヒー", 400,
+                      true, false, false, true, true,
+                      1, 0, 0, 2, 3);
+    cout << added.getDescription() << "\n";
+    cout << added.getPrice() << " 円\n";
+
+    cout << "\n--- 変更ID2: Syrup→Milkの順で注文 ---\n";
+    CustomDrink ordered("ホットコーヒー", 400,
+                        true, false, true, false, false,
+                        2, 0, 1, 0, 0);
+    cout << ordered.getDescription() << "\n";
+    cout << ordered.getPrice() << " 円\n";
+
+    cout << "\n--- 変更ID3: 在庫切れのChocoを含む注文 ---\n";
+    sale.choco = false;
+    string stopped;
+    if (!canOrder(sale, true, false, false, false, true, stopped)) {
+        cout << "エラー：トッピング " << stopped
+             << " は販売停止または在庫切れです\n";
+    } else {
+        CustomDrink unavailable("ホットコーヒー", 400,
+                                true, false, false, false, true,
+                                1, 0, 0, 0, 2);
+        cout << unavailable.getDescription() << "\n";
+    }
     return 0;
 }
 ```
 
-実行対象コード：3-1の変更ID2まで当てはめたコード
-対応する動作例：変更要求後の代表ケース（入力順の指定）
-確認したいこと：入力順どおりに表示名が並ぶか、そのために何が増えたか
+実行対象コード：3-1の変更試行コード
+対応する動作例：変更要求後の種類追加、入力順、販売不可の3ケース
+確認したいこと：変更ID1〜3を同じ構造へ累積したとき、修正箇所と痛みがどこに集まるか
 
 実行結果：
 
 ```text
---- 変更ID2: Milk→Syrup の順で注文 ---
-ホットコーヒー + Milk + Syrup
-480 円
+--- 変更ID1・2: Matcha・Chocoを指定順に追加 ---
+ホットコーヒー + Milk + Matcha + Choco
+550 円
 
---- 変更ID2: Syrup→Milk の順で注文 ---
+--- 変更ID2: Syrup→Milkの順で注文 ---
 ホットコーヒー + Syrup + Milk
 480 円
+
+--- 変更ID3: 在庫切れのChocoを含む注文 ---
+エラー：トッピング Choco は販売停止または在庫切れです
 ```
+
+新しい注文は正しく動き、期待される出力（ホットコーヒー 400円 + Milk 50円 + Matcha 60円 + Choco 40円 = 550円）が得られます。しかし、既存の5つの引数で呼び出している箇所は、12個へ増えたコンストラクタ引数に合わないためすべてコンパイルエラーになります。
+
+つまり、この新しいトッピングを追加したクラスを導入するには、既存の「ホットコーヒーにミルクだけ」といった注文を生成しているモバイルアプリ側（呼び出し元）のコードをすべて探し出し、新しい引数（`false, false` など）を追加するように修正しなければならないのです。
+
+たった2つのトッピングを追加しようとしただけなのに、クラスの中をあちこち探し回って修正した上に、呼び出し側のコードまで直す必要に迫られる状況になっています。
+
+**変更ID2（利用者が指定した順にトッピングを重ねる）を当てはめる**
+
+上の累積コードでは、フラグは「選んだかどうか」しか持たないため、トッピングごとに選択順の番号を追加しました。コンストラクタの引数は7個から12個へ増え、`getDescription()`も選択順を1番から走査して該当する種類を探す形へ変わっています。実行結果のSyrup→Milkで、価格は同じ480円のまま表示順だけが入力どおり変わることを確認できます。
 
 入力順どおりに並ぶようにはなりました。ただし、`hasMilk` と `milkSeq` という二重の情報を呼び出し側がそろえて渡すことになり、片方だけ食い違っても気づけません。`hasMilk` が `true` で `milkSeq` が `0` なら、価格には加算されるのに名称へは出ないという状態が作れてしまいます。
 
 **変更ID3（販売停止・在庫切れのトッピングを注文前に拒否する）を当てはめる**
 
-最後に変更ID3を当てはめます。`CustomDrink` は、生成した時点で全トッピングが決まっている前提の構造です。「注文を作る前に拒否する」判定を置ける場所がクラスの中にありません。そのため判定はクラスの外に残ります。
-
-```cpp
-// 変更ID3：どのトッピングが販売中かを持つ入れ物
-struct ToppingSale {
-    bool milk;
-    bool whip;
-    bool syrup;
-    bool matcha;
-    bool choco;
-};
-
-// 変更ID3：注文を作る前に販売可否を確かめる。CustomDrink は生成時に
-// 全部そろっている前提なので、この判定はクラスの外へ残る。
-bool canOrder(const ToppingSale& sale,
-              bool milk, bool whip, bool syrup,
-              bool matcha, bool choco, string& stopped) {
-    if (milk   && !sale.milk)   { stopped = "Milk";   return false; }
-    if (whip   && !sale.whip)   { stopped = "Whip";   return false; }
-    if (syrup  && !sale.syrup)  { stopped = "Syrup";  return false; }
-    if (matcha && !sale.matcha) { stopped = "Matcha"; return false; }
-    if (choco  && !sale.choco)  { stopped = "Choco";  return false; }
-    return true;
-}
-```
-
-チョコチップを在庫切れにして、Matcha抜きのMilk＋Chocoを注文してみます。
-
-```cpp
-int main() {
-    ToppingSale sale;
-    sale.milk = true;
-    sale.whip = true;
-    sale.syrup = true;
-    sale.matcha = true;
-    sale.choco = false;   // チョコチップは在庫切れ
-
-    cout << "--- 変更ID3: 在庫切れのChocoを含む注文 ---" << endl;
-    string stopped;
-    if (!canOrder(sale, true, false, false, false, true, stopped)) {
-        cout << "エラー：トッピング " << stopped
-             << " は販売停止または在庫切れです" << endl;
-        return 0;
-    }
-    CustomDrink order("ホットコーヒー", 400,
-                      true, false, false, false, true,
-                      1, 0, 0, 0, 2);
-    cout << order.getDescription() << endl;
-    cout << order.getPrice() << " 円" << endl;
-    return 0;
-}
-```
-
-実行対象コード：3-1の変更ID1〜変更ID3を当てはめたコード
-対応する動作例：変更要求後の代表ケース（販売不可のトッピング）
-確認したいこと：注文を作る前に拒否できるか、判定がどこへ置かれたか
-
-実行結果：
-
-```text
---- 変更ID3: 在庫切れのChocoを含む注文 ---
-エラー：トッピング Choco は販売停止または在庫切れです
-```
+`CustomDrink`は生成した時点で全トッピングが決まっている前提の構造です。「注文を作る前に拒否する」判定を置ける場所がクラスの中にないため、累積コードでは`ToppingSale`と`canOrder()`をクラスの外へ追加しました。Chocoを在庫切れにした実行結果では拒否できますが、呼び出し側が`canOrder()`を呼び忘れれば販売停止品をそのまま生成できます。
 
 拒否そのものはできました。ただし販売可否も5つ並んだ真偽値になり、`canOrder()` にも同じ5つの `if` が並びます。そして「販売停止のトッピングは注文にできない」という業務判断が、注文を組み立てる呼び出し側へ移りました。`canOrder()` を呼び忘れた経路があれば、販売停止のトッピングがそのまま注文になります。
 
@@ -1273,7 +1157,7 @@ classDiagram
     class Choco
     IDrink <|.. Coffee
     IDrink <|.. ToppingWrapper
-    ToppingWrapper o--> IDrink : 内側
+    ToppingWrapper *--> IDrink : 内側を所有
     ToppingWrapper <|-- Matcha
     ToppingWrapper <|-- Choco
     class IDrink:::focus
@@ -1292,7 +1176,7 @@ classDiagram
     class ToppingWrapper
     OrderAssembler ..> ToppingWrapper : 入力順に生成
     OrderAssembler ..> IDrink : 完成品を返す
-    ToppingWrapper o--> IDrink : 重ねる
+    ToppingWrapper *--> IDrink : 所有して重ねる
     class OrderAssembler:::focus
     class ToppingWrapper:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
@@ -1407,7 +1291,7 @@ classDiagram
 
     IDrink <|.. Coffee
     IDrink <|.. ToppingWrapper
-    ToppingWrapper o--> IDrink
+    ToppingWrapper *--> IDrink
     ToppingWrapper <|-- Milk
     ToppingWrapper <|-- Whip
     ToppingWrapper <|-- Matcha
@@ -1472,7 +1356,7 @@ public:
 
 **この課題（何を解きたいか）：** トッピングを1種足すたび、メンバ・コンストラクタ・`getPrice()`・`getDescription()`と呼び出し側まで連動修正する——問題ID1〜問題ID3（痛み）／原因ID1です。あわせて、販売可否と入力順の組み立てを受け取る場所が契約に無いため、それらが呼び出し側へ残る——問題ID4／原因ID2です。**基本とトッピングを同じ契約にそろえ、トッピングは内側を包んで自分ぶんだけを足す**ようにして、種類追加を新部品と登録に閉じるのが課題ID1です。
 
-**どう解決するか（方針）：** トッピングを「内側のドリンクを包む部品」にして入力順に重ねます（装飾連結構造＝Decorator）。①契約 →③具体（基本・部品）→④生成（包み上げ）→⑤配置（カタログ）→⑥実行（連鎖）の順で組み立てます（②骨格は無し）。★クラス図の線の種類の説明はどこかに0章などで入れているか。以下で言うと４種類くらいあるが、どういう違いを持たせているのか。
+**どう解決するか（方針）：** トッピングを「内側のドリンクを包む部品」にして入力順に重ねます（装飾連結構造＝Decorator）。①契約 →②内側へ委譲して結果を合成する安定骨格 →③具体（基本・部品）→④生成（包み上げ）→⑤配置（カタログ）→⑥実行（連鎖）の順で組み立てます。線種は第0章の「クラス図の読み方」で定めた実装・継承・所有・依存を使い、直後のコード上の関係と照合します。
 
 ```mermaid
 classDiagram
@@ -1484,7 +1368,7 @@ classDiagram
     class ToppingCatalog
     IDrink <|.. Coffee
     IDrink <|.. ToppingWrapper
-    ToppingWrapper o--> IDrink : 内側を包む
+    ToppingWrapper *--> IDrink : 内側を所有して包む
     ToppingWrapper <|-- Milk
     OrderAssembler ..> IDrink : 入力順に包む
     OrderAssembler ..> ToppingCatalog : 価格・販売可否
@@ -1494,7 +1378,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**① 共通契約 `IDrink` を定義し、③ 基本ドリンク `Coffee` を実装にする。** 基本は自分の価格・説明だけを持ち、トッピングを知りません。
+**① 契約：共通契約 `IDrink` を定義する。** 基本ドリンクとトッピングを同じ価格・説明の操作で呼べるようにします。
 
 ```cpp
 class IDrink {
@@ -1503,23 +1387,60 @@ public:
     virtual int getPrice() const = 0;
     virtual string getDescription() const = 0;
 };
+```
+
+**③ 具体（基本）：`Coffee`が基本ドリンクを実装する。** 自分の名前・基本価格だけを持ち、トッピングを知りません。
+
+```cpp
 class Coffee : public IDrink {
+    string name;
+    int basePrice;
 public:
-    int getPrice() const override { return 400; }
-    string getDescription() const override { return "ホットコーヒー"; }
+    Coffee(const string& itemName, int price)
+        : name(itemName), basePrice(price) {}
+    int getPrice() const override { return basePrice; }
+    string getDescription() const override { return name; }
 };
 ```
 
-**③ ★番号のタイトルを入れて。ここは、具体（基本・部品）ですよね？①は入っている。他の章も同様です。トッピングは内側の `IDrink` を1つ包む部品にする。** 包む順で任意の組み合わせを表せるため、組み合わせクラスは要りません。内側は所有し、デストラクタで破棄します（連鎖で全体が解放されます）。
+**⑤ 配置：価格・表示名・販売可否を`ToppingCatalog`へ置く。** 各部品へ値を埋め込まず、商品企画や在庫状況で変わるデータの正本を一か所にします。
+
+```cpp
+struct ToppingSpec {
+    string label;
+    int price;
+    bool onSale;
+};
+
+class ToppingCatalog {
+    map<string, ToppingSpec> specs;
+public:
+    ToppingCatalog() {
+        specs["Milk"]  = {"Milk", 50, true};
+        specs["Syrup"] = {"Syrup", 30, true};
+        specs["Whip"]  = {"Whip", 70, true};
+        specs["Matcha"] = {"Matcha", 60, true};
+        specs["Choco"] = {"Choco", 40, true};
+    }
+    bool exists(const string& id) const { return specs.count(id) > 0; }
+    bool onSale(const string& id) const {
+        return exists(id) && specs.at(id).onSale;
+    }
+    int priceOf(const string& id) const { return specs.at(id).price; }
+    string labelOf(const string& id) const { return specs.at(id).label; }
+};
+```
+
+**②③ 安定骨格と具体（部品）：`ToppingWrapper`が内側への委譲を固定し、各トッピングが自分の差分だけを実装する。** トッピングは内側の`IDrink`を1つ所有して包み、カタログから得た自分ぶんの価格・表示名だけを加えます。包む順で任意の組み合わせを表せるため、組み合わせ別クラスは要りません。最外の部品を破棄すると、デストラクタが内側を連鎖して破棄します。
 
 ```cpp
 class ToppingWrapper : public IDrink {
 protected:
-    IDrink* inner;                 // 内側のドリンク（所有）
-    ToppingCatalog* catalog;
+    IDrink* inner;                       // 内側のドリンク（所有）
+    const ToppingCatalog* catalog;       // 借用
     string toppingId;
 public:
-    ToppingWrapper(IDrink* d, ToppingCatalog* c, string id)
+    ToppingWrapper(IDrink* d, const ToppingCatalog* c, string id)
         : inner(d), catalog(c), toppingId(id) {}
     ~ToppingWrapper() override { delete inner; }   // 内側を破棄（連鎖）
     int getPrice() const override {
@@ -1532,20 +1453,87 @@ public:
 class Milk : public ToppingWrapper {
 public:
     Milk(IDrink* base, const ToppingCatalog* cat)
-        : ToppingWrapper(base, cat, "Milk") {}   // Whip/Matcha/Choco/Syrupも同形
+        : ToppingWrapper(base, cat, "Milk") {}
+};
+class Syrup : public ToppingWrapper {
+public:
+    Syrup(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Syrup") {}
+};
+class Whip : public ToppingWrapper {
+public:
+    Whip(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Whip") {}
+};
+class Matcha : public ToppingWrapper {
+public:
+    Matcha(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Matcha") {}
+};
+class Choco : public ToppingWrapper {
+public:
+    Choco(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Choco") {}
 };
 ```
 
-**⑤ 価格・表示名・販売可否は `ToppingCatalog` へ配置する。** 各部品は価格・販売状態を自前で持たず、カタログへ問い合わせます（データ配置）。★何故このコードがないの？構造が全く見えません。
+**④ 生成：`OrderAssembler`が検証済みの要求を入力順に包む。** 要求・結果、種類ごとの生成分岐、全件検証、連結、破棄までを同じ実装抜粋で示します。
 
-**④ 生成（包み上げ）と⑥ 実行（連鎖）。** `OrderAssembler` が基本ドリンクを入力順にトッピングで包み、`getPrice()`／`getDescription()` を連鎖させて `OrderResult` を返します。基本ドリンク側の分岐は増えません。
-★以下、コードのどの部分また略されている。他にもあります、何故対応してくれないのか。
 ```cpp
-// 注文要求＝基本ドリンクIDと、トッピングID・個数の並び
-OrderRequest request{ "DRINK001", { "Milk", "Matcha" } };
-OrderResult result = assembler.build(request);
-// OrderAssembler が Coffee を Milk→Matcha の順に包み（④）、
-// getPrice()/getDescription() を連鎖（⑥）して OrderResult を返す
+struct OrderRequest {
+    string baseItemId;
+    vector<string> toppingIds;  // 利用者が指定した順
+};
+struct OrderResult {
+    bool ok;
+    string description;
+    int totalPrice;
+    string error;
+};
+
+class OrderAssembler {
+    MenuDatabase& db;
+    ToppingCatalog& catalog;
+
+    IDrink* wrapOne(const string& id, IDrink* inner) {
+        if (id == "Milk")  return new Milk(inner, &catalog);
+        if (id == "Syrup") return new Syrup(inner, &catalog);
+        if (id == "Whip")  return new Whip(inner, &catalog);
+        if (id == "Matcha") return new Matcha(inner, &catalog);
+        if (id == "Choco") return new Choco(inner, &catalog);
+        return inner;
+    }
+public:
+    OrderAssembler(MenuDatabase& menuDb, ToppingCatalog& toppingCatalog)
+        : db(menuDb), catalog(toppingCatalog) {}
+
+    OrderResult assemble(const OrderRequest& request) {
+        if (!db.exists(request.baseItemId)) {
+            return {false, "", 0, "未登録の基本ドリンクです"};
+        }
+        for (const string& id : request.toppingIds) {
+            if (!catalog.exists(id) || !catalog.onSale(id)) {
+                return {false, "", 0, "利用できないトッピングです: " + id};
+            }
+        }
+        MenuItem base = db.get(request.baseItemId);
+        IDrink* drink = new Coffee(base.name, base.basePrice);
+        for (const string& id : request.toppingIds) {
+            drink = wrapOne(id, drink);
+        }
+        OrderResult result{true, drink->getDescription(),
+                           drink->getPrice(), ""};
+        delete drink;
+        return result;
+    }
+};
+```
+
+**⑥ 実行：組み立て結果を共通契約として呼ぶ。** `assemble()`は内側から外側へ`getPrice()`／`getDescription()`を連鎖させ、呼び出し元へ`OrderResult`を返します。基本ドリンク側へトッピング種別の分岐は増えません。
+
+```cpp
+OrderRequest request{"DRINK001", {"Milk", "Matcha"}};
+OrderResult result = assembler.assemble(request);
 ```
 
 これで課題ID1の完了条件「販売可能な部品だけを入力順に重ね、種類追加が新部品と登録に閉じる」を満たします。基本ドリンクとトッピングが一つの装飾連結構造として接続されました。
@@ -1570,8 +1558,6 @@ struct OrderResult {
     string error;        // 失敗理由
 };
 ```
-★以下が全体構造ですよね？これらが全て上記のポイントのコードに表れていないのなぜ？全章同じ観点で見直して。
-
 | 接続点を変える観点 | システム全体での設計判断                                            | 変えたくない側が知らなくなる詳細  |
 | --------- | ------------------------------------------------------- | ----------------- |
 | 分離方法      | 課題ID1の価格・表示名・包む責任を各トッピングと `ToppingCatalog` へ置く          | トッピングの種類・価格・組み合わせ |
@@ -1603,16 +1589,16 @@ struct OrderResult {
 
 ### 6-4：将来リスクに対する設計上の確認
 
-ここは将来機能を実装する場ではありません。フェーズ2のリスクIDを採用構造へ再適用し、リスクが現実になった場合の変更先と、今回守れる範囲を確認します。★以下の今回の判断で、完成コードに追加しないのは、当たり前ですよね？まだ仕様変更が発生していないわけだから。そうではなく、この変更が来たときにリスクに備えどのような設計で耐えられるようにしておくかをここで記載するのですよね？全章共通です。
+ここでは未確定トッピングを実装しないという確認ではなく、フェーズ2のリスクIDを採用構造へ再適用し、基本ドリンクと注文入口をどこまで守れ、どの変化には追加設計が必要かを評価します。
 
-| リスクID・将来リスク | 採用構造での考慮 | 将来の主な変更先 | 今回の判断 |
+| リスクID・将来リスク | 現在の構造による備え | リスク発生時の変更先 | 守れる範囲・残る弱点 |
 |---|---|---|---|
-| リスクID1：トッピングの種類の増減 | 同じIDrink契約のDecoratorとして種類を追加し、組み立てをOrderAssemblerへ集める | 新Decorator、ToppingCatalog、OrderAssembler | 基本ドリンクと注文実行を守れる。将来種類は完成コードへ追加しない |
-| リスクID2：トッピングの価格改定 | 価格の正本をToppingCatalogへ置き、Decoratorへ価格を埋め込まない | ToppingCatalogの登録値 | 局所化できる。将来価格は完成コードへ追加しない |
-| リスクID3：同じトッピングの複数回追加（ダブル、トリプル等） | 順序付きトッピング列を同じDecoratorの連結へ変換する | 注文入力の個数規則、OrderAssembler | 連結構造は再利用できる。数量仕様は未確定なので完成コードへ追加しない |
-| リスクID4：サイズや前段価格で変わる追加料 | 固定価格のpriceOf()では不足するため、価格計算の入力契約を見直す変更先を限定する | ToppingCatalog、ToppingWrapper、OrderAssembler | 一部局所化。価格ポリシーは確定後に設計し、完成コードへ追加しない |
-| リスクID5：販売停止・在庫切れの判定元の変化 | 利用可否の正本をカタログ側に置き、組み立て前に検証する | ToppingCatalog、OrderAssembler | 変更先は予測できる。在庫機能は完成コードへ追加しない |
-| リスクID6：表示名の順序ルール | 適用順と表示順が異なる場合は表示組み立ての責任を分ける | OrderAssemblerまたは新しい表示境界 | 現構造だけでは完全に局所化しない。表示規則は確定後に設計し、完成コードへ追加しない |
+| リスクID1：トッピングの種類の増減 | 同じIDrink契約のDecoratorとして種類を追加し、組み立てをOrderAssemblerへ集める | 新Decorator、ToppingCatalog、OrderAssembler | Coffeeと注文結果契約を守り、追加を新部品・登録・生成分岐へ限定できる。生成分岐自体は種類追加ごとに変わる |
+| リスクID2：トッピングの価格改定 | 価格の正本をToppingCatalogへ置き、Decoratorへ価格を埋め込まない | ToppingCatalogの登録値 | 各DecoratorとOrderAssemblerを守り、価格変更を登録値へ閉じられる。期間別価格や同時更新の整合規則は現在のメモリ表にない |
+| リスクID3：同じトッピングの複数回追加（ダブル、トリプル等） | 順序付きトッピング列を同じDecoratorの連結へ変換する | 注文入力の個数規則、OrderAssembler | 連結構造を再利用し同じIDを複数回包める。上限・割引など数量規則は入力検証へ追加する必要がある |
+| リスクID4：サイズや前段価格で変わる追加料 | 固定価格のpriceOf()では不足するため、価格計算の入力契約を見直す変更先を限定する | ToppingCatalog、ToppingWrapper、OrderAssembler | 基本ドリンク契約は守れるが、現在の引数なしgetPrice()では注文文脈を渡せず、価格ポリシー契約の追加が必要になる |
+| リスクID5：販売停止・在庫切れの判定元の変化 | 利用可否の正本をカタログ側に置き、組み立て前に検証する | ToppingCatalog、OrderAssembler | 各Decoratorを守り、判定元の接続をCatalog境界へ限定できる。リアルタイム在庫の競合制御は現在のメモリ表では扱えない |
+| リスクID6：表示名の順序ルール | 適用順と表示順が異なる場合は表示組み立ての責任を分ける | OrderAssemblerまたは新しい表示境界 | いまは包む順と表示順が同じ場合に耐えられる。両者が異なる規則へ変わると、Decorator連鎖から表示責任を分ける必要がある |
 
 リスクID4・リスクID6のように現在の構造だけでは吸収し切れないリスクも明記します。将来リスクを「対応済み」と見せず、変更先と残る設計課題を予測することが目的です。
 
@@ -1656,7 +1642,7 @@ classDiagram
 
     IDrink <|.. Coffee
     IDrink <|.. ToppingWrapper
-    ToppingWrapper o--> IDrink
+    ToppingWrapper *--> IDrink
     ToppingWrapper <|-- Milk
     ToppingWrapper <|-- Whip
     ToppingWrapper <|-- Matcha
@@ -1727,7 +1713,11 @@ sequenceDiagram
 ---
 
 #### 完成コード
-★お願いだから、コード分割して。コードブロックが長すぎる。他の章も同様です。
+
+完成コードは、貼り合わせた順で一つの`.cpp`になるよう、責任単位に分割して示します。まず共通ヘッダーとトッピングIDです。
+
+**共通ヘッダーとトッピングID**
+
 ```cpp
 #include <iostream>
 #include <string>
@@ -1745,6 +1735,11 @@ namespace ToppingId {
     const string Matcha = "Matcha";
     const string Choco  = "Choco";
 }
+```
+
+**基本ドリンクの登録データ（MenuItem / MenuDatabase）**
+
+```cpp
 
 struct MenuItem {
     string name;      // 商品名
@@ -1758,8 +1753,6 @@ public:
     MenuDatabase() {
         items["DRINK001"] = {"ホットコーヒー", 400};
         items["DRINK002"] = {"アイスコーヒー", 450};
-        items["FOOD001"]  = {"サンドイッチ",   600};
-        items["FOOD002"]  = {"スコーン",        300};
     }
 
     bool exists(const string& id) const {
@@ -1774,6 +1767,11 @@ public:
         items[id] = item;             // 実行中のメニュー表へ追加
     }
 };
+```
+
+**トッピングの登録データ（ToppingSpec / ToppingCatalog）**
+
+```cpp
 
 // トッピングの表示名・追加料金・販売可否を保持する保存データ（境界）
 struct ToppingSpec {
@@ -1802,6 +1800,11 @@ public:
     int priceOf(const string& id) const { return specs.at(id).price; }
     string labelOf(const string& id) const { return specs.at(id).label; }
 };
+```
+
+**注文ログ（OrderRecord / OrderLog）**
+
+```cpp
 
 struct OrderRecord {
     string itemId;
@@ -1825,6 +1828,11 @@ public:
     }
     int size() const { return (int)records.size(); }
 };
+```
+
+**ドリンクの共通契約（IDrink）**
+
+```cpp
 
 // ドリンクとしてのビジネス上の責任（契約）を示すインターフェース
 class IDrink {
@@ -2064,13 +2072,16 @@ public:
         cout << "\n--- 注文ログ ---\n";
         log.printAll();
     }
-★以下のテスト関数は何？使っているのか。
-    void testOrderCalculation() {
+    void runRegressionTests() {
         OrderResult r1 = assembler.assemble({"DRINK001", {}});
-        assert(r1.totalPrice == 400);
+        assert(r1.ok && r1.totalPrice == 400);
         OrderResult r6 = assembler.assemble(
             {"DRINK001", {"Milk", "Syrup", "Whip"}});
-        assert(r6.totalPrice == 550);
+        assert(r6.ok && r6.totalPrice == 550);
+        OrderResult invalid = assembler.assemble(
+            {"DRINK001", {"SeasonalMint"}});
+        assert(!invalid.ok);
+        cout << "回帰テスト: PASS" << endl;
     }
 };
 
@@ -2078,7 +2089,7 @@ public:
 int main() {
     OrderApplication app;
     app.run();
-    // app.testOrderCalculation();
+    app.runRegressionTests();
     return 0;
 }
 ```
@@ -2112,9 +2123,10 @@ int main() {
 [DRINK001] ホットコーヒー + Milk + Syrup + Whip + Matcha 610円
 [DRINK001] ホットコーヒー + Choco 440円
 [DRINK001] ホットコーヒー + Milk + Matcha + Choco 550円
+回帰テスト: PASS
 ```
 
-各注文は `OrderRequest`（基本ドリンクIDと、選択順のトッピングID列）として渡し、`OrderAssembler` がメニューとトッピングの販売可否を確認してから、選択順にドリンクを包みます。5行目の「ホットコーヒー + Syrup + Whip」は、フェーズ1ではフラグの判定順によって「ホットコーヒー + Whip + Syrup」と表示されていたケースです。変更後は注文で指定した Syrup → Whip の順が表示名に反映され、価格500円は変わりません。価格と表示名は各トッピングクラスが持たず、`ToppingCatalog`（保存データ）から読みます。`DRINK999` は未登録メニュー、`SeasonalMint` は `ToppingCatalog` で販売停止としているため、どちらも注文結果を作らずエラー理由だけを返しています。
+各注文は `OrderRequest`（基本ドリンクIDと、選択順のトッピングID列）として渡し、`OrderAssembler` がメニューとトッピングの販売可否を確認してから、選択順にドリンクを包みます。5行目の「ホットコーヒー + Syrup + Whip」は、フェーズ1ではフラグの判定順によって「ホットコーヒー + Whip + Syrup」と表示されていたケースです。変更後は注文で指定した Syrup → Whip の順が表示名に反映され、価格500円は変わりません。価格と表示名は各トッピングクラスが持たず、`ToppingCatalog`（保存データ）から読みます。`DRINK999` は未登録メニュー、`SeasonalMint` は `ToppingCatalog` で販売停止としているため、どちらも注文結果を作らずエラー理由だけを返しています。最後の`回帰テスト: PASS`は、基本価格、3種合計、販売停止拒否の`assert`を`main()`から実際に実行し、すべて通過した証拠です。
 
 ---
 
@@ -2206,7 +2218,7 @@ graph LR
 | 🟣 フェーズ3：問題特定 | 抹茶パウダーの追加を試み、影響がモバイルアプリ側にまで波及することを確認した |
 | 🟠 フェーズ4：原因分析 | 変わる理由が異なる知識が同じ場所にいることが痛みの根本と特定した |
 | 🟡 フェーズ5：課題定義 | getPrice()/getDescription() を共通の接続点とし、販売可否は組み立て前の境界で確認する課題を定めた |
-| 🔴 フェーズ6：対策検討 | 現在の固定価格要件は一覧構造でも満たせることを確認したうえで、内側価格に依存する追加料を見据えた長期判断として装飾連結構造を採用し、採用クラス図を課題ID別の①〜⑥でコードへ反映した |
+| 🔴 フェーズ6：対策検討 | 現在の固定価格要件は一覧構造でも満たせることを確認したうえで、内側価格に依存する追加料を見据えた長期判断として装飾連結構造を採用し、採用クラス図を課題ID別の【1】〜【6】でコードへ反映した |
 | 🟢 フェーズ7：対策実施 | 最終コードを実装し、販売停止ケースと変更影響グラフで変更の局所化を確認した |
 
 ### 責任の移動
@@ -2244,7 +2256,7 @@ graph LR
 | 1. 変動箇所の識別 | フェーズ2の業務機能の所在表と変わる理由の分析で、変わる理由の異なる知識の混在を発見した |
 | 2. 接続点の診断 | フェーズ4で、トッピングの種類・価格・販売可否・表示順が基本ドリンク側へ漏れていることを確認した |
 | 3. 変更局所化の説明 | フェーズ7の変更シナリオ表で、変更の中心が新しい実装クラス、販売可否境界、組み立てコードへ移る構造を示した |
-| 4. 同じインターフェースで重ねる視点 | 課題ID1節の①契約で、基本機能と追加機能を同じ `IDrink` で扱う構造を体験した |
+| 4. 同じインターフェースで重ねる視点 | 課題ID1節の【1】契約で、基本機能と追加機能を同じ `IDrink` で扱う構造を体験した |
 
 ### 第0章の3つの設計原則はどう適用されたか
 

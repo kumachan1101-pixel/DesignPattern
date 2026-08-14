@@ -137,6 +137,130 @@ broken = t.replace(
     "`CustomDrink` へ増える（変更ID1の試行から見込まれる痛み）。", 1)
 cases.append(("TRIAL-001 未試行の痛み", V.check_observed_problem_only, broken))
 
+# 17) STRUCTURE-001: 全章共通の簡略化節を欠落させる
+t = (OUT/"chapter02.md").read_text(encoding="utf-8")
+broken = t.replace("**この章での簡略化**", "**掲載上の省略**", 1)
+cases.append(("STRUCTURE-001 簡略化節", V.check_standard_simplification_section, broken))
+
+# 18) CORE-001: 核心から思考の型の判断軸を落とす
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace("判断軸", "目安", 1)
+cases.append(("CORE-001 核心の判断軸", V.check_core_thesis, broken))
+
+# 19) ORDER-001: 代表入力を結果の後へ戻す旧ラベル
+t = (OUT/"chapter03.md").read_text(encoding="utf-8")
+broken = t.replace("**代表入力（1-4の`main()`から抜粋）：**",
+                   "**この結果を生む入力（1-4の`main()`から抜粋）：**", 1)
+cases.append(("ORDER-001 代表入力の順", V.check_phase1_system_overview, broken))
+
+# 20) RISK-001: 6-4を非実装の断り中心の旧形式へ戻す
+t = (OUT/"chapter06.md").read_text(encoding="utf-8")
+broken = t.replace("守れる範囲・残る弱点", "今回の判断", 1)
+cases.append(("RISK-001 将来リスク評価", V.check_future_risk_traceability, broken))
+
+# 21) STEP-001: フェーズ6の番号だけを残して項目名を落とす
+t = (OUT/"chapter06.md").read_text(encoding="utf-8")
+broken = t.replace("**① 契約：共通契約 `IDrink` を定義する。**",
+                   "**① 。**", 1)
+cases.append(("STEP-001 番号付き項目名", V.check_phase6_numbered_step_titles, broken))
+
+# 22) BLOCK-001: 7-1へ複数責任を詰めた長大ブロックを戻す
+t = (OUT/"chapter03.md").read_text(encoding="utf-8")
+long_block = "```cpp\nclass TooLongA {};\nclass TooLongB {};\n" + \
+             "\n".join("// filler" for _ in range(121)) + "\n```\n"
+broken = t.replace("### 7-2：", long_block + "\n### 7-2：", 1)
+cases.append(("BLOCK-001 長大完成コード", V.check_long_final_cpp_blocks, broken))
+
+# 23) TEST-001: 掲載した回帰テストを実行経路から外す
+t = (OUT/"chapter06.md").read_text(encoding="utf-8")
+broken = t.replace("    app.runRegressionTests();\n", "", 1)
+cases.append(("TEST-001 未実行テスト", V.check_executed_test_helpers, broken))
+
+# 24) DIAGRAM-001: 第0章の実現記法を欠落させる
+t = (OUT/"chapter00_2.md").read_text(encoding="utf-8")
+broken = t.replace("`Contract <|.. Concrete`", "`Contract ..|> Concrete`", 1)
+cases.append((
+    "DIAGRAM-001 クラス図記法",
+    lambda txt, _: V.check_class_diagram_glossary(txt, OUT/"chapter00_2.md"),
+    broken,
+))
+
+# 25) SCOPE-001: 1-4責任表へ簡略化列を重複させる
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace("| 対象 | 主な責任 | 接続先・結果 |",
+                   "| 対象 | 主な責任 | 掲載上の表現 |", 1)
+cases.append(("SCOPE-001 責任表の目的", V.check_responsibility_table_scope, broken))
+
+# 26) CHANGE-DIAGRAM-001: 変更後図から差分色を外す
+t = (OUT/"chapter07.md").read_text(encoding="utf-8")
+broken = t.replace("    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:2px,color:#111827;\n", "", 1)
+cases.append(("CHANGE-DIAGRAM-001 変更図の差分色", V.check_change_diagram_highlight, broken))
+
+# 27) SKELETON-001: フェーズ6の安定骨格を「なし」へ戻す
+t = (OUT/"chapter06.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "②内側へ委譲して結果を合成する安定骨格",
+    "②骨格は無し", 1)
+cases.append(("SKELETON-001 安定骨格の省略", V.check_stable_skeleton_explanation, broken))
+
+# 28) REQUIREMENT-ROOT-001: 変更ID一覧にない要求IDへ変更根拠を付ける
+t = (OUT/"chapter07.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "| 要求ID5 | 継続<br/>根拠: — |",
+    "| 要求ID5 | 変更<br/>根拠: 変更ID1 |", 1)
+cases.append(("REQUIREMENT-ROOT-001 要求と変更IDの対応", V.check_requirement_baseline_contract, broken))
+
+# 29) NUMBER-001: フェーズ7の完成コード番号をフェーズ6の丸数字へ戻す
+t = (OUT/"chapter07.md").read_text(encoding="utf-8")
+broken = t.replace("**【1】 商品マスタ", "**① 商品マスタ", 1)
+cases.append(("NUMBER-001 番号名前空間", V.check_number_namespace, broken))
+
+# 30) REWRITE-001: 番号置換の副作用でC++三項演算子を壊す
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace('? "あり" : "なし"', '?6? "あり" : "なし"', 1)
+cases.append(("REWRITE-001 三項演算子の破損", V.check_number_namespace, broken))
+
+# 31) PHASE22-001: 2-2から1-5の変更IDを一つ落とす
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "- **変更ID2：既存キャンペーンと重なる場合は逐次割引する**\n", "", 1)
+cases.append(("PHASE22-001 変更ID一覧の横並び", V.check_phase22_change_list, broken))
+
+# 32) REPRESENTATIVE-INPUT-001: 入力生成をコメントだけへ戻す
+t = (OUT/"chapter08.md").read_text(encoding="utf-8")
+broken = t.replace("PaymentRequest r1;", "// PaymentRequest r1 = { ... };", 1)
+cases.append((
+    "REPRESENTATIVE-INPUT-001 代表入力の生成",
+    V.check_representative_input_preparation, broken,
+))
+
+# 33) INPUT-TRACE-001: 入力追跡表をコード読解前へ戻す
+t = (OUT/"chapter07.md").read_text(encoding="utf-8")
+trace_heading = "#### 仕様入力が現状コードで使われるまで\n"
+broken = t.replace(trace_heading, "", 1)
+broken = broken.replace(
+    "### 1-4：実装コード（現状）\n",
+    "### 1-4：実装コード（現状）\n\n" + trace_heading,
+    1,
+)
+cases.append((
+    "INPUT-TRACE-001 入力追跡表の配置",
+    V.check_phase14_input_trace_position, broken,
+))
+
+# 34) TIMEOUT-001: 簡略化節からTIMEOUTの初回失敗契約を落とす
+t = (OUT/"chapter08.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "| カード認証 | トークンが `TIMEOUT` で始まり、同じ注文IDでの初回試行 | 通信タイムアウト・再試行可能 |\n",
+    "", 1,
+)
+cases.append((
+    "TIMEOUT-001 スタブ契約の同期",
+    lambda txt, _: V.check_payment_timeout_contract(
+        txt, OUT/"chapter08.md"),
+    broken,
+))
+
 print("再発防止チェックの負のテスト（わざと壊した本文を検出できるか）\n")
 # 5) 2026-08-13: validator とテンプレートの表頭同期漏れ
 #    本文だけ直してテンプレート／validator を放置すると全12章が同じ検査で落ちる
@@ -146,10 +270,10 @@ try:
     _tmpl.write_text(
         _orig.replace(V.REQUIRED_TABLE_HEADERS[0],
                       "| 原因として確定した事実 | そのままだと残る痛み | 課題候補 | 候補を導いた理由 |"),
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
     _found = V.check_validator_template_sync("", OUT / V.CORE_CHAPTERS[0])
 finally:
-    _tmpl.write_text(_orig, encoding="utf-8")
+    _tmpl.write_text(_orig, encoding="utf-8", newline="\n")
 cases.append(("SYNC-001 テンプレート同期", lambda *_: _found, ""))
 
 ng = 0

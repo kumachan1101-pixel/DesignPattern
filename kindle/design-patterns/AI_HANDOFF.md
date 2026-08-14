@@ -6,7 +6,7 @@
 
 ## 現在の引き継ぎ状態
 
-最初に`NEXT_AI_HANDOFF.md`、`author-feedback-20260813.md`、`AUTHOR_FEEDBACK_MASTER.md`を全文読む。本文の整合タスクCONS-001〜066と著者指摘AF-20260813-001〜087は完了済みだが、最新コミット`a80dc09`で追加された編集用`★`10件がAF-20260813-088〜097として未対応登録されている。現在の最優先はこの10件であり、本文には追跡元として`★`を残してある。完了済みのCONS-064〜066を再実行しない。`TASK.md`、`RESTRUCTURE_PLAN.md`、`CONS-065_AI_INSTRUCTIONS.md`、`CONS-066_AI_INSTRUCTIONS.md`は完了履歴であり、現在の作業指示ではない。
+最初に`NEXT_AI_HANDOFF.md`、`author-feedback-20260813.md`、`AUTHOR_FEEDBACK_MASTER.md`を全文読む。本文の整合タスクCONS-001〜066と著者指摘AF-20260813-001〜141は完了済みで、本文の`★`は0件、2026-08-14の統合ゲートはKDP package readyまでPASSしている。第7章は非同期SMSの受付IDを即時に記録し、後日のコールバックで最終配信完了・失敗へ更新する境界まで実装済みで、今回のUI操作変更はなしとヒアリングで確定した。第8章の`ERROR`／`TIMEOUT`契約は表・コード・実行結果で同期し、全12章の入力追跡表は1-4の現状コード・実行結果の後へ統一済み。完了済みタスクを再実行せず、新しい指摘が来た場合だけ先にAF番号へ登録してから修正する。`TASK.md`、`RESTRUCTURE_PLAN.md`、`CONS-065_AI_INSTRUCTIONS.md`、`CONS-066_AI_INSTRUCTIONS.md`は完了履歴であり、現在の作業指示ではない。
 
 ## 絶対に守る優先順位
 
