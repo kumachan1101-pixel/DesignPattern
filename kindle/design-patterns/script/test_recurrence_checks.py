@@ -134,7 +134,7 @@ cases.append(("INPUT-001 行ラベルの組み立て", V.check_scenario_label_li
 # 16) TRIAL-001: 未試行の変更の痛みを問題ID表へ戻す
 t = (OUT/"chapter06.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "| 問題ID3 | 表示順を足すため選択順の変数を並べ、",
+    "| 問題ID3 | 種類を`string`で受けるため、",
     "| 問題ID3 | 販売停止・表示順を足すと、価格計算以外の条件も "
     "`CustomDrink` へ増える（変更ID1の試行から見込まれる痛み）。", 1)
 cases.append(("TRIAL-001 未試行の痛み", V.check_observed_problem_only, broken))
