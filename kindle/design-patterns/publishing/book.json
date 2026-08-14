@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "metadata": {
+    "title": "設計思考を鍛える本（デザインパターンはおまけ）",
+    "author": "",
+    "language": "ja"
+  },
+  "paths": {
+    "dist": "publishing/dist",
+    "slides": "publishing/slides",
+    "cover": "cover/cover-separation-recombination-v1.png"
+  },
+  "chapters": [
+    "output/chapter00_1.md",
+    "output/chapter00_2.md",
+    "output/chapter01.md",
+    "output/chapter02.md",
+    "output/chapter03.md",
+    "output/chapter04.md",
+    "output/chapter05.md",
+    "output/chapter06.md",
+    "output/chapter07.md",
+    "output/chapter08.md",
+    "output/chapter09_1.md",
+    "output/chapter09_2.md",
+    "output/chapter10.md",
+    "output/chapter11.md",
+    "output/chapter12.md",
+    "output/epilogue.md"
+  ],
+  "slidePageOrder": [
+    "chapter00_1",
+    "chapter00_2",
+    "chapter01",
+    "chapter02",
+    "chapter03",
+    "chapter04",
+    "chapter05",
+    "chapter06",
+    "chapter07",
+    "chapter08",
+    "chapter09_1",
+    "chapter09_2",
+    "chapter10",
+    "chapter11",
+    "chapter12",
+    "epilogue"
+  ],
+  "rendering": {
+    "codeImageWidth": 2000,
+    "maxImageHeight": 1600,
+    "firstCodeLines": 19,
+    "continuedCodeLines": 22,
+    "orphanThreshold": 4,
+    "mermaidScale": 3,
+    "slideDpi": 150
+  },
+  "formats": [
+    "epub",
+    "mobi",
+    "pdf"
+  ]
+}

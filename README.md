@@ -78,6 +78,17 @@ claude "agents/chapter-agent.md の手順に従って、
 patterns/strategy.yaml を使って第1章を生成してください"
 ```
 
+### EPUB・Kindle出版データを作る
+
+コードとMermaidを画像化し、各章の概要スライドを先頭へ挿入してから、全章をEPUBへ結合します。必要なツール、スライドPDFの分割方法、部分再生成方法は [`kindle/design-patterns/publishing/README.md`](kindle/design-patterns/publishing/README.md) を参照してください。
+
+```bash
+cd kindle/design-patterns
+python script/build_epub.py doctor
+python script/build_epub.py inventory
+python script/build_epub.py all --clean
+```
+
 ### 新しいKindle本を作る
 
 1. `kindle/book-template/` をコピーして新しいフォルダを作る（例：`kindle/my-new-book/`）
