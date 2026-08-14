@@ -971,6 +971,10 @@ public:
         }
     }
     // 一時保留する（Reserved のときだけ24時間の保留枠へ）
+```
+続いて `hold()` です。
+
+```cpp
     void hold() {
         if (status == "Reserved") {
             status = "Held";

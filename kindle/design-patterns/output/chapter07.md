@@ -1941,6 +1941,10 @@ struct DeliveryResult {
 };
 
 // 通知手段ごとに表現を変えるための、共通の在庫警告データ
+```
+続いて `StockAlert` です。
+
+```cpp
 struct StockAlert {
     string productId;
     string productName;
@@ -2029,6 +2033,10 @@ public:
 };
 
 // SMS基盤から後日届くコールバックの入口。在庫更新から独立させる
+```
+続いて `SMSDeliveryCallback` です。
+
+```cpp
 class SMSDeliveryCallback {
     DeliveryStatusLog& statusLog;
 public:
@@ -2187,7 +2195,10 @@ public:
             notifyAll({productId, info.name, info.stock, info.alertThreshold});
         }
     }
+```
+続いて `replenishStock()` です。
 
+```cpp
     void replenishStock(string productId, int quantity) {
         if (!db.exists(productId)) {
             cout << "[エラー] 商品ID " << productId

@@ -1799,7 +1799,10 @@ struct LedgerEntry {
     std::string categoryName;
     int amount;
 };
+```
+続いて `LedgerRepository` です。
 
+```cpp
 class LedgerRepository {
     std::vector<LedgerEntry> entries;
     int currentBalance = 0;

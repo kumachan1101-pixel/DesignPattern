@@ -972,7 +972,7 @@ if (memberType == "Premium") {
 - これは1-4[試行3]の `calculate` にある割引部分です。Premiumを先に見て、次にRegular＋キャンペーンを見ます。
 - ここに「Regular会員へサマーセール5%引きを追加」を入れたい、というのが今回の変更です。
 
-このコードにサマーセールの条件を追加すると、以下のようになります。
+同じ `PaymentCalculator::calculate()` の割引判定部分へサマーセールの条件を追加すると、以下のようになります。
 
 ```cpp
 // サマーセール対応：Regular会員向けに条件を追加
@@ -1163,7 +1163,7 @@ graph LR
 
 **【変わってほしくない部分（守りたい骨格）】**
 
-1-3の `calculate` メソッドのうち、「商品を順に足して合計を出し、最終金額を返す」という骨格部分は変えたくありません。次のコードのうち、割引判定を挟む前後の小計計算と `return` が守りたい骨格です。
+1-3の `PaymentCalculator::calculate(const Order&, const std::string&, const CampaignContext&)` のうち、「商品を順に足して合計を出し、最終金額を返す」という骨格部分は変えたくありません。次のコードのうち、割引判定を挟む前後の小計計算と `return` が守りたい骨格です。
 
 ```cpp
         int total = 0;
@@ -1670,7 +1670,10 @@ public:
     std::string name() const override { return "サマーセール割引"; }
     int priority() const override { return 2; }
 };
+```
+続いて `CampaignDiscount` です。
 
+```cpp
 class CampaignDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
@@ -2038,6 +2041,8 @@ sequenceDiagram
 
 #### 完成コード
 
+まずファイル冒頭です。共通ヘッダーと、会員種別・キャンペーンコードを名前で扱う `MemberType`／`CampaignCode`、値クラス `Item`、施策状態を持つ `CampaignContext` を置きます。ここはどのクラスにも属さない宣言で、以降のすべてのクラスが使います。
+
 ```cpp
 #include <iostream>
 #include <string>
@@ -2085,7 +2090,10 @@ public:
     std::string customerId;
     std::vector<Item> items;
 };
+```
+続いて `CustomerInfo` です。
 
+```cpp
 struct CustomerInfo {
     std::string name;
     std::string memberType;
@@ -2112,7 +2120,10 @@ struct PaymentResult {
     int finalPrice;
     std::string appliedRule;
 };
+```
+続いて `IDiscountRule` です。
 
+```cpp
 class IDiscountRule {
 public:
     virtual bool matches(const std::string& memberType,
@@ -2175,7 +2186,10 @@ public:
     }
     int priority() const override { return 3; }   // 2条件が重なる最も具体的なルール
 };
+```
+続いて `SummerSaleDiscount` です。
 
+```cpp
 class SummerSaleDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
@@ -2429,7 +2443,7 @@ int main() {
   カートプレビュー: 8000円
 ```
 
-シナリオ2は、同じPremium会員にキャンペーンとサマーセールを当てても、Premium優先で20%引きのままです。
+`main()` はこのまま続きます。シナリオ2は、同じPremium会員にキャンペーンとサマーセールを当てても、Premium優先で20%引きのままです。
 
 ```cpp
     // C001（Premium）/ キャンペーンあり / サマーセール中 → Premium優先
@@ -2456,7 +2470,7 @@ int main() {
   カートプレビュー: 8000円
 ```
 
-シナリオ3は、Regular会員へサマーセールとキャンペーンを逐次適用です。
+同じ `main()` の中で、シナリオ3はRegular会員へサマーセールとキャンペーンを逐次適用です。
 
 ```cpp
     // C002（Regular）/ キャンペーンあり / サマーセール中 → 逐次割引
@@ -2483,7 +2497,7 @@ int main() {
   カートプレビュー: 8550円
 ```
 
-シナリオ4は、Regular会員へサマーセール単独（5%引き）です。
+同じ `main()` の中で、シナリオ4はRegular会員へサマーセール単独（5%引き）です。
 
 ```cpp
     // C002（Regular）/ サマーセールのみ → 5%引き
@@ -2509,7 +2523,7 @@ int main() {
   カートプレビュー: 9500円
 ```
 
-シナリオ4bは、Regular会員へキャンペーン単独（10%引き）です。1-2動作例の行3にあたり、サマーセール追加後も変わらないことを確認する継続要求（要求ID3）の回帰です。
+同じ `main()` の中で、シナリオ4bはRegular会員へキャンペーン単独（10%引き）です。1-2動作例の行3にあたり、サマーセール追加後も変わらないことを確認する継続要求（要求ID3）の回帰です。
 
 ```cpp
     // C002（Regular）/ キャンペーンのみ → 10%引き（変更前と同じ）
@@ -2537,7 +2551,7 @@ int main() {
 
 サマーセールを追加しても、キャンペーン単独の支払金額は変更前と同じ9,000円のままです。要求ID3の回帰はこの1件で確認できます。
 
-シナリオ5は、Regular会員で割引なしです。
+同じ `main()` の中で、シナリオ5はRegular会員で割引なしです。
 
 ```cpp
     // C003（Regular）/ 割引なし
@@ -2562,7 +2576,7 @@ int main() {
   カートプレビュー: 3000円
 ```
 
-シナリオ6は、未登録顧客のエラーです。
+同じ `main()` の中で、シナリオ6は未登録顧客のエラーです。
 
 ```cpp
     // エラー条件も、正常系と同じ最終コードで確認する
@@ -2580,7 +2594,7 @@ int main() {
 エラー: 顧客ID UNKNOWN は登録されていません
 ```
 
-シナリオ7は、空注文のエラーです。
+同じ `main()` の中で、シナリオ7は空注文のエラーです。
 
 ```cpp
     std::cout << "\n--- シナリオ7: 空注文 ---\n";

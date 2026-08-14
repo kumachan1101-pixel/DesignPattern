@@ -854,7 +854,10 @@ public:
         return desc;
     }
 };
+```
+続いて `main` です。
 
+```cpp
 int main() {
     ToppingSale sale{true, true, true, true, true};
 
@@ -1475,6 +1478,10 @@ public:
     Syrup(IDrink* base, const ToppingCatalog* cat)
         : ToppingWrapper(base, cat, "Syrup") {}
 };
+```
+続いて `Whip` です。
+
+```cpp
 class Whip : public ToppingWrapper {
 public:
     Whip(IDrink* base, const ToppingCatalog* cat)

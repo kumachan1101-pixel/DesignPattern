@@ -2332,7 +2332,10 @@ struct ConvenienceInput {
     string email;
     string storeCode;
 };
+```
+続いて `PayPayInput` です。
 
+```cpp
 struct PayPayInput {
     string accessToken;
 };
@@ -2353,7 +2356,10 @@ struct PaymentRequest {
     ConvenienceInput convenience;
     PayPayInput payPay;
 };
+```
+続いて `PaymentResult` です。
 
+```cpp
 struct PaymentResult {
     string status;
     string message;
@@ -2442,7 +2448,10 @@ public:
 
 // 事前保持：注文（orderId → 顧客ID・請求金額）
 struct OrderRecord { string customerId; int amount; };
+```
+続いて `OrderBook` です。
 
+```cpp
 class OrderBook {
     map<string, OrderRecord> records;
 public:
@@ -2580,7 +2589,10 @@ public:
                 false, "", p};
     }
 };
+```
+続いて `PaymentStatusClient` です。
 
+```cpp
 class PaymentStatusClient {
 public:
     PaymentResult checkStatus(
@@ -2682,7 +2694,10 @@ public:
             req.bankTransfer);
     }
 };
+```
+続いて `ConvenienceStoreProcessor` です。
 
+```cpp
 class ConvenienceStoreProcessor
     : public IPaymentProcessor {
     PaymentGatewayClient& gateway;

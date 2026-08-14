@@ -1811,6 +1811,10 @@ struct ValidationResult {
     int skipped;
     vector<string> reasons;
 };
+```
+続いて `ImportResult` です。
+
+```cpp
 struct ImportResult {
     string schemaType;
     string schemaName;
@@ -2028,6 +2032,10 @@ protected:
 };
 
 // ---- EC店（カンマ区切り・会員ランク/ポイント・後処理あり）----
+```
+続いて `ECDataImporter` です。
+
+```cpp
 class ECDataImporter : public AbstractImporter {
     long pointBonus = 0;
 public:
@@ -2064,7 +2072,6 @@ protected:
              << "件・合計" << pointBonus << "pt）。\n";
     }
 };
-
 ```
 
 > **EC向け計算処理を任意フックにした理由：** 1-5節の仕様表では、EC向け計算は「パース完了後、行検証を終え、DB保存する前」に行う独立したステップです。そこで骨格にも `afterParse()` という位置を用意し、既定実装は何もしない形にしました。直営店・FC店はそのまま通過し、EC店だけが計算処理を追加します。仕様上の順序とコード上の順序が一致するため、後から別形式にも同様の後処理が必要になったとき、置き場所を判断しやすくなります。
@@ -2122,6 +2129,10 @@ public:
         StoreV2Importer v2(gateway, repo);
         printResult(v2.import());
     }
+```
+`printResult()` から先が公開操作です。
+
+```cpp
 private:
     void printResult(const ImportResult& r) {
         if (!registry.exists(r.schemaType)) return;

@@ -2041,6 +2041,10 @@ public:
 };
 
 // 認証サブシステム：発行時に正しいコードを仮決めし、検証で照合する
+```
+続いて `SecurityAuthenticator` です。
+
+```cpp
 class SecurityAuthenticator {
 private:
     int seq = 9000;

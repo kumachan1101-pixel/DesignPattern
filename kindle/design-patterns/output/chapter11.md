@@ -921,7 +921,10 @@ public:
             acceptedRequests.back().outputPath.c_str()) == 0;
     }
 };
+```
+続いて `ChangedReportApplication` です。
 
+```cpp
 class ChangedReportApplication {
     ChangedReportGenerator generator;
     DebugLog debugLog;
@@ -2205,7 +2208,15 @@ struct ReportRequest {
     vector<DecorationType> decorations;
     string outputPath;
 };
+```
 
+- `OutputFormat`と`DecorationType`は、要求に含まれる形式と順序付き装飾を名前付きの値として表します。`formatName()`は表示用の名前だけを返し、判断を持ちません。
+- `SalesSummary`と`ReportDocument`は、読込結果と一つの成果物を処理間で渡します。
+- `ReportRequest`は、変更ID3で再実行する完全な要求です。テンプレートID、形式、装飾列、出力先を値として保持します。
+
+続いて、処理の成否とテンプレート設定を運ぶ値です（`OperationResult` と `ReportTemplate`）。
+
+```cpp
 struct OperationResult {
     bool success;
     string message;
@@ -2217,9 +2228,6 @@ struct ReportTemplate {
 };
 ```
 
-- `OutputFormat`と`DecorationType`は、要求に含まれる形式と順序付き装飾を名前付きの値として表します。
-- `ReportRequest`は、変更ID3で再実行する完全な要求です。テンプレートID、形式、装飾列、出力先を値として保持します。
-- `SalesSummary`と`ReportDocument`は、読込結果と一つの成果物を処理間で渡します。
 - `OperationResult`は、実行側と履歴側が成否を受け渡す内部契約です。変更ID1〜変更ID3へ新しい業務機能を追加するものではありません。
 - `ReportTemplate`は1-4と同じ名称・対応形式を保持します。
 

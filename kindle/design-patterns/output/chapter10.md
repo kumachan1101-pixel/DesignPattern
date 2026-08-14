@@ -1063,6 +1063,10 @@ public:
         std::cout << "[完了通知] " << msg << std::endl;
     }
 };
+```
+続いて `SlackNotifier` です。
+
+```cpp
 class SlackNotifier {
 public:
     void notify(std::string msg) {
@@ -2212,6 +2216,10 @@ public:
 };
 
 // Slack通知の具体的な実装（受け取った通知を蓄積する）
+```
+続いて `SlackNotifier` です。
+
+```cpp
 class SlackNotifier : public INotifier {
     vector<string> inbox;
 public:
@@ -2287,7 +2295,10 @@ public:
         return {"成功", true, "B社: 連携完了"};
     }
 };
+```
+続いて `SystemCClient` です。
 
+```cpp
 class SystemCClient : public IExternalClient {
 public:
     DeliveryResult send(string data, bool apiHealthy) {
@@ -2325,7 +2336,10 @@ public:
         return new SystemBClient();
     }
 };
+```
+続いて `SystemCClientCreator` です。
 
+```cpp
 class SystemCClientCreator : public IClientCreator {
 public:
     IExternalClient* createClient() override {

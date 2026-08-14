@@ -1005,6 +1005,10 @@ public:
 };
 
 // チケット管理（「保留中」状態を追加）
+```
+続いて `TicketManager` です。
+
+```cpp
 class TicketManager {
     TicketRepository repo;
     UserDatabase db;
@@ -1534,6 +1538,10 @@ public:
 };
 
 // チケット管理（「保留中」状態を追加）
+```
+続いて `TicketManager` です。
+
+```cpp
 class TicketManager {
     TicketRepository repo;
     UserDatabase db;
@@ -2116,6 +2124,10 @@ class PremiumPriority : public IPriorityRule {   // プレミアム向け
 public:
     Priority getPriority() override { return Priority::High; }
 };
+```
+続いて `NormalPriority` です。
+
+```cpp
 class NormalPriority : public IPriorityRule {    // 一般向け
 public:
     Priority getPriority() override { return Priority::Normal; }
@@ -2194,7 +2206,10 @@ public:
     ITicketPhase* resolve() override  { return resolved; }
     ITicketPhase* sendBack() override { return inProgress; }
 };
+```
+続いて `ResolvedPhase` です。
 
+```cpp
 class ResolvedPhase : public ITicketPhase {      // 解決済み
     ITicketPhase* open = nullptr;
 public:
@@ -2370,6 +2385,10 @@ public:
              << " 優先度=" << toString(p) << endl;
         log.add(ticketId, EventType::Create, t.phase->name(), p);
     }
+```
+続いて `assign()` です。
+
+```cpp
     void assign(const string& ticketId, const string& assigneeId) {
         if (!repo.exists(ticketId)) {          // 仕様のエラー条件
             cout << "エラー: チケットID " << ticketId
@@ -2414,6 +2433,10 @@ public:
         log.add(ticketId, EventType::Escalate, t.phase->name(),
                 t.priority);
     }
+```
+続いて `sendBack()` です。
+
+```cpp
     void sendBack(const string& ticketId) {
         if (!repo.exists(ticketId)) {          // 仕様のエラー条件
             cout << "エラー: チケットID " << ticketId
@@ -2993,6 +3016,10 @@ public:
     virtual ~ISimpleState() = default;
     virtual void handle() = 0;
 };
+```
+続いて `OpenState` です。
+
+```cpp
 class OpenState : public ISimpleState {  // ← 状態クラスが2つだけ
 public:
     void handle() override { cout << "Open" << endl; }

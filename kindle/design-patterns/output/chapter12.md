@@ -1030,6 +1030,10 @@ public:
         }
         if (notifyPayment) cout << "決済部門へ通知" << endl;
     }
+```
+`notify()` から先が公開操作です。
+
+```cpp
 private:
     void notify(const string& requestId) {
         cout << targets.getTarget(requestId) << "へ通知" << endl;
@@ -1039,7 +1043,6 @@ private:
         return true;                              // 送信可否の判断もここへ入る
     }
 };
-
 ```
 
 実行対象コード：3-1の変更試行コード
@@ -2127,7 +2130,10 @@ struct DeliveryResult {
     string recipientName;
     string message;
 };
+```
+続いて `WorkflowResult` です。
 
+```cpp
 struct WorkflowResult {
     bool stateChanged;
     string stateId;
@@ -2159,6 +2165,10 @@ struct ApprovalRequest {
 };
 
 // 状態遷移の契約（変わる理由：承認フロー変更・新ルート追加）
+```
+続いて `IWorkflowPhase` です。
+
+```cpp
 class IWorkflowPhase {
 public:
     virtual string id() const = 0;
@@ -2436,7 +2446,10 @@ public:
         }
         return phase->handle(this, event, request);
     }
+```
+続いて `transitionTo()` です。
 
+```cpp
     WorkflowResult transitionTo(
         IWorkflowPhase* next,
         const string& message
@@ -2554,7 +2567,10 @@ public:
     using PendingPhase::PendingPhase;
     string id() const override { return "優先審査待ち"; }
 };
+```
+続いて `ApprovedPhase` です。
 
+```cpp
 class ApprovedPhase : public IWorkflowPhase {
     IApprovalRule* rule;
     IWorkflowPhase* completed;
@@ -3285,6 +3301,10 @@ public:
 // 変わらないルールのために構造だけが膨れ上がる
 
 // このケースは if 文で十分
+```
+続いて `SimpleApproval` です。
+
+```cpp
 class SimpleApproval {
 public:
     void approve() {
