@@ -25,3 +25,7 @@ kindle/design-patterns/script/.mermaid-tools/
 # Kindle publication build outputs (source slide PNGs remain tracked)
 kindle/design-patterns/publishing/dist/
 kindle/design-patterns/publishing/.work/
+
+# 掲載コードを実行したときに生まれるデモ成果物
+# （第11章の ReportRenderingApi がカレントディレクトリへ書き出す）
+kindle/design-patterns/**/*_demo.txt
