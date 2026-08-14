@@ -1742,7 +1742,10 @@ batch.execute(request, &creatorA);     // ⑤ 生成役を契約として渡す
 ```cpp
 IExternalClient* client = creator->createClient();  // ② 生成役へ委譲
 DeliveryResult r = client->send(data, apiHealthy);  // ② 契約だけ呼ぶ
-// …結果保存・通知…
+batchLog.add(partnerId, cfg.name, r.status);        // ② 結果を保存
+for (INotifier* n : notifiers) {                    // ② 登録先へ一律通知
+    n->onComplete(partnerId, r.status);
+}
 delete client;                                      // ② 使い捨て後に破棄
 ```
 

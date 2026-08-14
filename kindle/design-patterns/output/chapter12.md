@@ -3264,9 +3264,22 @@ classDiagram
 ```cpp
 // 2状態・固定ルール・通知先1件のフローに
 // 3つの仕組みを持ち込んだ過剰設計
-class IWorkflowPhase { /* ... */ };
-class IApprovalRule { /* ... */ };
-class INotificationListener { /* ... */ };
+class IWorkflowPhase {
+public:
+    virtual ~IWorkflowPhase() = default;
+    virtual void handle(WorkflowManager&, WorkflowEvent) = 0;
+};
+class IApprovalRule {
+public:
+    virtual ~IApprovalRule() = default;
+    virtual bool canApprove(int amount) const = 0;   // 常に true を返すだけ
+};
+class INotificationListener {
+public:
+    virtual ~INotificationListener() = default;
+    virtual void onStatusChanged(const std::string& id,
+                                 const std::string& s) = 0;
+};
 
 // インターフェースが3枚、実装クラスが6枚——
 // 変わらないルールのために構造だけが膨れ上がる

@@ -1347,8 +1347,10 @@ if (request.templateId == "SALES_MONTHLY_EXECUTIVE") {
 ```
 
 ```cpp
-// …（中略：同じ generate() の続き）…
-// ② ReportGenerator::generate() 内、装飾の判断（→課題ID2）
+// ReportGenerator::generate(const ReportRequest&, const string&) の続き
+// （本文の判断（①）の直後。全文は3-1「ReportGeneratorへ要求を直接
+//   追加したコード」に掲載）
+// ② 装飾の判断（→課題ID2）
 for (DecorationType type : request.decorations) {
     if (type == DecorationType::Graph) {
         renderer.addGraph(document);
@@ -1361,8 +1363,10 @@ for (DecorationType type : request.decorations) {
 ```
 
 ```cpp
-// …（中略：同じ generate() の続き）…
-// ③ ReportGenerator::generate() 内、履歴の判断（→課題ID3）
+// ReportGenerator::generate(const ReportRequest&, const string&) の続き
+// （装飾の判断（②）の直後。全文は3-1「ReportGeneratorへ要求を直接
+//   追加したコード」に掲載）
+// ③ 履歴の判断（→課題ID3）
 acceptedRequests.push_back(request);
 return execute(request, templateName);
 ```
