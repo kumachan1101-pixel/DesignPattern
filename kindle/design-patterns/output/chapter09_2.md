@@ -1650,16 +1650,47 @@ public:
 };
 ```
 
-**④ 生成・⑤ 注入。** 具体状態の生成・所有・配線は `TicketPolicySet`（借用参照で相互接続）が持ち、`Ticket` は現在状態への借用ポインタを保持します。生成の全体像は6-1・6-2で一望します。
-
-**②⑥ 状態委譲の安定骨格は、現在状態へ操作を委ねて返った遷移先を保存するだけ。** `TicketService::assign()` は保存済みチケットを読み、現在状態へ `assign()` を委譲し、返った遷移先を保存します。どの状態かは知りません（コード全体は6-2）。
+**④ 生成・所有。** 具体状態の生成・所有・配線は `TicketPolicySet` が持ちます（借用参照で相互接続）。`TicketService` も `Ticket` も具体状態を生成しません。
 
 ```cpp
-Ticket& t = repo.get(ticketId);          // 保存済みを読む
-ITicketPhase* next = t.phase->assign();  // ⑥ 現在状態へ委譲
-if (!next) return;                       // 不可なら何もしない
-t.phase = next; repo.save(t);            // 遷移後を保存
+TicketPolicySet policies;    // ④ 具体状態・具体ルールを生成・所有
 ```
+
+**⑤ 注入。** 組み立て済みの `TicketPolicySet` を `TicketService` へ渡します。`Ticket` は現在状態への借用ポインタ `ITicketPhase*` だけを保持します。
+
+```cpp
+TicketService svc(repo, users, policies, log);  // ⑤ 契約群を注入
+```
+
+**② 状態委譲の安定骨格。** `TicketService::assign()` は保存済みチケットを読み、現在状態へ委譲し、返った遷移先を保存するだけです。どの状態かは知りません。
+
+```cpp
+Ticket& t = repo.get(ticketId);          // ② 保存済みを読む
+ITicketPhase* next = t.phase->assign();  // ② 現在状態の契約を呼ぶ
+if (!next) return;                       // ② 不可なら何もしない
+t.phase = next; repo.save(t);            // ② 遷移後を保存
+```
+
+**⑥ 利用開始。** 担当者の操作を受けた入口が、公開操作 `TicketService::assign()` を呼びます。利用側が `ITicketPhase::assign()` や具体状態を直接呼ぶことはありません。
+
+```cpp
+svc.assign("TCK001", "AGT01");           // ⑥ 利用開始
+```
+
+#### 代表ケースの実行接続
+
+TCK001のアサイン1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
+
+| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
+|---|---|---|---|
+| 1. ④生成 | `main()` | `TicketPolicySet policies;` が具体状態・具体ルールを生成・所有 | ⑤へ |
+| 2. ⑤注入 | `main()` | `TicketService svc(repo, users, policies, log);` | ⑥へ |
+| 3. ⑥利用開始 | `main()` | `svc.assign("TCK001", "AGT01");` | `TicketService::assign()` |
+| 4. ②安定骨格 | `TicketService::assign(const string&, const string&)` | `t.phase->assign()` で現在状態へ委譲し、返った遷移先を保存 | `ITicketPhase::assign()` |
+| 5. ①契約 | `ITicketPhase::assign()` | 現在Phaseへ動的ディスパッチする | `OpenPhase::assign()` |
+| 6. ③具体 | `OpenPhase::assign()` | 許可操作なので `InProgressPhase*` を返す | 戻り値を②が保存 |
+
+④で生成した `policies` の中の `OpenPhase` と、⑤で渡した実体と、⑥の呼び出しから②が委譲する実体は同じものです。
 
 これで課題ID1の完了条件「状態追加が新しい状態クラスと遷移元の配線に閉じ、公開操作・保存を変えない」を満たします。課題ID2の優先度境界とは独立したまま、同じ実行経路へ接続します。
 
@@ -1703,13 +1734,29 @@ public:
 };
 ```
 
-**④ 生成・⑤ 注入。** 具体ルールの生成・所有と区分による選択は `TicketPolicySet::priorityRule()` の一箇所へ閉じ、`TicketService` は組み立て済みのPolicySetを注入されて使います（生成の全体像は6-1・6-2）。
+**④ 生成・所有。** 具体ルールの生成・所有と区分による選択は `TicketPolicySet` の一箇所へ閉じます。
 
-**②⑥ 規則選択・実行の安定骨格は、区分で選んだルールへ委譲するだけ。** 登録・エスカレーション時に区分でルールを選び、`getPriority()` の結果を保存します。どのルールかは知りません（コード全体は6-2）。
+```cpp
+TicketPolicySet policies;    // ④ NormalPriority・PremiumPriority などを所有
+```
+
+**⑤ 注入。** 組み立て済みの `TicketPolicySet` を `TicketService` へ渡します。`TicketService` はどの具体ルールがあるかを知りません。
+
+```cpp
+TicketService svc(repo, users, policies, log);  // ⑤ 契約群を注入
+```
+
+**② 規則選択の安定骨格。** 登録時と再受付時に、区分でルールを選んで `getPriority()` の結果を保存します。どのルールかは知りません。
 
 ```cpp
 UserType category = users.get(userId).userType;
-Priority p = policies.priorityRule(category).getPriority(); // ⑥ 委譲
+Priority p = policies.priorityRule(category).getPriority(); // ② 契約へ委譲
+```
+
+**⑥ 利用開始。** 判定を利用側が呼ぶことはありません。⑥は課題ID1と同じ `svc.create(...)` や `svc.reopen(...)` で、②から自動接続します。
+
+```cpp
+svc.create("TCK001", "USR003");   // ⑥ 利用開始（判定は②から自動接続）
 ```
 
 これで課題ID2の完了条件「区分追加が新しいルールクラスと選択登録に閉じ、状態処理を変えない」を満たします。

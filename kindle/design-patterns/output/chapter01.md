@@ -1702,7 +1702,7 @@ selector.add(none);               // 登録順は自由（priority()で選ばれ
 OrderProcessor processor(db, renderer, selector);  // 選択役を注入
 ```
 
-**②⑥ 選択・実行の安定骨格は、登録済みの候補へ問い合わせるだけ。** `OrderProcessor` は具体条件を知らず、`selector.select()` で全候補を評価し、一致した中の最優先ルールを受け取ります。
+**② 選択の安定骨格。** `RuleSelector::select()` は登録済みの候補を順に評価し、一致した中の最優先を返すだけです。施策が増えても、この反復と比較の形は変わりません。具体条件は契約 `matches()` の向こうにあります。
 
 ```cpp
 class RuleSelector {
@@ -1729,6 +1729,27 @@ public:
     }
 };
 ```
+
+**⑥ 利用開始。** 注文確定の入口 `OrderProcessor::process()` が、②の `select()` を呼びます。利用側が `matches()` や具体施策を直接呼ぶことはありません。
+
+```cpp
+processor.process(order, context);   // ⑥ 利用開始（main から）
+```
+
+#### 代表ケースの実行接続
+
+C002（Regular）へキャンペーンとサマーセールが重なる1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
+
+| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
+|---|---|---|---|
+| 1. ④生成 | `main()` | `SummerSaleAndCampaignDiscount summerAndCampaign;` ほか全施策をスタックに生成・所有 | ⑤へ |
+| 2. ⑤注入 | `main()` | `selector.add(summerAndCampaign);` で参照登録し、`OrderProcessor processor(db, renderer, selector);` で選択役を注入 | ⑥へ |
+| 3. ⑥利用開始 | `main()` | `processor.process(order, context);` | `OrderProcessor::process()` |
+| 4. ②安定骨格 | `RuleSelector::select(const std::string&, const CampaignContext&)` | 登録リストを反復し `rule.matches(...)` と `rule.priority()` を比較する | `IDiscountRule::matches()` |
+| 5. ①契約 | `IDiscountRule::matches(const std::string&, const CampaignContext&)` | 登録された契約へ動的ディスパッチする | `SummerSaleAndCampaignDiscount::matches()` |
+| 6. ③具体 | `SummerSaleAndCampaignDiscount::matches()` / `apply(int)` | 自分の適用条件と割引式だけを持つ | 選ばれた参照が②へ戻る |
+
+④で生成した `summerAndCampaign` と、⑤で `add()` した実体と、⑥の呼び出しから②が反復する実体は同じものです。
 
 これで課題ID1の完了条件「施策追加時の主な変更先が、対象条件を持つ新ルールと組み立て時の登録になる」を満たします。選ばれたルールを実際にどう計算へ使うかは、課題ID2で扱います。
 
@@ -1769,7 +1790,7 @@ PaymentCalculator calculator(rule);  // 具体ルールを知らない
 CartPreviewService preview(db, selector);
 ```
 
-**②⑥ 計算・実行の安定骨格は契約の `apply()` だけを呼ぶ。** 「商品を順に足して小計を出し、割引後金額を返す」骨格は変わらず、割引式は契約の向こうにあります。
+**② 計算の安定骨格。** 「商品を順に足して小計を出し、割引後金額を返す」制御順は変わらず、割引式は契約 `apply()` の向こうにあります。
 
 ```cpp
 class PaymentCalculator {
@@ -1782,6 +1803,12 @@ public:
         return rule.apply(subtotal);   // 具体式を知らずに適用
     }
 };
+```
+
+**⑥ 利用開始。** 課題ID1と同じ `processor.process(order, context)` が起点です。②の `calculate()` は `OrderProcessor` の内側から呼ばれ、利用側が `apply()` を直接呼ぶことはありません。
+
+```cpp
+processor.process(order, context);   // ⑥ 利用開始（計算は②から自動接続）
 ```
 
 これで課題ID2の完了条件「計算側が個別式を知らず、同じ操作で逐次適用できる」を満たします。
