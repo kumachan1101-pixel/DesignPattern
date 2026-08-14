@@ -1510,7 +1510,19 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**①② 基底 `AbstractImporter` が、フックを宣言（①契約）し、共通順を `import()` へ固定する（②骨格）。** 形式で変わるステップは純粋仮想フックにして派生へ委ねます。
+**① 契約：形式で変わるステップを純粋仮想フックとして宣言する。** 他章のように別のインターフェース型を作らず、基底クラスの `protected` 側へ差し替え点を並べます。これがこの章の契約です。
+
+```cpp
+protected:                                        // ① 契約（差し替え点）
+    virtual string filePath() const = 0;
+    virtual string schemaType() const = 0;
+    virtual string schemaName() const = 0;
+    virtual vector<ParsedRow> parseData(const vector<string>&) = 0;
+    virtual ValidationResult validateRows(const vector<ParsedRow>&) = 0;
+    virtual void afterParse(const vector<SalesRow>&) {}
+```
+
+**② 安定骨格：共通順を `import()` へ固定する。** 開く→形式確認→解析→行検証→保存→閉じるの順だけを1か所に持ちます。形式が増えてもこの順序は変わりません。①のフックを呼ぶ行が、変わる側との接続点です。
 
 ```cpp
 class AbstractImporter {
@@ -1522,22 +1534,16 @@ public:
     virtual ~AbstractImporter() = default;
     // ② 骨格：この順序だけを1か所に固定する
     ImportResult import() {
-        vector<string> lines = gateway.open(filePath());
+        vector<string> lines = gateway.open(filePath());  // ① を呼ぶ
         gateway.checkFormatVersion();
-        vector<ParsedRow> parsed = parseData(lines);      // ③ 形式差分
-        ValidationResult v = validateRows(parsed);        // ③ 形式差分
-        afterParse(v.validRows);                          // 任意フック
+        vector<ParsedRow> parsed = parseData(lines);      // ① を呼ぶ
+        ValidationResult v = validateRows(parsed);        // ① を呼ぶ
+        afterParse(v.validRows);                          // ① を呼ぶ
         int saved = repo.save(v.validRows);
         gateway.close();
         return { schemaType(), schemaName(), saved, v.skipped, true };
     }
-protected:                                        // ① 契約（差し替え点）
-    virtual string filePath() const = 0;
-    virtual string schemaType() const = 0;
-    virtual string schemaName() const = 0;
-    virtual vector<ParsedRow> parseData(const vector<string>&) = 0;
-    virtual ValidationResult validateRows(const vector<ParsedRow>&) = 0;
-    virtual void afterParse(const vector<SalesRow>&) {}
+    // ①の契約宣言は上記のとおり protected に置く
 };
 ```
 
@@ -1571,20 +1577,43 @@ protected:
 };
 ```
 
-**④ 生成と⑤ 注入。** 取得・保存の境界（`ImportFileGateway`／`SalesImportRepository`）を組み立て側で生成し、派生Importerへ注入します。これらは1-4の既存境界のままで、保存媒体や永続化仕様は追加しません。
+**④ 生成・所有。** 取得・保存の境界と派生Importerを、組み立て側で生成し所有します。これらは1-4の既存境界のままで、保存媒体や永続化仕様は追加しません。
 
 ```cpp
-ImportFileGateway gateway;
+ImportFileGateway gateway;                // ④ 生成・所有は組み立て側
 SalesImportRepository repo;
 gateway.prepareSample("store_sales.csv", storeCsv);
-StoreDataImporter store(gateway, repo);   // ④⑤ 骨格へ境界を注入
+StoreDataImporter store(gateway, repo);   // ④ 派生Importerを生成・所有
 ```
 
-**⑥ 実行部は骨格の固定順を1回呼ぶだけ。** 派生の種類にかかわらず `import()` が同じ順序で走り、形式差分だけがフックの向こうで変わります。
+**⑤ 注入。** 生成した境界を、基底 `AbstractImporter` のコンストラクタ引数として骨格へ渡します。骨格は境界の実体を所有せず、参照だけを保持します。
 
 ```cpp
-ImportResult r = store.import();          // ⑥ 固定順序で実行
+AbstractImporter(ImportFileGateway& g, SalesImportRepository& r)
+    : gateway(g), repo(r) {}              // ⑤ 境界を骨格へ注入
 ```
+
+**⑥ 利用開始。** 実行部が公開操作 `import()` を1回呼びます。派生の種類にかかわらず同じ順序が走り、形式差分だけがフックの向こうで変わります。利用側が `parseData()` を直接呼ぶことはありません。
+
+```cpp
+ImportResult r = store.import();          // ⑥ 利用開始
+```
+
+#### 代表ケースの実行接続
+
+直営店CSVの取込1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
+
+| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
+|---|---|---|---|
+| 1. ④生成 | 組み立て側 | `StoreDataImporter store(gateway, repo);` | ⑤へ |
+| 2. ⑤注入 | `AbstractImporter::AbstractImporter(ImportFileGateway&, SalesImportRepository&)` | 初期化リストで境界の参照を骨格へ渡す | ⑥へ |
+| 3. ⑥利用開始 | 実行部 | `ImportResult r = store.import();` | `AbstractImporter::import()` |
+| 4. ②安定骨格 | `AbstractImporter::import()` | 開く→形式確認→`parseData()`→`validateRows()`→保存→閉じるの順 | `AbstractImporter::parseData()`（純粋仮想） |
+| 5. ①契約 | `AbstractImporter::parseData(const vector<string>&)` | 派生へ動的ディスパッチする | `StoreDataImporter::parseData()` |
+| 6. ③具体 | `StoreDataImporter::parseData(const vector<string>&)` | カンマ区切り・ヘッダーありの解析だけを行う | 戻り値を②の `validateRows()` へ |
+
+この章の①は別のインターフェース型ではなく、基底クラスの `protected` 純粋仮想フックです。②と①が同じクラスに同居する点が他章と異なりますが、呼ぶ側（②の `import()`）と呼ばれる側（①のフック宣言）は別々の責任です。
+
 
 これで課題ID1の完了条件「形式追加は差分処理だけ、共通手順追加は骨格1か所だけの変更で済む」を満たします。`ImportFileGateway` の内側は1-4の `SampleFileStore` と同じ `map<string, vector<string>>`、`save()` は1-4と同じ件数表示のままです。
 

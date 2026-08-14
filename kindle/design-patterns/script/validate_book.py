@@ -3845,6 +3845,62 @@ def check_core_thesis(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
+    """フェーズ6の①〜⑥を、番号ごとに分けた見出しと実コードで示す。
+
+    2026-08-14のDOC-002調査で見つかった症状。12章中8章が `②⑥` や `②⑤⑥` の
+    ように、②安定骨格と⑥利用開始を一つの見出しへまとめていた。②は「公開入口
+    の内側で具体が増減しても変わらない制御順」、⑥は「利用者や外部イベントが
+    公開入口を呼ぶこと」であり、呼ばれる側と呼ぶ側で責任が違う。まとめると、
+    読者はどこが構造でどこが利用かを分けて読めない。
+
+    あわせて、①〜⑥のいずれかが見出しとして現れない章もあった（第4章は①と②、
+    第6章と第11章は②、第8章は④）。番号が欠けると、その責任を誰が持つのかが
+    本文から追えない。
+
+    ここでは次の3つを見る。
+    - ②と⑥を一つの太字見出しへまとめていないか。
+    - ①〜⑥がそれぞれ1回以上、太字見出しとして現れるか。
+    - 代表ケースの実行接続表（④→⑤→⑥→②→①→③）があるか。
+
+    呼出グラフそのものは静的検査で保証できない。表の各行が実コードを指して
+    いるかは `rules/checklist.md` の観点で人が確認する。
+    """
+    issues: list[Issue] = []
+    start = text.find("## 🔴 フェーズ6：")
+    end = text.find("## 🟢 フェーズ7：", start)
+    if min(start, end) < 0:
+        return issues
+    section = text[start:end]
+
+    seen: set[str] = set()
+    for m in re.finditer(r"(?m)^\*\*([①②③④⑤⑥]+)([^*]{0,60})\*\*", section):
+        numbers = m.group(1)
+        seen.update(numbers)
+        if "②" in numbers and "⑥" in numbers:
+            issues.append(Issue(
+                path, line_number(text, start + m.start()),
+                "②安定骨格と⑥利用開始を一つの見出しへまとめないでください"
+                f"（`{numbers}`）。②は公開入口の内側で変わらない制御順、"
+                "⑥は利用者が公開入口を呼ぶ行です。呼ばれる側と呼ぶ側を分けます",
+            ))
+    for required in "①②③④⑤⑥":
+        if required not in seen:
+            issues.append(Issue(
+                path, line_number(text, start),
+                f"フェーズ6に共通項目 {required} の見出しがありません。"
+                "①〜⑥それぞれへ、所属の分かる実コードを付けて示します",
+            ))
+    if "実行順・ポイント" not in section:
+        issues.append(Issue(
+            path, line_number(text, start),
+            "フェーズ6へ代表ケースの実行接続表（実行順・ポイント／掲載箇所／"
+            "実際のコード接続／次の呼出先）を置いてください。"
+            "説明順は①→⑥ですが、実行順は④→⑤→⑥→②→①→③です",
+        ))
+    return issues
+
+
 def check_phase6_numbered_step_titles(text: str, path: Path) -> list[Issue]:
     """フェーズ6の番号付きコード説明を、番号＋項目名＋具体の形へ固定する。"""
     start = text.find("## 🔴 フェーズ6：")
@@ -4049,6 +4105,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_core_thesis(text, path))
         issues.extend(check_responsibility_table_scope(text, path))
         issues.extend(check_phase6_numbered_step_titles(text, path))
+        issues.extend(check_phase6_point_separation(text, path))
         issues.extend(check_stable_skeleton_explanation(text, path))
         issues.extend(check_number_namespace(text, path))
         issues.extend(check_change_diagram_highlight(text, path))

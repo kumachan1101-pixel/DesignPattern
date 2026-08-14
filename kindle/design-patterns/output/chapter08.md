@@ -2082,18 +2082,44 @@ IPaymentProcessor* createProcessor(const string& type) override {
 }
 ```
 
-**②⑤⑥ 生成後の委譲・破棄を安定骨格として実行する。** `processPayment()` は生成メソッドでProcessorを得て、`pay(request)` へ委譲し、使用後に `delete` します。具体クラス名も手段固有分岐も持ちません。
+**⑤ 注入。** 生成メソッドが具体Processorへゲートウェイ参照を渡します。`PaymentApplication` は具体クラスを保持せず、生成のたびに契約ポインタを受け取ります。
+
+```cpp
+return new CreditCardProcessor(gatewayClient);   // ⑤ 境界を具体へ注入
+```
+
+**② 生成後の委譲・破棄を安定骨格として実行する。** `processPayment()` は生成メソッドでProcessorを得て、契約 `pay()` へ委譲し、使用後に `delete` します。具体クラス名も手段固有分岐も持ちません。
 
 ```cpp
 PaymentResult processPayment(const PaymentRequest& request) {
     // 注文・顧客の照合は現状のまま（7-1に全文）
-    IPaymentProcessor* proc = createProcessor(request.methodId); // ④生成・所有
-    // ⑥ 契約だけ呼ぶ
-    PaymentResult result = proc->pay(request, ord.amount);
-    delete proc;                                                 // 使い捨て後に破棄
+    IPaymentProcessor* proc = createProcessor(request.methodId); // ④で生成
+    PaymentResult result = proc->pay(request, ord.amount);       // ② 契約だけ呼ぶ
+    delete proc;                                                 // ② 使い捨て後に破棄
     return result;
 }
 ```
+
+**⑥ 利用開始。** 決済入口が公開操作 `PaymentApplication::processPayment()` を呼びます。利用側が `createProcessor()` や具体Processorを直接呼ぶことはありません。
+
+```cpp
+PaymentResult result = app.processPayment(request);   // ⑥ 利用開始
+```
+
+#### 代表ケースの実行接続
+
+カード決済1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
+
+| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
+|---|---|---|---|
+| 1. ④生成 | `createProcessor(const string&)` | `return new CreditCardProcessor(gatewayClient);` | ⑤へ |
+| 2. ⑤注入 | `createProcessor(const string&)` | 生成時に `gatewayClient` を具体へ渡す | ⑥へ |
+| 3. ⑥利用開始 | `main()` / `executeCase()` | `app.processPayment(request);` | `PaymentApplication::processPayment()` |
+| 4. ②安定骨格 | `PaymentApplication::processPayment(const PaymentRequest&)` | 台帳照合のあと `proc->pay(request, ord.amount)` を呼び、使用後に `delete` | `IPaymentProcessor::pay()` |
+| 5. ①契約 | `IPaymentProcessor::pay(const PaymentRequest&, int)` | 生成されたProcessorへ動的ディスパッチする | `CreditCardProcessor::pay()` |
+| 6. ③具体 | `CreditCardProcessor::pay(const PaymentRequest&, int)` | カード固有の検証と認証APIを実行し `PaymentResult` を返す | 戻り値を②が返す |
+
+この章の④は生成メソッドの中で起き、所有は②の `processPayment()` が持って使用後に破棄します。生成場所と所有者が分かれる点は第10章と同じ形です。
 
 > **抜粋の前提：** `createProcessor()` は `PaymentApplication` の純粋仮想を `DefaultPaymentApplication` が実装した形で、`registry` と `gatewayClient` はその具象側が持ちます。`processPayment()` の冒頭にある注文・顧客の照合と、決済ログの記録は現状のまま維持します。ログを取るのは組み立て側（`main()` の `executeCase`）で、`PaymentApplication` は記録しません。全文は7-1で示します。
 

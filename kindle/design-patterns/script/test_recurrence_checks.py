@@ -266,6 +266,18 @@ t = (OUT/"chapter08.md").read_text(encoding="utf-8")
 broken = t.replace("> **手元で動かすには**", "> **メモ**", 1)
 cases.append(("RUN-001 手元で動かすには", V.check_run_locally_section, broken))
 
+# DOC-002: ②と⑥を一つの見出しへ戻す
+t = (OUT/"chapter12.md").read_text(encoding="utf-8")
+broken = t.replace("**② 状態委譲の安定骨格。**",
+                   "**②⑥ 状態委譲の安定骨格は、現在状態へイベントを委ねるだけ。**", 1)
+cases.append(("DOC-002 ②⑥の統合", V.check_phase6_point_separation, broken))
+
+# DOC-002: 実行接続表を落とす
+t = (OUT/"chapter07.md").read_text(encoding="utf-8")
+broken = t.replace("| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |",
+                   "| ポイント | 掲載箇所 | 説明 | 備考 |", 1)
+cases.append(("DOC-002 実行接続表", V.check_phase6_point_separation, broken))
+
 print("再発防止チェックの負のテスト（わざと壊した本文を検出できるか）\n")
 # 5) 2026-08-13: validator とテンプレートの表頭同期漏れ
 #    本文だけ直してテンプレート／validator を放置すると全12章が同じ検査で落ちる

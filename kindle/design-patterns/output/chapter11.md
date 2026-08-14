@@ -1476,14 +1476,29 @@ public:
 };
 ```
 
-**⑥ 実行側 `ReportGenerationService` は `IReport` として `create()` を呼ぶだけ（具体本文を判定しない）。**
+**⑥ 利用開始。** 実行側 `ReportGenerationService::generate()` が、`IReport` として `create()` を呼ぶだけです。具体本文を判定しません。
 
 ```cpp
 // ReportGenerationService::generate() の本文生成部分（検証・出力は省略。全文はフェーズ7）
 IReport* report = assembler.assemble(req);   // 生成は Assembler に任せる
-ReportDocument doc = report->create();        // 契約 create() を呼ぶだけ
+ReportDocument doc = report->create();        // ⑥ 契約 create() を呼ぶだけ
 delete report;                                 // 生成物なので破棄
 ```
+
+#### 代表ケースの実行接続
+
+役員向け月次レポートの生成1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
+
+| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
+|---|---|---|---|
+| 1. ④生成 | `ReportAssembler::assemble(const ReportRequest&)` | `report = new ExecutiveMonthlyReport(reader, renderer, req.format);` | ⑤へ |
+| 2. ⑤注入 | `ReportApplication::ReportApplication()` | `assembler(reader, renderer)` で部品をAssemblerへ注入 | ⑥へ |
+| 3. ⑥利用開始 | `ReportGenerationService::generate()` | `ReportDocument doc = report->create();` | `IReport::create()` |
+| 4. ②安定骨格 | `ReportSkeleton::create()` | 読込→ヘッダー→`renderBody()`→フッター→保存の共通順を固定 | `ReportSkeleton::renderBody()`（純粋仮想） |
+| 5. ①契約 | `IReport::create()` / `ReportSkeleton::renderBody()` | 具体本文へ動的ディスパッチする | `ExecutiveMonthlyReport::renderBody()` |
+| 6. ③具体 | `ExecutiveMonthlyReport::renderBody(ReportDocument&, const SalesSummary&)` | 役員向け専用本文だけを描く | 戻って②が続きを進める |
+
+④で生成した本文と、⑤で渡した `reader`・`renderer` と、⑥から②が呼ぶ相手は同じ実体です。
 
 **⑦ これで課題ID1が解ける。完了条件（＝課題が解けたことを検証する条件）：** 本文を1種増やすとき変えるのは「新しい具体本文クラス1つ＋`ReportAssembler`の分岐1つ＋`TemplateRegistry`への登録1行」だけで、共通順（`ReportSkeleton::create()`）・既存本文・実行側は変わらないこと。フェーズ7のA1（通常月次）とA2（役員向け）で、この不変を実際に確認します。
 
@@ -1586,12 +1601,28 @@ IReport* ReportAssembler::assemble(const ReportRequest& req) {
 }
 ```
 
-**⑤⑥ 生成・注入・実行は課題ID1と同じ。** `renderer`は`ReportApplication`が起動時に生成して`ReportAssembler`へ注入し（課題ID1の⑤）、実行側`ReportGenerationService`は`assemble()`が返した最外側を`IReport`として`create()`を呼ぶだけ（課題ID1の⑥）。装飾が何段付いているかは知りません。
+**⑤ 注入。** 課題ID1と同じです。`renderer` は `ReportApplication` が起動時に生成して `ReportAssembler` へ注入し、各装飾は生成時に内側の `IReport*` と `renderer` を受け取ります。
+
+```cpp
+report = new GraphFeature(report, renderer);   // ⑤ 内側と描画境界を注入
+```
+
+**② 装飾連鎖の安定骨格。** `ReportFeature` を継ぐ各装飾は「内側を先に作ってから、自分の要素を1つ足す」形に固定されています。何段重なっても、この委譲の形は変わりません。
+
+```cpp
+ReportDocument GraphFeature::create() {
+    ReportDocument doc = wrapped->create();  // ② まず内側の契約を呼ぶ
+    renderer.addGraph(doc);                  // ② 自分ぶんを1つ足す
+    return doc;
+}
+```
+
+**⑥ 利用開始。** 課題ID1と同じ入口です。実行側は `assemble()` が返した最外側を `IReport` として呼ぶだけで、装飾が何段付いているかを知りません。
 
 ```cpp
 // ReportGenerationService::generate()（課題ID1と同じ。装飾の有無を意識しない）
 IReport* report = assembler.assemble(req);   // 本文＋装飾を組み立て
-ReportDocument doc = report->create();        // 最外側の create() を呼ぶだけ
+ReportDocument doc = report->create();        // ⑥ 最外側の create() を呼ぶだけ
 delete report;                                 // 最外側を破棄→内側へ連鎖破棄
 ```
 
@@ -1625,7 +1656,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**①② 操作契約 `IReportAction` と、要求を保持する具体操作 `GenerateReportAction`。** `GenerateReportAction`は完全な`ReportRequest`を持ち、生成・取消を`ReportGenerationService`へ委譲します。委譲先の`service`は生成時にコンストラクタで受け取ります（＝依存注入の受け口。渡す側は④）。
+**① 操作契約 `IReportAction` を定義し、③ 要求を保持する具体操作 `GenerateReportAction` が実装する。** `GenerateReportAction`は完全な`ReportRequest`を持ち、生成・取消を`ReportGenerationService`へ委譲します。委譲先の`service`は生成時にコンストラクタで受け取ります（＝依存注入の受け口。渡す側は④）。
 
 ```cpp
 // 採用後コード：操作契約と、要求を保持する操作
@@ -1652,7 +1683,7 @@ public:
 };
 ```
 
-**③④ 履歴 `ReportActionHistory`（Actionを所有してから実行）と、入口 `ReportApplication`（Actionを生成し `service` を注入して履歴へ渡す）。** 具体Action（`GenerateReportAction`）を`new`するのは`ReportApplication`だけです。その`new GenerateReportAction(service, request)`の`service`が、②で受け取る依存の**注入そのもの**です。
+**② 履歴 `ReportActionHistory` の安定骨格（Actionを所有してから契約を呼ぶ）と、④ 入口 `ReportApplication` が具体Actionを生成し、⑤ `service` を注入して履歴へ渡す。** 具体Action（`GenerateReportAction`）を`new`するのは`ReportApplication`だけです。その`new GenerateReportAction(service, request)`の`service`が、②で受け取る依存の**注入そのもの**です。
 
 ```cpp
 // 採用後コード：ReportActionHistory のメソッド（Action を所有してから実行）
@@ -1668,7 +1699,7 @@ OperationResult ReportApplication::submit(ReportRequest request) {
 }
 ```
 
-**⑤ 実行・再実行・取消は、履歴が契約 `execute()`/`undo()` を呼ぶだけ。** 変更途中コードの`acceptedRequests.push_back(request)`は、生成本体の内部状態から、`ReportApplication`が生成し`ReportActionHistory`が所有する**Actionの列**へ移りました。履歴は`IReportAction`として呼ぶだけで、本文や装飾はもちろん、生成の中身も判定しません。
+**⑥ 利用開始。実行・再実行・取消は、履歴が契約 `execute()`/`undo()` を呼ぶだけ。** 変更途中コードの`acceptedRequests.push_back(request)`は、生成本体の内部状態から、`ReportApplication`が生成し`ReportActionHistory`が所有する**Actionの列**へ移りました。履歴は`IReportAction`として呼ぶだけで、本文や装飾はもちろん、生成の中身も判定しません。
 
 なお、この章での**依存注入**は、上の④——`ReportApplication`が`new GenerateReportAction(service, request)`で、生成済みの`service`（アプリ起動時に一度だけ作った`ReportGenerationService`）をActionへ外から渡すところ——です。Action自身は`service`を作らず、受け取って使います。
 
