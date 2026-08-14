@@ -1,0 +1,38 @@
+body {
+    font-size: 1em; /* 全体の文字サイズを調整 */
+}
+
+/* 特定の要素のサイズも調整できます */
+h1 {
+    font-size: 1.8em;
+}
+
+h2 {
+    font-size: 1.4em;
+}
+
+p {
+    font-size: 1em; /* 本文の文字サイズ */
+    line-height: 1.5; /* 行の高さを調整すると読みやすくなります */
+}
+pre {
+	font-family: 'Courier New', monospace;
+	font-size: 0.7em;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	word-break: break-all;
+	overflow-x: auto;
+	background-color: #f8f8f8;
+	color: #2b2b2b;
+	padding: 1.2em 1em;
+	border: 1px solid #e0e0e0;
+	border-radius: 6px;
+	margin-bottom: 1.2em;
+    tab-size: 2;
+    -moz-tab-size: 2;
+}
+
+/* コードブロック内のテキスト（<code>タグ）にもスタイルを適用 */
+pre code {
+    display: block;
+}

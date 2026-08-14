@@ -24,6 +24,8 @@ files/
 │   │   ├── templates/
 │   │   ├── patterns/                  ← 各パターンの定義YAML
 │   │   └── output/                    ← 生成された章
+│   ├── solid-principles-csharp/        ← C#言語版SOLID原則の最終原稿・EPUB・生成手順
+│   ├── solid-principles-c/             ← C言語版SOLID原則の最終原稿・EPUB・生成機構
 │   │
 │   └── book-template/                 ← 新しいKindle本を作る時のひな型
 │       ├── CLAUDE.md
