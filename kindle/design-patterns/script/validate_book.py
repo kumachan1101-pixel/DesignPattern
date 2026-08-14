@@ -1327,10 +1327,13 @@ def check_intermediate_boundary_continuity(
         sections.append(("フェーズ6", phase6, text[phase6:phase7]))
     issues: list[Issue] = []
     for label, offset, section in sections:
-        if "抜粋の前提（周辺は現状のまま）" not in section:
+        # 求めるのは「抜粋の範囲を読者へ伝えていること」であって、
+        # 「抜粋の前提」という編集側のラベルではない（EDIT-002）。
+        if "この抜粋の外は、現状のままです。" not in section:
             issues.append(
                 Issue(path, line_number(text, offset),
-                      f"{label}に抜粋の前提（周辺は現状のまま）がありません")
+                      f"{label}に、どこを抜き出し周辺を変えていないかの断りが"
+                      "ありません（`> **この抜粋の外は、現状のままです。**`）")
             )
         for token in tokens:
             if token not in section:
@@ -1886,7 +1889,8 @@ def check_recent_star_contracts(text: str, path: Path) -> list[Issue]:
     phase3 = text[p3:p4] if 0 <= p3 < p4 else ""
     for token, message in (
         ("int main(", "フェーズ3に変更要求を実行するmain()がありません"),
-        ("実行対象コード", "フェーズ3の実行結果に実行対象コードがありません"),
+        # 原稿内の参照ラベルではなく、読者へ「何を見るか」を書いたかを見る。
+        ("見るのは", "フェーズ3の実行結果に、何を見ればよいかの説明がありません"),
         ("実行結果", "フェーズ3に動作する変更コードの実行結果がありません"),
     ):
         if token not in phase3:

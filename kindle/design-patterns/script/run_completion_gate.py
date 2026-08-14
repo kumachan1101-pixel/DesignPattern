@@ -60,6 +60,10 @@ def main() -> int:
         ),
         ("Kindle formatting", [python, str(SCRIPT_DIR / "check_kindle.py")]),
         (
+            "Author notes and spoilers",
+            [python, str(SCRIPT_DIR / "check_author_notes.py")],
+        ),
+        (
             "Published execution output",
             [python, str(SCRIPT_DIR / "check_execution_output.py")],
         ),

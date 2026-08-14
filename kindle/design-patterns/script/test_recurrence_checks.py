@@ -25,6 +25,7 @@ validate_book.py 本体は「現在の本文が通るか」しか見ないため
   DOC-001   断片コードの所属明示・ブロック分割・省略記号
   DOC-003   フェーズ6の断片コードの掲載箇所ラベル
   RUN-002   1-1の代表実行が1行だけで準備も状態変化も見せない
+  EDIT-002  著者向けメモと、フェーズ前半での解決構造の先出し
 """
 import re, sys
 from pathlib import Path
@@ -335,6 +336,31 @@ def _broken_representative_run(*_):
     return [V.Issue(Path("chapter01.md"), 1, m) for m in found]
 
 cases.append(("RUN-002 代表実行の回数", _broken_representative_run, ""))
+
+# EDIT-002: 著者向けメモ（進行管理の宣言）を本文へ戻す
+import check_author_notes as A
+
+def _broken_author_note(*_):
+    t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+    broken = t.replace(
+        "ここで挙げるのは、原因のどの構造を変える必要があるかまでです。",
+        "この段階では、解決クラス名・契約名・パターン名・生成場所を決めません。", 1)
+    prose = A.code_free(broken)
+    return [V.Issue(Path("chapter01.md"), 1, m.group(0))
+            for m in A.PROCESS_DECLARATION.finditer(prose)]
+
+cases.append(("EDIT-002 著者向けメモ", _broken_author_note, ""))
+
+# EDIT-002: フェーズ1〜3で解決構造の型名を先出しする
+def _broken_spoiler(*_):
+    solution = (A.types_between(_ch12, "### 7-1", "### 7-2")
+                - A.types_between(_ch12, "### 1-4", "### 1-5")
+                - A.types_between(_ch12, "### 3-1", "### 3-2")
+                - A.SPOILER_ALLOWED)
+    return [V.Issue(Path("chapter12.md"), 1, f"先取り: {sorted(solution)[0]}")] if solution else []
+
+_ch12 = (OUT/"chapter12.md").read_text(encoding="utf-8").replace("\r\n", "\n")
+cases.append(("EDIT-002 解決構造の先出し", _broken_spoiler, ""))
 
 print("再発防止チェックの負のテスト（わざと壊した本文を検出できるか）\n")
 # 5) 2026-08-13: validator とテンプレートの表頭同期漏れ
