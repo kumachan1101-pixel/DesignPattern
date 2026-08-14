@@ -1564,32 +1564,7 @@ public:
 };
 ```
 
-**④ 生成・所有と⑤ 登録（注入）。** 組み立て関数 `runInventoryScenario()` がDB、ログ、全通知先、通知元をローカル変数として生成・所有します。`InventoryManager` はDBとログを参照で注入され、通知先を借用して登録します。
-
-```cpp
-void runInventoryScenario() {
-    ProductDatabase productDatabase;  // ④ 生成・所有
-    StockEventLog stockEventLog;
-    DeliveryStatusLog deliveryStatusLog;
-    EmailNotifier emailNotifier;
-    DashboardUpdater dashboardUpdater;
-    ChatNotifier chatNotifier;
-    SMSNotifier smsNotifier(false);
-
-    SMSDeliveryCallback smsCallback(deliveryStatusLog);
-    InventoryManager manager(productDatabase, stockEventLog,
-                             deliveryStatusLog);
-    manager.attach(&emailNotifier);      // ⑤ 登録（借用参照）
-    manager.attach(&dashboardUpdater);
-    manager.attach(&chatNotifier);
-    manager.attach(&smsNotifier);
-
-    manager.reduceStock("PRD002", 1);  // ⑥ 即時経路へ接続
-    smsCallback.receive("SMS-1", true); // ⑥ 後日の完了経路へ接続
-}
-```
-
-**⑥ 実行部を②の骨格へ接続する。** `runInventoryScenario()` が呼んだ `reduceStock()` は、在庫更新とログ記録後に `notifyAll()` へ進みます。`notifyAll()` は②で示した登録リストへ `StockAlert` を一律に送り、`DeliveryResult` を集約し、保留の受付IDを記録します。後日のSMS基盤からは `SMSDeliveryCallback::receive()` が同じ受付IDを最終状態へ更新します。
+②の公開入口 `reduceStock()` の本体はクラス外で定義します。在庫更新とログ記録を終えてから、しきい値を下回った場合だけ `notifyAll()` へ進みます。ここが「通知先が増えても変えない制御順」です。
 
 ```cpp
 void InventoryManager::reduceStock(const std::string& productId,
@@ -1607,6 +1582,57 @@ void InventoryManager::reduceStock(const std::string& productId,
     }
 }
 ```
+
+**④ 生成・所有。** 組み立て関数 `runInventoryScenario()` が、DB、ログ、全通知先、通知元、後日入口をローカル変数として生成し、所有します。生成するのはここ1か所だけです。
+
+```cpp
+void runInventoryScenario() {
+    ProductDatabase productDatabase;      // ④ 生成・所有
+    StockEventLog stockEventLog;
+    DeliveryStatusLog deliveryStatusLog;
+    EmailNotifier emailNotifier;
+    DashboardUpdater dashboardUpdater;
+    ChatNotifier chatNotifier;
+    SMSNotifier smsNotifier(false);
+    SMSDeliveryCallback smsCallback(deliveryStatusLog);
+    InventoryManager manager(productDatabase, stockEventLog,
+                             deliveryStatusLog);
+```
+
+**⑤ 注入・登録。** DBとログは `InventoryManager` のコンストラクタ引数で渡し、通知先は `attach()` で借用参照として登録します。通知元は具体型を受け取らず、契約 `INotification*` だけを持ちます。
+
+```cpp
+    // ④で生成した実体を、契約として通知元へ渡す
+    manager.attach(&emailNotifier);       // ⑤ 登録（借用参照）
+    manager.attach(&dashboardUpdater);
+    manager.attach(&chatNotifier);
+    manager.attach(&smsNotifier);
+```
+
+**⑥ 利用開始。** 組み立て関数が公開入口 `InventoryManager::reduceStock()` を1回呼びます。後日のSMS完了は、外部基盤からの入口 `SMSDeliveryCallback::receive()` が別の起点として受けます。利用側が `notifyAll()` や個々の通知先を直接呼ぶことはありません。
+
+```cpp
+    manager.reduceStock("PRD002", 1);     // ⑥ 利用開始（即時経路）
+    smsCallback.receive("SMS-1", true);   // ⑥ 利用開始（後日の完了経路）
+}
+```
+
+`reduceStock()` に入ると②の制御順が進み、しきい値を下回っていれば `notifyAll()` が登録リストへ `StockAlert` を一律に送り、`DeliveryResult` を集約して保留の受付IDを記録します。
+
+#### 代表ケースの実行接続
+
+`runInventoryScenario()` で在庫が閾値を下回る1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
+
+| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
+|---|---|---|---|
+| 1. ④生成 | `runInventoryScenario()` | `EmailNotifier emailNotifier;` ほか全実体をローカルに生成 | ⑤へ |
+| 2. ⑤注入 | `runInventoryScenario()` | `manager.attach(&emailNotifier);` で契約として登録 | ⑥へ |
+| 3. ⑥利用開始 | `runInventoryScenario()` | `manager.reduceStock("PRD002", 1);` | `InventoryManager::reduceStock()` |
+| 4. ②安定骨格 | `InventoryManager::reduceStock(const std::string&, int)` | 在庫更新・記録の後 `notifyAll(alert)` を呼び、その中で `observer->send(alert)` を反復 | `INotification::send()` |
+| 5. ①契約 | `INotification::send(const StockAlert&)` | 登録された契約へ動的ディスパッチする | `EmailNotifier::send()` ほか |
+| 6. ③具体 | `EmailNotifier::send(const StockAlert&)` | 手段別の文面を作って送信し `DeliveryResult` を返す | 戻り値を②の `deliveryStatusLog.record()` へ |
+
+④で生成した `emailNotifier` と、⑤で `attach()` した実体と、⑥の呼び出しから②が反復する実体は同じものです。後日経路は `SMSDeliveryCallback::receive()` を別の⑥として持ち、同じ受付IDで最終状態を更新します。
 
 これで課題ID1の完了条件「新通知は登録だけで加わり、受付失敗・最終配信失敗のどちらでも在庫更新と他通知が完了する」を満たします。即時通知と後日の完了入力は受付IDの状態ログで接続され、在庫更新からは切り離されました。
 

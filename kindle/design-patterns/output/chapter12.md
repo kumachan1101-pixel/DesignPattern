@@ -1591,13 +1591,50 @@ class DraftPhase : public IWorkflowPhase {
 };
 ```
 
-**④ 生成・⑤ 注入。** 具体Phaseの生成・所有と状態IDからの解決は組み立て側（`BatchApplication`）と `WorkflowPhaseResolver` に閉じ、`WorkflowManager` は非所有の契約ポインタを受け取ります（生成の全体像は6-1・6-2）。
-
-**②⑥ 状態委譲の安定骨格は、現在状態へイベントを委ねるだけ。** `WorkflowManager::process()` は現在Phaseへ `handle()` を委譲し、どの状態かを知りません（コード全体は6-2）。
+**④ 生成・所有。** 具体Phaseの生成・所有は組み立て側（`BatchApplication`）に閉じます。`WorkflowManager` は生成しません。
 
 ```cpp
-void process(WorkflowEvent ev) { phase->handle(*this, ev); } // ⑥ 委譲
+DraftPhase draft;                  // ④ 生成・所有は組み立て側
+PendingPhase pending(managerRule);
+PriorityPendingPhase priorityPending(directorRule);
+WorkflowPhaseResolver resolver(draft, pending, priorityPending);
 ```
+
+**⑤ 注入。** 生成済みPhaseを `WorkflowPhaseResolver` 経由で `WorkflowManager` へ渡します。Managerが受け取るのは非所有の契約ポインタ `IWorkflowPhase*` だけです。
+
+```cpp
+WorkflowManager wm(cases, resolver);   // ⑤ 契約として注入（借用参照）
+```
+
+**② 状態委譲の安定骨格。** `WorkflowManager::process()` は現在Phaseへ `handle()` を委譲するだけで、どの状態かを知りません。状態が増えてもこの1行は変わりません。
+
+```cpp
+void process(WorkflowEvent ev) {
+    phase->handle(*this, ev);      // ② 現在状態の契約を呼ぶ
+}
+```
+
+**⑥ 利用開始。** 申請者や承認者の操作を受けた入口が、公開操作 `WorkflowManager::process()` を呼びます。利用側が `handle()` や具体Phaseを直接呼ぶことはありません。
+
+```cpp
+wm.process(WorkflowEvent::Submit);     // ⑥ 利用開始
+wm.process(WorkflowEvent::Approve);
+```
+
+#### 代表ケースの実行接続
+
+通常申請の提出1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
+
+| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
+|---|---|---|---|
+| 1. ④生成 | `BatchApplication`（組み立て側） | `DraftPhase draft;` ほか具体Phaseを生成・所有 | ⑤へ |
+| 2. ⑤注入 | `BatchApplication` | `WorkflowManager wm(cases, resolver);` で契約を借用参照として渡す | ⑥へ |
+| 3. ⑥利用開始 | 申請入口（`BatchApplication`） | `wm.process(WorkflowEvent::Submit);` | `WorkflowManager::process()` |
+| 4. ②安定骨格 | `WorkflowManager::process(WorkflowEvent)` | `phase->handle(*this, ev);` で現在状態へ委譲 | `IWorkflowPhase::handle()` |
+| 5. ①契約 | `IWorkflowPhase::handle(WorkflowManager&, WorkflowEvent)` | 現在Phaseへ動的ディスパッチする | `DraftPhase::handle()` |
+| 6. ③具体 | `DraftPhase::handle(WorkflowManager&, WorkflowEvent)` | 提出イベントを受けて次状態を選び `transitionTo()` を呼ぶ | ②の `transitionTo()` へ戻る |
+
+④で生成した `draft` と、⑤で渡した実体と、⑥の呼び出しから②が委譲する実体は同じものです。
 
 これで課題ID1の完了条件「経路追加が新しいPhaseと遷移登録に閉じ、公開入口・状態保存を変えない」を満たします。課題ID2の通知境界・課題ID3の承認判定とは独立したまま、同じ進行経路へ接続します。
 
@@ -1641,14 +1678,36 @@ class EmailNotifier : public INotificationListener {
 };
 ```
 
-**④ 生成・⑤ 注入（登録）。** 組み立て側が `EmailNotifier`・`ChatNotifier` を生成・所有し（借用参照として渡す）、`addListener()` で登録して注入します（全体像は6-1・6-2）。
+**④ 生成・所有。** 組み立て側が具体通知先を生成し、所有します。
 
 ```cpp
 EmailNotifier email;               // ④ 生成・所有は組み立て側
-wm.addListener(&email);            // ⑤ 登録で注入（借用参照）
+ChatNotifier chat;
 ```
 
-**②⑥ 通知配布の安定骨格は、登録リストを一律に回すだけ。** `transitionTo()` は状態保存後に登録済み `INotificationListener` へ順に `onStatusChanged()` を呼び、メールかチャットかを知りません。1件の失敗で状態遷移や他通知を止めません（コード全体は6-2）。
+**⑤ 注入（登録）。** 生成済みの通知先を `addListener()` で登録します。`WorkflowManager` が持つのは契約 `INotificationListener*` の借用参照だけです。
+
+```cpp
+wm.addListener(&email);            // ⑤ 登録で注入（借用参照）
+wm.addListener(&chat);
+```
+
+**② 通知配布の安定骨格。** `transitionTo()` は状態を保存してから、登録済みリストを順に回して `onStatusChanged()` を呼びます。メールかチャットかを知らず、1件の失敗で状態遷移や他通知を止めません。
+
+```cpp
+void transitionTo(const std::string& s, const std::string& id) {
+    cases.saveState(id, s);                      // ② 保存はRepositoryへ
+    for (auto* l : listeners) {
+        l->onStatusChanged(id, s);               // ② 登録順に契約を呼ぶ
+    }
+}
+```
+
+**⑥ 利用開始。** 通知そのものを利用側が呼ぶことはありません。⑥は課題ID1と同じ `wm.process(...)` で、②の `transitionTo()` が状態確定後に自動で配布します。
+
+```cpp
+wm.process(WorkflowEvent::Approve);   // ⑥ 利用開始（通知は②から自動接続）
+```
 
 これで課題ID2の完了条件「通知追加・失敗が登録先と個別結果に閉じ、状態遷移と他通知を変えない」を満たします。
 
@@ -1695,9 +1754,38 @@ public:
 };
 ```
 
-**④ 生成・⑤ 注入。** 具体ルールの生成・所有と選択は組み立て側に閉じ、承認Phaseは注入された `IApprovalRule` を借用参照で保持します（全体像は6-1・6-2）。
+**④ 生成・所有。** 具体ルールの生成・所有は組み立て側に閉じます。
 
-**②⑥ 規則委譲の安定骨格は、注入されたルールへ判定を委ねるだけ。** 承認イベントの処理時に `canApprove()` の結果で次状態を選び、どのルールかを知りません（コード全体は6-2）。
+```cpp
+ManagerApprovalRule managerRule;       // ④ 生成・所有は組み立て側
+DirectorApprovalRule directorRule;
+```
+
+**⑤ 注入。** 生成済みルールを承認Phaseのコンストラクタへ渡します。Phaseは契約 `IApprovalRule&` を借用参照で保持します。
+
+```cpp
+PendingPhase pending(managerRule);     // ⑤ 契約として注入（借用参照）
+```
+
+**② 規則委譲の安定骨格。** 承認イベントを処理するとき、注入されたルールへ `canApprove()` を尋ね、その結果で次状態を選びます。どのルールかは知りません。
+
+```cpp
+void PendingPhase::handle(WorkflowManager& wm, WorkflowEvent ev) {
+    if (ev == WorkflowEvent::Approve) {
+        if (rule.canApprove(wm.currentAmount())) {  // ② 契約へ委譲
+            wm.transitionTo("承認済み", wm.currentId());
+        } else {
+            wm.reject("承認上限を超えています");
+        }
+    }
+}
+```
+
+**⑥ 利用開始。** 判定を利用側が呼ぶことはありません。⑥は課題ID1と同じ `wm.process(...)` で、②の状態処理から自動で接続します。
+
+```cpp
+wm.process(WorkflowEvent::Approve);   // ⑥ 利用開始（判定は②から自動接続）
+```
 
 これで課題ID3の完了条件「上限変更が新しいルールクラスと設定に閉じ、状態遷移を変えない」を満たします。ここで状態分離・通知分離・ルール差し替えの3構造が独立したまま接続されました。
 
