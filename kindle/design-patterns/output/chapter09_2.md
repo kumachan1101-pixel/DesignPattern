@@ -2439,58 +2439,27 @@ public:
 
 **main 関数**
 
-読者の入口です。6つの部品を作り、`TicketService` へ渡し、あとは公開操作を呼ぶだけです。**`main()` に状態名も優先度の判定もありません。** ここからは行のまとまりごとに、実行するコードとその実行結果を並べます。以降の定義は、この `main()` から呼ばれる順に置きます。
-
-まず依存を組み立て、行1・行2で一般ユーザーとプレミアムユーザーがチケットを登録します。
+読者の入口です。6つの部品を作り、`TicketService` へ渡し、あとは公開操作を呼ぶだけです。**`main()` に状態名も優先度の判定もありません。** 以降の定義は、この `main()` から呼ばれる順に並べます。実行結果は、全部の定義を読み終えた後に置きます。
 
 ```cpp
 int main() {
-    UserDatabase users;   // 依頼者（USR）
-    StaffDirectory staff; // ヘルプデスク担当者（AGT）
+    UserDatabase users;    // 依頼者（USR）
+    StaffDirectory staff;  // ヘルプデスク担当者（AGT）
     TicketRepository repo;
     TicketEventLog log;
     TicketPolicySet policies;
     TicketService svc(repo, users, staff, log, policies);
+
     cout << "--- 行1: 依頼者 鈴木(standard)がTCK001を登録 ---" << endl;
     svc.create("TCK001", "USR003");
     cout << "--- 行2: 依頼者 佐藤(premium)がTCK002を登録 ---" << endl;
     svc.create("TCK002", "USR002");
-```
-
-行1・行2の実行結果（登録時に優先度が決まり保存される）：
-
-```
---- 行1: 依頼者 鈴木(standard)がTCK001を登録 ---
-[TCK001] 作成 申請者=鈴木 次郎 状態=Open 優先度=Normal
---- 行2: 依頼者 佐藤(premium)がTCK002を登録 ---
-[TCK002] 作成 申請者=佐藤 花子 状態=Open 優先度=High
-```
-
-同じ `main()` の中で、行3〜行5ではTCK001をアサイン→解決→再受付します（状態がID単位で更新・保存される）。
-
-```cpp
     cout << "--- 行3: TCK001に担当者 山田をアサイン ---" << endl;
     svc.assign("TCK001", "AGT01");
     cout << "--- 行4: TCK001を解決 ---" << endl;
     svc.resolve("TCK001");
     cout << "--- 行5: TCK001を再受付（優先度を再計算） ---" << endl;
     svc.reopen("TCK001");
-```
-
-行3〜行5の実行結果：
-
-```
---- 行3: TCK001に担当者 山田をアサイン ---
-  アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
---- 行4: TCK001を解決 ---
-  解決: 状態 InProgress → Resolved
---- 行5: TCK001を再受付（優先度を再計算） ---
-  再受付: 状態 Resolved → Open 優先度=Normal
-```
-
-続けて `main()` の中で、行6〜行8ではTCK002をアサイン→エスカレーション（緊急対応中）→解決します。
-
-```cpp
     cout << "--- 行6: TCK002に担当者 高橋をアサイン ---" << endl;
     svc.assign("TCK002", "AGT02");
     cout << "--- 行7: TCK002をエスカレーション（緊急対応中へ） ---"
@@ -2498,39 +2467,10 @@ int main() {
     svc.escalate("TCK002");
     cout << "--- 行8: TCK002を解決（緊急対応中→解決済み） ---" << endl;
     svc.resolve("TCK002");
-```
-
-行6〜行8の実行結果（優先度Highが引き継がれ、Escalatedを経由する）：
-
-```
---- 行6: TCK002に担当者 高橋をアサイン ---
-  アサイン: 状態 Open → InProgress 担当=高橋 二郎(AGT02)
---- 行7: TCK002をエスカレーション（緊急対応中へ） ---
-  エスカレーション: 状態 InProgress → Escalated 優先度=High
---- 行8: TCK002を解決（緊急対応中→解決済み） ---
-  解決: 状態 Escalated → Resolved
-```
-
-同じ `main()` の中で、変更要求として法人ユーザーのTCK003を登録し保留（Pending）にします。
-
-```cpp
     cout << "--- 変更要求: 伊藤(corporate)のTCK003を登録し保留 ---"
          << endl;
     svc.create("TCK003", "USR004");
     svc.hold("TCK003");
-```
-
-変更要求の実行結果：
-
-```
---- 変更要求: 伊藤(corporate)のTCK003を登録し保留 ---
-[TCK003] 作成 申請者=伊藤 四郎 状態=Open 優先度=High
-  保留: 状態 Open → Pending
-```
-
-続けて `main()` の中で、保留にした法人チケットを再受付し、アサインしてからエスカレーションします。変更ID1「登録時と再受付時に法人はHigh」と変更ID2「再受付時は優先度を計算し直す」を、同じ法人チケットで通して確認します。あわせて、InProgressからの保留（要求ID2）と、エスカレーション後の差し戻し（要求ID4）も試します。
-
-```cpp
     cout << "--- 変更要求: TCK003を再受付し、アサイン・保留・エスカレーション ---"
          << endl;
     svc.reopen("TCK003");           // Pending → Open（優先度を再計算）
@@ -2540,111 +2480,48 @@ int main() {
     svc.assign("TCK003", "AGT01");
     svc.escalate("TCK003");         // InProgress → Escalated
     svc.sendBack("TCK003");         // Escalated → InProgress（差し戻し）
-```
-
-再受付・エスカレーションの実行結果：
-
-```
---- 変更要求: TCK003を再受付し、アサイン・保留・エスカレーション ---
-  再受付: 状態 Pending → Open 優先度=High
-  アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
-  保留: 状態 InProgress → Pending
-  再受付: 状態 Pending → Open 優先度=High
-  アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
-  エスカレーション: 状態 InProgress → Escalated 優先度=High
-  差し戻し: 状態 Escalated → InProgress
-```
-
-法人ユーザーの優先度は、作成・再受付とも `TicketPolicySet` 経由で同じルールへ問い合わせるためHighになり、エスカレーションでは区分を見ずHighへ引き上げるので、結果としてどの操作でもHighのままです。保留は Open からも InProgress からも入れます。
-
-一般ユーザーでは引き上げと戻りが値として見えます。TCK001（鈴木・一般）で、エスカレーションと再受付を通します。
-
-```cpp
     cout << "--- 一般ユーザーの優先度が上がって戻る ---" << endl;
     svc.assign("TCK001", "AGT01");  // Open → InProgress（Normalを維持）
     svc.escalate("TCK001");         // Normal → High へ引き上げ
     svc.resolve("TCK001");          // Highを維持
     svc.reopen("TCK001");           // High → Normal へ計算し直す
-```
-
-一般ユーザーの実行結果：
-
-```
---- 一般ユーザーの優先度が上がって戻る ---
-  アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
-  エスカレーション: 状態 InProgress → Escalated 優先度=High
-  解決: 状態 Escalated → Resolved
-  再受付: 状態 Resolved → Open 優先度=Normal
-```
-
-エスカレーションでNormalからHighへ上がり、再受付でNormalへ戻りました。引き上げは `TicketService::escalate()` が持ち、計算し直しは `TicketPolicySet` 経由のルールが持ちます。同じ優先度という値でも、誰が決めるかが操作で分かれています。
-
-エラー例として、存在しないユーザーIDでの登録と、現在状態で許可されていない操作を試みます。
-
-```cpp
     cout << "--- エラー: 存在しないユーザー ---" << endl;
     svc.create("TCK004", "USR999");
     cout << "--- エラー: 許可されない操作 ---" << endl;
     svc.reopen("TCK003");           // InProgress からは再受付できない
     cout << "--- エラー: 未登録チケットID ---" << endl;
     svc.assign("TCK999", "AGT01");  // 保存されていないチケット
-```
-
-エラー例の実行結果：
-
-```
---- エラー: 存在しないユーザー ---
-エラー: ユーザーID USR999 は存在しません。
---- エラー: 許可されない操作 ---
-  操作不可: この状態では「再受付」できません。
---- エラー: 未登録チケットID ---
-エラー: チケットID TCK999 は存在しません。
-```
-
-許可されない操作は状態クラスが拒否し、状態も優先度も変わりません。要求ID5の受入条件はこの1行で確認できます。どの操作を許すかは各状態クラスが持つので、`TicketService` 側に「この状態のときは何ができるか」という分岐は残りません。
-
-最後に監査ログを出力し、`main()` を終了します。
-
-```cpp
     cout << "\n--- 監査ログ ---" << endl;
     log.printAll();
     return 0;
 }
 ```
 
-監査ログの実行結果：
+**継承・実装の地図**
 
-```
---- 監査ログ ---
-[TCK001] 作成 状態=Open 優先度=Normal
-[TCK002] 作成 状態=Open 優先度=High
-[TCK001] アサイン 状態=InProgress 優先度=Normal
-[TCK001] 解決 状態=Resolved 優先度=Normal
-[TCK001] 再受付 状態=Open 優先度=Normal
-[TCK002] アサイン 状態=InProgress 優先度=High
-[TCK002] エスカレーション 状態=Escalated 優先度=High
-[TCK002] 解決 状態=Resolved 優先度=High
-[TCK003] 作成 状態=Open 優先度=High
-[TCK003] 保留 状態=Pending 優先度=High
-[TCK003] 再受付 状態=Open 優先度=High
-[TCK003] アサイン 状態=InProgress 優先度=High
-[TCK003] 保留 状態=Pending 優先度=High
-[TCK003] 再受付 状態=Open 優先度=High
-[TCK003] アサイン 状態=InProgress 優先度=High
-[TCK003] エスカレーション 状態=Escalated 優先度=High
-[TCK003] 差し戻し 状態=InProgress 優先度=High
-[TCK001] エスカレーション 状態=Escalated 優先度=High
-[TCK001] 解決 状態=Resolved 優先度=High
-```
+以降の定義はクラス単位で並べます。どのクラスがどの契約を実装し、どの操作を上書きするかを先に一覧します。**上書きしない操作は、契約側の既定実装が拒否を返します。** 禁止の組み合わせはどこにも書きません。
 
-法人チケットTCK003の行を縦に読むと、作成・再受付のいずれでも優先度がHighであることが追えます。変更ID1「登録時と再受付時に法人はHigh」と変更ID2「再受付時は優先度を計算し直す」は、この監査ログで確認できます。一方、一般ユーザーのTCK001は末尾でエスカレーションによりHighへ上がっており、引き上げが契約区分によらないことも同じログで追えます。
+| 契約 `ITicketPhase` を実装 | 上書きする操作 | 上書きしない操作 |
+|---|---|---|
+| `OpenPhase`（受付中） | `assign` `hold` | 残り4つは既定の拒否 |
+| `InProgressPhase`（対応中） | `resolve` `escalate` `hold` | 残り3つは既定の拒否 |
+| `EscalatedPhase`（緊急対応中） | `resolve` `sendBack` | 残り4つは既定の拒否 |
+| `ResolvedPhase`（解決済み） | `reopen` | 残り5つは既定の拒否 |
+| `PendingPhase`（保留中） | `reopen` | 残り5つは既定の拒否 |
 
-行1〜8で、状態がチケットID単位で保存・追跡され、優先度が登録時に決まり、維持・引き上げ・計算し直しのどれで扱われたかが操作ごとに追え、担当者がアサインで保存されることを確認できます。TCK002はプレミアムなので全操作でHighのままです。変更要求の `Pending`（保留中）と法人向けの高優先度も落とさず追えています。
+優先度ルールは3クラスとも同じ形です。
 
+| 契約 `IPriorityRule` を実装 | 上書きする操作 | 返す値 |
+|---|---|---|
+| `CorporatePriority`（法人） | `getPriority` | `High` |
+| `PremiumPriority`（プレミアム） | `getPriority` | `High` |
+| `NormalPriority`（一般） | `getPriority` | `Normal` |
 
 **1. 組み立てで走る定義**
 
 `main()` の先頭で部品を作る時点で走るのが、次の3つのコンストラクタです。
+
+**`UserDatabase`（継承なし）**
 
 ```cpp
 UserDatabase::UserDatabase() {
@@ -2658,6 +2535,8 @@ UserDatabase::UserDatabase() {
 
 依頼者4名を登録します。USR004が変更要求で追加した法人ユーザーです。
 
+**`StaffDirectory`（継承なし）**
+
 ```cpp
 StaffDirectory::StaffDirectory() {
     names["AGT01"] = "山田 太郎";
@@ -2666,6 +2545,8 @@ StaffDirectory::StaffDirectory() {
 ```
 
 ヘルプデスク担当者2名を登録します。
+
+**`TicketPolicySet`（継承なし。8つの具体部品を所有）**
 
 ```cpp
 TicketPolicySet::TicketPolicySet() {
@@ -2686,25 +2567,45 @@ TicketPolicySet::TicketPolicySet() {
 - 配線を後から行うのは、状態が互いを指すため、生成時には相手がまだ存在しないからです
 - **状態遷移の規則が変わるとき開くのはここだけ**で、`TicketService` にも各状態クラスにも影響しません
 
+配線を受け取る側は、次の5クラスです。どれもメンバーへ代入するだけです。
+
+**`OpenPhase : public ITicketPhase` の配線受け口**
+
 ```cpp
 void OpenPhase::setInProgress(ITicketPhase* p) { inProgress = p; }
 void OpenPhase::setPending(ITicketPhase* p) { pending = p; }
+```
 
+**`InProgressPhase : public ITicketPhase` の配線受け口**
+
+```cpp
 void InProgressPhase::setResolved(ITicketPhase* p) { resolved = p; }
 void InProgressPhase::setEscalated(ITicketPhase* p) { escalated = p; }
 void InProgressPhase::setPending(ITicketPhase* p) { pending = p; }
+```
 
+**`EscalatedPhase : public ITicketPhase` の配線受け口**
+
+```cpp
 void EscalatedPhase::setResolved(ITicketPhase* p) { resolved = p; }
 void EscalatedPhase::setInProgress(ITicketPhase* p) { inProgress = p; }
+```
 
+**`ResolvedPhase : public ITicketPhase` と `PendingPhase : public ITicketPhase` の配線受け口**
+
+```cpp
 void ResolvedPhase::setOpen(ITicketPhase* p) { open = p; }
 
 void PendingPhase::setOpen(ITicketPhase* p) { open = p; }
 ```
 
-配線を受け取るだけの入り口です。受け取ったポインタは借用で、各状態クラスは破棄しません。
+受け取ったポインタは借用で、各状態クラスは破棄しません。
 
 **2. `main()` が呼ぶ公開操作の定義**
+
+ここからは `TicketService`（継承なし）の7つの公開操作です。
+
+**`TicketService::create()`**
 
 ```cpp
 void TicketService::create(const string& ticketId, const string& userId) {
@@ -2729,6 +2630,8 @@ void TicketService::create(const string& ticketId, const string& userId) {
 ```
 
 申請者を台帳で確認し、契約区分から初期優先度を決めてチケットを保存します。未登録のユーザーIDでは、保存にも監査ログにも進みません。**どの区分がどの優先度かは、この関数からは見えません。**
+
+**`TicketService::assign()`**
 
 ```cpp
 void TicketService::assign(const string& ticketId,
@@ -2762,6 +2665,8 @@ void TicketService::assign(const string& ticketId,
 - 現在状態へ `assign()` を尋ね、`nullptr`（この状態では不可）なら何もせずに戻ります
 - 状態を保存してから監査ログへ記録します。この順序は、記録だけが残って状態が変わっていない状態を作らないためです
 
+**`TicketService::resolve()` と `TicketService::hold()`**
+
 ```cpp
 void TicketService::resolve(const string& ticketId) {
     applyTransition(ticketId, repo.get(ticketId).phase->resolve(),
@@ -2775,6 +2680,8 @@ void TicketService::hold(const string& ticketId) {
 ```
 
 解決と保留は、状態を進めるだけで追加の保存項目がありません。現在状態へ尋ねた結果を共通処理へ渡すだけです。
+
+**`TicketService::applyTransition()`（内部の共通処理）**
 
 ```cpp
 void TicketService::applyTransition(const string& ticketId,
@@ -2804,6 +2711,8 @@ void TicketService::applyTransition(const string& ticketId,
 - 保存の直前にチケットIDの存在をもう一度確認します
 - 状態を保存してから監査ログへ記録します
 
+**`TicketService::escalate()`**
+
 ```cpp
 void TicketService::escalate(const string& ticketId) {
     if (!repo.exists(ticketId)) {  // 仕様のエラー条件
@@ -2831,6 +2740,8 @@ void TicketService::escalate(const string& ticketId) {
 ```
 
 エスカレーションだけは、状態に加えて優先度も変えます。**契約区分によらず `High` へ引き上げる**ため、優先度ルールへは尋ねません。共通処理を使わないのはこの一行があるからです。
+
+**`TicketService::reopen()`**
 
 ```cpp
 void TicketService::reopen(const string& ticketId) {
@@ -2861,6 +2772,8 @@ void TicketService::reopen(const string& ticketId) {
 
 再受付は、エスカレーションと逆に**優先度を契約区分から計算し直します**。引き上げたままにしないための処理で、これも共通処理を使わない理由です。
 
+**`TicketService::sendBack()`**
+
 ```cpp
 void TicketService::sendBack(const string& ticketId) {
     if (!repo.exists(ticketId)) {  // 仕様のエラー条件
@@ -2887,25 +2800,51 @@ void TicketService::sendBack(const string& ticketId) {
 
 **3. 公開操作から呼ばれる状態クラスの定義**
 
-上の7つはすべて「現在状態へ尋ねる」で共通しています。その尋ね先がここです。
+上の7つはすべて「現在状態へ尋ねる」で共通しています。その尋ね先が、`ITicketPhase` を実装する5クラスです。地図の表と見比べながら読んでください。
+
+**`OpenPhase : public ITicketPhase`（受付中）が上書きする操作**
 
 ```cpp
 ITicketPhase* OpenPhase::assign() { return inProgress; }
 ITicketPhase* OpenPhase::hold() { return pending; }
+```
 
+受付中が許可するのはアサインと保留の2つです。残り4操作は上書きしないので、`ITicketPhase` の既定実装が拒否を返します。
+
+**`InProgressPhase : public ITicketPhase`（対応中）が上書きする操作**
+
+```cpp
 ITicketPhase* InProgressPhase::resolve() { return resolved; }
 ITicketPhase* InProgressPhase::escalate() { return escalated; }
 ITicketPhase* InProgressPhase::hold() { return pending; }
+```
 
+対応中からは解決・エスカレーション・保留へ進めます。
+
+**`EscalatedPhase : public ITicketPhase`（緊急対応中）が上書きする操作**
+
+```cpp
 ITicketPhase* EscalatedPhase::resolve() { return resolved; }
 ITicketPhase* EscalatedPhase::sendBack() { return inProgress; }
+```
 
+緊急対応中からは解決と、対応中への差し戻しだけです。**アサインも保留もできません。** その規則は、ここに何も書かないことで表しています。
+
+**`ResolvedPhase : public ITicketPhase`（解決済み）が上書きする操作**
+
+```cpp
 ITicketPhase* ResolvedPhase::reopen() { return open; }
+```
 
+**`PendingPhase : public ITicketPhase`（保留中）が上書きする操作**
+
+```cpp
 ITicketPhase* PendingPhase::reopen() { return open; }
 ```
 
-許可する操作だけを上書きし、配線済みの遷移先を返します。**この10行が状態遷移表そのものです。** 禁止の組み合わせが1つも書かれていないことに注目してください。
+解決済みと保留中は、どちらも再受付で受付中へ戻るだけです。同じ1行でもクラスを分けているのは、戻る理由が違うからです。
+
+**`ITicketPhase` の既定実装（上書きされなかった操作が通る）**
 
 ```cpp
 ITicketPhase* ITicketPhase::assign() { return reject(EventType::Assign); }
@@ -2918,7 +2857,7 @@ ITicketPhase* ITicketPhase::hold() { return reject(EventType::Hold); }
 ITicketPhase* ITicketPhase::sendBack() { return reject("差し戻し"); }
 ```
 
-上書きされなかった操作が通る既定の実装です。状態が増えても、その状態が上書きしない操作は自動的に拒否されます。
+上の5クラスが上書きしなかった操作は、すべてここへ来ます。**状態が増えても、その状態が上書きしない操作は自動的に拒否されます。**
 
 ```cpp
 ITicketPhase* ITicketPhase::reject(const string& op) {
@@ -2929,6 +2868,8 @@ ITicketPhase* ITicketPhase::reject(const string& op) {
 ```
 
 拒否を1か所にまとめています。`nullptr` を返すことで、呼び出し側は「この状態では不可」を戻り値だけで判断できます。
+
+**5つの状態クラスの `name()`**
 
 ```cpp
 string OpenPhase::name() const { return statusName(TicketStatus::Open); }
@@ -2950,9 +2891,11 @@ string PendingPhase::name() const {
 }
 ```
 
-自分の状態名を返します。表示と監査ログの両方がこれを使います。
+自分の状態名を返します。`ITicketPhase::name()` は純粋仮想なので、5クラスすべてが必ず上書きします。表示と監査ログの両方がこれを使います。
 
 **4. 優先度ルールと台帳の定義**
+
+**`TicketPolicySet`（継承なし）の選択と初期状態**
 
 ```cpp
 IPriorityRule& TicketPolicySet::priorityRule(UserType type) {
@@ -2970,13 +2913,17 @@ ITicketPhase* TicketPolicySet::initialPhase() { return &openPhase; }
 
 契約区分から使うルールを選び、参照で返します。**区分が増えるときに足すのはこの3行の並びだけ**です。`initialPhase()` は新しいチケットの初期状態を返します。
 
+**`IPriorityRule` を実装する3クラス**
+
 ```cpp
 Priority CorporatePriority::getPriority() { return Priority::High; }
 Priority PremiumPriority::getPriority() { return Priority::High; }
 Priority NormalPriority::getPriority() { return Priority::Normal; }
 ```
 
-各区分の答えです。法人とプレミアムが `High`、一般が `Normal`。**同じ答えでもクラスを分けているのは、変わる理由が別だからです。** 法人のSLAが変わっても、プレミアムの扱いは動きません。
+`getPriority()` は純粋仮想なので、3クラスすべてが上書きします。法人とプレミアムが `High`、一般が `Normal`。**同じ答えでもクラスを分けているのは、変わる理由が別だからです。** 法人のSLAが変わっても、プレミアムの扱いは動きません。
+
+**`UserDatabase` と `StaffDirectory`（継承なし）の問い合わせ**
 
 ```cpp
 bool UserDatabase::exists(const string& id) const {
@@ -2986,7 +2933,9 @@ bool UserDatabase::exists(const string& id) const {
 UserInfo UserDatabase::get(const string& id) const {
     return records.at(id);
 }
+```
 
+```cpp
 string StaffDirectory::nameOf(const string& id) const {
     auto it = names.find(id);
     return it == names.end() ? id : it->second;
@@ -2994,6 +2943,8 @@ string StaffDirectory::nameOf(const string& id) const {
 ```
 
 台帳への問い合わせです。`nameOf()` だけは、未登録なら渡されたIDをそのまま返します。
+
+**`TicketRepository`（継承なし）**
 
 ```cpp
 bool TicketRepository::exists(const string& id) const {
@@ -3006,6 +2957,8 @@ void TicketRepository::save(const Ticket& t) { store[t.id] = t; }
 ```
 
 チケットの保存と取得です。`get()` が参照を返すため、呼び出し側は取得した実体を書き換えてから `save()` します。
+
+**`TicketEventLog`（継承なし）**
 
 ```cpp
 void TicketEventLog::add(const string& ticketId, const string& eventType,
@@ -3025,6 +2978,8 @@ void TicketEventLog::printAll() const {
 
 監査ログの追加と一覧です。`add()` は渡された値を1件積むだけで、状態を判断しません。
 
+**どのクラスにも属さない関数**
+
 ```cpp
 string statusName(TicketStatus status) {
     switch (status) {
@@ -3042,7 +2997,121 @@ string toString(Priority p) {
 }
 ```
 
-状態と優先度を表示用の文字列へ変えます。どのクラスにも属さず、表示と監査ログの両方から使います。
+状態と優先度を表示用の文字列へ変えます。表示と監査ログの両方から使います。
+
+##### 実行結果
+
+ここまでの定義をすべて連結して実行した結果です。`main()` の行の並びと突き合わせながら読みます。
+
+**行1〜行2：登録時に優先度が決まり保存される**
+
+```
+--- 行1: 依頼者 鈴木(standard)がTCK001を登録 ---
+[TCK001] 作成 申請者=鈴木 次郎 状態=Open 優先度=Normal
+--- 行2: 依頼者 佐藤(premium)がTCK002を登録 ---
+[TCK002] 作成 申請者=佐藤 花子 状態=Open 優先度=High
+```
+
+同じ `create()` を2回呼んだだけで、優先度が `Normal` と `High` に分かれました。分けたのは `TicketPolicySet::priorityRule()` が選んだルールで、`create()` 自身は区分を見ていません。
+
+**行3〜行5：TCK001をアサイン → 解決 → 再受付**
+
+```
+--- 行3: TCK001に担当者 山田をアサイン ---
+  アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
+--- 行4: TCK001を解決 ---
+  解決: 状態 InProgress → Resolved
+--- 行5: TCK001を再受付（優先度を再計算） ---
+  再受付: 状態 Resolved → Open 優先度=Normal
+```
+
+状態がID単位で保存され、次の操作が前の結果から始まっています。
+
+**行6〜行8：TCK002をアサイン → エスカレーション → 解決**
+
+```
+--- 行6: TCK002に担当者 高橋をアサイン ---
+  アサイン: 状態 Open → InProgress 担当=高橋 二郎(AGT02)
+--- 行7: TCK002をエスカレーション（緊急対応中へ） ---
+  エスカレーション: 状態 InProgress → Escalated 優先度=High
+--- 行8: TCK002を解決（緊急対応中→解決済み） ---
+  解決: 状態 Escalated → Resolved
+```
+
+`Escalated`（緊急対応中）を経由して解決へ進みます。プレミアムなので優先度は最初から `High` のままです。
+
+**変更要求：法人ユーザーの登録・保留・再受付・差し戻し**
+
+```
+--- 変更要求: 伊藤(corporate)のTCK003を登録し保留 ---
+[TCK003] 作成 申請者=伊藤 四郎 状態=Open 優先度=High
+  保留: 状態 Open → Pending
+--- 変更要求: TCK003を再受付し、アサイン・保留・エスカレーション ---
+  再受付: 状態 Pending → Open 優先度=High
+  アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
+  保留: 状態 InProgress → Pending
+  再受付: 状態 Pending → Open 優先度=High
+  アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
+  エスカレーション: 状態 InProgress → Escalated 優先度=High
+  差し戻し: 状態 Escalated → InProgress
+```
+
+変更ID1「登録時と再受付時に法人はHigh」と変更ID2「再受付時は優先度を計算し直す」を、同じ法人チケットで通して確認できます。保留は `Open` からも `InProgress` からも入れます。
+
+**一般ユーザーの優先度が上がって戻る**
+
+```
+--- 一般ユーザーの優先度が上がって戻る ---
+  アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
+  エスカレーション: 状態 InProgress → Escalated 優先度=High
+  解決: 状態 Escalated → Resolved
+  再受付: 状態 Resolved → Open 優先度=Normal
+```
+
+エスカレーションで `Normal` から `High` へ上がり、再受付で `Normal` へ戻りました。引き上げは `TicketService::escalate()` が持ち、計算し直しは `TicketPolicySet` 経由のルールが持ちます。**同じ優先度という値でも、誰が決めるかが操作で分かれています。**
+
+**エラー3種**
+
+```
+--- エラー: 存在しないユーザー ---
+エラー: ユーザーID USR999 は存在しません。
+--- エラー: 許可されない操作 ---
+  操作不可: この状態では「再受付」できません。
+--- エラー: 未登録チケットID ---
+エラー: チケットID TCK999 は存在しません。
+```
+
+許可されない操作は状態クラスが拒否し、状態も優先度も変わりません。どの操作を許すかは各状態クラスが持つので、`TicketService` 側に「この状態のときは何ができるか」という分岐は残りません。
+
+**監査ログ**
+
+```
+
+--- 監査ログ ---
+[TCK001] 作成 状態=Open 優先度=Normal
+[TCK002] 作成 状態=Open 優先度=High
+[TCK001] アサイン 状態=InProgress 優先度=Normal
+[TCK001] 解決 状態=Resolved 優先度=Normal
+[TCK001] 再受付 状態=Open 優先度=Normal
+[TCK002] アサイン 状態=InProgress 優先度=High
+[TCK002] エスカレーション 状態=Escalated 優先度=High
+[TCK002] 解決 状態=Resolved 優先度=High
+[TCK003] 作成 状態=Open 優先度=High
+[TCK003] 保留 状態=Pending 優先度=High
+[TCK003] 再受付 状態=Open 優先度=High
+[TCK003] アサイン 状態=InProgress 優先度=High
+[TCK003] 保留 状態=Pending 優先度=High
+[TCK003] 再受付 状態=Open 優先度=High
+[TCK003] アサイン 状態=InProgress 優先度=High
+[TCK003] エスカレーション 状態=Escalated 優先度=High
+[TCK003] 差し戻し 状態=InProgress 優先度=High
+[TCK001] アサイン 状態=InProgress 優先度=Normal
+[TCK001] エスカレーション 状態=Escalated 優先度=High
+[TCK001] 解決 状態=Resolved 優先度=High
+[TCK001] 再受付 状態=Open 優先度=Normal
+```
+
+法人チケットTCK003の行を縦に読むと、作成・再受付のいずれでも優先度がHighであることが追えます。一方、一般ユーザーのTCK001は末尾でエスカレーションによりHighへ上がっており、引き上げが契約区分によらないことも同じログで追えます。
 
 #### 変更後の状態遷移仕様との照合
 
