@@ -218,11 +218,10 @@ flowchart LR
 |---|---|---|
 | `ProductDatabase` | 商品マスタを保持し、在庫数・アラート閾値を提供する | 商品IDの存在確認、在庫数と閾値の参照 |
 | `ProductInfo` | 商品1件分の在庫情報を表す | 商品名・在庫数・通知閾値の受け渡し |
-| `CurrentDeliveryReceipt` | 現行通知手段の受付結果を表す | 受付可否と通知手段名の受け渡し |
 | `InventoryManager` | 在庫数を管理し、必要な通知を呼び出す | 在庫更新、閾値判定、通知実行 |
-| `EmailNotifier` | メール通知を送る | メール通知 |
-| `DashboardUpdater` | ダッシュボード表示を更新する | 管理画面への反映 |
-| `ChatNotifier` | チャット通知を送る | チャット連絡 |
+| `EmailNotifier` | メール通知を送る（件名と本文を受け、成否を真偽値で返す） | メール通知 |
+| `DashboardUpdater` | ダッシュボード表示を更新する（商品コードと在庫数を受け、戻り値は無い） | 管理画面への反映 |
+| `ChatNotifier` | チャット通知を送る（投稿先と本文を受け、投稿IDを返す） | チャット連絡 |
 
 各クラスの責任を把握したところで、クラス同士の関係を図で確認します。
 
@@ -235,16 +234,16 @@ classDiagram
         -ProductDatabase db
         +reduceStock(productId, quantity)
         +replenishStock(productId, quantity)
-        -notifyAll(message)
+        -notifyAll(productId, info)
     }
     class EmailNotifier {
-        +send(message) CurrentDeliveryReceipt
+        +sendMail(subject, body) bool
     }
     class DashboardUpdater {
-        +update(message) CurrentDeliveryReceipt
+        +refreshStockWidget(productCode, stock) void
     }
     class ChatNotifier {
-        +send(message) CurrentDeliveryReceipt
+        +postMessage(channel, text) string
     }
     class ProductDatabase {
         +exists(id)
@@ -257,19 +256,12 @@ classDiagram
         +stock int
         +alertThreshold int
     }
-    class CurrentDeliveryReceipt {
-        +accepted bool
-        +channel string
-    }
     InventoryManager --> EmailNotifier
     InventoryManager --> DashboardUpdater
     InventoryManager --> ChatNotifier
     InventoryManager --> ProductDatabase : 存在確認・閾値判定
     ProductDatabase *-- ProductInfo : 商品ID別に保存
     InventoryManager ..> ProductInfo : 取得・更新
-    EmailNotifier ..> CurrentDeliveryReceipt : 返す
-    DashboardUpdater ..> CurrentDeliveryReceipt : 返す
-    ChatNotifier ..> CurrentDeliveryReceipt : 返す
 
 ```
 
@@ -278,11 +270,11 @@ classDiagram
 | クラス | メンバー・操作 | 何ができるか |
 |---|---|---|
 | `InventoryManager` | `reduceStock()` / `replenishStock()` | 商品マスタの現在在庫を減少、補充する |
-| `InventoryManager` | `notifyAll()` | 出庫後の在庫がしきい値以下のとき、各通知先へ通知する |
+| `InventoryManager` | `notifyAll()` | 出庫後の在庫がしきい値以下のとき、手段ごとに違う引数を組み立てて各通知先を呼び分け、違う戻り値をそれぞれ解釈する |
 | `ProductDatabase` | `exists()` / `get()` / `save()` / `isBelowThreshold()` | 商品ID・現在在庫・しきい値を一元管理する |
-| `EmailNotifier` | `send()` | メール通知を送る |
-| `DashboardUpdater` | `update()` | ダッシュボード表示を更新する |
-| `ChatNotifier` | `send()` | チャット通知を送る |
+| `EmailNotifier` | `sendMail(subject, body)` | メール通知を送り、送れたかを `bool` で返す |
+| `DashboardUpdater` | `refreshStockWidget(productCode, stock)` | 在庫数で画面を描き直す。戻り値が無く、成否を確かめられない |
+| `ChatNotifier` | `postMessage(channel, text)` | 投稿先へ本文を送り、投稿IDを返す。空文字列が失敗を表す |
 
 
 この図が示す通り、InventoryManager という単一のクラスが、通知先であるすべてのクラス（メール、ダッシュボード、チャット）を直接保持している構成になっています。
@@ -351,9 +343,9 @@ sequenceDiagram
 |---|---|---|
 | `ProductDatabase` | 商品IDで在庫と閾値を読み書きする | `InventoryManager`から参照・更新される |
 | `InventoryManager` | 入力検証、在庫更新、閾値判定、通知開始を調整する | 商品DBと3通知クラスを保持して呼ぶ |
-| 3つの通知クラス | 同じ在庫警告を受け取る | `notifyAll()`から個別メソッドを呼ばれる |
+| 3つの通知クラス | 同じ在庫警告を、手段ごとに違う形の引数で受け取る | `notifyAll()`から名前も引数も戻り値も違う個別メソッドを呼ばれる |
 
-通知は同期的に3クラスへ順番実行します。現状には通知先の登録一覧や登録解除操作はなく、`notifyAll()` が3つの具体クラスを名指しします。
+通知は同期的に3クラスへ順番実行します。現状には通知先の登録一覧や登録解除操作はなく、`notifyAll()` が3つの具体クラスを名指しします。3つは提供元が違うため呼び方がそろっておらず、引数の組み立てと戻り値の解釈も `notifyAll()` の側にあります。
 
 在庫が減った際に各通知先へメッセージを送る処理をシミュレートしています。
 
@@ -414,45 +406,61 @@ public:
 
 **(2) 通知先クラス（EmailNotifier / DashboardUpdater / ChatNotifier）**
 
-次に、1-1の3つの通知先にあたる部分です。それぞれ独立した送信クラスで、実際のメール・ダッシュボード・チャットへの送信を標準出力で代替します。各クラスの `inbox` は、要求ID3どおり同じ通知を各手段が1件ずつ受け取ったことを確認するテスト用の観測点です。出力の「1件」は業務通知の本文ではなく、この章のスタブが受信回数を検証するための実行ログです。
+次に、1-1の3つの通知先にあたる部分です。3つは導入時期も提供元も違うため、**呼び方がそろっていません**。関数名、引数、戻り値のどれもが手段ごとに違います。この違いは作り話ではなく、別々に導入した外部基盤を1つのシステムから使うときに実際に起きることです。実際のメール・ダッシュボード・チャットへの送信は標準出力で代替します。各クラスが数える件数は、要求ID3どおり同じ通知を各手段が1件ずつ受け取ったことを確認するテスト用の観測点です。
 
 ```cpp
-struct CurrentDeliveryReceipt {
-    bool accepted;
-    string channel;
-};
+// 3つの通知基盤は導入時期も提供元も違い、呼び方がそろっていない。
+// 関数名・引数・戻り値のどれもが手段ごとに異なる。
 
-// 各通知先の具体的な実装（受け取った通知を実際に蓄積する）
+// メール基盤：件名と本文が分かれ、送れたかどうかだけを返す
 class EmailNotifier {
     vector<string> inbox;
 public:
-    CurrentDeliveryReceipt send(string m) {
-        inbox.push_back(m);
-        cout << "Email(" << inbox.size() << "件): " << m << endl;
-        return {true, "Email"};
+    bool sendMail(const string& subject, const string& body) {
+        inbox.push_back(body);
+        cout << "Email(" << inbox.size() << "件) [" << subject << "] "
+             << body << endl;
+        return true;
     }
 };
+
+// 社内ダッシュボード：文言ではなく商品コードと在庫数を受け取る。
+// 画面を描き直すだけなので、成否を返さない
 class DashboardUpdater {
-    vector<string> inbox;
+    int refreshCount;
 public:
-    CurrentDeliveryReceipt update(string m) {
-        inbox.push_back(m);
-        cout << "Dashboard(" << inbox.size() << "件): " << m << endl;
-        return {true, "Dashboard"};
+    DashboardUpdater() : refreshCount(0) {}
+    void refreshStockWidget(const string& productCode, int stock) {
+        ++refreshCount;
+        cout << "Dashboard(" << refreshCount << "件): " << productCode
+             << " の在庫表示を " << stock << " に更新" << endl;
     }
 };
+
+// チャット基盤：投稿先チャンネルが要り、投稿IDを返す。
+// 空の投稿IDが失敗を表す
 class ChatNotifier {
-    vector<string> inbox;
+    vector<string> posted;
 public:
-    CurrentDeliveryReceipt send(string m) {
-        inbox.push_back(m);
-        cout << "Chat(" << inbox.size() << "件): " << m << endl;
-        return {true, "Chat"};
+    string postMessage(const string& channel, const string& text) {
+        posted.push_back(text);
+        string postId = "POST-" + to_string(posted.size());
+        cout << "Chat(" << posted.size() << "件) #" << channel << ": "
+             << text << " -> " << postId << endl;
+        return postId;
     }
 };
 ```
 
-通知先クラスはそれぞれ独立した送信メソッドを持っていますが、メソッド名が `send` と `update` で統一されていません。現行仕様でも送信結果を握りつぶさないよう、各固有メソッドは `CurrentDeliveryReceipt` を返します。ただし共通インターフェースはなく、通知元が具体メソッドを呼び分けて結果を並べる必要があります。
+3つの違いを並べると、そろっていないのが名前だけではないことが分かります。
+
+| 通知手段 | 関数名 | 引数 | 戻り値と、失敗の表し方 |
+|---|---|---|---|
+| メール | `sendMail` | 件名と本文の2つ | `bool`。`false` が失敗 |
+| ダッシュボード | `refreshStockWidget` | 商品コードと在庫数 | `void`。**失敗を表せない** |
+| チャット | `postMessage` | 投稿先と本文 | `string`（投稿ID）。空文字列が失敗 |
+
+引数の形が違うので、通知元は手段ごとに違う値を組み立てなければなりません。メールへ渡す本文とチャットへ渡す本文は同じ文言ですが、ダッシュボードは文言を受け取らず在庫数そのものを受け取ります。戻り値の意味も3通りで、ダッシュボードにいたっては送れたかどうかを確かめる手段がありません。共通インターフェースは無く、通知元がこの違いを全部知って呼び分けています。
 
 **(3) 在庫を管理するクラス（InventoryManager）**
 
@@ -491,9 +499,7 @@ public:
              << before << " -> " << info.stock << endl;
 
         if (db.isBelowThreshold(productId, info.stock)) {
-            string message = "商品 " + productId + "（" + info.name + "）"
-                           + " の在庫が閾値以下です。";
-            notifyAll(message);
+            notifyAll(productId, info);
         }
     }
 
@@ -514,23 +520,32 @@ public:
     }
 
 private:
-    void notifyAll(string message) {
-        // 通知先が増えるたびに、ここが修正される
-        CurrentDeliveryReceipt results[] = {
-            email.send(message),
-            dashboard.update(message),
-            chat.send(message)
-        };
-        for (const auto& result : results) {
-            if (!result.accepted) {
-                cout << "[通知受付失敗] " << result.channel << endl;
-            }
+    void notifyAll(const string& productId, const ProductInfo& info) {
+        // 通知先が増えるたびに、ここが修正される。
+        // 3つの基盤は引数の形も戻り値の意味も違うので、
+        // 呼び分けと結果の解釈をこのメソッドが全部引き受けている。
+        string message = "商品 " + productId + "（" + info.name + "）"
+                       + " の在庫が閾値以下です。";
+
+        // メールは件名と本文に分け、真偽値で成否を見る
+        if (!email.sendMail("在庫アラート", message)) {
+            cout << "[通知受付失敗] Email" << endl;
+        }
+
+        // ダッシュボードは文言を受け取らず、成否も返さない。
+        // 送れたかどうかを確かめる手段がない
+        dashboard.refreshStockWidget(productId, info.stock);
+
+        // チャットは投稿先が要り、空の投稿IDが失敗を表す
+        string postId = chat.postMessage("inventory-alert", message);
+        if (postId.empty()) {
+            cout << "[通知受付失敗] Chat" << endl;
         }
     }
 };
 ```
 
-`notifyAll()` が3つの通知先を名指しで直接呼び出しています。この `notifyAll()` が、通知先が増えるたびに修正される箇所です。
+`notifyAll()` が3つの通知先を名指しで直接呼び出しています。呼ぶだけでなく、手段ごとに違う引数を組み立て、違う戻り値をそれぞれの流儀で解釈するところまで引き受けています。この `notifyAll()` が、通知先が増えるたびに修正される箇所です。
 
 **(4) 実行して動作例と照合する（main）**
 
@@ -563,9 +578,9 @@ int main() {
 ```text
 --- 行2: PRD002を1減らす ---
 商品 PRD002（USBハブ） の在庫を 1 減らしました。在庫: 3 -> 2
-Email(1件): 商品 PRD002（USBハブ） の在庫が閾値以下です。
-Dashboard(1件): 商品 PRD002（USBハブ） の在庫が閾値以下です。
-Chat(1件): 商品 PRD002（USBハブ） の在庫が閾値以下です。
+Email(1件) [在庫アラート] 商品 PRD002（USBハブ） の在庫が閾値以下です。
+Dashboard(1件): PRD002 の在庫表示を 2 に更新
+Chat(1件) #inventory-alert: 商品 PRD002（USBハブ） の在庫が閾値以下です。 -> POST-1
 ```
 
 続いて、行3（PRD001を20補充する）を実行します。
@@ -623,12 +638,12 @@ Chat(1件): 商品 PRD002（USBハブ） の在庫が閾値以下です。
 | 商品ID | `reduceStock()` / `replenishStock()` | `exists()` / `get()` / `save()` | 対象商品の在庫更新、または未登録IDエラーになる |
 | 出庫・補充数量 | 同じ2メソッドの`quantity` | 正数・在庫不足の検証と在庫の加減算 | 更新前後の在庫数に差として現れる |
 | 商品ごとの閾値 | `ProductInfo::alertThreshold` | `isBelowThreshold()` | 更新後在庫が閾値以下のときだけ通知される |
-| 3つの通知手段 | `InventoryManager`のメンバー | `notifyAll()`が各具体メソッドを呼ぶ | 3つの受信件数が増える |
+| 3つの通知手段 | `InventoryManager`のメンバー | `notifyAll()`が手段別に引数を組み立てて各具体メソッドを呼ぶ | 3つの受信件数が増える。ダッシュボードだけは成否が返らない |
 
 動作例テーブルの各行について、在庫が閾値以下になった減少では3通知先へ送信され、
 補充では通知されず、在庫0・未登録IDはエラーになることを確認できました。
-同時に、`InventoryManager` が通知先のクラス名と呼び出し方をすべて直接
-知っていることも分かります。
+同時に、`InventoryManager` が通知先のクラス名、引数の形、戻り値の意味を
+すべて直接知っていることも分かります。
 
 ---
 ---
