@@ -1306,6 +1306,21 @@ flowchart TB
 
 第0章の「設計の醍醐味」の四拍子でいえば、この章は〈3つの変わる理由の共通契約を見つけて分離〉→〈本文・装飾・操作の部品を生成〉→〈`ReportApplication`／`ReportAssembler` が組み立てて注入〉→〈実行側は契約だけを呼ぶ〉という同じ順序をたどります。
 
+#### 構造ポイントの全貌 ―― どの責任がどこへ移るか
+
+課題ID1〜課題ID3の①〜⑥が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この表で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID節に同じ番号で置きます。
+
+| ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
+|---|---|---|---|
+| ① 契約 | `ReportGenerator` が本文・装飾・履歴を直接持つ → `IReport::create()` と `IReportAction::execute()` / `undo()` | 文書生成と操作記録を別々の契約へ切り出す | ③のoverride |
+| ② 骨格 | `execute()` に共通順と分岐が同居 → `ReportSkeleton::create()` の共通順、`ReportFeature::create()` の委譲、`ReportActionHistory::submit()` の所有→実行 | 本文・装飾・履歴それぞれで変えない制御順を固定する | ①の `create()` / `execute()` |
+| ③ 具体 | 分岐に埋もれた本文選択と装飾 → `ExecutiveMonthlyReport::renderBody()`、`GraphFeature::create()`、`GenerateReportAction::execute()` | 本文・装飾・操作の差分だけを実装へ閉じる | ①経由で②へ戻る |
+| ④ 生成 | `execute()` 内の分岐生成 → `ReportAssembler::assemble()` と `ReportApplication` | 本文選択・装飾連結・Action生成を組み立て側へ集める | ⑤の受渡行 |
+| ⑤ 注入 | 生成本体が部品を自前で持つ → `assembler(reader, renderer)`、`new GenerateReportAction(service, request)` | 部品と依存を外から渡す（所有は④のまま） | ⑥が呼ぶ公開操作 |
+| ⑥ 利用開始 | 呼び出し側がテンプレートIDと装飾順を知る → `ReportGenerationService::generate()` の `report->create();` | ④⑤で組み立てた同じ実体を使い、契約を1回呼ぶ | ②の `create()` |
+
+この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（①→⑥）ではなく④→⑤→⑥→②→①→③で、課題ID節の末尾に実行接続表として置きます。
+
 #### 接続点の分離・配置・組み立てを決める
 
 具体クラスへ入る前に、3つの課題を「どう分け、どこへ置き、どう組み立てるか」という同じ3観点で一度に見渡します。まだ実装はしません。各課題が最終構造のどこへ着地するかの地図です。

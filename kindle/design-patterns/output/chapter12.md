@@ -1336,6 +1336,21 @@ flowchart TB
 
 第0章の「設計の醍醐味」の四拍子でいえば、この章は〈状態・通知・判定の共通契約を見つけて3軸を分離〉→〈各部品を生成〉→〈保持・登録・注入〉→〈ワークフロー進行は具体を意識しない〉という同じ順序をたどります。
 
+#### 構造ポイントの全貌 ―― どの責任がどこへ移るか
+
+課題ID1〜課題ID3の①〜⑥が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この表で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID節に同じ番号で置きます。
+
+| ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
+|---|---|---|---|
+| ① 契約 | `WorkflowManager::process()` の巨大 `if-else` → `IWorkflowPhase::handle()`、`INotificationListener::onStatusChanged()`、`IApprovalRule::canApprove()` | 状態・通知・承認判定を別々の契約へ切り出す | ③のoverride |
+| ② 骨格 | 状態・通知・判定が同居する `process()` → `process()` は委譲だけ、`transitionTo()` は保存と一律配布だけ | 3軸が増えても変えない制御順を固定する | ①の各契約 |
+| ③ 具体 | 分岐に埋もれた経路・通知・上限判定 → `DraftPhase::handle()`、`EmailNotifier::onStatusChanged()`、`DepartmentApprovalRule::canApprove()` | 状態別遷移・通知手段・判定規則を実装へ閉じる | ②の `transitionTo()` へ戻る |
+| ④ 生成 | `WorkflowManager` が全分岐を内包 → `BatchApplication` が Phase・Listener・Rule を生成・所有 | 具体の生成を組み立て側へ集める | ⑤の受渡行 |
+| ⑤ 注入 | 利用側が経路と通知先を判定 → `WorkflowManager wm(cases, resolver);`、`wm.addListener(&email);`、`PendingPhase pending(managerRule);` | 契約を借用参照として渡す・登録する（所有は④のまま） | ⑥が呼ぶ `process()` |
+| ⑥ 利用開始 | 呼び出し側が状態名と通知先を知る → `wm.process(WorkflowEvent::Submit);` | ④⑤で組み立てた同じ実体を使い、公開操作を1回呼ぶ | ②の `process()` |
+
+この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（①→⑥）ではなく④→⑤→⑥→②→①→③で、課題ID節の末尾に実行接続表として置きます。
+
 #### 接続点の分離・配置・組み立てを決める
 
 具体クラスへ入る前に、課題ID1〜課題ID3を「どう分け、どこへ置き、どう組み立てるか」という同じ三観点で一度に見渡します。まだ実装はしません。各課題が最終構造のどこへ着地するかの地図です。
