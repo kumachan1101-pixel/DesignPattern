@@ -945,35 +945,40 @@ struct TrialDeliveryResult {
 
 **[試行2] 既存の三つの通知先**
 
-現行コードの固有メソッドをそのまま使うため、呼び方だけでなく戻り値も `bool`・`int`・`string` と揃っていません。通知元が各結果の意味を個別に解釈します。
+1-4の3クラスをそのまま使います。関数名も引数も戻り値もそろっていないので、通知元が手段ごとに引数を組み立て、戻り値の意味も個別に解釈することになります。
 
 ```cpp
+// 1-4のまま。件名と本文に分かれ、成否は真偽値
 class EmailNotifier {
 public:
-    bool send(const StockAlert& a) {
-        std::cout << "[Email] 件名:在庫不足 / " << a.productName
-                  << " 残" << a.stock << " 閾値" << a.threshold
+    bool sendMail(const std::string& subject, const std::string& body) {
+        std::cout << "[Email] 件名:" << subject << " / " << body
                   << std::endl;
         return true;
     }
 };
 
+// 1-4のまま。商品コードと在庫数を受け取り、成否を返さない
 class DashboardUpdater {
 public:
-    int update(const std::string& productId, int stock) {
-        std::cout << "[Dashboard] " << productId
+    void refreshStockWidget(const std::string& productCode, int stock) {
+        std::cout << "[Dashboard] " << productCode
                   << " | 残" << stock << " | 要発注" << std::endl;
-        return 1;
     }
 };
 
+// 1-4のまま。投稿先が要り、空の投稿IDが失敗
 class ChatNotifier {
+    int posted;
 public:
-    std::string send(const StockAlert& a) {
-        std::cout << "[Chat] " << a.productName
-                  << " 残" << a.stock
-                  << "個。発注を確認してください。" << std::endl;
-        return "ACCEPTED";
+    ChatNotifier() : posted(0) {}
+    std::string postMessage(const std::string& channel,
+                            const std::string& text) {
+        ++posted;
+        std::string postId = "POST-" + std::to_string(posted);
+        std::cout << "[Chat] #" << channel << " " << text
+                  << " -> " << postId << std::endl;
+        return postId;
     }
 };
 ```
@@ -1006,7 +1011,7 @@ public:
 
 **[試行4] 変更後の通知元**
 
-結果を受け取るところまで実装すると、`InventoryManager` へSMSの生成・固有メソッド呼び出し・状態判定・集計が入り込みます。
+結果を受け取るところまで実装すると、`InventoryManager` へSMSの生成・固有メソッド呼び出し・状態判定・集計が入り込みます。既存3手段ぶんの引数組み立てと戻り値の解釈も、同じメソッドの中に並びます。
 
 ```cpp
 class InventoryManager {
@@ -1048,9 +1053,20 @@ private:
     void notifyAll(const StockAlert& alert) {
         int accepted = 0, pending = 0, failed = 0;
 
-        if (email.send(alert)) accepted++;
-        if (dashboard.update(alert.productId, alert.stock) == 1) accepted++;
-        if (chat.send(alert) == "ACCEPTED") accepted++;
+        // 手段ごとに違う引数を組み立て、違う戻り値を個別に解釈する
+        std::string body = alert.productName + " 残" +
+                           std::to_string(alert.stock) + " 閾値" +
+                           std::to_string(alert.threshold);
+
+        if (email.sendMail("在庫不足", body)) accepted++;
+        else failed++;
+
+        // ダッシュボードは成否を返さないので、成功として数えるしかない
+        dashboard.refreshStockWidget(alert.productId, alert.stock);
+        accepted++;
+
+        if (!chat.postMessage("inventory-alert", body).empty()) accepted++;
+        else failed++;
 
         TrialDeliveryResult smsResult = sms.requestAsync(alert);
         if (smsResult.status == TRIAL_PENDING) {
@@ -1095,14 +1111,14 @@ int main() {
 ```
 [Email] 件名:在庫不足 / USBハブ 残2 閾値5
 [Dashboard] PRD002 | 残2 | 要発注
-[Chat] USBハブ 残2個。発注を確認してください。
+[Chat] #inventory-alert USBハブ 残2 閾値5 -> POST-1
 [SMS受付] 在庫警告 PRD002 残2 受付ID:SMS-1
 [受付結果] 成功:3 保留:1 失敗:0
 [SMS最終結果] SMS-1: PENDING -> DELIVERED
 --- SMS受付失敗 ---
 [Email] 件名:在庫不足 / USBハブ 残1 閾値5
 [Dashboard] PRD002 | 残1 | 要発注
-[Chat] USBハブ 残1個。発注を確認してください。
+[Chat] #inventory-alert USBハブ 残1 閾値5 -> POST-1
 [SMS] 受付失敗 PRD002
 [受付結果] 成功:3 保留:0 失敗:1
 ```
@@ -1160,7 +1176,7 @@ graph LR
 
 フェーズ3で確認した「変更の辛さ」は、コードのどこから来ているのでしょうか。コードを注意深く観察すると、痛みを引き起こしている2つの事実が浮かび上がってきます。
 
-第一に、新しい通知先を追加するとき、なぜ毎回 `InventoryManager` を開かなければならないのでしょうか？それは、このクラス自身が「EmailNotifier に send する」「DashboardUpdater に update する」「ChatNotifier に send する」といった**具体的な通知先の名前と送信方法を全部直接知ってしまっている（抱え込んでいる）**からです。
+第一に、新しい通知先を追加するとき、なぜ毎回 `InventoryManager` を開かなければならないのでしょうか？それは、このクラス自身が「`EmailNotifier` へは件名と本文を渡して真偽値を見る」「`DashboardUpdater` へは商品コードと在庫数を渡すが成否は分からない」「`ChatNotifier` へは投稿先と本文を渡して投稿IDの空を見る」といった**手段ごとに違う呼び方と結果の読み方を全部直接知ってしまっている（抱え込んでいる）**からです。
 
 第二に、なぜ変更の影響範囲が読めず、修正を重ねるたびに不安を感じるのでしょうか？それは、「在庫が減った」というイベントの管理という本来の骨格ロジックと、「誰にどうやって知らせるか」という通知先ごとの実装が、**同じクラスの中で物理的に混ざり合っている**からです。
 
@@ -1225,9 +1241,9 @@ private:
 
 現在の`InventoryManager`が、通知先について何を知っているかを確認します。
 
-`InventoryManager`は、`EmailNotifier`や`ChatNotifier`というクラス名に加え、通知先ごとに異なるメソッド名と呼び出し順序まで知っています。ここへSMSの非同期・受付失敗を素直に足そうとすると、通知先ごとの成否や待ち方まで通知元が知ることになります。接続点で必要なのは「メッセージを通知し、受付結果を1つ受け取ること」だけです。
+`InventoryManager`は、`EmailNotifier`や`ChatNotifier`というクラス名に加え、手段ごとに違う**3つのこと**を知っています。呼ぶ関数の名前（`sendMail` / `refreshStockWidget` / `postMessage`）、渡す引数の形（件名と本文／商品コードと在庫数／投稿先と本文）、そして返る値の意味（真偽値／無し／投稿IDの空判定）です。ここへSMSの非同期・受付失敗を素直に足そうとすると、4つ目の流儀として「受付IDと保留状態」まで通知元が知ることになります。接続点で必要なのは「在庫警告を1件渡し、受付結果を1つ受け取ること」だけです。
 
-新しい通知先を追加すると、通知元へメンバー変数・初期化・呼び出しを追加する必要があります。通知先の種類・送信方法・同期非同期の別・受付成否が通知元へ漏れているためです。これらを通知先側と結果オブジェクトへ寄せれば、通知元はイベント発生と受付結果の集約だけに集中できます。
+新しい通知先を追加すると、通知元へメンバー変数・初期化・呼び出しを追加する必要があります。通知先の種類・関数名・引数の形・戻り値の意味・同期非同期の別が通知元へ漏れているためです。とくに引数の形と戻り値の意味は、通知先ごとに翻訳が要る差です。ダッシュボードは成否を返さないため、通知元は「成功として数えるしかない」という判断まで抱えています。これらの翻訳を通知先側へ寄せ、結果を1つの型で受け取れるようにすれば、通知元はイベント発生と受付結果の集約だけに集中できます。
 
 現状の InventoryManager と各通知先は、その「変わる理由」が異なります。このまま密接に接続させておくと、一方の変更がもう一方に波及し続けます。両者を切り離して疎な関係にすることが、根本原因への対処になります。
 
@@ -1235,14 +1251,14 @@ private:
 
 ---
 > **📌 原因（確定）**
-> `InventoryManager`が通知先のクラス名・送信メソッド・同期非同期の別・受付成否まで知っている。通知先を追加したり、非同期や部分失敗が加わるたびに、在庫管理のクラスへメンバー・初期化・呼び出し・成否分岐を追加する必要がある。
+> `InventoryManager`が通知先のクラス名・関数名・引数の形・戻り値の意味・同期非同期の別まで知っている。3手段はもともと提供元が違い呼び方がそろっていないため、通知元が手段ごとの翻訳を引き受けている。通知先を追加したり、非同期や部分失敗が加わるたびに、在庫管理のクラスへメンバー・初期化・引数の組み立て・戻り値の解釈を追加する必要がある。
 ---
 
 フェーズ3の問題IDに対応づけて、構造上の原因へ`原因ID`を付けます。次のフェーズ5は、この原因IDから課題IDを導きます。
 
 | 原因ID | 構造上の原因（何が同じ責任へ集まっているか） | 対応する問題ID |
 |---|---|---|
-| 原因ID1 | `InventoryManager` が通知先のクラス名・送信メソッド・同期非同期・受付成否まで持ち、在庫管理の骨格と通知手段が同居している | 問題ID1・問題ID2・問題ID3 |
+| 原因ID1 | `InventoryManager` が通知先のクラス名・関数名・引数の形・戻り値の意味・同期非同期まで持ち、在庫管理の骨格と手段ごとの翻訳が同居している | 問題ID1・問題ID2・問題ID3 |
 
 「何が痛いか（問題）」と「なぜ痛いか（原因）」が揃いました。次のフェーズ5では、「何を切り離す必要があるか（課題）」を、接続点で流れるデータのレベルで言語化します。
 
@@ -2076,30 +2092,48 @@ public:
 `INotification` を実装する具体的な通知先クラスを、個別に見ていきます。
 
 ```cpp
-// 通知先1：メール通知（同期。受け取った通知を蓄積する）
+// 通知先1：メール通知（同期）
+// メール基盤の呼び方（件名と本文、真偽値）は1-4のまま変えない。
+// 契約からその形へ変換する責任を、このクラスの中へ引き取る。
 class EmailNotifier : public INotification {
     vector<string> inbox;
+
+    // 1-4と同じメール基盤の操作
+    bool sendMail(const string& subject, const string& body) {
+        inbox.push_back(body);
+        cout << "Email(" << inbox.size() << "件) [" << subject << "] "
+             << body << endl;
+        return true;
+    }
 public:
     DeliveryResult send(const StockAlert& a) override {
-        string text = "件名:在庫不足 / " + a.productName
-                    + "(" + a.productId + ") 残" + to_string(a.stock)
-                    + " 閾値" + to_string(a.threshold);
-        inbox.push_back(text);
-        cout << "Email(" << inbox.size() << "件): " << text << endl;
-        return {ACCEPTED, "Email", ""};
+        string body = a.productName + "(" + a.productId + ") 残"
+                    + to_string(a.stock) + " 閾値" + to_string(a.threshold);
+        bool ok = sendMail("在庫不足", body);   // 契約→メール基盤へ変換
+        return ok ? DeliveryResult{ACCEPTED, "Email", ""}
+                  : DeliveryResult{FAILED, "Email", ""};
     }
 };
 ```
 
 ```cpp
 // 通知先2：ダッシュボード更新（同期）
+// 画面更新は成否を返さない。その事実をどう契約へ写すかを、
+// 通知元ではなくこのクラスが決める。
 class DashboardUpdater : public INotification {
-    vector<string> inbox;
+    int refreshCount;
+
+    // 1-4と同じ画面更新の操作。戻り値が無い
+    void refreshStockWidget(const string& productCode, int stock) {
+        ++refreshCount;
+        cout << "Dashboard(" << refreshCount << "件): " << productCode
+             << " の在庫表示を " << stock << " に更新" << endl;
+    }
 public:
+    DashboardUpdater() : refreshCount(0) {}
     DeliveryResult send(const StockAlert& a) override {
-        string text = a.productId + " | 残" + to_string(a.stock) + " | 要発注";
-        inbox.push_back(text);
-        cout << "Dashboard(" << inbox.size() << "件): " << text << endl;
+        refreshStockWidget(a.productId, a.stock);
+        // 呼べたことをもって受付成功とする。この割り切りはここに閉じる
         return {ACCEPTED, "Dashboard", ""};
     }
 };
@@ -2107,15 +2141,25 @@ public:
 
 ```cpp
 // 通知先3：チャット通知（同期）
+// 空の投稿IDが失敗という約束も、このクラスの中で契約へ翻訳する。
 class ChatNotifier : public INotification {
-    vector<string> inbox;
+    vector<string> posted;
+
+    // 1-4と同じチャット基盤の操作。投稿IDを返す
+    string postMessage(const string& channel, const string& text) {
+        posted.push_back(text);
+        string postId = "POST-" + to_string(posted.size());
+        cout << "Chat(" << posted.size() << "件) #" << channel << ": "
+             << text << " -> " << postId << endl;
+        return postId;
+    }
 public:
     DeliveryResult send(const StockAlert& a) override {
         string text = a.productName + " 残" + to_string(a.stock)
                     + "個。発注を確認してください。";
-        inbox.push_back(text);
-        cout << "Chat(" << inbox.size() << "件): " << text << endl;
-        return {ACCEPTED, "Chat", ""};
+        string postId = postMessage("inventory-alert", text);
+        return postId.empty() ? DeliveryResult{FAILED, "Chat", ""}
+                              : DeliveryResult{ACCEPTED, "Chat", ""};
     }
 };
 ```
@@ -2147,6 +2191,16 @@ public:
 ```
 
 4つの通知クラスはいずれも `INotification` を実装し、同じ `StockAlert` から用途別の表現を作ります。同期の3つは受付成功を、非同期のSMSは保留か失敗を返しますが、戻り値は同じ `DeliveryResult` 契約です。
+
+ここで起きたことを、1-4と並べて確認します。**メール基盤・ダッシュボード・チャット基盤の呼び方は1つも変えていません。** 変えたのは、その呼び方へ翻訳する場所です。
+
+| 手段 | 1-4で通知元が抱えていた翻訳 | 7-1でそれを持つ場所 |
+|---|---|---|
+| メール | 件名と本文へ分けて渡し、`bool` を成否として読む | `EmailNotifier::send()` の中 |
+| ダッシュボード | 商品コードと在庫数を渡し、戻り値が無いので成功とみなす | `DashboardUpdater::send()` の中 |
+| チャット | 投稿先と本文を渡し、投稿IDが空かどうかで成否を判定する | `ChatNotifier::send()` の中 |
+
+とくにダッシュボードの「成否が返らないので、呼べたことをもって受付成功とする」という割り切りに注目してください。1-4ではこの判断が `InventoryManager::notifyAll()` にありました。判断そのものは消えていません。**消せない判断を、それが妥当かどうかを判断できる場所へ移した**のがこの変更です。手段が1つ増えても、通知元はこの種の割り切りを新しく抱えません。
 
 **【4】 在庫を管理するクラス（InventoryManager）**
 
@@ -2319,9 +2373,9 @@ int main() {
 ```
 --- 行2: 在庫が閾値以下に減少（同期3件＋非同期SMS） ---
 商品 PRD002（USBハブ） の在庫を 1 減らしました。 在庫: 3 -> 2
-Email(1件): 件名:在庫不足 / USBハブ(PRD002) 残2 閾値5
-Dashboard(1件): PRD002 | 残2 | 要発注
-Chat(1件): USBハブ 残2個。発注を確認してください。
+Email(1件) [在庫不足] USBハブ(PRD002) 残2 閾値5
+Dashboard(1件): PRD002 の在庫表示を 2 に更新
+Chat(1件) #inventory-alert: USBハブ 残2個。発注を確認してください。 -> POST-1
 SMS(1件受付): 在庫警告 PRD002 残2 / 受付ID=SMS-1
 [SMS状態] SMS-1: PENDINGを記録
   保留: SMS 受付ID=SMS-1
@@ -2406,9 +2460,9 @@ SMS基盤はこの呼び出し中に最終結果を返しません。同じ `mai
 ```
 --- 行6: SMSだけ受付失敗（部分失敗） ---
 商品 PRD002（USBハブ） の在庫を 1 減らしました。 在庫: 2 -> 1
-Email(2件): 件名:在庫不足 / USBハブ(PRD002) 残1 閾値5
-Dashboard(2件): PRD002 | 残1 | 要発注
-Chat(2件): USBハブ 残1個。発注を確認してください。
+Email(2件) [在庫不足] USBハブ(PRD002) 残1 閾値5
+Dashboard(2件): PRD002 の在庫表示を 1 に更新
+Chat(2件) #inventory-alert: USBハブ 残1個。発注を確認してください。 -> POST-2
 SMS: 受付失敗（後で再送対象）
   失敗: SMS
 [受付結果] 成功:3 保留:0 失敗:1
@@ -2429,9 +2483,9 @@ SMS: 受付失敗（後で再送対象）
 ```
 --- 行7: SMS受付後に最終配信失敗 ---
 商品 PRD002（USBハブ） の在庫を 1 減らしました。 在庫: 1 -> 0
-Email(3件): 件名:在庫不足 / USBハブ(PRD002) 残0 閾値5
-Dashboard(3件): PRD002 | 残0 | 要発注
-Chat(3件): USBハブ 残0個。発注を確認してください。
+Email(3件) [在庫不足] USBハブ(PRD002) 残0 閾値5
+Dashboard(3件): PRD002 の在庫表示を 0 に更新
+Chat(3件) #inventory-alert: USBハブ 残0個。発注を確認してください。 -> POST-3
 SMS(2件受付): 在庫警告 PRD002 残0 / 受付ID=SMS-2
 [SMS状態] SMS-2: PENDINGを記録
   保留: SMS 受付ID=SMS-2
