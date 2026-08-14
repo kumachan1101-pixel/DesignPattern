@@ -22,6 +22,7 @@ validate_book.py 本体は「現在の本文が通るか」しか見ないため
   REVIEW-007 変更固有の模擬方法を著者向け共通見出しへ戻す
   REVIEW-008 完成コードのoverride宣言と実装を分断する
   REVIEW-009 4-2の比較表を章独自の列見出しへ戻す
+  DOC-001   断片コードの所属明示・ブロック分割・省略記号
 """
 import re, sys
 from pathlib import Path
@@ -283,6 +284,33 @@ t = (OUT/"chapter07.md").read_text(encoding="utf-8")
 broken = t.replace("#### 構造ポイントの全貌 ―― どの責任がどこへ移るか",
                    "#### 補足", 1)
 cases.append(("DOC-001 構造全貌表", V.check_phase6_point_separation, broken))
+
+# DOC-001: 断片コードの所属明示を落とす
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "同じ `PaymentCalculator::calculate()` の割引判定部分へサマーセールの条件を追加すると、",
+    "このコードにサマーセールの条件を追加すると、", 1)
+cases.append(("DOC-001 断片の所属", V.check_code_block_attribution, broken))
+
+# DOC-001: 1ブロックを上限超えの行数へ戻す
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+_pad = "\n".join("    int pad%d = %d;" % (i, i) for i in range(90))
+broken = t.replace("    // C003（Regular）/ 割引なし",
+                   "    // C003（Regular）/ 割引なし\n" + _pad, 1)
+cases.append(("DOC-001 ブロック過大", V.check_code_block_attribution, broken))
+
+# DOC-001: 変わる理由が違う型を1ブロックへ詰め戻す
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+_types = "\n".join("class Extra%d { public: int v; };" % i for i in range(4))
+broken = t.replace("    // C003（Regular）/ 割引なし",
+                   _types + "\n    // C003（Regular）/ 割引なし", 1)
+cases.append(("DOC-001 多型ブロック", V.check_code_block_attribution, broken))
+
+# DOC-001: 分岐を省略記号で隠す
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace("    // C003（Regular）/ 割引なし",
+                   "    // …（中略：割引判定）…", 1)
+cases.append(("DOC-001 コードの省略", V.check_code_block_attribution, broken))
 
 print("再発防止チェックの負のテスト（わざと壊した本文を検出できるか）\n")
 # 5) 2026-08-13: validator とテンプレートの表頭同期漏れ

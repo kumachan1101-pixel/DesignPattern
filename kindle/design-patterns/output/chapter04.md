@@ -1052,7 +1052,7 @@ EC店CSVを開く
 static const char* SUPPORTED_VERSION = "#version=2";
 ```
 
-直営店Importerでは、`(1) 開く` の直後へ確認を挟みます。
+`StoreDataImporter::import()` では、`(1) 開く` の直後へ確認を挟みます。
 
 ```cpp
         cout << "直営店CSVを開く\n";
@@ -1064,7 +1064,7 @@ static const char* SUPPORTED_VERSION = "#version=2";
         cout << "形式バージョン確認: OK\n";
 ```
 
-FC店Importerにも、同じコードを書きます。返す `schemaName` だけが違います。
+`FCDataImporter::import()` にも、同じコードを書きます。返す `schemaName` だけが違います。
 
 ```cpp
         cout << "FC店CSVを開く\n";
@@ -1076,7 +1076,7 @@ FC店Importerにも、同じコードを書きます。返す `schemaName` だ�
         cout << "形式バージョン確認: OK\n";
 ```
 
-EC店Importerにも、3つ目のコピーを書きます。
+`ECDataImporter::import()` にも、3つ目のコピーを書きます。
 
 ```cpp
         cout << "EC店CSVを開く\n";
@@ -1088,7 +1088,7 @@ EC店Importerにも、3つ目のコピーを書きます。
         cout << "形式バージョン確認: OK\n";
 ```
 
-コピーはこれだけでは終わりません。先頭にバージョン行が入ったぶん、データの読み始め位置も各クラスでずれます。直営店とEC店はヘッダー行があるので `i = 1` から `i = 2` へ、FC店はヘッダーが無いので `i = 0` から `i = 1` へ。同じ「1行ずらす」修正を、3クラスで別々の数字として書き直します。
+コピーはこれだけでは終わりません。先頭にバージョン行が入ったぶん、データの読み始め位置も各クラスでずれます。直営店とEC店はヘッダー行があるので `i = 1` から `i = 2` へ、FC店はヘッダーが無いので `i = 0` から `i = 1` へ。同じ「1行ずらす」修正を、`StoreDataImporter`・`FCDataImporter`・`ECDataImporter` それぞれの `import()` のパースループへ、別々の数字として書き直します。
 
 ```cpp
         // 直営店・EC店（ヘッダー行あり）
@@ -1525,7 +1525,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**① 契約：形式で変わるステップを純粋仮想フックとして宣言する。** 他章のように別のインターフェース型を作らず、基底クラスの `protected` 側へ差し替え点を並べます。これがこの章の契約です。
+**① 契約：形式で変わるステップを純粋仮想フックとして宣言する。** 他章のように別のインターフェース型を作らず、基底クラス `AbstractImporter` の `protected` 側へ差し替え点を並べます。これがこの章の契約です。
 
 ```cpp
 protected:                                        // ① 契約（差し替え点）
@@ -1592,7 +1592,7 @@ protected:
 };
 ```
 
-**④ 生成・所有。** 取得・保存の境界と派生Importerを、組み立て側で生成し所有します。これらは1-4の既存境界のままで、保存媒体や永続化仕様は追加しません。
+**④ 生成・所有。** 取得・保存の境界と派生Importerを、組み立て側の `BatchApplication` が生成し所有します。これらは1-4の既存境界のままで、保存媒体や永続化仕様は追加しません。
 
 ```cpp
 ImportFileGateway gateway;                // ④ 生成・所有は組み立て側
@@ -1608,7 +1608,7 @@ AbstractImporter(ImportFileGateway& g, SalesImportRepository& r)
     : gateway(g), repo(r) {}              // ⑤ 境界を骨格へ注入
 ```
 
-**⑥ 利用開始。** 実行部が公開操作 `import()` を1回呼びます。派生の種類にかかわらず同じ順序が走り、形式差分だけがフックの向こうで変わります。利用側が `parseData()` を直接呼ぶことはありません。
+**⑥ 利用開始。** 実行部が公開操作 `AbstractImporter::import()` を1回呼びます。派生の種類にかかわらず同じ順序が走り、形式差分だけがフックの向こうで変わります。利用側が `parseData()` を直接呼ぶことはありません。
 
 ```cpp
 ImportResult r = store.import();          // ⑥ 利用開始
@@ -2130,7 +2130,7 @@ public:
         printResult(v2.import());
     }
 ```
-`printResult()` から先が公開操作です。
+`printResult()` から先は、同じ `BatchApplication` の内部処理です。
 
 ```cpp
 private:
@@ -2203,6 +2203,8 @@ DBへ10件を保存しました。
 
 **ケース2：FC店データの取込**
 
+同じ `main()` から、続けて `BatchApplication::runFCImport()` を呼びます。
+
 ```cpp
     app.runFCImport();
 ```
@@ -2220,6 +2222,8 @@ DBへ5件を保存しました。
 ```
 
 **ケース3：EC店データの取込**
+
+同じ `main()` から、`BatchApplication::runECImport()` を呼びます。
 
 ```cpp
     app.runECImport();
@@ -2240,6 +2244,8 @@ DBへ8件を保存しました。
 
 **ケース4：3形式の結果ログと未登録タイプ**
 
+同じ `main()` から、`BatchApplication::printMainResults()` を呼びます。
+
 ```cpp
     app.printMainResults();
 ```
@@ -2257,6 +2263,8 @@ DBへ8件を保存しました。
 ```
 
 **ケース5：直営店の空ファイル（回帰1）**
+
+同じ `main()` から、`BatchApplication::runEmptyRegression()` を呼びます。
 
 ```cpp
     app.runEmptyRegression();
@@ -2276,6 +2284,8 @@ DBへ0件を保存しました。
 ```
 
 **ケース6：FC店の全行不正（回帰2）**
+
+同じ `main()` から、`BatchApplication::runBrokenRegression()` を呼びます。
 
 ```cpp
     app.runBrokenRegression();
@@ -2298,6 +2308,8 @@ DBへ0件を保存しました。
 ```
 
 **ケース7：形式バージョン不一致（回帰3）**
+
+同じ `main()` の最後に、`BatchApplication::runVersionRegression()` を呼んで終了します。
 
 ```cpp
     app.runVersionRegression();

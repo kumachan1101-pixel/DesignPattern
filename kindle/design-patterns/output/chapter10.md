@@ -1160,7 +1160,7 @@ public:
     }
 ```
 
-A社→B社→C社を登録順に流します。2件目のB社が失敗します。
+同じ `main()` から `executor.runBatch()` を呼び、A社→B社→C社を登録順に流します。2件目のB社が失敗します。
 
 ```cpp
     std::vector<SyncRequest> jobs;
@@ -1831,7 +1831,7 @@ SlackNotifier slack;               // ④ 生成・所有は組み立て側
 batch.addNotifier(&slack);         // ⑤ 登録で注入（借用参照）
 ```
 
-**② 通知配布の安定骨格。** `execute()` は送信確定のあと、登録済みリストを順に回して `onComplete()` を呼びます。Slackかメールかを知らず、1件の通知が失敗しても送信確定と後続ジョブは止めません。
+**② 通知配布の安定骨格。** `BatchExecutor::execute()` は送信確定のあと、登録済みリストを順に回して `onComplete()` を呼びます。Slackかメールかを知らず、1件の通知が失敗しても送信確定と後続ジョブは止めません。
 
 ```cpp
 for (INotifier* n : notifiers) {
@@ -1839,7 +1839,7 @@ for (INotifier* n : notifiers) {
 }
 ```
 
-**⑥ 利用開始。** 通知そのものを利用側が呼ぶことはありません。⑥は課題ID1と同じ `batch.execute(...)` で、②が送信確定後に自動で配布します。
+**⑥ 利用開始。** 通知そのものを利用側が呼ぶことはありません。⑥は課題ID1と同じ、組み立て役 `BatchApplication` からの `batch.execute(...)` で、②が送信確定後に自動で配布します。
 
 ```cpp
 batch.execute(request, &creatorA);   // ⑥ 利用開始（通知は②から自動接続）

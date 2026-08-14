@@ -1031,7 +1031,7 @@ public:
         if (notifyPayment) cout << "決済部門へ通知" << endl;
     }
 ```
-`notify()` から先が公開操作です。
+同じ `WorkflowManager` の続きで、公開操作 `process()` が呼ぶ `notify()` から先です。
 
 ```cpp
 private:
@@ -1067,7 +1067,7 @@ REQ001：作成中 → 審査待ち
 ---
 ```
 
-続いて、ケース2（緊急申請の提出・課長スキップ）を実行します。
+続いて、同じ `main()` の中でケース2（緊急申請の提出・課長スキップ）を実行します。
 
 ```cpp
     // 緊急申請の提出（課長スキップ）
@@ -1181,7 +1181,7 @@ graph LR
 | 各状態における通知先リスト | 承認フローの実行順序（入口から出口までの流れ） |
 | 金額や役職による承認可否判定 | 申請データが通過する状態遷移の基盤 |
 
-**【変わる部分（状態遷移・通知・判定が混在した if 文）】**
+**【変わる部分（状態遷移・通知・判定が混在した if 文）】** `WorkflowManager::process()` の中で、状態×操作の分岐を並べている部分です。
 ```cpp
         string current = cases.getState(requestId);
         if (current == "作成中" && operation == "提出") {
@@ -1197,7 +1197,7 @@ graph LR
             cout << "承認上限を超えています。" << endl;
 ```
 
-**【変わってほしくない部分（守りたい骨格）】**
+**【変わってほしくない部分（守りたい骨格）】** 同じ `WorkflowManager::process()` の中で、状態を読み、次状態を決め、保存し、通知するという4段の順序です。
 ```cpp
     void process(const string& requestId, const string& operation,
                  int amount, const string& approverId) {
@@ -1696,7 +1696,7 @@ class EmailNotifier : public INotificationListener {
 };
 ```
 
-**④ 生成・所有。** 組み立て側が具体通知先を生成し、所有します。
+**④ 生成・所有。** 組み立て側（`BatchApplication`）が具体通知先を生成し、所有します。
 
 ```cpp
 EmailNotifier email;               // ④ 生成・所有は組み立て側
@@ -1710,7 +1710,7 @@ wm.addListener(&email);            // ⑤ 登録で注入（借用参照）
 wm.addListener(&chat);
 ```
 
-**② 通知配布の安定骨格。** `transitionTo()` は状態を保存してから、登録済みリストを順に回して `onStatusChanged()` を呼びます。メールかチャットかを知らず、1件の失敗で状態遷移や他通知を止めません。
+**② 通知配布の安定骨格。** `WorkflowManager::transitionTo()` は状態を保存してから、登録済みリストを順に回して `onStatusChanged()` を呼びます。メールかチャットかを知らず、1件の失敗で状態遷移や他通知を止めません。
 
 ```cpp
 void transitionTo(const std::string& s, const std::string& id) {
@@ -1721,7 +1721,7 @@ void transitionTo(const std::string& s, const std::string& id) {
 }
 ```
 
-**⑥ 利用開始。** 通知そのものを利用側が呼ぶことはありません。⑥は課題ID1と同じ `wm.process(...)` で、②の `transitionTo()` が状態確定後に自動で配布します。
+**⑥ 利用開始。** 通知そのものを利用側が呼ぶことはありません。⑥は課題ID1と同じ、組み立て側 `BatchApplication` からの `wm.process(...)` で、②の `transitionTo()` が状態確定後に自動で配布します。
 
 ```cpp
 wm.process(WorkflowEvent::Approve);   // ⑥ 利用開始（通知は②から自動接続）
@@ -1772,20 +1772,20 @@ public:
 };
 ```
 
-**④ 生成・所有。** 具体ルールの生成・所有は組み立て側に閉じます。
+**④ 生成・所有。** 具体ルールの生成・所有は組み立て側（`BatchApplication`）に閉じます。
 
 ```cpp
 ManagerApprovalRule managerRule;       // ④ 生成・所有は組み立て側
 DirectorApprovalRule directorRule;
 ```
 
-**⑤ 注入。** 生成済みルールを承認Phaseのコンストラクタへ渡します。Phaseは契約 `IApprovalRule&` を借用参照で保持します。
+**⑤ 注入。** 生成済みルールを承認Phase `PendingPhase` のコンストラクタへ渡します。Phaseは契約 `IApprovalRule&` を借用参照で保持します。
 
 ```cpp
 PendingPhase pending(managerRule);     // ⑤ 契約として注入（借用参照）
 ```
 
-**② 規則委譲の安定骨格。** 承認イベントを処理するとき、注入されたルールへ `canApprove()` を尋ね、その結果で次状態を選びます。どのルールかは知りません。
+**② 規則委譲の安定骨格。** `PendingPhase::handle()` は承認イベントを処理するとき、注入されたルールへ `canApprove()` を尋ね、その結果で次状態を選びます。どのルールかは知りません。
 
 ```cpp
 void PendingPhase::handle(WorkflowManager& wm, WorkflowEvent ev) {
@@ -1799,7 +1799,7 @@ void PendingPhase::handle(WorkflowManager& wm, WorkflowEvent ev) {
 }
 ```
 
-**⑥ 利用開始。** 判定を利用側が呼ぶことはありません。⑥は課題ID1と同じ `wm.process(...)` で、②の状態処理から自動で接続します。
+**⑥ 利用開始。** 判定を利用側が呼ぶことはありません。⑥は課題ID1と同じ、組み立て側 `BatchApplication` からの `wm.process(...)` で、②の状態処理から自動で接続します。
 
 ```cpp
 wm.process(WorkflowEvent::Approve);   // ⑥ 利用開始（判定は②から自動接続）
@@ -2447,7 +2447,7 @@ public:
         return phase->handle(this, event, request);
     }
 ```
-続いて `transitionTo()` です。
+続いて `WorkflowManager::transitionTo()` です。
 
 ```cpp
     WorkflowResult transitionTo(
@@ -2714,7 +2714,7 @@ public:
 [メール送信 1件目] To:課長 / 申請を受け付けました
 ```
 
-行2は、緊急申請の提出です。
+同じ `BatchApplication::run()` の続きで、行2は緊急申請の提出です。
 
 ```cpp
         // 受入条件 行2：REQ002を作成中として登録し、緊急申請を提出
@@ -2740,7 +2740,7 @@ public:
 [チャット通知 1件目] To:部長 / 緊急申請を受け付けました
 ```
 
-行3は、審査待ちからの課長承認です。
+`BatchApplication::run()` はそのまま続き、行3は審査待ちからの課長承認です。
 
 ```cpp
         // 受入条件 行3：REQ003は審査待ちとして保存済み
@@ -2767,7 +2767,7 @@ public:
 [チャット通知 2件目] To:部長 / 承認されました
 ```
 
-行4は、優先審査待ちからの部長承認です。
+続く行4は、同じ `BatchApplication::run()` の中で優先審査待ちからの部長承認を実行します。
 
 ```cpp
         // 受入条件 行4：REQ004は優先審査待ちとして保存済み
@@ -2795,7 +2795,7 @@ public:
 [メール送信 4件目] To:決済部門 / 承認されました
 ```
 
-行5は、審査待ちからの却下です。
+行5は、同じ `BatchApplication::run()` の中で審査待ちからの却下を実行します。
 
 ```cpp
         // 受入条件 行5：REQ005は審査待ちとして保存済み
@@ -2821,7 +2821,7 @@ public:
 [メール送信 5件目] To:申請者 / 申請が却下されました
 ```
 
-行6は、承認済みからの部長承認です。
+行6も同じ `BatchApplication::run()` の中で、承認済みからの部長承認です。
 
 ```cpp
         // 受入条件 行6：REQ006は承認済みとして保存済み
@@ -2851,7 +2851,7 @@ public:
 [メール送信 8件目] To:決済部門 / 部長承認が完了しました
 ```
 
-行7は、通知失敗でも状態保存と他通知は継続です。
+行7は、同じ `BatchApplication::run()` の中で、通知失敗でも状態保存と他通知が継続することを確認します。
 
 ```cpp
         // 行7: チャット通知が失敗しても状態保存は保たれ、他は続く
@@ -2882,7 +2882,7 @@ public:
 [処理結果] changed=1, state=審査待ち, message=申請を受け付けました
 ```
 
-行8は、来期の「部署ごとに承認上限を差し替える」制度を、判定ルール（課題ID3）の差し替えだけで確認します。同じ50万円に対し、開発部（上限30万円）は不承認、営業部（上限80万円）は承認となるため、部署設定が実際の結果へ使われたことをコードと出力で照合できます。
+行8も同じ `BatchApplication::run()` の中で、来期の「部署ごとに承認上限を差し替える」制度を、判定ルール（課題ID3）の差し替えだけで確認します。同じ50万円に対し、開発部（上限30万円）は不承認、営業部（上限80万円）は承認となるため、部署設定が実際の結果へ使われたことをコードと出力で照合できます。
 
 ```cpp
         cout << "--- 行8: 部署別上限ルールの差 ---" << endl;

@@ -3974,6 +3974,104 @@ def check_responsibility_table_scope(text: str, path: Path) -> list[Issue]:
     return []
 
 
+# --- DOC-001：掲載コードの所属・分割・省略 ------------------------------
+# 著者指摘は次の3点。
+#     コードを略して記載している箇所が多い。せめてどのクラスのどの関数かは
+#     わかる形にしてほしい。コードブロックはなるべく分割して。1クラス1
+#     ブロックとまではいわないが、1クラスが大きいならその時点で分割して。
+# フェーズ3・4・6・7のC++ブロックへ適用する。フェーズ1の現状コードは1-4の
+# 通しコードとして読む前提なので対象外。例外リストは作らない。
+BLOCK_MAX_LINES = 80
+BLOCK_MAX_TYPES = 4
+
+# 判定前に文字列リテラルを落とす。`"再試行します..."` は省略ではない。
+_STRING_LITERAL = re.compile(r'"(?:\\.|[^"\\])*"')
+# 散文の「…」や `{ /* メール送信 */ }` のような一言説明は対象外。コードが
+# 抜けていると分かる形だけを見る。判定を広げるときは実物を確認してから。
+_CODE_ELLIPSIS = re.compile(
+    r"中略"
+    r"|\{\s*/\*\s*(?:\.\.\.|…|省略)\s*\*/\s*\}"
+    r"|^\s*(?://\s*)?(?:\.\.\.|…)[^\n]{0,12}$",
+    re.M,
+)
+# 所属の手がかり。`Class::method`、`ClassName`、main()、行頭のclass/struct。
+_OWNER_HINT = re.compile(
+    r"`[A-Z]\w*::\w+|`[A-Z]\w*`|\bmain\s*\(|^\s*(?:class|struct)\s+\w+",
+    re.M,
+)
+_ATTRIBUTION_PHASES = {"3", "4", "6", "7"}
+
+
+def _phase_marks(text: str) -> list[tuple[int, str]]:
+    return [
+        (m.start(), m.group(1))
+        for m in re.finditer(r"^## [^\n]*フェーズ(\d)", text, re.M)
+    ]
+
+
+def _phase_at(marks: list[tuple[int, str]], pos: int) -> str:
+    current = "1"
+    for offset, phase in marks:
+        if offset < pos:
+            current = phase
+    return current
+
+
+def _preceding_prose(text: str, pos: int) -> str:
+    """直前のコードフェンス以降の説明文を返す。
+
+    見出しと太字ラベルだけでなく、引用（`> **抜粋の前提**`）や箇条書きも
+    所属の手がかりになるので、直前の ``` 以降を丸ごと見る。
+    """
+    window = text[max(0, pos - 1200):pos]
+    last_fence = window.rfind("```")
+    if last_fence >= 0:
+        window = window[last_fence + 3:]
+    return window
+
+
+def check_code_block_attribution(text: str, path: Path) -> list[Issue]:
+    """断片コードの所属明示・ブロック分割・省略記号を確認する（DOC-001）。"""
+    body_text = text.replace("\r\n", "\n")
+    marks = _phase_marks(body_text)
+    issues: list[Issue] = []
+    for match in re.finditer(r"```cpp\n(.*?)```", body_text, re.S):
+        body = match.group(1)
+        pos = match.start()
+        if _phase_at(marks, pos) not in _ATTRIBUTION_PHASES:
+            continue
+        line = line_number(body_text, pos)
+        lines = [ln for ln in body.split("\n") if ln.strip()]
+        types = len(re.findall(r"(?m)^\s*(?:class|struct)\s+\w+", body))
+        prose = _preceding_prose(body_text, pos)
+        if not _OWNER_HINT.search(prose + "\n" + body[:300]):
+            issues.append(Issue(
+                path, line,
+                "断片コードの直前に所属を書いてください。どのクラスのどの関数の"
+                "どの部分かを `Class::method()` または `main()` の形で示します",
+            ))
+        if len(lines) > BLOCK_MAX_LINES:
+            issues.append(Issue(
+                path, line,
+                f"C++ブロックが実質{len(lines)}行あります（上限"
+                f"{BLOCK_MAX_LINES}）。型・メンバー／公開操作／内部判定などの"
+                "切れ目で分割してください（連結すれば同じ1本のコードです）",
+            ))
+        if types >= BLOCK_MAX_TYPES:
+            issues.append(Issue(
+                path, line,
+                f"1ブロックへ{types}型あります（上限{BLOCK_MAX_TYPES - 1}）。"
+                "変わる理由が違う型を同じブロックへ置かないでください",
+            ))
+        if _CODE_ELLIPSIS.search(_STRING_LITERAL.sub('""', body)):
+            issues.append(Issue(
+                path, line,
+                "コード内の省略で分岐・接続・責任が隠れています。"
+                "実コードへ戻すか、省略範囲と掲載先を本文へ書いてください",
+            ))
+    return issues
+
+
 def check_long_final_cpp_blocks(text: str, path: Path) -> list[Issue]:
     """7-1の長い複数責任コードを、再結合可能な責任単位へ分割する。"""
     start = text.find("### 7-1：")
@@ -4111,6 +4209,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_run_locally_section(text, path))
         issues.extend(check_core_thesis(text, path))
         issues.extend(check_responsibility_table_scope(text, path))
+        issues.extend(check_code_block_attribution(text, path))
         issues.extend(check_phase6_numbered_step_titles(text, path))
         issues.extend(check_phase6_point_separation(text, path))
         issues.extend(check_stable_skeleton_explanation(text, path))

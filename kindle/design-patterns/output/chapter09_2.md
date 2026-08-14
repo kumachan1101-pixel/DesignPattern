@@ -1769,14 +1769,14 @@ TicketPolicySet policies;    // ④ NormalPriority・PremiumPriority などを�
 TicketService svc(repo, users, policies, log);  // ⑤ 契約群を注入
 ```
 
-**② 規則選択の安定骨格。** 登録時と再受付時に、区分でルールを選んで `getPriority()` の結果を保存します。どのルールかは知りません。
+**② 規則選択の安定骨格。** `TicketService::create()` と `TicketService::reopen()` が、区分でルールを選んで `getPriority()` の結果を保存します。どのルールかは知りません。
 
 ```cpp
 UserType category = users.get(userId).userType;
 Priority p = policies.priorityRule(category).getPriority(); // ② 契約へ委譲
 ```
 
-**⑥ 利用開始。** 判定を利用側が呼ぶことはありません。⑥は課題ID1と同じ `svc.create(...)` や `svc.reopen(...)` で、②から自動接続します。
+**⑥ 利用開始。** 判定を利用側が呼ぶことはありません。⑥は `main()` から呼ぶ課題ID1と同じ `svc.create(...)` や `svc.reopen(...)` で、②から自動接続します。
 
 ```cpp
 svc.create("TCK001", "USR003");   // ⑥ 利用開始（判定は②から自動接続）
@@ -2018,6 +2018,8 @@ sequenceDiagram
 ---
 
 #### 完成コード
+
+まずファイル冒頭です。共通ヘッダーと、契約区分・優先度・状態を名前で扱う `UserType`／`Priority`／`TicketStatus`、状態名を返す `statusName()`、監査ログのイベント種別 `EventType`、優先度を文字列へ変える `toString()` を置きます。ここはどのクラスにも属さない宣言で、以降のすべてのクラスが使います。
 
 ```cpp
 #include <iostream>
@@ -2386,7 +2388,7 @@ public:
         log.add(ticketId, EventType::Create, t.phase->name(), p);
     }
 ```
-続いて `assign()` です。
+続いて同じ `TicketService` の `assign()`・`resolve()`・`escalate()` です。
 
 ```cpp
     void assign(const string& ticketId, const string& assigneeId) {
@@ -2434,7 +2436,7 @@ public:
                 t.priority);
     }
 ```
-続いて `sendBack()` です。
+続いて同じ `TicketService` の `sendBack()`・`reopen()`・`hold()` で、クラスを閉じます。
 
 ```cpp
     void sendBack(const string& ticketId) {
@@ -2523,7 +2525,7 @@ int main() {
 [TCK002] 作成 申請者=佐藤 花子 状態=Open 優先度=High
 ```
 
-行3〜行5で、TCK001をアサイン→解決→再受付します（状態がID単位で更新・保存される）。
+同じ `main()` の中で、行3〜行5ではTCK001をアサイン→解決→再受付します（状態がID単位で更新・保存される）。
 
 ```cpp
     cout << "--- 行3: TCK001に担当者 山田をアサイン ---" << endl;
@@ -2545,7 +2547,7 @@ int main() {
   再受付: 状態 Resolved → Open 優先度=Normal
 ```
 
-行6〜行8で、TCK002をアサイン→エスカレーション（緊急対応中）→解決します。
+続けて `main()` の中で、行6〜行8ではTCK002をアサイン→エスカレーション（緊急対応中）→解決します。
 
 ```cpp
     cout << "--- 行6: TCK002に担当者 高橋をアサイン ---" << endl;
@@ -2568,7 +2570,7 @@ int main() {
   解決: 状態 Escalated → Resolved
 ```
 
-変更要求として、法人ユーザーのTCK003を登録し保留（Pending）にします。
+同じ `main()` の中で、変更要求として法人ユーザーのTCK003を登録し保留（Pending）にします。
 
 ```cpp
     cout << "--- 変更要求: 伊藤(corporate)のTCK003を登録し保留 ---"
@@ -2585,7 +2587,7 @@ int main() {
   保留: 状態 Open → Pending
 ```
 
-続けて、保留にした法人チケットを再受付し、アサインしてからエスカレーションします。変更ID1「登録時と再受付時に法人はHigh」と変更ID2「再受付時は優先度を計算し直す」を、同じ法人チケットで通して確認します。あわせて、InProgressからの保留（要求ID2）と、エスカレーション後の差し戻し（要求ID4）も試します。
+続けて `main()` の中で、保留にした法人チケットを再受付し、アサインしてからエスカレーションします。変更ID1「登録時と再受付時に法人はHigh」と変更ID2「再受付時は優先度を計算し直す」を、同じ法人チケットで通して確認します。あわせて、InProgressからの保留（要求ID2）と、エスカレーション後の差し戻し（要求ID4）も試します。
 
 ```cpp
     cout << "--- 変更要求: TCK003を再受付し、アサイン・保留・エスカレーション ---"
@@ -3034,7 +3036,7 @@ public:
 //    「何をしているか」を理解できなくなる。
 ```
 
-これを素直に書くと次のように2行で済みます。
+`ISimpleState` も `OpenState` も作らず素直に書くと、どのクラスにも属さない関数 `updateStatus()` だけで、次のように2行で済みます。
 
 ```cpp
 // シンプルな if-else の方が読みやすい場合

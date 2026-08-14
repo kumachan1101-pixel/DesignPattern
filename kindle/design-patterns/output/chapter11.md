@@ -1349,6 +1349,8 @@ if (request.templateId == "SALES_MONTHLY_EXECUTIVE") {
 }
 ```
 
+続く②は、同じ`ReportGenerator::generate()`の中で、本文の判断（①）の直後にある装飾の判断です。
+
 ```cpp
 // ReportGenerator::generate(const ReportRequest&, const string&) の続き
 // （本文の判断（①）の直後。全文は3-1「ReportGeneratorへ要求を直接
@@ -1364,6 +1366,8 @@ for (DecorationType type : request.decorations) {
     }
 }
 ```
+
+最後の③も同じ`ReportGenerator::generate()`の中にあり、装飾の判断（②）の直後で履歴を積みます。
 
 ```cpp
 // ReportGenerator::generate(const ReportRequest&, const string&) の続き
@@ -2174,6 +2178,8 @@ sequenceDiagram
 
 ##### 1. 値・列挙・要求
 
+まずファイル冒頭です。共通ヘッダーと、`OutputFormat`・`DecorationType`・`SalesSummary`・`ReportDocument`・`ReportRequest`という値型を置きます。ここはどのクラスにも属さない宣言で、以降のすべてのクラスが使います。
+
 ```cpp
 #include <cstdio>
 #include <fstream>
@@ -2935,6 +2941,8 @@ CSV読込: 6件・合計3510・平均585
 
 **A2：役員向け本文へロゴ→グラフを適用する実行コード**
 
+上の`main()`が2番目に呼ぶ自由関数`scenarioA2()`で、受け取った`ReportApplication`へ役員向けの要求を渡します。
+
 ```cpp
 void scenarioA2(ReportApplication& application) {
     cout << "--- A2: 役員向け・ロゴ→グラフ ---" << endl;
@@ -2968,6 +2976,8 @@ CSV読込: 6件・合計3510・平均585
 
 **A3：役員向け本文へグラフ→ロゴを適用する実行コード**
 
+同じく`main()`が3番目に呼ぶ`scenarioA3()`で、A2と同じ`ReportApplication`へ装飾の順だけを変えた要求を渡します。
+
 ```cpp
 void scenarioA3(ReportApplication& application) {
     cout << "--- A3: 役員向け・グラフ→ロゴ ---" << endl;
@@ -3000,6 +3010,8 @@ CSV読込: 6件・合計3510・平均585
 ```
 
 **A4：同じ要求を再実行して成果物を取り消す実行コード**
+
+`main()`が最後に呼ぶ`scenarioA4()`と`scenarioA5()`で、どちらも同じ`ReportApplication`を受け取ります。
 
 ```cpp
 void scenarioA4(ReportApplication& application) {

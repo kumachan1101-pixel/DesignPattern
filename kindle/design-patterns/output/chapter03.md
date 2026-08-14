@@ -972,7 +972,7 @@ public:
     }
     // 一時保留する（Reserved のときだけ24時間の保留枠へ）
 ```
-続いて `hold()` です。
+続いて、同じ `TicketReservation` クラスの `hold()` 以降です。
 
 ```cpp
     void hold() {
@@ -1053,7 +1053,7 @@ int main() {
 ---
 ```
 
-続いて、シナリオ2（予約→保留→期限切れ）を実行します。
+続いて、同じ `main()` の中でシナリオ2（予約→保留→期限切れ）を実行します。
 
 ```cpp
     // シナリオ2：予約 → 保留 → 期限切れ → Available に戻る
@@ -1547,7 +1547,7 @@ public:
 };
 ```
 
-**④ 状態は関数ローカルの静的オブジェクトを共有する（生成・破棄を持たない）。** 遷移のたびに `new` せず、共有シングルトンを指すため所有・破棄の問題が起きません。
+**④ 状態は関数ローカルの静的オブジェクトを共有する（生成・破棄を持たない）。** 遷移のたびに `new` せず、共有シングルトンを指すため所有・破棄の問題が起きません。どのクラスにも属さない状態取得関数が、`AvailableState` の実体を1つだけ返します。
 
 ```cpp
 IReservationState* availableState() {
@@ -1647,7 +1647,7 @@ ReservationWaitlist waitlist;            // ④ 生成・所有は組み立て�
 TicketReservation seat(db, waitlist, "EVT001");  // ⑤ 共有ストアを注入
 ```
 
-**② 待ち行列連携の安定骨格。** 席を解放する処理から `promoteNextWaitlisted()` を1経路だけ通します。先頭1件を取り出して `promoteBySystem()` を呼ぶ形は、状態が増えても変わりません。
+**② 待ち行列連携の安定骨格。** 席を解放する処理から `TicketReservation::promoteNextWaitlisted()` を1経路だけ通します。先頭1件を取り出して `promoteBySystem()` を呼ぶ形は、状態が増えても変わりません。
 
 ```cpp
 void TicketReservation::promoteNextWaitlisted() {
@@ -1657,7 +1657,7 @@ void TicketReservation::promoteNextWaitlisted() {
 }
 ```
 
-**⑥ 利用開始。** 利用者が昇格を直接呼ぶことはありません。⑥は課題ID1と同じ `seat.cancel()` で、②の状態処理から自動接続します。
+**⑥ 利用開始。** 利用者が昇格を直接呼ぶことはありません。⑥は課題ID1と同じ `TicketReservation::cancel()` の呼び出しで、②の状態処理から自動接続します。
 
 ```cpp
 occupied.cancel();   // ⑥ 利用開始（昇格は②から自動接続）
@@ -2309,7 +2309,7 @@ public:
 支払い完了しました
 ```
 
-シナリオ2は、通常キャンセル（Reserved→Available）です。
+同じ `BatchApplication::run()` の中で、シナリオ2は通常キャンセル（Reserved→Available）です。
 
 ```cpp
         // シナリオ2：通常キャンセル (Available → Reserved → Available)
@@ -2334,7 +2334,7 @@ public:
 予約をキャンセルしました
 ```
 
-シナリオ3は、保留と支払い（Reserved→Held→Paid）です。
+同じ `BatchApplication::run()` の中で、シナリオ3は保留と支払い（Reserved→Held→Paid）です。
 
 ```cpp
         // シナリオ3：保留と支払い (Available → Reserved → Held → Paid)
@@ -2363,7 +2363,7 @@ public:
 保留から支払い完了しました
 ```
 
-シナリオ4は、保留期限切れ（Held→Available）です。
+同じ `BatchApplication::run()` の中で、シナリオ4は保留期限切れ（Held→Available）です。
 
 ```cpp
         // シナリオ4：保留期限切れ (Available → Reserved → Held → Available)
@@ -2419,7 +2419,7 @@ public:
 通常の決済期限が切れました
 ```
 
-シナリオ5は、満席→予約失敗→待機登録→既存予約のキャンセルで自動昇格です。
+同じ `BatchApplication::run()` の中で、シナリオ5は満席→予約失敗→待機登録→既存予約のキャンセルで自動昇格です。
 
 ```cpp
         // シナリオ5：満席確認 → 通常の予約要求で自動待機登録 →
@@ -2456,7 +2456,7 @@ public:
 支払い完了しました
 ```
 
-シナリオ5bは、保留の期限切れを起点にした自動昇格です。シナリオ4は待ち行列が空だったため昇格が発動せず、要求ID7の受入条件「期限切れ時は空席へ戻して待機者がいれば自動昇格する」の後半が未確認でした。ここでは待機者がいる状態で期限を切らせます。
+同じ `BatchApplication::run()` の中で、シナリオ5bは保留の期限切れを起点にした自動昇格です。シナリオ4は待ち行列が空だったため昇格が発動せず、要求ID7の受入条件「期限切れ時は空席へ戻して待機者がいれば自動昇格する」の後半が未確認でした。ここでは待機者がいる状態で期限を切らせます。
 
 ```cpp
         // シナリオ5b：待機者がいる状態での期限切れ → 自動昇格
@@ -2512,7 +2512,7 @@ public:
 支払いに適した状態ではありません
 ```
 
-シナリオ7は、存在しないイベントIDのエラーです。
+同じ `BatchApplication::run()` の中で、シナリオ7は存在しないイベントIDのエラーです。
 
 ```cpp
         // シナリオ7：存在しないイベントIDのエラー
