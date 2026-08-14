@@ -3891,6 +3891,13 @@ def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
                 f"フェーズ6に共通項目 {required} の見出しがありません。"
                 "①〜⑥それぞれへ、所属の分かる実コードを付けて示します",
             ))
+    if "#### 構造ポイントの全貌" not in section:
+        issues.append(Issue(
+            path, line_number(text, start),
+            "フェーズ6の冒頭へ「構造ポイントの全貌」を置いてください。"
+            "断片コードより前に、①〜⑥がどのクラス・関数からどこへ責任を移すかを"
+            "一覧します（DOC-001の著者指摘：構造の全貌がポイントで分かるように）",
+        ))
     if "実行順・ポイント" not in section:
         issues.append(Issue(
             path, line_number(text, start),

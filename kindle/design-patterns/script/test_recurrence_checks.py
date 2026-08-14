@@ -278,6 +278,12 @@ broken = t.replace("| 実行順・ポイント | 掲載箇所 | 実際のコー�
                    "| ポイント | 掲載箇所 | 説明 | 備考 |", 1)
 cases.append(("DOC-002 実行接続表", V.check_phase6_point_separation, broken))
 
+# DOC-001: 構造ポイントの全貌表を落とす
+t = (OUT/"chapter07.md").read_text(encoding="utf-8")
+broken = t.replace("#### 構造ポイントの全貌 ―― どの責任がどこへ移るか",
+                   "#### 補足", 1)
+cases.append(("DOC-001 構造全貌表", V.check_phase6_point_separation, broken))
+
 print("再発防止チェックの負のテスト（わざと壊した本文を検出できるか）\n")
 # 5) 2026-08-13: validator とテンプレートの表頭同期漏れ
 #    本文だけ直してテンプレート／validator を放置すると全12章が同じ検査で落ちる
