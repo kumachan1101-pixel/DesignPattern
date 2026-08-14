@@ -1537,7 +1537,47 @@ IReservationState* availableState() {
 }
 ```
 
-**②⑤⑥ 委譲の安定骨格として、`TicketReservation` が現在状態を保持し、公開操作を現在状態へ委譲する。** 状態名も分岐条件も持たず、`setState()` で次状態へ移ります。状態追加は新しい状態クラスと遷移元だけで済み、課題ID1の完了条件「状態追加が新状態動作と遷移登録に閉じる」を満たします。
+**⑤ 注入。** 生成した共有状態を、予約オブジェクトの初期状態として設定します。`TicketReservation` が持つのは契約 `IReservationState*` の借用ポインタだけです。
+
+```cpp
+TicketReservation seat(db, "EVT001");
+seat.setState(availableState());   // ⑤ 共有状態を契約として注入
+```
+
+**② 委譲の安定骨格。** `TicketReservation` は現在状態を保持し、公開操作をそのまま現在状態へ委譲します。状態名も分岐条件も持たず、`setState()` で次状態へ移ります。
+
+```cpp
+void TicketReservation::cancel() {
+    state->cancel(this);           // ② 現在状態の契約を呼ぶ
+}
+void TicketReservation::setState(IReservationState* next) {
+    state = next;                  // ② 次状態を受け取るだけ
+}
+```
+
+**⑥ 利用開始。** 利用者の操作を受けた入口が、公開操作 `TicketReservation::cancel()` などを呼びます。利用側が状態クラスを直接呼ぶことはありません。
+
+```cpp
+seat.reserve();   // ⑥ 利用開始
+seat.cancel();
+```
+
+#### 代表ケースの実行接続
+
+予約済みの席をキャンセルする1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
+
+| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
+|---|---|---|---|
+| 1. ④生成 | `availableState()` ほかの状態取得関数 | `static AvailableState state;` で共有シングルトンを1度だけ作る | ⑤へ |
+| 2. ⑤注入 | `main()` / `TicketReservation` の初期化 | `seat.setState(availableState());` で契約ポインタを渡す | ⑥へ |
+| 3. ⑥利用開始 | `main()` | `seat.cancel();` | `TicketReservation::cancel()` |
+| 4. ②安定骨格 | `TicketReservation::cancel()` | `state->cancel(this);` で現在状態へ委譲する | `IReservationState::cancel()` |
+| 5. ①契約 | `IReservationState::cancel(TicketReservation*)` | 現在状態へ動的ディスパッチする | `ReservedState::cancel()` |
+| 6. ③具体 | `ReservedState::cancel(TicketReservation*)` | 席を解放し待機者を昇格し `setState(availableState())` を呼ぶ | ②の `setState()` へ戻る |
+
+④は関数ローカルの静的オブジェクトなので、生成は初回呼び出し時に1度だけ起き、所有者はプログラム自身です。`new`／`delete` を持たないのが他章の④との違いです。
+
+これで課題ID1の完了条件「状態追加が新状態動作と遷移登録に閉じる」を満たします。
 
 ### 課題ID2：待ち行列と席解放処理を専用の係へ分離する
 
@@ -1581,7 +1621,30 @@ public:
 
 `front()` で先頭の借用ポインタを読み、`pop_front()` でキュー内のその1件だけを除きます。参照先の予約オブジェクトは削除しません。この `deque` の操作と所有権は第0章の標準ライブラリ説明にも反映しています。
 
-**②⑤⑥ 待ち行列連携の安定骨格は、状態処理から1経路だけで接続する。** 席を解放する各状態処理が `promoteNextWaitlisted()` を通じて `ReservationWaitlist::popNext()` を呼び、先頭1件を `promoteBySystem()` で自動昇格します。これで課題ID2の完了条件「取消・期限切れから自動昇格まで一つのユースケースで完了する」を満たし、状態分離構造と待ち行列分離構造が1点で接続されます。
+**⑤ 注入。** 組み立て側が生成した `ReservationWaitlist` を、各予約オブジェクトが共有ストアとして受け取ります。
+
+```cpp
+ReservationWaitlist waitlist;            // ④ 生成・所有は組み立て側
+TicketReservation seat(db, waitlist, "EVT001");  // ⑤ 共有ストアを注入
+```
+
+**② 待ち行列連携の安定骨格。** 席を解放する処理から `promoteNextWaitlisted()` を1経路だけ通します。先頭1件を取り出して `promoteBySystem()` を呼ぶ形は、状態が増えても変わりません。
+
+```cpp
+void TicketReservation::promoteNextWaitlisted() {
+    TicketReservation* next = waitlist.popNext(eventId);  // ② 先頭を取る
+    if (next == nullptr) return;
+    next->promoteBySystem();                              // ② 自動昇格
+}
+```
+
+**⑥ 利用開始。** 利用者が昇格を直接呼ぶことはありません。⑥は課題ID1と同じ `seat.cancel()` で、②の状態処理から自動接続します。
+
+```cpp
+occupied.cancel();   // ⑥ 利用開始（昇格は②から自動接続）
+```
+
+これで課題ID2の完了条件「取消・期限切れから自動昇格まで一つのユースケースで完了する」を満たし、状態分離構造と待ち行列分離構造が1点で接続されます。
 
 ### 6-1：生成・所有・実行順のまとめ
 

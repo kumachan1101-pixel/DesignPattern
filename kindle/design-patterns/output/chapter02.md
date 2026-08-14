@@ -1611,7 +1611,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**②③ 窓口の安定骨格と具体処理を `BankTransferService` の内側へ置く。** 認証・口座検証・残高確認・振込・記録の順を②として一か所に固定し、通常振込と給与バッチの重複手順も同じ窓口へまとめます。
+**② 窓口の安定骨格。** 認証・口座検証・残高確認・振込・記録の順を一か所に固定します。通常振込と給与バッチの重複手順も同じ窓口へまとめ、手順が変わってもここだけを直します。（③の具体処理も同じクラスの内側にあります。課題ID2で契約実装として切り出します。）
 
 ```cpp
 class BankTransferService {
@@ -1643,7 +1643,13 @@ public:
 };
 ```
 
-**⑥ 呼び出し元は `performTransfer(req)` を1回呼ぶだけ。** 手順が変わっても変更先はこの窓口の内側に閉じます。これで課題ID1の完了条件「利用側がAPI手順を知らず、一つの振込操作だけを呼べる」を満たします。ただしこの段階では窓口が具体クラスのままで差し替えできません（課題ID2で解きます）。
+**⑥ 利用開始。** 呼び出し元は公開操作 `performTransfer(req)` を1回呼ぶだけです。手順が変わっても変更先はこの窓口の内側に閉じます。
+
+```cpp
+TransferResult result = service.performTransfer(req);  // ⑥ 利用開始
+```
+
+これで課題ID1の完了条件「利用側がAPI手順を知らず、一つの振込操作だけを呼べる」を満たします。ただしこの段階では窓口が具体クラスのままで差し替えできません（課題ID2で解きます）。
 
 ### 課題ID2：振込実装の選択を利用側から外す
 
@@ -1702,7 +1708,7 @@ public:
 };
 ```
 
-**④ 生成と⑤ 注入は組み立て側で。** `Application`（Composition Root）が具体窓口を生成・所有し、2つの入口へ同じ契約参照を注入します。
+**④ 生成・所有。** `Application`（Composition Root）が具体窓口とその依存を生成し、所有します。
 
 ```cpp
 class Application {
@@ -1711,20 +1717,53 @@ public:
         AccountDatabase db;
         Bank bank;
         TransferHistory history;
-        BankTransferService service(db, bank, history); // ④ 具体窓口を生成・所有
-        TransferProcessor processor(service);        // ⑤ 契約を注入
-        BatchTransferProcessor batch(service);       // ⑤ 同じ契約を注入
-        processor.transfer({"ACC001", "ACC002", 5000, "999999"});
+        BankTransferService service(db, bank, history); // ④ 生成・所有
+```
 
+**⑤ 注入。** 生成済みの窓口を、2つの入口へ同じ契約参照として渡します。入口は具体窓口名を知りません。
+
+```cpp
+        TransferProcessor processor(service);   // ⑤ 契約を注入
+        BatchTransferProcessor batch(service);  // ⑤ 同じ契約を注入
+```
+
+**② 利用側の委譲骨格。** 各入口は契約 `IBankTransferService::performTransfer()` を呼び、結果で表示を分けるだけです。具体窓口を知りません。
+
+```cpp
+void TransferProcessor::transfer(const TransferRequest& req) {
+    TransferResult result = service.performTransfer(req);  // ② 契約へ委譲
+    if (result.success) std::cout << "振り込み完了\n";
+}
+```
+
+**⑥ 利用開始。** 組み立て役が、単発入口とバッチ入口の公開操作を呼びます。
+
+```cpp
+        processor.transfer({"ACC001", "ACC002", 5000, "999999"}); // ⑥ 利用開始
         std::vector<std::pair<std::string, int>> payrollEntries = {
             {"ACC002", 30000}
         };
-        batch.processPayroll("ACC003", payrollEntries); // ⑥ バッチ入口も実行
+        batch.processPayroll("ACC003", payrollEntries);  // ⑥ バッチ入口も利用開始
     }
 };
 ```
 
-**②⑥ 利用側の委譲・実行骨格は契約経由で呼ぶだけ。** 各入口は `service.performTransfer(req)` を呼び、具体窓口を知りません。これで課題ID2の完了条件「具体実装の差替えで利用側の呼出手順が変わらない」を満たします。
+#### 代表ケースの実行接続
+
+ACC001からACC002へ5,000円を送る1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
+
+| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
+|---|---|---|---|
+| 1. ④生成 | `Application::run()` | `BankTransferService service(db, bank, history);` | ⑤へ |
+| 2. ⑤注入 | `Application::run()` | `TransferProcessor processor(service);` で契約参照を渡す | ⑥へ |
+| 3. ⑥利用開始 | `Application::run()` | `processor.transfer({"ACC001", "ACC002", 5000, "999999"});` | `TransferProcessor::transfer()` |
+| 4. ②安定骨格 | `TransferProcessor::transfer(const TransferRequest&)` | `service.performTransfer(req)` で契約へ委譲する | `IBankTransferService::performTransfer()` |
+| 5. ①契約 | `IBankTransferService::performTransfer(const TransferRequest&)` | 注入された窓口へ動的ディスパッチする | `BankTransferService::performTransfer()` |
+| 6. ③具体 | `BankTransferService::performTransfer(const TransferRequest&)` | 口座確認→認証→送金→履歴の順を実行し `TransferResult` を返す | 戻り値を②が表示へ使う |
+
+④で生成した `service` と、⑤で `processor`・`batch` へ渡した実体と、⑥の呼び出しから②が委譲する実体は同じものです。
+
+これで課題ID2の完了条件「具体実装の差替えで利用側の呼出手順が変わらない」を満たします。
 
 ### 6-1：生成・所有・実行順のまとめ
 
