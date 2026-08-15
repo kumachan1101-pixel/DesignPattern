@@ -3928,11 +3928,15 @@ def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
     section = text[start:end]
 
     seen: set[str] = set()
-    label_head = re.compile(
-        r"(?m)^\*\*((?:" + "|".join(re.escape(x) for x in PHASE6_LABELS)
-        + r")+)([^*]{0,60})\*\*")
+    # 見出しは「考える内容」を先に書き、ラベルは行のどこにあってもよい
+    # （著者指摘 2026-08-15：ラベル始まりの定型見出しをやめ、話し方へ戻す）。
+    label_head = re.compile(r"(?m)^\*\*([^*\n]+)\*\*")
+    label_any = re.compile(
+        "|".join(re.escape(x) for x in PHASE6_LABELS))
     for m in label_head.finditer(section):
-        labels = re.findall(r"【[^】]+】", m.group(1))
+        labels = label_any.findall(m.group(1))
+        if not labels:
+            continue
         seen.update(labels)
         # 同じ場所（main など）で連続するポイントは1見出しへまとめてよい。
         # ただし【安定骨格】は呼ばれる側、【利用開始】は呼ぶ側なので分ける。
@@ -3970,21 +3974,23 @@ def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
 
 
 def check_phase6_numbered_step_titles(text: str, path: Path) -> list[Issue]:
-    """フェーズ6の番号付きコード説明を、番号＋項目名＋具体の形へ固定する。"""
+    """フェーズ6の段の見出しへ、6つのラベルが漏れなく現れるかを見る。"""
     start = text.find("## 🔴 フェーズ6：")
     end = text.find("## 🟢 フェーズ7：", start)
     if min(start, end) < 0:
         return []
     section = text[start:end]
-    matches = list(re.finditer(
-        r"(?m)^\*\*((?:" + "|".join(re.escape(x) for x in PHASE6_LABELS)
-        + r")+)\s*([^\n]*)", section))
+    label_any = re.compile("|".join(re.escape(x) for x in PHASE6_LABELS))
+    matches = [
+        m for m in re.finditer(r"(?m)^\*\*([^*\n]+)\*\*[^\n]*", section)
+        if label_any.search(m.group(1))
+    ]
     issues: list[Issue] = []
     seen: set[str] = set()
     for match in matches:
-        seen.update(re.findall(r"【[^】]+】", match.group(0)))
-        # ラベルだけの見出しでよい。章固有の具体は直後の文が担う
-        # （見出しと本文で同じことを繰り返さない／著者指摘 2026-08-15）。
+        seen.update(label_any.findall(match.group(1)))
+        # 見出しは「その段で何を考えるか」を書き、ラベルは末尾へ添える。
+        # ラベル始まりの定型見出しは求めない（著者指摘 2026-08-15）。
         if "★" in match.group(0):
             issues.append(Issue(
                 path, line_number(text, start + match.start()),
