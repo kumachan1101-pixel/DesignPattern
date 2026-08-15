@@ -2398,11 +2398,7 @@ struct PaymentResult {
 
 ### 7-1：解決後のコード（全体）
 
-フェーズ6で確定した課題ID1を満たす生成分離構造を、実行可能な完全なコードとして組み上げます。実装ステップは、採用済み構造の契約・具象生成・組み立てを理解しやすい順に反映したものです。
-
-**1. データ構造とインターフェース**
-
-手段固有の入力データ、保留情報、決済要求・結果、共通インターフェースを定義します。
+フェーズ6で確定した課題ID1を満たす生成分離構造を、実行可能な完全なコードとして組み上げます。
 
 #### 完成後のクラス一覧
 
@@ -2482,7 +2478,15 @@ sequenceDiagram
 
 #### 完成コード
 
-まずファイル冒頭です。共通ヘッダーと、決済手段ID・決済状態を名前で扱う `PaymentMethod`／`PaymentStatus`、手段固有の入力を持つ `CreditCardInput`／`BankTransferInput`／`ConvenienceInput` を置きます。ここはどのクラスにも属さない宣言で、以降のすべてのクラスが使います。
+クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。1-4と同じ顔ぶれが並ぶので、どこが変わったかを見比べてください。
+
+`main()` と実行結果は最後に、ケースごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+
+---
+
+**共通ヘッダーと手段固有の入力データ**
+
+決済手段ID・決済状態を名前で扱う `PaymentMethod`／`PaymentStatus` と、手段固有の入力を置きます。どのクラスにも属さない宣言で、以降のすべてのクラスが使います。
 
 ```cpp
 #include <iostream>
@@ -2525,7 +2529,10 @@ struct ConvenienceInput {
     string storeCode;
 };
 ```
-続いて `PayPayInput` です。
+
+---
+
+**PayPayInput と PendingInfo と PaymentRequest**
 
 ```cpp
 struct PayPayInput {
@@ -2549,7 +2556,12 @@ struct PaymentRequest {
     PayPayInput payPay;
 };
 ```
-続いて `PaymentResult` です。
+
+`PaymentRequest` が手段固有の入力を4つとも持つ形は3-1と同じです。**変わったのは、この要求を受け取る側です。**
+
+---
+
+**PaymentResult と IPaymentProcessor**
 
 ```cpp
 struct PaymentResult {
@@ -2570,9 +2582,11 @@ public:
 };
 ```
 
-`IPaymentProcessor` は「決済要求を受け取り、決済結果を返す」という約束を定義します。手段固有の入力検証、API呼び出し、エラー対処は各Processorの `pay()` 内に閉じ込められます。
+`IPaymentProcessor` は「決済要求を受け取り、決済結果を返す」という約束を定義します。**3-1では4つのProcessorの `pay()` がたまたまシグネチャ一致していただけでしたが、ここで初めて契約になりました。**
 
-**1-b. レジストリ（データ層）の定義**
+---
+
+**ProcessorConfig と ProcessorRegistry**
 
 ```cpp
 struct ProcessorConfig {
@@ -2612,7 +2626,9 @@ public:
 };
 ```
 
-**1-b2. 顧客・注文の保持データ（事前登録）**
+---
+
+**CustomerRecord と CustomerDirectory**
 
 決済要求が参照する顧客と注文を、システムが事前に保持します。`ProcessorRegistry` と同じデータ層で、要求に載る `orderId` から請求金額と注文者を引く土台です（第1章 `CustomerDatabase`、第9章 `UserDatabase` と同じ「登録済みデータへ照合する」形）。
 
@@ -2641,7 +2657,10 @@ public:
 // 事前保持：注文（orderId → 顧客ID・請求金額）
 struct OrderRecord { string customerId; int amount; };
 ```
-続いて `OrderBook` です。
+
+---
+
+**OrderBook**
 
 ```cpp
 class OrderBook {
@@ -2667,7 +2686,9 @@ public:
 
 `orderId` は、この保持データに存在するもの以外を受け付けません。請求金額と注文者はここから引くので、利用側は渡しません。引いた注文者が顧客台帳にいない場合、氏名が空の場合も決済へ進みません。
 
-**1-c. 決済ログ**
+---
+
+**PaymentRecord と PaymentLog**
 
 ```cpp
 struct PaymentRecord {
@@ -2701,7 +2722,11 @@ public:
 };
 ```
 
-**2. 外部API境界スタブ**
+---
+
+**PaymentGatewayClient**
+
+外部決済APIの境界スタブです。
 
 ```cpp
 class PaymentGatewayClient {
@@ -2782,7 +2807,10 @@ public:
     }
 };
 ```
-続いて `PaymentStatusClient` です。
+
+---
+
+**PaymentStatusClient**
 
 ```cpp
 class PaymentStatusClient {
@@ -2819,7 +2847,9 @@ public:
 };
 ```
 
-**3. 個別の決済プロセッサーの実装**
+---
+
+**CreditCardProcessor と BankTransferProcessor**
 
 各Processorは `IPaymentProcessor` を実装し、自分の手段固有の入力検証、API呼び出し、エラー対処をすべて `pay()` 内に閉じ込めます。
 
@@ -2887,7 +2917,10 @@ public:
     }
 };
 ```
-続いて `ConvenienceStoreProcessor` です。
+
+---
+
+**ConvenienceStoreProcessor と PayPayProcessor**
 
 ```cpp
 class ConvenienceStoreProcessor
@@ -2945,7 +2978,9 @@ public:
 
 各Processorが自分の入力検証を行い、自分のAPI境界を呼び、自分のエラー対処（カードの`canRetry`設定など）を完結しています。利用側は手段固有の入力検証やAPI手順を知りません。ただし、共通結果契約に含めた`Pending`と`canRetry`は利用側も扱います。
 
-**4. 本体クラス（生成分離構造を持つCreator）**
+---
+
+**PaymentApplication（生成分離構造を持つCreator）**
 
 ```cpp
 class PaymentApplication {
@@ -3046,7 +3081,9 @@ protected:
 
 `processPayment`は`IPaymentProcessor*`を取得して`pay(request)`を呼ぶだけです。生成の分岐で使う決済手段IDと、結果のステータス（`保留`／`失敗`）は、それぞれ`PaymentMethod`・`PaymentStatus`の名前付き定数へまとめています。手段固有の入力検証、API呼び出し手順、保留IDの作り方は各Processorの内部で完結します。一方、利用側の`executeCase`は共通契約として`Pending`を判定し、共通の`checkCompletion()`を呼びます。つまり利用側が知らないのは「どの手段がどのAPI・完了手順を使うか」であり、非同期状態そのものを知らないわけではありません。
 
-**5. 組み立てと実行（main）**
+---
+
+#### `main()` と実行結果
 
 各部品を組み立て、代表シナリオをケースごとに実行します。まず各ケース共通の「実行・再試行・保留時の完了確認・ログ記録」を補助関数にまとめます。
 
@@ -3121,7 +3158,11 @@ int main() {
 結果: credit_card -> 成功 (クレジット認証済み id=AUTH001)
 ```
 
-同じ `main()` の中で、ケース2は非同期決済（銀行振込）の保留→完了確認です。
+---
+
+**ケース2：非同期決済（銀行振込）の保留→完了確認**
+
+同じ `main()` の中の続きです。
 
 ```cpp
     // ケース2: 銀行振込正常（非同期）
@@ -3163,7 +3204,11 @@ int main() {
   完了結果: 成功 (コンビニ入金確認済み)
 ```
 
-同じ `main()` の中で、ケース4は変更要求で追加したPayPay（非同期）の保留→完了確認です。
+---
+
+**ケース4：PayPay（非同期）の保留→完了確認**
+
+同じ `main()` の中の続きです。
 
 ```cpp
     // ケース4: PayPay正常（非同期）
@@ -3202,7 +3247,11 @@ int main() {
 結果: credit_card -> 失敗 (カード認証失敗: 残高不足)
 ```
 
-同じ `main()` の中で、ケース6はカード入力（名義）が不足していて認証前に弾かれるケースです。
+---
+
+**ケース6：カード名義の不足で認証前に弾かれる**
+
+同じ `main()` の中の続きです。
 
 ```cpp
     // ケース6: カード入力不足
@@ -3235,7 +3284,11 @@ int main() {
 結果: crypto -> 失敗 (暗号通貨 は現在無効です。)
 ```
 
-同じ `main()` の中で、ケース8は未登録の決済方法です。
+---
+
+**ケース8：未登録の決済方法**
+
+同じ `main()` の中の続きです。
 
 ```cpp
     // ケース8: 未登録の決済方法
@@ -3272,7 +3325,11 @@ int main() {
 結果: credit_card -> 成功 (クレジット認証済み id=AUTH001)
 ```
 
-続いて、同じ `main()` の中で注文台帳と顧客台帳での拒否を確認します。ケース10は台帳に無い注文ID、ケース11は注文者が顧客台帳にいない注文です。どちらも外部決済を呼びません。
+---
+
+**ケース10・ケース11：注文台帳と顧客台帳での拒否**
+
+同じ `main()` の中の続きです。ケース10は台帳に無い注文ID、ケース11は注文者が顧客台帳にいない注文です。どちらも外部決済を呼びません。
 
 ```cpp
     // ケース10: 未登録の注文ID
