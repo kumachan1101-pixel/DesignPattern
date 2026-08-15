@@ -1882,9 +1882,7 @@ struct ImportResult {
 
 ### 7-1：解決後のコード（全体）
 
-新しい設計では、共通の手順を親クラスで定義し、形式ごとのパース処理、行検証、任意の後処理をサブクラスに委譲します。各役割ごとにコードを分けて確認します。
-
-**スキーマ定義・ドメイン型・SchemaRegistryクラス：**
+新しい設計では、共通の手順を親クラスで定義し、形式ごとのパース処理、行検証、任意の後処理をサブクラスに委譲します。
 
 #### 完成後のクラス一覧
 
@@ -1953,6 +1951,16 @@ sequenceDiagram
 
 #### 完成コード
 
+定義を1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。この章のクラスはどれもメンバーが少なく、手順を持つ関数は基底クラスの `import()` だけなので、宣言と定義は分けていません。
+
+`main()` と実行結果は最後に、ケースごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+
+---
+
+**共通ヘッダーと値の型**
+
+店舗形式ID・パース結果・検証結果を表す型です。
+
 ```cpp
 #include <iostream>
 #include <sstream>
@@ -1991,7 +1999,12 @@ struct ValidationResult {
     vector<string> reasons;
 };
 ```
-続いて `ImportResult` です。
+
+店舗形式ID（`store`／`fc`／`ec`）は `SchemaType` の名前付き定数へまとめ、スキーマ登録のキーと各Importerの `schemaType()` の戻り値を同じ定数で揃えて、直文字列の打ち間違いを防ぎます。`ParsedRow` と `ValidationResult` は、パースと行検証の境界で受け渡す中間データです。
+
+---
+
+**ImportResult と ImportSchema と SchemaRegistry**
 
 ```cpp
 struct ImportResult {
@@ -2019,9 +2032,13 @@ public:
 };
 ```
 
-店舗形式ID（`store`／`fc`／`ec`）は `SchemaType` の名前付き定数へまとめ、スキーマ登録のキーと各Importerの `schemaType()` の戻り値を同じ定数で揃えて、直文字列の打ち間違いを防ぎます。`SchemaRegistry` は1-4の2種類（store / fc）に、変更要求のEC店（ec）が加わり、ecには会員ランク（memberRank）とポイント（point）の列が増えています。戻り値の型もすべて `void` をやめました。`import()` は `ImportResult`（種別・スキーマ名・保存件数・スキップ件数・成否）を返し、`parseData()` は `vector<ParsedRow>`、`validateRows()` は `ValidationResult` を返します。`ParsedRow`／`ValidationResult` は、パースと行検証の境界で受け渡す中間データです。
+`SchemaRegistry` は1-4の2種類（store / fc）に、変更要求のEC店（ec）が加わり、ecには会員ランク（memberRank）とポイント（point）の列が増えています。**戻り値の型はすべて `void` をやめました。** `import()` は `ImportResult`（種別・スキーマ名・保存件数・スキップ件数・成否）を、`parseData()` は `vector<ParsedRow>`、`validateRows()` は `ValidationResult` を返します。
 
-**ファイルI/OとDBの境界スタブ：**
+---
+
+**ImportFileGateway と SalesImportRepository**
+
+ファイルI/OとDBの境界スタブです。
 
 ```cpp
 // ---- 境界スタブ：ファイルI/OとDB（本章の論点外を簡略化）----
@@ -2059,7 +2076,11 @@ public:
 
 ファイルI/OとDBは本章の論点外なので、どちらも1-4と同じインメモリのスタブです。`ImportFileGateway`は`SampleFileStore`と同じく行配列を保持して返し、`SalesImportRepository.save()`も受け取った行の件数を表示するだけで、永続化や累積金額という新しい仕様を足しません。変えたのは共通骨格から呼ぶ位置であり、保存方法ではありません。
 
-**AbstractImporterクラス（骨格の定義）：**
+---
+
+**AbstractImporter**
+
+処理の順序を固定する基底クラスです。
 
 ```cpp
 // ---- 骨格を固定する基底クラス（テンプレートメソッド）----
@@ -2108,7 +2129,11 @@ protected:
 
 `import()` が処理の順序を一か所に集約し、各ステップの戻り値（読み込んだ行・パース結果・検証結果・保存件数）を次のステップへ受け渡します。全形式で必要な `parseData()`（`vector<ParsedRow>` を返す）と `validateRows()`（`ValidationResult` を返す）は純粋仮想関数とし、形式によって要否が異なるパース後処理は `afterParse()` という任意フックにしています。全体の流れが基底クラスで固定され、サブクラスは必要な手順（ステップ）の中身だけを埋めれば済みます。
 
-**具体クラス（StoreDataImporter / FCDataImporter / ECDataImporter）：**
+---
+
+**StoreDataImporter**
+
+直営店（カンマ区切り・ヘッダーあり）の差分だけを実装します。
 
 ```cpp
 // ---- 直営店（カンマ区切り・ヘッダーあり）----
@@ -2146,7 +2171,9 @@ protected:
 
 `StoreDataImporter`は直営店CSVの解析と行検証だけを担当し、共通の取込順は持ちません。次はFC店固有の差分です。
 
-**FC店の具象Importer（FCDataImporter）**
+---
+
+**FCDataImporter**
 
 ```cpp
 
@@ -2183,9 +2210,13 @@ protected:
 
 ```
 
-`FCDataImporter`はタブ区切りと不正行判定を閉じ込めます。回帰用の入力差し替えとEC店固有処理は別の責任単位で続けます。
+`FCDataImporter` はタブ区切りと不正行判定を閉じ込めます。**`StoreDataImporter` と並べて見比べてください。開く・保存する・閉じるはどちらにも書かれていません。** 1-4では両方の `import()` へべた書きされていた4段が、基底クラスへ移りました。
 
-**回帰用ImporterとEC店の具象Importer**
+---
+
+**StoreEmptyImporter と FCBrokenImporter と StoreV2Importer**
+
+回帰確認用に、骨格もパースも変えず、読む先と期待バージョンだけを差し替えたサブクラスです。
 
 ```cpp
 
@@ -2212,7 +2243,14 @@ protected:
 
 // ---- EC店（カンマ区切り・会員ランク/ポイント・後処理あり）----
 ```
-続いて `ECDataImporter` です。
+
+**継承で入力だけを差し替えられます。** 骨格もパースも触っていないので、回帰確認が既存の実装を変えずに済みます。
+
+---
+
+**ECDataImporter**
+
+EC店（カンマ区切り・会員ランク／ポイント・後処理あり）です。
 
 ```cpp
 class ECDataImporter : public AbstractImporter {
@@ -2257,9 +2295,11 @@ protected:
 
 各サブクラスは形式ごとの `parseData()` と `validateRows()` を実装し、必要な場合だけ `afterParse()` を追加します。ファイルの開閉、バージョンチェック、DB保存、結果記録へ進む順序は基底クラスが担当します。
 
-**BatchApplicationクラス（組み立て）：**
+---
 
-`BatchApplication`は境界と3形式のImporterを組み立て、同じ`import()`骨格を順に実行します。今回の要求にないスケジューラ、非同期キュー、手動アップロード入口は追加しません。
+**BatchApplication**
+
+境界と3形式のImporterを組み立て、同じ `import()` 骨格を順に実行します。今回の要求にないスケジューラ、非同期キュー、手動アップロード入口は追加しません。
 
 ```cpp
 // ---- 依存関係の組み立てを担うクラス ----
@@ -2309,7 +2349,12 @@ public:
         printResult(v2.import());
     }
 ```
-`printResult()` から先は、同じ `BatchApplication` の内部処理です。
+
+**`BatchApplication` が知るのは、組み立てたImporterへ `import()` を依頼することだけです。** どの形式がどうパースするかは知りません。
+
+---
+
+**BatchApplication の内部処理（printResult ほか）**
 
 ```cpp
 private:
@@ -2358,7 +2403,13 @@ private:
 };
 ```
 
-`main()`は`BatchApplication`を組み立て、確認ケースを順に呼ぶだけです。具体クラスの生成と境界の注入はすべて`BatchApplication`に閉じています。長い一括出力にせず、各呼び出しコードの直後へ対応する実行結果を置きます。
+---
+
+#### `main()` と実行結果
+
+`main()` は `BatchApplication` を組み立て、確認ケースを順に呼ぶだけです。具体クラスの生成と境界の注入はすべて `BatchApplication` に閉じています。各呼び出しコードの直後へ、対応する実行結果を置きます。
+
+---
 
 **ケース1：直営店データの取込**
 
@@ -2380,6 +2431,8 @@ DBへ10件を保存しました。
 ファイルをクローズしました。
 ```
 
+---
+
 **ケース2：FC店データの取込**
 
 同じ `main()` から、続けて `BatchApplication::runFCImport()` を呼びます。
@@ -2399,6 +2452,8 @@ DBへ5件を保存しました。
   先頭行: F001 商品1 2000円
 ファイルをクローズしました。
 ```
+
+---
 
 **ケース3：EC店データの取込**
 
@@ -2421,6 +2476,8 @@ DBへ8件を保存しました。
 ファイルをクローズしました。
 ```
 
+---
+
 **ケース4：3形式の結果ログと未登録タイプ**
 
 同じ `main()` から、`BatchApplication::printMainResults()` を呼びます。
@@ -2440,6 +2497,8 @@ DBへ8件を保存しました。
     理由2: EC必須列(ランク/ポイント)不足
 [エラー] 未登録のインポートタイプ: online — 処理を中断します
 ```
+
+---
 
 **ケース5：直営店の空ファイル（回帰1）**
 
@@ -2461,6 +2520,8 @@ DBへ0件を保存しました。
 ファイルをクローズしました。
 [store] 直営店データ（必須列3） 保存0件 / スキップ0件 -> 成功
 ```
+
+---
 
 **ケース6：FC店の全行不正（回帰2）**
 
@@ -2485,6 +2546,8 @@ DBへ0件を保存しました。
     理由2: タブ分割不可
     理由3: タブ分割不可
 ```
+
+---
 
 **ケース7：形式バージョン不一致（回帰3）**
 
