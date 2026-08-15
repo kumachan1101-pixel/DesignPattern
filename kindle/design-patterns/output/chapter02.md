@@ -404,11 +404,19 @@ sequenceDiagram
 
 残高は外部銀行（`Bank`）が権威として保持し、自社台帳（`AccountDatabase`）は名義だけを持ちます。失敗時に残高と履歴を更新しない契約を、次のコードで確認します。
 
-#### 銀行システム・自社台帳・認証のクラス群
+#### 現状コード
 
-はじめに、外部銀行との通信を担う `Bank`、自社の口座名義を持つ `AccountDatabase`、認証を担うクラスを見ます。
+クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは `TransferProcessor` だけです。判断の基準は次の一行です。
+
+> **メンバーを見ないと読めない関数は、メンバーと一緒に置く。**
 
 口座マスターは1-1で示した3口座（ACC001〜ACC003）です。名義は自社台帳（`AccountDatabase`）が、残高は銀行（`Bank`）が保持します。`std::map` は口座IDから名義・残高を引く保存領域、`std::vector` は成功した履歴を順に追加する領域です。基本操作は第0章「サンプルで使うC++標準ライブラリ」を参照してください。
+
+`main()` と実行結果は最後に、行のまとまりごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+
+---
+
+**共通ヘッダー**
 
 ```cpp
 #include <iostream>
@@ -416,7 +424,17 @@ sequenceDiagram
 #include <string>
 #include <vector>
 #include <utility>
+```
 
+以降のすべてのクラスが使います。
+
+---
+
+**AccountDatabase**
+
+自社が知っているのは名義だけです。残高は持ちません。
+
+```cpp
 // 自社台帳：口座の名義を保持する（残高は持たない）
 class AccountDatabase {
 private:
@@ -434,7 +452,17 @@ public:
         return owners.at(id);
     }
 };
+```
 
+`exists()` は自社台帳に載っているかを、`ownerName()` は履歴へ書く名義を返します。**残高の権威は次の `Bank` にあり、自社台帳とは別物です。**
+
+---
+
+**Bank**
+
+外部銀行サブシステムです。残高を保持し、実際に送金します。
+
+```cpp
 // 外部銀行サブシステム：残高を保持し、実際に送金する
 class Bank {
 private:
@@ -473,7 +501,18 @@ public:
         return balances.at(id);
     }
 };
+```
 
+- **責任：** 口座の存在確認、残高照会、残高の増減
+- **副作用：** `executeTransfer()` だけが `balances` を書き換える
+
+照会系（`verifyAccount` / `checkBalance`）は残高を変えず、成否だけを返します。実システムの銀行APIを、実行終了まで覚えているインメモリの `std::map` で代替しています。
+
+---
+
+**SecurityAuthenticator**
+
+```cpp
 // 認証サブシステム：正しいコードを仮決めし、検証で照合する
 class SecurityAuthenticator {
 public:
@@ -487,9 +526,13 @@ public:
 };
 ```
 
-`Bank` は残高を実際に増減させる外部サブシステム、`AccountDatabase` は自社が知る名義、`SecurityAuthenticator` は発行した正しいコードとの照合を担います。
+発行した正しいコードとの照合を担います。実システムのSMS送信とコード発行を、固定値 `999999` との比較で代替しています。
 
-次に、振り込み履歴を管理するクラスを見ます。履歴はシステム起動時は空で、振り込みが成功するたびに1件追記されます。
+---
+
+**TransferRecord と TransferHistory**
+
+履歴は起動時は空で、振り込みが成功するたびに1件追記されます。
 
 ```cpp
 // 自社の振込記録
@@ -514,11 +557,13 @@ public:
 };
 ```
 
-`TransferHistory` は成功のたびに `add()` で1件追記され、`printAll()` で全履歴を出力します。
+記録するのは口座IDではなく名義です。`add()` を呼ぶ側が `AccountDatabase` で引いてから渡します。
 
-#### 振り込み処理クラス
+---
 
-次に、振り込みの全体フローを管理する `TransferProcessor` を見ます。`main()` と `BatchTransferProcessor` から呼ばれ、送金元・送金先・金額・OTPを受け取ります。内部では口座確認・残高確認・認証・送金を順に呼び、どこかが失敗すれば後続を実行せず `false` を返します。すべて成功したときだけ `Bank.executeTransfer()` で残高を動かし、`TransferHistory.add()` で履歴を追加して `true` を返します。
+**TransferProcessor の宣言**
+
+振り込みの全体フローを管理します。`main()` と `BatchTransferProcessor` の2か所から呼ばれます。
 
 ```cpp
 // 振り込み処理クラス：銀行APIの手順を直接制御している
@@ -531,52 +576,108 @@ private:
 
     bool validateAccountsAndBalance(const std::string& from,
                                     const std::string& to,
-                                    int amount) {
-        bool sourceAtBank = bank.verifyAccount(from);
-        if (!db.exists(from) || !sourceAtBank) {
-            std::cout << "エラー: 送金元口座なし\n";
-            return false;
-        }
-        bool destinationAtBank = bank.verifyAccount(to);
-        if (!db.exists(to) || !destinationAtBank) {
-            std::cout << "エラー: 送金先口座なし\n";
-            return false;
-        }
-        if (!bank.checkBalance(from, amount)) {
-            std::cout << "エラー: 残高不足\n";
-            return false;
-        }
-        return true;
-    }
+                                    int amount);
 public:
     TransferProcessor(AccountDatabase& database, Bank& b,
                       TransferHistory& hist)
         : db(database), bank(b), history(hist) {}
 
     bool transfer(const std::string& from, const std::string& to,
-                  int amount, const std::string& otp) {
-        if (!validateAccountsAndBalance(from, to, amount)) return false;
-        auth.promptOTP();
-        if (!auth.verifyOTP(otp)) {
-            std::cout << "エラー: 認証失敗\n";
-            return false;
-        }
-        bank.executeTransfer(from, to, amount);
-        history.add(db.ownerName(from), db.ownerName(to), amount);
-        std::cout << "振り込み完了\n";
-        return true;
-    }
-
+                  int amount, const std::string& otp);
     bool transferApprovedBatch(const std::string& from,
-                               const std::string& to, int amount) {
-        if (!validateAccountsAndBalance(from, to, amount)) return false;
-        bank.executeTransfer(from, to, amount);
-        history.add(db.ownerName(from), db.ownerName(to), amount);
-        std::cout << "振り込み完了（OTP不要）\n";
-        return true;
-    }
+                               const std::string& to, int amount);
 };
+```
 
+台帳・銀行・履歴は外から受け取って参照で持ち、認証だけは自分で持ちます。**公開入口が2つあること**を覚えておいてください。定義を3つ、上のメンバーを見ながら読んでいきます。
+
+---
+
+**TransferProcessor::validateAccountsAndBalance()**
+
+2つの公開入口が共通で使う検証です。
+
+```cpp
+bool TransferProcessor::validateAccountsAndBalance(
+        const std::string& from, const std::string& to, int amount) {
+    bool sourceAtBank = bank.verifyAccount(from);
+    if (!db.exists(from) || !sourceAtBank) {
+        std::cout << "エラー: 送金元口座なし\n";
+        return false;
+    }
+    bool destinationAtBank = bank.verifyAccount(to);
+    if (!db.exists(to) || !destinationAtBank) {
+        std::cout << "エラー: 送金先口座なし\n";
+        return false;
+    }
+    if (!bank.checkBalance(from, amount)) {
+        std::cout << "エラー: 残高不足\n";
+        return false;
+    }
+    return true;
+}
+```
+
+- **順序に意味：** 送金元 → 送金先 → 残高の順に確認します。口座が無いと分かった時点で `false` を返すので、残高照会まで進みません
+- **失敗の扱い：** どこで落ちたかをその場で表示し、残高も履歴も変えずに戻ります
+
+自社台帳と銀行の両方へ問い合わせています。片方にしか無い口座も、ここで弾かれます。
+
+---
+
+**TransferProcessor::transfer()**
+
+利用者からの通常の振り込みです。
+
+```cpp
+bool TransferProcessor::transfer(const std::string& from,
+                                 const std::string& to,
+                                 int amount, const std::string& otp) {
+    if (!validateAccountsAndBalance(from, to, amount)) return false;
+    auth.promptOTP();
+    if (!auth.verifyOTP(otp)) {
+        std::cout << "エラー: 認証失敗\n";
+        return false;
+    }
+    bank.executeTransfer(from, to, amount);
+    history.add(db.ownerName(from), db.ownerName(to), amount);
+    std::cout << "振り込み完了\n";
+    return true;
+}
+```
+
+- **順序に意味：** 検証 → 認証 → 送金 → 履歴の順です。認証を送金の後に置くと、認証失敗でも残高が動いてしまいます
+- **失敗の扱い：** どの段階で落ちても、`executeTransfer()` へ到達しない限り残高と履歴は変わりません
+
+**銀行の呼び出し手順が、この関数に直接書かれています。**
+
+---
+
+**TransferProcessor::transferApprovedBatch()**
+
+社内で承認済みの一括処理用です。
+
+```cpp
+bool TransferProcessor::transferApprovedBatch(const std::string& from,
+                                              const std::string& to,
+                                              int amount) {
+    if (!validateAccountsAndBalance(from, to, amount)) return false;
+    bank.executeTransfer(from, to, amount);
+    history.add(db.ownerName(from), db.ownerName(to), amount);
+    std::cout << "振り込み完了（OTP不要）\n";
+    return true;
+}
+```
+
+検証は共通化できましたが、OTPを省くため**認証以降の送金・履歴の手順は `transfer()` と別に書かれています。** 送金と履歴の2行が、2つの入口へ重複しています。
+
+---
+
+**BatchTransferProcessor**
+
+給与振り込みなど、もう1つの呼び出し元です。
+
+```cpp
 // 給与振り込みなどの一括処理バッチ（もう1つの呼び出し元）
 class BatchTransferProcessor {
 private:
@@ -599,11 +700,17 @@ public:
 };
 ```
 
-`TransferProcessor` の二つのメソッドには「振り込みという業務フローの制御」と「銀行の具体的な呼び出し手順」が一緒に書かれています。口座・残高の共通検証は `validateAccountsAndBalance()` へまとめましたが、バッチではOTPを省略するため、その後の認証・送金手順は通常振込と別の入口に残っています。`payrollEntries` は呼び出し元の給与システムが作る入力一覧で、各要素は「振込先口座・支給額」です。
+`payrollEntries` は呼び出し元の給与システムが作る入力一覧で、各要素は「振込先口座・支給額」です。1件ずつ `transferApprovedBatch()` へ渡すだけで、失敗しても残りの件を続けます。
 
-#### 呼び出し元と実行確認
+---
 
-まず依存を組み立て、行1（正常な個別振り込み）を実行します。
+#### `main()` と実行結果
+
+1-2の動作例5行を、行ごとに区切って実行します。**残高は行をまたいで引き継がれます。**
+
+---
+
+**組み立てと、行1：正常な個別振り込み**
 
 ```cpp
 int main() {
@@ -616,8 +723,6 @@ int main() {
     processor.transfer("ACC001", "ACC002", 5000, "999999");
 ```
 
-行1（正常な個別振り込み）の実行結果：
-
 ```
 --- 行1: 正常な個別振り込み ---
 口座確認: ACC001 OK
@@ -629,14 +734,16 @@ int main() {
 振り込み完了
 ```
 
-続いて、行2（存在しない口座）を実行します。
+口座確認・残高確認・認証・送金が、`transfer()` に書かれた順どおりに出ています。ACC001が145000円になりました。
+
+---
+
+**行2：存在しない口座**
 
 ```cpp
     std::cout << "--- 行2: 存在しない口座 ---\n";
     processor.transfer("ACC001", "UNKNOWN", 5000, "999999");
 ```
-
-行2（存在しない口座）の実行結果：
 
 ```
 --- 行2: 存在しない口座 ---
@@ -645,14 +752,16 @@ int main() {
 エラー: 送金先口座なし
 ```
 
-続いて、行3（残高不足）を実行します。
+送金先の確認で止まりました。残高照会も認証も実行されていません。
+
+---
+
+**行3：残高不足**
 
 ```cpp
     std::cout << "--- 行3: 残高不足 ---\n";
     processor.transfer("ACC001", "ACC002", 1000000, "999999");
 ```
-
-行3（残高不足）の実行結果：
 
 ```
 --- 行3: 残高不足 ---
@@ -662,14 +771,16 @@ int main() {
 エラー: 残高不足
 ```
 
-続いて、行4（認証失敗）を実行します。
+照会された残高が145000円です。行1の送金結果が銀行側に残っていることが確認できます。
+
+---
+
+**行4：認証失敗**
 
 ```cpp
     std::cout << "--- 行4: 認証失敗 ---\n";
     processor.transfer("ACC001", "ACC002", 5000, "INVALID");
 ```
-
-行4（認証失敗）の実行結果：
 
 ```
 --- 行4: 認証失敗 ---
@@ -681,7 +792,11 @@ int main() {
 エラー: 認証失敗
 ```
 
-最後に、行5（社内承認済みバッチ）を実行し、`main()` を終了します。
+検証はすべて通りましたが、認証で止まりました。**残高は145000円のままです。**
+
+---
+
+**行5：社内承認済みバッチと、最終確認**
 
 ```cpp
     std::cout << "--- 行5: 社内承認済みバッチ ---\n";
@@ -697,8 +812,6 @@ int main() {
     return 0;
 }
 ```
-
-行5（社内承認済みバッチ）の実行結果：
 
 ```
 --- 行5: 社内承認済みバッチ ---
@@ -716,7 +829,9 @@ ACC003: 470000円
 鈴木 次郎 → 佐藤 花子 : 30000円
 ```
 
-各ケースのコードとその実行結果をその場で並べたので、離れた `main()` と出力を行き来せずに照合できます（確認したいこと：口座確認・残高確認・認証・送金・履歴記録が入力条件に応じて仕様どおり実行または中止され、銀行残高が実際に増減すること）。
+バッチでは認証コードの2行が出ていません。履歴は2件で、成功した行1と行5だけが残っています。失敗した行2〜行4は残高も履歴も動かしていません。
+
+---
 
 動作例テーブルの全5行について、成功時の処理順、失敗時の中止位置、バッチでOTPを実行しないことを確認できました。行3は銀行の残高照会で、行4はOTPの照合で実際に弾かれ、成功時は銀行残高が増減しています。現状でも仕様は満たしています。
 

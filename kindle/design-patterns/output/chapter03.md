@@ -338,22 +338,34 @@ sequenceDiagram
 
 予約成功で件数を増やし、キャンセル・期限切れで減らすという在庫の契約を次のコードで確認します。
 
-イベントマスターは1-1で示した3件（EVT001〜EVT003）です。次のコードの `EventDatabase` が、その定員と現在の予約数を保持します。予約が成功するとメモリ上の `reserved` を1増やし、予約済み状態でキャンセルすると1減らします。たとえばEVT002は499件から予約すると500件で満席になり、その予約をキャンセルすると499件へ戻ります。
+#### 現状コード
 
-このコードの `std::map` はイベントIDから `EventInfo` を引くメモリ上のイベント表です。`at(id)` は存在確認済みのIDに対応するデータを取得します。`throw std::runtime_error(...)` は、満席という前提違反を呼び出し元へ例外として通知する記法です。通常の満席判定は先に `hasCapacity()` で行い、例外は確認を飛ばして更新しようとした場合の安全網として使います。
+クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは `TicketReservation` だけです。判断の基準は次の一行です。
 
-コードは責任の固まりごとに分けて読みます。
+> **メンバーを見ないと読めない関数は、メンバーと一緒に置く。**
 
-**(1) イベント在庫を表すクラス（EventInfo / EventDatabase）**
+`main()` と実行結果は最後に、行のまとまりごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
 
-最初に、1-1の「イベント」にあたるデータと在庫を持つ部分です。イベントIDから定員・予約数を引き、予約成功で件数を増やし、キャンセルで減らす在庫の役割を担います。エラー条件「存在しないID」「満席」もここで判定します。
+---
+
+**共通ヘッダー**
 
 ```cpp
 #include <iostream>
 #include <string>
 #include <map>
 #include <stdexcept>
+```
 
+以降のすべてのクラスが使います。
+
+---
+
+**EventInfo と EventDatabase**
+
+1-1の「イベント」にあたるデータと在庫です。イベントIDから定員・予約数を引き、エラー条件「存在しないID」「満席」もここで判定します。
+
+```cpp
 struct EventInfo {
     std::string title;   // イベント名
     int capacity;        // 定員
@@ -398,11 +410,16 @@ public:
 };
 ```
 
-`EventDatabase` は `std::map` でイベントIDと `EventInfo` を対応付けた在庫データです。`exists()` でIDの存在確認、`hasCapacity()` で空席判定、`reserveSeat()` / `cancelSeat()` で予約数を増減します。実システムのDBを、この章では実行終了まで覚えているインメモリの登録表で代替しています。
+- **責任：** イベントIDから空席を確認し、予約数を増減する
+- **副作用：** `reserveSeat()` / `cancelSeat()` / `save()` だけが `records` を書き換える
 
-**(2) 予約操作をまとめるクラス（TicketReservation）**
+`std::map` はイベントIDから `EventInfo` を引くメモリ上のイベント表です。EVT002は499件なので、1件予約すると500件で満席になり、その予約をキャンセルすると499件へ戻ります。実システムのDBを、実行終了まで覚えているインメモリの登録表で代替しています。
 
-この章の中心です。1-1の「予約・支払い・キャンセル」という利用者操作を受け取り、現在の状態（Available / Reserved / Paid）に応じて可否を判定してから在庫を更新します。同型で並列な極小関数（各状態のエラー出力）は、並列関係が縦に見えるよう1行揃えで書きます（本書共通のスタイル）。
+---
+
+**TicketReservation の宣言**
+
+この章の中心です。1-1の「予約・支払い・キャンセル」という利用者操作を受け取ります。
 
 ```cpp
 class TicketReservation {
@@ -421,53 +438,91 @@ public:
     TicketReservation(EventDatabase& db, const std::string& eventId)
         : db(db), eventId(eventId), status("Available") {}
 
-    void reserve() {
-        if (!db.exists(eventId)) {
-            std::cout << "エラー：イベントID " << eventId << " は存在しません\n";
-            return;
-        }
-        if (!db.hasCapacity(eventId)) {
-            std::cout << "エラー：" << db.get(eventId).title << " は満席です\n";
-            return;
-        }
-        if (status == "Available") {
-            db.reserveSeat(eventId);
-            status = "Reserved";
-            std::cout << "予約対象：" << db.get(eventId).title << "\n";
-            std::cout << "予約完了しました\n";
-        } else {
-            handleReserveError();
-        }
-    }
-
-    void pay() {
-        if (status == "Reserved") {
-            status = "Paid";
-            std::cout << "支払い完了しました\n";
-        } else {
-            handlePayError();
-        }
-    }
-
-    void cancel() {
-        if (status == "Reserved") {
-            db.cancelSeat(eventId);
-            status = "Available";
-            std::cout << "予約をキャンセルしました\n";
-        } else {
-            handleCancelError();
-        }
-    }
+    void reserve();
+    void pay();
+    void cancel();
 };
 ```
 
-このコードを見ると、`reserve`、`pay`、`cancel` の各メソッドの中に、現在の `status` を判定する条件分岐が散らばっていることが分かります。
+在庫は外から受け取って参照で持ち、対象イベントと現在状態は自分で持ちます。**この `status` が、3つの操作すべての可否を決めます。** 同型で並列な3つのエラー出力は、並列関係が縦に見えるよう1行揃えで書いています（本書共通のスタイル）。定義を3つ、上のメンバーを見ながら読んでいきます。
 
-**(3) 実行して動作例と照合する（main）**
+---
 
-1-2の動作例テーブルを、ケースごとにコードとその実行結果を並べて確認します（実行対象は1-4の現状コード）。
+**TicketReservation::reserve()**
 
-まず依存を組み立て、行1（EVT001 予約 → 支払い）を実行します。
+```cpp
+void TicketReservation::reserve() {
+    if (!db.exists(eventId)) {
+        std::cout << "エラー：イベントID " << eventId << " は存在しません\n";
+        return;
+    }
+    if (!db.hasCapacity(eventId)) {
+        std::cout << "エラー：" << db.get(eventId).title << " は満席です\n";
+        return;
+    }
+    if (status == "Available") {
+        db.reserveSeat(eventId);
+        status = "Reserved";
+        std::cout << "予約対象：" << db.get(eventId).title << "\n";
+        std::cout << "予約完了しました\n";
+    } else {
+        handleReserveError();
+    }
+}
+```
+
+- **判断が3つ：** イベントの存在、空席の有無、現在状態。3つとも別々の理由で失敗します
+- **順序に意味：** 存在確認を先に置かないと、`hasCapacity()` の `at()` が未登録IDで落ちます
+- **副作用：** 3つとも通ったときだけ在庫を1件増やし、状態を `Reserved` にします
+
+`hasCapacity()` で先に満席を弾くので、この経路では例外が出ません。`throw std::runtime_error(...)` は、確認を飛ばして更新しようとした場合の安全網です。
+
+---
+
+**TicketReservation::pay()**
+
+```cpp
+void TicketReservation::pay() {
+    if (status == "Reserved") {
+        status = "Paid";
+        std::cout << "支払い完了しました\n";
+    } else {
+        handlePayError();
+    }
+}
+```
+
+`Reserved` のときだけ通ります。在庫は動きません。
+
+---
+
+**TicketReservation::cancel()**
+
+```cpp
+void TicketReservation::cancel() {
+    if (status == "Reserved") {
+        db.cancelSeat(eventId);
+        status = "Available";
+        std::cout << "予約をキャンセルしました\n";
+    } else {
+        handleCancelError();
+    }
+}
+```
+
+`Reserved` のときだけ通り、在庫を1件戻します。**`Paid` からは戻せません。**
+
+3つの定義を並べて見ると、`reserve` `pay` `cancel` のどれもが冒頭で `status` を見ています。現在状態の判定が3か所へ散らばっています。
+
+---
+
+#### `main()` と実行結果
+
+1-2の動作例テーブルを、行ごとに区切って実行します。**在庫は行をまたいで引き継がれます。**
+
+---
+
+**組み立てと、行1：EVT001 予約 → 支払い**
 
 ```cpp
 int main() {
@@ -480,8 +535,6 @@ int main() {
     seat1.pay();      // Reserved  → Paid
 ```
 
-行1（EVT001 予約 → 支払い）の実行結果：
-
 ```
 --- 行1: EVT001 予約 → 支払い ---
 予約対象：春の音楽祭
@@ -489,7 +542,11 @@ int main() {
 支払い完了しました
 ```
 
-続いて、行2（EVT001 予約 → キャンセル）を実行します。
+`db` を1つだけ作り、以降のすべての `TicketReservation` へ参照で渡します。在庫が共有されるのはこのためです。
+
+---
+
+**行2：EVT001 予約 → キャンセル**
 
 ```cpp
     // 行2: 予約からキャンセルまで
@@ -499,8 +556,6 @@ int main() {
     seat2.cancel();   // Reserved  → Available
 ```
 
-行2（EVT001 予約 → キャンセル）の実行結果：
-
 ```
 --- 行2: EVT001 予約 → キャンセル ---
 予約対象：春の音楽祭
@@ -508,7 +563,11 @@ int main() {
 予約をキャンセルしました
 ```
 
-続いて、行3（EVT003 満席イベントへの予約）を実行します。
+予約で1件増え、キャンセルで1件戻りました。EVT001の予約数は行1の分だけ増えた状態で残ります。
+
+---
+
+**行3：EVT003 満席イベントへの予約**
 
 ```cpp
     // 行3: 満席イベントへの予約試み
@@ -517,14 +576,16 @@ int main() {
     seat3.reserve();  // エラー（満席）
 ```
 
-行3（EVT003 満席イベントへの予約）の実行結果：
-
 ```
 --- 行3: EVT003 満席イベントへの予約 ---
 エラー：秋の映画会 は満席です
 ```
 
-続いて、行4（UNKNOWN 存在しないイベントへの予約）を実行します。
+`hasCapacity()` で止まりました。状態は `Available` のままです。
+
+---
+
+**行4：UNKNOWN 存在しないイベントへの予約**
 
 ```cpp
     // 行4: 存在しないイベントへの予約試み
@@ -533,14 +594,16 @@ int main() {
     seat4.reserve();  // エラー（存在しない）
 ```
 
-行4（UNKNOWN 存在しないイベントへの予約）の実行結果：
-
 ```
 --- 行4: UNKNOWN 存在しないイベントへの予約 ---
 エラー：イベントID UNKNOWN は存在しません
 ```
 
-続いて、行5（予約なしで支払いを試みる）を実行します。
+先頭の `exists()` で止まるので、満席判定へは進みません。
+
+---
+
+**行5：予約なしで支払いを試みる**
 
 ```cpp
     // 行5: 状態エラー — 予約前に支払いを試みる
@@ -549,14 +612,14 @@ int main() {
     seat5.pay();      // エラー（Available状態）
 ```
 
-行5（予約なしで支払いを試みる）の実行結果：
-
 ```
 --- 行5: 予約なしで支払いを試みる ---
 支払いに適した状態ではありません
 ```
 
-最後に、行6（支払い済みをキャンセルしようとする）を実行し、`main()` を終了します。
+---
+
+**行6：支払い済みをキャンセルしようとする**
 
 ```cpp
     // 行6: 状態エラー — 支払い済みをキャンセルしようとする
@@ -570,8 +633,6 @@ int main() {
 }
 ```
 
-行6（支払い済みをキャンセルしようとする）の実行結果：
-
 ```
 --- 行6: 支払い済みをキャンセルしようとする ---
 予約対象：春の音楽祭
@@ -580,7 +641,9 @@ int main() {
 キャンセルできません
 ```
 
-各ケースのコードとその実行結果をその場で並べたので、離れた `main()` と出力を行き来せずに照合できます（確認したいこと：イベントID検証・満席判定・状態遷移の結果が、動作例テーブルと対応していること）。
+同じ `cancel()` が、行2では成功し行6では拒否されました。違いは現在状態だけです。
+
+---
 
 `main()` はイベントIDと操作の組み合わせを指示するだけで、存在確認・満席判定・状態チェックはすべて `TicketReservation` 内部で行っています。
 
