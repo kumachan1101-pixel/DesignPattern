@@ -1418,7 +1418,7 @@ graph LR
 この表と完了状態が、そのままフェーズ6の入力です。要求の受入は要求ID、設計課題の解消は課題ID、今回の変更影響は変更IDで別々に追跡します。
 ## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-**ここからしばらくは抽象の話です。** 個々のクラスへ入る前に、この章で「何を、どんな構造へ変えるのか」を先に決めます。
+**ここからは、変更前のクラス図とコードを少しずつ書き換えていきます。** 完成形を先に見せるのではなく、1つ判断するたびに図とコードがどう変わるかを追います。
 
 #### まず全体像 ―― どんな構造へ変えるか（抽象）
 
@@ -1433,400 +1433,20 @@ flowchart TB
     D --> E
 ```
 
-★ここからの話の組み立て方を大きく変えたい。話の起点は上記フローです。
-課題１の状態分離はクラス図で変更前と変更後どう表現するかをまず示す。守る範囲から、分離したクラスをどう接続するかは、以下に記載した考え方をクラス図を交えながら説明する。課題２の優先度差し替えも同様。
-クラス図を全部載せるのではなく、部分的に少しずつ変えていく様子、併せて、コードもどのように変えていくのかの様子、過程が見えていく形にしてほしい。
+**このフローの左から右が、この後の順序です。** まず右端の「守る範囲」を具体的に確定します。守る範囲が決まらないと、どこで線を引いてよいか決められません。そのうえで課題ID1・課題ID2の順に、クラス図とコードを少しずつ書き換えます。
 
-★順番を入れ替えました。各課題を少しずつ変えていく過程をまず示します。
-### 課題ID1：状態固有の振る舞いをチケット進行から分離する
+**守る範囲 ―― この章で変えないもの。**
 
-**【課題ID1の原因】** 問題ID1・問題ID3（状態と優先度が同じ分岐で絡み、状態追加のたびに `updateStatus` の巨大 `switch` を触る）＝原因ID1（状態遷移ロジックの混在）。この原因を分離対象にします。
+- **公開操作**：`create()` で起票し、操作を受けて状態を進める、という入口の形
+- **保存**：`TicketRepository` がチケットをID別に保持し、`get()`／`save()` で読み書きする
+- **既存状態の遷移規則**：受付中→対応中→解決済み、エスカレーション、差し戻し、再受付の各遷移そのもの
+- **出力**：状態遷移1件につき1行、遷移前後の状態名と優先度を表示する
 
-**この課題（何を解きたいか）：** 「保留中」を1つ足すだけで、`updateStatus` の状態別 `switch` と各遷移の副作用まで抱える——問題ID1・問題ID3（痛み）／原因ID1（状態遷移の混在）です。**公開操作は状態を判定せず、状態ごとの許可操作と遷移先だけを差し替えられる**ようにするのが課題ID1です。
-
-**どう解決するか（方針）：** 状態ごとの振る舞いを共通契約の裏へ揃え、現在状態へ操作を委譲します（状態分離構造＝State）。ここからは、その形へ辿り着くまでに通る判断を順に書きます。段の終わりが次の段が要る理由になっているので、上から続けて読んでください。まとめの表は節の最後に置きます。
-
-**出発点。** 課題ID1で、やることはもう決まっています。「公開操作は状態を判定せず、状態ごとの許可操作と遷移先だけを差し替えられるようにする」——つまり `updateStatus()` から状態ごとの振る舞いを**分ける**ことです。分ける対象も決まっています。出て行くのは状態ごとの操作可否・遷移・副作用、残るのは公開操作・保存・既存状態の遷移規則でした（5-3の接続点定義表）。
-
-**2. 境界に何が渡るかを決める 【契約】**
-★分けるは消しました。契約も決めて分けるためです。
-
-
-この判断をクラス図にすると、次の3つだけの関係になります。
-
-```mermaid
-classDiagram
-    class TicketService
-    class ITicketPhase { <<interface>> }
-    class OpenPhase
-    TicketService --> ITicketPhase : 現在状態へ操作を委譲
-    ITicketPhase <|.. OpenPhase
-    class ITicketPhase:::focus
-    class OpenPhase:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-状態から状態への矢印がありません。それが状態名で返すと決めたことの結果です。ここに描いていないクラス（`TicketRepository`、`AuditLog` など）は課題ID1では変わりません。
-
-
-`updateStatus()` の中身を、決めたとおり2つに割ります。
-
-★以下にクラス図の該当箇所の変更前と変更後を示す。
-出て行くもの。
-
-- 受付中ならアサインできて、解決済みならできない、という状態ごとの可否
-- 許されたとき、次はどの状態になるか
-
-残るもの。
-
-- チケットIDで保存済みチケットを引くこと
-- 決まった遷移先で状態を書き換え、保存すること
-- 表示と監査ログへの記録
-
-**割り方の根拠は、状態が増えたときに触るかどうかです。** 「保留中」を足すと上の2つは増えますが、下の3つは1行も増えません。だから上が出て行き、下が残ります。
-
-割った瞬間、間に隙間ができます。**残った側は、出て行った側を呼ばないと処理を進められません。** では、何を渡して、何を受け取るのか。
-
-隙間を跨ぐものだけが契約です。多くても少なくても困るので、両方向を1つずつ数えます。
-
-**渡すもの：ありません。** 「今どの状態か」は、渡す代わりに相手そのものが体現します。受付中の振る舞いは受付中のオブジェクトが持つ、という形にすれば、状態を引数で渡す必要が消えます。
-
-**受け取るもの：2つです。** その操作が許されるか。許されるなら、次はどの状態か。1で出て行ったものがちょうどこの2つなので、過不足がありません。
-
-もう1つ、受け取り方に選択肢があります。「次はどの状態か」を、次の状態の**オブジェクト**で返す形にもできます。ただしそれだと状態どうしが互いを持つことになり、生成した後に配線する処理が要る。状態を1つ足すたびに、その状態を指す既存の状態も触ることになります。完了条件に反するので、**状態名**で返す形にします。
-
-```cpp
-// 課題ID1接続点：状態ごとの振る舞いを共通契約にする
-// 各操作は「次はどの状態か」を返す。相手のオブジェクトは持たない。
-struct Transition {
-    bool allowed;
-    TicketStatus next;   // allowed が false のときは使わない
-};
-
-class ITicketPhase {
-public:
-    virtual ~ITicketPhase() = default;
-    virtual Transition assign() const   { return reject("アサイン"); }
-    virtual Transition resolve() const  { return reject("解決"); }
-    virtual Transition escalate() const { return reject("エスカレーション"); }
-    virtual Transition reopen() const   { return reject("再受付"); }
-    virtual Transition hold() const     { return reject("保留"); }
-    virtual Transition sendBack() const { return reject("差し戻し"); }
-protected:
-    Transition reject(const std::string& op) const {
-        std::cout << "  操作不可: この状態では「" << op
-                  << "」できません。" << std::endl;
-        return {false, TicketStatus::Open};
-    }
-};
-```
-
-`Transition` の2つのメンバーが、そのまま受け取るものの2つです。操作ごとに答えが違うので、操作ごとに関数を置きました。許可されない操作は既定の `reject()` が引き受けるので、呼ぶ側は状態を判定しません。
-
-契約が決まりました。**では、この契約を誰が呼ぶのか。**
-
-**3. 呼ぶのは、残った側 【安定骨格】**
-
-呼べるのは1で残った側だけです。出て行った側が出て行った側を呼べば、状態が増えるたびに両方を触ることになり、分けた意味が消えます。
-
-`TicketService::assign()` が呼びます。
-
-```cpp
-void TicketService::assign(const string& ticketId,
-                           const string& assigneeId) {
-    // …チケットIDの存在確認（省略）…
-    Ticket& t = repo.get(ticketId);
-
-    Transition tr = policies.phaseFor(t.status).assign();  // 現在状態へ尋ねる
-    if (!tr.allowed) return;                               // 不可なら何もしない
-
-    t.status = tr.next;
-    t.assigneeId = assigneeId;
-    repo.save(t);
-    // …表示と監査ログへの記録（省略）…
-}
-```
-
-1で「残るもの」として数えた3つが、そのまま3段になっています。引数の `ticketId` で保存済みチケットを引き、その `status` から現在状態を得ています。状態名から状態オブジェクトを引くのは `policies.phaseFor()` で、`TicketService` は具体状態の名前を1つも知りません。
-
-ここで一度、検算します。**状態を1つ足したとき、この3段は変わるか。** 変わらないなら、1の割り方は正しかったことになります。変わるなら割り残しがあるので、1へ戻って線を引き直します。第9章では「保留中」を足しても3段のままでした。
-
-**4. 呼ぶには、実体が要る 【注入】**
-
-「現在状態へ尋ねる」と書いた時点で、尋ねる相手の実体が必要になります。上のコードでいえば `policies` です。手に入れ方は3つしかありません。
-
-- 自分で作る。具体状態の名前を知ることになり、分けた意味が消えます
-- どこかから取りに行く（グローバル変数やシングルトン）。依存が引数に現れず、テストで差し替えられません
-- 外から受け取る
-
-残るのは3つ目だけです。**注入すると先に決めているのではなく、契約を呼ぶと決めた時点で他の選択肢が消えます。**
-
-**掲載箇所：`main()`** ―― 組み立ての最後の行
-
-```cpp
-TicketService svc(repo, users, staff, log, policies);  // 契約の実体を渡す
-```
-
-受け取る側の `TicketService` は、5つの参照をメンバーへ保持するだけです。コンストラクタで判断も生成もしません。
-
-**5. 渡す前に、作る人がいる 【生成】**
-
-外から受け取れたということは、渡す前に誰かが作っていたということです。生成の責任を残った側から外した以上、それを引き受ける場所が要ります。
-
-**掲載箇所：`main()`** ―― 【注入】の直前の行
-
-```cpp
-TicketPolicySet policies;                              // 具体状態を生成・所有
-```
-
-`TicketPolicySet` が全状態を持ち、`main()` がそれを作って渡します。ここで決まるのは生成の場所と所有と寿命です。`TicketPolicySet` にコンストラクタが無いのは、2で状態名を返す形にしたので、配線する処理そのものが無いためです。2の判断がここへ効いています。
-
-**6. 残ったのは、契約の裏だけ 【具体】**
-
-ここまで決まると、状態クラスに書くことは契約のメソッドを埋める以外にありません。
-
-```cpp
-// 受付中：アサインで対応中へ、保留で保留中へ進む
-class OpenPhase : public ITicketPhase {
-public:
-    Transition assign() const override {
-        return {true, TicketStatus::InProgress};
-    }
-    Transition hold() const override {
-        return {true, TicketStatus::Pending};
-    }
-};
-```
-
-`InProgressPhase`（解決・エスカレーション・保留）、`EscalatedPhase`（解決・差し戻し）、`ResolvedPhase`／`PendingPhase`（再受付）も同じ形で、許可する操作だけを上書きします。メンバー変数は1つもありません。次の状態を名前で答えるだけだからです。
-
-ここでもう一度、検算します。**契約のメソッド以外に書きたくなるものがあるなら、1の割り方か2の数え方を間違えています。** 第9章では出てきませんでした。
-
-同時に完了条件の答えが出ます。状態を1つ足すときに書くのは、このようなクラス1つと、`TicketPolicySet::phaseFor()` の1行だけです。
-
-**7. 結果として、呼び方はこうなった 【利用開始】**
-
-**掲載箇所：`main()`** ―― 担当者のアサイン操作にあたる1行
-
-```cpp
-svc.assign("TCK001", "AGT01");
-```
-
-第2引数だった操作名の文字列 `"assign"` が、関数名になりました。文字列で操作を選ぶ場所がもうどこにも無いからです。残る引数はチケットIDと担当者IDだけで、どの状態から始まるかを呼び出し側は書きません。利用側が `ITicketPhase::assign()` や具体状態を直接呼ぶこともありません。
-
-
-
-### 課題ID2：優先度判定をチケット進行から分離する
-
-**【課題ID2の原因】** 問題ID2（状態追加で優先度計算まで再テストに巻き込まれる）＝原因ID2（優先度ルールの混在）。この原因を分離対象にします。
-
-**この課題（何を解きたいか）：** 法人区分を1つ足すだけで、`PriorityCalculator::calculate` の `if` 連鎖を触り、状態処理の再テストまで巻き込む——問題ID2（痛み）／原因ID2（優先度ルールの混在）です。**優先度判定を、状態処理を知らずに差し替えられる**ようにするのが課題ID2です。
-
-**どう解決するか（方針）：** 優先度判定を差し替え可能なルール契約の裏へ揃え、区分に応じて選んだルールへ委ねます（規則差し替え構造＝Strategy）。通る判断は課題ID1と同じ7段です。同じ順で辿れることを確かめながら読んでください。
-
-**出発点。** 課題ID2でも、やることはもう決まっています。「優先度判定を、状態処理を知らずに差し替えられるようにする」——つまり `PriorityCalculator::calculate` から区分ごとの判定条件を**分ける**ことです。出て行くのは顧客区分・SLA基準の判定条件、残るのは状態処理・公開操作・保存でした（5-3の接続点定義表）。呼び出し側は、フェーズ3までこう書いています。
-
-**掲載箇所：`main()`** ―― 3-1のチケット起票にあたる1行（対策前）
-
-```cpp
-manager.create("TCK001", "USR003");                  // フェーズ3までの呼び方
-```
-
-**1. まず、分ける**
-
-出て行くもの。
-
-- プレミアム顧客なら High、一般顧客なら Normal、という区分ごとの判定
-- SLA基準が改定されたときに書き換わる条件
-
-残るもの。
-
-- 依頼者IDで台帳を引き、その顧客区分を得ること
-- 決まった優先度でチケットを作り、保存すること
-
-**割り方の根拠は課題ID1と同じです。** 法人区分を足すと上の2つは増えますが、下の2つは1行も増えません。
-
-割った隙間を、残った側が跨ぐことになります。では、何を渡して、何を受け取るのか。
-
-**2. 境界に何が渡るかを決める 【契約】**
-
-**渡すもの：ありません。** 区分ごとに別のクラスを用意するので、自分がどの区分かを聞き直す必要が無いためです。チケットの内容も状態も渡しません。渡せば優先度ルールが状態処理を知ることになり、完了条件の「状態処理を変えない」が崩れます。
-
-**受け取るもの：1つです。** 結局どの優先度になるか。`Priority` は1-4から存在する型なので、新しく決めることもありません。
-
-課題ID1が2つだったのに対して、こちらは1つです。**隙間を跨ぐ数がそのまま契約の大きさになる**というのが、2つの課題を並べると見えます。
-
-```cpp
-// 課題ID2接続点：優先度判定を差し替え可能なルールにする
-class IPriorityRule {
-public:
-    virtual ~IPriorityRule() = default;
-    virtual Priority getPriority() = 0;
-};
-```
-
-引数が無いのは、渡すものが無いからです。この判断をクラス図にすると、次の関係になります。
-
-```mermaid
-classDiagram
-    class TicketPolicySet
-    class IPriorityRule { <<interface>> }
-    class CorporatePriority
-    TicketPolicySet --> IPriorityRule : 区分で選び判定を委ねる
-    IPriorityRule <|.. CorporatePriority
-    class IPriorityRule:::focus
-    class CorporatePriority:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-ルールから状態やチケットへの矢印がありません。それが「渡すものは無い」と決めたことの結果です。ここに描いていないクラスは課題ID2では変わりません。
-
-**では、この契約を誰が呼ぶのか。**
-
-**3. 呼ぶのは、残った側 【安定骨格】**
-
-課題ID1と同じ理屈で、呼べるのは1で残った側だけです。`TicketService::create()` が呼びます。
-
-```cpp
-void TicketService::create(const string& ticketId, const string& userId) {
-    // …ユーザーIDの存在確認（省略）…
-    UserInfo requester = users.get(userId);
-    UserType category = requester.userType;
-
-    Priority p = policies.priorityRule(category).getPriority();
-
-    Ticket t{ticketId, userId, policies.initialStatus(), p, ""};
-    repo.save(t);
-    // …表示と監査ログへの記録（省略）…
-}
-```
-
-1で「残るもの」として数えた2つが、そのまま台帳を引く行と保存する行になっています。判定に使う契約区分は、**引数の `userId` で台帳を引いて得ています。** 利用側が区分を渡すのではありません。`reopen()` も同じ形で、保存済みチケットの `userId` から引き直します。
-
-検算します。**区分を1つ足したとき、この手順は変わるか。** 法人区分を足しても、台帳を引く・ルールを選ぶ・保存する、のままでした。
-
-**4. 呼ぶには、実体が要る 【注入】**
-
-ここでも `policies` が要ります。選べる道は課題ID1と同じ3つで、消える2つも同じです。残るのは外から受け取る形だけです。
-
-**掲載箇所：`main()`** ―― 組み立ての最後の行（課題ID1と同じ行）
-
-```cpp
-TicketService svc(repo, users, staff, log, policies);  // 状態とルールをまとめて渡す
-```
-
-状態とルールを別々に渡すのではなく、両方を持つ1つの箱を渡しています。課題ID1で1行、課題ID2でもう1行、と増やしていません。
-
-**5. 渡す前に、作る人がいる 【生成】**
-
-具体ルールの所有と、区分によるルール選択も `TicketPolicySet` へ閉じます。課題ID1と同じ1行で、同じ箱が状態と優先度の両方を持ちます。
-
-**掲載箇所：`main()`** ―― 【注入】の直前の行（課題ID1と同じ行）
-
-```cpp
-TicketPolicySet policies;                       // 状態とルールを生成・所有
-```
-
-区分からルールを引くのが `policies.priorityRule()` で、3の安定骨格が呼んでいたのがこれです。
-
-**6. 残ったのは、契約の裏だけ 【具体】**
-
-ルールクラスに書くことは、判定を返すこと以外にありません。
-
-```cpp
-class CorporatePriority : public IPriorityRule { // 法人向けSLA
-public:
-    Priority getPriority() override { return Priority::High; }
-};
-```
-
-`PremiumPriority`（High）・`NormalPriority`（Normal）も同じ契約を実装します。SLA改定は、ルール1クラスの差し替えに閉じます。区分を1つ足すときに書くのは、このようなクラス1つと、`TicketPolicySet` の選択へ1行だけです。
-
-**7. 結果として、呼び方はこうなった 【利用開始】**
-
-最後に、出発点の1行を見ます。
-
-**掲載箇所：`main()`** ―― チケット起票にあたる1行
-
-```cpp
-svc.create("TCK001", "USR003");
-```
-
-**課題ID2では、呼び方はほとんど変わりませんでした。** 変わったのは呼ぶ相手が `manager` から `svc` になったことだけで、引数はフェーズ3までと同じチケットIDと依頼者IDです。区分も優先度も、もともと呼び出し側は書いていませんでした。
-
-課題ID1では第2引数が消えたのに、こちらは変わらない。**同じ7段を通っても、呼び方が変わるかどうかは課題によって違います。** 課題ID2で変わったのは呼び方ではなく、この1行の先で誰が判定するかです。優先度は3の安定骨格を通って自動で決まり、利用側が `getPriority()` を呼ぶことはありません。
-
-これで課題ID2の完了条件「区分追加が新しいルールクラスと選択登録に閉じ、状態処理を変えない」を満たします。
-
-
-まだクラスの中身は見ません。この段階でつかんでほしいのは「状態ごとの振る舞いを状態オブジェクトへ分け（課題ID1）、優先度の判定規則を差し替え可能にして（課題ID2）、一つの進行経路へつなぐ」という筋だけです。「どのクラスが生成し、どの契約で実行するか」という具体の結論は、この後の課題ID1・課題ID2で決めていきます。決めた結論をまとめて振り返る表は、フェーズ6の末尾（6-3 設計トレース）に置きます。ここでは先に結論表を出しません。
-
-第0章の「設計の醍醐味」の四拍子でいえば、この章は〈状態と優先度の共通契約を見つけて2軸を分離〉→〈状態オブジェクトと判定規則を生成〉→〈保持・注入〉→〈進行処理は具体を意識しない〉という同じ順序をたどります。
-
-#### 接続点の分離・配置・組み立てを決める
-★この表はいるのか。【契約】から【実行】の表と重複している。
-
-| 接続点を変える観点           | システム全体の考え方                                                                                                                        | 課題ID1・課題ID2のコードへの反映                                 |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| 分離方法                | チケット進行には状態操作と優先度判定の契約だけを残し、具体的な条件を外す                                                                                              | 課題ID1は `ITicketPhase`、課題ID2は `IPriorityRule` を境界にする |
-| 配置場所                | 状態固有の判断と遷移は各Phase、SLA・顧客区分判定は各PriorityRuleへ置く                                                                                     | 状態クラス群とルールクラス群へ別々に配置する                              |
-| 組み立て方法（生成・所有・登録・注入） | `TicketPolicySet` が全Phaseと全ルールを生成・所有し、遷移先を配線する。`main()` はその組み立て済み部品を `TicketService` へ注入する。Serviceは保存済みチケットを読み、抽象契約だけを利用して結果を保存する | 具体部品の生成・所有・選択を実行責任から外し、状態処理と優先度判定を一つの操作で利用する        |
-
-表の左から右へ読むと、課題ID1の状態判断と課題ID2の優先度判断が、別々の契約・配置を持ちながら、同じ生成・注入地点で一つのチケット処理へ接続されます。
-
-#### 設計判断ごとの部分クラス図
-★これは、↑の課題別の検討過程に入れ込む
-課題ID1では、チケットが現在の`ITicketPhase`を持ち、公開サービスは状態固有の操作可否と遷移を各Phaseへ委ねます。
-
-```mermaid
-classDiagram
-    class TicketService
-    class TicketPolicySet
-    class ITicketPhase { <<interface>> }
-    class OpenPhase
-    class PendingPhase
-    TicketService --> TicketPolicySet : 状態を利用
-    TicketPolicySet o--> ITicketPhase : 生成・所有
-    ITicketPhase <|.. OpenPhase
-    ITicketPhase <|.. PendingPhase
-    class TicketPolicySet:::focus
-    class ITicketPhase:::focus
-    class PendingPhase:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-課題ID2では、顧客区分ごとの優先度判定を`IPriorityRule`へ分け、状態処理はHigh／Normalの結果だけを使います。
-
-```mermaid
-classDiagram
-    class TicketPolicySet
-    class IPriorityRule { <<interface>> }
-    class CorporatePriority
-    class PremiumPriority
-    class NormalPriority
-    TicketPolicySet o--> IPriorityRule : 所有・選択
-    IPriorityRule <|.. CorporatePriority
-    IPriorityRule <|.. PremiumPriority
-    IPriorityRule <|.. NormalPriority
-    class IPriorityRule:::focus
-    class CorporatePriority:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-次のコードでは状態軸と優先度軸を別々に実装し、最後に`TicketPolicySet`で同じシステムへ組み立てます。
-
-#### システム全体の最終構造を決める
-★これをもっと前段に持ってくる話かもしれない。こまかい考え方の過程をするのはその先か？
-
-最終構造は、`TicketPolicySet` が状態分離構造とルール差し替え構造を
-組み立て、`TicketService` がその抽象契約を使う一つのシステムです。
-チケット自身（`Ticket`）は現在状態・優先度・担当者を保持する実体として
-`TicketRepository` に保存されます。片方だけを切り出す形は二つの課題を
-完了しない途中状態なので比較しません。
+この4つが変わっていないことは、フェーズ7の受入・回帰エビデンスで確認します。
 
 ### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
-フェーズ1の1-3で作ったクラス図へフェーズ2〜5の判断を反映し、変更後の形へ更新します。
+フェーズ1の1-3で作ったクラス図が、これから書き換えていく**基準の図**です。まずここへフェーズ2〜5の判断を注記として載せ、どの責任を残し、どの責任を移すかを確定します。
 
 | クラス図を変える材料 | 前工程で確認したこと                         | クラス図へ反映すること                                        |
 | ---------- | ---------------------------------- | -------------------------------------------------- |
@@ -1835,9 +1455,9 @@ classDiagram
 | フェーズ4の原因   | `TicketManager` に状態判断と優先度判定が混在する   | 同じクラスの中で `【残す】` と `【移す】` を分ける                      |
 | フェーズ5の接続点  | 公開操作は現在状態へ委譲し、優先度は差し替え可能ルールへ委ねればよい | 課題ID1の状態判断を状態クラスへ、課題ID2の優先度判定を `IPriorityRule` へ置く |
 
-**薄い黄色が着目クラス**です。変更前では `TicketManager` の `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。矢印は1-3と同じ利用・実装・委譲関係です。
+**薄い黄色が着目クラス**です。ここでは `TicketManager` の `【残す】` と `【移す】` を追います。矢印は1-3と同じ利用・実装・委譲関係です。
 
-**変更前のクラス図（1-3を責任見直し用に再掲）：**
+**変更前のクラス図（基準の図）：**
 
 ```mermaid
 classDiagram
@@ -1883,8 +1503,7 @@ classDiagram
     cssClass "TicketManager" focus
 ```
 
-向きと掲載クラスは1-3から変えていません。ここでは同じ図に注記と色だけを
-加え、`TicketManager` のどの責任を残し、どの責任を移すかに着目します。
+向きと掲載クラスは1-3から変えていません。同じ図に注記と色だけを加え、`TicketManager` のどの責任を残し、どの責任を移すかに着目します。**この図が出発点で、以降の各段でここへ1つずつ足していきます。**
 
 課題ID1・課題ID2をクラス図の変更として書くと、次の3操作になります。
 
@@ -1892,72 +1511,21 @@ classDiagram
 2. 課題ID2：優先度ルールが満たす共通契約 `IPriorityRule`（`getPriority`）を新設し、各ルールを実装へ移す。
 3. 課題ID1・課題ID2：`TicketPolicySet` が全Phaseと全ルールを所有・配線し、`TicketService` は注入された部品を使って保存済みチケットへ状態遷移と優先度判定を適用する。
 
-変更後は、公開操作が状態を判定せず現在状態へ委譲し、優先度は差し替え可能なルールへ委ね、`TicketManager` の混在分岐が消えたことを確認します。
+この3操作を、どんな手順で導いたのかを次から順に書きます。
 
-**採用した変更後のクラス図：**
+#### 接続点の分離・配置・組み立てを決める
 
-```mermaid
-classDiagram
-    class TicketService
-    class TicketPolicySet
-    class TicketRepository
-    class UserDatabase
-    class StaffDirectory
-    class TicketEventLog
-    class Ticket
-    class ITicketPhase { <<interface>> }
-    class OpenPhase
-    class InProgressPhase
-    class EscalatedPhase
-    class ResolvedPhase
-    class PendingPhase
-    class IPriorityRule { <<interface>> }
-    class CorporatePriority
-    class PremiumPriority
-    class NormalPriority
-    TicketService --> TicketRepository : チケット保存
-    TicketService --> UserDatabase : 依頼者照会
-    TicketService --> StaffDirectory : 担当者照会
-    TicketService --> TicketEventLog : 監査記録
-    TicketService --> TicketPolicySet : 状態・ルールを利用
-    TicketPolicySet o--> ITicketPhase : 状態を所有・配線
-    TicketPolicySet o--> IPriorityRule : ルールを所有・選択
-    TicketRepository --> Ticket : 保存
-    Ticket --> ITicketPhase : 現在状態
-    TicketService --> ITicketPhase : 現在状態へ操作を委譲
-    ITicketPhase <|.. OpenPhase
-    ITicketPhase <|.. InProgressPhase
-    ITicketPhase <|.. EscalatedPhase
-    ITicketPhase <|.. ResolvedPhase
-    ITicketPhase <|.. PendingPhase
-    IPriorityRule <|.. CorporatePriority
-    IPriorityRule <|.. PremiumPriority
-    IPriorityRule <|.. NormalPriority
+課題ID節で決めることを、先に3行だけ予告します。**根拠はこの後の各段で示すので、ここでは結論だけを見てください。**
 
-    note for ITicketPhase "【課題ID1・新設】状態ごとの振る舞いの共通契約"
-    note for IPriorityRule "【課題ID2・新設】優先度判定の差し替え可能な契約"
-    note for TicketPolicySet "【新設】具体状態・具体ルールを生成・所有・配線"
-    note for TicketService "【新設】抽象契約を使って公開操作・保存・ログを実行"
+- **分離方法**：チケット進行には状態操作と優先度判定の契約だけを残し、具体的な条件を外す。課題ID1は `ITicketPhase`、課題ID2は `IPriorityRule` を境界にする。
+- **配置場所**：状態固有の判断と遷移は各Phaseへ、SLA・顧客区分の判定は各PriorityRuleへ置く。
+- **組み立て方法**：`TicketPolicySet` が全Phaseと全ルールを生成・所有し、`main()` がそれを `TicketService` へ注入する。`TicketService` は保存済みチケットを読み、抽象契約だけを使って結果を保存する。
 
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "TicketService,TicketPolicySet,ITicketPhase,OpenPhase,InProgressPhase,EscalatedPhase,ResolvedPhase,PendingPhase,IPriorityRule,CorporatePriority,PremiumPriority,NormalPriority" focus
-```
-
-クラス図の変更とコード変更を一対一で対応させると、次のようになります。
-
-| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
-|---|---|---|---|
-| 課題ID1 | 共通契約 `ITicketPhase` を新設し、公開操作を現在状態へ委譲する | 各状態クラスが許可操作と遷移先を実装し、`TicketService` は状態を判定しない | 課題ID1節（【契約】〜【利用開始】） |
-| 課題ID2 | 共通契約 `IPriorityRule` を新設し、区分でルールを選ぶ | 各ルールクラスがSLA・顧客区分の判定を実装し、`TicketPolicySet` が選択・所有する | 課題ID2節（【契約】〜【利用開始】） |
-
-このクラス図が、課題ID1・課題ID2を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
+この3つが、別々の契約・配置を持ちながら同じ生成・注入地点で一つのチケット処理へ接続されます。決まった結論をまとめて振り返る表は、フェーズ6の末尾（6-1）に置きます。
 
 #### 課題箇所のおさらい（フェーズ3の関連コード）
-★これはいるかどうか、過程の中で部分的に変更前と後を比較できれば良いのではないか。
-フェーズ3で実際に変更したコードから、課題ID1の `TicketStatus` 分岐と
-課題ID2の `calculate()` だけを、改行も変えずに再掲します。
-`UserDatabase` のUSR004法人レコード、`TicketRepository`、`create()`、
-保存とログ出力はフェーズ3のまま維持します。
+
+これから書き換える**変更前のコード**です。フェーズ3で実際に変更したコードから、課題ID1の `TicketStatus` 分岐と課題ID2の `calculate()` だけを、改行も変えずに再掲します。`UserDatabase` のUSR004法人レコード、`TicketRepository`、`create()`、保存とログ出力はフェーズ3のまま維持します。各段では、この中の該当箇所だけを抜き出して変更前後を並べます。
 
 ```cpp
 // 1-4のユーザー種別へ、変更要求の法人区分を追加する
@@ -2075,11 +1643,255 @@ public:
 };
 ```
 
-**この1行は1から6の結果であって、前提ではありません。** 先に見せると、まだ導いていない結論を見せることになります。
+### 課題ID1：状態固有の振る舞いをチケット進行から分離する
+
+**【課題ID1の原因】** 問題ID1・問題ID3（状態と優先度が同じ分岐で絡み、状態追加のたびに `updateStatus` の巨大 `switch` を触る）＝原因ID1（状態遷移ロジックの混在）。この原因を分離対象にします。
+
+**この課題（何を解きたいか）：** 「保留中」を1つ足すだけで、`updateStatus` の状態別 `switch` と各遷移の副作用まで抱える——問題ID1・問題ID3（痛み）／原因ID1（状態遷移の混在）です。**公開操作は状態を判定せず、状態ごとの許可操作と遷移先だけを差し替えられる**ようにするのが課題ID1です。
+
+**どう解決するか（方針）：** 状態ごとの振る舞いを共通契約の裏へ揃え、現在状態へ操作を委譲します（状態分離構造＝State）。以下の6段で、基準の図とコードを1つずつ書き換えます。段の終わりが次の段が要る理由になっているので、上から続けて読んでください。
+
+**出発点。** やることはもう決まっています。「公開操作は状態を判定せず、状態ごとの許可操作と遷移先だけを差し替えられるようにする」——つまり `updateStatus()` から状態ごとの振る舞いを分けることです。分ける対象も決まっています（5-3の接続点定義表）。まだ決まっていないのは、**分けた後にどう繋ぐか**だけです。
+
+**1. 分けて、境界に何が渡るかを決める 【契約】**
+
+まず、`updateStatus()` の中身に線を引きます。
+
+出て行くもの。
+
+- 受付中ならアサインできて、解決済みならできない、という状態ごとの可否
+- 許されたとき、次はどの状態になるか
+
+残るもの。
+
+- チケットIDで保存済みチケットを引くこと
+- 決まった遷移先で状態を書き換え、保存すること
+- 表示と監査ログへの記録
+
+**割り方の根拠は、状態が増えたときに触るかどうかです。** 「保留中」を足すと上の2つは増えますが、下の3つは1行も増えません。だから上が出て行き、下が残ります。
+
+線を引いただけでは分けられません。隙間を何が跨ぐかを決めて、はじめて切り離せます。多くても少なくても困るので、両方向を数えます。
+
+**渡すもの：ありません。** 「今どの状態か」は、渡す代わりに相手そのものが体現します。受付中の振る舞いは受付中のオブジェクトが持つ、という形にすれば、状態を引数で渡す必要が消えます。
+
+**受け取るもの：2つです。** その操作が許されるか。許されるなら、次はどの状態か。**出て行ったものがちょうどこの2つなので、過不足がありません。**
+
+受け取り方には選択肢があります。「次はどの状態か」を、次の状態の**オブジェクト**で返す形にもできます。ただしそれだと状態どうしが互いを持つことになり、生成した後に配線する処理が要る。状態を1つ足すたびに、その状態を指す既存の状態も触ることになります。完了条件に反するので、**状態名**で返す形にします。
+
+変更前のコードで、線を引いた場所はここです。
+
+**掲載箇所：`TicketManager::updateStatus(const string&, const string&, const string&)`** ―― おさらいの `switch` から受付中のケースだけを抜き出したもの（対策前）
+
+```cpp
+        case TicketStatus::Open:
+            if (op == "assign") {
+                t.status = TicketStatus::InProgress;
+                t.assigneeId = assigneeId;
+                changed = true;
+            } else if (op == "hold") {                // ← 追加
+                t.status = TicketStatus::Pending;
+                changed = true;
+            }
+            break;
+```
+
+`t.status` を書き換える行（残る側）と、どの状態へ進むかを決めている行（出て行く側）が、同じ `if` の中で混ざっています。出て行く側だけを取り出すと、契約はこうなります。
+
+```cpp
+// 課題ID1接続点：状態ごとの振る舞いを共通契約にする
+// 各操作は「次はどの状態か」を返す。相手のオブジェクトは持たない。
+struct Transition {
+    bool allowed;
+    TicketStatus next;   // allowed が false のときは使わない
+};
+
+class ITicketPhase {
+public:
+    virtual ~ITicketPhase() = default;
+    virtual Transition assign() const   { return reject("アサイン"); }
+    virtual Transition resolve() const  { return reject("解決"); }
+    virtual Transition escalate() const { return reject("エスカレーション"); }
+    virtual Transition reopen() const   { return reject("再受付"); }
+    virtual Transition hold() const     { return reject("保留"); }
+    virtual Transition sendBack() const { return reject("差し戻し"); }
+protected:
+    Transition reject(const std::string& op) const {
+        std::cout << "  操作不可: この状態では「" << op
+                  << "」できません。" << std::endl;
+        return {false, TicketStatus::Open};
+    }
+};
+```
+
+`Transition` の2つのメンバーが、そのまま受け取るものの2つです。操作ごとに答えが違うので、操作ごとに関数を置きました。許可されない操作は既定の `reject()` が引き受けるので、呼ぶ側は状態を判定しません。
+
+基準の図へ、いま決めたものだけを足します。
+
+```mermaid
+classDiagram
+    class TicketManager
+    class ITicketPhase { <<interface>> }
+    class ITicketPhase:::focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**2つの箱の間に矢印がまだありません。** 契約を置いただけで、誰も呼んでいないからです。戻り値の `Transition` は状態を持たない値なので、図には描きません。図に描いていない `TicketRepository`・`UserDatabase`・`Ticket` は、この段では変わりません。
+
+契約が決まりました。**では、この契約を誰が呼ぶのか。**
+
+**2. 呼ぶのは、残った側 【安定骨格】**
+
+呼べるのは1で残った側だけです。出て行った側が出て行った側を呼べば、状態が増えるたびに両方を触ることになり、分けた意味が消えます。
+
+残った側は、公開操作を持つクラスです。ここで名前を `TicketManager` から `TicketService` へ変えます。状態判断と優先度判定を手放して、契約を使う側になるためです。
+
+```cpp
+void TicketService::assign(const string& ticketId,
+                           const string& assigneeId) {
+    // …チケットIDの存在確認（省略）…
+    Ticket& t = repo.get(ticketId);
+
+    Transition tr = policies.phaseFor(t.status).assign();  // 現在状態へ尋ねる
+    if (!tr.allowed) return;                               // 不可なら何もしない
+
+    t.status = tr.next;
+    t.assigneeId = assigneeId;
+    repo.save(t);
+    // …表示と監査ログへの記録（省略）…
+}
+```
+
+1で「残るもの」として数えた3つが、そのまま3段になっています。変更前の `switch` と比べると、**状態名で分岐する `case` が1つも無くなりました。** 引数の `ticketId` で保存済みチケットを引き、その `status` から現在状態を得ています。状態名から状態オブジェクトを引くのは `policies.phaseFor()` で、`TicketService` は具体状態の名前を1つも知りません。
+
+図では、矢印が1本つきます。
+
+```mermaid
+classDiagram
+    class TicketService
+    class ITicketPhase { <<interface>> }
+    TicketService --> ITicketPhase : 現在状態へ操作を委譲
+    class TicketService:::focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+`TicketManager` が `TicketService` になり、契約への依存が1本だけ増えました。`TicketRepository`・`UserDatabase` への保持は基準の図のまま変わりません。
+
+ここで一度、検算します。**状態を1つ足したとき、この3段は変わるか。** 変わらないなら、1の割り方は正しかったことになります。変わるなら割り残しがあるので、1へ戻って線を引き直します。第9章では「保留中」を足しても3段のままでした。
+
+**3. 呼ぶには、実体が要る 【注入】**
+
+「現在状態へ尋ねる」と書いた時点で、尋ねる相手の実体が必要になります。上のコードでいえば `policies` です。手に入れ方は3つしかありません。
+
+- 自分で作る。具体状態の名前を知ることになり、分けた意味が消えます
+- どこかから取りに行く（グローバル変数やシングルトン）。依存が引数に現れず、テストで差し替えられません
+- 外から受け取る
+
+残るのは3つ目だけです。**注入すると先に決めているのではなく、契約を呼ぶと決めた時点で他の選択肢が消えます。**
+
+**掲載箇所：`main()`** ―― 組み立ての最後の行
+
+```cpp
+TicketService svc(repo, users, staff, log, policies);  // 契約の実体を渡す
+```
+
+受け取る側の `TicketService` は、5つの参照をメンバーへ保持するだけです。コンストラクタで判断も生成もしません。
+
+**4. 渡す前に、作る人がいる 【生成】**
+
+外から受け取れたということは、渡す前に誰かが作っていたということです。生成の責任を残った側から外した以上、それを引き受ける場所が要ります。
+
+**掲載箇所：`main()`** ―― 【注入】の直前の行
+
+```cpp
+TicketPolicySet policies;                              // 具体状態を生成・所有
+```
+
+`TicketPolicySet` が全状態を持ち、`main()` がそれを作って渡します。ここで決まるのは生成の場所と所有と寿命です。`TicketPolicySet` にコンストラクタが無いのは、1で状態名を返す形にしたので、配線する処理そのものが無いためです。1の判断がここへ効いています。
+
+図では、所有と注入の2本が入ります。
+
+```mermaid
+classDiagram
+    class TicketService
+    class TicketPolicySet
+    class ITicketPhase { <<interface>> }
+    TicketService --> TicketPolicySet : 注入され、状態を引く
+    TicketPolicySet o--> ITicketPhase : 生成・所有
+    TicketService --> ITicketPhase : 現在状態へ操作を委譲
+    class TicketPolicySet:::focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+`TicketService` から契約への委譲（2で足した矢印）はそのままで、実体をどこから得るかだけが決まりました。**基準の図にあった `TicketManager *-- PriorityCalculator` の保持は、ここで `TicketService --> TicketPolicySet` へ置き換わります。**
+
+**5. 残ったのは、契約の裏だけ 【具体】**
+
+ここまで決まると、状態クラスに書くことは契約のメソッドを埋める以外にありません。変更前の `case TicketStatus::Open:` が、そのまま1クラスになります。
+
+```cpp
+// 受付中：アサインで対応中へ、保留で保留中へ進む
+class OpenPhase : public ITicketPhase {
+public:
+    Transition assign() const override {
+        return {true, TicketStatus::InProgress};
+    }
+    Transition hold() const override {
+        return {true, TicketStatus::Pending};
+    }
+};
+```
+
+変更前の `case` にあった `t.status = ...` や `changed = true` はここにありません。**状態を書き換えるのは2の安定骨格の仕事だからです。** 残ったのは「許すか」「次はどこか」だけです。`InProgressPhase`（解決・エスカレーション・保留）、`EscalatedPhase`（解決・差し戻し）、`ResolvedPhase`／`PendingPhase`（再受付）も同じ形で、許可する操作だけを上書きします。メンバー変数は1つもありません。
+
+```mermaid
+classDiagram
+    class ITicketPhase { <<interface>> }
+    class OpenPhase
+    class InProgressPhase
+    class EscalatedPhase
+    class ResolvedPhase
+    class PendingPhase
+    ITicketPhase <|.. OpenPhase
+    ITicketPhase <|.. InProgressPhase
+    ITicketPhase <|.. EscalatedPhase
+    ITicketPhase <|.. ResolvedPhase
+    ITicketPhase <|.. PendingPhase
+    class OpenPhase:::focus
+    class PendingPhase:::focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+変更前は `switch` の5つの `case` だったものが、5つのクラスになりました。**変更要求で足した「保留中」が、`PendingPhase` という1クラスに収まっています。**
+
+ここでもう一度、検算します。**契約のメソッド以外に書きたくなるものがあるなら、1の割り方か数え方を間違えています。** 第9章では出てきませんでした。
+
+同時に完了条件の答えが出ます。状態を1つ足すときに書くのは、このようなクラス1つと、`TicketPolicySet::phaseFor()` の1行だけです。
+
+**6. 結果として、呼び方はこうなった 【利用開始】**
+
+最後に、呼び出し側の1行を見ます。変更前はこうでした。
+
+**掲載箇所：`main()`** ―― 3-1の担当者アサイン操作にあたる1行（対策前）
+
+```cpp
+manager.updateStatus("TCK001", "assign", "AGT01");   // フェーズ3までの呼び方
+```
+
+変更後はこうなります。
+
+**掲載箇所：`main()`** ―― 担当者のアサイン操作にあたる1行
+
+```cpp
+svc.assign("TCK001", "AGT01");
+```
+
+第2引数だった操作名の文字列 `"assign"` が、関数名になりました。文字列で操作を選ぶ場所がもうどこにも無いからです。残る引数はチケットIDと担当者IDだけで、どの状態から始まるかを呼び出し側は書きません。利用側が `ITicketPhase::assign()` や具体状態を直接呼ぶこともありません。
+
+**この1行は1から5の結果であって、前提ではありません。** 先に見せると、まだ導いていない結論を見せることになります。
 
 #### 代表ケースの実行接続
 
-ここまでの1から7は、考えた順でした。**同じ6つを、ここからは実行時に通る順で貫きます。** TCK001のアサイン1件で確認します。
+ここまでの6段は、考えた順でした。**同じ6つを、ここからは実行時に通る順で貫きます。** TCK001のアサイン1件で確認します。
 
 | 実行順・ポイント  | 掲載箇所                                                  | 実際のコード接続                                                   | 次の呼出先                     |
 | --------- | ----------------------------------------------------- | ---------------------------------------------------------- | ------------------------- |
@@ -2089,18 +1901,266 @@ public:
 | 4. 【安定骨格】 | `TicketService::assign(const string&, const string&)` | `policies.phaseFor(t.status).assign()` で現在状態へ委譲し、返った遷移先を保存 | `ITicketPhase::assign()`  |
 | 5. 【契約】   | `ITicketPhase::assign()`                              | 現在Phaseへ動的ディスパッチする                                         | `OpenPhase::assign()`     |
 | 6. 【具体】   | `OpenPhase::assign()`                                 | 許可操作なので `{true, TicketStatus::InProgress}` を返す             | 戻り値を【安定骨格】が保存             |
-|           |                                                       |                                                            |                           |
 
 【生成】で生成した `policies` の中の `OpenPhase` と、【注入】で渡した実体と、【利用開始】の呼び出しから【安定骨格】が委譲する実体は同じものです。
 
 これで課題ID1の完了条件「状態追加が新しい状態クラスと遷移元の配線に閉じ、公開操作・保存を変えない」を満たします。課題ID2の優先度境界とは独立したまま、同じ実行経路へ接続します。
 
+### 課題ID2：優先度判定をチケット進行から分離する
+
+**【課題ID2の原因】** 問題ID2（状態追加で優先度計算まで再テストに巻き込まれる）＝原因ID2（優先度ルールの混在）。この原因を分離対象にします。
+
+**この課題（何を解きたいか）：** 法人区分を1つ足すだけで、`PriorityCalculator::calculate` の `if` 連鎖を触り、状態処理の再テストまで巻き込む——問題ID2（痛み）／原因ID2（優先度ルールの混在）です。**優先度判定を、状態処理を知らずに差し替えられる**ようにするのが課題ID2です。
+
+**どう解決するか（方針）：** 優先度判定を差し替え可能なルール契約の裏へ揃え、区分に応じて選んだルールへ委ねます（規則差し替え構造＝Strategy）。通る6段は課題ID1と同じです。同じ順で辿れることを確かめながら読んでください。
+
+**出発点。** やることは決まっています。「優先度判定を、状態処理を知らずに差し替えられるようにする」——つまり `PriorityCalculator::calculate` から区分ごとの判定条件を分けることです。
+
+**1. 分けて、境界に何が渡るかを決める 【契約】**
+
+線を引きます。
+
+出て行くもの。
+
+- プレミアム顧客なら High、一般顧客なら Normal、という区分ごとの判定
+- SLA基準が改定されたときに書き換わる条件
+
+残るもの。
+
+- 依頼者IDで台帳を引き、その顧客区分を得ること
+- 決まった優先度でチケットを作り、保存すること
+
+**割り方の根拠は課題ID1と同じです。** 法人区分を足すと上の2つは増えますが、下の2つは1行も増えません。
+
+隙間を跨ぐものを数えます。
+
+**渡すもの：ありません。** 区分ごとに別のクラスを用意するので、自分がどの区分かを聞き直す必要が無いためです。チケットの内容も状態も渡しません。渡せば優先度ルールが状態処理を知ることになり、完了条件の「状態処理を変えない」が崩れます。
+
+**受け取るもの：1つです。** 結局どの優先度になるか。`Priority` は1-4から存在する型なので、新しく決めることもありません。
+
+課題ID1が2つだったのに対して、こちらは1つです。**隙間を跨ぐ数がそのまま契約の大きさになる**というのが、2つの課題を並べると見えます。
+
+変更前のコードで、線を引いた場所はここです。
+
+**掲載箇所：`PriorityCalculator::calculate(UserType)`** ―― おさらいの `if` 連鎖（対策前）
+
+```cpp
+    Priority calculate(UserType userType) {
+        if (userType == UserType::Premium) {
+            return Priority::High;
+        }
+        if (userType == UserType::Corporate) { // ← 追加
+            return Priority::High;
+        }
+        return Priority::Normal;
+    }
+```
+
+区分で分岐する行が出て行き、呼び出し側には `Priority` が1つ返るだけになります。
+
+```cpp
+// 課題ID2接続点：優先度判定を差し替え可能なルールにする
+class IPriorityRule {
+public:
+    virtual ~IPriorityRule() = default;
+    virtual Priority getPriority() = 0;
+};
+```
+
+引数が無いのは、渡すものが無いからです。基準の図へ、いま決めたものだけを足します。
+
+```mermaid
+classDiagram
+    class PriorityCalculator
+    class IPriorityRule { <<interface>> }
+    class IPriorityRule:::focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+ここでも矢印がありません。契約を置いただけで、まだ誰も呼んでいないからです。戻り値の `Priority` は1-4からある値なので、図には描きません。**では、この契約を誰が呼ぶのか。**
+
+**2. 呼ぶのは、残った側 【安定骨格】**
+
+課題ID1と同じ理屈で、呼べるのは1で残った側だけです。`TicketService::create()` が呼びます。
+
+```cpp
+void TicketService::create(const string& ticketId, const string& userId) {
+    // …ユーザーIDの存在確認（省略）…
+    UserInfo requester = users.get(userId);
+    UserType category = requester.userType;
+
+    Priority p = policies.priorityRule(category).getPriority();
+
+    Ticket t{ticketId, userId, policies.initialStatus(), p, ""};
+    repo.save(t);
+    // …表示と監査ログへの記録（省略）…
+}
+```
+
+1で「残るもの」として数えた2つが、そのまま台帳を引く行と保存する行になっています。変更前と比べると、**`if (userType == ...)` の連鎖が1つも無くなりました。** 判定に使う契約区分は、引数の `userId` で台帳を引いて得ています。利用側が区分を渡すのではありません。`reopen()` も同じ形で、保存済みチケットの `userId` から引き直します。
+
+検算します。**区分を1つ足したとき、この手順は変わるか。** 法人区分を足しても、台帳を引く・ルールを選ぶ・保存する、のままでした。
+
+**3. 呼ぶには、実体が要る 【注入】**
+
+ここでも `policies` が要ります。選べる道は課題ID1と同じ3つで、消える2つも同じです。残るのは外から受け取る形だけです。
+
+**掲載箇所：`main()`** ―― 組み立ての最後の行（課題ID1と同じ行）
+
+```cpp
+TicketService svc(repo, users, staff, log, policies);  // 状態とルールをまとめて渡す
+```
+
+状態とルールを別々に渡すのではなく、両方を持つ1つの箱を渡しています。課題ID1で1行、課題ID2でもう1行、と増やしていません。
+
+**4. 渡す前に、作る人がいる 【生成】**
+
+具体ルールの所有と、区分によるルール選択も `TicketPolicySet` へ閉じます。課題ID1と同じ1行で、同じ箱が状態と優先度の両方を持ちます。
+
+**掲載箇所：`main()`** ―― 【注入】の直前の行（課題ID1と同じ行）
+
+```cpp
+TicketPolicySet policies;                       // 状態とルールを生成・所有
+```
+
+区分からルールを引くのが `policies.priorityRule()` で、2の安定骨格が呼んでいたのがこれです。図では、課題ID1で足した箱にもう1本の所有が入ります。
+
+```mermaid
+classDiagram
+    class TicketService
+    class TicketPolicySet
+    class ITicketPhase { <<interface>> }
+    class IPriorityRule { <<interface>> }
+    TicketService --> TicketPolicySet : 注入され、状態とルールを引く
+    TicketPolicySet o--> ITicketPhase : 生成・所有
+    TicketPolicySet o--> IPriorityRule : 生成・所有・区分で選択
+    class IPriorityRule:::focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**基準の図にあった `TicketManager *-- PriorityCalculator` の保持が、ここで消えます。** 優先度の判定はもう `TicketService` の持ち物ではありません。
+
+**5. 残ったのは、契約の裏だけ 【具体】**
+
+ルールクラスに書くことは、判定を返すこと以外にありません。変更前の `if` 1本が、そのまま1クラスになります。
+
+```cpp
+class CorporatePriority : public IPriorityRule { // 法人向けSLA
+public:
+    Priority getPriority() override { return Priority::High; }
+};
+```
+
+`PremiumPriority`（High）・`NormalPriority`（Normal）も同じ契約を実装します。SLA改定は、ルール1クラスの差し替えに閉じます。
+
+```mermaid
+classDiagram
+    class IPriorityRule { <<interface>> }
+    class CorporatePriority
+    class PremiumPriority
+    class NormalPriority
+    IPriorityRule <|.. CorporatePriority
+    IPriorityRule <|.. PremiumPriority
+    IPriorityRule <|.. NormalPriority
+    class CorporatePriority:::focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+変更前は `if` 連鎖の3分岐だったものが、3つのクラスになりました。**変更要求で足した法人区分が、`CorporatePriority` という1クラスに収まっています。** 区分を1つ足すときに書くのは、このようなクラス1つと、`TicketPolicySet` の選択へ1行だけです。
+
+**6. 結果として、呼び方はこうなった 【利用開始】**
+
+変更前はこうでした。
+
+**掲載箇所：`main()`** ―― 3-1のチケット起票にあたる1行（対策前）
+
+```cpp
+manager.create("TCK001", "USR003");                  // フェーズ3までの呼び方
+```
+
+変更後はこうなります。
+
+**掲載箇所：`main()`** ―― チケット起票にあたる1行
+
+```cpp
+svc.create("TCK001", "USR003");
+```
+
+**課題ID2では、呼び方はほとんど変わりませんでした。** 変わったのは呼ぶ相手が `manager` から `svc` になったことだけで、引数はフェーズ3までと同じチケットIDと依頼者IDです。区分も優先度も、もともと呼び出し側は書いていませんでした。
+
+課題ID1では第2引数が消えたのに、こちらは変わらない。**同じ6段を通っても、呼び方が変わるかどうかは課題によって違います。** 課題ID2で変わったのは呼び方ではなく、この1行の先で誰が判定するかです。優先度は2の安定骨格を通って自動で決まり、利用側が `getPriority()` を呼ぶことはありません。
+
+これで課題ID2の完了条件「区分追加が新しいルールクラスと選択登録に閉じ、状態処理を変えない」を満たします。
+
+#### システム全体の最終構造を決める
+
+課題ID1で足した図と課題ID2で足した図を重ねると、システム全体の最終構造になります。`TicketPolicySet` が状態分離構造とルール差し替え構造の両方を組み立て、`TicketService` がその抽象契約を使う一つのシステムです。チケット自身（`Ticket`）は現在状態・優先度・担当者を保持する実体として `TicketRepository` に保存されます。片方だけを切り出す形は二つの課題を完了しない途中状態なので比較しません。
+
+各段で足した部分がすべて入っているかを、次の図で照合します。
+
+**採用した変更後のクラス図：**
+
+```mermaid
+classDiagram
+    class TicketService
+    class TicketPolicySet
+    class TicketRepository
+    class UserDatabase
+    class StaffDirectory
+    class TicketEventLog
+    class Ticket
+    class ITicketPhase { <<interface>> }
+    class OpenPhase
+    class InProgressPhase
+    class EscalatedPhase
+    class ResolvedPhase
+    class PendingPhase
+    class IPriorityRule { <<interface>> }
+    class CorporatePriority
+    class PremiumPriority
+    class NormalPriority
+    TicketService --> TicketRepository : チケット保存
+    TicketService --> UserDatabase : 依頼者照会
+    TicketService --> StaffDirectory : 担当者照会
+    TicketService --> TicketEventLog : 監査記録
+    TicketService --> TicketPolicySet : 状態・ルールを利用
+    TicketPolicySet o--> ITicketPhase : 状態を所有・配線
+    TicketPolicySet o--> IPriorityRule : ルールを所有・選択
+    TicketRepository --> Ticket : 保存
+    Ticket --> ITicketPhase : 現在状態
+    TicketService --> ITicketPhase : 現在状態へ操作を委譲
+    ITicketPhase <|.. OpenPhase
+    ITicketPhase <|.. InProgressPhase
+    ITicketPhase <|.. EscalatedPhase
+    ITicketPhase <|.. ResolvedPhase
+    ITicketPhase <|.. PendingPhase
+    IPriorityRule <|.. CorporatePriority
+    IPriorityRule <|.. PremiumPriority
+    IPriorityRule <|.. NormalPriority
+
+    note for ITicketPhase "【課題ID1・新設】状態ごとの振る舞いの共通契約"
+    note for IPriorityRule "【課題ID2・新設】優先度判定の差し替え可能な契約"
+    note for TicketPolicySet "【新設】具体状態・具体ルールを生成・所有・配線"
+    note for TicketService "【新設】抽象契約を使って公開操作・保存・ログを実行"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "TicketService,TicketPolicySet,ITicketPhase,OpenPhase,InProgressPhase,EscalatedPhase,ResolvedPhase,PendingPhase,IPriorityRule,CorporatePriority,PremiumPriority,NormalPriority" focus
+```
+
+クラス図の変更とコード変更を一対一で対応させると、次のようになります。
+
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
+|---|---|---|---|
+| 課題ID1 | 共通契約 `ITicketPhase` を新設し、公開操作を現在状態へ委譲する | 各状態クラスが許可操作と遷移先を実装し、`TicketService` は状態を判定しない | 課題ID1節（【契約】〜【利用開始】） |
+| 課題ID2 | 共通契約 `IPriorityRule` を新設し、区分でルールを選ぶ | 各ルールクラスがSLA・顧客区分の判定を実装し、`TicketPolicySet` が選択・所有する | 課題ID2節（【契約】〜【利用開始】） |
+
+このクラス図が、課題ID1・課題ID2を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
 ### 6-1：生成・所有・実行順のまとめ
 
 #### 構造ポイントの全貌 ―― どの責任がどこへ移るか
 
-課題ID1・課題ID2で通った7段を、責任の移動として一覧にします。2つの課題は同じ順で同じ判断をしたので、1枚の表にまとまります。**並び順は、考えた順です。** 1段目（分ける）は構造として残るものが無いので、表は2段目からの6行になります。
+課題ID1・課題ID2で通った6段を、責任の移動として一覧にします。2つの課題は同じ順で同じ判断をしたので、1枚の表にまとまります。**並び順は、考えた順です。** 表の1行が本文の1段に対応します。
 
 | ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | このポイントが決まると次に決まること |
 |---|---|---|---|

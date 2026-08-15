@@ -2056,37 +2056,64 @@ def check_phase5_phase6_reasoning_contract(
         issue_ids, "課題ID", path, line_number(text, p5 + h53), "5-3の課題",
     ))
 
-    partial_heading = "#### 設計判断ごとの部分クラス図"
     recap_heading = "#### 課題箇所のおさらい（フェーズ3の関連コード）"
-    partial_start = phase6.find(partial_heading)
     recap_start = phase6.find(recap_heading)
     final_structure_start = phase6.find("#### システム全体の最終構造を決める")
-    if partial_start < 0 or final_structure_start < 0 or recap_start < 0:
+    if final_structure_start < 0 or recap_start < 0:
         issues.append(Issue(
             path, line_number(text, p6),
-            "フェーズ6に部分クラス図・システム全体の最終構造・"
+            "フェーズ6にシステム全体の最終構造・"
             "課題箇所のおさらいのいずれかがありません",
         ))
         return issues
-    # CONS-065移行期は二つの順序を許容する。
-    #   旧: 部分クラス図 → システム全体の最終構造 → 課題箇所のおさらい
-    #   新: 課題箇所のおさらい（先頭） → 部分クラス図 → システム全体の最終構造
-    recap_first = recap_start < partial_start < final_structure_start
-    recap_last = partial_start < final_structure_start < recap_start
-    if not (recap_first or recap_last):
+
+    # 課題ID節は、変更前コード（おさらい）の後・最終構造の前に置く。
+    # 読者は「変更前 → 課題ごとに少しずつ書き換える → 最終構造」の順で読む。
+    id_heads = [m.start() for m in re.finditer(r"(?m)^### 課題ID\d+：", phase6)]
+    if not id_heads:
         issues.append(Issue(
             path, line_number(text, p6),
-            "フェーズ6は「おさらい→部分クラス図→システム全体の最終構造」"
-            "または「部分クラス図→システム全体の最終構造→おさらい」の順にしてください",
+            "フェーズ6に課題ID別の検討節（`### 課題IDN：`）がありません",
         ))
         return issues
 
-    partial_section = phase6[partial_start:final_structure_start]
+    # EDIT-005移行期：部分クラス図をまとめ節へ置く旧構成も当面は通す。
+    # 旧構成の章から順に、課題ID節へ図を分散する新構成へ移していく。
+    legacy_heading = "#### 設計判断ごとの部分クラス図"
+    legacy_start = phase6.find(legacy_heading)
+    if legacy_start >= 0:
+        legacy_ok = (
+            recap_start < legacy_start < final_structure_start
+            or legacy_start < final_structure_start < recap_start
+        )
+        if not legacy_ok:
+            issues.append(Issue(
+                path, line_number(text, p6),
+                "フェーズ6は「おさらい→部分クラス図→システム全体の最終構造」"
+                "または「部分クラス図→システム全体の最終構造→おさらい」"
+                "の順にしてください",
+            ))
+            return issues
+        partial_from = legacy_start
+    else:
+        if not (recap_start < id_heads[0]
+                and id_heads[-1] < final_structure_start):
+            issues.append(Issue(
+                path, line_number(text, p6),
+                "フェーズ6は「課題箇所のおさらい（変更前コード）→ 課題ID節 →"
+                "システム全体の最終構造」の順にしてください",
+            ))
+            return issues
+        partial_from = id_heads[0]
+
+    # 部分クラス図は、まとめ節ではなく各課題ID節の中へ置く
+    # （判断理由の直後・対応コードの直前／著者指摘 2026-08-15）。
+    partial_section = phase6[partial_from:final_structure_start]
     partial_diagrams = _mermaid_diagrams(partial_section, "classDiagram")
     if len(partial_diagrams) < len(issue_ids):
         issues.append(Issue(
-            path, line_number(text, p6 + partial_start),
-            "設計判断ごとの部分クラス図が不足しています: "
+            path, line_number(text, p6 + partial_from),
+            "課題ID節の中の部分クラス図が不足しています: "
             f"図={len(partial_diagrams)}, 課題={len(issue_ids)}",
         ))
     for index, diagram in enumerate(partial_diagrams, 1):
@@ -2094,7 +2121,7 @@ def check_phase5_phase6_reasoning_contract(
             r"(?:cssClass\s+|:::focus\b)", diagram, re.MULTILINE
         ):
             issues.append(Issue(
-                path, line_number(text, p6 + partial_start),
+                path, line_number(text, p6 + partial_from),
                 f"部分クラス図{index}に着目箇所の色指定がありません",
             ))
 
@@ -2130,12 +2157,20 @@ def check_phase5_phase6_reasoning_contract(
                 path, line_number(text, completed_start),
                 "フェーズ6で採用した全体クラス図とフェーズ7の完成クラス図が一致しません",
             ))
-        adopted_classes = _diagram_class_names(adopted)
+        # 部分図は「変更前 → 変更後」を段階的に見せるので、採用全体図から
+        # 消えるクラス（変更前クラス図に載っている型）も現れてよい。
+        adopted_classes = set(_diagram_class_names(adopted))
+        before_marker = "**変更前のクラス図"
+        before_at = phase6.find(before_marker)
+        if before_at >= 0:
+            for diagram in _mermaid_diagrams(
+                    phase6[before_at:before_at + 4000], "classDiagram"):
+                adopted_classes |= _diagram_class_names(diagram)
         for index, diagram in enumerate(partial_diagrams, 1):
             extras = sorted(_diagram_class_names(diagram) - adopted_classes)
             if extras:
                 issues.append(Issue(
-                    path, line_number(text, p6 + partial_start),
+                    path, line_number(text, p6 + partial_from),
                     f"部分クラス図{index}に採用全体図にない型があります: {extras}",
                 ))
     return issues
