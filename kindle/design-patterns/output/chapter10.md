@@ -2099,11 +2099,6 @@ Client・Notifier・Creatorは組み立て側が所有し、`BatchExecutor` は�
 
 フェーズ6で選んだ構造を実装します。連携先クライアントの生成を`IClientCreator`と具象Creatorに、通知処理を`INotifier`として分離します。入力の `SyncRequest`、データ取得の `SyncDataCatalog`、送信結果の`DeliveryResult`、保存先の`BatchLog`は1-4の現状コードから変更せず、新しい通信・通知・生成構造を既存経路へ接続します。今回追加するのは、複数ジョブの途中で失敗しても、その既存結果を記録して次へ進む制御です。
 
-解決後のコードも、責任の固まりごとに分けて読みます。
-
-**【1】 共通ヘッダーと同期要求（SyncRequest）**
-
-まず、1-4から引き継ぐ入力契約を再掲します。
 
 #### 完成後のクラス一覧
 
@@ -2236,6 +2231,18 @@ sequenceDiagram
 
 #### 完成コード
 
+クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは `BatchExecutor` だけです。判断の基準は次の一行です。
+
+> **メンバーを見ないと読めない関数は、メンバーと一緒に置く。**
+
+1-4と同じ顔ぶれには「1-4のまま」と付けます。`main()` と実行結果は最後に置きます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+
+---
+
+**共通ヘッダーと SyncTarget と SyncRequest（1-4のまま）**
+
+1-4から引き継ぐ入力契約です。
+
 ```cpp
 #include <iostream>
 #include <string>
@@ -2256,9 +2263,11 @@ struct SyncRequest {
 };
 ```
 
-**【2】 同期対象データの取得（OrderDataSource / InventoryDataSource / SyncDataCatalog）**
+---
 
-受注管理・商品在庫管理からデータを取得する既存境界も、そのまま引き継ぎます。
+**OrderDataSource と InventoryDataSource と SyncDataCatalog（1-4のまま）**
+
+受注管理・商品在庫管理からデータを取得する既存境界です。
 
 ```cpp
 class OrderDataSource {
@@ -2291,9 +2300,11 @@ public:
 };
 ```
 
-**【3】 連携先設定と送信結果（PartnerConfig / PartnerDatabase / DeliveryResult）**
+---
 
-連携先マスタと、送信1件ごとの成否を表す結果型も再掲します。
+**PartnerConfig と PartnerDatabase と DeliveryResult（1-4のまま）**
+
+連携先マスタと、送信1件ごとの成否を表す結果型です。
 
 ```cpp
 struct PartnerConfig {
@@ -2340,9 +2351,11 @@ struct DeliveryResult {
 
 `PartnerDatabase` は1-4と同じ連携先マスタで、今回追加のC社レコードだけが増えます。`DeliveryResult`のフィールドと意味は1-4から変わりません。つまり、仕様変更による差分は連携先レコードと利用側の実行構造であり、結果契約ではありません。
 
-**【4】 通知のインターフェースと実装（INotifier / SlackNotifier）**
+---
 
-次に、通知先ごとの送信方法を個別クラスへ分けるためのインターフェースと、その実装を定義します。
+**NotificationResult と NotificationLog と INotifier**
+
+通知先ごとの送信方法を個別クラスへ分けるための契約です。
 
 ```cpp
 struct NotificationResult {
@@ -2374,7 +2387,12 @@ public:
 
 // Slack通知の具体的な実装（受け取った通知を蓄積する）
 ```
-続いて `SlackNotifier` です。
+
+**通知の成否が `NotificationResult` として返るようになりました。** 1-4の `NotificationService::notify()` は `void` で、送れたかどうかを呼び出し側が知る手段がありませんでした。
+
+---
+
+**SlackNotifier**
 
 ```cpp
 class SlackNotifier : public INotifier {
@@ -2388,7 +2406,11 @@ public:
 };
 ```
 
-**【5】 バッチ実行ログ（BatchRecord / BatchLog）**
+契約を実装する具体通知先です。**通知先を足すときに触るのは、このようなクラスを1つ増やすことと、組み立て箇所だけです。**
+
+---
+
+**BatchRecord と BatchLog（1-4のまま）**
 
 バッチ実行ログ（`BatchLog`）は1-4と同じ型・同じ保存方法を使います。システム起動時は空で、バッチが実行されるたびに結果を1件追記し、保存件数も表示します。無効パートナーのスキップも記録し、ファイルではなく実行中のメモリ上に保持します。
 
@@ -2420,7 +2442,9 @@ public:
 };
 ```
 
-**【6】 連携先クライアントの抽象と実装（IExternalClient / SystemAClient ほか）**
+---
+
+**IExternalClient と SystemAClient と SystemBClient**
 
 次に、連携先クライアントのインターフェースと実装を定義します。新しい連携先を利用するときは、このインターフェースを実装したクラスを追加します。
 
@@ -2453,7 +2477,12 @@ public:
     }
 };
 ```
-続いて `SystemCClient` です。
+
+A社とB社は1-4から来た2社です。**契約 `IExternalClient` の裏へ入ったので、呼び出し側は `send()` だけを知ればよくなりました。**
+
+---
+
+**SystemCClient**
 
 ```cpp
 class SystemCClient : public IExternalClient {
@@ -2468,7 +2497,9 @@ public:
 
 各連携先クライアントは`IExternalClient`を実装し、送信の成否を `DeliveryResult` として返します。`apiHealthy` は外部APIの健全性をスタブで表し、`false`（API障害）のときは失敗結果を返します。これで1-5の変更後動作例の行1（B社のAPI障害）を、次の `BatchExecutor` から再現できます。
 
-**【7】 クライアント生成の抽象と実装（IClientCreator / SystemAClientCreator ほか）**
+---
+
+**IClientCreator と SystemAClientCreator と SystemBClientCreator**
 
 生成メソッドの契約と、連携先ごとの具象Creatorを定義します。
 
@@ -2494,7 +2525,12 @@ public:
     }
 };
 ```
-続いて `SystemCClientCreator` です。
+
+A社・B社ぶんのCreatorです。**「どの具体クラスを `new` するか」の知識が、Creator1つにつき1行だけになりました。**
+
+---
+
+**SystemCClientCreator**
 
 ```cpp
 class SystemCClientCreator : public IClientCreator {
@@ -2507,7 +2543,9 @@ public:
 
 各具象Creatorが、自分に対応するクライアントの生成だけを知ります。`BatchExecutor`は`IClientCreator`だけを知り、生成する具体型を知りません。
 
-**【8】 フローを統括するクラス（BatchExecutor）**
+---
+
+**BatchJob と BatchExecutor**
 
 バッチ全体のフローを統括する窓口です。`IClientCreator` 経由でクライアントを生成し、送信結果を通知先へ反映します。生成する具体型も通知先の具体型も知りません。
 
@@ -2604,7 +2642,9 @@ public:
 
 所有関係を整理します。`createClient()` が返す `IExternalClient*` は使い捨てで、生成した `execute()` が所有し、送信後に `delete` して破棄します（未登録・無効の早期returnは生成前なので破棄漏れは起きません）。一方 `notifiers` が保持する `INotifier*` は**借用参照**で、実体の `SlackNotifier` は `BatchApplication::run()` がスタックに持ち、`BatchExecutor` は生成も破棄もしません。生成して所有するもの（Client）と、外から借りて使うだけのもの（Notifier）を、破棄責任の有無で区別しています。
 
-**【9】 手動トリガーのクラス（ManualTriggerController）**
+---
+
+**ManualTriggerController**
 
 手動同期の起点となるクラスです。指定した連携先へ同期を実行し、結果を通知先へ届けます。
 
@@ -2627,7 +2667,9 @@ public:
 
 `ManualTriggerController`は手動起点だけを担い、Client生成、データ取得、送信、結果保存、通知のすべてを同じ`BatchExecutor::execute()`へ委譲します。後段関数だけでなくユースケース全体を共有するため、バッチ入口と手動入口で検証・生成・保存の規則が分岐しません。
 
-**【10】 組み立てと実行（BatchApplication / main）**
+---
+
+**BatchApplication と main()**
 
 各クラスを組み立て、1-5の変更後動作例の代表ケースを順に実行します。どの連携先にどの通知先を組み合わせるかは、この組み立て箇所だけで決めます。
 
@@ -2695,7 +2737,7 @@ int main() {
 
 1-2の現状動作例と、1-5の変更後動作例を通します。見るのは、外部から見える結果が保たれたまま、変更理由ごとに責任が分かれているかです。
 
-**実行結果：**
+#### 実行結果
 
 ```
 --- 行1: A→B→C 順次バッチ（B社はAPI障害） ---
