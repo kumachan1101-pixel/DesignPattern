@@ -2466,11 +2466,24 @@ public:
                            toString(priority)});
     }
 
+    // チケットID単位でまとめて出す（各IDの中では時系列のまま）
     void printAll() const {
-        for (const auto& r : records) {
-            cout << "[" << r.ticketId << "] " << r.eventType
-                 << " 状態=" << r.status
-                 << " 優先度=" << r.priority << endl;
+        vector<string> ids;
+        for (size_t i = 0; i < records.size(); ++i) {
+            bool seen = false;
+            for (size_t k = 0; k < ids.size(); ++k)
+                if (ids[k] == records[i].ticketId) seen = true;
+            if (!seen) ids.push_back(records[i].ticketId);
+        }
+
+        for (size_t k = 0; k < ids.size(); ++k) {
+            cout << "[" << ids[k] << "]" << endl;
+            for (size_t i = 0; i < records.size(); ++i) {
+                if (records[i].ticketId != ids[k]) continue;
+                cout << "  " << records[i].eventType
+                     << " 状態=" << records[i].status
+                     << " 優先度=" << records[i].priority << endl;
+            }
         }
     }
 };
@@ -2841,16 +2854,16 @@ int main() {
     TicketPolicySet policies;
     TicketService svc(repo, users, staff, log, policies);
 
-    cout << "--- 行1: 依頼者 鈴木(standard)がTCK001を登録 ---" << endl;
+    cout << "--- 行1 ---" << endl;
     svc.create("TCK001", "USR003");
-    cout << "--- 行2: 依頼者 佐藤(premium)がTCK002を登録 ---" << endl;
+    cout << "--- 行2 ---" << endl;
     svc.create("TCK002", "USR002");
 ```
 
 ```
---- 行1: 依頼者 鈴木(standard)がTCK001を登録 ---
+--- 行1 ---
 [TCK001] 作成 申請者=鈴木 次郎 状態=Open 優先度=Normal
---- 行2: 依頼者 佐藤(premium)がTCK002を登録 ---
+--- 行2 ---
 [TCK002] 作成 申請者=佐藤 花子 状態=Open 優先度=High
 ```
 
@@ -2861,20 +2874,20 @@ int main() {
 **行3〜行5：TCK001をアサイン → 解決 → 再受付**
 
 ```cpp
-    cout << "--- 行3: TCK001に担当者 山田をアサイン ---" << endl;
+    cout << "--- 行3 ---" << endl;
     svc.assign("TCK001", "AGT01");
-    cout << "--- 行4: TCK001を解決 ---" << endl;
+    cout << "--- 行4 ---" << endl;
     svc.resolve("TCK001");
-    cout << "--- 行5: TCK001を再受付（優先度を再計算） ---" << endl;
+    cout << "--- 行5 ---" << endl;
     svc.reopen("TCK001");
 ```
 
 ```
---- 行3: TCK001に担当者 山田をアサイン ---
+--- 行3 ---
   アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
---- 行4: TCK001を解決 ---
+--- 行4 ---
   解決: 状態 InProgress → Resolved
---- 行5: TCK001を再受付（優先度を再計算） ---
+--- 行5 ---
   再受付: 状態 Resolved → Open 優先度=Normal
 ```
 
@@ -2885,21 +2898,20 @@ int main() {
 **行6〜行8：TCK002をアサイン → エスカレーション → 解決**
 
 ```cpp
-    cout << "--- 行6: TCK002に担当者 高橋をアサイン ---" << endl;
+    cout << "--- 行6 ---" << endl;
     svc.assign("TCK002", "AGT02");
-    cout << "--- 行7: TCK002をエスカレーション（緊急対応中へ） ---"
-         << endl;
+    cout << "--- 行7 ---" << endl;
     svc.escalate("TCK002");
-    cout << "--- 行8: TCK002を解決（緊急対応中→解決済み） ---" << endl;
+    cout << "--- 行8 ---" << endl;
     svc.resolve("TCK002");
 ```
 
 ```
---- 行6: TCK002に担当者 高橋をアサイン ---
+--- 行6 ---
   アサイン: 状態 Open → InProgress 担当=高橋 二郎(AGT02)
---- 行7: TCK002をエスカレーション（緊急対応中へ） ---
+--- 行7 ---
   エスカレーション: 状態 InProgress → Escalated 優先度=High
---- 行8: TCK002を解決（緊急対応中→解決済み） ---
+--- 行8 ---
   解決: 状態 Escalated → Resolved
 ```
 
@@ -2910,12 +2922,10 @@ int main() {
 **変更要求：法人ユーザーの登録・保留・再受付・差し戻し**
 
 ```cpp
-    cout << "--- 変更要求: 伊藤(corporate)のTCK003を登録し保留 ---"
-         << endl;
+    cout << "--- 変更要求1 ---" << endl;
     svc.create("TCK003", "USR004");
     svc.hold("TCK003");
-    cout << "--- 変更要求: TCK003を再受付し、アサイン・保留・エスカレーション ---"
-         << endl;
+    cout << "--- 変更要求2 ---" << endl;
     svc.reopen("TCK003");           // Pending → Open（優先度を再計算）
     svc.assign("TCK003", "AGT01");  // Open → InProgress
     svc.hold("TCK003");             // InProgress → Pending
@@ -2926,10 +2936,10 @@ int main() {
 ```
 
 ```
---- 変更要求: 伊藤(corporate)のTCK003を登録し保留 ---
+--- 変更要求1 ---
 [TCK003] 作成 申請者=伊藤 四郎 状態=Open 優先度=High
   保留: 状態 Open → Pending
---- 変更要求: TCK003を再受付し、アサイン・保留・エスカレーション ---
+--- 変更要求2 ---
   再受付: 状態 Pending → Open 優先度=High
   アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
   保留: 状態 InProgress → Pending
@@ -2946,7 +2956,7 @@ int main() {
 **一般ユーザーの優先度が上がって戻る**
 
 ```cpp
-    cout << "--- 一般ユーザーの優先度が上がって戻る ---" << endl;
+    cout << "--- 回帰: 一般ユーザー ---" << endl;
     svc.assign("TCK001", "AGT01");  // Open → InProgress（Normalを維持）
     svc.escalate("TCK001");         // Normal → High へ引き上げ
     svc.resolve("TCK001");          // Highを維持
@@ -2954,7 +2964,7 @@ int main() {
 ```
 
 ```
---- 一般ユーザーの優先度が上がって戻る ---
+--- 回帰: 一般ユーザー ---
   アサイン: 状態 Open → InProgress 担当=山田 太郎(AGT01)
   エスカレーション: 状態 InProgress → Escalated 優先度=High
   解決: 状態 Escalated → Resolved
@@ -2968,20 +2978,20 @@ int main() {
 **エラー3種**
 
 ```cpp
-    cout << "--- エラー: 存在しないユーザー ---" << endl;
+    cout << "--- エラー1 ---" << endl;
     svc.create("TCK004", "USR999");
-    cout << "--- エラー: 許可されない操作 ---" << endl;
+    cout << "--- エラー2 ---" << endl;
     svc.reopen("TCK003");           // InProgress からは再受付できない
-    cout << "--- エラー: 未登録チケットID ---" << endl;
+    cout << "--- エラー3 ---" << endl;
     svc.assign("TCK999", "AGT01");  // 保存されていないチケット
 ```
 
 ```
---- エラー: 存在しないユーザー ---
+--- エラー1 ---
 エラー: ユーザーID USR999 は存在しません。
---- エラー: 許可されない操作 ---
+--- エラー2 ---
   操作不可: この状態では「再受付」できません。
---- エラー: 未登録チケットID ---
+--- エラー3 ---
 エラー: チケットID TCK999 は存在しません。
 ```
 
@@ -3001,30 +3011,33 @@ int main() {
 ```
 
 --- 監査ログ ---
-[TCK001] 作成 状態=Open 優先度=Normal
-[TCK002] 作成 状態=Open 優先度=High
-[TCK001] アサイン 状態=InProgress 優先度=Normal
-[TCK001] 解決 状態=Resolved 優先度=Normal
-[TCK001] 再受付 状態=Open 優先度=Normal
-[TCK002] アサイン 状態=InProgress 優先度=High
-[TCK002] エスカレーション 状態=Escalated 優先度=High
-[TCK002] 解決 状態=Resolved 優先度=High
-[TCK003] 作成 状態=Open 優先度=High
-[TCK003] 保留 状態=Pending 優先度=High
-[TCK003] 再受付 状態=Open 優先度=High
-[TCK003] アサイン 状態=InProgress 優先度=High
-[TCK003] 保留 状態=Pending 優先度=High
-[TCK003] 再受付 状態=Open 優先度=High
-[TCK003] アサイン 状態=InProgress 優先度=High
-[TCK003] エスカレーション 状態=Escalated 優先度=High
-[TCK003] 差し戻し 状態=InProgress 優先度=High
-[TCK001] アサイン 状態=InProgress 優先度=Normal
-[TCK001] エスカレーション 状態=Escalated 優先度=High
-[TCK001] 解決 状態=Resolved 優先度=High
-[TCK001] 再受付 状態=Open 優先度=Normal
+[TCK001]
+  作成 状態=Open 優先度=Normal
+  アサイン 状態=InProgress 優先度=Normal
+  解決 状態=Resolved 優先度=Normal
+  再受付 状態=Open 優先度=Normal
+  アサイン 状態=InProgress 優先度=Normal
+  エスカレーション 状態=Escalated 優先度=High
+  解決 状態=Resolved 優先度=High
+  再受付 状態=Open 優先度=Normal
+[TCK002]
+  作成 状態=Open 優先度=High
+  アサイン 状態=InProgress 優先度=High
+  エスカレーション 状態=Escalated 優先度=High
+  解決 状態=Resolved 優先度=High
+[TCK003]
+  作成 状態=Open 優先度=High
+  保留 状態=Pending 優先度=High
+  再受付 状態=Open 優先度=High
+  アサイン 状態=InProgress 優先度=High
+  保留 状態=Pending 優先度=High
+  再受付 状態=Open 優先度=High
+  アサイン 状態=InProgress 優先度=High
+  エスカレーション 状態=Escalated 優先度=High
+  差し戻し 状態=InProgress 優先度=High
 ```
 
-法人チケットTCK003の行を縦に読むと、作成・再受付のいずれでも優先度がHighであることが追えます。一方、一般ユーザーのTCK001は末尾でエスカレーションによりHighへ上がっており、引き上げが契約区分によらないことも同じログで追えます。
+チケットID単位でまとめて出しています。TCK003を上から読むと、作成でも再受付でも優先度がHighのままだと分かります。一方TCK001は、途中のエスカレーションでNormalからHighへ上がり、再受付でNormalへ戻っています。**引き上げが契約区分によらないこと**が、1つのブロックの中で追えます。
 
 ---
 
