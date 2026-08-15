@@ -991,7 +991,22 @@ flowchart LR
 | `Waitlisted`（キャンセル待ち）：予約枠が満杯のときに空き待ちを登録する状態 | `reserve()` の満席分岐で待ち行列へ自動登録し、`cancel()` / `expire()` による空席発生直後に先頭を自動昇格させる処理が必要。 |
 | 決済失敗：決済APIが失敗したら予約を消さずに再試行可能な状態へ戻す | `pay()` の中で、`Reserved` からの失敗と `Held` からの失敗を分けて扱う必要がある。 |
 
-この仕様を今の `TicketReservation` クラスに当てはめてみます。追加した箇所が分かるよう、コメントで「追加」と明示します。座席在庫の存在確認・空席判定・座席の増減は1-4の `EventDatabase` がそのまま担うため、この抜粋では在庫まわりを省き、状態遷移に絡む部分へ集中します。新しく登場する待ち行列は、0章「共有データの持ち方」の全章共通規約に従い、在庫（`EventDatabase`）と同じく組み立て側が所有する共有ストアとしてコンストラクタで外から受け取ります。グローバルな `static` で持つと生成順や実行順に依存し、どのインスタンスがいつ書いたのか追えなくなるためです。こうすると、在庫も待ち行列も「外から渡される共有ストア」で管理場所がそろいます。関数の先頭と主要データにはコメントを付けます。
+変更した定義は6つです。1-4と同じ並び順で、上から見ていきます。座席在庫の存在確認・空席判定・座席の増減は1-4の `EventDatabase` がそのまま担うため、この抜粋では在庫まわりを省き、状態遷移に絡む部分へ集中します。
+
+| 1-4での掲載単位 | 今回の変更 | 根拠 |
+|---|---|---|
+| `TicketReservation` の宣言 | 待ち行列を受け取り、状態値を5つへ、内部遷移と2つのエラー出力を追加 | 変更ID1・変更ID2 |
+| `TicketReservation::reserve()` | 満席時に待ち行列へ自動登録する分岐を追加 | 変更ID1 |
+| （新規） | `hold()` を追加 | 変更ID2 |
+| `TicketReservation::pay()` | `Held` からの支払いを追加 | 変更ID2 |
+| `TicketReservation::cancel()` | `Held` からのキャンセルと、空席発生時の自動昇格を追加 | 変更ID1・変更ID2 |
+| （新規） | `expire()` を追加 | 変更ID2 |
+
+---
+
+**TicketReservation の宣言（変更あり）**
+
+新しく登場する待ち行列は、0章「共有データの持ち方」の全章共通規約に従い、在庫（`EventDatabase`）と同じく組み立て側が所有する共有ストアとしてコンストラクタで外から受け取ります。グローバルな `static` で持つと生成順や実行順に依存し、どのインスタンスがいつ書いたのか追えなくなるためです。こうすると、在庫も待ち行列も「外から渡される共有ストア」で管理場所がそろいます。
 
 ```cpp
 #include <iostream>
@@ -1007,19 +1022,9 @@ class TicketReservation {
     std::string status;  // 状態 Available/Reserved/Paid/Held/Waitlisted
 
     // 空席発生時にシステムが呼ぶ内部遷移（利用側からは呼ばせない）
-    void promoteBySystem() {
-        if (status == "Waitlisted") {
-            status = "Reserved";
-            std::cout << "空席発生を検知し、予約へ自動昇格しました\n";
-        }
-    }
+    void promoteBySystem();
     // 待ち行列の先頭を1件だけ取り出して昇格させる
-    void promoteNextWaitlisted() {
-        if (waitlist.empty()) return;
-        TicketReservation* next = waitlist.front();
-        waitlist.pop_front();
-        next->promoteBySystem();
-    }
+    void promoteNextWaitlisted();
 
     // 各状態で操作できないときのエラー出力
     void handleReserveError()  { std::cout << "現在予約できません\n"; }
@@ -1032,80 +1037,157 @@ public:
     explicit TicketReservation(std::deque<TicketReservation*>& waitlist)
         : waitlist(waitlist), status("Available") {}
 
-    // 通常の予約要求。満席判定結果は周辺のEventDatabaseからシステムが渡す。
-    void reserve(bool hasCapacity = true) {
-        if (status == "Available") {
-            if (hasCapacity) {
-                status = "Reserved";
-                std::cout << "予約完了しました\n";
-            } else {
-                status = "Waitlisted";
-                waitlist.push_back(this);
-                std::cout << "満席のためキャンセル待ちに登録しました\n";
-            }
-        } else {
-            handleReserveError();
-        }
-    }
-    // 一時保留する（Reserved のときだけ24時間の保留枠へ）
+    void reserve(bool hasCapacity = true);
+    void hold();
+    void pay();
+    void cancel();
+    void expire();
+};
 ```
-続いて、同じ `TicketReservation` クラスの `hold()` 以降です。
+
+1-4から増えたのは、待ち行列への参照、状態値2つ（`Held`・`Waitlisted`）、内部遷移2つ、エラー出力2つ、公開操作2つ（`hold()`・`expire()`）です。**公開操作は3つから5つになりました。**
+
+---
+
+**TicketReservation::promoteBySystem() と promoteNextWaitlisted()（追加）**
+
+空席が出たときに、待ち行列の先頭を予約へ昇格させます。
 
 ```cpp
-    void hold() {
-        if (status == "Reserved") {
-            status = "Held";
-            std::cout << "保留にしました\n";
-        } else {
-            handleHoldError();
-        }
+void TicketReservation::promoteBySystem() {
+    if (status == "Waitlisted") {
+        status = "Reserved";
+        std::cout << "空席発生を検知し、予約へ自動昇格しました\n";
     }
-    // 支払う（Reserved と Held の両方から支払済みへ ← Held 対応を追加）
-    void pay() {
-        if (status == "Reserved") {
-            status = "Paid";
-            std::cout << "支払い完了しました\n";
-        } else if (status == "Held") {   // ← Held 対応を追加
-            status = "Paid";
-            std::cout << "保留から支払い完了しました\n";
-        } else {
-            handlePayError();
-        }
-    }
-    // キャンセルする（Reserved と Held から予約可能へ ← Held 対応を追加）
-    void cancel() {
-        if (status == "Reserved") {
-            status = "Available";
-            std::cout << "予約をキャンセルしました\n";
-            promoteNextWaitlisted();     // 空いた枠へ待ち行列の先頭を昇格
-        } else if (status == "Held") {   // ← Held 対応を追加
-            status = "Available";
-            std::cout << "保留からキャンセルしました\n";
-            promoteNextWaitlisted();
-        } else {
-            handleCancelError();
-        }
-    }
-    // 決済期限切れ（Reservedは15分、Heldは24時間で枠を解放）
-    void expire() {                      // ← 新規追加
-        if (status == "Reserved" || status == "Held") {
-            status = "Available";
-            std::cout << "決済期限が切れました\n";
-            promoteNextWaitlisted();
-        } else {
-            handleExpireError();
-        }
-    }
-};
+}
+
+void TicketReservation::promoteNextWaitlisted() {
+    if (waitlist.empty()) return;
+    TicketReservation* next = waitlist.front();
+    waitlist.pop_front();
+    next->promoteBySystem();
+}
 ```
 
 `front()` は先頭の借用ポインタを読むだけで、予約オブジェクトを削除しません。続く `pop_front()` がキューからそのポインタ1件を除きますが、参照先の `TicketReservation` は呼び出し側が所有したままです。第0章で説明した `deque` の「先頭参照」と「先頭要素の除去」を、この待ち行列へ適用しています。
 
-この変更後コードを、代表シナリオごとに実行します。
+**利用側からは呼べません。** 昇格は利用者の操作ではなく、空席発生に伴ってシステムが起こす遷移だからです。
 
-変更要求後の代表シナリオ1〜3を、上のコードで通します。見るのは、変更ID1・変更ID2を当てたことで、条件分岐と新しいメソッドが `TicketReservation` へどれだけ集まるかです。
+---
 
-まずシナリオ1（予約→保留→支払い）を実行します。
+**TicketReservation::reserve()（変更あり）**
+
+```cpp
+// 通常の予約要求。満席判定結果は周辺のEventDatabaseからシステムが渡す。
+void TicketReservation::reserve(bool hasCapacity) {
+    if (status == "Available") {
+        if (hasCapacity) {
+            status = "Reserved";
+            std::cout << "予約完了しました\n";
+        } else {
+            status = "Waitlisted";
+            waitlist.push_back(this);
+            std::cout << "満席のためキャンセル待ちに登録しました\n";
+        }
+    } else {
+        handleReserveError();
+    }
+}
+```
+
+満席のときの分岐が増えました。**`Available` の中がさらに2つに割れています。** 状態判定の中へ、在庫の判定が入れ子で入りました。
+
+---
+
+**TicketReservation::hold()（追加）**
+
+```cpp
+// 一時保留する（Reserved のときだけ24時間の保留枠へ）
+void TicketReservation::hold() {
+    if (status == "Reserved") {
+        status = "Held";
+        std::cout << "保留にしました\n";
+    } else {
+        handleHoldError();
+    }
+}
+```
+
+新しい公開操作です。1-4の3つの操作と同じ形で、冒頭で `status` を見ます。
+
+---
+
+**TicketReservation::pay()（変更あり）**
+
+```cpp
+// 支払う（Reserved と Held の両方から支払済みへ ← Held 対応を追加）
+void TicketReservation::pay() {
+    if (status == "Reserved") {
+        status = "Paid";
+        std::cout << "支払い完了しました\n";
+    } else if (status == "Held") {   // ← Held 対応を追加
+        status = "Paid";
+        std::cout << "保留から支払い完了しました\n";
+    } else {
+        handlePayError();
+    }
+}
+```
+
+`else if` を1本足しました。**中身は上の分岐とほぼ同じで、表示文だけが違います。**
+
+---
+
+**TicketReservation::cancel()（変更あり）**
+
+```cpp
+// キャンセルする（Reserved と Held から予約可能へ ← Held 対応を追加）
+void TicketReservation::cancel() {
+    if (status == "Reserved") {
+        status = "Available";
+        std::cout << "予約をキャンセルしました\n";
+        promoteNextWaitlisted();     // 空いた枠へ待ち行列の先頭を昇格
+    } else if (status == "Held") {   // ← Held 対応を追加
+        status = "Available";
+        std::cout << "保留からキャンセルしました\n";
+        promoteNextWaitlisted();
+    } else {
+        handleCancelError();
+    }
+}
+```
+
+- **2か所へ同じ2行を書く：** `Held` の分岐にも `promoteNextWaitlisted()` が要ります。片方だけ書き忘れても、もう一方は正しく動きます
+- **順序に意味：** 状態を `Available` にしてから昇格を呼びます。逆にすると、空いていない枠へ昇格させることになります
+
+---
+
+**TicketReservation::expire()（追加）**
+
+```cpp
+// 決済期限切れ（Reservedは15分、Heldは24時間で枠を解放）
+void TicketReservation::expire() {      // ← 新規追加
+    if (status == "Reserved" || status == "Held") {
+        status = "Available";
+        std::cout << "決済期限が切れました\n";
+        promoteNextWaitlisted();
+    } else {
+        handleExpireError();
+    }
+}
+```
+
+`cancel()` と**ほぼ同じ処理**です。状態を戻し、昇格を呼びます。違うのは表示文と、2状態を `||` で1本にまとめている点だけです。
+
+---
+
+#### `main()` と実行結果
+
+変更要求後の代表シナリオ1〜3を、シナリオごとに区切って実行します。**見るのは動くかどうかではなく、変更ID1・変更ID2を当てたことで条件分岐と新しいメソッドが `TicketReservation` へどれだけ集まるかです。**
+
+---
+
+**シナリオ1：予約 → 保留 → 支払い**
 
 ```cpp
 int main() {
@@ -1119,8 +1201,6 @@ int main() {
     std::cout << "---" << std::endl;
 ```
 
-シナリオ1（予約→保留→支払い）の実行結果：
-
 ```text
 予約完了しました
 保留にしました
@@ -1128,7 +1208,11 @@ int main() {
 ---
 ```
 
-続いて、同じ `main()` の中でシナリオ2（予約→保留→期限切れ）を実行します。
+新しい `hold()` を挟んでも、`pay()` は `Held` から支払えます。
+
+---
+
+**シナリオ2：予約 → 保留 → 期限切れ**
 
 ```cpp
     // シナリオ2：予約 → 保留 → 期限切れ → Available に戻る
@@ -1138,8 +1222,6 @@ int main() {
     std::cout << "---" << std::endl;
 ```
 
-シナリオ2（予約→保留→期限切れ）の実行結果：
-
 ```text
 予約完了しました
 保留にしました
@@ -1147,7 +1229,13 @@ int main() {
 ---
 ```
 
-最後に、シナリオ3（満席時の自動待機登録→キャンセル→自動昇格→支払い）を実行し、`main()` を終了します。この抜粋では `false` が周辺の `EventDatabase::hasCapacity()` による満席判定結果を表し、利用者は通常の `reserve()` 以外の待機登録操作を選びません。
+`Held` から `expire()` で `Available` へ戻りました。
+
+---
+
+**シナリオ3：満席時の自動待機登録 → キャンセル → 自動昇格 → 支払い**
+
+`false` は周辺の `EventDatabase::hasCapacity()` による満席判定結果を表します。利用者は通常の `reserve()` 以外の待機登録操作を選びません。
 ```cpp
     // シナリオ3：既存予約のキャンセル → 待ち行列の先頭を自動昇格 → 支払い
     TicketReservation occupied(waitlist);
@@ -1161,8 +1249,6 @@ int main() {
 }
 ```
 
-シナリオ3（キャンセル→自動昇格→支払い）の実行結果：
-
 ```text
 予約完了しました
 満席のためキャンセル待ちに登録しました
@@ -1171,9 +1257,11 @@ int main() {
 支払い完了しました
 ```
 
-各シナリオのコードとその実行結果をその場で並べたので、離れた `main()` と出力を行き来せずに照合できます。
+利用側が呼んだのは `cancel()` だけで、昇格は自動で起きました。**動作は正しくなっています。** 変更要求は満たせました。
 
-コード自体は正しく動いています。しかし変更ID1・変更ID2のために、`reserve()`・`cancel()`・`pay()`・`hold()`・`expire()`へ状態判定を追加した点に注目してください。
+---
+
+痛いのは結果ではなく、そこへ至る過程です。変更ID1・変更ID2のために、`reserve()`・`pay()`・`cancel()`・`hold()`・`expire()` の5つすべてへ状態判定を書きました。
 
 状態遷移マトリクスで見ると、Held を追加するとは「行を1行増やす」ことに見えます。
 
