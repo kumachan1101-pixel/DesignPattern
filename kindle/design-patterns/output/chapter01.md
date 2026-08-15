@@ -2007,10 +2007,7 @@ struct PaymentResult {
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 ### 7-1：解決後のコード（全体）
 
-フェーズ6で確定・実装した採用構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて確認します。
-
-**1. データの定義とインフラ（CustomerDatabase）**
-注文データ・顧客情報クラスはリファクタリング前後で変わりません。割引ロジックの分離が、これらのクラスに影響しないことを確認してください。
+フェーズ6で確定・実装した採用構造を、実行可能な完全なコードとして組み上げます。
 
 #### 完成後のクラス一覧
 
@@ -2150,7 +2147,15 @@ sequenceDiagram
 
 #### 完成コード
 
-まずファイル冒頭です。共通ヘッダーと、会員種別・キャンペーンコードを名前で扱う `MemberType`／`CampaignCode`、値クラス `Item`、施策状態を持つ `CampaignContext` を置きます。ここはどのクラスにも属さない宣言で、以降のすべてのクラスが使います。
+クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。1-4と同じ顔ぶれが並ぶので、どこが変わったかを見比べてください。
+
+`main()` と実行結果は最後に、シナリオごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+
+---
+
+**共通ヘッダーと値の型**
+
+会員種別・キャンペーンコードを名前で扱う `MemberType`／`CampaignCode`、値クラス `Item`、施策状態を持つ `CampaignContext`、注文の `Order` です。どのクラスにも属さない宣言で、以降のすべてのクラスが使います。
 
 ```cpp
 #include <iostream>
@@ -2200,7 +2205,12 @@ public:
     std::vector<Item> items;
 };
 ```
-続いて `CustomerInfo` です。
+
+`MemberType` は会員種別を名前付き定数へまとめたものです。各割引ルールの `matches()` はこの定数で判定し、直文字列の打ち間違いを防ぎます。**`CampaignContext` は実行時に有効な施策コードだけを持ちます。** 3-1で足した `isSummerSale` のような施策ごとの `bool` フィールドは、もう増えません。
+
+---
+
+**CustomerInfo と CustomerDatabase と PaymentResult**
 
 ```cpp
 struct CustomerInfo {
@@ -2230,7 +2240,14 @@ struct PaymentResult {
     std::string appliedRule;
 };
 ```
-続いて `IDiscountRule` です。
+
+`CustomerInfo` と `CustomerDatabase` は1-4と同じです。`PaymentResult` は、金額だけの `int` をやめて小計・適用ルール名・支払金額をまとめた結果オブジェクトです。
+
+---
+
+**IDiscountRule**
+
+割引ルールの共通契約です。
 
 ```cpp
 class IDiscountRule {
@@ -2246,13 +2263,13 @@ public:
 };
 ```
 
-- `MemberType` は会員種別（`Premium`／`Regular`）を名前付き定数へまとめたものです。各割引ルールの `matches()` はこの定数で判定し、直文字列の打ち間違いを防ぎます。
-- `Item`〜`CustomerDatabase` は1-4と同じデータ群です。割引の分離では、これらを主な修正対象にしていません。
-- `CampaignContext` は実行時に有効な施策コードだけを持ちます。新しい施策が増えても、施策ごとの `bool` フィールドをこのクラスへ追加する必要はありません。
-- `IDiscountRule` が割引ルールの共通契約です。`matches()` は適用条件、`apply()` は計算式、`name()` は結果表示名を表します。条件と式を施策単位で差し替える接続点になります。
+`matches()` は適用条件、`apply()` は計算式、`name()` は結果表示名、`priority()` は重なったときの優先度を表します。**条件と式を施策単位で差し替える接続点です。**
 
-**2. 個別の割引ルールの実装（具体）**
-インターフェースを満たす具体的な割引クラスを作成します。割引計算の追加・変更は主にこのクラス群へ閉じ、利用するルールの選択は組み立て箇所で行います。
+---
+
+**NoDiscount と PremiumDiscount と SummerSaleAndCampaignDiscount**
+
+契約を満たす具体的な割引クラスです。割引計算の追加・変更は主にこのクラス群へ閉じ、利用するルールの選択は組み立て箇所で行います。
 
 ```cpp
 class NoDiscount : public IDiscountRule {
@@ -2296,7 +2313,10 @@ public:
     int priority() const override { return 3; }   // 2条件が重なる最も具体的なルール
 };
 ```
-続いて `SummerSaleDiscount` です。
+
+---
+
+**SummerSaleDiscount と CampaignDiscount**
 
 ```cpp
 class SummerSaleDiscount : public IDiscountRule {
@@ -2334,8 +2354,11 @@ public:
 - `NoDiscount` は「割引なし」を表し、必ず一致して定価を返します。`priority()` を最下位（0）にしているので、他のどのルールも一致しないときだけ選ばれ、Selectorがルール未選択になりません。登録順に依存しません。
 - `name()` は要求ID5の購入結果へ適用割引名を表示するために実装します。選択や計算だけが要件なら不要ですが、本章では表示要求に追跡できるため契約に含めます。
 
-**3. 本体クラス（コンテキスト）**
-計算を行う本体クラスです。具体的な割引ルールを知らず、インターフェースを通じて計算を委譲します。これにより、割引種別を選ぶ条件分岐を計算フローから外せます。
+---
+
+**PaymentCalculator**
+
+計算を行う本体クラスです。具体的な割引ルールを知らず、契約を通じて計算を委譲します。
 
 ```cpp
 class PaymentCalculator {
@@ -2359,9 +2382,11 @@ public:
 - `PaymentCalculator` は具体的な割引を知らず、受け取った `rule` の `apply()` に計算を委ねます。割引を選ぶ `if` はありません。
 - 戻り値は金額だけの `int` ではなく、小計・適用したルール名・支払金額をまとめた `PaymentResult`（結果オブジェクト）です。会員種別やキャンペーンによって「どの割引が効いたか」を、金額とあわせて呼び出し側へ返せます。
 
-**4. ルール選択と二つの利用入口**
+---
 
-長い一続きのコードを役割ごとに分けます。まず `RuleSelector` は、組み立て側から登録されたルールへ同じ `matches()` を問い、一致したルールのうち `priority()` が最も高いものを返します。具体的な条件やクラス名は知りません。
+**RuleSelector**
+
+組み立て側から登録されたルールへ同じ `matches()` を問い、一致したルールのうち `priority()` が最も高いものを返します。具体的な条件やクラス名は知りません。
 
 ```cpp
 class RuleSelector {
@@ -2393,7 +2418,11 @@ public:
 };
 ```
 
-次に、要求ID6のプレビューを独立した入口として実装します。`CartPreviewService` は顧客IDから会員種別を取得し、注文確定と同じSelectorと計算器を使いますが、`OrderProcessor::process()` は呼びません。
+---
+
+**CartPreviewService**
+
+要求ID6のプレビューを独立した入口として実装します。顧客IDから会員種別を取得し、注文確定と同じSelectorと計算器を使いますが、`OrderProcessor::process()` は呼びません。
 
 ```cpp
 class CartPreviewService {
@@ -2421,6 +2450,10 @@ public:
     }
 };
 ```
+
+---
+
+**CheckoutResultRenderer**
 
 結果表示は注文確定の結果だけを受け取ります。プレビュー値を引数に含めないことで、購入結果の表示と事前プレビューを同じ操作へ戻してしまうのを防ぎます。
 
@@ -2450,7 +2483,11 @@ public:
 };
 ```
 
-最後に、`OrderProcessor` はCustomerDatabase・RuleSelector・PaymentCalculator・Rendererを接続し、注文確定だけを担います。
+---
+
+**OrderProcessor**
+
+`CustomerDatabase`・`RuleSelector`・`PaymentCalculator`・`CheckoutResultRenderer` を接続し、注文確定だけを担います。
 
 ```cpp
 
@@ -2500,12 +2537,17 @@ public:
 - `std::reference_wrapper` は、`main()` が所有するルールへの非所有参照をコンテナへ登録するために使います。`new` / `delete` は発生しません。
 - 新しい割引を足すときに触るのは「適用条件と式を持つ新しいルールクラス」と「`main()` の登録1行」です。`PaymentCalculator` と `RuleSelector` の処理は変わりません。
 
-**5. 実行（main）と結果**
-1-5の変更後の動作例を、最終コードで再現します。
+---
 
-1-5の変更後の動作例を、最終コードでシナリオごとに再現します。まず依存を組み立て、シナリオ1（Premium会員の20%引き）を実行します。ここで、`add()` の**登録順は優先度と無関係**です。どのルールを優先するかは各ルールの `priority()` を見て `RuleSelector` が決めるため、利用者は登録順を気にする必要がありません。そのことを示すために、あえて土台の `NoDiscount` を最初に、`PremiumDiscount` を最後に登録します（同じルールを重複登録しても、`select()` は一致した中の最高優先度を1つ返すだけで、二重には適用されません）。
+#### `main()` と実行結果
+
+1-5の変更後の動作例を、シナリオごとに再現します。ここで、`add()` の**登録順は優先度と無関係**です。どのルールを優先するかは各ルールの `priority()` を見て `RuleSelector` が決めるため、利用者は登録順を気にする必要がありません。そのことを示すために、あえて土台の `NoDiscount` を最初に、`PremiumDiscount` を最後に登録します（同じルールを重複登録しても、`select()` は一致した中の最高優先度を1つ返すだけで、二重には適用されません）。
 
 `selector.add()` は「この実行環境が対応できる施策」を起動時に登録する操作で、個々の注文で「いま有効な施策」を表す操作ではありません。有効なルールだけを注文ごとに登録すると、実行時入力のたびにSelectorを組み直す責任が生まれます。そこで実行時の事実は `CampaignContext` の施策コード一覧へ分けます。新しいキャンペーンでも `CampaignContext` のフィールド追加は不要で、ルールの登録と注文入力という性質の異なる二つを重複知識として持ちません。
+
+---
+
+**組み立てと、シナリオ1：Premium会員の20%引き**
 
 ```cpp
 int main() {
