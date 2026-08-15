@@ -398,9 +398,17 @@ sequenceDiagram
 
 どのIDがPremiumでどれがRegularかを覚えておくと、実行結果と仕様の対応を追いやすくなります。
 
-#### (1) 入力データを表すクラス（Item / CampaignContext / Order）
+#### 現状コード
 
-最初に、1-1の「入力」にあたるデータを持つクラスを見ます。
+クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは `OrderProcessor` だけです。判断の基準は次の一行です。
+
+> **メンバーを見ないと読めない関数は、メンバーと一緒に置く。**
+
+`main()` と実行結果は最後に、動作例ごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+
+---
+
+**共通ヘッダー**
 
 ```cpp
 #include <iostream>
@@ -408,17 +416,22 @@ sequenceDiagram
 #include <vector>
 #include <map>
 #include <stdexcept>
+```
 
+以降のすべてのクラスが使います。
+
+---
+
+**Item と Order**
+
+1-1の入力「商品リスト」と、それを束ねる注文1件です。
+
+```cpp
 class Item {
 public:
     std::string name;   // 商品名
     int price;          // 単価（円）
     Item(std::string n, int p) : name(n), price(p) {}
-};
-
-class CampaignContext {
-public:
-    bool isCampaignActive = false;  // キャンペーン期間中なら true
 };
 
 class Order {
@@ -428,13 +441,26 @@ public:
 };
 ```
 
-- `Item` は入力「商品リスト」の1件分です。`name` が商品名、`price` が単価（円）。
-- `CampaignContext` は入力「キャンペーンフラグ」を持ちます。`isCampaignActive` が `true` ならキャンペーン期間中です。
-- `Order` は1件の注文で、「誰が（`customerId`）」「何を（`items`）」買うかをまとめます。会員種別はここには持たず、IDから後で引きます。
+`Item` が商品1件、`Order` が「誰が（`customerId`）」「何を（`items`）」買うかです。**会員種別は `Order` に持たせず、IDから後で引きます。**
 
-#### (2) 顧客情報を管理するクラス（CustomerInfo / CustomerDatabase）
+---
 
-次に、顧客IDから会員種別を引く部分です。1-1の「会員種別（Premium / Regular）」と、エラー条件「顧客IDが存在しない」を担います。
+**CampaignContext**
+
+```cpp
+class CampaignContext {
+public:
+    bool isCampaignActive = false;  // キャンペーン期間中なら true
+};
+```
+
+1-1の入力「キャンペーンフラグ」です。注文とは別に渡すので、同じ注文へ条件を変えて当て直せます。
+
+---
+
+**CustomerInfo と CustomerDatabase**
+
+顧客IDから会員種別を引きます。1-1の「会員種別（Premium / Regular）」と、エラー条件「顧客IDが存在しない」を担います。
 
 ```cpp
 struct CustomerInfo {
@@ -466,15 +492,18 @@ public:
 };
 ```
 
-- `CustomerInfo` は顧客1人分の情報で、`memberType` が割引判定に使う会員種別です。
-- `CustomerDatabase` は「ID→顧客情報」の対応表（`std::map`）で、コンストラクタで3件を登録しています。
-- `exists()` はIDが登録済みかを返し、エラー条件「顧客IDが存在しない」の判定に使います。
-- `get()` はIDから会員種別と氏名を取り出します。`save()` は実行中に顧客を追加する入口です。実システムのDB問い合わせを、この章では実行終了まで覚えているインメモリの登録表で代替しています。`main()` で `db.save(...)` を呼べば、追加した顧客の割引もその場で計算できます。
-- `records` を `static` にしなくてもデータが保持されるのは、`CustomerDatabase` の実体を `main()` が1つだけ生成し、`OrderProcessor` などへ参照で渡して全員が同じ登録表を共有しているからです（0章「共有データの持ち方」の全章共通規約）。`static` で持つと所有者が見えなくなり、保存先を差し替える変更も難しくなるため、共有ストアは組み立て側が所有して注入します。
+- **責任：** 顧客IDから存在確認と情報取得を行う
+- **副作用：** `save()` を呼んだときだけ登録表が増える
 
-#### (3) 支払金額を計算するクラス（PaymentCalculator）
+`exists()` はエラー条件「顧客IDが存在しない」の判定に使い、`get()` は割引判定に使う `memberType` を返します。実システムのDB問い合わせを、実行終了まで覚えているインメモリの登録表で代替しています。
 
-この章の中心です。1-1の「加工」——小計の合算と割引ルールの適用——に対応する処理を見ます。
+`records` を `static` にしなくてもデータが保持されるのは、`CustomerDatabase` の実体を `main()` が1つだけ生成し、`OrderProcessor` などへ参照で渡して全員が同じ登録表を共有しているからです（0章「共有データの持ち方」の全章共通規約）。`static` で持つと所有者が見えなくなり、保存先を差し替える変更も難しくなるため、共有ストアは組み立て側が所有して注入します。
+
+---
+
+**PaymentCalculator**
+
+この章の中心です。1-1の「加工」——小計の合算と割引ルールの適用——に対応します。
 
 ```cpp
 class PaymentCalculator {
@@ -501,18 +530,16 @@ public:
 };
 ```
 
-このメソッドには、1-1の加工に対応する処理が順に書かれています。
+- **判断が2つ：** 小計の合算と、割引率の選択が同じメソッドに並んでいます
+- **順序に意味：** `Premium` を先に判定するので、Premium会員はキャンペーン中でも20%引きのままです（排他ルール）。`if` の順を入れ替えると仕様が変わります
 
-- **(1) 小計の合算**：`for` で `order.items` を回し、各 `item.price` を `total` に足します。1-1の加工「全商品の小計を算出」にあたります。
-- **(2) 割引の適用**：`if` で会員種別とキャンペーンを見て割引率を掛けます。各分岐が1-1の割引ルール一覧に対応します。
-  - `memberType == "Premium"` → `* 80 / 100` で20%引き（プレミアム割引）。
-  - `memberType == "Regular"` かつ `isCampaignActive` → `* 90 / 100` で10%引き（キャンペーン割引）。
-  - どちらでもない → 何も掛けず定価（割引なし）。
-- Premiumを先に判定するため、Premium会員はキャンペーン中でも20%引きのまま（排他ルール）になります。
+各分岐が1-1の割引ルール一覧に対応します。`Premium` は `* 80 / 100`、`Regular` かつキャンペーン中は `* 90 / 100`、どちらでもなければ定価です。
 
-#### (4) カート画面のプレビュー（CartPreviewService）
+---
 
-カート画面でも、注文確定前に同じ支払金額を見せます。割引条件を書き直さず、同じ `PaymentCalculator` に計算を任せています。
+**CartPreviewService**
+
+カート画面でも、注文確定前に同じ支払金額を見せます。
 
 ```cpp
 class CartPreviewService {
@@ -534,12 +561,13 @@ public:
 };
 ```
 
-- `getEstimatedTotal()` は注文の顧客IDから会員種別を取得し、内部の`calculator`へ渡して割引後金額を返します。
-- 決済処理と同じ `PaymentCalculator` を使うため、プレビューにも同じ計算結果が表示されます。
+割引条件を書き直さず、同じ `PaymentCalculator` へ計算を任せています。**このため、プレビューと決済で金額が食い違いません。** 未登録IDでは金額を返さず例外を投げます。
 
-#### (5) 注文処理をまとめるクラス（OrderProcessor）
+---
 
-`OrderProcessor` は、エラー条件のチェック → 会員種別の取得 → 計算 → 表示、という一連の流れを担います。
+**CheckoutResultRenderer**
+
+計算結果を注文結果の表示へ変換します。
 
 ```cpp
 class CheckoutResultRenderer {
@@ -560,7 +588,17 @@ public:
                   << finalPrice << "円\n";
     }
 };
+```
 
+会員種別とキャンペーン条件も出すので、実行結果だけでどの割引ルールが効いたかを追えます。実システムの画面描画を、標準出力で代替しています。
+
+---
+
+**OrderProcessor の宣言**
+
+エラー確認 → 会員種別の取得 → 計算 → 表示、という一連の流れを担います。
+
+```cpp
 class OrderProcessor {
 private:
     CustomerDatabase& db;
@@ -570,49 +608,66 @@ public:
     OrderProcessor(CustomerDatabase& db, CheckoutResultRenderer& renderer)
         : db(db), renderer(renderer) {}
 
-    void process(const Order& order, const CampaignContext& context) {
-        // エラー条件1：顧客IDが存在しない
-        if (!db.exists(order.customerId)) {
-            std::cerr << "エラー: 顧客ID " << order.customerId
-                      << " は登録されていません\n";
-            return;
-        }
-        // エラー条件2：注文が空
-        if (order.items.empty()) {
-            std::cerr << "エラー: 注文が空です\n";
-            return;
-        }
-
-        // 会員種別をIDから取得して計算へ渡す
-        // 実運用ではDB/API呼び出し。接続失敗などに備えて捕捉する
-        CustomerInfo customer;
-        try {
-            customer = db.get(order.customerId);
-        } catch (const std::exception&) {
-            std::cerr << "エラー: 顧客情報の取得に失敗しました\n";
-            return;
-        }
-        int finalPrice =
-            calculator.calculate(order, customer.memberType, context);
-
-        // 表示形式はRenderer境界へ委ねる
-        int subtotal = 0;
-        for (const auto& item : order.items) {
-            subtotal += item.price;
-        }
-        renderer.showOrderResult(customer, order, context,
-                                 subtotal, finalPrice);
-    }
+    void process(const Order& order, const CampaignContext& context);
 };
 ```
 
-- 先頭の2つの `if` が、1-1のエラー条件です。存在しないIDや空注文は、計算へ進まず中断します。
-- `db.get()` で会員種別を取り出します（`Order` は会員種別を持たないのでIDから補う）。実運用ではこの取得がDB/API呼び出しで失敗しうるため、`try/catch` で接続失敗などを捕捉します。
-- 最後に、購入した商品と単価、割引条件、小計、支払金額を表示します。会員種別とキャンペーン条件を出すことで、どの割引ルールが効いたかを実行結果だけでも追えます。
+`db` と `renderer` は外から受け取って参照で持ち、`calculator` は自分で持ちます。**差し替えられるのは前の2つだけです。**
 
-#### (6) 実行して動作例と照合する（main）
+---
 
-1-2の動作例テーブル（4行）と排他ルール・エラー条件を、ケースごとにコードとその実行結果を並べて確認します（実行対象は1-4の現状コード）。まず依存を組み立て、動作例1（Premium会員・キャンペーンなし → 20%引き）を実行します。
+**OrderProcessor::process()**
+
+```cpp
+void OrderProcessor::process(const Order& order,
+                             const CampaignContext& context) {
+    // エラー条件1：顧客IDが存在しない
+    if (!db.exists(order.customerId)) {
+        std::cerr << "エラー: 顧客ID " << order.customerId
+                  << " は登録されていません\n";
+        return;
+    }
+    // エラー条件2：注文が空
+    if (order.items.empty()) {
+        std::cerr << "エラー: 注文が空です\n";
+        return;
+    }
+
+    // 会員種別をIDから取得して計算へ渡す
+    // 実運用ではDB/API呼び出し。接続失敗などに備えて捕捉する
+    CustomerInfo customer;
+    try {
+        customer = db.get(order.customerId);
+    } catch (const std::exception&) {
+        std::cerr << "エラー: 顧客情報の取得に失敗しました\n";
+        return;
+    }
+    int finalPrice =
+        calculator.calculate(order, customer.memberType, context);
+
+    // 表示形式はRenderer境界へ委ねる
+    int subtotal = 0;
+    for (const auto& item : order.items) {
+        subtotal += item.price;
+    }
+    renderer.showOrderResult(customer, order, context,
+                             subtotal, finalPrice);
+}
+```
+
+- **順序に意味：** 先頭の2つの `if` が1-1のエラー条件です。存在しないIDや空注文は、計算へ進まず中断します
+- **失敗の扱い：** `db.get()` は実運用でDB/API呼び出しになり接続失敗しうるので、`try/catch` で捕捉して注文単位のエラーへ変換します
+- `Order` は会員種別を持たないので、IDから `db.get()` で補ってから計算へ渡します
+
+---
+
+#### `main()` と実行結果
+
+1-2の動作例テーブル（4行）と排他ルール・エラー条件を、ケースごとに区切って実行します。
+
+---
+
+**組み立てと、動作例1：Premium会員・キャンペーンなし**
 
 ```cpp
 int main() {
@@ -630,15 +685,17 @@ int main() {
     processor.process(order1, context);
 ```
 
-動作例1の実行結果（Premiumの20%引き）：
-
 ```
 田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Premium, キャンペーン=なし
   小計 10000円 → 支払金額 8000円
 ```
 
-次に、動作例2（同じPremium会員にキャンペーンを当てても、排他ルールで優先は変わらない）を実行します。
+`db` を1つだけ作り、`processor` と `preview` の両方へ参照で渡しています。10000円が20%引きで8000円になりました。
+
+---
+
+**動作例2：同じPremium会員にキャンペーンを当てる**
 
 ```cpp
     // 動作例2：同じPremium会員にキャンペーンを当てても優先は変わらない
@@ -647,15 +704,17 @@ int main() {
     context.isCampaignActive = false;
 ```
 
-動作例2の実行結果（キャンペーンありでもPremium優先で8000円のまま）：
-
 ```
 田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Premium, キャンペーン=あり
   小計 10000円 → 支払金額 8000円
 ```
 
-続いて、動作例3（Regular会員・キャンペーンあり → 10%引き）を実行し、同じカートのプレビューも確認します。
+同じ注文へキャンペーンを当てても8000円のままです。`calculate()` が `Premium` を先に判定して抜けるため、キャンペーン割引の行に到達しません。
+
+---
+
+**動作例3：Regular会員・キャンペーンあり**
 
 ```cpp
     // 動作例3：C002（Regular）/ キャンペーンあり → 10%引き
@@ -669,8 +728,6 @@ int main() {
               << "円\n";
 ```
 
-動作例3の実行結果（Regularの10%引き。プレビューも同じ金額を返す）：
-
 ```
 佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Regular, キャンペーン=あり
@@ -678,7 +735,11 @@ int main() {
   （上と同じ佐藤さんのカート）カートプレビュー: 9000円
 ```
 
-次に、動作例4（Regular会員・キャンペーンなし → 割引なし）を実行します。
+決済とプレビューが同じ9000円を返しました。両方が同じ `PaymentCalculator` を使っているためです。
+
+---
+
+**動作例4：Regular会員・キャンペーンなし**
 
 ```cpp
     // 動作例4：C003（Regular）/ キャンペーンなし → 割引なし
@@ -689,15 +750,17 @@ int main() {
     processor.process(order3, context);
 ```
 
-動作例4の実行結果（割引なしで定価）：
-
 ```
 鈴木 次郎 さんの注文: スマホケース 3000円
   条件: 会員=Regular, キャンペーン=なし
   小計 3000円 → 支払金額 3000円
 ```
 
-最後に、エラー条件（存在しない顧客ID）を実行し、`main()` を終了します。
+どちらの分岐にも当てはまらないので定価のままです。
+
+---
+
+**エラー条件：存在しない顧客ID**
 
 ```cpp
     // エラー条件：存在しない顧客ID
@@ -710,15 +773,15 @@ int main() {
 }
 ```
 
-エラー条件の実行結果（存在しないIDは計算へ進まず中断）：
-
 ```
 エラー: 顧客ID UNKNOWN は登録されていません
 ```
 
-各ケースのコードとその実行結果をその場で並べたので、離れた `main()` と出力を行き来せずに、入力された会員種別・キャンペーン条件と支払金額が仕様どおりかを照合できます（確認したいこと：排他ルールとエラー条件を含め、金額が仕様どおりに計算されること）。
+先頭の `exists()` で止まり、金額は計算されません。
 
-次の表は、`main()` で設定した各動作例の入力（条件・商品）と、その実行結果（小計→支払金額）を1行ずつ並べたものです。離れた `main()` と出力を行き来しなくても、入力と結果をその場で照合できます。
+---
+
+入力と結果を1行ずつ並べると次のとおりです。
 
 | 動作例 | 会員・キャンペーン | 商品（単価） | 小計→支払金額 |
 |---|---|---|---|
