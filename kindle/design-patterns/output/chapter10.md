@@ -390,13 +390,19 @@ classDiagram
 
 現状コードは、一つの連携先を指定して送信します。送信1件の成否は`DeliveryResult`で受け取り、`BatchLog`へ保存します。この結果契約と保存方法は今回の仕様変更では変えません。
 
-コードは責任の固まりごとに分けて読みます。連携先マスターは、1-1で示した3件（PARTNER_A / PARTNER_B / PARTNER_Z）です。次のコードの `PartnerDatabase` が、その名称・接続先・有効状態を保持します。
+連携先マスターは、1-1で示した3件（PARTNER_A / PARTNER_B / PARTNER_Z）です。現状では、1回の `execute()` が1社分の送信、結果保存、完了通知を行います。送信結果の値と保存先はすでにあります。外部API障害を含む複数ジョブを順次流す制御、失敗後の継続、リトライ、再送キューは、現状コードにはありません。
 
-現状では、1回の `execute()` が1社分の送信、結果保存、完了通知を行います。送信結果の値と保存先はすでにあります。外部API障害を含む複数ジョブを順次流す制御、失敗後の継続、リトライ、再送キューは、現状コードにはありません。
+#### 現状コード
 
-**(1) 共通ヘッダーと同期要求（SyncRequest）**
+定義を1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは `BatchExecutor` だけです。判断の基準は次の一行です。
 
-最初に、1-1の入力契約「連携先ID・同期対象」をそのままコードにします。月次・手動は起動方法であり、どのデータを取得するかを決める値ではありません。そのため、曖昧だった「実行種別」は `SyncTarget`（注文・在庫）と言い換え、`SyncRequest` で連携先IDと一緒に渡します。
+> **メンバーを見ないと読めない関数は、メンバーと一緒に置く。**
+
+`main()` と実行結果は最後に、行のまとまりごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+
+---
+
+**共通ヘッダー**
 
 ```cpp
 #include <iostream>
@@ -406,7 +412,17 @@ classDiagram
 #include <memory>
 
 using namespace std;
+```
 
+以降のすべてのクラスが使います。
+
+---
+
+**SyncTarget と SyncRequest**
+
+1-1の入力契約「連携先ID・同期対象」をそのままコードにします。月次・手動は起動方法であり、どのデータを取得するかを決める値ではありません。そのため、曖昧だった「実行種別」は `SyncTarget`（注文・在庫）と言い換え、`SyncRequest` で連携先IDと一緒に渡します。
+
+```cpp
 enum class SyncTarget {
     Orders,
     Inventory
@@ -420,9 +436,11 @@ struct SyncRequest {
 
 `SyncRequest` が、仕様図の入力と `execute()` の引数を繋ぐ契約です。以降のコードは、連携先IDだけから架空のデータを作らず、`target` に対応する社内データを取得します。
 
-**(2) 連携先設定（PartnerConfig / PartnerDatabase）**
+---
 
-次は、1-1の「連携先設定」にあたる部分です。連携先IDから接続先設定を引き、未登録・無効を区別します。
+**PartnerConfig と PartnerDatabase**
+
+1-1の「連携先設定」です。連携先IDから接続先設定を引き、未登録・無効を区別します。
 
 ```cpp
 struct PartnerConfig {
@@ -461,9 +479,11 @@ public:
 
 Z社は、連携先追加や有効判定を本章の設計課題にするための存在ではありません。「登録済みだが停止中」と「未登録」を現状仕様どおり区別できるかを確認するエラー動作用のデータです。今回変える外部連携と通知の二つの変化軸とは切り離し、設定確認の処理と結果保存方法は変更前後で維持します。
 
-**(3) 同期対象データの取得（OrderDataSource / InventoryDataSource / SyncDataCatalog）**
+---
 
-1-1の受注管理システムと商品在庫管理システムを、掲載コードでは取得境界として表します。`SyncDataCatalog` は要求の `target` を見て取得先を選びます。
+**OrderDataSource と InventoryDataSource**
+
+1-1の受注管理システムと商品在庫管理システムを、掲載コードでは取得境界として表します。
 
 ```cpp
 class OrderDataSource {
@@ -479,7 +499,17 @@ public:
         return "在庫 SKU001";
     }
 };
+```
 
+実システムではDBや社内APIから対象レコードを取得します。この章では取得境界を小さなスタブにし、注文 `ORD001` と在庫 `SKU001` が実際に送信経路へ流れたことを出力で確認できるようにしています。
+
+---
+
+**SyncDataCatalog**
+
+要求の `target` を見て取得先を選びます。
+
+```cpp
 class SyncDataCatalog {
     OrderDataSource& orders;
     InventoryDataSource& inventory;
@@ -496,11 +526,13 @@ public:
 };
 ```
 
-実システムではDBや社内APIから対象レコードを取得します。この章では取得境界を小さなスタブにし、注文 `ORD001` と在庫 `SKU001` が実際に送信経路へ流れたことを出力で確認できるようにしています。この取得方法も1-5の仕様変更では変えません。
+取得先の選択はこの1か所だけです。**この取得方法も1-5の仕様変更では変えません。**
 
-**(4) 送信結果と実行結果の保存（DeliveryResult / BatchRecord / BatchLog）**
+---
 
-外部APIから返る値と、そこから保存する値を分けます。`DeliveryResult` は状態・成否・メッセージを受け取り、`BatchRecord` は1-1で明示した連携先ID・名称・状態の3項目を保存します。
+**DeliveryResult と BatchRecord**
+
+外部APIから返る値と、そこから保存する値を分けます。
 
 ```cpp
 // 送信1件分の結果。今回の仕様変更の前後で同じ契約を使う。
@@ -515,7 +547,15 @@ struct BatchRecord {
     string partnerName;
     string status;
 };
+```
 
+`DeliveryResult` は状態・成否・メッセージを受け取り、`BatchRecord` は1-1で明示した連携先ID・名称・状態の3項目を保存します。**返る値と残す値を別の型にしているので、送信結果の形が変わっても保存の形は動きません。**
+
+---
+
+**BatchLog**
+
+```cpp
 // バッチ実行結果の保存方法も、今回の仕様変更の前後で変えない。
 class BatchLog {
     vector<BatchRecord> records;
@@ -537,11 +577,13 @@ public:
 };
 ```
 
-`DeliveryResult`、`BatchRecord`、`BatchLog` は変更後コードでも同じ型と保存方法を使います。設定・送信結果・保存を別のコードブロックに分けたため、何が仕様変更の対象外かも追いやすくなります。
+追記のたびに件数を表示します。`DeliveryResult`、`BatchRecord`、`BatchLog` は変更後コードでも同じ型と保存方法を使います。
 
-**(5) 外部連携クライアントと通知クラス（SystemAClient / SystemBClient / NotificationService）**
+---
 
-次に、1-1の「データ送信」「完了通知」ステップにあたる部分です。各連携先へデータを送るクライアントと、処理完了を通知するクラスです。
+**SystemAClient と SystemBClient**
+
+1-1の「データ送信」ステップです。連携先ごとに分かれています。
 
 ```cpp
 class SystemAClient {
@@ -562,6 +604,17 @@ public:
         return {"成功", true, "B社: " + to_string(d.size()) + "バイト送信"};
     }
 };
+```
+
+**2つのクラスは、名前以外ほとんど同じです。** どちらも送ったデータを内部に蓄積し、同じ `DeliveryResult` を返します。共通の契約はなく、`send(string)` というシグネチャがたまたま一致しているだけです。
+
+---
+
+**NotificationService**
+
+1-1の「完了通知」ステップです。
+
+```cpp
 class NotificationService {
     vector<string> inbox;             // 受け取った通知を蓄積する
 public:
@@ -572,12 +625,14 @@ public:
 };
 ```
 
-`SystemAClient` と `SystemBClient` は連携先ごとに分かれた送信クラスで、送ったデータを内部に蓄積し、`DeliveryResult`を返します。`NotificationService` は転送後の社内通知を担い、受け取った通知を蓄積して通し番号付きで表示します。
+転送後の社内通知を担い、受け取った通知を蓄積して通し番号付きで表示します。
 
-**(6) バッチ処理をまとめるクラス（BatchExecutor）**
+---
 
-この章の中心です。1-1の「認証→取得→送信→通知」の流れを1つにまとめており、連携先の存在・有効判定、連携先ごとのクライアント生成、送信、通知までを順に実行します。
-★全体的にコードで区切りでは改行を入れてはどうか。読みづらくないか。
+**BatchExecutor の宣言**
+
+この章の中心です。1-1の「認証→取得→送信→通知」の流れを1つにまとめています。
+
 ```cpp
 class BatchExecutor {
     PartnerDatabase& db;
@@ -588,56 +643,70 @@ public:
                   SyncDataCatalog& catalog)
         : db(database), batchLog(log), dataCatalog(catalog) {}
 
-    DeliveryResult execute(const SyncRequest& request) {
-        const string& partnerId = request.partnerId;
-        if (!db.exists(partnerId)) {
-            cout << "エラー: パートナーID [" << partnerId
-                 << "] はデータベースに登録されていません。" << endl;
-            DeliveryResult r{"失敗", false, "未登録"};
-            batchLog.add(partnerId, "未登録", r.status);
-            return r;
-        }
-        if (!db.isEnabled(partnerId)) {
-            PartnerConfig cfg = db.get(partnerId);
-            cout << "エラー: パートナー [" << cfg.name
-                 << "] は現在無効です。処理を中断します。" << endl;
-            DeliveryResult r{"失敗", false, "無効"};
-            batchLog.add(partnerId, cfg.name, "スキップ（無効）");
-            return r;
-        }
-        PartnerConfig cfg = db.get(partnerId);
-        string data = dataCatalog.load(request.target);
-        cout << "[送信先] " << cfg.name
-             << " (" << cfg.endpoint << ")" << endl;
-        DeliveryResult result{"失敗", false, "未対応の連携先"};
-        if (partnerId == "PARTNER_A") {
-            SystemAClient client; // A社向けクライアントを生成
-            result = client.send(data);
-        } else if (partnerId == "PARTNER_B") {
-            SystemBClient client; // B社向けクライアントを生成
-            result = client.send(data);
-        }
-        cout << "[送信結果詳細] " << result.message << endl;
-        batchLog.add(partnerId, cfg.name, result.status);
-        NotificationService notifier;
-        notifier.notify(cfg.name + (result.success ? " 連携完了" : " 連携失敗"));
-        return result;
-    }
+    DeliveryResult execute(const SyncRequest& request);
 };
 ```
 
-`execute()` の中身を順に読みます。
+設定・ログ・取得カタログは外から受け取って参照で持ちます。**送信クライアントと通知は持っていません。** 公開操作は `execute()` の1つだけです。
 
-- **(1) 連携先の検証**：先頭の2つの `if` が、1-1のエラー条件です。未登録IDや無効な連携先は、送信へ進まず中断します。
-- **(2) 同期データの取得**：`SyncRequest::target` を `SyncDataCatalog` へ渡し、受注管理または商品在庫管理のデータを取得します。
-- **(3) クライアントの生成と送信**：`if / else if` で連携先IDを見て、対応するクライアントを生成し、取得済みのデータを送信します。この分岐が、連携先が増えるたびに書き足される箇所です。
-- **(4) 完了通知**：送信後に `NotificationService` で完了を通知します。
+---
 
-**(7) 実行して動作例と照合する（main）**
+**BatchExecutor::execute()**
 
-ここで、仕様図の入力がコードへ欠落していないかを照合します。`SyncRequest{"PARTNER_A", SyncTarget::Orders}` はA社と注文データを、`SyncRequest{"PARTNER_B", SyncTarget::Inventory}` はB社と在庫情報を指定します。`execute()` 内でその同期対象を使ってデータを取得するため、入力値が飾りにならず、送信内容まで繋がります。
+```cpp
+DeliveryResult BatchExecutor::execute(const SyncRequest& request) {
+    const string& partnerId = request.partnerId;
+    if (!db.exists(partnerId)) {
+        cout << "エラー: パートナーID [" << partnerId
+             << "] はデータベースに登録されていません。" << endl;
+        DeliveryResult r{"失敗", false, "未登録"};
+        batchLog.add(partnerId, "未登録", r.status);
+        return r;
+    }
+    if (!db.isEnabled(partnerId)) {
+        PartnerConfig cfg = db.get(partnerId);
+        cout << "エラー: パートナー [" << cfg.name
+             << "] は現在無効です。処理を中断します。" << endl;
+        DeliveryResult r{"失敗", false, "無効"};
+        batchLog.add(partnerId, cfg.name, "スキップ（無効）");
+        return r;
+    }
+    PartnerConfig cfg = db.get(partnerId);
+    string data = dataCatalog.load(request.target);
+    cout << "[送信先] " << cfg.name
+         << " (" << cfg.endpoint << ")" << endl;
+    DeliveryResult result{"失敗", false, "未対応の連携先"};
+    if (partnerId == "PARTNER_A") {
+        SystemAClient client; // A社向けクライアントを生成
+        result = client.send(data);
+    } else if (partnerId == "PARTNER_B") {
+        SystemBClient client; // B社向けクライアントを生成
+        result = client.send(data);
+    }
+cout << "[送信結果詳細] " << result.message << endl;
+batchLog.add(partnerId, cfg.name, result.status);
+NotificationService notifier;
+notifier.notify(cfg.name + (result.success ? " 連携完了" : " 連携失敗"));
+return result;
+}
+```
 
-まず依存を組み立て、行1（A社向け月次バッチ）を実行します。
+- **判断が3つ：** 連携先の登録、連携先の有効、どのクライアントを使うか
+- **順序に意味：** 検証 → 取得 → 送信 → 保存 → 通知の順です。検証で落ちても保存だけは行うので、スキップ・失敗の記録が残ります
+- **失敗の扱い：** 未登録・無効では送信も通知もせず、`BatchLog` へ結果だけを残します
+- **所有：** `SystemAClient` と `NotificationService` を**この関数の中で生成しています。** 呼ぶたびに作られ、呼び終わると消えます
+
+**中ほどの `if / else if` を見てください。** `BatchExecutor` は連携先IDから使う送信クラスを選び、その具体クラス名を直接知っています。連携先が増えるたびに、ここへ分岐が1本増えます。末尾の通知も同じで、`NotificationService` という具体クラス名が直接書かれています。
+
+---
+
+#### `main()` と実行結果
+
+動作例4行を、行ごとに区切って実行します。`SyncRequest{"PARTNER_A", SyncTarget::Orders}` はA社と注文データを、`SyncRequest{"PARTNER_B", SyncTarget::Inventory}` はB社と在庫情報を指定します。`execute()` 内でその同期対象を使ってデータを取得するため、入力値が飾りにならず、送信内容まで繋がります。
+
+---
+
+**組み立てと、行1：A社向け月次バッチ**
 
 ```cpp
 int main() {
@@ -662,7 +731,9 @@ A社へ送信(1件): 注文 ORD001
 完了通知(1件): 物流会社A 連携完了
 ```
 
-続いて、行2（B社向けデータ同期）を実行します。
+---
+
+**行2：B社向けデータ同期**
 
 ```cpp
     // 行2: B社向けデータ同期を実行する
@@ -679,7 +750,9 @@ B社へ送信(1件): 在庫 SKU001
 完了通知(1件): 在庫会社B 連携完了
 ```
 
-続いて、行3（無効パートナーZ社）を実行します。
+---
+
+**行3：無効パートナーZ社**
 
 ```cpp
     // 行3: 無効パートナーの実行（Z社は isEnabled==false）
@@ -693,7 +766,9 @@ B社へ送信(1件): 在庫 SKU001
 実行結果を保存(3件): [PARTNER_Z] 分析会社Z -> スキップ（無効）
 ```
 
-続いて、行4（未登録パートナー）を実行します。
+---
+
+**行4：未登録パートナー**
 
 ```cpp
     // 行4: 未登録パートナーの実行
@@ -707,7 +782,9 @@ B社へ送信(1件): 在庫 SKU001
 実行結果を保存(4件): [PARTNER_X] 未登録 -> 失敗
 ```
 
-最後に、蓄積したバッチ実行ログを出力し、`main()` を終了します。
+---
+
+**バッチ実行ログの出力**
 
 ```cpp
     cout << "\n--- バッチ実行ログ（" << batchLog.size() << "件） ---\n";
@@ -727,13 +804,9 @@ B社へ送信(1件): 在庫 SKU001
 [PARTNER_Z] 分析会社Z -> スキップ（無効）
 [PARTNER_X] 未登録 -> 失敗
 ```
-★以下著者向けのメモですよね？消してください。
-仕様とコードがずれていた原因は、以前の記述が「月次・手動という起動方法」と「注文・在庫という同期対象」をどちらも実行種別と呼び、仕様図とコードを別々に簡略化していたことです。その結果、図には第2入力があるのに `execute()` は連携先IDしか受け取らず、送信データも連携先名から作っていました。ここでは入力語彙を `同期対象` に確定し、`SyncRequest`、`SyncDataCatalog`、`send(data)` まで同じ値を追えるように修正しました。この観点は本章だけの問題にせず、他章も「仕様に書いた入力が公開メソッドへ渡り、処理の選択や出力に実際に使われるか」を横断確認するタスクへ登録します。
+4件が順に残りました。行1・2はA社・B社への送信、結果保存、完了通知まで進み、行3・4は送信と通知を行わず、スキップ・失敗結果だけを保存しています。
 
-各ケースのコードとその実行結果をその場で並べたので、離れた `main()` と出力を行き来せずに照合できます（確認したいこと：入力、加工、出力が仕様どおりに対応していること）。
-
-> [!NOTE]
-> 上記は1-2の現状動作例4行に対応します。行1・2はA社・B社への送信、結果保存、完了通知、行3・4は送信と通知を行わず、スキップ・失敗結果だけを保存することを確認できます。
+---
 
 このコードから、`BatchExecutor` が各連携先の生成と送信、さらにはその後の通知処理までを一手に引き受けていることが分かります。
 
