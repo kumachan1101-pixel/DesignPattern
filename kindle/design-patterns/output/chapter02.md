@@ -2018,10 +2018,7 @@ struct TransferResult {
 ## 🟢 フェーズ7：対策実施 ―― 変化に強いコードを完成させる
 ### 7-1：解決後のコード（全体）
 
-フェーズ6で確定・実装した窓口構造を、実行可能な完全なコードとして組み上げます。各役割ごとにコードを分けて確認します。
-
-**1. 自社台帳・外部銀行・認証（AccountDatabase / Bank / SecurityAuthenticator）**
-残高を保持し実際に送金する `Bank`、名義を持つ自社台帳 `AccountDatabase`、コードを照合する認証です。今後も銀行側の仕様変更で変わりますが、それを `TransferProcessor` は知らなくてよくなります。
+フェーズ6で確定・実装した窓口構造を、実行可能な完全なコードとして組み上げます。
 
 #### 完成後のクラス一覧
 
@@ -2130,6 +2127,16 @@ sequenceDiagram
 
 #### 完成コード
 
+クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。1-4と同じ顔ぶれが並ぶので、どこが変わったかを見比べてください。
+
+`main()` と実行結果は最後に、行のまとまりごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+
+---
+
+**共通ヘッダーと AccountDatabase と Bank**
+
+残高を保持し実際に送金する `Bank`、名義を持つ自社台帳 `AccountDatabase` です。**どちらも1-4から変わっていません。** 今後も銀行側の仕様変更で変わりますが、それを `TransferProcessor` は知らなくてよくなります。
+
 ```cpp
 #include <iostream>
 #include <map>
@@ -2208,7 +2215,12 @@ public:
 
 // 認証サブシステム：発行時に正しいコードを仮決めし、検証で照合する
 ```
-続いて `SecurityAuthenticator` です。
+
+---
+
+**SecurityAuthenticator**
+
+コードを照合する認証です。
 
 ```cpp
 class SecurityAuthenticator {
@@ -2231,7 +2243,9 @@ public:
 };
 ```
 
-**2. 振り込み履歴**
+---
+
+**TransferRecord と TransferHistory**
 成功のたびに1件追記される自社の記録です。
 
 ```cpp
@@ -2257,7 +2271,10 @@ public:
 };
 ```
 
-**3. 振り込み要求・結果と窓口インターフェース（TransferRequest / TransferResult / IBankTransferService）**
+---
+
+**TransferRequest と TransferResult と IBankTransferService**
+
 業務フロー側に見せる窓口契約と、振込の要求・結果を表す型です。契約を保つ別実装やテスト用実装は、組み立て箇所で差し替えられます。
 
 ```cpp
@@ -2288,7 +2305,10 @@ public:
 };
 ```
 
-**4. 窓口構造の実装（BankTransferService）**
+---
+
+**BankTransferService**
+
 銀行の多段手順（口座確認・残高確認・認証・送金・補償）と自社台帳・履歴を、この窓口の内側へ閉じ込めます。残高は注入された `Bank` が実際に増減します。
 
 ```cpp
@@ -2355,7 +2375,12 @@ public:
 };
 ```
 
-**5. 振り込み処理のコンテキスト（TransferProcessor / BatchTransferProcessor）**
+**銀行の多段手順は、すべてこのクラスの内側にあります。** 1-4では `TransferProcessor` に書かれていた `verifyAccount` → `checkBalance` → `promptOTP` → `verifyOTP` → `executeTransfer` の並びが、契約の裏へ移りました。
+
+---
+
+**TransferProcessor と BatchTransferProcessor**
+
 業務フローを担い、銀行手順を知らず窓口契約だけへ委譲します。一括送金は途中失敗時に、完了済みを逆順で `compensate`（銀行が残高を戻す）します。
 
 ```cpp
@@ -2412,10 +2437,17 @@ public:
 };
 ```
 
-**6. 組み立てと実行（Application / main）**
-必要な部品を組み立てて実行します。具体窓口 `BankTransferService` と外部銀行 `Bank` を生成・注入するのは、この組み立て箇所だけです。実行対象は7-1の完成コード、確認したいのは「外部から見える振り込み結果を保ちながら、銀行の具体手順が窓口の内側に閉じ、銀行残高が実際に増減・復元すること」です。ここからはシナリオ（行1〜行6）ごとに、実行するコードとその実行結果を並べます。
+**このクラスに銀行の関数名は1つも出てきません。** 使うのは `IBankTransferService` の操作だけです。
 
-まず部品を組み立て、行1の正常な個別振り込みを実行します。
+---
+
+#### `main()` と実行結果
+
+必要な部品を組み立てて実行します。具体窓口 `BankTransferService` と外部銀行 `Bank` を生成・注入するのは、この組み立て箇所だけです。**確認したいのは、外部から見える振り込み結果を保ちながら、銀行の具体手順が窓口の内側に閉じ、銀行残高が実際に増減・復元することです。**
+
+---
+
+**組み立てと、行1：正常な個別振り込み**
 
 ```cpp
 // 依存の組み立てを担うクラス（Composition Root）
