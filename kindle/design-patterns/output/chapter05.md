@@ -353,17 +353,33 @@ sequenceDiagram
 | `IncomeManager` | `UIButtons` から金額・カテゴリID | IDと金額を検証し収入を登録する | 残高へ加える正の金額。エラー時は0 |
 | `UIButtons` | `main()` からボタン操作 | 対応Managerを呼び、戻り値を残高へ加える | 更新後残高を画面境界として表示する |
 
-上の表の順に、コードを責任の固まりごとに分けて読みます。
+#### 現状コード
 
-**(1) カテゴリデータを表すクラス（Category / CategoryDatabase）**
+クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは2つのManagerだけです。判断の基準は次の一行です。
 
-最初に、カテゴリIDからカテゴリ名・種別を引く部分です。エラー条件「登録されていないID」もここで判定します。
+> **メンバーを見ないと読めない関数は、メンバーと一緒に置く。**
+
+`main()` と実行結果は最後に、行のまとまりごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+
+---
+
+**共通ヘッダー**
 
 ```cpp
 #include <iostream>
 #include <map>
 #include <string>
+```
 
+以降のすべてのクラスが使います。
+
+---
+
+**Category と CategoryDatabase**
+
+カテゴリIDからカテゴリ名・種別を引きます。エラー条件「登録されていないID」もここで判定します。
+
+```cpp
 struct Category {
     std::string name;  // カテゴリ名
     std::string type;  // "income"（収入）または "expense"（支出）
@@ -390,75 +406,116 @@ public:
 };
 ```
 
-`CategoryDatabase` は `std::map` でカテゴリIDと `Category` を対応付けたマスターデータです。`exists()` で存在確認、`get()` で取得を行い、実システムのDBを実行中のインメモリ表で代替しています。
+- **責任：** カテゴリIDから存在確認と情報取得を行う
+- **副作用：** `save()` を呼んだときだけ登録表が増える
 
-**(2) 収支を登録するクラス（ExpenseManager / IncomeManager）**
+`type` が `"income"` か `"expense"` かで、どちらのManagerが受け付けるかが決まります。実システムのDBを、実行中のインメモリ表で代替しています。
 
-この章の中心の一つです。1-1の「支出登録」「収入登録」に対応し、カテゴリIDと金額を検証してから、残高へ加える正負の金額を返します。
+---
+
+**ExpenseManager の宣言**
+
+1-1の「支出登録」に対応します。
 
 ```cpp
 class ExpenseManager {
     CategoryDatabase& db;
 public:
     ExpenseManager(CategoryDatabase& db) : db(db) {}
-    int addExpense(int amount, const std::string& categoryId) {
-        if (!db.exists(categoryId)) {
-            std::cout << "エラー：カテゴリID「" << categoryId
-                      << "」は存在しません" << std::endl;
-            return 0;
-        }
-        if (amount <= 0) {
-            std::cout << "エラー：金額は1円以上を指定してください"
-                      << std::endl;
-            return 0;
-        }
-        Category cat = db.get(categoryId);
-        if (cat.type != "expense") {
-            std::cout << "エラー：支出カテゴリを指定してください"
-                      << std::endl;
-            return 0;
-        }
-        std::cout << "支出を追加しました：" << cat.name
-                  << " " << amount << "円" << std::endl;
-        // 現状コードでは保存せず、残高へ反映する増減値を返す
-        return -amount;
-    }
+    int addExpense(int amount, const std::string& categoryId);
 };
+```
 
+持っているのはカテゴリ表への参照だけです。**残高は持ちません。** 返すのは残高へ加える増減値です。
+
+---
+
+**ExpenseManager::addExpense()**
+
+```cpp
+int ExpenseManager::addExpense(int amount, const std::string& categoryId) {
+    if (!db.exists(categoryId)) {
+        std::cout << "エラー：カテゴリID「" << categoryId
+                  << "」は存在しません" << std::endl;
+        return 0;
+    }
+    if (amount <= 0) {
+        std::cout << "エラー：金額は1円以上を指定してください"
+                  << std::endl;
+        return 0;
+    }
+    Category cat = db.get(categoryId);
+    if (cat.type != "expense") {
+        std::cout << "エラー：支出カテゴリを指定してください"
+                  << std::endl;
+        return 0;
+    }
+    std::cout << "支出を追加しました：" << cat.name
+              << " " << amount << "円" << std::endl;
+    // 現状コードでは保存せず、残高へ反映する増減値を返す
+    return -amount;
+}
+```
+
+- **判断が3つ：** カテゴリIDの存在、金額の範囲、カテゴリ種別
+- **順序に意味：** 存在確認を先に置かないと、`db.get()` が未登録IDで落ちます
+- **失敗の扱い：** どの判定で落ちても `0` を返します。呼び出し側は残高へ0を足すので、値が変わりません
+
+`-amount` を返すのがこのクラスの役目です。支出であることは、この符号で表されます。
+
+---
+
+**IncomeManager の宣言**
+
+1-1の「収入登録」に対応します。
+
+```cpp
 class IncomeManager {
     CategoryDatabase& db;
 public:
     IncomeManager(CategoryDatabase& db) : db(db) {}
-    int addIncome(int amount, const std::string& categoryId) {
-        if (!db.exists(categoryId)) {
-            std::cout << "エラー：カテゴリID「" << categoryId
-                      << "」は存在しません" << std::endl;
-            return 0;
-        }
-        if (amount <= 0) {
-            std::cout << "エラー：金額は1円以上を指定してください"
-                      << std::endl;
-            return 0;
-        }
-        Category cat = db.get(categoryId);
-        if (cat.type != "income") {
-            std::cout << "エラー：収入カテゴリを指定してください"
-                      << std::endl;
-            return 0;
-        }
-        std::cout << "収入を追加しました：" << cat.name
-                  << " " << amount << "円" << std::endl;
-        // 現状コードでは保存せず、残高へ反映する増減値を返す
-        return amount;
-    }
+    int addIncome(int amount, const std::string& categoryId);
 };
 ```
 
-`ExpenseManager` と `IncomeManager` は、それぞれ支出・収入を登録します。どちらもカテゴリIDの存在確認と金額のチェックを行い、`ExpenseManager` は負の金額、`IncomeManager` は正の金額を返します。
+`ExpenseManager` と同じ形です。持ち物も公開操作も1つずつで、呼び出し方も戻り値の型もそろっています。
 
-**(3) UI層のクラス（UIButtons）**
+---
 
-1-1の「画面操作」にあたる部分です。ボタン操作を対応するManagerへ渡し、戻り値を残高へ加えて表示します。つまり現状の `UIButtons` は、入力を受けるだけでなく現在残高の正本まで持っています。
+**IncomeManager::addIncome()**
+
+```cpp
+int IncomeManager::addIncome(int amount, const std::string& categoryId) {
+    if (!db.exists(categoryId)) {
+        std::cout << "エラー：カテゴリID「" << categoryId
+                  << "」は存在しません" << std::endl;
+        return 0;
+    }
+    if (amount <= 0) {
+        std::cout << "エラー：金額は1円以上を指定してください"
+                  << std::endl;
+        return 0;
+    }
+    Category cat = db.get(categoryId);
+    if (cat.type != "income") {
+        std::cout << "エラー：収入カテゴリを指定してください"
+                  << std::endl;
+        return 0;
+    }
+    std::cout << "収入を追加しました：" << cat.name
+              << " " << amount << "円" << std::endl;
+    // 現状コードでは保存せず、残高へ反映する増減値を返す
+    return amount;
+}
+```
+
+上の `addExpense()` と並べて見比べてください。**判定の順序も、エラーの出し方も、戻り値の作り方も同じです。** 違うのは比較する種別名（`"income"` / `"expense"`）、表示する語（「収入」/「支出」）、戻り値の符号だけです。
+
+---
+
+**UIButtons**
+
+1-1の「画面操作」にあたります。
 
 ```cpp
 // ユーザーインターフェース層（上記2クラスを直接呼び出す）
@@ -479,11 +536,20 @@ public:
 };
 ```
 
-このコードを見ると、ボタン押下という「操作」と、マネージャクラスによる「処理の実行」が密接に結びついていることが分かります。
+- **所有：** 2つのManagerを値メンバとして持ち、外から差し替えられません
+- **副作用：** `balance` を書き換え、画面へ表示する
 
-#### 呼び出し元と実行確認
+**現状の `UIButtons` は、入力を受けるだけでなく現在残高の正本まで持っています。** ボタンごとに呼ぶManagerが決め打ちで、押下という操作と処理の実行が1対1で結びついています。
 
-まず依存を組み立て、行1（支出登録）を実行します。
+---
+
+#### `main()` と実行結果
+
+動作例4行を、行ごとに区切って実行します。**残高は行をまたいで引き継がれます。** 開始残高は0円です。
+
+---
+
+**組み立てと、行1：支出登録**
 
 ```cpp
 int main() {
@@ -494,22 +560,22 @@ int main() {
     buttons.onAddExpenseClick(1000, "CAT002");  // 食費
 ```
 
-行1（支出登録）の実行結果：
-
 ```text
 --- 行1: 支出登録 ---
 支出を追加しました：食費 1000円
 現在残高：-1000円
 ```
 
-続いて、行2（収入登録）を実行します。
+`db` を1つだけ作り、`UIButtons` 経由で両Managerが共有します。開始残高0円に `-1000` が加わりました。
+
+---
+
+**行2：収入登録**
 
 ```cpp
     std::cout << "--- 行2: 収入登録 ---\n";
     buttons.onAddIncomeClick(5000, "CAT001");   // 給与
 ```
-
-行2（収入登録）の実行結果：
 
 ```text
 --- 行2: 収入登録 ---
@@ -517,14 +583,16 @@ int main() {
 現在残高：4000円
 ```
 
-続いて、行3（未登録カテゴリの支出）を実行します。
+前の行が残した `-1000` に `+5000` が加わって4000円です。
+
+---
+
+**行3：未登録カテゴリの支出**
 
 ```cpp
     std::cout << "--- 行3: 未登録カテゴリの支出 ---\n";
     buttons.onAddExpenseClick(500, "CAT999");   // 存在しないID
 ```
-
-行3（未登録カテゴリの支出）の実行結果：
 
 ```text
 --- 行3: 未登録カテゴリの支出 ---
@@ -532,7 +600,11 @@ int main() {
 現在残高：4000円
 ```
 
-最後に、行4（金額0円の収入）を実行し、`main()` を終了します。
+`addExpense()` が `0` を返したので、残高は4000円のままです。
+
+---
+
+**行4：金額0円の収入**
 
 ```cpp
     std::cout << "--- 行4: 金額0円の収入 ---\n";
@@ -541,21 +613,19 @@ int main() {
 }
 ```
 
-行4（金額0円の収入）の実行結果：
-
 ```text
 --- 行4: 金額0円の収入 ---
 エラー：金額は1円以上を指定してください
 現在残高：4000円
 ```
 
-各ケースのコードとその実行結果をその場で並べたので、離れた `main()` と出力を行き来せずに照合できます（確認したいこと：入力、加工、出力が仕様どおりに対応していること）。
+こちらも `0` が返り、残高は変わりません。
 
-動作例テーブルの4行どおり、支出で1,000円減り、その後の収入で
-5,000円増えることを確認できました。行3・行4では1-1の図の2つの判定
-（カテゴリIDの確認・金額の確認）で処理が止まり、残高が4,000円のまま
-変わらないことも確認できます。
-ここでは開始残高を0円とした簡略例なので、1行目の支出直後は残高が-1,000円になります。実際の家計簿では初期残高や口座残高を別に持つこともありますが、この章では操作の実行と取り消しの構造に話を絞るため、残高計算を単純化しています。
+---
+
+動作例テーブルの4行どおり、支出で1,000円減り、その後の収入で5,000円増えることを確認できました。行3・行4では1-1の図の2つの判定（カテゴリIDの確認・金額の確認）で処理が止まり、残高が4,000円のまま変わらないことも確認できます。
+
+開始残高を0円とした簡略例なので、1行目の支出直後は残高が-1,000円になります。実際の家計簿では初期残高や口座残高を別に持つこともありますが、この章では操作の実行と取り消しの構造に話を絞るため、残高計算を単純化しています。
 
 ---
 
