@@ -1003,17 +1003,20 @@ flowchart LR
 
 > **この抜粋の外は、現状のままです。** 以下は通知先追加の差分抜粋です。フェーズ1の `ProductDatabase` による商品存在・在庫数の確認、出庫数の検証、在庫更新、しきい値判定は維持し、在庫更新が確定した後の `notifyAll()` だけを変更します。
 
-はじめに、SMSを送るための SMSNotifier クラスを新規作成します。次に、通知の中心である InventoryManager クラスを開き、新しく作成した SMSNotifier クラスのインスタンスをメンバ変数として追加します。
-メンバとして `SMSNotifier sms;` を持たせ、さらに `notifyAll` メソッド内にも `sms.requestAsync(alert);` という行を書き加える必要があります。つまり、メンバ宣言と `notifyAll` の両方に、新クラスの保持と呼び出しを追加する必要があります。
+変更した定義は6つです。1-4と同じ並び順で、上から見ていきます。既存3クラスは変わりませんが、`notifyAll()` から見た扱いを確認するため再掲します。上から順に連結すると1つの実行可能なコードです。
 
-> [!INFO] コラム: 「数行足すだけ」が危険な理由
-> 変更ID1のSMS追加は数行に見えますが、そのために在庫管理の本体である`InventoryManager`を開き、メンバ・コンストラクタ・通知処理を修正しました。通知手段の変更が在庫更新コードを同時に確認対象へ巻き込んでいます。
+| 1-4での掲載単位 | 今回の変更 | 根拠 |
+|---|---|---|
+| （新規） | `StockAlert` と受付結果の型を追加 | 変更ID1 |
+| `EmailNotifier` / `DashboardUpdater` / `ChatNotifier` | **変更なし**（再掲） | ― |
+| （新規） | `SMSNotifier` を追加 | 変更ID1 |
+| `InventoryManager` の宣言 | SMSのメンバ・コンストラクタ・受付IDの状態表を追加 | 変更ID1 |
+| （新規） | `receiveSMSCompletion()` を追加 | 変更ID1 |
+| `InventoryManager::notifyAll()` | SMSの呼び出しと戻り値解釈、受付集計を追加 | 変更ID1 |
 
-変更ID1を現在の構造へ適用すると、SMSのために`InventoryManager`のメンバ変数、コンストラクタ、`notifyAll()`を同時に書き換える必要がありました。
+---
 
-実際に SMSNotifier を追加した変更後のコードは次のようになります。同じ実行単位を「通知データと試行用結果」「既存通知先」「SMS」「通知元」「実行」という責務ごとに分けて示します。上から順に連結すると一つの実行可能なコードです。
-
-**[試行1] 通知データと、今回受け取る受付結果**
+**StockAlert と受付結果の型（追加）**
 
 即時の受付結果と、後日の最終配信結果を同じ受付IDで結ぶ試行用の型です。
 
@@ -1040,9 +1043,13 @@ struct TrialDeliveryResult {
 };
 ```
 
-**[試行2] 既存の三つの通知先**
+3つの状態（受付・保留・失敗）と2つの最終状態（配信済み・配信失敗）を、1つの列挙で表します。`requestId` が、受付と最終結果をつなぐ唯一の手がかりです。
 
-1-4の3クラスをそのまま使います。関数名も引数も戻り値もそろっていないので、通知元が手段ごとに引数を組み立て、戻り値の意味も個別に解釈することになります。
+---
+
+**EmailNotifier / DashboardUpdater / ChatNotifier（変更なし・再掲）**
+
+1-4の3クラスをそのまま使います。**関数名も引数も戻り値もそろっていません。**
 
 ```cpp
 // 1-4のまま。件名と本文に分かれ、成否は真偽値
@@ -1080,7 +1087,11 @@ public:
 };
 ```
 
-**[試行3] 新規のSMS通知先**
+3クラスは変わっていませんが、通知元が手段ごとに引数を組み立て、戻り値の意味も個別に解釈することになります。**SMSを足すと、そこへ4通り目が加わります。**
+
+---
+
+**SMSNotifier（追加）**
 
 試行コードでも受付結果を握りつぶしません。正常受付は非同期処理中を表す `TRIAL_PENDING`、受付拒否は `TRIAL_FAILED` として返します。
 
@@ -1106,20 +1117,22 @@ public:
 };
 ```
 
-**[試行4] 変更後の通知元**
+**4通り目の呼び方です。** `requestAsync()` という4つ目の関数名で、`StockAlert` を丸ごと受け取り、`TrialDeliveryResult` という4つ目の戻り値型を返します。
 
-結果を受け取るところまで実装すると、`InventoryManager` へSMSの生成・固有メソッド呼び出し・状態判定・集計が入り込みます。既存3手段ぶんの引数組み立てと戻り値の解釈も、同じメソッドの中に並びます。
+---
+
+**InventoryManager の宣言（変更あり）**
 
 ```cpp
 class InventoryManager {
     EmailNotifier    email;
     DashboardUpdater dashboard;
     ChatNotifier     chat;
-    SMSNotifier      sms;
-    std::map<std::string, TrialDeliveryStatus> smsStatuses;
-    std::string lastRequestId;
+    SMSNotifier      sms;                                     // ← 追加
+    std::map<std::string, TrialDeliveryStatus> smsStatuses;   // ← 追加
+    std::string lastRequestId;                                // ← 追加
 public:
-    explicit InventoryManager(bool smsShouldFail = false)
+    explicit InventoryManager(bool smsShouldFail = false)     // ← 追加
         : sms(smsShouldFail) {}
 
     void reduceStock(const std::string& productId,
@@ -1128,62 +1141,99 @@ public:
         notifyAll({productId, productName, stockAfter, threshold});
     }
 
-    const std::string& latestSMSRequestId() const {
+    const std::string& latestSMSRequestId() const {           // ← 追加
         return lastRequestId;
     }
 
-    // 現状構造へ最終結果を足すと、在庫管理クラスがSMS受付IDまで知る
-    void receiveSMSCompletion(const std::string& requestId,
-                              bool delivered) {
-        auto found = smsStatuses.find(requestId);
-        if (found == smsStatuses.end() || found->second != TRIAL_PENDING) {
-            std::cout << "[SMS最終結果エラー] " << requestId << std::endl;
-            return;
-        }
-        found->second = delivered
-                      ? TRIAL_DELIVERED : TRIAL_DELIVERY_FAILED;
-        std::cout << "[SMS最終結果] " << requestId << ": PENDING -> "
-                  << (delivered ? "DELIVERED" : "DELIVERY_FAILED")
-                  << std::endl;
-    }
+    void receiveSMSCompletion(const std::string& requestId, bool delivered);
 private:
-    void notifyAll(const StockAlert& alert) {
-        int accepted = 0, pending = 0, failed = 0;
-
-        // 手段ごとに違う引数を組み立て、違う戻り値を個別に解釈する
-        std::string body = alert.productName + " 残" +
-                           std::to_string(alert.stock) + " 閾値" +
-                           std::to_string(alert.threshold);
-
-        if (email.sendMail("在庫不足", body)) accepted++;
-        else failed++;
-
-        // ダッシュボードは成否を返さないので、成功として数えるしかない
-        dashboard.refreshStockWidget(alert.productId, alert.stock);
-        accepted++;
-
-        if (!chat.postMessage("inventory-alert", body).empty()) accepted++;
-        else failed++;
-
-        TrialDeliveryResult smsResult = sms.requestAsync(alert);
-        if (smsResult.status == TRIAL_PENDING) {
-            pending++;
-            lastRequestId = smsResult.requestId;
-            smsStatuses[lastRequestId] = TRIAL_PENDING;
-        } else if (smsResult.status == TRIAL_FAILED) {
-            failed++;
-        } else {
-            accepted++;
-        }
-
-        std::cout << "[受付結果] 成功:" << accepted
-                  << " 保留:" << pending
-                  << " 失敗:" << failed << std::endl;
-    }
+    void notifyAll(const StockAlert& alert);
 };
 ```
 
-**[試行5] 受付成功と受付失敗の実行**
+**SMSを1つ足すために、5か所を書き換えました。** メンバ変数、受付IDの状態表、直近の受付ID、コンストラクタ、公開操作です。在庫管理の本体である `InventoryManager` を開き、通知手段の変更が在庫更新コードを同時に確認対象へ巻き込んでいます。
+
+---
+
+**InventoryManager::receiveSMSCompletion()（追加）**
+
+非同期通知の最終結果を受け取ります。
+
+```cpp
+// 現状構造へ最終結果を足すと、在庫管理クラスがSMS受付IDまで知る
+void InventoryManager::receiveSMSCompletion(const std::string& requestId,
+                                            bool delivered) {
+    auto found = smsStatuses.find(requestId);
+    if (found == smsStatuses.end() || found->second != TRIAL_PENDING) {
+        std::cout << "[SMS最終結果エラー] " << requestId << std::endl;
+        return;
+    }
+    found->second = delivered
+                  ? TRIAL_DELIVERED : TRIAL_DELIVERY_FAILED;
+    std::cout << "[SMS最終結果] " << requestId << ": PENDING -> "
+              << (delivered ? "DELIVERED" : "DELIVERY_FAILED")
+              << std::endl;
+}
+```
+
+**在庫管理クラスが、SMS基盤の受付IDと状態遷移まで知ることになりました。** 在庫の増減とは何の関係もない知識です。
+
+---
+
+**InventoryManager::notifyAll()（変更あり）**
+
+```cpp
+void InventoryManager::notifyAll(const StockAlert& alert) {
+    int accepted = 0, pending = 0, failed = 0;
+
+    // 手段ごとに違う引数を組み立て、違う戻り値を個別に解釈する
+    std::string body = alert.productName + " 残" +
+                       std::to_string(alert.stock) + " 閾値" +
+                       std::to_string(alert.threshold);
+
+    if (email.sendMail("在庫不足", body)) accepted++;
+    else failed++;
+
+    // ダッシュボードは成否を返さないので、成功として数えるしかない
+    dashboard.refreshStockWidget(alert.productId, alert.stock);
+    accepted++;
+
+    if (!chat.postMessage("inventory-alert", body).empty()) accepted++;
+    else failed++;
+
+    TrialDeliveryResult smsResult = sms.requestAsync(alert);
+    if (smsResult.status == TRIAL_PENDING) {
+        pending++;
+        lastRequestId = smsResult.requestId;
+        smsStatuses[lastRequestId] = TRIAL_PENDING;
+    } else if (smsResult.status == TRIAL_FAILED) {
+        failed++;
+    } else {
+        accepted++;
+    }
+
+    std::cout << "[受付結果] 成功:" << accepted
+              << " 保留:" << pending
+              << " 失敗:" << failed << std::endl;
+}
+```
+
+**4手段の呼び方が4通りとも違うまま、1つの関数に並んでいます。**
+
+| 手段 | 引数の組み立て | 戻り値の解釈 |
+|---|---|---|
+| Email | 件名＋`body` | `if` の真偽で成功／失敗 |
+| Dashboard | 商品コード＋在庫数 | **解釈できない**（成功として数えるしかない） |
+| Chat | チャンネル＋`body` | `.empty()` で成功／失敗 |
+| SMS | `StockAlert` を丸ごと | `status` を3値で分岐し、受付IDを保存 |
+
+SMSだけが3値を返すので、集計に `pending` という3つ目のカウンタが必要になりました。ダッシュボードは相変わらず成否を返さないので、失敗しても `accepted` に数えられます。
+
+---
+
+#### `main()` と実行結果
+
+受付成功と受付失敗の2ケースを通します。**見るのは動くかどうかではなく、変更要求を現状の構造へ当てはめたときに修正箇所と痛みがどこに出るかです。**
 
 ```cpp
 int main() {
@@ -1198,10 +1248,6 @@ int main() {
     return 0;
 }
 ```
-
-変更要求後の代表ケースを、上のコードで通します。見るのは、変更要求を現状の構造へ当てはめたとき、修正箇所と痛みがどこに出るかです。
-
-実行結果：
 
 ```
 [Email] 件名:在庫不足 / USBハブ 残2 閾値5
@@ -1218,7 +1264,13 @@ int main() {
 [受付結果] 成功:3 保留:0 失敗:1
 ```
 
-変更試行の段階でも、SMS基盤への受付結果を `TrialDeliveryResult` として受け取り、後日の最終結果で同じ受付IDを `PENDING` から `DELIVERED` へ更新しました。変更要求を可能な範囲まで実現した結果、`SMSNotifier` を1つ追加するだけで、`InventoryManager` のメンバ、コンストラクタ、固有メソッド `requestAsync()`、戻り値の個別解釈、受付IDの状態表、コールバック受信メソッドまで修正する痛みが明確になりました。
+SMS基盤への受付結果を `TrialDeliveryResult` として受け取り、後日の最終結果で同じ受付IDを `PENDING` から `DELIVERED` へ更新できました。**動作は正しくなっています。** 変更要求は満たせました。
+
+---
+
+痛いのは結果ではなく、そこへ至る過程です。**`SMSNotifier` を1クラス足しただけで、`InventoryManager` を6か所書き換えました。** メンバ変数、受付IDの状態表、直近の受付ID、コンストラクタ、コールバック受信メソッド、そして `notifyAll()` の呼び出しと戻り値解釈です。
+
+田中部長の要求は「SMSでも通知したい」という一言でした。それが在庫管理クラスの中身にこれだけ広がるのは、**4つの通知手段の呼び方の違いを、通知元がすべて引き受けているから**です。今回の1手段の追加で、引数の組み立て方が1通り、戻り値の解釈が1通り、`notifyAll()` へ加わりました。
 
 ### 3-2：変更影響グラフ
 
