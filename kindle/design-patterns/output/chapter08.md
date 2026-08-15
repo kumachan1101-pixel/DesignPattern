@@ -1559,11 +1559,25 @@ flowchart LR
 ## 🟣 フェーズ3：問題特定 ―― 変更の痛みを発見する
 ### 3-1：変更を試みる
 
-「PayPay対応」の要求を、フェーズ1の現状コードで実装しようと試みます。PayPayを追加するには、次の修正が必要です。
+「PayPay対応」の要求を、今のコードにそのまま実装してみます。
 
-> **この抜粋の外は、現状のままです。** 以下はPayPay追加で触るクラス・関数を、既存の類似処理と周辺の責任が見える範囲で示します。`ProcessorRegistry` の手段確認、`PaymentGatewayClient` / `PaymentStatusClient` の外部境界、`PaymentLog` の記録は維持します。変更行だけの断片にはせず、どの既存構造へ何を足すのかを追える形にします。
+> **この抜粋の外は、現状のままです。** `PaymentLog` の記録、`CustomerDirectory` / `OrderBook` の照合、既存3つのProcessorは1-4の定義をそのまま使います。以下は1-4で読んだ順に、変更が入った定義だけを並べたものです。変更行だけの断片にはせず、どの既存構造へ何を足すのかを追える形にします。
 
-**修正1：PayPay固有の入力構造体を追加**
+変更した定義は7つです。1-4と同じ並び順で、上から見ていきます。
+
+| 1-4での掲載単位 | 今回の変更 | 根拠 |
+|---|---|---|
+| 手段固有の入力データ | `PayPayInput` を追加 | 変更ID1 |
+| `PaymentRequest` | 4つ目の手段固有入力を追加 | 変更ID1 |
+| `ProcessorRegistry` | `paypay` の登録を追加 | 変更ID1 |
+| `PaymentGatewayClient` | `chargePayPay()` を追加 | 変更ID1 |
+| `PaymentStatusClient` | `PP-` の判定を追加 | 変更ID2 |
+| （新規） | `PayPayProcessor` を追加 | 変更ID1 |
+| `PaymentApplication::processPayment()` | `paypay` の分岐を追加 | 変更ID1 |
+
+---
+
+**PayPayInput（追加）**
 
 ```cpp
 struct PayPayInput {
@@ -1571,7 +1585,11 @@ struct PayPayInput {
 };
 ```
 
-**修正2：`PaymentRequest` にPayPayデータを追加**
+PayPayが必要とするのはアクセストークン1つだけです。既存3手段とは、また違う形です。
+
+---
+
+**PaymentRequest（変更あり）**
 
 ```cpp
 struct PaymentRequest {
@@ -1584,9 +1602,13 @@ struct PaymentRequest {
 };
 ```
 
-既存の共通項目4つと手段固有入力3つを残したまま、変更ID1のために4つ目の手段固有入力`payPay`を追加しました。一つの確定要求で共通の要求型そのものを修正しています。
+既存の共通項目と手段固有入力3つを残したまま、4つ目の手段固有入力 `payPay` を追加しました。**一つの確定要求で、全手段が共有する要求型そのものを修正しています。** カードで決済する利用者にも、使われない `payPay` フィールドがついて回ります。
 
-**修正3：`PaymentGatewayClient` にPayPay用APIを追加**
+---
+
+**PaymentGatewayClient（変更あり）**
+
+既存のコンビニ番号発行と並べて、PayPayセッション発行を加えます。
 
 ```cpp
 class PaymentGatewayClient {
@@ -1625,7 +1647,11 @@ public:
 };
 ```
 
-**修正4：`PayPayProcessor` を新規作成**
+既存の `issueConvenienceCode()` と同じく、保留IDを含む保留結果を返します。**5つ目の関数名と、5つ目の引数の形が増えました。**
+
+---
+
+**PayPayProcessor（追加）**
 
 ```cpp
 class PayPayProcessor {
@@ -1646,9 +1672,13 @@ public:
 };
 ```
 
-**修正5：`processPayment()` にPayPayの分岐を追加**
+既存3つのProcessorと同じ形です。`pay(const PaymentRequest&, int)` というシグネチャがまた一致しましたが、**共通の契約は相変わらずどこにもありません。**
 
-> **この抜粋の外は、現状のままです。** `OrderBook`・`CustomerDirectory` による注文と顧客の照合は1-4のまま維持します。以下は追加した分岐に絞るため、その照合部の再掲を省いた抜粋です。
+---
+
+**PaymentApplication::processPayment()（変更あり）**
+
+`OrderBook`・`CustomerDirectory` による注文と顧客の照合は1-4のまま維持します。以下は追加した分岐に絞るため、その照合部の再掲を省いた抜粋です。
 
 ```cpp
 class PaymentApplication {
@@ -1705,9 +1735,11 @@ public:
 };
 ```
 
-既存の三つの分岐、共通の事前確認、カード固有のエラー補正は残ったまま、同じ関数の末尾へPayPayの生成・実行分岐が増えました。これにより「どのクラスのどこへ追加したか」と「既存の何まで再確認対象になるか」の両方が見えます。
+**末尾の `if-else` へ4本目が増えました。** 既存の三つの分岐、共通の事前確認は残ったままです。PayPayだけを足したつもりでも、この関数を開いた以上、既存3手段の分岐も再確認の対象になります。
 
-**修正6：`PaymentStatusClient` にPayPay対応を追加**
+---
+
+**PaymentStatusClient（変更あり）**
 
 ```cpp
 class PaymentStatusClient {
@@ -1738,7 +1770,13 @@ public:
 };
 ```
 
-**修正7：`ProcessorRegistry` のコンストラクタへ登録を追加**
+保留IDの接頭辞判定へ、`PP-` を1本足しました。**保留IDの命名規則を、外部API境界とProcessorの両方が知っている**ことになります。
+
+---
+
+**ProcessorRegistry のコンストラクタ（変更あり）**
+
+`ProcessorRegistry::ProcessorRegistry()` の登録表へ1行足します。
 
 ```cpp
 ProcessorRegistry() {
@@ -1755,9 +1793,13 @@ ProcessorRegistry() {
 }
 ```
 
-PayPay対応には7か所の修正が必要でした。入力構造体の追加、`PaymentRequest` への追加、API境界スタブの追加、Processorの新規作成、`processPayment` の分岐追加、完了確認の対応追加、レジストリへの登録です。
+登録行が1件増えただけです。**ここは痛くありません。**
 
-これら7か所をフェーズ1のコードへ適用し、PayPayの保留から完了確認までを実行します。
+---
+
+#### `main()` と実行結果
+
+上の7定義を1-4のコードへ当てはめ、PayPayの保留から完了確認までを通します。**見るのは動くかどうかではなく、追加が入力型・API境界・Processor・振り分け・状態確認・登録のどこまで広がったかです。**
 
 ```cpp
 int main() {
@@ -1784,10 +1826,6 @@ int main() {
 }
 ```
 
-PayPay決済を開始し、保留IDで完了確認するケースを通します。見るのは、PayPay要求が動く一方で、追加が入力型・API境界・Processor・振り分け・状態確認・登録の6か所へどう広がったかです。
-
-実行結果：
-
 ```
 [決済API] PayPay決済 order=ORD-2001 amount=3000 token=pp_token
 結果: paypay -> 保留 (PayPayセッション作成済み)
@@ -1795,7 +1833,23 @@ PayPay決済を開始し、保留IDで完了確認するケースを通します
 完了結果: 成功 (PayPay決済確認済み)
 ```
 
-ここで見たいのは、分岐の行数そのものではありません。変更ID1・変更ID2を実装した結果、PayPay固有の入力、検証、API呼び出し、保留結果、完了確認が、決済を利用する流れの近くに追加されました。既存のカード・銀行振込・コンビニも同じ分岐内にあるため、PayPayだけの変更でも既存処理を確認対象から外せません。
+PayPayセッションが作られ、保留IDで完了確認まで進みました。**動作は正しくなっています。** 変更要求は満たせました。
+
+---
+
+痛いのは結果ではなく、そこへ至る過程です。**手段を1つ足すために7か所を修正しました。** 定義を分けて並べたので、内訳が数えられます。
+
+| 修正した定義 | 何が増えたか |
+|---|---|
+| 手段固有の入力データ | 4つ目の構造体 |
+| `PaymentRequest` | 4つ目のフィールド（他3手段では未使用のまま残る） |
+| `ProcessorRegistry` | 登録行1つ |
+| `PaymentGatewayClient` | 5つ目の関数名・引数の形 |
+| `PaymentStatusClient` | 保留IDの接頭辞判定1本 |
+| `PayPayProcessor` | 新規クラス |
+| `processPayment()` | 4本目の `if-else` |
+
+見たいのは分岐の行数そのものではありません。PayPay固有の入力、検証、API呼び出し、保留結果、完了確認が、**決済を利用する流れの近くに散らばって追加された**ことです。既存のカード・銀行振込・コンビニも同じ分岐内にあるため、PayPayだけの変更でも既存処理を確認対象から外せません。
 
 ### 3-2：変更影響グラフ
 
