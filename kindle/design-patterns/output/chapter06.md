@@ -1741,8 +1741,6 @@ struct OrderResult {
 
 フェーズ6で比較した二つの完成構造から、内側価格に依存する追加料を見据えて採用した装飾連結構造を、実行可能なコードとして組み上げます。`OrderApplication`はユースケースの入口と依存の所有を担い、実際の検証・生成・連結は`OrderAssembler`だけが担います。トッピングの価格・表示名・販売可否は`ToppingCatalog`へ寄せ、`OrderAssembler`が`OrderRequest`の順に部品を生成して所有連結します。
 
-**IDrink インターフェース（契約）：**
-
 注文ログ（`OrderLog`）はシステム起動時は空で、注文が確定するたびに1件追記されます。ファイルへの保存は行わず、実行中のメモリ上にのみ保持します。
 
 #### 完成後のクラス一覧
@@ -1846,7 +1844,13 @@ sequenceDiagram
 
 #### 完成コード
 
-完成コードは、貼り合わせた順で一つの`.cpp`になるよう、責任単位に分割して示します。まず共通ヘッダーとトッピングIDです。
+定義を1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは `OrderAssembler` と `OrderApplication` だけです。判断の基準は次の一行です。
+
+> **メンバーを見ないと読めない関数は、メンバーと一緒に置く。**
+
+`main()` と実行結果は最後に置きます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+
+---
 
 **共通ヘッダーとトッピングID**
 
@@ -1869,7 +1873,11 @@ namespace ToppingId {
 }
 ```
 
-**基本ドリンクの登録データ（MenuItem / MenuDatabase）**
+---
+
+**MenuItem と MenuDatabase**
+
+1-4のまま使います。
 
 ```cpp
 
@@ -1901,7 +1909,11 @@ public:
 };
 ```
 
-**トッピングの登録データ（ToppingSpec / ToppingCatalog）**
+---
+
+**ToppingSpec と ToppingCatalog**
+
+トッピングの表示名・追加料金・販売可否を持つ保存データです。
 
 ```cpp
 
@@ -1934,7 +1946,9 @@ public:
 };
 ```
 
-**注文ログ（OrderRecord / OrderLog）**
+---
+
+**OrderRecord と OrderLog**
 
 ```cpp
 
@@ -1962,7 +1976,9 @@ public:
 };
 ```
 
-**ドリンクの共通契約（IDrink）**
+---
+
+**IDrink**
 
 ```cpp
 
@@ -1988,7 +2004,11 @@ public:
 | Choco        | Choco        | +40円 | 販売中  |
 | SeasonalMint | SeasonalMint | +80円 | 販売停止 |
 
-**Coffee クラス（基本ドリンク）：**
+---
+
+**Coffee**
+
+基本ドリンクです。
 
 ```cpp
 // 変わらない処理の骨格：基本のドリンク
@@ -2005,7 +2025,11 @@ public:
 
 `Coffee` は最も変化が少ないクラスです。基本ドリンクの種類が増えるときだけ、このような新しいクラスを追加します。
 
-**ToppingWrapper クラス（仲介役の基底）：**
+---
+
+**ToppingWrapper**
+
+トッピングの基底です。
 
 ```cpp
 // 変わる部分を繋ぐ仲介役：トッピングの基底クラス
@@ -2032,7 +2056,11 @@ public:
 
 `ToppingWrapper` が「中に別のドリンクを包む」仕組みを提供します。具体的なトッピングはこのクラスを継承するだけで済みます。
 
-**Milk クラス・Whip クラス（具体的なトッピング）：**
+---
+
+**Milk と Whip**
+
+1-4から続く具体トッピングです。
 
 ```cpp
 // 具体的なトッピング：自分の識別子だけを名乗る
@@ -2052,7 +2080,11 @@ public:
 
 各トッピングクラスは、自分がどのトッピングかを名乗るだけになりました。価格や表示名は自分では持たず、基底の `ToppingWrapper` が `ToppingCatalog`（保存データ）から読みます。中身が何層に重なっているかを知る必要もありません。
 
-**Syrup クラス・Matcha クラス（新規追加トッピング）：**
+---
+
+**Syrup と Matcha と Choco**
+
+`Syrup` は1-4から、`Matcha` と `Choco` は変更要求で追加した具体トッピングです。
 
 ```cpp
 // 新しいトッピングでは、この識別クラスに加えてカタログ登録と組み立て登録を行う
@@ -2077,7 +2109,9 @@ public:
 
 佐藤マネージャーが要求した「抹茶パウダーの追加」も「チョコチップの追加」も、変更の中心はそれぞれの追加クラスと組み立てコードに移ります。中心となる既存クラスには、抹茶やチョコの条件分岐を追加していません。
 
-**注文要求・結果の型（OrderRequest / OrderResult）：**
+---
+
+**OrderRequest と OrderResult**
 
 注文は `OrderRequest`（基本ドリンクIDと、選択順のトッピングID列）という要求オブジェクトで表します。どの種類をどの順で重ねるかは `new Whip(new Milk(...))` のような入れ子ではなく、要求データとして持ちます。`OrderResult` は注文名・金額、または失敗理由を返します。
 
@@ -2100,9 +2134,11 @@ struct OrderResult {
 
 `OrderRequest` は基本ドリンクIDとトッピングの並びをデータで表し、`OrderResult` は成功可否・注文名・金額・エラー理由を返します。
 
-**注文を組み立てるクラス（OrderAssembler）：**
+---
 
-`OrderAssembler` はメニューとトッピングの販売可否を先に確認し、通ったものだけを選択順・個数ぶんだけ包みます。
+**OrderAssembler の宣言**
+
+依存の組み立てと検証を担います。
 
 ```cpp
 // 依存の組み立てと検証を担うクラス
@@ -2111,54 +2147,79 @@ private:
     MenuDatabase& db;
     ToppingCatalog& catalog;
 
-    IDrink* wrapOne(const string& id, IDrink* base) {
-        if (id == ToppingId::Milk)   return new Milk(base, &catalog);
-        if (id == ToppingId::Syrup)  return new Syrup(base, &catalog);
-        if (id == ToppingId::Whip)   return new Whip(base, &catalog);
-        if (id == ToppingId::Matcha) return new Matcha(base, &catalog);
-        if (id == ToppingId::Choco)  return new Choco(base, &catalog);
-        return base;
-    }
+    IDrink* wrapOne(const string& id, IDrink* base);
 public:
     OrderAssembler(MenuDatabase& d, ToppingCatalog& c)
         : db(d), catalog(c) {}
 
-    OrderResult assemble(const OrderRequest& req) {
-        if (!db.exists(req.baseItemId)) {
-            return {false, "", 0,
-                    "メニューID " + req.baseItemId + " は存在しません"};
-        }
-        // 手順1：全トッピングの登録と販売可否を先に確認する
-        for (const auto& toppingId : req.toppingIds) {
-            if (!catalog.exists(toppingId)) {
-                return {false, "", 0,
-                        "トッピング " + toppingId + " は未対応です"};
-            }
-            if (!catalog.onSale(toppingId)) {
-                return {false, "", 0, "トッピング " + toppingId
-                        + " は販売停止または在庫切れです"};
-            }
-        }
-        // 手順2：検証を通ったので、選択順に基本ドリンクへ重ねる
-        MenuItem base = db.get(req.baseItemId);
-        IDrink* drink = new Coffee(base.name, base.basePrice);
-        for (const auto& toppingId : req.toppingIds) {
-            drink = wrapOne(toppingId, drink);
-        }
-        OrderResult r{true, drink->getDescription(),
-                      drink->getPrice(), ""};
-        delete drink;
-        return r;
-    }
+    OrderResult assemble(const OrderRequest& req);
 };
-
 ```
 
-`OrderAssembler` は、メニューIDとトッピングの存在・販売可否を先に検証し、通ったものだけを重ねて `OrderResult` を返します。生成の分岐は `ToppingId` の名前付き定数で判定するので、直文字列の打ち間違いを防げます。トッピングを追加しても、`OrderAssembler` の分岐（`wrapOne`）と組み立て側だけが変わります。
+メニューとカタログを外から受け取って参照で持ちます。**公開操作は `assemble()` の1つだけです。**
 
-**組み立てと実行（OrderApplication / main）：**
+---
 
-各クラスを組み立て、代表的な注文シナリオを順に実行します。
+**OrderAssembler::wrapOne()**
+
+トッピングID1つを、内側のドリンクへ1層かぶせます。
+
+```cpp
+IDrink* OrderAssembler::wrapOne(const string& id, IDrink* base) {
+    if (id == ToppingId::Milk)   return new Milk(base, &catalog);
+    if (id == ToppingId::Syrup)  return new Syrup(base, &catalog);
+    if (id == ToppingId::Whip)   return new Whip(base, &catalog);
+    if (id == ToppingId::Matcha) return new Matcha(base, &catalog);
+    if (id == ToppingId::Choco)  return new Choco(base, &catalog);
+    return base;
+}
+```
+
+**具体クラスの名前を知っているのは、この関数だけです。** 判定は `ToppingId` の名前付き定数で行うので、直文字列の打ち間違いを防げます。トッピングを追加するときに触るのは、ここと `ToppingCatalog` の登録です。
+
+---
+
+**OrderAssembler::assemble()**
+
+```cpp
+OrderResult OrderAssembler::assemble(const OrderRequest& req) {
+    if (!db.exists(req.baseItemId)) {
+        return {false, "", 0,
+                "メニューID " + req.baseItemId + " は存在しません"};
+    }
+    // 手順1：全トッピングの登録と販売可否を先に確認する
+    for (const auto& toppingId : req.toppingIds) {
+        if (!catalog.exists(toppingId)) {
+            return {false, "", 0,
+                    "トッピング " + toppingId + " は未対応です"};
+        }
+        if (!catalog.onSale(toppingId)) {
+            return {false, "", 0, "トッピング " + toppingId
+                    + " は販売停止または在庫切れです"};
+        }
+    }
+    // 手順2：検証を通ったので、選択順に基本ドリンクへ重ねる
+    MenuItem base = db.get(req.baseItemId);
+    IDrink* drink = new Coffee(base.name, base.basePrice);
+    for (const auto& toppingId : req.toppingIds) {
+        drink = wrapOne(toppingId, drink);
+    }
+OrderResult r{true, drink->getDescription(),
+              drink->getPrice(), ""};
+delete drink;
+return r;
+}
+```
+
+- **順序に意味：** 手順1で全トッピングを先に検証し、手順2で初めて生成へ進みます。逆にすると、途中で拒否したときに生成済みの層が漏れます
+- **失敗の扱い：** どの検証で落ちても `OrderResult` の `error` に理由を入れ、注文を作りません
+- **所有：** `delete drink;` が連鎖の先頭を消すと、`ToppingWrapper` のデストラクタが内側を順に消します
+
+---
+
+**OrderApplication の宣言**
+
+依存の組み立てと実行を担います。
 
 ```cpp
 // 依存の組み立てと実行を担うアプリケーションクラス
@@ -2171,52 +2232,84 @@ private:
 public:
     OrderApplication() : assembler(db, catalog) {}
 
-    void run() {
-        vector<OrderRequest> requests = {
-            {"DRINK001", {}},                          // 基本のみ（トッピングなし）
-            {"DRINK001", {"Milk"}},               // ミルク1種を1個
-            {"DRINK001", {"Milk", "Syrup"}}, // ミルク＋シロップ
-            {"DRINK001", {"Milk", "Whip"}},  // ミルク＋ホイップ
-            {"DRINK001", {"Syrup", "Whip"}}, // 指定順(Syrup→Whip)が表示名に反映
-            {"DRINK001", {"Milk", "Syrup", "Whip"}}, // 3種盛り
-            // 抹茶を足した4種
-            {"DRINK001", {"Milk", "Syrup",
-                          "Whip", "Matcha"}},
-            {"DRINK001", {"Choco"}},              // 追加種類チョコ単体
-            // 抹茶＋チョコ混在
-            {"DRINK001", {"Milk", "Matcha", "Choco"}},
-            {"DRINK999", {"Milk"}},               // 未登録メニュー → エラー
-            {"DRINK001", {"SeasonalMint"}},       // 販売停止トッピング → エラー
-        };
-
-        for (const auto& req : requests) {
-            OrderResult res = assembler.assemble(req);
-            if (res.ok) {
-                cout << res.description << " → " << res.totalPrice
-                     << "円" << endl;
-                log.add(req.baseItemId, res.description,
-                        res.totalPrice);
-            } else {
-                cout << "エラー：" << res.error << endl;
-            }
-        }
-
-        cout << "\n--- 注文ログ ---\n";
-        log.printAll();
-    }
-    void runRegressionTests() {
-        OrderResult r1 = assembler.assemble({"DRINK001", {}});
-        assert(r1.ok && r1.totalPrice == 400);
-        OrderResult r6 = assembler.assemble(
-            {"DRINK001", {"Milk", "Syrup", "Whip"}});
-        assert(r6.ok && r6.totalPrice == 550);
-        OrderResult invalid = assembler.assemble(
-            {"DRINK001", {"SeasonalMint"}});
-        assert(!invalid.ok);
-        cout << "回帰テスト: PASS" << endl;
-    }
+    void run();
+    void runRegressionTests();
 };
+```
 
+4つの部品を値メンバとして所有します。**`IDrink` の具体クラス名は1つも出てきません。**
+
+---
+
+**OrderApplication::run()**
+
+代表的な注文シナリオを順に実行します。
+
+```cpp
+void OrderApplication::run() {
+    vector<OrderRequest> requests = {
+        {"DRINK001", {}},                          // 基本のみ（トッピングなし）
+        {"DRINK001", {"Milk"}},               // ミルク1種を1個
+        {"DRINK001", {"Milk", "Syrup"}}, // ミルク＋シロップ
+        {"DRINK001", {"Milk", "Whip"}},  // ミルク＋ホイップ
+        {"DRINK001", {"Syrup", "Whip"}}, // 指定順(Syrup→Whip)が表示名に反映
+        {"DRINK001", {"Milk", "Syrup", "Whip"}}, // 3種盛り
+        // 抹茶を足した4種
+        {"DRINK001", {"Milk", "Syrup",
+                      "Whip", "Matcha"}},
+        {"DRINK001", {"Choco"}},              // 追加種類チョコ単体
+        // 抹茶＋チョコ混在
+        {"DRINK001", {"Milk", "Matcha", "Choco"}},
+        {"DRINK999", {"Milk"}},               // 未登録メニュー → エラー
+        {"DRINK001", {"SeasonalMint"}},       // 販売停止トッピング → エラー
+    };
+
+    for (const auto& req : requests) {
+        OrderResult res = assembler.assemble(req);
+        if (res.ok) {
+            cout << res.description << " → " << res.totalPrice
+                 << "円" << endl;
+            log.add(req.baseItemId, res.description,
+                    res.totalPrice);
+        } else {
+            cout << "エラー：" << res.error << endl;
+        }
+    }
+
+cout << "\n--- 注文ログ ---\n";
+log.printAll();
+}
+```
+
+11件の要求を並べ、1件ずつ `assemble()` へ渡します。**要求はデータです。** `new Whip(new Milk(...))` のような入れ子を書く場所はどこにもありません。
+
+---
+
+**OrderApplication::runRegressionTests()**
+
+```cpp
+void OrderApplication::runRegressionTests() {
+    OrderResult r1 = assembler.assemble({"DRINK001", {}});
+    assert(r1.ok && r1.totalPrice == 400);
+    OrderResult r6 = assembler.assemble(
+        {"DRINK001", {"Milk", "Syrup", "Whip"}});
+    assert(r6.ok && r6.totalPrice == 550);
+    OrderResult invalid = assembler.assemble(
+        {"DRINK001", {"SeasonalMint"}});
+    assert(!invalid.ok);
+    cout << "回帰テスト: PASS" << endl;
+}
+```
+
+基本価格、3種合計、販売停止拒否の3点を `assert` で確認します。1-2の既存ケースが落ちていないことの機械的な証拠です。
+
+---
+
+#### `main()` と実行結果
+
+1-2の動作例テーブルと、変更要求後の代表ケースを通します。**見るのは、既存ケースの価格とエラー条件が保たれたまま、重ね順だけが注文で指定した順へ変わっているかです。**
+
+```cpp
 // main() の責任はプログラムを起動することだけ
 int main() {
     OrderApplication app;
@@ -2225,10 +2318,6 @@ int main() {
     return 0;
 }
 ```
-
-1-2の動作例テーブルと、変更要求後の代表ケースを通します。見るのは、既存ケースの価格とエラー条件が保たれたまま、重ね順だけが注文で指定した順へ変わっているか、そして変更理由ごとに責任が分かれているかです。
-
-実行結果：
 
 ```
 ホットコーヒー → 400円
