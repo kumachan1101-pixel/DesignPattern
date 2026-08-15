@@ -920,7 +920,21 @@ flowchart LR
 
 > **この抜粋の外は、現状のままです。** 以下は操作呼び出しと履歴の差分抜粋です。フェーズ1の `CategoryDatabase` によるカテゴリ存在・有効性確認と金額検証は維持します。Undoで保存済みデータまで戻すには保存側にも手を入れることになりますが、既存の検証を削って作り直すわけではありません。
 
-まず、各マネージャクラスに取消用のメソッド（`removeExpense`、`removeIncome`）を追加した部分です。
+変更した定義は7つです。1-4と同じ並び順で、上から見ていきます。
+
+| 1-4での掲載単位 | 今回の変更 | 根拠 |
+|---|---|---|
+| `ExpenseManager` | 逆操作 `removeExpense()` を追加 | 変更ID1 |
+| `IncomeManager` | 逆操作 `removeIncome()` を追加 | 変更ID1 |
+| （新規） | `HistoryItem` を追加 | 変更ID1 |
+| `UIButtons` の宣言 | 履歴・やり直しスタックと3つの公開操作を追加 | 変更ID1〜3 |
+| `UIButtons::onAddExpenseClick()` / `onAddIncomeClick()` | 履歴へ積む処理を追加 | 変更ID1 |
+| （新規） | `undo()` と `redo()` を追加 | 変更ID1・変更ID2 |
+| （新規） | `runBatch()` を追加 | 変更ID3 |
+
+---
+
+**共通ヘッダーと CategoryDatabase（抜粋用の最小構成）**
 
 ```cpp
 #include <iostream>
@@ -936,7 +950,15 @@ public:
         return names.find(id) != names.end();
     }
 };
+```
 
+この抜粋では存在確認だけを使うので、1-4の `CategoryDatabase` から必要な部分に絞っています。
+
+---
+
+**ExpenseManager（変更あり）**
+
+```cpp
 class ExpenseManager {
     CategoryDatabase& db;
 public:
@@ -955,7 +977,15 @@ public:
         return amount;
     }
 };
+```
 
+逆操作が1つ増えました。`addExpense()` が `-amount` を返すのに対し、`removeExpense()` は `+amount` を返します。**符号を反転させるだけです。**
+
+---
+
+**IncomeManager（変更あり）**
+
+```cpp
 class IncomeManager {
     CategoryDatabase& db;
 public:
@@ -976,7 +1006,13 @@ public:
 };
 ```
 
-次に、UI側が履歴を管理し、Undoを実行するロジックです。
+こちらも同じ形です。**2つのManagerへ、同じ理由で同じ形の関数が1つずつ増えました。**
+
+---
+
+**HistoryItem（追加）**
+
+取り消すために、何をどう戻すかを覚えておく型です。
 
 ```cpp
 struct HistoryItem {
@@ -984,7 +1020,15 @@ struct HistoryItem {
     int amount;
     std::string categoryId;
 };
+```
 
+`type` に `"Expense"` / `"Income"` という**操作種別を文字列で持ちます。** この文字列が、以降の分岐すべての判定材料になります。
+
+---
+
+**UIButtons の宣言（変更あり）**
+
+```cpp
 class UIButtons {
     ExpenseManager em;
     IncomeManager im;
@@ -994,108 +1038,150 @@ class UIButtons {
 public:
     explicit UIButtons(CategoryDatabase& db) : em(db), im(db) {}
 
-    void onAddExpenseClick(
-        int amount, const std::string& categoryId) {
-        int before = balance;
-        int delta = em.addExpense(amount, categoryId);
-        if (delta == 0) return;
-        balance += delta;
-        history.push_back({"Expense", amount, categoryId});
-        std::cout << "現在残高: " << before
-                  << " -> " << balance << "円\n";
-    }
-
-    void onAddIncomeClick(
-        int amount, const std::string& categoryId) {
-        int before = balance;
-        int delta = im.addIncome(amount, categoryId);
-        if (delta == 0) return;
-        balance += delta;
-        history.push_back({"Income", amount, categoryId});
-        std::cout << "現在残高: " << before
-                  << " -> " << balance << "円\n";
-    }
-
-    void undo() {
-        if (history.empty()) return;
-        HistoryItem last = history.back();
-        int before = balance;
-        if (last.type == "Expense") {
-            balance += em.removeExpense(
-                last.amount, last.categoryId);
-        } else if (last.type == "Income") {
-            balance += im.removeIncome(
-                last.amount, last.categoryId);
-        }
-        history.pop_back();
-        redoStack.push_back(last);      // 変更ID2：やり直し用に退避
-        std::cout << "Undo後残高: " << before
-                  << " -> " << balance << "円\n";
-    }
-```
-
-変更ID2のRedoは、同じ `UIButtons` へ `redo()` を足し、Undoで退避した操作をもう一度実行します。同じ種別分岐を、今度は順方向でもう一組書きます。
-
-```cpp
-    // 変更ID2：Undoした操作をもう一度実行する
-    void redo() {
-        if (redoStack.empty()) return;
-        HistoryItem last = redoStack.back();
-        redoStack.pop_back();
-        int before = balance;
-        if (last.type == "Expense") {           // ← 同じ種別分岐が3つ目
-            balance += em.addExpense(
-                last.amount, last.categoryId);
-        } else if (last.type == "Income") {
-            balance += im.addIncome(
-                last.amount, last.categoryId);
-        }
-        history.push_back(last);
-        std::cout << "Redo後残高: " << before
-                  << " -> " << balance << "円\n";
-    }
-```
-
-変更ID3の一括実行は、同じ `UIButtons` の `runBatch()` として、成功した操作を覚えておき、途中で失敗したら逆順に戻します。順方向の種別分岐と逆操作の種別分岐が、さらに一組ずつ増えます。
-
-```cpp
-    // 変更ID3：複数操作を一括実行し、途中失敗なら成功分を巻き戻す
-    void runBatch(const std::vector<HistoryItem>& items) {
-        std::vector<HistoryItem> done;
-        for (size_t i = 0; i < items.size(); ++i) {
-            const HistoryItem& it = items[i];
-            int delta = 0;
-            if (it.type == "Expense") {         // ← 同じ種別分岐が4つ目
-                delta = em.addExpense(it.amount, it.categoryId);
-            } else if (it.type == "Income") {
-                delta = im.addIncome(it.amount, it.categoryId);
-            }
-            if (delta == 0) {
-                std::cout << "一括実行が失敗したので巻き戻します\n";
-                for (size_t k = done.size(); k > 0; --k) {
-                    const HistoryItem& d = done[k - 1];
-                    if (d.type == "Expense") {  // ← 逆操作の分岐が5つ目
-                        balance += em.removeExpense(
-                            d.amount, d.categoryId);
-                    } else if (d.type == "Income") {
-                        balance += im.removeIncome(
-                            d.amount, d.categoryId);
-                    }
-                    history.pop_back();
-                }
-                std::cout << "巻き戻し後残高: " << balance << "円\n";
-                return;
-            }
-            balance += delta;
-            history.push_back(it);
-            done.push_back(it);
-        }
-        std::cout << "一括実行後残高: " << balance << "円\n";
-    }
+    void onAddExpenseClick(int amount, const std::string& categoryId);
+    void onAddIncomeClick(int amount, const std::string& categoryId);
+    void undo();
+    void redo();
+    void runBatch(const std::vector<HistoryItem>& items);
 };
 ```
 
-最後に、動作確認用の `main` 関数です。
+1-4から増えたのは、履歴、やり直しスタック、そして公開操作3つです。**2操作だったUIが5操作になりました。**
+
+---
+
+**UIButtons::onAddExpenseClick() と onAddIncomeClick()（変更あり）**
+
+```cpp
+void UIButtons::onAddExpenseClick(
+        int amount, const std::string& categoryId) {
+    int before = balance;
+    int delta = em.addExpense(amount, categoryId);
+    if (delta == 0) return;
+    balance += delta;
+    history.push_back({"Expense", amount, categoryId});
+    std::cout << "現在残高: " << before
+              << " -> " << balance << "円\n";
+}
+
+void UIButtons::onAddIncomeClick(
+        int amount, const std::string& categoryId) {
+    int before = balance;
+    int delta = im.addIncome(amount, categoryId);
+    if (delta == 0) return;
+    balance += delta;
+    history.push_back({"Income", amount, categoryId});
+    std::cout << "現在残高: " << before
+              << " -> " << balance << "円\n";
+}
+```
+
+1-4から増えたのは `history.push_back(...)` の1行ずつです。**ここで種別文字列を書き込んでいます。** これが1組目です。
+
+---
+
+**UIButtons::undo()（追加）**
+
+```cpp
+void UIButtons::undo() {
+    if (history.empty()) return;
+    HistoryItem last = history.back();
+    int before = balance;
+    if (last.type == "Expense") {
+        balance += em.removeExpense(
+            last.amount, last.categoryId);
+    } else if (last.type == "Income") {
+        balance += im.removeIncome(
+            last.amount, last.categoryId);
+    }
+    history.pop_back();
+    redoStack.push_back(last);      // 変更ID2：やり直し用に退避
+    std::cout << "Undo後残高: " << before
+              << " -> " << balance << "円\n";
+}
+```
+
+- **種別分岐が2組目：** `if (last.type == "Expense")` が現れました。今度は逆操作を選ぶためです
+- **順序に意味：** 履歴から取り出し、逆操作を実行し、履歴を削り、やり直し用へ退避します
+
+---
+
+**UIButtons::redo()（追加）**
+
+Undoで退避した操作をもう一度実行します。同じ種別分岐を、今度は順方向でもう一組書きます。
+
+```cpp
+// 変更ID2：Undoした操作をもう一度実行する
+void UIButtons::redo() {
+    if (redoStack.empty()) return;
+    HistoryItem last = redoStack.back();
+    redoStack.pop_back();
+    int before = balance;
+    if (last.type == "Expense") {           // ← 同じ種別分岐が3つ目
+        balance += em.addExpense(
+            last.amount, last.categoryId);
+    } else if (last.type == "Income") {
+        balance += im.addIncome(
+            last.amount, last.categoryId);
+    }
+    history.push_back(last);
+    std::cout << "Redo後残高: " << before
+              << " -> " << balance << "円\n";
+}
+```
+
+同じ形の分岐が**3組目**です。呼ぶ先が `removeExpense` から `addExpense` へ変わっただけです。
+
+---
+
+**UIButtons::runBatch()（追加）**
+
+成功した操作を覚えておき、途中で失敗したら逆順に戻します。
+
+```cpp
+// 変更ID3：複数操作を一括実行し、途中失敗なら成功分を巻き戻す
+void UIButtons::runBatch(const std::vector<HistoryItem>& items) {
+    std::vector<HistoryItem> done;
+    for (size_t i = 0; i < items.size(); ++i) {
+        const HistoryItem& it = items[i];
+        int delta = 0;
+        if (it.type == "Expense") {         // ← 同じ種別分岐が4つ目
+            delta = em.addExpense(it.amount, it.categoryId);
+        } else if (it.type == "Income") {
+            delta = im.addIncome(it.amount, it.categoryId);
+        }
+        if (delta == 0) {
+            std::cout << "一括実行が失敗したので巻き戻します\n";
+            for (size_t k = done.size(); k > 0; --k) {
+                const HistoryItem& d = done[k - 1];
+                if (d.type == "Expense") {  // ← 逆操作の分岐が5つ目
+                    balance += em.removeExpense(
+                        d.amount, d.categoryId);
+                } else if (d.type == "Income") {
+                    balance += im.removeIncome(
+                        d.amount, d.categoryId);
+                }
+                history.pop_back();
+            }
+            std::cout << "巻き戻し後残高: " << balance << "円\n";
+            return;
+        }
+        balance += delta;
+        history.push_back(it);
+        done.push_back(it);
+    }
+    std::cout << "一括実行後残高: " << balance << "円\n";
+}
+```
+
+- **種別分岐が4組目と5組目：** 順方向で1組、巻き戻しでもう1組。1つの関数の中に2組あります
+- **業務フローが3つの新しい知識を持つ：** どこまで成功したかを覚える `done`、どの順で戻すかという逆順ループ、失敗時に履歴も巻き戻すという規則
+
+---
+
+#### `main()` と実行結果
+
+支出登録、収入登録、Undo、Redo、一括実行の途中失敗を順に通します。**見るのは動くかどうかではなく、変更ID1〜変更ID3を満たすために必要な修正がどの責任へ広がるかです。**
 
 ```cpp
 int main() {
@@ -1118,10 +1204,6 @@ int main() {
 }
 ```
 
-支出登録、収入登録、Undo、Redo、一括実行の途中失敗を順に通します。見るのは、変更ID1〜変更ID3を満たせるかと、そのために必要な修正がどの責任へ広がるかです。
-
-実行結果：
-
 ```
 支出追加: 1000円 [CAT002]
 現在残高: 0 -> -1000円
@@ -1143,11 +1225,23 @@ Redo後残高: -1000 -> 4000円
 巻き戻し後残高: 4000円
 ```
 
-変更ID1のUndoでは、残高が`4000円`から収入登録前の`-1000円`へ戻りました。変更ID2のRedoでは、退避した収入登録をもう一度実行して`4000円`へ戻せています。変更ID3の一括実行では、3件目が未登録カテゴリ`CAT999`で失敗したため、成功済みの収入700円と支出300円を逆順に取り消し、一括実行前の`4000円`へ戻りました。三つとも要求は満たせています。
+変更ID1のUndoでは、残高が `4000円` から収入登録前の `-1000円` へ戻りました。変更ID2のRedoでは、退避した収入登録をもう一度実行して `4000円` へ戻せています。変更ID3の一括実行では、3件目が未登録カテゴリ `CAT999` で失敗したため、成功済みの収入700円と支出300円を逆順に取り消し、一括実行前の `4000円` へ戻りました。**動作は正しくなっています。** 三つとも変更要求は満たせました。
 
-ただし、そのために各Managerへ逆操作を追加し、`HistoryItem`へ復元データを持たせ、`UIButtons`へ操作種別の分岐を書き続けました。種別を見る `if (type == "Expense")` は、`onAddExpenseClick`／`onAddIncomeClick` の入口に加えて、`undo()`・`redo()`・`runBatch()` の順方向・`runBatch()` の巻き戻しと、同じ形で5組に増えています。収支以外の操作種別（たとえば振替）を1つ足せば、この5か所すべてへ同じ分岐を書き足すことになります。
+---
 
-つまり変更ID1〜変更ID3は「関数を1つ足せば動く」変更ではありませんでした。**各マネージャへ逆操作を足し、呼び出し元の`UIButtons`が操作種別・逆操作・復元データ・実行順を知る形になりました。** 局所的なメソッド追加では済まず、今回の要求だけで責任が`UIButtons`へ集中しています。
+痛いのは結果ではなく、そこへ至る過程です。定義を分けて並べたので、同じ形の分岐が何組できたかが数えられます。
+
+| 組 | 場所 | 何のための分岐か |
+|---|---|---|
+| 1 | `onAddExpenseClick()` / `onAddIncomeClick()` | 履歴へ書く種別を決める |
+| 2 | `undo()` | 逆操作を選ぶ |
+| 3 | `redo()` | 順方向の操作を選ぶ |
+| 4 | `runBatch()` の順方向 | 順方向の操作を選ぶ |
+| 5 | `runBatch()` の巻き戻し | 逆操作を選ぶ |
+
+**`if (type == "Expense")` が5組に増えました。** 収支以外の操作種別（たとえば振替）を1つ足せば、この5か所すべてへ同じ分岐を書き足すことになります。
+
+変更ID1〜変更ID3は「関数を1つ足せば動く」変更ではありませんでした。各マネージャへ逆操作を足し、呼び出し元の `UIButtons` が操作種別・逆操作・復元データ・実行順を知る形になっています。今回の要求だけで、責任が `UIButtons` へ集中しました。
 
 ### 3-2：変更影響グラフ
 
