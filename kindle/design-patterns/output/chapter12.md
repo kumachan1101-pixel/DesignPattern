@@ -361,11 +361,17 @@ classDiagram
 
 現状コードは、状態保存が成功した後に`notify()`を呼びます。
 
-システムの現状の実装を確認します。コードを役割ごとに分けて読んでいきます。
+#### 現状コード
 
-**ApproverInfo 構造体 と ApproverDatabase クラス**
+クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは `WorkflowManager` だけです。判断の基準は次の一行です。
 
-承認者マスターは、1-1で定義した3名（APR001〜APR003）です。次のコードの `ApproverDatabase` が、その氏名・役職（`role`）・承認上限をそのまま保持します。`role` はコード上で `"manager"` / `"director"` / `"executive"`、代表の上限なしは番兵値 `99999999` として表します。
+> **メンバーを見ないと読めない関数は、メンバーと一緒に置く。**
+
+`main()` と実行結果は最後に、ケースごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+
+---
+
+**共通ヘッダー**
 
 ```cpp
 #include <iostream>
@@ -373,7 +379,17 @@ classDiagram
 #include <string>
 
 using namespace std;
+```
 
+以降のすべてのクラスが使います。
+
+---
+
+**ApproverInfo と ApproverDatabase**
+
+承認者マスターは、1-1で定義した3名（APR001〜APR003）です。氏名・役職（`role`）・承認上限をそのまま保持します。`role` はコード上で `"manager"` / `"director"` / `"executive"`、代表の上限なしは番兵値 `99999999` として表します。
+
+```cpp
 // 承認者情報
 struct ApproverInfo {
     string name;         // 氏名
@@ -409,11 +425,16 @@ public:
 };
 ```
 
-`ApproverDatabase` は `std::map` で承認者IDと `ApproverInfo` を対応付けたマスターデータです。`exists()` でIDの存在確認、`get()` で情報取得、`canApprove()` で権限額の検証を行います。
+- **責任：** 承認者IDから存在確認・情報取得・承認上限の判定を行う
+- **副作用：** `save()` を呼んだときだけマスタが増える
 
-**申請状態と通知先を保存するクラス（WorkflowCaseRepository / NotificationTargetRepository）**
+**承認できるかどうかの判定は `canApprove()` の1か所だけです。** 呼び出し側は上限額そのものを知る必要がありません。
 
-1-1の仕様図のとおり、申請の現在状態と通知先は利用側が毎回指定するのではなく、申請IDをキーに保存データから読み出します。実システムのDBを、この章では実行終了まで覚えるインメモリの境界スタブで代替します。
+---
+
+**WorkflowCaseRepository**
+
+1-1の仕様図のとおり、申請の現在状態は利用側が毎回指定するのではなく、申請IDをキーに保存データから読み出します。実システムのDBを、この章では実行終了まで覚えるインメモリの境界スタブで代替します。
 
 ```cpp
 // 申請ごとの現在状態を保持するリポジトリ（申請ID→状態）
@@ -428,7 +449,15 @@ public:
     string getState(const string& id) const { return states.at(id); }
     void saveState(const string& id, const string& s) { states[id] = s; }
 };
+```
 
+**状態は文字列で持っています。** `"作成中"` `"審査待ち"` `"完了"` という値そのものが、比較にも保存にも表示にも使われます。
+
+---
+
+**NotificationTargetRepository**
+
+```cpp
 // 申請ごとの通知先を保持するリポジトリ（申請ID→通知先）
 class NotificationTargetRepository {
     map<string, string> targets;
@@ -442,9 +471,13 @@ public:
 };
 ```
 
-`WorkflowCaseRepository` は申請IDから現在状態を読み書きし、`NotificationTargetRepository` は申請IDから通知先を引きます。利用側は申請IDと操作を渡すだけで、状態や通知先を直接指定しません。
+申請IDから通知先を引きます。**利用側は申請IDと操作を渡すだけで、状態も通知先も直接指定しません。**
 
-**WorkflowManager クラス**
+---
+
+**WorkflowManager の宣言**
+
+このクラスが今章の中心です。
 
 ```cpp
 // ワークフロー管理クラス（状態遷移・承認判定・通知をすべて抱える）
@@ -454,55 +487,87 @@ class WorkflowManager {
     NotificationTargetRepository targets;
 public:
     void process(const string& requestId, const string& operation,
-                 int amount, const string& approverId) {
-        // 申請の存在確認
-        if (!cases.exists(requestId)) {
-            cout << "エラー：申請ID " << requestId
-                 << " は存在しません。" << endl;
-            return;
-        }
-        // 承認者IDの存在確認
-        if (!approvers.exists(approverId)) {
-            cout << "エラー：承認者ID " << approverId
-                 << " はデータベースに存在しません。" << endl;
-            return;
-        }
-        // 承認権限額チェック
-        if (!approvers.canApprove(approverId, amount)) {
-            ApproverInfo info = approvers.get(approverId);
-            cout << "エラー：" << info.name << "（" << info.role
-                 << "）の承認上限（"
-                 << info.approvalLimit << "円）を超えています。" << endl;
-            return;
-        }
-        // 保存済みの現在状態を読み出す
-        string current = cases.getState(requestId);
-        // 現在状態 × 操作 で次状態を決める
-        if (current == "作成中" && operation == "提出") {
-            cases.saveState(requestId, "審査待ち");
-            cout << requestId << "：作成中 → 審査待ち" << endl;
-            notify(requestId);
-        } else if (current == "審査待ち" && operation == "承認") {
-            cases.saveState(requestId, "完了");
-            cout << requestId << "：審査待ち → 完了" << endl;
-            notify(requestId);
-        } else {
-            cout << "エラー：現在状態「" << current
-                 << "」で操作「" << operation << "」はできません。" << endl;
-        }
-    }
+                 int amount, const string& approverId);
 private:
-    void notify(const string& requestId) {
-        cout << targets.getTarget(requestId) << "へ通知" << endl;
-    }
+    void notify(const string& requestId);
 };
 ```
 
-このクラスが今章の中心です。`process` メソッドは、申請IDから保存済み状態を読み出し、承認者IDの存在確認・承認上限額のチェックを行い、現在状態と操作の組み合わせで次状態を決めて保存し、通知先を読み出して通知するまでを順に実行します。
+3つの部品をすべて値メンバとして持ち、外から差し替える余地はありません。公開操作は `process()` の1つだけで、通知は非公開の `notify()` に閉じています。
 
-**main()**
+---
 
-まず依存を組み立て、ケース1（正常：作成中申請の提出）を実行します。
+**WorkflowManager::process()**
+
+```cpp
+void WorkflowManager::process(const string& requestId,
+                              const string& operation,
+                              int amount, const string& approverId) {
+    // 申請の存在確認
+    if (!cases.exists(requestId)) {
+        cout << "エラー：申請ID " << requestId
+             << " は存在しません。" << endl;
+        return;
+    }
+    // 承認者IDの存在確認
+    if (!approvers.exists(approverId)) {
+        cout << "エラー：承認者ID " << approverId
+             << " はデータベースに存在しません。" << endl;
+        return;
+    }
+    // 承認権限額チェック
+    if (!approvers.canApprove(approverId, amount)) {
+        ApproverInfo info = approvers.get(approverId);
+        cout << "エラー：" << info.name << "（" << info.role
+             << "）の承認上限（"
+             << info.approvalLimit << "円）を超えています。" << endl;
+        return;
+    }
+    // 保存済みの現在状態を読み出す
+    string current = cases.getState(requestId);
+    // 現在状態 × 操作 で次状態を決める
+    if (current == "作成中" && operation == "提出") {
+        cases.saveState(requestId, "審査待ち");
+        cout << requestId << "：作成中 → 審査待ち" << endl;
+        notify(requestId);
+    } else if (current == "審査待ち" && operation == "承認") {
+        cases.saveState(requestId, "完了");
+        cout << requestId << "：審査待ち → 完了" << endl;
+        notify(requestId);
+} else {
+    cout << "エラー：現在状態「" << current
+         << "」で操作「" << operation << "」はできません。" << endl;
+}
+}
+```
+
+- **判断が4つ：** 申請の存在、承認者の存在、承認上限、そして現在状態と操作の組み合わせ
+- **順序に意味：** 3つの検証をすべて通してから状態を読み、保存してから通知します。保存前に通知すると、保存に失敗しても通知だけが飛びます
+- **失敗の扱い：** どの検証で落ちても、状態を変えずに戻ります
+
+**中ほどの `if / else if` を見てください。** 現在状態と操作の組み合わせが1本の連鎖で書かれています。状態が増えれば、ここへ分岐が増えます。しかも各分岐の中に、次状態の保存・表示・`notify()` の呼び出しという3つの仕事が並んでいます。状態遷移・承認判定・通知が、この1つの関数へ集まっています。
+
+---
+
+**WorkflowManager::notify()**
+
+```cpp
+void WorkflowManager::notify(const string& requestId) {
+    cout << targets.getTarget(requestId) << "へ通知" << endl;
+}
+```
+
+申請IDから通知先を引いて表示するだけです。呼ばれるのは、状態を保存した後の2か所だけです。
+
+---
+
+#### `main()` と実行結果
+
+動作例4ケースを、ケースごとに区切って実行します。**状態はケースをまたいで引き継がれます。**
+
+---
+
+**組み立てと、ケース1：正常（作成中申請の提出）**
 
 ```cpp
 int main() {
@@ -520,7 +585,9 @@ REQ001：作成中 → 審査待ち
 ---
 ```
 
-続いて、ケース2（正常：審査待ち申請の承認）を実行します。
+---
+
+**ケース2：正常（審査待ち申請の承認）**
 
 ```cpp
     // 正常ケース2：REQ002（審査待ち）を5万円で承認する
@@ -536,7 +603,9 @@ REQ002：審査待ち → 完了
 ---
 ```
 
-続いて、ケース3（エラー：未登録の承認者ID）を実行します。
+---
+
+**ケース3：エラー（未登録の承認者ID）**
 
 ```cpp
     // エラー：存在しない承認者ID
@@ -551,7 +620,9 @@ REQ002：審査待ち → 完了
 ---
 ```
 
-最後に、ケース4（エラー：承認上限の超過）を実行し、`main()` を終了します。
+---
+
+**ケース4：エラー（承認上限の超過）**
 
 ```cpp
     // エラー：田中 課長の上限（10万円）を超える申請
@@ -566,11 +637,11 @@ REQ002：審査待ち → 完了
 エラー：田中 課長（manager）の承認上限（100000円）を超えています。
 ```
 
-各ケースのコードとその実行結果をその場で並べたので、離れた `main()` と出力を行き来せずに照合できます（確認したいこと：入力、加工、出力が仕様どおりに対応していること）。
+---
 
-動作例テーブルの「申請提出」「最終承認」「未登録ID」「承認上限超過」に対応しています。現行コードを読む段階で確認すべきことは、`WorkflowManager` が状態文字列・通知文・承認額チェックをまとめて扱っている、という事実です。
+動作例テーブルの「申請提出」「最終承認」「未登録ID」「承認上限超過」に対応しています。ケース3とケース4はどちらもREQ001を対象にしていますが、ケース1で `審査待ち` へ進んだ状態は変わっていません。検証で止まるので、状態へ触れる前に戻るからです。
 
-次のフェーズでは、このフェーズ1の現状コードに変更を加えたときに何が起きるかを確認します。
+現行コードを読む段階で確認すべきことは、`WorkflowManager` が状態文字列・通知文・承認額チェックをまとめて扱っている、という事実です。
 
 ---
 

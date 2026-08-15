@@ -2769,7 +2769,7 @@ def check_explanation_regression(text: str, path: Path) -> list[Issue]:
         "+generate(request) bool",
         "+writePreview(document, path, format) bool",
         "#### 内部デバッグログ",
-        "#### DebugLog",
+        "**DebugLog**",
         "##### 2. DebugLog",
         "class DebugLog",
         "現行システムに最初からある内部基盤",
@@ -2809,12 +2809,21 @@ def check_explanation_regression(text: str, path: Path) -> list[Issue]:
                 else len(section)
             )
             explanation = section[block.end():next_start]
-            if not re.search(r"(?m)^-\s+", explanation):
+            # 掲載単位（1定義1ブロック）では説明の下限は1行。箇条書きを
+            # 強制すると、名前を言い換えるだけの水増しを誘発する。
+            # ここで守るのは「説明が付いていること」だけにする。
+            prose = [
+                ln for ln in explanation.split("\n")
+                if ln.strip() and not ln.startswith("```")
+                and not ln.startswith("**") and not ln.startswith("#")
+                and not ln.startswith("---")
+            ]
+            if not prose:
                 issues.append(Issue(
                     path,
                     line_number(text, start + block.start()),
-                    f"第11章{label}のC++ブロック直後に"
-                    "責任・入力・処理・副作用の箇条書き説明がありません",
+                    f"第11章{label}のC++ブロック直後に説明がありません。"
+                    "そのブロックで何を見るかを最低1行書いてください",
                 ))
 
     if explanation_ranges:
