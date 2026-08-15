@@ -1547,14 +1547,14 @@ flowchart TB
 
 | ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
 |---|---|---|---|
-| 【契約】 | `execute()` が連携先IDで分岐 → `IExternalClient::send()` と `INotifier::onComplete()` | 送信と通知を別々の契約へ切り出す | 【具体】のoverride |
-| 【安定骨格】 骨格 | 生成・送信・通知が混ざる `execute()` → 生成役へ委譲→契約呼出→破棄と、登録リストの反復 | 連携先・通知先が増えても変えない順序を固定する | 【契約】の `send()` / `onComplete()` |
-| 【具体】 | 分岐に埋もれた送信詳細 → `SystemAClient::send()` ほか、`SlackNotifier::onComplete()` ほか | 連携先ごとの通信と、通知先ごとの送信を実装へ閉じる | 戻り値を【安定骨格】の保存・通知へ |
 | 【生成】 | `execute()` 内の固定具象 → `SystemAClientCreator::createClient()` と組み立て役のローカル変数 | 生成役の1か所へ具象選択を閉じる（Clientの所有は【安定骨格】） | 【注入】の受渡行 |
 | 【注入】 | 利用側が具体Clientを選ぶ → `execute(request, &creatorA)` と `addNotifier(&slack)` | 生成役と通知先を契約として渡す・登録する | 【利用開始】が呼ぶ `execute()` |
 | 【利用開始】 | 呼び出し側が連携先ごとの手順を知る → `batch.execute(request, &creatorA);` | 【生成】【注入】で組み立てた同じ実体を使い、公開操作を1回呼ぶ | 【安定骨格】の `execute()` |
+| 【安定骨格】 骨格 | 生成・送信・通知が混ざる `execute()` → 生成役へ委譲→契約呼出→破棄と、登録リストの反復 | 連携先・通知先が増えても変えない順序を固定する | 【契約】の `send()` / `onComplete()` |
+| 【契約】 | `execute()` が連携先IDで分岐 → `IExternalClient::send()` と `INotifier::onComplete()` | 送信と通知を別々の契約へ切り出す | 【具体】のoverride |
+| 【具体】 | 分岐に埋もれた送信詳細 → `SystemAClient::send()` ほか、`SlackNotifier::onComplete()` ほか | 連携先ごとの通信と、通知先ごとの送信を実装へ閉じる | 戻り値を【安定骨格】の保存・通知へ |
 
-この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（【契約】→【利用開始】）ではなく【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】で、課題ID節の末尾に実行接続表として置きます。
+この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。**並び順は実行時に通る順です。** 課題ID節でも同じ順で説明し、節の末尾に代表入力の実行接続表を置きます。
 
 #### 接続点の分離・配置・組み立てを決める
 
@@ -1821,7 +1821,7 @@ DeliveryResult BatchExecutor::execute(const SyncRequest& request) {
 
 **この課題（何を解きたいか）：** C社を足すだけで、`execute()` が具体Clientの生成分岐と各社の送信詳細まで抱える——問題ID1・問題ID3（痛み）／原因ID1（外部手順の漏出）です。**バッチの実行順は固定したまま、連携先ごとの生成と通信だけを差し替えられる**ようにするのが課題ID1です。
 
-**どう解決するか（方針）：** 通信の窓口を共通契約の裏へ隠し（窓口固定構造＝Facade）、どの具体Clientを作るかの生成判断も生成役へ寄せます（生成分離構造＝Factory Method）。【契約】 →【安定骨格】検証・生成・送信を並べる窓口骨格 →【具体】 →【生成】 →【注入】 →【利用開始】実行 の順で組み立てます。
+**どう解決するか（方針）：** 通信の窓口を共通契約の裏へ隠し（窓口固定構造＝Facade）、どの具体Clientを作るかの生成判断も生成役へ寄せます（生成分離構造＝Factory Method）。以下は**実行時に通る順**に並べます。【生成】【注入】で部品を組み立て、【利用開始】で1回呼び、【安定骨格】が委譲し、【契約】を経て【具体】が答える、という流れです。
 
 この課題で新設するのは、通信窓口 `IExternalClient` と生成役 `IClientCreator` の2契約です。
 
@@ -1842,6 +1842,54 @@ classDiagram
     class SystemAClientCreator:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
+
+**【生成】 どの具体を生成するかを、生成役 `IClientCreator` の一箇所へ閉じる。** `createClient()` は `new` した使い捨てClientを生ポインタで返し、**所有は呼び出した `execute()` が持ち、送信後に `delete` する**（【利用開始】で破棄）。
+
+```cpp
+class IClientCreator {
+public:
+    virtual ~IClientCreator() = default;
+    virtual IExternalClient* createClient() = 0;
+};
+class SystemAClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemAClient();   // 所有は呼び出し側（execute）へ渡す
+    }
+};
+```
+
+**【注入】 生成役を安定側へ注入する。** 組み立て役 `BatchApplication` が各Creatorを所有し、`execute()` へ実行時に `IClientCreator*` を渡します（具体Clientの選択は骨格に漏れません）。
+
+**掲載箇所：`BatchApplication::run()`** ―― 生成役を作り、実行時引数として窓口へ渡す2行です。
+
+```cpp
+SystemAClientCreator creatorA;         // 生成役は組み立て側が所有
+batch.execute(&creatorA, request);     // 【注入】 生成役を契約として渡す
+```
+
+**【利用開始】** 組み立て役 `BatchApplication` が公開操作 `BatchExecutor::execute()` を呼びます。利用側が `createClient()` や具体Clientを直接呼ぶことはありません。
+
+**掲載箇所：`BatchApplication::run()`** ―― 【注入】の直後。1件の連携ジョブを起動する行です。
+
+```cpp
+batch.execute(&creatorA, {"PARTNER_A", SyncTarget::Orders}); // 【利用開始】
+```
+
+**【安定骨格】 窓口の安定骨格。** `BatchExecutor::execute()` は、渡された生成役で生成→`send()`→`delete` の順を実行するだけで、A社かC社かを知りません。連携先が増えてもこの順序は変わりません。
+
+**掲載箇所：`BatchExecutor::execute(IClientCreator*, const SyncRequest&, bool, const string&)`** ―― 設定を引いた後の中核。生成→送信→保存→通知→破棄の順を固定します。送信・保存・通知は、手動入口と共有する後段処理 `deliverResult()` へ委ねます。
+
+```cpp
+IExternalClient* client = creator->createClient();  // 【安定骨格】 生成役へ委譲
+string data = dataCatalog.load(request.target);
+DeliveryResult r = deliverResult(*client, data, partnerId, cfg.name,
+                                 batchLog, notificationLog, notifiers,
+                                 apiHealthy, kind);  // 送信→保存→通知
+delete client;                                      // 【安定骨格】 使い捨て後に破棄
+```
+
+`deliverResult()` の中身は `client.send()` → `batchLog.add()` → 登録された全 `INotifier` への `onComplete()` の順です。全文は7-1に置きます。
 
 **【契約】 共通契約 `IExternalClient` を定義する。** `BatchExecutor` は `send()` の結果 `DeliveryResult`（1-4から存在）だけを受け取り、各社固有の送信手順を知りません。
 
@@ -1870,58 +1918,9 @@ public:
 };
 ```
 
-**【生成】 どの具体を生成するかを、生成役 `IClientCreator` の一箇所へ閉じる。** `createClient()` は `new` した使い捨てClientを生ポインタで返し、**所有は呼び出した `execute()` が持ち、送信後に `delete` する**（【利用開始】で破棄）。
-
-```cpp
-class IClientCreator {
-public:
-    virtual ~IClientCreator() = default;
-    virtual IExternalClient* createClient() = 0;
-};
-class SystemAClientCreator : public IClientCreator {
-public:
-    IExternalClient* createClient() override {
-        return new SystemAClient();   // 所有は呼び出し側（execute）へ渡す
-    }
-};
-```
-
-**【注入】 生成役を安定側へ注入する。** 組み立て役 `BatchApplication` が各Creatorを所有し、`execute()` へ実行時に `IClientCreator*` を渡します（具体Clientの選択は骨格に漏れません）。
-
-**掲載箇所：`BatchApplication::run()`** ―― 生成役を作り、実行時引数として窓口へ渡す2行です。
-
-```cpp
-SystemAClientCreator creatorA;         // 生成役は組み立て側が所有
-batch.execute(&creatorA, request);     // 【注入】 生成役を契約として渡す
-```
-
-**【安定骨格】 窓口の安定骨格。** `BatchExecutor::execute()` は、渡された生成役で生成→`send()`→`delete` の順を実行するだけで、A社かC社かを知りません。連携先が増えてもこの順序は変わりません。
-
-**掲載箇所：`BatchExecutor::execute(IClientCreator*, const SyncRequest&, bool, const string&)`** ―― 設定を引いた後の中核。生成→送信→保存→通知→破棄の順を固定します。送信・保存・通知は、手動入口と共有する後段処理 `deliverResult()` へ委ねます。
-
-```cpp
-IExternalClient* client = creator->createClient();  // 【安定骨格】 生成役へ委譲
-string data = dataCatalog.load(request.target);
-DeliveryResult r = deliverResult(*client, data, partnerId, cfg.name,
-                                 batchLog, notificationLog, notifiers,
-                                 apiHealthy, kind);  // 送信→保存→通知
-delete client;                                      // 【安定骨格】 使い捨て後に破棄
-```
-
-`deliverResult()` の中身は `client.send()` → `batchLog.add()` → 登録された全 `INotifier` への `onComplete()` の順です。全文は7-1に置きます。
-
-**【利用開始】** 組み立て役 `BatchApplication` が公開操作 `BatchExecutor::execute()` を呼びます。利用側が `createClient()` や具体Clientを直接呼ぶことはありません。
-
-**掲載箇所：`BatchApplication::run()`** ―― 【注入】の直後。1件の連携ジョブを起動する行です。
-
-```cpp
-batch.execute(&creatorA, {"PARTNER_A", SyncTarget::Orders}); // 【利用開始】
-```
-
 #### 代表ケースの実行接続
 
-A社への注文連携1件を、【生成】から【具体】まで実コードで追います。設計を説明する順は【契約】から【利用開始】ですが、実行時の呼出順は【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】です。
-
+上のブロックを、A社への注文連携1件で貫いて確認します。並び順は上の説明と同じです。
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
 | 1. 【生成】 | `SystemAClientCreator::createClient()` | `return new SystemAClient();` で使い捨てClientを作る | 【注入】へ |
@@ -1941,7 +1940,7 @@ A社への注文連携1件を、【生成】から【具体】まで実コード
 
 **この課題（何を解きたいか）：** Slackを足すだけで、`execute()` が具体通知先の生成と送信詳細を抱える——問題ID2（痛み）／原因ID2（通知先の漏出）です。**送信結果の配送を、通知先の種類を知らずに一律配布できる**ようにするのが課題ID2です。
 
-**どう解決するか（方針）：** 通知先を共通契約へ揃え、登録済みの通知先へ一律配布します（通知分離構造＝Observer）。【契約】 →【安定骨格】登録リストを反復して一律配布する安定骨格 →【具体】 →【生成】 →【注入】・登録 →【利用開始】実行 の順で組み立てます。
+**どう解決するか（方針）：** 通知先を共通契約へ揃え、登録済みの通知先へ一律配布します（通知分離構造＝Observer）。以下は**実行時に通る順**に並べます。【生成】【注入】で部品を組み立て、【利用開始】で1回呼び、【安定骨格】が委譲し、【契約】を経て【具体】が答える、という流れです。
 
 ```mermaid
 classDiagram
@@ -1953,29 +1952,6 @@ classDiagram
     class INotifier:::focus
     class SlackNotifier:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-**【契約】 共通契約 `INotifier` を定義する。** `BatchExecutor` は `onComplete()` の受付結果 `NotificationResult` だけを受け取ります。
-
-```cpp
-class INotifier {
-public:
-    virtual ~INotifier() = default;
-    virtual NotificationResult
-        onComplete(const std::string& message) = 0;
-};
-```
-
-**【具体】通知先が送信詳細だけを実装する。**
-
-```cpp
-class SlackNotifier : public INotifier {
-public:
-    NotificationResult
-    onComplete(const std::string& message) override {
-        return {"Slack", true, message};   // Slack送信の詳細はここに閉じる
-    }
-};
 ```
 
 **【生成】・所有。** 組み立て役 `BatchApplication` が具体通知先を生成し、所有します。
@@ -1992,16 +1968,6 @@ SlackNotifier slack;               // 【生成】・所有は組み立て側
 
 ```cpp
 batch.addNotifier(&slack);         // 【注入】 登録で注入（借用参照）
-```
-
-**【安定骨格】 通知配布の安定骨格。** `BatchExecutor::execute()` は送信確定のあと、登録済みリストを順に回して `onComplete()` を呼びます。Slackかメールかを知らず、1件の通知が失敗しても送信確定と後続ジョブは止めません。
-
-**掲載箇所：`BatchExecutor::execute(const SyncRequest&, IClientCreator*)`** ―― 送信結果を保存した直後の配布部分です。
-
-```cpp
-for (INotifier* n : notifiers) {
-    n->onComplete(partnerId, result.status);   // 【安定骨格】 登録順に契約を呼ぶ
-}
 ```
 
 **【利用開始】** 通知そのものを利用側が呼ぶことはありません。【利用開始】は課題ID1と同じ、組み立て役 `BatchApplication` からの `batch.execute(...)` で、【安定骨格】が送信確定後に自動で配布します。
@@ -2062,6 +2028,39 @@ public:
 | 安定側はどう実行するか | `BatchExecutor` は実行順どおりに委譲するだけ | 通信・通知・生成の中身 |
 
 Client・Notifier・Creatorは組み立て側が所有し、`BatchExecutor` は非所有の契約ポインタを保持します。所有側の生存期間がExecutorより長いことを組み立てコードで確認します。
+
+**【安定骨格】 通知配布の安定骨格。** `BatchExecutor::execute()` は送信確定のあと、登録済みリストを順に回して `onComplete()` を呼びます。Slackかメールかを知らず、1件の通知が失敗しても送信確定と後続ジョブは止めません。
+
+**掲載箇所：`BatchExecutor::execute(const SyncRequest&, IClientCreator*)`** ―― 送信結果を保存した直後の配布部分です。
+
+```cpp
+for (INotifier* n : notifiers) {
+    n->onComplete(partnerId, result.status);   // 【安定骨格】 登録順に契約を呼ぶ
+}
+```
+
+**【契約】 共通契約 `INotifier` を定義する。** `BatchExecutor` は `onComplete()` の受付結果 `NotificationResult` だけを受け取ります。
+
+```cpp
+class INotifier {
+public:
+    virtual ~INotifier() = default;
+    virtual NotificationResult
+        onComplete(const std::string& message) = 0;
+};
+```
+
+**【具体】通知先が送信詳細だけを実装する。**
+
+```cpp
+class SlackNotifier : public INotifier {
+public:
+    NotificationResult
+    onComplete(const std::string& message) override {
+        return {"Slack", true, message};   // Slack送信の詳細はここに閉じる
+    }
+};
+```
 
 #### システム全体のコード適用結果
 

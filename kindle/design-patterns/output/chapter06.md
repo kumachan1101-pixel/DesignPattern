@@ -1233,14 +1233,14 @@ flowchart TB
 
 | ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
 |---|---|---|---|
-| 【契約】 | `CustomDrink` がフラグで全トッピングを持つ → `IDrink::getPrice()` / `getDescription()` | 基本ドリンクとトッピングを同じ操作で呼べるようにする | 【具体】のoverride |
-| 【安定骨格】 骨格 | `getPrice()` の `if` 列挙 → `ToppingWrapper::getPrice()` の「内側へ委譲して自分ぶんを足す」形 | トッピングが増えても変えない委譲の形を固定する | 【契約】の `getPrice()` |
-| 【具体】 | フラグ分岐に埋もれた価格・表示名 → `Coffee` と各トッピング部品 | 基本／部品それぞれの差分だけを実装へ閉じる | 【契約】経由で外側の【安定骨格】へ戻る |
 | 【生成】 | 組み合わせごとのクラスや分岐 → `OrderAssembler::wrapOne()` の `new` | 入力順に内側から包んで連鎖を作る（所有は外側の部品） | 【注入】の内側参照 |
 | 【注入】 | 各部品が価格を直書き → 生成時の `IDrink*` と `ToppingCatalog*` | 内側の契約と価格カタログを外から渡す | 【利用開始】が呼ぶ `assemble()` |
 | 【利用開始】 | 呼び出し側がフラグを並べる → `assembler.assemble(request);` | 【生成】【注入】で組み立てた同じ連鎖を使い、公開操作を1回呼ぶ | 【安定骨格】の `getPrice()` |
+| 【安定骨格】 骨格 | `getPrice()` の `if` 列挙 → `ToppingWrapper::getPrice()` の「内側へ委譲して自分ぶんを足す」形 | トッピングが増えても変えない委譲の形を固定する | 【契約】の `getPrice()` |
+| 【契約】 | `CustomDrink` がフラグで全トッピングを持つ → `IDrink::getPrice()` / `getDescription()` | 基本ドリンクとトッピングを同じ操作で呼べるようにする | 【具体】のoverride |
+| 【具体】 | フラグ分岐に埋もれた価格・表示名 → `Coffee` と各トッピング部品 | 基本／部品それぞれの差分だけを実装へ閉じる | 【契約】経由で外側の【安定骨格】へ戻る |
 
-この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（【契約】→【利用開始】）ではなく【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】で、課題ID節の末尾に実行接続表として置きます。
+この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。**並び順は実行時に通る順です。** 課題ID節でも同じ順で説明し、節の末尾に代表入力の実行接続表を置きます。
 
 #### 接続点の分離・配置・組み立てを決める
 
@@ -1462,7 +1462,7 @@ public:
 
 **この課題（何を解きたいか）：** トッピングを1種足すたび `CustomDrink::getPrice()` の種類名の分岐を開くことになり、種類名の誤りも分岐の足し忘れも実行時まで止まらない——問題ID1〜問題ID3（痛み）／原因ID1です。あわせて、販売可否の確認を受け取る場所が契約に無いため、それが呼び出し側へ残る——問題ID4／原因ID2です。**基本とトッピングを同じ契約にそろえ、トッピングは内側を包んで自分ぶんだけを足す**ようにして、種類追加を新部品と登録に閉じるのが課題ID1です。
 
-**どう解決するか（方針）：** トッピングを「内側のドリンクを包む部品」にして入力順に重ねます（装飾連結構造＝Decorator）。【契約】 →【安定骨格】内側へ委譲して結果を合成する安定骨格 →【具体】（基本・部品）→【生成】（包み上げ）→【注入】配置（カタログ）→【利用開始】実行（連鎖）の順で組み立てます。線種は第0章の「クラス図の読み方」で定めた実装・継承・所有・依存を使い、直後のコード上の関係と照合します。
+**どう解決するか（方針）：** トッピングを「内側のドリンクを包む部品」にして入力順に重ねます（装飾連結構造＝Decorator）。以下は**実行時に通る順**に並べます。【生成】【注入】で部品を組み立て、【利用開始】で1回呼び、【安定骨格】が委譲し、【契約】を経て【具体】が答える、という流れです。線種は第0章の「クラス図の読み方」で定めた実装・継承・所有・依存を使い、直後のコード上の関係と照合します。
 
 ```mermaid
 classDiagram
@@ -1482,109 +1482,6 @@ classDiagram
     class ToppingWrapper:::focus
     class OrderAssembler:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-**【契約】：共通契約 `IDrink` を定義する。** 基本ドリンクとトッピングを同じ価格・説明の操作で呼べるようにします。
-
-```cpp
-class IDrink {
-public:
-    virtual ~IDrink() = default;
-    virtual int getPrice() const = 0;
-    virtual string getDescription() const = 0;
-};
-```
-
-**【具体】（基本）：`Coffee`が基本ドリンクを実装する。** 自分の名前・基本価格だけを持ち、トッピングを知りません。
-
-```cpp
-class Coffee : public IDrink {
-    string name;
-    int basePrice;
-public:
-    Coffee(const string& itemName, int price)
-        : name(itemName), basePrice(price) {}
-    int getPrice() const override { return basePrice; }
-    string getDescription() const override { return name; }
-};
-```
-
-**【注入】 配置：価格・表示名・販売可否を`ToppingCatalog`へ置く。** 各部品へ値を埋め込まず、商品企画や在庫状況で変わるデータの正本を一か所にします。
-
-```cpp
-struct ToppingSpec {
-    string label;
-    int price;
-    bool onSale;
-};
-
-class ToppingCatalog {
-    map<string, ToppingSpec> specs;
-public:
-    ToppingCatalog() {
-        specs["Milk"]  = {"Milk", 50, true};
-        specs["Syrup"] = {"Syrup", 30, true};
-        specs["Whip"]  = {"Whip", 70, true};
-        specs["Matcha"] = {"Matcha", 60, true};
-        specs["Choco"] = {"Choco", 40, true};
-    }
-    bool exists(const string& id) const { return specs.count(id) > 0; }
-    bool onSale(const string& id) const {
-        return exists(id) && specs.at(id).onSale;
-    }
-    int priceOf(const string& id) const { return specs.at(id).price; }
-    string labelOf(const string& id) const { return specs.at(id).label; }
-};
-```
-
-**【安定骨格】：`ToppingWrapper`が内側への委譲を固定する。** トッピングは内側の`IDrink`を1つ所有して包み、価格も表示名も「まず内側へ委譲し、自分ぶんを1つ足す」形に固定します。この委譲の形は、トッピングが何種類増えても変わりません。包む順で任意の組み合わせを表せるため、組み合わせ別クラスは要りません。最外の部品を破棄すると、デストラクタが内側を連鎖して破棄します。（【具体】の各トッピングは、この基底を継いで自分の差分だけを実装します。）
-
-```cpp
-class ToppingWrapper : public IDrink {
-protected:
-    IDrink* inner;                       // 内側のドリンク（所有）
-    const ToppingCatalog* catalog;       // 借用
-    string toppingId;
-public:
-    ToppingWrapper(IDrink* d, const ToppingCatalog* c, string id)
-        : inner(d), catalog(c), toppingId(id) {}
-    ~ToppingWrapper() override { delete inner; }   // 内側を破棄（連鎖）
-    int getPrice() const override {
-        return inner->getPrice() + catalog->priceOf(toppingId);
-    }
-    string getDescription() const override {
-        return inner->getDescription() + " + " + catalog->labelOf(toppingId);
-    }
-};
-class Milk : public ToppingWrapper {
-public:
-    Milk(IDrink* base, const ToppingCatalog* cat)
-        : ToppingWrapper(base, cat, "Milk") {}
-};
-class Syrup : public ToppingWrapper {
-public:
-    Syrup(IDrink* base, const ToppingCatalog* cat)
-        : ToppingWrapper(base, cat, "Syrup") {}
-};
-```
-続いて `Whip` です。
-
-```cpp
-class Whip : public ToppingWrapper {
-public:
-    Whip(IDrink* base, const ToppingCatalog* cat)
-        : ToppingWrapper(base, cat, "Whip") {}
-};
-class Matcha : public ToppingWrapper {
-public:
-    Matcha(IDrink* base, const ToppingCatalog* cat)
-        : ToppingWrapper(base, cat, "Matcha") {}
-};
-class Choco : public ToppingWrapper {
-public:
-    Choco(IDrink* base, const ToppingCatalog* cat)
-        : ToppingWrapper(base, cat, "Choco") {}
-};
 ```
 
 **【生成】：`OrderAssembler`が検証済みの要求を入力順に包む。** 要求・結果、種類ごとの生成分岐、全件検証、連結、破棄までを同じ実装抜粋で示します。
@@ -1639,6 +1536,34 @@ public:
 };
 ```
 
+**【注入】 配置：価格・表示名・販売可否を`ToppingCatalog`へ置く。** 各部品へ値を埋め込まず、商品企画や在庫状況で変わるデータの正本を一か所にします。
+
+```cpp
+struct ToppingSpec {
+    string label;
+    int price;
+    bool onSale;
+};
+
+class ToppingCatalog {
+    map<string, ToppingSpec> specs;
+public:
+    ToppingCatalog() {
+        specs["Milk"]  = {"Milk", 50, true};
+        specs["Syrup"] = {"Syrup", 30, true};
+        specs["Whip"]  = {"Whip", 70, true};
+        specs["Matcha"] = {"Matcha", 60, true};
+        specs["Choco"] = {"Choco", 40, true};
+    }
+    bool exists(const string& id) const { return specs.count(id) > 0; }
+    bool onSale(const string& id) const {
+        return exists(id) && specs.at(id).onSale;
+    }
+    int priceOf(const string& id) const { return specs.at(id).price; }
+    string labelOf(const string& id) const { return specs.at(id).label; }
+};
+```
+
 **【利用開始】 実行：組み立て結果を共通契約として呼ぶ。** `assemble()`は内側から外側へ`getPrice()`／`getDescription()`を連鎖させ、呼び出し元へ`OrderResult`を返します。基本ドリンク側へトッピング種別の分岐は増えません。
 
 **掲載箇所：`OrderApplication::run()`** ―― 注文要求を1件作って組み立て役へ渡す部分。7-1では同じ形の要求を `vector` に並べて順に流します。
@@ -1648,10 +1573,84 @@ OrderRequest request{"DRINK001", {"Milk", "Matcha"}};
 OrderResult result = assembler.assemble(request);
 ```
 
+**【安定骨格】：`ToppingWrapper`が内側への委譲を固定する。** トッピングは内側の`IDrink`を1つ所有して包み、価格も表示名も「まず内側へ委譲し、自分ぶんを1つ足す」形に固定します。この委譲の形は、トッピングが何種類増えても変わりません。包む順で任意の組み合わせを表せるため、組み合わせ別クラスは要りません。最外の部品を破棄すると、デストラクタが内側を連鎖して破棄します。（【具体】の各トッピングは、この基底を継いで自分の差分だけを実装します。）
+
+```cpp
+class ToppingWrapper : public IDrink {
+protected:
+    IDrink* inner;                       // 内側のドリンク（所有）
+    const ToppingCatalog* catalog;       // 借用
+    string toppingId;
+public:
+    ToppingWrapper(IDrink* d, const ToppingCatalog* c, string id)
+        : inner(d), catalog(c), toppingId(id) {}
+    ~ToppingWrapper() override { delete inner; }   // 内側を破棄（連鎖）
+    int getPrice() const override {
+        return inner->getPrice() + catalog->priceOf(toppingId);
+    }
+    string getDescription() const override {
+        return inner->getDescription() + " + " + catalog->labelOf(toppingId);
+    }
+};
+class Milk : public ToppingWrapper {
+public:
+    Milk(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Milk") {}
+};
+class Syrup : public ToppingWrapper {
+public:
+    Syrup(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Syrup") {}
+};
+```
+続いて `Whip` です。
+
+```cpp
+class Whip : public ToppingWrapper {
+public:
+    Whip(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Whip") {}
+};
+class Matcha : public ToppingWrapper {
+public:
+    Matcha(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Matcha") {}
+};
+class Choco : public ToppingWrapper {
+public:
+    Choco(IDrink* base, const ToppingCatalog* cat)
+        : ToppingWrapper(base, cat, "Choco") {}
+};
+```
+
+**【契約】：共通契約 `IDrink` を定義する。** 基本ドリンクとトッピングを同じ価格・説明の操作で呼べるようにします。
+
+```cpp
+class IDrink {
+public:
+    virtual ~IDrink() = default;
+    virtual int getPrice() const = 0;
+    virtual string getDescription() const = 0;
+};
+```
+
+**【具体】（基本）：`Coffee`が基本ドリンクを実装する。** 自分の名前・基本価格だけを持ち、トッピングを知りません。
+
+```cpp
+class Coffee : public IDrink {
+    string name;
+    int basePrice;
+public:
+    Coffee(const string& itemName, int price)
+        : name(itemName), basePrice(price) {}
+    int getPrice() const override { return basePrice; }
+    string getDescription() const override { return name; }
+};
+```
+
 #### 代表ケースの実行接続
 
-`DRINK001` に Milk → Matcha を重ねる1件を、【生成】から【具体】まで実コードで追います。設計を説明する順は【契約】から【利用開始】ですが、実行時の呼出順は【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】です。
-
+上のブロックを、`DRINK001` に Milk → Matcha を重ねる1件で貫いて確認します。並び順は上の説明と同じです。
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
 | 1. 【生成】 | `OrderAssembler::wrapOne()` | `return new Milk(inner, &catalog);` で内側を包む部品を作る | 【注入】へ |

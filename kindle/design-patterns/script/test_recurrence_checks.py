@@ -194,8 +194,8 @@ cases.append(("CHANGE-DIAGRAM-001 変更図の差分色", V.check_change_diagram
 # 27) SKELETON-001: フェーズ6の安定骨格を「なし」へ戻す
 t = (OUT/"chapter06.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "【安定骨格】内側へ委譲して結果を合成する安定骨格",
-    "【安定骨格】骨格は無し", 1)
+    "**【安定骨格】：`ToppingWrapper`が内側への委譲を固定する。**",
+    "**【安定骨格】：この課題では骨格は無し。**", 1)
 cases.append(("SKELETON-001 安定骨格の省略", V.check_stable_skeleton_explanation, broken))
 
 # 28) REQUIREMENT-ROOT-001: 変更ID一覧にない要求IDへ変更根拠を付ける

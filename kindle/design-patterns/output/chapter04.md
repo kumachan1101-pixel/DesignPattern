@@ -1498,14 +1498,14 @@ flowchart TB
 
 | ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
 |---|---|---|---|
-| 【契約】 | 各Importerが手順ごと複製 → `AbstractImporter` の `protected` 純粋仮想フック（`parseData()` ほか） | 形式で変わるステップだけを差し替え点として宣言する | 【具体】のoverride |
-| 【安定骨格】 骨格 | `StoreDataImporter::import()` ほかに同じ順が3本 → `AbstractImporter::import()` の1本 | 開く→形式確認→解析→行検証→保存→閉じるの順を1か所へ固定する | 【契約】のフック |
-| 【具体】 | 骨格に混ざった形式別解析 → `StoreDataImporter::parseData()` ほか各派生 | 区切り文字・ヘッダー有無・列数検証だけを実装へ閉じる | 【安定骨格】の `validateRows()` へ戻る |
 | 【生成】 | 各Importerが境界を自前で用意 → 組み立て側のローカル変数 | 取得・保存の境界と派生Importerを生成し所有する | 【注入】のコンストラクタ引数 |
 | 【注入】 | 境界を各クラスが内部生成 → `AbstractImporter(ImportFileGateway&, SalesImportRepository&)` | 境界の参照を骨格へ渡す（所有は【生成】のまま） | 【利用開始】が呼ぶ `import()` |
 | 【利用開始】 | 形式ごとに違う呼び出し → 実行部の `store.import();` | 派生の種類によらず同じ公開操作を1回呼ぶ | 【安定骨格】の `import()` |
+| 【安定骨格】 骨格 | `StoreDataImporter::import()` ほかに同じ順が3本 → `AbstractImporter::import()` の1本 | 開く→形式確認→解析→行検証→保存→閉じるの順を1か所へ固定する | 【契約】のフック |
+| 【契約】 | 各Importerが手順ごと複製 → `AbstractImporter` の `protected` 純粋仮想フック（`parseData()` ほか） | 形式で変わるステップだけを差し替え点として宣言する | 【具体】のoverride |
+| 【具体】 | 骨格に混ざった形式別解析 → `StoreDataImporter::parseData()` ほか各派生 | 区切り文字・ヘッダー有無・列数検証だけを実装へ閉じる | 【安定骨格】の `validateRows()` へ戻る |
 
-この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（【契約】→【利用開始】）ではなく【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】で、課題ID節の末尾に実行接続表として置きます。
+この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。**並び順は実行時に通る順です。** 課題ID節でも同じ順で説明し、節の末尾に代表入力の実行接続表を置きます。
 
 #### 接続点の分離・配置・組み立てを決める
 
@@ -1676,7 +1676,7 @@ public:
 
 **この課題（何を解きたいか）：** 新形式を足すたび共通手順を複製し、共通手順に修正が入ると全Importerを同時修正する——問題ID1〜問題ID3（痛み）／原因ID1です。**開く→形式確認→解析→行検証→保存→閉じるの順序を1か所に固定し、形式ごとの解析・行検証だけを差し替えられる**ようにするのが課題ID1です。
 
-**どう解決するか（方針）：** 共通順序を基底クラスの骨格へ固定し、変わる部分だけを派生のフックへ外へ出します（骨格固定構造＝Template Method）。この章は骨格を持つので、【契約】（フック宣言）→【安定骨格】骨格（固定順）→【具体】（フック実装）→【生成】 →【注入】 →【利用開始】実行 の順で組み立てます。
+**どう解決するか（方針）：** 共通順序を基底クラスの骨格へ固定し、変わる部分だけを派生のフックへ外へ出します（骨格固定構造＝Template Method）。この章は骨格を持つので、以下は**実行時に通る順**に並べます。【生成】【注入】で部品を組み立て、【利用開始】で1回呼び、【安定骨格】が委譲し、【契約】を経て【具体】が答える、という流れです。
 
 ```mermaid
 classDiagram
@@ -1692,18 +1692,32 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**【契約】：形式で変わるステップを純粋仮想フックとして宣言する。** 他章のように別のインターフェース型を作らず、基底クラス `AbstractImporter` の `protected` 側へ差し替え点を並べます。これがこの章の契約です。
+**【生成】・所有。** 取得・保存の境界と派生Importerを、組み立て側の `BatchApplication` が生成し所有します。これらは1-4の既存境界のままで、保存媒体や永続化仕様は追加しません。
 
-**掲載箇所：`AbstractImporter` クラスの `protected` 節** ―― 骨格 `import()` の内側から呼ぶ差し替え点の宣言部です。
+**掲載箇所：`BatchApplication`（`gateway`・`repo` はメンバー、`store` は `runStoreImport()` のローカル）** ―― 境界と派生Importerを生成し所有する位置です。
 
 ```cpp
-protected:                                        // 【契約】（差し替え点）
-    virtual string filePath() const = 0;
-    virtual string schemaType() const = 0;
-    virtual string schemaName() const = 0;
-    virtual vector<ParsedRow> parseData(const vector<string>&) = 0;
-    virtual ValidationResult validateRows(const vector<ParsedRow>&) = 0;
-    virtual void afterParse(const vector<SalesRow>&) {}
+ImportFileGateway gateway;                // 【生成】・所有は組み立て側
+SalesImportRepository repo;
+gateway.prepareSample("store_sales.csv", storeCsv);
+StoreDataImporter store(gateway, repo);   // 【生成】 派生Importerを生成・所有
+```
+
+**【注入】** 生成した境界を、基底 `AbstractImporter` のコンストラクタ引数として骨格へ渡します。骨格は境界の実体を所有せず、参照だけを保持します。
+
+**掲載箇所：`AbstractImporter::AbstractImporter(ImportFileGateway&, SalesImportRepository&)`** ―― 基底のコンストラクタ。境界を参照で受け取り、所有はしません。
+
+```cpp
+AbstractImporter(ImportFileGateway& g, SalesImportRepository& r)
+    : gateway(g), repo(r) {}              // 【注入】 境界を骨格へ注入
+```
+
+**【利用開始】** 実行部が公開操作 `AbstractImporter::import()` を1回呼びます。派生の種類にかかわらず同じ順序が走り、形式差分だけがフックの向こうで変わります。利用側が `parseData()` を直接呼ぶことはありません。
+
+**掲載箇所：`BatchApplication::runStoreImport()`** ―― 【生成】で派生Importerを作った直後。骨格の公開操作を1回呼びます。
+
+```cpp
+ImportResult r = store.import();          // 【利用開始】
 ```
 
 **【安定骨格】：共通順を `import()` へ固定する。** 開く→形式確認→解析→行検証→保存→閉じるの順だけを1か所に持ちます。形式が増えてもこの順序は変わりません。【契約】のフックを呼ぶ行が、変わる側との接続点です。
@@ -1729,6 +1743,20 @@ public:
     }
     // 【契約】の契約宣言は上記のとおり protected に置く
 };
+```
+
+**【契約】：形式で変わるステップを純粋仮想フックとして宣言する。** 他章のように別のインターフェース型を作らず、基底クラス `AbstractImporter` の `protected` 側へ差し替え点を並べます。これがこの章の契約です。
+
+**掲載箇所：`AbstractImporter` クラスの `protected` 節** ―― 骨格 `import()` の内側から呼ぶ差し替え点の宣言部です。
+
+```cpp
+protected:                                        // 【契約】（差し替え点）
+    virtual string filePath() const = 0;
+    virtual string schemaType() const = 0;
+    virtual string schemaName() const = 0;
+    virtual vector<ParsedRow> parseData(const vector<string>&) = 0;
+    virtual ValidationResult validateRows(const vector<ParsedRow>&) = 0;
+    virtual void afterParse(const vector<SalesRow>&) {}
 ```
 
 **【具体】 各形式は骨格を持たず、フックの中身だけを実装する。** 直営店もFC店もEC店も共通順を複製しません。
@@ -1761,38 +1789,9 @@ protected:
 };
 ```
 
-**【生成】・所有。** 取得・保存の境界と派生Importerを、組み立て側の `BatchApplication` が生成し所有します。これらは1-4の既存境界のままで、保存媒体や永続化仕様は追加しません。
-
-**掲載箇所：`BatchApplication`（`gateway`・`repo` はメンバー、`store` は `runStoreImport()` のローカル）** ―― 境界と派生Importerを生成し所有する位置です。
-
-```cpp
-ImportFileGateway gateway;                // 【生成】・所有は組み立て側
-SalesImportRepository repo;
-gateway.prepareSample("store_sales.csv", storeCsv);
-StoreDataImporter store(gateway, repo);   // 【生成】 派生Importerを生成・所有
-```
-
-**【注入】** 生成した境界を、基底 `AbstractImporter` のコンストラクタ引数として骨格へ渡します。骨格は境界の実体を所有せず、参照だけを保持します。
-
-**掲載箇所：`AbstractImporter::AbstractImporter(ImportFileGateway&, SalesImportRepository&)`** ―― 基底のコンストラクタ。境界を参照で受け取り、所有はしません。
-
-```cpp
-AbstractImporter(ImportFileGateway& g, SalesImportRepository& r)
-    : gateway(g), repo(r) {}              // 【注入】 境界を骨格へ注入
-```
-
-**【利用開始】** 実行部が公開操作 `AbstractImporter::import()` を1回呼びます。派生の種類にかかわらず同じ順序が走り、形式差分だけがフックの向こうで変わります。利用側が `parseData()` を直接呼ぶことはありません。
-
-**掲載箇所：`BatchApplication::runStoreImport()`** ―― 【生成】で派生Importerを作った直後。骨格の公開操作を1回呼びます。
-
-```cpp
-ImportResult r = store.import();          // 【利用開始】
-```
-
 #### 代表ケースの実行接続
 
-直営店CSVの取込1件を、【生成】から【具体】まで実コードで追います。設計を説明する順は【契約】から【利用開始】ですが、実行時の呼出順は【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】です。
-
+上のブロックを、直営店CSVの取込1件で貫いて確認します。並び順は上の説明と同じです。
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
 | 1. 【生成】 | 組み立て側 | `StoreDataImporter store(gateway, repo);` | 【注入】へ |

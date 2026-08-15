@@ -1469,14 +1469,14 @@ flowchart TB
 
 | ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
 |---|---|---|---|
-| 【契約】 | `InventoryManager` が具体通知先を直接保持 → `INotification::send(const StockAlert&)` | 手段共通の操作を契約へ切り出す。実体は【生成】で生成し【注入】で契約として渡す | 【具体】のoverride |
-| 【安定骨格】 骨格 | `InventoryManager::notifyAll()` に手段別呼び出しが並ぶ → `InventoryManager::notifyAll(const StockAlert&)` は登録リストの反復だけ | 通知先が増減しても変えない制御順を固定する。契約は【注入】で受け取る | 【契約】の `send()` |
-| 【具体】 | 骨格に混ざっていた文面作成・送信方法 → `EmailNotifier::send()` ほか各通知先 | 手段固有の文面・同期／非同期の差を実装へ閉じる | 【契約】経由で【安定骨格】へ戻る |
 | 【生成】 | `InventoryManager` がメンバとして具体型を持つ → `runInventoryScenario()` のローカル変数 | 組み立て関数が全通知先を生成し所有する | 【注入】の `attach()` |
 | 【注入】 | 具体型のメンバ宣言 → `InventoryManager::attach(INotification*)` | 契約ポインタを借用参照として登録する（所有は【生成】のまま） | 【利用開始】が呼ぶ `reduceStock()` |
 | 【利用開始】 | 呼び出し側が通知先ごとの手順を知る → `runInventoryScenario()` の `manager.reduceStock("PRD002", 1);` | 【生成】【注入】で組み立てた同じ実体を使い、公開操作を1回呼ぶ | 【安定骨格】の `reduceStock()` |
+| 【安定骨格】 骨格 | `InventoryManager::notifyAll()` に手段別呼び出しが並ぶ → `InventoryManager::notifyAll(const StockAlert&)` は登録リストの反復だけ | 通知先が増減しても変えない制御順を固定する。契約は【注入】で受け取る | 【契約】の `send()` |
+| 【契約】 | `InventoryManager` が具体通知先を直接保持 → `INotification::send(const StockAlert&)` | 手段共通の操作を契約へ切り出す。実体は【生成】で生成し【注入】で契約として渡す | 【具体】のoverride |
+| 【具体】 | 骨格に混ざっていた文面作成・送信方法 → `EmailNotifier::send()` ほか各通知先 | 手段固有の文面・同期／非同期の差を実装へ閉じる | 【契約】経由で【安定骨格】へ戻る |
 
-この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（【契約】→【利用開始】）ではなく【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】で、課題ID1節の末尾に実行接続表として置きます。
+この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。**並び順は実行時に通る順です。** 課題ID節でも同じ順で説明し、節の末尾に代表入力の実行接続表を置きます。
 
 #### 接続点の分離・配置・組み立てを決める
 
@@ -1675,7 +1675,7 @@ private:
 
 **この課題（何を解きたいか）：** 通知先を1つ足すだけで `InventoryManager` のメンバ・コンストラクタ・`notifyAll()` が連動し、同期・非同期・部分失敗の判断まで通知元へ入る——問題ID1〜問題ID3（痛み）／原因ID1です。**在庫変化の事実を配るだけにし、通知先を共通契約で登録・差し替え可能にする**のが課題ID1です。
 
-**どう解決するか（方針）：** 通知先を共通契約へ揃え、通知元は登録済みへ一律配布します（通知分離構造＝Observer）。【契約】 →【安定骨格】配布・集計骨格 →【具体】 →【生成】 →【注入】登録（注入）→【利用開始】実行 の順で組み立てます。【安定骨格】では `InventoryManager` が登録リストを反復し、一律に契約を呼んで結果を集める安定した制御を明示します。
+**どう解決するか（方針）：** 通知先を共通契約へ揃え、通知元は登録済みへ一律配布します（通知分離構造＝Observer）。以下は**実行時に通る順**に並べます。【生成】【注入】で部品を組み立て、【利用開始】で1回呼び、【安定骨格】が委譲し、【契約】を経て【具体】が答える、という流れです。【安定骨格】では `InventoryManager` が登録リストを反復し、一律に契約を呼んで結果を集める安定した制御を明示します。
 
 ```mermaid
 classDiagram
@@ -1687,89 +1687,6 @@ classDiagram
     class INotification:::focus
     class EmailNotifier:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-**【契約】 共通契約 `INotification` を定義する。** 入力は手段別に文面を作れる `StockAlert`、戻り値は成功・保留・失敗と受付IDを持つ `DeliveryResult` に揃えます。通知元は種別を知らず `send()` だけを呼びます。最終配信結果は同じ受付IDで保留状態へ接続します。
-
-```cpp
-struct DeliveryResult {
-    enum State { Accepted, Pending, Failed, Delivered, DeliveryFailed } state;
-    std::string requestId;  // 非同期受付だけが設定する
-};
-struct StockAlert {
-    std::string productId;
-    std::string productName;
-    int stock;
-    int threshold;
-};
-class INotification {
-public:
-    virtual ~INotification() = default;
-    virtual DeliveryResult send(const StockAlert& alert) = 0;
-};
-```
-
-**【安定骨格】 通知元に配布・集計の安定骨格を置く。** `attach()` は具体型ではなく契約を登録し、`notifyAll()` は登録順に反復して `send()` の結果を集めます。保留結果は `DeliveryStatusLog` へ渡し、通知先が増えても、この制御の形は変えません。後日の入口は `SMSDeliveryCallback` が持ち、在庫更新から切り離します。
-
-```cpp
-class InventoryManager {
-    std::vector<INotification*> observers;
-    ProductDatabase& db;
-    StockEventLog& eventLog;
-    DeliveryStatusLog& deliveryStatusLog;
-public:
-    InventoryManager(ProductDatabase& database, StockEventLog& log,
-                     DeliveryStatusLog& statusLog)
-        : db(database), eventLog(log), deliveryStatusLog(statusLog) {}
-
-    bool attach(INotification* observer) {
-        if (observer == nullptr) return false;
-        observers.push_back(observer);
-        return true;
-    }
-
-    void reduceStock(const std::string& productId, int quantity);
-
-private:
-    void notifyAll(const StockAlert& alert) {
-        for (INotification* observer : observers) {
-            DeliveryResult result = observer->send(alert);
-            deliveryStatusLog.record(result); // 保留IDだけを状態追跡へ接続
-            // 成功・保留・失敗を共通の形で集計する
-        }
-    }
-};
-```
-
-**【具体】 各通知先が文面・送信方法・受付結果を自分の中に閉じる。** `DashboardUpdater`・`ChatNotifier`・`SMSNotifier` も同じ入力から手段別文面を作り、同期・非同期の差を内側に持ちます。
-
-```cpp
-class EmailNotifier : public INotification {
-public:
-    DeliveryResult send(const StockAlert& alert) override {
-        // StockAlertからメール向け件名・本文を作って同期送信する
-        return { DeliveryResult::Accepted, "" };
-    }
-};
-```
-
-【安定骨格】の公開入口 `InventoryManager::reduceStock()` の本体はクラス外で定義します。在庫更新とログ記録を終えてから、しきい値を下回った場合だけ `notifyAll()` へ進みます。ここが「通知先が増えても変えない制御順」です。
-
-```cpp
-void InventoryManager::reduceStock(const std::string& productId,
-                                   int quantity) {
-    ProductInfo info = db.get(productId);
-    int before = info.stock;
-    info.stock -= quantity;
-    db.save(productId, info);
-    eventLog.add(productId, info.name, "出荷", quantity,
-                 before, info.stock);
-
-    if (db.isBelowThreshold(productId, info.stock)) {
-        notifyAll({productId, info.name, info.stock,
-                   info.alertThreshold});
-    }
-}
 ```
 
 **【生成】・所有。** 組み立て関数 `runInventoryScenario()` が、DB、ログ、全通知先、通知元（`InventoryManager`）、後日入口をローカル変数として生成し、所有します。生成するのはここ1か所だけです。
@@ -1814,10 +1731,92 @@ void runInventoryScenario() {
 
 `reduceStock()` に入ると【安定骨格】の制御順が進み、しきい値を下回っていれば `notifyAll()` が登録リストへ `StockAlert` を一律に送り、`DeliveryResult` を集約して保留の受付IDを記録します。
 
+**【安定骨格】 通知元に配布・集計の安定骨格を置く。** `attach()` は具体型ではなく契約を登録し、`notifyAll()` は登録順に反復して `send()` の結果を集めます。保留結果は `DeliveryStatusLog` へ渡し、通知先が増えても、この制御の形は変えません。後日の入口は `SMSDeliveryCallback` が持ち、在庫更新から切り離します。
+
+```cpp
+class InventoryManager {
+    std::vector<INotification*> observers;
+    ProductDatabase& db;
+    StockEventLog& eventLog;
+    DeliveryStatusLog& deliveryStatusLog;
+public:
+    InventoryManager(ProductDatabase& database, StockEventLog& log,
+                     DeliveryStatusLog& statusLog)
+        : db(database), eventLog(log), deliveryStatusLog(statusLog) {}
+
+    bool attach(INotification* observer) {
+        if (observer == nullptr) return false;
+        observers.push_back(observer);
+        return true;
+    }
+
+    void reduceStock(const std::string& productId, int quantity);
+
+private:
+    void notifyAll(const StockAlert& alert) {
+        for (INotification* observer : observers) {
+            DeliveryResult result = observer->send(alert);
+            deliveryStatusLog.record(result); // 保留IDだけを状態追跡へ接続
+            // 成功・保留・失敗を共通の形で集計する
+        }
+    }
+};
+```
+
+**【契約】 共通契約 `INotification` を定義する。** 入力は手段別に文面を作れる `StockAlert`、戻り値は成功・保留・失敗と受付IDを持つ `DeliveryResult` に揃えます。通知元は種別を知らず `send()` だけを呼びます。最終配信結果は同じ受付IDで保留状態へ接続します。
+
+```cpp
+struct DeliveryResult {
+    enum State { Accepted, Pending, Failed, Delivered, DeliveryFailed } state;
+    std::string requestId;  // 非同期受付だけが設定する
+};
+struct StockAlert {
+    std::string productId;
+    std::string productName;
+    int stock;
+    int threshold;
+};
+class INotification {
+public:
+    virtual ~INotification() = default;
+    virtual DeliveryResult send(const StockAlert& alert) = 0;
+};
+```
+
+**【具体】 各通知先が文面・送信方法・受付結果を自分の中に閉じる。** `DashboardUpdater`・`ChatNotifier`・`SMSNotifier` も同じ入力から手段別文面を作り、同期・非同期の差を内側に持ちます。
+
+```cpp
+class EmailNotifier : public INotification {
+public:
+    DeliveryResult send(const StockAlert& alert) override {
+        // StockAlertからメール向け件名・本文を作って同期送信する
+        return { DeliveryResult::Accepted, "" };
+    }
+};
+```
+
+【安定骨格】の公開入口 `InventoryManager::reduceStock()` の本体はクラス外で定義します。在庫更新とログ記録を終えてから、しきい値を下回った場合だけ `notifyAll()` へ進みます。ここが「通知先が増えても変えない制御順」です。
+
+```cpp
+void InventoryManager::reduceStock(const std::string& productId,
+                                   int quantity) {
+    ProductInfo info = db.get(productId);
+    int before = info.stock;
+    info.stock -= quantity;
+    db.save(productId, info);
+    eventLog.add(productId, info.name, "出荷", quantity,
+                 before, info.stock);
+
+    if (db.isBelowThreshold(productId, info.stock)) {
+        notifyAll({productId, info.name, info.stock,
+                   info.alertThreshold});
+    }
+}
+```
+
 #### 代表ケースの実行接続
 
-`runInventoryScenario()` で在庫が閾値を下回る1件を、【生成】から【具体】まで実コードで追います。設計を説明する順は【契約】から【利用開始】ですが、実行時の呼出順は【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】です。
-
+上のブロックを、`runInventoryScenario()` で在庫が閾値を下回る1件で貫いて確認します。並び順は上の説明と同じです。
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
 | 1. 【生成】 | `runInventoryScenario()` | `EmailNotifier emailNotifier;` ほか全実体をローカルに生成 | 【注入】へ |
