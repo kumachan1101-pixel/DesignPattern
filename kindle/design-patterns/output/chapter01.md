@@ -1311,18 +1311,18 @@ flowchart TB
 
 #### 構造ポイントの全貌 ―― どの責任がどこへ移るか
 
-課題ID1・課題ID2の①〜⑥が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この表で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID節に同じ番号で置きます。
+課題ID1・課題ID2の【契約】〜【利用開始】が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この表で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID節に同じ番号で置きます。
 
 | ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
 |---|---|---|---|
-| ① 契約 | `PaymentCalculator` が施策の条件と式を直接持つ → `IDiscountRule::matches()` / `priority()` / `apply(int)` | 選択条件・優先度・計算式を1つの契約へまとめる。実体は④で生成し⑤で登録する | ③のoverride |
-| ② 骨格 | `calculate()` の `if-else` 連鎖 → `RuleSelector::select()` の反復比較と `PaymentCalculator::calculate()` の合算 | 施策が増えても変えない選択順・計算順を固定する | ①の `matches()` / `apply()` |
-| ③ 具体 | 分岐に埋もれた条件と式 → `PremiumDiscount` ほか各施策クラス | 施策ごとの適用条件・優先度・割引式を実装へ閉じる | ①経由で②へ戻る |
-| ④ 生成 | `PaymentCalculator` 内の固定分岐 → `main()` のスタック変数 | 組み立て箇所が全施策を生成し所有する | ⑤の `selector.add()` |
-| ⑤ 注入 | 利用側が施策を自前で判定 → `RuleSelector::add()` と `OrderProcessor` のコンストラクタ | 参照だけを登録し、選択役を利用側へ注入する（所有は④のまま） | ⑥が呼ぶ `process()` |
-| ⑥ 利用開始 | 呼び出し側が施策の順序を知る → `main()` の `processor.process(order, context);` | ④⑤で組み立てた同じ実体を使い、公開操作を1回呼ぶ | ②の `select()` / `calculate()` |
+| 【契約】 | `PaymentCalculator` が施策の条件と式を直接持つ → `IDiscountRule::matches()` / `priority()` / `apply(int)` | 選択条件・優先度・計算式を1つの契約へまとめる。実体は【生成】で生成し【注入】で登録する | 【具体】のoverride |
+| 【安定骨格】 骨格 | `calculate()` の `if-else` 連鎖 → `RuleSelector::select()` の反復比較と `PaymentCalculator::calculate()` の合算 | 施策が増えても変えない選択順・計算順を固定する | 【契約】の `matches()` / `apply()` |
+| 【具体】 | 分岐に埋もれた条件と式 → `PremiumDiscount` ほか各施策クラス | 施策ごとの適用条件・優先度・割引式を実装へ閉じる | 【契約】経由で【安定骨格】へ戻る |
+| 【生成】 | `PaymentCalculator` 内の固定分岐 → `main()` のスタック変数 | 組み立て箇所が全施策を生成し所有する | 【注入】の `selector.add()` |
+| 【注入】 | 利用側が施策を自前で判定 → `RuleSelector::add()` と `OrderProcessor` のコンストラクタ | 参照だけを登録し、選択役を利用側へ注入する（所有は【生成】のまま） | 【利用開始】が呼ぶ `process()` |
+| 【利用開始】 | 呼び出し側が施策の順序を知る → `main()` の `processor.process(order, context);` | 【生成】【注入】で組み立てた同じ実体を使い、公開操作を1回呼ぶ | 【安定骨格】の `select()` / `calculate()` |
 
-この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（①→⑥）ではなく④→⑤→⑥→②→①→③で、課題ID節の末尾に実行接続表として置きます。
+この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（【契約】→【利用開始】）ではなく【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】で、課題ID節の末尾に実行接続表として置きます。
 
 #### 接続点の分離・配置・組み立てを決める
 
@@ -1338,7 +1338,7 @@ flowchart TB
 | 配置場所 | 同じ施策で一緒に変わる条件・式・表示名を、同じ施策オブジェクトへ置く | `PremiumDiscount::matches()` などへ条件を置く | 同じ具象ルールの `apply()` へ式を置く |
 | 組み立て方法（生成・所有・登録・注入） | `main()`が具象ルールと`RuleSelector`を生成・所有・登録し、同じDB・Selectorを注文確定とプレビューの二つの入口へ注入する | `PremiumDiscount`などを生成し、`RuleSelector::add()`で登録してから、Selectorを両入口へ渡す | 各入口が選択した`IDiscountRule&`で`PaymentCalculator`を生成する |
 
-表の左から右へ読むと、課題定義の「変わる側／守る側」が、メソッド、クラス、生成・登録・注入のコードへ変換されます。後続のクラス図と課題ID別の①〜⑥は、この3行を同じ順序で具体化します。
+表の左から右へ読むと、課題定義の「変わる側／守る側」が、メソッド、クラス、生成・登録・注入のコードへ変換されます。後続のクラス図と課題ID別の【契約】〜【利用開始】は、この3行を同じ順序で具体化します。
 
 #### 設計判断ごとの部分クラス図
 
@@ -1551,12 +1551,12 @@ classDiagram
 
 クラス図の変更と、図だけでは表しにくい生成・所有の責任をコードへ対応させると、次のようになります。`main()`はクラスではないためクラスとして追加せず、生成場所として表に明記します。
 
-「詳しく解く節」の①〜⑥は、第0章で定義した共通の読み順です。①契約、②安定骨格、③具体実装、④生成・所有、⑤登録・注入、⑥契約経由の実行を表します。Strategyでは②に、候補を評価・選択して契約へ委譲する利用側の制御を置きます。番号は章固有の手順や必須工程数ではなく、全章で同じ観点へ戻るための索引です。
+「詳しく解く節」の【契約】〜【利用開始】は、第0章で定義した共通の読み順です。【契約】、【安定骨格】、【具体】実装、【生成】・所有、【注入】登録・注入、【利用開始】契約経由の実行を表します。Strategyでは【安定骨格】に、候補を評価・選択して契約へ委譲する利用側の制御を置きます。番号は章固有の手順や必須工程数ではなく、全章で同じ観点へ戻るための索引です。
 
 | 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 課題ID1 | `IDiscountRule` の条件判定と `RuleSelector` の登録・選択関係を追加する | `matches()`／`priority()` を各施策へ置き、`main()` が生成・登録し `OrderProcessor` へSelectorを注入する | 課題ID1節（①〜⑥） |
-| 課題ID2 | `PaymentCalculator` を小計計算と契約利用だけにする | `apply(int)` を契約に置き、具体式を各施策へ移し、選択済みルールで計算役を生成する | 課題ID2節（①〜⑥） |
+| 課題ID1 | `IDiscountRule` の条件判定と `RuleSelector` の登録・選択関係を追加する | `matches()`／`priority()` を各施策へ置き、`main()` が生成・登録し `OrderProcessor` へSelectorを注入する | 課題ID1節（【契約】〜【利用開始】） |
+| 課題ID2 | `PaymentCalculator` を小計計算と契約利用だけにする | `apply(int)` を契約に置き、具体式を各施策へ移し、選択済みルールで計算役を生成する | 課題ID2節（【契約】〜【利用開始】） |
 
 このクラス図が、課題ID1・課題ID2を統合したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。フェーズ7では、完成コードがこの設計どおりかを確認するため、同じMermaid定義をそのまま再掲します。
 
@@ -1613,7 +1613,7 @@ public:
 
 **この課題（何を解きたいか）：** 施策を1つ足すたび、選択処理へ `if` 分岐が増え、適用順・排他まで壊しやすい——問題ID2・問題ID3（痛み）／原因ID1です。**選択の流れは固定したまま、施策ごとの適用条件と優先度だけを差し替えられる**ようにするのが課題ID1です。
 
-**どう解決するか（方針）：** 施策を共通契約の裏へ出し、選択役が各施策へ「あなたは適用対象か」を問い合わせる形にします（ルール差し替え構造＝Strategy＋選択役）。①契約 →②候補を評価・選択する安定骨格 →③具体 →④生成 →⑤注入 →⑥実行 の順で組み立てます。②では候補が増えても変えない「全候補へ適用可否を問い合わせ、採用対象を決める」制御を示します。
+**どう解決するか（方針）：** 施策を共通契約の裏へ出し、選択役が各施策へ「あなたは適用対象か」を問い合わせる形にします（ルール差し替え構造＝Strategy＋選択役）。【契約】 →【安定骨格】候補を評価・選択する安定骨格 →【具体】 →【生成】 →【注入】 →【利用開始】実行 の順で組み立てます。【安定骨格】では候補が増えても変えない「全候補へ適用可否を問い合わせ、採用対象を決める」制御を示します。
 
 ```mermaid
 classDiagram
@@ -1630,7 +1630,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**① 共通契約 `IDiscountRule` を定義する。** 選択に使う `matches()`／`priority()`、計算用 `apply()`（課題ID2で使う）、表示用 `name()` を一つの施策契約へ集めます。`name()` はパターン適用の都合で増やした操作ではありません。要求ID5の購入結果に「適用した割引名」を表示するための出力契約であり、この表示要求がなければ契約から外せます。
+**【契約】 共通契約 `IDiscountRule` を定義する。** 選択に使う `matches()`／`priority()`、計算用 `apply()`（課題ID2で使う）、表示用 `name()` を一つの施策契約へ集めます。`name()` はパターン適用の都合で増やした操作ではありません。要求ID5の購入結果に「適用した割引名」を表示するための出力契約であり、この表示要求がなければ契約から外せます。
 
 ```cpp
 class IDiscountRule {
@@ -1644,7 +1644,7 @@ public:
 };
 ```
 
-**③ 各施策が自分の適用条件と優先度を実装する（選択の流れは書かない）。** 後の `main()` が生成する5種類を、ここですべて定義します。
+**【具体】 各施策が自分の適用条件と優先度を実装する（選択の流れは書かない）。** 後の `main()` が生成する5種類を、ここですべて定義します。
 ```cpp
 class PremiumDiscount : public IDiscountRule {
 public:
@@ -1713,7 +1713,7 @@ public:
 };
 ```
 
-**④ `main()` が全施策を生成・所有する。** どの施策クラスを作るかを知るのは組み立て箇所だけです（スタック上に生成し、`main()` のスコープが所有）。
+**【生成】 `main()` が全施策を生成・所有する。** どの施策クラスを作るかを知るのは組み立て箇所だけです（スタック上に生成し、`main()` のスコープが所有）。
 
 **掲載箇所：`main()`** ―― 組み立ての先頭。具体施策をスタック上に生成します。
 
@@ -1725,9 +1725,9 @@ CampaignDiscount campaign;
 NoDiscount none;  // matches() は常に true
 ```
 
-**⑤ 選択役へ登録し、`OrderProcessor` へ注入する。** `RuleSelector` は施策を所有せず参照だけ登録します。登録順は自由で、優先は `priority()` で決まります。
+**【注入】 選択役へ登録し、`OrderProcessor` へ注入する。** `RuleSelector` は施策を所有せず参照だけ登録します。登録順は自由で、優先は `priority()` で決まります。
 
-**掲載箇所：`main()`** ―― ④の直後。選択役へ参照を登録し、注文入口へ注入します。
+**掲載箇所：`main()`** ―― 【生成】の直後。選択役へ参照を登録し、注文入口へ注入します。
 
 ```cpp
 RuleSelector selector;
@@ -1739,7 +1739,7 @@ selector.add(none);               // 登録順は自由（priority()で選ばれ
 OrderProcessor processor(db, renderer, selector);  // 選択役を注入
 ```
 
-**② 選択の安定骨格。** `RuleSelector::select()` は登録済みの候補を順に評価し、一致した中の最優先を返すだけです。施策が増えても、この反復と比較の形は変わりません。具体条件は契約 `matches()` の向こうにあります。
+**【安定骨格】 選択の安定骨格。** `RuleSelector::select()` は登録済みの候補を順に評価し、一致した中の最優先を返すだけです。施策が増えても、この反復と比較の形は変わりません。具体条件は契約 `matches()` の向こうにあります。
 
 ```cpp
 class RuleSelector {
@@ -1767,28 +1767,28 @@ public:
 };
 ```
 
-**⑥ 利用開始。** 注文確定の入口 `OrderProcessor::process()` が、②の `select()` を呼びます。利用側が `matches()` や具体施策を直接呼ぶことはありません。
+**【利用開始】** 注文確定の入口 `OrderProcessor::process()` が、【安定骨格】の `select()` を呼びます。利用側が `matches()` や具体施策を直接呼ぶことはありません。
 
-**掲載箇所：`main()`** ―― ⑤の直後。利用者操作にあたる1行です。
+**掲載箇所：`main()`** ―― 【注入】の直後。利用者操作にあたる1行です。
 
 ```cpp
-processor.process(order, context);   // ⑥ 利用開始（main から）
+processor.process(order, context);   // 【利用開始】（main から）
 ```
 
 #### 代表ケースの実行接続
 
-C002（Regular）へキャンペーンとサマーセールが重なる1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
+C002（Regular）へキャンペーンとサマーセールが重なる1件を、【生成】から【具体】まで実コードで追います。設計を説明する順は【契約】から【利用開始】ですが、実行時の呼出順は【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】です。
 
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
-| 1. ④生成 | `main()` | `SummerSaleAndCampaignDiscount summerAndCampaign;` ほか全施策をスタックに生成・所有 | ⑤へ |
-| 2. ⑤注入 | `main()` | `selector.add(summerAndCampaign);` で参照登録し、`OrderProcessor processor(db, renderer, selector);` で選択役を注入 | ⑥へ |
-| 3. ⑥利用開始 | `main()` | `processor.process(order, context);` | `OrderProcessor::process()` |
-| 4. ②安定骨格 | `RuleSelector::select(const std::string&, const CampaignContext&)` | 登録リストを反復し `rule.matches(...)` と `rule.priority()` を比較する | `IDiscountRule::matches()` |
-| 5. ①契約 | `IDiscountRule::matches(const std::string&, const CampaignContext&)` | 登録された契約へ動的ディスパッチする | `SummerSaleAndCampaignDiscount::matches()` |
-| 6. ③具体 | `SummerSaleAndCampaignDiscount::matches()` / `apply(int)` | 自分の適用条件と割引式だけを持つ | 選ばれた参照が②へ戻る |
+| 1. 【生成】 | `main()` | `SummerSaleAndCampaignDiscount summerAndCampaign;` ほか全施策をスタックに生成・所有 | 【注入】へ |
+| 2. 【注入】 | `main()` | `selector.add(summerAndCampaign);` で参照登録し、`OrderProcessor processor(db, renderer, selector);` で選択役を注入 | 【利用開始】へ |
+| 3. 【利用開始】 | `main()` | `processor.process(order, context);` | `OrderProcessor::process()` |
+| 4. 【安定骨格】 | `RuleSelector::select(const std::string&, const CampaignContext&)` | 登録リストを反復し `rule.matches(...)` と `rule.priority()` を比較する | `IDiscountRule::matches()` |
+| 5. 【契約】 | `IDiscountRule::matches(const std::string&, const CampaignContext&)` | 登録された契約へ動的ディスパッチする | `SummerSaleAndCampaignDiscount::matches()` |
+| 6. 【具体】 | `SummerSaleAndCampaignDiscount::matches()` / `apply(int)` | 自分の適用条件と割引式だけを持つ | 選ばれた参照が【安定骨格】へ戻る |
 
-④で生成した `summerAndCampaign` と、⑤で `add()` した実体と、⑥の呼び出しから②が反復する実体は同じものです。
+【生成】で生成した `summerAndCampaign` と、【注入】で `add()` した実体と、【利用開始】の呼び出しから【安定骨格】が反復する実体は同じものです。
 
 これで課題ID1の完了条件「施策追加時の主な変更先が、対象条件を持つ新ルールと組み立て時の登録になる」を満たします。選ばれたルールを実際にどう計算へ使うかは、課題ID2で扱います。
 
@@ -1798,7 +1798,7 @@ C002（Regular）へキャンペーンとサマーセールが重なる1件を�
 
 **この課題（何を解きたいか）：** 式や適用順を変えるだけで、小計を合算する計算骨格まで再確認になる——問題ID1（痛み）／原因ID2です。**小計計算の骨格に触れず、施策ごとの割引式だけを差し替えられる**ようにするのが課題ID2です。
 
-**どう解決するか（方針）：** 計算役は施策の具体式を知らず、同じ契約の `apply()` だけを呼びます（課題ID1と同じ `IDiscountRule` の計算面）。施策の生成・選択は課題ID1で済んでいるので、この課題は ①契約（apply）→③具体（apply式）→⑤注入 →⑥実行 に絞ります。
+**どう解決するか（方針）：** 計算役は施策の具体式を知らず、同じ契約の `apply()` だけを呼びます（課題ID1と同じ `IDiscountRule` の計算面）。施策の生成・選択は課題ID1で済んでいるので、この課題は 【契約】（apply）→【具体】（apply式）→【注入】 →【利用開始】実行 に絞ります。
 
 ```mermaid
 classDiagram
@@ -1810,18 +1810,18 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**① 契約の計算面 `apply(int)`。** 課題ID1で定義した `IDiscountRule` に含まれる、小計を受けて割引後金額を返す共通操作です。
+**【契約】の計算面 `apply(int)`。** 課題ID1で定義した `IDiscountRule` に含まれる、小計を受けて割引後金額を返す共通操作です。
 
-**③ 各施策が割引式だけを実装する。**（`apply()` 部分。上の③で示した各施策が同じ場所に持ちます。）
+**【具体】 各施策が割引式だけを実装する。**（`apply()` 部分。上の【具体】で示した各施策が同じ場所に持ちます。）
 
-**掲載箇所：`PremiumDiscount::apply(int)` と `SummerSaleDiscount::apply(int)`** ―― 上の③で示した各施策クラスが同じ場所に持つ計算面です。式だけを対比します。
+**掲載箇所：`PremiumDiscount::apply(int)` と `SummerSaleDiscount::apply(int)`** ―― 上の【具体】で示した各施策クラスが同じ場所に持つ計算面です。式だけを対比します。
 
 ```cpp
 // PremiumDiscount::apply → total * 80 / 100
 // SummerSaleDiscount::apply → total * 95 / 100
 ```
 
-**⑤ 選択済みルールを計算役へ注入する。** `OrderProcessor` は `selector.select()` の結果参照で `PaymentCalculator` を生成します（具体施策を知りません）。プレビューは要求ID6の独立した操作なので、`CartPreviewService` が同じDBとSelectorを使って別に選択・計算します。
+**【注入】 選択済みルールを計算役へ注入する。** `OrderProcessor` は `selector.select()` の結果参照で `PaymentCalculator` を生成します（具体施策を知りません）。プレビューは要求ID6の独立した操作なので、`CartPreviewService` が同じDBとSelectorを使って別に選択・計算します。
 
 **掲載箇所：`OrderProcessor::process(const Order&, const CampaignContext&)`** ―― 顧客情報を取得した直後。選ばれたルールで計算役を組み立てます。
 
@@ -1832,14 +1832,14 @@ PaymentCalculator calculator(rule);  // 具体ルールを知らない
 
 プレビューは要求ID6の独立した操作なので、入口そのものは組み立て側で用意します。
 
-**掲載箇所：`main()`** ―― ⑤の注入行の並び。注文入口とは別に、同じDBとSelectorでプレビュー入口を作ります。
+**掲載箇所：`main()`** ―― 【注入】の注入行の並び。注文入口とは別に、同じDBとSelectorでプレビュー入口を作ります。
 
 ```cpp
 // 注文確定とは別に、組み立て時に独立した入口を用意する
 CartPreviewService preview(db, selector);
 ```
 
-**② 計算の安定骨格。** 「商品を順に足して小計を出し、割引後金額を返す」制御順は変わらず、割引式は契約 `apply()` の向こうにあります。
+**【安定骨格】 計算の安定骨格。** 「商品を順に足して小計を出し、割引後金額を返す」制御順は変わらず、割引式は契約 `apply()` の向こうにあります。
 
 ```cpp
 class PaymentCalculator {
@@ -1854,12 +1854,12 @@ public:
 };
 ```
 
-**⑥ 利用開始。** 課題ID1と同じ `processor.process(order, context)` が起点です。②の `calculate()` は `OrderProcessor` の内側から呼ばれ、利用側が `apply()` を直接呼ぶことはありません。
+**【利用開始】** 課題ID1と同じ `processor.process(order, context)` が起点です。【安定骨格】の `calculate()` は `OrderProcessor` の内側から呼ばれ、利用側が `apply()` を直接呼ぶことはありません。
 
-**掲載箇所：`main()`** ―― 課題ID1と同じ1行です。計算の差し替えは②の内側で起きます。
+**掲載箇所：`main()`** ―― 課題ID1と同じ1行です。計算の差し替えは【安定骨格】の内側で起きます。
 
 ```cpp
-processor.process(order, context);   // ⑥ 利用開始（計算は②から自動接続）
+processor.process(order, context);   // 【利用開始】（計算は【安定骨格】から自動接続）
 ```
 
 これで課題ID2の完了条件「計算側が個別式を知らず、同じ操作で逐次適用できる」を満たします。

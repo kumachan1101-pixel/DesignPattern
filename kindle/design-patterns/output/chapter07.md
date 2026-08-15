@@ -1336,18 +1336,18 @@ flowchart TB
 
 #### 構造ポイントの全貌 ―― どの責任がどこへ移るか
 
-課題ID1の①〜⑥が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この6行で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID1節に同じ番号で置きます。
+課題ID1の【契約】〜【利用開始】が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この6行で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID1節に同じ番号で置きます。
 
 | ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
 |---|---|---|---|
-| ① 契約 | `InventoryManager` が具体通知先を直接保持 → `INotification::send(const StockAlert&)` | 手段共通の操作を契約へ切り出す。実体は④で生成し⑤で契約として渡す | ③のoverride |
-| ② 骨格 | `InventoryManager::notifyAll()` に手段別呼び出しが並ぶ → `InventoryManager::notifyAll(const StockAlert&)` は登録リストの反復だけ | 通知先が増減しても変えない制御順を固定する。契約は⑤で受け取る | ①の `send()` |
-| ③ 具体 | 骨格に混ざっていた文面作成・送信方法 → `EmailNotifier::send()` ほか各通知先 | 手段固有の文面・同期／非同期の差を実装へ閉じる | ①経由で②へ戻る |
-| ④ 生成 | `InventoryManager` がメンバとして具体型を持つ → `runInventoryScenario()` のローカル変数 | 組み立て関数が全通知先を生成し所有する | ⑤の `attach()` |
-| ⑤ 注入 | 具体型のメンバ宣言 → `InventoryManager::attach(INotification*)` | 契約ポインタを借用参照として登録する（所有は④のまま） | ⑥が呼ぶ `reduceStock()` |
-| ⑥ 利用開始 | 呼び出し側が通知先ごとの手順を知る → `runInventoryScenario()` の `manager.reduceStock("PRD002", 1);` | ④⑤で組み立てた同じ実体を使い、公開操作を1回呼ぶ | ②の `reduceStock()` |
+| 【契約】 | `InventoryManager` が具体通知先を直接保持 → `INotification::send(const StockAlert&)` | 手段共通の操作を契約へ切り出す。実体は【生成】で生成し【注入】で契約として渡す | 【具体】のoverride |
+| 【安定骨格】 骨格 | `InventoryManager::notifyAll()` に手段別呼び出しが並ぶ → `InventoryManager::notifyAll(const StockAlert&)` は登録リストの反復だけ | 通知先が増減しても変えない制御順を固定する。契約は【注入】で受け取る | 【契約】の `send()` |
+| 【具体】 | 骨格に混ざっていた文面作成・送信方法 → `EmailNotifier::send()` ほか各通知先 | 手段固有の文面・同期／非同期の差を実装へ閉じる | 【契約】経由で【安定骨格】へ戻る |
+| 【生成】 | `InventoryManager` がメンバとして具体型を持つ → `runInventoryScenario()` のローカル変数 | 組み立て関数が全通知先を生成し所有する | 【注入】の `attach()` |
+| 【注入】 | 具体型のメンバ宣言 → `InventoryManager::attach(INotification*)` | 契約ポインタを借用参照として登録する（所有は【生成】のまま） | 【利用開始】が呼ぶ `reduceStock()` |
+| 【利用開始】 | 呼び出し側が通知先ごとの手順を知る → `runInventoryScenario()` の `manager.reduceStock("PRD002", 1);` | 【生成】【注入】で組み立てた同じ実体を使い、公開操作を1回呼ぶ | 【安定骨格】の `reduceStock()` |
 
-この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（①→⑥）ではなく④→⑤→⑥→②→①→③で、課題ID1節の末尾に実行接続表として置きます。
+この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（【契約】→【利用開始】）ではなく【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】で、課題ID1節の末尾に実行接続表として置きます。
 
 #### 接続点の分離・配置・組み立てを決める
 
@@ -1503,11 +1503,11 @@ classDiagram
     cssClass "InventoryManager,INotification,EmailNotifier,DashboardUpdater,ChatNotifier,SMSNotifier,DeliveryStatusLog,SMSDeliveryCallback" focus
 ```
 
-クラス図の変更とコード変更を一対一で対応させると、次のようになります。①〜⑥は全章で設計をコードへ落とす共通の読み順です。①契約、②安定する制御骨格、③具体実装、④生成・所有、⑤登録・注入、⑥利用者からの実行を表します。②は基底クラスだけを意味せず、契約を選ぶ・委譲する・反復する・結果を集めるといった、具体実装が増えても維持する制御の流れを含みます。
+クラス図の変更とコード変更を一対一で対応させると、次のようになります。【契約】〜【利用開始】は全章で設計をコードへ落とす共通の読み順です。【契約】、【安定骨格】安定する制御骨格、【具体】実装、【生成】・所有、【注入】登録・注入、【利用開始】利用者からの実行を表します。【安定骨格】は基底クラスだけを意味せず、契約を選ぶ・委譲する・反復する・結果を集めるといった、具体実装が増えても維持する制御の流れを含みます。
 
 | 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 課題ID1 | 共通契約 `INotification` を新設し、各通知手段を実装、通知元を登録・一律配布へ変える。非同期完了は受付IDの状態ログへ接続する | ①`send(const StockAlert&)`を定義、②登録先を反復・集計して保留IDを記録、③手段別処理、④生成・所有、⑤`attach`とコールバック注入、⑥`reduceStock`と完了通知から実行 | 課題ID1節（①契約→②配布・集計骨格→③具体→④生成→⑤登録→⑥実行） |
+| 課題ID1 | 共通契約 `INotification` を新設し、各通知手段を実装、通知元を登録・一律配布へ変える。非同期完了は受付IDの状態ログへ接続する | 【契約】`send(const StockAlert&)`を定義、【安定骨格】登録先を反復・集計して保留IDを記録、【具体】手段別処理、【生成】・所有、【注入】`attach`とコールバック注入、【利用開始】`reduceStock`と完了通知から実行 | 課題ID1節（【契約】→【安定骨格】配布・集計骨格→【具体】→【生成】→【注入】登録→【利用開始】実行） |
 
 このクラス図が、課題ID1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
@@ -1546,7 +1546,7 @@ private:
 
 **この課題（何を解きたいか）：** 通知先を1つ足すだけで `InventoryManager` のメンバ・コンストラクタ・`notifyAll()` が連動し、同期・非同期・部分失敗の判断まで通知元へ入る——問題ID1〜問題ID3（痛み）／原因ID1です。**在庫変化の事実を配るだけにし、通知先を共通契約で登録・差し替え可能にする**のが課題ID1です。
 
-**どう解決するか（方針）：** 通知先を共通契約へ揃え、通知元は登録済みへ一律配布します（通知分離構造＝Observer）。①契約 →②配布・集計骨格 →③具体 →④生成 →⑤登録（注入）→⑥実行 の順で組み立てます。②では `InventoryManager` が登録リストを反復し、一律に契約を呼んで結果を集める安定した制御を明示します。
+**どう解決するか（方針）：** 通知先を共通契約へ揃え、通知元は登録済みへ一律配布します（通知分離構造＝Observer）。【契約】 →【安定骨格】配布・集計骨格 →【具体】 →【生成】 →【注入】登録（注入）→【利用開始】実行 の順で組み立てます。【安定骨格】では `InventoryManager` が登録リストを反復し、一律に契約を呼んで結果を集める安定した制御を明示します。
 
 ```mermaid
 classDiagram
@@ -1560,7 +1560,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**① 共通契約 `INotification` を定義する。** 入力は手段別に文面を作れる `StockAlert`、戻り値は成功・保留・失敗と受付IDを持つ `DeliveryResult` に揃えます。通知元は種別を知らず `send()` だけを呼びます。最終配信結果は同じ受付IDで保留状態へ接続します。
+**【契約】 共通契約 `INotification` を定義する。** 入力は手段別に文面を作れる `StockAlert`、戻り値は成功・保留・失敗と受付IDを持つ `DeliveryResult` に揃えます。通知元は種別を知らず `send()` だけを呼びます。最終配信結果は同じ受付IDで保留状態へ接続します。
 
 ```cpp
 struct DeliveryResult {
@@ -1580,7 +1580,7 @@ public:
 };
 ```
 
-**② 通知元に配布・集計の安定骨格を置く。** `attach()` は具体型ではなく契約を登録し、`notifyAll()` は登録順に反復して `send()` の結果を集めます。保留結果は `DeliveryStatusLog` へ渡し、通知先が増えても、この制御の形は変えません。後日の入口は `SMSDeliveryCallback` が持ち、在庫更新から切り離します。
+**【安定骨格】 通知元に配布・集計の安定骨格を置く。** `attach()` は具体型ではなく契約を登録し、`notifyAll()` は登録順に反復して `send()` の結果を集めます。保留結果は `DeliveryStatusLog` へ渡し、通知先が増えても、この制御の形は変えません。後日の入口は `SMSDeliveryCallback` が持ち、在庫更新から切り離します。
 
 ```cpp
 class InventoryManager {
@@ -1612,7 +1612,7 @@ private:
 };
 ```
 
-**③ 各通知先が文面・送信方法・受付結果を自分の中に閉じる。** `DashboardUpdater`・`ChatNotifier`・`SMSNotifier` も同じ入力から手段別文面を作り、同期・非同期の差を内側に持ちます。
+**【具体】 各通知先が文面・送信方法・受付結果を自分の中に閉じる。** `DashboardUpdater`・`ChatNotifier`・`SMSNotifier` も同じ入力から手段別文面を作り、同期・非同期の差を内側に持ちます。
 
 ```cpp
 class EmailNotifier : public INotification {
@@ -1624,7 +1624,7 @@ public:
 };
 ```
 
-②の公開入口 `InventoryManager::reduceStock()` の本体はクラス外で定義します。在庫更新とログ記録を終えてから、しきい値を下回った場合だけ `notifyAll()` へ進みます。ここが「通知先が増えても変えない制御順」です。
+【安定骨格】の公開入口 `InventoryManager::reduceStock()` の本体はクラス外で定義します。在庫更新とログ記録を終えてから、しきい値を下回った場合だけ `notifyAll()` へ進みます。ここが「通知先が増えても変えない制御順」です。
 
 ```cpp
 void InventoryManager::reduceStock(const std::string& productId,
@@ -1643,13 +1643,13 @@ void InventoryManager::reduceStock(const std::string& productId,
 }
 ```
 
-**④ 生成・所有。** 組み立て関数 `runInventoryScenario()` が、DB、ログ、全通知先、通知元（`InventoryManager`）、後日入口をローカル変数として生成し、所有します。生成するのはここ1か所だけです。
+**【生成】・所有。** 組み立て関数 `runInventoryScenario()` が、DB、ログ、全通知先、通知元（`InventoryManager`）、後日入口をローカル変数として生成し、所有します。生成するのはここ1か所だけです。
 
 **掲載箇所：自由関数 `runInventoryScenario()`** ―― どのクラスにも属さない組み立て関数の冒頭。すべての実体をここでローカル変数として作ります。
 
 ```cpp
 void runInventoryScenario() {
-    ProductDatabase productDatabase;      // ④ 生成・所有
+    ProductDatabase productDatabase;      // 【生成】・所有
     StockEventLog stockEventLog;
     DeliveryStatusLog deliveryStatusLog;
     EmailNotifier emailNotifier;
@@ -1661,44 +1661,44 @@ void runInventoryScenario() {
                              deliveryStatusLog);
 ```
 
-**⑤ 注入・登録。** DBとログは `InventoryManager` のコンストラクタ引数で渡し、通知先は `attach()` で借用参照として登録します。通知元は具体型を受け取らず、契約 `INotification*` だけを持ちます。
+**【注入】・登録。** DBとログは `InventoryManager` のコンストラクタ引数で渡し、通知先は `attach()` で借用参照として登録します。通知元は具体型を受け取らず、契約 `INotification*` だけを持ちます。
 
-**掲載箇所：自由関数 `runInventoryScenario()`** ―― ④で全実体を生成した直後。通知先を契約として登録します。
+**掲載箇所：自由関数 `runInventoryScenario()`** ―― 【生成】で全実体を生成した直後。通知先を契約として登録します。
 
 ```cpp
-    // ④で生成した実体を、契約として通知元へ渡す
-    manager.attach(&emailNotifier);       // ⑤ 登録（借用参照）
+    // 【生成】で生成した実体を、契約として通知元へ渡す
+    manager.attach(&emailNotifier);       // 【注入】 登録（借用参照）
     manager.attach(&dashboardUpdater);
     manager.attach(&chatNotifier);
     manager.attach(&smsNotifier);
 ```
 
-**⑥ 利用開始。** 組み立て関数が公開入口 `InventoryManager::reduceStock()` を1回呼びます。後日のSMS完了は、外部基盤からの入口 `SMSDeliveryCallback::receive()` が別の起点として受けます。利用側が `notifyAll()` や個々の通知先を直接呼ぶことはありません。
+**【利用開始】** 組み立て関数が公開入口 `InventoryManager::reduceStock()` を1回呼びます。後日のSMS完了は、外部基盤からの入口 `SMSDeliveryCallback::receive()` が別の起点として受けます。利用側が `notifyAll()` や個々の通知先を直接呼ぶことはありません。
 
-**掲載箇所：自由関数 `runInventoryScenario()`** ―― ⑤の直後、関数の末尾。出庫の起点と、後日届く完了通知の起点を並べます。
+**掲載箇所：自由関数 `runInventoryScenario()`** ―― 【注入】の直後、関数の末尾。出庫の起点と、後日届く完了通知の起点を並べます。
 
 ```cpp
-    manager.reduceStock("PRD002", 1);     // ⑥ 利用開始（即時経路）
-    smsCallback.receive("SMS-1", true);   // ⑥ 利用開始（後日の完了経路）
+    manager.reduceStock("PRD002", 1);     // 【利用開始】（即時経路）
+    smsCallback.receive("SMS-1", true);   // 【利用開始】（後日の完了経路）
 }
 ```
 
-`reduceStock()` に入ると②の制御順が進み、しきい値を下回っていれば `notifyAll()` が登録リストへ `StockAlert` を一律に送り、`DeliveryResult` を集約して保留の受付IDを記録します。
+`reduceStock()` に入ると【安定骨格】の制御順が進み、しきい値を下回っていれば `notifyAll()` が登録リストへ `StockAlert` を一律に送り、`DeliveryResult` を集約して保留の受付IDを記録します。
 
 #### 代表ケースの実行接続
 
-`runInventoryScenario()` で在庫が閾値を下回る1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
+`runInventoryScenario()` で在庫が閾値を下回る1件を、【生成】から【具体】まで実コードで追います。設計を説明する順は【契約】から【利用開始】ですが、実行時の呼出順は【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】です。
 
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
-| 1. ④生成 | `runInventoryScenario()` | `EmailNotifier emailNotifier;` ほか全実体をローカルに生成 | ⑤へ |
-| 2. ⑤注入 | `runInventoryScenario()` | `manager.attach(&emailNotifier);` で契約として登録 | ⑥へ |
-| 3. ⑥利用開始 | `runInventoryScenario()` | `manager.reduceStock("PRD002", 1);` | `InventoryManager::reduceStock()` |
-| 4. ②安定骨格 | `InventoryManager::reduceStock(const std::string&, int)` | 在庫更新・記録の後 `notifyAll(alert)` を呼び、その中で `observer->send(alert)` を反復 | `INotification::send()` |
-| 5. ①契約 | `INotification::send(const StockAlert&)` | 登録された契約へ動的ディスパッチする | `EmailNotifier::send()` ほか |
-| 6. ③具体 | `EmailNotifier::send(const StockAlert&)` | 手段別の文面を作って送信し `DeliveryResult` を返す | 戻り値を②の `deliveryStatusLog.record()` へ |
+| 1. 【生成】 | `runInventoryScenario()` | `EmailNotifier emailNotifier;` ほか全実体をローカルに生成 | 【注入】へ |
+| 2. 【注入】 | `runInventoryScenario()` | `manager.attach(&emailNotifier);` で契約として登録 | 【利用開始】へ |
+| 3. 【利用開始】 | `runInventoryScenario()` | `manager.reduceStock("PRD002", 1);` | `InventoryManager::reduceStock()` |
+| 4. 【安定骨格】 | `InventoryManager::reduceStock(const std::string&, int)` | 在庫更新・記録の後 `notifyAll(alert)` を呼び、その中で `observer->send(alert)` を反復 | `INotification::send()` |
+| 5. 【契約】 | `INotification::send(const StockAlert&)` | 登録された契約へ動的ディスパッチする | `EmailNotifier::send()` ほか |
+| 6. 【具体】 | `EmailNotifier::send(const StockAlert&)` | 手段別の文面を作って送信し `DeliveryResult` を返す | 戻り値を【安定骨格】の `deliveryStatusLog.record()` へ |
 
-④で生成した `emailNotifier` と、⑤で `attach()` した実体と、⑥の呼び出しから②が反復する実体は同じものです。後日経路は `SMSDeliveryCallback::receive()` を別の⑥として持ち、同じ受付IDで最終状態を更新します。
+【生成】で生成した `emailNotifier` と、【注入】で `attach()` した実体と、【利用開始】の呼び出しから【安定骨格】が反復する実体は同じものです。後日経路は `SMSDeliveryCallback::receive()` を別の【利用開始】として持ち、同じ受付IDで最終状態を更新します。
 
 これで課題ID1の完了条件「新通知は登録だけで加わり、受付失敗・最終配信失敗のどちらでも在庫更新と他通知が完了する」を満たします。即時通知と後日の完了入力は受付IDの状態ログで接続され、在庫更新からは切り離されました。
 

@@ -1367,18 +1367,18 @@ flowchart TB
 
 #### 構造ポイントの全貌 ―― どの責任がどこへ移るか
 
-課題ID1〜課題ID3の①〜⑥が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この表で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID節に同じ番号で置きます。
+課題ID1〜課題ID3の【契約】〜【利用開始】が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この表で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID節に同じ番号で置きます。
 
 | ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
 |---|---|---|---|
-| ① 契約 | `ReportGenerator` が本文・装飾・履歴を直接持つ → `IReport::create()` と `IReportAction::execute()` / `undo()` | 文書生成と操作記録を別々の契約へ切り出す | ③のoverride |
-| ② 骨格 | `execute()` に共通順と分岐が同居 → `ReportSkeleton::create()` の共通順、`ReportFeature::create()` の委譲、`ReportActionHistory::submit()` の所有→実行 | 本文・装飾・履歴それぞれで変えない制御順を固定する | ①の `create()` / `execute()` |
-| ③ 具体 | 分岐に埋もれた本文選択と装飾 → `ExecutiveMonthlyReport::renderBody()`、`GraphFeature::create()`、`GenerateReportAction::execute()` | 本文・装飾・操作の差分だけを実装へ閉じる | ①経由で②へ戻る |
-| ④ 生成 | `execute()` 内の分岐生成 → `ReportAssembler::assemble()` と `ReportApplication` | 本文選択・装飾連結・Action生成を組み立て側へ集める | ⑤の受渡行 |
-| ⑤ 注入 | 生成本体が部品を自前で持つ → `assembler(reader, renderer)`、`new GenerateReportAction(service, request)` | 部品と依存を外から渡す（所有は④のまま） | ⑥が呼ぶ公開操作 |
-| ⑥ 利用開始 | 呼び出し側がテンプレートIDと装飾順を知る → `ReportGenerationService::generate()` の `report->create();` | ④⑤で組み立てた同じ実体を使い、契約を1回呼ぶ | ②の `create()` |
+| 【契約】 | `ReportGenerator` が本文・装飾・履歴を直接持つ → `IReport::create()` と `IReportAction::execute()` / `undo()` | 文書生成と操作記録を別々の契約へ切り出す | 【具体】のoverride |
+| 【安定骨格】 骨格 | `execute()` に共通順と分岐が同居 → `ReportSkeleton::create()` の共通順、`ReportFeature::create()` の委譲、`ReportActionHistory::submit()` の所有→実行 | 本文・装飾・履歴それぞれで変えない制御順を固定する | 【契約】の `create()` / `execute()` |
+| 【具体】 | 分岐に埋もれた本文選択と装飾 → `ExecutiveMonthlyReport::renderBody()`、`GraphFeature::create()`、`GenerateReportAction::execute()` | 本文・装飾・操作の差分だけを実装へ閉じる | 【契約】経由で【安定骨格】へ戻る |
+| 【生成】 | `execute()` 内の分岐生成 → `ReportAssembler::assemble()` と `ReportApplication` | 本文選択・装飾連結・Action生成を組み立て側へ集める | 【注入】の受渡行 |
+| 【注入】 | 生成本体が部品を自前で持つ → `assembler(reader, renderer)`、`new GenerateReportAction(service, request)` | 部品と依存を外から渡す（所有は【生成】のまま） | 【利用開始】が呼ぶ公開操作 |
+| 【利用開始】 | 呼び出し側がテンプレートIDと装飾順を知る → `ReportGenerationService::generate()` の `report->create();` | 【生成】【注入】で組み立てた同じ実体を使い、契約を1回呼ぶ | 【安定骨格】の `create()` |
 
-この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（①→⑥）ではなく④→⑤→⑥→②→①→③で、課題ID節の末尾に実行接続表として置きます。
+この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（【契約】→【利用開始】）ではなく【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】で、課題ID節の末尾に実行接続表として置きます。
 
 #### 接続点の分離・配置・組み立てを決める
 
@@ -1401,21 +1401,21 @@ flowchart TB
 **掲載箇所：`ReportGenerator::generate(const ReportRequest&, const string&)`** ―― 本文を描く部分（3つの判断のうち1つ目）。
 
 ```cpp
-// ① ReportGenerator::generate() 内、本文の判断（→課題ID1）
+// 【契約】 ReportGenerator::generate() 内、本文の判断（→課題ID1）
 if (request.templateId == "SALES_MONTHLY_EXECUTIVE") {
     renderer.addStandardBody(document, "役員向け月次専用本文", summary);
 }
 ```
 
-続く②は、同じ`ReportGenerator::generate()`の中で、本文の判断（①）の直後にある装飾の判断です。
+続く【安定骨格】は、同じ`ReportGenerator::generate()`の中で、本文の判断（【契約】）の直後にある装飾の判断です。
 
-**掲載箇所：`ReportGenerator::generate(const ReportRequest&, const string&)`** ―― 本文の判断（①）の直後にある装飾の判断。
+**掲載箇所：`ReportGenerator::generate(const ReportRequest&, const string&)`** ―― 本文の判断（【契約】）の直後にある装飾の判断。
 
 ```cpp
 // ReportGenerator::generate(const ReportRequest&, const string&) の続き
-// （本文の判断（①）の直後。全文は3-1「ReportGeneratorへ要求を直接
+// （本文の判断（【契約】）の直後。全文は3-1「ReportGeneratorへ要求を直接
 //   追加したコード」に掲載）
-// ② 装飾の判断（→課題ID2）
+// 【安定骨格】 装飾の判断（→課題ID2）
 for (DecorationType type : request.decorations) {
     if (type == DecorationType::Graph) {
         renderer.addGraph(document);
@@ -1427,24 +1427,24 @@ for (DecorationType type : request.decorations) {
 }
 ```
 
-最後の③も同じ`ReportGenerator::generate()`の中にあり、装飾の判断（②）の直後で履歴を積みます。
+最後の【具体】も同じ`ReportGenerator::generate()`の中にあり、装飾の判断（【安定骨格】）の直後で履歴を積みます。
 
-**掲載箇所：`ReportGenerator::generate(const ReportRequest&, const string&)`** ―― 装飾の判断（②）の直後、メソッドの末尾。
+**掲載箇所：`ReportGenerator::generate(const ReportRequest&, const string&)`** ―― 装飾の判断（【安定骨格】）の直後、メソッドの末尾。
 
 ```cpp
 // ReportGenerator::generate(const ReportRequest&, const string&) の続き
-// （装飾の判断（②）の直後。全文は3-1「ReportGeneratorへ要求を直接
+// （装飾の判断（【安定骨格】）の直後。全文は3-1「ReportGeneratorへ要求を直接
 //   追加したコード」に掲載）
-// ③ 履歴の判断（→課題ID3）
+// 【具体】 履歴の判断（→課題ID3）
 acceptedRequests.push_back(request);
 return execute(request, templateName);
 ```
 
-この①②③を、次から課題ID1→課題ID2→課題ID3の順で、それぞれ別の責任へ移します。各課題は「**この課題をこう解決したい → そのために具体的にどうする**」を、**①契約を定義 →②骨格・基底を実装 →③具体を実装 →④誰が生成するか →⑤どこで依存を注入するか →⑥実行側は契約だけ呼ぶ →⑦だから課題が解ける**の順で、関係するコードをつなげて示します。抜粋には所属クラスと処理名を必ず添え、省略部分は「中略」と明記します。
+この【契約】【安定骨格】【具体】を、次から課題ID1→課題ID2→課題ID3の順で、それぞれ別の責任へ移します。各課題は「**この課題をこう解決したい → そのために具体的にどうする**」を、**【契約】を定義 →【安定骨格】骨格・基底を実装 →【具体】を実装 →【生成】誰が生成するか →【注入】どこで依存を注入するか →【利用開始】実行側は契約だけ呼ぶ →【完了条件】だから課題が解ける**の順で、関係するコードをつなげて示します。抜粋には所属クラスと処理名を必ず添え、省略部分は「中略」と明記します。
 
 #### 設計判断ごとの部分クラス図
 
-ここから課題ID1→課題ID2→課題ID3を順に見ます。各課題は、先頭にその課題だけを抜き出した**部分クラス図**（薄い黄色が新設・変更する型）を置き、続けて①契約→⑦完了条件のコードをつなげて示します。3つの部分図は、最後の「システム全体の最終構造」で一つの採用全体図へ合流します。
+ここから課題ID1→課題ID2→課題ID3を順に見ます。各課題は、先頭にその課題だけを抜き出した**部分クラス図**（薄い黄色が新設・変更する型）を置き、続けて【契約】→【完了条件】のコードをつなげて示します。3つの部分図は、最後の「システム全体の最終構造」で一つの採用全体図へ合流します。
 
 ### 課題ID1：本文の中身だけを差し替えられるようにする
 
@@ -1452,7 +1452,7 @@ return execute(request, templateName);
 
 **この課題（何を解きたいか）：** 本文を1種増やすたび、共通の生成順を持つ`generate()`まで直すことになる——問題ID1（痛み）／原因ID1（共通順が本文の中身まで持つ）です。**共通順は固定したまま、本文の中身だけを差し替えられる**ようにするのが課題ID1です。
 
-**どう解決するか（方針）：** 「読込→ヘッダー→本文→フッター」の共通順を骨格として1箇所に固定し、その途中の「本文を作る」ところだけを差し替え点にします（骨格固定構造＝Template Method）。以下、①契約 →②骨格 →③具体 →④生成 →⑤注入 →⑥実行 の順でコードを組み立てます。
+**どう解決するか（方針）：** 「読込→ヘッダー→本文→フッター」の共通順を骨格として1箇所に固定し、その途中の「本文を作る」ところだけを差し替え点にします（骨格固定構造＝Template Method）。以下、【契約】 →【安定骨格】骨格 →【具体】 →【生成】 →【注入】 →【利用開始】実行 の順でコードを組み立てます。
 
 まず静的な構造を図で示します。薄い黄色が今回新設する型、`ReportAssembler`は本文を生成する側です。
 
@@ -1474,7 +1474,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**① 共通契約 `IReport` を定義する。** すべての本文（後の装飾も）が「一つの文書を作る」同じ操作で呼べるようにします。
+**【契約】 共通契約 `IReport` を定義する。** すべての本文（後の装飾も）が「一つの文書を作る」同じ操作で呼べるようにします。
 
 ```cpp
 // 新規：共通契約
@@ -1485,13 +1485,13 @@ public:
 };
 ```
 
-**② 骨格 `ReportSkeleton` に共通順を固定し、本文だけを差し替え点 `renderBody()` にする。** 読込・描画に使う部品はコンストラクタで受け取ります（どこから渡すかは⑤）。
+**【安定骨格】 骨格 `ReportSkeleton` に共通順を固定し、本文だけを差し替え点 `renderBody()` にする。** 読込・描画に使う部品はコンストラクタで受け取ります（どこから渡すかは【注入】）。
 
 ```cpp
 // 新規：ReportSkeleton（IReport を実装。共通順を final で固定）
 class ReportSkeleton : public IReport {
 protected:
-    DataReader& reader;            // 借用（生成・注入は⑤）
+    DataReader& reader;            // 借用（生成・注入は【注入】）
     ReportRenderingApi& renderer;  // 借用
     OutputFormat format;
     virtual void renderBody(ReportDocument& doc,
@@ -1510,7 +1510,7 @@ public:
 };
 ```
 
-**③ 具体本文は `renderBody()` だけを実装する（共通順は書かない）。**
+**【具体】本文は `renderBody()` だけを実装する（共通順は書かない）。**
 
 ```cpp
 // 新規：MonthlyReport / ExecutiveMonthlyReport（renderBody だけを実装）
@@ -1532,7 +1532,7 @@ protected:
 };
 ```
 
-**④ 本文の具体を選んで生成するのは `ReportAssembler` 一箇所だけ。** どの本文クラスを`new`するかを知るのはここだけです（装飾を包む処理は課題ID2で追記。ここでは省略）。
+**【生成】 本文の具体を選んで生成するのは `ReportAssembler` 一箇所だけ。** どの本文クラスを`new`するかを知るのはここだけです（装飾を包む処理は課題ID2で追記。ここでは省略）。
 
 ```cpp
 // ReportAssembler::assemble() の本文選択部分（装飾は課題ID2。ここでは省略）
@@ -1547,7 +1547,7 @@ IReport* ReportAssembler::assemble(const ReportRequest& req) {
 }
 ```
 
-**⑤ 依存（reader・renderer）は `ReportApplication` が起動時に生成し、`ReportAssembler` へ注入する。** 本文クラスが使う部品は、アプリ起動時に一度だけ作られ、コンストラクタでAssemblerへ渡されます。
+**【注入】 依存（reader・renderer）は `ReportApplication` が起動時に生成し、`ReportAssembler` へ注入する。** 本文クラスが使う部品は、アプリ起動時に一度だけ作られ、コンストラクタでAssemblerへ渡されます。
 
 ```cpp
 // ReportApplication のメンバとコンストラクタ（依存の生成と注入）
@@ -1564,35 +1564,35 @@ public:
 };
 ```
 
-**⑥ 利用開始。** 実行側 `ReportGenerationService::generate()` が、`IReport` として `create()` を呼ぶだけです。具体本文を判定しません。
+**【利用開始】** 実行側 `ReportGenerationService::generate()` が、`IReport` として `create()` を呼ぶだけです。具体本文を判定しません。
 
 **掲載箇所：`ReportGenerationService::generate(const ReportRequest&)`** ―― テンプレート検証を終えた後の生成部分。出力境界への受け渡しは省略しています。
 
 ```cpp
 // ReportGenerationService::generate() の本文生成部分（検証・出力は省略。全文はフェーズ7）
 IReport* report = assembler.assemble(req);   // 生成は Assembler に任せる
-ReportDocument doc = report->create();        // ⑥ 契約 create() を呼ぶだけ
+ReportDocument doc = report->create();        // 【利用開始】 契約 create() を呼ぶだけ
 delete report;                                 // 生成物なので破棄
 ```
 
 #### 代表ケースの実行接続
 
-役員向け月次レポートの生成1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
+役員向け月次レポートの生成1件を、【生成】から【具体】まで実コードで追います。設計を説明する順は【契約】から【利用開始】ですが、実行時の呼出順は【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】です。
 
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
-| 1. ④生成 | `ReportAssembler::assemble(const ReportRequest&)` | `report = new ExecutiveMonthlyReport(reader, renderer, req.format);` | ⑤へ |
-| 2. ⑤注入 | `ReportApplication::ReportApplication()` | `assembler(reader, renderer)` で部品をAssemblerへ注入 | ⑥へ |
-| 3. ⑥利用開始 | `ReportGenerationService::generate()` | `ReportDocument doc = report->create();` | `IReport::create()` |
-| 4. ②安定骨格 | `ReportSkeleton::create()` | 読込→ヘッダー→`renderBody()`→フッター→保存の共通順を固定 | `ReportSkeleton::renderBody()`（純粋仮想） |
-| 5. ①契約 | `IReport::create()` / `ReportSkeleton::renderBody()` | 具体本文へ動的ディスパッチする | `ExecutiveMonthlyReport::renderBody()` |
-| 6. ③具体 | `ExecutiveMonthlyReport::renderBody(ReportDocument&, const SalesSummary&)` | 役員向け専用本文だけを描く | 戻って②が続きを進める |
+| 1. 【生成】 | `ReportAssembler::assemble(const ReportRequest&)` | `report = new ExecutiveMonthlyReport(reader, renderer, req.format);` | 【注入】へ |
+| 2. 【注入】 | `ReportApplication::ReportApplication()` | `assembler(reader, renderer)` で部品をAssemblerへ注入 | 【利用開始】へ |
+| 3. 【利用開始】 | `ReportGenerationService::generate()` | `ReportDocument doc = report->create();` | `IReport::create()` |
+| 4. 【安定骨格】 | `ReportSkeleton::create()` | 読込→ヘッダー→`renderBody()`→フッター→保存の共通順を固定 | `ReportSkeleton::renderBody()`（純粋仮想） |
+| 5. 【契約】 | `IReport::create()` / `ReportSkeleton::renderBody()` | 具体本文へ動的ディスパッチする | `ExecutiveMonthlyReport::renderBody()` |
+| 6. 【具体】 | `ExecutiveMonthlyReport::renderBody(ReportDocument&, const SalesSummary&)` | 役員向け専用本文だけを描く | 戻って【安定骨格】が続きを進める |
 
-④で生成した本文と、⑤で渡した `reader`・`renderer` と、⑥から②が呼ぶ相手は同じ実体です。
+【生成】で生成した本文と、【注入】で渡した `reader`・`renderer` と、【利用開始】から【安定骨格】が呼ぶ相手は同じ実体です。
 
-**⑦ これで課題ID1が解ける。完了条件（＝課題が解けたことを検証する条件）：** 本文を1種増やすとき変えるのは「新しい具体本文クラス1つ＋`ReportAssembler`の分岐1つ＋`TemplateRegistry`への登録1行」だけで、共通順（`ReportSkeleton::create()`）・既存本文・実行側は変わらないこと。フェーズ7のA1（通常月次）とA2（役員向け）で、この不変を実際に確認します。
+**【完了条件】 これで課題ID1が解ける。完了条件（＝課題が解けたことを検証する条件）：** 本文を1種増やすとき変えるのは「新しい具体本文クラス1つ＋`ReportAssembler`の分岐1つ＋`TemplateRegistry`への登録1行」だけで、共通順（`ReportSkeleton::create()`）・既存本文・実行側は変わらないこと。フェーズ7のA1（通常月次）とA2（役員向け）で、この不変を実際に確認します。
 
-**課題ID1でやめず、課題ID2・課題ID3へ続けます。** ただし④の`ReportAssembler`、⑤⑥の`ReportApplication`・`ReportGenerationService`は、装飾・履歴の分離でも同じ組み立ての中心になります。次はそこへ装飾を足します。
+**課題ID1でやめず、課題ID2・課題ID3へ続けます。** ただし【生成】の`ReportAssembler`、【注入】【利用開始】の`ReportApplication`・`ReportGenerationService`は、装飾・履歴の分離でも同じ組み立ての中心になります。次はそこへ装飾を足します。
 
 ### 課題ID2：装飾を、本文へ順番どおり重ねられるようにする
 
@@ -1624,9 +1624,9 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**① 契約は課題ID1の `IReport` をそのまま使う**（装飾も`create()`を実装する）。新しい契約は増やしません。
+**【契約】は課題ID1の `IReport` をそのまま使う**（装飾も`create()`を実装する）。新しい契約は増やしません。
 
-**② 装飾の基底 `ReportFeature`：内側の `IReport` を1つ所有し、破棄する。**
+**【安定骨格】 装飾の基底 `ReportFeature`：内側の `IReport` を1つ所有し、破棄する。**
 
 ```cpp
 // 新規：ReportFeature（IReport を実装し、内側の IReport を所有する）
@@ -1641,7 +1641,7 @@ public:
 };
 ```
 
-**③ 具体装飾は、内側を作ってから自分の要素を1つ足すだけ（前後順は持たない）。**
+**【具体】装飾は、内側を作ってから自分の要素を1つ足すだけ（前後順は持たない）。**
 
 ```cpp
 // 新規：GraphFeature / LogoFeature（1つだけ足す。順序判断は持たない）
@@ -1665,7 +1665,7 @@ public:
 };
 ```
 
-**④ 順序を決めるのは `ReportAssembler`。課題ID1の本文選択に続けて、装飾列を先頭から包む。** これで`assemble()`が完成します（課題ID1で省略した装飾部分がここです）。
+**【生成】 順序を決めるのは `ReportAssembler`。課題ID1の本文選択に続けて、装飾列を先頭から包む。** これで`assemble()`が完成します（課題ID1で省略した装飾部分がここです）。
 
 ```cpp
 // ReportAssembler::assemble() の全体（課題ID1の本文選択＋課題ID2の装飾連結）
@@ -1691,36 +1691,36 @@ IReport* ReportAssembler::assemble(const ReportRequest& req) {
 }
 ```
 
-**⑤ 注入。** 課題ID1と同じです。`renderer` は `ReportApplication` が起動時に生成して `ReportAssembler` へ注入し、各装飾は生成時に内側の `IReport*` と `renderer` を受け取ります。
+**【注入】** 課題ID1と同じです。`renderer` は `ReportApplication` が起動時に生成して `ReportAssembler` へ注入し、各装飾は生成時に内側の `IReport*` と `renderer` を受け取ります。
 
 **掲載箇所：`ReportAssembler::assemble(const ReportRequest&)`** ―― 装飾列を先頭から回す中の1行。直前の `IReport*` を内側として包みます。
 
 ```cpp
-report = new GraphFeature(report, renderer);   // ⑤ 内側と描画境界を注入
+report = new GraphFeature(report, renderer);   // 【注入】 内側と描画境界を注入
 ```
 
-**② 装飾連鎖の安定骨格。** `ReportFeature` を継ぐ各装飾は「内側を先に作ってから、自分の要素を1つ足す」形に固定されています。何段重なっても、この委譲の形は変わりません。
+**【安定骨格】 装飾連鎖の安定骨格。** `ReportFeature` を継ぐ各装飾は「内側を先に作ってから、自分の要素を1つ足す」形に固定されています。何段重なっても、この委譲の形は変わりません。
 
 ```cpp
 ReportDocument GraphFeature::create() {
-    ReportDocument doc = wrapped->create();  // ② まず内側の契約を呼ぶ
-    renderer.addGraph(doc);                  // ② 自分ぶんを1つ足す
+    ReportDocument doc = wrapped->create();  // 【安定骨格】 まず内側の契約を呼ぶ
+    renderer.addGraph(doc);                  // 【安定骨格】 自分ぶんを1つ足す
     return doc;
 }
 ```
 
-**⑥ 利用開始。** 課題ID1と同じ入口です。実行側は `assemble()` が返した最外側を `IReport` として呼ぶだけで、装飾が何段付いているかを知りません。
+**【利用開始】** 課題ID1と同じ入口です。実行側は `assemble()` が返した最外側を `IReport` として呼ぶだけで、装飾が何段付いているかを知りません。
 
 **掲載箇所：`ReportGenerationService::generate(const ReportRequest&)`** ―― 課題ID1と同じ位置・同じコード。装飾が何段付いても変わりません。
 
 ```cpp
 // ReportGenerationService::generate()（課題ID1と同じ。装飾の有無を意識しない）
 IReport* report = assembler.assemble(req);   // 本文＋装飾を組み立て
-ReportDocument doc = report->create();        // ⑥ 最外側の create() を呼ぶだけ
+ReportDocument doc = report->create();        // 【利用開始】 最外側の create() を呼ぶだけ
 delete report;                                 // 最外側を破棄→内側へ連鎖破棄
 ```
 
-**⑦ これで課題ID2が解ける。完了条件：** 装飾を1種増やすとき変えるのは「新しいFeature1クラス＋`ReportAssembler`の分岐1つ」だけで、本文生成（課題ID1）と実行側は不変。装飾順を入れ替えると出力順も入れ替わる。フェーズ7のA2（Logo→Graph）とA3（Graph→Logo）で確認します。
+**【完了条件】 これで課題ID2が解ける。完了条件：** 装飾を1種増やすとき変えるのは「新しいFeature1クラス＋`ReportAssembler`の分岐1つ」だけで、本文生成（課題ID1）と実行側は不変。装飾順を入れ替えると出力順も入れ替わる。フェーズ7のA2（Logo→Graph）とA3（Graph→Logo）で確認します。
 
 ### 課題ID3：生成の実行を、記録・再実行できる操作にする
 
@@ -1728,7 +1728,7 @@ delete report;                                 // 最外側を破棄→内側へ
 
 **この課題（何を解きたいか）：** 履歴・再実行・取消を足すたび、生成本体に保存時点や操作規則が入り込む——問題ID3／原因ID3（生成本体が履歴規則まで持つ）です。**生成の実行を、あとから記録・再実行・取消できる一つの「操作」として扱える**ようにするのが課題ID3です。
 
-**どう解決するか（方針）：** 「完全な生成要求を持ち、実行と取消を同じ単位で行う操作」を`IReportAction`契約として定義し、履歴はその契約だけを扱います（操作記録構造＝Command）。以下、①契約 →②操作の具体 →③履歴（所有） →④入口（生成・注入） →⑤実行 →⑦完了条件 の順で組み立てます（実行側が契約だけを呼ぶ⑥は⑤に含めます）。
+**どう解決するか（方針）：** 「完全な生成要求を持ち、実行と取消を同じ単位で行う操作」を`IReportAction`契約として定義し、履歴はその契約だけを扱います（操作記録構造＝Command）。以下、【契約】 →【安定骨格】操作の具体 →【具体】履歴（所有） →【生成】入口（生成・注入） →【注入】実行 →【完了条件】 の順で組み立てます（実行側が契約だけを呼ぶ【利用開始】は【注入】に含めます）。
 
 ```mermaid
 classDiagram
@@ -1750,7 +1750,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**① 操作契約 `IReportAction` を定義し、③ 要求を保持する具体操作 `GenerateReportAction` が実装する。** `GenerateReportAction`は完全な`ReportRequest`を持ち、生成・取消を`ReportGenerationService`へ委譲します。委譲先の`service`は生成時にコンストラクタで受け取ります（＝依存注入の受け口。渡す側は④）。
+**【契約】 操作契約 `IReportAction` を定義し、【具体】 要求を保持する具体操作 `GenerateReportAction` が実装する。** `GenerateReportAction`は完全な`ReportRequest`を持ち、生成・取消を`ReportGenerationService`へ委譲します。委譲先の`service`は生成時にコンストラクタで受け取ります（＝依存注入の受け口。渡す側は【生成】）。
 
 ```cpp
 // 採用後コード：操作契約と、要求を保持する操作
@@ -1777,7 +1777,7 @@ public:
 };
 ```
 
-**② 履歴 `ReportActionHistory` の安定骨格（Actionを所有してから契約を呼ぶ）と、④ 入口 `ReportApplication` が具体Actionを生成し、⑤ `service` を注入して履歴へ渡す。** 具体Action（`GenerateReportAction`）を`new`するのは`ReportApplication`だけです。その`new GenerateReportAction(service, request)`の`service`が、②で受け取る依存の**注入そのもの**です。
+**【安定骨格】 履歴 `ReportActionHistory` の安定骨格（Actionを所有してから契約を呼ぶ）と、【生成】 入口 `ReportApplication` が具体Actionを生成し、【注入】 `service` を注入して履歴へ渡す。** 具体Action（`GenerateReportAction`）を`new`するのは`ReportApplication`だけです。その`new GenerateReportAction(service, request)`の`service`が、【安定骨格】で受け取る依存の**注入そのもの**です。
 
 ```cpp
 // 採用後コード：ReportActionHistory のメソッド（Action を所有してから実行）
@@ -1793,11 +1793,11 @@ OperationResult ReportApplication::submit(ReportRequest request) {
 }
 ```
 
-**⑥ 利用開始。実行・再実行・取消は、履歴が契約 `execute()`/`undo()` を呼ぶだけ。** 変更途中コードの`acceptedRequests.push_back(request)`は、生成本体の内部状態から、`ReportApplication`が生成し`ReportActionHistory`が所有する**Actionの列**へ移りました。履歴は`IReportAction`として呼ぶだけで、本文や装飾はもちろん、生成の中身も判定しません。
+**【利用開始】。実行・再実行・取消は、履歴が契約 `execute()`/`undo()` を呼ぶだけ。** 変更途中コードの`acceptedRequests.push_back(request)`は、生成本体の内部状態から、`ReportApplication`が生成し`ReportActionHistory`が所有する**Actionの列**へ移りました。履歴は`IReportAction`として呼ぶだけで、本文や装飾はもちろん、生成の中身も判定しません。
 
-なお、この章での**依存注入**は、上の④——`ReportApplication`が`new GenerateReportAction(service, request)`で、生成済みの`service`（アプリ起動時に一度だけ作った`ReportGenerationService`）をActionへ外から渡すところ——です。Action自身は`service`を作らず、受け取って使います。
+なお、この章での**依存注入**は、上の【生成】——`ReportApplication`が`new GenerateReportAction(service, request)`で、生成済みの`service`（アプリ起動時に一度だけ作った`ReportGenerationService`）をActionへ外から渡すところ——です。Action自身は`service`を作らず、受け取って使います。
 
-**⑦ これで課題ID3が解ける。完了条件：** 受け付けた同じ要求を再実行・取消でき、履歴が本文・装飾の種類を判定しないこと。フェーズ7のA4（同じ要求を再実行して取消）で、要求履歴4件と診断ログ6件が別物として維持されることを確認します。
+**【完了条件】 これで課題ID3が解ける。完了条件：** 受け付けた同じ要求を再実行・取消でき、履歴が本文・装飾の種類を判定しないこと。フェーズ7のA4（同じ要求を再実行して取消）で、要求履歴4件と診断ログ6件が別物として維持されることを確認します。
 
 以上で3つの判断を、それぞれ骨格固定・装飾連結・操作記録の3構造へ分けました。次に、これらを一本の実行経路へ再結合します。
 

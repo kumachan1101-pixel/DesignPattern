@@ -1866,18 +1866,18 @@ flowchart TB
 
 #### 構造ポイントの全貌 ―― どの責任がどこへ移るか
 
-課題ID1の①〜⑥が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この表で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID節に同じ番号で置きます。
+課題ID1の【契約】〜【利用開始】が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この表で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID節に同じ番号で置きます。
 
 | ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
 |---|---|---|---|
-| ① 契約 | `PaymentApplication` が手段別クラスを直接生成 → `IPaymentProcessor::pay(const PaymentRequest&, int)` | 手段共通の決済操作を契約へ切り出す | ③のoverride |
-| ② 骨格 | `processPayment()` の手段別 `if-else` → 生成→委譲→破棄の順だけ | 手段が増えても変えない制御順を固定する | ①の `pay()` |
-| ③ 具体 | 分岐に埋もれた手段別検証とAPI呼び出し → `CreditCardProcessor::pay()` ほか | 手段固有の検証・API手順・エラー対処を実装へ閉じる | ①経由で②へ戻る |
-| ④ 生成 | 利用フローに散った具体生成 → `createProcessor(const string&)` の1か所 | 登録・有効判定を通した使い捨てProcessorを作る（所有は②） | ⑤の生成時引数 |
-| ⑤ 注入 | 各Processorが境界を自前で持つ → `new CreditCardProcessor(gatewayClient)` | 外部API境界を具体へ渡す | ⑥が呼ぶ `processPayment()` |
-| ⑥ 利用開始 | 利用側が手段ごとの手順を知る → `app.processPayment(request);` | ④⑤で組み立てた同じ実体を使い、公開操作を1回呼ぶ | ②の `processPayment()` |
+| 【契約】 | `PaymentApplication` が手段別クラスを直接生成 → `IPaymentProcessor::pay(const PaymentRequest&, int)` | 手段共通の決済操作を契約へ切り出す | 【具体】のoverride |
+| 【安定骨格】 骨格 | `processPayment()` の手段別 `if-else` → 生成→委譲→破棄の順だけ | 手段が増えても変えない制御順を固定する | 【契約】の `pay()` |
+| 【具体】 | 分岐に埋もれた手段別検証とAPI呼び出し → `CreditCardProcessor::pay()` ほか | 手段固有の検証・API手順・エラー対処を実装へ閉じる | 【契約】経由で【安定骨格】へ戻る |
+| 【生成】 | 利用フローに散った具体生成 → `createProcessor(const string&)` の1か所 | 登録・有効判定を通した使い捨てProcessorを作る（所有は【安定骨格】） | 【注入】の生成時引数 |
+| 【注入】 | 各Processorが境界を自前で持つ → `new CreditCardProcessor(gatewayClient)` | 外部API境界を具体へ渡す | 【利用開始】が呼ぶ `processPayment()` |
+| 【利用開始】 | 利用側が手段ごとの手順を知る → `app.processPayment(request);` | 【生成】【注入】で組み立てた同じ実体を使い、公開操作を1回呼ぶ | 【安定骨格】の `processPayment()` |
 
-この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（①→⑥）ではなく④→⑤→⑥→②→①→③で、課題ID節の末尾に実行接続表として置きます。
+この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（【契約】→【利用開始】）ではなく【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】で、課題ID節の末尾に実行接続表として置きます。
 
 #### 接続点の分離・配置・組み立てを決める
 
@@ -2023,7 +2023,7 @@ classDiagram
 
 | 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 課題ID1 | 共通契約 `IPaymentProcessor` を新設し、生成判断を生成メソッドへ寄せ、利用フローを契約中心へ変える | `pay(request)` を純粋仮想で定義し各Processorが実装、`createProcessor(type)` に具体クラスの選択・生成を集め、`processPayment` はその結果へ `pay()` を委譲する | 課題ID1節（①〜⑥） |
+| 課題ID1 | 共通契約 `IPaymentProcessor` を新設し、生成判断を生成メソッドへ寄せ、利用フローを契約中心へ変える | `pay(request)` を純粋仮想で定義し各Processorが実装、`createProcessor(type)` に具体クラスの選択・生成を集め、`processPayment` はその結果へ `pay()` を委譲する | 課題ID1節（【契約】〜【利用開始】） |
 
 このクラス図が、課題ID1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
@@ -2057,7 +2057,7 @@ PaymentResult processPayment(const PaymentRequest& request) {
 
 **この課題（何を解きたいか）：** PayPayを足すだけで、統括者が具体クラス名・固有検証・非同期保留・エラー対処を抱え、7か所へ波及する——問題ID1・問題ID2（痛み）／原因ID1です。**どの方式を作るかの生成判断を一つの生成メソッドへ寄せ、利用フローは共通契約だけを呼ぶ**ようにするのが課題ID1です。
 
-**どう解決するか（方針）：** 決済方式を共通契約の裏へ隠し、生成判断を生成メソッドへ集めます（生成分離構造＝Factory Method）。①契約 →②検証後に生成物へ処理を委譲する安定骨格 →③具体 →④生成 →⑤注入 →⑥実行 の順で組み立てます。②では決済方式が増えても変えない処理順を示します。
+**どう解決するか（方針）：** 決済方式を共通契約の裏へ隠し、生成判断を生成メソッドへ集めます（生成分離構造＝Factory Method）。【契約】 →【安定骨格】検証後に生成物へ処理を委譲する安定骨格 →【具体】 →【生成】 →【注入】 →【利用開始】実行 の順で組み立てます。【安定骨格】では決済方式が増えても変えない処理順を示します。
 
 ```mermaid
 classDiagram
@@ -2071,7 +2071,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**① 共通契約 `IPaymentProcessor` を定義する。** すべての方式が `PaymentRequest` を受けて `PaymentResult` を返せます（フェーズ5で入出力が既にそろっているため、契約を1本かぶせるだけで差し替えられます）。
+**【契約】 共通契約 `IPaymentProcessor` を定義する。** すべての方式が `PaymentRequest` を受けて `PaymentResult` を返せます（フェーズ5で入出力が既にそろっているため、契約を1本かぶせるだけで差し替えられます）。
 
 ```cpp
 class IPaymentProcessor {
@@ -2082,7 +2082,7 @@ public:
 };
 ```
 
-**③ 各方式が固有の検証・API手順・エラー対処を内側に閉じる。**
+**【具体】 各方式が固有の検証・API手順・エラー対処を内側に閉じる。**
 
 ```cpp
 class CreditCardProcessor : public IPaymentProcessor {
@@ -2098,7 +2098,7 @@ public:
 };
 ```
 
-**④ どの具体を生成するかを、生成メソッドの1か所へ閉じる。** 生成メソッドは `DefaultPaymentApplication::createProcessor()` で、新方式はここへ1行足すだけです。`new` した使い捨てProcessorを生ポインタで返し、**所有は呼び出した `processPayment()` が持ち、使用後に `delete` します**（⑥で破棄）。登録の有無と有効・無効の判定もこの1か所で行い、通らない要求は例外で止めます。
+**【生成】 どの具体を生成するかを、生成メソッドの1か所へ閉じる。** 生成メソッドは `DefaultPaymentApplication::createProcessor()` で、新方式はここへ1行足すだけです。`new` した使い捨てProcessorを生ポインタで返し、**所有は呼び出した `processPayment()` が持ち、使用後に `delete` します**（【利用開始】で破棄）。登録の有無と有効・無効の判定もこの1か所で行い、通らない要求は例外で止めます。
 
 **掲載箇所：`DefaultPaymentApplication::createProcessor(const string&)`** ―― 生成メソッドの全文。具体クラス名を知るのはこの1か所だけです。
 
@@ -2118,50 +2118,50 @@ IPaymentProcessor* createProcessor(const string& type) override {
 }
 ```
 
-**⑤ 注入。** 生成メソッドが具体Processorへゲートウェイ参照を渡します。`PaymentApplication` は具体クラスを保持せず、生成のたびに契約ポインタを受け取ります。
+**【注入】** 生成メソッドが具体Processorへゲートウェイ参照を渡します。`PaymentApplication` は具体クラスを保持せず、生成のたびに契約ポインタを受け取ります。
 
-**掲載箇所：`DefaultPaymentApplication::createProcessor(const string&)`** ―― ④の分岐のうち1行。生成と同時にゲートウェイ参照を渡します。
+**掲載箇所：`DefaultPaymentApplication::createProcessor(const string&)`** ―― 【生成】の分岐のうち1行。生成と同時にゲートウェイ参照を渡します。
 
 ```cpp
-return new CreditCardProcessor(gatewayClient);   // ⑤ 境界を具体へ注入
+return new CreditCardProcessor(gatewayClient);   // 【注入】 境界を具体へ注入
 ```
 
-**② 生成後の委譲・破棄を安定骨格として実行する。** `PaymentApplication::processPayment()` は生成メソッドでProcessorを得て、契約 `pay()` へ委譲し、使用後に `delete` します。具体クラス名も手段固有分岐も持ちません。
+**【安定骨格】 生成後の委譲・破棄を安定骨格として実行する。** `PaymentApplication::processPayment()` は生成メソッドでProcessorを得て、契約 `pay()` へ委譲し、使用後に `delete` します。具体クラス名も手段固有分岐も持ちません。
 
 **掲載箇所：`PaymentApplication::processPayment(const PaymentRequest&)`** ―― 上の現状コードと同じ位置。振り分け `if` が生成メソッドの呼び出し1行へ置き換わります。
 
 ```cpp
 PaymentResult processPayment(const PaymentRequest& request) {
     // 注文・顧客の照合は現状のまま（7-1に全文）
-    IPaymentProcessor* proc = createProcessor(request.methodId); // ④で生成
-    PaymentResult result = proc->pay(request, ord.amount);       // ② 契約だけ呼ぶ
-    delete proc;                                                 // ② 使い捨て後に破棄
+    IPaymentProcessor* proc = createProcessor(request.methodId);
+    PaymentResult result = proc->pay(request, ord.amount);  // 契約だけ呼ぶ
+    delete proc;                                            // 使い捨て後に破棄
     return result;
 }
 ```
 
-**⑥ 利用開始。** 決済入口が公開操作 `PaymentApplication::processPayment()` を呼びます。利用側が `createProcessor()` や具体Processorを直接呼ぶことはありません。
+**【利用開始】** 決済入口が公開操作 `PaymentApplication::processPayment()` を呼びます。利用側が `createProcessor()` や具体Processorを直接呼ぶことはありません。
 
 **掲載箇所：自由関数 `executeCase(PaymentApplication&, PaymentLog&, const PaymentRequest&)`** ―― `main()` が各ケースで呼ぶ実行ヘルパーの先頭行です。
 
 ```cpp
-PaymentResult result = app.processPayment(request);   // ⑥ 利用開始
+PaymentResult result = app.processPayment(request);   // 【利用開始】
 ```
 ★mainから順に説明していく方が、読む側はトレースしやすいのでは？番号順も変えるか？
 #### 代表ケースの実行接続
 
-カード決済1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
+カード決済1件を、【生成】から【具体】まで実コードで追います。設計を説明する順は【契約】から【利用開始】ですが、実行時の呼出順は【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】です。
 
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
-| 1. ④生成 | `createProcessor(const string&)` | `return new CreditCardProcessor(gatewayClient);` | ⑤へ |
-| 2. ⑤注入 | `createProcessor(const string&)` | 生成時に `gatewayClient` を具体へ渡す | ⑥へ |
-| 3. ⑥利用開始 | `main()` / `executeCase()` | `app.processPayment(request);` | `PaymentApplication::processPayment()` |
-| 4. ②安定骨格 | `PaymentApplication::processPayment(const PaymentRequest&)` | 台帳照合のあと `proc->pay(request, ord.amount)` を呼び、使用後に `delete` | `IPaymentProcessor::pay()` |
-| 5. ①契約 | `IPaymentProcessor::pay(const PaymentRequest&, int)` | 生成されたProcessorへ動的ディスパッチする | `CreditCardProcessor::pay()` |
-| 6. ③具体 | `CreditCardProcessor::pay(const PaymentRequest&, int)` | カード固有の検証と認証APIを実行し `PaymentResult` を返す | 戻り値を②が返す |
+| 1. 【生成】 | `createProcessor(const string&)` | `return new CreditCardProcessor(gatewayClient);` | 【注入】へ |
+| 2. 【注入】 | `createProcessor(const string&)` | 生成時に `gatewayClient` を具体へ渡す | 【利用開始】へ |
+| 3. 【利用開始】 | `main()` / `executeCase()` | `app.processPayment(request);` | `PaymentApplication::processPayment()` |
+| 4. 【安定骨格】 | `PaymentApplication::processPayment(const PaymentRequest&)` | 台帳照合のあと `proc->pay(request, ord.amount)` を呼び、使用後に `delete` | `IPaymentProcessor::pay()` |
+| 5. 【契約】 | `IPaymentProcessor::pay(const PaymentRequest&, int)` | 生成されたProcessorへ動的ディスパッチする | `CreditCardProcessor::pay()` |
+| 6. 【具体】 | `CreditCardProcessor::pay(const PaymentRequest&, int)` | カード固有の検証と認証APIを実行し `PaymentResult` を返す | 戻り値を【安定骨格】が返す |
 
-この章の④は生成メソッドの中で起き、所有は②の `processPayment()` が持って使用後に破棄します。生成場所と所有者が分かれる点は第10章と同じ形です。★他の章の話しださないで。章完結の方針です。
+この章の【生成】は生成メソッドの中で起き、所有は【安定骨格】の `processPayment()` が持って使用後に破棄します。生成場所と所有者が分かれる点は第10章と同じ形です。★他の章の話しださないで。章完結の方針です。
 
 > **この抜粋の外は、現状のままです。** `createProcessor()` は `PaymentApplication` の純粋仮想を `DefaultPaymentApplication` が実装した形で、`registry` と `gatewayClient` はその具象側が持ちます。`processPayment()` の冒頭にある注文・顧客の照合と、決済ログの記録は現状のまま維持します。ログを取るのは組み立て側（`main()` の `executeCase`）で、`PaymentApplication` は記録しません。全文は7-1で示します。
 

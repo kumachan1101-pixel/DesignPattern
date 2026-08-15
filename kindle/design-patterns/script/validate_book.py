@@ -3372,7 +3372,8 @@ def check_phase6_phase7_contract_match(text: str, path: Path) -> list[Issue]:
     「確定します」「採用後コード」と示した契約が、7-1では別シグネチャ・別
     メソッド名になっていた（第8章はコンパイルできない断片だった）。
 
-    対象は純粋仮想を持つ契約クラス（`class I...` かつ `= 0` を含む）に限る。
+    対象は `class I...` で仮想関数を持つ契約クラス。純粋仮想が1つも無く、
+    既定実装だけを持つ契約（具体側が上書きしたい操作だけを差し替える形）も含める。
     フェーズ6は抜粋なので、7-1に無いメソッドがフェーズ6にある場合だけを警告する
     （7-1側が多いのは「後で追加する」と書けば許される）。
     """
@@ -3391,9 +3392,12 @@ def check_phase6_phase7_contract_match(text: str, path: Path) -> list[Issue]:
                 r"class\s+(I[A-Z]\w*)\s*(?:final\s*)?\{(.*?)\n\};", block, re.S
             ):
                 name, body = m.group(1), m.group(2)
-                if "= 0" not in body:
-                    continue
                 methods = set(re.findall(r"virtual[^;{]*?\b(\w+)\s*\(", body))
+                # 純粋仮想が1つも無い契約もある（既定実装だけを持ち、
+                # 具体側は上書きしたい操作だけを差し替える形）。
+                # `I` で始まる型に仮想関数があれば契約として扱う。
+                if not methods:
+                    continue
                 found.setdefault(name, set()).update(methods)
         return found
 
@@ -3873,6 +3877,12 @@ def check_phase6_fragment_location(text: str, path: Path) -> list[Issue]:
     return issues
 
 
+# フェーズ6の6つのポイント。番号だと説明順と実行順が混同されるため、
+# 名前のラベルで示す（著者指摘 2026-08-15）。
+PHASE6_LABELS = ("【契約】", "【安定骨格】", "【具体】",
+                 "【生成】", "【注入】", "【利用開始】")
+
+
 def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
     """フェーズ6の①〜⑥を、番号ごとに分けた見出しと実コードで示す。
 
@@ -3902,28 +3912,34 @@ def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
     section = text[start:end]
 
     seen: set[str] = set()
-    for m in re.finditer(r"(?m)^\*\*([①②③④⑤⑥]+)([^*]{0,60})\*\*", section):
-        numbers = m.group(1)
-        seen.update(numbers)
-        if "②" in numbers and "⑥" in numbers:
+    label_head = re.compile(
+        r"(?m)^\*\*((?:" + "|".join(re.escape(x) for x in PHASE6_LABELS)
+        + r")+)([^*]{0,60})\*\*")
+    for m in label_head.finditer(section):
+        labels = re.findall(r"【[^】]+】", m.group(1))
+        seen.update(labels)
+        # 同じ場所（main など）で連続するポイントは1見出しへまとめてよい。
+        # ただし【安定骨格】は呼ばれる側、【利用開始】は呼ぶ側なので分ける。
+        if "【安定骨格】" in labels and "【利用開始】" in labels:
             issues.append(Issue(
                 path, line_number(text, start + m.start()),
-                "②安定骨格と⑥利用開始を一つの見出しへまとめないでください"
-                f"（`{numbers}`）。②は公開入口の内側で変わらない制御順、"
-                "⑥は利用者が公開入口を呼ぶ行です。呼ばれる側と呼ぶ側を分けます",
+                "【安定骨格】と【利用開始】を一つの見出しへまとめないでください"
+                f"（`{m.group(1)}`）。【安定骨格】は公開入口の内側で変わらない"
+                "制御順、【利用開始】は利用者が公開入口を呼ぶ行です。"
+                "呼ばれる側と呼ぶ側を分けます",
             ))
-    for required in "①②③④⑤⑥":
+    for required in PHASE6_LABELS:
         if required not in seen:
             issues.append(Issue(
                 path, line_number(text, start),
                 f"フェーズ6に共通項目 {required} の見出しがありません。"
-                "①〜⑥それぞれへ、所属の分かる実コードを付けて示します",
+                "6つそれぞれへ、所属の分かる実コードを付けて示します",
             ))
     if "#### 構造ポイントの全貌" not in section:
         issues.append(Issue(
             path, line_number(text, start),
             "フェーズ6の冒頭へ「構造ポイントの全貌」を置いてください。"
-            "断片コードより前に、①〜⑥がどのクラス・関数からどこへ責任を移すかを"
+            "断片コードより前に、6つのポイントがどのクラス・関数からどこへ責任を移すかを"
             "一覧します（DOC-001の著者指摘：構造の全貌がポイントで分かるように）",
         ))
     if "実行順・ポイント" not in section:
@@ -3931,7 +3947,8 @@ def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
             path, line_number(text, start),
             "フェーズ6へ代表ケースの実行接続表（実行順・ポイント／掲載箇所／"
             "実際のコード接続／次の呼出先）を置いてください。"
-            "説明順は①→⑥ですが、実行順は④→⑤→⑥→②→①→③です",
+            "説明順は【契約】から【利用開始】ですが、実行順は"
+            "【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】です",
         ))
     return issues
 
@@ -3943,19 +3960,21 @@ def check_phase6_numbered_step_titles(text: str, path: Path) -> list[Issue]:
     if min(start, end) < 0:
         return []
     section = text[start:end]
-    matches = list(re.finditer(r"(?m)^\*\*([①②③④⑤⑥]+)\s*([^\n]*)", section))
+    matches = list(re.finditer(
+        r"(?m)^\*\*((?:" + "|".join(re.escape(x) for x in PHASE6_LABELS)
+        + r")+)\s*([^\n]*)", section))
     issues: list[Issue] = []
     seen: set[str] = set()
     for match in matches:
-        seen.update(re.findall(r"[①②③④⑤⑥]", match.group(0)))
-        title = match.group(2).split("。", 1)[0]
-        title = re.sub(r"[`*_：:（）()・\s]", "", title)
-        if "★" in match.group(0) or len(title) < 2:
+        seen.update(re.findall(r"【[^】]+】", match.group(0)))
+        # ラベルだけの見出しでよい。章固有の具体は直後の文が担う
+        # （見出しと本文で同じことを繰り返さない／著者指摘 2026-08-15）。
+        if "★" in match.group(0):
             issues.append(Issue(
                 path, line_number(text, start + match.start()),
-                "フェーズ6の番号付き説明は「番号＋共通項目名＋章固有の具体」で始めてください",
+                "フェーズ6のポイント見出しへ★指摘を残さないでください",
             ))
-    for required in ("①", "②", "③", "⑥"):
+    for required in ("【契約】", "【安定骨格】", "【具体】", "【利用開始】"):
         if required not in seen:
             issues.append(Issue(
                 path, line_number(text, start),
@@ -4213,7 +4232,8 @@ def check_number_namespace(text: str, path: Path) -> list[Issue]:
         if not (phase6 <= match.start() < phase7):
             issues.append(Issue(
                 path, line_number(text, match.start()),
-                "丸数字①〜⑩はフェーズ6の設計反映順だけに使い、"
+                "丸数字は使わず、フェーズ6は【契約】【安定骨格】【具体】"
+                "【生成】【注入】【利用開始】のラベルで示し、"
                 "フェーズ1は `(1)`、フェーズ3は `[試行1]`、"
                 "フェーズ7は `【1】` を使ってください",
             ))

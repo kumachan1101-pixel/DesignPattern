@@ -42,9 +42,9 @@ cases.append(("LOGIC-001 エビデンス参照", V.check_evidence_scenario_refer
 # 2) LOGIC-003: フェーズ6契約に7-1へ無いメソッドがある
 t = (OUT/"chapter09_2.md").read_text(encoding="utf-8")
 broken = t.replace(
-    '    virtual ITicketPhase* sendBack() { return reject("差し戻し"); }\nprotected:',
-    '    virtual ITicketPhase* sendBack() { return reject("差し戻し"); }\n'
-    '    virtual ITicketPhase* archive()  { return reject("封棚"); }\nprotected:', 1)
+    '    virtual Transition sendBack() const { return reject("差し戻し"); }',
+    '    virtual Transition sendBack() const { return reject("差し戻し"); }\n'
+    '    virtual Transition archive() const  { return reject("封棚"); }', 1)
 cases.append(("LOGIC-003 契約不一致", V.check_phase6_phase7_contract_match, broken))
 
 # 3) LOGIC-007: 列名が「現行」なのに追加要求IDが入る
@@ -153,11 +153,11 @@ t = (OUT/"chapter06.md").read_text(encoding="utf-8")
 broken = t.replace("守れる範囲・残る弱点", "今回の判断", 1)
 cases.append(("RISK-001 将来リスク評価", V.check_future_risk_traceability, broken))
 
-# 21) STEP-001: フェーズ6の番号だけを残して項目名を落とす
+# 21) STEP-001: フェーズ6のポイント見出しへ★指摘を残す
 t = (OUT/"chapter06.md").read_text(encoding="utf-8")
-broken = t.replace("**① 契約：共通契約 `IDrink` を定義する。**",
-                   "**① 。**", 1)
-cases.append(("STEP-001 番号付き項目名", V.check_phase6_numbered_step_titles, broken))
+broken = t.replace("**【契約】：共通契約 `IDrink` を定義する。**",
+                   "**【契約】：共通契約 `IDrink` を定義する。★要確認**", 1)
+cases.append(("STEP-001 見出しの★残り", V.check_phase6_numbered_step_titles, broken))
 
 # 22) BLOCK-001: 7-1へ複数責任を詰めた長大ブロックを戻す
 t = (OUT/"chapter03.md").read_text(encoding="utf-8")
@@ -194,8 +194,8 @@ cases.append(("CHANGE-DIAGRAM-001 変更図の差分色", V.check_change_diagram
 # 27) SKELETON-001: フェーズ6の安定骨格を「なし」へ戻す
 t = (OUT/"chapter06.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "②内側へ委譲して結果を合成する安定骨格",
-    "②骨格は無し", 1)
+    "【安定骨格】内側へ委譲して結果を合成する安定骨格",
+    "【安定骨格】骨格は無し", 1)
 cases.append(("SKELETON-001 安定骨格の省略", V.check_stable_skeleton_explanation, broken))
 
 # 28) REQUIREMENT-ROOT-001: 変更ID一覧にない要求IDへ変更根拠を付ける
@@ -261,11 +261,11 @@ t = (OUT/"chapter08.md").read_text(encoding="utf-8")
 broken = t.replace("> **手元で動かすには**", "> **メモ**", 1)
 cases.append(("RUN-001 手元で動かすには", V.check_run_locally_section, broken))
 
-# DOC-002: ②と⑥を一つの見出しへ戻す
+# DOC-002: 【安定骨格】と【利用開始】を一つの見出しへ戻す
 t = (OUT/"chapter12.md").read_text(encoding="utf-8")
-broken = t.replace("**② 状態委譲の安定骨格。**",
-                   "**②⑥ 状態委譲の安定骨格は、現在状態へイベントを委ねるだけ。**", 1)
-cases.append(("DOC-002 ②⑥の統合", V.check_phase6_point_separation, broken))
+broken = t.replace("**【安定骨格】 状態委譲の安定骨格。**",
+                   "**【安定骨格】【利用開始】状態委譲は現在状態へ委ねるだけ。**", 1)
+cases.append(("DOC-002 骨格と利用開始の統合", V.check_phase6_point_separation, broken))
 
 # DOC-002: 実行接続表を落とす
 t = (OUT/"chapter07.md").read_text(encoding="utf-8")

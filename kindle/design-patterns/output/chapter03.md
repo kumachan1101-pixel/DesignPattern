@@ -1287,18 +1287,18 @@ flowchart TB
 
 #### 構造ポイントの全貌 ―― どの責任がどこへ移るか
 
-課題ID1・課題ID2の①〜⑥が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この表で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID節に同じ番号で置きます。
+課題ID1・課題ID2の【契約】〜【利用開始】が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この表で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID節に同じ番号で置きます。
 
 | ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
 |---|---|---|---|
-| ① 契約 | `TicketReservation` が `status` 文字列で分岐 → `IReservationState::reserve()` / `pay()` / `cancel()` / `promoteBySystem()` | 状態ごとの可否と遷移を契約へ切り出す。実体は④で共有生成する | ③のoverride |
-| ② 骨格 | 各公開操作の `if (status == ...)` 連鎖 → `TicketReservation::cancel()` などが現在状態へ委譲するだけ | 状態が増えても変えない委譲と `setState()` の形を固定する | ①の各操作 |
-| ③ 具体 | 分岐に埋もれた状態別処理 → `ReservedState::cancel()` ほか各状態クラス | その状態で許す操作と次状態だけを実装へ閉じる | ②の `setState()` へ戻る |
-| ④ 生成 | 遷移のたびに状態を判定 → `availableState()` の関数ローカル静的オブジェクト | 共有シングルトンを初回1度だけ作る（`new`／`delete` を持たない） | ⑤の `setState()` |
-| ⑤ 注入 | 状態名を文字列で持つ → `TicketReservation::setState(IReservationState*)` と待ち行列の共有ストア注入 | 契約ポインタと共有ストアを外から渡す | ⑥が呼ぶ公開操作 |
-| ⑥ 利用開始 | 利用側が状態名を見て操作を選ぶ → `main()` の `seat.cancel();` | ④⑤で組み立てた同じ実体を使い、公開操作を1回呼ぶ | ②の `cancel()` |
+| 【契約】 | `TicketReservation` が `status` 文字列で分岐 → `IReservationState::reserve()` / `pay()` / `cancel()` / `promoteBySystem()` | 状態ごとの可否と遷移を契約へ切り出す。実体は【生成】で共有生成する | 【具体】のoverride |
+| 【安定骨格】 骨格 | 各公開操作の `if (status == ...)` 連鎖 → `TicketReservation::cancel()` などが現在状態へ委譲するだけ | 状態が増えても変えない委譲と `setState()` の形を固定する | 【契約】の各操作 |
+| 【具体】 | 分岐に埋もれた状態別処理 → `ReservedState::cancel()` ほか各状態クラス | その状態で許す操作と次状態だけを実装へ閉じる | 【安定骨格】の `setState()` へ戻る |
+| 【生成】 | 遷移のたびに状態を判定 → `availableState()` の関数ローカル静的オブジェクト | 共有シングルトンを初回1度だけ作る（`new`／`delete` を持たない） | 【注入】の `setState()` |
+| 【注入】 | 状態名を文字列で持つ → `TicketReservation::setState(IReservationState*)` と待ち行列の共有ストア注入 | 契約ポインタと共有ストアを外から渡す | 【利用開始】が呼ぶ公開操作 |
+| 【利用開始】 | 利用側が状態名を見て操作を選ぶ → `main()` の `seat.cancel();` | 【生成】【注入】で組み立てた同じ実体を使い、公開操作を1回呼ぶ | 【安定骨格】の `cancel()` |
 
-この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（①→⑥）ではなく④→⑤→⑥→②→①→③で、課題ID節の末尾に実行接続表として置きます。
+この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。実行時の呼び出し順は表の並び（【契約】→【利用開始】）ではなく【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】で、課題ID節の末尾に実行接続表として置きます。
 
 #### 接続点の分離・配置・組み立てを決める
 
@@ -1472,8 +1472,8 @@ classDiagram
 
 | 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 課題ID1 | 共通契約 `IReservationState` と5状態を新設し委譲へ変える | `reserve/pay/cancel/promoteBySystem` を純粋仮想で定義、各状態が振る舞いを実装、`TicketReservation` は共有状態を保持して委譲 | 課題ID1節（①〜⑥） |
-| 課題ID2 | 待ち行列を専用クラスへ移す | `ReservationWaitlist` が探索・削除・先頭選択を持ち、`ReservedState::cancel()` の1点で自動昇格を接続する | 課題ID2節（③⑤⑥） |
+| 課題ID1 | 共通契約 `IReservationState` と5状態を新設し委譲へ変える | `reserve/pay/cancel/promoteBySystem` を純粋仮想で定義、各状態が振る舞いを実装、`TicketReservation` は共有状態を保持して委譲 | 課題ID1節（【契約】〜【利用開始】） |
+| 課題ID2 | 待ち行列を専用クラスへ移す | `ReservationWaitlist` が探索・削除・先頭選択を持ち、`ReservedState::cancel()` の1点で自動昇格を接続する | 課題ID2節（【具体】【注入】【利用開始】） |
 
 このクラス図が、課題ID1・課題ID2を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
@@ -1514,7 +1514,7 @@ public:
 
 **この課題（何を解きたいか）：** 状態を1種足すたび、`reserve/pay/cancel/expire` の複数メソッドへ分岐が増え、修正漏れが受入不成立へ直結する——問題ID1・問題ID2（痛み）／原因ID1です。**公開入口は現在状態へ委譲するだけにし、状態ごとの可否と遷移だけを差し替えられる**ようにするのが課題ID1です。
 
-**どう解決するか（方針）：** 状態を共通契約の裏へ出し、公開操作は現在状態へ委譲します（状態分離構造＝State）。①契約 →②公開操作を現在状態へ委譲する安定骨格 →③具体 →④生成 →⑤保持・遷移 →⑥実行 の順で組み立てます。②は基底クラスの固定アルゴリズムではなく、状態が増えても変えない利用側の制御です。
+**どう解決するか（方針）：** 状態を共通契約の裏へ出し、公開操作は現在状態へ委譲します（状態分離構造＝State）。【契約】 →【安定骨格】公開操作を現在状態へ委譲する安定骨格 →【具体】 →【生成】 →【注入】保持・遷移 →【利用開始】実行 の順で組み立てます。【安定骨格】は基底クラスの固定アルゴリズムではなく、状態が増えても変えない利用側の制御です。
 
 ```mermaid
 classDiagram
@@ -1528,7 +1528,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**① 共通契約 `IReservationState` を定義する。** すべての状態が満たす操作を宣言し、`TicketReservation` はこの契約だけを軸に委譲します。
+**【契約】 共通契約 `IReservationState` を定義する。** すべての状態が満たす操作を宣言し、`TicketReservation` はこの契約だけを軸に委譲します。
 
 ```cpp
 class TicketReservation;
@@ -1545,7 +1545,7 @@ public:
 
 純粋仮想（`= 0`）ではなく既定実装つきにしているのは、`PaidState` のように「どの操作も受け付けない」状態を、1つも上書きしない空のクラスとして書けるようにするためです。期限切れ（`hold` / `expire`）と決済失敗（`paymentFailed`）の操作は1-5の変更要求で加わるので、契約への追加は7-1で示します。
 
-**③ 各状態が自分の振る舞いと遷移だけを実装する（`status` 文字列分岐は持たない）。**
+**【具体】 各状態が自分の振る舞いと遷移だけを実装する（`status` 文字列分岐は持たない）。**
 
 ```cpp
 class ReservedState : public IReservationState {
@@ -1553,13 +1553,13 @@ public:
     void cancel(TicketReservation* reservation) override {
         reservation->cancelSeat();                // 席を解放
         reservation->promoteNextWaitlisted();     // 待機者を昇格（課題ID2へ橋渡し）
-        reservation->setState(availableState());  // ⑤ 共有状態へ遷移
+        reservation->setState(availableState());  // 【注入】 共有状態へ遷移
     }
     // reserve()/pay() は各状態が自分の可否を実装する
 };
 ```
 
-**④ 状態は関数ローカルの静的オブジェクトを共有する（生成・破棄を持たない）。** 遷移のたびに `new` せず、共有シングルトンを指すため所有・破棄の問題が起きません。どのクラスにも属さない状態取得関数が、`AvailableState` の実体を1つだけ返します。
+**【生成】 状態は関数ローカルの静的オブジェクトを共有する（生成・破棄を持たない）。** 遷移のたびに `new` せず、共有シングルトンを指すため所有・破棄の問題が起きません。どのクラスにも属さない状態取得関数が、`AvailableState` の実体を1つだけ返します。
 
 **掲載箇所：自由関数 `availableState()`** ―― どのクラスにも属さない状態取得関数。各状態に同じ形の取得関数を1つずつ置きます。
 
@@ -1570,49 +1570,49 @@ IReservationState* availableState() {
 }
 ```
 
-**⑤ 注入。** 生成した共有状態を、予約オブジェクトの初期状態として設定します。`TicketReservation` が持つのは契約 `IReservationState*` の借用ポインタだけです。
+**【注入】** 生成した共有状態を、予約オブジェクトの初期状態として設定します。`TicketReservation` が持つのは契約 `IReservationState*` の借用ポインタだけです。
 
 **掲載箇所：`BatchApplication::run()`** ―― 予約オブジェクトを作る位置。組み立て側が初期状態を注入します。
 
 ```cpp
 TicketReservation seat(db, "EVT001");
-seat.setState(availableState());   // ⑤ 共有状態を契約として注入
+seat.setState(availableState());   // 【注入】 共有状態を契約として注入
 ```
 
-**② 委譲の安定骨格。** `TicketReservation` は現在状態を保持し、公開操作をそのまま現在状態へ委譲します。状態名も分岐条件も持たず、`setState()` で次状態へ移ります。
+**【安定骨格】 委譲の安定骨格。** `TicketReservation` は現在状態を保持し、公開操作をそのまま現在状態へ委譲します。状態名も分岐条件も持たず、`setState()` で次状態へ移ります。
 
 ```cpp
 void TicketReservation::cancel() {
-    state->cancel(this);           // ② 現在状態の契約を呼ぶ
+    state->cancel(this);           // 【安定骨格】 現在状態の契約を呼ぶ
 }
 void TicketReservation::setState(IReservationState* next) {
-    state = next;                  // ② 次状態を受け取るだけ
+    state = next;                  // 【安定骨格】 次状態を受け取るだけ
 }
 ```
 
-**⑥ 利用開始。** 利用者の操作を受けた入口が、公開操作 `TicketReservation::cancel()` などを呼びます。利用側が状態クラスを直接呼ぶことはありません。
+**【利用開始】** 利用者の操作を受けた入口が、公開操作 `TicketReservation::cancel()` などを呼びます。利用側が状態クラスを直接呼ぶことはありません。
 
-**掲載箇所：`BatchApplication::run()`** ―― ⑤の直後。利用者操作にあたる呼び出しです。
+**掲載箇所：`BatchApplication::run()`** ―― 【注入】の直後。利用者操作にあたる呼び出しです。
 
 ```cpp
-seat.reserve();   // ⑥ 利用開始
+seat.reserve();   // 【利用開始】
 seat.cancel();
 ```
 
 #### 代表ケースの実行接続
 
-予約済みの席をキャンセルする1件を、④から③まで実コードで追います。設計を説明する順は①から⑥ですが、実行時の呼出順は④→⑤→⑥→②→①→③です。
+予約済みの席をキャンセルする1件を、【生成】から【具体】まで実コードで追います。設計を説明する順は【契約】から【利用開始】ですが、実行時の呼出順は【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】です。
 
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
-| 1. ④生成 | `availableState()` ほかの状態取得関数 | `static AvailableState state;` で共有シングルトンを1度だけ作る | ⑤へ |
-| 2. ⑤注入 | `main()` / `TicketReservation` の初期化 | `seat.setState(availableState());` で契約ポインタを渡す | ⑥へ |
-| 3. ⑥利用開始 | `main()` | `seat.cancel();` | `TicketReservation::cancel()` |
-| 4. ②安定骨格 | `TicketReservation::cancel()` | `state->cancel(this);` で現在状態へ委譲する | `IReservationState::cancel()` |
-| 5. ①契約 | `IReservationState::cancel(TicketReservation*)` | 現在状態へ動的ディスパッチする | `ReservedState::cancel()` |
-| 6. ③具体 | `ReservedState::cancel(TicketReservation*)` | 席を解放し待機者を昇格し `setState(availableState())` を呼ぶ | ②の `setState()` へ戻る |
+| 1. 【生成】 | `availableState()` ほかの状態取得関数 | `static AvailableState state;` で共有シングルトンを1度だけ作る | 【注入】へ |
+| 2. 【注入】 | `main()` / `TicketReservation` の初期化 | `seat.setState(availableState());` で契約ポインタを渡す | 【利用開始】へ |
+| 3. 【利用開始】 | `main()` | `seat.cancel();` | `TicketReservation::cancel()` |
+| 4. 【安定骨格】 | `TicketReservation::cancel()` | `state->cancel(this);` で現在状態へ委譲する | `IReservationState::cancel()` |
+| 5. 【契約】 | `IReservationState::cancel(TicketReservation*)` | 現在状態へ動的ディスパッチする | `ReservedState::cancel()` |
+| 6. 【具体】 | `ReservedState::cancel(TicketReservation*)` | 席を解放し待機者を昇格し `setState(availableState())` を呼ぶ | 【安定骨格】の `setState()` へ戻る |
 
-④は関数ローカルの静的オブジェクトなので、生成は初回呼び出し時に1度だけ起き、所有者はプログラム自身です。`new`／`delete` を持たないのが他章の④との違いです。
+【生成】は関数ローカルの静的オブジェクトなので、生成は初回呼び出し時に1度だけ起き、所有者はプログラム自身です。`new`／`delete` を持たないのが他章の【生成】との違いです。
 
 これで課題ID1の完了条件「状態追加が新状態動作と遷移登録に閉じる」を満たします。
 
@@ -1622,7 +1622,7 @@ seat.cancel();
 
 **この課題（何を解きたいか）：** キャンセル待ちの追加で、席解放後の自動昇格と待機順の管理が予約本体の各所へ散らばる——問題ID3（痛み）／原因ID2です。**待機者の探索・削除・先頭選択を専用の係へ寄せ、席解放直後に先頭1件だけ自動昇格する接続を1点に保つ**のが課題ID2です。
 
-**どう解決するか（方針）：** 待ち行列を専用クラスへ分離し、状態処理からは1点だけで接続します。①は状態側の既存契約 `promoteBySystem()` を使い、②待ち行列から取り出して昇格を依頼する安定骨格 →③具体 →⑤接続 →⑥実行 の順で示します。
+**どう解決するか（方針）：** 待ち行列を専用クラスへ分離し、状態処理からは1点だけで接続します。【契約】は状態側の既存契約 `promoteBySystem()` を使い、【安定骨格】待ち行列から取り出して昇格を依頼する安定骨格 →【具体】 →【注入】接続 →【利用開始】実行 の順で示します。
 
 ```mermaid
 classDiagram
@@ -1636,7 +1636,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-**③ 待機者の探索・削除・先頭選択を `ReservationWaitlist` が持つ。**
+**【具体】 待機者の探索・削除・先頭選択を `ReservationWaitlist` が持つ。**
 
 ```cpp
 class ReservationWaitlist {
@@ -1658,31 +1658,31 @@ public:
 
 `front()` で先頭の借用ポインタを読み、`pop_front()` でキュー内のその1件だけを除きます。参照先の予約オブジェクトは削除しません。この `deque` の操作と所有権は第0章の標準ライブラリ説明にも反映しています。
 
-**⑤ 注入。** 組み立て側が生成した `ReservationWaitlist` を、各予約オブジェクトが共有ストアとして受け取ります。
+**【注入】** 組み立て側が生成した `ReservationWaitlist` を、各予約オブジェクトが共有ストアとして受け取ります。
 
 **掲載箇所：`BatchApplication`（`waitlist` はメンバー、`seat` は `run()` のローカル）** ―― 待ち行列は組み立て側が所有し、各予約オブジェクトへ共有ストアとして渡します。
 
 ```cpp
-ReservationWaitlist waitlist;            // ④ 生成・所有は組み立て側
-TicketReservation seat(db, waitlist, "EVT001");  // ⑤ 共有ストアを注入
+ReservationWaitlist waitlist;            // 【生成】・所有は組み立て側
+TicketReservation seat(db, waitlist, "EVT001");  // 【注入】 共有ストアを注入
 ```
 
-**② 待ち行列連携の安定骨格。** 席を解放する処理から `TicketReservation::promoteNextWaitlisted()` を1経路だけ通します。先頭1件を取り出して `promoteBySystem()` を呼ぶ形は、状態が増えても変わりません。
+**【安定骨格】 待ち行列連携の安定骨格。** 席を解放する処理から `TicketReservation::promoteNextWaitlisted()` を1経路だけ通します。先頭1件を取り出して `promoteBySystem()` を呼ぶ形は、状態が増えても変わりません。
 
 ```cpp
 void TicketReservation::promoteNextWaitlisted() {
-    TicketReservation* next = waitlist.popNext(eventId);  // ② 先頭を取る
+    TicketReservation* next = waitlist.popNext(eventId);  // 【安定骨格】 先頭を取る
     if (next == nullptr) return;
-    next->promoteBySystem();                              // ② 自動昇格
+    next->promoteBySystem();                              // 【安定骨格】 自動昇格
 }
 ```
 
-**⑥ 利用開始。** 利用者が昇格を直接呼ぶことはありません。⑥は課題ID1と同じ `TicketReservation::cancel()` の呼び出しで、②の状態処理から自動接続します。
+**【利用開始】** 利用者が昇格を直接呼ぶことはありません。【利用開始】は課題ID1と同じ `TicketReservation::cancel()` の呼び出しで、【安定骨格】の状態処理から自動接続します。
 
 **掲載箇所：`BatchApplication::run()`** ―― 課題ID1と同じ取消操作の1行。昇格はこの行から自動で続きます。
 
 ```cpp
-occupied.cancel();   // ⑥ 利用開始（昇格は②から自動接続）
+occupied.cancel();   // 【利用開始】（昇格は【安定骨格】から自動接続）
 ```
 
 これで課題ID2の完了条件「取消・期限切れから自動昇格まで一つのユースケースで完了する」を満たし、状態分離構造と待ち行列分離構造が1点で接続されます。
