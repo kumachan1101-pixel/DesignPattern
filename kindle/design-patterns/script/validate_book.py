@@ -2982,10 +2982,17 @@ def check_phase1_system_overview(text: str, path: Path) -> list[Issue]:
     section = text[phase11:phase12]
     result_heading = "#### まず代表入力と実行結果から動きをつかむ"
     input_label = "**代表入力（1-4の`main()`から抜粋）：**"
+    # 実行結果は1ブロックにまとめても、呼び出しごとに分けてもよい。
+    # まとめる場合はこのラベル、分ける場合は「N回目の実行結果」を使う。
     result_label = "この入力に対する代表的な実行結果"
     heading = "#### 最初にシステム全体をつかむ"
     result_heading_pos = section.find(result_heading)
     result = section.find(result_label)
+    if result < 0:
+        split_result = re.search(r"^\d+回目の実行結果", section, re.M)
+        if split_result:
+            result = split_result.start()
+            result_label = split_result.group(0)
     input_example = section.find(input_label)
     overview = section.find(heading)
     baseline = section.find("#### 現行要求ベースライン")

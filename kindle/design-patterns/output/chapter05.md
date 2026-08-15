@@ -1322,11 +1322,7 @@ graph LR
 
 UIそのものを固定するのではありません。画面、API、バッチは変わる入力アダプタとして扱います。どの入力端からでも同じ操作単位をアプリケーション境界へ渡せることを守ります。現在の構造では、操作の意図、実行手段、残高の正本がUIに結合しているため、操作や入力端が増えるたびにUIへ変更が波及します。
 
-### 4-3：接続点に漏れている実行手段を確認する
-★タイトルがそろっていない？全章そろえてほしい
-ここでの「確認すること」は、前節までに見つけた原因から抽出します。まず、原因文から「守りたい骨格」と「変わる差分」を分けます。次に、その差分を動かすために骨格側が知ってしまっている名前・条件・順序・型を拾います。最後に、接続点に残す最小の約束を、値・型・操作・イベントとして書きます。
-
-原因によって、接続点で見る抽象観点は変わります。条件分岐が原因なら条件・定数・選択基準を見ます。処理手順が原因なら呼び出し順・前後条件・失敗時分岐を見ます。生成判断が原因なら具体クラス名・生成条件・登録場所を見ます。通知や外部連携が原因なら通知先・タイミング・成否の扱いを見ます。データや状態が原因なら、境界を流れる値・型・状態を見ます。
+### 4-3：接続点に漏れている実行手段の知識を確認する
 
 現在の`UIButtons`は、ボタンの意図だけでなく、どのマネージャーのどのメソッドをどの引数で呼ぶかまで知っています。接続点で渡したいのは「実行でき、必要なら取り消せ、再実行もできる操作」ですが、実行先と引数の知識がUI側へ漏れています。
 
@@ -1640,6 +1636,36 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
+**【生成】・所有。** 操作オブジェクトと履歴は、呼び出し元（`main()`）がスタックに生成し、所有します。
+
+**掲載箇所：`main()`** ―― 組み立ての先頭。履歴・画面入口・操作オブジェクトをスタック上に生成します。
+
+```cpp
+ActionHistory history;                                 // 【生成】・所有はmain
+BudgetApp app(&history);
+AddExpenseAction cmd(expenseManager, 1000, "CAT002");  // 【生成】・所有はmain
+```
+
+**【注入】【利用開始】生成済みの操作を渡し、そのまま実行を始める。** `BudgetApp::onAddExpenseClick()` は受け取った `IAction*` を履歴へ渡すだけの1行です。**渡すことと始めることが同じ呼び出しで起きる**ので、2つのポイントをまとめて見ます。`ActionHistory` が持つのは契約 `IAction*` の借用ポインタだけです。
+
+**掲載箇所：`main()`** ―― 【生成】の直後。画面のボタン操作にあたる呼び出しです。
+
+```cpp
+app.onAddExpenseClick(&cmd);   // 【注入】渡す ＋【利用開始】始める
+app.onUndoClick();             // 【利用開始】（取消）
+```
+
+利用側が `AddExpenseAction` の中身を知ることはありません。渡すのは契約ポインタ1つだけです。
+
+**【安定骨格】 操作履歴の安定骨格。** `ActionHistory` は種別を見ず、契約 `execute()` を呼んで成功した操作だけを履歴へ積みます。操作の種類が増えても、この形は変わりません。
+
+```cpp
+void ActionHistory::execute(IAction* cmd) {
+    if (!cmd->execute()) return;   // 【安定骨格】 契約だけを呼ぶ
+    undoStack.push_back(cmd);      // 【安定骨格】 成功時だけ履歴へ積む
+}
+```
+
 **【契約】 共通契約 `IAction` を定義する。** 利用側は種別を知らず、`execute()`／`undo()` だけを呼びます。
 
 ```cpp
@@ -1670,54 +1696,17 @@ public:
 };
 ```
 
-**【生成】・所有。** 操作オブジェクトと履歴は、呼び出し元（`main()`）がスタックに生成し、所有します。
-
-**掲載箇所：`main()`** ―― 組み立ての先頭。履歴・画面入口・操作オブジェクトをスタック上に生成します。
-
-```cpp
-ActionHistory history;                                 // 【生成】・所有はmain
-BudgetApp app(&history);
-AddExpenseAction cmd(expenseManager, 1000, "CAT002");  // 【生成】・所有はmain
-```
-
-**【注入】** 生成済みの操作を `BudgetApp::run()` 経由で履歴へ渡します。`ActionHistory` が持つのは契約 `IAction*` の借用ポインタだけです。
-
-**掲載箇所：`main()`** ―― 【生成】の直後。生成済みの操作を画面入口経由で履歴へ渡します。
-★onAddExpenseClickは、【契約】から【利用開始】に登場していない。
-```cpp
-app.onAddExpenseClick(&cmd);   // 【注入】 履歴は IAction* を借用（非所有）
-```
-
-**【安定骨格】 操作履歴の安定骨格。** `ActionHistory` は種別を見ず、契約 `execute()` を呼んで成功した操作だけを履歴へ積みます。操作の種類が増えても、この形は変わりません。
-
-```cpp
-void ActionHistory::execute(IAction* cmd) {
-    if (!cmd->execute()) return;   // 【安定骨格】 契約だけを呼ぶ
-    undoStack.push_back(cmd);      // 【安定骨格】 成功時だけ履歴へ積む
-}
-```
-
-**【利用開始】** 画面やバッチの入口が、公開操作 `BudgetApp::run()` や `ActionHistory::undo()` を呼びます。利用側が `AddExpenseAction` の中身を知ることはありません。
-
-**掲載箇所：`main()`** ―― 【注入】の直後。画面のボタン操作にあたる呼び出しです。
-
-```cpp
-app.onAddExpenseClick(&cmd);   // 【利用開始】（登録）
-app.onUndoClick();             // 【利用開始】（取消）
-```
-
 #### 代表ケースの実行接続
 
-支出1,000円の登録1件を、【生成】から【具体】まで実コードで追います。設計を説明する順は【契約】から【利用開始】ですが、実行時の呼出順は【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】です。
+上のブロックを、支出1,000円の登録1件で貫いて確認します。並び順は上の説明と同じです。
 
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
 | 1. 【生成】 | `main()` | `AddExpenseAction cmd(expenseManager, 1000, "CAT002");` | 【注入】へ |
-| 2. 【注入】 | `main()` | `app.onAddExpenseClick(&cmd);` で契約ポインタを履歴へ渡す | 【利用開始】へ |
-| 3. 【利用開始】 | `main()`／画面入口 | `app.onAddExpenseClick(&cmd);` / `app.onUndoClick();` | `ActionHistory::execute()` |
-| 4. 【安定骨格】 | `ActionHistory::execute(IAction*)` | `cmd->execute()` を呼び、成功時だけ `undoStack` へ積む | `IAction::execute()` |
-| 5. 【契約】 | `IAction::execute()` | 渡された操作へ動的ディスパッチする | `AddExpenseAction::execute()` |
-| 6. 【具体】 | `AddExpenseAction::execute()` | `manager.addExpense(amount, categoryId)` を実行し成否を返す | 戻り値を【安定骨格】が履歴判断に使う |
+| 2. 【注入】【利用開始】 | `main()`／画面入口 | `app.onAddExpenseClick(&cmd);` が契約ポインタを履歴へ渡し、そのまま実行を始める | `ActionHistory::execute()` |
+| 3. 【安定骨格】 | `ActionHistory::execute(IAction*)` | `cmd->execute()` を呼び、成功時だけ `undoStack` へ積む | `IAction::execute()` |
+| 4. 【契約】 | `IAction::execute()` | 渡された操作へ動的ディスパッチする | `AddExpenseAction::execute()` |
+| 5. 【具体】 | `AddExpenseAction::execute()` | `manager.addExpense(amount, categoryId)` を実行し成否を返す | 戻り値を【安定骨格】が履歴判断に使う |
 
 【生成】で生成した `cmd` と、【注入】で渡した実体と、【利用開始】の呼び出しから【安定骨格】が実行する実体は同じものです。
 
@@ -1728,7 +1717,7 @@ app.onUndoClick();             // 【利用開始】（取消）
 
 **この課題（何を解きたいか）：** 複合操作や保存失敗時の補償で「何をどの順で戻すか」をUIや履歴管理側が知る必要がある——問題ID3（痛み）／原因ID2です。**成功操作だけを履歴へ積み、失敗時は対象範囲だけを逆順に戻せる**ようにし、残高は台帳を正本にするのが課題ID2です。
 
-**どう解決するか（方針）：** 実行・取消・再実行・補償を「同じ操作の別の向き」として `ActionHistory` へまとめ、残高は `LedgerRepository` を正本にします。【契約】は課題ID1の `IAction` を再利用し、【安定骨格】成功時だけ履歴を移す取消・再実行・補償骨格 →【具体】（履歴・台帳）→【注入】接続（一括入口）→【利用開始】実行 の順で示します。
+**どう解決するか（方針）：** 実行・取消・再実行・補償を「同じ操作の別の向き」として `ActionHistory` へまとめ、残高は `LedgerRepository` を正本にします。【契約】は課題ID1の `IAction` をそのまま再利用するので、ここでは触れません。以下は課題ID1と同じく、**実行時に通る順**（【注入】→【利用開始】→【安定骨格】）に並べます。
 
 ```mermaid
 classDiagram
@@ -1740,6 +1729,22 @@ classDiagram
     class ActionHistory:::focus
     class ImportService:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**【注入】（一括入口）。** `ImportService` はUIと同じ `ActionHistory` を共有します。組み立て側が同じ履歴を両方の入口へ渡します。
+
+**掲載箇所：`main()`** ―― 一括入口を組み立てる位置。UIと同じ履歴の借用ポインタを渡します。
+
+```cpp
+ImportService importer(&history);   // 【注入】 UIと同じ履歴を共有する
+```
+
+**【利用開始】** 一括取込の入口が公開操作 `ImportService::importAll()` を呼びます。補償は【安定骨格】から自動接続され、利用側が `rollback()` を直接呼ぶことはありません。
+
+**掲載箇所：`main()`** ―― 一括取込の起点。補償はこの行から【安定骨格】を通って自動で続きます。
+
+```cpp
+importer.importAll(entries);   // 【利用開始】（補償は【安定骨格】から自動接続）
 ```
 
 **【安定骨格】 取消・再実行・補償の安定骨格。** `ActionHistory` が成否で履歴を管理します。成功した操作だけを `undoStack` へ積み、Undoで `redoStack` へ移します。台帳（`LedgerRepository`）を正本にした結果に応じて件数と残高が戻ります。（【具体】の具体的な戻し方は各操作の `undo()` が持ちます。）
@@ -1755,14 +1760,6 @@ void undo() {
 }
 ```
 
-**【注入】（一括入口）。** `ImportService` はUIと同じ `ActionHistory` を共有します。組み立て側が同じ履歴を両方の入口へ渡します。
-
-**掲載箇所：`main()`** ―― 一括入口を組み立てる位置。UIと同じ履歴の借用ポインタを渡します。
-
-```cpp
-ImportService importer(&history);   // 【注入】 UIと同じ履歴を共有する
-```
-
 **【安定骨格】 逆順補償の骨格。** 同じ `ImportService` の `rollback()` は、一括実行の途中で失敗したときに、成功済みの件数ぶんだけ逆順に `undo()` を呼びます。何をどう戻すかは契約の向こうにあります。
 
 **掲載箇所：`ImportService::rollback(int)`** ―― 一括実行が途中で失敗したときに呼ぶ補償部分です。
@@ -1772,17 +1769,6 @@ void rollback(int count) {              // 【安定骨格】 成功済みcount�
     for (int i = 0; i < count; i++) history->undo();
 }
 ```
-
-**【利用開始】** 一括取込の入口が公開操作 `ImportService::importAll()` を呼びます。補償は【安定骨格】から自動接続され、利用側が `rollback()` を直接呼ぶことはありません。
-
-**掲載箇所：`main()`** ―― 一括取込の起点。補償はこの行から【安定骨格】を通って自動で続きます。
-
-```cpp
-importer.importAll(entries);   // 【利用開始】（補償は【安定骨格】から自動接続）
-```
-
-
-★流れが分かりづらい。やはり、mainから話を始めて、処理の流れで説明していく形に変えてほしい。
 
 これで課題ID2の完了条件「成功操作だけ記録し、失敗時は対象範囲だけ逆順に戻せる」を満たします。UI・バッチのどちらの入口から実行しても、同じ履歴と補償が働きます。
 

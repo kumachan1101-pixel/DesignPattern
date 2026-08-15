@@ -42,7 +42,6 @@ CORE_CHAPTERS = [
 ]
 
 EXCERPT_LABEL = "**代表入力（1-4の`main()`から抜粋）：**"
-RESULT_LEAD = "この入力に対する代表的な実行結果"
 
 # 1-1で最低限見せる呼び出し回数。1回だと状態の移り変わりが見えない。
 MIN_CALLS = 2
@@ -60,21 +59,26 @@ def chapter_issues(name: str) -> list[str]:
     label_at = text.find(EXCERPT_LABEL)
     if label_at < 0:
         return [f"{name}: 1-1に「{EXCERPT_LABEL}」がありません"]
-    result_at = text.find(RESULT_LEAD, label_at)
-    if result_at < 0:
-        return [f"{name}: 代表入力の後に「{RESULT_LEAD}」がありません"]
+    # 代表入力から「最初にシステム全体をつかむ」までを1つの領域として扱う。
+    # 呼び出しと出力を数ブロックへ分けて交互に並べる書き方があるため、
+    # 領域内のC++ブロックと出力ブロックをそれぞれ連結して照合する。
+    region_end = text.find("#### 最初にシステム全体をつかむ", label_at)
+    if region_end < 0:
+        region_end = min(label_at + 8000, len(text))
+    region = text[label_at:region_end]
 
-    excerpt_match = re.search(
-        r"```cpp\n(.*?)```", text[label_at:result_at], re.S)
-    if not excerpt_match:
+    excerpts = re.findall(r"```cpp\n(.*?)```", region, re.S)
+    if not excerpts:
         return [f"{name}: 代表入力のC++ブロックがありません"]
-    excerpt = excerpt_match.group(1)
+    excerpt = "".join(excerpts)
 
-    published_match = re.search(
-        r"```\n(.*?)```", text[result_at:result_at + 4000], re.S)
-    if not published_match:
+    # 出力ブロックは言語指定のないフェンス。cppブロックと混ざらないよう、
+    # ```cpp を先に取り除いてから拾う。
+    without_cpp = re.sub(r"```cpp\n.*?```", "", region, flags=re.S)
+    outputs = re.findall(r"```\n(.*?)```", without_cpp, re.S)
+    if not outputs:
         return [f"{name}: 代表入力に対応する実行結果ブロックがありません"]
-    published = published_match.group(1)
+    published = "".join(outputs)
 
     # 公開操作の呼び出し行を数える。`r = obj.op(...);` の代入形と、
     # `obj.op(...);` `freeFunc(...);` の文の形をどちらも拾う。
