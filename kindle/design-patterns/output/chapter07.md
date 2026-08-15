@@ -363,15 +363,17 @@ sequenceDiagram
 
 通知は同期的に3クラスへ順番実行します。現状には通知先の登録一覧や登録解除操作はなく、`notifyAll()` が3つの具体クラスを名指しします。3つは提供元が違うため呼び方がそろっておらず、引数の組み立てと戻り値の解釈も `notifyAll()` の側にあります。
 
-在庫が減った際に各通知先へメッセージを送る処理をシミュレートしています。
+#### 現状コード
 
-はじめに、各通知先クラスの定義です。それぞれが独立した実装を持ち、InventoryManager から直接呼び出されています。
+クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは `InventoryManager` だけです。判断の基準は次の一行です。
 
-コードは責任の固まりごとに分けて読みます。
+> **メンバーを見ないと読めない関数は、メンバーと一緒に置く。**
 
-**(1) 商品マスタを表すクラス（ProductInfo / ProductDatabase）**
+`main()` と実行結果は最後に、行のまとまりごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
 
-最初に、1-1の「商品」にあたるデータを持つ部分です。商品IDから在庫数・アラート閾値を引き、エラー条件「存在しないID」と閾値判定をここで担います。
+---
+
+**共通ヘッダー**
 
 ```cpp
 #include <iostream>
@@ -381,7 +383,17 @@ sequenceDiagram
 #include <unordered_map>
 
 using namespace std;
+```
 
+以降のすべてのクラスが使います。
+
+---
+
+**ProductInfo と ProductDatabase**
+
+1-1の「商品」にあたるデータです。商品IDから在庫数・アラート閾値を引き、エラー条件「存在しないID」と閾値判定をここで担います。
+
+```cpp
 // 商品マスタの1件分
 struct ProductInfo {
     string name;         // 商品名
@@ -418,16 +430,20 @@ public:
 };
 ```
 
-`ProductDatabase` は `std::map` で商品IDと `ProductInfo` を対応付けた商品マスタです。`exists()` で存在確認、`isBelowThreshold()` で在庫がアラート閾値以下かを判定します。実システムのDBを実行中のインメモリ表で代替しています。
+- **責任：** 商品IDで在庫と閾値を読み書きし、閾値以下かを判定する
+- **副作用：** `save()` だけが `records` を書き換える
 
-**(2) 通知先クラス（EmailNotifier / DashboardUpdater / ChatNotifier）**
+閾値は商品ごとに違います。判定は `isBelowThreshold()` の1か所だけで行います。実システムのDBを、実行中のインメモリ表で代替しています。
 
-次に、1-1の3つの通知先にあたる部分です。3つは導入時期も提供元も違うため、**呼び方がそろっていません**。関数名、引数、戻り値のどれもが手段ごとに違います。この違いは作り話ではなく、別々に導入した外部基盤を1つのシステムから使うときに実際に起きることです。実際のメール・ダッシュボード・チャットへの送信は標準出力で代替します。各クラスが数える件数は、要求ID3どおり同じ通知を各手段が1件ずつ受け取ったことを確認するテスト用の観測点です。
+---
+
+次の3つが1-1の通知先です。**導入時期も提供元も違うため、呼び方がそろっていません。** 関数名、引数、戻り値のどれもが手段ごとに違います。この違いは作り話ではなく、別々に導入した外部基盤を1つのシステムから使うときに実際に起きることです。実際のメール・ダッシュボード・チャットへの送信は標準出力で代替します。各クラスが数える件数は、要求ID3どおり同じ通知を各手段が1件ずつ受け取ったことを確認するテスト用の観測点です。
+
+---
+
+**EmailNotifier**
 
 ```cpp
-// 3つの通知基盤は導入時期も提供元も違い、呼び方がそろっていない。
-// 関数名・引数・戻り値のどれもが手段ごとに異なる。
-
 // メール基盤：件名と本文が分かれ、送れたかどうかだけを返す
 class EmailNotifier {
     vector<string> inbox;
@@ -439,7 +455,15 @@ public:
         return true;
     }
 };
+```
 
+件名と本文を**2つに分けて**受け取り、`bool` で成否を返します。
+
+---
+
+**DashboardUpdater**
+
+```cpp
 // 社内ダッシュボード：文言ではなく商品コードと在庫数を受け取る。
 // 画面を描き直すだけなので、成否を返さない
 class DashboardUpdater {
@@ -452,7 +476,15 @@ public:
              << " の在庫表示を " << stock << " に更新" << endl;
     }
 };
+```
 
+文言を受け取りません。商品コードと在庫数という**生の値**を受け取り、画面を描き直します。戻り値が `void` なので、**送れたかどうかを確かめる手段がありません。**
+
+---
+
+**ChatNotifier**
+
+```cpp
 // チャット基盤：投稿先チャンネルが要り、投稿IDを返す。
 // 空の投稿IDが失敗を表す
 class ChatNotifier {
@@ -468,6 +500,10 @@ public:
 };
 ```
 
+投稿先チャンネルが要ります。返すのは投稿IDで、**空文字列が失敗**を表します。
+
+---
+
 3つの違いを並べると、そろっていないのが名前だけではないことが分かります。
 
 | 通知手段 | 関数名 | 引数 | 戻り値と、失敗の表し方 |
@@ -478,9 +514,11 @@ public:
 
 引数の形が違うので、通知元は手段ごとに違う値を組み立てなければなりません。メールへ渡す本文とチャットへ渡す本文は同じ文言ですが、ダッシュボードは文言を受け取らず在庫数そのものを受け取ります。戻り値の意味も3通りで、ダッシュボードにいたっては送れたかどうかを確かめる手段がありません。共通インターフェースは無く、通知元がこの違いを全部知って呼び分けています。
 
-**(3) 在庫を管理するクラス（InventoryManager）**
+---
 
-この章の中心です。1-1の「在庫の増減」と「閾値以下での全通知先への通知」に対応します。商品IDの存在確認と閾値判定をデータベース経由で行い、閾値以下になると3つの通知先を直接呼び出します。
+**InventoryManager の宣言**
+
+この章の中心です。1-1の「在庫の増減」と「閾値以下での全通知先への通知」に対応します。
 
 ```cpp
 class InventoryManager {
@@ -491,81 +529,120 @@ private:
     ProductDatabase  db;
 
 public:
-
-    void reduceStock(string productId, int quantity) {
-        if (!db.exists(productId)) {
-            cout << "[エラー] 商品ID " << productId
-                 << " はマスタに存在しません。処理を中断します。"
-                 << endl;
-            return;
-        }
-        ProductInfo info = db.get(productId);
-        if (quantity <= 0 || quantity > info.stock) {
-            cout << "[エラー] 商品 " << productId << "（" << info.name << "）"
-                 << " は " << quantity << " 個出庫できません。現在在庫: "
-                 << info.stock << endl;
-            return;
-        }
-
-        int before = info.stock;
-        info.stock -= quantity;
-        db.save(productId, info);
-        cout << "商品 " << productId << "（" << info.name << "）"
-             << " の在庫を " << quantity << " 減らしました。在庫: "
-             << before << " -> " << info.stock << endl;
-
-        if (db.isBelowThreshold(productId, info.stock)) {
-            notifyAll(productId, info);
-        }
-    }
-
-    void replenishStock(string productId, int quantity) {
-        if (!db.exists(productId)) {
-            cout << "[エラー] 商品ID " << productId
-                 << " はマスタに存在しません。処理を中断します。"
-                 << endl;
-            return;
-        }
-        ProductInfo info = db.get(productId);
-        int before = info.stock;
-        info.stock += quantity;
-        db.save(productId, info);
-        cout << "商品 " << productId << "（" << info.name << "）"
-             << " の在庫を " << quantity << " 補充しました。在庫: "
-             << before << " -> " << info.stock << endl;
-    }
+    void reduceStock(string productId, int quantity);
+    void replenishStock(string productId, int quantity);
 
 private:
-    void notifyAll(const string& productId, const ProductInfo& info) {
-        // 通知先が増えるたびに、ここが修正される。
-        // 3つの基盤は引数の形も戻り値の意味も違うので、
-        // 呼び分けと結果の解釈をこのメソッドが全部引き受けている。
-        string message = "商品 " + productId + "（" + info.name + "）"
-                       + " の在庫が閾値以下です。";
-
-        // メールは件名と本文に分け、真偽値で成否を見る
-        if (!email.sendMail("在庫アラート", message)) {
-            cout << "[通知受付失敗] Email" << endl;
-        }
-
-        // ダッシュボードは文言を受け取らず、成否も返さない。
-        // 送れたかどうかを確かめる手段がない
-        dashboard.refreshStockWidget(productId, info.stock);
-
-        // チャットは投稿先が要り、空の投稿IDが失敗を表す
-        string postId = chat.postMessage("inventory-alert", message);
-        if (postId.empty()) {
-            cout << "[通知受付失敗] Chat" << endl;
-        }
-    }
+    void notifyAll(const string& productId, const ProductInfo& info);
 };
 ```
 
-`notifyAll()` が3つの通知先を名指しで直接呼び出しています。呼ぶだけでなく、手段ごとに違う引数を組み立て、違う戻り値をそれぞれの流儀で解釈するところまで引き受けています。この `notifyAll()` が、通知先が増えるたびに修正される箇所です。
+**3つの通知クラスを具体名で値メンバとして持っています。** 外から差し替える余地はありません。公開操作は2つで、通知は非公開の `notifyAll()` に閉じています。定義を3つ、上のメンバーを見ながら読んでいきます。
 
-**(4) 実行して動作例と照合する（main）**
+---
 
-まず依存を組み立て、行1（PRD001を5減らす）を実行します。
+**InventoryManager::reduceStock()**
+
+```cpp
+void InventoryManager::reduceStock(string productId, int quantity) {
+    if (!db.exists(productId)) {
+        cout << "[エラー] 商品ID " << productId
+             << " はマスタに存在しません。処理を中断します。"
+             << endl;
+        return;
+    }
+    ProductInfo info = db.get(productId);
+    if (quantity <= 0 || quantity > info.stock) {
+        cout << "[エラー] 商品 " << productId << "（" << info.name << "）"
+             << " は " << quantity << " 個出庫できません。現在在庫: "
+             << info.stock << endl;
+        return;
+    }
+
+    int before = info.stock;
+    info.stock -= quantity;
+    db.save(productId, info);
+    cout << "商品 " << productId << "（" << info.name << "）"
+         << " の在庫を " << quantity << " 減らしました。在庫: "
+         << before << " -> " << info.stock << endl;
+
+    if (db.isBelowThreshold(productId, info.stock)) {
+        notifyAll(productId, info);
+    }
+}
+```
+
+- **判断が3つ：** 商品の存在、数量の妥当性、更新後在庫が閾値以下か
+- **順序に意味：** 保存してから閾値を判定します。保存前に判定すると、通知した在庫数と保存された在庫数がずれます
+- **失敗の扱い：** 存在確認と数量検証で落ちたら、在庫も通知も動かしません
+
+閾値を下回ったときだけ `notifyAll()` を呼びます。
+
+---
+
+**InventoryManager::replenishStock()**
+
+```cpp
+void InventoryManager::replenishStock(string productId, int quantity) {
+    if (!db.exists(productId)) {
+        cout << "[エラー] 商品ID " << productId
+             << " はマスタに存在しません。処理を中断します。"
+             << endl;
+        return;
+    }
+    ProductInfo info = db.get(productId);
+    int before = info.stock;
+    info.stock += quantity;
+    db.save(productId, info);
+    cout << "商品 " << productId << "（" << info.name << "）"
+         << " の在庫を " << quantity << " 補充しました。在庫: "
+         << before << " -> " << info.stock << endl;
+}
+```
+
+補充では閾値判定をしません。**通知が出るのは減少のときだけです。**
+
+---
+
+**InventoryManager::notifyAll()**
+
+```cpp
+void InventoryManager::notifyAll(const string& productId,
+                                 const ProductInfo& info) {
+    // 通知先が増えるたびに、ここが修正される。
+    // 3つの基盤は引数の形も戻り値の意味も違うので、
+    // 呼び分けと結果の解釈をこのメソッドが全部引き受けている。
+    string message = "商品 " + productId + "（" + info.name + "）"
+                   + " の在庫が閾値以下です。";
+
+    // メールは件名と本文に分け、真偽値で成否を見る
+    if (!email.sendMail("在庫アラート", message)) {
+        cout << "[通知受付失敗] Email" << endl;
+    }
+
+    // ダッシュボードは文言を受け取らず、成否も返さない。
+    // 送れたかどうかを確かめる手段がない
+    dashboard.refreshStockWidget(productId, info.stock);
+
+    // チャットは投稿先が要り、空の投稿IDが失敗を表す
+    string postId = chat.postMessage("inventory-alert", message);
+    if (postId.empty()) {
+        cout << "[通知受付失敗] Chat" << endl;
+    }
+}
+```
+
+3つの通知先を名指しで直接呼び出しています。呼ぶだけでなく、**手段ごとに違う引数を組み立て、違う戻り値をそれぞれの流儀で解釈するところまで引き受けています。** 同じ `message` を作っておきながら、ダッシュボードへは渡していません。成否の確認も、メールは `!` で、チャットは `.empty()` で、ダッシュボードは確認なしと3通りです。この `notifyAll()` が、通知先が増えるたびに修正される箇所です。
+
+---
+
+#### `main()` と実行結果
+
+動作例5行を、行ごとに区切って実行します。**在庫は行をまたいで引き継がれます。**
+
+---
+
+**組み立てと、行1：PRD001を5減らす**
 
 ```cpp
 int main() {
@@ -575,21 +652,21 @@ int main() {
     manager.reduceStock("PRD001", 5);
 ```
 
-行1（PRD001を5減らす）の実行結果：
-
 ```text
 --- 行1: PRD001を5減らす ---
 商品 PRD001（ワイヤレスマウス） の在庫を 5 減らしました。在庫: 50 -> 45
 ```
 
-続いて、行2（PRD002を1減らす）を実行します。
+`InventoryManager` が通知クラスも商品マスタも内部で作るので、`main()` で組み立てるものはありません。45は閾値10を上回るので通知は出ません。
+
+---
+
+**行2：PRD002を1減らす**
 
 ```cpp
     cout << "--- 行2: PRD002を1減らす ---" << endl;
     manager.reduceStock("PRD002", 1);
 ```
-
-行2（PRD002を1減らす）の実行結果：
 
 ```text
 --- 行2: PRD002を1減らす ---
@@ -599,35 +676,43 @@ Dashboard(1件): PRD002 の在庫表示を 2 に更新
 Chat(1件) #inventory-alert: 商品 PRD002（USBハブ） の在庫が閾値以下です。 -> POST-1
 ```
 
-続いて、行3（PRD001を20補充する）を実行します。
+2は閾値5以下なので3件とも通知されました。**出力の形が3行とも違います。** メールとチャットは同じ文言を、ダッシュボードは在庫数の `2` を表示しています。
+
+---
+
+**行3：PRD001を20補充する**
 
 ```cpp
     cout << "--- 行3: PRD001を20補充する ---" << endl;
     manager.replenishStock("PRD001", 20);
 ```
 
-行3（PRD001を20補充する）の実行結果：
-
 ```text
 --- 行3: PRD001を20補充する ---
 商品 PRD001（ワイヤレスマウス） の在庫を 20 補充しました。在庫: 45 -> 65
 ```
 
-続いて、行4（PRD003を1減らす）を実行します。
+45から始まっているのは、行1の減少が保存されているからです。補充なので通知は出ません。
+
+---
+
+**行4：PRD003を1減らす**
 
 ```cpp
     cout << "--- 行4: PRD003を1減らす ---" << endl;
     manager.reduceStock("PRD003", 1);
 ```
 
-行4（PRD003を1減らす）の実行結果：
-
 ```text
 --- 行4: PRD003を1減らす ---
 [エラー] 商品 PRD003（キーボード） は 1 個出庫できません。現在在庫: 0
 ```
 
-最後に、行5（存在しない商品IDを操作する）を実行し、`main()` を終了します。
+在庫0からは出庫できません。数量検証で止まるので、在庫も通知も動きません。
+
+---
+
+**行5：存在しない商品IDを操作する**
 
 ```cpp
     cout << "--- 行5: 存在しない商品IDを操作する ---" << endl;
@@ -636,14 +721,21 @@ Chat(1件) #inventory-alert: 商品 PRD002（USBハブ） の在庫が閾値以�
 }
 ```
 
-行5（存在しない商品IDを操作する）の実行結果：
-
 ```text
 --- 行5: 存在しない商品IDを操作する ---
 [エラー] 商品ID PRD999 はマスタに存在しません。処理を中断します。
 ```
 
-各ケースのコードとその実行結果をその場で並べたので、離れた `main()` と出力を行き来せずに照合できます（確認したいこと：入力、加工、出力が仕様どおりに対応していること）。
+先頭の `exists()` で止まります。
+
+---
+
+動作例テーブルの各行について、在庫が閾値以下になった減少では3通知先へ送信され、補充では通知されず、在庫0・未登録IDはエラーになることを確認できました。同時に、`InventoryManager` が通知先のクラス名、引数の形、戻り値の意味をすべて直接知っていることも分かります。
+
+---
+
+> **手元で動かすには**
+> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter07.cpp -o app && ./app`）。開始在庫は `ProductDatabase` の登録値を使います。在庫データはプロセス実行中だけ有効で、終了すると消えます（通知手段への実送信はアダプタースタブで簡略化しています）。
 
 #### 仕様入力が現状コードで使われるまで
 
@@ -655,17 +747,6 @@ Chat(1件) #inventory-alert: 商品 PRD002（USBハブ） の在庫が閾値以�
 | 出庫・補充数量 | 同じ2メソッドの`quantity` | 正数・在庫不足の検証と在庫の加減算 | 更新前後の在庫数に差として現れる |
 | 商品ごとの閾値 | `ProductInfo::alertThreshold` | `isBelowThreshold()` | 更新後在庫が閾値以下のときだけ通知される |
 | 3つの通知手段 | `InventoryManager`のメンバー | `notifyAll()`が手段別に引数を組み立てて各具体メソッドを呼ぶ | 3つの受信件数が増える。ダッシュボードだけは成否が返らない |
-
-動作例テーブルの各行について、在庫が閾値以下になった減少では3通知先へ送信され、
-補充では通知されず、在庫0・未登録IDはエラーになることを確認できました。
-同時に、`InventoryManager` が通知先のクラス名、引数の形、戻り値の意味を
-すべて直接知っていることも分かります。
-
----
----
-
-> **手元で動かすには**
-> このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter07.cpp -o app && ./app`）。開始在庫は `ProductDatabase` の登録値を使います。在庫データはプロセス実行中だけ有効で、終了すると消えます（通知手段への実送信はアダプタースタブで簡略化しています）。
 
 ### 1-5：変更要求
 
