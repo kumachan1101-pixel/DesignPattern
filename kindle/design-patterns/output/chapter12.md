@@ -1026,13 +1026,22 @@ flowchart TD
 ## 🟣 フェーズ3：問題特定 ―― 変更の痛みを発見する
 ### 3-1：変更を試みる
 
-フェーズ2で確定した「緊急申請ルートの追加」と「承認直後の自動通知」という変更要求を、現在の `WorkflowManager` クラスに実装してみます。
+「緊急申請ルートの追加」「承認直後の自動通知」「部署別上限の追加」を、今のコードにそのまま実装してみます。
 
-はじめに、`process` メソッド内の状態遷移ロジックに「緊急提出」の分岐を追加しました。 すると、本来であれば課長を経由するルートに新しい状態と遷移が割り込み、`if/else` の分岐が次々と増えてコードの可読性が急速に低下していきます。 次に、承認直後の通知処理や決済部門への追加通知を差し込もうとして、また別の判定を足しました。
+> **この抜粋の外は、現状のままです。** `ApproverInfo`、`ApproverDatabase`、`WorkflowCaseRepository`、`NotificationTargetRepository` は1-4の定義をそのまま使います。以下は1-4で読んだ順に、変更が入った定義だけを並べたものです。
 
-すると、承認プロセスが「承認」なのか「却下」なのか、あるいは「緊急」なのかというフラグが大量に混在し、どのタイミングでどの通知が飛ぶのかを追うのが難しくなりました。 これ以上 `WorkflowManager` に手を入れると、既存の承認ルートまで壊しかねません。 緊急ルートを追加したことで、通常の承認ルートにおける通知が二重に送信されるようなバグも起きかねません。
+変更した定義は4つです。1-4と同じ並び順で、上から見ていきます。
 
-実際に変更を加えたコードを見てみましょう。
+| 1-4での掲載単位 | 今回の変更 | 根拠 |
+|---|---|---|
+| `WorkflowManager` の宣言 | 申請の所属と部署別上限の2つのマップを追加 | 変更ID3 |
+| （新規） | コンストラクタを追加（試行用データの登録） | 変更ID1・変更ID3 |
+| `WorkflowManager::process()` | 緊急ルート・却下・決済部門通知・部署別上限を追加 | 変更ID1〜3 |
+| （新規） | `notifyWithResult()` を追加 | 変更ID2 |
+
+---
+
+**WorkflowManager の宣言（変更あり）**
 
 ```cpp
 // 変更後の WorkflowManager（緊急ルート・却下通知・決済部門通知を追加）
@@ -1043,96 +1052,136 @@ class WorkflowManager {
     map<string, string> requestDepartments;   // 変更ID3で足した申請の所属
     map<string, int> departmentLimits;        // 変更ID3で足した部署別上限
 public:
-    WorkflowManager() {
-        // 緊急ルートを試すため、REQ003を作成中として登録しておく
-        // （現状のRepositoryはREQ001・REQ002しか持たないので、試行用に足す）
-        cases.saveState("REQ003", "作成中");
-        targets.addTarget("REQ003", "部長");
-        requestDepartments["REQ001"] = "営業部";   // 変更ID3
-        requestDepartments["REQ002"] = "営業部";   // 変更ID3
-        requestDepartments["REQ003"] = "開発部";   // 変更ID3
-        departmentLimits["営業部"] = 300000;       // 変更ID3
-        departmentLimits["開発部"] = 500000;       // 変更ID3
-    }
-
+    WorkflowManager();
     void process(const string& requestId, const string& operation,
-                 int amount, const string& approverId) {
-        if (!cases.exists(requestId)) {
-            cout << "エラー：申請ID " << requestId << " は存在しません。" << endl;
-            return;
-        }
-        if (!approvers.exists(approverId)) {
-            cout << "エラー：承認者ID " << approverId
-                 << " はデータベースに存在しません。" << endl;
-            return;
-        }
-        if (!approvers.canApprove(approverId, amount)) {
-            ApproverInfo info = approvers.get(approverId);
-            cout << "エラー：" << info.name << "（" << info.role
-                 << "）の承認上限（"
-                 << info.approvalLimit << "円）を超えています。" << endl;
-            return;
-        }
-        // 変更ID3：役職上限を通っても、申請元の部署別上限で再度弾く
-        map<string, string>::iterator d
-            = requestDepartments.find(requestId);
-        if (d != requestDepartments.end()
-            && amount > departmentLimits[d->second]) {
-            cout << "エラー：" << d->second << "の上限（"
-                 << departmentLimits[d->second]
-                 << "円）を超えています。" << endl;
-            return;
-        }
-        string current = cases.getState(requestId);
-        string next;
-        string suffix;              // 「（課長スキップ）」など状態別の付記
-        bool notifyPayment = false; // 完了時に決済部門へ追加通知するか
-        // ↓ 状態遷移・通知・判定が同じif/elseに次々と積み重なる
-        if (current == "作成中" && operation == "提出") {
-            next = "審査待ち";
-        } else if (current == "作成中" && operation == "緊急提出") { // 緊急ルート追加
-            next = "優先審査待ち"; suffix = "（課長スキップ）";
-        } else if (current == "審査待ち" && operation == "承認") {
-            next = "承認済み";
-        } else if (current == "審査待ち" && operation == "却下") {   // 却下通知追加
-            next = "却下";
-        } else if ((current == "優先審査待ち" || current == "承認済み")
-                   && operation == "承認") {
-            next = "完了"; notifyPayment = true;                    // 決済部門通知追加
-        } else {
-            cout << "エラー：現在状態「" << current
-                 << "」で操作「" << operation << "」はできません。" << endl;
-            return;
-        }
-        cases.saveState(requestId, next);
-        cout << requestId << "：" << current << " → " << next << suffix << endl;
-        notify(requestId);                        // 元からある宛先通知
-        // 変更ID2：承認完了を申請者にも知らせ、送信結果まで見る
-        if (next == "承認済み" || next == "完了") {
-            if (!notifyWithResult("申請者", "承認完了")) {
-                cout << "  申請者への通知に失敗（処理は継続）" << endl;
-            }
-        }
-        if (notifyPayment) cout << "決済部門へ通知" << endl;
-    }
-```
-同じ `WorkflowManager` の続きで、公開操作 `process()` が呼ぶ `notify()` から先です。
-
-```cpp
+                 int amount, const string& approverId);
 private:
-    void notify(const string& requestId) {
-        cout << targets.getTarget(requestId) << "へ通知" << endl;
-    }
-    bool notifyWithResult(const string& to, const string& body) {
-        cout << to << "へ通知（" << body << "）" << endl;
-        return true;                              // 送信可否の判断もここへ入る
-    }
+    void notify(const string& requestId);
+    bool notifyWithResult(const string& to, const string& body);
 };
 ```
 
-変更要求後の代表ケースを、上のコードで通します。見るのは、変更要求を現状の構造へ当てはめたとき、修正箇所と痛みがどこに出るかです。
+1-4から増えたのは、部署別上限のための2つのマップと、コンストラクタ、そして通知1つです。**承認上限の判定材料が、`ApproverDatabase` の中と `WorkflowManager` の中の2か所に分かれました。**
 
-この変更後コードを、代表ケースごとに実行します。まずケース1（通常申請の提出）を実行します。
+---
+
+**WorkflowManager のコンストラクタ（追加）**
+
+```cpp
+WorkflowManager::WorkflowManager() {
+    // 緊急ルートを試すため、REQ003を作成中として登録しておく
+    // （現状のRepositoryはREQ001・REQ002しか持たないので、試行用に足す）
+    cases.saveState("REQ003", "作成中");
+    targets.addTarget("REQ003", "部長");
+    requestDepartments["REQ001"] = "営業部";   // 変更ID3
+    requestDepartments["REQ002"] = "営業部";   // 変更ID3
+    requestDepartments["REQ003"] = "開発部";   // 変更ID3
+    departmentLimits["営業部"] = 300000;       // 変更ID3
+departmentLimits["開発部"] = 500000;       // 変更ID3
+}
+```
+
+試行用のデータ登録です。緊急ルートを試すためのREQ003と、変更ID3の部署別上限を持ちます。
+
+---
+
+**WorkflowManager::process()（変更あり）**
+
+```cpp
+void WorkflowManager::process(const string& requestId,
+                              const string& operation,
+                              int amount, const string& approverId) {
+    if (!cases.exists(requestId)) {
+        cout << "エラー：申請ID " << requestId << " は存在しません。" << endl;
+        return;
+    }
+    if (!approvers.exists(approverId)) {
+        cout << "エラー：承認者ID " << approverId
+             << " はデータベースに存在しません。" << endl;
+        return;
+    }
+    if (!approvers.canApprove(approverId, amount)) {
+        ApproverInfo info = approvers.get(approverId);
+        cout << "エラー：" << info.name << "（" << info.role
+             << "）の承認上限（"
+             << info.approvalLimit << "円）を超えています。" << endl;
+        return;
+    }
+    // 変更ID3：役職上限を通っても、申請元の部署別上限で再度弾く
+    map<string, string>::iterator d
+        = requestDepartments.find(requestId);
+    if (d != requestDepartments.end()
+        && amount > departmentLimits[d->second]) {
+        cout << "エラー：" << d->second << "の上限（"
+             << departmentLimits[d->second]
+             << "円）を超えています。" << endl;
+        return;
+    }
+    string current = cases.getState(requestId);
+    string next;
+    string suffix;              // 「（課長スキップ）」など状態別の付記
+    bool notifyPayment = false; // 完了時に決済部門へ追加通知するか
+    // ↓ 状態遷移・通知・判定が同じif/elseに次々と積み重なる
+    if (current == "作成中" && operation == "提出") {
+        next = "審査待ち";
+    } else if (current == "作成中" && operation == "緊急提出") { // 緊急ルート追加
+        next = "優先審査待ち"; suffix = "（課長スキップ）";
+    } else if (current == "審査待ち" && operation == "承認") {
+        next = "承認済み";
+    } else if (current == "審査待ち" && operation == "却下") {   // 却下通知追加
+        next = "却下";
+    } else if ((current == "優先審査待ち" || current == "承認済み")
+               && operation == "承認") {
+        next = "完了"; notifyPayment = true;                    // 決済部門通知追加
+    } else {
+        cout << "エラー：現在状態「" << current
+             << "」で操作「" << operation << "」はできません。" << endl;
+        return;
+    }
+    cases.saveState(requestId, next);
+    cout << requestId << "：" << current << " → " << next << suffix << endl;
+    notify(requestId);                        // 元からある宛先通知
+    // 変更ID2：承認完了を申請者にも知らせ、送信結果まで見る
+    if (next == "承認済み" || next == "完了") {
+        if (!notifyWithResult("申請者", "承認完了")) {
+            cout << "  申請者への通知に失敗（処理は継続）" << endl;
+        }
+    }
+if (notifyPayment) cout << "決済部門へ通知" << endl;
+}
+```
+
+- **判断が6つ：** 申請の存在、承認者の存在、役職上限、**部署別上限**、状態と操作の組み合わせ、そして通知先の選択
+- **`if/else` 連鎖が3本から5本へ：** 緊急提出と却下が加わり、完了への遷移が2状態を `||` でまとめる形になりました
+- **一時変数が2つ増えた：** 状態別の付記 `suffix` と、決済部門へ通知するかの `notifyPayment`。**遷移を決める部分と、その後の出力・通知をつなぐために生まれた変数です**
+- **承認可否が2か所へ分かれた：** 役職上限は `approvers.canApprove()`、部署別上限はこの関数の中
+
+---
+
+**WorkflowManager::notify() と notifyWithResult()（変更あり）**
+
+```cpp
+void WorkflowManager::notify(const string& requestId) {
+    cout << targets.getTarget(requestId) << "へ通知" << endl;
+}
+
+bool WorkflowManager::notifyWithResult(const string& to, const string& body) {
+    cout << to << "へ通知（" << body << "）" << endl;
+    return true;                              // 送信可否の判断もここへ入る
+}
+```
+
+通知が2種類になりました。**片方は成否を返し、もう片方は返しません。** 呼び出し側は、どちらを呼ぶかと、返った成否をどう扱うかを両方知ることになります。
+
+---
+
+#### `main()` と実行結果
+
+代表ケースを、ケースごとに区切って実行します。**見るのは動くかどうかではなく、変更要求を現状の構造へ当てはめたときに修正箇所と痛みがどこに出るかです。**
+
+---
+
+**ケース1：通常申請の提出**
 
 ```cpp
 int main() {
@@ -1142,15 +1191,19 @@ int main() {
     cout << "---" << endl;
 ```
 
-ケース1（通常申請の提出）の実行結果：
-
 ```
 REQ001：作成中 → 審査待ち
 課長へ通知
 ---
 ```
 
-続いて、同じ `main()` の中でケース2（緊急申請の提出・課長スキップ）を実行します。
+1-4と同じ経路です。緊急ルートを足しても、通常ルートの出力は変わっていません。
+
+---
+
+**ケース2：緊急申請の提出（課長スキップ）**
+
+同じ `main()` の続きです。
 
 ```cpp
     // 緊急申請の提出（課長スキップ）
@@ -1158,15 +1211,19 @@ REQ001：作成中 → 審査待ち
     cout << "---" << endl;
 ```
 
-ケース2（緊急申請の提出・課長スキップ）の実行結果：
-
 ```
 REQ003：作成中 → 優先審査待ち（課長スキップ）
 部長へ通知
 ---
 ```
 
-最後に、ケース3（通常申請の課長承認）を実行し、`main()` を終了します。
+`suffix` に入れた「（課長スキップ）」が状態遷移の行へ付きました。
+
+---
+
+**ケース3：通常申請の課長承認と、部署別上限による拒否**
+
+`main()` の残りを実行して終了します。
 
 ```cpp
     // 通常申請の課長承認（申請者への完了通知も飛ぶ）
@@ -1178,8 +1235,6 @@ REQ003：作成中 → 優先審査待ち（課長スキップ）
 }
 ```
 
-ケース3（通常申請の課長承認）の実行結果：
-
 ```
 REQ002：審査待ち → 承認済み
 部長へ通知
@@ -1188,7 +1243,17 @@ REQ002：審査待ち → 承認済み
 エラー：営業部の上限（300000円）を超えています。
 ```
 
-変更ID2で「申請者に承認完了を通知」を足したため、変更前は1件だった承認時の通知が2件になりました。宛先ごとの送信可否を見る `notifyWithResult()` も、状態遷移を書いている同じメソッドから呼ばれています。最後の1件は変更ID3の部署別上限です。課長の役職上限（`canApprove`）は通っているのに、その直後に置いた部署別の判定でもう一度弾かれており、承認可否の判断が2か所へ分かれたことが分かります。
+**動作は正しくなっています。** 3つの変更要求は満たせました。
+
+---
+
+痛いのは結果ではなく、そこへ至る過程です。定義を分けて並べたので、どこへ何が入ったかが見えます。
+
+変更ID2で「申請者に承認完了を通知」を足したため、変更前は1件だった承認時の通知が2件になりました。宛先ごとの送信可否を見る `notifyWithResult()` も、状態遷移を書いている同じメソッドから呼ばれています。
+
+最後の1件は変更ID3の部署別上限です。課長の役職上限（`canApprove`）は通っているのに、その直後に置いた部署別の判定でもう一度弾かれています。**承認可否の判断が、`ApproverDatabase` の中と `process()` の中の2か所へ分かれました。** どちらを見れば「承認できるか」が分かるのか、コードから一目では答えられません。
+
+そして `process()` には、緊急ルートの状態遷移、却下の状態遷移、決済部門への追加通知、申請者への完了通知、部署別上限の判定という**変わる理由の違う5つが同時に入りました。** これ以上この関数へ手を入れると、既存の承認ルートを壊しかねません。
 
 ### 3-2：変更影響グラフ
 

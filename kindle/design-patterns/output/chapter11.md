@@ -988,7 +988,15 @@ DataReader、SalesSummary、ReportDocument、ReportRenderingApi、DebugLogは、
 | 変更ID2（装飾の追加・順序） | `execute()` 内の `for (DecorationType type : request.decorations)` ループ |
 | 変更ID3（履歴・再実行・取消） | `submit()` の `acceptedRequests.push_back` と、`replayLast()` / `undoLast()` |
 
-#### ReportGeneratorへ要求を直接追加したコード
+#### 変更後コード
+
+定義を1つずつ、上から順に読みます。
+
+---
+
+**DecorationType と ChangedReportRequest（変更あり）**
+
+3つのboolを、順序を持つ列へ置き換えます。
 
 ```cpp
 enum class DecorationType { Graph, Logo, Watermark };
@@ -999,73 +1007,112 @@ struct ChangedReportRequest {
     vector<DecorationType> decorations;
     string outputPath;
 };
+```
 
+`addGraph` / `addLogo` / `addWatermark` の3つのboolでは、**指定順を置く場所がありません。** `vector` へ置き換えることで順序を表せるようになりました。
+
+---
+
+**ChangedReportGenerator の宣言（変更あり）**
+
+```cpp
 class ChangedReportGenerator {
     DataReader reader;
     ReportRenderingApi renderer;
-    vector<ChangedReportRequest> acceptedRequests;
+    vector<ChangedReportRequest> acceptedRequests;  // 変更ID3で追加
 
     bool execute(const ChangedReportRequest& request,
-                 const string& templateName) {
-        SalesSummary summary = reader.readCSV();
-        ReportDocument document;
-        renderer.addHeader(document, request.format);
-
-        // 変更ID1：役員向け本文の分岐を共通順の中へ追加
-        if (request.templateId ==
-            "SALES_MONTHLY_EXECUTIVE") {
-            renderer.addStandardBody(
-                document,
-                "役員向け月次専用本文",
-                summary);
-        } else {
-            renderer.addStandardBody(
-                document,
-                templateName,
-                summary);
-        }
-
-        // 変更ID2：装飾の種類・適用順の分岐を追加
-        for (DecorationType type : request.decorations) {
-            if (type == DecorationType::Graph) {
-                renderer.addGraph(document);
-            } else if (type == DecorationType::Logo) {
-                renderer.addLogo(document);
-            } else {
-                renderer.addWatermark(document);
-            }
-        }
-
-        renderer.addFooter(document);
-        return renderer.writePreview(
-            document, request.outputPath, request.format);
-    }
-
+                 const string& templateName);
 public:
     bool submit(const ChangedReportRequest& request,
-                const string& templateName) {
-        // 変更ID3：受け付けた要求を履歴へ保存（再実行・取消の起点）
-        acceptedRequests.push_back(request);
-        return execute(request, templateName);
-    }
-
-    bool replayLast(const string& templateName) {
-        if (acceptedRequests.empty()) {
-            return false;
-        }
-        return execute(acceptedRequests.back(), templateName);
-    }
-
-    bool undoLast() {
-        if (acceptedRequests.empty()) {
-            return false;
-        }
-        return remove(
-            acceptedRequests.back().outputPath.c_str()) == 0;
-    }
+                const string& templateName);
+    bool replayLast(const string& templateName);
+    bool undoLast();
 };
 ```
-続いて `ChangedReportApplication` です。
+
+1-4の `ReportGenerator` は公開操作が `generate()` の1つでした。**変更ID3のために、要求履歴のメンバと公開操作が3つへ増えています。**
+
+---
+
+**ChangedReportGenerator::execute()（変更あり）**
+
+```cpp
+bool ChangedReportGenerator::execute(const ChangedReportRequest& request,
+                                     const string& templateName) {
+    SalesSummary summary = reader.readCSV();
+    ReportDocument document;
+    renderer.addHeader(document, request.format);
+
+    // 変更ID1：役員向け本文の分岐を共通順の中へ追加
+    if (request.templateId ==
+        "SALES_MONTHLY_EXECUTIVE") {
+        renderer.addStandardBody(
+            document,
+            "役員向け月次専用本文",
+            summary);
+    } else {
+        renderer.addStandardBody(
+            document,
+            templateName,
+            summary);
+    }
+
+    // 変更ID2：装飾の種類・適用順の分岐を追加
+    for (DecorationType type : request.decorations) {
+        if (type == DecorationType::Graph) {
+            renderer.addGraph(document);
+        } else if (type == DecorationType::Logo) {
+            renderer.addLogo(document);
+        } else {
+            renderer.addWatermark(document);
+        }
+    }
+
+renderer.addFooter(document);
+return renderer.writePreview(
+    document, request.outputPath, request.format);
+}
+```
+
+- **変更ID1の分岐：** 本文をどう描くかの判断が、生成順の骨格の中へ入りました
+- **変更ID2のループ：** `DecorationType` ごとにどのAPIを呼ぶかの判断が、同じ関数へ入りました
+
+1-4では `if (request.addGraph)` が3本並んでいました。**それがループ1本と分岐3本になり、装飾の判断が減ってはいません。** 増えたのは順序を扱える点だけです。
+
+---
+
+**ChangedReportGenerator::submit() / replayLast() / undoLast()（追加）**
+
+```cpp
+bool ChangedReportGenerator::submit(const ChangedReportRequest& request,
+                                    const string& templateName) {
+    // 変更ID3：受け付けた要求を履歴へ保存（再実行・取消の起点）
+    acceptedRequests.push_back(request);
+    return execute(request, templateName);
+}
+
+bool ChangedReportGenerator::replayLast(const string& templateName) {
+    if (acceptedRequests.empty()) {
+        return false;
+    }
+    return execute(acceptedRequests.back(), templateName);
+}
+
+bool ChangedReportGenerator::undoLast() {
+    if (acceptedRequests.empty()) {
+        return false;
+    }
+    return remove(
+        acceptedRequests.back().outputPath.c_str()) == 0;
+}
+```
+
+**いつ履歴へ追加するか、再実行にどの要求を使うか、取消でどの成果物を削除するか。** 3つの運用判断が、生成を担うクラスへ入りました。
+
+---
+
+**ChangedReportApplication（変更あり）**
 
 ```cpp
 class ChangedReportApplication {
@@ -1097,11 +1144,13 @@ public:
 };
 ```
 
-- `ChangedReportGenerator`は変更ID1〜変更ID3の本文判断、装飾判断、要求履歴を一か所へ直接追加した変更試行です。
-- `ChangedReportApplication`は各操作をGeneratorへ委譲し、返された成否を既存の`DebugLog`へ自動記録します。ログ記録を実行コード側の手順にはしません。
-- 診断責任は分離されたままですが、変更ID1〜変更ID3の異なる変更理由はGeneratorへ集中しています。次に見る痛みはこの集中です。
+各操作をGeneratorへ委譲し、返された成否を既存の `DebugLog` へ自動記録します。ログ記録を実行コード側の手順にはしません。`DebugLog` のクラスと記録形式は1-4から変更していないので、**診断の責任は分離されたままです。**
 
-#### 変更要求を実行するmain
+---
+
+#### `main()` と実行結果
+
+役員向け月次を、装飾は指定順（ロゴ→グラフ）で受け付け、再実行してから取り消します。**見るのは動くかどうかではなく、変更ID1〜変更ID3の修正がどの責任へ集まるかです。**
 
 ```cpp
 int main() {
@@ -1126,13 +1175,7 @@ int main() {
 }
 ```
 
-上の変更試行コードを、そのまま実行します。
-
-`デバッグログ件数`は、現行システムが最初から持つ内部診断ログ（要求ID6）の記録件数です。submit・replay・undoのたびにイベントと成否を1件追加し、「0->1」のように前後の件数変化を示します。ここでは、変更試行でも診断が従来どおり動いていることを確認するために表示しています。後のフェーズ7では、この診断ログ件数と「要求履歴件数」が別物である（件数も内容も異なる）ことを対比します。
-
-実行結果：
-
-出力の形は1-4の現行システムと同じ「CSV読込→ヘッダー→本文→装飾→フッター→保存→診断ログ」の流れです。ただし入力が今回の変更試行（役員向け月次・装飾は指定順`ロゴ→グラフ`・受付→再実行→取消）に変わったため、本文行が役員向け専用本文になり、装飾が指定順で並び、`submit`のあとに`replay`が同じ生成を一度繰り返してから`undo`が成果物を削除します。1-4と読み比べると、変更ID1（本文）・変更ID2（装飾順）・変更ID3（再実行・取消）が出力のどこに現れたかを確認できます。
+`デバッグログ件数` は、現行システムが最初から持つ内部診断ログ（要求ID6）の記録件数です。submit・replay・undoのたびにイベントと成否を1件追加し、「0->1」のように前後の件数変化を示します。
 
 ```
 CSV読込: 6件・合計3510・平均585
@@ -1156,19 +1199,25 @@ CSV読込: 6件・合計3510・平均585
 デバッグログ件数: 3
 ```
 
-この変更試行は変更ID1〜変更ID3を動かせます。しかし、一つのChangedReportGeneratorが次の知識をすべて持ちます。
+出力の形は1-4と同じ「CSV読込→ヘッダー→本文→装飾→フッター→保存→診断ログ」の流れです。本文行が役員向け専用本文になり、装飾が指定順（ロゴ→グラフ）で並び、`submit` のあとに `replay` が同じ生成を一度繰り返してから `undo` が成果物を削除しました。**動作は正しくなっています。** 変更ID1〜変更ID3は満たせました。
 
-`DebugLog`のクラスと記録形式はフェーズ1から変更していません。`ChangedReportApplication`が変更ID3で増えた受付・再実行・取消の各結果を自動的に従来の診断境界へ渡すため、`main()`がログ運用を手動で行う必要はありません。三件の診断記録から要求を復元することはできず、要求履歴の代わりにはなりません。
+診断ログは3件です。この3件から要求を復元することはできないので、**要求履歴の代わりにはなりません。** 別物として持つ必要があります。
 
-- どのIDが役員向け月次か
-- 各本文をどう描くか
-- DecorationTypeごとにどのAPIを呼ぶか
-- 装飾列をどの順に回すか
-- いつ要求履歴へ追加するか
-- 再実行時にどの要求を使うか
-- 取消時にどの成果物を削除するか
+---
 
-「コードが長い」こと自体が痛みではありません。本来は生成を順番に進めるクラスが、本文の選択、装飾の選択、履歴の運用という別々の変更理由を知り、それぞれの変更で修正対象になることが痛みです。
+痛いのは結果ではなく、そこへ至る過程です。定義を分けて並べたので、一つの `ChangedReportGenerator` が持つことになった知識が数えられます。
+
+| 知識 | どの定義に入ったか |
+|---|---|
+| どのIDが役員向け月次か | `execute()` の変更ID1分岐 |
+| 各本文をどう描くか | `execute()` の変更ID1分岐 |
+| `DecorationType` ごとにどのAPIを呼ぶか | `execute()` の変更ID2ループ |
+| 装飾列をどの順に回すか | `execute()` の変更ID2ループ |
+| いつ要求履歴へ追加するか | `submit()` |
+| 再実行時にどの要求を使うか | `replayLast()` |
+| 取消時にどの成果物を削除するか | `undoLast()` |
+
+「コードが長い」こと自体が痛みではありません。本来は生成を順番に進めるクラスが、**本文の選択、装飾の選択、履歴の運用という別々の変更理由を知り**、それぞれの変更で修正対象になることが痛みです。
 
 ### 3-2：変更影響グラフ
 

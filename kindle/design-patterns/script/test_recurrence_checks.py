@@ -282,8 +282,10 @@ cases.append(("DOC-001 構造全貌表", V.check_phase6_point_separation, broken
 # DOC-001: 断片コードの所属明示を落とす
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "同じ `PaymentCalculator::calculate()` の割引判定部分へサマーセールの条件を追加すると、",
-    "このコードにサマーセールの条件を追加すると、", 1)
+    "**PaymentCalculator::calculate() の割引判定（変更前）**",
+    "**変更前の割引判定**", 1).replace(
+    "変える場所を先に確認します。`PaymentCalculator::calculate()` のうち、",
+    "変える場所を先に確認します。この関数のうち、", 1)
 cases.append(("DOC-001 断片の所属", V.check_code_block_attribution, broken))
 
 # DOC-001: 1ブロックを上限超えの行数へ戻す
