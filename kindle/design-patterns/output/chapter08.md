@@ -368,7 +368,7 @@ flowchart LR
 | `OrderRecord` | 保持している注文1件 | 注文の顧客ID・請求金額 |
 | `OrderBook` | 注文を事前保持するデータストア | 注文IDの存在確認・顧客/金額の照合 |
 
-各クラスの責任を把握したところで、クラス間の関係を図で整理します。★浮いているクラスがない？
+各クラスの責任を把握したところで、クラス間の関係を図で整理します。`PaymentLog` と `PaymentRecord` だけが他とつながっていませんが、これは決済結果を記録するのが `PaymentApplication` ではなく組み立て側（`main()`）だからです。クラス図に `main()` は描かないため、注記で示します。
 
 ```mermaid
 classDiagram
@@ -443,6 +443,8 @@ classDiagram
     ConvenienceStoreProcessor ..> PaymentRequest : 受け取る
     ConvenienceStoreProcessor ..> PaymentResult : 返す
     PaymentLog *-- PaymentRecord : 実行結果を保存
+
+    note for PaymentLog "組み立て側（main()のexecuteCase）が記録する。<br/>PaymentApplicationは記録しない"
 ```
 
 **クラス図に出てくる主な操作**
@@ -2124,6 +2126,7 @@ classDiagram
     PaymentApplication --> ProcessorRegistry : 存在・有効確認
     PaymentApplication --> PaymentStatusClient : 完了確認
     CreditCardProcessor --> PaymentGatewayClient : 認証API
+    note for PaymentLog "組み立て側（main()のexecuteCase）が記録する。<br/>PaymentApplicationは記録しない"
 
     note for PaymentApplication "【残す】決済フローの進行<br/>【課題ID1・移す】具体Processorの生成判断と手段固有のエラー対処"
     note for CreditCardProcessor "【残す】カード固有の入力検証・API手順"
@@ -2140,8 +2143,7 @@ classDiagram
 2. 課題ID1：具体Processorを選んで生成する判断を、生成メソッド `createProcessor` の1か所へ移す。
 3. 課題ID1：`processPayment` は生成されたProcessorへ `pay(request)` を委譲するだけにする。
 
-変更後は、`PaymentApplication`から具体クラス名と手段固有分岐が消え、生成が`createProcessor`、手段固有差分が各Processorへ移ったことを確認します。図中の`createProcessor`は`PaymentApplication`が宣言する仮想メソッドで、具体クラスの選択・生成は子クラス`DefaultPaymentApplication`（`--|>`で継承）が上書きします。これが生成分離構造の形で、7-1の`DefaultPaymentApplication::createProcessor()`と追加手段`PayPayProcessor`に一致します。
-★ログクラスが浮いているが、誰かが使っているのではないのか？
+変更後は、`PaymentApplication`から具体クラス名と手段固有分岐が消え、生成が`createProcessor`、手段固有差分が各Processorへ移ったことを確認します。図中の`createProcessor`は`PaymentApplication`が宣言する仮想メソッドで、具体クラスの選択・生成は子クラス`DefaultPaymentApplication`（`--|>`で継承）が上書きします。これが生成分離構造の形で、7-1の`DefaultPaymentApplication::createProcessor()`と追加手段`PayPayProcessor`に一致します。`PaymentLog` が他とつながっていないのは1-3と同じ理由で、記録するのが組み立て側だからです。この配置は変更前後で変えません。
 **採用した変更後のクラス図：**
 
 ```mermaid
@@ -2173,6 +2175,7 @@ classDiagram
     CreditCardProcessor --> PaymentGatewayClient : 認証API
     PaymentApplication --> CustomerDirectory : 顧客照合
     PaymentApplication --> OrderBook : 注文照合
+    note for PaymentLog "組み立て側（main()のexecuteCase）が記録する。<br/>PaymentApplicationは記録しない"
 
     note for IPaymentProcessor "【課題ID1・新設】pay(request)の共通契約"
     note for PaymentApplication "【課題ID1・残した】決済フロー<br/>createProcessorで生成を委ねる"
@@ -2220,7 +2223,7 @@ PaymentResult processPayment(const PaymentRequest& request) {
 
 **この課題（何を解きたいか）：** PayPayを足すだけで、統括者が具体クラス名・固有検証・非同期保留・エラー対処を抱え、7か所へ波及する——問題ID1・問題ID2（痛み）／原因ID1です。**どの方式を作るかの生成判断を一つの生成メソッドへ寄せ、利用フローは共通契約だけを呼ぶ**ようにするのが課題ID1です。
 
-**どう解決するか（方針）：** 決済方式を共通契約の裏へ隠し、生成判断を生成メソッドへ集めます（生成分離構造＝Factory Method）。【契約】 →【安定骨格】検証後に生成物へ処理を委譲する安定骨格 →【具体】 →【生成】 →【注入】 →【利用開始】実行 の順で組み立てます。【安定骨格】では決済方式が増えても変えない処理順を示します。
+**どう解決するか（方針）：** 決済方式を共通契約の裏へ隠し、生成判断を生成メソッドへ集めます（生成分離構造＝Factory Method）。以下は**実行時に通る順**に並べます。【生成】【注入】で部品を作って渡し、【利用開始】で1回呼び、【安定骨格】が委譲し、【契約】を経て【具体】が答える、という流れです。
 
 ```mermaid
 classDiagram
@@ -2232,33 +2235,6 @@ classDiagram
     class IPaymentProcessor:::focus
     class CreditCardProcessor:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-**【契約】 共通契約 `IPaymentProcessor` を定義する。** すべての方式が `PaymentRequest` を受けて `PaymentResult` を返せます（フェーズ5で入出力が既にそろっているため、契約を1本かぶせるだけで差し替えられます）。
-
-```cpp
-class IPaymentProcessor {
-public:
-    virtual ~IPaymentProcessor() = default;
-    virtual PaymentResult pay(
-        const PaymentRequest& request, int amount) = 0;
-};
-```
-
-**【具体】 各方式が固有の検証・API手順・エラー対処を内側に閉じる。**
-
-```cpp
-class CreditCardProcessor : public IPaymentProcessor {
-    PaymentGatewayClient& gateway;
-public:
-    explicit CreditCardProcessor(PaymentGatewayClient& g) : gateway(g) {}
-    PaymentResult pay(const PaymentRequest& request,
-                      int amount) override {
-        // カード固有の検証と認証API。canRetryはゲートウェイ結果に含む
-        return gateway.authorizeCreditCard(
-            request.orderId, amount, request.creditCard);
-    }
-};
 ```
 
 **【生成】 どの具体を生成するかを、生成メソッドの1か所へ閉じる。** 生成メソッドは `DefaultPaymentApplication::createProcessor()` で、新方式はここへ1行足すだけです。`new` した使い捨てProcessorを生ポインタで返し、**所有は呼び出した `processPayment()` が持ち、使用後に `delete` します**（【利用開始】で破棄）。登録の有無と有効・無効の判定もこの1か所で行い、通らない要求は例外で止めます。
@@ -2289,6 +2265,16 @@ IPaymentProcessor* createProcessor(const string& type) override {
 return new CreditCardProcessor(gatewayClient);   // 【注入】 境界を具体へ注入
 ```
 
+**【利用開始】** 決済入口が公開操作 `PaymentApplication::processPayment()` を呼びます。利用側が `createProcessor()` や具体Processorを直接呼ぶことはありません。
+
+**掲載箇所：自由関数 `executeCase(PaymentApplication&, PaymentLog&, const PaymentRequest&)`** ―― `main()` が各ケースで呼ぶ実行ヘルパーの先頭行です。
+
+```cpp
+PaymentResult result = app.processPayment(request);   // 【利用開始】
+```
+
+渡すのは要求1つだけです。**どの手段のProcessorを使うかを呼び出し側は書きません。**
+
 **【安定骨格】 生成後の委譲・破棄を安定骨格として実行する。** `PaymentApplication::processPayment()` は生成メソッドでProcessorを得て、契約 `pay()` へ委譲し、使用後に `delete` します。具体クラス名も手段固有分岐も持ちません。
 
 **掲載箇所：`PaymentApplication::processPayment(const PaymentRequest&)`** ―― 上の現状コードと同じ位置。振り分け `if` が生成メソッドの呼び出し1行へ置き換わります。
@@ -2303,17 +2289,36 @@ PaymentResult processPayment(const PaymentRequest& request) {
 }
 ```
 
-**【利用開始】** 決済入口が公開操作 `PaymentApplication::processPayment()` を呼びます。利用側が `createProcessor()` や具体Processorを直接呼ぶことはありません。
-
-**掲載箇所：自由関数 `executeCase(PaymentApplication&, PaymentLog&, const PaymentRequest&)`** ―― `main()` が各ケースで呼ぶ実行ヘルパーの先頭行です。
+**【契約】 共通契約 `IPaymentProcessor` を定義する。** すべての方式が `PaymentRequest` を受けて `PaymentResult` を返せます（フェーズ5で入出力が既にそろっているため、契約を1本かぶせるだけで差し替えられます）。
 
 ```cpp
-PaymentResult result = app.processPayment(request);   // 【利用開始】
+class IPaymentProcessor {
+public:
+    virtual ~IPaymentProcessor() = default;
+    virtual PaymentResult pay(
+        const PaymentRequest& request, int amount) = 0;
+};
 ```
-★mainから順に説明していく方が、読む側はトレースしやすいのでは？番号順も変えるか？
+
+**【具体】 各方式が固有の検証・API手順・エラー対処を内側に閉じる。**
+
+```cpp
+class CreditCardProcessor : public IPaymentProcessor {
+    PaymentGatewayClient& gateway;
+public:
+    explicit CreditCardProcessor(PaymentGatewayClient& g) : gateway(g) {}
+    PaymentResult pay(const PaymentRequest& request,
+                      int amount) override {
+        // カード固有の検証と認証API。canRetryはゲートウェイ結果に含む
+        return gateway.authorizeCreditCard(
+            request.orderId, amount, request.creditCard);
+    }
+};
+```
+
 #### 代表ケースの実行接続
 
-カード決済1件を、【生成】から【具体】まで実コードで追います。設計を説明する順は【契約】から【利用開始】ですが、実行時の呼出順は【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】です。
+上の6ブロックを、カード決済1件で貫いて確認します。並び順は上の説明と同じです。
 
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
@@ -2324,7 +2329,7 @@ PaymentResult result = app.processPayment(request);   // 【利用開始】
 | 5. 【契約】 | `IPaymentProcessor::pay(const PaymentRequest&, int)` | 生成されたProcessorへ動的ディスパッチする | `CreditCardProcessor::pay()` |
 | 6. 【具体】 | `CreditCardProcessor::pay(const PaymentRequest&, int)` | カード固有の検証と認証APIを実行し `PaymentResult` を返す | 戻り値を【安定骨格】が返す |
 
-この章の【生成】は生成メソッドの中で起き、所有は【安定骨格】の `processPayment()` が持って使用後に破棄します。生成場所と所有者が分かれる点は第10章と同じ形です。★他の章の話しださないで。章完結の方針です。
+この章の【生成】は生成メソッドの中で起き、所有は【安定骨格】の `processPayment()` が持って使用後に破棄します。**生成する場所と所有する場所が分かれています。** 生成を1か所へ閉じたことで、所有と破棄の責任は骨格側に残りました。
 
 > **この抜粋の外は、現状のままです。** `createProcessor()` は `PaymentApplication` の純粋仮想を `DefaultPaymentApplication` が実装した形で、`registry` と `gatewayClient` はその具象側が持ちます。`processPayment()` の冒頭にある注文・顧客の照合と、決済ログの記録は現状のまま維持します。ログを取るのは組み立て側（`main()` の `executeCase`）で、`PaymentApplication` は記録しません。全文は7-1で示します。
 
@@ -2440,6 +2445,7 @@ classDiagram
     CreditCardProcessor --> PaymentGatewayClient : 認証API
     PaymentApplication --> CustomerDirectory : 顧客照合
     PaymentApplication --> OrderBook : 注文照合
+    note for PaymentLog "組み立て側（main()のexecuteCase）が記録する。<br/>PaymentApplicationは記録しない"
 
     note for IPaymentProcessor "【課題ID1・新設】pay(request)の共通契約"
     note for PaymentApplication "【課題ID1・残した】決済フロー<br/>createProcessorで生成を委ねる"
