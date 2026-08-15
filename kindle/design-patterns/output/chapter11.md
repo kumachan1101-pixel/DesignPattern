@@ -321,19 +321,17 @@ classDiagram
 
 ### 1-4：実装コード（現状）
 
-コードはクラス単位で分けます。最初に、各ブロックがどの責任を持つかを確認します。
+#### 現状コード
 
-| コードブロック | クラス | 見る責任 |
-|---|---|---|
-| 1 | 値と要求 | 入力・集計・文書 |
-| 2 | DebugLog | 内部診断記録と件数変化 |
-| 3 | DataReader | 売上集計 |
-| 4 | ReportRenderingApi | 描画・デモ出力境界 |
-| 5 | TemplateRegistry | テンプレート検証 |
-| 6 | ReportGenerator | 固定順の生成と装飾判断 |
-| 7 | ReportApplication、main | 入力受付、実行、診断記録 |
+クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは `ReportGenerator` と `ReportApplication` だけです。判断の基準は次の一行です。
 
-#### 値と要求
+> **メンバーを見ないと読めない関数は、メンバーと一緒に置く。**
+
+`main()` と実行結果は最後に、要求のまとまりごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+
+---
+
+**共通ヘッダー**
 
 ```cpp
 #include <cstdio>
@@ -345,7 +343,17 @@ classDiagram
 #include <vector>
 
 using namespace std;
+```
 
+以降のすべてのクラスが使います。
+
+---
+
+**値と要求**
+
+クラス間を流れる値です。処理を選ぶクラスではありません。
+
+```cpp
 enum class OutputFormat { Pdf, Excel };
 
 string formatName(OutputFormat format) {
@@ -382,7 +390,11 @@ struct ReportTemplate {
 - `SalesSummary`はDataReaderの集計結果、`ReportDocument`は描画APIへ渡す一つの完成文書、`ReportTemplate`は登録済み名称と対応形式を保持します。
 - これらは処理を選ぶクラスではなく、クラス間を流れる値と契約です。
 
-#### DebugLog
+---
+
+**DebugLog**
+
+内部診断の記録です。
 
 ```cpp
 class DebugLog {
@@ -410,7 +422,11 @@ public:
 - 記録内容は診断に必要な最小情報だけで、テンプレート、装飾、出力先を復元する完全な要求ではありません。
 - `size()`は診断件数の確認用です。レポート生成の可否や再実行対象を決める判定には使いません。
 
-#### DataReader
+---
+
+**DataReader**
+
+1-1で示した売上データを保持し、集計します。
 
 ```cpp
 class DataReader {
@@ -436,7 +452,11 @@ public:
 - `readCSV()`は全件を合計し、件数・合計・平均を`SalesSummary`として返します。
 - 本文や装飾、出力形式は知らず、売上の読込と集計だけを担当します。
 
-#### ReportRenderingApi
+---
+
+**ReportRenderingApi**
+
+描画とデモ出力の境界です。
 
 ```cpp
 class ReportRenderingApi {
@@ -506,7 +526,11 @@ public:
 - `writePreview()`は指定パスへプレーンテキストのデモ成果物を保存します。有効なPDF・Excelを生成する処理ではありません。
 - ファイルを開けない場合は`false`を返し、書込完了に失敗した場合は不完全なデモ成果物を削除します。
 
-#### TemplateRegistry
+---
+
+**TemplateRegistry**
+
+登録済みテンプレートの検証を担います。
 
 ```cpp
 class TemplateRegistry {
@@ -550,7 +574,11 @@ public:
 - `exists()`は未登録ID、`supportsFormat()`は非対応形式を生成前に拒否するための判定です。
 - `get()`は検証済みIDから名称と対応形式を返します。本文生成やファイル出力は担当しません。
 
-#### ReportGenerator
+---
+
+**ReportGenerator の宣言**
+
+この章の中心です。
 
 ```cpp
 class ReportGenerator {
@@ -558,36 +586,52 @@ class ReportGenerator {
     ReportRenderingApi renderer;
 public:
     bool generate(const ReportRequest& request,
-                  const string& templateName) {
-        SalesSummary summary = reader.readCSV();
-        ReportDocument document;
-
-        renderer.addHeader(document, request.format);
-        renderer.addStandardBody(
-            document, templateName, summary);
-
-        if (request.addGraph) {
-            renderer.addGraph(document);
-        }
-        if (request.addLogo) {
-            renderer.addLogo(document);
-        }
-        if (request.addWatermark) {
-            renderer.addWatermark(document);
-        }
-
-        renderer.addFooter(document);
-        return renderer.writePreview(
-            document, request.outputPath, request.format);
-    }
+                  const string& templateName);
 };
 ```
 
-- `generate()`は、売上読込→ヘッダー→標準本文→装飾→フッター→保存という現状の処理順を進めます。
-- 標準本文の生成だけでなく、三つのboolを読み、グラフ→ロゴ→透かしという固定順で具体APIを選びます。
-- したがって、現状では正しく動作しますが、生成順と装飾判断が同じクラスに置かれていることをコードから確認できます。
+集計と描画の2つを値メンバとして持ち、外から差し替える余地はありません。公開操作は `generate()` の1つだけです。
 
-#### ReportApplicationとmain
+---
+
+**ReportGenerator::generate()**
+
+```cpp
+bool ReportGenerator::generate(const ReportRequest& request,
+                               const string& templateName) {
+    SalesSummary summary = reader.readCSV();
+    ReportDocument document;
+
+    renderer.addHeader(document, request.format);
+    renderer.addStandardBody(
+        document, templateName, summary);
+
+    if (request.addGraph) {
+        renderer.addGraph(document);
+    }
+    if (request.addLogo) {
+        renderer.addLogo(document);
+    }
+    if (request.addWatermark) {
+        renderer.addWatermark(document);
+    }
+
+renderer.addFooter(document);
+return renderer.writePreview(
+    document, request.outputPath, request.format);
+}
+```
+
+- **順序に意味：** 売上読込→ヘッダー→標準本文→装飾→フッター→保存の順で進みます。`parts` へ積む順が、そのまま出力の並びになります
+- **判断が3つ：** 三つのboolを読み、**グラフ→ロゴ→透かしという固定順**で具体APIを選びます
+
+現状では正しく動作しますが、**生成順の骨格と装飾の判断が同じ関数に置かれている**ことがコードから確認できます。装飾を1つ足すなら、この関数へ `if` を1本書き足すことになります。
+
+---
+
+**ReportApplication の宣言**
+
+利用者入力の受付、テンプレート検証、生成本体の呼び出し、内部診断記録を接続します。
 
 ```cpp
 class ReportApplication {
@@ -595,32 +639,59 @@ class ReportApplication {
     ReportGenerator generator;
     DebugLog debugLog;
 public:
-    bool generate(const ReportRequest& request) {
-        if (!registry.exists(request.templateId)) {
-            cout << "エラー: 未登録テンプレート "
-                 << request.templateId << endl;
-            debugLog.write("generate", false);
-            return false;
-        }
-        if (!registry.supportsFormat(
-                request.templateId, request.format)) {
-            cout << "エラー: 未対応形式 "
-                 << formatName(request.format) << endl;
-            debugLog.write("generate", false);
-            return false;
-        }
-
-        const ReportTemplate& reportTemplate =
-            registry.get(request.templateId);
-        cout << "テンプレート: "
-             << reportTemplate.name << endl;
-        bool success = generator.generate(
-            request, reportTemplate.name);
-        debugLog.write("generate", success);
-        return success;
-    }
+    bool generate(const ReportRequest& request);
 };
+```
 
+3つの部品をすべて値メンバとして持ちます。公開操作は `generate()` の1つだけで、`main()` はこれしか呼びません。
+
+---
+
+**ReportApplication::generate()**
+
+```cpp
+bool ReportApplication::generate(const ReportRequest& request) {
+    if (!registry.exists(request.templateId)) {
+        cout << "エラー: 未登録テンプレート "
+             << request.templateId << endl;
+        debugLog.write("generate", false);
+        return false;
+    }
+    if (!registry.supportsFormat(
+            request.templateId, request.format)) {
+        cout << "エラー: 未対応形式 "
+             << formatName(request.format) << endl;
+        debugLog.write("generate", false);
+        return false;
+    }
+
+    const ReportTemplate& reportTemplate =
+        registry.get(request.templateId);
+    cout << "テンプレート: "
+         << reportTemplate.name << endl;
+bool success = generator.generate(
+    request, reportTemplate.name);
+debugLog.write("generate", success);
+return success;
+}
+```
+
+- **判断が2つ：** テンプレートの登録、形式の対応。どちらも生成の前に置きます
+- **失敗の扱い：** エラー時は生成・保存へ進みませんが、**その失敗結果も `DebugLog` へ記録します**
+
+検証を通れば、同じ要求をそのまま `ReportGenerator` へ渡します。
+
+---
+
+#### `main()` と実行結果
+
+同じ入口へ3件の要求を順に渡します。**見るのは、テンプレート・形式・装飾を変えても同じ順序で処理が進むことと、内部診断ログが1件ずつ積み上がることです。**
+
+---
+
+**1回目：月次・PDF・グラフあり・ロゴあり・透かしなし**
+
+```cpp
 int main() {
     ReportApplication application;
 
@@ -634,7 +705,27 @@ int main() {
         "current_monthly_pdf_demo.txt"
     };
     bool first = application.generate(request);
+```
 
+```
+テンプレート: 月次売上レポート
+CSV読込: 6件・合計3510・平均585
+ヘッダー生成: PDF
+月次売上レポート 標準本文: 件数6・合計3510・平均585
+装飾適用: グラフ
+装飾適用: ロゴ
+フッター生成
+デモ成果物を保存: current_monthly_pdf_demo.txt（実PDFではない）
+デバッグログ件数: 0->1・event=generate・result=success
+```
+
+グラフ→ロゴの順で適用されました。この順は要求の書き順ではなく、`ReportGenerator::generate()` の `if` が並んでいる順です。
+
+---
+
+**2回目：週次・Excel・透かしあり**
+
+```cpp
     // 2回目：同じ入口へ、週次・Excel・透かしありを渡す
     ReportRequest weekly{
         "SALES_WEEKLY",
@@ -645,7 +736,26 @@ int main() {
         "current_weekly_excel_demo.txt"
     };
     bool second = application.generate(weekly);
+```
 
+```
+テンプレート: 週次売上レポート
+CSV読込: 6件・合計3510・平均585
+ヘッダー生成: Excel
+週次売上レポート 標準本文: 件数6・合計3510・平均585
+装飾適用: 透かし
+フッター生成
+デモ成果物を保存: current_weekly_excel_demo.txt（実Excelではない）
+デバッグログ件数: 1->2・event=generate・result=success
+```
+
+テンプレートも形式も装飾も変わりましたが、**ヘッダー→本文→装飾→フッター→保存という順序は1回目と同じです。** デバッグログは `1->2` へ積み上がりました。
+
+---
+
+**3回目：登録されていないテンプレートID**
+
+```cpp
     // 3回目：登録されていないテンプレートIDを渡す
     ReportRequest unknown{
         "SALES_UNKNOWN",
@@ -661,39 +771,16 @@ int main() {
 }
 ```
 
-- `ReportApplication::generate()`は、テンプレートIDと対応形式を検証してから`ReportGenerator`へ同じ要求を渡します。エラー時は生成・保存へ進みませんが、その失敗結果も`DebugLog`へ記録します。
-- `main()`は、同じ入口へ3件の要求を順に渡します。月次・PDF・グラフとロゴ、週次・Excel・透かし、そして未登録テンプレートです。テンプレートも形式も装飾も変わりますが、呼ぶ操作は `generate()` の1つだけです。
-- 利用者入力の受付、テンプレート検証、生成本体の呼び出し、内部診断記録がどこで接続されるかを示すブロックです。
-
-上の現状コードを、そのまま実行します。
-
-見るのは、テンプレート・形式・装飾を変えても同じ順序で処理が進むことと、内部診断ログが1件ずつ積み上がることです。
-
-実行結果：
-
 ```
-テンプレート: 月次売上レポート
-CSV読込: 6件・合計3510・平均585
-ヘッダー生成: PDF
-月次売上レポート 標準本文: 件数6・合計3510・平均585
-装飾適用: グラフ
-装飾適用: ロゴ
-フッター生成
-デモ成果物を保存: current_monthly_pdf_demo.txt（実PDFではない）
-デバッグログ件数: 0->1・event=generate・result=success
-テンプレート: 週次売上レポート
-CSV読込: 6件・合計3510・平均585
-ヘッダー生成: Excel
-週次売上レポート 標準本文: 件数6・合計3510・平均585
-装飾適用: 透かし
-フッター生成
-デモ成果物を保存: current_weekly_excel_demo.txt（実Excelではない）
-デバッグログ件数: 1->2・event=generate・result=success
 エラー: 未登録テンプレート SALES_UNKNOWN
 デバッグログ件数: 2->3・event=generate・result=failure
 ```
 
-現状の入力、集計、固定された装飾順、出力境界、内部診断ログが、1-1と1-2の説明どおりに動きました。3件を通すと、デバッグログ件数が `0->1`・`1->2`・`2->3` と積み上がり、失敗した3件目も `result=failure` として記録されることが分かります。
+検証で止まったので、CSV読込もヘッダー生成も行われていません。それでも**デバッグログは `2->3` へ進み、`result=failure` として記録されます。**
+
+---
+
+現状の入力、集計、固定された装飾順、出力境界、内部診断ログが、1-1と1-2の説明どおりに動きました。3件を通すと、テンプレートも形式も装飾も変わるのに、呼ぶ操作は `generate()` の1つだけであることも確認できます。
 
 > **手元で動かすには**
 > このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter11.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。`ReportRequest` の `OutputFormat::Pdf` を `OutputFormat::Excel` へ変え、出力パスを `"my_report_demo.txt"` などへ変えれば、ヘッダーの形式表記と保存先が変わった実行結果に表れます。装飾の有無を示す3つの真偽値を切り替えると、適用される装飾が増減します。**実行するとカレントディレクトリへ指定名のテキストファイルが実際に作られます。**中身はヘッダー・本文・装飾・フッターを並べたデモ用のプレビューで、PDFやExcelのファイル形式では書き出しません（形式名は文字列として出力へ現れるだけです）。CSVは実ファイルを読まず、`DataReader` が固定データで代替します。集計結果と内部診断ログはプロセス実行中だけ有効で、終了すると消えます。
