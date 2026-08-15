@@ -207,7 +207,7 @@ cases.append(("REQUIREMENT-ROOT-001 要求と変更IDの対応", V.check_require
 
 # 29) NUMBER-001: フェーズ7の完成コード番号をフェーズ6の丸数字へ戻す
 t = (OUT/"chapter07.md").read_text(encoding="utf-8")
-broken = t.replace("**【1】 商品マスタ", "**① 商品マスタ", 1)
+broken = t.replace("**共通ヘッダーと ProductInfo", "**① 共通ヘッダーと ProductInfo", 1)
 cases.append(("NUMBER-001 番号名前空間", V.check_number_namespace, broken))
 
 # 30) REWRITE-001: 番号置換の副作用でC++三項演算子を壊す

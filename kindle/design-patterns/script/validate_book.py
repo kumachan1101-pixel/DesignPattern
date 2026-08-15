@@ -2770,7 +2770,7 @@ def check_explanation_regression(text: str, path: Path) -> list[Issue]:
         "+writePreview(document, path, format) bool",
         "#### 内部デバッグログ",
         "**DebugLog**",
-        "##### 2. DebugLog",
+        "**DebugLog（1-4のまま）**",
         "class DebugLog",
         "現行システムに最初からある内部基盤",
         "`DebugLog`は変更対象外の内部基盤として維持します",
@@ -4171,7 +4171,16 @@ def check_executed_test_helpers(text: str, path: Path) -> list[Issue]:
         code, re.I,
     ))
     for name in names:
-        if len(re.findall(rf"\b{re.escape(name)}\s*\(", code)) < 2:
+        # 宣言・定義の行を除いた「呼び出し」だけを数える。宣言と定義を
+        # 分けると出現が2回になるため、単純な出現数では検出できない。
+        calls = [
+            line for line in code.split("\n")
+            if re.search(rf"\b{re.escape(name)}\s*\(", line)
+            and not re.search(
+                rf"\b(?:void|bool|int)\s+(?:\w+::)?{re.escape(name)}\s*\(",
+                line)
+        ]
+        if not calls:
             issues.append(Issue(
                 path, line_number(text, start),
                 f"7-1のテスト関数 `{name}()` が実行経路から呼ばれていません",

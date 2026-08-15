@@ -2374,15 +2374,17 @@ sequenceDiagram
     A->>L: write(submit, success)
 ```
 
-以下のコードブロックはクラス単位で分けています。すべてを上から結合すると、一つのC++14プログラムとして実行できます。
-
 #### 完成コード
 
-以下は、前のクラス一覧・クラス図・実行シーケンスを、依存される型から順にクラス単位で実装した完成コードです。
+クラスを1つずつ、依存される型から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。1-4と同じ顔ぶれが並ぶので、どこが変わったかを見比べてください。
 
-##### 1. 値・列挙・要求
+`main()` と実行結果は最後に、シナリオごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
 
-まずファイル冒頭です。共通ヘッダーと、`OutputFormat`・`DecorationType`・`SalesSummary`・`ReportDocument`・`ReportRequest`という値型を置きます。ここはどのクラスにも属さない宣言で、以降のすべてのクラスが使います。
+---
+
+**共通ヘッダーと値・列挙・要求**
+
+`OutputFormat`・`DecorationType`・`SalesSummary`・`ReportDocument`・`ReportRequest` という値型です。どのクラスにも属さない宣言で、以降のすべてのクラスが使います。
 
 ```cpp
 #include <cstdio>
@@ -2424,7 +2426,11 @@ struct ReportRequest {
 - `SalesSummary`と`ReportDocument`は、読込結果と一つの成果物を処理間で渡します。
 - `ReportRequest`は、変更ID3で再実行する完全な要求です。テンプレートID、形式、装飾列、出力先を値として保持します。
 
-続いて、処理の成否とテンプレート設定を運ぶ値です（`OperationResult` と `ReportTemplate`）。
+---
+
+**OperationResult と ReportTemplate**
+
+処理の成否とテンプレート設定を運ぶ値です。
 
 ```cpp
 struct OperationResult {
@@ -2441,7 +2447,9 @@ struct ReportTemplate {
 - `OperationResult`は、実行側と履歴側が成否を受け渡す内部契約です。変更ID1〜変更ID3へ新しい業務機能を追加するものではありません。
 - `ReportTemplate`は1-4と同じ名称・対応形式を保持します。
 
-##### 2. DebugLog
+---
+
+**DebugLog（1-4のまま）**
 
 ```cpp
 class DebugLog {
@@ -2469,7 +2477,9 @@ public:
 - 変更ID3の`ReportActionHistory`と異なり、完全な`ReportRequest`やActionを保持しません。このログから再実行・取消は行えません。
 - 最終構造でも変更機能として追加したのではなく、従来の内部診断境界へ新しい操作結果を渡します。
 
-##### 3. DataReader
+---
+
+**DataReader（1-4のまま）**
 
 ```cpp
 class DataReader {
@@ -2494,7 +2504,9 @@ public:
 - 1-4と同じ6件を読み、件数6・合計3,510・平均585を返します。
 - 変更ID1〜変更ID3では売上データと集計式を変更しないため、本文や装飾の具体型を知りません。
 
-##### 4. ReportRenderingApi
+---
+
+**ReportRenderingApi（1-4のまま）**
 
 ```cpp
 class ReportRenderingApi {
@@ -2576,7 +2588,9 @@ public:
 - `addExecutiveBody()`は変更ID1、`removePreview()`は変更ID3によって同じ境界へ追加されました。前者は役員向け本文を描き、後者は取消対象のデモ成果物を削除します。
 - 本物のPDF・Excelは生成せず、文書要素と呼出順をプレーンテキストで観測する契約も維持します。
 
-##### 5. TemplateRegistry
+---
+
+**TemplateRegistry**
 
 ```cpp
 class TemplateRegistry {
@@ -2623,7 +2637,9 @@ public:
 - 変更ID1の役員向け月次テンプレートを一件追加し、通常月次は別IDのまま残します。
 - 本文クラスの生成や装飾順は知らず、テンプレート設定の保持と検証だけを担当します。
 
-##### 6. IReportとReportSkeleton
+---
+
+**IReport と ReportSkeleton**
 
 ```cpp
 class IReport {
@@ -2666,7 +2682,11 @@ public:
 - ここで骨格が守るのは**この4つの順序**です。装飾は骨格の内側へ差し込むのではなく、完成した文書を`ReportFeature`が外側から包んで足します。そのため文書の要素は「ヘッダー→本文→フッター→装飾」の順に並び、フェーズ1の現状（装飾→フッター）とは装飾の位置が変わります。装飾を「文書全体に後から重ねるもの」として扱う以上、この並びは装飾連結構造を選んだ結果であり、A2〜A4の実行結果でも同じ順序になります。骨格の内側へ装飾を差し込みたい場合は、`ReportSkeleton`へ差し込み点のフックを1つ足すことになりますが、そのぶん骨格が装飾の存在を知ることになります。
 - 実際の`readCSV()`も基底クラスから呼ぶため、表示だけでなく生成処理の共通順そのものを一か所に置いています。
 
-##### 7. 本文クラス
+---
+
+本文クラスは4つあります。同じ共通順を使い、本文内容だけを所有します。
+
+---
 
 **MonthlyReport**
 
@@ -2685,6 +2705,8 @@ protected:
 
 - 通常月次の標準本文を生成します。変更ID1で役員向けが増えても、この既存本文は置き換えません。
 
+---
+
 **ExecutiveMonthlyReport**
 
 ```cpp
@@ -2700,6 +2722,8 @@ protected:
 ```
 
 - 変更ID1で追加する役員向け月次だけの本文です。共通順を再実装せず、`renderBody()`だけを差し替えます。
+
+---
 
 **WeeklyReport**
 
@@ -2717,6 +2741,8 @@ protected:
 ```
 
 - 週次の標準本文を生成します。役員向け月次の追加による修正を受けません。
+
+---
 
 **DepartmentReport**
 
@@ -2736,7 +2762,11 @@ protected:
 - 部門別の標準本文を生成します。四つの本文クラスは同じ共通順を使い、本文内容だけを所有します。
 - 通常月次と役員向け月次を別クラスにしたため、変更ID1により役員向けだけを変え、通常月次を維持できます。
 
-##### 8. ReportFeatureと各装飾
+---
+
+装飾は、完成した文書を外側から包んで足します。
+
+---
 
 **ReportFeature**
 
@@ -2760,6 +2790,8 @@ public:
 - 内側の`IReport`を生ポインタで所有し、デストラクタで破棄する装飾基底です。同じ描画境界は参照として受け取ります。
 - 自分では装飾種別を判断せず、具体Featureが`create()`へ一つの表示要素を追加できる接続を用意します。
 
+---
+
 **GraphFeature**
 
 ```cpp
@@ -2776,6 +2808,8 @@ public:
 
 - 内側で文書を生成した後、グラフを一つ追加して同じ文書を返します。
 
+---
+
 **LogoFeature**
 
 ```cpp
@@ -2791,6 +2825,8 @@ public:
 ```
 
 - 内側で文書を生成した後、ロゴを一つ追加します。グラフとの前後はこのクラスでは決めません。
+
+---
 
 **WatermarkFeature**
 
@@ -2809,7 +2845,9 @@ public:
 - 内側で文書を生成した後、透かしを一つ追加します。
 - すべてのFeatureは同じ規則で一要素だけを加えます。`ReportAssembler`が入力列の先頭から包むため、入力順と実行順が一致します。
 
-##### 9. ReportAssembler
+---
+
+**ReportAssembler**
 
 ```cpp
 class ReportAssembler {
@@ -2860,7 +2898,9 @@ public:
 - 具体クラスを知る場所は`ReportAssembler`です。`ReportApplication`や履歴側は本文クラスやFeatureを直接生成しません。
 - 新しいFeatureは直前の`IReport`を所有します。最外側の`IReport`を削除すると、各Featureのデストラクタが内側を順に削除します。
 
-##### 10. ReportGenerationService
+---
+
+**ReportGenerationService**
 
 ```cpp
 class ReportGenerationService {
@@ -2922,7 +2962,9 @@ public:
 - 失敗は`OperationResult`で返し、デモ成果物を保存できた場合だけ成功にします。
 - `removeArtifact()`は取消時の削除境界ですが、履歴件数や再実行対象を決める規則は持ちません。
 
-##### 11. GenerateReportAction
+---
+
+**IReportAction と GenerateReportAction**
 
 ```cpp
 class IReportAction {
@@ -2977,7 +3019,9 @@ public:
 - `GenerateReportAction`は完全な`ReportRequest`を値で保持し、生成と削除を`ReportGenerationService`へ委譲します。
 - 成功後も`execute()`を拒否しないため、同じテンプレート、形式、装飾順、出力先で再生成できます。
 
-##### 12. ReportActionHistory
+---
+
+**ReportActionHistory**
 
 ```cpp
 class ReportActionHistory {
@@ -3028,7 +3072,9 @@ public:
 - 取消後も受付履歴を残すため、`undoLast()`は成果物だけを削除し、`vector`からActionを除きません。
 - `ReportActionHistory`のデストラクタは、受け付けたActionをすべて破棄します。Actionの生存期間は履歴の生存期間と同じです。
 
-##### 13. ReportApplicationと実行シナリオ
+---
+
+**ReportApplication**
 
 ```cpp
 class ReportApplication {
@@ -3086,9 +3132,11 @@ void printResult(const OperationResult& result) {
 - `historySize()`は受付要求数、`debugLogSize()`は診断イベント数を返します。二つを別メソッドにすることで、診断ログを要求履歴の正本として扱わないことをコードで明示します。
 - `printResult()`は各シナリオが受け取った`OperationResult`を同じ形式で表示します。
 
-**A1〜A4を一つのApplicationで実行するmain**
+---
 
-先に、四つのシナリオを呼ぶ`main()`を示します。この後のA1〜A4は、すべてこの一つの`ReportApplication`を共有し、上から順に実行されます。各シナリオの定義はこの後に置くため、呼び出し側を先に見せられるよう前方宣言だけを添えています。
+#### `main()` と実行結果
+
+先に、四つのシナリオを呼ぶ `main()` を示します。この後のA1〜A4は、すべてこの一つの`ReportApplication`を共有し、上から順に実行されます。各シナリオの定義はこの後に置くため、呼び出し側を先に見せられるよう前方宣言だけを添えています。
 
 ```cpp
 // 各シナリオはこの後で定義する（呼び出し側を先に見せるための前方宣言）
@@ -3111,6 +3159,8 @@ int main() {
 
 - 一つの`ReportApplication`をA1〜A4で共有するため、受付件数が1→4と増え、A4の再実行・取消が同じ履歴へ接続されます。
 - 各シナリオのコード直後に対応する実行結果を置いたため、入力と結果を離れた一括出力から探す必要はありません。
+
+---
 
 **A1：通常月次を維持する実行コード**
 
@@ -3142,6 +3192,8 @@ CSV読込: 6件・合計3510・平均585
 デバッグログ件数: 0->1・event=submit・result=success
 操作結果: 成功（生成完了）
 ```
+
+---
 
 **A2：役員向け本文へロゴ→グラフを適用する実行コード**
 
@@ -3178,6 +3230,8 @@ CSV読込: 6件・合計3510・平均585
 操作結果: 成功（生成完了）
 ```
 
+---
+
 **A3：役員向け本文へグラフ→ロゴを適用する実行コード**
 
 同じく`main()`が3番目に呼ぶ`scenarioA3()`で、A2と同じ`ReportApplication`へ装飾の順だけを変えた要求を渡します。
@@ -3212,6 +3266,8 @@ CSV読込: 6件・合計3510・平均585
 デバッグログ件数: 2->3・event=submit・result=success
 操作結果: 成功（生成完了）
 ```
+
+---
 
 **A4：同じ要求を再実行して成果物を取り消す実行コード**
 
