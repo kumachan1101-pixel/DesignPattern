@@ -492,9 +492,19 @@ classDiagram
 | 設定・注文検索 | 決済IDや注文IDから対応データを取得する | Processorへ検証材料を渡す |
 | `PaymentLog` | 実行済みの決済結果を受け取る | 手段・金額・状態・エラーコードを追記する |
 
-手段固有の入力データは構造体で分け、非同期決済は保留情報を返し、完了確認は別の境界へ渡します。コードは責任の固まりごとに分けて読みます。
+手段固有の入力データは構造体で分け、非同期決済は保留情報を返し、完了確認は別の境界へ渡します。
 
-**(1) 決済の入力データと結果を表す構造体（CreditCardInput ほか / PaymentRequest / PaymentResult）**
+#### 現状コード
+
+定義を1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは `PaymentApplication` だけです。判断の基準は次の一行です。
+
+> **メンバーを見ないと読めない関数は、メンバーと一緒に置く。**
+
+`main()` と実行結果は最後に、ケースごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+
+---
+
+**共通ヘッダー**
 
 ```cpp
 #include <iostream>
@@ -503,7 +513,17 @@ classDiagram
 #include <vector>
 
 using namespace std;
+```
 
+以降のすべてのクラスが使います。
+
+---
+
+**手段固有の入力データ**
+
+3つの決済手段が必要とするデータは、それぞれ違います。
+
+```cpp
 // ---- 手段固有の入力データ ----
 
 struct CreditCardInput {
@@ -523,7 +543,17 @@ struct ConvenienceInput {
     string email;
     string storeCode; // "seven","lawson","familymart"
 };
+```
 
+**共通の項目が1つもありません。** カードはトークンと名義とセキュリティコード、振込は名義と銀行コードと口座種別、コンビニは電話番号とメールと店舗コードです。
+
+---
+
+**PendingInfo / PaymentRequest / PaymentResult**
+
+決済1回分の要求と結果です。
+
+```cpp
 // ---- 保留決済の追跡情報 ----
 
 struct PendingInfo {
@@ -550,9 +580,13 @@ struct PaymentResult {
 };
 ```
 
-各決済手段が必要とするデータが異なるため、`PaymentRequest` には手段ごとの入力構造体を持たせています。`PaymentResult` には、成功・保留・失敗のステータスに加え、リトライ可否、エラーコード、保留時の確認情報を含めています。
+`PaymentRequest` は手段ごとの入力構造体を3つとも持ち、**該当する1つだけがセットされます。** `PaymentResult` には、成功・保留・失敗のステータスに加え、リトライ可否、エラーコード、保留時の確認情報を含めます。3手段の結果を1つの型で表すため、使わないフィールドが必ず残ります。
 
-**(2) 決済方法の設定（ProcessorConfig / ProcessorRegistry）**
+---
+
+**ProcessorConfig と ProcessorRegistry**
+
+決済方法の設定を一元管理します。
 
 ```cpp
 // ---- 決済方法の設定 ----
@@ -591,9 +625,11 @@ public:
 };
 ```
 
-レジストリは決済方法の設定を一元管理します。登録されているか、有効かの判定に使います。
+登録されているか、有効かの判定に使います。`crypto` だけ `isActive` が `false` です。**コードから手段を削除せず、運用設定だけで一時停止できます。**
 
-**(2)-2 顧客・注文の保持データ（ProcessorRegistry と同じデータ層）**
+---
+
+**CustomerRecord と CustomerDirectory**
 
 決済要求に載る `orderId` から、システムが事前に保持している注文と顧客を引きます。この保持データは現状コードの時点から存在します（第1章 `CustomerDatabase`、第9章 `UserDatabase` と同じ「登録済みデータへ照合する」形）。
 
@@ -620,7 +656,15 @@ public:
     bool exists(const string& id) const { return records.count(id) > 0; }
     CustomerRecord get(const string& id) const { return records.at(id); }
 };
+```
 
+顧客IDから氏名を引きます。**利用側が氏名を渡すことはありません。**
+
+---
+
+**OrderRecord と OrderBook**
+
+```cpp
 // 事前保持：注文（orderId → 顧客ID・請求金額）
 struct OrderRecord { string customerId; int amount; };
 
@@ -645,11 +689,13 @@ public:
 };
 ```
 
-`orderId` は、この保持データに存在するもの以外を受け付けません。請求金額と注文者はここから引くので、利用側は渡しません。引いた注文者が顧客台帳にいない場合、氏名が空の場合も決済へ進みません。
+`orderId` は、この保持データに存在するもの以外を受け付けません。請求金額と注文者はここから引くので、利用側は渡しません。引いた注文者が顧客台帳にいない場合、氏名が空の場合も決済へ進みません。`ORD-1010` は注文者 `C999` が顧客台帳にいない、拒否の確認用データです。
 
-**(3) 外部決済APIの境界スタブ（PaymentGatewayClient / PaymentStatusClient）**
+---
 
-まず、カード認証・振込先発行・コンビニ番号発行を代替する `PaymentGatewayClient` です。
+**PaymentGatewayClient**
+
+カード認証・振込先発行・コンビニ番号発行を代替する外部API境界です。
 
 このスタブは外部決済APIを代替し、**入力を判定に使います**（印字するだけの飾りではありません）。カード認証では `cardToken` が結果を分岐させます。`ERROR` 始まりは残高不足で再試行しても変わらない失敗（`canRetry=false`）、`TIMEOUT` 始まりは一時的な通信失敗で1回目だけ失敗し再試行で成功する結果（`canRetry=true`）を返します。`orderId` は注文ごとの試行回数（`cardAttempts`）の管理キーに、`amount` はログ追跡に使います。カード名義（`holderName`）の空チェックは、呼び出し側の入力検証（後述の「カード名義が不足」ケース）で扱います。返した `canRetry` は飾りではなく、利用側の `executeCase` が読んで再試行するかを決めます（1-4の実行結果ケース8で実際に消費します）。実APIではこの位置でトークンの正当性・残高・与信を確認しますが、本章の論点は生成の分離なので、その判定を上記のキーワードで代替しています。
 
@@ -726,7 +772,16 @@ public:
 };
 ```
 
-次に、非同期決済の保留IDを確認する `PaymentStatusClient` です。保留（振込・コンビニ）が入金されず失敗する場合を、このスタブは「保留IDに `EXPIRE` を含むかどうか」で表現します。実システムでは支払い期限を過ぎると外部側が期限切れを返しますが、掲載コードではその期限切れを `EXPIRE` というキーワードで代替し、`checkStatus()` がそれを検出して「支払い期限切れ」を返します（この期限切れ失敗は1-1のエラー条件表にも掲載しています）。本章の実行ケースは正常系と再試行に焦点を当てるため、`EXPIRE` を含む保留IDは生成しませんが、非同期の失敗経路はこの分岐で表現されていることを示します。
+- **判断が2つ：** `cardToken` の内容で失敗の種類を分け、試行回数で再試行の成否を分けます
+- **失敗の扱い：** `canRetry` を返し分けます。残高不足は `false`、通信タイムアウトは `true` です
+
+カード認証は同期で即座に結果を返し、振込先発行とコンビニ番号発行は保留IDを含む保留結果を返します。
+
+---
+
+**PaymentStatusClient**
+
+非同期決済の保留IDを確認する外部API境界です。保留（振込・コンビニ）が入金されず失敗する場合を、このスタブは「保留IDに `EXPIRE` を含むかどうか」で表現します。実システムでは支払い期限を過ぎると外部側が期限切れを返しますが、掲載コードではその期限切れを `EXPIRE` というキーワードで代替し、`checkStatus()` がそれを検出して「支払い期限切れ」を返します（この期限切れ失敗は1-1のエラー条件表にも掲載しています）。本章の実行ケースは正常系と再試行に焦点を当てるため、`EXPIRE` を含む保留IDは生成しませんが、非同期の失敗経路はこの分岐で表現されていることを示します。
 
 ```cpp
 // 非同期決済の完了確認API境界スタブ
@@ -760,11 +815,17 @@ public:
 };
 ```
 
-`PaymentGatewayClient` は外部決済APIの境界スタブです。カード認証は同期で即座に結果を返し、振込先発行とコンビニ番号発行は保留IDを含む保留結果を返します。`PaymentStatusClient` は非同期決済の入金確認を行う境界スタブです。保留IDに `EXPIRE` が含まれていれば期限切れとして扱います。
+保留IDの接頭辞で入金元を判別し、`EXPIRE` が含まれていれば期限切れとして扱います。
 
-**(4) 各決済手段の処理クラス（CreditCardProcessor / BankTransferProcessor / ConvenienceStoreProcessor）**
+---
 
-共通点と差分を追えるよう、3クラスを別々のコードブロックで示します。最初は同期のカード決済です。
+次の3つが決済手段ごとの処理クラスです。共通点と差分を追えるよう、別々のブロックで示します。
+
+---
+
+**CreditCardProcessor**
+
+同期のカード決済です。
 
 ```cpp
 // ---- 各決済手段の具体的な処理 ----
@@ -802,7 +863,13 @@ public:
 };
 ```
 
-次は、振込先発行後に保留となる銀行振込です。
+カード固有の3項目を検証してから認証APIを呼び、**その結果をそのまま返します。**
+
+---
+
+**BankTransferProcessor**
+
+振込先発行後に保留となる銀行振込です。
 
 ```cpp
 class BankTransferProcessor {
@@ -833,7 +900,13 @@ public:
 };
 ```
 
-最後は、支払い番号発行後に保留となるコンビニ決済です。
+検証する項目が2つで、カードとは中身が違います。返るのは保留結果です。
+
+---
+
+**ConvenienceStoreProcessor**
+
+支払い番号発行後に保留となるコンビニ決済です。
 
 ```cpp
 class ConvenienceStoreProcessor {
@@ -864,11 +937,13 @@ public:
 };
 ```
 
-各Processorは自分の手段に必要な入力データを検証し、対応する外部APIスタブを呼びます。クレジットカードは同期で即座に成功または失敗を返し、銀行振込とコンビニは非同期で保留（保留ID付き）を返します。
+3つを並べて見比べてください。**`pay(const PaymentRequest&, int)` というシグネチャは3つとも同じで、共通の契約はどこにもありません。** 検証する項目も、返る結果の種類（同期の成功／失敗と、非同期の保留）も手段ごとに違います。
 
-**(5) 決済を統括するクラス（PaymentApplication）**
+---
 
-`isActive()` は、コードから手段を削除せず運用設定だけで一時停止するための判定です。これにより、`crypto` は「システムが知らない」のではなく「登録済みだが現在は利用不可」と返せます。生成前に無効なProcessorを作らないよう、この判定を使います。
+**PaymentApplication の宣言**
+
+決済を統括します。
 
 ```cpp
 // ---- 決済を統括するクラス ----
@@ -880,84 +955,114 @@ class PaymentApplication {
     CustomerDirectory customers;   // 事前保持：顧客
     OrderBook orders;              // 事前保持：注文
 public:
-    PaymentResult processPayment(
-        const PaymentRequest& request) {
-        const string& type = request.methodId;
-
-        // レジストリで存在確認
-        if (!registry.exists(type)) {
-            return {"失敗",
-                    "未登録の決済方法です: " + type,
-                    false, "UNKNOWN_METHOD", {}};
-        }
-        // レジストリで有効フラグを確認
-        if (!registry.isActive(type)) {
-            ProcessorConfig cfg
-                = registry.get(type);
-            return {"失敗",
-                    cfg.name + " は現在無効です。",
-                    false, "DISABLED", {}};
-        }
-        // 注文台帳から請求金額と注文者を引く（利用側は渡さない）
-        if (!orders.exists(request.orderId)) {
-            return {"失敗",
-                    "未登録の注文です: " + request.orderId,
-                    false, "UNKNOWN_ORDER", {}};
-        }
-        OrderRecord ord = orders.get(request.orderId);
-        // 注文者が顧客台帳に実在し、氏名を持つかを確認する
-        if (!customers.exists(ord.customerId)) {
-            return {"失敗",
-                    "未登録の顧客です: " + ord.customerId,
-                    false, "UNKNOWN_CUSTOMER", {}};
-        }
-        CustomerRecord customer = customers.get(ord.customerId);
-        if (customer.name.empty()) {
-            return {"失敗", "顧客名が登録されていません",
-                    false, "INVALID_CUSTOMER", {}};
-        }
-
-        // 決済方法に応じてプロセッサを生成して実行
-        if (type == "credit_card") {
-            CreditCardProcessor proc(gatewayClient);
-            // canRetry はゲートウェイの結果に含まれる（失敗の種類で決まる）
-            return proc.pay(request, ord.amount);
-        } else if (type == "bank_transfer") {
-            BankTransferProcessor proc(
-                gatewayClient);
-            PaymentResult result
-                = proc.pay(request, ord.amount);
-            // 非同期: APIエラーならそのまま返す
-            return result;
-        } else if (type == "convenience") {
-            ConvenienceStoreProcessor proc(
-                gatewayClient);
-            PaymentResult result
-                = proc.pay(request, ord.amount);
-            return result;
-        }
-        return {"失敗",
-                "未対応の決済種別です: " + type,
-                false, "UNSUPPORTED", {}};
-    }
-
-    // 台帳の請求金額を返す（記録・表示に使う）
-    int chargedAmount(const string& orderId) const {
-        return orders.exists(orderId)
-            ? orders.get(orderId).amount : 0;
-    }
-
-    // 保留決済の完了確認
-    PaymentResult checkCompletion(
-        const string& pendingId) {
-        return statusClient.checkStatus(pendingId);
-    }
+    PaymentResult processPayment(const PaymentRequest& request);
+    int chargedAmount(const string& orderId) const;
+    PaymentResult checkCompletion(const string& pendingId);
 };
 ```
 
-`PaymentApplication` はすべての決済手段の具体クラスを直接知っています。カード決済では認証失敗時にリトライ可能フラグを設定し、銀行振込やコンビニは保留結果をそのまま返します。手段ごとに生成するクラスと、エラー時の対処が異なっていることがコード上に表れています。
+5つの部品をすべて値メンバとして持ち、外から差し替える余地はありません。定義を3つ、上のメンバーを見ながら読んでいきます。
 
-**(6) 決済ログと実行（PaymentRecord / PaymentLog / main）**
+---
+
+**PaymentApplication::processPayment()**
+
+この章の中心です。
+
+```cpp
+PaymentResult PaymentApplication::processPayment(
+        const PaymentRequest& request) {
+    const string& type = request.methodId;
+
+    // レジストリで存在確認
+    if (!registry.exists(type)) {
+        return {"失敗",
+                "未登録の決済方法です: " + type,
+                false, "UNKNOWN_METHOD", {}};
+    }
+    // レジストリで有効フラグを確認
+    if (!registry.isActive(type)) {
+        ProcessorConfig cfg
+            = registry.get(type);
+        return {"失敗",
+                cfg.name + " は現在無効です。",
+                false, "DISABLED", {}};
+    }
+    // 注文台帳から請求金額と注文者を引く（利用側は渡さない）
+    if (!orders.exists(request.orderId)) {
+        return {"失敗",
+                "未登録の注文です: " + request.orderId,
+                false, "UNKNOWN_ORDER", {}};
+    }
+    OrderRecord ord = orders.get(request.orderId);
+    // 注文者が顧客台帳に実在し、氏名を持つかを確認する
+    if (!customers.exists(ord.customerId)) {
+        return {"失敗",
+                "未登録の顧客です: " + ord.customerId,
+                false, "UNKNOWN_CUSTOMER", {}};
+    }
+    CustomerRecord customer = customers.get(ord.customerId);
+    if (customer.name.empty()) {
+        return {"失敗", "顧客名が登録されていません",
+                false, "INVALID_CUSTOMER", {}};
+    }
+
+    // 決済方法に応じてプロセッサを生成して実行
+    if (type == "credit_card") {
+        CreditCardProcessor proc(gatewayClient);
+        // canRetry はゲートウェイの結果に含まれる（失敗の種類で決まる）
+        return proc.pay(request, ord.amount);
+    } else if (type == "bank_transfer") {
+        BankTransferProcessor proc(
+            gatewayClient);
+        PaymentResult result
+            = proc.pay(request, ord.amount);
+        // 非同期: APIエラーならそのまま返す
+        return result;
+    } else if (type == "convenience") {
+        ConvenienceStoreProcessor proc(
+            gatewayClient);
+        PaymentResult result
+            = proc.pay(request, ord.amount);
+        return result;
+    }
+return {"失敗",
+        "未対応の決済種別です: " + type,
+        false, "UNSUPPORTED", {}};
+}
+```
+
+- **判断が5つ：** 手段の登録、手段の有効、注文の登録、顧客の実在、顧客名の有無。5つとも通ってから決済へ進みます
+- **順序に意味：** 無効な手段のProcessorを作らないよう、生成の前にすべての判定を置いています
+- **失敗の扱い：** どの判定で落ちても、外部APIを1度も呼ばずに `PaymentResult` を返します
+
+`isActive()` により、`crypto` は「システムが知らない」のではなく「登録済みだが現在は利用不可」と返せます。
+
+**末尾の `if-else` を見てください。** `PaymentApplication` は3つの具体クラス名をすべて直接知っており、決済種別の文字列から生成するクラスを選んでいます。手段が増えれば、ここに分岐が1本増えます。
+
+---
+
+**PaymentApplication::chargedAmount() と checkCompletion()**
+
+```cpp
+// 台帳の請求金額を返す（記録・表示に使う）
+int PaymentApplication::chargedAmount(const string& orderId) const {
+    return orders.exists(orderId)
+        ? orders.get(orderId).amount : 0;
+}
+
+// 保留決済の完了確認
+PaymentResult PaymentApplication::checkCompletion(
+        const string& pendingId) {
+    return statusClient.checkStatus(pendingId);
+}
+```
+
+どちらも保持データへ問い合わせるだけです。完了確認は `processPayment()` とは別の入口で、保留IDだけを受け取ります。
+
+---
+
+**PaymentRecord と PaymentLog**
 
 ```cpp
 // ---- 決済ログ ----
@@ -993,11 +1098,15 @@ public:
 };
 ```
 
-以下の `main()` は一つの関数ですが、**一つのケースを実行した直後に、そのケースの結果を確認できるように**コードブロックを分けて掲載します。各ケースのコードと、その実行結果を隣り合わせに置きます。
+手段・金額・状態・エラーコードを1件ずつ追記します。成功も失敗も同じ形で残ります。
 
-1-2の動作例テーブルを、上の現状コードで通します。見るのは、同期決済、非同期決済の完了確認、API失敗、入力不足、無効・未登録が仕様どおりに動くかです。
+---
 
-まず、各ケースで共通する「実行・保留時の完了確認・ログ記録」を補助関数にまとめます。
+#### `main()` と実行結果
+
+1-2の動作例テーブルを、上の現状コードで通します。**見るのは、同期決済、非同期決済の完了確認、API失敗、入力不足、無効・未登録が仕様どおりに動くかです。**
+
+一つのケースを実行した直後に結果を確認できるよう、ケースごとにコードブロックを分けます。まず、各ケースで共通する「実行・保留時の完了確認・ログ記録」を補助関数にまとめます。
 
 ```cpp
 static void executeCase(
