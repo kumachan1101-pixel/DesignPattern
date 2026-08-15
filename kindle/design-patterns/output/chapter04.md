@@ -391,11 +391,17 @@ sequenceDiagram
 
 この段階での注目ポイントは、どちらのクラスも「ファイルを開く」「データを加工する」「保存する」「閉じる」というデータの流れ（処理の手順）を、それぞれのクラス内に独立して持っている点です。しかも現状では、この手順はまだ小さなメソッドに分けられておらず、`import()` の中に上から下へべた書きされています。「共通の手順」と「形式ごとの差分」がまだ切り出されていない、この素朴な状態が出発点です。
 
-実際の処理コードを見てみましょう。直営店用とFC店用の2クラスが存在します。どちらも `import()` の中に「開く→加工→保存→閉じる」を上から順にべた書きしており、大きな流れは共通していますが、パースの中身（区切り文字・ヘッダー・不正行の扱い）は少し違っています。クラスごとにブロックを分けて確認します。
+#### 現状コード
 
-スキーマは1-1で示した2種類（`store` / `fc`）です。次のコードの `SchemaRegistry` が、そのスキーマ名と必須カラムを保持します。
+定義を1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは2つのImporterだけです。判断の基準は次の一行です。
 
-**(1) スキーマ登録クラスと共通の型（SchemaRegistry / SalesRow / ImportResult / ImportSchema）**
+> **メンバーを見ないと読めない関数は、メンバーと一緒に置く。**
+
+スキーマは1-1で示した2種類（`store` / `fc`）です。`main()` と実行結果は最後に、行のまとまりごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+
+---
+
+**共通ヘッダー**
 
 ```cpp
 #include <iostream>
@@ -405,17 +411,46 @@ sequenceDiagram
 #include <map>
 #include <utility>
 using namespace std;
+```
 
+以降のすべてのクラスが使います。
+
+---
+
+**SalesRow と ImportResult**
+
+受け渡しに使う2つの値です。
+
+```cpp
+// パース済みの売上1行（商品ID・商品名・金額）
+struct SalesRow { string id; string name; long amount; };
+
+// インポート1回分の結果（void をやめ、件数を返す）
+struct ImportResult { string schemaName; int saved; int skipped; };
+```
+
+`SalesRow` がパース後の1行、`ImportResult` が取り込み1回分の結果です。**保存件数とスキップ件数を両方返すので、呼び出し元は画面出力を読まずに成否を判断できます。**
+
+---
+
+**splitLine()**
+
+```cpp
 // 1行を区切り文字で分割する小さなヘルパー
 static vector<string> splitLine(const string& line, char delim) {
     vector<string> cols; string cur; istringstream iss(line);
     while (getline(iss, cur, delim)) cols.push_back(cur);
     return cols;
 }
+```
 
-// パース済みの売上1行（商品ID・商品名・金額）
-struct SalesRow { string id; string name; long amount; };
+区切り文字を引数で受け取るので、カンマ区切りにもタブ区切りにも使えます。
 
+---
+
+**showImportedData()**
+
+```cpp
 // 取り込み済みデータの件数と先頭行を、その場で確認する
 static void showImportedData(const vector<SalesRow>& rows) {
     if (!rows.empty()) {
@@ -424,10 +459,17 @@ static void showImportedData(const vector<SalesRow>& rows) {
              << " " << first.amount << "円\n";
     }
 }
+```
 
-// インポート1回分の結果（void をやめ、件数を返す）
-struct ImportResult { string schemaName; int saved; int skipped; };
+取り込み結果の確認用です。0件のときは何も出しません。
 
+---
+
+**ImportSchema と SchemaRegistry**
+
+インポートタイプごとの必須カラム定義を保持します。
+
+```cpp
 // インポートスキーマ（タイプごとの必須カラム定義）
 struct ImportSchema { string name; vector<string> requiredColumns; };
 
@@ -442,7 +484,17 @@ public:
     bool exists(const string& type) const { return schemas.count(type) > 0; }
     ImportSchema get(const string& type) const { return schemas.at(type); }
 };
+```
 
+`main()` からフォーマット種別IDを受け取り、登録有無と表示名を返します。**このクラスはCSV本文を解析せず、どの形式として処理を始めてよいかだけを判断します。**
+
+---
+
+**SampleFileStore**
+
+動作例の入力ファイルを、呼び出し元の外で事前登録します。
+
+```cpp
 // 動作例の入力ファイルを、呼び出し元の外で事前登録する
 class SampleFileStore {
 public:
@@ -478,98 +530,148 @@ private:
         return lines;
     }
 };
-
 ```
 
-`SchemaRegistry` は `main()` から呼ばれ、フォーマット種別IDを受け取って登録有無と表示名を返します。`std::map` は種別IDからスキーマを検索するメモリ上の登録表、`std::vector` は必須列を順番に保持する一覧です。このクラスはCSV本文を解析せず、どの形式として処理を始めてよいかだけを判断します。
+実ファイルI/Oを、メモリ上の行一覧で代替しています。これで `main()` は「どのファイルをどの形式で取り込むか」だけを指定でき、入力データを組み立てるループと取込ユースケースの実行が混ざりません。
 
-**(2) 直営店データのインポートクラス（StoreDataImporter）**
+---
+
+**StoreDataImporter の宣言**
+
+直営店データ（カンマ区切り・ヘッダー行あり）を取り込みます。
 
 ```cpp
-
 // 直営店データのインポート（カンマ区切り・ヘッダー行あり）
 class StoreDataImporter {
     vector<string> rawLines;
 public:
-    explicit StoreDataImporter(vector<string> lines) : rawLines(move(lines)) {}
-
-    // 手順がすべて import() の中にべた書きされている
-    ImportResult import() {
-        // (1) 開く
-        cout << "直営店CSVを開く\n";
-
-        // (2) パース：1行目をヘッダーとして飛ばし、カンマで分割する（べた書き）
-        vector<SalesRow> rows;
-        int skipped = 0;
-        for (size_t i = 1; i < rawLines.size(); ++i) {
-            vector<string> c = splitLine(rawLines[i], ',');
-            if (c.size() < 3) { ++skipped; continue; }
-            rows.push_back({c[0], c[1], stol(c[2])});
-        }
-        cout << "カンマ区切りで" << rows.size() << "件を読み込み、"
-             << skipped << "件をスキップ\n";
-
-        // (3) 保存
-        showImportedData(rows);
-        cout << rows.size() << "件をDBへ追加\n";
-
-        // (4) 閉じる
-        cout << "ファイルを閉じる\n";
-
-        return {"直営店データ", (int)rows.size(), skipped};
-    }
+    explicit StoreDataImporter(vector<string> lines);
+    ImportResult import();
 };
-
 ```
 
-`StoreDataImporter` は `main()` から直営店の全行を受け取ります。`import()` は先頭行をヘッダーとして除外し、残りをカンマで3項目へ分割し、変換できた行数を `ImportResult` で返します。`std::move(lines)` は、受け取った行一覧の所有内容を `rawLines` へ移し、同じ大量文字列を複製しないための記法です。
+持っているのは行一覧だけです。公開操作も `import()` の1つだけで、**手順はすべてその中にあります。**
 
-**(3) FC店データのインポートクラス（FCDataImporter）**
+---
+
+**StoreDataImporter のコンストラクタ**
 
 ```cpp
+StoreDataImporter::StoreDataImporter(vector<string> lines)
+    : rawLines(move(lines)) {}
+```
 
+`std::move(lines)` は、受け取った行一覧の所有内容を `rawLines` へ移し、同じ大量文字列を複製しないための記法です。
+
+---
+
+**StoreDataImporter::import()**
+
+```cpp
+// 手順がすべて import() の中にべた書きされている
+ImportResult StoreDataImporter::import() {
+    // (1) 開く
+    cout << "直営店CSVを開く\n";
+
+    // (2) パース：1行目をヘッダーとして飛ばし、カンマで分割する（べた書き）
+    vector<SalesRow> rows;
+    int skipped = 0;
+    for (size_t i = 1; i < rawLines.size(); ++i) {
+        vector<string> c = splitLine(rawLines[i], ',');
+        if (c.size() < 3) { ++skipped; continue; }
+        rows.push_back({c[0], c[1], stol(c[2])});
+    }
+    cout << "カンマ区切りで" << rows.size() << "件を読み込み、"
+         << skipped << "件をスキップ\n";
+
+    // (3) 保存
+    showImportedData(rows);
+    cout << rows.size() << "件をDBへ追加\n";
+
+    // (4) 閉じる
+    cout << "ファイルを閉じる\n";
+
+    return {"直営店データ", (int)rows.size(), skipped};
+}
+```
+
+- **順序に意味：** 開く→パース→保存→閉じるの4段が上から下へ並んでいます。**まだ小さなメソッドに分かれていません**
+- **失敗の扱い：** 3項目に分けられない行は `skipped` を増やして次へ進み、処理全体は止めません
+
+ループが `i = 1` から始まるのは、1行目をヘッダーとして飛ばすためです。区切り文字は `','` です。
+
+---
+
+**FCDataImporter の宣言**
+
+FC店データ（タブ区切り・ヘッダーなし）を取り込みます。
+
+```cpp
 // FC店データのインポート（タブ区切り・ヘッダーなし・不正行スキップ）
 class FCDataImporter {
     vector<string> rawLines;
 public:
-    explicit FCDataImporter(vector<string> lines) : rawLines(move(lines)) {}
-
-    // こちらも手順がすべて import() にべた書きされている
-    ImportResult import() {
-        // (1) 開く
-        cout << "FC店CSVを開く\n";
-
-        // (2) パース：先頭行からタブで分割し、割れない行はスキップ（べた書き）
-        vector<SalesRow> rows;
-        int skipped = 0;
-        for (size_t i = 0; i < rawLines.size(); ++i) {
-            vector<string> c = splitLine(rawLines[i], '\t');
-            if (c.size() < 3) { ++skipped; continue; }
-            rows.push_back({c[0], c[1], stol(c[2])});
-        }
-        cout << "タブ区切りで" << rows.size() << "件を読み込み、"
-             << skipped << "件をスキップ\n";
-
-        // (3) 保存
-        showImportedData(rows);
-        cout << rows.size() << "件をDBへ更新\n";
-
-        // (4) 閉じる
-        cout << "ファイルを閉じる\n";
-
-        return {"FC店データ", (int)rows.size(), skipped};
-    }
+    explicit FCDataImporter(vector<string> lines);
+    ImportResult import();
 };
 ```
 
-`FCDataImporter` も `main()` から全行を受け取りますが、先頭行からタブで分割します。3項目に分けられない行は `skipped` を増やして次へ進み、保存件数とスキップ件数の両方を返します。直営店も同じく、3項目に満たない行を数えて返します。2クラスを分けて読むと、呼び出し方と戻り値は似ている一方、ヘッダー・区切り文字・不正行報告が異なることを確認できます。
+`StoreDataImporter` と同じ形です。持ち物も公開操作も1つずつで、呼び出し方も戻り値もそろっています。
 
-このコードを見ると、`import()` の中に「開く」「パース」「保存」「閉じる」がどちらも同じ順序で**べた書き**されていることが分かります。まだ小さなメソッドには分かれていません。一方で、パース部分の中身（区切り文字・ヘッダーの扱い・不正行のスキップ）は形式ごとに異なります。「手順の骨格は共通で、詳細部分だけが違う」という構造が、同じ `import()` の中に埋もれている状態です。
+---
 
-動作例のCSV本文は `SampleFileStore` に事前登録し、`main()` は「どのファイルをどの形式で取り込むか」だけを指定します。これにより、入力データを組み立てるループと、取込ユースケースの実行を混ぜません。保存メッセージはDB保存の代替であり、この時点では永続化しません。
-#### 呼び出し元と実行確認
+**FCDataImporter のコンストラクタ**
 
-まず依存を組み立て、行1（直営店データ（必須列3））を実行します。
+```cpp
+FCDataImporter::FCDataImporter(vector<string> lines)
+    : rawLines(move(lines)) {}
+```
+
+---
+
+**FCDataImporter::import()**
+
+```cpp
+// こちらも手順がすべて import() にべた書きされている
+ImportResult FCDataImporter::import() {
+    // (1) 開く
+    cout << "FC店CSVを開く\n";
+
+    // (2) パース：先頭行からタブで分割し、割れない行はスキップ（べた書き）
+    vector<SalesRow> rows;
+    int skipped = 0;
+    for (size_t i = 0; i < rawLines.size(); ++i) {
+        vector<string> c = splitLine(rawLines[i], '\t');
+        if (c.size() < 3) { ++skipped; continue; }
+        rows.push_back({c[0], c[1], stol(c[2])});
+    }
+    cout << "タブ区切りで" << rows.size() << "件を読み込み、"
+         << skipped << "件をスキップ\n";
+
+    // (3) 保存
+    showImportedData(rows);
+    cout << rows.size() << "件をDBへ更新\n";
+
+    // (4) 閉じる
+    cout << "ファイルを閉じる\n";
+
+    return {"FC店データ", (int)rows.size(), skipped};
+}
+```
+
+2つの `import()` を並べて見比べてください。**開く→パース→保存→閉じるの4段は同じ順序で、違うのはパースの中身と表示文だけです。** ループが `i = 0` から始まり（ヘッダーなし）、区切り文字が `'\t'` で、保存メッセージが「更新」です。手順の骨格は共通なのに、2か所へ別々に書かれています。
+
+保存メッセージはDB保存の代替であり、この時点では永続化しません。
+
+---
+
+#### `main()` と実行結果
+
+動作例5行を、行ごとに区切って実行します。`main()` は「どのファイルをどの形式で取り込むか」だけを指定します。
+
+---
+
+**組み立てと、行1：直営店データ**
 
 ```cpp
 int main() {
@@ -588,7 +690,6 @@ int main() {
          << r1.saved << "件追加\n";
 ```
 
-行1（直営店データ（必須列3））の実行結果です。`showImportedData()`により、取り込み済み件数だけでなく、確認用に先頭行の商品ID・商品名・金額も表示します。
 ```text
 --- 行1: 直営店データ（必須列3）---
 直営店CSVを開く
@@ -599,7 +700,11 @@ int main() {
 直営店データ インポート成功: 10件追加
 ```
 
-続いて、行2（FC店データ（必須列3））を実行します。
+`showImportedData()` により、件数だけでなく確認用に先頭行の商品ID・商品名・金額も表示されます。ヘッダー行を除いた10件が入りました。
+
+---
+
+**行2：FC店データ**
 
 ```cpp
     string type2 = "fc";
@@ -615,8 +720,6 @@ int main() {
          << r2.saved << "件更新\n";
 ```
 
-行2（FC店データ（必須列3））の実行結果：
-
 ```text
 --- 行2: FC店データ（必須列3）---
 FC店CSVを開く
@@ -627,7 +730,11 @@ FC店CSVを開く
 FC店データ インポート成功: 5件更新
 ```
 
-続いて、行3（直営店空ファイル）を実行します。
+行1と出力の並びが同じで、違うのは「カンマ区切り／タブ区切り」と「追加／更新」の語だけです。
+
+---
+
+**行3：直営店空ファイル**
 
 ```cpp
     cout << "--- 行3: 直営店空ファイル ---\n";
@@ -638,8 +745,6 @@ FC店データ インポート成功: 5件更新
     cout << "\n";
 ```
 
-行3（直営店空ファイル）の実行結果：
-
 ```text
 --- 行3: 直営店空ファイル ---
 直営店CSVを開く
@@ -649,7 +754,13 @@ FC店データ インポート成功: 5件更新
 インポート成功: 0件追加
 ```
 
-続いて、行4（FC店全行不正）を実行します。
+ヘッダーだけのファイルなので0件です。`showImportedData()` は何も出しません。
+
+---
+
+**行4：FC店全行不正**
+
+入力 `fc-invalid` には「不正な行」「壊れた行」「欠損行」の3行が登録されています。3行ともタブ区切りの3項目を満たさないため、正常0件・スキップ3件が期待値です。
 
 ```cpp
     cout << "--- 行4: FC店全行不正 ---\n";
@@ -660,10 +771,6 @@ FC店データ インポート成功: 5件更新
     cout << "\n";
 ```
 
-行4（FC店全行不正）の入力 `fc-invalid` には、「不正な行」「壊れた行」「欠損行」の3行が登録されています。3行ともタブ区切りの3項目を満たさないため、正常0件・スキップ3件が期待値です。
-
-行4（FC店全行不正）の実行結果：
-
 ```text
 --- 行4: FC店全行不正 ---
 FC店CSVを開く
@@ -673,7 +780,11 @@ FC店CSVを開く
 インポート成功: 0件更新、エラー3件
 ```
 
-最後に、行5（直営店に不正行あり）を実行し、`main()` を終了します。
+3行ともスキップされましたが、処理は最後まで進んで結果を返しています。
+
+---
+
+**行5：直営店に不正行あり、と未登録タイプ**
 
 ```cpp
     cout << "--- 行5: 直営店に不正行あり ---\n";
@@ -694,8 +805,6 @@ FC店CSVを開く
 }
 ```
 
-行5（直営店に不正行あり）の実行結果：
-
 ```text
 --- 行5: 直営店に不正行あり ---
 直営店CSVを開く
@@ -707,13 +816,11 @@ FC店CSVを開く
 [エラー] 未登録のインポートタイプ: online — 処理を中断します
 ```
 
-各ケースのコードとその実行結果をその場で並べたので、離れた `main()` と出力を行き来せずに照合できます（確認したいこと：入力、加工、出力が仕様どおりに対応していること）。
+正常行と不正行が混ざっても、正常行だけが保存されます。未登録タイプはレジストリのチェックで止まり、Importerは作られません。
 
-動作例テーブルの全5行について、処理順序、処理件数、不正行の報告が
-一致することを確認できました。`import()` は結果を画面に流すだけでなく、
-保存件数・スキップ件数を持つ `ImportResult` として呼び出し元へ返します。
-未登録タイプ（"online"）はレジストリのチェックで処理を中断し、
-エラーメッセージを出力します。
+---
+
+動作例テーブルの全5行について、処理順序、処理件数、不正行の報告が一致することを確認できました。`import()` は結果を画面に流すだけでなく、保存件数・スキップ件数を持つ `ImportResult` として呼び出し元へ返します。
 
 ---
 
