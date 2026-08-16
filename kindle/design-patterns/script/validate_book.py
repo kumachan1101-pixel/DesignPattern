@@ -1142,8 +1142,11 @@ def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
         if "#### システム全体のコード適用結果" in text
         else "## 🟢 フェーズ7"
     )
+    # 変更前コードは、各段が「変更前の抜粋 → 変更後」で並べる形へ移した。
+    # まとめて再掲する「課題箇所のおさらい」小節は、その形へ移行した章から
+    # 順に無くなる（著者指摘 2026-08-15：過程で変更前を示しているので不要）。
+    recap_marker = "#### 課題箇所のおさらい（フェーズ3の関連コード）"
     markers = {
-        "recap": "#### 課題箇所のおさらい（フェーズ3の関連コード）",
         "step61": "### 6-1：",
         "stage_end": stage_end_marker,
         "section71": "### 7-1：",
@@ -1153,23 +1156,31 @@ def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
     if any(offset < 0 for offset in offsets.values()):
         missing = [name for name, offset in offsets.items() if offset < 0]
         return [Issue(path, 1, f"フェーズ6比較の必須要素がありません: {', '.join(missing)}")]
+    offsets["recap"] = text.find(recap_marker)
+    has_recap = offsets["recap"] >= 0
 
     # おさらい（変更前コードの再掲）は1つの小節であり、その終わりは
     # 直後に現れる次の見出し（###/####）である。適用後の段階コードは
     # 「おさらい小節より後・適用結果より前」に置かれる。おさらいを
     # フェーズ6の前半に置く章（本文先出し型）でも後半に置く章でも同じ
     # 判定になるよう、6-1固定ではなくおさらい小節の終端で区切る。
-    recap_line_end = text.find("\n", offsets["recap"])
-    recap_next = re.search(
-        r"(?m)^#{1,6} ", text[recap_line_end + 1:]
-    )
-    recap_end = (
-        recap_line_end + 1 + recap_next.start()
-        if recap_next else offsets["step61"]
-    )
-    recap_blocks = extract_cpp_blocks(
-        text[offsets["recap"]:recap_end]
-    )
+    if has_recap:
+        recap_line_end = text.find("\n", offsets["recap"])
+        recap_next = re.search(
+            r"(?m)^#{1,6} ", text[recap_line_end + 1:]
+        )
+        recap_end = (
+            recap_line_end + 1 + recap_next.start()
+            if recap_next else offsets["step61"]
+        )
+        recap_blocks = extract_cpp_blocks(
+            text[offsets["recap"]:recap_end]
+        )
+    else:
+        # おさらいを置かない章では、フェーズ6の先頭から段階コードとみなす。
+        phase6_at = text.find("## 🔴 フェーズ6：")
+        recap_end = phase6_at if phase6_at >= 0 else 0
+        recap_blocks = None
     stage_blocks = extract_cpp_blocks(
         text[recap_end:offsets["stage_end"]]
     )
@@ -1178,7 +1189,7 @@ def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
     ))
     issues: list[Issue] = []
 
-    if not recap_blocks:
+    if has_recap and not recap_blocks:
         issues.append(Issue(
             path, line_number(text, offsets["recap"]),
             "フェーズ6の課題箇所のおさらいに関連C++コードがありません",
@@ -2056,14 +2067,15 @@ def check_phase5_phase6_reasoning_contract(
         issue_ids, "課題ID", path, line_number(text, p5 + h53), "5-3の課題",
     ))
 
+    # 変更前コードをまとめて再掲する「課題箇所のおさらい」は、各段が
+    # 「変更前の抜粋 → 変更後」を並べる形へ移した章では置かない。
     recap_heading = "#### 課題箇所のおさらい（フェーズ3の関連コード）"
     recap_start = phase6.find(recap_heading)
     final_structure_start = phase6.find("#### システム全体の最終構造を決める")
-    if final_structure_start < 0 or recap_start < 0:
+    if final_structure_start < 0:
         issues.append(Issue(
             path, line_number(text, p6),
-            "フェーズ6にシステム全体の最終構造・"
-            "課題箇所のおさらいのいずれかがありません",
+            "フェーズ6にシステム全体の最終構造を確定する節がありません",
         ))
         return issues
 
@@ -2082,14 +2094,15 @@ def check_phase5_phase6_reasoning_contract(
                 f"フェーズ6の本文に{label}の検討がありません",
             ))
     if not id_heads:
-        id_heads = [recap_start + len(recap_heading)]
+        anchor = (recap_start + len(recap_heading)) if recap_start >= 0 else 0
+        id_heads = [anchor]
 
     # EDIT-005移行期：部分クラス図をまとめ節へ置く旧構成も当面は通す。
     # 旧構成の章から順に、課題ID節へ図を分散する新構成へ移していく。
     legacy_heading = "#### 設計判断ごとの部分クラス図"
     legacy_start = phase6.find(legacy_heading)
     if legacy_start >= 0:
-        legacy_ok = (
+        legacy_ok = recap_start < 0 or (
             recap_start < legacy_start < final_structure_start
             or legacy_start < final_structure_start < recap_start
         )
@@ -2107,8 +2120,8 @@ def check_phase5_phase6_reasoning_contract(
                 and id_heads[-1] < final_structure_start):
             issues.append(Issue(
                 path, line_number(text, p6),
-                "フェーズ6は「課題箇所のおさらい（変更前コード）→ 課題ID節 →"
-                "システム全体の最終構造」の順にしてください",
+                "フェーズ6は「（課題箇所のおさらいを置くなら）変更前コード →"
+                " 課題ID節 → システム全体の最終構造」の順にしてください",
             ))
             return issues
         partial_from = id_heads[0]

@@ -1523,125 +1523,6 @@ classDiagram
 
 **この3つは独立して決められません。** 分離方法が決まらないと配置場所が決まらず、配置場所が決まらないと組み立て方法が決まりません。だから順に決めます。決まった結論をまとめて振り返る表は、フェーズ6の末尾（6-1）に置きます。
 
-#### 課題箇所のおさらい（フェーズ3の関連コード）
-
-これから書き換える**変更前のコード**です。フェーズ3で実際に変更したコードから、課題ID1の `TicketStatus` 分岐と課題ID2の `calculate()` だけを、改行も変えずに再掲します。`UserDatabase` のUSR004法人レコード、`TicketRepository`、`create()`、保存とログ出力はフェーズ3のまま維持します。各段では、この中の該当箇所だけを抜き出して変更前後を並べます。
-
-```cpp
-// 1-4のユーザー種別へ、変更要求の法人区分を追加する
-enum class UserType {
-    Standard,
-    Premium,
-    Corporate
-};
-
-// 1-4の列挙型へ、変更要求の保留中を追加する
-enum class TicketStatus {
-    Open,
-    InProgress,
-    Escalated,
-    Resolved,
-    Pending
-};
-
-string statusName(TicketStatus status) {
-    switch (status) {
-    case TicketStatus::Open:       return "Open";
-    case TicketStatus::InProgress: return "InProgress";
-    case TicketStatus::Escalated:  return "Escalated";
-    case TicketStatus::Resolved:   return "Resolved";
-    case TicketStatus::Pending:    return "Pending";
-    }
-    return "Unknown";
-}
-
-// 優先度ルール（SLA改定を反映）
-class PriorityCalculator {
-public:
-    Priority calculate(UserType userType) {
-        if (userType == UserType::Premium) {
-            return Priority::High;
-        }
-        if (userType == UserType::Corporate) { // ← 追加
-            return Priority::High;
-        }
-        return Priority::Normal;
-    }
-};
-
-// チケット管理（「保留中」状態を追加）
-```
-続いて `TicketManager` です。
-
-```cpp
-class TicketManager {
-    TicketRepository repo;
-    UserDatabase db;
-    PriorityCalculator calc;
-public:
-    void updateStatus(const std::string& ticketId,
-                      const std::string& op,
-                      const std::string& assigneeId = "") {
-        Ticket& t = repo.get(ticketId);
-        TicketStatus before = t.status;
-        bool changed = false;
-        switch (t.status) {
-        case TicketStatus::Open:
-            if (op == "assign") {
-                t.status = TicketStatus::InProgress;
-                t.assigneeId = assigneeId;
-                changed = true;
-            } else if (op == "hold") {                // ← 追加
-                t.status = TicketStatus::Pending;
-                changed = true;
-            }
-            break;
-        case TicketStatus::InProgress:
-            if (op == "resolve") {
-                t.status = TicketStatus::Resolved;
-                changed = true;
-            } else if (op == "escalate") {
-                t.status = TicketStatus::Escalated;
-                t.priority = Priority::High;   // 契約区分によらず引き上げ
-                changed = true;
-            } else if (op == "hold") {                // ← 追加
-                t.status = TicketStatus::Pending;
-                changed = true;
-            }
-            break;
-        case TicketStatus::Escalated:
-            if (op == "resolve") {
-                t.status = TicketStatus::Resolved;
-                changed = true;
-            } else if (op == "sendback") {
-                t.status = TicketStatus::InProgress;
-                changed = true;
-            }
-            break;
-        case TicketStatus::Resolved:
-        case TicketStatus::Pending:                   // ← 追加
-            if (op == "reopen") {
-                t.status = TicketStatus::Open;
-                t.priority = calc.calculate(db.get(t.userId).userType);
-                changed = true;
-            }
-            break;
-        }
-        if (!changed) {
-            std::cout << "[" << ticketId << "] 操作不可: 状態 "
-                      << statusName(t.status)
-                      << " で " << op << " はできません。"
-                      << std::endl;
-            return;
-        }
-        repo.save(t);
-        std::cout << "[" << ticketId << "] " << op << ": 状態 "
-                  << statusName(before) << " → " << statusName(t.status)
-                  << " 優先度=" << toString(t.priority)
-                  << std::endl;
-    }
-};
-```
 ### 課題ID1・課題ID2を6段で解く
 
 **【課題の原因】** 課題ID1は、問題ID1・問題ID3（状態と優先度が同じ分岐で絡み、状態追加のたびに `updateStatus` の巨大 `switch` を触る）＝原因ID1（状態遷移ロジックの混在）。課題ID2は、問題ID2（状態追加で優先度計算まで再テストに巻き込まれる）＝原因ID2（優先度ルールの混在）。この2つを分離対象にします。
@@ -1662,6 +1543,8 @@ public:
 | 6【利用開始】 | 結果として、呼び方はこうなった | **共通** |
 
 **出発点。** やることはもう決まっています。`updateStatus()` から状態ごとの振る舞いを、`PriorityCalculator::calculate` から区分ごとの判定条件を、それぞれ分けることです。分ける対象も5-3で決まっています。まだ決まっていないのは、**分けた後にどう繋ぐか**だけです。
+
+書き換える前のコードは3-1にあります。**ここで全部を再掲することはしません。** 各段で、その段が触る数行だけを3-1から抜き出し、変更後と並べます。
 
 ---
 
@@ -1684,7 +1567,7 @@ public:
 
 **割り方の根拠は、状態が増えたときに触るかどうかです。** 「保留中」を足すと上の2つは増えますが、下の3つは1行も増えません。変更前のコードでは、この2種類が同じ `if` の中に混ざっています。
 
-**掲載箇所：`TicketManager::updateStatus(const string&, const string&, const string&)`** ―― おさらいの `switch` から受付中のケースだけを抜き出したもの（対策前）
+**掲載箇所：`TicketManager::updateStatus(const string&, const string&, const string&)`** ―― 3-1の `switch` から受付中のケースだけを抜き出したもの（対策前）
 
 ```cpp
         case TicketStatus::Open:
@@ -1765,7 +1648,7 @@ public:
 
 出て行くのは「プレミアム顧客なら High、一般顧客なら Normal」という区分ごとの判定と、SLA基準が改定されたときに書き換わる条件。残るのは「依頼者IDで台帳を引いて区分を得ること」と「決まった優先度でチケットを作り、保存すること」です。**割り方の根拠は同じで、法人区分を足すと前者は増え、後者は1行も増えません。**
 
-**掲載箇所：`PriorityCalculator::calculate(UserType)`** ―― おさらいの `if` 連鎖（対策前）
+**掲載箇所：`PriorityCalculator::calculate(UserType)`** ―― 3-1の `if` 連鎖（対策前）
 
 ```cpp
     Priority calculate(UserType userType) {
