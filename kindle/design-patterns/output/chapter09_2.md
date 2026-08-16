@@ -1799,6 +1799,8 @@ public:
 
 `PriorityCalculator` を持っていた場所が `TicketPolicySet` に置き換わりました。**具体状態も具体ルールも、名前が1つも出てきません。**
 
+`TicketPolicySet` は、2つの契約の実体を持つ箱です。ここでは「状態名を渡すと状態オブジェクトを返し、顧客区分を渡すとルールを返す窓口」とだけ捉えてください。**中身は4で開きます。** この段で決めているのは、`TicketService` が具体を1つも知らないという1点だけです。
+
 `staff` による担当者名の表示と、`log` への状態遷移の記録は、7-1で導入する担当者名簿と監査ログです。**課題ID1・課題ID2のどちらにも関与しません。** この章で分けるのは状態と優先度の2軸だけで、表示と記録は分けた後もそのまま残ります。以降の断片ではこの2つを省略します。
 
 **課題ID1（状態軸）。** `assign()` が状態契約を呼びます。
@@ -1839,6 +1841,10 @@ void TicketService::create(const string& ticketId, const string& userId) {
 
 こちらも**ポイントは1行**です。変更前と比べると、**`if (userType == ...)` の連鎖が1つも無くなりました。** 判定に使う区分は、引数の `userId` で台帳を引いて得ています。利用側が区分を渡すのではありません。`reopen()` も同じ形で、保存済みチケットの `userId` から引き直します。
 
+**優先度をルールが決めない場所が1つだけあります。** `escalate()` は、契約区分によらず `Priority::High` を直接代入します（要求ID1）。エスカレーションは顧客区分の話ではなく「緊急扱いにする」という操作そのものの意味だからです。**区分で決まる優先度はルールへ、操作で決まる優先度は安定骨格へ**、と置き場所が分かれています。ここを取り違えてルール側へ持たせると、全ルールがエスカレーションを知ることになります。
+
+宣言に並べた残り5つの公開操作（`resolve` / `escalate` / `reopen` / `hold` / `sendBack`）も、`assign()` と同じ3段です。読む、現在状態へ尋ねる、返った遷移先を保存する。**操作が増えても段は増えません。**
+
 2つの契約への依存が、ここで初めて図に描けます。
 
 ```mermaid
@@ -1877,7 +1883,17 @@ public:
 };
 ```
 
-変更前の `case` にあった `t.status = ...` や `changed = true` はここにありません。**状態を書き換えるのは2の安定骨格の仕事だから**です。残ったのは「許すか」「次はどこか」だけで、メンバー変数は1つもありません。`InProgressPhase`（解決・エスカレーション・保留）、`EscalatedPhase`（解決・差し戻し）、`ResolvedPhase`／`PendingPhase`（再受付）も同じ形で、許可する操作だけを上書きします。
+変更前の `case` にあった `t.status = ...` や `changed = true` はここにありません。**状態を書き換えるのは2の安定骨格の仕事だから**です。残ったのは「許すか」「次はどこか」だけで、メンバー変数は1つもありません。残りの4クラスも同じ形で、**上書きする操作と遷移先だけが違います。** 1-2bの状態遷移表が、そのままクラスの一覧になります。
+
+| 状態クラス | 上書きする操作 | 返す遷移先 | 書かないこと |
+|---|---|---|---|
+| `OpenPhase` | `assign()` / `hold()` | 対応中 / 保留中 | 解決・エスカレーション・差し戻し・再受付 |
+| `InProgressPhase` | `resolve()` / `escalate()` / `hold()` | 解決済み / エスカレーション済み / 保留中 | アサイン・差し戻し・再受付 |
+| `EscalatedPhase` | `resolve()` / `sendBack()` | 解決済み / 対応中 | アサイン・保留・再受付 |
+| `ResolvedPhase` | `reopen()` | 受付中 | 上記以外すべて |
+| `PendingPhase` | `reopen()` | 受付中 | 上記以外すべて |
+
+**右端の「書かないこと」が、この構造の要です。** 許可しない操作は、書かないことで表します。書かなければ `ITicketPhase` の既定 `reject()` が引き受けるので、禁止を並べる必要がありません。変更前は「その `case` に `else if` が無い」という**不在**で表していた規則が、「そのクラスに `override` が無い」という不在に移っただけに見えますが、**触る範囲が1つの巨大な `switch` から1クラスへ縮んでいます。**
 
 ```mermaid
 classDiagram
@@ -1908,7 +1924,15 @@ public:
 };
 ```
 
-`PremiumPriority`（High）・`NormalPriority`（Normal）も同じ契約を実装します。SLA改定は、ルール1クラスの差し替えに閉じます。
+残りの2クラスも同じ形です。変更前の `if` 連鎖の各分岐が、1クラスずつに対応します。
+
+| ルールクラス | 対応する顧客区分 | 返す優先度 | 変更前の対応箇所 |
+|---|---|---|---|
+| `NormalPriority` | 一般 | Normal | `return Priority::Normal;`（既定） |
+| `PremiumPriority` | プレミアム | High | 1本目の `if` |
+| `CorporatePriority` | 法人 | High | 2本目の `if`（変更要求で追加） |
+
+`PremiumPriority` と `CorporatePriority` は同じ High を返しますが、**根拠が違うので分けます。** プレミアムは契約プラン、法人は法人向けSLAです。SLA改定でどちらか一方だけが変わったとき、触るのは1クラスで済みます。
 
 ```mermaid
 classDiagram
@@ -1948,7 +1972,58 @@ classDiagram
 TicketPolicySet policies;   // 具体状態と具体ルールを生成・所有する
 ```
 
-`TicketPolicySet` にはコンストラクタがありません。1で状態名を返す形にしたので、生成した後に配線する処理そのものが無いためです。**1の判断が、ここへ効いています。**
+**この1行の中身を開きます。** 名前だけ出して後回しにすると、2で見た `policies.phaseFor()` と `policies.priorityRule()` が何をしているのか分からないままになります。
+
+**掲載箇所：`TicketPolicySet`（クラス全体）**
+
+```cpp
+// 課題ID1・課題ID2の組み立て：具体状態と具体ルールを生成・所有する
+class TicketPolicySet {
+    NormalPriority normal;
+    PremiumPriority premium;
+    CorporatePriority corporate;
+    OpenPhase openPhase;
+    InProgressPhase inProgressPhase;
+    EscalatedPhase escalatedPhase;
+    ResolvedPhase resolvedPhase;
+    PendingPhase pendingPhase;
+public:
+    TicketStatus initialStatus() const { return TicketStatus::Open; }
+
+    const ITicketPhase& phaseFor(TicketStatus status) const {
+        switch (status) {
+        case TicketStatus::InProgress: return inProgressPhase;
+        case TicketStatus::Escalated:  return escalatedPhase;
+        case TicketStatus::Resolved:   return resolvedPhase;
+        case TicketStatus::Pending:    return pendingPhase;
+        case TicketStatus::Open:       break;
+        }
+        return openPhase;
+    }
+
+    IPriorityRule& priorityRule(UserType type) {
+        if (type == UserType::Corporate) {
+            return corporate;
+        }
+        if (type == UserType::Premium) {
+            return premium;
+        }
+        return normal;
+    }
+};
+```
+
+**コンストラクタがありません。** 状態が互いを参照せず「次はどの状態か」を名前で返すので、配線する処理そのものが不要になりました。状態名から状態オブジェクトを引くのは `phaseFor()` の `switch` 1か所です。
+
+**中身は3つに分かれます。**
+
+- **メンバー：** 具体状態5つと具体ルール3つを、値として直接持ちます。ポインタでも参照でもないので、`TicketPolicySet` が生きているあいだ部品も生きています
+- **`phaseFor()`：** 状態名から状態オブジェクトを引く `switch`。**この章で `TicketStatus` の `switch` が残るのはここ1か所だけです。** 変更前は公開操作の中にあった同じ `switch` が、部品を引く1か所へ移りました
+- **`priorityRule()`：** 顧客区分からルールを引く `if` 連鎖。こちらも1か所だけです
+
+**コンストラクタがありません。** 1で「次はどの状態か」を名前で返す形にしたので、状態どうしを配線する処理そのものが不要になりました。**1の判断が、ここへ効いています。**
+
+**状態を1つ足すときに触るのは、`phaseFor()` の `switch` へ1行と、メンバーへ1行だけです。** 区分を1つ足すときも `priorityRule()` へ1行とメンバーへ1行。3で確認した完了条件の「登録に閉じる」が、この2か所を指しています。
 
 ```mermaid
 classDiagram
@@ -2117,48 +2192,7 @@ classDiagram
 
 #### 一本の実行経路へ束ねる
 
-【生成】で1行に見えていた `TicketPolicySet` の中身を開きます。具体状態・具体ルールの生成、所有、選択はすべてここに集まり、`TicketService` は組み立て済みの部品を注入されて使います。
-
-**掲載箇所：`TicketPolicySet`（クラス全体）**
-
-```cpp
-// 課題ID1・課題ID2の組み立て：具体状態と具体ルールを生成・所有する
-class TicketPolicySet {
-    NormalPriority normal;
-    PremiumPriority premium;
-    CorporatePriority corporate;
-    OpenPhase openPhase;
-    InProgressPhase inProgressPhase;
-    EscalatedPhase escalatedPhase;
-    ResolvedPhase resolvedPhase;
-    PendingPhase pendingPhase;
-public:
-    TicketStatus initialStatus() const { return TicketStatus::Open; }
-
-    const ITicketPhase& phaseFor(TicketStatus status) const {
-        switch (status) {
-        case TicketStatus::InProgress: return inProgressPhase;
-        case TicketStatus::Escalated:  return escalatedPhase;
-        case TicketStatus::Resolved:   return resolvedPhase;
-        case TicketStatus::Pending:    return pendingPhase;
-        case TicketStatus::Open:       break;
-        }
-        return openPhase;
-    }
-
-    IPriorityRule& priorityRule(UserType type) {
-        if (type == UserType::Corporate) {
-            return corporate;
-        }
-        if (type == UserType::Premium) {
-            return premium;
-        }
-        return normal;
-    }
-};
-```
-
-**コンストラクタがありません。** 状態が互いを参照せず「次はどの状態か」を名前で返すので、配線する処理そのものが不要になりました。状態名から状態オブジェクトを引くのは `phaseFor()` の `switch` 1か所です。
+4で開いた `TicketPolicySet` と、2で見た安定骨格を並べて、実行経路を1本につなぎます。具体状態・具体ルールの生成、所有、選択はすべて `TicketPolicySet` に集まり、`TicketService` は組み立て済みの部品を注入されて使います。
 
 **掲載箇所：`TicketService::assign(const std::string&, const std::string&)`**
 
