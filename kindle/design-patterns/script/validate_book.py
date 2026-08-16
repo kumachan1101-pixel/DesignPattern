@@ -3728,11 +3728,17 @@ def check_phase42_comparison_header(text: str, path: Path) -> list[Issue]:
 
 
 def check_phase6_overview_diagram(text: str, path: Path) -> list[Issue]:
-    """フェーズ6の抽象全体像を、全章でMermaid図として示す。"""
+    """フェーズ6の抽象全体像を、全章でMermaid図として示す。
+
+    区切りは特定の一文ではなく次の見出しで取る。全体像節の文言は章の
+    書き直しで変わるが、見出しの構造は変わらないため（再発防止
+    2026-08-16「6段の規定を第9章1つから書き…」の教訓と同じ扱い）。
+    """
     start = text.find("#### まず全体像")
-    end = text.find("まだクラスの中身は見ません", start)
-    if start < 0 or end < 0:
+    if start < 0:
         return []
+    nxt = re.search(r"(?m)^#{2,4} ", text[start + 10:])
+    end = start + 10 + nxt.start() if nxt else len(text)
     section = text[start:end]
     if not re.search(r"```mermaid\s*\nflowchart\s+TB\b", section):
         return [Issue(

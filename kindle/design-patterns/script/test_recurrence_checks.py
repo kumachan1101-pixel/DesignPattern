@@ -85,7 +85,7 @@ cases.append(("REVIEW-004 著者向け見出し", V.check_banned_patterns, broke
 # 9) REVIEW-005: フェーズ6全体像のMermaid図をtextへ戻す
 t = (OUT/"chapter04.md").read_text(encoding="utf-8")
 start = t.index("#### まず全体像")
-end = t.index("まだクラスの中身は見ません", start)
+end = t.index("### 対策検討のクラス図", start)
 broken = t[:start] + t[start:end].replace("```mermaid\nflowchart TB", "```text", 1) + t[end:]
 cases.append(("REVIEW-005 全体像の図", V.check_phase6_overview_diagram, broken))
 

@@ -1474,91 +1474,46 @@ graph LR
 この表と完了状態が、そのままフェーズ6の入力です。要求の受入は要求ID、設計課題の解消は課題ID、今回の変更影響は変更IDで別々に追跡します。
 ## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-**ここからしばらくは抽象の話です。** 個々のクラスへ入る前に、この章で「何を、どんな構造へ変えるのか」を先に決めます。
+**ここからは、変更前のクラス図とコードを少しずつ書き換えていきます。** 完成形を先に見せるのではなく、1つ判断するたびに図とコードがどう変わるかを追います。
 
 #### まず全体像 ―― どんな構造へ変えるか（抽象）
 
-フェーズ4で、各Importerの`import()`が「取込の業務順序（守りたい骨格）」と「形式ごとに変わるパース・行検証」を同じ場所へ抱えていることを確認しました。対策は、業務順序を骨格として一度だけ固定し、形式ごとに変わる処理だけをフックとして外へ出すことです。ここで使う構造は、第一部で扱った基本構造です。構造名（と対応するパターン名）を語彙として併記しますが、パターン名から設計を選ぶのではなく、上で確認した「形式ごとに変わる処理」から必要な構造を導きます。
+フェーズ4で、各Importerの`import()`が「取込の業務順序（守りたい骨格）」と「形式ごとに変わるパース・行検証」を同じ場所へ抱えていることを確認しました。対策は、業務順序を一度だけ固定し、形式ごとに変わる処理だけを差し替え点として外へ出すことです。ここで使う構造は、第一部で扱った基本構造です。構造名（と対応するパターン名）を語彙として併記しますが、パターン名から設計を選ぶのではなく、上で確認した「形式ごとに変わる処理」から必要な構造を導きます。
+
 ```mermaid
 flowchart TB
-    A[現在<br/>各Importerのimportに<br/>取込骨格と形式差分が混在] --> B[分離判断<br/>業務順序を固定し<br/>形式差分だけをフックへ出す]
-    B --> C[課題ID1・骨格<br/>開く→形式確認→解析→検証→保存→閉じるを<br/>基底のimportへ固定]
-    B --> D[課題ID1・差分<br/>parseData／validateRowsへ<br/>形式固有処理を残す]
-    C --> E[守る範囲<br/>Gateway・Repositoryの契約<br/>ImportResultの件数・失敗理由]
+    A[現在<br/>各Importerのimportに<br/>取込骨格と形式差分が混在] --> B[分離判断<br/>業務順序を1か所へ固定し<br/>形式差分だけを差し替え点へ出す]
+    B --> C[課題ID1・骨格<br/>開く→形式確認→解析→検証→保存→閉じるを<br/>1本の手順へ固定]
+    B --> D[課題ID1・差分<br/>形式ごとの解析・行検証・計算を<br/>差し替え点の向こうへ]
+    C --> E[守る範囲<br/>業務順序・取得と保存の契約<br/>取込結果の件数と失敗理由]
     D --> E
 ```
 
-まだクラスの中身は見ません。この段階でつかんでほしいのは「業務順序を基底へ一度だけ固定し、形式ごとに変わる処理を派生のフックへ外へ出す」という筋だけです（この章の接続課題は一つ＝課題ID1で、骨格と形式差分の境界です）。「どのクラスが生成し、どの契約で実行するか」という具体の結論は、この後の課題ID1で決めていきます。決めた結論をまとめて振り返る表は、フェーズ6の末尾（6-3 設計トレース）に置きます。ここでは先に結論表を出しません。
+**この図は上から下へ、現状・分離の判断・骨格と差分の行き先・守る範囲の順で読みます。** 検討はこの図の並び順では進めません。**先に確定するのは、一番下の「守る範囲」です。** 守る範囲が決まらないと、どこで線を引いてよいかが決められないからです。
 
-第0章の「設計の醍醐味」の四拍子でいえば、この章は〈共通の取込骨格を見つけて形式差分を分離〉→〈形式ごとの派生を生成〉→〈骨格の継承フックへ差し込む〉→〈骨格は形式の中身を意識しない〉という同じ順序をたどります。
+**守る範囲 ―― この章で変えないもの。**
 
-#### 構造ポイントの全貌 ―― どの責任がどこへ移るか
+- **業務順序**：開く→形式確認→解析→行検証→保存→閉じる。この順序そのものは1ステップも入れ替えない
+- **取得と保存の動き**：ファイルを開いて行を読み、正常行を保存して件数を受け取り、閉じる。3-1と同じ動きを保つ
+- **取込結果**：`ImportResult` が返す件数と失敗理由（`skipped`）の意味
+- **利用側の呼び方**：取込を1回の公開操作で実行する
 
-課題ID1の【契約】〜【利用開始】が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この表で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID節に同じ番号で置きます。
-
-| ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
-|---|---|---|---|
-| 【生成】 | 各Importerが境界を自前で用意 → 組み立て側のローカル変数 | 取得・保存の境界と派生Importerを生成し所有する | 【注入】のコンストラクタ引数 |
-| 【注入】 | 境界を各クラスが内部生成 → `AbstractImporter(ImportFileGateway&, SalesImportRepository&)` | 境界の参照を骨格へ渡す（所有は【生成】のまま） | 【利用開始】が呼ぶ `import()` |
-| 【利用開始】 | 形式ごとに違う呼び出し → 実行部の `store.import();` | 派生の種類によらず同じ公開操作を1回呼ぶ | 【安定骨格】の `import()` |
-| 【安定骨格】 骨格 | `StoreDataImporter::import()` ほかに同じ順が3本 → `AbstractImporter::import()` の1本 | 開く→形式確認→解析→行検証→保存→閉じるの順を1か所へ固定する | 【契約】のフック |
-| 【契約】 | 各Importerが手順ごと複製 → `AbstractImporter` の `protected` 純粋仮想フック（`parseData()` ほか） | 形式で変わるステップだけを差し替え点として宣言する | 【具体】のoverride |
-| 【具体】 | 骨格に混ざった形式別解析 → `StoreDataImporter::parseData()` ほか各派生 | 区切り文字・ヘッダー有無・列数検証だけを実装へ閉じる | 【安定骨格】の `validateRows()` へ戻る |
-
-この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。**並び順は実行時に通る順です。** 課題ID節でも同じ順で説明し、節の末尾に代表入力の実行接続表を置きます。
-
-#### 接続点の分離・配置・組み立てを決める
-
-| 接続点を変える観点 | システム全体の考え方 | この章での答え |
-|---|---|---|
-| 分離方法 | 変わる部分と守る骨格をどの契約で切るか | 課題ID1：`import()` の業務順序から、形式別の `parseData()`／`validateRows()` と、取得・保存操作を切る。行一覧、検証結果、保存件数、`ImportResult` を接続点へ残す |
-| 配置場所 | 切り出した責任をどこへ置くか | 課題ID1：業務順序を `AbstractImporter`、形式差分を各Importer、取得を `ImportFileGateway`、保存を `SalesImportRepository` へ置く |
-| 組み立て方法（生成・所有・登録・注入） | 誰がどう接続するか | 課題ID1：`BatchApplication` が境界と形式別Importerを生成・所有し、Gateway／Repositoryを基底へ注入して順に実行する |
-
-#### 設計判断ごとの部分クラス図
-
-課題ID1では、全形式で守る取込順序を`AbstractImporter`へ残し、解析・行検証・計算の差分だけを派生クラスへ移します。
-
-```mermaid
-classDiagram
-    class AbstractImporter {
-        +import() ImportResult
-    }
-    class StoreDataImporter
-    class FCDataImporter
-    class ECDataImporter
-    AbstractImporter <|-- StoreDataImporter
-    AbstractImporter <|-- FCDataImporter
-    AbstractImporter <|-- ECDataImporter
-    class AbstractImporter:::focus
-    class ECDataImporter:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-継承を選ぶ理由は、実行順が全形式で一つに固定され、差分ステップだけを派生側へ渡せるためです。次のコードでは骨格を先に示し、そのフックを各形式が実装します。
-
-#### システム全体の最終構造を決める
-
-この章の最終構造は、三つの設計決定から**一つに定まります**。業務順序を1か所に保ち、形式差分だけを差し込むため、共通順序を基底クラスの `import()` に固定し、変わるステップを派生クラスのフックへ委ねます。取得元と保存先は注入する境界として別にします。
-
-各ステップを関数ポインタのテーブルで差し替える方式も理屈の上では置けますが、骨格の前後条件や失敗時の中断がテーブルの束へ散り、形式単位の責任とテスト境界が見えにくくなります。したがって当て馬を並べた比較は行いません（完成形が複数競合する章でのみ、構造差分を比較します）。
-
-一意に定まった骨格固定構造を、`AbstractImporter`（固定骨格）、形式別Importer（パース・検証フック）、`SchemaRegistry`（形式登録）の責任として具体化します。
+この4つが変わっていないことは、フェーズ7の受入・回帰エビデンスで確認します。ただし**各段の終わりでも1行ずつ照合します。**
 
 ### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
-フェーズ1の1-3で作ったクラス図へフェーズ2〜5の判断を反映し、変更後の形へ更新します。
+フェーズ1の1-3で作ったクラス図が、これから書き換えていく**基準の図**です。まずここへフェーズ2〜5の判断を注記として載せ、どの責任を残し、どの責任を移すかを確定します。
 
 | クラス図を変える材料 | 前工程で確認したこと | クラス図へ反映すること |
 |---|---|---|
 | フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
-| フェーズ2の変化予測 | 取込形式は今後も増える | 毎回複製される責任へ `【移す】` と注記する |
+| フェーズ2の変化予測 | リスクID1・リスクID2。取込形式もデータ項目も今後増える | 毎回複製される責任へ `【移す】` と注記する |
 | フェーズ4の原因 | 各Importerに共通骨格と形式差分が混在する | 同じクラスの中で `【残す】` と `【移す】` を分ける |
-| フェーズ5の接続点 | 骨格は形式の読み方を知らず、形式は順序を知らなくてよい | 課題ID1の共通骨格を `AbstractImporter` へ、差分をフックへ置く |
+| フェーズ5の接続点 | 骨格は形式の読み方を知らず、形式は順序を知らなくてよい | 課題ID1の共通骨格と形式差分を、それぞれの置き場へ分ける |
 
-**薄い黄色が着目クラス**です。変更前では各Importerの `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。矢印は1-3と同じ継承・利用関係です。
+**薄い黄色が着目クラス**です。ここでは各Importerの `【残す】` と `【移す】` を追います。矢印は1-3と同じ利用・生成関係です。
 
-**変更前のクラス図（1-3を責任見直し用に再掲）：**
+**変更前のクラス図（基準の図）：**
 
 ```mermaid
 classDiagram
@@ -1589,15 +1544,518 @@ classDiagram
     cssClass "StoreDataImporter,FCDataImporter" focus
 ```
 
-変更前は各Importerが共通骨格と形式差分を一本の `import()` に抱え、形式追加のたびに骨格が複製されます。
+向きと掲載クラスは1-3から変えていません。同じ図に注記と色だけを加えました。変更前は各Importerが共通骨格と形式差分を一本の `import()` に抱え、形式追加のたびに骨格が複製されます。**この図が出発点で、以降の各段でここへ1つずつ足していきます。**
 
-課題ID1をクラス図の変更として書くと、次の3操作になります。
+**この章は、他の章と1つ違う点があります。** 移す対象が「変わる側」ではなく「**変わらない側**」です。他章では変わる判断を外へ出しますが、ここで3クラスに重複しているのは共通骨格のほう——つまり変わらない側です。**どちらを動かすかは、この後の段で決めます。**
 
-1. 課題ID1：各Importerの `import()` から共通骨格（open→検証→パース→行検証→保存→close）を外す。
-2. 課題ID1：共通骨格を `AbstractImporter::import()` の1か所へ固定する（新設）。
-3. 課題ID1：形式ごとのパース・行検証を派生クラスの `parseData()` / `validateRows()` フックへ残す。
+クラス図の変更として書くと、次の3操作になります。**どんなクラスを新設し、何という名前にするかは、この後の各段で決めます。** ここで確定しているのは操作の種類だけです。
 
-変更後は同じ3つのImporterから読み、共通骨格が `AbstractImporter` へ移り、各Importerが差分フックだけを持つこと、保存・取得が外部境界へ分かれたことを確認します。
+1. 課題ID1：各Importerの `import()` から共通骨格（開く→形式確認→解析→行検証→保存→閉じる）を外す。
+2. 課題ID1：その共通骨格を1か所へ固定する。
+3. 課題ID1：形式ごとの解析・行検証・計算を、差し替え点の向こうへ残す。
+
+この3操作を、どんな手順で導くのかを次から順に書きます。
+
+#### この時点で決まっていること、これから決めること
+
+**大枠が見えていないと、検討は進められません。** 「どんな構造へ変えるか」が決まっていない状態で契約の形だけ考えても、良し悪しを判定する基準がありません。だからフェーズ6は、**目指す形を掲げるところから始めます。**
+
+| | 内容 | どこで決まったか |
+|---|---|---|
+| **決まっている（目指す形）** | 業務順序を1か所へ固定し、形式ごとの解析・行検証・計算だけを差し替えられるようにする | フェーズ4・5（骨格と形式差分という2つの変化理由） |
+| **決まっている（枠）** | 守る範囲の4つと、課題ID1の完了条件 | 1-5・5-3 |
+| **これから決める** | そもそも分けるか／接続点をどんな形で受け渡すか／骨格をどこへ置くか／差し替え点をどこへ宣言するか／誰が実体を作り持つか／実装がどこで骨格へ入るか／呼び方はどうなるか | フェーズ6の6段 |
+
+**掲げるのは形までです。** クラス名、差し替え点のメソッド構成、契約を基底クラスの中に置くか外の型にするか——**表の3行目にあるものが、この後の6段で1つずつ決まっていきます。**
+
+#### 接続点の分離・配置・組み立てを決める
+
+フェーズ6で決めるのは、次の3つです。**どれもこの後の各段で決めます。ここでは何を決めるのかだけを確認します。**
+
+- **分離方法**：取込処理に何を残し、何を差し替え点の向こうへ外すか。
+- **配置場所**：外した処理を、どんな単位のクラスへ置くか。形式ごとか、まとめて1つか。
+- **組み立て方法**：具体を誰が生成・所有し、骨格へどう届けるか。
+
+**この3つは独立して決められません。** 分離方法が決まらないと配置場所が決まらず、配置場所が決まらないと組み立て方法が決まりません。だから順に決めます。決まった結論をまとめて振り返る表は、フェーズ6の末尾（6-1）に置きます。
+
+### 課題ID1を6段で解く
+
+**【課題の原因】** 課題ID1は、問題ID1・問題ID2・問題ID3（手順の重複と全クラス同時修正）＝原因ID1（各Importerが処理の骨格と形式固有のパース・行検証を同じ `import()` へ混在）。これを分離対象にします。
+
+**この課題（何を解きたいか）：** 新形式を足すたび共通手順を複製し、共通手順に修正が入ると全Importerを同時修正する。**開く→形式確認→解析→行検証→保存→閉じるの順序を1か所に固定し、形式ごとの解析・行検証だけを差し替えられる**ようにするのが課題ID1です。
+
+**どう解決するか（方針）：** 共通順序を骨格として1か所へ固定し、変わる部分だけを差し替え点の向こうへ出します（骨格固定構造＝Template Method）。
+
+**この章の課題は1つですが、6段の並びは他章と同じです。** 課題が複数ある章では前半3段を軸ごとに、後半3段をまとめて決めますが、軸が1つならどちらも1回です。**課題の数によらず同じ形になるのが、6段で解く狙いの1つです。**
+
+| 段 | 何を決めるか |
+|---|---|
+| 1【契約】 | 分けるかを決め、境界に何が渡るかを決める |
+| 2【安定骨格】 | 呼ぶのは、変わらない側 |
+| 3【具体】 | 契約の裏を埋める |
+| 4【生成】 | 実体を作り、持つ人を決める |
+| 5【注入】 | 実装が骨格へ入る |
+| 6【利用開始】 | 結果として、呼び方はこうなった |
+
+**出発点。** やることはもう決まっています。3つの `import()` から共通骨格と形式差分を分けることです。分ける対象も5-3で決まっています。まだ決まっていないのは、**分けた後にどう繋ぐか**だけです。
+
+書き換える前のコードは3-1にあります。**ここで全部を再掲することはしません。** 各段で、その段が触る数行だけを3-1から抜き出し、変更後と並べます。
+
+---
+
+**1. 分けるかを決め、境界に何が渡るかを決める 【契約】**
+
+**まず、分けないで済まないかを確かめます。** 5-3が確定したのは「この接続点を解く」ことであって、「クラスを増やす」ことではありません。次の2つがどちらも成り立つなら、契約を作らず、共通部分を関数へ1つ切り出すだけで止めます。
+
+1. 変わる側の判断が、コード上1か所にしか現れない
+2. その種類が増える見込みが、2-4のリスクIDにも5-2の評価にも挙がっていない
+
+**第4章はどちらも成り立ちません。** 形式ごとの解析・行検証は `StoreDataImporter`・`FCDataImporter`・`ECDataImporter` の3クラスに分かれて現れます。そして2-4のリスクID1が「SNS販売データの形式追加」、リスクID2が「データ項目の追加・計算ルール変更」を挙げています。**現に変更要求で、EC店という形式が1つ増えました。**
+
+**ただし、この章で切り出したいものは他章と逆です。** 3クラスに重複しているのは形式差分ではなく、**共通骨格のほう**です。だから「共通部分を関数へ切り出すだけ」という選択肢は、この章では最初から成立しません。関数へ切り出しても、その関数を呼ぶ順序と、途中で形式ごとに分かれる場所は3クラスに残ります。**順序ごと1か所へ持っていく必要があります。**
+
+分けると決めたので、コードに線を引きます。
+
+**掲載箇所：`ECDataImporter::import()`** ―― 3-1の `import()` から、変更要求で追加したEC店のケース（対策前）
+
+```cpp
+    ImportResult import() {
+        cout << "EC店CSVを開く\n";                  // ← 変わらない側（順序）
+        vector<SalesRow> rows; int skipped = 0;
+        for (size_t i = 1; i < rawLines.size(); ++i) {
+            vector<string> c = splitLine(rawLines[i], ',');
+            if (c.size() < 5) { ++skipped; continue; }   // ← 変わる側（EC固有の列数）
+            rows.push_back({c[0], c[1], stol(c[2])});    // ← 変わる側（EC固有の解析）
+        }
+        long pointBonus = 0;                        // ← 変わる側（EC固有の計算）
+        for (auto& r : rows) pointBonus += r.amount / 100;
+        cout << rows.size() << "件をDBへ追加\n";     // ← 変わらない側（順序）
+        cout << "ファイルを閉じる\n";                 // ← 変わらない側（順序）
+        return {"EC店データ", (int)rows.size(), skipped};
+    }
+```
+
+**割り方の根拠は、形式が増えたときに触るかどうかです。** SNS販売データを足すと、真ん中の3行は書き直します。前後の4行は1文字も変わりません。変更前のコードでは、この2種類が同じ関数の中で交互に並んでいます。
+
+**5-3が挙げた候補は4つです。** 取得行、検証済み行、保存件数、取込結果。**このうち何がいくつ境界を流れるかは、まだ決まっていません。** 1つずつ形を決めます。
+
+| 接続するもの（5-3の候補） | 決めた形 | そう決めた理由 |
+|---|---|---|
+| 取得行 | 骨格が取得し、**引数で差し替え点へ渡す** | 形式ごとにファイルの開き方まで変えると、開く順序が形式側へ移る。守る範囲の「業務順序」が崩れる |
+| 検証済み行 | 差し替え点が**戻り値で返す**（正常行と失敗件数を1つの値で） | 保存するのは骨格の仕事。形式側が保存すると、保存の順序も形式ごとに書くことになる |
+| 保存件数 | **境界を流れない。** 骨格が保存境界から受け取って持つ | 形式側は保存を知らないので、件数も知らない |
+| 取込結果 | **境界を流れない。** 骨格が公開操作の戻り値として組み立てる | これは骨格と利用側の境界であって、骨格と形式差分の境界ではない |
+| 形式そのもの（追加） | 引数で渡さない。**形式ごとに別のクラス**を用意する | 引数で渡すと、受け取った側がまた形式で分岐する。3-1の `if` が移動するだけになる |
+
+**候補は4つでしたが、骨格と形式差分の境界を流れるのは2つです。** 残り2つは別の境界のものでした。保存件数は骨格と保存境界のあいだ、取込結果は骨格と利用側のあいだを流れます。**5-3は「この課題に関係する接続点」を漏れなく挙げる表なので、複数の境界のものが混ざります。** どの境界のものかを分けるのが、この段の仕事です。
+
+差し替え点を宣言します。**ただし、これをどこに置くかはまだ決めません。** 独立した型として外に置くのか、骨格と同じクラスの中に置くのか——それは2で骨格の形が決まってから分かります。ここで決めたのは、**何を差し替えるかと、その入出力**だけです。
+
+**この段ではコードを置きません。** 宣言を書くには、それをどのクラスへ置くかが決まっている必要があるからです。決まったのは、差し替え点の**数と入出力**までです。
+
+| 差し替え点 | 受け取るもの | 返すもの | 既定 |
+|---|---|---|---|
+| 解析 | 取得行 | 解析済みの行（1行ごとに、値と「正しい形だったか」の組） | 無し。全形式が必ず書く |
+| 行検証 | 解析済みの行 | 正常行の一覧と、失敗件数 | 無し。全形式が必ず書く |
+| 解析後の追加計算 | 正常行の一覧 | 無し | **何もしない既定を持つ** |
+
+**3つ目だけ既定を持たせます。** EC店のポイント計算のように、形式によっては要る処理ですが、要らない形式のほうが多いからです。既定を持たせなければ、直営店とFC店に空の実装を書かせることになります。
+
+**ここに出てくる値の型も、この段で決まります。** 「解析済みの行」は解析した値と正しい形だったかの組、「正常行の一覧と失敗件数」はその2つを1つにまとめた値です。**どちらも上の表の『決めた形』を運ぶためだけの値で、振る舞いを持ちません。**
+
+**表だけでは、決めた形が本当に成立するのか確かめられません。** 実装を1つ見ます。この時点では置き場所が未定なので、`override` の相手も未定のまま読んでください。
+
+**掲載箇所：`StoreDataImporter::parseData(const vector<string>&)`** ―― 直営店の解析
+
+```cpp
+    vector<ParsedRow> parseData(const vector<string>& lines) override {
+        vector<ParsedRow> out;                       // カンマ区切り・ヘッダーあり
+        for (size_t i = 1; i < lines.size(); ++i) {
+            vector<string> c = splitLine(lines[i], ',');
+            bool ok = (c.size() >= 3);
+            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
+            out.push_back({r, ok});
+        }
+        return out;
+    }
+```
+
+- **「取得行を引数で渡す」の実態。** `lines` を受け取っています。ファイルを開いてこの `vector` を用意するのは、この関数の仕事ではありません
+- **「形式を引数で渡さない」の実態。** `if (形式 == "store")` の比較がありません。**このクラスであること自体が『直営店』だから**です
+- **「解析済みの行を返す」の実態。** `out` を返すだけで、保存も表示もしていません
+
+変更前の `import()` にあった「開く」「保存」「閉じる」の3行が、ここにはありません。**では、それを実行するのは誰の仕事になるのか。それは2で決めます。**
+
+**この段の守る範囲の照合：** 守る範囲の4つ（業務順序・取得と保存の契約・取込結果・利用側の呼び方）のどれにも触っていません。差し替え点を宣言しただけで、既存のコードは1行も書き換えていません。
+
+**では、この差し替え点を誰が呼ぶのか。**
+
+---
+
+**2. 呼ぶのは、変わらない側 【安定骨格】**
+
+呼べるのは、形式が増えても変わらない側だけです。出て行った側が出て行った側を呼べば、形式が増えるたびに両方を触ることになり、分けた意味が消えます。
+
+**変わらない側には2つの型があります。どちらなのかを、ここで見分けます。**
+
+| 型 | 骨格の正体 | 契約の置き場 | 見分け方 |
+|---|---|---|---|
+| **残った側** | 分岐を外した後に残った手順 | 骨格とは**別のクラス** | 同じ実行の途中で相手が入れ替わる |
+| **取り出した順序** | 変更前から存在していた共通手順 | 骨格と**同じクラス**（基底クラスの内側） | 実体を作った時点で相手が決まる |
+
+**第4章は下の型です。** 直営店CSVを1回取り込むあいだ、解析の相手が直営店用からFC店用へ入れ替わることはありません。**ファイルを開いた時点で形式は決まっていて、閉じるまで同じです。** だから骨格ごと形式別のインスタンスにできます。
+
+**そしてこの章の骨格は、分けた結果として残ったものではありません。** 3-1のコードを見ると、開く→保存→閉じるの順序は変更前から存在していました。ただし**3クラスに同じものが3つ**ありました。この段でやるのは、それを1つに**取り出す**ことです。他章のように「分岐を外したら手順が残った」のではなく、**もともとあった手順の複製を1本にまとめる**のがこの章の骨格です。
+
+**この見分けが、契約の置き場を決めます。** 相手が実行中に入れ替わるなら、骨格は相手を外部の型として持たなければなりません。入れ替わらないなら、**骨格と差し替え点を同じクラスへ置けます。** 1で宣言した3つの差し替え点は、基底クラスの `protected` へ置きます。
+
+**基底クラスの名前を決めます。** 持たせるのは「全形式に共通する取込の手順」だけで、形式固有の処理は1つも持ちません。取込の抽象的な手順そのものなので `AbstractImporter` とします。
+
+**掲載箇所：`AbstractImporter`（クラス宣言・この段で分かるところまで）**
+
+```cpp
+class AbstractImporter {
+public:
+    virtual ~AbstractImporter() = default;
+    ImportResult import();          // 骨格：この順序だけを1か所に固定する
+protected:                          // 1で決めた差し替え点をここへ置く
+    virtual string filePath() const = 0;
+    virtual string schemaType() const = 0;
+    virtual string schemaName() const = 0;
+    virtual vector<ParsedRow> parseData(const vector<string>&) = 0;
+    virtual ValidationResult validateRows(const vector<ParsedRow>&) = 0;
+    virtual void afterParse(const vector<SalesRow>&) {}
+};
+```
+
+**1で表にした3つの差し替え点が、`parseData()`・`validateRows()`・`afterParse()` として宣言に並びました。** 運ぶ値にも名前が付きます。`ParsedRow` が「解析した1行と、それが正しい形だったか」、`ValidationResult` が「正常行の一覧と失敗件数」です。
+
+**`filePath()`・`schemaType()`・`schemaName()` が増えました。** 1で決めた2つの差し替え点を書いてみると、骨格が「どのファイルを開くか」「どの形式として結果を返すか」を知らないと手順が書けないことが分かります。**これは1へ戻る必要がある変更ではありません。** 値を返すだけの問い合わせで、1で決めた入出力の形（骨格が渡し、差し替え点が返す）と同じだからです。
+
+**メンバーがありません。** 骨格が使うのは、1で決めた差し替え点と、ファイル取得・保存の境界だけです。**境界をどう手に入れるかは、まだ決めていません。**
+
+骨格の手順は6段になります。
+
+**掲載箇所：`AbstractImporter::import()`** ―― 骨格。差し替え点を呼ぶ行が、変わる側との接続点です
+
+```cpp
+ImportResult AbstractImporter::import() {
+    vector<string> lines = gateway.open(filePath());  // ←この gateway が未定
+    gateway.checkFormatVersion();
+    vector<ParsedRow> parsed = parseData(lines);      // ←1で決めた差し替え点
+    ValidationResult v = validateRows(parsed);        // ←1で決めた差し替え点
+    afterParse(v.validRows);                          // ←1で決めた差し替え点
+    int saved = repo.save(v.validRows);               // ←この repo も未定
+    gateway.close();
+    return { schemaType(), schemaName(), saved, v.skipped, true };
+}
+```
+
+**穴が2つ空きました。** `gateway` と `repo` です。3-1では各Importerが `cout` で開閉と保存を代替していましたが、骨格を1本にすると、**開くのも保存するのも1か所からになります。** それを誰が用意するかは、まだ決めていません。**それを決めるのが4です。**
+
+**この穴は、1で分けた差し替え点とは別のものです。** 形式が増えても `gateway` と `repo` は増えません。**課題ID1の分離とは関係のない依存が、骨格を1本にした副作用として表に出てきた**というのが正確なところです。4で、なぜこれを外へ出すのかを書きます。
+
+変更前の3つの `import()` と比べると、**同じ順序を書いた関数が3本から1本になりました。** そして真ん中の3行が、形式ごとの中身を持たない呼び出しになっています。
+
+**ここで検算します。形式を1つ足したとき、この6行は変わるか。** 変わりません。`parseData()` と `validateRows()` の**中身**が増えるだけで、呼ぶ順序も回数も同じです。**穴が2つ空いたままでも、この検算はできます。** 変わってしまうなら割り残しがあるので、1へ戻って線を引き直します。第4章ではEC店を足しても6行のままでした。
+
+**共通手順を足すときも確かめます。** 変更ID2の「ファイルを開いた直後に形式バージョンを確認する」は、この骨格の2行目（`checkFormatVersion()`）1行です。**3クラスではなく1か所。** これが完了条件の後半「共通手順追加は骨格1か所だけの変更で済む」です。
+
+**この段で図に描けるのは、骨格と差し替え点が同じクラスに同居していることだけです。** 実装がまだ1つも無いので、継承の線は引けません。
+
+```mermaid
+classDiagram
+    class AbstractImporter {
+        +import() ImportResult
+        #parseData()*
+        #validateRows()*
+        #afterParse()
+    }
+    class AbstractImporter:::focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**箱が1つしかありません。** 他章ではこの段で「骨格」と「契約」の2つの箱と、そのあいだの矢印が描けます。**この章は同じ箱の中に両方あるので、矢印が要りません。** 公開操作 `import()` が上、差し替え点が下（`#` は `protected`）で、上が下を呼びます。
+
+**この段の守る範囲の照合：** 4つのうち1つに触りました。**業務順序**です。ただし触ったのは**置き場所**だけで、順序そのものは3-1と1ステップも変わっていません（開く→形式確認→解析→行検証→保存→閉じる）。**取得と保存の契約**は穴のままなので、まだ触っていません。**取込結果**は `ImportResult` の中身を変えていません。**利用側の呼び方**もまだ変えていません。
+
+**では、差し替え点の中身は誰が書くのか。**
+
+---
+
+**3. 契約の裏を埋める 【具体】**
+
+骨格と、そこから呼ばれる差し替え点が決まりました。1では差し替え点の裏を1つ覗いて、渡すもの・返すものを確かめました。**ここで残り全部を埋めます。**
+
+**1で見た `StoreDataImporter::parseData()` の疑問が、ここで解けます。** 「開く」「保存」「閉じる」を書かないのは、それが2の骨格の仕事だからです。差し替え点の裏に置くのは「この形式をどう読むか」「この形式で何を正常とするか」の2つだけで、それ以外は何も書きません。
+
+残りの2クラスも同じ形です。ここでは `StoreDataImporter` と対照的なものを1つ見ます。
+
+**掲載箇所：`ECDataImporter`（クラス全体）** ―― 変更要求で追加した形式
+
+```cpp
+class ECDataImporter : public AbstractImporter {
+public:
+    using AbstractImporter::AbstractImporter;
+protected:
+    string filePath()   const override { return "ec_sales.csv"; }
+    string schemaType() const override { return "ec"; }
+    string schemaName() const override { return "EC店データ"; }
+    vector<ParsedRow> parseData(const vector<string>& lines) override {
+        vector<ParsedRow> out;                       // EC固有：5列以上を要求する
+        for (size_t i = 1; i < lines.size(); ++i) {
+            vector<string> c = splitLine(lines[i], ',');
+            bool ok = (c.size() >= 5);
+            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
+            out.push_back({r, ok});
+        }
+        return out;
+    }
+    ValidationResult validateRows(const vector<ParsedRow>& parsed) override {
+        ValidationResult v{{}, 0, {}};
+        for (auto& p : parsed)
+            if (p.wellFormed) v.validRows.push_back(p.row);
+            else ++v.skipped;
+        return v;
+    }
+    void afterParse(const vector<SalesRow>& rows) override {
+        long bonus = 0;                              // EC固有：ポイント付与
+        for (size_t i = 0; i < rows.size(); ++i) bonus += rows[i].amount / 100;
+        cout << "  EC固有: ポイント付与 " << bonus << "pt" << endl;
+    }
+};
+```
+
+**`afterParse()` を上書きしているのは、3クラスのうちこれだけです。** 直営店とFC店には書きません。書かなければ基底の既定（何もしない）が引き受けます。変更前は「その `import()` にポイント計算の行が無い」という不在で表していたものが、「そのクラスに `override` が無い」という不在へ移りました。
+
+3クラスを並べると、1-2の形式仕様がそのままクラスの一覧になります。
+
+| 形式クラス | 読み方（区切り・列数・ヘッダー） | 上書きする差し替え点 | 書かないこと |
+|---|---|---|---|
+| `StoreDataImporter` | カンマ・3列以上・ヘッダーあり | `filePath` / `schemaType` / `schemaName` / `parseData` / `validateRows` | 追加計算 |
+| `FCDataImporter` | タブ・3列以上・ヘッダーなし | 同上 | 追加計算 |
+| `ECDataImporter` | カンマ・5列以上・ヘッダーあり | 同上 ＋ `afterParse` | ―― |
+
+**どのクラスにも、開く・保存・閉じるがありません。** 変更前は3クラスすべてに同じ3行がありました。**右端の列は、コードのどこにも書かれていません。** 表では読者のために言葉にしていますが、実際のクラスには `override` が無いだけです。
+
+```mermaid
+classDiagram
+    class AbstractImporter {
+        +import() ImportResult
+        #parseData()*
+        #validateRows()*
+        #afterParse()
+    }
+    class StoreDataImporter
+    class FCDataImporter
+    class ECDataImporter
+    AbstractImporter <|-- StoreDataImporter
+    AbstractImporter <|-- FCDataImporter
+    AbstractImporter <|-- ECDataImporter
+    class AbstractImporter:::focus
+    class ECDataImporter:::focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+3本あった `import()` が、1本の骨格と3つの差分になりました。**変更要求で足したEC店が、`ECDataImporter` という1クラスに収まっています。** これで課題ID1の完了条件の前半「形式追加は差分処理だけ」を満たします。形式を1つ足すときに書くのは、このようなクラス1つだけです。
+
+**もう一度検算します。差し替え点以外に書きたくなるものがあるか。** あるなら、1の割り方か形の決め方を間違えています。EC店のポイント計算がそれに近い候補でしたが、`afterParse()` という差し替え点を1で用意していたので収まりました。
+
+**この段の守る範囲の照合：** 業務順序に触っていません（3クラスとも順序を1行も持っていません）。取得と保存の契約、取込結果、利用側の呼び方にも触っていません。
+
+**ここまでで、クラスの設計は終わりです。** 残っているのは、2で空いた2つの穴——誰が取得と保存の境界を用意するか——だけになりました。
+
+---
+
+**4. 実体を作り、持つ人を決める 【生成】**
+
+**2で穴が2つ空きました。** `gateway`（ファイルを開いて行を返す）と `repo`（正常行を保存して件数を返す）です。
+
+**この穴は、1で分けた差し替え点とは性質が違います。** 差し替え点は「形式が増えると中身が増える」ものでした。この2つは形式が増えても増えません。**では、なぜ骨格の外へ出すのか。**
+
+3-1では、各Importerが `cout` で開閉と保存を直接書いていました。**骨格を1本にした結果、開くのも保存するのも1か所からになります。** そこで2つの道があります。
+
+- **骨格が自分で開き、自分で保存する。** `AbstractImporter::import()` の中に `cout` を書く。組み立ては何も要らない
+- **取得と保存を境界として外へ出し、骨格は契約だけを呼ぶ。** 組み立て側が用意して渡す
+
+**後者を採ります。** 5-3の守る側には入っていませんが、**2-4で「取込結果の出力先がクラウドDWHや帳票へ変わるかもしれない」という話が出ています。** リスクIDには起こしませんでしたが、骨格の中へ `cout` を埋め込むと、その変更が骨格——つまり形式が増えても変わらないはずの場所——へ届いてしまいます。**課題ID1の分離とは別の理由で外へ出す**ので、そのことを明示しておきます。
+
+**掲載箇所：`ImportFileGateway`／`SalesImportRepository`** ―― 骨格が呼ぶ2つの境界
+
+```cpp
+// 取得境界：1-4の SampleFileStore と同じ map で代替する
+class ImportFileGateway {
+    map<string, vector<string> > files;
+public:
+    void prepareSample(const string& path, const vector<string>& lines);
+    vector<string> open(const string& path);
+    void checkFormatVersion();
+    void close();
+};
+
+// 保存境界：1-4と同じ件数表示のまま
+class SalesImportRepository {
+public:
+    int save(const vector<SalesRow>& rows);
+};
+```
+
+**中身は1-4のままです。** `ImportFileGateway` の内側は1-4の `SampleFileStore` と同じ `map<string, vector<string> >`、`save()` も1-4と同じ件数表示です。**やったのは、3クラスに散っていた同じ処理を型として名前を付けただけ**で、動きは変えていません。
+
+**骨格は、この2つをどう持つか。** メンバーとして持ちます。ただし**値ではなく参照です。** 理由は、1つの `gateway` を3つのImporterが共有するからです。直営店・FC店・EC店の取込は、同じファイル置き場と同じ保存先を使います。値メンバにすると3つのImporterが別々の置き場を持ってしまい、`prepareSample()` で用意したファイルが見えなくなります。
+
+**掲載箇所：`AbstractImporter`（クラス宣言・完成）**
+
+```cpp
+class AbstractImporter {
+    ImportFileGateway&     gateway;   // 借用：所有は組み立て側
+    SalesImportRepository& repo;      // 借用：所有は組み立て側
+public:
+    AbstractImporter(ImportFileGateway& g, SalesImportRepository& r)
+        : gateway(g), repo(r) {}
+    virtual ~AbstractImporter() = default;
+    ImportResult import();
+protected:
+    virtual string filePath() const = 0;
+    virtual string schemaType() const = 0;
+    virtual string schemaName() const = 0;
+    virtual vector<ParsedRow> parseData(const vector<string>&) = 0;
+    virtual ValidationResult validateRows(const vector<ParsedRow>&) = 0;
+    virtual void afterParse(const vector<SalesRow>&) {}
+};
+```
+
+**2で「未定」と書いた2つが、参照メンバとして埋まりました。** 骨格の6行は1行も変わっていません。
+
+**では、この2つの実体は誰が作り、誰が持つのか。** 借りている以上、貸す側が要ります。**組み立て側です。**
+
+**掲載箇所：`BatchApplication`（`gateway`・`repo` はメンバー、Importerは実行メソッドのローカル）**
+
+```cpp
+class BatchApplication {
+    SchemaRegistry         registry;
+    ImportFileGateway      gateway;   // ここが実体。所有する
+    SalesImportRepository  repo;      // ここが実体。所有する
+public:
+    void runStoreImport(const vector<string>& csv) {
+        gateway.prepareSample("store_sales.csv", csv);
+        StoreDataImporter store(gateway, repo);   // 実体を作り、境界を貸す
+        ImportResult r = store.import();
+        report(r);
+    }
+    // runFCImport / runECImport も同じ形
+};
+```
+
+**所有と生存期間。** `gateway` と `repo` は `BatchApplication` の値メンバなので、`BatchApplication` が生きているあいだ生きています。`store` は実行メソッドのローカルなので、そのメソッドを抜けると消えます。**借りている側（Importer）のほうが先に消える**ので、参照が宙に浮くことはありません。生ポインタも `new` も使いません。
+
+**形式を1つ足すときに触るのは、新しい派生クラス1つと、`BatchApplication` の実行メソッド1つです。** 骨格も既存の派生も触りません。
+
+```mermaid
+classDiagram
+    class BatchApplication
+    class AbstractImporter
+    class ImportFileGateway
+    class SalesImportRepository
+    BatchApplication *-- ImportFileGateway : 所有
+    BatchApplication *-- SalesImportRepository : 所有
+    BatchApplication ..> AbstractImporter : 生成・実行する
+    AbstractImporter --> ImportFileGateway : 借用
+    AbstractImporter --> SalesImportRepository : 借用
+    class BatchApplication:::focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**実線と点線が違います。** `BatchApplication` から境界への実線は所有、骨格から境界への矢印は借用です。3で描いた継承の線はこの図に描いていませんが、変わっていません。
+
+**この段の守る範囲の照合：** **取得と保存の契約**に触りました。3-1では `cout` で直接書いていたものを、`open()`／`save()`／`close()` という操作へ置き換えています。**ただし動きは同じで、開く順序・保存する対象・閉じるタイミングは変えていません。** 守る範囲で挙げたのは「ファイルを開いて行を返す」「保存件数を返す」という契約の意味であって、その実装が `cout` かクラスかではないので、これは範囲内です。業務順序・取込結果・利用側の呼び方には触っていません。
+
+**この段が終わった時点で、実体はすべて存在しています。** 骨格、3つの派生、2つの境界、それらを持つ組み立て側。**まだ説明していないのは1つだけです。骨格の `parseData()` という呼び出しに、どの形式の実装が入るのかです。それが5です。**
+
+---
+
+**5. 実装が骨格へ入る 【注入】**
+
+**2で書いた骨格には、`parseData(lines)` としか書いてありません。** 直営店用とも、EC店用とも書いていません。それでも直営店CSVを取り込めば直営店用が動きます。**この段で見るのは、いつ・何によって、どの実装が入るのかです。**
+
+**掲載箇所：`AbstractImporter::import()`** ―― 2の骨格から、差し替え点を呼ぶ3行
+
+```cpp
+    vector<ParsedRow> parsed = parseData(lines);      // ←ここで実装が入る
+    ValidationResult v = validateRows(parsed);        // ←ここで実装が入る
+    afterParse(v.validRows);                          // ←ここで実装が入る
+```
+
+**2で書いたときから、1文字も変わっていません。** 他の章では、この段で穴を埋める行が書き換わります。**この章では書き換わりません。** 骨格は最初から完成していました。
+
+**では、どこで実装が入るのか。** 4で書いた1行です。
+
+**掲載箇所：`BatchApplication::runStoreImport()`** ―― 4の組み立てから、実体を作る行と呼ぶ行
+
+```cpp
+    StoreDataImporter store(gateway, repo);   // ←この型が、3つの呼び出し先を決める
+    ImportResult r = store.import();
+```
+
+**`StoreDataImporter` と書いた瞬間に、3つの差し替え点の行き先が決まります。** `import()` の中の `parseData(lines)` は、実体が `StoreDataImporter` なので `StoreDataImporter::parseData()` へ行きます。**入れているのは継承の仕組みそのもので、コード上に「入れる行」はありません。**
+
+**実装が骨格へ入る形は、この章の形だけではありません。** 骨格が契約としか書いていない場所へ具体が入る、という点はどの構造でも同じですが、入る瞬間は3つに分かれます。
+
+| 形 | 実装が決まる決め手 | 入る瞬間 | この本での例 |
+|---|---|---|---|
+| 呼び出しごとに引き当てる | 保存された状態値、入力の属性 | 引き当て関数が契約への参照を返す行 | 第3章、第9章、第12章 |
+| 生成した実体を渡して保持する | 誰を渡したか（組み立て時に1回） | コンストラクタ引数、`attach()` などの登録 | 第6章、第7章、第8章 |
+| **継承で決まる** | **どの派生型を作ったか** | **実体を作った時点。コード上に行が無い** | **第4章（この章）** |
+
+**「注入とはコンストラクタ引数のことだ」と覚えないでください。** この章にはコンストラクタ引数もありますが、それで入るのは `gateway` と `repo` であって、形式ごとの実装ではありません。**課題ID1が分離したものと、コンストラクタで渡しているものは別です。**
+
+| 何が入るか | 決め手 | 入る瞬間 | 課題ID1の分離か |
+|---|---|---|---|
+| 形式ごとの解析・行検証・計算 | どの派生型を作ったか | `StoreDataImporter store(...)` の型 | **そう。これが課題ID1** |
+| ファイル取得・保存の境界 | 組み立て側が何を渡したか | コンストラクタ引数 | 違う。4で説明した別の依存 |
+
+**この2行が、この章でいちばん混同しやすいところです。** 同じ `StoreDataImporter store(gateway, repo);` という1行が、上の行では「型」として、下の行では「引数」として働いています。**共通しているのは、骨格が具体の名前を1文字も書いていないことだけです。**
+
+**そして、どれが入るかは呼び出しのたびには変わりません。** 決め手は派生型なので、`store` を作った時点で決まり、`import()` を何回呼んでも同じです。第9章のように保存済みデータで呼び出しごとに変わる構造とは、ここが違います。**入れる仕組みは違っても、骨格が具体を知らない点は同じです。**
+
+**この段の守る範囲の照合：** コードを1行も変えていません。4までに書いたものが、どう繋がるかを説明しただけです。
+
+---
+
+**6. 結果として、呼び方はこうなった 【利用開始】**
+
+組み立てが終わりました。呼び出し側がどう変わったかを、変更前と並べて見ます。
+
+**掲載箇所：`main()`** ―― 3-1の直営店取込（対策前）
+
+```cpp
+    StoreDataImporter store(storeCsv);
+    ImportResult r = store.import();
+```
+
+**掲載箇所：`BatchApplication::runStoreImport()`** ―― 同じ操作（対策後）
+
+```cpp
+    StoreDataImporter store(gateway, repo);
+    ImportResult r = store.import();
+```
+
+**呼び方は変わりませんでした。** `import()` を1回呼ぶ、という形は3-1のままです。変わったのは、生成のときに渡すものが「CSVの行そのもの」から「取得と保存の境界」になったことだけです。
+
+**これは第9章の課題ID2と同じで、6段を通っても呼び方が変わらない例です。** 変わったのは呼び方ではなく、この1行の先で誰が順序を持ち、誰が形式を読むかです。**呼び方が変わるかどうかは、1から5の結果であって前提ではありません。** 先に見せると、まだ導いていない結論を見せることになります。
+
+利用側が `parseData()` を直接呼ぶこともありません。`protected` なので、そもそも呼べません。
+
+**この段の守る範囲の照合：** **利用側の呼び方**を保っていることを、いま確認しました。6段すべてを通して、守る範囲の4つはいずれも定義に反していません。最終確認はフェーズ7の受入・回帰エビデンスで行いますが、**そこで初めて確かめるのではなく、各段で照合済みです。**
+
+
+#### システム全体の最終構造を決める
+
+6段で足した図を重ねると、システム全体の最終構造になります。`AbstractImporter` が業務順序と差し替え点の両方を持ち、3つの派生が差分だけを実装し、`BatchApplication` が境界を所有して貸します。
+
+**この章の完成構造は一つに定まります。** 各ステップを関数ポインタのテーブルで差し替える方式も理屈の上では置けますが、骨格の前後条件や失敗時の中断がテーブルの束へ散り、形式単位の責任とテスト境界が見えにくくなります。責任配置が異なる完成構造が複数残ったわけではないので、当て馬を並べた比較は行いません。
+
+各段で足した部分がすべて入っているかを、次の図で照合します。
 
 **採用した変更後のクラス図：**
 
@@ -1621,198 +2079,63 @@ classDiagram
     AbstractImporter <|-- StoreDataImporter
     AbstractImporter <|-- FCDataImporter
     AbstractImporter <|-- ECDataImporter
-    AbstractImporter --> ImportFileGateway : 使う
-    AbstractImporter --> SalesImportRepository : 使う
+    AbstractImporter --> ImportFileGateway : 借用
+    AbstractImporter --> SalesImportRepository : 借用
+    BatchApplication *-- ImportFileGateway : 所有
+    BatchApplication *-- SalesImportRepository : 所有
     BatchApplication --> SchemaRegistry : 参照する
-    BatchApplication --> AbstractImporter : 生成・実行する
+    BatchApplication ..> AbstractImporter : 生成・実行する
 
-    note for AbstractImporter "【課題ID1・新設】共通骨格を1か所へ固定<br/>parse/validateは純粋仮想フック"
+    note for AbstractImporter "【新設】業務順序を1か所へ固定<br/>差し替え点は同じクラスのprotectedに置く"
     note for StoreDataImporter "【課題ID1・残した】直営店のパース・行検証だけ"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
     cssClass "AbstractImporter,StoreDataImporter,FCDataImporter,ECDataImporter" focus
 ```
 
+**他章の採用図と見比べると、契約の箱がありません。** 差し替え点が `AbstractImporter` の中（`#` の3行）にあるからです。2で「実体を作った時点で相手が決まる」と判定した結果が、図にそのまま出ています。
+
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
 | 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 課題ID1 | 共通骨格を `AbstractImporter` へ固定し、形式差分を派生へ残す | `import()` に固定順序を書き可変部を純粋仮想フックに、各Importerが `parseData()`/`validateRows()` を実装、`ImportFileGateway`/`SalesImportRepository` を注入 | 課題ID1節（【契約】〜【利用開始】） |
+| 課題ID1 | 業務順序を `AbstractImporter` へ固定し、形式差分を派生へ残す | `import()` に固定順序を書き、可変部を `protected` 純粋仮想へ。各Importerが `parseData()`／`validateRows()` を実装し、`ImportFileGateway`／`SalesImportRepository` を借用する | 6段の【契約】〜【利用開始】 |
 
 このクラス図が、課題ID1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
-#### 課題箇所のおさらい（フェーズ3の関連コード）
+### 6-1：生成・所有・実行順のまとめ
 
-統合表で特定した箇所だけを振り返ります。課題ID1は各 `import()` にべた書きされた共通骨格と、その中に混ざる形式差分です。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+#### 構造ポイントの全貌 ―― どの責任がどこへ移るか
 
-```cpp
-// EC店データのインポート（会員ランク・ポイント項目あり）
-// 既存の直営店・FC店と同じ手順を、また import() の中にべた書きでコピーしている
-class ECDataImporter {
-    vector<string> rawLines;
-public:
-    explicit ECDataImporter(vector<string> lines) : rawLines(move(lines)) {}
+6段で決めたことを、責任の移動として一覧にします。**並び順は、考えた順です。** 表の1行が本文の1段に対応します。この章は変化軸が1つなので、どの段も1行です。
 
-    ImportResult import() {
-        cout << "EC店CSVを開く\n";                  // (1) 開く ← 全形式で同じコピー
-        vector<SalesRow> rows; int skipped = 0;
-        for (size_t i = 1; i < rawLines.size(); ++i) {
-            vector<string> c = splitLine(rawLines[i], ',');
-            if (c.size() < 5) { ++skipped; continue; }   // EC固有の列数
-            rows.push_back({c[0], c[1], stol(c[2])});
-        }
-        long pointBonus = 0;                        // (2') EC固有：ポイント付与
-        for (auto& r : rows) pointBonus += r.amount / 100;
-        cout << rows.size() << "件をDBへ追加\n";     // (3) 保存 ← また同じコピー
-        cout << "ファイルを閉じる\n";                 // (4) 閉じる ← また同じコピー
-        return {"EC店データ", (int)rows.size(), skipped};
-    }
-};
-```
+| ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | このポイントが決まると次に決まること |
+|---|---|---|---|
+| 【契約】 | 3クラスの `import()` に混ざった形式別解析 → `parseData()`／`validateRows()`／`afterParse()` の3つの差し替え点 | 分けるかを検算し、5-3の候補4つの形を決める。骨格と形式差分の境界を流れるのは2つ（取得行・検証済み行） | この差し替え点を誰が呼ぶか＝【安定骨格】 |
+| 【安定骨格】 | 同じ順序が3本（`StoreDataImporter::import()` ほか） → `AbstractImporter::import()` の1本 | 変わらない側の型を見分ける。実体を作った時点で形式が決まるので、差し替え点を骨格と同じクラスへ置く | 差し替え点の裏に何を置くか＝【具体】 |
+| 【具体】 | 骨格に混ざった形式別解析 → `StoreDataImporter`／`FCDataImporter`／`ECDataImporter` の各override | 差し替え点だけを埋め、順序を1行も書かない | 実体を誰が作るか＝【生成】 |
+| 【生成】 | 各Importerが `cout` で開閉・保存 → `ImportFileGateway`／`SalesImportRepository` を `BatchApplication` が所有し、骨格が借用 | 骨格を1本にした副作用で表に出た依存を境界として外へ出し、所有と借用を分ける | 実装がどこで骨格へ入るか＝【注入】 |
+| 【注入】 | 形式ごとに違う `import()` を呼ぶ → 骨格の `parseData()` が派生へ動的ディスパッチする | 派生型を決めることで、3つの差し替え点の行き先が一度に決まる（コード上に入れる行は無い） | すべて決まった結果としての呼び方＝【利用開始】 |
+| 【利用開始】 | `StoreDataImporter store(storeCsv); store.import();` → `StoreDataImporter store(gateway, repo); store.import();` | 組み立てた実体の公開操作を1回呼ぶ | ここから実行が始まり、【安定骨格】へ入る |
 
-### 課題ID1：形式固有処理と取込骨格を分離する
-
-**【課題ID1の原因】** 問題ID1・問題ID2・問題ID3（手順の重複と全クラス同時修正）＝原因ID1（各Importerが処理の骨格と形式固有のパース・行検証を同じ `import()` へ混在）。この原因を分離対象にします。
-
-**この課題（何を解きたいか）：** 新形式を足すたび共通手順を複製し、共通手順に修正が入ると全Importerを同時修正する——問題ID1〜問題ID3（痛み）／原因ID1です。**開く→形式確認→解析→行検証→保存→閉じるの順序を1か所に固定し、形式ごとの解析・行検証だけを差し替えられる**ようにするのが課題ID1です。
-
-**どう解決するか（方針）：** 共通順序を基底クラスの骨格へ固定し、変わる部分だけを派生のフックへ外へ出します（骨格固定構造＝Template Method）。この章は骨格を持つので、以下は**実行時に通る順**に並べます。【生成】【注入】で部品を組み立て、【利用開始】で1回呼び、【安定骨格】が委譲し、【契約】を経て【具体】が答える、という流れです。
-
-```mermaid
-classDiagram
-    class AbstractImporter
-    class StoreDataImporter
-    class ImportFileGateway
-    class SalesImportRepository
-    AbstractImporter <|-- StoreDataImporter
-    AbstractImporter --> ImportFileGateway : 取得・保存境界
-    AbstractImporter --> SalesImportRepository : 保存
-    class AbstractImporter:::focus
-    class StoreDataImporter:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-**【生成】・所有。** 取得・保存の境界と派生Importerを、組み立て側の `BatchApplication` が生成し所有します。これらは1-4の既存境界のままで、保存媒体や永続化仕様は追加しません。
-
-**掲載箇所：`BatchApplication`（`gateway`・`repo` はメンバー、`store` は `runStoreImport()` のローカル）** ―― 境界と派生Importerを生成し所有する位置です。
-
-```cpp
-ImportFileGateway gateway;                // 【生成】・所有は組み立て側
-SalesImportRepository repo;
-gateway.prepareSample("store_sales.csv", storeCsv);
-StoreDataImporter store(gateway, repo);   // 【生成】 派生Importerを生成・所有
-```
-
-**【注入】** 生成した境界を、基底 `AbstractImporter` のコンストラクタ引数として骨格へ渡します。骨格は境界の実体を所有せず、参照だけを保持します。
-
-**掲載箇所：`AbstractImporter::AbstractImporter(ImportFileGateway&, SalesImportRepository&)`** ―― 基底のコンストラクタ。境界を参照で受け取り、所有はしません。
-
-```cpp
-AbstractImporter(ImportFileGateway& g, SalesImportRepository& r)
-    : gateway(g), repo(r) {}              // 【注入】 境界を骨格へ注入
-```
-
-**【利用開始】** 実行部が公開操作 `AbstractImporter::import()` を1回呼びます。派生の種類にかかわらず同じ順序が走り、形式差分だけがフックの向こうで変わります。利用側が `parseData()` を直接呼ぶことはありません。
-
-**掲載箇所：`BatchApplication::runStoreImport()`** ―― 【生成】で派生Importerを作った直後。骨格の公開操作を1回呼びます。
-
-```cpp
-ImportResult r = store.import();          // 【利用開始】
-```
-
-**【安定骨格】：共通順を `import()` へ固定する。** 開く→形式確認→解析→行検証→保存→閉じるの順だけを1か所に持ちます。形式が増えてもこの順序は変わりません。【契約】のフックを呼ぶ行が、変わる側との接続点です。
-
-```cpp
-class AbstractImporter {
-    ImportFileGateway& gateway;
-    SalesImportRepository& repo;
-public:
-    AbstractImporter(ImportFileGateway& g, SalesImportRepository& r)
-        : gateway(g), repo(r) {}
-    virtual ~AbstractImporter() = default;
-    // 【安定骨格】 骨格：この順序だけを1か所に固定する
-    ImportResult import() {
-        vector<string> lines = gateway.open(filePath());  // 【契約】 を呼ぶ
-        gateway.checkFormatVersion();
-        vector<ParsedRow> parsed = parseData(lines);      // 【契約】 を呼ぶ
-        ValidationResult v = validateRows(parsed);        // 【契約】 を呼ぶ
-        afterParse(v.validRows);                          // 【契約】 を呼ぶ
-        int saved = repo.save(v.validRows);
-        gateway.close();
-        return { schemaType(), schemaName(), saved, v.skipped, true };
-    }
-    // 【契約】の契約宣言は上記のとおり protected に置く
-};
-```
-
-**【契約】：形式で変わるステップを純粋仮想フックとして宣言する。** 他章のように別のインターフェース型を作らず、基底クラス `AbstractImporter` の `protected` 側へ差し替え点を並べます。これがこの章の契約です。
-
-**掲載箇所：`AbstractImporter` クラスの `protected` 節** ―― 骨格 `import()` の内側から呼ぶ差し替え点の宣言部です。
-
-```cpp
-protected:                                        // 【契約】（差し替え点）
-    virtual string filePath() const = 0;
-    virtual string schemaType() const = 0;
-    virtual string schemaName() const = 0;
-    virtual vector<ParsedRow> parseData(const vector<string>&) = 0;
-    virtual ValidationResult validateRows(const vector<ParsedRow>&) = 0;
-    virtual void afterParse(const vector<SalesRow>&) {}
-```
-
-**【具体】 各形式は骨格を持たず、フックの中身だけを実装する。** 直営店もFC店もEC店も共通順を複製しません。
-
-```cpp
-class StoreDataImporter : public AbstractImporter {
-public:
-    using AbstractImporter::AbstractImporter;
-protected:
-    string filePath()   const override { return "store_sales.csv"; }
-    string schemaType() const override { return "store"; }
-    string schemaName() const override { return "直営店データ"; }
-    vector<ParsedRow> parseData(const vector<string>& lines) override {
-        vector<ParsedRow> out;                       // カンマ区切り・ヘッダーあり
-        for (size_t i = 1; i < lines.size(); ++i) {
-            vector<string> c = splitLine(lines[i], ',');
-            bool ok = (c.size() >= 3);
-            SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
-            out.push_back({r, ok});
-        }
-        return out;
-    }
-    ValidationResult validateRows(const vector<ParsedRow>& parsed) override {
-        ValidationResult v{{}, 0, {}};
-        for (auto& p : parsed)
-            if (p.wellFormed) v.validRows.push_back(p.row);
-            else ++v.skipped;
-        return v;
-    }
-};
-```
+**【利用開始】が最後にあるのは、対策後の呼び方が設計の結果だからです。** この章では結果として**呼び方が変わりませんでした。** 変わらないことも、5段目まで決め終えてから分かることです。
 
 #### 代表ケースの実行接続
 
-上のブロックを、直営店CSVの取込1件で貫いて確認します。並び順は上の説明と同じです。
+6段は考えた順でした。**ここからは実行時に通る順で貫きます。** 直営店CSVの取込1件を、1本の経路として追います。**この章の【注入】は継承で決まるので、独立した行になりません。** どの行で決まったかを注記で示します。
+
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
-| 1. 【生成】 | 組み立て側 | `StoreDataImporter store(gateway, repo);` | 【注入】へ |
-| 2. 【注入】 | `AbstractImporter::AbstractImporter(ImportFileGateway&, SalesImportRepository&)` | 初期化リストで境界の参照を骨格へ渡す | 【利用開始】へ |
-| 3. 【利用開始】 | 実行部 | `ImportResult r = store.import();` | `AbstractImporter::import()` |
-| 4. 【安定骨格】 | `AbstractImporter::import()` | 開く→形式確認→`parseData()`→`validateRows()`→保存→閉じるの順 | `AbstractImporter::parseData()`（純粋仮想） |
-| 5. 【契約】 | `AbstractImporter::parseData(const vector<string>&)` | 派生へ動的ディスパッチする | `StoreDataImporter::parseData()` |
-| 6. 【具体】 | `StoreDataImporter::parseData(const vector<string>&)` | カンマ区切り・ヘッダーありの解析だけを行う | 戻り値を【安定骨格】の `validateRows()` へ |
+| 1. 【生成】 | `BatchApplication`（`gateway`・`repo` はメンバー） | `ImportFileGateway`／`SalesImportRepository` を所有し、`prepareSample()` でファイルを用意 | 【利用開始】へ |
+| 2. 【利用開始】＋【注入】 | `BatchApplication::runStoreImport()` | `StoreDataImporter store(gateway, repo);` ―― **この型が3つの差し替え点の行き先を決める**（＝【注入】）。続けて `store.import();` | `AbstractImporter::import()` |
+| 3. 【安定骨格】 | `AbstractImporter::import()` | `gateway.open(filePath())` → `checkFormatVersion()` → 差し替え点3つ → `repo.save()` → `close()` の順 | `parseData()`（純粋仮想） |
+| 4. 【契約】 | `AbstractImporter::parseData(const vector<string>&)` | 宣言だけ。実体の型で行き先が決まる | `StoreDataImporter::parseData()` |
+| 5. 【具体】 | `StoreDataImporter::parseData(const vector<string>&)` | カンマ区切り・ヘッダーありの解析だけを行う | 戻り値を【安定骨格】の `validateRows()` へ |
 
-この章の【契約】は別のインターフェース型ではなく、基底クラスの `protected` 純粋仮想フックです。【安定骨格】と【契約】が同じクラスに同居する点が他章と異なりますが、呼ぶ側（【安定骨格】の `import()`）と呼ばれる側（【契約】のフック宣言）は別々の責任です。
+**【注入】が2の行に同居しています。** 第9章では【注入】が独立した行（引き当て関数が参照を返す行）として2回現れましたが、**この章では実体を作る行がそのまま注入の瞬間です。** 3形のうち「継承で決まる」形を選んだ結果が、この表に出ています。
 
+**【契約】と【具体】が別の行なのに、同じクラスの中にあります。** 4は `AbstractImporter` の `protected` 宣言、5は `StoreDataImporter` の実装です。**呼ぶ側（骨格）と呼ばれる側（差し替え点）は、同じクラスに同居していても責任が違います。**
 
-これで課題ID1の完了条件「形式追加は差分処理だけ、共通手順追加は骨格1か所だけの変更で済む」を満たします。`ImportFileGateway` の内側は1-4の `SampleFileStore` と同じ `map<string, vector<string>>`、`save()` は1-4と同じ件数表示のままです。
-
-### 6-1：生成・所有・実行順のまとめ
-
-課題ID1を一本の実行経路へ束ね直します。上の課題別展開は試行錯誤の履歴ではなく、完成構造を理解できる単位へ分けた実装順です。
-
-- 骨格：`AbstractImporter::import()` が共通順を1か所に固定し、派生はフックだけを実装。
-- 境界：`ImportFileGateway`／`SalesImportRepository` を組み立て側が生成・所有し、Importerへ注入（1-4の既存仕様のまま）。
-- 実行順：`import()` → open → 形式確認 → `parseData()`（【具体】）→ `validateRows()`（【具体】）→ save → close。形式差分だけが骨格の外で差し替わります。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
@@ -1830,11 +2153,11 @@ struct ImportResult {
 
 | 接続点を変える観点 | システム全体での設計判断 | 変えたくない側が知らなくなる詳細 |
 |---|---|---|
-| 分離方法 | 課題ID1の形式ごとのパース・行検証を派生クラスのフックへ置く | 形式ごとの読み方 |
+| 分離方法 | 課題ID1の形式ごとの解析・行検証・追加計算を、派生クラスの差し替え点へ置く | 形式ごとの読み方 |
 | 配置場所 | 業務順序を基底、形式差分を派生、取得・保存を境界へ置く | 具体形式と保存媒体の詳細 |
-| 組み立て方法 | `BatchApplication` が生成・所有し、境界を注入して各Importerを実行する | 具体形式クラスの生成・選択 |
+| 組み立て方法 | `BatchApplication` が境界を所有し、派生Importerを作って貸す。実装は派生型で決まる | 具体形式クラスの生成・選択 |
 
-参照で非所有の依存を保持するため、`main()` の境界オブジェクトはImporterより長く生存させます。
+骨格は境界を参照で借りるだけなので、貸す側の `BatchApplication` がImporterより長く生存します。`BatchApplication` の値メンバとして持ち、Importerは実行メソッドのローカルにすることで、この前後関係が保たれます。
 
 #### システム全体のコード適用結果
 
@@ -1908,12 +2231,14 @@ classDiagram
     AbstractImporter <|-- StoreDataImporter
     AbstractImporter <|-- FCDataImporter
     AbstractImporter <|-- ECDataImporter
-    AbstractImporter --> ImportFileGateway : 使う
-    AbstractImporter --> SalesImportRepository : 使う
+    AbstractImporter --> ImportFileGateway : 借用
+    AbstractImporter --> SalesImportRepository : 借用
+    BatchApplication *-- ImportFileGateway : 所有
+    BatchApplication *-- SalesImportRepository : 所有
     BatchApplication --> SchemaRegistry : 参照する
-    BatchApplication --> AbstractImporter : 生成・実行する
+    BatchApplication ..> AbstractImporter : 生成・実行する
 
-    note for AbstractImporter "【課題ID1・新設】共通骨格を1か所へ固定<br/>parse/validateは純粋仮想フック"
+    note for AbstractImporter "【新設】業務順序を1か所へ固定<br/>差し替え点は同じクラスのprotectedに置く"
     note for StoreDataImporter "【課題ID1・残した】直営店のパース・行検証だけ"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
