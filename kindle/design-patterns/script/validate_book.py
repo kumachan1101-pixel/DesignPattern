@@ -2069,13 +2069,20 @@ def check_phase5_phase6_reasoning_contract(
 
     # 課題ID節は、変更前コード（おさらい）の後・最終構造の前に置く。
     # 読者は「変更前 → 課題ごとに少しずつ書き換える → 最終構造」の順で読む。
-    id_heads = [m.start() for m in re.finditer(r"(?m)^### 課題ID\d+：", phase6)]
+    # 課題IDは節見出しでも段中のラベルでもよい。求めるのは、5-3で確定した
+    # 課題IDが漏れなくフェーズ6の本文に現れることだけ（著者指摘 2026-08-15：
+    # 独立した軸は課題別に節を切らず、6段を1周して段ごとに軸を並べる）。
+    id_heads = [m.start() for m in re.finditer(r"(?m)^### 課題ID\d+", phase6)]
+    for issue_id in issue_ids:
+        label = issue_id if str(issue_id).startswith("課題ID") \
+            else f"課題ID{issue_id}"
+        if label not in phase6:
+            issues.append(Issue(
+                path, line_number(text, p6),
+                f"フェーズ6の本文に{label}の検討がありません",
+            ))
     if not id_heads:
-        issues.append(Issue(
-            path, line_number(text, p6),
-            "フェーズ6に課題ID別の検討節（`### 課題IDN：`）がありません",
-        ))
-        return issues
+        id_heads = [recap_start + len(recap_heading)]
 
     # EDIT-005移行期：部分クラス図をまとめ節へ置く旧構成も当面は通す。
     # 旧構成の章から順に、課題ID節へ図を分散する新構成へ移していく。
