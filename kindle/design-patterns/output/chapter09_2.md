@@ -2013,8 +2013,6 @@ public:
 };
 ```
 
-**コンストラクタがありません。** 状態が互いを参照せず「次はどの状態か」を名前で返すので、配線する処理そのものが不要になりました。状態名から状態オブジェクトを引くのは `phaseFor()` の `switch` 1か所です。
-
 **中身は3つに分かれます。**
 
 - **メンバー：** 具体状態5つと具体ルール3つを、値として直接持ちます。ポインタでも参照でもないので、`TicketPolicySet` が生きているあいだ部品も生きています
@@ -2024,6 +2022,12 @@ public:
 **コンストラクタがありません。** 1で「次はどの状態か」を名前で返す形にしたので、状態どうしを配線する処理そのものが不要になりました。**1の判断が、ここへ効いています。**
 
 **状態を1つ足すときに触るのは、`phaseFor()` の `switch` へ1行と、メンバーへ1行だけです。** 区分を1つ足すときも `priorityRule()` へ1行とメンバーへ1行。3で確認した完了条件の「登録に閉じる」が、この2か所を指しています。
+
+**所有と生存期間もここで決まります。**
+
+- 具体状態・具体ルールは `TicketPolicySet` が値メンバとして持ちます。相互に配線しないので、生成順を気にする必要がありません
+- `Ticket` が持つのは状態オブジェクトではなく `TicketStatus` の**値**です。保存済みデータが状態オブジェクトを指さないので、保存データと部品の生存期間が絡みません
+- したがって、生存期間を気にするのは「`TicketPolicySet` が `TicketService` より長生きするか」の1点だけになります。**これは次の5で確かめます。**
 
 ```mermaid
 classDiagram
@@ -2052,13 +2056,50 @@ classDiagram
 
 残るのは3つ目だけです。**注入すると先に決めているのではなく、契約を呼ぶと決めた時点で他の選択肢が消えます。**
 
-**掲載箇所：`main()`** ―― 組み立ての2行目
+**「渡す」がどう変わるのかは、`main()` の冒頭を並べると見えます。** 変更前はこうでした。
+
+**掲載箇所：`main()`** ―― 3-1の組み立て（対策前）
 
 ```cpp
-TicketService svc(repo, users, staff, log, policies);   // 契約の実体を渡す
+int main() {
+    TicketManager manager;   // これだけ。部品は manager の中にある
 ```
 
-受け取る側の `TicketService` は、2の宣言で見たとおり参照をメンバーへ保持するだけです。コンストラクタで判断も生成もしません。5つの引数のうち、契約に関わるのは最後の `policies` だけです。**4で箱を1つにしたので、軸が2つあっても契約の引数は1つで済んでいます。**
+**部品が1つも見えません。** `TicketManager` が `TicketRepository`・`UserDatabase`・`PriorityCalculator` を値メンバとして内側に持っているからです（基準の図の `*--` 3本）。`main()` は部品の存在を知らずに済む代わりに、**差し替えることもできません。**
+
+変更後はこうなります。
+
+**掲載箇所：`main()`** ―― 組み立ての全体（対策後）
+
+```cpp
+int main() {
+    UserDatabase     users;     // 依頼者の台帳（USR）
+    StaffDirectory   staff;     // 担当者名簿（AGT）
+    TicketRepository repo;      // チケットの保存先
+    TicketEventLog   log;       // 監査ログ
+    TicketPolicySet  policies;  // 状態契約とルール契約の実体（4で作った箱）
+    TicketService    svc(repo, users, staff, log, policies);
+```
+
+**部品が5つとも `main()` に出てきました。** `TicketService` は1つも作らず、5つを**参照として借りるだけ**です。作る場所が中から外へ出たこと、それがこの段で言う「注入」です。
+
+渡している5つの中身は次のとおりです。
+
+| 引数 | 何を渡しているか | 変更前はどこにあったか |
+|---|---|---|
+| `repo` | チケットの保存先 | `TicketManager` の値メンバ |
+| `users` | 依頼者の台帳（区分を引く） | `TicketManager` の値メンバ |
+| `staff` | 担当者名簿（表示用） | 1-4には無い。7-1で追加する |
+| `log` | 監査ログ（記録用） | 1-4には無い。7-1で追加する |
+| `policies` | 状態契約とルール契約の実体 | **`PriorityCalculator` が居た場所** |
+
+**この章の対策で入れ替わったのは、最後の1行だけです。** `PriorityCalculator`（具体の判定を持つクラス）が消え、`TicketPolicySet`（契約の実体を持つ箱）が入りました。`repo` と `users` は変更前から `TicketManager` が持っていたものが、内側から引数へ移っただけです。
+
+**`repo` と `users` まで外へ出したのはなぜか。** この2つは自分で作っても分離は壊れません。それでも外へそろえたのは、**組み立ての場所を1か所にするため**です。一部を中で作り一部を外から受け取ると、どれが差し替え可能でどれが固定なのかが読めなくなります。`main()` の6行を見れば、このシステムが何を部品として持っているかが全部分かる状態にします。
+
+**生存期間もこの並びで決まります。** `policies` は `svc` より前の行で作られ、`main()` を抜けるまで生きています。`TicketService` が持つのは参照なので、**借りている相手が先に消えることはありません。** 4で「次の5で確かめます」と書いたのがこれです。
+
+受け取る側の形は、2で見た宣言のとおりです。5つの参照をメンバーへ保持するだけで、コンストラクタで判断も生成もしません。5つのうち契約に関わるのは `policies` だけで、**4で箱を1つにしたおかげで、軸が2つあっても契約の引数は1つで済んでいます。**
 
 ---
 
@@ -2069,18 +2110,15 @@ TicketService svc(repo, users, staff, log, policies);   // 契約の実体を渡
 **掲載箇所：`main()`** ―― 3-1の起票とアサイン（対策前）
 
 ```cpp
-TicketManager manager;                                 // 全部を1つのクラスが内包
-manager.create("TCK001", "USR003");
-manager.updateStatus("TCK001", "assign", "AGT01");
+    manager.create("TCK001", "USR003");
+    manager.updateStatus("TCK001", "assign", "AGT01");
 ```
 
-**掲載箇所：`main()`** ―― 同じ操作（対策後）
+**掲載箇所：`main()`** ―― 同じ操作（対策後、5で見た組み立ての続き）
 
 ```cpp
-TicketPolicySet policies;                                // 【生成】
-TicketService   svc(repo, users, staff, log, policies);  // 【注入】
-svc.create("TCK001", "USR003");                          // 【利用開始】課題ID2の経路
-svc.assign("TCK001", "AGT01");                           // 【利用開始】課題ID1の経路
+    svc.create("TCK001", "USR003");   // 課題ID2の経路：区分から優先度を決める
+    svc.assign("TCK001", "AGT01");    // 課題ID1の経路：現在状態へ操作を委譲する
 ```
 
 **2つの軸で、変わり方が違いました。**
@@ -2189,29 +2227,6 @@ classDiagram
 | 7. 【契約】【具体】状態軸 | `ITicketPhase::assign()` → `OpenPhase::assign()` | 許可操作なので `{true, TicketStatus::InProgress}` を返す | 戻り値を【安定骨格】が保存 |
 
 **4〜5と6〜7が、まったく交わっていません。** 優先度軸は `IPriorityRule` の裏で完結し、状態軸は `ITicketPhase` の裏で完結します。共有しているのは【生成】で作った1つの `policies` と、【注入】で渡した1つの `svc` だけです。**2つの軸が独立しているという5-2の判断が、実行経路でも確認できます。**
-
-#### 一本の実行経路へ束ねる
-
-4で開いた `TicketPolicySet` と、2で見た安定骨格を並べて、実行経路を1本につなぎます。具体状態・具体ルールの生成、所有、選択はすべて `TicketPolicySet` に集まり、`TicketService` は組み立て済みの部品を注入されて使います。
-
-**掲載箇所：`TicketService::assign(const std::string&, const std::string&)`**
-
-```cpp
-// 安定側：組み立て済みの抽象契約を使って保存済みチケットを更新する
-void TicketService::assign(const std::string& ticketId,
-                           const std::string& assigneeId) {
-    Ticket& t = repo.get(ticketId);   // 保存済みを読む
-    Transition tr = policies.phaseFor(t.status).assign();  // 現在状態へ委譲
-    if (!tr.allowed) return;          // 不可なら何もしない
-    t.status = tr.next;               // 返った状態名を保存
-    t.assigneeId = assigneeId;
-    repo.save(t);
-}
-```
-
-- 状態・ルール：`TicketPolicySet` が値メンバとして生成・所有する。相互配線は無い。
-- `Ticket` が持つのは状態オブジェクトではなく `TicketStatus` の値です。チケットが状態オブジェクトを指さないので、保存済みデータと部品の生存期間が絡みません。`TicketService` が使うPolicySetだけが借用参照で、`main()` がPolicySetを先に作ることで生存期間を保証します。
-- 優先度は登録時に確定して保存し、再受付時はユーザー種別から計算し直し、エスカレーション時はHighへ引き上げます。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
