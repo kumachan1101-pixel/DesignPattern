@@ -1539,7 +1539,7 @@ classDiagram
 | 2【安定骨格】 | 呼ぶのは、残った側 | 軸ごと |
 | 3【具体】 | 契約の裏を埋める | 軸ごと |
 | 4【生成】 | 実体を作る人がいる | **共通** |
-| 5【注入】 | 作ったものを渡す | **共通** |
+| 5【注入】 | 実装を骨格へ渡す | **共通** |
 | 6【利用開始】 | 結果として、呼び方はこうなった | **共通** |
 
 **出発点。** やることはもう決まっています。`updateStatus()` から状態ごとの振る舞いを、`PriorityCalculator::calculate` から区分ごとの判定条件を、それぞれ分けることです。分ける対象も5-3で決まっています。まだ決まっていないのは、**分けた後にどう繋ぐか**だけです。
@@ -1995,69 +1995,59 @@ classDiagram
 
 ---
 
-**5. 作ったものを渡す 【注入】**
+**5. 実装を骨格へ渡す 【注入】**
 
-`TicketService::assign()` の中から `phaseFor()` を呼ぶには、`TicketService` が `TicketPolicySet` へ手が届いていなければなりません。届かせ方は4つあります。
+2で空けた穴は `phaseFor(t.status)` でした。4で、この関数を `TicketPolicySet` が持つと決めました。**残っているのは、この関数が何を返すかです。**
 
-| 届かせ方 | この章で成立するか |
-|---|---|
-| `TicketService` が具体状態・具体ルールを直接持つ | **不可。** `OpenPhase` や `CorporatePriority` の名前をここで書くことになり、1で分けた意味が消えます |
-| `TicketPolicySet` を**値メンバ**として持つ | **成立します。** 箱の名前は知りますが、中の具体クラスは知りません |
-| どこかから取りに行く（グローバル変数やシングルトン） | 動きますが、依存が宣言にも引数にも現れません。何を使っているかがクラスの外から読めなくなります |
-| 外から参照で受け取る | 成立します。第9章はこれを採ります |
-
-**消えるのは1つ目と3つ目だけです。2つ目——値メンバ——も成立します。** ここは正直に書きます。
-
-**なぜ値メンバにしないのか。** この章では、`main()` が最後に `log.printAll()` を呼んで監査ログを出力します。**`log` だけは、`TicketService` の外に居なければなりません。** 1つを外へ出す以上、組み立ての場所は `main()` になります。そこで**残りもそろえて外へ出しました。**
-
-**そろえたことで得るものと、払うもの。** 得るのは、`main()` の6行を見ればこのシステムの部品が全部分かることと、テストで別の `TicketRepository` を渡せる余地です。払うのは、`main()` に5行増えることと、**部品が `svc` より長生きするかを読者が追う必要が出ること**です。
-
-**この章では、差し替える場面を1つも出していません。** だから「差し替えられるから注入した」とは言えません。**「`log` を外に出す必要があり、それにそろえた」** ——それがこの設計の理由です。部品を1つも外に出す必要がない章なら、値メンバのままで構いません。
-
-**「渡す」がどう変わるのかは、`main()` の冒頭を並べると見えます。** 変更前はこうでした。
-
-**掲載箇所：`main()`** ―― 3-1の組み立て（対策前）
+**掲載箇所：`TicketPolicySet::phaseFor(TicketStatus)` と `TicketPolicySet::priorityRule(UserType)`** ―― 戻り値の型だけを見る
 
 ```cpp
-int main() {
-    TicketManager manager;   // これだけ。部品は manager の中にある
+    const ITicketPhase& phaseFor(TicketStatus status) const;
+    IPriorityRule&      priorityRule(UserType type);
 ```
 
-**部品が1つも見えません。** `TicketManager` が `TicketRepository`・`UserDatabase`・`PriorityCalculator` を値メンバとして内側に持っているからです（基準の図の `*--` 3本）。`main()` は部品の存在を知らずに済む代わりに、**差し替えることもできません。**
+返すのは**契約への参照**です。具体クラスの型では返しません。そして、この戻り値を受けた瞬間が、この設計の中心です。
 
-変更後はこうなります。
+**掲載箇所：`TicketService::assign(const string&, const string&)`** ―― 2の骨格の、穴が埋まった形
 
-**掲載箇所：`main()`** ―― 組み立ての全体（対策後）
+```cpp
+    // 2で書いた行：  const ITicketPhase& phase = phaseFor(t.status);
+    const ITicketPhase& phase = policies.phaseFor(t.status);  // ←ここで実装が入る
+    Transition tr = phase.assign();
+```
+
+**この1行が注入です。** 骨格は `ITicketPhase` としか書いていないのに、実行時には `OpenPhase` が入っています。入れているのは `phaseFor()` であって、骨格ではありません。**骨格は、何が入ったかを最後まで知りません。**
+
+**そして、どれが入るかは呼ぶたびに変わります。** 鍵は `t.status`——保存済みチケットが持っている状態です。同じ `assign()` の呼び出しでも、受付中のチケットなら `OpenPhase` が、解決済みなら `ResolvedPhase` が入ります。**組み立てのときに1回決まるのではありません。**
+
+課題ID2も同じ形です。`priorityRule(category)` が `IPriorityRule&` を返し、`create()` の中で受けます。違うのは鍵だけです。
+
+| 軸 | 実装を選ぶ鍵 | 鍵の出どころ | 入る場所 |
+|---|---|---|---|
+| 状態（課題ID1） | `t.status` | 保存済みチケット | `TicketService::assign()` ほか |
+| 優先度（課題ID2） | `requester.userType` | 依頼者の台帳 | `TicketService::create()`／`reopen()` |
+
+**2つの構造の違いは、この表の1列に出ます。** 状態分離（State）は**保存された状態**が鍵、規則差し替え（Strategy）は**入力の属性**が鍵です。**入れる仕組みそのものは同じ**で、鍵の出どころが違うだけです。
+
+**骨格が `policies` へ届く方法は、これとは別の話です。** `TicketService` が `TicketPolicySet` を値メンバとして持っても、外から参照で受け取っても、`phaseFor()` が実装を返すことは変わりません。**注入はどちらの持ち方でも起きます。**
+
+第9章は外から受け取る形にしています。理由は1つで、`main()` が最後に `log.printAll()` を呼んで監査ログを出力するため、**`log` だけは `TicketService` の外に居なければなりません。** 1つを外へ出す以上、組み立ての場所は `main()` になるので、残りもそろえました。**「差し替えたいから」ではありません。** この章では差し替える場面を1つも出していないので、そうは言えません。
+
+**掲載箇所：`main()`** ―― 組み立て（対策後）
 
 ```cpp
 int main() {
     UserDatabase     users;     // 依頼者の台帳（USR）
     StaffDirectory   staff;     // 担当者名簿（AGT）
     TicketRepository repo;      // チケットの保存先
-    TicketEventLog   log;       // 監査ログ
-    TicketPolicySet  policies;  // 状態契約とルール契約の実体（4で作った箱）
+    TicketEventLog   log;       // 監査ログ。main が printAll() を呼ぶ
+    TicketPolicySet  policies;  // 4で決めた箱
     TicketService    svc(repo, users, staff, log, policies);
 ```
 
-**部品が5つとも `main()` に出てきました。** `TicketService` は1つも作らず、5つを**参照として借りるだけ**です。作る場所が中から外へ出たこと、それがこの段で言う「注入」です。
+変更前は `TicketManager manager;` の1行でした。部品を値メンバとして内側に持っていたからです。**5行増えたぶんは、この設計が払ったコストとして数えます。**
 
-渡している5つの中身は次のとおりです。
-
-| 引数 | 何を渡しているか | 変更前はどこにあったか |
-|---|---|---|
-| `repo` | チケットの保存先 | `TicketManager` の値メンバ |
-| `users` | 依頼者の台帳（区分を引く） | `TicketManager` の値メンバ |
-| `staff` | 担当者名簿（表示用） | 1-4には無い。7-1で追加する |
-| `log` | 監査ログ（記録用） | 1-4には無い。7-1で追加する |
-| `policies` | 状態契約とルール契約の実体 | **`PriorityCalculator` が居た場所** |
-
-**この章の対策で入れ替わったのは、最後の1行だけです。** `PriorityCalculator`（具体の判定を持つクラス）が消え、`TicketPolicySet`（契約の実体を持つ箱）が入りました。`repo` と `users` は変更前から `TicketManager` が持っていたものが、内側から引数へ移っただけです。
-
-**`repo` と `users` まで外へ出したのはなぜか。** この2つは自分で作っても分離は壊れません。それでも外へそろえたのは、**組み立ての場所を1か所にするため**です。一部を中で作り一部を外から受け取ると、どれが差し替え可能でどれが固定なのかが読めなくなります。`main()` の6行を見れば、このシステムが何を部品として持っているかが全部分かる状態にします。
-
-**生存期間もこの並びで決まります。** `policies` は `svc` より前の行で作られ、`main()` を抜けるまで生きています。`TicketService` が持つのは参照なので、**借りている相手が先に消えることはありません。** 4で「次の5で確かめます」と書いたのがこれです。
-
-**2で書けなかった宣言が、ここで完成します。** 4つ分かっていたメンバーに5つ目が加わり、コンストラクタが書けるようになりました。
+**2で書けなかった宣言も、ここで完成します。**
 
 **掲載箇所：`TicketService`（クラス宣言・完成）**
 
@@ -2067,7 +2057,7 @@ class TicketService {
     UserDatabase&     users;     // 1-4から継続：依頼者の区分照会
     StaffDirectory&   staff;     // 表示用：担当者IDから氏名を引く
     TicketEventLog&   log;       // 記録用：状態遷移を時系列で残す
-    TicketPolicySet&  policies;  // 5で決めた5つ目。契約の実体を引く
+    TicketPolicySet&  policies;  // 実装を引き当てる相手
 public:
     TicketService(TicketRepository& r, UserDatabase& u,
                   StaffDirectory& s, TicketEventLog& l,
@@ -2080,22 +2070,7 @@ public:
 };
 ```
 
-5つの参照をメンバーへ保持するだけで、コンストラクタで判断も生成もしません。5つのうち契約に関わるのは `policies` だけで、**4で箱を1つにしたおかげで、軸が2つあっても契約の引数は1つで済んでいます。**
-
-**そして、2で穴の空いていた骨格が完成します。** 変わるのは1か所だけです。
-
-**掲載箇所：`TicketService::assign(const string&, const string&)`** ―― 2の骨格の、穴が埋まった形
-
-```cpp
-    // 2で書いた行：  const ITicketPhase& phase = phaseFor(t.status);
-    const ITicketPhase& phase = policies.phaseFor(t.status);
-```
-
-**`policies.` が付いただけです。** 2で「この関数が誰のものかはまだ決めていない」と書いた、その所有者が決まりました。`create()` の `priorityRule(category)` も同じく `policies.priorityRule(category)` になります。
-
-これで、2で立てた問い（値から実体をどう引くか）が閉じました。**骨格の3段そのものは、2で書いたときから1行も変わっていません。**
-
----
+**骨格の3段そのものは、2で書いたときから1行も変わっていません。** 変わったのは `phaseFor()` の前に `policies.` が付いたことだけです。変わっていたら、骨格の切り方を間違えていたことになります。
 
 **6. 結果として、呼び方はこうなった 【利用開始】**
 
@@ -2201,26 +2176,29 @@ classDiagram
 | 【安定骨格】（軸ごと） | 状態と優先度が混ざる `updateStatus()` → `TicketService::assign()`／`create()` が委譲と保存だけを行う | 残った側の手順を、具体が増えても段数が変わらない形で固定する | 契約の裏に何を置くか＝【具体】 |
 | 【具体】（軸ごと） | 分岐に埋もれた状態別可否とルール → `OpenPhase::assign()` ほか5クラス／`CorporatePriority::getPriority()` ほか3クラス | 契約のメソッドだけを埋め、それ以外を書かない | 実体を誰が作るか＝【生成】 |
 | 【生成】（共通） | `TicketManager` が全分岐を内包 → `TicketPolicySet` が状態とルールを生成・所有 | 箱を1つにするか2つにするかを決め、具体の生成と所有を1か所へ集める | 作ったものをどう渡すか＝【注入】 |
-| 【注入】（共通） | 利用側が区分を見て呼び分け → `TicketService(repo, users, staff, log, policies)` | 自分で作る・取りに行くを消し、外から受け取る形だけを残す | すべて決まった結果としての呼び方＝【利用開始】 |
+| 【注入】（共通） | 利用側が区分を見て呼び分け → `phaseFor(status)`／`priorityRule(type)` が契約への参照を返す | 骨格が持つ契約の変数へ、鍵に応じた実装を呼び出しごとに入れる | すべて決まった結果としての呼び方＝【利用開始】 |
 | 【利用開始】（共通） | 呼び出し側が操作名の文字列を渡す → `svc.assign("TCK001", "AGT01");` | 組み立てた同じ実体を使い、公開操作を呼ぶ | ここから実行が始まり、【安定骨格】へ入る |
 
 **【利用開始】が最後にあるのは、対策後の呼び方が設計の結果だからです。** `updateStatus("TCK001", "assign", "AGT01")` が `svc.assign("TCK001", "AGT01")` へ変わるのは、上の5つを決め終えてから分かることでした。一方で課題ID2の `svc.create("TCK001", "USR003")` は引数が変わっていません。**同じ順で考えても、呼び方が変わるかどうかは課題によって違います。**
 
 #### 代表ケースの実行接続
 
-6段は考えた順でした。**ここからは実行時に通る順で、同じ6つを貫きます。** TCK001の起票（優先度軸）とアサイン（状態軸）を、1本の経路として追います。
+6段は考えた順でした。**ここからは実行時に通る順で貫きます。** TCK001の起票（優先度軸）とアサイン（状態軸）を、1本の経路として追います。**【注入】は軸ごとに1回ずつ通るので、行は8つになります。**
 
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
-| 1. 【生成】 | `main()` | `TicketPolicySet policies;` が具体状態5つと具体ルール3つを生成・所有 | 【注入】へ |
-| 2. 【注入】 | `main()` | `TicketService svc(repo, users, staff, log, policies);` | 【利用開始】へ |
-| 3. 【利用開始】 | `main()` | `svc.create("TCK001", "USR003");` → 続けて `svc.assign("TCK001", "AGT01");` | `TicketService::create()`／`assign()` |
-| 4. 【安定骨格】優先度軸 | `TicketService::create(const string&, const string&)` | `users.get(userId)` で区分を引き、`policies.priorityRule(category).getPriority()` を呼んで結果を保存 | `IPriorityRule::getPriority()` |
-| 5. 【契約】【具体】優先度軸 | `IPriorityRule::getPriority()` → `NormalPriority::getPriority()` | USR003は一般区分なので `Priority::Normal` を返す | 戻り値を【安定骨格】が保存 |
-| 6. 【安定骨格】状態軸 | `TicketService::assign(const string&, const string&)` | `policies.phaseFor(t.status).assign()` で現在状態へ委譲し、返った遷移先を保存 | `ITicketPhase::assign()` |
-| 7. 【契約】【具体】状態軸 | `ITicketPhase::assign()` → `OpenPhase::assign()` | 許可操作なので `{true, TicketStatus::InProgress}` を返す | 戻り値を【安定骨格】が保存 |
+| 1. 【生成】 | `main()` | `TicketPolicySet policies;` が具体状態5つと具体ルール3つを生成・所有 | 【利用開始】へ |
+| 2. 【利用開始】 | `main()` | `svc.create("TCK001", "USR003");` → 続けて `svc.assign("TCK001", "AGT01");` | `TicketService::create()`／`assign()` |
+| 3. 【安定骨格】優先度軸 | `TicketService::create(const string&, const string&)` | `users.get(userId)` で区分を引く（鍵をそろえる） | `TicketPolicySet::priorityRule()` |
+| 4. 【注入】優先度軸 | `TicketPolicySet::priorityRule(UserType)` | USR003は一般区分なので `NormalPriority` への参照を返す | 骨格の `IPriorityRule&` へ入る |
+| 5. 【契約】【具体】優先度軸 | `IPriorityRule::getPriority()` → `NormalPriority::getPriority()` | `Priority::Normal` を返す | 戻り値を【安定骨格】が保存 |
+| 6. 【安定骨格】状態軸 | `TicketService::assign(const string&, const string&)` | `repo.get(ticketId)` で読み、`t.status` を鍵にする | `TicketPolicySet::phaseFor()` |
+| 7. 【注入】状態軸 | `TicketPolicySet::phaseFor(TicketStatus)` | 受付中なので `OpenPhase` への参照を返す | 骨格の `const ITicketPhase&` へ入る |
+| 8. 【契約】【具体】状態軸 | `ITicketPhase::assign()` → `OpenPhase::assign()` | 許可操作なので `{true, TicketStatus::InProgress}` を返す | 戻り値を【安定骨格】が保存 |
 
-**4〜5と6〜7が、まったく交わっていません。** 優先度軸は `IPriorityRule` の裏で完結し、状態軸は `ITicketPhase` の裏で完結します。共有しているのは【生成】で作った1つの `policies` と、【注入】で渡した1つの `svc` だけです。**2つの軸が独立しているという5-2の判断が、実行経路でも確認できます。**
+**3〜5と6〜8が、まったく交わっていません。** 優先度軸は `IPriorityRule` の裏で完結し、状態軸は `ITicketPhase` の裏で完結します。共有しているのは【生成】で作った1つの `policies` だけです。**2つの軸が独立しているという5-2の判断が、実行経路でも確認できます。**
+
+**【注入】が2回現れることに注目してください。** 組み立てのときに1回ではなく、**軸ごとに、呼び出しのたびに**実装が入ります。鍵が違えば入るものが変わります。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
