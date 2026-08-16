@@ -1984,7 +1984,7 @@ classDiagram
     class TicketPolicySet
     class ITicketPhase { <<interface>> }
     class IPriorityRule { <<interface>> }
-    TicketService --> TicketPolicySet : 状態とルールを引く
+    TicketService *-- TicketPolicySet : 保持
     TicketPolicySet o--> ITicketPhase : 生成・所有
     TicketPolicySet o--> IPriorityRule : 生成・所有・区分で選択
     class TicketPolicySet:::focus
@@ -2031,44 +2031,38 @@ classDiagram
 
 **骨格が `policies` へ届く方法は、これとは別の話です。** `TicketService` が `TicketPolicySet` を値メンバとして持っても、外から参照で受け取っても、`phaseFor()` が実装を返すことは変わりません。**注入はどちらの持ち方でも起きます。**
 
-第9章は外から受け取る形にしています。理由は1つで、`main()` が最後に `log.printAll()` を呼んで監査ログを出力するため、**`log` だけは `TicketService` の外に居なければなりません。** 1つを外へ出す以上、組み立ての場所は `main()` になるので、残りもそろえました。**「差し替えたいから」ではありません。** この章では差し替える場面を1つも出していないので、そうは言えません。
-
-**掲載箇所：`main()`** ―― 組み立て（対策後）
-
-```cpp
-int main() {
-    UserDatabase     users;     // 依頼者の台帳（USR）
-    StaffDirectory   staff;     // 担当者名簿（AGT）
-    TicketRepository repo;      // チケットの保存先
-    TicketEventLog   log;       // 監査ログ。main が printAll() を呼ぶ
-    TicketPolicySet  policies;  // 4で決めた箱
-    TicketService    svc(repo, users, staff, log, policies);
-```
-
-変更前は `TicketManager manager;` の1行でした。部品を値メンバとして内側に持っていたからです。**5行増えたぶんは、この設計が払ったコストとして数えます。**
-
-**2で書けなかった宣言も、ここで完成します。**
+**第9章は値メンバにします。** 1-4の `TicketManager` は `repo`・`db`・`calc` を値メンバで持っていました。**この章の課題は「状態と優先度の判定を外へ出す」ことであって、部品の持ち方ではありません。** 課題に無関係なところを変えると、読者は「これも対策の一部か」と読みます。だから持ち方は1-4のままにします。
 
 **掲載箇所：`TicketService`（クラス宣言・完成）**
 
 ```cpp
 class TicketService {
-    TicketRepository& repo;      // 1-4から継続：チケットの保存・取得
-    UserDatabase&     users;     // 1-4から継続：依頼者の区分照会
-    StaffDirectory&   staff;     // 表示用：担当者IDから氏名を引く
-    TicketEventLog&   log;       // 記録用：状態遷移を時系列で残す
-    TicketPolicySet&  policies;  // 実装を引き当てる相手
+    TicketRepository repo;      // 1-4から継続：チケットの保存・取得
+    UserDatabase     users;     // 1-4から継続：依頼者の区分照会
+    StaffDirectory   staff;     // 表示用：担当者IDから氏名を引く
+    TicketEventLog   log;       // 記録用：状態遷移を時系列で残す
+    TicketPolicySet  policies;  // 4で決めた箱。実装を引き当てる相手
 public:
-    TicketService(TicketRepository& r, UserDatabase& u,
-                  StaffDirectory& s, TicketEventLog& l,
-                  TicketPolicySet& p)
-        : repo(r), users(u), staff(s), log(l), policies(p) {}
-
     void create(const std::string& ticketId, const std::string& userId);
     void assign(const std::string& ticketId, const std::string& assigneeId);
     // resolve / escalate / reopen / hold / sendBack も同じ形
+
+    void printAuditLog() const { log.printAll(); }  // 監査ログを外へ出す
 };
 ```
+
+**コンストラクタがありません。** 5つとも引数なしで作れるからです。**1-4から入れ替わったのは1行だけです。** `PriorityCalculator calc;` が `TicketPolicySet policies;` になりました。
+
+**外から使うものは、公開操作にします。** `main()` は最後に監査ログを出力しますが、`log` を直接触るのではなく `svc.printAuditLog()` を呼びます。**部品の中へ手を伸ばさせないためです。** 1-4でも `main()` は `manager` しか触っていませんでした。
+
+**掲載箇所：`main()`** ―― 組み立て（対策後）
+
+```cpp
+int main() {
+    TicketService svc;
+```
+
+**変更前も `TicketManager manager;` の1行でした。** 組み立ての行は増えていません。この章の対策で `main()` が払ったコストは0行です。
 
 **骨格の3段そのものは、2で書いたときから1行も変わっていません。** 変わったのは `phaseFor()` の前に `policies.` が付いたことだけです。変わっていたら、骨格の切り方を間違えていたことになります。
 
@@ -2083,7 +2077,7 @@ public:
     manager.updateStatus("TCK001", "assign", "AGT01");
 ```
 
-**掲載箇所：`main()`** ―― 同じ操作（対策後、5で見た組み立ての続き）
+**掲載箇所：`main()`** ―― 同じ操作（対策後）
 
 ```cpp
     svc.create("TCK001", "USR003");   // 課題ID2の経路：区分から優先度を決める
@@ -2098,7 +2092,7 @@ public:
 
 **同じ6段を通っても、呼び方が変わるかどうかは課題によって違います。** そして**どちらも、1から5の結果であって前提ではありません。** 先に見せると、まだ導いていない結論を見せることになります。
 
-増えたのは組み立ての2行です。これは隠さず数えます。利用側が `ITicketPhase::assign()` や `IPriorityRule::getPriority()` を直接呼ぶことはありません。
+**組み立ての行は増えていません。** 変更前は `TicketManager manager;`、変更後は `TicketService svc;` で、どちらも1行です。利用側が `ITicketPhase::assign()` や `IPriorityRule::getPriority()` を直接呼ぶこともありません。
 
 #### システム全体の最終構造を決める
 
@@ -2127,11 +2121,11 @@ classDiagram
     class CorporatePriority
     class PremiumPriority
     class NormalPriority
-    TicketService --> TicketRepository : チケット保存
-    TicketService --> UserDatabase : 依頼者照会
-    TicketService --> StaffDirectory : 担当者照会
-    TicketService --> TicketEventLog : 監査記録
-    TicketService --> TicketPolicySet : 状態・ルールを利用
+    TicketService *-- TicketRepository : 保持
+    TicketService *-- UserDatabase : 保持
+    TicketService *-- StaffDirectory : 保持
+    TicketService *-- TicketEventLog : 保持
+    TicketService *-- TicketPolicySet : 保持
     TicketPolicySet o--> ITicketPhase : 状態を所有・配線
     TicketPolicySet o--> IPriorityRule : ルールを所有・選択
     TicketRepository --> Ticket : 保存
@@ -2175,7 +2169,7 @@ classDiagram
 | 【契約】（軸ごと） | `updateStatus()` の巨大 `switch` → `ITicketPhase` の6操作／`calculate()` の `if` 連鎖 → `IPriorityRule::getPriority()` | 線を引き、隙間を跨ぐものを両方向数えて契約にする（状態軸は2つ、優先度軸は1つ） | この契約を誰が呼ぶか＝【安定骨格】 |
 | 【安定骨格】（軸ごと） | 状態と優先度が混ざる `updateStatus()` → `TicketService::assign()`／`create()` が委譲と保存だけを行う | 残った側の手順を、具体が増えても段数が変わらない形で固定する | 契約の裏に何を置くか＝【具体】 |
 | 【具体】（軸ごと） | 分岐に埋もれた状態別可否とルール → `OpenPhase::assign()` ほか5クラス／`CorporatePriority::getPriority()` ほか3クラス | 契約のメソッドだけを埋め、それ以外を書かない | 実体を誰が作るか＝【生成】 |
-| 【生成】（共通） | `TicketManager` が全分岐を内包 → `TicketPolicySet` が状態とルールを生成・所有 | 箱を1つにするか2つにするかを決め、具体の生成と所有を1か所へ集める | 作ったものをどう渡すか＝【注入】 |
+| 【生成】（共通） | `TicketManager` が全分岐を内包 → `TicketPolicySet` が状態とルールを生成・所有し、`TicketService` が値メンバとして持つ | 箱を1つにするか2つにするかを決め、具体の生成と所有を1か所へ集める | 実装をどう骨格へ入れるか＝【注入】 |
 | 【注入】（共通） | 利用側が区分を見て呼び分け → `phaseFor(status)`／`priorityRule(type)` が契約への参照を返す | 骨格が持つ契約の変数へ、鍵に応じた実装を呼び出しごとに入れる | すべて決まった結果としての呼び方＝【利用開始】 |
 | 【利用開始】（共通） | 呼び出し側が操作名の文字列を渡す → `svc.assign("TCK001", "AGT01");` | 組み立てた同じ実体を使い、公開操作を呼ぶ | ここから実行が始まり、【安定骨格】へ入る |
 
@@ -2187,8 +2181,8 @@ classDiagram
 
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
-| 1. 【生成】 | `main()` | `TicketPolicySet policies;` が具体状態5つと具体ルール3つを生成・所有 | 【利用開始】へ |
-| 2. 【利用開始】 | `main()` | `svc.create("TCK001", "USR003");` → 続けて `svc.assign("TCK001", "AGT01");` | `TicketService::create()`／`assign()` |
+| 1. 【生成】 | `TicketService`（値メンバ `policies`） | `TicketPolicySet` が具体状態5つと具体ルール3つを生成・所有 | 【利用開始】へ |
+| 2. 【利用開始】 | `main()` | `TicketService svc;` の後、`svc.create("TCK001", "USR003");` → 続けて `svc.assign("TCK001", "AGT01");` | `TicketService::create()`／`assign()` |
 | 3. 【安定骨格】優先度軸 | `TicketService::create(const string&, const string&)` | `users.get(userId)` で区分を引く（鍵をそろえる） | `TicketPolicySet::priorityRule()` |
 | 4. 【注入】優先度軸 | `TicketPolicySet::priorityRule(UserType)` | USR003は一般区分なので `NormalPriority` への参照を返す | 骨格の `IPriorityRule&` へ入る |
 | 5. 【契約】【具体】優先度軸 | `IPriorityRule::getPriority()` → `NormalPriority::getPriority()` | `Priority::Normal` を返す | 戻り値を【安定骨格】が保存 |
@@ -2196,7 +2190,7 @@ classDiagram
 | 7. 【注入】状態軸 | `TicketPolicySet::phaseFor(TicketStatus)` | 受付中なので `OpenPhase` への参照を返す | 骨格の `const ITicketPhase&` へ入る |
 | 8. 【契約】【具体】状態軸 | `ITicketPhase::assign()` → `OpenPhase::assign()` | 許可操作なので `{true, TicketStatus::InProgress}` を返す | 戻り値を【安定骨格】が保存 |
 
-**3〜5と6〜8が、まったく交わっていません。** 優先度軸は `IPriorityRule` の裏で完結し、状態軸は `ITicketPhase` の裏で完結します。共有しているのは【生成】で作った1つの `policies` だけです。**2つの軸が独立しているという5-2の判断が、実行経路でも確認できます。**
+**3〜5と6〜8が、まったく交わっていません。** 優先度軸は `IPriorityRule` の裏で完結し、状態軸は `ITicketPhase` の裏で完結します。共有しているのは `TicketService` が持つ1つの `policies` だけです。**2つの軸が独立しているという5-2の判断が、実行経路でも確認できます。**
 
 **【注入】が2回現れることに注目してください。** 組み立てのときに1回ではなく、**軸ごとに、呼び出しのたびに**実装が入ります。鍵が違えば入るものが変わります。
 
@@ -2250,7 +2244,7 @@ PolicySetをServiceより先に生成します。保存されるチケットが�
 | 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
 |---|---|---|---|
 | 課題ID1（状態処理） | 状態分離。`TicketService`が現在Phaseへ委譲し、各状態が次状態を返す | `ITicketPhase`、`OpenPhase`／`InProgressPhase`／`PendingPhase`／`ResolvedPhase`／`EscalatedPhase` | 状態追加が新状態と遷移登録に閉じる |
-| 課題ID2（優先度判定） | 規則差し替え。`TicketPolicySet`が全ルールを配線し、注入された`IPriorityRule`へ委ねる | `IPriorityRule`、`PremiumPriority`／`CorporatePriority`／`NormalPriority`、`TicketPolicySet` | 区分追加が新ルールと注入に閉じる |
+| 課題ID2（優先度判定） | 規則差し替え。`TicketPolicySet`が全ルールを所有し、区分で選んだ`IPriorityRule`へ委ねる | `IPriorityRule`、`PremiumPriority`／`CorporatePriority`／`NormalPriority`、`TicketPolicySet` | 区分追加が新ルールと選択登録に閉じる |
 | 変更対象外 | 公開操作・保存。進行入口は委譲先だけが変わる | `TicketService`の公開操作、`TicketRepository` | 1-4、保存済み状態から再開 |
 
 このクラス図、コード適用結果、シーケンス、コード変更表が、フェーズ7へ渡す完成設計です。
@@ -2313,11 +2307,11 @@ classDiagram
     class CorporatePriority
     class PremiumPriority
     class NormalPriority
-    TicketService --> TicketRepository : チケット保存
-    TicketService --> UserDatabase : 依頼者照会
-    TicketService --> StaffDirectory : 担当者照会
-    TicketService --> TicketEventLog : 監査記録
-    TicketService --> TicketPolicySet : 状態・ルールを利用
+    TicketService *-- TicketRepository : 保持
+    TicketService *-- UserDatabase : 保持
+    TicketService *-- StaffDirectory : 保持
+    TicketService *-- TicketEventLog : 保持
+    TicketService *-- TicketPolicySet : 保持
     TicketPolicySet o--> ITicketPhase : 状態を所有・配線
     TicketPolicySet o--> IPriorityRule : ルールを所有・選択
     TicketRepository --> Ticket : 保存
@@ -2347,7 +2341,7 @@ classDiagram
 
 #### 完成後の実行シーケンス
 
-ルール差し替え構造 × 状態分離構造の実行時のやり取りを、TCK002のエスカレーション（`InProgress → Escalated`）で可視化します。`TicketService` が具象クラスを知らずに抽象インターフェース経由で状態遷移と優先度判定を委譲し、結果を `TicketRepository` へ保存する流れが確認できます。
+ルール差し替え構造 × 状態分離構造の実行時のやり取りを、TCK002のエスカレーション（`InProgress → Escalated`）で可視化します。`TicketPolicySet` が状態名から実体を引き当てて `TicketService` へ返し、`TicketService` は具象クラスを知らないまま契約越しに委譲して、結果を `TicketRepository` へ保存します。**実装が入るのは `phaseFor()` が返る行です。**
 
 ```mermaid
 sequenceDiagram
@@ -2361,10 +2355,12 @@ sequenceDiagram
     Svc->>Repo: exists("TCK002")
     Repo-->>Svc: true
     Svc->>Repo: get("TCK002")
-    Repo-->>Svc: Ticket（現在状態）
+    Repo-->>Svc: Ticket（status=InProgress）
+    Svc->>Set: phaseFor(InProgress)
+    Set-->>Svc: ITicketPhase&（実体は InProgressPhase）
     Svc->>Ph: escalate()
-    Note right of Svc: ITicketPhase* 経由
-    Ph-->>Svc: EscalatedPhase*（次状態）
+    Ph-->>Svc: Transition{true, Escalated}
+    Note right of Svc: 返るのは状態名。<br/>次状態のオブジェクトではない
     Note right of Svc: エスカレーションは契約区分を見ず<br/>Priority::High へ引き上げる
     Svc->>Repo: save(Ticket)
     Svc-->>Main: 標準出力へ 状態=Escalated 優先度=High
@@ -2808,24 +2804,19 @@ public:
 公開操作を受け、検証・状態への委譲・保存・監査記録を順に行います。7つの公開操作が、この章で解いた構造の入口です。
 
 ```cpp
-// ===== 実行：組み立て済み部品を使ってユースケースを進める =====
+// ===== 実行：部品を所有してユースケースを進める =====
 class TicketService {
-    TicketRepository& repo;
-    UserDatabase& users;
-    StaffDirectory& staff;
-    TicketEventLog& log;
-    TicketPolicySet& policies;
+    TicketRepository repo;
+    UserDatabase users;
+    StaffDirectory staff;
+    TicketEventLog log;
+    TicketPolicySet policies;
 
     // 遷移を1回適用し、成功したら保存する共通処理
     void applyTransition(const string& ticketId, const Transition& tr,
                          const string& eventType);
 
 public:
-    TicketService(TicketRepository& r, UserDatabase& u,
-                  StaffDirectory& s, TicketEventLog& l,
-                  TicketPolicySet& p)
-        : repo(r), users(u), staff(s), log(l), policies(p) {}
-
     void create(const string& ticketId, const string& userId);
     void assign(const string& ticketId, const string& assigneeId);
     void resolve(const string& ticketId);
@@ -2833,13 +2824,18 @@ public:
     void sendBack(const string& ticketId);
     void reopen(const string& ticketId);
     void hold(const string& ticketId);
+
+    // 監査ログを外へ出す
+    void printAuditLog() const { log.printAll(); }
 };
 ```
 
 - **責任：** 保存済みチケットを読み、現在状態へ委譲し、返った遷移先を保存する
 - **副作用：** `TicketRepository` への保存と `TicketEventLog` への記録
 
-コンストラクタだけが本体を持っています。5つの部品を受け取って参照で保持するだけで、処理がないためです。**具体状態の選択と具体ルールの選択はこのクラスにありません。** 定義を7つ、上のメンバーを見ながら読んでいきます。
+**コンストラクタがありません。** 5つの部品を値メンバとして持ち、どれも引数なしで作れるためです。1-4の `TicketManager` が `repo`・`db`・`calc` を値で持っていたのと同じ形で、**持ち方はこの章で変えていません。** 変えたのは `PriorityCalculator` が `TicketPolicySet` になった1点だけです。
+
+**具体状態の選択と具体ルールの選択は、このクラスにありません。** `policies` の名前は知りますが、`OpenPhase` も `CorporatePriority` も出てきません。定義を7つ、上のメンバーを見ながら読んでいきます。
 
 ---
 
@@ -3067,16 +3063,11 @@ void TicketService::sendBack(const string& ticketId) {
 
 **組み立てと、行1〜行2の登録**
 
-6つの部品を作り、`TicketService` へ渡します。**`main()` に状態名も優先度の判定もありません。**
+`TicketService` が部品を値メンバとして持つので、`main()` で組み立てるものはありません。**`main()` に状態名も優先度の判定もありません。**
 
 ```cpp
 int main() {
-    UserDatabase users;    // 依頼者（USR）
-    StaffDirectory staff;  // ヘルプデスク担当者（AGT）
-    TicketRepository repo;
-    TicketEventLog log;
-    TicketPolicySet policies;
-    TicketService svc(repo, users, staff, log, policies);
+    TicketService svc;
 
     cout << "--- 行1 ---" << endl;
     svc.create("TCK001", "USR003");
@@ -3227,7 +3218,7 @@ int main() {
 
 ```cpp
     cout << "\n--- 監査ログ ---" << endl;
-    log.printAll();
+    svc.printAuditLog();
     return 0;
 }
 ```
@@ -3333,7 +3324,7 @@ graph LR
     T2 -. "影響なし" .-> B["ITicketPhase / TicketService ✅"]
 ```
 
-フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、課題ID1の状態追加は `ITicketPhase` の実装と `TicketPolicySet` の配線へ、課題ID2のSLAルール変更は `IPriorityRule` の実装と同じ組み立て箇所へ限定されました。`TicketService` は注入された契約へ操作ごとに委譲するため、片方の変更判断がもう片方へ入り込みません。
+フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、課題ID1の状態追加は `ITicketPhase` の実装と `TicketPolicySet` の配線へ、課題ID2のSLAルール変更は `IPriorityRule` の実装と同じ組み立て箇所へ限定されました。`TicketService` は `TicketPolicySet` が返した契約へ操作ごとに委譲するため、片方の変更判断がもう片方へ入り込みません。
 
 | 3-2で影響した場所 | 修正後 | 構造変更との対応 |
 |---|---|---|

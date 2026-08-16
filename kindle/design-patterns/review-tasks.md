@@ -4319,3 +4319,51 @@ Transition tr = phase.assign();
 ### 検査
 
 `validate_book.py` 0件（全15ファイル）。`run_completion_gate.py --package` PASS（再発検査 46/46）。`audit_book.py` 0件。`git diff --check` PASS。
+
+---
+
+## EDIT-016 TicketServiceの依存を値メンバへ戻す（CH09-005 完了）
+
+### 指摘
+
+著者から。「値メンバーにして。何で関係ないところを変えるのか。説明が欲しい。ログは外から関数コールで良い」
+
+### 判断：関係ないところを変えていた
+
+1-4の `TicketManager` は `repo`・`db`・`calc` を**値メンバ**で持っていた。7-1の `TicketService` はそれを5つとも参照＋コンストラクタ注入にしていた。
+
+**この章の課題は「状態と優先度の判定を外へ出す」ことであって、部品の持ち方ではない。** 持ち方を変えたことに課題IDの根拠がなく、`rules/checklist.md` の「1-4と7-1に、仕様変更・課題IDに根拠のない差分がないか」に抵触していた。読者からは「これも対策の一部か」と読める。
+
+### 対応
+
+**5つとも値メンバへ戻した。** コンストラクタは消えた（全部が引数なしで作れるため）。**1-4から入れ替わったのは1行だけになった。**
+
+```cpp
+// 1-4: PriorityCalculator calc;
+// 7-1: TicketPolicySet   policies;
+```
+
+**`main()` の組み立ては1行。** 変更前 `TicketManager manager;`、変更後 `TicketService svc;`。**この章の対策で `main()` が払ったコストは0行**になった。以前は6行だった。
+
+**`log.printAll()` は公開操作にした。** 指摘どおり、外からは関数コールでよい。
+
+```cpp
+void printAuditLog() const { log.printAll(); }   // TicketService の公開操作
+```
+
+`main()` は `svc.printAuditLog()` を呼ぶ。**部品の中へ手を伸ばさせない。** 1-4でも `main()` は `manager` しか触っていなかったので、そこもそろった。
+
+### 注入は消えていない
+
+EDIT-015で確認したとおり、注入が起きるのは `policies.phaseFor(t.status)` が契約への参照を返す行である。**持ち方を値メンバへ変えても、この行は変わらない。** 段5では「骨格が `policies` へ届く方法は注入とは別の話」として分け、値メンバを選んだ理由（課題に無関係なところを変えない）を書いた。
+
+### 連動して直したもの
+
+- **クラス図**：`TicketService --> 各部品` を `*--`（保持）へ。対策検討の変更後図と完成後図の2か所（同一定義）＋段4の部分図
+- **完成後の実行シーケンス**：`ITicketPhase* 経由` `EscalatedPhase*（次状態）` という**設計と食い違う記述**が残っていた。この章は状態名を返す形なので、`phaseFor()` が実体を返す往復と `Transition{true, Escalated}` を返す形へ直した。**実装が入るのは `phaseFor()` が返る行だ**と注記した
+- 代表ケースの実行接続表の【生成】行（`main()` → `TicketService` の値メンバ）
+- 6-1の全貌表【生成】行、6-3の課題ID2行、7-3の本文
+
+### 検査
+
+`check_execution_output.py` PASS（7-1を実際にコンパイルして掲載結果と一致）。`validate_book.py` 0件（全15ファイル）。`run_completion_gate.py --package` PASS（再発検査 46/46、Mermaid 245図）。`audit_book.py` 0件。`git diff --check` PASS。
