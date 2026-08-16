@@ -1716,36 +1716,34 @@ public:
 
 名前を変えなくても動きます。それでも変えるのは、`Manager` のまま残すと**「まだ何か判断している」と読まれる**からです。1-3のクラス一覧で `TicketManager` の役割を「状態遷移、操作可否、優先度計算の呼び出し」と書きました。そのうち2つがここから出て行った以上、役割の説明も名前も書き換わります。
 
-**メンバーも変わるので、宣言から見ます。**
+**メンバーも変わります。ただし、この段で分かるのは変更前から持ち越すものだけです。**
 
-**掲載箇所：`TicketService`（クラス宣言）**
+**掲載箇所：`TicketService`（クラス宣言・この段で分かるところまで）**
 
 ```cpp
 class TicketService {
-    TicketRepository& repo;      // 1-4から継続：チケットの保存・取得
-    UserDatabase&     users;     // 1-4から継続：依頼者の区分照会
-    StaffDirectory&   staff;     // 表示用：担当者IDから氏名を引く
-    TicketEventLog&   log;       // 記録用：状態遷移を時系列で残す
-    TicketPolicySet&  policies;  // 【新設】状態契約とルール契約の実体
+    TicketRepository& repo;   // 1-4から継続：チケットの保存・取得
+    UserDatabase&     users;  // 1-4から継続：依頼者の区分照会
+    StaffDirectory&   staff;  // 表示用：担当者IDから氏名を引く
+    TicketEventLog&   log;    // 記録用：状態遷移を時系列で残す
 public:
-    TicketService(TicketRepository& r, UserDatabase& u,
-                  StaffDirectory& s, TicketEventLog& l,
-                  TicketPolicySet& p)
-        : repo(r), users(u), staff(s), log(l), policies(p) {}
-
     void create(const std::string& ticketId, const std::string& userId);
     void assign(const std::string& ticketId, const std::string& assigneeId);
     // resolve / escalate / reopen / hold / sendBack も同じ形
 };
 ```
 
-`PriorityCalculator` を持っていた場所が `TicketPolicySet` に置き換わりました。**具体状態も具体ルールも、名前が1つも出てきません。**
-
-`TicketPolicySet` は、2つの契約の実体を持つ箱です。ここでは「状態名を渡すと状態オブジェクトを返し、顧客区分を渡すとルールを返す窓口」とだけ捉えてください。**中身は4で開きます。** この段で決めているのは、`TicketService` が具体を1つも知らないという1点だけです。
+**`PriorityCalculator` が消えました。** 優先度の判定を1で外へ出したからです。コンストラクタをまだ書いていないのは、**メンバーがこれで全部かどうか、この段では分からないから**です。
 
 `staff` による担当者名の表示と、`log` への状態遷移の記録は、7-1で導入する担当者名簿と監査ログです。**課題ID1・課題ID2のどちらにも関与しません。** この章で分けるのは状態と優先度の2軸だけで、表示と記録は分けた後もそのまま残ります。以降の断片ではこの2つを省略します。
 
-**課題ID1（状態軸）。** `assign()` が状態契約を呼びます。
+**課題ID1（状態軸）。** `assign()` の手順は3段になります。
+
+1. `ticketId` で保存済みチケットを読む
+2. **その `status` に対応する契約の実体へ、操作を尋ねる**
+3. 返ってきた遷移先を保存する
+
+1と3は変更前と同じで、`repo` を使うだけです。**書けないのは2です。**
 
 ```cpp
 void TicketService::assign(const string& ticketId,
@@ -1753,8 +1751,9 @@ void TicketService::assign(const string& ticketId,
     // …チケットIDの存在確認（省略）…
     Ticket& t = repo.get(ticketId);
 
-    Transition tr = policies.phaseFor(t.status).assign();  // ←契約への1行
-    if (!tr.allowed) return;                               // 不可なら何もしない
+    const ITicketPhase& phase = phaseFor(t.status);  // ←この phaseFor が未定
+    Transition tr = phase.assign();
+    if (!tr.allowed) return;
 
     t.status = tr.next;
     t.assigneeId = assigneeId;
@@ -1763,9 +1762,13 @@ void TicketService::assign(const string& ticketId,
 }
 ```
 
-**ポイントは `policies.phaseFor(t.status).assign()` の1行だけです。** 1で「残るもの」として数えた3つが、そのまま読む・尋ねる・保存するの3段になっています。変更前の `switch` と比べると、**状態名で分岐する `case` が1つも無くなりました。** 現在状態は、引数の `ticketId` で引いたチケットの `status` から得ています。
+**`t.status` は `TicketStatus` という値であって、`ITicketPhase` ではありません。** 1で「現在状態は引数で渡さず、オブジェクトそのものが体現する」と決めた結果、**値から実体を引き当てる仕事が新しく生まれました。** それを `phaseFor()` と書きましたが、**この関数が誰のものかは、まだ決めていません。**
 
-**課題ID2（優先度軸）。** `create()` がルール契約を呼びます。
+`TicketService` 自身に持たせることはできません。持たせれば `OpenPhase` や `PendingPhase` の名前をここに書くことになり、1で分けた意味が消えます。**外の誰かが持つことになります。それを決めるのが3です。**
+
+変更前の `switch` と比べると、**状態名で分岐する `case` が1つも無くなりました。** 消えたわけではなく、`phaseFor()` の中へ移る予定です。移した先で1か所に収まるかどうかも、3で確かめます。
+
+**課題ID2（優先度軸）。** `create()` も同じ形です。手順は、台帳を引く・ルールへ尋ねる・保存する、の3段になります。
 
 ```cpp
 void TicketService::create(const string& ticketId, const string& userId) {
@@ -1773,21 +1776,25 @@ void TicketService::create(const string& ticketId, const string& userId) {
     UserInfo requester = users.get(userId);
     UserType category = requester.userType;
 
-    Priority p = policies.priorityRule(category).getPriority();  // ←契約への1行
+    Priority p = priorityRule(category).getPriority();  // ←この priorityRule も未定
 
-    Ticket t{ticketId, userId, policies.initialStatus(), p, ""};
+    Ticket t{ticketId, userId, TicketStatus::Open, p, ""};
     repo.save(t);
     // …実行結果への1行表示（省略）…
 }
 ```
 
-こちらも**ポイントは1行**です。変更前と比べると、**`if (userType == ...)` の連鎖が1つも無くなりました。** 判定に使う区分は、引数の `userId` で台帳を引いて得ています。利用側が区分を渡すのではありません。`reopen()` も同じ形で、保存済みチケットの `userId` から引き直します。
+**同じ穴が空きました。** `category` は `UserType` という値であって、`IPriorityRule` ではありません。値から実体を引く仕事が、こちらでも生まれています。理由も同じで、`TicketService` に持たせれば `CorporatePriority` の名前をここに書くことになります。
+
+変更前と比べると、**`if (userType == ...)` の連鎖が1つも無くなりました。** 判定に使う区分は、引数の `userId` で台帳を引いて得ています。利用側が区分を渡すのではありません。`reopen()` も同じ形で、保存済みチケットの `userId` から引き直します。
+
+**2つの軸で、同じ形の穴が空きました。** 状態軸は「状態名 → 状態の実体」、優先度軸は「顧客区分 → ルールの実体」。**どちらも「値から実体を引く」という同じ仕事です。** ここが3で1つにまとまる伏線になります。
 
 **優先度をルールが決めない場所が1つだけあります。** `escalate()` は、契約区分によらず `Priority::High` を直接代入します（要求ID1）。エスカレーションは顧客区分の話ではなく「緊急扱いにする」という操作そのものの意味だからです。**区分で決まる優先度はルールへ、操作で決まる優先度は安定骨格へ**、と置き場所が分かれています。ここを取り違えてルール側へ持たせると、全ルールがエスカレーションを知ることになります。
 
 宣言に並べた残り5つの公開操作（`resolve` / `escalate` / `reopen` / `hold` / `sendBack`）も、`assign()` と同じ3段です。読む、現在状態へ尋ねる、返った遷移先を保存する。**操作が増えても段は増えません。**
 
-2つの契約への依存が、ここで初めて図に描けます。
+**この段で図に描けるのは、`TicketService` から2つの契約への依存だけです。** 実体をどこから得るかがまだ決まっていないので、その線は引けません。
 
 ```mermaid
 classDiagram
@@ -1802,7 +1809,7 @@ classDiagram
 
 **2つの契約の間に矢印がありません。** 状態とルールは互いを知らない、というのが5-2で確認した独立性で、図にもそのまま出ています。基準の図にあった `TicketManager *-- PriorityCalculator` はここで消えます。`TicketRepository`・`UserDatabase` への依存は基準の図のまま変わりません。
 
-**ここで検算します。具体を1つ足したとき、この2つの手順は変わるか。** 変わらないなら、1の割り方は正しかったことになります。変わるなら割り残しがあるので、1へ戻って線を引き直します。第9章では「保留中」を足しても3段、法人区分を足しても同じ形のままでした。
+**ここで検算します。具体を1つ足したとき、この2つの手順は変わるか。** 1段目と3段目は変わりません。2段目も、`phaseFor()`／`priorityRule()` の**中身**が増えるだけで、この関数の呼び方は変わりません。**穴が空いたままでも、この検算はできます。** 変わってしまうなら割り残しがあるので、1へ戻って線を引き直します。第9章では「保留中」を足しても法人区分を足しても3段のままでした。
 
 ---
 
@@ -1896,22 +1903,23 @@ classDiagram
 
 **4. 実体を作る人がいる 【生成】**
 
-2の安定骨格は `policies` を通して契約を呼んでいました。その実体を、誰かが作らなければいけません。具体状態も具体ルールも、`TicketService` に作らせるわけにはいきません。作れば具体の名前を知ることになり、分けた意味が消えます。
+**2で穴が2つ空きました。** `phaseFor()`（状態名 → 状態の実体）と `priorityRule()`（顧客区分 → ルールの実体）です。この段で決めるのは、**この2つを誰が持つか**です。
 
-**ここで、この章で唯一の共同決定があります。箱は1つか、2つか。**
+持つ者に必要な条件は、2で分かっています。
+
+- **具体クラスを全部知っていること。** `phaseFor()` が `OpenPhase` を返す以上、返す側は `OpenPhase` の名前を知っていなければなりません
+- **`TicketService` ではないこと。** 2で確認したとおり、知った時点で分離が壊れます
+
+**この2つを満たす者は、具体を所有する者と同じです。** 引くには持っていなければならず、持っている以上は名前を知っています。**「引く関数を置く場所」と「具体を生成・所有する場所」が、ここで1つに重なります。** 生成の置き場所は、独立した判断ではなく2の穴から決まりました。
+
+**もう1つ決めることがあります。箱は1つか、2つか。**
 
 - **2つに分ける**（`TicketPhaseSet` と `PriorityRuleSet`）。軸が独立していることが型にも出ます。ただし注入が2引数になり、軸を足すたびに `TicketService` のコンストラクタが伸びます
 - **1つにまとめる**（`TicketPolicySet`）。注入は1引数のまま。軸を足しても呼び出し側の形が変わりません
 
 **1つにまとめる形を採ります。** どちらも「具体を1か所へ集める」という目的は満たしますが、変更が及ぶ範囲が違います。軸を足したときに `TicketService` のコンストラクタと `main()` の両方を触るのが2つの形、箱の中だけで済むのが1つの形です。**この判断は、片方の軸だけを見ていては決められません。** 課題ID1・課題ID2をまとめて解いてきたのは、この1点のためです。
 
-**掲載箇所：`main()`** ―― 組み立ての1行目
-
-```cpp
-TicketPolicySet policies;   // 具体状態と具体ルールを生成・所有する
-```
-
-**この1行の中身を開きます。** 名前だけ出して後回しにすると、2で見た `policies.phaseFor()` と `policies.priorityRule()` が何をしているのか分からないままになります。
+**箱に名前を付けます。** 状態の実体とルールの実体、つまり2種類の方針をまとめて持つので `TicketPolicySet` とします。**2で `phaseFor()` と書いた関数は、このクラスのメンバー関数になります。**
 
 **掲載箇所：`TicketPolicySet`（クラス全体）**
 
@@ -1955,8 +1963,8 @@ public:
 **中身は3つに分かれます。**
 
 - **メンバー：** 具体状態5つと具体ルール3つを、値として直接持ちます。ポインタでも参照でもないので、`TicketPolicySet` が生きているあいだ部品も生きています
-- **`phaseFor()`：** 状態名から状態オブジェクトを引く `switch`。**この章で `TicketStatus` の `switch` が残るのはここ1か所だけです。** 変更前は公開操作の中にあった同じ `switch` が、部品を引く1か所へ移りました
-- **`priorityRule()`：** 顧客区分からルールを引く `if` 連鎖。こちらも1か所だけです
+- **`phaseFor()`：** 2で穴になっていた関数がここに来ました。状態名から状態オブジェクトを引く `switch` です。**この章で `TicketStatus` の `switch` が残るのはここ1か所だけです。** 変更前は公開操作の中にあった同じ `switch` が、部品を引く1か所へ移りました。2で「移した先で1か所に収まるかどうかは3で確かめる」と書いたのが、これです
+- **`priorityRule()`：** もう1つの穴です。顧客区分からルールを引く `if` 連鎖で、こちらも1か所だけです
 
 **コンストラクタがありません。** 1で「次はどの状態か」を名前で返す形にしたので、状態どうしを配線する処理そのものが不要になりました。**1の判断が、ここへ効いています。**
 
@@ -1967,6 +1975,8 @@ public:
 - 具体状態・具体ルールは `TicketPolicySet` が値メンバとして持ちます。相互に配線しないので、生成順を気にする必要がありません
 - `Ticket` が持つのは状態オブジェクトではなく `TicketStatus` の**値**です。保存済みデータが状態オブジェクトを指さないので、保存データと部品の生存期間が絡みません
 - したがって、生存期間を気にするのは「`TicketPolicySet` が `TicketService` より長生きするか」の1点だけになります。**これは次の5で確かめます。**
+
+**穴は埋まりました。ただし、まだ届いていません。** `TicketService::assign()` の中から `policies.phaseFor()` と書けるようになるには、`TicketService` がこの箱へ手が届いていなければなりません。**それが5です。**
 
 ```mermaid
 classDiagram
@@ -1987,7 +1997,7 @@ classDiagram
 
 **5. 作ったものを渡す 【注入】**
 
-作った `policies` を、契約を呼ぶ側へ渡します。渡し方は3つしかありません。
+`TicketService::assign()` の中から `phaseFor()` を呼ぶには、`TicketService` が `TicketPolicySet` へ手が届いていなければなりません。**届かせ方は3つしかありません。**
 
 - `TicketService` が自分で作る。具体の名前を知ることになり、分けた意味が消えます
 - どこかから取りに行く（グローバル変数やシングルトン）。依存が引数に現れず、テストで差し替えられません
@@ -2038,7 +2048,43 @@ int main() {
 
 **生存期間もこの並びで決まります。** `policies` は `svc` より前の行で作られ、`main()` を抜けるまで生きています。`TicketService` が持つのは参照なので、**借りている相手が先に消えることはありません。** 4で「次の5で確かめます」と書いたのがこれです。
 
-受け取る側の形は、2で見た宣言のとおりです。5つの参照をメンバーへ保持するだけで、コンストラクタで判断も生成もしません。5つのうち契約に関わるのは `policies` だけで、**4で箱を1つにしたおかげで、軸が2つあっても契約の引数は1つで済んでいます。**
+**2で書けなかった宣言が、ここで完成します。** 4つ分かっていたメンバーに5つ目が加わり、コンストラクタが書けるようになりました。
+
+**掲載箇所：`TicketService`（クラス宣言・完成）**
+
+```cpp
+class TicketService {
+    TicketRepository& repo;      // 1-4から継続：チケットの保存・取得
+    UserDatabase&     users;     // 1-4から継続：依頼者の区分照会
+    StaffDirectory&   staff;     // 表示用：担当者IDから氏名を引く
+    TicketEventLog&   log;       // 記録用：状態遷移を時系列で残す
+    TicketPolicySet&  policies;  // 5で決めた5つ目。契約の実体を引く
+public:
+    TicketService(TicketRepository& r, UserDatabase& u,
+                  StaffDirectory& s, TicketEventLog& l,
+                  TicketPolicySet& p)
+        : repo(r), users(u), staff(s), log(l), policies(p) {}
+
+    void create(const std::string& ticketId, const std::string& userId);
+    void assign(const std::string& ticketId, const std::string& assigneeId);
+    // resolve / escalate / reopen / hold / sendBack も同じ形
+};
+```
+
+5つの参照をメンバーへ保持するだけで、コンストラクタで判断も生成もしません。5つのうち契約に関わるのは `policies` だけで、**4で箱を1つにしたおかげで、軸が2つあっても契約の引数は1つで済んでいます。**
+
+**そして、2で穴の空いていた骨格が完成します。** 変わるのは1か所だけです。
+
+**掲載箇所：`TicketService::assign(const string&, const string&)`** ―― 2の骨格の、穴が埋まった形
+
+```cpp
+    // 2で書いた行：  const ITicketPhase& phase = phaseFor(t.status);
+    const ITicketPhase& phase = policies.phaseFor(t.status);
+```
+
+**`policies.` が付いただけです。** 2で「この関数が誰のものかはまだ決めていない」と書いた、その所有者が決まりました。`create()` の `priorityRule(category)` も同じく `policies.priorityRule(category)` になります。
+
+これで、2で立てた問い（値から実体をどう引くか）が閉じました。**骨格の3段そのものは、2で書いたときから1行も変わっていません。**
 
 ---
 
