@@ -1785,7 +1785,7 @@ void TicketService::assign(const string& ticketId,
 
 **`t.status` は `TicketStatus` という値であって、`ITicketPhase` ではありません。** 1で「現在状態は引数で渡さず、オブジェクトそのものが体現する」と決めた結果、**値から実体を引き当てる仕事が新しく生まれました。** それを `phaseFor()` と書きましたが、**この関数が誰のものかは、まだ決めていません。**
 
-`TicketService` 自身に持たせることはできません。持たせれば `OpenPhase` や `PendingPhase` の名前をここに書くことになり、1で分けた意味が消えます。**外の誰かが持つことになります。それを決めるのが3です。**
+`TicketService` 自身に持たせることはできません。持たせれば `OpenPhase` をはじめとする具体状態の名前をここに書くことになり、1で分けた意味が消えます。**外の誰かが持つことになります。それを決めるのが3です。**
 
 変更前の `switch` と比べると、**状態名で分岐する `case` が1つも無くなりました。** 消えたわけではなく、`phaseFor()` の中へ移る予定です。移した先で1か所に収まるかどうかも、3で確かめます。
 
@@ -1889,7 +1889,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-`switch` の5つの `case` が、5つのクラスになりました。**変更要求で足した「保留中」が、`PendingPhase` という1クラスに収まっています。** これで課題ID1の完了条件「状態追加が新しい状態クラスと遷移元の配線に閉じ、公開操作・保存を変えない」を満たします。状態を1つ足すときに書くのは、このようなクラス1つと、状態名から引く `switch` へ1行だけです。
+`switch` の5つの `case` が、5つのクラスになりました。**変更要求で足した「保留中」が、`PendingPhase` という1クラスに収まっています。** これで課題ID1の完了条件「状態追加が新しい状態動作と遷移登録に閉じる」を満たします。状態を1つ足すときに書くのは、このようなクラス1つと、状態名から引く `switch` へ1行だけです。守る側の公開操作・保存・既存状態は1行も触りません。
 
 **課題ID2（優先度軸）。** こちらは1で見た `CorporatePriority` がそのまま完成形です。**判定を返す以外に書くことがないので、増える段がありません。** 残りの2クラスも同じ形で、変更前の `if` 連鎖の各分岐が1クラスずつに対応します。
 
@@ -1914,7 +1914,7 @@ classDiagram
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-`if` 連鎖の3分岐が、3つのクラスになりました。**変更要求で足した法人区分が、`CorporatePriority` という1クラスに収まっています。** これで課題ID2の完了条件「区分追加が新しいルールクラスと選択登録に閉じ、状態処理を変えない」を満たします。
+`if` 連鎖の3分岐が、3つのクラスになりました。**変更要求で足した法人区分が、`CorporatePriority` という1クラスに収まっています。** これで課題ID2の完了条件「区分追加が新しい優先度規則と登録に閉じる」を満たします。守る側の状態処理・公開操作・保存は1行も触りません。
 
 **もう一度検算します。契約のメソッド以外に書きたくなるものがあるか。** あるなら、1の割り方か数え方を間違えています。どちらの軸でも出てきませんでした。
 
@@ -2139,10 +2139,9 @@ classDiagram
     TicketService *-- TicketRepository : 保持
     TicketService *-- UserDatabase : 保持
     TicketService *-- TicketPolicySet : 保持
-    TicketPolicySet o--> ITicketPhase : 状態を所有・配線
-    TicketPolicySet o--> IPriorityRule : ルールを所有・選択
+    TicketPolicySet o--> ITicketPhase : 状態を所有・状態名で選択
+    TicketPolicySet o--> IPriorityRule : ルールを所有・区分で選択
     TicketRepository --> Ticket : 保存
-    Ticket --> ITicketPhase : 現在状態
     TicketService --> ITicketPhase : 現在状態へ操作を委譲
     ITicketPhase <|.. OpenPhase
     ITicketPhase <|.. InProgressPhase
@@ -2155,8 +2154,8 @@ classDiagram
 
     note for ITicketPhase "【課題ID1・新設】状態ごとの振る舞いの共通契約"
     note for IPriorityRule "【課題ID2・新設】優先度判定の差し替え可能な契約"
-    note for TicketPolicySet "【新設】具体状態・具体ルールを生成・所有・配線"
-    note for TicketService "【新設】抽象契約を使って公開操作・保存・ログを実行"
+    note for TicketPolicySet "【新設】具体状態・具体ルールを生成・所有し、鍵で引き当てる"
+    note for TicketService "【改名】TicketManagerから改名。抽象契約を使って公開操作・保存・表示を実行"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
     cssClass "TicketService,TicketPolicySet,ITicketPhase,OpenPhase,InProgressPhase,EscalatedPhase,ResolvedPhase,PendingPhase,IPriorityRule,CorporatePriority,PremiumPriority,NormalPriority" focus
@@ -2179,7 +2178,7 @@ classDiagram
 
 | ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | このポイントが決まると次に決まること |
 |---|---|---|---|
-| 【契約】（軸ごと） | `updateStatus()` の巨大 `switch` → `ITicketPhase` の6操作／`calculate()` の `if` 連鎖 → `IPriorityRule::getPriority()` | 線を引き、隙間を跨ぐものを両方向数えて契約にする（状態軸は2つ、優先度軸は1つ） | この契約を誰が呼ぶか＝【安定骨格】 |
+| 【契約】（軸ごと） | `updateStatus()` の巨大 `switch` → `ITicketPhase` の6操作／`calculate()` の `if` 連鎖 → `IPriorityRule::getPriority()` | 線を引き、5-3が挙げた接続するものの受け渡しの形を1つずつ決める（状態軸は4つ、優先度軸は2つ） | この契約を誰が呼ぶか＝【安定骨格】 |
 | 【安定骨格】（軸ごと） | 状態と優先度が混ざる `updateStatus()` → `TicketService::assign()`／`create()` が委譲と保存だけを行う | 残った側の手順を、具体が増えても段数が変わらない形で固定する | 契約の裏に何を置くか＝【具体】 |
 | 【具体】（軸ごと） | 分岐に埋もれた状態別可否とルール → `OpenPhase::assign()` ほか5クラス／`CorporatePriority::getPriority()` ほか3クラス | 契約のメソッドだけを埋め、それ以外を書かない | 実体を誰が作るか＝【生成】 |
 | 【生成】（共通） | `TicketManager` が全分岐を内包 → `TicketPolicySet` が状態とルールを生成・所有し、`TicketService` が値メンバとして持つ | 箱を1つにするか2つにするかを決め、具体の生成と所有を1か所へ集める | 実装をどう骨格へ入れるか＝【注入】 |
@@ -2230,7 +2229,7 @@ void TicketService::create(const std::string& ticketId,
 | 接続点を変える観点 | システム全体での設計判断 | 変えたくない側が知らなくなる詳細 |
 |---|---|---|
 | 何を分離するか | 課題ID1の状態振る舞いを状態クラスへ、課題ID2の優先度判定をルールクラスへ置く | 状態の種類・遷移、SLA基準・顧客区分 |
-| どこで生成・選択するか | `TicketPolicySet` が全Phase・全ルールを所有し、`priorityRule()` で選ぶ | 具体状態・具体ルールの生成・配線・選択 |
+| どこで生成・選択するか | `TicketPolicySet` が全Phase・全ルールを所有し、`priorityRule()` で選ぶ | 具体状態・具体ルールの生成・所有・選択 |
 | どう実装を渡すか | `phaseFor()`／`priorityRule()` が契約への参照を返し、骨格の変数へ呼び出しごとに入る | どの具体が入ったか |
 | 安定側はどう実行するか | 利用側は `create()` や `assign()` などの操作だけを呼ぶ | 現在どの状態か、どの優先度ルールか |
 
@@ -2247,7 +2246,7 @@ void TicketService::create(const std::string& ticketId,
 |---|---|---|---|
 | 課題ID1：状態処理 | 状態追加で公開操作・保存・既存状態を変えない | 状態クラスと `ITicketPhase` 委譲 | 新状態と遷移元へ変更が閉じた |
 | 課題ID2：優先度判定 | ルール変更で状態処理を変えない | ルールクラスと `IPriorityRule` への委譲 | 新ルールと選択登録へ変更が閉じた |
-| 課題ID1・課題ID2を接続したシステム全体 | 二軸を独立に変え、公開操作・保存・ログを維持する | `TicketPolicySet` が具体部品を所有し、`TicketService` が抽象契約を利用する | 具体の選択判断をServiceから外し、入口と副作用の位置も維持した |
+| 課題ID1・課題ID2を接続したシステム全体 | 二軸を独立に変え、公開操作・保存・表示を維持する | `TicketPolicySet` が具体部品を所有し、`TicketService` が抽象契約を利用する | 具体の選択判断をServiceから外し、入口と副作用の位置も維持した |
 
 **システム全体の実装結果：達成。** 課題ID1と課題ID2が一つの実行経路で接続され、フェーズ5で目指した状態を実現しました。実際の動作と変更影響はフェーズ7で確認します。
 
@@ -2257,7 +2256,7 @@ void TicketService::create(const std::string& ticketId,
 
 | 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
 |---|---|---|---|
-| 課題ID1（状態処理） | 状態分離。`TicketService`が現在Phaseへ委譲し、各状態が次状態を返す | `ITicketPhase`、`OpenPhase`／`InProgressPhase`／`PendingPhase`／`ResolvedPhase`／`EscalatedPhase` | 状態追加が新状態と遷移登録に閉じる |
+| 課題ID1（状態処理） | 状態分離。`TicketService`が現在Phaseへ委譲し、各状態が次状態を返す | `ITicketPhase`、`OpenPhase`／`InProgressPhase`／`PendingPhase`／`ResolvedPhase`／`EscalatedPhase` | 状態追加が新しい状態動作と遷移登録に閉じる |
 | 課題ID2（優先度判定） | 規則差し替え。`TicketPolicySet`が全ルールを所有し、区分で選んだ`IPriorityRule`へ委ねる | `IPriorityRule`、`PremiumPriority`／`CorporatePriority`／`NormalPriority`、`TicketPolicySet` | 区分追加が新ルールと選択登録に閉じる |
 | 変更対象外 | 公開操作・保存。進行入口は委譲先だけが変わる | `TicketService`の公開操作、`TicketRepository` | 1-4、保存済み状態から再開 |
 
@@ -2324,10 +2323,9 @@ classDiagram
     TicketService *-- TicketRepository : 保持
     TicketService *-- UserDatabase : 保持
     TicketService *-- TicketPolicySet : 保持
-    TicketPolicySet o--> ITicketPhase : 状態を所有・配線
-    TicketPolicySet o--> IPriorityRule : ルールを所有・選択
+    TicketPolicySet o--> ITicketPhase : 状態を所有・状態名で選択
+    TicketPolicySet o--> IPriorityRule : ルールを所有・区分で選択
     TicketRepository --> Ticket : 保存
-    Ticket --> ITicketPhase : 現在状態
     TicketService --> ITicketPhase : 現在状態へ操作を委譲
     ITicketPhase <|.. OpenPhase
     ITicketPhase <|.. InProgressPhase
@@ -2340,8 +2338,8 @@ classDiagram
 
     note for ITicketPhase "【課題ID1・新設】状態ごとの振る舞いの共通契約"
     note for IPriorityRule "【課題ID2・新設】優先度判定の差し替え可能な契約"
-    note for TicketPolicySet "【新設】具体状態・具体ルールを生成・所有・配線"
-    note for TicketService "【新設】抽象契約を使って公開操作・保存・ログを実行"
+    note for TicketPolicySet "【新設】具体状態・具体ルールを生成・所有し、鍵で引き当てる"
+    note for TicketService "【改名】TicketManagerから改名。抽象契約を使って公開操作・保存・表示を実行"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
     cssClass "TicketService,TicketPolicySet,ITicketPhase,OpenPhase,InProgressPhase,EscalatedPhase,ResolvedPhase,PendingPhase,IPriorityRule,CorporatePriority,PremiumPriority,NormalPriority" focus
@@ -2363,7 +2361,6 @@ sequenceDiagram
     participant Repo as TicketRepository
     participant Ph as InProgressPhase
     participant Set as TicketPolicySet
-    participant Rule as PremiumPriority
     Main->>Svc: escalate("TCK002")
     Svc->>Repo: exists("TCK002")
     Repo-->>Svc: true
@@ -3142,7 +3139,7 @@ int main() {
 
 #### 変更後の状態遷移仕様との照合
 
-1-5で確定した変更後の状態遷移仕様と、完成コードのPhase配線を照合します。
+1-5で確定した変更後の状態遷移仕様と、完成コードのPhase実装を照合します。
 現状の4状態に `Pending` が加わり、保留と再受付の遷移が実装されています。
 
 ```mermaid
@@ -3171,7 +3168,7 @@ stateDiagram-v2
 | 要求ID2 | 既存4状態にPendingを加え、許可された状態遷移だけを行う | 各`ITicketPhase` | TCK003でOpen→Pending、InProgress→Pending、Pending→Openを実行<br/>**判定:** 合格 |
 | 要求ID3 | チケットの状態と優先度を保存・取得する | `TicketRepository` | Pendingを含む次操作が保存状態から開始<br/>**判定:** 合格 |
 | 要求ID4 | 担当者割当・解決・再受付・エスカレーション・差し戻し・保留を処理する | `TicketService`、各Phase | TCK003で6操作を通し、状態・優先度が規則どおり。差し戻しはEscalated→InProgress<br/>**判定:** 合格 |
-| 要求ID5 | 未登録入力・許可されない操作を拒否する | 各Directory・Phase、`TicketRepository::exists()` | 未登録USR999と未登録TCK999を拒否し、InProgressからの再受付は「操作不可」で状態不変<br/>**判定:** 合格 |
+| 要求ID5 | 未登録入力・許可されない操作を拒否する | `UserDatabase::exists()`、各Phase、`TicketRepository::exists()` | 未登録USR999と未登録TCK999を拒否し、InProgressからの再受付は「操作不可」で状態不変<br/>**判定:** 合格 |
 
 上の表は継続（要求ID3・要求ID5）・変更（要求ID1・要求ID2・要求ID4）を同じ順序で並べ、変わらなかった既存要求も回帰対象に含めています。継続要求が合格していることで、既存動作が落ちていないことを確認できます。要求の受入・回帰はここで完了します。課題IDへ直接対応付けず、以下では変更試行の痛みから導いた構造課題だけを別に確認します。
 
@@ -3189,7 +3186,7 @@ stateDiagram-v2
 |---|---|---|---|
 | チケット保存 | `TicketRepository` に `Ticket` を保存 | 同じID・本文・状態データを保存 | 1-4と7-1の取得・保存コード |
 | 利用者情報 | `UserDatabase` から区分を取得 | 同じ利用者IDから引いた区分でルールを選ぶ | 法人ケースの実行結果 |
-| 部品の持ち方 | `TicketManager` が3つを値メンバで保持 | `TicketService` が5つを値メンバで保持 | `main()` はどちらも1行で、組み立ての行が無い |
+| 部品の持ち方 | `TicketManager` が3つを値メンバで保持 | `TicketService` が3つを値メンバで保持 | `main()` はどちらも1行で、組み立ての行が無い |
 
 ### 7-2：動作シーケンス図の検証
 
@@ -3226,7 +3223,7 @@ graph LR
 | 変更ID1：法人ユーザーを登録時と再受付時にHighとする | `TicketManager`の2操作へ法人判定を追加 | `CorporatePriority`へ判定を集め、2操作でHigh、一般・プレミアムは従来結果になることを確認 |
 | 変更ID2：Pending状態と、Open/InProgressからの保留、Pendingからの再受付を追加する | `TicketManager`の状態分岐と各操作を修正 | `PendingPhase`へ状態固有の遷移を置き、許可された遷移だけ保存し、再受付時に変更ID1を再評価 |
 
-状態と優先度を別の契約へ分けた代わりに、クラスが増えるコストを引き受けます。契約2つ、状態5クラス、ルール3クラス、まとめ役1クラスで、変更前より11クラス多くなりました。**`main()` の行数は増えていません**（変更前 `TicketManager manager;`、変更後 `TicketService svc;`）。増えたぶんは、状態や区分を足すときに触る範囲が1クラスと1行に収まることと引き換えです。
+状態と優先度を別の契約へ分けた代わりに、クラスが増えるコストを引き受けます。契約2つ、状態5クラス、ルール3クラス、まとめ役1クラスを足し、`PriorityCalculator` が消え、値だけを運ぶ `Transition` が加わって、変更前より11クラス多くなりました。**`main()` の行数は増えていません**（変更前 `TicketManager manager;`、変更後 `TicketService svc;`）。増えたぶんは、状態や区分を足すときに触る範囲が1クラスと1行に収まることと引き換えです。
 
 
 ---
