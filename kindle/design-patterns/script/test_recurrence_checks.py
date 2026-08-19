@@ -155,8 +155,8 @@ cases.append(("RISK-001 将来リスク評価", V.check_future_risk_traceability
 
 # 21) STEP-001: フェーズ6のポイント見出しへ★指摘を残す
 t = (OUT/"chapter06.md").read_text(encoding="utf-8")
-broken = t.replace("**【契約】：共通契約 `IDrink` を定義する。**",
-                   "**【契約】：共通契約 `IDrink` を定義する。★要確認**", 1)
+broken = t.replace("**1. 分けるかを決め、境界に何が渡るかを決める 【契約】**",
+                   "**1. 分けるかを決め、境界に何が渡るかを決める 【契約】★要確認**", 1)
 cases.append(("STEP-001 見出しの★残り", V.check_phase6_numbered_step_titles, broken))
 
 # 22) BLOCK-001: 7-1へ複数責任を詰めた長大ブロックを戻す
@@ -194,8 +194,8 @@ cases.append(("CHANGE-DIAGRAM-001 変更図の差分色", V.check_change_diagram
 # 27) SKELETON-001: フェーズ6の安定骨格を「なし」へ戻す
 t = (OUT/"chapter06.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "**【安定骨格】：`ToppingWrapper`が内側への委譲を固定する。**",
-    "**【安定骨格】：この課題では骨格は無し。**", 1)
+    "**2. 呼ぶのは、変わらない側 【安定骨格】**",
+    "**2. この課題では骨格は無し。**", 1)
 cases.append(("SKELETON-001 安定骨格の省略", V.check_stable_skeleton_explanation, broken))
 
 # 28) REQUIREMENT-ROOT-001: 変更ID一覧にない要求IDへ変更根拠を付ける
@@ -263,8 +263,8 @@ cases.append(("RUN-001 手元で動かすには", V.check_run_locally_section, b
 
 # DOC-002: 【安定骨格】と【利用開始】を一つの見出しへ戻す
 t = (OUT/"chapter12.md").read_text(encoding="utf-8")
-broken = t.replace("**【安定骨格】 状態委譲の安定骨格。**",
-                   "**【安定骨格】【利用開始】状態委譲は現在状態へ委ねるだけ。**", 1)
+broken = t.replace("**2. 呼ぶのは、変わらない側 【安定骨格】**",
+                   "**2. 呼ぶのは、変わらない側 【安定骨格】【利用開始】**", 1)
 cases.append(("DOC-002 骨格と利用開始の統合", V.check_phase6_point_separation, broken))
 
 # DOC-002: 実行接続表を落とす
@@ -311,7 +311,7 @@ cases.append(("DOC-001 コードの省略", V.check_code_block_attribution, brok
 # DOC-003: フェーズ6の断片から掲載箇所ラベルを外す
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "**掲載箇所：`main()`** ―― 組み立ての先頭。具体施策をスタック上に生成します。",
+    "**掲載箇所：`main()`** ―― 組み立て（対策後・抜粋）",
     "どの施策クラスを作るかを知るのは組み立て箇所だけです。", 1)
 cases.append(("DOC-003 掲載箇所ラベル", V.check_phase6_fragment_location, broken))
 

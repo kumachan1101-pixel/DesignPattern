@@ -596,16 +596,24 @@ def check_system_structure_phase6(
         if token not in sec:
             issues.append(Issue(path, ln, msg))
 
-    # フェーズ6のコード展開は「課題ID別H3節（①〜⑥）」を正とする（ch11形式）。
-    # 移行期は旧「実装ステップ1/2/3」形式も許容し、どちらか一方が必須。
-    has_per_issue = "### 課題ID1：" in sec
-    has_impl_steps = "#### 実装ステップ1" in sec
-    if not (has_per_issue or has_impl_steps):
+    # フェーズ6のコード展開は「6段を1周する1つの節」を正とする（EDIT-005）。
+    # 課題別H3節と旧「実装ステップ1/2/3」は、どちらも不合格にする。
+    for legacy, why in (
+            ("### 課題ID1：", "課題別のH3節"),
+            ("#### 実装ステップ1", "旧「実装ステップ1/2/3」形式")):
+        if legacy in sec:
+            issues.append(Issue(
+                path, ln,
+                f"フェーズ6に{why}が残っています。6段（【契約】【安定骨格】【具体】"
+                "【生成】【注入】【利用開始】）を1周する1つの節へまとめてください",
+            ))
+    if "#### 課題箇所のおさらい（フェーズ3の関連コード）" in sec:
         issues.append(Issue(
             path, ln,
-            "フェーズ6のコード展開がありません（課題ID別H3節『### 課題ID1：…』"
-            "の①契約→②骨格→③具体→④生成→⑤注入→⑥実行、または移行期の実装ステップ1/2/3）",
+            "フェーズ6に「課題箇所のおさらい」が残っています。各段が3-1から"
+            "その段の触る数行だけを抜く形へ移してください",
         ))
+    has_per_issue = False
     if has_per_issue:
         # ch11形式では、各課題節が生成・注入・実行の骨子を含むこと。
         for token, msg in (
@@ -2097,7 +2105,7 @@ def check_phase5_phase6_reasoning_contract(
         anchor = (recap_start + len(recap_heading)) if recap_start >= 0 else 0
         id_heads = [anchor]
 
-    # EDIT-005移行期：部分クラス図をまとめ節へ置く旧構成も当面は通す。
+    # 旧構成（部分クラス図をまとめ節へ置く形）の残存を検出するための分岐。
     # 旧構成の章から順に、課題ID節へ図を分散する新構成へ移していく。
     legacy_heading = "#### 設計判断ごとの部分クラス図"
     legacy_start = phase6.find(legacy_heading)
@@ -2817,9 +2825,12 @@ def check_explanation_regression(text: str, path: Path) -> list[Issue]:
 
     required_tokens = (
         "見当は、次の順で作ります。",
-        "【課題ID1の原因】",
-        "【課題ID2の原因】",
-        "【課題ID3の原因】",
+        # EDIT-005で6段1周へ移行し、課題別H3節をやめた。3つの課題の原因は
+        # 冒頭の【課題の原因】でまとめて示すので、原因IDの並びで担保する。
+        "【課題の原因】",
+        "原因ID1（共通順が本文IDと本文内容を持つ）",
+        "原因ID2（文書生成が装飾種類・順序を持つ）",
+        "原因ID3（生成本体が履歴規則を持つ）",
         "**クラス図に出てくる主なメンバーと操作**",
         "+generate(request) bool",
         "+writePreview(document, path, format) bool",
