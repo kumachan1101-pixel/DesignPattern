@@ -1512,55 +1512,381 @@ public:
 この表と完了状態が、そのままフェーズ6の入力です。要求の受入は要求ID、設計課題の解消は課題ID、今回の変更影響は変更IDで別々に追跡します。
 ## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-**ここからしばらくは抽象の話です。** 個々のクラスへ入る前に、この章で「何を、どんな構造へ変えるのか」を先に決めます。
+**ここからは、変更前のクラス図とコードを少しずつ書き換えていきます。** 完成形を先に見せるのではなく、1つ判断するたびに図とコードがどう変わるかを追います。
 
 #### まず全体像 ―― どんな構造へ変えるか（抽象）
 
-フェーズ4で、`TransferProcessor`と`BatchTransferProcessor`が「振込を成立させる業務フロー」と「外部システムごとの呼び出し詳細（認証・送金APIの順序とパラメータ）」を同じ場所へ抱えていることを確認しました。対策は、外部呼び出しの詳細を一つの窓口の裏へ隠し、利用側は一つの振込操作だけを呼べるようにすることです。ここで使う構造は、第一部で扱った基本構造です。構造名（と対応するパターン名）を語彙として併記しますが、パターン名から設計を選ぶのではなく、上で確認した「変わる呼び出し詳細」から必要な構造を導きます。
+フェーズ4で、`TransferProcessor` が「振り込み業務の流れ」と「銀行APIの呼び出し手順」という**別々の理由で変わる2つの知識**を、同じ場所へ抱えていることを確認しました。対策は、この2つを別々の責任へ分け、一つの振込経路へ再結合することです。ここで使う構造は、第一部で扱う基本構造です。構造名（と対応するパターン名）を語彙として併記しますが、パターン名から設計を選ぶのではなく、上で確認した「別々に変わる2つの知識」から必要な構造を導きます。
 
 ```mermaid
 flowchart TB
-    A[現在<br/>振込業務フローと銀行API手順が<br/>二つのProcessorに混在] --> B[分離判断<br/>外部手順を一つの窓口の裏へ隠す<br/>窓口固定＝Facade]
-    B --> C[課題ID1<br/>performTransferへ<br/>手順一式を集約]
-    B --> D[課題ID2<br/>IBankTransferServiceの裏で<br/>具体窓口を差し替える]
-    C --> E[守る範囲<br/>口座確認・履歴保存・結果契約・単発／一括フロー]
+    A[現在<br/>TransferProcessorに<br/>振込業務と銀行API手順が混在] --> B[分離判断<br/>外部手順を境界の向こうへ集約し<br/>利用側は依頼と結果だけを扱う]
+    B --> C[課題ID1<br/>銀行APIの多段手順を<br/>一つの窓口へ集約＝Facade]
+    B --> D[課題ID2<br/>窓口の実装を利用側から選ばせない<br/>契約への依存＝実装差し替え]
+    C --> E[守る範囲<br/>口座確認・履歴保存・依頼結果<br/>単発と一括の利用フロー]
     D --> E
 ```
 
-まだクラスの中身は見ません。この段階でつかんでほしいのは「外部呼び出しの詳細を窓口の裏へ集約（課題ID1）し、その窓口を契約で差し替え可能（課題ID2）にして、利用側は一つの操作だけを呼ぶ」という筋だけです。「どのクラスが生成し、どの契約で実行するか」という具体の結論は、この後の課題ID1・課題ID2で決めていきます。決めた結論をまとめて振り返る表は、フェーズ6の末尾（6-3 設計トレース）に置きます。ここでは先に結論表を出しません。
+**この図は上から下へ、現状・分離の判断・2つの課題の着地点・守る範囲の順で読みます。** 検討はこの図の並び順では進めません。**先に確定するのは、一番下の「守る範囲」です。** 守る範囲が決まらないと、どこで線を引いてよいかが決められないからです。
 
-第0章の「設計の醍醐味」の四拍子でいえば、この章は〈共通の振込操作を見つけて外部API手順を窓口の裏へ分離〉→〈差し替え可能な窓口実装を生成〉→〈利用側へ注入〉→〈利用フローは銀行APIの手順を意識しない〉という同じ順序をたどります。
+**守る範囲 ―― この章で変えないもの。**
 
-#### 構造ポイントの全貌 ―― どの責任がどこへ移るか
+- **口座確認と残高確認**：送金先の存在確認と、送金元の残高が足りるかの確認。どちらも行うこと自体と、失敗したら送金しないこと
+- **履歴保存**：成功した振り込みだけを記録し、一覧できること
+- **依頼結果**：呼び出し側が「成功したか」と「失敗した理由」を受け取れること
+- **単発と一括の利用フロー**：1件ずつ振り込む流れと、給与一括振込の流れ。一括は途中で失敗したら、そこまでの成功分を戻す
 
-課題ID1・課題ID2の【契約】〜【利用開始】が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この表で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID節に同じ番号で置きます。
+この4つが変わっていないことは、フェーズ7の受入・回帰エビデンスで確認します。ただし**各段の終わりでも1行ずつ照合します。**
 
-| ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
-|---|---|---|---|
-| 【生成】 | 利用側が認証器などを自前で持つ → `Application::run()` のローカル変数 | 組み立て役が窓口とその依存を生成し所有する | 【注入】のコンストラクタ引数 |
-| 【注入】 | 具体窓口名をメンバに持つ → `TransferProcessor(IBankTransferService&)` | 契約参照だけを単発入口とバッチ入口へ渡す（所有は【生成】のまま） | 【利用開始】が呼ぶ `transfer()` |
-| 【利用開始】 | 呼び出し側がAPI手順を並べる → `Application::run()` の `processor.transfer({...});` | 【生成】【注入】で組み立てた同じ実体を使い、公開操作を1回呼ぶ | 【安定骨格】の `transfer()` |
-| 【安定骨格】 骨格 | 業務フローに散った検証・認証・送金の順 → `TransferProcessor::transfer()` は契約を1回呼ぶだけ | 利用側の制御を「契約へ委譲して結果で分岐」だけに固定する | 【契約】の `performTransfer()` |
-| 【契約】 | `TransferProcessor` が銀行APIの手順を直接呼ぶ → `IBankTransferService::performTransfer(const TransferRequest&)` | 1回の振込操作を契約へ切り出す。実体は【生成】で生成し【注入】で渡す | 【具体】のoverride |
-| 【具体】 | `TransferProcessor` が抱えていた銀行API手順 → `BankTransferService::performTransfer()` | 口座確認→認証→送金→履歴の順を窓口の内側へ閉じる | 【契約】経由で【安定骨格】へ戻る |
+### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
-この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。**並び順は実行時に通る順です。** 課題ID節でも同じ順で説明し、節の末尾に代表入力の実行接続表を置きます。
+フェーズ1の1-3で作ったクラス図が、これから書き換えていく**基準の図**です。まずここへフェーズ2〜5の判断を注記として載せ、どの責任を残し、どの責任を移すかを確定します。
+
+| クラス図を変える材料 | 前工程で確認したこと | クラス図へ反映すること |
+|---|---|---|
+| フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
+| フェーズ2の変化予測 | リスクID1〜リスクID3。認証は多段化し、送金形式も変わる | 銀行都合で変わる責任へ `【移す】` と注記する |
+| フェーズ4の原因 | 原因ID1（API手順の抱え込み）と原因ID2（利用側が実装を直接選ぶ） | 同じクラスの中で `【残す】` と `【移す】` を分ける |
+| フェーズ5の接続点 | 利用側は振込依頼と結果だけを扱えばよい | 課題ID1のAPI手順と課題ID2の実装選択を、それぞれ利用側の外へ出す |
+
+**薄い黄色が着目クラス**です。ここでは `TransferProcessor` の `【残す】` と `【移す】` を追います。矢印は1-3と同じ利用・保持関係です。
+
+**変更前のクラス図（基準の図）：**
+
+```mermaid
+classDiagram
+    class BatchTransferProcessor {
+        +processPayroll(from, transfers)
+    }
+    class TransferProcessor {
+        -bank: Bank
+        -auth: SecurityAuthenticator
+        +transfer(from, to, amount, otp)
+        +transferApprovedBatch(from, to, amount)
+    }
+    class Bank {
+        +verifyAccount(id) bool
+        +checkBalance(from, amount) bool
+        +executeTransfer(from, to, amount)
+    }
+    class SecurityAuthenticator {
+        +promptOTP()
+        +verifyOTP(otp) bool
+    }
+    class TransferHistory {
+        +record(from, to, amount)
+        +printAll()
+    }
+    BatchTransferProcessor --> TransferProcessor : 1件ずつ委譲
+    TransferProcessor --> Bank : 手順を直接呼ぶ
+    TransferProcessor --> SecurityAuthenticator : 手順を直接呼ぶ
+    TransferProcessor --> TransferHistory : 成功を記録
+
+    note for TransferProcessor "【残す】振込業務の流れ・履歴保存<br/>【課題ID1・移す】銀行APIの多段手順と順序<br/>【課題ID2・移す】どの実装を使うかの選択"
+    note for TransferHistory "【維持】成功した振り込みの記録"
+
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
+    cssClass "TransferProcessor" focus
+```
+
+向きと掲載クラスは1-3から変えていません。同じ図に注記と色だけを加え、`TransferProcessor` のどの責任を残し、どの責任を移すかに着目します。**この図が出発点で、以降の各段でここへ1つずつ足していきます。**
+
+クラス図の変更として書くと、次の3操作になります。**どんなクラスを新設し、何という名前にするかは、この後の各段で決めます。** ここで確定しているのは操作の種類だけです。
+
+1. 課題ID1：銀行APIの多段手順を、`TransferProcessor` の外にある1つの責任へまとめる。
+2. 課題ID2：その責任が満たす共通契約を新設し、利用側を契約だけに依存させる。
+3. 課題ID1・課題ID2：実体を生成・所有する場所を決め、単発と一括の両方の入口へ渡す。
+
+この3操作を、どんな手順で導くのかを次から順に書きます。
+
+#### この時点で決まっていること、これから決めること
+
+**大枠が見えていないと、検討は進められません。** 「どんな構造へ変えるか」が決まっていない状態で契約の形だけ考えても、良し悪しを判定する基準がありません。だからフェーズ6は、**目指す形を掲げるところから始めます。**
+
+| | 内容 | どこで決まったか |
+|---|---|---|
+| **決まっている（目指す形）** | 銀行APIの多段手順を境界の内側へ集約し、利用側は契約だけに依存する | フェーズ4・5（別々に変わる2つの知識） |
+| **決まっている（枠）** | 守る範囲の4つと、課題ごとの完了条件 | 1-5・5-3 |
+| **これから決める** | そもそも分けるか／接続点をどんな形で受け渡すか／誰が呼ぶか／裏に何を置くか／誰が実体を作り持つか／実装がどこで入るか／呼び方はどうなるか | フェーズ6の6段 |
+
+**掲げるのは形までです。** クラス名、契約のメソッド構成、誰が実体を持つか——**表の3行目にあるものが、この後の6段で1つずつ決まっていきます。**
 
 #### 接続点の分離・配置・組み立てを決める
 
-フェーズ5の接続点を、次の三つの観点で設計へ変換します。
+フェーズ6で決めるのは、次の3つです。**どれもこの後の各段で決めます。ここでは何を決めるのかだけを確認します。**
 
-| 接続点を変える観点 | システム全体の考え方 | この章での答え |
+- **分離方法**：振込業務に何を残し、何を境界の向こうへ外すか。課題ID1と課題ID2で別々の境界になります。
+- **配置場所**：外した知識を、どんな単位のクラスへ置くか。手順ごとか、まとめて1つか。
+- **組み立て方法**：実体を誰が生成・所有し、単発と一括の入口へどう渡すか。
+
+**この3つは独立して決められません。** 分離方法が決まらないと配置場所が決まらず、配置場所が決まらないと組み立て方法が決まりません。だから順に決めます。決まった結論をまとめて振り返る表は、フェーズ6の末尾（6-1）に置きます。
+
+### 課題ID1・課題ID2を6段で解く
+
+**【課題の原因】** 課題ID1は、問題ID1・問題ID2（外部手順の混在による波及と分岐増）＝原因ID1（APIの呼出順序・手順を業務フローが抱え込む）。課題ID2は、問題ID3（実装差替えで複数入口が一緒に変わる）＝原因ID2（利用側が具体的な振込実装を直接選ぶ）。この2つを分離対象にします。
+
+**この課題（何を解きたいか）：** 銀行が認証を1段増やすだけで振込業務のクラスを触り、テスト用の実装へ替えるだけで単発と一括の両方の入口を触る。**利用側がAPI手順を知らず、一つの振込操作だけを呼べる**ようにするのが課題ID1、**実装を差し替えても利用側の呼出手順が変わらない**ようにするのが課題ID2です。
+
+**どう解決するか（方針）：** 銀行APIの多段手順を1つの窓口の内側へ集約し（窓口集約構造＝Facade）、その窓口が満たす共通契約を置いて利用側を契約だけに依存させます。
+
+**2つの課題を、別々に解いて後で合流させる形にはしません。** ただし、**この2つは第9章のような対等な2軸ではありません。** 課題ID2は「課題ID1で作った窓口を、利用側からどう見せるか」の話なので、**課題ID1の結論が決まらないと課題ID2を決められません。**
+
+**5-2の2つの基準で確かめます。**
+
+| 基準 | 判定 |
+|---|---|
+| **A：変化軸** | 別々の理由で変わる。銀行の認証方式が変われば課題ID1側だけ、テスト用実装を足すなら課題ID2側だけ |
+| **B：条件付け** | **該当する。** 課題ID2の完了条件「具体実装の差替えで利用側の呼出手順が変わらない」は、課題ID1が作る窓口に「差し替えられる形であること」を要求している |
+
+**基準Bに該当するので、契約を決める順序が固定されます。** 条件を課しているのは課題ID2ですが、課題ID2が差し替える対象は課題ID1が作るものです。**先に課題ID1で「窓口が何を受け取り何を返すか」を決め、その形をそのまま課題ID2の契約にします。** 逆にすると、契約を先に決めてから窓口の中身が入らないと分かり、作り直すことになります。
+
+| 段 | 何を決めるか | 軸ごとか |
 |---|---|---|
-| 分離方法 | 接続点をどう切るか | 銀行・認証の呼び出し手順一式（手順1〜5）を業務フローから切り出す。境界には「振込依頼を渡すと振込結果が返る」1往復だけを残す |
-| 配置場所 | 切り出した責任をどこへ置くか | 手順の一式と差し替えの単位が同じなので、`BankTransferService` へまとめる。守る側には自社検証・履歴記録・公開入口を残す |
-| 組み立て方法（生成・所有・登録・注入） | 誰がどう接続するか | `Application` が具体窓口を生成・所有し、`TransferProcessor` と `BatchTransferProcessor` へ `IBankTransferService` 参照を注入する。登録は不要で、選択もここで行う |
+| 1【契約】 | 分けるかを決め、境界に何が渡るかを決める | 軸ごと |
+| 2【安定骨格】 | 呼ぶのは、変わらない側 | 軸ごと |
+| 3【具体】 | 契約の裏を埋める | 軸ごと |
+| 4【生成】 | 実体を作り、持つ人を決める | **共通** |
+| 5【注入】 | 実装が骨格へ入る | **共通** |
+| 6【利用開始】 | 結果として、呼び方はこうなった | **共通** |
 
-この3つの決定を満たす実装形を次で確認します。
+**出発点。** やることはもう決まっています。`TransferProcessor::transfer()` から銀行APIの手順を、利用側から実装の選択を、それぞれ分けることです。分ける対象も5-3で決まっています。まだ決まっていないのは、**分けた後にどう繋ぐか**だけです。
 
-#### 設計判断ごとの部分クラス図
+書き換える前のコードは3-1にあります。**ここで全部を再掲することはしません。** 各段で、その段が触る数行だけを3-1から抜き出し、変更後と並べます。
 
-課題ID1では、認証から送金までの外部API手順を`BankTransferService`へ集約し、利用側には一つの振込操作だけを見せます。
+---
+
+**1. 分けるかを決め、境界に何が渡るかを決める 【契約】**
+
+**まず、分けないで済まないかを確かめます。** 5-3が確定したのは「この接続点を解く」ことであって、「クラスを増やす」ことではありません。次の2つがどちらも成り立つなら、契約を作らず、手順を関数へ1つ切り出すだけで止めます。
+
+1. 変わる側の判断が、コード上1か所にしか現れない
+2. その種類が増える見込みが、2-4のリスクIDにも5-2の評価にも挙がっていない
+
+**課題ID1は、1つ目が成り立ってしまいます。** 銀行APIの手順を書いているのは `TransferProcessor::transfer()` の5行だけです。**種類が増えるわけでもありません。** 銀行は1つで、複数の銀行を切り替える話は出ていません。
+
+**それでも分けます。根拠が「増えるから」ではないからです。** 2-4のリスクID1（認証の多段階化）、リスクID2（送金リクエスト形式の変更）、リスクID3（生体認証の導入）は、どれも**手順の数と順序そのものが変わる**という予告です。増えるのは実装の種類ではなく、**手順の中身**です。そして今それを持っているのは振込業務のクラスです。
+
+**この章で止めたいのは、種類の増加ではなく知識の漏れです。** 5-3の完了条件も「利用側がAPI手順を知らず、一つの振込操作だけを呼べる」と書いていて、**「手順が増えても閉じる」ではありません。** 関数へ切り出すだけでは、その関数が `TransferProcessor` の中にある限り、認証が1段増えれば振込業務のクラスを触ることになります。**手順ごと、業務フローの外へ出す必要があります。**
+
+**検算の2条件に当てはまらない章もある**ということです。当てはまらないときは、5-3の完了条件が「何を止めたいのか」を読み直します。
+
+分けると決めたので、コードに線を引きます。
+
+**掲載箇所：`TransferProcessor::transfer(const string&, const string&, int, const string&)`** ―― 3-1の振込フロー（対策前）
+
+```cpp
+    bool transfer(const std::string& from, const std::string& to,
+                  int amount, const std::string& otp) {
+        if (!bank.verifyAccount(to)) return false;          // ← 出て行く側
+        if (!bank.checkBalance(from, amount)) return false; // ← 出て行く側
+        auth.promptOTP();                                   // ← 出て行く側
+        if (!auth.verifyOTP(otp)) return false;             // ← 出て行く側
+        bank.executeTransfer(from, to, amount);             // ← 出て行く側
+        return true;                                        // ← 残る側（結果を返す）
+    }
+```
+
+**割り方の根拠は、銀行側の都合で変わるかどうかです。** リスクID1で認証が三段階になれば3〜4行目が増えます。リスクID2で送金形式が変われば5行目が変わります。**残るのは「結果を呼び出し側へ返す」ことだけ**で、これは銀行が何をしようと変わりません。
+
+**5-3が挙げた候補は2つです。** 振込依頼と、処理結果。**このうち何がいくつ境界を流れるかは、まだ決まっていません。** 1つずつ形を決めます。
+
+| 接続するもの（5-3の候補） | 決めた形 | そう決めた理由 |
+|---|---|---|
+| 振込依頼 | **1つの値にまとめて引数で渡す**（送金元・送金先・金額・認証コード） | 4つをばらばらの引数にすると、認証方式が変わるたびに引数の数が変わる。呼び出し側の全行を触ることになる |
+| 処理結果 | **成否と理由の2つを1つの値で返す** | 変更前は `bool` だけで、失敗理由が呼び出し側に届いていなかった。守る範囲の「依頼結果」に理由が含まれるので、ここで形にする |
+
+**候補2つが、そのまま2つとも境界を流れます。** どちらも値として渡す形にしたので、構造で表すことにしたものはありません。**第9章のように候補の数と実数がずれる章もあれば、この章のように一致する章もあります。**
+
+**「失敗理由を返す形にしてよいのか」** ——ここは踏み外しやすいので、根拠を書きます。**変更前のコードは `bool` しか返していないので、「変更前が消費していた値」を根拠にはできません。** 使えるのは1-5の変更後要求ベースラインです。要求ID5が「未登録口座・残高不足・認証失敗をそれぞれ理由付きで拒否する」と定めていて、変更前は理由を `cout` で直接出していました。**手順を境界の向こうへ移すと、その `cout` も一緒に移ります。** 移した先が理由を持っているのに呼び出し側へ返さないと、要求ID5を満たせません。だから戻り値に理由を含めます。
+
+**変更前に無かった情報を返すときは、変更前のコードではなく要求IDが根拠になります。**
+
+**掲載箇所：`TransferRequest`／`TransferResult`（構造体全体）** ―― 境界を流れる2つの値
+
+```cpp
+struct TransferRequest {
+    std::string fromAccount;
+    std::string toAccount;
+    int amount;
+    std::string otp;
+};
+struct TransferResult {
+    bool success;
+    std::string message;
+};
+```
+
+**振り込みという1回のやり取りが、1つの依頼と1つの結果になりました。** 銀行が認証を1段増やしても、依頼に入るのは認証コードのままです。増えるのは境界の向こう側の手順です。
+
+**この段で契約そのものは置きません。** 銀行APIの手順を受け取る側が何という操作を持つかは、**2で「誰が呼ぶか」を決めてから**でないと決まりません。単発の振り込みだけなのか、一括振込にも別の操作が要るのかは、呼ぶ側の形で変わります。
+
+**この段の守る範囲の照合：** 守る範囲の4つのどれにも触っていません。値の形を2つ決めただけで、既存のコードは1行も書き換えていません。
+
+**では、この2つの値をやり取りする相手を、誰が呼ぶのか。**
+
+---
+
+**2. 呼ぶのは、変わらない側 【安定骨格】**
+
+呼べるのは、銀行の都合で変わらない側だけです。出て行った側が出て行った側を呼べば、認証が変わるたびに両方を触ることになり、分けた意味が消えます。
+
+**変わらない側には2つの型があります。どちらなのかを、ここで見分けます。**
+
+| 型 | 骨格の正体 | 契約の置き場 | 見分け方 |
+|---|---|---|---|
+| **残った側** | 分岐や手順を外した後に残った処理 | 骨格とは**別のクラス** | 同じ実行の途中で相手が入れ替わる |
+| **取り出した順序** | 変更前から存在していた共通手順 | 骨格と**同じクラス**（基底の内側） | 実体を作った時点で相手が決まる |
+
+**この章は上の型です。** ただし理由が第9章とは違います。第9章は「実行の途中で相手が入れ替わる」からでしたが、**この章は入れ替わりません。** 1回の振り込みで窓口が途中で別物になることはありませんし、実行中に接続先が変わることもありません。
+
+**それでも別クラスになるのは、骨格が2つあるからです。** 単発振込（`TransferProcessor`）と一括振込（`BatchTransferProcessor`）は、どちらも同じ窓口を呼びます。基底クラスの内側に契約を置くと、**2つの骨格それぞれが窓口の手順を継承することになり、窓口が2つに分かれます。** それでは集約した意味がありません。
+
+**見分け方をもう1つ足すことになります。** 「同じ相手を複数の骨格が使うか」。使うなら、契約は骨格の外に置くしかありません。
+
+残った側は、`TransferProcessor` と `BatchTransferProcessor` の2つです。**どちらも名前は変えません。** 1-3で書いた役割は「個別振り込みフロー進行」「一括振り込み進行」で、この段の後もそれは変わらないからです。出て行くのは銀行APIの手順であって、フロー進行そのものではありません。**責任が変わっていないのに名前だけ変えると、差分が増えるだけです。**
+
+**掲載箇所：`TransferProcessor::transfer(const TransferRequest&)`** ―― 骨格
+
+```cpp
+    void transfer(const TransferRequest& req) {
+        TransferResult r = service.performTransfer(req);  // ←この service が未定
+        std::cout << (r.success ? "振り込み完了\n"
+                                : "エラー: " + r.message + "\n");
+    }
+```
+
+**5行あった手順が1行になりました。** 残ったのは「窓口へ依頼を渡し、返ってきた結果を表示する」だけです。
+
+**穴が1つ空きました。** `service` です。**この変数が何型で、どこから来るのかは、まだ決めていません。** `BankTransferService` のような具体の名前をここに書くことはできません。書けば課題ID2の完了条件「実装を差し替えても利用側の呼出手順が変わらない」が最初から崩れます。**それを決めるのが4と5です。**
+
+**一括振込も同じ形です。** ただし呼ぶ操作が違います。
+
+**掲載箇所：`BatchTransferProcessor::processPayroll(const string&, const vector<pair<string,int> >&)`** ―― 骨格の中心部分
+
+```cpp
+        for (const auto& entry : payrollEntries) {
+            TransferResult r =
+                service.performApprovedBatchTransfer(   // ←同じ service を呼ぶ
+                    payrollSourceAccount, entry.first, entry.second);
+            if (r.success) { completedEntries.push_back(entry); }
+            else { /* …中断して完了済みを戻す（省略）… */ }
+        }
+```
+
+**一括では認証コードを渡しません。** 給与振込は事前承認済みなので、1件ごとにOTPを求めません。**だから `TransferRequest` を渡す操作とは別の操作が要ります。** 1で「契約は2で決まってから」と書いたのは、これが理由です。呼ぶ側が2種類あって、必要な操作が2つだと、ここで初めて分かりました。
+
+**そして中断時の戻しにも、もう1つ操作が要ります。** 一括の途中で失敗したら、そこまでの成功分を戻します。戻す処理も銀行APIの手順なので、境界の向こう側です。
+
+**契約が3操作に決まりました。**
+
+| 操作 | 呼ぶ骨格 | 受け取るもの | 返すもの |
+|---|---|---|---|
+| 単発の振り込み | `TransferProcessor` | 振込依頼（認証コードを含む） | 処理結果 |
+| 承認済み一括の振り込み | `BatchTransferProcessor` | 送金元・送金先・金額 | 処理結果 |
+| 補償（戻し） | `BatchTransferProcessor` | 送金元・送金先・金額 | 無し |
+
+**契約の名前を決めます。** 銀行への振込処理を提供する窓口の契約なので `IBankTransferService` とします。
+
+**掲載箇所：`IBankTransferService`（クラス全体）**
+
+```cpp
+// 窓口の契約
+class IBankTransferService {
+public:
+    virtual TransferResult performTransfer(
+        const TransferRequest& req) = 0;
+    virtual TransferResult performApprovedBatchTransfer(
+        const std::string& from, const std::string& to,
+        int amount) = 0;
+    virtual void compensate(
+        const std::string& from, const std::string& to,
+        int amount) = 0;
+    virtual ~IBankTransferService() = default;
+};
+```
+
+**銀行のメソッド名が1つも出てきません。** `verifyAccount`・`checkBalance`・`promptOTP`・`verifyOTP`・`executeTransfer` は、すべて契約の向こう側です。**3-1で「骨格側が知っている名前」として挙げた5つが、ここで全部消えました。**
+
+**ここで検算します。認証が三段階になったとき、この3操作は変わるか。** 変わりません。増えるのは窓口の内側の手順で、依頼に入る認証コードの数が変わる可能性はありますが、それは `TransferRequest` の中身の話です。**穴が空いたままでも、この検算はできます。**
+
+**この段で図に描けるのは、2つの骨格から契約への依存だけです。** 実体をどこから得るかがまだ決まっていないので、その線は引けません。
+
+```mermaid
+classDiagram
+    class TransferProcessor
+    class BatchTransferProcessor
+    class IBankTransferService { <<interface>> }
+    TransferProcessor --> IBankTransferService : 依頼と結果だけを渡す
+    BatchTransferProcessor --> IBankTransferService : 承認済み振込と補償を呼ぶ
+    class IBankTransferService:::focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**基準の図にあった `TransferProcessor --> Bank` と `TransferProcessor --> SecurityAuthenticator` が、ここで消えます。** 2本の矢印が1本になりました。`TransferHistory` への矢印も消えますが、それは記録が窓口側へ移るからで、3で確かめます。
+
+**この段の守る範囲の照合：** 4つのうち2つに触りました。**依頼結果**は `bool` から成否と理由の2つになりましたが、これは要求ID5を満たすための追加であって、既存の成否判定は変わっていません。**単発と一括の利用フロー**は、呼ぶ相手が変わっただけで、1件ずつ振り込む流れも一括の中断・戻しも同じです。口座確認と履歴保存には、この段では触っていません。
+
+**では、契約の裏には何を置くのか。**
+
+---
+
+**3. 契約の裏を埋める 【具体】**
+
+契約と、それを呼ぶ骨格が決まりました。**ここで契約の裏を埋めます。**
+
+**課題ID1（窓口軸）。この段は、他章と1つ違います。実装が1つしかありません。**
+
+第9章では状態ごとに5クラス、第4章では形式ごとに3クラスを作りました。**この章の窓口は1つです。** 銀行が1つだからです。
+
+**それでも分ける価値があるのは、目的が差し替えではないからです。** 1で確認したとおり、この章で止めたいのは「銀行APIの知識が振込業務へ漏れること」でした。**手順を1か所へ集めた時点で、その目的は達成されます。** 実装が2つ以上ないと意味がない、という構造ではありません。
+
+**掲載箇所：`BankTransferService`（クラス宣言とメンバー）** ―― 契約の裏
+
+```cpp
+// 窓口：銀行の多段手順と認証・台帳・履歴を束ねて隠す
+class BankTransferService : public IBankTransferService {
+private:
+    AccountDatabase& db;
+    Bank& bank;
+    TransferHistory& history;
+    SecurityAuthenticator auth;
+    // …口座と残高をまとめて確認する内部処理（省略。詳細は7-1）…
+public:
+    TransferResult performTransfer(const TransferRequest& req);
+    TransferResult performApprovedBatchTransfer(
+        const std::string& from, const std::string& to, int amount);
+    void compensate(const std::string& from, const std::string& to,
+                    int amount);
+};
+```
+
+**3-1で `TransferProcessor` が持っていた `bank` と `auth` が、ここへ移りました。** そして `history` も一緒に来ています。**履歴の記録が窓口側へ移ったのは、記録するのが「送金が成功した瞬間」だからです。** その瞬間を知っているのは手順を実行している側で、骨格は結果を受け取るだけです。
+
+**守る範囲の「履歴保存」は、置き場所が変わっただけで動きは同じです。** 成功した振り込みだけを記録し、一覧できる——これは3-1のままです。
+
+**掲載箇所：`BankTransferService::performTransfer(const TransferRequest&)`** ―― 3-1の5手順が移った先
+
+```cpp
+TransferResult BankTransferService::performTransfer(
+        const TransferRequest& req) {
+    TransferResult v = validateAccountsAndBalance(
+        req.fromAccount, req.toAccount, req.amount);
+    if (!v.success) return v;                       // 手順1・2：口座と残高
+    std::string txId = auth.issueChallenge();       // 手順3：認証コード発行
+    if (!auth.verifyOTP(txId, req.otp)) {           // 手順4：認証検証
+        return {false, "認証に失敗しました"};
+    }
+    bank.executeTransfer(req.fromAccount, req.toAccount, req.amount);
+    history.record(req.fromAccount, req.toAccount, req.amount);
+    return {true, ""};                              // 手順5：送金と記録
+}
+```
+
+**3-1の5手順が、順序を変えずにそのまま入っています。** 変わったのは、失敗のたびに `false` を返す代わりに理由を添えるようになったことだけです。**リスクID1で認証が三段階になったら、増える行はこの関数の中です。** `TransferProcessor` は1行も変わりません。
+
+**課題ID2（実装選択軸）。こちらの裏は、いま作ったものがそのまま埋めます。** 課題ID2が求めていたのは「利用側が実装を直接選ばないこと」で、そのための契約は2で置きました。**裏に置く実装は、課題ID1で作った窓口です。**
+
+**2つの課題が、ここで初めて同じものを指しました。** 課題ID1は「手順をどこへ集めるか」、課題ID2は「それを利用側からどう見せるか」。**先に課題ID1を決めたから、課題ID2は契約を1つ足すだけで済みました。** 順序を逆にしていたら、契約を先に決めてから中身が入らないと分かり、作り直すことになります。
 
 ```mermaid
 classDiagram
@@ -1568,15 +1894,59 @@ classDiagram
     class BankTransferService
     class Bank
     class SecurityAuthenticator
+    class TransferHistory
     IBankTransferService <|.. BankTransferService
-    BankTransferService --> Bank : 送金手順
-    BankTransferService --> SecurityAuthenticator : 認証手順
-    class IBankTransferService:::focus
+    BankTransferService --> Bank : 手順を呼ぶ
+    BankTransferService --> SecurityAuthenticator : 手順を呼ぶ
+    BankTransferService --> TransferHistory : 成功を記録
     class BankTransferService:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-課題ID2では、単発・一括の両入口を具象サービスではなく同じ契約へ依存させ、具体実装の生成を`Application`へ移します。
+**基準の図で `TransferProcessor` から出ていた3本の矢印が、そのまま `BankTransferService` から出ています。** 矢印の数も向きも変わっていません。**変わったのは、根元がどのクラスかだけです。** これが「手順を移した」の実態です。
+
+**もう一度検算します。契約のメソッド以外に書きたくなるものがあるか。** 出てきませんでした。3操作で単発・一括・戻しがすべて表せています。
+
+**この段の守る範囲の照合：** **口座確認と残高確認**、**履歴保存**に触りました。どちらも置き場所が `TransferProcessor` から `BankTransferService` へ移っただけで、確認する内容も、失敗したら送金しないことも、成功だけを記録することも変わっていません。単発と一括の利用フロー、依頼結果には触っていません。
+
+**ここまでで、クラスの設計は終わりです。** 残っているのは、これらを誰が作り、どう渡すかだけになりました。**そしてここから先は、2つの軸で共通です。**
+
+---
+
+**4. 実体を作り、持つ人を決める 【生成】**
+
+**2で穴が1つ空きました。** 骨格が持つ `service` です。この段で決めるのは、**誰が窓口の実体を作り、誰が持つか**です。
+
+持つ者に必要な条件は、2で分かっています。
+
+- **具体クラスを知っていること。** `BankTransferService` を作る以上、作る側はその名前を知っていなければなりません
+- **`TransferProcessor` でも `BatchTransferProcessor` でもないこと。** 2で確認したとおり、知った時点で課題ID2が崩れます
+
+**もう1つ条件があります。単発と一括が同じ実体を使うこと。** 別々に作ると、履歴が2つに分かれます。給与振込の記録が単発の一覧に出てこない、ということが起きます。**守る範囲の「履歴保存」が崩れるので、実体は1つです。**
+
+**この3つを満たすのは、両方の入口より外側にいる者です。** この章では組み立て役の `Application` がそれにあたります。
+
+**掲載箇所：`Application::run()`** ―― 組み立て（対策後）
+
+```cpp
+    void run() {
+        AccountDatabase db;
+        Bank bank;
+        TransferHistory history;
+        BankTransferService service(db, bank, history);
+        TransferProcessor processor(service);
+```
+
+**4行で組み立てが終わります。** `db`・`bank`・`history` は1-4から続く境界で、これは変更前と同じです。**新しく増えたのは `service` の1行と、それを `processor` へ渡す部分だけです。**
+
+**所有と生存期間もここで決まります。**
+
+- `db`・`bank`・`history`・`service`・`processor` は、すべて `run()` のローカル変数です。生ポインタも `new` も使いません
+- `BankTransferService` が持つ `db`・`bank`・`history` は**参照**です。所有はしません。宣言順が上なので、窓口より先に消えることはありません
+- `TransferProcessor` が持つ `service` も**参照**です。同じく宣言順が上なので、骨格より先に消えません
+- **借りているものは、すべて同じ `run()` の中にあります。** 生存期間を追うために別の関数を読む必要がありません
+
+**なぜ参照で借りるのか。** 値で持つと、単発と一括が別々の窓口を持ってしまい、上で確認した「実体は1つ」が崩れます。**共有したいものは借りる、というのがこの章の選び方です。**
 
 ```mermaid
 classDiagram
@@ -1584,99 +1954,96 @@ classDiagram
     class TransferProcessor
     class BatchTransferProcessor
     class IBankTransferService { <<interface>> }
-    Application --> TransferProcessor : 組み立て
-    Application --> BatchTransferProcessor : 組み立て
-    TransferProcessor --> IBankTransferService : 注入
-    BatchTransferProcessor --> IBankTransferService : 注入
+    class BankTransferService
+    Application ..> BankTransferService : 生成・所有
+    Application ..> TransferProcessor : 生成・所有
+    Application ..> BatchTransferProcessor : 生成・所有
+    TransferProcessor --> IBankTransferService : 借用
+    BatchTransferProcessor --> IBankTransferService : 借用
+    IBankTransferService <|.. BankTransferService
     class Application:::focus
-    class IBankTransferService:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
 ```
 
-省略した口座台帳と履歴は変更しません。次のコードでは、窓口契約、具象手順、利用側への注入の順に実装します。
+**点線が生成・所有、実線が借用です。** `Bank`・`SecurityAuthenticator`・`TransferHistory` はこの図に描いていませんが、3から変わっていません。
+
+**この段の守る範囲の照合：** 4つのどれにも触っていません。組み立ての行が増えただけで、確認も記録も結果も利用フローも変わっていません。
+
+**この段が終わった時点で、実体はすべて存在しています。** 窓口、2つの骨格、それらを持つ組み立て役。**まだ起きていないのは1つだけです。骨格の `IBankTransferService&` と書かれた変数へ、具体が入ることです。それが5です。**
+
+---
+
+**5. 実装が骨格へ入る 【注入】**
+
+**2で書いた骨格には、`service` としか書いてありません。** `BankTransferService` とは書いていません。それでも実行すれば銀行の手順が動きます。**この段で見るのは、いつ・何によって、その実装が入るのかです。**
+
+**掲載箇所：`TransferProcessor`（メンバーとコンストラクタ）** ―― 実装が入る場所
+
+```cpp
+class TransferProcessor {
+private:
+    IBankTransferService& service;          // ←契約としか書いていない
+public:
+    explicit TransferProcessor(IBankTransferService& s)
+        : service(s) {}                     // ←ここで実装が入る
+```
+
+**この1行が注入です。** 型は `IBankTransferService&` なのに、実行時に入っているのは `BankTransferService` です。入れているのは4で書いた `TransferProcessor processor(service);` の側で、骨格ではありません。**骨格は、何が入ったかを最後まで知りません。**
+
+**実装が骨格へ入る形は、この章の形だけではありません。** 骨格が契約としか書いていない場所へ具体が入る、という点はどの構造でも同じですが、入る瞬間は3つに分かれます。
+
+| 形 | 実装が決まる決め手 | 入る瞬間 | この本での例 |
+|---|---|---|---|
+| **生成した実体を渡して保持する** | **誰を渡したか（組み立て時に1回）** | **コンストラクタ引数、`attach()` などの登録** | **第2章（この章）**、第6章、第7章、第8章 |
+| 呼び出しごとに引き当てる | 保存された状態値、入力の属性 | 引き当て関数が契約への参照を返す行 | 第3章、第9章、第12章 |
+| 継承で決まる | どの派生型を作ったか | 実体を作った時点。コード上に行が無い | 第4章 |
+
+**この章は1つ目です。** 決め手は「組み立て役が何を渡したか」で、**組み立てのときに1回決まります。** `processor` を作った後は、`transfer()` を何回呼んでも同じ窓口です。
+
+| 軸 | 実装が決まる決め手 | 決め手の出どころ | 入る場所 |
+|---|---|---|---|
+| 窓口（課題ID1・課題ID2） | 組み立て役が渡した実体 | `Application::run()` の1行 | `TransferProcessor`／`BatchTransferProcessor` のコンストラクタ |
+
+**課題ID2の完了条件が、ここで満たされます。** テスト用の実装を作って渡す先を替えれば、`TransferProcessor` も `BatchTransferProcessor` も1行も変わりません。**変わるのは組み立ての1行だけです。** 変更前は、実装を替えると両方の入口を触ることになっていました。
+
+**骨格が窓口へ届く方法（参照で借りる）は、4で決めた話です。** 値メンバで持っても注入は起きますが、この章では「単発と一括が同じ実体を使う」という理由で参照を選びました。**注入はどちらの持ち方でも起きます。**
+
+**この段の守る範囲の照合：** コードを1行も変えていません。4までに書いたものが、どう繋がるかを説明しただけです。
+
+---
+
+**6. 結果として、呼び方はこうなった 【利用開始】**
+
+組み立てが終わりました。呼び出し側がどう変わったかを、変更前と並べて見ます。
+
+**掲載箇所：`main()`／`Application::run()`** ―― 3-1の個別振り込み（対策前）
+
+```cpp
+    processor.transfer("ACC001", "ACC002", 5000, "999999");
+```
+
+**掲載箇所：`Application::run()`** ―― 同じ操作（対策後）
+
+```cpp
+    processor.transfer({"ACC001", "ACC002", 5000, "999999"});
+```
+
+**引数が4つから1つになりました。** 中身は同じ4項目ですが、`TransferRequest` という1つの値にまとまっています。**銀行が認証を三段階にしても、呼び出し側のこの行は変わりません。** 変わるのは `TransferRequest` の中身と、窓口の内側です。
+
+**組み立ての行は増えました。** 変更前は `TransferProcessor processor(bank);` の1行でしたが、変更後は窓口を作る行が1つ増えています。**この章の対策で `main()` が払ったコストは1行です。** 隠さずに書いておきます。増えたぶんは、銀行APIの変更が振込業務のクラスへ届かなくなることと引き換えです。
+
+**同じ6段を通っても、呼び方が変わるかどうかは章によって違います。** そして**どちらも、1から5の結果であって前提ではありません。** 先に見せると、まだ導いていない結論を見せることになります。
+
+**この段の守る範囲の照合：** **単発と一括の利用フロー**を保っていることを、いま確認しました。1件ずつ振り込む流れも、一括の中断と戻しも、呼ぶ形は変わっていません。6段すべてを通して、守る範囲の4つはいずれも定義に反していません。最終確認はフェーズ7の受入・回帰エビデンスで行いますが、**そこで初めて確かめるのではなく、各段で照合済みです。**
+
 
 #### システム全体の最終構造を決める
 
-この章の最終構造は、三つの設計決定から**一つに定まります**。銀行API手順を呼び出し元から隠し、接続先を差し替える必要があるため、「手順一式を窓口の後ろへ閉じ、呼び出し元は契約越しに依頼する」窓口構造になります。
+6段で足した図を重ねると、システム全体の最終構造になります。`BankTransferService` が銀行APIの多段手順を集約し、`IBankTransferService` がそれを利用側から隠し、単発と一括の2つの入口が同じ契約だけを見ます。
 
-読者が思いつきそうな「手順を自由関数 `performTransferSteps()` に切り出す」形は、手順の重複（課題ID1）だけを解く途中状態です。テスト用実装への切替（課題ID2）では呼び出し側が具体関数を選び直すため、完成構造の比較対象にはしません。設定で手順を解釈する汎用アダプタも、設定言語という別問題を増やし、この規模では最終候補になりません。関数案のコードイメージは章末コラムで確認できます。
+**この章の完成構造は一つに定まります。** 窓口を単発用と一括用の2つへ分ける形も理屈の上では置けますが、履歴が2つに分かれ、守る範囲の「履歴保存」が崩れます。責任配置が異なる完成構造が複数残ったわけではないので、当て馬を並べた比較は行いません。
 
-一意に定まった窓口構造を、`BankTransferService`（手順の集約）、`IBankTransferService`（差し替えの契約）、`Application`（生成・注入）の責任として具体化します。
-
-### 対策検討のクラス図：1-3の責任と依存をどう変えるか
-
-フェーズ1の1-3で作ったクラス図へフェーズ2〜5の判断を反映し、変更後の形へ更新します。
-
-| クラス図を変える材料 | 前工程で確認したこと | クラス図へ反映すること |
-|---|---|---|
-| フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
-| フェーズ2の変化予測 | 銀行APIの手順は今後も変わり続ける | 毎回変わる責任へ `【移す】` と注記する |
-| フェーズ4の原因 | `TransferProcessor` に業務フロー、銀行API手順、具体依存の生成が混在する | 同じクラスの中で `【残す】` と `【移す】` を分ける |
-| フェーズ5の接続点 | 呼び出し元は振込依頼と振込結果だけを受け渡せばよい | 課題ID1の手順集約と課題ID2の契約を窓口クラスと `IBankTransferService` へ置く |
-
-**薄い黄色が着目クラス**です。変更前では `TransferProcessor` の `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。矢印は1-3と同じ利用・保持・参照関係です。
-
-**変更前のクラス図（フェーズ3適用後の構造を責任見直し用に再掲）：**
-
-1-3の図に、フェーズ3で変更を当てた結果を反映しています。`SecurityAuthenticator` はフェーズ3で2段階化した後の形（`requestOTP()`／`verifyOTP(otp, txId)`）です。ここから、どの責任をどこへ移すかを見直します。
-
-```mermaid
-classDiagram
-    direction TB
-    class BatchTransferProcessor {
-        -TransferProcessor processor
-        +processPayroll(from, transfers)
-    }
-    class TransferProcessor {
-        -Bank& bank
-        -SecurityAuthenticator auth
-        +transfer(from, to, amount, otp)
-        +transferApprovedBatch(from, to, amount)
-    }
-    class Bank {
-        -map~string,int~ balances
-        +verifyAccount(id) bool
-        +checkBalance(from, amount) bool
-        +executeTransfer(from, to, amount, txId)
-    }
-    class SecurityAuthenticator {
-        +requestOTP()
-        +verifyOTP(otp, txId)
-    }
-    class AccountDatabase {
-        +exists(id) bool
-        +ownerName(id) string
-    }
-    class TransferHistory {
-        +add(fromName, toName, amount)
-        +printAll()
-    }
-
-    BatchTransferProcessor --> TransferProcessor : 使う
-    TransferProcessor --> Bank : 手順を呼ぶ
-    TransferProcessor --> SecurityAuthenticator : 認証する
-    TransferProcessor --> AccountDatabase : 名義を引く
-    TransferProcessor --> TransferHistory : 成功履歴を追加する
-
-    note for TransferProcessor "【残す】振込業務フローの進行<br/>【課題ID1・移す】銀行の呼び出し手順<br/>【課題ID2・移す】bank/authの生成・保持"
-    note for BatchTransferProcessor "【課題ID1・移す】重複した銀行手順"
-    note for Bank "【維持】残高保持と送金の詳細"
-    note for SecurityAuthenticator "【維持】認証手順の詳細"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "TransferProcessor,BatchTransferProcessor" focus
-```
-
-変更前は `TransferProcessor` が業務フロー、銀行API手順、具体依存の生成を持ち、給与バッチにも同じ手順が重複しています。
-
-課題ID1と課題ID2をクラス図の変更として書くと、次の4操作になります。
-
-1. 課題ID1：`TransferProcessor` と `BatchTransferProcessor` から銀行API手順（口座確認→残高確認→認証→送金→履歴）を外す。
-2. 課題ID1：手順一式を `BankTransferService` の内側へ集約する。
-3. 課題ID2：`BankTransferService` の前に共通契約 `IBankTransferService` を置く。
-4. 課題ID2：具体窓口の生成・注入を `Application`（組み立て側）へ移し、呼び出し元は契約だけを保持する。
-
-変更後も現状図と同じく上から下へ読みます。2つの呼び出し元から、`TransferProcessor` の依存先が `IBankTransferService` に変わったこと、手順が `BankTransferService` へ移ったこと、生成が `Application` に分かれたことを確認します。
+各段で足した部分がすべて入っているかを、次の図で照合します。
 
 **採用した変更後のクラス図：**
 
@@ -1730,224 +2097,50 @@ classDiagram
     cssClass "TransferProcessor,BatchTransferProcessor,IBankTransferService,BankTransferService,Application" focus
 ```
 
+**基準の図と見比べてください。** `TransferProcessor` から `Bank`・`SecurityAuthenticator` へ出ていた矢印が消え、同じ矢印が `BankTransferService` から出ています。**矢印の数も向きも変わっていません。根元のクラスが変わっただけです。**
+
 クラス図の変更とコード変更を一対一で対応させると、次のようになります。
 
-| 課題ID  | クラス図をどう変えるか                                              | コードレベルで何をするか                                                                   | 詳しく解く節      |
-| ----- | -------------------------------------------------------- | ------------------------------------------------------------------------------ | ----------- |
-| 課題ID1 | `TransferProcessor` から手順を外し `BankTransferService` へ集約する  | 手順一式を窓口の `performTransfer` へ移し、呼び出し元は1回呼ぶだけにする                                 | 課題ID1節（【具体】【利用開始】）  |
-| 課題ID2 | 契約 `IBankTransferService` を切り出し、生成・注入を `Application` へ移す | 契約をpure virtualで宣言、`BankTransferService` でoverride、`Application` が生成し2入口へ契約を注入 | 課題ID2節（【契約】〜【利用開始】） |
-
-このクラス図が、課題ID1・課題ID2を統合したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
-
-#### 課題箇所のおさらい（フェーズ3の関連コード）
-
-統合表で特定した箇所だけを振り返ります。最初の抜粋はフェーズ3の変更試行後にある `TransferProcessor::transfer(const std::string& from, const std::string& to, int amount, const std::string& otp)` の認証・送金部分です。口座・残高確認に成功した後、`otp` を入力に `requestOTP()` の応答 `txId` を照合し、同じ `from`・`to`・`amount`・`txId` を送金へ渡す位置を示します。省略した口座・残高の戻り値判定と履歴記録は、そのまま前後で実行されます。二つ目は同じクラスのメンバー宣言で、業務クラスが具体型を保持する依存を示します。
-
-**掲載箇所：`TransferProcessor::transfer(const std::string& from, const std::string& to, int amount, const std::string& otp)`** ―― 口座・残高の確認に成功した後の、認証と送金の部分。前後の戻り値判定と履歴記録はそのまま実行されます。
-
-```cpp
-// 課題ID1：呼び出し元が銀行の手順を順に直接知っている
-std::string txId = auth.requestOTP();
-if (!auth.verifyOTP(otp, txId)) return false;
-bank.executeTransfer(from, to, amount, txId);
-```
-
-```cpp
-// 課題ID2：業務クラスが具体依存を型名で直接保持している
-class TransferProcessor {
-private:
-    Bank& bank;                  // ← 具体の外部銀行を業務側が握る
-    SecurityAuthenticator auth;  // ← 差し替えられない
-};
-```
-
-### 課題ID1：銀行API手順を振込業務フローから分離する
-
-**【課題ID1の原因】** 問題ID1・問題ID2（外部手順の混在による波及と分岐増）＝原因ID1（`TransferProcessor` が銀行APIの呼出順序・手順を抱える）。この原因を分離対象にします。
-
-**この課題（何を解きたいか）：** 認証・送金の手順を足すたび、呼び出し元に並んだ手順を書き換える——問題ID1・問題ID2（痛み）／原因ID1です。**口座確認→認証→送金→履歴の手順を1つの窓口の内側へ集約し、呼び出し元は1回呼ぶだけ**にするのが課題ID1です。
-
-**どう解決するか（方針）：** 手順一式を窓口クラスの内側へ隠します（窓口集約構造＝Facade）。この課題では、以下は**実行時に通る順**に並べます。【生成】【注入】で部品を組み立て、【利用開始】で1回呼び、【安定骨格】が委譲し、【契約】を経て【具体】が答える、という流れです。契約の切り出しと生成・注入は課題ID2で扱います。
-
-```mermaid
-classDiagram
-    class BankTransferService
-    class Bank
-    class SecurityAuthenticator
-    class TransferHistory
-    BankTransferService --> Bank : 送金API
-    BankTransferService --> SecurityAuthenticator : 認証手順
-    BankTransferService --> TransferHistory : 記録
-    class BankTransferService:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-**【利用開始】** 呼び出し元は窓口 `BankTransferService` の公開操作 `performTransfer(req)` を1回呼ぶだけです。手順が変わっても変更先はこの窓口の内側に閉じます。
-
-**掲載箇所：`TransferProcessor::transfer(const TransferRequest&)`** ―― 入口の本体。窓口の公開操作を1回呼ぶ行です。
-
-```cpp
-TransferResult result = service.performTransfer(req);  // 【利用開始】
-```
-
-これで課題ID1の完了条件「利用側がAPI手順を知らず、一つの振込操作だけを呼べる」を満たします。ただしこの段階では窓口が具体クラスのままで差し替えできません（課題ID2で解きます）。
-
-**【安定骨格】 窓口の安定骨格。** 認証・口座検証・残高確認・振込・記録の順を一か所に固定します。通常振込と給与バッチの重複手順も同じ窓口へまとめ、手順が変わってもここだけを直します。（【具体】の具体処理も同じクラスの内側にあります。課題ID2で契約実装として切り出します。）
-
-```cpp
-class BankTransferService {
-    AccountDatabase& db;
-    Bank& bank;
-    TransferHistory& history;
-    SecurityAuthenticator auth;
-public:
-    BankTransferService(AccountDatabase& d, Bank& b, TransferHistory& h)
-        : db(d), bank(b), history(h) {}
-    TransferResult performTransfer(const TransferRequest& req) {
-        bool sourceAtBank = bank.verifyAccount(req.fromAccount);
-        if (!db.exists(req.fromAccount) || !sourceAtBank)
-            return {false, "送金元口座なし"};
-        bool destinationAtBank = bank.verifyAccount(req.toAccount);
-        if (!db.exists(req.toAccount) || !destinationAtBank)
-            return {false, "送金先口座なし"};
-        if (!bank.checkBalance(req.fromAccount, req.amount))
-            return {false, "残高不足"};
-        std::string txId = auth.requestOTP();     // 手順は窓口の内側
-        if (!auth.verifyOTP(req.otp, txId))
-            return {false, "認証失敗"};
-        bank.executeTransfer(req.fromAccount, req.toAccount,
-                             req.amount, txId);    // 残高を実際に動かす
-        history.add(db.ownerName(req.fromAccount),
-                    db.ownerName(req.toAccount), req.amount);
-        return {true, "振り込み完了"};
-    }
-};
-```
-
-### 課題ID2：振込実装の選択を利用側から外す
-
-**【課題ID2の原因】** 問題ID3（実装差替えで複数入口が一緒に変わる）＝原因ID2（利用側が具体的な振込実装を直接選ぶ）。この原因を分離対象にします。
-
-**この課題（何を解きたいか）：** 接続先変更やテスト用実装への差替えのたび、単発・一括の複数入口が具象実装に依存して一緒に変わる——問題ID3（痛み）／原因ID2です。**窓口を差し替え可能にし、2つの入口へ同じ契約を注入する**のが課題ID2です。
-
-**どう解決するか（方針）：** 窓口契約を切り出し、外から依存注入します（窓口契約＋依存注入）。以下は**実行時に通る順**に並べます。【生成】【注入】で部品を組み立て、【利用開始】で1回呼び、【安定骨格】が委譲し、【契約】を経て【具体】が答える、という流れです。【安定骨格】により窓口実装を差し替えても、利用側の呼び出し方を維持します。
-
-```mermaid
-classDiagram
-    class TransferProcessor
-    class BatchTransferProcessor
-    class IBankTransferService { <<interface>> }
-    class BankTransferService
-    TransferProcessor --> IBankTransferService : 契約だけに依存
-    BatchTransferProcessor --> IBankTransferService : 同じ契約
-    IBankTransferService <|.. BankTransferService
-    class IBankTransferService:::focus
-    class BankTransferService:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-**【生成】・所有。** `Application`（Composition Root）が具体窓口とその依存を生成し、所有します。
-
-```cpp
-class Application {
-public:
-    void run() {
-        AccountDatabase db;
-        Bank bank;
-        TransferHistory history;
-        BankTransferService service(db, bank, history); // 【生成】・所有
-```
-
-**【注入】 呼び出し元は契約参照だけを保持する。** `TransferProcessor` は具体窓口名を知りません（給与バッチ入口も同じ契約に向けます）。
-
-```cpp
-class TransferProcessor {
-    IBankTransferService& service;   // 契約だけに依存
-public:
-    explicit TransferProcessor(IBankTransferService& service)
-        : service(service) {}
-    void transfer(const TransferRequest& req) {
-        TransferResult result = service.performTransfer(req);
-        if (result.success) std::cout << "振り込み完了\n";
-    }
-};
-```
-
-**【注入】** 同じ `Application::run()` の中で、生成済みの窓口を2つの入口へ同じ契約参照として渡します。入口は具体窓口名を知りません。
-
-**掲載箇所：`Application::run()`** ―― 【生成】で窓口を生成した直後。2つの入口へ同じ契約参照を渡します。
-
-```cpp
-        TransferProcessor processor(service);   // 【注入】 契約を注入
-        BatchTransferProcessor batch(service);  // 【注入】 同じ契約を注入
-```
-
-**【利用開始】** 同じ `Application::run()` の末尾で、組み立て役が単発入口とバッチ入口の公開操作を呼びます。
-
-**掲載箇所：`Application::run()`** ―― 【注入】の直後、`run()` の末尾。単発入口とバッチ入口を呼びます。
-
-```cpp
-        processor.transfer({"ACC001", "ACC002", 5000, "999999"}); // 【利用開始】
-        std::vector<std::pair<std::string, int>> payrollEntries = {
-            {"ACC002", 30000}
-        };
-        batch.processPayroll("ACC003", payrollEntries);  // 【利用開始】 バッチ入口も利用開始
-    }
-};
-```
-
-**【安定骨格】 利用側の委譲骨格。** 各入口は契約 `IBankTransferService::performTransfer()` を呼び、結果で表示を分けるだけです。具体窓口を知りません。
-
-```cpp
-void TransferProcessor::transfer(const TransferRequest& req) {
-    TransferResult result = service.performTransfer(req);  // 【安定骨格】 契約へ委譲
-    if (result.success) std::cout << "振り込み完了\n";
-}
-```
-
-**【契約】 共通契約 `IBankTransferService` を切り出す。** 呼び出し元は `performTransfer()` の結果 `TransferResult` だけを受け取ります。
-
-```cpp
-class IBankTransferService {
-public:
-    virtual TransferResult performTransfer(const TransferRequest& req) = 0;
-    virtual ~IBankTransferService() = default;
-};
-```
-
-**【具体】窓口が契約を実装する。** 課題ID1の `BankTransferService` を契約実装へ変えます（手順集約はそのまま）。
-
-```cpp
-class BankTransferService : public IBankTransferService {
-public:
-    TransferResult performTransfer(const TransferRequest& req) override;
-    // 手順集約は課題ID1のとおり
-};
-```
-
-#### 代表ケースの実行接続
-
-上のブロックを、ACC001からACC002へ5,000円を送る1件で貫いて確認します。並び順は上の説明と同じです。
-| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
+| 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 1. 【生成】 | `Application::run()` | `BankTransferService service(db, bank, history);` | 【注入】へ |
-| 2. 【注入】 | `Application::run()` | `TransferProcessor processor(service);` で契約参照を渡す | 【利用開始】へ |
-| 3. 【利用開始】 | `Application::run()` | `processor.transfer({"ACC001", "ACC002", 5000, "999999"});` | `TransferProcessor::transfer()` |
-| 4. 【安定骨格】 | `TransferProcessor::transfer(const TransferRequest&)` | `service.performTransfer(req)` で契約へ委譲する | `IBankTransferService::performTransfer()` |
-| 5. 【契約】 | `IBankTransferService::performTransfer(const TransferRequest&)` | 注入された窓口へ動的ディスパッチする | `BankTransferService::performTransfer()` |
-| 6. 【具体】 | `BankTransferService::performTransfer(const TransferRequest&)` | 口座確認→認証→送金→履歴の順を実行し `TransferResult` を返す | 戻り値を【安定骨格】が表示へ使う |
+| 課題ID1 | 銀行APIの手順を `BankTransferService` へ集約する | 5手順と履歴記録を窓口の内側へ移し、`TransferProcessor` は依頼と結果だけを扱う | 6段の【契約】〜【利用開始】 |
+| 課題ID2 | 契約 `IBankTransferService` を新設し、利用側を契約だけに依存させる | 2つの入口が契約への参照を借り、組み立て役が実体を渡す | 6段の【契約】〜【利用開始】 |
 
-【生成】で生成した `service` と、【注入】で `processor`・`batch` へ渡した実体と、【利用開始】の呼び出しから【安定骨格】が委譲する実体は同じものです。
-
-これで課題ID2の完了条件「具体実装の差替えで利用側の呼出手順が変わらない」を満たします。
+このクラス図が、課題ID1・課題ID2を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
 ### 6-1：生成・所有・実行順のまとめ
 
-課題ID1・課題ID2を一本の実行経路へ束ね直します。上の課題別展開は試行錯誤の履歴ではなく、完成構造を理解できる単位へ分けた実装順です。
+#### 構造ポイントの全貌 ―― どの責任がどこへ移るか
 
-- 窓口：`Application` が `BankTransferService` を生成・所有し、`TransferProcessor`／`BatchTransferProcessor` は契約参照（非所有）を保持。
-- 実行順：各入口が `performTransfer(req)` を1回呼び、窓口の内側で口座確認→認証→送金→履歴が順に走る。
-- 2つの変化軸（手順の集約と実装の差し替え）が、同じ契約 `IBankTransferService` を通して一つの実行経路として接続されます。
+6段で決めたことを、責任の移動として一覧にします。**並び順は、考えた順です。** 表の1行が本文の1段に対応します。前半3段は軸ごとに決めたので2つの課題が並び、後半3段は共通なので1つです。
+
+| ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | このポイントが決まると次に決まること |
+|---|---|---|---|
+| 【契約】（軸ごと） | `transfer()` の4引数と `bool` → `TransferRequest`／`TransferResult` の2つの値 | 分けるかを検算し、5-3の候補2つの形を決める。境界を流れるのも2つ | この値をやり取りする相手を誰が呼ぶか＝【安定骨格】 |
+| 【安定骨格】（軸ごと） | 銀行手順を直接呼ぶ `TransferProcessor::transfer()` → 窓口へ1回委譲して結果を表示するだけの形 | 呼ぶ側が2つ（単発・一括）あるので契約は骨格の外へ。必要な操作が3つだとここで判明する | 契約の裏に何を置くか＝【具体】 |
+| 【具体】（軸ごと） | `TransferProcessor` が持っていた `bank`・`auth`・`history` → `BankTransferService` の内側 | 契約の3操作を埋める。実装は1つでよい（目的が差し替えではなく知識の遮断だから） | 実体を誰が作るか＝【生成】 |
+| 【生成】（共通） | 各入口が具体を直接持つ → `Application::run()` が窓口を1つ作り、2つの入口へ貸す | 単発と一括が同じ実体を使うため、値ではなく参照で借りる | 実装がどこで骨格へ入るか＝【注入】 |
+| 【注入】（共通） | 利用側が具体窓口名を書く → コンストラクタ引数で契約への参照を受ける | 組み立て時に1回入る。以後は同じ実体を使い続ける | すべて決まった結果としての呼び方＝【利用開始】 |
+| 【利用開始】（共通） | `processor.transfer("ACC001", "ACC002", 5000, "999999");` → `processor.transfer({"ACC001", "ACC002", 5000, "999999"});` | 組み立てた実体の公開操作を呼ぶ | ここから実行が始まり、【安定骨格】へ入る |
+
+**【利用開始】が最後にあるのは、対策後の呼び方が設計の結果だからです。** 引数が4つから1つへ変わるのは、1で「依頼を1つの値にまとめる」と決めた結果でした。組み立ての行が1つ増えたことも、4まで決めてから分かります。
+
+#### 代表ケースの実行接続
+
+6段は考えた順でした。**ここからは実行時に通る順で貫きます。** ACC001からACC002への5000円の振り込みを、1本の経路として追います。**この章の【注入】は組み立て時に1回なので、行は1つです。**
+
+| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
+|---|---|---|---|
+| 1. 【生成】 | `Application::run()` | `BankTransferService service(db, bank, history);` で窓口を1つ作る | 【注入】へ |
+| 2. 【注入】 | `TransferProcessor::TransferProcessor(IBankTransferService&)` | `TransferProcessor processor(service);` ―― 契約への参照を受け取る | 【利用開始】へ |
+| 3. 【利用開始】 | `Application::run()` | `processor.transfer({"ACC001", "ACC002", 5000, "999999"});` | `TransferProcessor::transfer()` |
+| 4. 【安定骨格】 | `TransferProcessor::transfer(const TransferRequest&)` | `service.performTransfer(req)` を1回呼び、結果を表示する | `IBankTransferService::performTransfer()` |
+| 5. 【契約】【具体】 | `BankTransferService::performTransfer(const TransferRequest&)` | 口座確認→残高確認→認証発行→認証検証→送金→履歴記録の5手順 | 戻り値を【安定骨格】が表示 |
+
+**4と5のあいだが、この章の分離点です。** 4は銀行のメソッド名を1つも知らず、5はそのすべてを知っています。**リスクID1で認証が三段階になったとき、増える行は5の中だけです。**
+
+**一括振込は3から6へ分かれます。** `BatchTransferProcessor` が `performApprovedBatchTransfer()` を件数ぶん呼び、途中で失敗したら `compensate()` を成功済みの件数ぶん逆順に呼びます。**通る窓口は同じ実体です。** 4で「単発と一括が同じ実体を使う」と決めた結果が、ここに出ています。
+
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
