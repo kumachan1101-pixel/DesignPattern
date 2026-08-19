@@ -1751,7 +1751,8 @@ public:
 
 ```cpp
     void promoteNextWaitlisted() {
-        TicketReservation* next = waitlist->popNext(eventId);  // ←この waitlist が未定
+        // ←この waitlist がまだ未定
+        TicketReservation* next = waitlist->popNext(eventId);
         if (next != NULL) next->promoteBySystem();
     }
 ```
