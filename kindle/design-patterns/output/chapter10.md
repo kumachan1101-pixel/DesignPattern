@@ -1520,190 +1520,613 @@ Client生成は3つ目の軸ではなく、課題ID1（外部連携）を差し�
 この表と完了状態が、そのままフェーズ6の入力です。要求の受入は要求ID、設計課題の解消は課題ID、今回の変更影響は変更IDで別々に追跡します。
 ## 🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める
 
-**ここからしばらくは抽象の話です。** 個々のクラスへ入る前に、この章で「何を、どんな構造へ変えるのか」を先に決めます。
+**ここからは、変更前のクラス図とコードを少しずつ書き換えていきます。** 完成形を先に見せるのではなく、1つ判断するたびに図とコードがどう変わるかを追います。
 
 #### まず全体像 ―― どんな構造へ変えるか（抽象）
 
-フェーズ4で、一つの`BatchExecutor`が「連携先ごとの通信手順」「結果を届ける通知先」「連携クライアントの生成」という**別々の理由で変わる3つの判断**を、同じ実行処理へ抱えていることを確認しました。対策は、この3つを別々の責任へ分け、最後に一本の実行経路（確認→取得→送信→保存→通知）へ結び直すことです。ここで使う3つの構造は、いずれも第一部で扱った基本構造です。第二部の応用編なので、構造名（と対応するパターン名）を語彙として併記しますが、パターン名から設計を選ぶのではなく、上で確認した「別々に変わる3つの判断」から必要な構造を導きます。
+フェーズ4で、バッチの本体が「連携先ごとのAPI・認証・通信手順とクライアント生成」と「通知先の種類と配送」という**別々の理由で変わる2つの知識**を、同じ場所へ抱えていることを確認しました。対策は、この2つを別々の責任へ分け、一つのバッチ経路へ再結合することです。ここで使う構造は、いずれも第一部で扱った基本構造です。第二部の応用編なので、構造名（と対応するパターン名）を語彙として併記しますが、パターン名から設計を選ぶのではなく、上で確認した「別々に変わる2つの知識」から必要な構造を導きます。
 
 ```mermaid
 flowchart TB
-    A[現在<br/>通信手順・通知先・Client生成が<br/>BatchExecutorに混在] --> B[分離判断<br/>三つの変化軸を別責任へ分け<br/>一直線の経路へ再結合]
-    B --> C[課題ID1<br/>通信を窓口へ隠す<br/>窓口固定＝Facade]
-    B --> D[課題ID1<br/>Client生成を作成者へ委ねる<br/>生成分離＝Factory Method]
-    B --> E[課題ID2<br/>結果を登録通知先へ配る<br/>通知連結＝Observer]
-    C --> F[守る範囲<br/>確認→取得→送信→保存→通知の順序と各境界]
-    D --> F
-    E --> F
+    A[現在<br/>バッチ本体に<br/>連携先の通信詳細と通知先が混在] --> B[分離判断<br/>二つの変化軸を別責任へ分け<br/>一つのバッチ経路へ再結合]
+    B --> C[課題ID1<br/>連携先ごとの通信と生成を<br/>境界の向こうへ＝Facade×生成分離]
+    B --> D[課題ID2<br/>送信結果を登録済みへ配る<br/>通知分離＝Observer]
+    C --> E[守る範囲<br/>データ取得・登録順実行<br/>結果保存・後続継続]
+    D --> E
 ```
 
-まだクラスの中身は見ません。この段階でつかんでほしいのは「3つの変わる理由を2つの接続課題へ分け、最後に一本へつなぐ」という筋だけです（通信手順と生成は同じ連携先の追加で一緒に動くため、課題ID1として一つの接続点にまとめます）。「どのクラスが生成し、どの契約で実行するか」という具体の結論は、この後の課題ID1・課題ID2で一つずつ決めていきます。決めた結論をまとめて振り返る表は、フェーズ6の末尾（6-3 設計トレース）に置きます。ここでは先に結論表を出しません。
+**この図は上から下へ、現状・分離の判断・2つの課題の着地点・守る範囲の順で読みます。** 検討はこの図の並び順では進めません。**先に確定するのは、一番下の「守る範囲」です。** 守る範囲が決まらないと、どこで線を引いてよいかが決められないからです。
 
-第0章の「設計の醍醐味」の四拍子でいえば、この章は〈外部連携と通知の共通契約を見つけて分離〉→〈Clientと通知先を生成〉→〈組み立て役が登録・注入〉→〈バッチ骨格は具体を意識しない〉という同じ順序をたどります。
+**守る範囲 ―― この章で変えないもの。**
 
-#### 構造ポイントの全貌 ―― どの責任がどこへ移るか
+- **データ取得**：同期対象（注文・在庫）に応じて、送るデータを取り出すこと
+- **登録順実行**：登録された順にジョブを実行すること。順番を入れ替えない
+- **結果保存**：1件ごとに送信結果を記録すること
+- **後続継続**：1件失敗しても、次のジョブと他の通知を止めないこと
 
-課題ID1・課題ID2の【契約】〜【利用開始】が、どのクラス・関数から、どのクラス・関数へ責任を移すかを先に一覧します。断片コードを読む前に、この表で全貌をつかんでください。各ポイントの詳しいコードは、この後の課題ID節に同じ番号で置きます。
-
-| ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | 次の接続先 |
-|---|---|---|---|
-| 【生成】 | `execute()` 内の固定具象 → `SystemAClientCreator::createClient()` と組み立て役のローカル変数 | 生成役の1か所へ具象選択を閉じる（Clientの所有は【安定骨格】） | 【注入】の受渡行 |
-| 【注入】 | 利用側が具体Clientを選ぶ → `execute(request, &creatorA)` と `addNotifier(&slack)` | 生成役と通知先を契約として渡す・登録する | 【利用開始】が呼ぶ `execute()` |
-| 【利用開始】 | 呼び出し側が連携先ごとの手順を知る → `batch.execute(request, &creatorA);` | 【生成】【注入】で組み立てた同じ実体を使い、公開操作を1回呼ぶ | 【安定骨格】の `execute()` |
-| 【安定骨格】 骨格 | 生成・送信・通知が混ざる `execute()` → 生成役へ委譲→契約呼出→破棄と、登録リストの反復 | 連携先・通知先が増えても変えない順序を固定する | 【契約】の `send()` / `onComplete()` |
-| 【契約】 | `execute()` が連携先IDで分岐 → `IExternalClient::send()` と `INotifier::onComplete()` | 送信と通知を別々の契約へ切り出す | 【具体】のoverride |
-| 【具体】 | 分岐に埋もれた送信詳細 → `SystemAClient::send()` ほか、`SlackNotifier::onComplete()` ほか | 連携先ごとの通信と、通知先ごとの送信を実装へ閉じる | 戻り値を【安定骨格】の保存・通知へ |
-
-この表の上から順に、変更前はどこに判断が集まっていたか、何をどこへ移すか、誰が生成・注入・所有するか、代表入力がどの順で流れるかを追えます。**並び順は実行時に通る順です。** 課題ID節でも同じ順で説明し、節の末尾に代表入力の実行接続表を置きます。
-
-#### 接続点の分離・配置・組み立てを決める
-
-具体クラスへ入る前に、課題ID1・課題ID2を「どう分け、どこへ置き、どう組み立てるか」という同じ三観点で一度に見渡します。実装はフェーズ7で行います。各課題が最終構造のどこへ着地するかの地図です。
-
-| 接続点を変える観点 | システム全体の考え方 | 課題ID1・課題ID2のコードへの反映 |
-|---|---|---|
-| 分離方法 | バッチ骨格には外部送信・通知の契約だけを残し、具体的な通信・通知・生成判断を外す | 課題ID1は`IExternalClient`と`IClientCreator`、課題ID2は`INotifier`を境界にする |
-| 配置場所 | API詳細は各Client、通知手段は各Notifier、具体Clientの選択は各Creatorへ置く | 三つの具象クラス群へ変更理由ごとに配置する |
-| 組み立て方法（生成・所有・登録・注入） | 組み立て側がCreatorとNotifierを生成・所有・登録し、共有Applicationへ注入する。入口は連携先IDを渡し、CreatorがClientを選択・生成、Executorが契約だけを実行する | バッチ入口と手動入口は同じApplicationを共有する |
-
-表の左から右へ読むと、課題ID1の通信・生成・所有と課題ID2の通知が、それぞれの契約・配置を持ちながら、一つのComposition Rootから共通実行フローへ接続されます。
-
-#### 設計判断ごとの部分クラス図
-
-課題ID1では、連携先ごとの通信を`IExternalClient`へ、生成方法を`IClientCreator`へ分け、バッチジョブは生成契約だけを持ちます。
-
-```mermaid
-classDiagram
-    class BatchJob
-    class IClientCreator { <<interface>> }
-    class SystemCClientCreator
-    class IExternalClient { <<interface>> }
-    class SystemCClient
-    BatchJob --> IClientCreator : 生成を依頼
-    IClientCreator <|.. SystemCClientCreator
-    SystemCClientCreator --> SystemCClient : 生成
-    IExternalClient <|.. SystemCClient
-    class IClientCreator:::focus
-    class IExternalClient:::focus
-    class SystemCClientCreator:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-課題ID2では、バッチが具体通知先ではなく`INotifier`へ結果を渡し、Slackはその一実装になります。
-
-```mermaid
-classDiagram
-    class BatchExecutor
-    class INotifier { <<interface>> }
-    class SlackNotifier
-    BatchExecutor --> INotifier : 結果を通知
-    INotifier <|.. SlackNotifier
-    class BatchExecutor:::focus
-    class INotifier:::focus
-    class SlackNotifier:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-次のコードでは連携の生成・通信、登録順実行、通知の順に組み立て、部分失敗後も後続を続ける骨格へ接続します。
-
-#### システム全体の最終構造を決める
-
-最終構造は、窓口構造・通知分離構造・生成分離構造を `BatchExecutor` の実行フローで組み合わせる一つのシステムです。生成は外部連携（課題ID1）の組み立てに属するため、解くべき課題は課題ID1（通信＋生成）と課題ID2（通知）の2つです。一部だけを切り出す形は2つの課題を完了しない途中状態なので比較しません。
+この4つが変わっていないことは、フェーズ7の受入・回帰エビデンスで確認します。ただし**各段の終わりでも1行ずつ照合します。**
 
 ### 対策検討のクラス図：1-3の責任と依存をどう変えるか
 
-フェーズ1の1-3で作ったクラス図へフェーズ2〜5の判断を反映し、変更後の形へ更新します。
+フェーズ1の1-3で作ったクラス図が、これから書き換えていく**基準の図**です。まずここへフェーズ2〜5の判断を注記として載せ、どの責任を残し、どの責任を移すかを確定します。
 
 | クラス図を変える材料 | 前工程で確認したこと | クラス図へ反映すること |
 |---|---|---|
 | フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
-| フェーズ2の変化予測 | 連携先・通知先・生成条件は別チームが増やす | 毎回変わる責任へ `【移す】` と注記する |
-| フェーズ4の原因 | `BatchExecutor` に通信・通知・生成が混在する | 同じクラスの中で `【残す】` と `【移す】` を分ける |
-| フェーズ5の接続点 | 実行順は残し、外部連携と通知を各契約へ委ねればよい | 課題ID1を`IExternalClient`と`IClientCreator`、課題ID2を`INotifier`へ置く |
+| フェーズ2の変化予測 | 連携先も通知先も、それぞれ別の都合で増える | 毎回変わる責任へ `【移す】` と注記する |
+| フェーズ4の原因 | 原因ID1（外部手順の知識の漏出）、原因ID2（通知先の知識の漏出） | 同じクラスの中で `【残す】` と `【移す】` を2つに分ける |
+| フェーズ5の接続点 | バッチ本体は同期データを渡し、送信結果を受け取ればよい | 課題ID1の通信・生成と課題ID2の配送を、それぞれバッチ本体の外へ出す |
 
-**薄い黄色が今回変える責任、薄い水色が変更前後で維持する共通基盤**です。変更前では `BatchExecutor` の `【残す】` と `【移す】`、変更後では移動先の `【新設】` を追います。`SyncRequest`、`SyncDataCatalog`、`PartnerDatabase`、`DeliveryResult`、`BatchLog`は作り替えず、新しい通信・通知・生成構造から同じ基盤へ接続します。
+**薄い黄色が着目クラス**です。ここではバッチ本体の `【残す】` と `【移す】` を追います。矢印は1-3と同じ利用・保持関係です。
 
-**変更前のクラス図（1-3を責任見直し用に再掲）：**
+**変更前のクラス図（基準の図）：**
 
 ```mermaid
 classDiagram
-    class SyncRequest {
-        +partnerId string
-        +target SyncTarget
+    class BatchExecutor {
+        -db: PartnerDatabase
+        -batchLog: BatchLog
+        +execute(partnerId, target)
     }
-    class OrderDataSource {
-        +loadCurrent() string
+    class PartnerDatabase {
+        +exists(id) bool
+        +get(id) PartnerConfig
     }
-    class InventoryDataSource {
-        +loadCurrent() string
+    class BatchLog {
+        +add(partnerId, name, status)
     }
     class SyncDataCatalog {
         +load(target) string
     }
-    class PartnerConfig {
-        +name string
-        +endpoint string
-        +isEnabled bool
-    }
-    class PartnerDatabase {
-        +exists(id) bool
-        +isEnabled(id) bool
-        +get(id) PartnerConfig
-    }
-    class DeliveryResult {
-        +status string
-        +success bool
-        +message string
-    }
-    class BatchRecord {
-        +partnerId string
-        +partnerName string
-        +status string
-    }
-    class BatchLog {
-        +add(partnerId, partnerName, status)
-        +printAll()
-        +size() int
-    }
-    class BatchExecutor {
-        +execute(SyncRequest request) DeliveryResult
-    }
-    class SystemAClient { +send(data) DeliveryResult }
-    class SystemBClient { +send(data) DeliveryResult }
-    class NotificationService { +notify(result) }
-    PartnerDatabase *-- PartnerConfig : 設定を保存
-    BatchLog *-- BatchRecord : 結果を保存
-    SyncDataCatalog --> OrderDataSource : 注文なら取得
-    SyncDataCatalog --> InventoryDataSource : 在庫なら取得
-    BatchExecutor ..> SyncRequest : 入力
-    BatchExecutor --> SyncDataCatalog : 同期データを取得
-    BatchExecutor --> PartnerDatabase : 設定を参照
-    BatchExecutor --> BatchLog : 結果を保存
-    SystemAClient ..> DeliveryResult : 返す
-    SystemBClient ..> DeliveryResult : 返す
-    BatchExecutor ..> DeliveryResult : 受け取る
-    BatchExecutor ..> SystemAClient : 生成・送信
-    BatchExecutor ..> SystemBClient : 生成・送信
-    BatchExecutor ..> NotificationService : 通知
+    BatchExecutor *-- PartnerDatabase : 保持
+    BatchExecutor *-- BatchLog : 保持
+    BatchExecutor *-- SyncDataCatalog : 保持
 
-    note for BatchExecutor "【残す】バッチの実行順（骨格）<br/>【課題ID1・移す】通信詳細とClient生成・所有<br/>【課題ID2・移す】通知先ごとの通知"
-    note for NotificationService "【課題ID2・移す】通知先の実装"
+    note for BatchExecutor "【残す】データ取得・登録順実行・結果保存<br/>【課題ID1・移す】連携先ごとのAPI手順とクライアント生成<br/>【課題ID2・移す】通知先の種類と配送"
+    note for PartnerDatabase "【維持】連携先の登録と有効判定"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    classDef stable fill:#E0F7FA,stroke:#0891B2,stroke-width:2px,color:#222222
     cssClass "BatchExecutor" focus
-    cssClass "SyncRequest,OrderDataSource,InventoryDataSource,SyncDataCatalog,PartnerConfig,PartnerDatabase,DeliveryResult,BatchRecord,BatchLog" stable
 ```
 
-変更前は`BatchExecutor`が外部連携と通知の二軸を抱え、さらに課題ID1のClient生成まで自分で行うため、連携先追加・通知追加のどちらでも同じ`execute()`を開きます。
+向きと掲載クラスは1-3から変えていません。同じ図に注記と色だけを加え、バッチ本体のどの責任を残し、どの責任を移すかに着目します。**この図が出発点で、以降の各段でここへ1つずつ足していきます。**
 
-課題ID1・課題ID2をクラス図の変更として書くと、次の3操作になります。
+クラス図の変更として書くと、次の4操作になります。**どんなクラスを新設し、何という名前にするかは、この後の各段で決めます。** ここで確定しているのは操作の種類だけです。
 
-1. 課題ID1：連携先が満たす通信の窓口契約 `IExternalClient`（`send`）を新設する（窓口構造）。
-2. 課題ID2：通知先が満たす共通契約 `INotifier`（`onComplete`）を新設し、登録リストで扱う（通知分離構造）。
-3. 課題ID1：生成を担う契約`IClientCreator`（`createClient`）を新設し、外部連携の生成・所有を利用側から外す（生成分離構造）。
+1. 課題ID1：連携先が満たす共通契約を新設し、API手順をその実装へ移す。
+2. 課題ID1：どの連携先を作るかの判断を、バッチ本体の外へ出す。
+3. 課題ID2：通知先が満たす共通契約を新設し、配送をその実装へ移す。
+4. 課題ID1・課題ID2：実体を生成・所有する場所を決め、バッチ本体へ渡す。
 
-変更後は、`BatchExecutor` が実行順だけを持ち、通信・通知・生成がそれぞれの契約の裏へ移り、`execute()` の混在分岐が消えたことを確認します。
+この4操作を、どんな手順で導くのかを次から順に書きます。
+
+#### この時点で決まっていること、これから決めること
+
+**大枠が見えていないと、検討は進められません。** 「どんな構造へ変えるか」が決まっていない状態で契約の形だけ考えても、良し悪しを判定する基準がありません。だからフェーズ6は、**目指す形を掲げるところから始めます。**
+
+| | 内容 | どこで決まったか |
+|---|---|---|
+| **決まっている（目指す形）** | 連携先ごとの通信と生成、通知先ごとの配送を、それぞれ共通契約の裏へ揃える | フェーズ4・5（独立した2つの変化軸） |
+| **決まっている（枠）** | 守る範囲の4つと、課題ごとの完了条件 | 1-5・5-3 |
+| **これから決める** | そもそも分けるか／接続点をどんな形で受け渡すか／誰が呼ぶか／裏に何を置くか／誰が実体を作り持つか／実装がどこで入るか／呼び方はどうなるか | フェーズ6の6段 |
+
+**掲げるのは形までです。** クラス名、契約のメソッド構成、誰が実体を持つか——**表の3行目にあるものが、この後の6段で1つずつ決まっていきます。**
+
+#### 接続点の分離・配置・組み立てを決める
+
+フェーズ6で決めるのは、次の3つです。**どれもこの後の各段で決めます。ここでは何を決めるのかだけを確認します。**
+
+- **分離方法**：バッチ本体に何を残し、何を契約の裏へ外すか。課題ID1と課題ID2で別々の境界になります。
+- **配置場所**：外した知識を、どんな単位のクラスへ置くか。連携先ごとか、通知手段ごとか。
+- **組み立て方法**：実体を誰が生成・所有し、バッチ本体へどう渡すか。
+
+**この3つは独立して決められません。** 分離方法が決まらないと配置場所が決まらず、配置場所が決まらないと組み立て方法が決まりません。だから順に決めます。決まった結論をまとめて振り返る表は、フェーズ6の末尾（6-1）に置きます。
+
+### 課題ID1・課題ID2を6段で解く
+
+**【課題の原因】** 課題ID1は、問題ID1・問題ID3（通信詳細・生成・失敗処理が骨格へ密結合）＝原因ID1（外部手順の知識の漏出）。課題ID2は、問題ID2（通知先追加・仕様変更でバッチ本体が変わる）＝原因ID2（通知先の知識の漏出）。この2つを分離対象にします。
+
+**この課題（何を解きたいか）：** 連携先を1社足すだけでバッチ本体の分岐と生成を触り、通知先を1つ足すだけで同じ本体を触る。**連携先追加がクライアント・処理・生成登録に閉じ、バッチ順序が変わらない**ようにするのが課題ID1、**通知追加・失敗が登録先と個別結果に閉じ、後続送信を止めない**ようにするのが課題ID2です。
+
+**どう解決するか（方針）：** 連携先ごとの通信を共通契約の裏へ揃え、どれを作るかの判断も外へ出します（窓口集約構造＝Facade、生成分離構造＝Factory Method）。通知は登録済みの相手へ、送信が確定した後に配ります（通知分離構造＝Observer）。
+
+**課題どうしの関係を、2つの基準で確かめます。**
+
+| 基準 | 判定 |
+|---|---|
+| **A：変化軸** | 別々の理由で変わる。連携先の追加は外部システム側の都合、通知先の追加は社内の運用都合 |
+| **B：条件付け** | **該当する。** 課題ID2の接続するものは「送信結果イベント」で、これは課題ID1の出力である。通知が受け取れる形になっていないと、課題ID2の完了条件を満たせない |
+
+**基準Bに該当するので、契約を決める順序が固定されます。** ただし、ここでの「先に決める」は課題ID2を先に解くことではありません。**課題ID1の契約が返す送信結果を決めるときに、「通知がそれを受け取って本文を作れるか」を先に確かめておく**という意味です。送信結果に成否しか入れないと、通知が「どの連携先が何に失敗したか」を書けず、あとで契約を作り直すことになります。
+
+| 段 | 何を決めるか | 軸ごとか |
+|---|---|---|
+| 1【契約】 | 分けるかを決め、境界に何が渡るかを決める | 軸ごと |
+| 2【安定骨格】 | 呼ぶのは、変わらない側 | 軸ごと |
+| 3【具体】 | 契約の裏を埋める | 軸ごと |
+| 4【生成】 | 実体を作り、持つ人を決める | **共通** |
+| 5【注入】 | 実装が骨格へ入る | **共通** |
+| 6【利用開始】 | 結果として、呼び方はこうなった | **共通** |
+
+**出発点。** やることはもう決まっています。バッチ本体から連携先ごとの通信・生成と、通知先ごとの配送を分けることです。分ける対象も5-3で決まっています。まだ決まっていないのは、**分けた後にどう繋ぐか**だけです。
+
+書き換える前のコードは3-1にあります。**ここで全部を再掲することはしません。** 各段で、その段が触る数行だけを3-1から抜き出し、変更後と並べます。
+
+---
+
+**1. 分けるかを決め、境界に何が渡るかを決める 【契約】**
+
+**まず、分けないで済まないかを確かめます。** 5-3が確定したのは「この接続点を解く」ことであって、「クラスを増やす」ことではありません。次の2つがどちらも成り立つなら、契約を作らず、処理を関数へ切り出すだけで止めます。
+
+1. 変わる側の判断が、コード上1か所にしか現れない
+2. その種類が増える見込みが、2-4のリスクIDにも5-2の評価にも挙がっていない
+
+**課題ID1は2つ目が成り立ちません。** 連携先は変更ID1・変更ID3・変更ID4で実際に増えています。**課題ID2も同じです。** 通知先は変更ID2で増えました。5-2でも2つとも「必須」と評価しています。
+
+分けると決めたので、コードに線を引きます。
+
+**掲載箇所：`BatchExecutor::execute(const string&, const string&)`** ―― 3-1のバッチ本体（対策前・抜粋）
+
+```cpp
+        if (!db.exists(partnerId)) { /* …未登録の断り（省略。詳細は3-1）… */ }
+        PartnerConfig cfg = db.get(partnerId);
+        if (!cfg.isEnabled) { /* …無効な連携先の断り（省略。詳細は3-1）… */ }
+        string data = dataCatalog.load(target);        // ← 残る側（データ取得）
+
+        if (partnerId == "SYS_A") {                    // ← 出て行く側（生成の判断）
+            cout << "A社へ転送: " << data << endl;      // ← 出て行く側（API手順）
+            // …A社固有の認証と送信（省略）…
+        } else if (partnerId == "SYS_B") {             // ← 出て行く側
+            // …B社固有の認証と送信の手順（省略。詳細は3-1）…
+        }
+        batchLog.add(partnerId, cfg.name, status);     // ← 残る側（結果保存）
+        // …通知先ごとの文面を作って送る（省略）…      // ← 出て行く側（課題ID2）
+```
+
+**割り方の根拠は、それぞれが増えたときに触るかどうかです。** 連携先を1社足すと真ん中の分岐が増え、通知先を1つ足すと最後の部分が増えます。**データ取得と結果保存は、どちらが増えても1行も増えません。**
+
+**課題ID1（連携軸）。5-3が挙げた候補は3つです。** 同期データ、送信結果、生成済みClient。1つずつ形を決めます。
+
+| 接続するもの（5-3の候補） | 決めた形 | そう決めた理由 |
+|---|---|---|
+| 同期データ | **引数で渡す** | 取り出すのは守る範囲の「データ取得」。連携先が取りに行くと、取得が連携先の数だけ散る |
+| 送信結果 | **状態・成否・メッセージの3つを1つの値で返す** | 下で理由を書く |
+| 生成済みClient | **境界を流れない。** 生成する役を別に置き、そこから受け取る | 生成の判断と通信の手順は別の理由で変わる。同じ契約に混ぜると、生成だけ差し替えられない |
+| 連携先そのもの | 引数で渡さない。**連携先ごとに別のクラス**を用意する | 引数で渡すと、受け取った側がまた連携先で分岐する。3-1の `if` が移動するだけになる |
+
+**2つ目に説明が要ります。** ここで5-2の基準Bが効きます。**課題ID2の通知は、この送信結果を受け取って本文を作ります。** 成否だけを返す形にすると、通知が「どの連携先が何に失敗したか」を書けません。**通知が使える情報を含めておく必要があります。**
+
+**だから、成否に加えて状態とメッセージを返します。** これは将来の見込みではなく、**課題ID2の完了条件から来る要求**です。変更前のコードは通知の文面をバッチ本体で組み立てていたので、そこで使っていた情報がそのまま必要です。
+
+**3つ目も、この章の特徴です。** 「生成済みClient」が5-3の接続するものに挙がっていましたが、**契約の引数にも戻り値にもしません。** 生成は別の契約にします。理由は、**API手順が変わる理由（外部システムの仕様変更）と、どれを使うか決まる理由（バッチの登録内容）が違う**からです。
+
+**候補3つのうち、通信の契約を流れるのは2つです。** 生成済みClientは、もう1つの契約の戻り値になります。
+
+**契約の名前を決めます。** 連携先が満たすものを `IExternalClient`、生成する役が満たすものを `IClientCreator` とします。
+
+**掲載箇所：`IExternalClient`／`IClientCreator`（2つの契約）**
+
+```cpp
+// 連携先クライアントのインターフェース（送信結果 DeliveryResult を返す）
+// apiHealthy は外部APIの健全性をスタブで表す（false=API障害）
+class IExternalClient {
+public:
+    virtual ~IExternalClient() {}
+    virtual DeliveryResult send(string data, bool apiHealthy) = 0;
+};
+```
+
+```cpp
+// Creatorの契約：サブクラスが生成方法を決める
+class IClientCreator {
+public:
+    virtual ~IClientCreator() = default;
+    virtual IExternalClient* createClient() = 0;
+};
+```
+
+**2つとも1操作です。** 送ることと、作ることを分けました。
+
+**課題ID2（通知軸）。5-3が挙げた候補は2つです。** 送信結果イベントと、通知受付結果。
+
+| 接続するもの（5-3の候補） | 決めた形 | そう決めた理由 |
+|---|---|---|
+| 送信結果イベント | **組み立て済みの本文を引数で渡す** | 本文の組み立てに連携先の名前と結果が要る。バッチ本体が1回組み立てて、全通知先へ同じ本文を渡す |
+| 通知受付結果 | **1件ごとに、チャネル・成否・メッセージを返す** | 1件失敗しても他の通知と後続ジョブを止めない、という完了条件のため。全体の成否では足りない |
+
+**候補2つが、そのまま2つとも境界を流れます。**
+
+**掲載箇所：`INotifier`（クラス全体）**
+
+```cpp
+// 通知のインターフェース（通知受付結果を返す契約）
+class INotifier {
+public:
+    virtual ~INotifier() {}
+    virtual NotificationResult onComplete(string result) = 0;
+};
+```
+
+**契約だけでは、決めた形が本当に成立するのか確かめられません。** 実装を1つ見ます。
+
+**掲載箇所：`SystemAClient`（クラス全体）** ―― A社向けの連携
+
+```cpp
+// A社向け実装
+class SystemAClient : public IExternalClient {
+public:
+    DeliveryResult send(string data, bool apiHealthy) {
+        cout << "A社へ転送: " << data << endl;
+        if (!apiHealthy) return {"失敗", false, "A社: API障害"};
+        return {"成功", true, "A社: 連携完了"};
+    }
+};
+```
+
+- **「連携先を引数で渡さない」の実態。** `if (partnerId == "SYS_A")` の比較がありません。**このクラスであること自体が『A社』だから**です
+- **「同期データを引数で渡す」の実態。** `data` を受け取っています。**どの対象のデータかを、このクラスは調べません**
+- **「送信結果を3つで返す」の実態。** 失敗のときに `"A社: API障害"` というメッセージを含めています。**この文字列を、後で通知が使います**
+
+変更前の `if` の中にあった「どのクライアントを作るか」が、ここにはありません。**では、それを決めるのは誰の仕事になるのか。それは4で決めます。**
+
+**この段の守る範囲の照合：** 守る範囲の4つのどれにも触っていません。3つの契約を宣言して実装を1つ見ただけで、既存の手順は1行も書き換えていません。
+
+**では、これらを誰が呼ぶのか。**
+
+---
+
+**2. 呼ぶのは、変わらない側 【安定骨格】**
+
+呼べるのは、連携先も通知先も増えても変わらない側だけです。出て行った側が出て行った側を呼べば、具体が増えるたびに両方を触ることになり、分けた意味が消えます。
+
+**変わらない側の型を見分けます。**
+
+| 型 | 骨格の正体 | 契約の置き場 | 見分け方 |
+|---|---|---|---|
+| **残った側** | 分岐を外した後に残った手順 | 骨格とは**別のクラス** | 同じ実行の途中で相手が入れ替わる |
+| **取り出した順序** | 変更前から存在していた共通手順 | 骨格と**同じクラス**（基底の内側） | 実体を作った時点で相手が決まる |
+
+**2つとも上の型です。** 連携軸は、1回のバッチでA社・B社・C社を順に呼ぶので、**同じ骨格の中で相手が3回入れ替わります。** 通知軸は、1回の送信確定で登録済みの全員へ配るので、**1つのループの中で相手が替わります。** どちらも契約は骨格の外の型になります。
+
+残った側は、バッチの流れを持つクラス——`BatchExecutor` です。**名前は変えません。** 1-3で書いた役割は「バッチ全体のフローを統括する」で、この段の後もそれは変わりません。出て行くのは連携先と通知先の知識であって、統括すること自体ではありません。
+
+**掲載箇所：`BatchExecutor::execute(IClientCreator*, const SyncRequest&, bool, const string&)`** ―― 骨格（抜粋）
+
+```cpp
+        // …未登録・無効の断り（省略。詳細は7-1）…
+        IExternalClient* client = creator->createClient();   // ←生成を委ねる
+        string data = dataCatalog.load(request.target);      // データ取得（守る範囲）
+        // …送信先の1行表示（省略）…
+        DeliveryResult r = deliverResult(*client, data, partnerId, cfg.name,
+                                         batchLog, notificationLog, notifiers,
+                                         apiHealthy, kind);
+        delete client;   // 使い捨てクライアントを破棄
+        return r;
+```
+
+**`if (partnerId == "SYS_A")` が1つも残っていません。** 残ったのは「作ってもらい、データを取り、送って保存して通知する」だけです。
+
+**穴が2つ空きました。** `creator`（誰が作る役を渡すのか）と `notifiers`（誰に配るのか）です。**どちらも具体の名前をここに書くわけにいきません。** 書けば分けた意味が消えます。**それを決めるのが4です。**
+
+**`delete client;` があることに注目してください。** `createClient()` が返したものを、骨格が捨てています。**返ってきたものを誰が捨てるかは、契約の一部です。** この章は「受け取って所有する」形にします。1回の送信ごとに作って捨てるので、捨てないと増え続けます。
+
+**送信・保存・通知の後段は、共通の処理へ切り出します。** バッチ入口と手動入口の両方が同じ後段を通るからです。
+
+**掲載箇所：`deliverResult(IExternalClient&, const string&, ...)`（自由関数）** ―― 骨格の後段。`BatchExecutor::execute()` と手動入口の両方から呼ぶ（抜粋）
+
+```cpp
+    DeliveryResult r = client.send(data, apiHealthy);          // 送信
+    batchLog.add(partnerId, partnerName, r.status);            // 結果保存（守る範囲）
+    string note = r.success ? (partnerName + " " + kind + "連携完了")
+                            : (partnerName + " " + kind + "連携失敗: " + r.message);
+    for (auto* notifier : notifiers) {                         // 登録済みへ配る
+        NotificationResult result = notifier->onComplete(note);
+        notificationLog.add(result);
+    }
+    return r;
+```
+
+**本文をここで1回だけ組み立てています。** 1で「組み立て済みの本文を渡す」と決めたので、通知先ごとに文面を作り分ける必要がありません。**`r.message` を使っているのが、1で「メッセージも返す」と決めた理由です。**
+
+**送信して、保存して、それから通知しています。** この順序が守る範囲の「結果保存」と、課題ID2の「送信確定後に配る」を同時に満たします。
+
+**1件ごとに結果を受け取っています。** どれかが失敗しても、ループは次へ進みます。**これが完了条件「通知追加・失敗が登録先と個別結果に閉じ、後続送信を止めない」の実装です。**
+
+**登録順の実行も、ここで固定します。**
+
+**掲載箇所：`BatchExecutor::executeBatch(const vector<BatchJob>&)`** ―― 骨格
+
+```cpp
+    vector<DeliveryResult> executeBatch(const vector<BatchJob>& jobs) {
+        vector<DeliveryResult> results;
+        for (const auto& job : jobs) {
+            results.push_back(execute(job.creator, job.request,
+                                      job.apiHealthy));
+        }
+        return results;
+    }
+```
+
+**並びを先頭から1周するだけです。** 失敗しても `break` しません。**守る範囲の「登録順実行」と「後続継続」が、この5行に収まっています。**
+
+**ここで検算します。連携先と通知先をそれぞれ1つ足したとき、この3つの手順は変わるか。** 変わりません。作る役が1つ増え、通知先が1つ増えるだけで、呼び方も順序も同じです。**穴が空いたままでも、この検算はできます。**
+
+**この段で図に描けるのは、骨格から3つの契約への依存だけです。**
+
+```mermaid
+classDiagram
+    class BatchExecutor
+    class IClientCreator { <<interface>> }
+    class IExternalClient { <<interface>> }
+    class INotifier { <<interface>> }
+    BatchExecutor --> IClientCreator : 作ってもらう
+    BatchExecutor --> IExternalClient : 送信を頼む
+    BatchExecutor --> INotifier : 確定後に配る
+    IClientCreator ..> IExternalClient : 生成して返す
+    class BatchExecutor:::focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**`IClientCreator` から `IExternalClient` への矢印だけ、意味が違います。** 骨格が使う関係ではなく、生成して返す関係です。**1で「生成と通信を別の契約にする」と決めた結果が、ここに出ます。**
+
+**この段の守る範囲の照合：** 4つすべてに触りました。**データ取得**は `dataCatalog.load()` のまま、**結果保存**は `batchLog.add()` のまま、**登録順実行**は並びの1周のまま、**後続継続**は `break` を書かないことで保っています。**どれも置き場所が変わっただけで、動きは3-1と同じです。**
+
+**では、契約の裏には何を置くのか。**
+
+---
+
+**3. 契約の裏を埋める 【具体】**
+
+3つの契約と、それを呼ぶ骨格が決まりました。1では連携先の裏を1つ覗きました。**ここで残りを埋めます。**
+
+**課題ID1（連携軸）。** 1で見た `SystemAClient` の疑問が、ここで解けます。**結果保存も通知も書かないのは、それが2の骨格の仕事だからです。** 契約の裏に置くのは「この連携先へどう送り、結果をどう表すか」だけです。
+
+3クラスを並べると、1-2の連携先仕様がそのままクラスの一覧になります。
+
+| 連携先クラス | 送信時の表示 | 障害時のメッセージ |
+|---|---|---|
+| `SystemAClient` | A社へ転送 | A社: API障害 |
+| `SystemBClient` | B社へ転送 | B社: API障害 |
+| `SystemCClient` | C社へ転送（変更要求で追加） | C社: API障害 |
+
+**3つとも同じ形です。** この章のスタブは通信の詳細を `cout` で代替していますが、**実運用ではここに認証手順やリトライが入ります。** どれだけ複雑になっても、骨格から見れば `send()` の1操作です。
+
+**生成の裏も、同じ数だけ用意します。**
+
+**掲載箇所：`SystemAClientCreator`／`SystemBClientCreator`（クラス全体）**
+
+```cpp
+class SystemAClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemAClient();
+    }
+};
+
+class SystemBClientCreator : public IClientCreator {
+public:
+    IExternalClient* createClient() override {
+        return new SystemBClient();
+    }
+};
+```
+
+**1行ずつです。** 生成する役は「どのクラスを `new` するか」しか持ちません。**実運用で接続情報や認証キーの読み込みが要るなら、それがここへ入ります。**
+
+**連携先を1社足すときに触るのは、クライアント1クラスと生成役1クラス、そして登録1行だけです。** これで課題ID1の完了条件「連携先追加がClient・処理・生成登録に閉じ、バッチ順序が変わらない」を満たします。
+
+**課題ID2（通知軸）。この段は、他の軸と1つ違います。実装が1つしかありません。**
+
+**掲載箇所：`SlackNotifier`（クラス全体）** ―― Slackへの通知
+
+```cpp
+// Slack通知の具体的な実装（受け取った通知を蓄積する）
+class SlackNotifier : public INotifier {
+    // …受け取った通知の蓄積（省略。詳細は7-1）…
+public:
+    NotificationResult onComplete(string result) override {
+        // …Slackへの投稿と結果の組み立て（省略）…
+        return {"Slack", true, ""};
+    }
+};
+```
+
+**兄弟の表は置きません。1つしかないからです。**
+
+**それでも契約を作る理由があります。** 5-3の完了条件が「通知追加が登録先と個別結果に閉じる」と言っていて、**2-4でも通知手段の追加が挙がっています。** 実装が1つの今でも、骨格から通知先の知識を外す効果は出ています。**変更前は、バッチ本体が通知先ごとの文面を組み立てていました。**
+
+**「実装が1つなら契約は要らない」とは限りません。** 判断の分かれ目は「差し替える相手が今いるか」ではなく、**「その知識が骨格に残っていると困るか」**です。この章は困ります。通知手段を足すたびにバッチ本体を触ることになるからです。
+
+**逆に、実装が1つで、増える見込みも無く、骨格に残っていても困らないなら、契約は作りません。** 1の検算がその判断でした。
+
+```mermaid
+classDiagram
+    class IExternalClient { <<interface>> }
+    class SystemAClient
+    class SystemCClient
+    class IClientCreator { <<interface>> }
+    class SystemAClientCreator
+    class SystemCClientCreator
+    class INotifier { <<interface>> }
+    class SlackNotifier
+    IExternalClient <|.. SystemAClient
+    IExternalClient <|.. SystemCClient
+    IClientCreator <|.. SystemAClientCreator
+    IClientCreator <|.. SystemCClientCreator
+    INotifier <|.. SlackNotifier
+    class SystemCClient:::focus
+    class SystemCClientCreator:::focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**変更要求で足したC社が、クライアント1つと生成役1つに収まっています。** 図に描いていないB社の2クラスは、変わっていません。
+
+**もう一度検算します。契約のメソッド以外に書きたくなるものがあるか。** どの軸でも出てきませんでした。
+
+**この段の守る範囲の照合：** 4つのどれにも触っていません。連携先と通知先の中身をクラスへ移しただけで、取得も順序も保存も継続も変えていません。
+
+**ここまでで、クラスの設計は終わりです。** 残っているのは、これらを誰が作り、どう渡すかだけになりました。**そしてここから先は、2つの軸で共通です。**
+
+---
+
+**4. 実体を作り、持つ人を決める 【生成】**
+
+**2で穴が2つ空きました。** 骨格が受け取る `creator` と、配る相手の並び `notifiers` です。
+
+**まず生成役から決めます。** 骨格は「どの生成役を使うか」を選びません。**選ぶなら、そこに連携先ごとの分岐が戻ってきます。**
+
+**だから、生成役は外から渡してもらいます。** 渡す単位は「1件のジョブ」です。
+
+**掲載箇所：`BatchJob`（構造体全体）** ―― 1件のジョブが持つもの
+
+```cpp
+// 一つのバッチへ登録するジョブ。生成方法・要求・外部状態を保持する。
+struct BatchJob {
+    IClientCreator* creator;
+    SyncRequest request;
+    bool apiHealthy;
+};
+```
+
+**生成役と要求が1つの値になりました。** バッチへ登録するのは、この値の並びです。**「どの連携先へ、どのデータを送るか」の組が、登録の単位になります。**
+
+**次に通知先です。** こちらは骨格が並びで保持します。
+
+**掲載箇所：`BatchExecutor::addNotifier(INotifier*)`**
+
+```cpp
+    void addNotifier(INotifier* obs) { notifiers.push_back(obs); }
+```
+
+**登録するだけです。** 骨格は誰が入ったかを型では知りません。
+
+**では、生成役と通知先とジョブの実体は誰が持つのか。** バッチ本体より外側にいる者です。この章では組み立て役の `BatchApplication` がそれにあたります。
+
+**所有と生存期間もここで決まります。**
+
+- 生成役・通知先の実体は組み立て役が持ちます。骨格が持つ `notifiers` と、`BatchJob` が持つ `creator` は**非所有のポインタ**です
+- **借りている側（骨格・ジョブ）のほうが先に消える**ので、参照が宙に浮くことはありません
+- **クライアントだけが例外です。** `createClient()` が `new` したものを骨格が受け取り、`delete client;` で捨てます。**1回の送信ごとに作って捨てるので、生存期間は送信1回ぶんです**
+
+**2種類の所有が同じ章に並びます。** 生成役と通知先は借りるもの、クライアントは受け取って捨てるもの。**どちらなのかを、契約ごとに決めておく必要があります。**
+
+```mermaid
+classDiagram
+    class BatchApplication
+    class BatchExecutor
+    class BatchJob
+    class IClientCreator { <<interface>> }
+    class INotifier { <<interface>> }
+    class IExternalClient { <<interface>> }
+    BatchApplication ..> IClientCreator : 実体を所有
+    BatchApplication ..> INotifier : 実体を所有し登録
+    BatchApplication ..> BatchJob : 登録順に組み立てる
+    BatchJob --> IClientCreator : 借用
+    BatchExecutor o--> INotifier : 借用（並びで保持）
+    BatchExecutor ..> IExternalClient : 受け取って捨てる
+    class BatchApplication:::focus
+    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
+```
+
+**`BatchExecutor` から `IExternalClient` への線だけ、意味が違います。** 保持ではなく、1回ごとに受け取って捨てる関係です。
+
+**この段の守る範囲の照合：** **登録順実行**に触りました。3-1では呼び出し側が連携先を1件ずつ呼んでいましたが、いまはジョブの並びを登録します。**登録した順に実行される、という性質は変わっていません。** データ取得・結果保存・後続継続には触っていません。
+
+**この段が終わった時点で、実体はすべて存在しています。** 3つの生成役、通知先、ジョブの並び、それらを持つ組み立て役。**まだ起きていないのは1つだけです。骨格の契約と書かれた場所へ、具体が入ることです。それが5です。**
+
+---
+
+**5. 実装が骨格へ入る 【注入】**
+
+**この章では、2つの軸で違う入り方をします。** さらに連携軸は、入る場面が2段になります。
+
+**掲載箇所：`BatchApplication::run()`** ―― ジョブを組み立てる行（課題ID1の1段目）
+
+```cpp
+    BatchJob jobA = {&creatorA, {"SYS_A", "注文"}, true};
+```
+
+**生成役がジョブへ入ります。** 決め手は「組み立て役がどの生成役を渡したか」で、**組み立て時に1回決まります。**
+
+**掲載箇所：`BatchExecutor::execute(...)`** ―― 2の骨格から、クライアントを得る行（課題ID1の2段目）
+
+```cpp
+        IExternalClient* client = creator->createClient();   // ←ここで実装が入る
+```
+
+**クライアントが骨格へ入ります。** 決め手は「そのジョブに入っていた生成役」で、**ジョブを実行するたびに新しい実体が入ります。**
+
+**2段に分かれているのが、この章の特徴です。** どの連携先かは組み立てで1回決まり、その連携先のクライアントは実行のたびに作られます。**「何を使うか」と「いつ作るか」が別です。**
+
+**掲載箇所：`BatchExecutor::addNotifier(INotifier*)`** ―― 課題ID2の注入
+
+```cpp
+        notifiers.push_back(obs);
+```
+
+**通知先が並びへ入ります。** 決め手はありません。**登録された全員が対象です。**
+
+**実装が骨格へ入る形は3つに分かれます。この章には、そのうち1つが2通りの現れ方で出ます。**
+
+| 形 | 実装が決まる決め手 | 入る瞬間 | この本での例 |
+|---|---|---|---|
+| **生成した実体を渡して保持する** | 誰を渡したか（組み立て時に1回） | コンストラクタ引数、`addNotifier()` などの登録 | 第2章、第5章、第6章、第7章、**第10章（生成役・通知先）** |
+| 呼び出しごとに引き当てる | 保存された状態値、入力の属性 | 引き当て関数が契約への参照を返す行 | 第3章、第8章、第9章、第12章 |
+| 継承で決まる | どの派生型を作ったか | 実体を作った時点。コード上に行が無い | 第4章 |
+
+**軸ごとに整理します。**
+
+| 軸 | 実装が決まる決め手 | 決め手の出どころ | 入る場所 |
+|---|---|---|---|
+| 連携（課題ID1） | ジョブに入っていた生成役 | 組み立て役が `BatchJob` へ詰めたもの | `creator->createClient()` の戻り |
+| 通知（課題ID2） | **選ばない。登録された順に全員** | 組み立て役の `addNotifier()` を呼んだ順 | `deliverResult()` の反復 |
+
+**連携軸は「呼び出しごとに引き当てる」形に見えますが、違います。** 引き当てているのは実体を作る役ではなく、**すでに決まっている生成役に作らせている**だけです。決め手は組み立て時に固定されていて、実行のたびに変わりません。**変わるのは、作られる実体が毎回新しいことだけです。**
+
+**通知軸には決め手がありません。** 配る側は誰に配るかを選ばず、登録された全員へ同じ本文を渡します。**選ぶ判断が骨格に無いことが、通知を足しても骨格が変わらない理由です。**
+
+**この段の守る範囲の照合：** コードを1行も変えていません。4までに書いたものが、どう繋がるかを説明しただけです。
+
+---
+
+**6. 結果として、呼び方はこうなった 【利用開始】**
+
+組み立てが終わりました。呼び出し側がどう変わったかを、変更前と並べて見ます。
+
+**掲載箇所：`main()`** ―― 3-1のバッチ実行（対策前）
+
+```cpp
+    executor.execute("SYS_A", "注文");
+    executor.execute("SYS_B", "在庫");
+```
+
+**掲載箇所：`BatchApplication::run()`** ―― 同じ操作（対策後）
+
+```cpp
+    vector<BatchJob> jobs;
+    jobs.push_back({&creatorA, {"SYS_A", "注文"}, true});
+    jobs.push_back({&creatorB, {"SYS_B", "在庫"}, true});
+    executor.executeBatch(jobs);
+```
+
+**1件ずつ呼ぶ形から、並びを作って一度に渡す形へ変わりました。** 変更前は呼び出し側が実行順を書いていましたが、いまは並びの順序がそのまま実行順です。**「登録順に実行する」という守る範囲が、呼び方に表れました。**
+
+**連携先IDの文字列は残っています。** ただし、変更前は**そのIDでバッチ本体が分岐していました。** いまは連携先データを引くための鍵で、どのクライアントを使うかは生成役が持っています。**同じ文字列でも、役割が変わりました。**
+
+**組み立ての行は増えました。** 3つの生成役と通知先を作り、ジョブを組み立てる行が要ります。**この章の対策で組み立てが払ったコストは、10行前後です。** 隠さずに書いておきます。増えたぶんは、連携先と通知先のどちらを触っても、もう一方とバッチ順序が変わらないことと引き換えです。
+
+**同じ6段を通っても、呼び方が変わるかどうかは章によって違います。** そして**どれも、1から5の結果であって前提ではありません。** 先に見せると、まだ導いていない結論を見せることになります。
+
+**この段の守る範囲の照合：** **登録順実行**と**後続継続**を保っていることを、いま確認しました。並びの順に実行し、1件失敗しても次へ進みます。6段すべてを通して、守る範囲の4つはいずれも定義に反していません。最終確認はフェーズ7の受入・回帰エビデンスで行いますが、**そこで初めて確かめるのではなく、各段で照合済みです。**
+
+
+#### システム全体の最終構造を決める
+
+6段で足した図を重ねると、システム全体の最終構造になります。`BatchExecutor` がデータ取得・登録順実行・結果保存・後続継続を持ち、3つのクライアントと3つの生成役が連携先ごとの知識を持ち、通知先が配送を持ちます。
+
+**この章の完成構造は一つに定まります。** 生成役を置かず、クライアントの実体を直接ジョブへ詰める形も置けますが、実運用で接続情報の読み込みや認証キーの取得が要るようになったとき、その手順を書く場所がなくなります。責任配置が異なる完成構造が複数残ったわけではないので、当て馬を並べた比較は行いません。
+
+各段で足した部分がすべて入っているかを、次の図で照合します。
 
 **採用した変更後のクラス図：**
 
@@ -1784,209 +2207,48 @@ classDiagram
 
 | 課題ID | クラス図をどう変えるか | コードレベルで何をするか | 詳しく解く節 |
 |---|---|---|---|
-| 課題ID1 | 通信窓口 `IExternalClient` と生成役 `IClientCreator` を新設する | 各Clientが `send()`、各Creatorが `createClient()` を実装し通信・生成・所有を閉じる | 課題ID1節（【契約】〜【利用開始】） |
-| 課題ID2 | 通知の共通契約 `INotifier` を新設する | 各Notifierが `onComplete()` を実装し登録制にする | 課題ID2節（【契約】〜【利用開始】） |
+| 課題ID1 | 共通契約 `IExternalClient` と `IClientCreator` を新設し、通信と生成を分ける | 3つのクライアントがAPI手順を持ち、3つの生成役が生成方法を持ち、骨格は連携先を判定しない | 6段の【契約】〜【利用開始】 |
+| 課題ID2 | 共通契約 `INotifier` を新設し、送信確定後に登録済みへ配る | 通知先が配送を持ち、骨格は宛先も手段も判定せず、1件ごとの結果を記録する | 6段の【契約】〜【利用開始】 |
 
 このクラス図が、課題ID1・課題ID2を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
 
-**ここから具体へ入ります。** まず分ける対象の“もと”のコードを手元に戻し、次に課題ID1→課題ID2の順で、判断を一つずつ構造へ移します。
+### 6-1：生成・所有・実行順のまとめ
 
-#### 課題箇所のおさらい（フェーズ3の関連コード）
+#### 構造ポイントの全貌 ―― どの責任がどこへ移るか
 
-統合表で特定した箇所だけを振り返ります。課題ID1は通信の直呼びと具体Clientの生成分岐、課題ID2は通知サービスの直生成・直呼びです。課題に関係しないコードは省略し、フェーズ3で明記した維持条件をそのまま引き継ぎます。
+6段で決めたことを、責任の移動として一覧にします。**並び順は、考えた順です。** 表の1行が本文の1段に対応します。前半3段は軸ごとに決めたので2つの課題が並び、後半3段は共通なので1つです。
 
-```cpp
-// 現状：通信・通知・生成が execute() に混在する
-DeliveryResult BatchExecutor::execute(const SyncRequest& request) {
-    std::string partnerId = request.partnerId;
-    std::string data = dataCatalog.load(request.target); // 変更対象外
-    DeliveryResult result{"失敗", false, "未対応"};
-    if (partnerId == "A") {
-        SystemAClient client;   // 課題ID1: 通信と同じ理由で具体Clientを生成
-        result = client.send(data); // 課題ID1: 通信の詳細を知っている
-    } else if (partnerId == "B") {
-        SystemBClient client;   // 課題ID1
-        result = client.send(data); // 課題ID1
-    }
-    batchLog.add(partnerId, partnerId + "社", result.status); // 変更対象外
-    NotificationService n;      // 課題ID2: 通知サービスを直接生成
-    n.notify(result.status);     // 課題ID2: 通知の詳細を知っている
-    return result;
-}
-```
+| ポイント | 変更前の所属 → 変更後の所属 | 設計操作・生成／注入／所有 | このポイントが決まると次に決まること |
+|---|---|---|---|
+| 【契約】（軸ごと） | バッチ本体の連携先 `if` 連鎖 → `IExternalClient::send()` と `IClientCreator::createClient()`／本体が組み立てる文面 → `INotifier::onComplete()` | 分けるかを検算し、5-3の候補の形を決める。連携軸は候補3つのうち通信の契約を流れるのは2つ、生成は別契約へ。通知軸は候補2つがそのまま流れる | この契約を誰が呼ぶか＝【安定骨格】 |
+| 【安定骨格】（軸ごと） | 連携先で分岐する `execute()` → 作ってもらい、取り、送って保存して通知する形 | 2軸とも実行中に相手が入れ替わるので契約は外の型。返ってきたクライアントを誰が捨てるかもここで決める | 契約の裏に何を置くか＝【具体】 |
+| 【具体】（軸ごと） | `if` 連鎖の3分岐 → クライアント3クラスと生成役3クラス／本文の組み立て → 通知先1クラス | 契約のメソッドだけを埋める。通知は実装が1つでも契約を作る（骨格に知識を残すと困るから） | 実体を誰が作るか＝【生成】 |
+| 【生成】（共通） | 本体が具体クラス名を抱える → 生成役と通知先は組み立て役が所有し、ジョブと登録で渡す | 生成役・通知先は借用、クライアントは受け取って捨てる。2種類の所有が並ぶ | 実装がどこで骨格へ入るか＝【注入】 |
+| 【注入】（共通） | 利用側が連携先IDで呼び分け → ジョブに詰めた生成役が実体を作り、通知は登録済み全員へ | 連携軸は2段（組み立てで生成役、実行でクライアント）。通知軸は決め手なし | すべて決まった結果としての呼び方＝【利用開始】 |
+| 【利用開始】（共通） | `executor.execute("SYS_A", "注文");` を1件ずつ → ジョブの並びを作って `executeBatch(jobs);` | 組み立てた実体の公開操作を呼ぶ | ここから実行が始まり、【安定骨格】へ入る |
 
-### 課題ID1：連携先固有の生成・通信をバッチ骨格から分離する
-
-**【課題ID1の原因】** 問題ID1・問題ID3（連携先の通信詳細と具体クライアント生成・失敗処理が骨格へ密結合）＝原因ID1（外部手順の知識の漏出）。この原因を分離対象にします。
-
-**この課題（何を解きたいか）：** C社を足すだけで、`execute()` が具体Clientの生成分岐と各社の送信詳細まで抱える——問題ID1・問題ID3（痛み）／原因ID1（外部手順の漏出）です。**バッチの実行順は固定したまま、連携先ごとの生成と通信だけを差し替えられる**ようにするのが課題ID1です。
-
-**どう解決するか（方針）：** 通信の窓口を共通契約の裏へ隠し（窓口固定構造＝Facade）、どの具体Clientを作るかの生成判断も生成役へ寄せます（生成分離構造＝Factory Method）。以下は**実行時に通る順**に並べます。【生成】【注入】で部品を組み立て、【利用開始】で1回呼び、【安定骨格】が委譲し、【契約】を経て【具体】が答える、という流れです。
-
-この課題で新設するのは、通信窓口 `IExternalClient` と生成役 `IClientCreator` の2契約です。
-
-```mermaid
-classDiagram
-    class BatchExecutor
-    class IExternalClient { <<interface>> }
-    class SystemAClient
-    class IClientCreator { <<interface>> }
-    class SystemAClientCreator
-    BatchExecutor ..> IClientCreator : createClient()で生成を依頼
-    BatchExecutor ..> IExternalClient : send()の結果だけ受け取る
-    IExternalClient <|.. SystemAClient
-    IClientCreator <|.. SystemAClientCreator
-    SystemAClientCreator ..> SystemAClient : 生成
-    class IExternalClient:::focus
-    class IClientCreator:::focus
-    class SystemAClientCreator:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-**【生成】 どの具体を生成するかを、生成役 `IClientCreator` の一箇所へ閉じる。** `createClient()` は `new` した使い捨てClientを生ポインタで返し、**所有は呼び出した `execute()` が持ち、送信後に `delete` する**（【利用開始】で破棄）。
-
-```cpp
-class IClientCreator {
-public:
-    virtual ~IClientCreator() = default;
-    virtual IExternalClient* createClient() = 0;
-};
-class SystemAClientCreator : public IClientCreator {
-public:
-    IExternalClient* createClient() override {
-        return new SystemAClient();   // 所有は呼び出し側（execute）へ渡す
-    }
-};
-```
-
-**【注入】 生成役を安定側へ注入する。** 組み立て役 `BatchApplication` が各Creatorを所有し、`execute()` へ実行時に `IClientCreator*` を渡します（具体Clientの選択は骨格に漏れません）。
-
-**掲載箇所：`BatchApplication::run()`** ―― 生成役を作り、実行時引数として窓口へ渡す2行です。
-
-```cpp
-SystemAClientCreator creatorA;         // 生成役は組み立て側が所有
-batch.execute(&creatorA, request);     // 【注入】 生成役を契約として渡す
-```
-
-**【利用開始】** 組み立て役 `BatchApplication` が公開操作 `BatchExecutor::execute()` を呼びます。利用側が `createClient()` や具体Clientを直接呼ぶことはありません。
-
-**掲載箇所：`BatchApplication::run()`** ―― 【注入】の直後。1件の連携ジョブを起動する行です。
-
-```cpp
-batch.execute(&creatorA, {"PARTNER_A", SyncTarget::Orders}); // 【利用開始】
-```
-
-**【安定骨格】 窓口の安定骨格。** `BatchExecutor::execute()` は、渡された生成役で生成→`send()`→`delete` の順を実行するだけで、A社かC社かを知りません。連携先が増えてもこの順序は変わりません。
-
-**掲載箇所：`BatchExecutor::execute(IClientCreator*, const SyncRequest&, bool, const string&)`** ―― 設定を引いた後の中核。生成→送信→保存→通知→破棄の順を固定します。送信・保存・通知は、手動入口と共有する後段処理 `deliverResult()` へ委ねます。
-
-```cpp
-IExternalClient* client = creator->createClient();  // 【安定骨格】 生成役へ委譲
-string data = dataCatalog.load(request.target);
-DeliveryResult r = deliverResult(*client, data, partnerId, cfg.name,
-                                 batchLog, notificationLog, notifiers,
-                                 apiHealthy, kind);  // 送信→保存→通知
-delete client;                                      // 【安定骨格】 使い捨て後に破棄
-```
-
-`deliverResult()` の中身は `client.send()` → `batchLog.add()` → 登録された全 `INotifier` への `onComplete()` の順です。全文は7-1に置きます。
-
-**【契約】 共通契約 `IExternalClient` を定義する。** `BatchExecutor` は `send()` の結果 `DeliveryResult`（1-4から存在）だけを受け取り、各社固有の送信手順を知りません。
-
-```cpp
-class IExternalClient {
-public:
-    virtual ~IExternalClient() = default;
-    // apiHealthy は、1-5のエラー条件「外部API送信に失敗する」を掲載コードで
-    // 再現するためのスタブ入力。実システムでは通信結果そのものにあたる。
-    virtual DeliveryResult send(const std::string& data,
-                                bool apiHealthy) = 0;
-};
-```
-
-**【具体】Clientが送信詳細だけを実装する（実行順は書かない）。** `SystemBClient`・`SystemCClient` も同じ形で、宛先と通信手順だけが変わります。
-
-```cpp
-class SystemAClient : public IExternalClient {
-public:
-    DeliveryResult send(const std::string& data,
-                        bool apiHealthy) override {
-        // A社APIへ転送（通信詳細はこのクラスに閉じる）
-        if (!apiHealthy) return {"失敗", false, "A社: API障害"};
-        return {"成功", true, "A社受付: " + data};
-    }
-};
-```
+**【利用開始】が最後にあるのは、対策後の呼び方が設計の結果だからです。** 1件ずつ呼ぶ形から並びを渡す形へ変わるのは、4で「登録の単位はジョブ」と決めた結果でした。
 
 #### 代表ケースの実行接続
 
-上のブロックを、A社への注文連携1件で貫いて確認します。並び順は上の説明と同じです。
+6段は考えた順でした。**ここからは実行時に通る順で貫きます。** A社への注文データ連携1件を、1本の経路として追います。**この章の【注入】は連携軸で2段に分かれるので、組み立てと実行の両方に現れます。**
+
 | 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
 |---|---|---|---|
-| 1. 【生成】 | `SystemAClientCreator::createClient()` | `return new SystemAClient();` で使い捨てClientを作る | 【注入】へ |
-| 2. 【注入】 | `BatchApplication`（組み立て側） | `batch.execute(request, &creatorA);` で生成役を契約として渡す | 【利用開始】へ |
-| 3. 【利用開始】 | `BatchApplication` | `batch.execute({"PARTNER_A", SyncTarget::Orders}, &creatorA);` | `BatchExecutor::execute()` |
-| 4. 【安定骨格】 | `BatchExecutor::execute(const SyncRequest&, IClientCreator*)` | `creator->createClient()` → `client->send(...)` → `delete client` の順 | `IExternalClient::send()` |
-| 5. 【契約】 | `IExternalClient::send(const std::string&, bool)` | 生成されたClientへ動的ディスパッチする | `SystemAClient::send()` |
-| 6. 【具体】 | `SystemAClient::send(const std::string&, bool)` | A社固有の送信手順を実行し `DeliveryResult` を返す | 戻り値を【安定骨格】の結果保存・通知へ |
+| 1. 【生成】＋【注入】組み立て | `BatchApplication` | 生成役3つと通知先を所有し、`addNotifier()` で登録、`BatchJob` へ生成役を詰める | 【利用開始】へ |
+| 2. 【利用開始】 | `BatchApplication` | `executor.executeBatch(jobs);` | `BatchExecutor::executeBatch()` |
+| 3. 【安定骨格】登録順 | `BatchExecutor::executeBatch(const vector<BatchJob>&)` | 並びを先頭から1周し、1件ずつ `execute()` を呼ぶ。失敗しても止めない | `BatchExecutor::execute()` |
+| 4. 【注入】実行 | `IClientCreator::createClient()` → `SystemAClientCreator` | ジョブに入っていた生成役が `SystemAClient` を作って返す | 骨格の `IExternalClient*` へ入る |
+| 5. 【安定骨格】後段 | `deliverResult(IExternalClient&, const string&, ...)` | データを渡して送信し、結果を保存し、本文を1回組み立てる | `IExternalClient::send()` |
+| 6. 【契約】【具体】連携軸 | `SystemAClient::send(string, bool)` | A社へ転送し、成否とメッセージを返す | 戻り値を後段が保存と本文へ使う |
+| 7. 【契約】【具体】通知軸 | `INotifier::onComplete()` → `SlackNotifier` | 登録済みへ順に本文を渡し、1件ごとの結果を記録する | 完了。3へ戻って次のジョブ |
 
-【生成】の生成は生成役の中で起き、所有は【安定骨格】の `execute()` が持って送信後に破棄します。生成場所と所有者が分かれている点が、他章の【生成】とは異なります。
+**4で作ったものを、5の後に骨格が捨てます。** 作る場所と捨てる場所が別なので、`createClient()` の戻りは「受け取って所有するもの」だと2で決めておく必要がありました。
 
-これで課題ID1の完了条件「連携先追加がClient・処理・生成登録に閉じ、バッチ順序が変わらない」を満たします。課題ID2の通知境界とは独立したまま、同じ実行骨格へ接続します。
+**6と7が、2つの軸の接点です。** 6が返した成否とメッセージを、5が本文へ組み立て、7が受け取ります。**通知は連携先の種類を知らず、連携先は通知の存在を知りません。** 5-2で確認した独立性が、実行経路でも確認できます。
 
-### 課題ID2：通知先の種類と配送をバッチ骨格から分離する
+**7が終わると3へ戻ります。** 通知が1件失敗しても、次のジョブへ進みます。**守る範囲の「後続継続」が、この戻りに表れています。**
 
-**【課題ID2の原因】** 問題ID2（通知先の追加・仕様変更でバッチ本体が変わる）＝原因ID2（通知先の知識の漏出）。この原因を分離対象にします。
-
-**この課題（何を解きたいか）：** Slackを足すだけで、`execute()` が具体通知先の生成と送信詳細を抱える——問題ID2（痛み）／原因ID2（通知先の漏出）です。**送信結果の配送を、通知先の種類を知らずに一律配布できる**ようにするのが課題ID2です。
-
-**どう解決するか（方針）：** 通知先を共通契約へ揃え、登録済みの通知先へ一律配布します（通知分離構造＝Observer）。以下は**実行時に通る順**に並べます。【生成】【注入】で部品を組み立て、【利用開始】で1回呼び、【安定骨格】が委譲し、【契約】を経て【具体】が答える、という流れです。
-
-```mermaid
-classDiagram
-    class BatchExecutor
-    class INotifier { <<interface>> }
-    class SlackNotifier
-    BatchExecutor --> INotifier : 登録リストへ結果を配布
-    INotifier <|.. SlackNotifier
-    class INotifier:::focus
-    class SlackNotifier:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-**【生成】・所有。** 組み立て役 `BatchApplication` が具体通知先を生成し、所有します。
-
-**掲載箇所：`BatchApplication::run()`** ―― 組み立ての先頭。具体通知先をローカル変数として作ります。
-
-```cpp
-SlackNotifier slack;               // 【生成】・所有は組み立て側
-```
-
-**【注入】（登録）。** 生成済みの通知先を `addNotifier()` で登録します。`BatchExecutor` が持つのは契約 `INotifier*` の借用参照だけです。
-
-**掲載箇所：`BatchApplication::run()`** ―― 【生成】の直後。通知先を契約として窓口へ登録します。
-
-```cpp
-batch.addNotifier(&slack);         // 【注入】 登録で注入（借用参照）
-```
-
-**【利用開始】** 通知そのものを利用側が呼ぶことはありません。【利用開始】は課題ID1と同じ、組み立て役 `BatchApplication` からの `batch.execute(...)` で、【安定骨格】が送信確定後に自動で配布します。
-
-**掲載箇所：`BatchApplication::run()`** ―― 課題ID1と同じ起動行。通知はこの行から【安定骨格】を通って自動で配られます。
-
-```cpp
-batch.execute(request, &creatorA);   // 【利用開始】（通知は【安定骨格】から自動接続）
-```
-
-これで課題ID2の完了条件「通知追加・失敗が登録先と個別結果に閉じ、後続送信を止めない」を満たします。
-
-### 6-1：生成・所有・実行順のまとめ
-
-課題ID1・課題ID2を一本の実行経路へ束ね直します。採用するクラス図と責任配置はコードを書く前に確定しており、上の課題別展開は試行錯誤の履歴ではなく、完成構造を理解できる単位へ分けた実装順です。生成・所有・破棄・実行順は次の6-2の組み立てコードで一望します。
-
-- Client：`execute()` が `createClient()` で生成・所有し、送信後に `delete`（使い捨て）。
-- Notifier：`BatchApplication` が生成・所有し、`BatchExecutor` は借用参照を登録リストで保持（非所有）。
-- Creator／Notifierの生存期間が `BatchExecutor` より長いことを、6-2の組み立てで確認します。
 
 ### 6-2：システム全体の契約とデータ配置を確定する
 
