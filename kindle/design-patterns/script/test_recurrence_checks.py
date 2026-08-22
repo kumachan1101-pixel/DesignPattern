@@ -103,8 +103,8 @@ cases.append(("REVIEW-007 簡易実現見出し", V.check_banned_patterns, broke
 # 13) REVIEW-009: 4-2の比較表を章独自の列見出しへ戻す
 t = (OUT/"chapter04.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "| **変わり続けるもの** | **変わってほしくないもの** |",
-    "| **変わり続けるもの（取込形式）** | **変わってほしくないもの（登録処理）** |", 1)
+    "| **今回変える責任** | **ほかの変更から守る責任** |",
+    "| **今回変える責任（取込形式）** | **ほかの変更から守る責任（登録処理）** |", 1)
 cases.append(("REVIEW-009 4-2比較表", V.check_phase42_comparison_header, broken))
 
 # 14) TABLE-001: 第0章の番号表で「表記例」と「意味」を1セルへ潰す
@@ -155,8 +155,8 @@ cases.append(("RISK-001 将来リスク評価", V.check_future_risk_traceability
 
 # 21) STEP-001: フェーズ6のポイント見出しへ★指摘を残す
 t = (OUT/"chapter06.md").read_text(encoding="utf-8")
-broken = t.replace("**1. 分けるかを決め、境界に何が渡るかを決める 【契約】**",
-                   "**1. 分けるかを決め、境界に何が渡るかを決める 【契約】★要確認**", 1)
+broken = t.replace("**1. 境界の表し方と、何が渡るかを決める 【契約】**",
+                   "**1. 境界の表し方と、何が渡るかを決める 【契約】★要確認**", 1)
 cases.append(("STEP-001 見出しの★残り", V.check_phase6_numbered_step_titles, broken))
 
 # 22) BLOCK-001: 7-1へ複数責任を詰めた長大ブロックを戻す
@@ -171,14 +171,48 @@ t = (OUT/"chapter06.md").read_text(encoding="utf-8")
 broken = t.replace("    app.runRegressionTests();\n", "", 1)
 cases.append(("TEST-001 未実行テスト", V.check_executed_test_helpers, broken))
 
-# 24) DIAGRAM-001: 第0章の実現記法を欠落させる
+# 24) DIAGRAM-001: 第0章の実例図から契約実装の線を欠落させる
 t = (OUT/"chapter00_2.md").read_text(encoding="utf-8")
-broken = t.replace("`Contract <|.. Concrete`", "`Contract ..|> Concrete`", 1)
+broken = t.replace("    IDiscountRule <|.. MemberDiscountRule : 2 契約の実装\n", "", 1)
 cases.append((
-    "DIAGRAM-001 クラス図記法",
+    "DIAGRAM-001 クラス図の実例と使い分け",
     lambda txt, _: V.check_class_diagram_glossary(txt, OUT/"chapter00_2.md"),
     broken,
 ))
+
+# 24b) DIAGRAM-002: main()を架空のクラスとして描く
+t = (OUT/"chapter04.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "classDiagram\n    direction TB\n",
+    "classDiagram\n    direction TB\n    class Main {\n        +main()\n    }\n",
+    1,
+)
+cases.append(("DIAGRAM-002 架空のMainクラス", V.check_no_main_class_in_diagrams, broken))
+
+# 24c) DIAGRAM-003: 入力提供側からImporterへの架空依存を描く
+t = (OUT/"chapter04.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "    SchemaRegistry *-- ImportSchema : 形式ID別に保存\n",
+    "    SchemaRegistry *-- ImportSchema : 形式ID別に保存\n"
+    "    SampleFileStore ..> StoreDataImporter : 組み立て時の入力行\n",
+    1,
+)
+cases.append((
+    "DIAGRAM-003 実コードにないクラス依存",
+    lambda txt, _: V.check_chapter04_assembly_relation(
+        txt, OUT/"chapter04.md"
+    ),
+    broken,
+))
+
+# 24d) EDIT-003: 問題を解く前にパターン名を本文へ出す
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "問題から導いた「規則差し替え構造」という名前だけを使います。",
+    "問題から導いた「Strategy」という名前を使います。",
+    1,
+)
+cases.append(("EDIT-003 パターン名の先出し", V.check_pattern_name_reveal, broken))
 
 # 25) SCOPE-001: 1-4責任表へ簡略化列を重複させる
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")

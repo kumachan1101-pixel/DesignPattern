@@ -118,7 +118,9 @@ def chapter_issues(name: str) -> list[str]:
                 + " / ".join(head[:2]) + "）")
             return issues
         run = subprocess.run([str(binary)], capture_output=True, cwd=work)
-        actual = run.stdout.decode("utf-8", "replace")
+        # Windowsで実行したC++プログラムはCRLFを出す。原稿はLFなので、
+        # 内容が同じでも改行コードだけで不一致にしない。
+        actual = run.stdout.decode("utf-8", "replace").replace("\r\n", "\n")
 
     if actual.strip() != published.strip():
         issues.append(

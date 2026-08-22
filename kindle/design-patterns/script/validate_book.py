@@ -39,6 +39,12 @@ REVIEWED_CHAPTERS = set(CORE_CHAPTERS)
 # 全章の継続契約として検証する。
 PHASE1_SYSTEM_MODEL_V3 = set(CORE_CHAPTERS)
 
+# クラスでない組み立て役だけが接続する補助型は、架空の依存線を描かず、
+# 登場型表・実行シーケンス・コードで説明する。
+PHASE1_DIAGRAM_OMISSIONS = {
+    "chapter04.md": {"SampleFileStore"},
+}
+
 REQUIRED_PHASES = [
     "## 🔵 フェーズ1：現状把握",
     "## 🟣 フェーズ2：仮説立案",
@@ -59,12 +65,12 @@ REQUIRED_NUMBERED_SECTIONS = [
     "### 2-2：今回の変更で確実に変わること",
     "### 2-3：関係者ヒアリング",
     "### 2-4：ヒアリングで判明した将来リスク",
-    "### 2-5：変わる見込みと当面安定の前提を確定する",
+    "### 2-5：変わる見込みと今回維持する範囲を確定する",
     "### 3-1：変更を試みる",
     "### 3-2：変更影響グラフ",
     "### 3-3：痛みの言語化",
     "### 4-1：痛みの根源を探る",
-    "### 4-2：変わるもの/変わってほしくないもの",
+    "### 4-2：今回変える責任/ほかの変更から守る責任",
     "### 4-3：",
     "### 6-4：将来リスクに対する設計上の確認",
     "### 7-1：解決後のコード（全体）",
@@ -1662,10 +1668,13 @@ def check_phase1_system_model_v3(text: str, path: Path) -> list[Issue]:
             re.MULTILINE,
         ))
 
+    # main()などクラスではない組み立て役だけが両者をつなぐ場合、
+    # 実コードにない依存線を捏造せず、型は表とシーケンスで説明する。
+    diagram_omissions = PHASE1_DIAGRAM_OMISSIONS.get(path.name, set())
     comparisons = [
         ("登場型表に不足", code_types - table_types),
         ("登場型表に現状コード外の型", table_types - code_types),
-        ("クラス図に不足", code_types - diagram_types),
+        ("クラス図に不足", code_types - diagram_types - diagram_omissions),
         ("クラス図に現状コード外の型", diagram_types - code_types),
     ]
     for label, names in comparisons:
@@ -1747,9 +1756,10 @@ def check_class_diagram_completeness(text: str, path: Path) -> list[Issue]:
             continue
         diagram_end = text.find("```", class_diagram)
         diagram = text[class_diagram:diagram_end]
-        missing = sorted(
-            _cpp_class_names(code_section) - _diagram_class_names(diagram)
-        )
+        required = _cpp_class_names(code_section)
+        if label == "1-3":
+            required -= PHASE1_DIAGRAM_OMISSIONS.get(path.name, set())
+        missing = sorted(required - _diagram_class_names(diagram))
         if missing:
             issues.append(Issue(
                 path, line_number(text, class_diagram),
@@ -1950,11 +1960,11 @@ def check_recent_star_contracts(text: str, path: Path) -> list[Issue]:
     s42 = text.find("### 4-2：")
     s43 = text.find("### 4-3：", s42)
     phase42 = text[s42:s43] if 0 <= s42 < s43 else ""
-    if "「変わらないもの」と「変わってほしくないもの」" not in phase42:
+    if "「今回守る」と「変わらない」は異なります" not in phase42:
         issues.append(Issue(
             path, line_number(text, s42),
-            "4-2を第1章と同じ『変わるもの／変わってほしくないもの』の"
-            "観点で説明してください",
+            "4-2で、今回守る責任を恒久的に変わらない性質と"
+            "取り違えないよう説明してください",
         ))
     return issues
 
@@ -2590,7 +2600,7 @@ def check_future_risk_traceability(text: str, path: Path) -> list[Issue]:
     forecast_section = text[risk_end:phase3_start]
     forecast_header = (
         "| リスクID・変化軸 | 変わる見込み | 変えられるようにする部分 | "
-        "当面安定として守る部分 |"
+        "今回維持する部分 |"
     )
     if forecast_header not in forecast_section:
         issues.append(Issue(
@@ -3728,13 +3738,13 @@ def check_phase42_comparison_header(text: str, path: Path) -> list[Issue]:
     if start < 0 or end < 0:
         return []
     section = text[start:end]
-    expected = "| **変わり続けるもの** | **変わってほしくないもの** |"
+    expected = "| **今回変える責任** | **ほかの変更から守る責任** |"
     if expected in section:
         return []
     return [Issue(
         path,
         line_number(text, start),
-        "4-2の比較表は `変わり続けるもの` / `変わってほしくないもの` の2列へ統一してください",
+        "4-2の比較表は `今回変える責任` / `ほかの変更から守る責任` の2列へ統一してください",
     )]
 
 
@@ -4274,23 +4284,105 @@ def check_executed_test_helpers(text: str, path: Path) -> list[Issue]:
 
 
 def check_class_diagram_glossary(text: str, path: Path) -> list[Issue]:
-    """第0章後半に、本書で使うクラス図の線種とコード上の意味を固定する。"""
+    """第0章に、実例図と見た目・意味・使い分けの説明を固定する。"""
     if path.name != "chapter00_2.md":
         return []
     start = text.find("**クラス図の読み方（全章共通の規約）**")
     end = text.find("対策検討では", start)
     section = text[start:end] if 0 <= start < end else ""
     required = (
-        "`Base <|-- Derived`", "`Contract <|.. Concrete`",
-        "`Owner *-- Part`", "`Holder o-- Part`", "`User --> Target`",
-        "`User ..> Value`",
+        "ShippingFeeRule <|-- ExpressShippingFeeRule",
+        "IDiscountRule <|.. MemberDiscountRule",
+        "Order *-- OrderLine",
+        "CheckoutService o-- IDiscountRule",
+        "Order --> Customer",
+        "CheckoutService ..> PaymentResult",
+        "実線＋白抜き三角",
+        "点線＋白抜き三角",
+        "実線＋黒ひし形",
+        "実線＋白ひし形",
+        "この線を使う場面",
     )
     missing = [token for token in required if token not in section]
     if not missing:
         return []
     return [Issue(
         path, 1,
-        "第0章のクラス図記法に規約行が不足しています: " + ", ".join(missing),
+        "第0章のクラス図実例または使い分け説明が不足しています: "
+        + ", ".join(missing),
+    )]
+
+
+def check_no_main_class_in_diagrams(text: str, path: Path) -> list[Issue]:
+    """main()は関数なので、クラス図へ架空のMainクラスを置かない。"""
+    issues: list[Issue] = []
+    for block in re.finditer(
+        r"```mermaid\s*\nclassDiagram\b(.*?)```", text, re.S
+    ):
+        diagram = block.group(1)
+        match = re.search(r"(?m)^\s*class\s+Main(?:\s|\{|$)", diagram)
+        if match:
+            issues.append(Issue(
+                path,
+                line_number(text, block.start(1) + match.start()),
+                "main()は関数です。クラス図へ架空のMainクラスを置かず、"
+                "生成・注入は注記、対応表、コードで示してください",
+            ))
+    return issues
+
+
+def check_chapter04_assembly_relation(text: str, path: Path) -> list[Issue]:
+    """入力提供側がImporterを知る、実コードにない逆向き依存を描かない。"""
+    if path.name != "chapter04.md":
+        return []
+    match = re.search(
+        r"(?m)^\s*SampleFileStore\s+\.\.>\s+(?:StoreDataImporter|FCDataImporter)\b",
+        text,
+    )
+    if not match:
+        return []
+    return [Issue(
+        path,
+        line_number(text, match.start()),
+        "SampleFileStoreはCSV行を返すだけでImporterを知りません。"
+        "main()による取得・生成は実行シーケンスとコードで示してください",
+    )]
+
+
+def check_pattern_name_reveal(text: str, path: Path) -> list[Issue]:
+    """パターン名は、問題を解いた後の移行文で初めて本文へ出す。"""
+    heading = text.find("## パターン解説：")
+    if heading < 0:
+        return []
+
+    reveal = text.rfind("ここまで問題から導いた", 0, heading)
+    if reveal < 0 or heading - reveal > 800:
+        return [Issue(
+            path,
+            line_number(text, heading),
+            "パターン解説の直前に、問題から導いた構造とパターン名を結ぶ"
+            "移行文を置いてください",
+        )]
+
+    # 章タイトルは検索性のために名称を出してよい。コード、図、識別子は
+    # 設計結果の実装名を含むため除外し、読者向け散文だけを調べる。
+    first_newline = text.find("\n") + 1
+    prose = text[first_newline:reveal]
+    prose = re.sub(r"```.*?```", "", prose, flags=re.S)
+    prose = re.sub(r"`[^`\n]+`", "", prose)
+    pattern = re.compile(
+        r"(?<![A-Za-z])(?:Strategy|Facade|State|Template Method|Command|"
+        r"Decorator|Observer|Factory Method)(?![A-Za-z])"
+    )
+    match = pattern.search(prose)
+    if not match:
+        return []
+    absolute = first_newline + match.start()
+    return [Issue(
+        path,
+        line_number(text, absolute),
+        "パターン解説前の本文にパターン名が出ています。問題から導いた"
+        "構造名を使い、名称は解説直前の移行文で初めて結び付けてください",
     )]
 
 
@@ -4349,6 +4441,8 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
     issues.extend(check_class_diagram_focus_syntax(text, path))
     issues.extend(check_class_diagram_direction(text, path))
     issues.extend(check_class_diagram_glossary(text, path))
+    issues.extend(check_no_main_class_in_diagrams(text, path))
+    issues.extend(check_chapter04_assembly_relation(text, path))
     issues.extend(check_ignored_verification_results(text, path))
     issues.extend(check_long_text_blocks(text, path))
     issues.extend(check_long_final_cpp_blocks(text, path))
@@ -4372,6 +4466,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase6_point_separation(text, path))
         issues.extend(check_stable_skeleton_explanation(text, path))
         issues.extend(check_number_namespace(text, path))
+        issues.extend(check_pattern_name_reveal(text, path))
         issues.extend(check_change_diagram_highlight(text, path))
         issues.extend(check_common_phase_headings(text, path))
         issues.extend(check_phase42_comparison_header(text, path))

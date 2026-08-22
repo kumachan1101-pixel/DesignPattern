@@ -144,7 +144,7 @@
     "CONS-024": {
       "status": "done",
       "evidence": [
-        "output/chapter09_2.md#2-5：変わる見込みと当面安定の前提を確定する"
+        "output/chapter09_2.md#2-5：変わる見込みと今回維持する範囲を確定する"
       ]
     },
     "CONS-025": {
@@ -328,7 +328,7 @@
     "CONS-053": {
       "status": "done",
       "evidence": [
-        "output/chapter01.md#2-5：変わる見込みと当面安定の前提を確定する",
+        "output/chapter01.md#2-5：変わる見込みと今回維持する範囲を確定する",
         "output/chapter01.md#7-4：変更シナリオ表"
       ]
     },
