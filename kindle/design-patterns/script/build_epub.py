@@ -656,7 +656,8 @@ def render_mermaid_block(
     with tempfile.TemporaryDirectory(prefix="kindle-mermaid-") as temp_name:
         temp_dir = Path(temp_name)
         input_path = temp_dir / "diagram.mmd"
-        input_path.write_text(source.strip() + "\n", encoding="utf-8", newline="\n")
+        with input_path.open("w", encoding="utf-8", newline="\n") as stream:
+            stream.write(source.strip() + "\n")
         command = [
             mmdc,
             "-i",

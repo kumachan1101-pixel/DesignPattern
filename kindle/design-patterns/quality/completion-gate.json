@@ -36,7 +36,7 @@
     "CONS-006": {
       "status": "done",
       "evidence": [
-        "output/chapter09_2.md#🔴 フェーズ6：対策検討 ―― システム全体の最終構造を定める"
+        "output/chapter09_2.md#🔴 フェーズ6：対策検討 ―― 分離と組み立てを決める"
       ]
     },
     "CONS-007": {
@@ -198,13 +198,13 @@
     "CONS-033": {
       "status": "done",
       "evidence": [
-        "output/chapter12.md#課題ID1〜課題ID3を6段で解く"
+        "output/chapter12.md#課題ID1〜課題ID3を二つの判断で解く"
       ]
     },
     "CONS-034": {
       "status": "done",
       "evidence": [
-        "output/chapter12.md#課題ID1〜課題ID3を6段で解く"
+        "output/chapter12.md#課題ID1〜課題ID3を二つの判断で解く"
       ]
     },
     "CONS-035": {
@@ -268,7 +268,7 @@
     "CONS-044": {
       "status": "done",
       "evidence": [
-        "output/chapter11.md#6-1：生成・所有・実行順のまとめ"
+        "output/chapter11.md#6-1：分離と組み立てのまとめ"
       ]
     },
     "CONS-045": {
@@ -344,7 +344,7 @@
       "status": "done",
       "evidence": [
         "output/chapter01.md#5-1：原因から課題候補を洗い出す",
-        "output/chapter01.md#5-2：課題候補をシステム全体で評価する",
+        "output/chapter01.md#5-2：課題候補の重複と依存を整理する",
         "output/chapter01.md#5-3：課題IDと接続点を確定する"
       ]
     },
@@ -393,7 +393,7 @@
       "status": "done",
       "evidence": [
         "output/chapter00_1.md#はじめに",
-        "output/chapter11.md#課題ID1〜課題ID3を6段で解く",
+        "output/chapter11.md#課題ID1〜課題ID3を二つの判断で解く",
         "rules/writing-rules.md:116",
         "script/validate_book.py:1819"
       ]
@@ -431,6 +431,15 @@
       "status": "done",
       "evidence": [
         "review-tasks.md#2026-08-10 代表実行結果先行・正本同期・最終ゲート"
+      ]
+    },
+    "CONS-067": {
+      "status": "done",
+      "evidence": [
+        "review-tasks.md#2026-08-23 現在地 ―― 設計思考の導出・説明密度・コード整合を再監査（CONS-067）",
+        "output/chapter00_2.md#クラス図の読み方（全章共通の規約）",
+        "output/chapter01.md#5-2：課題候補の重複と依存を整理する",
+        "output/chapter02.md#最終要求の実装・受入エビデンス"
       ]
     }
   },

@@ -405,7 +405,7 @@ BANNED_PATTERNS = [
 # （check_validator_template_sync が片方だけの変更を検出する）。
 REQUIRED_TABLE_HEADERS = (
     "| 原因ID・確定した事実 | そのままだと残る痛み | 課題候補 | 候補を導いた理由 |",
-    "| 課題候補 | 必要性・他候補との関係 | 統合／分割の判断 | 採否 |",
+    "| 課題候補 | 必要性・他候補との関係 | 統合／分割の判断 | 整理結果 |",
     "| 課題ID・接続点 | 接続するもの・変わる側 | 守る側 | 完了条件 |",
 )
 
@@ -548,599 +548,6 @@ def is_new_phase6(text: str) -> bool:
     return "### 6-1" in sec
 
 
-def is_system_structure_phase6(section: str) -> bool:
-    """既存クラス図の責任と依存を更新してコード案を導く新フォーマット。"""
-    return "### 対策検討のクラス図：1-3の責任と依存をどう変えるか" in section
-
-
-def check_system_structure_phase6(
-        text: str, path: Path, p6: int, sec: str,
-        phase5_sec: str, handoff_table_heading: str) -> list[Issue]:
-    """変更軸の統合→システム構造→段階実装→全体判定を検証する。"""
-    ln = line_number(text, p6)
-    issues: list[Issue] = []
-    is_direct_flow = path.name in SYSTEM_STRUCTURE_DIRECT_FLOW
-    if is_direct_flow:
-        condition_required = [
-            ("| 接続点を変える観点 |",
-             "フェーズ6に課題とコードを結ぶ三観点の表がありません"),
-            ("分離方法", "フェーズ6に分離方法の判断がありません"),
-            ("配置場所", "フェーズ6に配置場所の判断がありません"),
-            ("組み立て方法", "フェーズ6に組み立て方法の判断がありません"),
-            ("生成", "フェーズ6の組み立て説明に生成責任がありません"),
-            ("所有", "フェーズ6の組み立て説明に所有責任がありません"),
-            ("注入", "フェーズ6の組み立て説明に依存注入がありません"),
-        ]
-    else:
-        condition_required = []
-    required = condition_required + [
-        ("### 6-1", "フェーズ6に段階的なコード検討（6-1）がありません"),
-        ("### 6-2", "フェーズ6に契約・データ配置（6-2）がありません"),
-        ("### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
-         "フェーズ6に既存クラス図を使った責任見直しがありません"),
-        ("変更前のクラス図（1-3を責任見直し用に再掲）",
-         "責任見直しに変更前クラス図がありません"),
-        ("採用した変更後のクラス図",
-         "責任見直しに変更後クラス図がありません"),
-        ("【残す】", "変更前クラス図に残す責任の表示がありません"),
-        ("【移す】", "変更前クラス図に移す責任の表示がありません"),
-        ("【新設】", "変更後クラス図に新設する責任の表示がありません"),
-        ("classDef focus", "責任見直しの着目クラスを示す色定義がありません"),
-        ("cssClass", "責任見直しの着目クラスへ色が適用されていません"),
-        ("採用するクラス図と責任配置は、コードを書く前に確定しています",
-         "段階コードが採用設計の実装順だと明文化されていません"),
-        ("#### 課題箇所のおさらい（フェーズ3の関連コード）",
-         "フェーズ6に課題箇所だけのコードおさらいがありません"),
-        ("#### システム全体のコード適用結果",
-         "フェーズ6にシステム全体のコード適用結果がありません"),
-        ("| 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |",
-         "フェーズ6に課題定義とコードの対応表がありません"),
-        ("**システム全体の実装結果：達成。**",
-         "採用設計によるシステム全体の達成確認がありません"),
-    ]
-    for token, msg in required:
-        if token not in sec:
-            issues.append(Issue(path, ln, msg))
-
-    # フェーズ6のコード展開は「6段を1周する1つの節」を正とする（EDIT-005）。
-    # 課題別H3節と旧「実装ステップ1/2/3」は、どちらも不合格にする。
-    for legacy, why in (
-            ("### 課題ID1：", "課題別のH3節"),
-            ("#### 実装ステップ1", "旧「実装ステップ1/2/3」形式")):
-        if legacy in sec:
-            issues.append(Issue(
-                path, ln,
-                f"フェーズ6に{why}が残っています。6段（【契約】【安定骨格】【具体】"
-                "【生成】【注入】【利用開始】）を1周する1つの節へまとめてください",
-            ))
-    if "#### 課題箇所のおさらい（フェーズ3の関連コード）" in sec:
-        issues.append(Issue(
-            path, ln,
-            "フェーズ6に「課題箇所のおさらい」が残っています。各段が3-1から"
-            "その段の触る数行だけを抜く形へ移してください",
-        ))
-    has_per_issue = False
-    if has_per_issue:
-        # ch11形式では、各課題節が生成・注入・実行の骨子を含むこと。
-        for token, msg in (
-            ("この課題（何を解きたいか）", "課題ID別節に『この課題（何を解きたいか）』がありません"),
-            ("どう解決するか（方針）", "課題ID別節に『どう解決するか（方針）』がありません"),
-        ):
-            if token not in sec:
-                issues.append(Issue(path, ln, msg))
-
-    mapping_columns = (
-        "課題ID",
-        "クラス図をどう変えるか",
-        "コードレベルで何をするか",
-    )
-    # 4列目は旧「実装ステップ」または新「詳しく解く節」のどちらでもよい。
-    if (not all(column in sec for column in mapping_columns)
-            or not ("実装ステップ" in sec or "詳しく解く節" in sec)):
-        issues.append(Issue(
-            path, ln,
-            "クラス図の変更とコード変更を対応させる表がありません",
-        ))
-
-    decision_columns = (
-        "接続点を変える観点",
-        "分離方法",
-        "配置場所",
-        "組み立て方法",
-    )
-    if not all(column in sec for column in decision_columns):
-        issues.append(Issue(
-            path, ln,
-            "全章共通の分離・配置・組み立ての確認表がありません",
-        ))
-
-    if is_direct_flow:
-        for redundant in (
-                "#### フェーズ6へ渡す課題",
-                "#### 3-2の変更影響を、システム構造の材料へ統合する",
-                "#### 受け入れ条件（フェーズ5から引き継ぎ）",
-                "#### システム全体の完了条件を固定する"):
-            if redundant in text:
-                issues.append(Issue(
-                    path, line_number(text, text.find(redundant)),
-                    f"直接接続型では重複する節「{redundant.removeprefix('#### ')}」を置かないでください",
-                ))
-
-    order_tokens = [
-        "| 接続点を変える観点 |",
-        "### 対策検討のクラス図：1-3の責任と依存をどう変えるか",
-        "#### 課題箇所のおさらい（フェーズ3の関連コード）",
-        "### 6-1",
-        "### 6-2",
-        "#### システム全体のコード適用結果",
-    ]
-    positions = [sec.find(token) for token in order_tokens]
-    if min(positions) >= 0 and positions != sorted(positions):
-        issues.append(Issue(
-            path, ln,
-            "フェーズ6は課題定義→分離・配置・組み立て→クラス図→"
-            "関連コード→段階実装→システム全体の判定の順にしてください",
-        ))
-
-    structure_start = sec.find("### 対策検討のクラス図：1-3の責任と依存をどう変えるか")
-    structure_end = sec.find("#### 課題箇所のおさらい（フェーズ3の関連コード）")
-    structure_sec = sec[structure_start:structure_end]
-    if structure_sec.count("```mermaid") < 2:
-        issues.append(Issue(path, ln, "責任見直しに変更前と変更後のクラス図を2図示してください"))
-    if structure_sec.count("classDiagram") < 2:
-        issues.append(Issue(path, ln, "責任見直しの2図は既存図と同じクラス図にしてください"))
-    if "flowchart" in structure_sec or "graph " in structure_sec:
-        issues.append(Issue(path, ln, "責任見直しにクラス図以外の新しい図を追加しないでください"))
-    class_tokens = SYSTEM_STRUCTURE_CLASS_TOKENS.get(path.name)
-    if class_tokens is None:
-        issues.append(Issue(path, ln,
-                            "システム構造フォーマットの主要クラス語彙が未定義です"))
-        class_tokens = []
-    for token in class_tokens:
-        if token not in structure_sec:
-            issues.append(Issue(path, ln, f"責任見直しのクラス図に主要クラス {token} がありません"))
-
-    final_forms = SYSTEM_STRUCTURE_FINAL_FORMS.get(path.name)
-    if final_forms is None:
-        issues.append(Issue(path, ln,
-                            "システム構造フォーマットの完成形比較語彙が未定義です"))
-        final_forms = []
-    for final_form in final_forms:
-        if final_form not in sec:
-            issues.append(Issue(path, ln, f"最終構造の説明に {final_form} がありません"))
-
-    # 最終構造の出し方はモードで変える（軸数とは独立に決まる）。
-    mode = SYSTEM_STRUCTURE_MODE.get(path.name, "select")
-    decide_end = sec.find("### 対策検討のクラス図：1-3の責任と依存をどう変えるか")
-    decide_sec = sec[:decide_end] if decide_end > 0 else ""
-    if mode == "select":
-        if "| 完成構造 |" not in decide_sec:
-            issues.append(Issue(path, ln,
-                "select章は競合する複数案を比較する最終システム構造の表が必要です"))
-        if len(final_forms) < 2:
-            issues.append(Issue(path, ln,
-                "select章は比較する完成形を2つ以上登録してください"))
-    elif mode == "single":
-        if "| 完成構造 |" in decide_sec:
-            issues.append(Issue(path, ln,
-                "single章は当て馬を並べず、一意に定まる構造だけを示してください"))
-
-    if len(extract_cpp_blocks(sec)) < 5:
-        issues.append(Issue(path, ln, "フェーズ6に段階判断を確認できるコードが不足しています"))
-
-    structure_heading = sec.find("### 対策検討のクラス図：1-3の責任と依存をどう変えるか")
-    if is_direct_flow:
-        issue_table = "| 課題ID・接続点 | 接続するデータ | 変わる側 | 守る側 |"
-        issue_start = phase5_sec.find(issue_table)
-        issue_ids = re.findall(
-            r"(?m)^\|\s*(P\d+)\s*[：|]",
-            phase5_sec[issue_start:],
-        ) if issue_start >= 0 else []
-        handoff_ids = issue_ids
-        decision_start = sec.find("| 接続点を変える観点 |")
-        decision_end = sec.find(
-            "### 対策検討のクラス図：1-3の責任と依存をどう変えるか"
-        )
-        decision_sec = sec[decision_start:decision_end]
-        for issue_id in issue_ids:
-            if issue_id not in decision_sec:
-                issues.append(Issue(
-                    path, ln,
-                    f"分離・配置・組み立ての決定表に{issue_id}のコード反映がありません",
-                ))
-        result_start = sec.find(
-            "| 追跡対象 | 課題定義で目指した状態 | 適用した構造とコード | 適用結果 |"
-        )
-        result_end = sec.find("**システム全体の実装結果：達成。**", result_start)
-        result_trace_sec = (
-            sec[result_start:result_end] if 0 <= result_start < result_end else ""
-        )
-        for issue_id in issue_ids:
-            if f"| {issue_id}：" not in result_trace_sec:
-                issues.append(Issue(
-                    path, ln,
-                    f"システム全体のコード適用結果に{issue_id}のコードと結果の追跡がありません",
-                ))
-    else:
-        issue_table = "| 課題ID | 変化軸と現在の影響 | 構造で移す責任 | 変えたくない範囲 |"
-        issue_start = sec.find(issue_table)
-        issue_ids = re.findall(
-            r"(?m)^\|\s*(P\d+)\s*\|",
-            sec[issue_start:structure_heading],
-        ) if min(issue_start, structure_heading) >= 0 else []
-        handoff_start = phase5_sec.find(handoff_table_heading)
-        handoff_ids = re.findall(
-            r"(?m)^\|\s*(P\d+)\s*\|",
-            phase5_sec[handoff_start:],
-        ) if handoff_start >= 0 else []
-    phase7_start = text.find("#### 変更軸ごとの完成コード追跡", p6)
-    phase72 = text.find("### 7-2", phase7_start)
-    phase7_ids = re.findall(
-        r"(?m)^\|\s*(P\d+)\s*\|",
-        text[phase7_start:phase72],
-    ) if min(phase7_start, phase72) >= 0 else []
-    if not issue_ids:
-        issues.append(Issue(path, ln, "フェーズ5の課題定義に課題ID行がありません"))
-    else:
-        expected = [f"P{i}" for i in range(1, len(issue_ids) + 1)]
-        if issue_ids != expected:
-            issues.append(Issue(path, ln, f"課題IDは連番にしてください: {issue_ids}"))
-        for label, ids in (("フェーズ5", handoff_ids), ("完成コード追跡", phase7_ids)):
-            if ids != issue_ids:
-                issues.append(Issue(
-                    path, ln,
-                    f"{label}の課題IDを課題定義と一致させてください: {ids} != {issue_ids}",
-                ))
-
-    if is_direct_flow:
-        # 対策検討で採用したクラス図と、完成コード後のクラス図は同じ構造を
-        # 確認する図である。Mermaid定義の差による自動配置の揺れを防ぐ。
-        phase6_class_diagrams = re.findall(
-            r"```mermaid\s*\n(classDiagram.*?)(?=\n```)",
-            structure_sec,
-            re.DOTALL,
-        )
-        completed_heading = text.find("#### 解決後のクラス構成", p6)
-        completed_end = text.find("#### 変更軸ごとの完成コード追跡", completed_heading)
-        if completed_heading < 0:
-            completed_heading = text.find("#### 完成後のクラス図", p6)
-            completed_end = text.find(
-                "#### 完成後の実行シーケンス", completed_heading
-            )
-        completed_sec = (
-            text[completed_heading:completed_end]
-            if 0 <= completed_heading < completed_end else ""
-        )
-        completed_diagrams = re.findall(
-            r"```mermaid\s*\n(classDiagram.*?)(?=\n```)",
-            completed_sec,
-            re.DOTALL,
-        )
-        if phase6_class_diagrams and completed_diagrams:
-            normalize_diagram = lambda diagram: "\n".join(
-                line.rstrip()
-                for line in diagram.splitlines()
-                if line.strip()
-            )
-            if normalize_diagram(phase6_class_diagrams[-1]) != normalize_diagram(completed_diagrams[0]):
-                issues.append(Issue(
-                    path, line_number(text, completed_heading),
-                    "対策検討の採用後クラス図と対策完成後のクラス図は同じMermaid定義にしてください",
-                ))
-        else:
-            issues.append(Issue(
-                path, ln,
-                "対策検討の採用後クラス図と対策完成後のクラス図を比較できません",
-            ))
-
-    p7 = text.find("## 🟢 フェーズ7", p6)
-    result_graph = text.find("### 7-3：変更影響グラフ（改善後）", p7)
-    if result_graph < 0:
-        issues.append(Issue(path, ln, "変更影響グラフの結果確認は完成コード後の7-3に置いてください"))
-    else:
-        graph_end = text.find("### 7-4", result_graph)
-        result_sec = text[result_graph:graph_end]
-        result_tokens = SYSTEM_STRUCTURE_RESULT_TOKENS.get(path.name)
-        if result_tokens is None:
-            issues.append(Issue(path, ln,
-                                "システム構造フォーマットの7-3結果語彙が未定義です"))
-            result_tokens = []
-        for token in result_tokens:
-            if token not in result_sec:
-                issues.append(Issue(path, ln, f"7-3の結果確認に {token} がありません"))
-    return issues
-
-
-def check_phase6_design(text: str, path: Path) -> list[Issue]:
-    """痛みグラフから構造変更・コード適用・完成結果までの追跡を確認する。"""
-    if not is_new_phase6(text):
-        return []
-    p6, sec = _phase6_section(text)
-    ln = line_number(text, p6)
-    issues: list[Issue] = []
-    p5 = text.find("## 🟡 フェーズ5")
-    phase5_sec = text[p5:p6] if 0 <= p5 < p6 else ""
-    handoff_heading = "#### フェーズ6へ渡す課題"
-    is_v2 = path.name in SYSTEM_STRUCTURE_V2
-    is_direct_flow = path.name in SYSTEM_STRUCTURE_DIRECT_FLOW
-    handoff_table_heading = (
-        "| 課題ID | 現在の変更影響 | 変えたくない範囲 | 受け入れ条件 |" if is_v2
-        else "| 課題ID | 現在の変更影響 | 変えたくない範囲 |"
-    )
-    if is_direct_flow:
-        direct_issue_heading = "| 課題ID・接続点 | 接続するデータ | 変わる側 | 守る側 |"
-        if direct_issue_heading not in phase5_sec:
-            issues.append(Issue(
-                path, ln,
-                "直接接続型のフェーズ5に、対策検討へ渡す変化軸・変わる側・守る側がありません",
-            ))
-    else:
-        if handoff_heading not in phase5_sec:
-            issues.append(Issue(path, ln, "フェーズ5末尾にフェーズ6へ渡す課題がありません"))
-        if handoff_table_heading not in phase5_sec:
-            issues.append(Issue(
-                path, ln,
-                "フェーズ5の引き渡し表に課題ID・現在の変更影響・変えたくない範囲"
-                + ("・受け入れ条件" if is_v2 else "") + "がありません",
-            ))
-    if is_v2:
-        if "変わる側" not in phase5_sec or "守る側" not in phase5_sec:
-            issues.append(Issue(
-                path, ln,
-                "v2章のフェーズ5接続点定義表に変わる側・守る側がありません",
-            ))
-        for leak in ("へ移す", "を新設", "へ移し"):
-            if leak in phase5_sec:
-                issues.append(Issue(
-                    path, line_number(text, p5 + phase5_sec.find(leak)),
-                    f"v2章のフェーズ5に配置の先取り表現「{leak}」があります"
-                    "（分離先の決定はフェーズ6で行う）",
-                ))
-        for match in re.finditer(
-                r"//[^\n]*(?:が続く|も同様|同様に並ぶ)", text):
-            issues.append(Issue(
-                path, line_number(text, match.start()),
-                "v2章では接続点コードの略記（が続く/も同様）を使わず全分岐を記載してください",
-            ))
-    if is_system_structure_phase6(sec):
-        issues.extend(check_system_structure_phase6(
-            text, path, p6, sec, phase5_sec, handoff_table_heading,
-        ))
-        return issues
-    checks = [
-        ("### 6-1", "フェーズ6に痛みコードの分解（6-1）がありません"),
-        ("### 6-2", "フェーズ6に契約・データ配置（6-2）がありません"),
-        ("### 6-3", "フェーズ6に構造の見立て（6-3）がありません"),
-        ("```mermaid", "フェーズ6に構造のクラス図（mermaid）がありません"),
-        ("### 6-4", "フェーズ6に影響範囲（6-4）がありません"),
-        ("### 採用する形を決める", "フェーズ6に採用判断がありません"),
-        ("#### 問題定義の変更影響を、どの構造で変えるか",
-         "フェーズ6に問題定義の変更影響と構造を対応させたグラフがありません"),
-        ('subgraph Pain["問題定義：変更前の変更影響"]',
-         "構造変更グラフに問題定義で得た変更前の変更影響がありません"),
-        ('subgraph TargetStructure["影響を切る構造の形"]',
-         "構造変更グラフに影響を切るクラス・契約・依存関係がありません"),
-        ('subgraph Result["同じ要求を再適用した変更影響"]',
-         "構造変更グラフに同じ要求を再適用した変更影響がありません"),
-        ("#### 構造と変更後の影響から、課題と候補を一続きで導く",
-         "フェーズ6にグラフから課題・候補を一続きで導く表がありません"),
-        ("| 課題ID | 変更の到達点 | 最初に試すコード変更 | 残る問題に対する次のコード変更 |",
-         "フェーズ6に差・境界・完了条件・候補を同じ課題IDで結ぶ表がありません"),
-        ("#### 課題箇所のおさらい（フェーズ3の関連コード）",
-         "フェーズ6に課題カードで指定した関連コードのおさらいがありません"),
-        ("#### 課題IDごとのコード適用結果",
-         "フェーズ6に課題IDごとのコード適用結果がありません"),
-        ("| 課題ID | 候補を適用したコード | 段階的なコード変更と結果 | 守った契約・完了条件の判定 |",
-         "フェーズ6に適用コード・段階的なコード変更・結果・契約・完了判定の対応表がありません"),
-    ]
-    for token, msg in checks:
-        if token not in sec:
-            issues.append(Issue(path, ln, msg))
-    if len(extract_cpp_blocks(sec)) < 3:
-        issues.append(Issue(path, ln,
-                            "フェーズ6に課題箇所のおさらい・2段階以上の関連コードがありません"))
-    stale = [
-        "#### 採用候補の完全コード",
-        "この変換は断片コードでは示しません",
-        "完全な接続コードはこのフェーズの後半で示す",
-        "#### 振り返り：現行コード全体（フェーズ1）",
-        "#### 候補をコードで検討するための課題カード",
-        "| 課題ID | フェーズ4で見えた原因 | フェーズ5で定めた課題 | フェーズ6で試す候補 |",
-        "#### 理想の変更影響グラフを先に組み立てる",
-        "#### 理想グラフとの差から課題カードを導く",
-        "#### 課題カードから検討候補を出す",
-    ]
-    for token in stale:
-        if token in sec:
-            issues.append(Issue(
-                path, ln,
-                f"完成コード先出しの旧表現が残っています: {token}",
-            ))
-
-    graph_heading = "#### 問題定義の変更影響を、どの構造で変えるか"
-    trace_heading = "#### 構造と変更後の影響から、課題と候補を一続きで導く"
-    trace_table_heading = (
-        "| 課題ID | 変更の到達点 | 最初に試すコード変更 | 残る問題に対する次のコード変更 |"
-    )
-    recap_heading = "#### 課題箇所のおさらい（フェーズ3の関連コード）"
-    code_result_heading = "#### 課題IDごとのコード適用結果"
-    code_result_table_heading = (
-        "| 課題ID | 候補を適用したコード | 段階的なコード変更と結果 | "
-        "守った契約・完了条件の判定 |"
-    )
-    graph_heading_start = sec.find(graph_heading)
-    trace_start = sec.find(trace_heading)
-    trace_table_start = sec.find(trace_table_heading)
-    recap_start = sec.find(recap_heading)
-    code_result_start = sec.find(code_result_heading)
-    code_result_table_start = sec.find(code_result_table_heading)
-    step63_start = sec.find("### 6-3")
-    starts = [
-        graph_heading_start, trace_start, trace_table_start, recap_start,
-        code_result_start, code_result_table_start, step63_start,
-    ]
-    if min(starts) >= 0:
-        if starts != sorted(starts):
-            issues.append(Issue(
-                path, ln,
-                "フェーズ6は痛みグラフ→課題候補表→関連コード→コード適用結果→構造の順にしてください",
-            ))
-
-        trace_rows = re.findall(
-            r"(?m)^\|\s*P\d+\s*\|.*$",
-            sec[trace_table_start:recap_start],
-        )
-        trace_ids = [
-            re.match(r"^\|\s*(P\d+)\s*\|", row).group(1)
-            for row in trace_rows
-        ]
-        code_result_rows = re.findall(
-            r"(?m)^\|\s*P\d+\s*\|.*$",
-            sec[code_result_table_start:step63_start],
-        )
-        code_result_ids = [
-            re.match(r"^\|\s*(P\d+)\s*\|", row).group(1)
-            for row in code_result_rows
-        ]
-
-        trace_required_labels = (
-            "**現在→理想の差：**",
-            "**切る境界・守る契約：**",
-            "**完了条件：**",
-            "**候補：**",
-            "**減る影響：**",
-        )
-        for row in trace_rows:
-            task_id = re.match(r"^\|\s*(P\d+)\s*\|", row).group(1)
-            missing = [label for label in trace_required_labels if label not in row]
-            if missing:
-                issues.append(Issue(
-                    path, ln,
-                    f"{task_id}の一続き表に必須の対応項目がありません: {missing}",
-                ))
-
-        code_result_required_labels = (
-            "**段階的な変更：**",
-            "**結果：**",
-            "**守った契約：**",
-            "**判定：**",
-        )
-        for row in code_result_rows:
-            task_id = re.match(r"^\|\s*(P\d+)\s*\|", row).group(1)
-            missing = [
-                label for label in code_result_required_labels if label not in row
-            ]
-            if missing:
-                issues.append(Issue(
-                    path, ln,
-                    f"{task_id}のコード適用結果に必須の対応項目がありません: {missing}",
-                ))
-            if "`" not in row:
-                issues.append(Issue(
-                    path, ln,
-                    f"{task_id}のコード適用結果にクラス・関数・メソッド名がありません",
-                ))
-        graph_start = sec.find("```mermaid", graph_heading_start, trace_start)
-        graph_end = sec.find("```", graph_start + len("```mermaid"))
-        graph_text = (
-            sec[graph_start:graph_end]
-            if graph_start >= 0 and graph_end >= 0 else ""
-        )
-        graph_ids = (
-            re.findall(r"P\d+", graph_text)
-            if graph_start >= 0 and graph_end >= 0 else []
-        )
-        target_match = re.search(
-            r"subgraph TargetStructure.*?\n(.*?)\n\s*end",
-            graph_text,
-            re.DOTALL,
-        )
-        if target_match:
-            target_structure = target_match.group(1)
-            if re.search(r"P\d+-変更\d+|変更[１２12]", target_structure):
-                issues.append(Issue(
-                    path, ln,
-                    "中央のTargetStructureを変更1→変更2の作業フローにせず、"
-                    "クラス・契約・依存関係の形を描いてください",
-                ))
-            structure_nodes = re.findall(r"\b[A-Za-z][A-Za-z0-9_]*\[", target_structure)
-            if len(structure_nodes) < 3 or "-->" not in target_structure:
-                issues.append(Issue(
-                    path, ln,
-                    "中央のTargetStructureには、影響を切る3つ以上の構造要素と"
-                    "依存関係を描いてください",
-                ))
-        graph_explanation = sec[graph_end + 3:trace_start]
-        if "中央" not in graph_explanation:
-            issues.append(Issue(
-                path, ln,
-                "構造変更グラフの直後に、中央の構造で左の影響が右へどう変わるか"
-                "言語化してください",
-            ))
-        handoff_table_start = phase5_sec.find(handoff_table_heading)
-        handoff_ids = (
-            re.findall(
-                r"(?m)^\|\s*(P\d+)\s*\|",
-                phase5_sec[handoff_table_start:],
-            )
-            if handoff_table_start >= 0 else []
-        )
-
-        phase7_result_heading = "#### 課題IDごとの完成コード結果"
-        phase7_result_table_heading = (
-            "| 課題ID | 完成コードの適用先 | 実装後に起きたこと | 完了条件の最終確認 |"
-        )
-        phase7_result_start = text.find(phase7_result_heading, p6)
-        phase7_result_table_start = text.find(phase7_result_table_heading, p6)
-        phase72_start = text.find("### 7-2", p6)
-        phase7_result_ids = (
-            re.findall(
-                r"(?m)^\|\s*(P\d+)\s*\|",
-                text[phase7_result_table_start:phase72_start],
-            )
-            if min(phase7_result_start, phase7_result_table_start, phase72_start) >= 0
-            else []
-        )
-        if phase7_result_start < 0 or phase7_result_table_start < 0:
-            issues.append(Issue(path, ln, "フェーズ7に課題IDごとの完成コード結果がありません"))
-
-        if not trace_ids:
-            issues.append(Issue(path, ln, "課題・候補の一続き表に課題ID行がありません"))
-        else:
-            expected_ids = [f"P{i}" for i in range(1, len(trace_ids) + 1)]
-            if trace_ids != expected_ids:
-                issues.append(Issue(
-                    path, ln,
-                    "課題・候補表の課題IDは重複・欠番なしの連番にしてください: "
-                    f"実際={trace_ids}, 期待={expected_ids}",
-                ))
-            if code_result_ids != trace_ids:
-                issues.append(Issue(
-                    path, ln,
-                    "コード適用結果の課題IDは課題・候補表と同じ順序・一課題一行にしてください: "
-                    f"適用結果={code_result_ids}, 課題={trace_ids}",
-                ))
-            if set(graph_ids) != set(trace_ids):
-                issues.append(Issue(
-                    path, ln,
-                    "構造変更グラフは全課題IDだけを使って変更前の影響→構造上の境界→変更後の影響を追跡してください: "
-                    f"グラフ={sorted(set(graph_ids))}, 課題={trace_ids}",
-                ))
-            if handoff_ids != trace_ids:
-                issues.append(Issue(
-                    path, ln,
-                    "フェーズ5の引き渡し課題IDは課題・候補表と同じ連番にしてください: "
-                    f"引き渡し={handoff_ids}, 課題={trace_ids}",
-                ))
-            if phase7_result_ids != trace_ids:
-                issues.append(Issue(
-                    path, ln,
-                    "完成コード結果の課題IDは課題・候補表と同じ順序・一課題一行にしてください: "
-                    f"完成結果={phase7_result_ids}, 課題={trace_ids}",
-                ))
-    return issues
-
-
 def extract_cpp_blocks(section: str) -> list[str]:
     """Return C++ blocks with their internal formatting preserved."""
     return [
@@ -1151,12 +558,8 @@ def extract_cpp_blocks(section: str) -> list[str]:
 
 def check_phase6_complete_comparison_code(text: str, path: Path) -> list[Issue]:
     """課題関連コード・段階コード・完成コードの役割分担を確認する。"""
-    stage_end_marker = (
-        "#### システム全体のコード適用結果"
-        if "#### システム全体のコード適用結果" in text
-        else "## 🟢 フェーズ7"
-    )
-    # 変更前コードは、各段が「変更前の抜粋 → 変更後」で並べる形へ移した。
+    stage_end_marker = "### 6-1："
+    # 変更前コードは、二つの判断が必要な抜粋だけを変更後と並べる。
     # まとめて再掲する「課題箇所のおさらい」小節は、その形へ移行した章から
     # 順に無くなる（著者指摘 2026-08-15：過程で変更前を示しているので不要）。
     recap_marker = "#### 課題箇所のおさらい（フェーズ3の関連コード）"
@@ -1937,7 +1340,7 @@ def check_recent_star_contracts(text: str, path: Path) -> list[Issue]:
     phase5 = text[p5:p6] if 0 <= p5 < p6 else ""
     for token in (
         "### 5-1：原因から課題候補を洗い出す",
-        "### 5-2：課題候補をシステム全体で評価する",
+        "### 5-2：課題候補の重複と依存を整理する",
         "### 5-3：課題IDと接続点を確定する",
         "| 課題ID・接続点 | 接続するもの・変わる側 | 守る側 | 完了条件 |",
     ):
@@ -1949,7 +1352,7 @@ def check_recent_star_contracts(text: str, path: Path) -> list[Issue]:
 
     _, phase6 = _phase6_section(text)
     for token, message in (
-        ("#### 接続点の分離・配置・組み立てを決める",
+        ("#### 分離と組み立てを決める",
          "フェーズ6に接続点から設計判断を導く節がありません"),
         ("#### システム全体の最終構造を決める",
          "フェーズ6にシステム全体の最終構造を確定する節がありません"),
@@ -2053,8 +1456,10 @@ def check_phase5_phase6_reasoning_contract(
     phase5 = text[p5:p6]
     phase6 = text[p6:p7]
 
+    p4 = text.find("## 🟠 フェーズ4", 0, p5)
+
     h51 = phase5.find("### 5-1：原因から課題候補を洗い出す")
-    h52 = phase5.find("### 5-2：課題候補をシステム全体で評価する")
+    h52 = phase5.find("### 5-2：課題候補の重複と依存を整理する")
     h53 = phase5.find("### 5-3：課題IDと接続点を確定する")
     if min(h51, h52, h53) < 0 or not (h51 < h52 < h53):
         issues.append(Issue(
@@ -2062,6 +1467,64 @@ def check_phase5_phase6_reasoning_contract(
             "フェーズ5は原因→課題候補→システム全体評価→課題確定の順にしてください",
         ))
         return issues
+
+    if p4 >= 0:
+        premature = re.search(r"課題ID\d+", text[p4:p5 + h53])
+        if premature:
+            issues.append(Issue(
+                path,
+                line_number(text, p4 + premature.start()),
+                "課題IDは5-3で確定するため、それ以前は原因IDまたは課題候補で参照してください",
+            ))
+
+        p3 = text.find("フェーズ3", 0, p4)
+        phase3 = text[p3:p4] if p3 >= 0 else ""
+        phase4 = text[p4:p5]
+        defined_problem_ids = {
+            match.group(1)
+            for match in re.finditer(r"(?m)^\|\s*(問題ID\d+)\s*\|", phase3)
+        }
+
+        cause_pairs: set[tuple[str, str]] = set()
+        for line in phase4.splitlines():
+            if not re.match(r"^\|\s*原因ID\d+\s*\|", line):
+                continue
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            cause_id = cells[0]
+            for problem_id in re.findall(r"問題ID\d+", cells[-1]):
+                cause_pairs.add((problem_id, cause_id))
+
+        trace_pairs: set[tuple[str, str]] = set()
+        for line in phase5[h53:].splitlines():
+            if not re.match(r"^\|\s*問題ID\d+", line):
+                continue
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if len(cells) < 2:
+                continue
+            for problem_id in re.findall(r"問題ID\d+", cells[0]):
+                for cause_id in re.findall(r"原因ID\d+", cells[1]):
+                    trace_pairs.add((problem_id, cause_id))
+
+        cause_problem_ids = {problem_id for problem_id, _ in cause_pairs}
+        trace_problem_ids = {problem_id for problem_id, _ in trace_pairs}
+        for problem_id in sorted(defined_problem_ids - cause_problem_ids):
+            issues.append(Issue(
+                path, line_number(text, p4),
+                f"{problem_id}がフェーズ4の原因ID表へ接続されていません",
+            ))
+        for problem_id in sorted(defined_problem_ids - trace_problem_ids):
+            issues.append(Issue(
+                path, line_number(text, p5 + h53),
+                f"{problem_id}が5-3の問題ID→原因ID→課題ID表へ接続されていません",
+            ))
+        if cause_pairs and trace_pairs and cause_pairs != trace_pairs:
+            missing = sorted(cause_pairs - trace_pairs)
+            extra = sorted(trace_pairs - cause_pairs)
+            issues.append(Issue(
+                path, line_number(text, p5 + h53),
+                "原因ID表と5-3追跡表の問題ID対応が一致しません: "
+                f"追跡表に不足={missing}, 追跡表だけ={extra}",
+            ))
 
     for token, message in (
         (REQUIRED_TABLE_HEADERS[0],
@@ -2085,7 +1548,7 @@ def check_phase5_phase6_reasoning_contract(
         issue_ids, "課題ID", path, line_number(text, p5 + h53), "5-3の課題",
     ))
 
-    # 変更前コードをまとめて再掲する「課題箇所のおさらい」は、各段が
+    # 変更前コードをまとめて再掲する「課題箇所のおさらい」は、二つの判断が
     # 「変更前の抜粋 → 変更後」を並べる形へ移した章では置かない。
     recap_heading = "#### 課題箇所のおさらい（フェーズ3の関連コード）"
     recap_start = phase6.find(recap_heading)
@@ -2100,8 +1563,8 @@ def check_phase5_phase6_reasoning_contract(
     # 課題ID節は、変更前コード（おさらい）の後・最終構造の前に置く。
     # 読者は「変更前 → 課題ごとに少しずつ書き換える → 最終構造」の順で読む。
     # 課題IDは節見出しでも段中のラベルでもよい。求めるのは、5-3で確定した
-    # 課題IDが漏れなくフェーズ6の本文に現れることだけ（著者指摘 2026-08-15：
-    # 独立した軸は課題別に節を切らず、6段を1周して段ごとに軸を並べる）。
+    # 課題IDが漏れなくフェーズ6の本文に現れることだけ。独立した軸は
+    # 課題別に節を切らず、分離では並べ、組み立てでは一つの経路へ集める。
     id_heads = [m.start() for m in re.finditer(r"(?m)^### 課題ID\d+", phase6)]
     for issue_id in issue_ids:
         label = issue_id if str(issue_id).startswith("課題ID") \
@@ -2835,7 +2298,7 @@ def check_explanation_regression(text: str, path: Path) -> list[Issue]:
 
     required_tokens = (
         "見当は、次の順で作ります。",
-        # EDIT-005で6段1周へ移行し、課題別H3節をやめた。3つの課題の原因は
+        # 課題別H3節へ分けず、二つの判断を一つの節で扱う。3つの課題の原因は
         # 冒頭の【課題の原因】でまとめて示すので、原因IDの並びで担保する。
         "【課題の原因】",
         "原因ID1（共通順が本文IDと本文内容を持つ）",
@@ -3548,10 +3011,9 @@ def check_change_id_requirement_scope(text: str, path: Path) -> list[Issue]:
 def check_step_reference_target(text: str, path: Path) -> list[Issue]:
     """本文の「ステップN」参照に、対応する見出しが同じ章にあるか。
 
-    2026-08-12のロジック監査（LOGIC-008）で9章に見つかった症状。第0章が
-    フェーズ6の旧ステップ方式の規定を保持したままで、実章は課題ID別①〜⑥へ
-    移行済みだったため、「フェーズ6のステップ3」のような参照先のない記述が
-    残っていた。
+    2026-08-12のロジック監査（LOGIC-008）で9章に見つかった症状。第0章と
+    実章の構成がずれ、「フェーズ6のステップ3」のような参照先のない記述が
+    残っていた。現在のフェーズ6は分離と組み立ての意味名で参照する。
 
     フェーズ6・フェーズ7を指すステップ参照だけを対象にする（処理手順としての
     「4ステップの流れ」「差し替えるステップ」は正当な用法なので除外）。
@@ -3578,7 +3040,7 @@ def check_step_reference_target(text: str, path: Path) -> list[Issue]:
         issues.append(Issue(
             path, line_number(text, m.start()),
             f"「ステップ{num}」を参照していますが、対応する見出しが章内にありません"
-            f"（フェーズ6は課題ID別①〜⑥構成）",
+            f"（フェーズ6は分離・組み立ての意味名で参照します）",
         ))
     return issues
 
@@ -3612,6 +3074,33 @@ def check_validator_template_sync(_text: str, path: Path) -> list[Issue]:
                 f"validate_book.py が本文へ要求する表頭がテンプレートにありません: "
                 f"{header}（片方だけ直すと全章が同じ検査で落ちます）",
             ))
+
+    # フェーズ6の構造も、本文だけ／テンプレートだけが旧構成へ戻らないようにする。
+    phase6_tokens = (
+        "## 🔴 フェーズ6：対策検討 ―― 分離と組み立てを決める",
+        *PHASE6_DECISION_HEADINGS,
+        "### 6-1：分離と組み立てのまとめ",
+    )
+    for token in phase6_tokens:
+        if token not in template_text:
+            issues.append(Issue(
+                template, 1,
+                f"フェーズ6の本文規約が章テンプレートにありません: {token}",
+            ))
+
+    chapter0_template = BOOK_ROOT / "templates" / "chapter0-template.md"
+    if chapter0_template.exists():
+        chapter0_text = chapter0_template.read_text(encoding="utf-8")
+        for token in (
+            "フェーズ6：対策検討 ―― 分離と組み立てを決める",
+            "契約と具体による分離",
+            "生成・注入・実行による組み立て",
+        ):
+            if token not in chapter0_text:
+                issues.append(Issue(
+                    chapter0_template, 1,
+                    f"第0章テンプレートにフェーズ6の共通語がありません: {token}",
+                ))
     return issues
 
 
@@ -3719,7 +3208,7 @@ def check_common_phase_headings(text: str, path: Path) -> list[Issue]:
     issues: list[Issue] = []
     required = (
         "### 4-3：",
-        "### 6-1：生成・所有・実行順のまとめ",
+        "### 6-1：分離と組み立てのまとめ",
     )
     for heading in required:
         if heading not in text:
@@ -3753,7 +3242,7 @@ def check_phase6_overview_diagram(text: str, path: Path) -> list[Issue]:
 
     区切りは特定の一文ではなく次の見出しで取る。全体像節の文言は章の
     書き直しで変わるが、見出しの構造は変わらないため（再発防止
-    2026-08-16「6段の規定を第9章1つから書き…」の教訓と同じ扱い）。
+    章固有の一文ではなく共通見出しをアンカーにする）。
     """
     start = text.find("#### まず全体像")
     if start < 0:
@@ -3975,33 +3464,65 @@ def check_phase6_fragment_location(text: str, path: Path) -> list[Issue]:
     return issues
 
 
-# フェーズ6の6つのポイント。番号だと説明順と実行順が混同されるため、
-# 名前のラベルで示す（著者指摘 2026-08-15）。
-PHASE6_LABELS = ("【契約】", "【安定骨格】", "【具体】",
-                 "【生成】", "【注入】", "【利用開始】")
+# フェーズ6は二つの設計判断で構成する。
+PHASE6_DECISION_HEADINGS = (
+    "#### 1. 契約と具体をセットで決める（分離）",
+    "#### 2. 生成・注入・実行をセットで決める（組み立て）",
+)
+PHASE6_EXACT_HEADING = "## 🔴 フェーズ6：対策検討 ―― 分離と組み立てを決める"
+LEGACY_PHASE6_TOKENS = (
+    "6段で解く",
+    "### 6-1：生成・所有・実行順のまとめ",
+    "【安定骨格】",
+    "【利用開始】",
+    "| 型 | 骨格の正体 | 契約の置き場 | 見分け方 |",
+    "| 形 | 実装が決まる決め手 | 入る瞬間 | この本での例 |",
+    "#### システム全体のコード適用結果",
+    "**システム全体の実装結果：達成。**",
+    "**どう解決するか（方針）：**",
+)
+
+
+def check_phase6_exact_heading(text: str, path: Path) -> list[Issue]:
+    """フェーズ6がある原稿では、0章・本文とも同じ見出しを使う。"""
+    headings = re.findall(r"(?m)^## 🔴 フェーズ6：[^\n]+$", text)
+    if not headings:
+        return []
+    if headings == [PHASE6_EXACT_HEADING]:
+        return []
+    return [Issue(
+        path,
+        line_number(text, text.find(headings[0])),
+        "フェーズ6の見出しを第0章・テンプレート・全章で"
+        "「対策検討 ―― 分離と組み立てを決める」へ統一してください",
+    )]
+
+
+NON_CANONICAL_STRUCTURE_NAMES = (
+    "規則差し替え構造",
+    "窓口集約構造",
+    "操作の部品化構造",
+    "骨格・ステップ分離",
+    "分離・配置・組み立て",
+    "分離・配置・生成・所有・注入・実行",
+)
+
+
+def check_structure_name_consistency(text: str, path: Path) -> list[Issue]:
+    """導出時・要約・0章で日本語の構造名が途中で変わるのを防ぐ。"""
+    issues: list[Issue] = []
+    for token in NON_CANONICAL_STRUCTURE_NAMES:
+        for match in re.finditer(re.escape(token), text):
+            issues.append(Issue(
+                path,
+                line_number(text, match.start()),
+                f"設計用語が0章・テンプレート・章内で一致しません: {token}",
+            ))
+    return issues
 
 
 def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
-    """フェーズ6の①〜⑥を、番号ごとに分けた見出しと実コードで示す。
-
-    2026-08-14のDOC-002調査で見つかった症状。12章中8章が `②⑥` や `②⑤⑥` の
-    ように、②安定骨格と⑥利用開始を一つの見出しへまとめていた。②は「公開入口
-    の内側で具体が増減しても変わらない制御順」、⑥は「利用者や外部イベントが
-    公開入口を呼ぶこと」であり、呼ばれる側と呼ぶ側で責任が違う。まとめると、
-    読者はどこが構造でどこが利用かを分けて読めない。
-
-    あわせて、①〜⑥のいずれかが見出しとして現れない章もあった（第4章は①と②、
-    第6章と第11章は②、第8章は④）。番号が欠けると、その責任を誰が持つのかが
-    本文から追えない。
-
-    ここでは次の3つを見る。
-    - ②と⑥を一つの太字見出しへまとめていないか。
-    - ①〜⑥がそれぞれ1回以上、太字見出しとして現れるか。
-    - 代表ケースの実行接続表（④→⑤→⑥→②→①→③）があるか。
-
-    呼出グラフそのものは静的検査で保証できない。表の各行が実コードを指して
-    いるかは `rules/checklist.md` の観点で人が確認する。
-    """
+    """フェーズ6が二つの判断でつながり、6-1が二行で要約されるか確認する。"""
     issues: list[Issue] = []
     start = text.find("## 🔴 フェーズ6：")
     end = text.find("## 🟢 フェーズ7：", start)
@@ -4009,80 +3530,101 @@ def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
         return issues
     section = text[start:end]
 
-    seen: set[str] = set()
-    # 見出しは「考える内容」を先に書き、ラベルは行のどこにあってもよい
-    # （著者指摘 2026-08-15：ラベル始まりの定型見出しをやめ、話し方へ戻す）。
-    label_head = re.compile(r"(?m)^\*\*([^*\n]+)\*\*")
-    label_any = re.compile(
-        "|".join(re.escape(x) for x in PHASE6_LABELS))
-    for m in label_head.finditer(section):
-        labels = label_any.findall(m.group(1))
-        if not labels:
-            continue
-        seen.update(labels)
-        # 同じ場所（main など）で連続するポイントは1見出しへまとめてよい。
-        # ただし【安定骨格】は呼ばれる側、【利用開始】は呼ぶ側なので分ける。
-        if "【安定骨格】" in labels and "【利用開始】" in labels:
-            issues.append(Issue(
-                path, line_number(text, start + m.start()),
-                "【安定骨格】と【利用開始】を一つの見出しへまとめないでください"
-                f"（`{m.group(1)}`）。【安定骨格】は公開入口の内側で変わらない"
-                "制御順、【利用開始】は利用者が公開入口を呼ぶ行です。"
-                "呼ばれる側と呼ぶ側を分けます",
-            ))
-    for required in PHASE6_LABELS:
-        if required not in seen:
+    for heading in PHASE6_DECISION_HEADINGS:
+        count = section.count(heading)
+        if count != 1:
             issues.append(Issue(
                 path, line_number(text, start),
-                f"フェーズ6に共通項目 {required} の見出しがありません。"
-                "6つそれぞれへ、所属の分かる実コードを付けて示します",
+                f"フェーズ6の大判断見出しは1回だけ置いてください: {heading}（現在{count}回）",
             ))
-    if "#### 構造ポイントの全貌" not in section:
+
+    issue_heading = re.search(
+        r"(?m)^### 課題ID[^\n]*を二つの判断で解く\s*$", section
+    )
+    if not issue_heading:
         issues.append(Issue(
             path, line_number(text, start),
-            "フェーズ6の冒頭へ「構造ポイントの全貌」を置いてください。"
-            "断片コードより前に、6つのポイントがどのクラス・関数からどこへ責任を移すかを"
-            "一覧します（DOC-001の著者指摘：構造の全貌がポイントで分かるように）",
+            "フェーズ6は全課題IDを一つのH3節"
+            "（課題ID…を二つの判断で解く）で扱ってください",
         ))
-    if "実行順・ポイント" not in section:
+
+    order_tokens = [
+        PHASE6_DECISION_HEADINGS[0],
+        PHASE6_DECISION_HEADINGS[1],
+        "#### システム全体の最終構造を決める",
+        "### 6-1：分離と組み立てのまとめ",
+        "### 6-2：",
+        "### 6-3：",
+        "### 6-4：",
+    ]
+    positions = [section.find(token) for token in order_tokens]
+    if min(positions) < 0 or positions != sorted(positions):
         issues.append(Issue(
             path, line_number(text, start),
-            "フェーズ6へ代表ケースの実行接続表（実行順・ポイント／掲載箇所／"
-            "実際のコード接続／次の呼出先）を置いてください。"
-            "説明順は【契約】から【利用開始】ですが、実行順は"
-            "【生成】→【注入】→【利用開始】→【安定骨格】→【契約】→【具体】です",
+            "フェーズ6は分離→組み立て→最終構造→6-1→6-2→6-3→6-4"
+            "の順にしてください",
         ))
+
+    checks = section.count("**守る範囲との照合：**")
+    if checks != 2:
+        issues.append(Issue(
+            path, line_number(text, start),
+            "守る範囲との照合は、分離と組み立ての終わりに1回ずつ"
+            f"（合計2回）置いてください（現在{checks}回）",
+        ))
+
+    summary_start = section.find("### 6-1：分離と組み立てのまとめ")
+    summary_end = section.find("### 6-2：", summary_start)
+    summary = (
+        section[summary_start:summary_end]
+        if 0 <= summary_start < summary_end else ""
+    )
+    for row in (
+        "| 契約と具体による分離 |",
+        "| 生成・注入・実行による組み立て |",
+    ):
+        count = summary.count(row)
+        if count != 1:
+            issues.append(Issue(
+                path, line_number(text, start + max(summary_start, 0)),
+                f"6-1の二つの判断表に {row} を1行だけ置いてください"
+                f"（現在{count}行）",
+            ))
+    for token in ("#### 代表ケースの実行接続", "実行順・ポイント",
+                  "生成", "注入", "実行開始", "骨格", "契約", "具体"):
+        if token not in summary:
+            issues.append(Issue(
+                path, line_number(text, start + max(summary_start, 0)),
+                f"6-1の代表実行経路に「{token}」がありません",
+            ))
+
+    for legacy in LEGACY_PHASE6_TOKENS:
+        if legacy in section:
+            issues.append(Issue(
+                path, line_number(text, start + section.find(legacy)),
+                f"フェーズ6に旧六段構成の表現が残っています: {legacy}",
+            ))
     return issues
 
 
 def check_phase6_numbered_step_titles(text: str, path: Path) -> list[Issue]:
-    """フェーズ6の段の見出しへ、6つのラベルが漏れなく現れるかを見る。"""
+    """番号だけの旧段階見出しと、課題別H3への再分解を禁止する。"""
     start = text.find("## 🔴 フェーズ6：")
     end = text.find("## 🟢 フェーズ7：", start)
     if min(start, end) < 0:
         return []
     section = text[start:end]
-    label_any = re.compile("|".join(re.escape(x) for x in PHASE6_LABELS))
-    matches = [
-        m for m in re.finditer(r"(?m)^\*\*([^*\n]+)\*\*[^\n]*", section)
-        if label_any.search(m.group(1))
-    ]
     issues: list[Issue] = []
-    seen: set[str] = set()
-    for match in matches:
-        seen.update(label_any.findall(match.group(1)))
-        # 見出しは「その段で何を考えるか」を書き、ラベルは末尾へ添える。
-        # ラベル始まりの定型見出しは求めない（著者指摘 2026-08-15）。
-        if "★" in match.group(0):
+    for pattern, message in (
+        (r"(?m)^### 課題ID\d+：", "課題別H3へ分けず、全課題を一つのH3で扱ってください"),
+        (r"(?m)^#### 実装ステップ\d+", "旧実装ステップ形式を使わないでください"),
+        (r"(?m)^\*\*\d+\.[^\n]*【(?:契約|安定骨格|具体|生成|注入|利用開始)】",
+         "六段の番号付き見出しへ戻さないでください"),
+    ):
+        match = re.search(pattern, section)
+        if match:
             issues.append(Issue(
-                path, line_number(text, start + match.start()),
-                "フェーズ6のポイント見出しへ★指摘を残さないでください",
-            ))
-    for required in ("【契約】", "【安定骨格】", "【具体】", "【利用開始】"):
-        if required not in seen:
-            issues.append(Issue(
-                path, line_number(text, start),
-                f"フェーズ6の段階説明に共通項目 {required} がありません",
+                path, line_number(text, start + match.start()), message,
             ))
     return issues
 
@@ -4092,7 +3634,7 @@ def check_stable_skeleton_explanation(text: str, path: Path) -> list[Issue]:
 
     骨格はTemplate Methodの基底アルゴリズムだけではない。Strategyの選択・
     委譲、Observerの登録・反復、Commandの履歴移動など、具体実装が増減しても
-    維持する利用側の制御を②として説明する。
+    維持する利用側の制御を、分離の検算として説明する。
     """
     start = text.find("## 🔴 フェーズ6：")
     end = text.find("## 🟢 フェーズ7：", start)
@@ -4106,7 +3648,7 @@ def check_stable_skeleton_explanation(text: str, path: Path) -> list[Issue]:
         return []
     return [Issue(
         path, line_number(text, start + match.start()),
-        "フェーズ6の②を「骨格なし」として省略しないでください。具体実装が変わっても維持する選択・委譲・反復・履歴移動などの安定骨格を示します",
+        "フェーズ6の分離の検算で、具体実装が変わっても維持する選択・委譲・反復・履歴移動などの骨格を示してください",
     )]
 
 
@@ -4287,20 +3829,27 @@ def check_class_diagram_glossary(text: str, path: Path) -> list[Issue]:
     """第0章に、実例図と見た目・意味・使い分けの説明を固定する。"""
     if path.name != "chapter00_2.md":
         return []
-    start = text.find("**クラス図の読み方（全章共通の規約）**")
+    start = text.find("### クラス図の読み方（全章共通の規約）")
     end = text.find("対策検討では", start)
     section = text[start:end] if 0 <= start < end else ""
     required = (
         "ShippingFeeRule <|-- ExpressShippingFeeRule",
         "IDiscountRule <|.. MemberDiscountRule",
-        "Order *-- OrderLine",
-        "CheckoutService o-- IDiscountRule",
-        "Order --> Customer",
+        'Order "1" *-- "0..*" OrderLine',
+        'DiscountCatalog "1" o-- "0..*" IDiscountRule',
+        'CheckoutService "0..*" --> "1" IDiscountRule',
+        'Order "0..*" --> "1" Customer',
         "CheckoutService ..> PaymentResult",
+        "<<abstract>>",
+        "<<interface>>",
+        "`+` / `-`",
+        "`名前: 型`",
+        "線の両端にある`1`はちょうど1個、`0..*`は0個以上",
         "実線＋白抜き三角",
         "点線＋白抜き三角",
         "実線＋黒ひし形",
         "実線＋白ひし形",
+        "単にポインタや参照を保持して破棄しないだけなら、白ひし形とは限らず",
         "この線を使う場面",
     )
     missing = [token for token in required if token not in section]
@@ -4427,10 +3976,70 @@ def check_number_namespace(text: str, path: Path) -> list[Issue]:
         if not (phase6 <= match.start() < phase7):
             issues.append(Issue(
                 path, line_number(text, match.start()),
-                "丸数字は使わず、フェーズ6は【契約】【安定骨格】【具体】"
-                "【生成】【注入】【利用開始】のラベルで示し、"
+                "丸数字は使わず、フェーズ6は「分離」「組み立て」の意味名で示し、"
                 "フェーズ1は `(1)`、フェーズ3は `[試行1]`、"
                 "フェーズ7は `【1】` を使ってください",
+            ))
+    return issues
+
+
+CORRUPTED_PHASE_REFERENCE_TOKENS = (
+    "フェーズ契約の確認",
+    "フェーズ分離の検算",
+    "フェーズ具体の確認",
+    "フェーズ生成の検討",
+    "フェーズ注入の確認",
+)
+
+
+def check_phase_reference_residue(text: str, path: Path) -> list[Issue]:
+    """フェーズ6の意味名置換が、フェーズ1〜5の参照を壊していないか確認する。"""
+    issues: list[Issue] = []
+    for token in CORRUPTED_PHASE_REFERENCE_TOKENS:
+        for match in re.finditer(re.escape(token), text):
+            issues.append(Issue(
+                path, line_number(text, match.start()),
+                f"見出し置換で壊れたフェーズ参照が残っています: {token}。"
+                "フェーズ番号と項目名（例: フェーズ4「原因分析」）で示してください",
+            ))
+    local_names = "契約の確認|分離の検算|具体の確認|生成の検討|注入の確認"
+    for pattern in (
+        rf"(?:行|ケース|シナリオ|課題ID|問題ID|原因ID|変更ID|要求ID|リスクID)(?:{local_names})",
+        rf"1対(?:{local_names})",
+        r"課題ID(?:契約|分離|具体|生成|注入)(?=で|の|を|へ)",
+    ):
+        for match in re.finditer(pattern, text):
+            issues.append(Issue(
+                path, line_number(text, match.start()),
+                f"番号がフェーズ6の意味名へ置換されています: {match.group(0)}",
+            ))
+    return issues
+
+
+PHASE6_LOCAL_REFERENCE_TOKENS = (
+    "契約の確認",
+    "分離の検算",
+    "具体の確認",
+    "生成の検討",
+    "注入の確認",
+)
+
+
+def check_phase6_reference_scope(text: str, path: Path) -> list[Issue]:
+    """フェーズ6の意味名が、行番号やケース番号などへ誤置換されていないか確認する。"""
+    start = text.find("## 🔴 フェーズ6：")
+    end = text.find("## 🟢 フェーズ7：", start)
+    if min(start, end) < 0:
+        return []
+    issues: list[Issue] = []
+    for token in PHASE6_LOCAL_REFERENCE_TOKENS:
+        for match in re.finditer(re.escape(token), text):
+            if start <= match.start() < end:
+                continue
+            issues.append(Issue(
+                path, line_number(text, match.start()),
+                f"フェーズ6専用の意味名がフェーズ6の外にあります: {token}。"
+                "行番号・ケース番号・フェーズ1〜5の参照が置換されていないか確認してください",
             ))
     return issues
 
@@ -4438,6 +4047,8 @@ def check_number_namespace(text: str, path: Path) -> list[Issue]:
 def check_chapter(path: Path, core: bool) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     issues = check_fences(text, path)
+    issues.extend(check_phase6_exact_heading(text, path))
+    issues.extend(check_structure_name_consistency(text, path))
     issues.extend(check_class_diagram_focus_syntax(text, path))
     issues.extend(check_class_diagram_direction(text, path))
     issues.extend(check_class_diagram_glossary(text, path))
@@ -4466,6 +4077,8 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase6_point_separation(text, path))
         issues.extend(check_stable_skeleton_explanation(text, path))
         issues.extend(check_number_namespace(text, path))
+        issues.extend(check_phase_reference_residue(text, path))
+        issues.extend(check_phase6_reference_scope(text, path))
         issues.extend(check_pattern_name_reveal(text, path))
         issues.extend(check_change_diagram_highlight(text, path))
         issues.extend(check_common_phase_headings(text, path))

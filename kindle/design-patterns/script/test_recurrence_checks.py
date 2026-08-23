@@ -66,7 +66,7 @@ cases.append(("REVIEW-001 クラス図の向き", V.check_class_diagram_directio
 
 # 6) REVIEW-002: 6-1 の共通見出しが章独自表記へ戻る
 t = (OUT/"chapter11.md").read_text(encoding="utf-8")
-broken = t.replace("### 6-1：生成・所有・実行順のまとめ",
+broken = t.replace("### 6-1：分離と組み立てのまとめ",
                    "### 6-1：生成と破棄のまとめ", 1)
 cases.append(("REVIEW-002 共通見出し", V.check_common_phase_headings, broken))
 
@@ -153,11 +153,15 @@ t = (OUT/"chapter06.md").read_text(encoding="utf-8")
 broken = t.replace("守れる範囲・残る弱点", "今回の判断", 1)
 cases.append(("RISK-001 将来リスク評価", V.check_future_risk_traceability, broken))
 
-# 21) STEP-001: フェーズ6のポイント見出しへ★指摘を残す
+# 21) STEP-001: 六段の番号付き見出しを再導入する
 t = (OUT/"chapter06.md").read_text(encoding="utf-8")
-broken = t.replace("**1. 境界の表し方と、何が渡るかを決める 【契約】**",
-                   "**1. 境界の表し方と、何が渡るかを決める 【契約】★要確認**", 1)
-cases.append(("STEP-001 見出しの★残り", V.check_phase6_numbered_step_titles, broken))
+broken = t.replace(
+    "#### 1. 契約と具体をセットで決める（分離）",
+    "#### 1. 契約と具体をセットで決める（分離）\n\n"
+    "**1. 境界の表し方と、何が渡るかを決める 【契約】**",
+    1,
+)
+cases.append(("STEP-001 六段見出しの再導入", V.check_phase6_numbered_step_titles, broken))
 
 # 22) BLOCK-001: 7-1へ複数責任を詰めた長大ブロックを戻す
 t = (OUT/"chapter03.md").read_text(encoding="utf-8")
@@ -208,7 +212,7 @@ cases.append((
 # 24d) EDIT-003: 問題を解く前にパターン名を本文へ出す
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "問題から導いた「規則差し替え構造」という名前だけを使います。",
+    "問題から導いた「ルール差し替え構造」という名前だけを使います。",
     "問題から導いた「Strategy」という名前を使います。",
     1,
 )
@@ -225,11 +229,11 @@ t = (OUT/"chapter07.md").read_text(encoding="utf-8")
 broken = t.replace("    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:2px,color:#111827;\n", "", 1)
 cases.append(("CHANGE-DIAGRAM-001 変更図の差分色", V.check_change_diagram_highlight, broken))
 
-# 27) SKELETON-001: フェーズ6の安定骨格を「なし」へ戻す
+# 27) SKELETON-001: 分離の検算で骨格を「なし」へ戻す
 t = (OUT/"chapter06.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "**2. 呼ぶのは、変わらない側 【安定骨格】**",
-    "**2. この課題では骨格は無し。**", 1)
+    "##### 分離の検算：守る処理が契約だけを呼べるか",
+    "##### 分離の検算：この課題では骨格は無し", 1)
 cases.append(("SKELETON-001 安定骨格の省略", V.check_stable_skeleton_explanation, broken))
 
 # 28) REQUIREMENT-ROOT-001: 変更ID一覧にない要求IDへ変更根拠を付ける
@@ -248,6 +252,21 @@ cases.append(("NUMBER-001 番号名前空間", V.check_number_namespace, broken)
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace('? "あり" : "なし"', '?6? "あり" : "なし"', 1)
 cases.append(("REWRITE-001 三項演算子の破損", V.check_number_namespace, broken))
+
+# 30a) REWRITE-002: フェーズ6見出しの置換をフェーズ1〜5の参照へ波及させる
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace('フェーズ4「原因分析」', "フェーズ生成の検討", 1)
+cases.append(("REWRITE-002 フェーズ参照の破損", V.check_phase_reference_residue, broken))
+
+# 30b) REWRITE-003: 行番号をフェーズ6の意味名へ誤置換する
+t = (OUT/"chapter05.md").read_text(encoding="utf-8")
+broken = t.replace("1対1で結びついています", "1対契約の確認で結びついています", 1)
+cases.append(("REWRITE-003 行番号の破損", V.check_phase6_reference_scope, broken))
+
+# 30c) REWRITE-004: フェーズ6内の数値を意味名へ誤置換する
+t = (OUT/"chapter08.md").read_text(encoding="utf-8")
+broken = t.replace("生成が1対1で結びついている", "生成が1対契約の確認で結びついている", 1)
+cases.append(("REWRITE-004 構造内番号の破損", V.check_phase_reference_residue, broken))
 
 # 31) PHASE22-001: 2-2から1-5の変更IDを一つ落とす
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
@@ -295,11 +314,29 @@ t = (OUT/"chapter08.md").read_text(encoding="utf-8")
 broken = t.replace("> **手元で動かすには**", "> **メモ**", 1)
 cases.append(("RUN-001 手元で動かすには", V.check_run_locally_section, broken))
 
-# DOC-002: 【安定骨格】と【利用開始】を一つの見出しへ戻す
+# DOC-002: 旧六段ラベルを再導入する
 t = (OUT/"chapter12.md").read_text(encoding="utf-8")
-broken = t.replace("**2. 呼ぶのは、変わらない側 【安定骨格】**",
-                   "**2. 呼ぶのは、変わらない側 【安定骨格】【利用開始】**", 1)
-cases.append(("DOC-002 骨格と利用開始の統合", V.check_phase6_point_separation, broken))
+broken = t.replace(
+    "#### 2. 生成・注入・実行をセットで決める（組み立て）",
+    "#### 2. 生成・注入・実行をセットで決める（組み立て）\n\n"
+    "**【安定骨格】【利用開始】**",
+    1,
+)
+cases.append(("DOC-002 旧六段ラベル", V.check_phase6_point_separation, broken))
+
+# DOC-002: フェーズ6の共通見出しを0章・テンプレートと違う語へ戻す
+t = (OUT/"chapter12.md").read_text(encoding="utf-8")
+broken = t.replace(
+    V.PHASE6_EXACT_HEADING,
+    "## 🔴 フェーズ6：対策検討 ―― 接続点を変える",
+    1,
+)
+cases.append(("DOC-002 フェーズ6見出し同期", V.check_phase6_exact_heading, broken))
+
+# CONS-068: 導出時だけ別の日本語構造名へ戻す
+t = (OUT/"chapter05.md").read_text(encoding="utf-8")
+broken = t.replace("操作記録構造", "操作の部品化構造", 1)
+cases.append(("CONS-068 日本語構造名の統一", V.check_structure_name_consistency, broken))
 
 # DOC-002: 実行接続表を落とす
 t = (OUT/"chapter07.md").read_text(encoding="utf-8")
@@ -307,11 +344,38 @@ broken = t.replace("| 実行順・ポイント | 掲載箇所 | 実際のコー�
                    "| ポイント | 掲載箇所 | 説明 | 備考 |", 1)
 cases.append(("DOC-002 実行接続表", V.check_phase6_point_separation, broken))
 
-# DOC-001: 構造ポイントの全貌表を落とす
+# DOC-001: 6-1の二つの判断から一行を落とす
 t = (OUT/"chapter07.md").read_text(encoding="utf-8")
-broken = t.replace("#### 構造ポイントの全貌 ―― どの責任がどこへ移るか",
-                   "#### 補足", 1)
-cases.append(("DOC-001 構造全貌表", V.check_phase6_point_separation, broken))
+assembly_row = next(
+    line for line in t.splitlines()
+    if line.startswith("| 生成・注入・実行による組み立て |")
+)
+broken = t.replace(assembly_row + "\n", "", 1)
+cases.append(("DOC-001 二判断要約", V.check_phase6_point_separation, broken))
+
+# DOC-005: 一般的な注入方式の一覧を各章へ戻す
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "##### 実行：公開入口から骨格・契約・具体へつなぐ",
+    "| 形 | 実装が決まる決め手 | 入る瞬間 | この本での例 |\n"
+    "|---|---|---|---|\n"
+    "| 呼び出しごと | 入力 | 引き当て時 | 第1章 |\n\n"
+    "##### 実行：公開入口から骨格・契約・具体へつなぐ",
+    1,
+)
+cases.append(("DOC-005 注入方式一覧の重複", V.check_phase6_point_separation, broken))
+
+# DOC-006: 第0章へ集約した骨格分類表を各章へ戻す
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+marker = "##### 分離の検算：守る処理が契約だけを呼べるか\n"
+legacy_skeleton_table = """
+
+| 型 | 骨格の正体 | 契約の置き場 | 見分け方 |
+|---|---|---|---|
+| 残った側 | 分岐を外した後の手順 | 別の型 | 実行中に替わる |
+"""
+broken = t.replace(marker, marker + legacy_skeleton_table, 1)
+cases.append(("DOC-006 骨格分類表の重複", V.check_phase6_point_separation, broken))
 
 # DOC-001: 断片コードの所属明示を落とす
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
@@ -389,20 +453,84 @@ def _broken_spoiler(*_):
 _ch12 = (OUT/"chapter12.md").read_text(encoding="utf-8").replace("\r\n", "\n")
 cases.append(("EDIT-002 解決構造の先出し", _broken_spoiler, ""))
 
+# TRACE-001: 5-3で確定する前に課題IDを参照する
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "次のフェーズでは両方の原因から別々の課題候補を導き",
+    "次のフェーズでは課題ID1と課題ID2を導き", 1)
+cases.append((
+    "TRACE-001 課題IDの先行参照",
+    V.check_phase5_phase6_reasoning_contract,
+    broken,
+))
+
+# TRACE-002: 問題IDを原因・課題の追跡から落とす
+t = (OUT/"chapter10.md").read_text(encoding="utf-8")
+broken = t.replace("問題ID1・問題ID3・問題ID4", "問題ID1・問題ID3")
+cases.append((
+    "TRACE-002 問題IDの追跡切れ",
+    V.check_phase5_phase6_reasoning_contract,
+    broken,
+))
+
+# DOC-004: フェーズ6へ実装結果の達成表を重複して戻す
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "### 6-3：課題から完成構造までの設計トレース",
+    "#### システム全体のコード適用結果\n\n"
+    "**システム全体の実装結果：達成。**\n\n"
+    "### 6-3：課題から完成構造までの設計トレース",
+    1,
+)
+cases.append((
+    "DOC-004 対策検討の重複判定",
+    V.check_phase6_point_separation,
+    broken,
+))
+
+# EDIT-004: 二つの判断で導く前に完成方針を宣言する
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "**ここから決めること：**",
+    "**どう解決するか（方針）：** 規則差し替え構造とします。", 1)
+cases.append((
+    "EDIT-004 対策結論の先出し",
+    V.check_phase6_point_separation,
+    broken,
+))
+
 print("再発防止チェックの負のテスト（わざと壊した本文を検出できるか）\n")
 # 5) 2026-08-13: validator とテンプレートの表頭同期漏れ
 #    本文だけ直してテンプレート／validator を放置すると全12章が同じ検査で落ちる
 _tmpl = Path("templates/chapter-template.md")
 _orig = _tmpl.read_text(encoding="utf-8")
 try:
-    _tmpl.write_text(
-        _orig.replace(V.REQUIRED_TABLE_HEADERS[0],
-                      "| 原因として確定した事実 | そのままだと残る痛み | 課題候補 | 候補を導いた理由 |"),
-        encoding="utf-8", newline="\n")
+    with _tmpl.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(_orig.replace(
+            V.REQUIRED_TABLE_HEADERS[0],
+            "| 原因として確定した事実 | そのままだと残る痛み | 課題候補 | 候補を導いた理由 |",
+        ))
     _found = V.check_validator_template_sync("", OUT / V.CORE_CHAPTERS[0])
 finally:
-    _tmpl.write_text(_orig, encoding="utf-8", newline="\n")
-cases.append(("SYNC-001 テンプレート同期", lambda *_: _found, ""))
+    with _tmpl.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(_orig)
+cases.append(("SYNC-001 テンプレート同期", lambda *_, found=_found: found, ""))
+
+# SYNC-002: フェーズ6の章テンプレートだけを旧見出しへ戻す
+_orig = _tmpl.read_text(encoding="utf-8")
+try:
+    with _tmpl.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(_orig.replace(
+            V.PHASE6_EXACT_HEADING,
+            "## 🔴 フェーズ6：対策検討 ―― 接続点を変える",
+            1,
+        ))
+    _found = V.check_validator_template_sync("", OUT / V.CORE_CHAPTERS[0])
+finally:
+    with _tmpl.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(_orig)
+cases.append(("SYNC-002 フェーズ6テンプレート同期",
+              lambda *_, found=_found: found, ""))
 
 ng = 0
 for name, fn, txt in cases:
