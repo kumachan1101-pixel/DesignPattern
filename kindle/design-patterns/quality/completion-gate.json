@@ -36,7 +36,7 @@
     "CONS-006": {
       "status": "done",
       "evidence": [
-        "output/chapter09_2.md#🔴 フェーズ6：対策検討 ―― 分離と組み立てを決める"
+        "output/chapter09_2.md#🔴 フェーズ6：対策検討 ―― 全体のデータと実体の流れを決める"
       ]
     },
     "CONS-007": {
@@ -198,13 +198,13 @@
     "CONS-033": {
       "status": "done",
       "evidence": [
-        "output/chapter12.md#課題ID1〜課題ID3を二つの判断で解く"
+        "output/chapter12.md#全体の流れを実現するコードを決める"
       ]
     },
     "CONS-034": {
       "status": "done",
       "evidence": [
-        "output/chapter12.md#課題ID1〜課題ID3を二つの判断で解く"
+        "output/chapter12.md#全体の流れを実現するコードを決める"
       ]
     },
     "CONS-035": {
@@ -268,7 +268,7 @@
     "CONS-044": {
       "status": "done",
       "evidence": [
-        "output/chapter11.md#6-1：分離と組み立てのまとめ"
+        "output/chapter11.md#6-1：決めた流れとコードの照合"
       ]
     },
     "CONS-045": {
@@ -393,7 +393,7 @@
       "status": "done",
       "evidence": [
         "output/chapter00_1.md#はじめに",
-        "output/chapter11.md#課題ID1〜課題ID3を二つの判断で解く",
+        "output/chapter11.md#全体の流れを実現するコードを決める",
         "rules/writing-rules.md:116",
         "script/validate_book.py:1819"
       ]

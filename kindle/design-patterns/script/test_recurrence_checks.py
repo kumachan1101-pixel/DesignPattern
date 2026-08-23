@@ -66,7 +66,7 @@ cases.append(("REVIEW-001 クラス図の向き", V.check_class_diagram_directio
 
 # 6) REVIEW-002: 6-1 の共通見出しが章独自表記へ戻る
 t = (OUT/"chapter11.md").read_text(encoding="utf-8")
-broken = t.replace("### 6-1：分離と組み立てのまとめ",
+broken = t.replace("### 6-1：決めた流れとコードの照合",
                    "### 6-1：生成と破棄のまとめ", 1)
 cases.append(("REVIEW-002 共通見出し", V.check_common_phase_headings, broken))
 
@@ -317,8 +317,8 @@ cases.append(("RUN-001 手元で動かすには", V.check_run_locally_section, b
 # DOC-002: 旧六段ラベルを再導入する
 t = (OUT/"chapter12.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "#### 2. 生成・注入・実行をセットで決める（組み立て）",
-    "#### 2. 生成・注入・実行をセットで決める（組み立て）\n\n"
+    "#### 2. 全体経路をコードで組み立てる",
+    "#### 2. 全体経路をコードで組み立てる\n\n"
     "**【安定骨格】【利用開始】**",
     1,
 )
@@ -344,23 +344,44 @@ broken = t.replace("| 実行順・ポイント | 掲載箇所 | 実際のコー�
                    "| ポイント | 掲載箇所 | 説明 | 備考 |", 1)
 cases.append(("DOC-002 実行接続表", V.check_phase6_point_separation, broken))
 
+# DOC-002: 全体経路を詳細コードより後ろへ戻す
+t = (OUT/"chapter07.md").read_text(encoding="utf-8")
+flow_heading = "### 全体のデータと実体の流れを先に決める"
+broken = t.replace(flow_heading, "", 1).replace(
+    "#### システム全体の最終構造を決める",
+    flow_heading + "\n\n#### システム全体の最終構造を決める",
+    1,
+)
+cases.append(("DOC-002 全体経路の順序", V.check_phase6_point_separation, broken))
+
 # DOC-001: 6-1の二つの判断から一行を落とす
 t = (OUT/"chapter07.md").read_text(encoding="utf-8")
 assembly_row = next(
     line for line in t.splitlines()
-    if line.startswith("| 生成・注入・実行による組み立て |")
+    if line.startswith("| 実体の組み立て |")
 )
 broken = t.replace(assembly_row + "\n", "", 1)
 cases.append(("DOC-001 二判断要約", V.check_phase6_point_separation, broken))
 
+# DOC-007: 第1章で選択を注入と取り違える
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "`select()`自身は注入ではありません。",
+    "`select()`自身が注入です。",
+    1,
+)
+cases.append(("DOC-007 選択と注入の区別",
+              lambda txt, _: V.check_chapter01_rule_lifecycle_terms(
+                  txt, Path("chapter01.md")), broken))
+
 # DOC-005: 一般的な注入方式の一覧を各章へ戻す
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "##### 実行：公開入口から骨格・契約・具体へつなぐ",
+    "##### 実行：Calculatorから選択済みルールを呼ぶ",
     "| 形 | 実装が決まる決め手 | 入る瞬間 | この本での例 |\n"
     "|---|---|---|---|\n"
     "| 呼び出しごと | 入力 | 引き当て時 | 第1章 |\n\n"
-    "##### 実行：公開入口から骨格・契約・具体へつなぐ",
+    "##### 実行：Calculatorから選択済みルールを呼ぶ",
     1,
 )
 cases.append(("DOC-005 注入方式一覧の重複", V.check_phase6_point_separation, broken))
@@ -409,7 +430,7 @@ cases.append(("DOC-001 コードの省略", V.check_code_block_attribution, brok
 # DOC-003: フェーズ6の断片から掲載箇所ラベルを外す
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "**掲載箇所：`main()`** ―― 組み立て（対策後・抜粋）",
+    "**掲載箇所：`main()`** ―― 起動時の生成・登録・注入",
     "どの施策クラスを作るかを知るのは組み立て箇所だけです。", 1)
 cases.append(("DOC-003 掲載箇所ラベル", V.check_phase6_fragment_location, broken))
 
@@ -491,7 +512,7 @@ cases.append((
 # EDIT-004: 二つの判断で導く前に完成方針を宣言する
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "**ここから決めること：**",
+    "**ここで全体経路と対応づけるコード：**",
     "**どう解決するか（方針）：** 規則差し替え構造とします。", 1)
 cases.append((
     "EDIT-004 対策結論の先出し",

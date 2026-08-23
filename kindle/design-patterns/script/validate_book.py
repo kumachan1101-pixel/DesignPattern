@@ -1352,7 +1352,7 @@ def check_recent_star_contracts(text: str, path: Path) -> list[Issue]:
 
     _, phase6 = _phase6_section(text)
     for token, message in (
-        ("#### 分離と組み立てを決める",
+        ("#### 全体経路を決めるための確認観点",
          "フェーズ6に接続点から設計判断を導く節がありません"),
         ("#### システム全体の最終構造を決める",
          "フェーズ6にシステム全体の最終構造を確定する節がありません"),
@@ -3013,7 +3013,7 @@ def check_step_reference_target(text: str, path: Path) -> list[Issue]:
 
     2026-08-12のロジック監査（LOGIC-008）で9章に見つかった症状。第0章と
     実章の構成がずれ、「フェーズ6のステップ3」のような参照先のない記述が
-    残っていた。現在のフェーズ6は分離と組み立ての意味名で参照する。
+    残っていた。現在のフェーズ6は全体経路とコード上の操作名で参照する。
 
     フェーズ6・フェーズ7を指すステップ参照だけを対象にする（処理手順としての
     「4ステップの流れ」「差し替えるステップ」は正当な用法なので除外）。
@@ -3077,9 +3077,11 @@ def check_validator_template_sync(_text: str, path: Path) -> list[Issue]:
 
     # フェーズ6の構造も、本文だけ／テンプレートだけが旧構成へ戻らないようにする。
     phase6_tokens = (
-        "## 🔴 フェーズ6：対策検討 ―― 分離と組み立てを決める",
+        "## 🔴 フェーズ6：対策検討 ―― 全体のデータと実体の流れを決める",
+        "### 全体のデータと実体の流れを先に決める",
+        "### 全体の流れを実現するコードを決める",
         *PHASE6_DECISION_HEADINGS,
-        "### 6-1：分離と組み立てのまとめ",
+        "### 6-1：決めた流れとコードの照合",
     )
     for token in phase6_tokens:
         if token not in template_text:
@@ -3092,9 +3094,9 @@ def check_validator_template_sync(_text: str, path: Path) -> list[Issue]:
     if chapter0_template.exists():
         chapter0_text = chapter0_template.read_text(encoding="utf-8")
         for token in (
-            "フェーズ6：対策検討 ―― 分離と組み立てを決める",
+            "フェーズ6：対策検討 ―― 全体のデータと実体の流れを決める",
             "契約と具体による分離",
-            "生成・注入・実行による組み立て",
+            "実体の組み立て",
         ):
             if token not in chapter0_text:
                 issues.append(Issue(
@@ -3208,7 +3210,7 @@ def check_common_phase_headings(text: str, path: Path) -> list[Issue]:
     issues: list[Issue] = []
     required = (
         "### 4-3：",
-        "### 6-1：分離と組み立てのまとめ",
+        "### 6-1：決めた流れとコードの照合",
     )
     for heading in required:
         if heading not in text:
@@ -3464,13 +3466,22 @@ def check_phase6_fragment_location(text: str, path: Path) -> list[Issue]:
     return issues
 
 
-# フェーズ6は二つの設計判断で構成する。
+# フェーズ6は全体経路を先に決め、各地点を二つの観点でコード化する。
 PHASE6_DECISION_HEADINGS = (
     "#### 1. 契約と具体をセットで決める（分離）",
-    "#### 2. 生成・注入・実行をセットで決める（組み立て）",
+    "#### 2. 全体経路をコードで組み立てる",
 )
-PHASE6_EXACT_HEADING = "## 🔴 フェーズ6：対策検討 ―― 分離と組み立てを決める"
+PHASE6_EXACT_HEADING = "## 🔴 フェーズ6：対策検討 ―― 全体のデータと実体の流れを決める"
 LEGACY_PHASE6_TOKENS = (
+    "## 🔴 フェーズ6：対策検討 ―― 分離と組み立てを決める",
+    "### 6-1：分離と組み立てのまとめ",
+    "#### 代表ケースの実行接続",
+    "#### 2. 生成・注入・実行をセットで決める（組み立て）",
+    "生成の検討",
+    "注入の確認",
+    "**ここから決めること：**",
+    "**出発点。**",
+    "**ここでコードとして確定すること：**",
     "6段で解く",
     "### 6-1：生成・所有・実行順のまとめ",
     "【安定骨格】",
@@ -3494,7 +3505,7 @@ def check_phase6_exact_heading(text: str, path: Path) -> list[Issue]:
         path,
         line_number(text, text.find(headings[0])),
         "フェーズ6の見出しを第0章・テンプレート・全章で"
-        "「対策検討 ―― 分離と組み立てを決める」へ統一してください",
+        "「対策検討 ―― 全体のデータと実体の流れを決める」へ統一してください",
     )]
 
 
@@ -3522,7 +3533,7 @@ def check_structure_name_consistency(text: str, path: Path) -> list[Issue]:
 
 
 def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
-    """フェーズ6が二つの判断でつながり、6-1が二行で要約されるか確認する。"""
+    """フェーズ6が全体経路を先に示し、その後でコード化しているか確認する。"""
     issues: list[Issue] = []
     start = text.find("## 🔴 フェーズ6：")
     end = text.find("## 🟢 フェーズ7：", start)
@@ -3538,21 +3549,23 @@ def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
                 f"フェーズ6の大判断見出しは1回だけ置いてください: {heading}（現在{count}回）",
             ))
 
-    issue_heading = re.search(
-        r"(?m)^### 課題ID[^\n]*を二つの判断で解く\s*$", section
-    )
-    if not issue_heading:
-        issues.append(Issue(
-            path, line_number(text, start),
-            "フェーズ6は全課題IDを一つのH3節"
-            "（課題ID…を二つの判断で解く）で扱ってください",
-        ))
+    flow_heading = "### 全体のデータと実体の流れを先に決める"
+    code_heading = "### 全体の流れを実現するコードを決める"
+    for heading in (flow_heading, code_heading):
+        count = section.count(heading)
+        if count != 1:
+            issues.append(Issue(
+                path, line_number(text, start),
+                f"フェーズ6のH3見出しは1回だけ置いてください: {heading}（現在{count}回）",
+            ))
 
     order_tokens = [
+        flow_heading,
+        code_heading,
         PHASE6_DECISION_HEADINGS[0],
         PHASE6_DECISION_HEADINGS[1],
         "#### システム全体の最終構造を決める",
-        "### 6-1：分離と組み立てのまとめ",
+        "### 6-1：決めた流れとコードの照合",
         "### 6-2：",
         "### 6-3：",
         "### 6-4：",
@@ -3561,8 +3574,32 @@ def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
     if min(positions) < 0 or positions != sorted(positions):
         issues.append(Issue(
             path, line_number(text, start),
-            "フェーズ6は分離→組み立て→最終構造→6-1→6-2→6-3→6-4"
+            "フェーズ6は全体経路→経路を実現するコード→分離→組み立て"
+            "→最終構造→6-1→6-2→6-3→6-4"
             "の順にしてください",
+        ))
+
+    flow_start = section.find(flow_heading)
+    flow_end = section.find(code_heading, flow_start)
+    flow = section[flow_start:flow_end] if 0 <= flow_start < flow_end else ""
+    if "実行順・ポイント" not in flow:
+        issues.append(Issue(
+            path, line_number(text, start + max(flow_start, 0)),
+            "詳細コードより前の全体経路に「実行順・ポイント」表を置いてください",
+        ))
+    table_rows = [
+        line for line in flow.splitlines()
+        if line.startswith("|") and not re.match(r"^\|\s*:?-+", line)
+    ]
+    if len(table_rows) < 5:
+        issues.append(Issue(
+            path, line_number(text, start + max(flow_start, 0)),
+            "全体経路表は見出しに加えて、代表ケースを少なくとも4行で追ってください",
+        ))
+    if "```cpp" in flow:
+        issues.append(Issue(
+            path, line_number(text, start + flow_start + flow.find("```cpp")),
+            "全体経路では先に処理のつながりを示し、詳細C++コードは次のH3節へ置いてください",
         ))
 
     checks = section.count("**守る範囲との照合：**")
@@ -3573,7 +3610,7 @@ def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
             f"（合計2回）置いてください（現在{checks}回）",
         ))
 
-    summary_start = section.find("### 6-1：分離と組み立てのまとめ")
+    summary_start = section.find("### 6-1：決めた流れとコードの照合")
     summary_end = section.find("### 6-2：", summary_start)
     summary = (
         section[summary_start:summary_end]
@@ -3581,28 +3618,52 @@ def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
     )
     for row in (
         "| 契約と具体による分離 |",
-        "| 生成・注入・実行による組み立て |",
+        "| 実体の組み立て |",
     ):
         count = summary.count(row)
         if count != 1:
             issues.append(Issue(
                 path, line_number(text, start + max(summary_start, 0)),
-                f"6-1の二つの判断表に {row} を1行だけ置いてください"
+                f"6-1の照合表に {row} を1行だけ置いてください"
                 f"（現在{count}行）",
             ))
-    for token in ("#### 代表ケースの実行接続", "実行順・ポイント",
-                  "生成", "注入", "実行開始", "骨格", "契約", "具体"):
-        if token not in summary:
-            issues.append(Issue(
-                path, line_number(text, start + max(summary_start, 0)),
-                f"6-1の代表実行経路に「{token}」がありません",
-            ))
+    if "実行順・ポイント" in summary:
+        issues.append(Issue(
+            path, line_number(text, start + summary_start + summary.find("実行順・ポイント")),
+            "6-1へ全体経路表を再掲せず、詳細コードより前の表を参照してください",
+        ))
 
     for legacy in LEGACY_PHASE6_TOKENS:
         if legacy in section:
             issues.append(Issue(
                 path, line_number(text, start + section.find(legacy)),
                 f"フェーズ6に旧六段構成の表現が残っています: {legacy}",
+            ))
+    return issues
+
+
+def check_chapter01_rule_lifecycle_terms(text: str, path: Path) -> list[Issue]:
+    """第1章でルールの生成・登録・選択・注入を混同していないか確認する。"""
+    if path.name != "chapter01.md":
+        return []
+    start = text.find("## 🔴 フェーズ6：")
+    end = text.find("## 🟢 フェーズ7：", start)
+    if min(start, end) < 0:
+        return []
+    section = text[start:end]
+    required = (
+        "`selector.add(...)`は、生成済み実体への参照の**登録**です。新しいルールは生成していません。",
+        "`selector.select()`が、生成・登録済みのルールから1つを**選択**する。",
+        "`select()`自身は注入ではありません。",
+        "`PaymentCalculator calculator(rule)`がCalculatorを生成し、同時に選択済みルールへの参照を**注入**する。",
+    )
+    issues: list[Issue] = []
+    for statement in required:
+        if statement not in section:
+            issues.append(Issue(
+                path, line_number(text, start),
+                "第1章ではルールの生成・登録・選択とCalculatorへの注入を別の操作として明記してください: "
+                + statement,
             ))
     return issues
 
@@ -3976,7 +4037,7 @@ def check_number_namespace(text: str, path: Path) -> list[Issue]:
         if not (phase6 <= match.start() < phase7):
             issues.append(Issue(
                 path, line_number(text, match.start()),
-                "丸数字は使わず、フェーズ6は「分離」「組み立て」の意味名で示し、"
+                "丸数字は使わず、フェーズ6は全体経路とコード上の操作名で示し、"
                 "フェーズ1は `(1)`、フェーズ3は `[試行1]`、"
                 "フェーズ7は `【1】` を使ってください",
             ))
@@ -4002,7 +4063,10 @@ def check_phase_reference_residue(text: str, path: Path) -> list[Issue]:
                 f"見出し置換で壊れたフェーズ参照が残っています: {token}。"
                 "フェーズ番号と項目名（例: フェーズ4「原因分析」）で示してください",
             ))
-    local_names = "契約の確認|分離の検算|具体の確認|生成の検討|注入の確認"
+    local_names = (
+        "契約の確認|分離の検算|具体の確認|生成の検討|注入の確認|"
+        "全体経路の準備コード|全体経路の受け渡し"
+    )
     for pattern in (
         rf"(?:行|ケース|シナリオ|課題ID|問題ID|原因ID|変更ID|要求ID|リスクID)(?:{local_names})",
         rf"1対(?:{local_names})",
@@ -4022,6 +4086,8 @@ PHASE6_LOCAL_REFERENCE_TOKENS = (
     "具体の確認",
     "生成の検討",
     "注入の確認",
+    "全体経路の準備コード",
+    "全体経路の受け渡し",
 )
 
 
@@ -4075,6 +4141,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase6_fragment_location(text, path))
         issues.extend(check_phase6_numbered_step_titles(text, path))
         issues.extend(check_phase6_point_separation(text, path))
+        issues.extend(check_chapter01_rule_lifecycle_terms(text, path))
         issues.extend(check_stable_skeleton_explanation(text, path))
         issues.extend(check_number_namespace(text, path))
         issues.extend(check_phase_reference_residue(text, path))
