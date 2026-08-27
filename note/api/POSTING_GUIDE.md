@@ -1,250 +1,284 @@
 # note.com 記事投稿手順（最新版）
 
-最終更新: 2026-06-21
-
-> このガイドはAIエージェント非依存で書かれています。手順を実行するエージェントや人間が何であっても、ブラウザ操作・JS実行・ファイルアップロード・スクリーンショットの能力があれば再現できるように記述しています。Claude固有のツール名（`computer`、`find`、`javascript_tool`、`file_upload`、`form_input`など）が登場する箇所は補足として記載しており、実質的な操作の内容（What）が主役です。
+最終更新: 2026-08-27
 
 ## 概要
-ブラウザ直接操作（ブラウザ自動化。ClaudeではClaude in Chromeを使用）で投稿する。Pythonスクリプト不要。
+
+ブラウザ直接操作（JavaScript実行 + スクリーンショット経由の画像アップロード）で投稿する。
+Pythonスクリプト・file_uploadツール・外部APIは不要。
+**全工程20〜40ターン想定（画像あり）。**
+
+このガイドはAIエージェント非依存で書かれています。「何をするか」が主役で、Claude固有のツール名は補足扱いです。
+
+---
+
+## 前提条件
+
+- `C:\Users\kumac\Downloads\cors_server.py` が存在する（後述）
+- `C:\Users\kumac\Downloads\start_server.bat` が存在する（後述）
+- 投稿したい画像が `C:\Users\kumac\Downloads\` に存在する
+- ブラウザがnote.comにログイン済み
+
+---
+
+## 準備ファイル
+
+### cors_server.py（Downloads/に設置済み）
+
+```python
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+import os
+
+class CORSHandler(SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Private-Network', 'true')
+        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        super().end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Private-Network', 'true')
+        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        pass  # suppress logs
+
+os.chdir(r'C:\Users\kumac\Downloads')
+HTTPServer(('', 8989), CORSHandler).serve_forever()
+```
+
+### start_server.bat（Downloads/に設置済み）
+
+```batch
+@echo off
+cd /d "C:\Users\kumac\Downloads"
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8989 " ^| findstr LISTENING') do taskkill /PID %%a /F >nul 2>&1
+timeout /t 1 /nobreak >nul
+python cors_server.py
+```
+
+---
 
 ## 投稿フロー
 
-### 1. 新規ノート作成
-`https://note.com/notes/new` にnavigate
+### Step 0. 本文HTML準備
 
-### 2. タイトル入力
-```javascript
-const titleEl = document.querySelector('textarea[placeholder="記事タイトル"]');
-const titleSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-titleSetter.call(titleEl, 'タイトル文字列');
-titleEl.dispatchEvent(new Event('input', { bubbles: true }));
+本文HTMLは **タスクプロンプトに直接含める**。
+先頭に `<table-of-contents></table-of-contents>` を付けることで目次が自動挿入される。
+
+```html
+<table-of-contents></table-of-contents>
+<h2>見出し1</h2>
+<p>本文...</p>
 ```
-- セレクタはDOM調査で確認済みの安定セレクタ（DOM要素が本当に見つからない場合のみフォールバックを使う。Claudeでは`find`ツールに相当）
 
-### 3. 本文ペースト（JS実行 1回）
+- **AIによるHTML生成はNG**（convert.jsで生成したものをそのまま使うこと）
+- 本文内の画像位置（どのh2の後か）を事前に決めておく
+
+---
+
+### Step 1. ローカルサーバー起動
+
+**なぜ必要か**: note.comのHTTPSページからlocalhost画像を取得するにはCORS+PNAヘッダーが必要。
+ただし、ブラウザがlocalhostに**ナビゲート**する分には制限なし。これを利用する。
+
+1. File Explorer で `C:\Users\kumac\Downloads\start_server.bat` をダブルクリック実行
+2. コマンドプロンプトウィンドウが起動したまま（閉じずに）残ればOK
+3. ポート8989が既に使用中の場合、batが自動でkillしてから再起動する
+
+---
+
+### Step 2. 画像をブラウザ経由でキャプチャ（スクリーンショット方式）
+
+**これが画像アップロードの核心。** file_uploadツールはnote.comでは動作しない（2026-08-27確認）。
+代わりに、ブラウザをlocalhostに向けてスクリーンショットを撮り、そのIDで画像を挿入する。
+
+1. ブラウザを `http://localhost:8989/カバー画像ファイル名` に移動
+2. そのタブのスクリーンショットを撮る → スクリーンショットIDを記録（例: ss_1234）
+3. ブラウザを `http://localhost:8989/本文画像ファイル名` に移動
+4. スクリーンショット撮影 → IDを記録（例: ss_5678）
+
+---
+
+### Step 3. note.com新規作成
+
+ブラウザを `https://note.com/notes/new` に移動。
+
+---
+
+### Step 4. タイトル入力
+
 ```javascript
-const html = `<h2>見出し</h2><p>本文</p>`;
+const ta = document.querySelector('textarea[name="title"], textarea[placeholder*="タイトル"]');
+const nativeSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+nativeSetter.call(ta, 'タイトル文字列');
+ta.dispatchEvent(new Event('input', {bubbles: true}));
+```
+
+---
+
+### Step 5. 本文ペースト（ClipboardEvent方式）
+
+```javascript
+const html = '<table-of-contents></table-of-contents><h2>見出し</h2><p>本文</p>';
 const editor = document.querySelector('.ProseMirror');
 editor.focus();
-document.execCommand('selectAll');
 const dt = new DataTransfer();
 dt.setData('text/html', html);
-dt.setData('text/plain', editor.textContent);
 editor.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true}));
 ```
-- markdownの `##` → `<h2>` タグに変換してからペースト
-- コードブロック → `<pre><code class="language-X">` に変換
-- **`<table>` タグ禁止**（article-013で発見）: `<table><tr><td>` を含むHTMLをClipboardEventでペーストすると、ProseMirrorエディタがテーブルとして解釈せず、セル内容がすべて1つの段落に連結されてしまう（例：「コメントの内容補おうとしているもの　この処理は〇〇をしている処理の意図…」のように繋がる）。比較表・対応表は以下の形式で代替すること：
-  ```html
-  <p><strong>ラベル1</strong> → 値1</p>
-  <p><strong>ラベル2</strong> → 値2</p>
-  ```
 
-### 4. TOC挿入（安定版：Ctrl+Shift+Down方式）
-※ ProseMirror JS直接操作は不可（pmView取得できず）
-※ 旧手順（カーソル位置依存）は廃止。以下の手順を使うこと。
+- HTMLの先頭に table-of-contents タグがあれば自動的に目次として認識される
+- ペースト後確認: `document.querySelector('.ProseMirror').firstChild?.nodeName` → TABLE-OF-CONTENTS ならOK
 
-1. 本文ペースト後、**Ctrl+Home** でエディタ先頭へ移動
-2. 「**+**」ブロックボタンをクリック → 「**目次**」を選択
-   - まず DOMセレクタで「+」ボタン要素を取得し JS で `element.click()`（Claudeでは`find`ツールに相当）
-   - DOM取得に失敗した場合は視覚的クリック（スクリーンショット確認後にクリック）でフォールバック（Claudeでは`computer`ツールに相当）
-   - この時点でTOCがh2の直前か直後に挿入される
-3. TOCがh2の**後ろ**に入った場合：h2ブロックにカーソルを置き `Ctrl+Shift+Down` でh2を下へ移動
-4. JS確認：
-   ```javascript
-   document.querySelector('.ProseMirror').firstChild?.nodeName
-   // → 'TABLE-OF-CONTENTS' になればOK
-   ```
+---
 
-### 5. カバー画像アップロード
-- **前提**: `#note-editor-eyecatch-input` はクリック前はDOMに存在しない。「画像をアップロード」クリック後に動的生成される（article-011で確認）
+### Step 6. カバー画像挿入
 
-**確定手順（DOM調査済み）:**
-1. `button[aria-label="画像を追加"]` をJS `click()`
-2. 300ms 待機
-3. テキスト一致で「画像をアップロード」ボタンをJS `click()` → `#note-editor-eyecatch-input` が動的生成される
-4. `#note-editor-eyecatch-input` をDOMで取得し、ファイル入力に画像をセット（Claudeでは`find`→`file_upload`ツールに相当）
-5. スクリーンショットを1回撮ってトリムダイアログを確認 → 「保存」をクリック（Claudeでは`computer`ツールに相当）
+#### 6a. クリックを横取りしてメニューを開く
 
 ```javascript
-document.querySelector('button[aria-label="画像を追加"]').click();
-await new Promise(r => setTimeout(r, 300));
-[...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('画像をアップロード')).click();
-// → DOMで#note-editor-eyecatch-inputを取得 → ファイル入力に画像をセット（Claudeでは find→file_upload ツール）
-// → スクリーンショット1回でトリムダイアログ確認（Claudeでは computer ツール） → 「保存」をクリック
-```
-- ※ ファイルアップロード操作は事前に画像ファイルへのアクセス権が必要（Claudeでは`file_upload`は`start_task`の`attachments`パラメータで画像を渡した子タスクでのみ有効）
-
-### 6. タグ設定
-- 「公開に進む」ボタン: `fireFullClick` 関数でクリック（関数定義はステップ7参照。タイトル・本文が空だとエラーモーダルが出るので先に入力すること）
-  - ⚠️ **タイミング問題（未解決）**: 本文ペースト後は **1.5秒以上待機**してからクリックすること（React内部状態同期のため。DOM上の値は正しく入っているのに「タイトル、本文を入力してください」という誤検知ダイアログが出ることがある）。ダイアログが出た場合は閉じて再試行する
-- タグ入力はネイティブセッター方式 + KeyboardEventディスパッチ（ブラウザのフォーム入力シミュレーションより高速。Claudeでは`form_input`ツールより高速。シャープ記号なし）
-  ```javascript
-  const tagEl = document.querySelector('input[placeholder="ハッシュタグを追加する"]');
-  const tagSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-  tagSetter.call(tagEl, TAG_TEXT);
-  tagEl.dispatchEvent(new Event('input', { bubbles: true }));
-  await new Promise(r => setTimeout(r, 300));
-  tagEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-  ```
-  - **KeyboardEventのディスパッチでチップ化することを確認済み（article-022）。** 視覚的なEnterキー操作（Claudeでは`computer`ツール）は基本的に不要
-  - チップ化したかはJSで確認（例: `document.querySelectorAll('[class*="tag"]').length > 0`）し、失敗時のみ視覚的操作（Claudeでは`computer`ツール）でフォールバック
-  - ※ `#C#` などシャープ含むタグはnote側の制限で入力不可
-- 「キャンセル」でエディタに戻る
-
-### 7. 公開
-- 「**投稿する**」ボタン: `fireFullClick` 関数でクリック（単純な `.click()` では反応しなかった。article-022で確認）
-  ```javascript
-  function fireFullClick(el) {
-    const rect = el.getBoundingClientRect();
-    const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
-    const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
-    el.dispatchEvent(new PointerEvent('pointerdown', opts));
-    el.dispatchEvent(new MouseEvent('mousedown', opts));
-    el.dispatchEvent(new PointerEvent('pointerup', opts));
-    el.dispatchEvent(new MouseEvent('mouseup', opts));
-    el.dispatchEvent(new MouseEvent('click', opts));
-  }
-  const publishBtn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '投稿する');
-  fireFullClick(publishBtn);
-  ```
-  - 視覚的クリック（Claudeでは`computer`ツール）はこの方式が失敗した場合のフォールバック
-  - 同じ `fireFullClick` 関数は「公開に進む」ボタン（ステップ6）にも使用する
-  - 下書き保存ではなく即時公開されることを確認
-
-## スクリーンショット方針
-- 途中の確認スクリーンショットは **不要**
-- 操作の成否はJSの戻り値・DOM取得の結果で判断（Claudeでは`find`ツールの戻り値）
-- **最後の1枚のみ** 撮影して完了確認
-
-### ペースト後の確認（ターン数節約の最重要ポイント）
-- ペースト直後の反映確認は **JSで `editor.textContent.length` などを取得し、元の本文の大まかな文字数と一致するかを確認する程度**に留める
-  ```javascript
-  document.querySelector('.ProseMirror').textContent.length
-  // → 元の本文の文字数と大まかに一致していればOK
-  ```
-- スクリーンショットでの目視確認をする場合も **最大1回まで**
-- スクロールしながら複数回スクリーンショットを撮って細部まで確認する行為はターン数を大きく消費するため **絶対に避ける**（article-014では本文やり直しが発生しなかったにもかかわらず、確認作業だけで数十回分のツール呼び出しを消費し合計約90ターンになった）
-
-## 予約投稿について
-- **noteプレミアム会員限定機能**
-- 非プレミアム会員は下書き保存のみ対応
-
-## 注意事項
-- **1タスクで全工程完結。目安20〜30ターン**（タグなし実績18ターン）
-- 複数タスク同時実行はブラウザ競合するため避ける
-- **本文HTMLはタスクプロンプトに直接含めること**（既存記事からの取得は30+ターン無駄になるためNG）
-- **ペースト前に本文エリアをクリックしてフォーカスを確認すること**（タイトルフィールドにフォーカスが残っていると本文がタイトル欄に入る）
-- 同一操作を2回失敗した場合は、リトライを続けず一度状況を報告すること（無駄なトークン消費を避ける）
-- **本文HTMLに `<table>` タグを使わない**（article-013、約8ターン浪費）: note.comのProseMirrorエディタはClipboardEvent経由の `<table>` をテーブルとして解釈しないため、公開直前に発覚すると本文の削除・再ペーストという手戻りが発生する。本文HTML作成段階から `<table>` は一切使わず、比較表・対応表は `<p><strong>ラベル</strong> → 値</p>` 形式で書くこと
-- **ペースト確認はJSで文字数チェックのみ、スクリーンショット最大1回**（article-014、約90ターン消費）: `<table>` タグ問題も本文やり直しも発生しなかったにもかかわらず、ペースト後の目視確認のためにスクロールしながら複数回スクリーンショットを撮り続けた結果、確認作業だけで数十回分のツール呼び出しを消費した。ペースト直後は `editor.textContent.length` をJSで取得して文字数を確認するだけにとどめ、スクリーンショットは撮らないか撮っても1回限りとすること
-
-## 別タスク・別セッションへの引き渡し
-
-投稿作業を別タスク・別セッションに依頼する場合、手順の要約やこのファイルへの参照だけでは元の手順を再現できない。article-011では90ターン程度の試行錯誤が発生した実例がある。
-
-本文HTML・タイトル入力・画像アップロードの具体的な操作手順は省略せず、**確定手順を全文プロンプトに埋め込むこと**。
-
-## 確定セレクタ一覧（DOM調査済み）
-
-note.com は styled-components 製でCSSクラス名がビルドごとに変わり、React useId 由来の id（`:r9:` 等）も非安定なため、これらは使わない。以下の安定セレクタを使うこと。
-
-| 要素 | セレクタ |
-|:---|:---|
-| タイトル | `textarea[placeholder="記事タイトル"]` |
-| 本文エディタ | `.ProseMirror` |
-| カバー画像「+」ボタン | `button[aria-label="画像を追加"]` |
-| 「画像をアップロード」項目 | `[...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('画像をアップロード'))` |
-| カバー画像 file input | `#note-editor-eyecatch-input`（「画像をアップロード」クリック後に動的生成。クリック前はDOMに存在しない） |
-| 「公開に進む」ボタン | `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '公開に進む')` |
-| タグ入力欄 | `input[placeholder="ハッシュタグを追加する"]` |
-| 最終公開ボタン | `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '投稿する')` |
-
-**注意**: 「公開に進む」ボタンはタイトル・本文が空の状態でクリックするとエラーモーダルが出て遷移しない。先に両方入力してから押すこと。
-
-## ネイティブセッター方式
-
-タイトル・タグの入力には、視覚的なタイピングシミュレーション（Claudeでは`computer`ツール）より高速な以下の方式が使える：
-
-```javascript
-// タイトル（textarea）
-const titleSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-titleSetter.call(titleEl, 'テキスト');
-titleEl.dispatchEvent(new Event('input', { bubbles: true }));
-
-// タグ（input）
-const tagSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-tagSetter.call(tagEl, 'テキスト');
-tagEl.dispatchEvent(new Event('input', { bubbles: true }));
-```
-
-本文（`.ProseMirror`、contenteditable）にはこの方式は使えない。本文は既存のClipboardEventペースト方式（ステップ3）を継続すること。
-
-## 確定スクリプト（実行そのまま使う）
-
-**方針**: 次回からはこのスクリプトをそのまま実行し、AIが毎回手順を考え直さない。`TITLE_TEXT`・`BODY_HTML`・`TAG_TEXT` を差し替えるだけでよい。DOMセレクタによる要素取得（Claudeでは`find`ツール）や視覚クリック（Claudeでは`computer`ツール）へのフォールバックは要素が本当に見つからない場合のみに限定する。
-
-> **JS実行環境の注意**: ブラウザのJSツールでtop-levelの`await`を使うとエラーになる場合がある。複数の非同期処理をまとめて実行する際は `(async () => { /* 処理 */ })();` で全体をラップすること。
-
-```javascript
-// ステップA: タイトル設定
-const titleEl = document.querySelector('textarea[placeholder="記事タイトル"]');
-const titleSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-titleSetter.call(titleEl, TITLE_TEXT);
-titleEl.dispatchEvent(new Event('input', { bubbles: true }));
-
-// ステップB: 本文ペースト
-const editor = document.querySelector('.ProseMirror');
-editor.focus();
-document.execCommand('selectAll');
-const dt = new DataTransfer();
-dt.setData('text/html', BODY_HTML);
-dt.setData('text/plain', editor.textContent);
-editor.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true}));
-
-// ステップC: カバー画像アップロードのトリガー
-document.querySelector('button[aria-label="画像を追加"]').click();
-await new Promise(r => setTimeout(r, 300));
-[...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('画像をアップロード')).click();
-// → DOMで#note-editor-eyecatch-inputを取得 → ファイル入力に画像をセット（Claudeでは find→file_upload ツール）
-// → スクリーンショット1回でトリムダイアログ確認（Claudeでは computer ツール） → 「保存」をクリック
-
-// ステップD: 公開フロー
-// ⚠️ 本文ペースト後は1.5秒以上待機してから「公開に進む」をクリックすること（React内部状態同期のため）
-// 「タイトル、本文を入力してください」ダイアログが出た場合は閉じて再試行する
+HTMLInputElement.prototype.click = function() {};
 
 function fireFullClick(el) {
   const rect = el.getBoundingClientRect();
-  const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
-  const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
-  el.dispatchEvent(new PointerEvent('pointerdown', opts));
-  el.dispatchEvent(new MouseEvent('mousedown', opts));
-  el.dispatchEvent(new PointerEvent('pointerup', opts));
-  el.dispatchEvent(new MouseEvent('mouseup', opts));
-  el.dispatchEvent(new MouseEvent('click', opts));
+  const x = rect.left + rect.width/2, y = rect.top + rect.height/2;
+  const opts = {bubbles:true,cancelable:true,view:window,clientX:x,clientY:y};
+  ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(t =>
+    el.dispatchEvent(t.startsWith('p') ? new PointerEvent(t,opts) : new MouseEvent(t,opts)));
 }
-fireFullClick([...document.querySelectorAll('button')].find(b => b.textContent.trim() === '公開に進む'));
-await new Promise(r => setTimeout(r, 500));
-const tagEl = document.querySelector('input[placeholder="ハッシュタグを追加する"]');
-const tagSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-tagSetter.call(tagEl, TAG_TEXT);
-tagEl.dispatchEvent(new Event('input', { bubbles: true }));
-await new Promise(r => setTimeout(r, 300));
-tagEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-// ✅ KeyboardEventのディスパッチでタグがチップ化される（article-022で確認）
-// チップ化しなかった場合のみ視覚的なEnterキー操作（Claudeでは computer ツール）でフォールバック
-// 最終公開（コメントアウトを解除して実行）:
-// fireFullClick([...document.querySelectorAll('button')].find(b => b.textContent.trim() === '投稿する'));
+
+const btn = document.querySelector('[class*="coverImage"] button, [class*="cover"] button');
+if(btn) fireFullClick(btn);
 ```
 
-**確定事項（article-022更新）**: タグ入力後のKeyboardEventディスパッチでチップ化することを確認（article-022）。視覚的なEnterキー操作（Claudeでは`computer`ツール）はフォールバック。「投稿する」ボタンは単純な `.click()` では反応しないため `fireFullClick` を使う（article-022で確認）。同関数は「公開に進む」にも有効。
+#### 6b. メニューから「アップロード」を選ぶ
 
-## テスト結果
-- 2026-05-27 手順テスト実施：本文プロンプト直接渡し方式で18ターン達成（タグなし）、公開フロー込みで20〜30ターン見込み
-- 2026-06-20 article-016：確定スクリプト方式で約20ターンで完了（前回article-014の約90ターンから大幅短縮）。タイトル設定・本文ペーストを1回のJS実行にまとめる方式が完全に機能。唯一フォールバックが必要だったのはタグ入力のEnterキー確定のみ。
-- 2026-06-21 article-022：ターン数削減実験により**17ターンで完了（過去最速）**。タグ確定をKeyboardEventディスパッチに、最終公開ボタンを`fireFullClick`に変更することで視覚操作（`computer`ツール）依存を排除。前回比（20〜36ターン）から大幅短縮。
+メニューが表示されたら「画像をアップロード」項目をクリック。file inputが現れる。
+
+#### 6c. スクリーンショットIDで画像をアップロード
+
+upload_imageツールで、Step 2で記録したカバー画像のスクリーンショットIDを指定する。
+
+---
+
+### Step 7. 本文内画像挿入
+
+1. エディタ内で画像を挿入したい位置にカーソルを置く
+2. 「+」ボタン → 「画像」を選択
+3. Step 2で記録した本文画像のスクリーンショットIDで upload_image を実行
+
+---
+
+### Step 8. Kindleカード追加
+
+エディタ末尾にAmazon URLを貼るだけでカード化される。ClipboardEventで追記するか視覚操作でペースト。
+
+---
+
+### Step 9. 公開ページへ遷移
+
+```javascript
+function fireFullClick(el) {
+  const rect = el.getBoundingClientRect();
+  const x = rect.left + rect.width/2, y = rect.top + rect.height/2;
+  const opts = {bubbles:true,cancelable:true,view:window,clientX:x,clientY:y};
+  ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(t =>
+    el.dispatchEvent(t.startsWith('p') ? new PointerEvent(t,opts) : new MouseEvent(t,opts)));
+}
+const btn = [...document.querySelectorAll('button')].find(b => b.textContent.includes('公開に進む'));
+fireFullClick(btn);
+```
+
+URLが /publish/ に変わればOK。
+
+---
+
+### Step 10. タグ設定（/publish/ ページ）
+
+```javascript
+async function addTag(tagText) {
+  const input = document.querySelector('input[placeholder*="タグ"], input[placeholder*="tag"]');
+  if(!input) return "input not found";
+  input.focus();
+  const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  nativeSetter.call(input, tagText);
+  input.dispatchEvent(new Event('input', {bubbles: true}));
+  await new Promise(r => setTimeout(r, 500));
+  input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', keyCode: 13, bubbles: true}));
+  input.dispatchEvent(new KeyboardEvent('keyup', {key: 'Enter', keyCode: 13, bubbles: true}));
+  await new Promise(r => setTimeout(r, 500));
+  return "added: " + tagText;
+}
+await addTag('AI');
+await addTag('設計');
+```
+
+- form_inputは不要。このJS関数で確実に入力できる（2026-08-27確認済み）
+
+---
+
+### Step 11. 投稿
+
+```javascript
+const btn = [...document.querySelectorAll('button')].find(b => b.textContent.includes('投稿する'));
+fireFullClick(btn);
+```
+
+---
+
+## 再現性評価（2026-08-27）
+
+| 手順 | 安定性 | 備考 |
+|---|---|---|
+| タイトル入力 | 安定 | nativeSetterで確実 |
+| 本文ペースト | 安定 | ClipboardEvent方式 |
+| TOC挿入 | 安定 | HTMLにtable-of-contentsタグを含めるだけ |
+| カバー画像 | 安定 | localhost→スクリーンショット→upload_image |
+| 本文画像 | 安定 | localhost→スクリーンショット→upload_image |
+| Kindleカード | 安定 | Amazon URLペーストのみ |
+| タグ設定 | 安定 | nativeSetter+KeyboardEventEnter |
+| 投稿 | 安定 | fireFullClick |
+| サーバー起動 | 条件付き | TextInputHostが前面に来ると妨害される場合あり |
+
+**既知リスク**: Windows IMEパネル（TextInputHost）がstart_server.bat実行を妨害することがある。
+その場合はタスクを停止して手動でbatを実行してから再試行。
+
+---
+
+## スクリーンショット方針
+
+- **途中確認スクリーンショットは不要**（JS戻り値で判断）
+- **最大2枚**: 画像キャプチャ用（localhost表示）、完了確認用
+- 画像が複数ある場合はStep 2をその分繰り返す（各1枚）
+
+---
+
+## 旧手順との差異（2026-08-27更新）
+
+| 項目 | 旧手順 | 新手順（確定） |
+|---|---|---|
+| 画像アップロード | file_upload（動作せず） | localhost→SS→upload_image |
+| TOC挿入 | Ctrl+Home→+ボタン→目次 | HTML先頭にtable-of-contentsタグ |
+| タグ入力 | form_input | nativeSetter+KeyboardEvent Enter |
+| post_article.js | 使用 | 不要（全JS直接実行） |
+
+---
+
+## 注意事項
+
+- **本文HTMLはタスクプロンプトに直接含めること**
+- **複数タスク同時実行はブラウザ競合するため避ける**
+- **一時保存（Ctrl+S）は公開に反映されない**。必ず「投稿する」まで完走すること
+- **base64のチャンク化・分割は禁止**
+
+---
 
 ## 投稿済み記事
+
 - n68088c41faf0（ソフトウェア設計・まず動かす）
 - n9edfbfc70ea3（非同期処理・責任分離）
 - ne2a9b0b0b465（インターフェースの粒度）
@@ -252,3 +286,14 @@ tagEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', 
 - ne3788e81602b（設計資料の管理）
 - na9eb9f7586ba（エラー設計・責任境界）
 - n6a6545db6a2c（フォーマットと目的）
+- naf1a3400718b（AIへの指示より検証できる出力をどう残すか）旧手順
+- n2e4458e311c2（AIへの指示より、検証できる出力をどう残すか）2026-08-27 新手順で投稿確認済み
+
+---
+
+## テスト結果
+
+- 2026-05-27: 旧手順テスト（file_upload方式）18ターン達成（タグなし）
+- 2026-08-27: **新手順テスト（localhost→SS→upload_image方式）全要素込みで投稿成功**
+  タイトル・本文・目次・カバー画像・本文画像・Kindleカード×2・タグ3個・公開まで完走。
+  公開URL: https://note.com/rosy_flax9582/n/n2e4458e311c2
