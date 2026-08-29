@@ -33,6 +33,14 @@ FILES = [
     OUTPUT / "chapter11.md",
     OUTPUT / "chapter12.md",
 ]
+CORE_FILES = {path.name for path in FILES if path.name not in {
+    "chapter00_1.md", "chapter00_2.md"
+}}
+FILE_LAYOUT_NOTE = (
+    "> **掲載用1ファイルと実務の分割：** この1つの`.cpp`は、手元で動かすための掲載形式です。"
+    "実務では、第0章「掲載ブロックと実ファイルの分け方」に従い、公開する契約・宣言を`.h`、"
+    "処理本体を`.cpp`、生成・登録・注入を`main.cpp`へ置くことを基本にします。\n"
+)
 
 CPP_FENCE = re.compile(r"```cpp\s*\n(.*?)```", re.S)
 TOP_LEVEL_TYPE = re.compile(
@@ -188,6 +196,17 @@ def rewrite_file(path: Path, from_head: bool = False) -> bool:
         return preserve_unchanged_line_endings(match.group(0), rendered)
 
     updated = CPP_FENCE.sub(replace, original)
+    if path.name in CORE_FILES and FILE_LAYOUT_NOTE not in updated:
+        run_note = re.compile(
+            r"(> \*\*手元で動かすには\*\*\r?\n> [^\r\n]+(?:\r?\n))"
+        )
+        updated, count = run_note.subn(
+            lambda match: match.group(1) + ">\n" + FILE_LAYOUT_NOTE,
+            updated,
+            count=1,
+        )
+        if count != 1:
+            raise RuntimeError(f"手元で動かすにはの注記を追加できません: {path.name}")
     rendered = updated.encode("utf-8")
     if rendered == original_bytes:
         return False

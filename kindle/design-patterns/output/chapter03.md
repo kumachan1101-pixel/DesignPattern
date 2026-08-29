@@ -657,6 +657,8 @@ int main() {
 
 > **手元で動かすには**
 > このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter03.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。たとえば `db.save("EVT010", {"冬の演劇祭", 80, 0});` でイベントを足し、`TicketReservation seat(db, "EVT010");` を作って `reserve()` や `pay()` を呼べば、追加したイベントの予約と状態遷移がその場の実行結果に表れます。イベントデータはプロセス実行中だけ有効で、終了すると消えます（DBのような永続化はこの章の論点ではありません）。
+>
+> **掲載用1ファイルと実務の分割：** この1つの`.cpp`は、手元で動かすための掲載形式です。実務では、第0章「掲載ブロックと実ファイルの分け方」に従い、公開する契約・宣言を`.h`、処理本体を`.cpp`、生成・登録・注入を`main.cpp`へ置くことを基本にします。
 
 次のフェーズで変更が来たときに何が起きるかを確認します。
 
@@ -1323,6 +1325,8 @@ graph LR
 
 ### 4-2：今回変える責任/ほかの変更から守る責任
 
+> **「今回守る」と「変わらない」は異なります。** 左列は今回の変更試行とヒアリングで変更理由を確認した責任、右列はその変更に巻き込まず守りたい責任です。将来ずっと変わる／変わらないという分類ではありません。
+
 原因分析の結果から、「今回変える責任」と「ほかの変更から守る責任」を整理します。分類は色付き記号に頼らず、列名と各行の内容で示します。
 
 | **今回変える責任** | **ほかの変更から守る責任** |
@@ -1378,6 +1382,8 @@ graph LR
 |---|---|---|---|
 | 状態固有動作の分離 | 必須。二状態追加で全分岐が広がった | 公開入口と副作用の位置は共通契約として残す | 課題として残す |
 | 待機列と自動昇格の接続 | 必須。状態だけ分けても手動昇格なら変更ID1・変更ID2が未完了 | 状態分離と連携する独立責任 | 課題として残す |
+
+変更IDと課題IDは一対一とは限らないため、変更依頼の数に合わせて課題を増減させません。
 
 ### 5-3：課題IDと接続点を確定する
 
@@ -1467,19 +1473,23 @@ classDiagram
 
 これらの操作を、直後の全体経路へまとめます。
 
-#### 全体経路を決めるための確認観点
+#### 全体経路を組み立てる判断
 
-全体経路を決めるとき、次の二点を同時に確認します。
+状態クラスを先に作るのではなく、状態が替わる時点、待ち行列の寿命、2軸の接点を前工程の事実から決めます。
 
-- **契約と具体による分離**：予約進行に残す処理と、状態・待機順の判断を持つ契約・具体をセットで決める。
-- **実体の組み立て**：実体を誰が生成・所有し、公開操作を持つクラスへ契約として渡してどう実行するかを一本で決める。
+| 前工程で確定した事実 | ここで決めること | 判断 | 全体経路への反映 |
+|---|---|---|---|
+| 原因ID1：公開操作が状態文字列を判定している | 状態固有の可否と遷移を誰が答えるか | 現在状態を表す実体へ公開操作を委譲する | 予約本体→現在状態→状態固有処理と結ぶ |
+| 状態実体はデータを持たず、同じ振る舞いを複数予約で使える | 状態を予約ごとに生成するか共有するか | 状態は共有実体とし、予約は非所有参照だけを差し替える | 初期状態の受け渡しと遷移時の差し替えを分ける |
+| 原因ID2：待機順は複数予約をまたいで維持される | 待ち行列を誰が所有するか | バッチ全体で1つ所有し、各予約が同じ待ち行列を借りる | 予約生成時に待ち行列への参照を渡す |
+| 取消で空席が生じた直後に先頭を昇格する | 状態軸と待ち行列軸をどこで接続するか | 取消状態処理から予約本体の昇格入口を1回呼ぶ | 取消→席返却→先頭取得→次状態への遷移を一本にする |
 
 ### 全体のデータと実体の流れを先に決める
 
-最初に、生成した状態と待ち行列が実際に使われるまでの全体経路を決めます。満席のイベントで待機していた予約が、他の予約の取消によって自動昇格するまでを一本で固定します。
+上の判断を順につなぎ、生成した状態と待ち行列が実際に使われるまでの全体経路を決めます。満席のイベントで待機していた予約が、他の予約の取消によって自動昇格するまでを一本で固定します。表中の識別子は役割を示す設計名で、実装行は次の節で示します。
 
-| 実行順・ポイント      | 掲載箇所                                                   | 実際のコード接続                                                                             | 次の呼出先                                        |
-| ------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------ | -------------------------------------------- |
+| 実行順・ポイント | 担う場所 | 経路で受け渡すもの・起きること | 次の呼出先 |
+|---|---|---|---|
 | 1. 生成         | `BatchApplication`（`db`・`history`・`waitlist` はメンバー）    | 在庫・履歴・待ち行列を1つずつ所有し、状態は `availableState()` などが共有実体を返す                                 | 初期状態の受け渡しへ                                   |
 | 2. 初期状態を渡す    | `BatchApplication` の予約生成行                              | `TicketReservation r(availableState(), &db, &history, &waitlist, ...)` で生成済みの初期状態を渡す | 実行開始へ                                        |
 | 3. 実行開始       | `BatchApplication`                                     | 予約済みの予約に対して `r.cancel();` を呼ぶ                                                        | `TicketReservation::cancel()`                |
@@ -1567,7 +1577,7 @@ void TicketReservation::cancel() {
 **掲載箇所：`IReservationState`（クラス全体・抜粋）** ―― 7操作のうち3つ
 
 ```cpp
-// 状態ごとの振る舞いを定義するインターフェース
+// 状態ごとの共通操作と、許可されない操作の既定処理を持つ基底クラス
 class IReservationState {
 public:
     // 引数は操作対象の予約コンテキスト（TicketReservation*）。
@@ -1734,7 +1744,7 @@ public:
 ```mermaid
 classDiagram
     class TicketReservation
-    class IReservationState { <<interface>> }
+    class IReservationState
     class ReservationWaitlist
     TicketReservation --> IReservationState : 現在状態へ操作を委譲
     TicketReservation --> ReservationWaitlist : 待機登録・先頭取得
@@ -1791,17 +1801,17 @@ public:
 
 ```mermaid
 classDiagram
-    class IReservationState { <<interface>> }
+    class IReservationState
     class AvailableState
     class ReservedState
     class PaidState
     class WaitlistedState
     class HeldState
-    IReservationState <|.. AvailableState
-    IReservationState <|.. ReservedState
-    IReservationState <|.. PaidState
-    IReservationState <|.. WaitlistedState
-    IReservationState <|.. HeldState
+    IReservationState <|-- AvailableState
+    IReservationState <|-- ReservedState
+    IReservationState <|-- PaidState
+    IReservationState <|-- WaitlistedState
+    IReservationState <|-- HeldState
     class HeldState:::focus
     class WaitlistedState:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
@@ -1906,7 +1916,7 @@ classDiagram
     class EventDatabase
     class ReservationHistory
     class ReservationWaitlist
-    class IReservationState { <<interface>> }
+    class IReservationState
     BatchApplication *-- EventDatabase : 所有
     BatchApplication *-- ReservationHistory : 所有
     BatchApplication *-- ReservationWaitlist : 所有
@@ -2018,7 +2028,6 @@ classDiagram
         +expire()
     }
     class IReservationState {
-        <<interface>>
         +reserve(reservation)
         +pay(reservation)
         +cancel(reservation)
@@ -2046,11 +2055,11 @@ classDiagram
     ReservationWaitlist o--> TicketReservation : waiting
     EventDatabase o--> EventInfo
     ReservationHistory o--> ReservationRecord
-    IReservationState <|.. AvailableState
-    IReservationState <|.. ReservedState
-    IReservationState <|.. PaidState
-    IReservationState <|.. WaitlistedState
-    IReservationState <|.. HeldState
+    IReservationState <|-- AvailableState
+    IReservationState <|-- ReservedState
+    IReservationState <|-- PaidState
+    IReservationState <|-- WaitlistedState
+    IReservationState <|-- HeldState
     ReservationExpiryScheduler ..> TicketReservation : timeout時にexpire
     BatchApplication --> TicketReservation
     BatchApplication --> ReservationExpiryScheduler
@@ -2194,7 +2203,6 @@ classDiagram
         +expire()
     }
     class IReservationState {
-        <<interface>>
         +reserve(reservation)
         +pay(reservation)
         +cancel(reservation)
@@ -2222,11 +2230,11 @@ classDiagram
     ReservationWaitlist o--> TicketReservation : waiting
     EventDatabase o--> EventInfo
     ReservationHistory o--> ReservationRecord
-    IReservationState <|.. AvailableState
-    IReservationState <|.. ReservedState
-    IReservationState <|.. PaidState
-    IReservationState <|.. WaitlistedState
-    IReservationState <|.. HeldState
+    IReservationState <|-- AvailableState
+    IReservationState <|-- ReservedState
+    IReservationState <|-- PaidState
+    IReservationState <|-- WaitlistedState
+    IReservationState <|-- HeldState
     ReservationExpiryScheduler ..> TicketReservation : timeout時にexpire
     BatchApplication --> TicketReservation
     BatchApplication --> ReservationExpiryScheduler
@@ -2487,7 +2495,7 @@ class TicketReservation;
 このブロックでは `IReservationState` の定義だけを確認します。
 
 ```cpp
-// 状態ごとの振る舞いを定義するインターフェース
+// 状態ごとの共通操作と、許可されない操作の既定処理を持つ基底クラス
 class IReservationState {
 public:
     // 引数は操作対象の予約コンテキスト（TicketReservation*）。
@@ -3236,7 +3244,7 @@ graph LR
 | **問題** | 状態が1つ増えるたびに全操作メソッドの条件分岐を書き直さなければならず、ヒアリングで確定した追加頻度ではコストが合わない |
 | **原因** | 状態遷移ルール（企画担当）と操作フロー（開発チーム）が`TicketReservation`に混在し、状態変更時に関係する操作メソッドの確認が必要になる |
 | **課題** | 状態ごとの振る舞いを `TicketReservation` から切り離し、公開操作は現在の状態へ委譲する構造にする |
-| **解決策** | 状態分離構造：`IReservationState` を境界として状態ごとの振る舞いを各クラスに分離し、`TicketReservation` はインターフェース経由で現在の状態に処理を委譲する |
+| **解決策** | 状態分離構造：`IReservationState` を境界として状態ごとの振る舞いを各クラスに分離し、`TicketReservation` は共通基底型を通じて現在の状態に処理を委譲する |
 
 ### フェーズとこの章でやったこと
 
@@ -3294,13 +3302,14 @@ graph LR
   * 具体化された場所：各状態クラス（`ReservedState` など）
   * 解説：状態ごとの細かなルールという「頻繁に変わる詳細」を、個別の状態クラスの中にカプセル化しました。これにより、業務クラス側は状態の内部ルールを知る必要がなくなりました。
 
-* **原則2「実装ではなくインターフェースに対してプログラムせよ」の現れ**★IReservationStateを継承しているわけではないの？
-  * 具体化された場所：`TicketReservation` クラスと `IReservationState` インターフェース
-  * 解説：`TicketReservation` は具体的な状態クラスを直接参照せず、抽象的なインターフェースを通じて振る舞いを実行するようにしました。
+* **原則2「実装ではなくインターフェースに対してプログラムせよ」の現れ**
+  * 具体化された場所：`TicketReservation` クラスと共通基底型 `IReservationState`
+  * 解説：`IReservationState`は純粋仮想関数だけのC++インターフェースではなく、許可されない操作の既定処理も持つ通常の基底クラスです。それでも利用側の`TicketReservation`は`ReservedState`などの具体状態を直接参照せず、公開された共通操作だけに依存します。ここでいう「インターフェース」はC++のステレオタイプではなく、利用側から見える共通の入口という原則上の意味です。
 
-* **原則3「継承よりコンポジションを優先せよ」の現れ**
-  * 具体化された場所：`TicketReservation` が `IReservationState` を持つ構造
-  * 解説：状態を継承で表現しようとすると階層が深まり柔軟性を失いますが、コンポジション（オブジェクトを内部に保持して利用する仕組み）として状態を持たせることで、実行時に状態を自由に入れ替えられるようになりました。
+* **原則3「継承よりコンポジションを優先せよ」の判断**
+  * 判断：`TicketReservation`が現在の`IReservationState`を借り、遷移時に参照を差し替える。予約本体を状態別に派生させないため、同じ予約が実行中に状態を替えられる。
+  * 実装継承を使う箇所：各状態は、許可されない操作の既定処理を持つ`IReservationState`を継承する。これは機能を組み合わせるためではなく、全状態に共通する拒否処理を浅い1階層へ固定する選択である。
+  * 両者の関係：状態の共通処理には継承、実行中の状態交換にはコンポジションを使っており、目的を分けている。型名の`I`だけを理由にインターフェース実装とは扱わない。
 
 ---
 
@@ -3398,7 +3407,6 @@ classDiagram
         +expire()
     }
     class IReservationState {
-        <<interface>>
         +reserve(reservation)
         +pay(reservation)
         +cancel(reservation)
@@ -3431,14 +3439,14 @@ classDiagram
     TicketReservation --> EventDatabase
     TicketReservation --> ReservationHistory
     TicketReservation o--> IReservationState
-    IReservationState <|.. AvailableState
-    IReservationState <|.. ReservedState
-    IReservationState <|.. PaidState
-    IReservationState <|.. HeldState
-    IReservationState <|.. WaitlistedState
+    IReservationState <|-- AvailableState
+    IReservationState <|-- ReservedState
+    IReservationState <|-- PaidState
+    IReservationState <|-- HeldState
+    IReservationState <|-- WaitlistedState
 ```
 
-抽象ロールである `IReservationState` が、現実の `ReservedState` などの具体クラスと結びついています。
+共通基底ロールである `IReservationState` が、`ReservedState` などの具体クラスと結びついています。型名の`I`は命名上残っていますが、既定処理を持つため、第0章のクラス図規約では`<<interface>>`を付けません。
 
 ### 使いどころと限界
 

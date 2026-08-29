@@ -184,6 +184,32 @@ cases.append((
     broken,
 ))
 
+# 24a) DIAGRAM-004: インターフェース実現を実装継承の線へ戻す
+t = (OUT/"chapter00_2.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "IDiscountRule <|.. MemberDiscountRule",
+    "IDiscountRule <|-- MemberDiscountRule",
+    1,
+)
+cases.append((
+    "DIAGRAM-004 契約実装と継承の線種",
+    V.check_class_diagram_type_semantics,
+    broken,
+))
+
+# 24aa) DIAGRAM-005: 既定実装を持つ通常基底をinterfaceと誤記する
+t = (OUT/"chapter03.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "    class IReservationState\n",
+    "    class IReservationState { <<interface>> }\n",
+    1,
+)
+cases.append((
+    "DIAGRAM-005 ステレオタイプとC++実装",
+    V.check_class_diagram_type_semantics,
+    broken,
+))
+
 # 24b) DIAGRAM-002: main()を架空のクラスとして描く
 t = (OUT/"chapter04.md").read_text(encoding="utf-8")
 broken = t.replace(
@@ -340,9 +366,18 @@ cases.append(("CONS-068 日本語構造名の統一", V.check_structure_name_con
 
 # DOC-002: 実行接続表を落とす
 t = (OUT/"chapter07.md").read_text(encoding="utf-8")
-broken = t.replace("| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |",
-                   "| ポイント | 掲載箇所 | 説明 | 備考 |", 1)
+broken = t.replace("| 実行順・ポイント | 担う場所 | 経路で受け渡すもの・起きること | 次の呼出先 |",
+                   "| ポイント | 担う場所 | 説明 | 備考 |", 1)
 cases.append(("DOC-002 実行接続表", V.check_phase6_point_separation, broken))
+
+# DOC-008: 前工程の事実から全体経路を導く判断表を落とす
+t = (OUT/"chapter07.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "| 前工程で確定した事実 | ここで決めること | 判断 | 全体経路への反映 |",
+    "| メモ | 問い | 結論 | 配置 |",
+    1,
+)
+cases.append(("DOC-008 全体経路の導出", V.check_phase6_point_separation, broken))
 
 # DOC-002: 全体経路を詳細コードより後ろへ戻す
 t = (OUT/"chapter07.md").read_text(encoding="utf-8")
@@ -463,6 +498,14 @@ def _broken_author_note(*_):
 
 cases.append(("EDIT-002 著者向けメモ", _broken_author_note, ""))
 
+# EDIT-003: 第0章へ著者の確認印を戻す。フェーズ見出しのない章も対象にする。
+def _broken_chapter0_author_mark(*_):
+    return [V.Issue(Path("chapter00_1.md"), 1, issue)
+            for issue in A.author_marker_issues(
+                "chapter00_1.md", "読者向け本文。★ここを再確認する")]
+
+cases.append(("EDIT-003 第0章の著者確認印", _broken_chapter0_author_mark, ""))
+
 # EDIT-002: フェーズ1〜3で解決構造の型名を先出しする
 def _broken_spoiler(*_):
     solution = (A.types_between(_ch12, "### 7-1", "### 7-2")
@@ -517,6 +560,65 @@ broken = t.replace(
 cases.append((
     "EDIT-004 対策結論の先出し",
     V.check_phase6_point_separation,
+    broken,
+))
+
+# CODE-PRESENT-001: 短い兄弟クラスを同じブロックへ戻す
+broken = """```cpp
+class FirstRule {
+public:
+    int apply(int value) const { return value; }
+};
+
+class SecondRule {
+public:
+    int apply(int value) const { return value - 1; }
+};
+```
+"""
+cases.append((
+    "CODE-PRESENT-001 1型1ブロック",
+    V.check_one_top_level_type_per_block,
+    broken,
+))
+
+# CODE-PRESENT-002: 判定の直後へ正常時の実行を詰める
+broken = """```cpp
+void run() {
+    if (!ready()) {
+        return;
+    }
+    execute();
+}
+```
+"""
+cases.append((
+    "CODE-PRESENT-002 処理段階の空行",
+    V.check_cpp_semantic_spacing,
+    broken,
+))
+
+# CODE-PRESENT-003: 各章から実ファイル分割の案内を落とす
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "> **掲載用1ファイルと実務の分割：**",
+    "> **掲載コードの補足：**",
+    1,
+)
+cases.append((
+    "CODE-PRESENT-003 実ファイル分割案内",
+    V.check_run_locally_section,
+    broken,
+))
+
+# CODE-PRESENT-004: 第0章から具体的なファイル配置を落とす
+t = (OUT/"chapter00_2.md").read_text(encoding="utf-8")
+broken = t.replace("PremiumDiscount.cpp", "PremiumDiscount実装")
+cases.append((
+    "CODE-PRESENT-004 第0章ファイル配置",
+    lambda text, _path: V.check_chapter0_file_layout_guidance(
+        text, OUT/"chapter00_2.md"
+    ),
     broken,
 ))
 

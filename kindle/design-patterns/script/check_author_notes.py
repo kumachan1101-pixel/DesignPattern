@@ -35,6 +35,11 @@ CORE_CHAPTERS = [
     "chapter05.md", "chapter06.md", "chapter07.md", "chapter08.md",
     "chapter09_2.md", "chapter10.md", "chapter11.md", "chapter12.md",
 ]
+MANUSCRIPT_CHAPTERS = sorted(path.name for path in OUTPUT_DIR.glob("chapter*.md"))
+
+# 著者が本文へ直接書き込んだ確認印。第0章は方法論章のフェーズ見出しを
+# 持たないため、従来のCORE_CHAPTERSだけの検査では残っていても見逃していた。
+AUTHOR_MARK = re.compile(r"★")
 
 # 原稿内の相互参照ラベル。読者は直前のコードを見ているので、
 # 「何を実行したか」より「何を見ればよいか」を散文で書く。
@@ -99,6 +104,14 @@ def line_of(text: str, offset: int) -> int:
     return text[:offset].count("\n") + 1
 
 
+def author_marker_issues(name: str, text: str) -> list[str]:
+    return [
+        f"{name}:{line_of(text, match.start())}: [著者確認印] "
+        "読者向け本文に`★`が残っています。質問へ回答する本文に書き直してください"
+        for match in AUTHOR_MARK.finditer(text)
+    ]
+
+
 def chapter_issues(name: str) -> list[str]:
     text = (OUTPUT_DIR / name).read_bytes().decode("utf-8").replace("\r\n", "\n")
     issues: list[str] = []
@@ -144,6 +157,9 @@ def chapter_issues(name: str) -> list[str]:
 
 def main() -> int:
     issues: list[str] = []
+    for name in MANUSCRIPT_CHAPTERS:
+        text = (OUTPUT_DIR / name).read_bytes().decode("utf-8").replace("\r\n", "\n")
+        issues.extend(author_marker_issues(name, text))
     for name in CORE_CHAPTERS:
         if (OUTPUT_DIR / name).exists():
             issues.extend(chapter_issues(name))

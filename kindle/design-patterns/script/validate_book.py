@@ -1352,7 +1352,7 @@ def check_recent_star_contracts(text: str, path: Path) -> list[Issue]:
 
     _, phase6 = _phase6_section(text)
     for token, message in (
-        ("#### 全体経路を決めるための確認観点",
+        ("#### 全体経路を組み立てる判断",
          "フェーズ6に接続点から設計判断を導く節がありません"),
         ("#### システム全体の最終構造を決める",
          "フェーズ6にシステム全体の最終構造を確定する節がありません"),
@@ -3089,6 +3089,16 @@ def check_validator_template_sync(_text: str, path: Path) -> list[Issue]:
                 template, 1,
                 f"フェーズ6の本文規約が章テンプレートにありません: {token}",
             ))
+    for token in (
+        "第0章「掲載ブロックと実ファイルの分け方」",
+        "トップレベルの`class`、`struct`、`enum class`を1ブロックに1つ",
+        "入力・取得、判定、選択・計算、状態変更・保存、通知・返却",
+    ):
+        if token not in template_text:
+            issues.append(Issue(
+                template, 1,
+                f"コード掲載規約が章テンプレートにありません: {token}",
+            ))
 
     chapter0_template = BOOK_ROOT / "templates" / "chapter0-template.md"
     if chapter0_template.exists():
@@ -3097,6 +3107,9 @@ def check_validator_template_sync(_text: str, path: Path) -> list[Issue]:
             "フェーズ6：対策検討 ―― 全体のデータと実体の流れを決める",
             "契約と具体による分離",
             "実体の組み立て",
+            "掲載コードの読み方と実ファイルの分け方",
+            "`.h`へ公開契約・クラス宣言",
+            "`main.cpp`へ生成・登録・注入",
         ):
             if token not in chapter0_text:
                 issues.append(Issue(
@@ -3377,7 +3390,36 @@ def check_run_locally_section(text: str, path: Path) -> list[Issue]:
             f"（現在{count}回）。読者が貼り付けて動かす手順と、その章で"
             "実際に確認できる結果を書きます",
         )]
+    file_note = "> **掲載用1ファイルと実務の分割：**"
+    if text.count(file_note) != 1:
+        return [Issue(
+            path, line_number(text, text.find(heading)),
+            "「手元で動かすには」に、掲載用の1つの.cppと実務の"
+            ".h／.cpp／main.cpp分割を区別する共通注記を置いてください",
+        )]
     return []
+
+
+def check_chapter0_file_layout_guidance(text: str, path: Path) -> list[Issue]:
+    """第0章で読解用ブロックと実務ファイル配置を分けて説明する。"""
+    if path.name != "chapter00_2.md":
+        return []
+    tokens = (
+        "### 掲載ブロックと実ファイルの分け方",
+        "1つだけ置きます",
+        "IDiscountRule.h",
+        "PremiumDiscount.cpp",
+        "`main.cpp`",
+        "1掲載ブロック＝1ファイルではなく",
+    )
+    missing = [token for token in tokens if token not in text]
+    if not missing:
+        return []
+    return [Issue(
+        path, 1,
+        "第0章の掲載ブロック／実ファイル分割説明が不足しています: "
+        + ", ".join(missing),
+    )]
 
 
 def check_standard_simplification_section(text: str, path: Path) -> list[Issue]:
@@ -3549,17 +3591,19 @@ def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
                 f"フェーズ6の大判断見出しは1回だけ置いてください: {heading}（現在{count}回）",
             ))
 
+    decision_heading = "#### 全体経路を組み立てる判断"
     flow_heading = "### 全体のデータと実体の流れを先に決める"
     code_heading = "### 全体の流れを実現するコードを決める"
-    for heading in (flow_heading, code_heading):
+    for heading in (decision_heading, flow_heading, code_heading):
         count = section.count(heading)
         if count != 1:
             issues.append(Issue(
                 path, line_number(text, start),
-                f"フェーズ6のH3見出しは1回だけ置いてください: {heading}（現在{count}回）",
+                f"フェーズ6の経路判断・H3見出しは1回だけ置いてください: {heading}（現在{count}回）",
             ))
 
     order_tokens = [
+        decision_heading,
         flow_heading,
         code_heading,
         PHASE6_DECISION_HEADINGS[0],
@@ -3574,18 +3618,60 @@ def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
     if min(positions) < 0 or positions != sorted(positions):
         issues.append(Issue(
             path, line_number(text, start),
-            "フェーズ6は全体経路→経路を実現するコード→分離→組み立て"
+            "フェーズ6は経路判断→全体経路→経路を実現するコード→分離→組み立て"
             "→最終構造→6-1→6-2→6-3→6-4"
             "の順にしてください",
         ))
 
+    decision_start = section.find(decision_heading)
     flow_start = section.find(flow_heading)
     flow_end = section.find(code_heading, flow_start)
     flow = section[flow_start:flow_end] if 0 <= flow_start < flow_end else ""
+    decision = (
+        section[decision_start:flow_start]
+        if 0 <= decision_start < flow_start else ""
+    )
+    decision_header = (
+        "| 前工程で確定した事実 | ここで決めること | 判断 | 全体経路への反映 |"
+    )
+    if decision_header not in decision:
+        issues.append(Issue(
+            path, line_number(text, start + max(decision_start, 0)),
+            "全体経路の前に、前工程の事実→問い→判断→経路への反映を"
+            "示す4列表を置いてください",
+        ))
+    decision_rows = [
+        line for line in decision.splitlines()
+        if line.startswith("|") and not re.match(r"^\|\s*:?-+", line)
+    ]
+    if len(decision_rows) < 4:
+        issues.append(Issue(
+            path, line_number(text, start + max(decision_start, 0)),
+            "全体経路の判断表は、見出しに加えて章固有の判断を"
+            "少なくとも3行置いてください",
+        ))
+    if "```cpp" in decision:
+        issues.append(Issue(
+            path, line_number(text, start + decision_start + decision.find("```cpp")),
+            "全体経路を導く判断表ではC++コードを先出しせず、"
+            "前工程の事実から設計上の判断を示してください",
+        ))
     if "実行順・ポイント" not in flow:
         issues.append(Issue(
             path, line_number(text, start + max(flow_start, 0)),
             "詳細コードより前の全体経路に「実行順・ポイント」表を置いてください",
+        ))
+    for token in ("| 担う場所 |", "経路で受け渡すもの・起きること"):
+        if token not in flow:
+            issues.append(Issue(
+                path, line_number(text, start + max(flow_start, 0)),
+                f"全体経路表に設計上の接続を示す列がありません: {token}",
+            ))
+    if "実際のコード接続" in flow:
+        issues.append(Issue(
+            path, line_number(text, start + flow_start + flow.find("実際のコード接続")),
+            "全体経路は後続コードが満たす設計条件です。"
+            "まだ示していない実装を「実際のコード接続」として先出ししないでください",
         ))
     table_rows = [
         line for line in flow.splitlines()
@@ -3729,14 +3815,18 @@ def check_responsibility_table_scope(text: str, path: Path) -> list[Issue]:
 
 
 # --- DOC-001：掲載コードの所属・分割・省略 ------------------------------
-# 著者指摘は次の3点。
-#     コードを略して記載している箇所が多い。せめてどのクラスのどの関数かは
-#     わかる形にしてほしい。コードブロックはなるべく分割して。1クラス1
-#     ブロックとまではいわないが、1クラスが大きいならその時点で分割して。
-# フェーズ3・4・6・7のC++ブロックへ適用する。フェーズ1の現状コードは1-4の
-# 通しコードとして読む前提なので対象外。例外リストは作らない。
+# コードの所属、省略、長さはフェーズ3・4・6・7で確認する。トップレベルの
+# 型数と意味段階の空行は、現状コードを含む全C++ブロックへ適用する。
 BLOCK_MAX_LINES = 80
-BLOCK_MAX_TYPES = 4
+BLOCK_MAX_TYPES = 2
+
+_TOP_LEVEL_TYPE_DEFINITION = re.compile(
+    r"(?m)^(?:class|struct|enum\s+class)\s+([A-Za-z_]\w*)[^\n{;]*\{"
+)
+_ONE_LINE_GUARD = re.compile(
+    r"^if\s*\(.*\)\s*(?:return|continue|break)\b.*;$"
+)
+_CONTROL_START = re.compile(r"^(?:if|for|while|switch)\s*\(")
 
 # 判定前に文字列リテラルを落とす。`"再試行します..."` は省略ではない。
 _STRING_LITERAL = re.compile(r'"(?:\\.|[^"\\])*"')
@@ -3794,6 +3884,7 @@ def _preceding_prose(text: str, pos: int) -> str:
 def check_code_block_attribution(text: str, path: Path) -> list[Issue]:
     """断片コードの所属明示・ブロック分割・省略記号を確認する（DOC-001）。"""
     body_text = text.replace("\r\n", "\n")
+    body_text = re.sub(r"(?m)^> ?", "", body_text)
     marks = _phase_marks(body_text)
     issues: list[Issue] = []
     for match in re.finditer(r"```cpp\n(.*?)```", body_text, re.S):
@@ -3803,7 +3894,7 @@ def check_code_block_attribution(text: str, path: Path) -> list[Issue]:
             continue
         line = line_number(body_text, pos)
         lines = [ln for ln in body.split("\n") if ln.strip()]
-        types = len(re.findall(r"(?m)^\s*(?:class|struct)\s+\w+", body))
+        types = len(_TOP_LEVEL_TYPE_DEFINITION.findall(body))
         prose = _preceding_prose(body_text, pos)
         if not _OWNER_HINT.search(prose + "\n" + body[:300]):
             issues.append(Issue(
@@ -3822,7 +3913,7 @@ def check_code_block_attribution(text: str, path: Path) -> list[Issue]:
             issues.append(Issue(
                 path, line,
                 f"1ブロックへ{types}型あります（上限{BLOCK_MAX_TYPES - 1}）。"
-                "変わる理由が違う型を同じブロックへ置かないでください",
+                "短い兄弟型も含め、トップレベルの型は1ブロックに1つだけ置いてください",
             ))
         if _CODE_ELLIPSIS.search(_STRING_LITERAL.sub('""', body)):
             issues.append(Issue(
@@ -3830,6 +3921,78 @@ def check_code_block_attribution(text: str, path: Path) -> list[Issue]:
                 "コード内の省略で分岐・接続・責任が隠れています。"
                 "実コードへ戻すか、省略範囲と掲載先を本文へ書いてください",
             ))
+    return issues
+
+
+def check_cpp_semantic_spacing(text: str, path: Path) -> list[Issue]:
+    """判定・実行・保存・返却の切り替わりを空行で読めるようにする。"""
+    body_text = text.replace("\r\n", "\n")
+    body_text = re.sub(r"(?m)^> ?", "", body_text)
+    issues: list[Issue] = []
+    for match in re.finditer(r"```cpp\n(.*?)```", body_text, re.S):
+        lines = match.group(1).split("\n")
+        for index in range(len(lines) - 1):
+            line = lines[index]
+            following_line = lines[index + 1]
+            if not line.strip() or not following_line.strip():
+                continue
+
+            current = line.strip()
+            following = following_line.strip()
+            same_indent = (
+                len(line) - len(line.lstrip(" "))
+                == len(following_line) - len(following_line.lstrip(" "))
+            )
+            if not same_indent:
+                continue
+
+            missing = False
+            if current == "}" and not following.startswith((
+                "else", "catch", "while", "case ", "default:", "}", ");", ";"
+            )):
+                missing = True
+            elif _ONE_LINE_GUARD.match(current) and not _ONE_LINE_GUARD.match(following):
+                missing = True
+            elif (
+                current.endswith(";")
+                and _CONTROL_START.match(following)
+                and not current.startswith(("if ", "for ", "while "))
+            ):
+                missing = True
+            elif (
+                following.startswith("return ")
+                and current not in {"{", "}"}
+                and not current.startswith(("if ", "else", "return ", "//"))
+            ):
+                missing = True
+
+            if missing:
+                issues.append(Issue(
+                    path,
+                    line_number(body_text, match.start()) + index + 1,
+                    "処理の意味が切り替わる箇所に空行がありません。"
+                    "入力・取得、判定、選択・計算、保存、通知・返却の境目を1行空けてください",
+                ))
+                break
+    return issues
+
+
+def check_one_top_level_type_per_block(text: str, path: Path) -> list[Issue]:
+    """現状コードを含むすべてのC++ブロックで1型1ブロックを守る。"""
+    body_text = text.replace("\r\n", "\n")
+    body_text = re.sub(r"(?m)^> ?", "", body_text)
+    issues: list[Issue] = []
+    for match in re.finditer(r"```cpp\n(.*?)```", body_text, re.S):
+        types = _TOP_LEVEL_TYPE_DEFINITION.findall(match.group(1))
+        if len(types) <= 1:
+            continue
+        issues.append(Issue(
+            path,
+            line_number(body_text, match.start()),
+            "1つのC++ブロックに複数のトップレベル型があります: "
+            + ", ".join(types)
+            + "。短くても1型ずつ別ブロックへ分けてください",
+        ))
     return issues
 
 
@@ -3844,9 +4007,7 @@ def check_long_final_cpp_blocks(text: str, path: Path) -> list[Issue]:
     for block in re.finditer(r"```cpp\s*\n(.*?)```", section, re.S):
         code = block.group(1)
         lines = len(code.splitlines())
-        types = re.findall(
-            r"(?m)^\s*(?:class|struct|enum\s+class)\s+([A-Za-z_]\w*)", code
-        )
+        types = _TOP_LEVEL_TYPE_DEFINITION.findall(code)
         if lines > 120 and len(types) > 1:
             issues.append(Issue(
                 path, line_number(text, start + block.start()),
@@ -3903,6 +4064,9 @@ def check_class_diagram_glossary(text: str, path: Path) -> list[Issue]:
         "CheckoutService ..> PaymentResult",
         "<<abstract>>",
         "<<interface>>",
+        "インターフェースはC++では抽象クラスの一種",
+        "ステレオタイプなし",
+        "型名が`I`で始まるかどうかでは決めません",
         "`+` / `-`",
         "`名前: 型`",
         "線の両端にある`1`はちょうど1個、`0..*`は0個以上",
@@ -3921,6 +4085,150 @@ def check_class_diagram_glossary(text: str, path: Path) -> list[Issue]:
         "第0章のクラス図実例または使い分け説明が不足しています: "
         + ", ".join(missing),
     )]
+
+
+_CLASS_DIAGRAM_RE = re.compile(
+    r"```mermaid\s*\nclassDiagram\b(.*?)```", re.S
+)
+_MERMAID_CLASS_RE = re.compile(
+    r"\bclass\s+([A-Za-z_]\w*)\s*\{(.*?)\}", re.S
+)
+_CPP_CLASS_START_RE = re.compile(
+    r"\bclass\s+([A-Za-z_]\w*)\b[^;{]*\{"
+)
+
+
+def _cpp_class_bodies(text: str) -> dict[str, list[str]]:
+    """本文のC++ブロックから、クラスごとの波括弧内を取り出す。"""
+    body_text = re.sub(r"(?m)^> ?", "", text.replace("\r\n", "\n"))
+    result: dict[str, list[str]] = {}
+    for block in re.finditer(r"```cpp\s*\n(.*?)```", body_text, re.S):
+        code = block.group(1)
+        for start in _CPP_CLASS_START_RE.finditer(code):
+            depth = 1
+            index = start.end()
+            while index < len(code) and depth:
+                if code[index] == "{":
+                    depth += 1
+                elif code[index] == "}":
+                    depth -= 1
+                index += 1
+            if depth == 0:
+                result.setdefault(start.group(1), []).append(
+                    code[start.end():index - 1]
+                )
+    return result
+
+
+def check_class_diagram_type_semantics(text: str, path: Path) -> list[Issue]:
+    """ステレオタイプ、白三角の線種、C++基底型の中身を照合する。"""
+    issues: list[Issue] = []
+    class_bodies = _cpp_class_bodies(text)
+    stereotypes: dict[str, set[str]] = {}
+    reported: set[tuple[str, str]] = set()
+
+    for diagram_match in _CLASS_DIAGRAM_RE.finditer(text):
+        diagram = diagram_match.group(1)
+        diagram_types: dict[str, str] = {}
+        for class_match in _MERMAID_CLASS_RE.finditer(diagram):
+            stereotype = re.search(
+                r"<<(interface|abstract)>>", class_match.group(2)
+            )
+            if stereotype:
+                name = class_match.group(1)
+                kind = stereotype.group(1)
+                diagram_types[name] = kind
+                stereotypes.setdefault(name, set()).add(kind)
+
+        relations: list[tuple[str, str]] = []
+        for relation in re.finditer(
+            r"(?m)^\s*([A-Za-z_]\w*)\s+(<\|\.\.|<\|--)\s+"
+            r"([A-Za-z_]\w*)", diagram
+        ):
+            relations.append((
+                relation.group(1),
+                "interface" if ".." in relation.group(2) else "inheritance",
+            ))
+        for relation in re.finditer(
+            r"(?m)^\s*([A-Za-z_]\w*)\s+(\.\.\|>|--\|>)\s+"
+            r"([A-Za-z_]\w*)", diagram
+        ):
+            relations.append((
+                relation.group(3),
+                "interface" if relation.group(2).startswith("..") else "inheritance",
+            ))
+
+        for base, relation_kind in relations:
+            stereotype = diagram_types.get(base)
+            problem = ""
+            if relation_kind == "interface" and stereotype != "interface":
+                problem = (
+                    f"`{base}`への点線白三角は契約の実装ですが、"
+                    "同じ図で`<<interface>>`になっていません"
+                )
+            elif relation_kind == "inheritance" and stereotype == "interface":
+                problem = (
+                    f"`{base}`は`<<interface>>`ですが、実線白三角で"
+                    "実装継承として描かれています"
+                )
+            elif relation_kind == "interface" and stereotype == "abstract":
+                problem = (
+                    f"`{base}`は`<<abstract>>`ですが、点線白三角で"
+                    "契約実装として描かれています"
+                )
+            if problem and (base, problem) not in reported:
+                reported.add((base, problem))
+                issues.append(Issue(
+                    path,
+                    line_number(text, diagram_match.start()),
+                    problem,
+                ))
+
+    for name, kinds in stereotypes.items():
+        if len(kinds) > 1:
+            issues.append(Issue(
+                path, 1,
+                f"`{name}`が同じ章で`<<interface>>`と`<<abstract>>`の"
+                "両方として描かれています",
+            ))
+            continue
+        bodies = class_bodies.get(name, [])
+        if not bodies:
+            continue
+        kind = next(iter(kinds))
+        has_pure_virtual = any(re.search(r"=\s*0\s*;", body) for body in bodies)
+        if not has_pure_virtual:
+            issues.append(Issue(
+                path, 1,
+                f"`{name}`を`<<{kind}>>`としていますが、掲載C++に"
+                "純粋仮想関数がありません",
+            ))
+            continue
+        if kind != "interface":
+            continue
+        shared_virtual = any(re.search(
+            r"\bvirtual\s+(?!~)[^;{}]*\([^;{}]*\)[^;{}]*\{",
+            body, re.S,
+        ) for body in bodies)
+        shared_helper = any(re.search(
+            r"(?m)^\s*(?!virtual\b|if\b|for\b|while\b|switch\b)"
+            r"(?:static\s+)?[A-Za-z_:][\w:<>,*& ]+\s+[A-Za-z_]\w*"
+            r"\s*\([^;{}]*\)[^;{}]*\{",
+            body,
+        ) for body in bodies)
+        data_member = any(re.search(
+            r"(?m)^\s*(?!using\b|typedef\b|return\b|class\b|struct\b|enum\b)"
+            r"[A-Za-z_:][\w:<>,*& ]+\s+[A-Za-z_]\w*_?\s*"
+            r"(?:=[^;]+)?;\s*(?://.*)?$",
+            body,
+        ) for body in bodies)
+        if shared_virtual or shared_helper or data_member:
+            issues.append(Issue(
+                path, 1,
+                f"`{name}`を`<<interface>>`としていますが、掲載C++に"
+                "業務上の共通実装またはデータメンバーがあります",
+            ))
+    return issues
 
 
 def check_no_main_class_in_diagrams(text: str, path: Path) -> list[Issue]:
@@ -4118,10 +4426,14 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
     issues.extend(check_class_diagram_focus_syntax(text, path))
     issues.extend(check_class_diagram_direction(text, path))
     issues.extend(check_class_diagram_glossary(text, path))
+    issues.extend(check_class_diagram_type_semantics(text, path))
+    issues.extend(check_chapter0_file_layout_guidance(text, path))
     issues.extend(check_no_main_class_in_diagrams(text, path))
     issues.extend(check_chapter04_assembly_relation(text, path))
     issues.extend(check_ignored_verification_results(text, path))
     issues.extend(check_long_text_blocks(text, path))
+    issues.extend(check_one_top_level_type_per_block(text, path))
+    issues.extend(check_cpp_semantic_spacing(text, path))
     issues.extend(check_long_final_cpp_blocks(text, path))
     issues.extend(check_executed_test_helpers(text, path))
     issues.extend(check_duplicate_headings(text, path))

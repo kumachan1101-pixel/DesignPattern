@@ -813,6 +813,8 @@ TCK001の操作を4回はさんでも、TCK002は自分の `Open` から再開�
 
 > **手元で動かすには**
 > このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter09.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。`manager.create("TCK005", "USR002");` や `manager.updateStatus("TCK005", "assign", "AGT01");` の呼び出しを足せば、チケットごとの状態と優先度がその場の実行結果に表れます。現状コードへユーザーを追加するときは、`UserDatabase` の登録表へ一般またはプレミアムのレコードを足します。現状のユーザー種別は一般・プレミアムの2種類です。データはプロセス実行中だけ有効で、終了すると消えます。
+>
+> **掲載用1ファイルと実務の分割：** この1つの`.cpp`は、手元で動かすための掲載形式です。実務では、第0章「掲載ブロックと実ファイルの分け方」に従い、公開する契約・宣言を`.h`、処理本体を`.cpp`、生成・登録・注入を`main.cpp`へ置くことを基本にします。
 
 #### 仕様入力が現状コードで使われるまで
 
@@ -1362,6 +1364,8 @@ graph LR
 
 ### 4-2：今回変える責任/ほかの変更から守る責任
 
+> **「今回守る」と「変わらない」は異なります。** 左列は今回の変更試行とヒアリングで変更理由を確認した責任、右列はその変更に巻き込まず守りたい責任です。将来ずっと変わる／変わらないという分類ではありません。
+
 構造を整理するために、変更理由の種類を分けてみます。
 
 | **今回変える責任** | **ほかの変更から守る責任** |
@@ -1421,6 +1425,8 @@ graph LR
 |---|---|---|---|
 | 状態固有動作の分離 | 必須。変更ID2の状態追加影響を局所化する | 優先度判定とは独立した変化軸 | 課題として残す |
 | 優先度判定の分離 | 必須。変更ID1の顧客区分追加影響を局所化する | 状態が必要時に結果だけ使う接続点として残す | 課題として残す |
+
+変更IDと課題IDは一対一とは限らないため、変更依頼の数に合わせて課題を増減させません。
 
 ### 5-3：課題IDと接続点を確定する
 
@@ -1533,18 +1539,22 @@ classDiagram
 
 これらの操作を、直後の全体経路へまとめます。
 
-#### 全体経路を決めるための確認観点
+#### 全体経路を組み立てる判断
 
-全体経路を決めるとき、次の二点を同時に確認します。
+状態・ルールのクラスを先に置かず、2軸の選択条件、実体の寿命、交差させない範囲を決めます。
 
-- **契約と具体による分離**：チケット進行に残す処理と、状態・優先度の判断を持つ契約・具体をセットで決める。
-- **実体の組み立て**：具体を誰が生成・所有し、公開操作を持つクラスへ契約として渡してどう実行するかを一本で決める。
+| 前工程で確定した事実 | ここで決めること | 判断 | 全体経路への反映 |
+|---|---|---|---|
+| 原因ID1：状態文字列の分岐が全公開操作へ広がる | 状態固有の可否と次状態を誰が答えるか | 保存済み状態から状態実体を選び、共通操作へ委譲する | 読込→状態選択→状態処理→保存と結ぶ |
+| 原因ID2：顧客区分の優先度分岐が起票処理に混在する | 優先度をいつ選ぶか | 起票時に顧客区分を取得し、対応ルールを選ぶ | 顧客取得→ルール選択→優先度保存と結ぶ |
+| 状態と優先度規則はデータを持たず繰り返し使える | 呼出しごとに生成するか | サービスと同じ寿命の集合が全実体を値で所有する | 起動時生成済み、実行時は参照選択だけにする |
+| 2軸は独立して変わる | どこまで同じ役へまとめるか | 所有・選択の窓口だけを共有し、状態と優先度の契約間には接続を作らない | 起票経路と状態操作経路を別々に同じ集合へ接続する |
 
 ### 全体のデータと実体の流れを先に決める
 
-最初に、生成・所有した状態と優先度規則を、起票とアサインでどう選び実行するかという全体経路を決めます。TCK001の処理を一本で固定します。
+上の判断を順につなぎ、生成・所有した状態と優先度規則を、起票とアサインでどう選び実行するかという全体経路を決めます。TCK001の処理を一本で固定します。表中の識別子は役割を示す設計名で、実装行は次の節で示します。
 
-| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
+| 実行順・ポイント | 担う場所 | 経路で受け渡すもの・起きること | 次の呼出先 |
 |---|---|---|---|
 | 1. 生成 | `TicketService`（値メンバ `policies`） | `TicketPolicySet` が具体状態5つと具体ルール3つを生成・所有 | 実行開始へ |
 | 2. 実行開始 | `main()` | `TicketService svc;` の後、`svc.create("TCK001", "USR003");` → 続けて `svc.assign("TCK001", "AGT01");` | `TicketService::create()`／`assign()` |
@@ -1675,6 +1685,8 @@ protected:
     }
 };
 ```
+
+`ITicketPhase`は名前が`I`で始まりますが、許可されない操作を`reject()`へ委ねる既定実装を持ち、純粋仮想関数もありません。そのため、第0章の規約では`<<interface>>`ではなく、具体状態が共通処理を受け継ぐ通常の基底クラスとして扱います。名前ではなく、クラスの中身で関係を判定します。
 
 `Transition` の2つのメンバーが、そのまま「操作結果」と「次状態」です。操作ごとに別のメソッドと決めたので、6つ並びます。許可されない操作は既定の `reject()` が引き受けるので、呼ぶ側は状態を判定しません。
 
@@ -1865,7 +1877,7 @@ void TicketService::create(const string& ticketId, const string& userId) {
 ```mermaid
 classDiagram
     class TicketService
-    class ITicketPhase { <<interface>> }
+    class ITicketPhase
     class IPriorityRule { <<interface>> }
     TicketService --> ITicketPhase : 現在状態へ操作を委譲
     TicketService ..> IPriorityRule : 選ばれたルールへ判定を委ねる
@@ -1920,17 +1932,17 @@ public:
 
 ```mermaid
 classDiagram
-    class ITicketPhase { <<interface>> }
+    class ITicketPhase
     class OpenPhase
     class InProgressPhase
     class EscalatedPhase
     class ResolvedPhase
     class PendingPhase
-    ITicketPhase <|.. OpenPhase
-    ITicketPhase <|.. InProgressPhase
-    ITicketPhase <|.. EscalatedPhase
-    ITicketPhase <|.. ResolvedPhase
-    ITicketPhase <|.. PendingPhase
+    ITicketPhase <|-- OpenPhase
+    ITicketPhase <|-- InProgressPhase
+    ITicketPhase <|-- EscalatedPhase
+    ITicketPhase <|-- ResolvedPhase
+    ITicketPhase <|-- PendingPhase
     class OpenPhase:::focus
     class PendingPhase:::focus
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
@@ -2088,7 +2100,7 @@ int main() {
 classDiagram
     class TicketService
     class TicketPolicySet
-    class ITicketPhase { <<interface>> }
+    class ITicketPhase
     class IPriorityRule { <<interface>> }
     TicketService *-- TicketPolicySet : 保持
     TicketPolicySet o--> ITicketPhase : 生成・所有
@@ -2190,7 +2202,7 @@ classDiagram
     class TicketRepository
     class UserDatabase
     class Ticket
-    class ITicketPhase { <<interface>> }
+    class ITicketPhase
     class OpenPhase
     class InProgressPhase
     class EscalatedPhase
@@ -2207,11 +2219,11 @@ classDiagram
     TicketPolicySet o--> IPriorityRule : ルールを所有・区分で選択
     TicketRepository --> Ticket : 保存
     TicketService --> ITicketPhase : 現在状態へ操作を委譲
-    ITicketPhase <|.. OpenPhase
-    ITicketPhase <|.. InProgressPhase
-    ITicketPhase <|.. EscalatedPhase
-    ITicketPhase <|.. ResolvedPhase
-    ITicketPhase <|.. PendingPhase
+    ITicketPhase <|-- OpenPhase
+    ITicketPhase <|-- InProgressPhase
+    ITicketPhase <|-- EscalatedPhase
+    ITicketPhase <|-- ResolvedPhase
+    ITicketPhase <|-- PendingPhase
     IPriorityRule <|.. CorporatePriority
     IPriorityRule <|.. PremiumPriority
     IPriorityRule <|.. NormalPriority
@@ -2334,7 +2346,7 @@ classDiagram
     class TicketRepository
     class UserDatabase
     class Ticket
-    class ITicketPhase { <<interface>> }
+    class ITicketPhase
     class OpenPhase
     class InProgressPhase
     class EscalatedPhase
@@ -2351,11 +2363,11 @@ classDiagram
     TicketPolicySet o--> IPriorityRule : ルールを所有・区分で選択
     TicketRepository --> Ticket : 保存
     TicketService --> ITicketPhase : 現在状態へ操作を委譲
-    ITicketPhase <|.. OpenPhase
-    ITicketPhase <|.. InProgressPhase
-    ITicketPhase <|.. EscalatedPhase
-    ITicketPhase <|.. ResolvedPhase
-    ITicketPhase <|.. PendingPhase
+    ITicketPhase <|-- OpenPhase
+    ITicketPhase <|-- InProgressPhase
+    ITicketPhase <|-- EscalatedPhase
+    ITicketPhase <|-- ResolvedPhase
+    ITicketPhase <|-- PendingPhase
     IPriorityRule <|.. CorporatePriority
     IPriorityRule <|.. PremiumPriority
     IPriorityRule <|.. NormalPriority
@@ -2600,6 +2612,7 @@ public:
 
 ```cpp
 // ===== 状態分離構造：状態別の振る舞い =====
+// 共通基底が許可されない操作の既定処理を持つ。
 // 各操作は「次はどの状態か」を返す。相手のオブジェクトは持たない。
 class ITicketPhase {
 public:
@@ -3317,7 +3330,7 @@ graph LR
 | **問題** | チケット管理で「優先度ルールの変更」と「状態遷移の追加」という変わる理由が異なる2つの変化が、同じ `TicketManager` に混在している |
 | **原因** | `TicketManager` が `PriorityCalculator` と状態遷移ロジックを「クラス名と条件を呼び出し元が知る」で保持しているため、どちらの変化が来ても両方への影響確認が必要になる |
 | **課題** | 状態ごとの振る舞い（接続点A）と優先度判定ロジック（接続点B）を、それぞれ独立して差し替えられる構造に切り離すこと |
-| **解決策** | ルール差し替え構造 × 状態分離構造：`IPriorityRule`（優先度ルールの軸）と `ITicketPhase`（状態遷移の軸）の2つのインターフェースで変化軸を分離し、`TicketService` はどちらの具体クラスも知らない設計にする |
+| **解決策** | ルール差し替え構造 × 状態分離構造：純粋仮想の`IPriorityRule`（優先度ルールの軸）と、既定処理を持つ共通基底`ITicketPhase`（状態遷移の軸）で変化軸を分離し、`TicketService`はどちらの具体クラスも知らない設計にする |
 
 ### フェーズとこの章でやったこと
 
@@ -3386,10 +3399,11 @@ graph LR
 - 具体化された場所：`IPriorityRule`, `ITicketPhase`
 - 解説：統括クラスは具体的なアルゴリズムや状態を知らず、インターフェース経由で呼び出します。既存の契約に収まる優先度ルールや状態を差し替える場合、`TicketService` の委譲ロジックは保てます。新しい操作や遷移用の契約が必要になれば、インターフェースと `TicketService` も見直します。
 
-**原則3「継承よりコンポジションを優先せよ」の現れ**
+**原則3「継承よりコンポジションを優先せよ」の判断**
 
-- 具体化された場所：`TicketService` が ルール差し替え構造 と 状態分離構造 を保持する構成
-- 解説：ロジックの振る舞いを継承ではなく、保持するオブジェクトの差し替えによって実現しました。継承だけで「状態×優先度ルール」の全組み合わせを表すと、変更後の状態5種類×優先度ルール3種類で15クラスになります。状態やルールが増えるたびに組み合わせクラスも増える、二次元的な膨張が起きます。コンポジションなら、状態クラスまたはルールクラスと、`TicketPolicySet` の引き当て1行だけを変更できます。
+- 判断：`TicketService`は`TicketPolicySet`を値で持ち、集合が所有する状態5つ・優先度規則3つから、操作ごとに必要な参照を受け取る。継承だけで「状態×優先度規則」を表す15個の組み合わせクラスは作らない。
+- 実装継承を使う箇所：各Phaseは、許可されない操作の既定処理を持つ`ITicketPhase`を継承する。これは状態と優先度を組み合わせるためではなく、全状態の拒否処理を1階層で共有するためである。
+- 契約実装との区別：各優先度規則の`: public IPriorityRule`は契約実装である。状態・規則を独立して選べる理由は、`TicketPolicySet`が両方の実体を別々に所有・選択するコンポジションにある。
 
 ---
 

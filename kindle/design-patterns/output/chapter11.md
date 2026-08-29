@@ -822,6 +822,8 @@ CSV読込: 6件・合計3510・平均585
 
 > **手元で動かすには**
 > このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter11.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。`ReportRequest` の `OutputFormat::Pdf` を `OutputFormat::Excel` へ変え、出力パスを `"my_report_demo.txt"` などへ変えれば、ヘッダーの形式表記と保存先が変わった実行結果に表れます。装飾の有無を示す3つの真偽値を切り替えると、適用される装飾が増減します。**実行するとカレントディレクトリへ指定名のテキストファイルが実際に作られます。**中身はヘッダー・本文・装飾・フッターを並べたデモ用のプレビューで、PDFやExcelのファイル形式では書き出しません（形式名は文字列として出力へ現れるだけです）。CSVは実ファイルを読まず、`DataReader` が固定データで代替します。集計結果と内部診断ログはプロセス実行中だけ有効で、終了すると消えます。
+>
+> **掲載用1ファイルと実務の分割：** この1つの`.cpp`は、手元で動かすための掲載形式です。実務では、第0章「掲載ブロックと実ファイルの分け方」に従い、公開する契約・宣言を`.h`、処理本体を`.cpp`、生成・登録・注入を`main.cpp`へ置くことを基本にします。
 
 #### 仕様入力が現状コードで使われるまで
 
@@ -1392,6 +1394,8 @@ public:
 
 ### 4-2：今回変える責任/ほかの変更から守る責任
 
+> **「今回守る」と「変わらない」は異なります。** 左列は今回の変更試行とヒアリングで変更理由を確認した責任、右列はその変更に巻き込まず守りたい責任です。将来ずっと変わる／変わらないという分類ではありません。
+
 | **今回変える責任** | **ほかの変更から守る責任** |
 |---|---|
 | レポート本文の種類と内容 | 読込→ヘッダー→本文→フッターの生成順 |
@@ -1490,6 +1494,8 @@ classDiagram
 | 本文差分の分離 | 必須。変更ID1で共通順への分岐追加が観測された | 生成骨格との一接続点として残す | 課題として残す |
 | 装飾部品の分離 | 必須。変更ID2を固定分岐へ追加すると順序指定を満たせない | 本文差分と同じ文書を受け渡すが独立変化軸 | 課題として残す |
 | 操作単位と履歴の分離 | 必須。変更ID3で完全要求の再構成が複数箇所へ広がる | 生成処理を呼ぶ別の接続点として残す | 課題として残す |
+
+変更IDと課題IDは一対一とは限らないため、変更依頼の数に合わせて課題を増減させません。
 
 ### 5-3：課題IDと接続点を確定する
 
@@ -1599,18 +1605,23 @@ classDiagram
 
 これらの操作を、直後の全体経路へまとめます。
 
-#### 全体経路を決めるための確認観点
+#### 全体経路を組み立てる判断
 
-全体経路を決めるとき、次の二点を同時に確認します。
+3種類の構造を先に並べず、本文の確定時点、装飾の入力順、操作と生成物の寿命を1本の要求経路から決めます。
 
-- **契約と具体による分離**：生成本体に残す共通処理と、本文・装飾・履歴の差を持つ契約・具体をセットで決める。
-- **実体の組み立て**：実体を誰が生成・所有し、生成経路へ契約として渡してどう実行するかを一本で決める。
+| 前工程で確定した事実 | ここで決めること | 判断 | 全体経路への反映 |
+|---|---|---|---|
+| 原因ID1：読込→ヘッダー→本文→フッターの順が本文種別ごとに重複する | 共通順と本文差分をどう接続するか | 共通順を基底処理へ固定し、生成時に選んだ派生型が本文だけを埋める | 本文生成→共通順→差し替え点と結ぶ |
+| 原因ID2：装飾の種類と順序の組み合わせ分岐が増える | 入力順をどう実体へ変えるか | 直前の文書生成実体を次の装飾が所有する | 本文実体→装飾列の順に包む経路を置く |
+| 原因ID3：要求の再実行・取消に完全な要求が必要 | 何を履歴へ残すか | 生成要求と生成サービスへの接続を1操作にまとめて履歴へ渡す | 操作生成→履歴登録→同じ操作の再実行・取消とする |
+| 本文・装飾の連なりは1回の生成だけに使う | 誰が所有し、いつ破棄するか | 最外の装飾が内側を連鎖所有し、組み立て役の利用後に破棄する | 組み立て→生成→出力→破棄を同じ要求経路に置く |
+| 3軸は別々の理由で変わる | どこで交差させるか | 生成サービスが要求を組み立て役へ渡す1地点だけで接続する | 履歴→生成サービス→本文・装飾の順に一本化する |
 
 ### 全体のデータと実体の流れを先に決める
 
-最初に、生成要求を履歴へ登録し、本文を生成して装飾し、結果を返すまでの全体経路を決めます。役員向け月次レポート1件を一本で固定します。
+上の判断を順につなぎ、生成要求を履歴へ登録し、本文を生成して装飾し、結果を返すまでの全体経路を決めます。役員向け月次レポート1件を一本で固定します。表中の識別子は役割を示す設計名で、実装行は次の節で示します。
 
-| 実行順・ポイント | 掲載箇所 | 実際のコード接続 | 次の呼出先 |
+| 実行順・ポイント | 担う場所 | 経路で受け渡すもの・起きること | 次の呼出先 |
 |---|---|---|---|
 | 1. 生成 | `ReportApplication` | 組み立て役・生成サービス・履歴を作る | 実行開始へ |
 | 2. 操作を履歴へ登録して実行開始 | `ReportActionHistory::submit(IReportAction*)` | 生成済み操作を`history.submit(action);`で履歴へ渡す | `IReportAction::execute()` |
@@ -2207,11 +2218,11 @@ classDiagram
         +size() int
     }
     class ReportActionHistory
-    class IReportAction
+    class IReportAction { <<interface>> }
     class GenerateReportAction
     class ReportGenerationService
     class ReportAssembler
-    class IReport
+    class IReport { <<interface>> }
     class ReportSkeleton
     class MonthlyReport
     class ExecutiveMonthlyReport
@@ -2415,11 +2426,11 @@ classDiagram
         +size() int
     }
     class ReportActionHistory
-    class IReportAction
+    class IReportAction { <<interface>> }
     class GenerateReportAction
     class ReportGenerationService
     class ReportAssembler
-    class IReport
+    class IReport { <<interface>> }
     class ReportSkeleton
     class MonthlyReport
     class ExecutiveMonthlyReport
@@ -3815,10 +3826,11 @@ graph LR
 - 具体化された場所：`ReportAssembler` が扱う `IReport*`、`ReportActionHistory` が扱う `IReportAction*`
 - 解説：組み立て役も履歴も、包んでいるのが本文クラスなのか装飾クラスなのかを知らない。`create()` と `execute()` という契約だけを呼ぶため、装飾の数と順序が変わっても処理は同じ。
 
-**原則3「継承よりコンポジションを優先せよ」の現れ**
+**原則3「継承よりコンポジションを優先せよ」の判断**
 
-- 具体化された場所：`ReportFeature` が持つ `IReport* wrapped`
-- 解説：装飾を本文クラスの派生で表すと、本文4種×装飾の組み合わせだけクラスが要る。装飾が内側の `IReport` を**部品として保持**する形にしたので、要求の装飾列をそのまま入れ子にできる。
+- コンポジションを選ぶ箇所：`ReportFeature`が内側の`IReport`を所有し、要求の装飾列をそのまま入れ子にする。本文4種×装飾の組み合わせを派生クラスとして増やさない。
+- 実装継承を選ぶ箇所：`ReportSkeleton`は読込→ヘッダー→本文→フッターの固定順を派生本文へ継承させる。`ReportFeature`も、内側の所有とRenderer利用という一層共通の土台を具体装飾へ継承させる。どちらも機能の組み合わせを表すためではなく、限定された共通骨格を1階層で共有するためである。
+- 契約実装との区別：`ReportSkeleton`と`ReportFeature`が`IReport`を満たすことで、本文も装飾も同じ入口から呼べる。装飾を重ねられる理由は契約継承そのものではなく、内側を保持するコンポジションにある。
 
 ---
 
@@ -3911,11 +3923,11 @@ classDiagram
 classDiagram
     direction TB
     class ReportActionHistory
-    class IReportAction
+    class IReportAction { <<interface>> }
     class GenerateReportAction
     class ReportGenerationService
     class ReportAssembler
-    class IReport
+    class IReport { <<interface>> }
     class ReportSkeleton
     class ExecutiveMonthlyReport
     class ReportFeature
