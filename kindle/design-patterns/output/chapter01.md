@@ -1999,8 +1999,30 @@ public:
 **掲載箇所：`PremiumDiscount::apply(int)` と `SummerSaleDiscount::apply(int)`** ―― 上の具体で示した各施策クラスが同じ場所に持つ計算面です。式だけを対比します。
 
 ```cpp
-// PremiumDiscount::apply → total * 80 / 100
-// SummerSaleDiscount::apply → total * 95 / 100
+class PremiumDiscount : public IDiscountRule {
+public:
+    bool matches(const std::string& memberType,
+                 const CampaignContext&) const override {
+        return memberType == MemberType::Premium;
+    }
+    int apply(int total) const override {
+        return total * 80 / 100;
+    }
+    std::string name() const override { return "プレミアム割引"; }
+};
+
+class SummerSaleDiscount : public IDiscountRule {
+public:
+    bool matches(const std::string& memberType,
+                 const CampaignContext& context) const override {
+        return memberType == MemberType::Regular
+            && context.isActive(CampaignCode::SummerSale);
+    }
+    int apply(int total) const override {
+        return total * 95 / 100;
+    }
+    std::string name() const override { return "サマーセール割引"; }
+};
 ```
 
 ### 6-3：課題から完成構造までの設計トレース
