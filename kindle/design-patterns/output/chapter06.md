@@ -340,7 +340,13 @@ struct MenuItem {
     string name;      // 商品名
     int basePrice;    // 基本価格（円）
 };
+```
 
+**MenuDatabase**
+
+このブロックでは `MenuDatabase` の定義だけを確認します。
+
+```cpp
 class MenuDatabase {
 private:
     map<string, MenuItem> items;
@@ -428,6 +434,7 @@ void showOrder(MenuDatabase& db, const string& itemId,
              << " は存在しません" << endl;
         return;
     }
+
     MenuItem item = db.get(itemId);
     CustomDrink order(
         item.name, item.basePrice, milk, whip, syrup);
@@ -876,6 +883,7 @@ public:
 
     int getPrice() const {
         int total = basePrice;
+
         for (size_t i = 0; i < toppings.size(); ++i) {
             const string& t = toppings[i];
             // 変更ID1：Matcha・Chocoのために分岐を2本足した
@@ -885,11 +893,13 @@ public:
             else if (t == "Matcha") total += 60;
             else if (t == "Choco")  total += 40;
         }
+
         return total;
     }
 
     string getDescription() const {
         string desc = baseName;
+
         for (size_t i = 0; i < toppings.size(); ++i)
             desc += " + " + toppings[i];    // 変更ID2：積んだ順に取り出す
         return desc;
@@ -935,6 +945,7 @@ int main() {
     requested.push_back("Choco");
     CustomDrink unavailable("ホットコーヒー", 400);
     bool accepted = true;
+
     for (size_t i = 0; i < requested.size(); ++i) {
         // 変更ID3：注文を作る前に、呼び出し側が販売可否を調べる
         if (sale.isStopped(requested[i])) {
@@ -943,8 +954,10 @@ int main() {
             accepted = false;
             break;
         }
+
         unavailable.addTopping(requested[i]);
     }
+
     if (accepted) cout << unavailable.getDescription() << "\n";
 
     cout << "\n--- 痛みの確認: 種類名を間違えても素通りする ---\n";
@@ -952,6 +965,7 @@ int main() {
     typo.addTopping("Mlik");                // Milk のつづり違い
     cout << typo.getDescription() << "\n";
     cout << typo.getPrice() << " 円\n";
+
     return 0;
 }
 ```
@@ -1322,6 +1336,7 @@ classDiagram
             else if (t == "Matcha") total += 60;   // ← 変わる側
             else if (t == "Choco")  total += 40;   // ← 変わる側
         }
+
         return total;                              // ← 今回維持する側
     }
 ```
@@ -1423,6 +1438,7 @@ public:
     int getPrice() const override {
         return baseDrink->getPrice() + myPrice();   // ←この myPrice() が未定
     }
+
     string getDescription() const override {
         return baseDrink->getDescription()
              + " + " + myLabel();                   // ←この myLabel() も未定
@@ -1547,7 +1563,13 @@ struct ToppingSpec {
     int price;      // 追加料金（円）
     bool onSale;    // 販売可否（販売停止・在庫切れはfalse）
 };
+```
 
+**ToppingCatalog**
+
+このブロックでは `ToppingCatalog` の定義だけを確認します。
+
+```cpp
 class ToppingCatalog {
 private:
     map<string, ToppingSpec> specs;
@@ -1560,11 +1582,14 @@ public:
         specs["Choco"]        = {"Choco",  40, true};
         specs["SeasonalMint"] = {"SeasonalMint", 80, false};
     }
+
     bool exists(const string& id) const { return specs.count(id) > 0; }
     bool onSale(const string& id) const {
         auto it = specs.find(id);
+
         return it != specs.end() && it->second.onSale;
     }
+
     int priceOf(const string& id) const { return specs.at(id).price; }
     string labelOf(const string& id) const { return specs.at(id).label; }
 };
@@ -1596,6 +1621,7 @@ public:
         // 価格は自分で持たず、カタログ（保存データ）から読む
         return baseDrink->getPrice() + catalog->priceOf(toppingId);
     }
+
     string getDescription() const override {
         return baseDrink->getDescription()
              + " + " + catalog->labelOf(toppingId);
@@ -1643,6 +1669,7 @@ IDrink* OrderAssembler::wrapOne(const string& id, IDrink* base) {
     if (id == ToppingId::Whip)   return new Whip(base, &catalog);
     if (id == ToppingId::Matcha) return new Matcha(base, &catalog);
     if (id == ToppingId::Choco)  return new Choco(base, &catalog);
+
     return base;
 }
 ```
@@ -1659,26 +1686,32 @@ OrderResult OrderAssembler::assemble(const OrderRequest& req) {
         return {false, "", 0,
                 "メニューID " + req.baseItemId + " は存在しません"};
     }
+
     // 手順1：全トッピングの登録と販売可否を先に確認する
     for (const auto& toppingId : req.toppingIds) {
         if (!catalog.exists(toppingId)) {
             return {false, "", 0,
                     "トッピング " + toppingId + " は未対応です"};
         }
+
         if (!catalog.onSale(toppingId)) {
             return {false, "", 0, "トッピング " + toppingId
                     + " は販売停止または在庫切れです"};
         }
     }
+
     // 手順2：検証を通ったので、選択順に基本ドリンクへ重ねる
     MenuItem base = db.get(req.baseItemId);
     IDrink* drink = new Coffee(base.name, base.basePrice);
+
     for (const auto& toppingId : req.toppingIds) {
         drink = wrapOne(toppingId, drink);
     }
+
     OrderResult r{true, drink->getDescription(),
                   drink->getPrice(), ""};
     delete drink;
+
     return r;
 }
 ```
@@ -1693,7 +1726,13 @@ struct OrderRequest {
     string baseItemId;
     vector<string> toppingIds;
 };
+```
 
+**OrderResult**
+
+このブロックでは `OrderResult` の定義だけを確認します。
+
+```cpp
 // 注文結果（結果オブジェクト）：成功可否・注文名・金額・エラー理由
 struct OrderResult {
     bool ok;
@@ -1791,6 +1830,7 @@ classDiagram
 
 ```cpp
     IDrink* drink = new Coffee(base.name, base.basePrice);
+
     for (const auto& toppingId : req.toppingIds) {
         drink = wrapOne(toppingId, drink);   // ←ここで実装が入る
     }
@@ -1836,6 +1876,7 @@ classDiagram
 ```cpp
     CustomDrink unavailable("ホットコーヒー", 400);
     bool accepted = true;
+
     for (size_t i = 0; i < requested.size(); ++i) {
         // 変更ID3：注文を作る前に、呼び出し側が販売可否を調べる
         if (sale.isStopped(requested[i])) {
@@ -1844,6 +1885,7 @@ classDiagram
             accepted = false;
             break;
         }
+
         unavailable.addTopping(requested[i]);
     }
 ```
@@ -1890,7 +1932,13 @@ struct ToppingEntry {
     string name;
     int price;
 };
+```
 
+**DrinkWithToppings**
+
+このブロックでは `DrinkWithToppings` の定義だけを確認します。
+
+```cpp
 class DrinkWithToppings {
     string baseName;
     int basePrice;
@@ -1899,11 +1947,14 @@ public:
     void add(const ToppingEntry& topping) {
         toppings.push_back(topping);
     }
+
     int getPrice() const {
         int total = basePrice;
+
         for (size_t i = 0; i < toppings.size(); ++i) {
             total += toppings[i].price;
         }
+
         return total;
     }
 };
@@ -2165,12 +2216,17 @@ namespace ToppingId {
 1-4のまま使います。
 
 ```cpp
-
 struct MenuItem {
     string name;      // 商品名
     int basePrice;    // 基本価格（円）
 };
+```
 
+**MenuDatabase**
+
+このブロックでは `MenuDatabase` の定義だけを確認します。
+
+```cpp
 class MenuDatabase {
 private:
     map<string, MenuItem> items;
@@ -2201,14 +2257,19 @@ public:
 トッピングの表示名・追加料金・販売可否を持つ保存データです。
 
 ```cpp
-
 // トッピングの表示名・追加料金・販売可否を保持する保存データ（境界）
 struct ToppingSpec {
     string label;   // 表示名（スタッフ向け作業指示に使う）
     int price;      // 追加料金（円）
     bool onSale;    // 販売可否（販売停止・在庫切れはfalse）
 };
+```
 
+**ToppingCatalog**
+
+このブロックでは `ToppingCatalog` の定義だけを確認します。
+
+```cpp
 class ToppingCatalog {
 private:
     map<string, ToppingSpec> specs;
@@ -2221,11 +2282,14 @@ public:
         specs["Choco"]        = {"Choco",  40, true};
         specs["SeasonalMint"] = {"SeasonalMint", 80, false};
     }
+
     bool exists(const string& id) const { return specs.count(id) > 0; }
     bool onSale(const string& id) const {
         auto it = specs.find(id);
+
         return it != specs.end() && it->second.onSale;
     }
+
     int priceOf(const string& id) const { return specs.at(id).price; }
     string labelOf(const string& id) const { return specs.at(id).label; }
 };
@@ -2236,13 +2300,18 @@ public:
 **OrderRecord と OrderLog**
 
 ```cpp
-
 struct OrderRecord {
     string itemId;
     string description;  // 注文の説明（e.g. "ホットコーヒー + Milk + Syrup"）
     int totalPrice;
 };
+```
 
+**OrderLog**
+
+このブロックでは `OrderLog` の定義だけを確認します。
+
+```cpp
 // 注文ログを管理するクラス
 class OrderLog {
     vector<OrderRecord> records;
@@ -2251,12 +2320,14 @@ public:
              int totalPrice) {
         records.push_back({itemId, description, totalPrice});
     }
+
     void printAll() const {
         for (const auto& r : records) {
             cout << "[" << r.itemId << "] " << r.description
                  << " " << r.totalPrice << "円" << endl;
         }
     }
+
     int size() const { return (int)records.size(); }
 };
 ```
@@ -2266,7 +2337,6 @@ public:
 **IDrink**
 
 ```cpp
-
 // ドリンクとしてのビジネス上の責任（契約）を示すインターフェース
 class IDrink {
 public:
@@ -2332,6 +2402,7 @@ public:
         // 価格は自分で持たず、カタログ（保存データ）から読む
         return baseDrink->getPrice() + catalog->priceOf(toppingId);
     }
+
     string getDescription() const override {
         return baseDrink->getDescription()
              + " + " + catalog->labelOf(toppingId);
@@ -2354,7 +2425,13 @@ public:
     Milk(IDrink* base, const ToppingCatalog* cat)
         : ToppingWrapper(base, cat, "Milk") {}
 };
+```
 
+**Whip**
+
+このブロックでは `Whip` の定義だけを確認します。
+
+```cpp
 // 具体的なトッピング：ホイップ
 class Whip : public ToppingWrapper {
 public:
@@ -2378,13 +2455,25 @@ public:
     Syrup(IDrink* base, const ToppingCatalog* cat)
         : ToppingWrapper(base, cat, "Syrup") {}
 };
+```
 
+**Matcha**
+
+このブロックでは `Matcha` の定義だけを確認します。
+
+```cpp
 class Matcha : public ToppingWrapper {
 public:
     Matcha(IDrink* base, const ToppingCatalog* cat)
         : ToppingWrapper(base, cat, "Matcha") {}
 };
+```
 
+**Choco**
+
+このブロックでは `Choco` の定義だけを確認します。
+
+```cpp
 class Choco : public ToppingWrapper {
 public:
     Choco(IDrink* base, const ToppingCatalog* cat)
@@ -2406,7 +2495,13 @@ struct OrderRequest {
     string baseItemId;
     vector<string> toppingIds;
 };
+```
 
+**OrderResult**
+
+このブロックでは `OrderResult` の定義だけを確認します。
+
+```cpp
 // 注文結果（結果オブジェクト）：成功可否・注文名・金額・エラー理由
 struct OrderResult {
     bool ok;
@@ -2414,7 +2509,6 @@ struct OrderResult {
     int totalPrice;
     string error;
 };
-
 ```
 
 `OrderRequest` は基本ドリンクIDとトッピングの並びをデータで表し、`OrderResult` は成功可否・注文名・金額・エラー理由を返します。
@@ -2456,6 +2550,7 @@ IDrink* OrderAssembler::wrapOne(const string& id, IDrink* base) {
     if (id == ToppingId::Whip)   return new Whip(base, &catalog);
     if (id == ToppingId::Matcha) return new Matcha(base, &catalog);
     if (id == ToppingId::Choco)  return new Choco(base, &catalog);
+
     return base;
 }
 ```
@@ -2472,26 +2567,31 @@ OrderResult OrderAssembler::assemble(const OrderRequest& req) {
         return {false, "", 0,
                 "メニューID " + req.baseItemId + " は存在しません"};
     }
+
     // 手順1：全トッピングの登録と販売可否を先に確認する
     for (const auto& toppingId : req.toppingIds) {
         if (!catalog.exists(toppingId)) {
             return {false, "", 0,
                     "トッピング " + toppingId + " は未対応です"};
         }
+
         if (!catalog.onSale(toppingId)) {
             return {false, "", 0, "トッピング " + toppingId
                     + " は販売停止または在庫切れです"};
         }
     }
+
     // 手順2：検証を通ったので、選択順に基本ドリンクへ重ねる
     MenuItem base = db.get(req.baseItemId);
     IDrink* drink = new Coffee(base.name, base.basePrice);
+
     for (const auto& toppingId : req.toppingIds) {
         drink = wrapOne(toppingId, drink);
     }
 OrderResult r{true, drink->getDescription(),
               drink->getPrice(), ""};
 delete drink;
+
 return r;
 }
 ```
@@ -2551,6 +2651,7 @@ void OrderApplication::run() {
 
     for (const auto& req : requests) {
         OrderResult res = assembler.assemble(req);
+
         if (res.ok) {
             cout << res.description << " → " << res.totalPrice
                  << "円" << endl;
@@ -2600,6 +2701,7 @@ int main() {
     OrderApplication app;
     app.run();
     app.runRegressionTests();
+
     return 0;
 }
 ```

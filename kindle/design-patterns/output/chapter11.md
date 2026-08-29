@@ -357,17 +357,35 @@ enum class OutputFormat { Pdf, Excel };
 string formatName(OutputFormat format) {
     return format == OutputFormat::Pdf ? "PDF" : "Excel";
 }
+```
 
+**SalesSummary**
+
+このブロックでは `SalesSummary` の定義だけを確認します。
+
+```cpp
 struct SalesSummary {
     int count;
     long total;
     long average;
 };
+```
 
+**ReportDocument**
+
+このブロックでは `ReportDocument` の定義だけを確認します。
+
+```cpp
 struct ReportDocument {
     vector<string> parts;
 };
+```
 
+**ReportRequest**
+
+このブロックでは `ReportRequest` の定義だけを確認します。
+
+```cpp
 struct ReportRequest {
     string templateId;
     OutputFormat format;
@@ -376,7 +394,13 @@ struct ReportRequest {
     bool addWatermark;
     string outputPath;
 };
+```
 
+**ReportTemplate**
+
+このブロックでは `ReportTemplate` の定義だけを確認します。
+
+```cpp
 struct ReportTemplate {
     string name;
     vector<OutputFormat> supportedFormats;
@@ -432,9 +456,11 @@ class DataReader {
 public:
     SalesSummary readCSV() const {
         long total = 0;
+
         for (int value : sales) {
             total += value;
         }
+
         long average = sales.empty()
             ? 0
             : total / static_cast<long>(sales.size());
@@ -498,19 +524,25 @@ public:
                       const string& path,
                       OutputFormat format) const {
         ofstream output(path);
+
         if (!output) {
             return false;
         }
+
         output << "[DEMO PREVIEW] requested="
                << formatName(format) << '\n';
         for (const string& part : document.parts) {
             output << part << '\n';
         }
+
         output.close();
+
         if (!output) {
             remove(path.c_str());
+
             return false;
         }
+
         cout << "デモ成果物を保存: " << path
              << "（実" << formatName(format)
              << "ではない）" << endl;
@@ -563,6 +595,7 @@ public:
                 return true;
             }
         }
+
         return false;
     }
 };
@@ -607,14 +640,17 @@ bool ReportGenerator::generate(const ReportRequest& request,
     if (request.addGraph) {
         renderer.addGraph(document);
     }
+
     if (request.addLogo) {
         renderer.addLogo(document);
     }
+
     if (request.addWatermark) {
         renderer.addWatermark(document);
     }
 
 renderer.addFooter(document);
+
 return renderer.writePreview(
     document, request.outputPath, request.format);
 }
@@ -653,13 +689,16 @@ bool ReportApplication::generate(const ReportRequest& request) {
         cout << "エラー: 未登録テンプレート "
              << request.templateId << endl;
         debugLog.write("generate", false);
+
         return false;
     }
+
     if (!registry.supportsFormat(
             request.templateId, request.format)) {
         cout << "エラー: 未対応形式 "
              << formatName(request.format) << endl;
         debugLog.write("generate", false);
+
         return false;
     }
 
@@ -670,6 +709,7 @@ bool ReportApplication::generate(const ReportRequest& request) {
 bool success = generator.generate(
     request, reportTemplate.name);
 debugLog.write("generate", success);
+
 return success;
 }
 ```
@@ -996,7 +1036,13 @@ DataReader、SalesSummary、ReportDocument、ReportRenderingApi、DebugLogは、
 
 ```cpp
 enum class DecorationType { Graph, Logo, Watermark };
+```
 
+**ChangedReportRequest**
+
+このブロックでは `ChangedReportRequest` の定義だけを確認します。
+
+```cpp
 struct ChangedReportRequest {
     string templateId;
     OutputFormat format;
@@ -1066,6 +1112,7 @@ bool ChangedReportGenerator::execute(const ChangedReportRequest& request,
     }
 
 renderer.addFooter(document);
+
 return renderer.writePreview(
     document, request.outputPath, request.format);
 }
@@ -1085,6 +1132,7 @@ bool ChangedReportGenerator::submit(const ChangedReportRequest& request,
                                     const string& templateName) {
     // 変更ID3：受け付けた要求を履歴へ保存（再実行・取消の起点）
     acceptedRequests.push_back(request);
+
     return execute(request, templateName);
 }
 
@@ -1092,6 +1140,7 @@ bool ChangedReportGenerator::replayLast(const string& templateName) {
     if (acceptedRequests.empty()) {
         return false;
     }
+
     return execute(acceptedRequests.back(), templateName);
 }
 
@@ -1099,6 +1148,7 @@ bool ChangedReportGenerator::undoLast() {
     if (acceptedRequests.empty()) {
         return false;
     }
+
     return remove(
         acceptedRequests.back().outputPath.c_str()) == 0;
 }
@@ -1119,18 +1169,21 @@ public:
                 const string& templateName) {
         bool success = generator.submit(request, templateName);
         debugLog.write("submit", success);
+
         return success;
     }
 
     bool replayLast(const string& templateName) {
         bool success = generator.replayLast(templateName);
         debugLog.write("replay", success);
+
         return success;
     }
 
     bool undoLast() {
         bool success = generator.undoLast();
         debugLog.write("undo", success);
+
         return success;
     }
 
@@ -1317,6 +1370,7 @@ class ChangedReportGenerator {
         }
 
         renderer.addFooter(document);
+
         return renderer.writePreview(
             document, request.outputPath, request.format);
     }
@@ -1326,6 +1380,7 @@ public:
                 const string& templateName) {
         // 【問題ID3の箇所】生成本体が受付履歴の保存時点も決める
         acceptedRequests.push_back(request);
+
         return execute(request, templateName);
     }
 };
@@ -1616,6 +1671,7 @@ classDiagram
         if (type == DecorationType::Graph) {
             renderer.addGraph(document);
         }
+
         // …ロゴと透かしも同じ形（省略。詳細は3-1）…
     }
 
@@ -1716,6 +1772,7 @@ public:
     ReportDocument create() override {
         ReportDocument document = wrapped->create();  // 内側に作らせる
         renderer.addGraph(document);                  // 自分ぶんを足す
+
         return document;                              // 同じ文書を次へ返す
     }
 };
@@ -1774,6 +1831,7 @@ public:
         renderer.addHeader(document, format);
         renderBody(document, summary);
         renderer.addFooter(document);
+
         return document;
     }
 };
@@ -1822,6 +1880,7 @@ public:
         if (accepted.empty()) {
             return {false, "再実行できる要求がありません"};
         }
+
         // …再実行するテンプレートIDの1行表示（省略）…
         return accepted.back()->execute();
     }
@@ -1962,18 +2021,22 @@ class GenerateReportAction : public IReportAction {
 ```cpp
     IReport* assemble(const ReportRequest& request) {
         IReport* report = nullptr;
+
         if (request.templateId == "SALES_MONTHLY_EXECUTIVE") {
             report = new ExecutiveMonthlyReport(
                 reader, renderer, request.format);
         }
+
         // …残りのテンプレートも同じ形（省略。詳細は7-1）…
 
         for (DecorationType type : request.decorations) {
             if (type == DecorationType::Graph) {
                 report = new GraphFeature(report, renderer);
             }
+
             // …ロゴと透かしも同じ形（省略）…
         }
+
         return report;
     }
 ```
@@ -2503,24 +2566,55 @@ sequenceDiagram
 #include <vector>
 
 using namespace std;
+```
 
+**OutputFormat**
+
+このブロックでは `OutputFormat` の定義だけを確認します。
+
+```cpp
 enum class OutputFormat { Pdf, Excel };
+```
+
+**DecorationType**
+
+このブロックでは `DecorationType` の定義だけを確認します。
+
+```cpp
 enum class DecorationType { Graph, Logo, Watermark };
 
 string formatName(OutputFormat format) {
     return format == OutputFormat::Pdf ? "PDF" : "Excel";
 }
+```
 
+**SalesSummary**
+
+このブロックでは `SalesSummary` の定義だけを確認します。
+
+```cpp
 struct SalesSummary {
     int count;
     long total;
     long average;
 };
+```
 
+**ReportDocument**
+
+このブロックでは `ReportDocument` の定義だけを確認します。
+
+```cpp
 struct ReportDocument {
     vector<string> parts;
 };
+```
 
+**ReportRequest**
+
+このブロックでは `ReportRequest` の定義だけを確認します。
+
+```cpp
 struct ReportRequest {
     string templateId;
     OutputFormat format;
@@ -2544,7 +2638,13 @@ struct OperationResult {
     bool success;
     string message;
 };
+```
 
+**ReportTemplate**
+
+このブロックでは `ReportTemplate` の定義だけを確認します。
+
+```cpp
 struct ReportTemplate {
     string name;
     vector<OutputFormat> supportedFormats;
@@ -2594,9 +2694,11 @@ class DataReader {
 public:
     SalesSummary readCSV() const {
         long total = 0;
+
         for (int value : sales) {
             total += value;
         }
+
         long average = sales.empty()
             ? 0
             : total / static_cast<long>(sales.size());
@@ -2666,19 +2768,25 @@ public:
                       const string& path,
                       OutputFormat format) const {
         ofstream output(path);
+
         if (!output) {
             return false;
         }
+
         output << "[DEMO PREVIEW] requested="
                << formatName(format) << '\n';
         for (const string& part : document.parts) {
             output << part << '\n';
         }
+
         output.close();
+
         if (!output) {
             remove(path.c_str());
+
             return false;
         }
+
         cout << "デモ成果物を保存: " << path
              << "（実" << formatName(format)
              << "ではない）" << endl;
@@ -2735,6 +2843,7 @@ public:
                 return true;
             }
         }
+
         return false;
     }
 };
@@ -2754,7 +2863,13 @@ public:
     virtual ~IReport() = default;
     virtual ReportDocument create() = 0;
 };
+```
 
+**ReportSkeleton**
+
+このブロックでは `ReportSkeleton` の定義だけを確認します。
+
+```cpp
 class ReportSkeleton : public IReport {
 protected:
     DataReader& reader;
@@ -2779,6 +2894,7 @@ public:
         renderer.addHeader(document, format);
         renderBody(document, summary);
         renderer.addFooter(document);
+
         return document;
     }
 };
@@ -2908,6 +3024,7 @@ public:
     ReportDocument create() override {
         ReportDocument document = wrapped->create();
         renderer.addGraph(document);
+
         return document;
     }
 };
@@ -2926,6 +3043,7 @@ public:
     ReportDocument create() override {
         ReportDocument document = wrapped->create();
         renderer.addLogo(document);
+
         return document;
     }
 };
@@ -2944,6 +3062,7 @@ public:
     ReportDocument create() override {
         ReportDocument document = wrapped->create();
         renderer.addWatermark(document);
+
         return document;
     }
 };
@@ -2996,6 +3115,7 @@ public:
                 report = new WatermarkFeature(report, renderer);
             }
         }
+
         return report;
     }
 };
@@ -3030,6 +3150,7 @@ public:
                     "未登録テンプレート: "
                     + request.templateId};
         }
+
         if (!registry.supportsFormat(
                 request.templateId, request.format)) {
             return {false,
@@ -3058,6 +3179,7 @@ public:
                     "取消対象が存在しません: "
                     + outputPath};
         }
+
         cout << "デモ成果物を取消: "
              << outputPath << endl;
         return {true, "取消完了"};
@@ -3081,7 +3203,13 @@ public:
     virtual OperationResult undo() = 0;
     virtual const ReportRequest& request() const = 0;
 };
+```
 
+**GenerateReportAction**
+
+このブロックでは `GenerateReportAction` の定義だけを確認します。
+
+```cpp
 class GenerateReportAction : public IReportAction {
     ReportGenerationService& service;
     ReportRequest storedRequest;
@@ -3099,6 +3227,7 @@ public:
         if (result.success) {
             artifactExists = true;
         }
+
         return result;
     }
 
@@ -3107,12 +3236,14 @@ public:
             return {false,
                     "この要求が生成した成果物はありません"};
         }
+
         OperationResult result =
             service.removeArtifact(
                 storedRequest.outputPath);
         if (result.success) {
             artifactExists = false;
         }
+
         return result;
     }
 
@@ -3152,6 +3283,7 @@ public:
         if (accepted.empty()) {
             return {false, "再実行できる要求がありません"};
         }
+
         cout << "要求履歴から再実行: "
              << accepted.back()->request().templateId
              << endl;
@@ -3162,6 +3294,7 @@ public:
         if (accepted.empty()) {
             return {false, "取り消せる要求がありません"};
         }
+
         cout << "要求履歴から取消: "
              << accepted.back()->request().templateId
              << endl;
@@ -3202,18 +3335,21 @@ public:
             new GenerateReportAction(service, request);
         OperationResult result = history.submit(action);
         debugLog.write("submit", result.success);
+
         return result;
     }
 
     OperationResult replayLast() {
         OperationResult result = history.replayLast();
         debugLog.write("replay", result.success);
+
         return result;
     }
 
     OperationResult undoLast() {
         OperationResult result = history.undoLast();
         debugLog.write("undo", result.success);
+
         return result;
     }
 
@@ -3260,6 +3396,7 @@ int main() {
     scenarioA3(application);
     scenarioA4(application);
     scenarioA5(application);
+
     return 0;
 }
 ```

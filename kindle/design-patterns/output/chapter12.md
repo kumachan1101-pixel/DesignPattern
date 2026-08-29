@@ -392,7 +392,13 @@ struct ApproverInfo {
     string role;         // "manager", "director", "executive"
     int approvalLimit;   // 承認可能な申請金額上限（円）
 };
+```
 
+**ApproverDatabase**
+
+このブロックでは `ApproverDatabase` の定義だけを確認します。
+
+```cpp
 // 承認者マスターデータ
 class ApproverDatabase {
     map<string, ApproverInfo> records;
@@ -441,6 +447,7 @@ public:
         states["REQ001"] = "作成中";
         states["REQ002"] = "審査待ち";
     }
+
     bool exists(const string& id) const { return states.count(id) > 0; }
     string getState(const string& id) const { return states.at(id); }
     void saveState(const string& id, const string& s) { states[id] = s; }
@@ -462,6 +469,7 @@ public:
         targets["REQ001"] = "課長";
         targets["REQ002"] = "部長";
     }
+
     string getTarget(const string& id) const { return targets.at(id); }
     void addTarget(const string& id, const string& to) { targets[id] = to; }
 };
@@ -505,12 +513,14 @@ void WorkflowManager::process(const string& requestId,
              << " は存在しません。" << endl;
         return;
     }
+
     // 承認者IDの存在確認
     if (!approvers.exists(approverId)) {
         cout << "エラー：承認者ID " << approverId
              << " はデータベースに存在しません。" << endl;
         return;
     }
+
     // 承認権限額チェック
     if (!approvers.canApprove(approverId, amount)) {
         ApproverInfo info = approvers.get(approverId);
@@ -519,6 +529,7 @@ void WorkflowManager::process(const string& requestId,
              << info.approvalLimit << "円）を超えています。" << endl;
         return;
     }
+
     // 保存済みの現在状態を読み出す
     string current = cases.getState(requestId);
     // 現在状態 × 操作 で次状態を決める
@@ -623,6 +634,7 @@ REQ002：審査待ち → 完了
 ```cpp
     // エラー：田中 課長の上限（10万円）を超える申請
     wm.process("REQ001", "提出", 200000, "APR001");
+
     return 0;
 }
 ```
@@ -1078,11 +1090,13 @@ void WorkflowManager::process(const string& requestId,
         cout << "エラー：申請ID " << requestId << " は存在しません。" << endl;
         return;
     }
+
     if (!approvers.exists(approverId)) {
         cout << "エラー：承認者ID " << approverId
              << " はデータベースに存在しません。" << endl;
         return;
     }
+
     if (!approvers.canApprove(approverId, amount)) {
         ApproverInfo info = approvers.get(approverId);
         cout << "エラー：" << info.name << "（" << info.role
@@ -1090,6 +1104,7 @@ void WorkflowManager::process(const string& requestId,
              << info.approvalLimit << "円）を超えています。" << endl;
         return;
     }
+
     // 変更ID3：役職上限を通っても、申請元の部署別上限で再度弾く
     map<string, string>::iterator d
         = requestDepartments.find(requestId);
@@ -1100,6 +1115,7 @@ void WorkflowManager::process(const string& requestId,
              << "円）を超えています。" << endl;
         return;
     }
+
     string current = cases.getState(requestId);
     string next;
     string suffix;              // 「（課長スキップ）」など状態別の付記
@@ -1121,6 +1137,7 @@ void WorkflowManager::process(const string& requestId,
              << "」で操作「" << operation << "」はできません。" << endl;
         return;
     }
+
     cases.saveState(requestId, next);
     cout << requestId << "：" << current << " → " << next << suffix << endl;
     notify(requestId);                        // 元からある宛先通知
@@ -1150,6 +1167,7 @@ void WorkflowManager::notify(const string& requestId) {
 
 bool WorkflowManager::notifyWithResult(const string& to, const string& body) {
     cout << to << "へ通知（" << body << "）" << endl;
+
     return true;                              // 送信可否の判断もここへ入る
 }
 ```
@@ -1214,6 +1232,7 @@ REQ003：作成中 → 優先審査待ち（課長スキップ）
     cout << "---" << endl;
     // 変更ID3：役職上限は通るが、営業部の部署別上限で弾かれる
     wm.process("REQ001", "承認", 400000, "APR002");
+
     return 0;
 }
 ```
@@ -1308,6 +1327,7 @@ graph LR
 **【変わる部分（状態遷移・通知・判定が混在した if 文）】** `WorkflowManager::process()` の中で、状態×操作の分岐を並べている部分です。
 ```cpp
         string current = cases.getState(requestId);
+
         if (current == "作成中" && operation == "提出") {
             cases.saveState(requestId, "審査待ち");
             cout << requestId << "：作成中 → 審査待ち" << endl;
@@ -1317,6 +1337,7 @@ graph LR
             cout << requestId << "：審査待ち → 承認済み" << endl;
             notify(requestId);
         }
+
         if (!approvers.canApprove(approverId, amount))
             cout << "承認上限を超えています。" << endl;
 ```
@@ -1351,6 +1372,7 @@ public:
             cout << requestId << "：作成中 → 審査待ち" << endl;
             notify(requestId); // 通知先も知っている
         }
+
         // 判定ルールも、自分自身で持っている
         if (!approvers.canApprove(approverId, amount))
             cout << "承認上限を超えています。" << endl;
@@ -1572,12 +1594,14 @@ classDiagram
         // …役職上限を超えた断り（省略。詳細は3-1）…
         return;
     }
+
     // 変更ID3：役職上限を通っても、申請元の部署別上限で再度弾く
     if (d != requestDepartments.end()
         && amount > departmentLimits[d->second]) {     // ← 出て行く（課題ID3）
         // …部署上限を超えた断り（省略）…
         return;
     }
+
     string current = cases.getState(requestId);        // ← 残る（状態保存）
     string next;
     string suffix;
@@ -1587,6 +1611,7 @@ classDiagram
     } else if (current == "作成中" && operation == "緊急提出") {
         next = "優先審査待ち"; suffix = "（課長スキップ）";
     }
+
     // …残りの遷移も同じ形（省略。詳細は3-1）…
 ```
 
@@ -1701,14 +1726,18 @@ public:
                 return wm->unchanged("権限不足: この操作は課長のみ実行できます（要求者: "
                     + request.approverRole + "）");
             }
+
             if (rule->canApprove(request.amount)) {
                 return wm->transitionTo(approved, "承認されました");
             }
+
             return wm->unchanged("承認不可: " + rule->description());
         }
+
         if (event == WorkflowEvent::Reject) {
             return wm->transitionTo(rejected, "申請が却下されました");
         }
+
         return wm->unchanged("現在状態では実行できない操作です");
     }
 };
@@ -1743,6 +1772,7 @@ public:
         if (!phase) {
             return {false, "", "現在状態がありません。"};
         }
+
         return phase->handle(this, event, request);   // ←この phase が未定
     }
 ```
@@ -1758,10 +1788,12 @@ public:
         if (!next) {
             throw invalid_argument("状態にnullは設定できません。");
         }
+
         phase = next;
         cases.saveState(requestId, phase->id());   // 保存
         cout << "状態: " << phase->id() << endl;
         notifyAll(message);                        // 保存の直後に通知
+
         return {true, phase->id(), message};
     }
 ```
@@ -1929,11 +1961,14 @@ public:
     void add(IWorkflowPhase* phase) {
         phases[phase->id()] = phase;
     }
+
     IWorkflowPhase* resolve(const string& stateId) const {
         map<string, IWorkflowPhase*>::const_iterator it = phases.find(stateId);
+
         if (it == phases.end()) {
             throw invalid_argument("未登録の状態IDです: " + stateId);
         }
+
         return it->second;
     }
 };
@@ -2418,14 +2453,26 @@ namespace Channel {
     const string Email = "email";
     const string Chat  = "chat";
 }
+```
 
+**ApproverInfo**
+
+このブロックでは `ApproverInfo` の定義だけを確認します。
+
+```cpp
 // 承認者情報
 struct ApproverInfo {
     string name;         // 氏名
     string role;         // "manager", "director", "executive"
     int approvalLimit;   // 承認可能な申請金額上限（円）
 };
+```
 
+**ApproverDatabase**
+
+このブロックでは `ApproverDatabase` の定義だけを確認します。
+
+```cpp
 // 承認者マスターデータ
 class ApproverDatabase {
     map<string, ApproverInfo> records;
@@ -2486,7 +2533,6 @@ public:
 3つの変化軸それぞれの契約を定義します。
 
 ```cpp
-
 // 判定ルールの契約（変わる理由：経理ルール変更・部署別上限制度）
 class IApprovalRule {
 public:
@@ -2494,12 +2540,24 @@ public:
     virtual string description() const = 0;
     virtual ~IApprovalRule() = default;
 };
+```
 
+**NotificationTarget**
+
+このブロックでは `NotificationTarget` の定義だけを確認します。
+
+```cpp
 struct NotificationTarget {
     string recipientName; // "申請者", "課長", "部長", "決済部門"
     string channel;       // Channel::Email, Channel::Chat
 };
+```
 
+**DeliveryResult**
+
+このブロックでは `DeliveryResult` の定義だけを確認します。
+
+```cpp
 // 通知の送信結果（結果オブジェクト）：送信可否と対象チャネル
 struct DeliveryResult {
     bool success;
@@ -2519,7 +2577,13 @@ struct WorkflowResult {
     string stateId;
     string message;
 };
+```
 
+**INotificationListener**
+
+このブロックでは `INotificationListener` の定義だけを確認します。
+
+```cpp
 // 通知リスナーの契約（変わる理由：通知手段の追加）
 class INotificationListener {
 public:
@@ -2530,7 +2594,13 @@ public:
     ) = 0;
     virtual ~INotificationListener() = default;
 };
+```
 
+**WorkflowEvent**
+
+このブロックでは `WorkflowEvent` の定義だけを確認します。
+
+```cpp
 enum class WorkflowEvent {
     SubmitNormal,
     SubmitEmergency,
@@ -2538,7 +2608,13 @@ enum class WorkflowEvent {
     Reject,
     FinalApprove
 };
+```
 
+**ApprovalRequest**
+
+このブロックでは `ApprovalRequest` の定義だけを確認します。
+
+```cpp
 struct ApprovalRequest {
     int amount;
     string approverRole;   // 要求ID2：このイベントを実行する人の役職
@@ -2582,9 +2658,11 @@ public:
 
     string getState(const string& requestId) const {
         auto it = states.find(requestId);
+
         if (it == states.end()) {
             throw invalid_argument("申請IDが存在しません: " + requestId);
         }
+
         return it->second;
     }
 
@@ -2592,7 +2670,13 @@ public:
         states[requestId] = stateId;
     }
 };
+```
 
+**WorkflowPhaseResolver**
+
+このブロックでは `WorkflowPhaseResolver` の定義だけを確認します。
+
+```cpp
 // 保存された状態IDを実行用のPhaseへ解決する。Repositoryは具象を知らない。
 class WorkflowPhaseResolver {
     map<string, IWorkflowPhase*> phases;
@@ -2603,9 +2687,11 @@ public:
 
     IWorkflowPhase* resolve(const string& stateId) const {
         auto it = phases.find(stateId);
+
         if (it == phases.end()) {
             throw invalid_argument("未登録の状態IDです: " + stateId);
         }
+
         return it->second;
     }
 };
@@ -2623,33 +2709,46 @@ public:
 
     string getTarget(const string& requestId) const {
         auto it = targets.find(requestId);
+
         if (it == targets.end()) {
             return "";
         }
+
         return it->second;
     }
 };
+```
 
+**NotificationTargetResolver**
+
+このブロックでは `NotificationTargetResolver` の定義だけを確認します。
+
+```cpp
 // "宛先:channel|宛先:channel" を実行時の通知対象へ変換する。
 class NotificationTargetResolver {
 public:
     vector<NotificationTarget> resolve(const string& data) const {
         vector<NotificationTarget> result;
         size_t begin = 0;
+
         while (begin < data.size()) {
             size_t end = data.find('|', begin);
             string item = data.substr(
                 begin, end == string::npos ? string::npos : end - begin);
             size_t separator = item.find(':');
+
             if (separator != string::npos) {
                 result.push_back({
                     item.substr(0, separator),
                     item.substr(separator + 1)
                 });
             }
+
             if (end == string::npos) break;
+
             begin = end + 1;
         }
+
         return result;
     }
 };
@@ -2668,11 +2767,18 @@ public:
     bool canApprove(int amount) override {
         return amount <= limit;
     }
+
     string description() const override {
         return "課長上限" + to_string(limit) + "円";
     }
 };
+```
 
+**DirectorApprovalRule**
+
+このブロックでは `DirectorApprovalRule` の定義だけを確認します。
+
+```cpp
 class DirectorApprovalRule : public IApprovalRule {
     int limit;
 public:
@@ -2680,11 +2786,18 @@ public:
     bool canApprove(int amount) override {
         return amount <= limit;
     }
+
     string description() const override {
         return "部長上限" + to_string(limit) + "円";
     }
 };
+```
 
+**DepartmentApprovalRule**
+
+このブロックでは `DepartmentApprovalRule` の定義だけを確認します。
+
+```cpp
 // 部署別承認ルール：部署ごとに設定した上限で判定する。
 // 来期の「部署ごとに承認上限を差し替える」制度を、この1クラスの
 // 差し替えで実現する（部署ごとに別インスタンスを注入する）。
@@ -2697,6 +2810,7 @@ public:
     bool canApprove(int amount) override {
         return amount <= limit;
     }
+
     string description() const override {
         return department + "上限" + to_string(limit) + "円";
     }
@@ -2714,6 +2828,7 @@ public:
     bool supports(const string& channel) const override {
         return channel == Channel::Email;
     }
+
     DeliveryResult onStatusChanged(
         const NotificationTarget& target,
         string msg
@@ -2724,7 +2839,13 @@ public:
         return {true, Channel::Email, target.recipientName, msg};
     }
 };
+```
 
+**ChatNotifier**
+
+このブロックでは `ChatNotifier` の定義だけを確認します。
+
+```cpp
 class ChatNotifier : public INotificationListener {
     bool willFail;  // チャット基盤が不調の状況を再現する
     vector<string> inbox;  // 送れたチャットだけ蓄積する
@@ -2733,6 +2854,7 @@ public:
     bool supports(const string& channel) const override {
         return channel == Channel::Chat;
     }
+
     DeliveryResult onStatusChanged(
         const NotificationTarget& target,
         string msg
@@ -2740,27 +2862,37 @@ public:
         if (willFail) {
             return {false, Channel::Chat, target.recipientName, msg};
         }
+
         inbox.push_back(msg);
         cout << "[チャット通知 " << inbox.size() << "件目] To:"
              << target.recipientName << " / " << msg << endl;
         return {true, Channel::Chat, target.recipientName, msg};
     }
 };
+```
 
+**NotificationDeliveryLog**
+
+このブロックでは `NotificationDeliveryLog` の定義だけを確認します。
+
+```cpp
 class NotificationDeliveryLog {
     vector<DeliveryResult> records;
 public:
     void add(const DeliveryResult& result) {
         records.push_back(result);
     }
+
     int size() const {
         return static_cast<int>(records.size());
     }
+
     int failureCount() const {
         return static_cast<int>(count_if(
             records.begin(), records.end(),
             [](const DeliveryResult& r) { return !r.success; }));
     }
+
     void printFailures() const {
         for (const auto& r : records) {
             if (!r.success) {
@@ -2816,6 +2948,7 @@ public:
 
     void addListener(INotificationListener* listener) {
         if (!listener) return;
+
         if (find(listeners.begin(), listeners.end(), listener)
                 == listeners.end()) {
             listeners.push_back(listener);
@@ -2835,6 +2968,7 @@ public:
         if (!phase) {
             return {false, "", "現在状態がありません。"};
         }
+
         return phase->handle(this, event, request);
     }
 ```
@@ -2853,10 +2987,12 @@ public:
         if (!next) {
             throw invalid_argument("状態にnullは設定できません。");
         }
+
         phase = next;
         cases.saveState(requestId, phase->id());
         cout << "状態: " << phase->id() << endl;
         notifyAll(message);
+
         return {true, phase->id(), message};
     }
 
@@ -2877,6 +3013,7 @@ public:
                     DeliveryResult r =
                         listener->onStatusChanged(target, msg);
                     deliveryLog.add(r);
+
                     if (!r.success) {
                         // 状態保存は済んでおり巻き戻さない。
                         // 失敗した通知だけ記録し、他は続行する
@@ -2918,10 +3055,17 @@ public:
             return wm->transitionTo(
                 priorityPending, "緊急申請を受け付けました");
         }
+
         return wm->unchanged("現在状態では実行できない操作です");
     }
 };
+```
 
+**PendingPhase**
+
+このブロックでは `PendingPhase` の定義だけを確認します。
+
+```cpp
 class PendingPhase : public IWorkflowPhase {
 protected:
     IApprovalRule* rule;
@@ -2947,6 +3091,7 @@ public:
                     "権限不足: この操作は課長のみ実行できます（要求者: "
                     + request.approverRole + "）");
             }
+
             if (rule->canApprove(request.amount)) {
                 return wm->transitionTo(approved, "承認されました");
             } else {
@@ -2956,10 +3101,17 @@ public:
         } else if (event == WorkflowEvent::Reject) {
             return wm->transitionTo(rejected, "申請が却下されました");
         }
+
         return wm->unchanged("現在状態では実行できない操作です");
     }
 };
+```
 
+**PriorityPendingPhase**
+
+このブロックでは `PriorityPendingPhase` の定義だけを確認します。
+
+```cpp
 class PriorityPendingPhase : public PendingPhase {
 public:
     using PendingPhase::PendingPhase;
@@ -2990,6 +3142,7 @@ public:
                     "権限不足: この操作は部長のみ実行できます（要求者: "
                     + request.approverRole + "）");
             }
+
             if (rule->canApprove(request.amount)) {
                 return wm->transitionTo(
                     completed, "部長承認が完了しました");
@@ -2998,10 +3151,17 @@ public:
                     "承認不可: " + rule->description());
             }
         }
+
         return wm->unchanged("現在状態では実行できない操作です");
     }
 };
+```
 
+**RejectedPhase**
+
+このブロックでは `RejectedPhase` の定義だけを確認します。
+
+```cpp
 class RejectedPhase : public IWorkflowPhase {
 public:
     string id() const override { return "却下"; }
@@ -3013,7 +3173,13 @@ public:
         return wm->unchanged("却下後の操作は本章の要求範囲外です");
     }
 };
+```
 
+**CompletedPhase**
+
+このブロックでは `CompletedPhase` の定義だけを確認します。
+
+```cpp
 class CompletedPhase : public IWorkflowPhase {
 public:
     string id() const override { return "完了"; }
@@ -3060,12 +3226,15 @@ class BatchApplication {
                  << endl;
             return false;
         }
+
         ApproverInfo info = db.get(id);
+
         if (info.name.empty() || info.role.empty()) {
             cout << "エラー：承認者 " << id
                  << " の氏名または役職が未設定です。" << endl;
             return false;
         }
+
         return true;
     }
 
@@ -3087,17 +3256,20 @@ public:
             &directorRule, &completed, &rejected);
         DraftPhase draft(&pending, &priorityPending);
         WorkflowPhaseResolver phaseResolver;
+
         for (IWorkflowPhase* phase : vector<IWorkflowPhase*>{
                  &draft, &pending, &priorityPending,
                  &approved, &rejected, &completed}) {
             phaseResolver.add(phase);
         }
+
         WorkflowCaseRepository cases;
         NotificationTargetRepository notificationTargets;
         NotificationTargetResolver targetResolver;
         NotificationDeliveryLog deliveryLog;
         // 受入条件 行1：REQ001を作成中として登録し、通常申請を提出
         cout << "--- 行1: 通常申請書提出 ---" << endl;
+
         if (validateApprover("APR001")) {
             cases.create("REQ001", draft.id());
             notificationTargets.saveTarget(
@@ -3128,6 +3300,7 @@ public:
 ```cpp
         // 受入条件 行2：REQ002を作成中として登録し、緊急申請を提出
         cout << "--- 行2: 緊急申請書提出 ---" << endl;
+
         if (validateApprover("APR002")) {
             cases.create("REQ002", draft.id());
             notificationTargets.saveTarget(
@@ -3158,6 +3331,7 @@ public:
 ```cpp
         // 受入条件 行3：REQ003は審査待ちとして保存済み
         cout << "--- 行3: 審査待ち→課長承認操作 ---" << endl;
+
         if (validateApprover("APR001")) {
             cases.create("REQ003", pending.id());
             notificationTargets.saveTarget(
@@ -3188,6 +3362,7 @@ public:
 ```cpp
         // 受入条件 行4：REQ004は優先審査待ちとして保存済み
         cout << "--- 行4: 優先審査待ち→部長承認操作 ---" << endl;
+
         if (validateApprover("APR002")) {
             cases.create("REQ004", priorityPending.id());
             notificationTargets.saveTarget(
@@ -3219,6 +3394,7 @@ public:
 ```cpp
         // 受入条件 行5：REQ005は審査待ちとして保存済み
         cout << "--- 行5: 審査待ち→却下操作 ---" << endl;
+
         if (validateApprover("APR001")) {
             cases.create("REQ005", pending.id());
             notificationTargets.saveTarget(
@@ -3248,6 +3424,7 @@ public:
 ```cpp
         // 受入条件 行6：REQ006は承認済みとして保存済み
         cout << "--- 行6: 承認済み→部長承認操作 ---" << endl;
+
         if (validateApprover("APR002")) {
             cases.create("REQ006", approved.id());
             notificationTargets.saveTarget(
@@ -3430,6 +3607,7 @@ public:
 int main() {
     BatchApplication app;
     app.run();
+
     return 0;
 }
 ```
@@ -3714,11 +3892,25 @@ public:
     virtual ~IWorkflowPhase() = default;
     virtual void handle(WorkflowManager&, WorkflowEvent) = 0;
 };
+```
+
+**IApprovalRule**
+
+このブロックでは `IApprovalRule` の定義だけを確認します。
+
+```cpp
 class IApprovalRule {
 public:
     virtual ~IApprovalRule() = default;
     virtual bool canApprove(int amount) const = 0;   // 常に true を返すだけ
 };
+```
+
+**INotificationListener**
+
+このブロックでは `INotificationListener` の定義だけを確認します。
+
+```cpp
 class INotificationListener {
 public:
     virtual ~INotificationListener() = default;

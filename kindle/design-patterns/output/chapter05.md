@@ -382,7 +382,13 @@ struct Category {
     std::string name;  // カテゴリ名
     std::string type;  // "income"（収入）または "expense"（支出）
 };
+```
 
+**CategoryDatabase**
+
+このブロックでは `CategoryDatabase` の定義だけを確認します。
+
+```cpp
 class CategoryDatabase {
     std::map<std::string, Category> records;
 public:
@@ -392,12 +398,15 @@ public:
         records["CAT003"] = {"交通費", "expense"};
         records["CAT004"] = {"副収入", "income"};
     }
+
     bool exists(const std::string& id) const {
         return records.count(id) > 0;
     }
+
     Category get(const std::string& id) const {
         return records.at(id);
     }
+
     void save(const std::string& id, const Category& c) {
         records[id] = c;                // 実行中のカテゴリ表へ追加
     }
@@ -437,17 +446,21 @@ int ExpenseManager::addExpense(int amount, const std::string& categoryId) {
                   << "」は存在しません" << std::endl;
         return 0;
     }
+
     if (amount <= 0) {
         std::cout << "エラー：金額は1円以上を指定してください"
                   << std::endl;
         return 0;
     }
+
     Category cat = db.get(categoryId);
+
     if (cat.type != "expense") {
         std::cout << "エラー：支出カテゴリを指定してください"
                   << std::endl;
         return 0;
     }
+
     std::cout << "支出を追加しました：" << cat.name
               << " " << amount << "円" << std::endl;
     // 現状コードでは保存せず、残高へ反映する増減値を返す
@@ -489,17 +502,21 @@ int IncomeManager::addIncome(int amount, const std::string& categoryId) {
                   << "」は存在しません" << std::endl;
         return 0;
     }
+
     if (amount <= 0) {
         std::cout << "エラー：金額は1円以上を指定してください"
                   << std::endl;
         return 0;
     }
+
     Category cat = db.get(categoryId);
+
     if (cat.type != "income") {
         std::cout << "エラー：収入カテゴリを指定してください"
                   << std::endl;
         return 0;
     }
+
     std::cout << "収入を追加しました：" << cat.name
               << " " << amount << "円" << std::endl;
     // 現状コードでは保存せず、残高へ反映する増減値を返す
@@ -527,6 +544,7 @@ public:
         balance += em.addExpense(amount, categoryId);
         std::cout << "現在残高：" << balance << "円\n";
     }
+
     void onAddIncomeClick(int amount, const std::string& categoryId) {
         balance += im.addIncome(amount, categoryId);
         std::cout << "現在残高：" << balance << "円\n";
@@ -607,6 +625,7 @@ int main() {
 ```cpp
     std::cout << "--- 行4: 金額0円の収入 ---\n";
     buttons.onAddIncomeClick(0, "CAT001");      // 金額エラー
+
     return 0;
 }
 ```
@@ -953,6 +972,7 @@ public:
 
     int addExpense(int amount, const std::string& categoryId) {
         if (amount <= 0 || !db.exists(categoryId)) return 0;
+
         std::cout << "支出追加: " << amount
                   << "円 [" << categoryId << "]\n";
         return -amount;
@@ -980,6 +1000,7 @@ public:
 
     int addIncome(int amount, const std::string& categoryId) {
         if (amount <= 0 || !db.exists(categoryId)) return 0;
+
         std::cout << "収入追加: " << amount
                   << "円 [" << categoryId << "]\n";
         return amount;
@@ -1044,7 +1065,9 @@ void UIButtons::onAddExpenseClick(
         int amount, const std::string& categoryId) {
     int before = balance;
     int delta = em.addExpense(amount, categoryId);
+
     if (delta == 0) return;
+
     balance += delta;
     history.push_back({"Expense", amount, categoryId});
     std::cout << "現在残高: " << before
@@ -1055,7 +1078,9 @@ void UIButtons::onAddIncomeClick(
         int amount, const std::string& categoryId) {
     int before = balance;
     int delta = im.addIncome(amount, categoryId);
+
     if (delta == 0) return;
+
     balance += delta;
     history.push_back({"Income", amount, categoryId});
     std::cout << "現在残高: " << before
@@ -1072,8 +1097,10 @@ void UIButtons::onAddIncomeClick(
 ```cpp
 void UIButtons::undo() {
     if (history.empty()) return;
+
     HistoryItem last = history.back();
     int before = balance;
+
     if (last.type == "Expense") {
         balance += em.removeExpense(
             last.amount, last.categoryId);
@@ -1081,6 +1108,7 @@ void UIButtons::undo() {
         balance += im.removeIncome(
             last.amount, last.categoryId);
     }
+
     history.pop_back();
     redoStack.push_back(last);      // 変更ID2：やり直し用に退避
     std::cout << "Undo後残高: " << before
@@ -1101,9 +1129,11 @@ Undoで退避した操作をもう一度実行します。同じ種別分岐を�
 // 変更ID2：Undoした操作をもう一度実行する
 void UIButtons::redo() {
     if (redoStack.empty()) return;
+
     HistoryItem last = redoStack.back();
     redoStack.pop_back();
     int before = balance;
+
     if (last.type == "Expense") {           // ← 同じ種別分岐が3つ目
         balance += em.addExpense(
             last.amount, last.categoryId);
@@ -1111,6 +1141,7 @@ void UIButtons::redo() {
         balance += im.addIncome(
             last.amount, last.categoryId);
     }
+
     history.push_back(last);
     std::cout << "Redo後残高: " << before
               << " -> " << balance << "円\n";
@@ -1129,18 +1160,23 @@ void UIButtons::redo() {
 // 変更ID3：複数操作を一括実行し、途中失敗なら成功分を巻き戻す
 void UIButtons::runBatch(const std::vector<HistoryItem>& items) {
     std::vector<HistoryItem> done;
+
     for (size_t i = 0; i < items.size(); ++i) {
         const HistoryItem& it = items[i];
         int delta = 0;
+
         if (it.type == "Expense") {         // ← 同じ種別分岐が4つ目
             delta = em.addExpense(it.amount, it.categoryId);
         } else if (it.type == "Income") {
             delta = im.addIncome(it.amount, it.categoryId);
         }
+
         if (delta == 0) {
             std::cout << "一括実行が失敗したので巻き戻します\n";
+
             for (size_t k = done.size(); k > 0; --k) {
                 const HistoryItem& d = done[k - 1];
+
                 if (d.type == "Expense") {  // ← 逆操作の分岐が5つ目
                     balance += em.removeExpense(
                         d.amount, d.categoryId);
@@ -1148,15 +1184,19 @@ void UIButtons::runBatch(const std::vector<HistoryItem>& items) {
                     balance += im.removeIncome(
                         d.amount, d.categoryId);
                 }
+
                 history.pop_back();
             }
+
             std::cout << "巻き戻し後残高: " << balance << "円\n";
             return;
         }
+
         balance += delta;
         history.push_back(it);
         done.push_back(it);
     }
+
     std::cout << "一括実行後残高: " << balance << "円\n";
 }
 ```
@@ -1187,6 +1227,7 @@ int main() {
     batch.push_back({"Income", 700, "CAT001"});
     batch.push_back({"Expense", 500, "CAT999"});  // 未登録カテゴリで失敗
     buttons.runBatch(batch);
+
     return 0;
 }
 ```
@@ -1502,6 +1543,7 @@ void UIButtons::undo() {
     if (history.empty()) return;                 // ← 残る側（履歴の積替え）
     HistoryItem last = history.back();           // ← 残る側
     int before = balance;
+
     if (last.type == "Expense") {                // ← 出て行く側（種別の判定）
         balance += em.removeExpense(             // ← 出て行く側（逆操作の手順）
             last.amount, last.categoryId);
@@ -1509,6 +1551,7 @@ void UIButtons::undo() {
         balance += im.removeIncome(
             last.amount, last.categoryId);
     }
+
     history.pop_back();                          // ← 残る側
     redoStack.push_back(last);                   // ← 残る側
 }
@@ -1573,9 +1616,11 @@ public:
     bool execute() override {
         return em.addExpense(amount, categoryId);
     }
+
     bool undo() override {
         return em.removeExpense(amount, categoryId);
     }
+
     std::string describe() const override {
         return "支出登録: " + categoryId + " "
                + std::to_string(amount) + "円";
@@ -1599,6 +1644,7 @@ void UIButtons::onAddExpenseClick(
     int before = balance;
     int delta = em.addExpense(amount, categoryId);   // ← 出て行く側（実行）
     if (delta == 0) return;
+
     balance += delta;                                // ← 出て行く側（残高の保持）
     history.push_back({"Expense", amount, categoryId});
     std::cout << "現在残高: " << before
@@ -1639,16 +1685,22 @@ void UIButtons::onAddExpenseClick(
     bool execute(IAction* cmd) {
         if (!cmd->execute()) {                    // 種別を見ずに実行を頼む
             executionLog.push_back("失敗: " + cmd->describe());
+
             return false;
         }
+
         undoStack.push_back(cmd);                 // 成功したものだけ積む
         executionLog.push_back(cmd->describe());
         redoStack.clear();
+
         return true;
     }
+
     void undo() {
         if (undoStack.empty()) return;
+
         IAction* cmd = undoStack.back();
+
         if (!cmd->undo()) { /* …失敗時は履歴を変えない（省略）… */ return; }
         undoStack.pop_back();
         redoStack.push_back(cmd);
@@ -1715,9 +1767,11 @@ public:
     bool execute() override {
         return im.addIncome(amount, categoryId);
     }
+
     bool undo() override {
         return im.removeIncome(amount, categoryId);
     }
+
     std::string describe() const override {
         return "収入登録: " + categoryId + " "
                + std::to_string(amount) + "円";
@@ -1984,9 +2038,12 @@ public:
         if (!a->execute()) {
             return false;
         }
+
         done.push_back(a);
+
         return true;
     }
+
     bool undo();                    // 実装はフェーズ7を参照
 };
 ```
@@ -2131,12 +2188,24 @@ sequenceDiagram
 #include <map>
 #include <string>
 #include <vector>
+```
 
+**Category**
+
+このブロックでは `Category` の定義だけを確認します。
+
+```cpp
 struct Category {
     std::string name;  // カテゴリ名
     std::string type;  // "income"（収入）または "expense"（支出）
 };
+```
 
+**CategoryDatabase**
+
+このブロックでは `CategoryDatabase` の定義だけを確認します。
+
+```cpp
 class CategoryDatabase {
     std::map<std::string, Category> records;
 public:
@@ -2146,17 +2215,26 @@ public:
         records["CAT003"] = {"交通費", "expense"};
         records["CAT004"] = {"副収入", "income"};
     }
+
     bool exists(const std::string& id) const {
         return records.count(id) > 0;
     }
+
     Category get(const std::string& id) const {
         return records.at(id);
     }
+
     void save(const std::string& id, const Category& c) {
         records[id] = c;                // 実行中のカテゴリ表へ追加
     }
 };
+```
 
+**LedgerEntry**
+
+このブロックでは `LedgerEntry` の定義だけを確認します。
+
+```cpp
 struct LedgerEntry {
     std::string kind;
     std::string categoryName;
@@ -2178,30 +2256,41 @@ public:
     bool saveExpense(const Category& category, int amount) {
         entries.push_back({"expense", category.name, amount});
         currentBalance -= amount;
+
         return true;
     }
+
     bool saveIncome(const Category& category, int amount) {
         entries.push_back({"income", category.name, amount});
         currentBalance += amount;
+
         return true;
     }
+
     bool deleteExpense(const Category& category, int amount) {
         if (!removeLast("expense", category.name, amount)) {
             return false;
         }
+
         currentBalance += amount;
+
         return true;
     }
+
     bool deleteIncome(const Category& category, int amount) {
         if (!removeLast("income", category.name, amount)) {
             return false;
         }
+
         currentBalance -= amount;
+
         return true;
     }
+
     int balance() const {
         return currentBalance;
     }
+
     // 要求ID4：残高と突き合わせる収支記録の件数
     int recordCount() const {
         return (int)entries.size();
@@ -2212,17 +2301,26 @@ private:
                     int amount) {
         for (std::size_t i = entries.size(); i > 0; --i) {
             const LedgerEntry& entry = entries[i - 1];
+
             if (entry.kind == kind
                     && entry.categoryName == categoryName
                     && entry.amount == amount) {
                 entries.erase(entries.begin() + (i - 1));
+
                 return true;
             }
         }
+
         return false;
     }
 };
+```
 
+**BalanceViewRenderer**
+
+このブロックでは `BalanceViewRenderer` の定義だけを確認します。
+
+```cpp
 class BalanceViewRenderer {
 public:
     void showMessage(const std::string& message) {
@@ -2256,20 +2354,29 @@ public:
                                  + "」は存在しません");
             return false;
         }
+
         if (amount <= 0) {
             renderer.showMessage("エラー：金額は1円以上を指定してください");
+
             return false;
         }
+
         Category cat = db.get(categoryId);
+
         if (cat.type != "expense") {
             renderer.showMessage("エラー：支出カテゴリを指定してください");
+
             return false;
         }
+
         int before = repository.balance();
+
         if (!repository.saveExpense(cat, amount)) {
             renderer.showMessage("エラー：支出の保存に失敗しました");
+
             return false;
         }
+
         renderer.showMessage("支出を追加しました：" + cat.name
                              + " " + std::to_string(amount) + "円"
                              + "（残高 "
@@ -2277,13 +2384,17 @@ public:
                              + std::to_string(repository.balance()) + "円）");
         return true;
     }
+
     bool removeExpense(int amount, const std::string& categoryId) {
         Category cat = db.get(categoryId);
         int before = repository.balance();
+
         if (!repository.deleteExpense(cat, amount)) {
             renderer.showMessage("エラー：支出の取消に失敗しました");
+
             return false;
         }
+
         renderer.showMessage("支出を取り消しました：" + cat.name
                              + " " + std::to_string(amount) + "円"
                              + "（残高 "
@@ -2314,20 +2425,29 @@ public:
                                  + "」は存在しません");
             return false;
         }
+
         if (amount <= 0) {
             renderer.showMessage("エラー：金額は1円以上を指定してください");
+
             return false;
         }
+
         Category cat = db.get(categoryId);
+
         if (cat.type != "income") {
             renderer.showMessage("エラー：収入カテゴリを指定してください");
+
             return false;
         }
+
         int before = repository.balance();
+
         if (!repository.saveIncome(cat, amount)) {
             renderer.showMessage("エラー：収入の保存に失敗しました");
+
             return false;
         }
+
         renderer.showMessage("収入を追加しました：" + cat.name
                              + " " + std::to_string(amount) + "円"
                              + "（残高 "
@@ -2335,13 +2455,17 @@ public:
                              + std::to_string(repository.balance()) + "円）");
         return true;
     }
+
     bool removeIncome(int amount, const std::string& categoryId) {
         Category cat = db.get(categoryId);
         int before = repository.balance();
+
         if (!repository.deleteIncome(cat, amount)) {
             renderer.showMessage("エラー：収入の取消に失敗しました");
+
             return false;
         }
+
         renderer.showMessage("収入を取り消しました：" + cat.name
                              + " " + std::to_string(amount) + "円"
                              + "（残高 "
@@ -2390,15 +2514,16 @@ public:
     bool execute() override {
         return em.addExpense(amount, categoryId);
     }
+
     bool undo() override {
         return em.removeExpense(amount, categoryId);
     }
+
     std::string describe() const override {
         return "支出登録: " + categoryId + " "
                + std::to_string(amount) + "円";
     }
 };
-
 ```
 
 ```cpp
@@ -2414,15 +2539,16 @@ public:
     bool execute() override {
         return im.addIncome(amount, categoryId);
     }
+
     bool undo() override {
         return im.removeIncome(amount, categoryId);
     }
+
     std::string describe() const override {
         return "収入登録: " + categoryId + " "
                + std::to_string(amount) + "円";
     }
 };
-
 ```
 
 各操作クラスは「実行」と「取り消し」の両方を知っています。操作を増やすときは操作クラスを追加し、画面やバッチへ割り当てる組み立て箇所を変更します。`ActionHistory` の履歴管理ロジックには、操作種別ごとの分岐を増やさずに済みます。
@@ -2444,50 +2570,64 @@ public:
     bool execute(IAction* cmd) {
         if (!cmd->execute()) {
             executionLog.push_back("失敗: " + cmd->describe());
+
             return false;
         }
+
         undoStack.push_back(cmd);
         executionLog.push_back(cmd->describe());
+
         if ((int)undoStack.size() > MAX_HISTORY) {
             undoStack.pop_front();  // 最古の操作を削除する
         }
+
         redoStack.clear();
+
         return true;
     }
+
     void undo() {
         if (undoStack.empty()) return;
+
         // undo()が失敗した場合は、履歴を変えずに終わる
         IAction* cmd = undoStack.back();
+
         if (!cmd->undo()) {
             executionLog.push_back("取り消し失敗: " + cmd->describe());
             return;
         }
+
         undoStack.pop_back(); // 成功時のみUndo履歴から外す
         executionLog.push_back("取り消し: " + cmd->describe());
         redoStack.push_back(cmd);
     }
+
     void redo() {
         if (redoStack.empty()) return;
+
         // execute()が失敗した場合は、履歴を変えずに終わる
         IAction* cmd = redoStack.back();
+
         if (!cmd->execute()) {
             executionLog.push_back("再実行失敗: " + cmd->describe());
             return;
         }
+
         redoStack.pop_back(); // 成功時のみRedo履歴から外す
         executionLog.push_back("再実行: " + cmd->describe());
         undoStack.push_back(cmd);
     }
+
     void printLog() const {
         for (const auto& entry : executionLog) {
             std::cout << entry << std::endl;
         }
     }
+
     int historySize() const {
         return (int)undoStack.size();
     }
 };
-
 ```
 
 `ActionHistory` は `IAction*` として操作オブジェクトを受け取り、`undoStack`／`redoStack` で管理します。具体的な操作クラスは知りません。ここで保持する `IAction*` は**借用参照**で、操作オブジェクトの所有は生成元（`main()`）にあります。`ActionHistory` は生成も破棄もしないため、`undoStack` からあふれた操作を `delete` することはなく、`main()` の各操作オブジェクトが自身のスコープ終了時にまとめて破棄されます。Undo/Redoの実行に失敗した場合は、対象の操作を元のスタックに残す順序にしています。
@@ -2507,17 +2647,26 @@ public:
     void onAddExpenseClick(IAction* cmd) {
         history->execute(cmd);
     }
+
     void onAddIncomeClick(IAction* cmd) {
         history->execute(cmd);
     }
+
     void onUndoClick() {
         history->undo();
     }
+
     void onRedoClick() {
         history->redo();
     }
 };
+```
 
+**ImportService**
+
+このブロックでは `ImportService` の定義だけを確認します。
+
+```cpp
 // 一括インポートからの操作を受け取り、Historyに委譲するだけ
 class ImportService {
     ActionHistory* history;
@@ -2526,6 +2675,7 @@ public:
     void importTransactions(
             std::vector<IAction*> cmds) {
         int succeeded = 0;
+
         for (IAction* cmd : cmds) {
             if (!history->execute(cmd)) {
                 rollback(succeeded);
@@ -2533,12 +2683,15 @@ public:
                           << std::endl;
                 return;
             }
+
             succeeded++;
         }
+
         std::cout << succeeded << "件インポート完了"
                   << "（履歴: " << history->historySize()
                   << "件）" << std::endl;
     }
+
     void rollback(int count) {
         for (int i = 0; i < count; i++) history->undo();
         std::cout << count << "件ロールバック完了"
@@ -2754,6 +2907,7 @@ Undo失敗後の残高: -1000円（変化なし: はい）
 ```cpp
     std::cout << "\n--- 操作履歴 ---\n";
     hist.printLog();
+
     return 0;
 }
 ```
@@ -3038,7 +3192,6 @@ sequenceDiagram
 void onButtonClick() {
     manager.simpleAction(); // これだけで十分な場合もあります
 }
-
 ```
 
 ### この章のまとめ

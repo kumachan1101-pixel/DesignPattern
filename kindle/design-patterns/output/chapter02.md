@@ -439,9 +439,11 @@ public:
         owners["ACC002"] = "佐藤 花子";
         owners["ACC003"] = "鈴木 次郎";
     }
+
     bool exists(const std::string& id) const {
         return owners.count(id) > 0;
     }
+
     std::string ownerName(const std::string& id) const {
         return owners.at(id);
     }
@@ -476,12 +478,14 @@ public:
         balances["ACC002"] =  30000;
         balances["ACC003"] = 500000;
     }
+
     bool verifyAccount(const std::string& id) {
         bool ok = balances.count(id) > 0;
         std::cout << "口座確認: " << id
                   << (ok ? " OK" : " NG") << "\n";
         return ok;
     }
+
     bool checkBalance(const std::string& from, int amount) {
         auto account = balances.find(from);
         bool ok = account != balances.end() && account->second >= amount;
@@ -491,6 +495,7 @@ public:
                   << (ok ? "OK" : "NG") << "\n";
         return ok;
     }
+
     void executeTransfer(const std::string& from,
                          const std::string& to, int amount) {
         balances[from] -= amount;
@@ -500,6 +505,7 @@ public:
                   << to << " +" << amount
                   << "→" << balances[to] << "円\n";
     }
+
     int balanceOf(const std::string& id) const {
         return balances.at(id);
     }
@@ -544,6 +550,13 @@ struct TransferRecord {
     std::string toName;
     int amount;
 };
+```
+
+**TransferHistory**
+
+このブロックでは `TransferHistory` の定義だけを確認します。
+
+```cpp
 class TransferHistory {
 private:
     std::vector<TransferRecord> records;
@@ -552,6 +565,7 @@ public:
              const std::string& toName, int amount) {
         records.push_back({fromName, toName, amount});
     }
+
     void printAll() const {
         for (const auto& r : records)
             std::cout << r.fromName << " → " << r.toName
@@ -604,19 +618,27 @@ public:
 bool TransferProcessor::validateAccountsAndBalance(
         const std::string& from, const std::string& to, int amount) {
     bool sourceAtBank = bank.verifyAccount(from);
+
     if (!db.exists(from) || !sourceAtBank) {
         std::cout << "エラー: 送金元口座なし\n";
+
         return false;
     }
+
     bool destinationAtBank = bank.verifyAccount(to);
+
     if (!db.exists(to) || !destinationAtBank) {
         std::cout << "エラー: 送金先口座なし\n";
+
         return false;
     }
+
     if (!bank.checkBalance(from, amount)) {
         std::cout << "エラー: 残高不足\n";
+
         return false;
     }
+
     return true;
 }
 ```
@@ -637,14 +659,19 @@ bool TransferProcessor::transfer(const std::string& from,
                                  const std::string& to,
                                  int amount, const std::string& otp) {
     if (!validateAccountsAndBalance(from, to, amount)) return false;
+
     auth.promptOTP();
+
     if (!auth.verifyOTP(otp)) {
         std::cout << "エラー: 認証失敗\n";
+
         return false;
     }
+
     bank.executeTransfer(from, to, amount);
     history.add(db.ownerName(from), db.ownerName(to), amount);
     std::cout << "振り込み完了\n";
+
     return true;
 }
 ```
@@ -665,9 +692,11 @@ bool TransferProcessor::transferApprovedBatch(const std::string& from,
                                               const std::string& to,
                                               int amount) {
     if (!validateAccountsAndBalance(from, to, amount)) return false;
+
     bank.executeTransfer(from, to, amount);
     history.add(db.ownerName(from), db.ownerName(to), amount);
     std::cout << "振り込み完了（OTP不要）\n";
+
     return true;
 }
 ```
@@ -813,6 +842,7 @@ int main() {
     std::cout << "ACC003: " << bank.balanceOf("ACC003") << "円\n";
     std::cout << "--- 振り込み履歴 ---\n";
     history.printAll();
+
     return 0;
 }
 ```
@@ -1135,6 +1165,7 @@ bool transfer(const std::string& from, const std::string& to,
     // 検証時に取引IDを渡す必要がある
     if (!auth.verifyOTP(otp, txId)) {
         std::cout << "エラー: 認証失敗\n";
+
         return false;
     }
 
@@ -1142,6 +1173,7 @@ bool transfer(const std::string& from, const std::string& to,
     bank.executeTransfer(from, to, amount, txId);
 
     std::cout << "振り込み完了\n";
+
     return true;
 }
 ```
@@ -1161,23 +1193,36 @@ ACC001からACC002へ50,000円を送る代表ケースを通します。**見る
 struct Auth {
     std::string requestOTP() {
         std::cout << "OTP発行 → 取引ID取得\n";
+
         return "TX-9001";
     }
+
     bool verifyOTP(const std::string& otp, const std::string& txId) {
         std::cout << "OTP検証（txId=" << txId << "）\n";
+
         return otp == "999999";  // 仮決めの正しいコードと照合
     }
 };
+```
 
+**Bank**
+
+このブロックでは `Bank` の定義だけを確認します。
+
+```cpp
 struct Bank {
     bool verifyAccount(const std::string& id) {
         std::cout << "口座確認: " << id << "\n";
+
         return id == "ACC001" || id == "ACC002";
     }
+
     bool checkBalance(const std::string& from, int amount) {
         std::cout << "残高確認: " << from << " " << amount << "円\n";
+
         return from == "ACC001" && amount <= 150000;
     }
+
     void executeTransfer(const std::string& from,
                          const std::string& to, int amount,
                          const std::string& txId) {
@@ -1189,12 +1234,17 @@ struct Bank {
 int main() {
     Auth auth;
     Bank bank;
+
     if (!bank.verifyAccount("ACC002")) return 1;
     if (!bank.checkBalance("ACC001", 50000)) return 1;
+
     std::string txId = auth.requestOTP();
+
     if (!auth.verifyOTP("999999", txId)) return 1;
+
     bank.executeTransfer("ACC001", "ACC002", 50000, txId);
     std::cout << "振り込み完了\n";
+
     return 0;
 }
 ```
@@ -1237,6 +1287,13 @@ OTP検証（txId=TX-9001）
 ```cpp
 // 一括振込の1件分
 struct BatchItem { std::string to; int amount; };
+```
+
+**HistoryLine**
+
+このブロックでは `HistoryLine` の定義だけを確認します。
+
+```cpp
 // 変更ID3：履歴へ残す1行（取り消しも記録する）
 struct HistoryLine { std::string kind; std::string to; int amount; };
 
@@ -1244,6 +1301,7 @@ struct HistoryLine { std::string kind; std::string to; int amount; };
     std::string batchTxId = "TX-9002";
     std::vector<BatchItem> done;
     bool aborted = false;
+
     for (size_t i = 0; i < items.size(); ++i) {
         if (!bank.verifyAccount(items[i].to)) {
             std::cout << "エラー: 口座 " << items[i].to
@@ -1251,14 +1309,17 @@ struct HistoryLine { std::string kind; std::string to; int amount; };
             aborted = true;
             break;
         }
+
         bank.executeTransfer("ACC001", items[i].to,
                              items[i].amount, batchTxId);
         history.push_back({"送金", items[i].to, items[i].amount});
         done.push_back(items[i]);
     }
+
     if (aborted) {
         // 変更ID3：完了済みを逆順で取り消し、取り消しも履歴へ残す
         std::cout << "一括振込を中止し、完了分を逆順で取り消します\n";
+
         for (size_t k = done.size(); k > 0; --k) {
             const BatchItem& d = done[k - 1];
             bank.cancelTransfer("ACC001", d.to, d.amount, batchTxId);
@@ -1373,25 +1434,34 @@ graph LR
                   int amount, const std::string& otp) {
         if (!db.exists(from)) {                  // 守る側：自社台帳の検証
             std::cout << "エラー: 送金元口座なし\n";
+
             return false;
         }
+
         if (!bank.verifyAccount(to)) {           // 変わる側：銀行APIの口座確認
             std::cout << "エラー: 送金先口座なし\n";
+
             return false;
         }
+
         if (!bank.checkBalance(from, amount)) {  // 変わる側：銀行APIの残高確認
             std::cout << "エラー: 残高不足\n";
+
             return false;
         }
+
         auth.promptOTP();                       // 変わる側：voidの入力受付コマンド
         if (!auth.verifyOTP(otp)) {              // 変わる側：認証検証
             std::cout << "エラー: 認証失敗\n";
+
             return false;
         }
+
         bank.executeTransfer(from, to, amount);  // 変わる側：送金API
         history.add(db.ownerName(from),          // 守る側：履歴の記録
                     db.ownerName(to), amount);
         std::cout << "振り込み完了\n";            // 守る側：依頼への結果報告
+
         return true;
     }
 ```
@@ -1421,6 +1491,7 @@ public:
         auth.promptOTP();                                  // 手順3：voidの認証コード受付
         if (!auth.verifyOTP(otp)) return false;             // 手順4：認証検証
         bank.executeTransfer(from, to, amount);  // 手順5：送金実行
+
         return true;
     }
 };
@@ -1634,25 +1705,34 @@ classDiagram
                   int amount, const std::string& otp) {
         if (!db.exists(from)) {                  // 守る側：自社台帳の検証
             std::cout << "エラー: 送金元口座なし\n";
+
             return false;
         }
+
         if (!bank.verifyAccount(to)) {           // ← 出て行く側
             std::cout << "エラー: 送金先口座なし\n";
+
             return false;
         }
+
         if (!bank.checkBalance(from, amount)) {  // ← 出て行く側
             std::cout << "エラー: 残高不足\n";
+
             return false;
         }
+
         auth.promptOTP();                        // ← 出て行く側
         if (!auth.verifyOTP(otp)) {              // ← 出て行く側
             std::cout << "エラー: 認証失敗\n";
+
             return false;
         }
+
         bank.executeTransfer(from, to, amount);  // ← 出て行く側
         history.add(db.ownerName(from),          // 守る側：履歴の記録
                     db.ownerName(to), amount);
         std::cout << "振り込み完了\n";            // 残る側（結果を返す）
+
         return true;
     }
 ```
@@ -1681,6 +1761,13 @@ struct TransferRequest {
     int amount;
     std::string otp;
 };
+```
+
+**TransferResult**
+
+このブロックでは `TransferResult` の定義だけを確認します。
+
+```cpp
 struct TransferResult {
     bool success;
     std::string message;
@@ -1836,8 +1923,10 @@ TransferResult BankTransferService::performTransfer(
     if (!auth.verifyOTP(txId, req.otp)) {           // 手順4：認証検証
         return {false, "認証に失敗しました"};
     }
+
     bank.executeTransfer(req.fromAccount, req.toAccount, req.amount);
     history.record(req.fromAccount, req.toAccount, req.amount);
+
     return {true, ""};                              // 手順5：送金と記録
 }
 ```
@@ -2079,7 +2168,13 @@ struct TransferRequest {
     int amount;                // 金額
     std::string otp;           // 認証コード
 };
+```
 
+**TransferResult**
+
+このブロックでは `TransferResult` の定義だけを確認します。
+
+```cpp
 struct TransferResult {
     bool success;              // 成否
     std::string message;       // 完了、または失敗理由
@@ -2246,7 +2341,13 @@ sequenceDiagram
 #include <map>
 #include <string>
 #include <vector>
+```
 
+**AccountDatabase**
+
+このブロックでは `AccountDatabase` の定義だけを確認します。
+
+```cpp
 // 自社台帳：口座の名義を保持する（残高は持たない）
 class AccountDatabase {
 private:
@@ -2257,14 +2358,22 @@ public:
         owners["ACC002"] = "佐藤 花子";
         owners["ACC003"] = "鈴木 次郎";
     }
+
     bool exists(const std::string& id) const {
         return owners.count(id) > 0;
     }
+
     std::string ownerName(const std::string& id) const {
         return owners.at(id);
     }
 };
+```
 
+**Bank**
+
+このブロックでは `Bank` の定義だけを確認します。
+
+```cpp
 // 外部銀行サブシステム：残高を保持し、実際に送金する
 class Bank {
 private:
@@ -2275,12 +2384,14 @@ public:
         balances["ACC002"] =  30000;
         balances["ACC003"] = 500000;
     }
+
     bool verifyAccount(const std::string& id) {
         bool ok = balances.count(id) > 0;
         std::cout << "口座確認: " << id
                   << (ok ? " OK" : " NG") << "\n";
         return ok;
     }
+
     bool checkBalance(const std::string& from, int amount) {
         auto account = balances.find(from);
         bool ok = account != balances.end() && account->second >= amount;
@@ -2290,6 +2401,7 @@ public:
                   << (ok ? "OK" : "NG") << "\n";
         return ok;
     }
+
     void executeTransfer(const std::string& from,
                          const std::string& to, int amount,
                          const std::string& txId) {
@@ -2301,6 +2413,7 @@ public:
                   << to << " +" << amount
                   << "→" << balances[to] << "円\n";
     }
+
     void reverseTransfer(const std::string& from,
                          const std::string& to, int amount,
                          const std::string& txId) {
@@ -2312,6 +2425,7 @@ public:
                   << from << " +" << amount
                   << "→" << balances[from] << "円\n";
     }
+
     int balanceOf(const std::string& id) const {
         return balances.at(id);
     }
@@ -2336,8 +2450,10 @@ public:
         std::string txId = "TX-" + std::to_string(++seq);
         issued[txId] = "999999";  // 本来は利用者端末へ送る。ここは仮決め
         std::cout << "認証コード発行: txId=" << txId << "\n";
+
         return txId;
     }
+
     bool verifyOTP(const std::string& otp, const std::string& txId) {
         bool ok = issued.count(txId) && issued.at(txId) == otp;
         std::cout << "認証コード検証(txId=" << txId << "): "
@@ -2359,6 +2475,13 @@ struct TransferRecord {
     std::string toName;
     int amount;
 };
+```
+
+**TransferHistory**
+
+このブロックでは `TransferHistory` の定義だけを確認します。
+
+```cpp
 class TransferHistory {
 private:
     std::vector<TransferRecord> records;
@@ -2367,6 +2490,7 @@ public:
              const std::string& toName, int amount) {
         records.push_back({fromName, toName, amount});
     }
+
     void printAll() const {
         for (const auto& r : records)
             std::cout << r.fromName << " → " << r.toName
@@ -2389,11 +2513,24 @@ struct TransferRequest {
     int amount;
     std::string otp;
 };
+```
+
+**TransferResult**
+
+このブロックでは `TransferResult` の定義だけを確認します。
+
+```cpp
 struct TransferResult {
     bool success;
     std::string message;
 };
+```
 
+**IBankTransferService**
+
+このブロックでは `IBankTransferService` の定義だけを確認します。
+
+```cpp
 // 窓口の契約
 class IBankTransferService {
 public:
@@ -2429,10 +2566,12 @@ private:
             const std::string& to,
             int amount) {
         bool sourceAtBank = bank.verifyAccount(from);
+
         if (!db.exists(from) || !sourceAtBank)
             return {false, "送金元口座なし"};
 
         bool destinationAtBank = bank.verifyAccount(to);
+
         if (!db.exists(to) || !destinationAtBank)
             return {false, "送金先口座なし"};
 
@@ -2450,7 +2589,9 @@ public:
         TransferResult validation = validateAccountsAndBalance(
             req.fromAccount, req.toAccount, req.amount);
         if (!validation.success) return validation;
+
         std::string txId = auth.requestOTP();
+
         if (!auth.verifyOTP(req.otp, txId))
             return {false, "認証失敗"};
         bank.executeTransfer(req.fromAccount, req.toAccount,
@@ -2466,8 +2607,10 @@ public:
         TransferResult validation =
             validateAccountsAndBalance(from, to, amount);
         if (!validation.success) return validation;
+
         bank.executeTransfer(from, to, amount, "APPROVED-BATCH");
         history.add(db.ownerName(from), db.ownerName(to), amount);
+
         return {true, "振り込み完了"};
     }
 
@@ -2501,7 +2644,13 @@ public:
                                 : "エラー: " + r.message + "\n");
     }
 };
+```
 
+**BatchTransferProcessor**
+
+このブロックでは `BatchTransferProcessor` の定義だけを確認します。
+
+```cpp
 class BatchTransferProcessor {
 private:
     IBankTransferService& service;
@@ -2513,6 +2662,7 @@ public:
             const std::vector<std::pair<std::string, int>>&
                 payrollEntries) {
         std::vector<std::pair<std::string, int>> completedEntries;
+
         for (const auto& entry : payrollEntries) {
             const std::string& destinationAccount = entry.first;
             int paymentAmount = entry.second;
@@ -2700,6 +2850,7 @@ public:
 int main() {
     Application app;
     app.run();
+
     return 0;
 }
 ```
@@ -2975,6 +3126,7 @@ bool performTransferSteps(Bank& bank, SecurityAuthenticator& auth,
     auth.promptOTP();                                    // 手順3
     if (!auth.verifyOTP(otp))             return false;  // 手順4
     bank.executeTransfer(from, to, amount);              // 手順5
+
     return true;
 }
 ```

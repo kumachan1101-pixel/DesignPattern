@@ -435,13 +435,25 @@ enum class UserType {
     Standard,
     Premium
 };
+```
 
+**Priority**
+
+このブロックでは `Priority` の定義だけを確認します。
+
+```cpp
 // 優先度。この章で追う2値。
 enum class Priority {
     Normal,
     High
 };
+```
 
+**TicketStatus**
+
+このブロックでは `TicketStatus` の定義だけを確認します。
+
+```cpp
 // 現在状態。文字列のタイプミスを防ぐため、取り得る値を列挙する。
 enum class TicketStatus {
     Open,
@@ -463,6 +475,7 @@ string statusName(TicketStatus status) {
     case TicketStatus::Escalated:  return "Escalated";
     case TicketStatus::Resolved:   return "Resolved";
     }
+
     return "Unknown";
 }
 ```
@@ -479,7 +492,13 @@ struct UserInfo {
     string name;       // 氏名
     UserType userType; // 契約区分
 };
+```
 
+**UserDatabase**
+
+このブロックでは `UserDatabase` の定義だけを確認します。
+
+```cpp
 // ユーザーデータベース
 class UserDatabase {
     map<string, UserInfo> records;
@@ -489,9 +508,11 @@ public:
         records["USR002"] = {"佐藤 花子", UserType::Premium};
         records["USR003"] = {"鈴木 次郎", UserType::Standard};
     }
+
     bool exists(const string& id) const {
         return records.count(id) > 0;
     }
+
     UserInfo get(const string& id) const {
         return records.at(id);
     }
@@ -516,6 +537,7 @@ public:
         if (userType == UserType::Premium) {
             return Priority::High; // ← ルール判定を直書き
         }
+
         return Priority::Normal;
     }
 };
@@ -552,6 +574,7 @@ public:
     bool exists(const string& id) const {
         return store.count(id) > 0;
     }
+
     Ticket& get(const string& id) { return store.at(id); }
     void save(const Ticket& t) { store[t.id] = t; }
 };
@@ -595,6 +618,7 @@ void TicketManager::create(const string& ticketId, const string& userId) {
              << " は存在しません。" << endl;
         return;
     }
+
     UserInfo requester = db.get(userId);
     UserType userType = requester.userType;
     Priority priority = calc.calculate(userType); // 優先度を判定
@@ -626,6 +650,7 @@ void TicketManager::updateStatus(const string& ticketId, const string& op,
     Ticket& t = repo.get(ticketId);
     TicketStatus before = t.status;
     bool changed = false;
+
     switch (t.status) {
     case TicketStatus::Open:
         if (op == "assign") {
@@ -633,6 +658,7 @@ void TicketManager::updateStatus(const string& ticketId, const string& op,
             t.assigneeId = assigneeId;
             changed = true;
         }
+
         break;
     case TicketStatus::InProgress:
         if (op == "resolve") {
@@ -644,6 +670,7 @@ void TicketManager::updateStatus(const string& ticketId, const string& op,
             t.priority = Priority::High;
             changed = true;
         }
+
         break;
     case TicketStatus::Escalated:
         if (op == "resolve") {
@@ -653,6 +680,7 @@ void TicketManager::updateStatus(const string& ticketId, const string& op,
             t.status = TicketStatus::InProgress;
             changed = true;
         }
+
         break;
     case TicketStatus::Resolved:
         if (op == "reopen") {
@@ -661,14 +689,17 @@ void TicketManager::updateStatus(const string& ticketId, const string& op,
             t.priority = calc.calculate(db.get(t.userId).userType);
             changed = true;
         }
+
         break;
     }
+
     if (!changed) {
         cout << "[" << ticketId << "] 操作不可: 状態 "
              << statusName(t.status)
              << " で " << op << " はできません。" << endl;
         return;
     }
+
     repo.save(t);                                // 変更後を保存
     cout << "[" << ticketId << "] " << op << ": 状態 "
          << statusName(before) << " → " << statusName(t.status)
@@ -1069,7 +1100,13 @@ enum class UserType {
     Premium,
     Corporate
 };
+```
 
+**TicketStatus**
+
+このブロックでは `TicketStatus` の定義だけを確認します。
+
+```cpp
 // 1-4の列挙型へ、変更要求の保留中を追加する
 enum class TicketStatus {
     Open,
@@ -1087,6 +1124,7 @@ string statusName(TicketStatus status) {
     case TicketStatus::Resolved:   return "Resolved";
     case TicketStatus::Pending:    return "Pending";
     }
+
     return "Unknown";
 }
 ```
@@ -1108,9 +1146,11 @@ public:
         records["USR003"] = {"鈴木 次郎", UserType::Standard};
         records["USR004"] = {"伊藤 四郎", UserType::Corporate};
     }
+
     bool exists(const string& id) const {
         return records.count(id) > 0;
     }
+
     UserInfo get(const string& id) const {
         return records.at(id);
     }
@@ -1131,9 +1171,11 @@ public:
         if (userType == UserType::Premium) {
             return Priority::High;
         }
+
         if (userType == UserType::Corporate) { // ← 追加
             return Priority::High;
         }
+
         return Priority::Normal;
     }
 };
@@ -1151,6 +1193,7 @@ void TicketManager::updateStatus(const string& ticketId, const string& op,
     Ticket& t = repo.get(ticketId);
     TicketStatus before = t.status;
     bool changed = false;
+
     switch (t.status) {
     case TicketStatus::Open:
         if (op == "assign") {
@@ -1161,6 +1204,7 @@ void TicketManager::updateStatus(const string& ticketId, const string& op,
             t.status = TicketStatus::Pending;
             changed = true;
         }
+
         break;
     case TicketStatus::InProgress:
         if (op == "resolve") {
@@ -1174,6 +1218,7 @@ void TicketManager::updateStatus(const string& ticketId, const string& op,
             t.status = TicketStatus::Pending;
             changed = true;
         }
+
         break;
     case TicketStatus::Escalated:
         if (op == "resolve") {
@@ -1183,6 +1228,7 @@ void TicketManager::updateStatus(const string& ticketId, const string& op,
             t.status = TicketStatus::InProgress;
             changed = true;
         }
+
         break;
     case TicketStatus::Resolved:
     case TicketStatus::Pending:                   // ← 追加
@@ -1191,14 +1237,17 @@ void TicketManager::updateStatus(const string& ticketId, const string& op,
             t.priority = calc.calculate(db.get(t.userId).userType);
             changed = true;
         }
+
         break;
     }
+
     if (!changed) {
         cout << "[" << ticketId << "] 操作不可: 状態 "
              << statusName(t.status)
              << " で " << op << " はできません。" << endl;
         return;
     }
+
     repo.save(t);
     cout << "[" << ticketId << "] " << op << ": 状態 "
          << statusName(before) << " → " << statusName(t.status)
@@ -1567,6 +1616,7 @@ classDiagram
                 t.status = TicketStatus::Pending;      //    と遷移先
                 changed = true;
             }
+
             break;
 ```
 
@@ -1601,7 +1651,13 @@ struct Transition {
     bool allowed;
     TicketStatus next;   // allowed が false のときは使わない
 };
+```
 
+**ITicketPhase**
+
+このブロックでは `ITicketPhase` の定義だけを確認します。
+
+```cpp
 class ITicketPhase {
 public:
     virtual ~ITicketPhase() = default;
@@ -1633,6 +1689,7 @@ public:
     Transition assign() const override {
         return {true, TicketStatus::InProgress};
     }
+
     Transition hold() const override {
         return {true, TicketStatus::Pending};
     }
@@ -1656,9 +1713,11 @@ public:
         if (userType == UserType::Premium) {
             return Priority::High;
         }
+
         if (userType == UserType::Corporate) { // ← 追加
             return Priority::High;
         }
+
         return Priority::Normal;
     }
 ```
@@ -1759,6 +1818,7 @@ void TicketService::assign(const string& ticketId,
 
     const ITicketPhase& phase = phaseFor(t.status);  // ←この phaseFor が未定
     Transition tr = phase.assign();
+
     if (!tr.allowed) return;
 
     t.status = tr.next;
@@ -1837,6 +1897,7 @@ public:
     Transition resolve() const override {
         return {true, TicketStatus::Resolved};
     }
+
     Transition sendBack() const override {
         return {true, TicketStatus::InProgress};
     }
@@ -1960,6 +2021,7 @@ public:
         case TicketStatus::Pending:    return pendingPhase;
         case TicketStatus::Open:       break;
         }
+
         return openPhase;
     }
 
@@ -1967,9 +2029,11 @@ public:
         if (type == UserType::Corporate) {
             return corporate;
         }
+
         if (type == UserType::Premium) {
             return premium;
         }
+
         return normal;
     }
 };
@@ -2368,8 +2432,21 @@ using namespace std;
 ```cpp
 // ===== 1-4から継続する型。CorporateとPendingだけが今回の追加 =====
 enum class UserType { Standard, Premium, Corporate };
-enum class Priority { Normal, High };
+```
 
+**Priority**
+
+このブロックでは `Priority` の定義だけを確認します。
+
+```cpp
+enum class Priority { Normal, High };
+```
+
+**TicketStatus**
+
+このブロックでは `TicketStatus` の定義だけを確認します。
+
+```cpp
 enum class TicketStatus {
     Open,
     InProgress,
@@ -2386,6 +2463,7 @@ string statusName(TicketStatus status) {
     case TicketStatus::Resolved:   return "Resolved";
     case TicketStatus::Pending:    return "Pending";
     }
+
     return "Unknown";
 }
 
@@ -2433,7 +2511,13 @@ struct UserInfo {
     string name;        // 氏名
     UserType userType;  // ユーザー種別（契約区分）
 };
+```
 
+**UserDatabase**
+
+このブロックでは `UserDatabase` の定義だけを確認します。
+
+```cpp
 class UserDatabase {
     map<string, UserInfo> records;
 
@@ -2482,12 +2566,24 @@ class CorporatePriority : public IPriorityRule {  // 法人向けSLA
 public:
     Priority getPriority() override { return Priority::High; }
 };
+```
 
+**PremiumPriority**
+
+このブロックでは `PremiumPriority` の定義だけを確認します。
+
+```cpp
 class PremiumPriority : public IPriorityRule {    // プレミアム向け
 public:
     Priority getPriority() override { return Priority::High; }
 };
+```
 
+**NormalPriority**
+
+このブロックでは `NormalPriority` の定義だけを確認します。
+
+```cpp
 class NormalPriority : public IPriorityRule {     // 一般向け
 public:
     Priority getPriority() override { return Priority::Normal; }
@@ -2545,6 +2641,7 @@ public:
     Transition assign() const override {
         return {true, TicketStatus::InProgress};
     }
+
     Transition hold() const override {
         return {true, TicketStatus::Pending};
     }
@@ -2563,9 +2660,11 @@ public:
     Transition resolve() const override {
         return {true, TicketStatus::Resolved};
     }
+
     Transition escalate() const override {
         return {true, TicketStatus::Escalated};
     }
+
     Transition hold() const override {
         return {true, TicketStatus::Pending};
     }
@@ -2584,6 +2683,7 @@ public:
     Transition resolve() const override {
         return {true, TicketStatus::Resolved};
     }
+
     Transition sendBack() const override {
         return {true, TicketStatus::InProgress};
     }
@@ -2603,7 +2703,13 @@ public:
         return {true, TicketStatus::Open};
     }
 };
+```
 
+**PendingPhase**
+
+このブロックでは `PendingPhase` の定義だけを確認します。
+
+```cpp
 class PendingPhase : public ITicketPhase {        // 保留中
 public:
     Transition reopen() const override {
@@ -2627,7 +2733,13 @@ struct Ticket {
     Priority priority;    // 保存された優先度（引き継がれる）
     string assigneeId;    // 担当者ID（未割当は空）
 };
+```
 
+**TicketRepository**
+
+このブロックでは `TicketRepository` の定義だけを確認します。
+
+```cpp
 class TicketRepository {
     map<string, Ticket> store;
 
@@ -2673,6 +2785,7 @@ public:
         case TicketStatus::Pending:    return pendingPhase;
         case TicketStatus::Open:       break;
         }
+
         return openPhase;
     }
 
@@ -2680,9 +2793,11 @@ public:
         if (type == UserType::Corporate) {
             return corporate;
         }
+
         if (type == UserType::Premium) {
             return premium;
         }
+
         return normal;
     }
 };
@@ -2773,6 +2888,7 @@ void TicketService::assign(const string& ticketId,
     Ticket& t = repo.get(ticketId);
     string before = statusName(t.status);
     Transition tr = policies.phaseFor(t.status).assign();
+
     if (!tr.allowed) return;
 
     t.status = tr.next;
@@ -2858,6 +2974,7 @@ void TicketService::escalate(const string& ticketId) {
 
     Ticket& t = repo.get(ticketId);
     Transition tr = policies.phaseFor(t.status).escalate();
+
     if (!tr.allowed) return;
 
     string before = statusName(t.status);
@@ -2890,6 +3007,7 @@ void TicketService::reopen(const string& ticketId) {
 
     Ticket& t = repo.get(ticketId);
     Transition tr = policies.phaseFor(t.status).reopen();
+
     if (!tr.allowed) return;
 
     string before = statusName(t.status);
@@ -2921,6 +3039,7 @@ void TicketService::sendBack(const string& ticketId) {
 
     Ticket& t = repo.get(ticketId);
     Transition tr = policies.phaseFor(t.status).sendBack();
+
     if (!tr.allowed) return;
 
     string before = statusName(t.status);
@@ -3080,6 +3199,7 @@ int main() {
     svc.reopen("TCK003");           // InProgress からは再受付できない
     cout << "--- エラー3 ---" << endl;
     svc.assign("TCK999", "AGT01");  // 保存されていないチケット
+
     return 0;
 }
 ```
@@ -3407,11 +3527,24 @@ public:
     virtual ~IPriorityRule() = default;
     virtual string getPriority() = 0;
 };
+```
+
+**SinglePriority**
+
+このブロックでは `SinglePriority` の定義だけを確認します。
+
+```cpp
 class SinglePriority : public IPriorityRule { // ← 実装クラスが1つだけ
 public:
     string getPriority() override { return "Normal"; }
 };
+```
 
+**ISimpleState**
+
+このブロックでは `ISimpleState` の定義だけを確認します。
+
+```cpp
 // ── State側（状態2種類のみなのにインターフェースを定義）
 class ISimpleState {
 public:
@@ -3426,6 +3559,13 @@ class OpenState : public ISimpleState {  // ← 状態クラスが2つだけ
 public:
     void handle() override { cout << "Open" << endl; }
 };
+```
+
+**ClosedState**
+
+このブロックでは `ClosedState` の定義だけを確認します。
+
+```cpp
 class ClosedState : public ISimpleState {
 public:
     void handle() override { cout << "Closed" << endl; }

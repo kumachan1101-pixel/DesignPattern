@@ -420,7 +420,13 @@ using namespace std;
 ```cpp
 // パース済みの売上1行（商品ID・商品名・金額）
 struct SalesRow { string id; string name; long amount; };
+```
 
+**ImportResult**
+
+このブロックでは `ImportResult` の定義だけを確認します。
+
+```cpp
 // インポート1回分の結果（void をやめ、件数を返す）
 struct ImportResult { string schemaName; int saved; int skipped; };
 ```
@@ -435,7 +441,9 @@ struct ImportResult { string schemaName; int saved; int skipped; };
 // 1行を区切り文字で分割する小さなヘルパー
 static vector<string> splitLine(const string& line, char delim) {
     vector<string> cols; string cur; istringstream iss(line);
+
     while (getline(iss, cur, delim)) cols.push_back(cur);
+
     return cols;
 }
 ```
@@ -468,7 +476,13 @@ static void showImportedData(const vector<SalesRow>& rows) {
 ```cpp
 // インポートスキーマ（タイプごとの必須カラム定義）
 struct ImportSchema { string name; vector<string> requiredColumns; };
+```
 
+**SchemaRegistry**
+
+このブロックでは `SchemaRegistry` の定義だけを確認します。
+
+```cpp
 // インポートスキーマの登録・参照を担うクラス
 class SchemaRegistry {
     map<string, ImportSchema> schemas;
@@ -477,6 +491,7 @@ public:
         schemas["store"] = {"直営店データ", {"id", "name", "amount"}};
         schemas["fc"]    = {"FC店データ",   {"id", "name", "amount"}};
     }
+
     bool exists(const string& type) const { return schemas.count(type) > 0; }
     ImportSchema get(const string& type) const { return schemas.at(type); }
 };
@@ -506,23 +521,29 @@ public:
                 "9001,欠損"
             }}
         };
+
         return files.at(name);
     }
 private:
     static vector<string> makeStoreNormal() {
         vector<string> lines = {"商品ID,商品名,金額"};
+
         for (int i = 1; i <= 10; ++i) {
             lines.push_back("100" + to_string(i)
                 + ",商品" + to_string(i) + ",3000");
         }
+
         return lines;
     }
+
     static vector<string> makeFcNormal() {
         vector<string> lines;
+
         for (int i = 1; i <= 5; ++i) {
             lines.push_back("200" + to_string(i)
                 + "\t商品" + to_string(i) + "\t5200");
         }
+
         return lines;
     }
 };
@@ -572,11 +593,14 @@ ImportResult StoreDataImporter::import() {
     // (2) パース：1行目をヘッダーとして飛ばし、カンマで分割する（べた書き）
     vector<SalesRow> rows;
     int skipped = 0;
+
     for (size_t i = 1; i < rawLines.size(); ++i) {
         vector<string> c = splitLine(rawLines[i], ',');
+
         if (c.size() < 3) { ++skipped; continue; }
         rows.push_back({c[0], c[1], stol(c[2])});
     }
+
     cout << "カンマ区切りで" << rows.size() << "件を読み込み、"
          << skipped << "件をスキップ\n";
 
@@ -636,11 +660,14 @@ ImportResult FCDataImporter::import() {
     // (2) パース：先頭行からタブで分割し、割れない行はスキップ（べた書き）
     vector<SalesRow> rows;
     int skipped = 0;
+
     for (size_t i = 0; i < rawLines.size(); ++i) {
         vector<string> c = splitLine(rawLines[i], '\t');
+
         if (c.size() < 3) { ++skipped; continue; }
         rows.push_back({c[0], c[1], stol(c[2])});
     }
+
     cout << "タブ区切りで" << rows.size() << "件を読み込み、"
          << skipped << "件をスキップ\n";
 
@@ -674,9 +701,11 @@ int main() {
     SchemaRegistry registry;
 
     string type1 = "store";
+
     if (!registry.exists(type1)) {
         cout << "[エラー] 未登録のインポートタイプ: " << type1 << "\n"; return 1;
     }
+
     ImportSchema schema1 = registry.get(type1);
     cout << "--- 行1: " << schema1.name << "（必須列"
          << schema1.requiredColumns.size() << "）---\n";
@@ -704,9 +733,11 @@ int main() {
 
 ```cpp
     string type2 = "fc";
+
     if (!registry.exists(type2)) {
         cout << "[エラー] 未登録のインポートタイプ: " << type2 << "\n"; return 1;
     }
+
     ImportSchema schema2 = registry.get(type2);
     cout << "--- 行2: " << schema2.name << "（必須列"
          << schema2.requiredColumns.size() << "）---\n";
@@ -737,6 +768,7 @@ FC店データ インポート成功: 5件更新
     StoreDataImporter storeEmpty(SampleFileStore::get("store-empty"));
     ImportResult r3 = storeEmpty.import();
     cout << "インポート成功: " << r3.saved << "件追加";
+
     if (r3.skipped > 0) cout << "、エラー" << r3.skipped << "件";
     cout << "\n";
 ```
@@ -763,6 +795,7 @@ FC店データ インポート成功: 5件更新
     FCDataImporter fcInvalid(SampleFileStore::get("fc-invalid"));
     ImportResult r4 = fcInvalid.import();
     cout << "インポート成功: " << r4.saved << "件更新";
+
     if (r4.skipped > 0) cout << "、エラー" << r4.skipped << "件";
     cout << "\n";
 ```
@@ -787,16 +820,19 @@ FC店CSVを開く
     StoreDataImporter storeMixed(SampleFileStore::get("store-mixed"));
     ImportResult r5 = storeMixed.import();
     cout << "インポート成功: " << r5.saved << "件追加";
+
     if (r5.skipped > 0) cout << "、エラー" << r5.skipped << "件";
     cout << "\n";
 
     // タイプ "online" は未登録 → エラーで中断
     string unknownType = "online";
+
     if (!registry.exists(unknownType)) {
         cout << "[エラー] 未登録のインポートタイプ: "
              << unknownType << " — 処理を中断します\n";
         return 1;
     }
+
     return 0;
 }
 ```
@@ -1109,16 +1145,20 @@ public:
 
         // (2) パース：カンマ区切り＋会員ランク・ポイント列（EC固有）
         vector<SalesRow> rows; int skipped = 0;
+
         for (size_t i = 1; i < rawLines.size(); ++i) {
             vector<string> c = splitLine(rawLines[i], ',');
+
             if (c.size() < 5) { ++skipped; continue; }   // ランク/ポイント列が不足
             rows.push_back({c[0], c[1], stol(c[2])});
         }
+
         cout << "カンマ区切りで会員ランク・ポイント列まで解析（有効"
              << rows.size() << "件・スキップ" << skipped << "件）\n";
 
         // (2') EC固有：ポイント付与量を計算
         long pointBonus = 0;
+
         for (auto& r : rows) pointBonus += r.amount / 100;
         cout << "ポイントボーナスを計算（合計" << pointBonus << "pt）\n";
 
@@ -1147,6 +1187,7 @@ EC店の正常8件と不正2件を通します。**見るのは動くかどう�
 ```cpp
 int main() {
     vector<string> ecLines = {"id,name,amount,rank,points"};
+
     for (int i = 1; i <= 10; ++i) {
         if (i == 4 || i == 9)   // 2件は列不足（不正行）
             ecLines.push_back("E00" + to_string(i)
@@ -1155,9 +1196,11 @@ int main() {
             ecLines.push_back("E00" + to_string(i) + ",商品"
                 + to_string(i) + ",3000,gold,50");
     }
+
     ECDataImporter importer(ecLines);
     ImportResult r = importer.import();
     cout << "インポート成功: " << r.saved << "件追加、スキップ" << r.skipped << "件\n";
+
     return 0;
 }
 ```
@@ -1197,8 +1240,10 @@ static const char* SUPPORTED_VERSION = "#version=2";
         // 変更ID2：開いた直後の形式バージョン確認（1クラス目のコピー）
         if (rawLines.empty() || rawLines[0] != SUPPORTED_VERSION) {
             cout << "対応していない形式バージョンです\n";
+
             return {"直営店データ", 0, 0};
         }
+
         cout << "形式バージョン確認: OK\n";
 ```
 
@@ -1213,8 +1258,10 @@ static const char* SUPPORTED_VERSION = "#version=2";
         // 変更ID2：開いた直後の形式バージョン確認（2クラス目のコピー）
         if (rawLines.empty() || rawLines[0] != SUPPORTED_VERSION) {
             cout << "対応していない形式バージョンです\n";
+
             return {"FC店データ", 0, 0};
         }
+
         cout << "形式バージョン確認: OK\n";
 ```
 
@@ -1229,8 +1276,10 @@ static const char* SUPPORTED_VERSION = "#version=2";
         // 変更ID2：開いた直後の形式バージョン確認（3クラス目のコピー）
         if (rawLines.empty() || rawLines[0] != SUPPORTED_VERSION) {
             cout << "対応していない形式バージョンです\n";
+
             return {"EC店データ", 0, 0};
         }
+
         cout << "形式バージョン確認: OK\n";
 ```
 
@@ -1281,6 +1330,7 @@ int main() {
     StoreDataImporterV2 old(oldLines);
     ImportResult ro = old.import();
     cout << "インポート成功: " << ro.saved << "件追加\n";
+
     return 0;
 }
 ```
@@ -1594,15 +1644,19 @@ classDiagram
     ImportResult import() {
         cout << "EC店CSVを開く\n";                  // ← 今回維持する側（順序）
         vector<SalesRow> rows; int skipped = 0;
+
         for (size_t i = 1; i < rawLines.size(); ++i) {
             vector<string> c = splitLine(rawLines[i], ',');
+
             if (c.size() < 5) { ++skipped; continue; }   // ← 変わる側（EC固有の列数）
             rows.push_back({c[0], c[1], stol(c[2])});    // ← 変わる側（EC固有の解析）
         }
+
         long pointBonus = 0;                        // ← 変わる側（EC固有の計算）
         for (auto& r : rows) pointBonus += r.amount / 100;
         cout << rows.size() << "件をDBへ追加\n";     // ← 今回維持する側（順序）
         cout << "ファイルを閉じる\n";                 // ← 今回維持する側（順序）
+
         return {"EC店データ", (int)rows.size(), skipped};
     }
 ```
@@ -1648,6 +1702,7 @@ classDiagram
             SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
             out.push_back({r, ok});
         }
+
         return out;
     }
 ```
@@ -1711,6 +1766,7 @@ ImportResult AbstractImporter::import() {
     afterParse(v.validRows);                          // ←契約の確認で決めた差し替え点
     int saved = repo.save(v.validRows);               // ←この repo も未定
     gateway.close();
+
     return { schemaType(), schemaName(), saved, v.skipped, true };
 }
 ```
@@ -1772,15 +1828,19 @@ protected:
             SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
             out.push_back({r, ok});
         }
+
         return out;
     }
+
     ValidationResult validateRows(const vector<ParsedRow>& parsed) override {
         ValidationResult v{{}, 0, {}};
+
         for (auto& p : parsed)
             if (p.wellFormed) v.validRows.push_back(p.row);
             else ++v.skipped;
         return v;
     }
+
     void afterParse(const vector<SalesRow>& rows) override {
         long bonus = 0;                              // EC固有：ポイント付与
         for (size_t i = 0; i < rows.size(); ++i) bonus += rows[i].amount / 100;
@@ -1859,7 +1919,13 @@ public:
     void checkFormatVersion();
     void close();
 };
+```
 
+**SalesImportRepository**
+
+このブロックでは `SalesImportRepository` の定義だけを確認します。
+
+```cpp
 // 保存境界：1-4と同じ件数表示のまま
 class SalesImportRepository {
 public:
@@ -1910,6 +1976,7 @@ public:
         ImportResult r = store.import();
         report(r);
     }
+
     // runFCImport / runECImport も同じ形
 };
 ```
@@ -2220,10 +2287,18 @@ namespace SchemaType {
 // 1行を区切り文字で分割する小さなヘルパー
 static vector<string> splitLine(const string& line, char delim) {
     vector<string> cols; string cur; istringstream iss(line);
+
     while (getline(iss, cur, delim)) cols.push_back(cur);
+
     return cols;
 }
+```
 
+**SalesRow**
+
+このブロックでは `SalesRow` の定義だけを確認します。
+
+```cpp
 // ---- ドメインデータ型（void をやめ、実データを受け渡す）----
 struct SalesRow { string id; string name; long amount; };
 static void showImportedData(const vector<SalesRow>& rows) {
@@ -2233,7 +2308,21 @@ static void showImportedData(const vector<SalesRow>& rows) {
              << " " << first.amount << "円\n";
     }
 }
+```
+
+**ParsedRow**
+
+このブロックでは `ParsedRow` の定義だけを確認します。
+
+```cpp
 struct ParsedRow { SalesRow row; bool wellFormed; };
+```
+
+**ValidationResult**
+
+このブロックでは `ValidationResult` の定義だけを確認します。
+
+```cpp
 struct ValidationResult {
     vector<SalesRow> validRows;
     int skipped;
@@ -2256,9 +2345,22 @@ struct ImportResult {
     bool success;
     vector<string> reasons;   // 保存できなかった行の理由
 };
+```
 
+**ImportSchema**
+
+このブロックでは `ImportSchema` の定義だけを確認します。
+
+```cpp
 // ---- スキーマ ----
 struct ImportSchema { string name; vector<string> requiredColumns; };
+```
+
+**SchemaRegistry**
+
+このブロックでは `SchemaRegistry` の定義だけを確認します。
+
+```cpp
 class SchemaRegistry {
     map<string, ImportSchema> schemas;
 public:
@@ -2268,6 +2370,7 @@ public:
         schemas[SchemaType::Ec]    = {"EC店データ",
             {"id","name","amount","memberRank","point"}};
     }
+
     bool exists(const string& t) const { return schemas.count(t) > 0; }
     ImportSchema get(const string& t) const { return schemas.at(t); }
 };
@@ -2290,26 +2393,39 @@ class ImportFileGateway {
 public:
     void prepareSample(const string& path, const string& content) {
         vector<string> lines; string line; istringstream iss(content);
+
         while (getline(iss, line)) {
             if (!line.empty() && line.back() == '\r') line.pop_back();
             if (!line.empty()) lines.push_back(line);
         }
+
         store[path] = lines;
     }
+
     vector<string> open(const string& path) {
         cout << "ファイルをオープンしました。\n";
+
         return store.count(path) ? store[path] : vector<string>{};
     }
+
     void close() { cout << "ファイルをクローズしました。\n"; }
     string checkFormatVersion() {
         cout << "[全共通] 形式バージョンを確認しました。\n"; return "v1";
     }
 };
+```
+
+**SalesImportRepository**
+
+このブロックでは `SalesImportRepository` の定義だけを確認します。
+
+```cpp
 class SalesImportRepository {
 public:
     int save(const vector<SalesRow>& rows) {
         cout << "DBへ" << rows.size() << "件を保存しました。\n";
         showImportedData(rows);
+
         return (int)rows.size();
     }
 };
@@ -2344,8 +2460,10 @@ public:
             gateway.close();                                // (7) 閉じるだけは必ず通る
             ImportResult ng = { schemaType(), schemaName(), 0, 0, false, {} };
             ng.reasons.push_back("形式バージョン不一致");
+
             return ng;
         }
+
         vector<ParsedRow> parsed = parseData(lines);        // (3) 形式ごとのパース
         ValidationResult v = validateRows(parsed);          // (4) 形式ごとの行検証
         afterParse(v.validRows);                            // (5) 任意フック（EC店のみ）
@@ -2354,6 +2472,7 @@ public:
         ImportResult ok = { schemaType(), schemaName(),
                             saved, v.skipped, true, {} };
         ok.reasons = v.reasons;                             //     失敗理由を結果へ載せる
+
         return ok;
     }
 protected:
@@ -2365,7 +2484,6 @@ protected:
     virtual ValidationResult validateRows(const vector<ParsedRow>& parsed) = 0;
     virtual void afterParse(const vector<SalesRow>&) {}     // 既定は何もしない任意フック
 };
-
 ```
 
 `import()` が処理の順序を一か所に集約し、各ステップの戻り値（読み込んだ行・パース結果・検証結果・保存件数）を次のステップへ受け渡します。全形式で必要な `parseData()`（`vector<ParsedRow>` を返す）と `validateRows()`（`ValidationResult` を返す）は純粋仮想関数とし、形式によって要否が異なるパース後処理は `afterParse()` という任意フックにしています。全体の流れが基底クラスで固定され、サブクラスは必要な手順（ステップ）の中身だけを埋めれば済みます。
@@ -2388,26 +2506,30 @@ protected:
     vector<ParsedRow> parseData(const vector<string>& lines) override {
         cout << "[直営店] ヘッダー行をスキップし、カンマ区切りで解析します。\n";
         vector<ParsedRow> out;
+
         for (size_t i = 1; i < lines.size(); ++i) {          // 1行目=ヘッダー
             vector<string> c = splitLine(lines[i], ',');
             bool ok = (c.size() >= 3);
             SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
             out.push_back({r, ok});
         }
+
         return out;
     }
+
     ValidationResult validateRows(const vector<ParsedRow>& parsed) override {
         ValidationResult v{{}, 0, {}};
+
         for (auto& p : parsed) {
             if (p.wellFormed) v.validRows.push_back(p.row);
             else { ++v.skipped; v.reasons.push_back("必須列不足"); }
         }
+
         cout << "[直営店] 必須列を検証しました（有効" << v.validRows.size()
              << "件 / スキップ" << v.skipped << "件）。\n";
         return v;
     }
 };
-
 ```
 
 `StoreDataImporter`は直営店CSVの解析と行検証だけを担当し、共通の取込順は持ちません。次はFC店固有の差分です。
@@ -2417,7 +2539,6 @@ protected:
 **FCDataImporter**
 
 ```cpp
-
 // ---- FC店（タブ区切り・ヘッダーなし・不正行スキップ）----
 class FCDataImporter : public AbstractImporter {
 public:
@@ -2429,26 +2550,30 @@ protected:
     vector<ParsedRow> parseData(const vector<string>& lines) override {
         cout << "[FC店] 先頭行からタブ区切りで解析します。\n";
         vector<ParsedRow> out;
+
         for (size_t i = 0; i < lines.size(); ++i) {          // ヘッダーなし
             vector<string> c = splitLine(lines[i], '\t');
             bool ok = (c.size() >= 3);
             SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
             out.push_back({r, ok});
         }
+
         return out;
     }
+
     ValidationResult validateRows(const vector<ParsedRow>& parsed) override {
         ValidationResult v{{}, 0, {}};
+
         for (auto& p : parsed) {
             if (p.wellFormed) v.validRows.push_back(p.row);
             else { ++v.skipped; v.reasons.push_back("タブ分割不可"); }
         }
+
         cout << "[FC店] 不正行を検証しました（有効" << v.validRows.size()
              << "件 / スキップ" << v.skipped << "件）。\n";
         return v;
     }
 };
-
 ```
 
 `FCDataImporter` はタブ区切りと不正行判定を閉じ込めます。**`StoreDataImporter` と並べて見比べてください。開く・保存する・閉じるはどちらにも書かれていません。** 1-4では両方の `import()` へべた書きされていた4段が、基底クラスへ移りました。
@@ -2460,7 +2585,6 @@ protected:
 回帰確認用に、骨格もパースも変えず、読む先と期待バージョンだけを差し替えたサブクラスです。
 
 ```cpp
-
 // ---- 回帰確認用（骨格もパースも変えず、読む先と期待バージョンだけ差し替える）----
 class StoreEmptyImporter : public StoreDataImporter {   // 空ファイル
 public:
@@ -2468,12 +2592,26 @@ public:
 protected:
     string filePath() const override { return "store_empty.csv"; }
 };
+```
+
+**FCBrokenImporter**
+
+このブロックでは `FCBrokenImporter` の定義だけを確認します。
+
+```cpp
 class FCBrokenImporter : public FCDataImporter {        // 全行タブ分割不可
 public:
     using FCDataImporter::FCDataImporter;
 protected:
     string filePath() const override { return "fc_broken.csv"; }
 };
+```
+
+**StoreV2Importer**
+
+このブロックでは `StoreV2Importer` の定義だけを確認します。
+
+```cpp
 class StoreV2Importer : public StoreDataImporter {      // 形式バージョン不一致
 public:
     using StoreDataImporter::StoreDataImporter;
@@ -2505,6 +2643,7 @@ protected:
     vector<ParsedRow> parseData(const vector<string>& lines) override {
         cout << "[EC店] カンマ区切りで会員ランク・ポイント列まで解析します。\n";
         vector<ParsedRow> out;
+
         for (size_t i = 1; i < lines.size(); ++i) {          // 1行目=ヘッダー
             vector<string> c = splitLine(lines[i], ',');
             // id,name,amount,rank,point
@@ -2512,18 +2651,23 @@ protected:
             SalesRow r = ok ? SalesRow{c[0], c[1], stol(c[2])} : SalesRow{};
             out.push_back({r, ok});
         }
+
         return out;
     }
+
     ValidationResult validateRows(const vector<ParsedRow>& parsed) override {
         ValidationResult v{{}, 0, {}};
+
         for (auto& p : parsed) {
             if (p.wellFormed) v.validRows.push_back(p.row);
             else { ++v.skipped; v.reasons.push_back("EC必須列(ランク/ポイント)不足"); }
         }
+
         cout << "[EC店] 不正行を検証しました（有効" << v.validRows.size()
              << "件 / スキップ" << v.skipped << "件）。\n";
         return v;
     }
+
     void afterParse(const vector<SalesRow>& rows) override {
         for (auto& r : rows) pointBonus += r.amount / 100;   // ポイント付与量
         cout << "[EC店] ポイントボーナスを計算しました（" << rows.size()
@@ -2555,27 +2699,33 @@ public:
         StoreDataImporter store(gateway, repo);
         results.push_back(store.import());
     }
+
     void runFCImport() {
         gateway.prepareSample("fc_sales.csv", fcCsv());
         FCDataImporter fc(gateway, repo);
         results.push_back(fc.import());
     }
+
     void runECImport() {
         gateway.prepareSample("ec_sales.csv", ecCsv());
         ECDataImporter ec(gateway, repo);
         results.push_back(ec.import());
     }
+
     void printMainResults() {
         cout << "\n--- インポート結果ログ ---\n";
+
         for (auto& r : results) printResult(r);
         reportUnknown("online");   // 未登録タイプはエラーで中断
     }
+
     void runEmptyRegression() {
         cout << "\n--- 回帰1: 直営店 空ファイル ---\n";
         gateway.prepareSample("store_empty.csv", "商品ID,商品名,金額\n");
         StoreEmptyImporter empty(gateway, repo);
         printResult(empty.import());
     }
+
     void runBrokenRegression() {
         cout << "\n--- 回帰2: FC店 全行不正 ---\n";
         gateway.prepareSample("fc_broken.csv",
@@ -2583,6 +2733,7 @@ public:
         FCBrokenImporter broken(gateway, repo);
         printResult(broken.import());
     }
+
     void runVersionRegression() {
         cout << "\n--- 回帰3: 形式バージョン不一致 ---\n";
         gateway.prepareSample("store_v2.csv", storeCsv());
@@ -2601,11 +2752,14 @@ public:
 private:
     void printResult(const ImportResult& r) {
         if (!registry.exists(r.schemaType)) return;
+
         ImportSchema schema = registry.get(r.schemaType);
+
         if (schema.name != r.schemaName) {
             cout << "[エラー] スキーマ表示名が一致しません\n";
             return;
         }
+
         cout << "[" << r.schemaType << "] " << r.schemaName
              << "（必須列" << schema.requiredColumns.size() << "）"
              << " 保存" << r.saved << "件 / スキップ" << r.skipped << "件 -> "
@@ -2613,25 +2767,32 @@ private:
         for (size_t i = 0; i < r.reasons.size(); ++i)   // 要求ID4：理由も出す
             cout << "    理由" << (i + 1) << ": " << r.reasons[i] << "\n";
     }
+
     void reportUnknown(const string& type) {
         if (!registry.exists(type))
             cout << "[エラー] 未登録のインポートタイプ: " << type << " — 処理を中断します\n";
     }
+
     // サンプルCSVの中身（直営店=10件、FC店=5件、EC店=10件中2件不正）
     string storeCsv() {                       // 1-4と同じデータ
         string s = "商品ID,商品名,金額\n";
+
         for (int i = 1; i <= 10; ++i)
             s += "100" + to_string(i) + ",商品" + to_string(i) + ",3000\n";
         return s;
     }
+
     string fcCsv() {
         string s;
+
         for (int i = 1; i <= 5; ++i)
             s += "F00" + to_string(i) + "\t商品" + to_string(i) + "\t2000\n";
         return s;
     }
+
     string ecCsv() {
         string s = "id,name,amount,rank,points\n";
+
         for (int i = 1; i <= 10; ++i) {
             if (i == 4 || i == 9)   // 2件は列不足（不正行）
                 s += "E00" + to_string(i) + ",商品" + to_string(i) + ",3000\n";
@@ -2639,6 +2800,7 @@ private:
                 s += "E00" + to_string(i) + ",商品"
                     + to_string(i) + ",3000,gold,50\n";
         }
+
         return s;
     }
 };
@@ -2796,6 +2958,7 @@ DBへ0件を保存しました。
 
 ```cpp
     app.runVersionRegression();
+
     return 0;
 }
 ```
@@ -2967,7 +3130,7 @@ graph LR
 
 **原則3「継承よりコンポジションを優先せよ」の現れ**
 
-- 具体化された場所：テンプレートメソッドによる継承階層
+- 具体化された場所：テンプレートメソッドによる継承階層　★つまりこの原則は適用しなかったという事？
 - 解説：本章では「手順の共通化」のために継承を用いましたが、これは変更理由が手順の骨格にある場合に限定した適用です。パースルールの差し替えが目的ならルール差し替え構造（コンポジション）が候補になります。
 
 ---

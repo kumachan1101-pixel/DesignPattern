@@ -529,13 +529,25 @@ struct CreditCardInput {
     string holderName;
     string securityCode;
 };
+```
 
+**BankTransferInput**
+
+このブロックでは `BankTransferInput` の定義だけを確認します。
+
+```cpp
 struct BankTransferInput {
     string payerName;
     string bankCode;
     string accountType; // "ordinary" or "checking"
 };
+```
 
+**ConvenienceInput**
+
+このブロックでは `ConvenienceInput` の定義だけを確認します。
+
+```cpp
 struct ConvenienceInput {
     string phoneNumber;
     string email;
@@ -557,7 +569,13 @@ struct ConvenienceInput {
 struct PendingInfo {
     string pendingId;  // 完了確認用ID
 };
+```
 
+**PaymentRequest**
+
+このブロックでは `PaymentRequest` の定義だけを確認します。
+
+```cpp
 // ---- 決済要求・結果 ----
 
 struct PaymentRequest {
@@ -568,7 +586,13 @@ struct PaymentRequest {
     BankTransferInput bankTransfer;
     ConvenienceInput convenience;
 };
+```
 
+**PaymentResult**
+
+このブロックでは `PaymentResult` の定義だけを確認します。
+
+```cpp
 struct PaymentResult {
     string status;     // "成功", "保留", "失敗"
     string message;
@@ -593,7 +617,13 @@ struct ProcessorConfig {
     string name;
     bool isActive;
 };
+```
 
+**ProcessorRegistry**
+
+このブロックでは `ProcessorRegistry` の定義だけを確認します。
+
+```cpp
 class ProcessorRegistry {
 private:
     map<string, ProcessorConfig> registry;
@@ -636,7 +666,13 @@ public:
 
 // 事前保持：顧客（customerId → 氏名）
 struct CustomerRecord { string name; };
+```
 
+**CustomerDirectory**
+
+このブロックでは `CustomerDirectory` の定義だけを確認します。
+
+```cpp
 class CustomerDirectory {
     map<string, CustomerRecord> records;
 public:
@@ -651,6 +687,7 @@ public:
         records["C008"] = {"中村 七郎"};
         records["C020"] = {"小林 八郎"};
     }
+
     bool exists(const string& id) const { return records.count(id) > 0; }
     CustomerRecord get(const string& id) const { return records.at(id); }
 };
@@ -665,7 +702,13 @@ public:
 ```cpp
 // 事前保持：注文（orderId → 顧客ID・請求金額）
 struct OrderRecord { string customerId; int amount; };
+```
 
+**OrderBook**
+
+このブロックでは `OrderBook` の定義だけを確認します。
+
+```cpp
 class OrderBook {
     map<string, OrderRecord> records;
 public:
@@ -682,6 +725,7 @@ public:
         // 注文者が顧客台帳にいない注文（拒否の確認用）
         records["ORD-1010"] = {"C999", 900};
     }
+
     bool exists(const string& id) const { return records.count(id) > 0; }
     OrderRecord get(const string& id) const { return records.at(id); }
 };
@@ -721,6 +765,7 @@ public:
                     "カード認証失敗: 残高不足",
                     false, "AUTH_DECLINED", {}};
         }
+
         // スタブ: TIMEOUT始まりは一時的な通信失敗。1回目だけ失敗し
         //        再試行（2回目）で成功する。canRetry=true を返す
         if (card.cardToken.find("TIMEOUT") == 0 && attempt == 1) {
@@ -728,6 +773,7 @@ public:
                     "カード認証失敗: 通信タイムアウト",
                     true, "NETWORK_TIMEOUT", {}};
         }
+
         return {"成功",
                 "クレジット認証済み id=AUTH001",
                 false, "", {}};
@@ -746,6 +792,7 @@ public:
              << " type=" << bank.accountType
              << endl;
         PendingInfo p{"BT-" + orderId};
+
         return {"保留",
                 "振込先発行済み 口座=mizuho-1234567",
                 false, "", p};
@@ -763,6 +810,7 @@ public:
              << " store=" << cvs.storeCode
              << endl;
         PendingInfo p{"CVS-" + orderId};
+
         return {"保留",
                 "支払い番号発行済み 番号=CVS-98765",
                 false, "", p};
@@ -792,20 +840,24 @@ public:
         // スタブ: EXPIRE含みなら期限切れ
         if (pendingId.find("EXPIRE")
             != string::npos) {
+
             return {"失敗",
                     "支払い期限切れ",
                     false, "EXPIRED", {}};
         }
+
         if (pendingId.find("BT-") == 0) {
             return {"成功",
                     "入金確認済み",
                     false, "", {}};
         }
+
         if (pendingId.find("CVS-") == 0) {
             return {"成功",
                     "コンビニ入金確認済み",
                     false, "", {}};
         }
+
         return {"失敗",
                 "不明な保留ID",
                 false, "UNKNOWN_PENDING", {}};
@@ -843,16 +895,19 @@ public:
                     "カードトークンが不足しています",
                     false, "MISSING_TOKEN", {}};
         }
+
         if (req.creditCard.holderName.empty()) {
             return {"失敗",
                     "カード名義が不足しています",
                     false, "MISSING_HOLDER", {}};
         }
+
         if (req.creditCard.securityCode.empty()) {
             return {"失敗",
                     "セキュリティコードが不足しています",
                     false, "MISSING_CVV", {}};
         }
+
         // 同期: 認証APIを呼んで即座に結果を返す
         return gateway.authorizeCreditCard(
             req.orderId, amount,
@@ -885,11 +940,13 @@ public:
                     "振込名義が不足しています",
                     false, "MISSING_PAYER", {}};
         }
+
         if (req.bankTransfer.bankCode.empty()) {
             return {"失敗",
                     "銀行コードが不足しています",
                     false, "MISSING_BANK", {}};
         }
+
         // 非同期: 振込先を発行し、保留を返す
         return gateway.issueBankTransfer(
             req.orderId, amount,
@@ -922,11 +979,13 @@ public:
                     "電話番号が不足しています",
                     false, "MISSING_PHONE", {}};
         }
+
         if (req.convenience.email.empty()) {
             return {"失敗",
                     "メールアドレスが不足しています",
                     false, "MISSING_EMAIL", {}};
         }
+
         // 非同期: 支払い番号を発行し、保留を返す
         return gateway.issueConvenienceCode(
             req.orderId, amount,
@@ -978,6 +1037,7 @@ PaymentResult PaymentApplication::processPayment(
                 "未登録の決済方法です: " + type,
                 false, "UNKNOWN_METHOD", {}};
     }
+
     // レジストリで有効フラグを確認
     if (!registry.isActive(type)) {
         ProcessorConfig cfg
@@ -986,12 +1046,14 @@ PaymentResult PaymentApplication::processPayment(
                 cfg.name + " は現在無効です。",
                 false, "DISABLED", {}};
     }
+
     // 注文台帳から請求金額と注文者を引く（利用側は渡さない）
     if (!orders.exists(request.orderId)) {
         return {"失敗",
                 "未登録の注文です: " + request.orderId,
                 false, "UNKNOWN_ORDER", {}};
     }
+
     OrderRecord ord = orders.get(request.orderId);
     // 注文者が顧客台帳に実在し、氏名を持つかを確認する
     if (!customers.exists(ord.customerId)) {
@@ -999,7 +1061,9 @@ PaymentResult PaymentApplication::processPayment(
                 "未登録の顧客です: " + ord.customerId,
                 false, "UNKNOWN_CUSTOMER", {}};
     }
+
     CustomerRecord customer = customers.get(ord.customerId);
+
     if (customer.name.empty()) {
         return {"失敗", "顧客名が登録されていません",
                 false, "INVALID_CUSTOMER", {}};
@@ -1071,7 +1135,13 @@ struct PaymentRecord {
     string status;
     string errorCode;
 };
+```
 
+**PaymentLog**
+
+このブロックでは `PaymentLog` の定義だけを確認します。
+
+```cpp
 class PaymentLog {
     vector<PaymentRecord> records;
 public:
@@ -1082,6 +1152,7 @@ public:
         records.push_back(
             {method, amount, status, errorCode});
     }
+
     void printAll() const {
         for (const auto& r : records) {
             cout << "[" << r.method << "] "
@@ -1090,6 +1161,7 @@ public:
             if (!r.errorCode.empty()) {
                 cout << " (" << r.errorCode << ")";
             }
+
             cout << endl;
         }
     }
@@ -1119,6 +1191,7 @@ static void executeCase(
         cout << "  再試行可能なため再試行します...\n";
         result = app.processPayment(req);
     }
+
     cout << "結果: " << req.methodId
          << " -> " << result.status
          << " (" << result.message << ")\n";
@@ -1136,6 +1209,7 @@ static void executeCase(
         payLog.add(req.methodId, app.chargedAmount(req.orderId),
                    result.status, result.errorCode);
     }
+
     cout << "\n";
 }
 
@@ -1609,6 +1683,7 @@ public:
              << " phone=" << cvs.phoneNumber
              << " store=" << cvs.storeCode << endl;
         PendingInfo p{"CVS-" + orderId};
+
         return {"保留",
                 "支払い番号発行済み 番号=CVS-98765",
                 false, "", p};
@@ -1625,6 +1700,7 @@ public:
              << " token=" << pp.accessToken
              << endl;
         PendingInfo p{"PP-" + orderId};
+
         return {"保留",
                 "PayPayセッション作成済み",
                 false, "", p};
@@ -1651,6 +1727,7 @@ public:
                     "PayPayトークンが不足しています",
                     false, "MISSING_PP_TOKEN", {}};
         }
+
         return gateway.chargePayPay(
             req.orderId, amount, req.payPay);
     }
@@ -1682,32 +1759,41 @@ public:
                     "未登録の決済方法です: " + type,
                     false, "UNKNOWN_METHOD", {}};
         }
+
         if (!registry.isActive(type)) {
             ProcessorConfig cfg = registry.get(type);
+
             return {"失敗",
                     cfg.name + " は現在無効です。",
                     false, "DISABLED", {}};
         }
+
         if (!orders.exists(request.orderId)) {
             return {"失敗",
                     "未登録の注文です: " + request.orderId,
                     false, "UNKNOWN_ORDER", {}};
         }
+
         OrderRecord ord = orders.get(request.orderId);
 
         if (type == "credit_card") {
             CreditCardProcessor proc(gatewayClient);
+
             return proc.pay(request, ord.amount); // canRetryは結果に含む
         } else if (type == "bank_transfer") {
             BankTransferProcessor proc(gatewayClient);
+
             return proc.pay(request, ord.amount);
         } else if (type == "convenience") {
             ConvenienceStoreProcessor proc(gatewayClient);
+
             return proc.pay(request, ord.amount);
         } else if (type == "paypay") {  // ← 追加
             PayPayProcessor proc(gatewayClient);
+
             return proc.pay(request, ord.amount);
         }
+
         return {"失敗",
                 "未対応の決済種別です: " + type,
                 false, "UNSUPPORTED", {}};
@@ -1715,6 +1801,7 @@ public:
 
     PaymentResult checkCompletion(
         const string& pendingId) {
+
         return statusClient.checkStatus(pendingId);
     }
 };
@@ -1737,18 +1824,22 @@ public:
             return {"失敗", "支払い期限切れ",
                     false, "EXPIRED", {}};
         }
+
         if (pendingId.find("BT-") == 0) {
             return {"成功", "入金確認済み",
                     false, "", {}};
         }
+
         if (pendingId.find("CVS-") == 0) {
             return {"成功", "コンビニ入金確認済み",
                     false, "", {}};
         }
+
         if (pendingId.find("PP-") == 0) {  // ← 追加
             return {"成功", "PayPay決済確認済み",
                     false, "", {}};
         }
+
         return {"失敗", "不明な保留ID",
                 false, "UNKNOWN_PENDING", {}};
     }
@@ -1807,6 +1898,7 @@ int main() {
         cout << "完了結果: " << completion.status
              << " (" << completion.message << ")\n";
     }
+
     return 0;
 }
 ```
@@ -1915,6 +2007,7 @@ if (type == "credit_card") {
     return proc.pay(request, ord.amount);
 } else if (type == "bank_transfer") {
     BankTransferProcessor proc(gatewayClient);
+
     return proc.pay(request, ord.amount);
 }
 ```
@@ -2127,11 +2220,14 @@ classDiagram
 
         if (type == "credit_card") {                     // ← 出て行く側（生成判断）
             CreditCardProcessor proc(gatewayClient);     // ← 出て行く側（具体名）
+
             return proc.pay(request, ord.amount);        // ← 残る側（依頼して結果を返す）
         } else if (type == "bank_transfer") {            // ← 出て行く側
             BankTransferProcessor proc(gatewayClient);
+
             return proc.pay(request, ord.amount);
         }
+
         // …残りの方式も同じ形（省略。詳細は3-1）…
 ```
 
@@ -2216,6 +2312,7 @@ public:
         PaymentResult result
             = proc->pay(request, ord.amount);
         delete proc;
+
         return result;
     }
 ```
@@ -2268,6 +2365,7 @@ classDiagram
         // …店舗コードの検証（省略。詳細は7-1）…
         // …払込票の発行と保留IDの採番（省略）…
         PendingInfo pending = {/* …保留情報（省略）… */};
+
         return {PaymentStatus::Pending, "払込票を発行しました",
                 false, "", pending};
     }
@@ -2699,11 +2797,18 @@ namespace PaymentMethod {
     const string Convenience  = "convenience";
     const string PayPay       = "paypay";
 }
+
 namespace PaymentStatus {
     const string Pending = "保留";
     const string Failed  = "失敗";
 }
+```
 
+**CreditCardInput**
+
+このブロックでは `CreditCardInput` の定義だけを確認します。
+
+```cpp
 // ---- 手段固有の入力データ ----
 
 struct CreditCardInput {
@@ -2711,13 +2816,25 @@ struct CreditCardInput {
     string holderName;
     string securityCode;
 };
+```
 
+**BankTransferInput**
+
+このブロックでは `BankTransferInput` の定義だけを確認します。
+
+```cpp
 struct BankTransferInput {
     string payerName;
     string bankCode;
     string accountType;
 };
+```
 
+**ConvenienceInput**
+
+このブロックでは `ConvenienceInput` の定義だけを確認します。
+
+```cpp
 struct ConvenienceInput {
     string phoneNumber;
     string email;
@@ -2733,13 +2850,25 @@ struct ConvenienceInput {
 struct PayPayInput {
     string accessToken;
 };
+```
 
+**PendingInfo**
+
+このブロックでは `PendingInfo` の定義だけを確認します。
+
+```cpp
 // ---- 保留決済の追跡情報 ----
 
 struct PendingInfo {
     string pendingId;
 };
+```
 
+**PaymentRequest**
+
+このブロックでは `PaymentRequest` の定義だけを確認します。
+
+```cpp
 // ---- 決済要求・結果 ----
 
 struct PaymentRequest {
@@ -2766,7 +2895,13 @@ struct PaymentResult {
     string errorCode;
     PendingInfo pending;
 };
+```
 
+**IPaymentProcessor**
+
+このブロックでは `IPaymentProcessor` の定義だけを確認します。
+
+```cpp
 // ---- 共通インターフェース ----
 
 class IPaymentProcessor {
@@ -2788,7 +2923,13 @@ struct ProcessorConfig {
     string name;
     bool isActive;
 };
+```
 
+**ProcessorRegistry**
+
+このブロックでは `ProcessorRegistry` の定義だけを確認します。
+
+```cpp
 class ProcessorRegistry {
 private:
     map<string, ProcessorConfig> registry;
@@ -2816,6 +2957,7 @@ public:
 
     ProcessorConfig get(
         const string& method) const {
+
         return registry.at(method);
     }
 };
@@ -2830,7 +2972,13 @@ public:
 ```cpp
 // 事前保持：顧客（customerId → 氏名）
 struct CustomerRecord { string name; };
+```
 
+**CustomerDirectory**
+
+このブロックでは `CustomerDirectory` の定義だけを確認します。
+
+```cpp
 class CustomerDirectory {
     map<string, CustomerRecord> records;
 public:
@@ -2845,10 +2993,17 @@ public:
         records["C008"] = {"中村 七郎"};
         records["C020"] = {"小林 八郎"};
     }
+
     bool exists(const string& id) const { return records.count(id) > 0; }
     CustomerRecord get(const string& id) const { return records.at(id); }
 };
+```
 
+**OrderRecord**
+
+このブロックでは `OrderRecord` の定義だけを確認します。
+
+```cpp
 // 事前保持：注文（orderId → 顧客ID・請求金額）
 struct OrderRecord { string customerId; int amount; };
 ```
@@ -2874,6 +3029,7 @@ public:
         // 注文者が顧客台帳にいない注文（拒否の確認用）
         records["ORD-1010"] = {"C999", 900};
     }
+
     bool exists(const string& id) const { return records.count(id) > 0; }
     OrderRecord get(const string& id) const { return records.at(id); }
 };
@@ -2892,7 +3048,13 @@ struct PaymentRecord {
     string status;
     string errorCode;
 };
+```
 
+**PaymentLog**
+
+このブロックでは `PaymentLog` の定義だけを確認します。
+
+```cpp
 class PaymentLog {
     vector<PaymentRecord> records;
 public:
@@ -2903,6 +3065,7 @@ public:
         records.push_back(
             {method, amount, status, errorCode});
     }
+
     void printAll() const {
         for (const auto& r : records) {
             cout << "[" << r.method << "] "
@@ -2911,6 +3074,7 @@ public:
             if (!r.errorCode.empty()) {
                 cout << " (" << r.errorCode << ")";
             }
+
             cout << endl;
         }
     }
@@ -2943,12 +3107,14 @@ public:
                     "カード認証失敗: 残高不足",
                     false, "AUTH_DECLINED", {}};
         }
+
         // TIMEOUT始まりは一時的な通信失敗。1回目だけ失敗し再試行で成功する
         if (card.cardToken.find("TIMEOUT") == 0 && attempt == 1) {
             return {PaymentStatus::Failed,
                     "カード認証失敗: 通信タイムアウト",
                     true, "NETWORK_TIMEOUT", {}};
         }
+
         return {"成功",
                 "クレジット認証済み id=AUTH001",
                 false, "", {}};
@@ -2965,6 +3131,7 @@ public:
              << " type=" << bank.accountType
              << endl;
         PendingInfo p{"BT-" + orderId};
+
         return {PaymentStatus::Pending,
                 "振込先発行済み 口座=mizuho-1234567",
                 false, "", p};
@@ -2981,6 +3148,7 @@ public:
              << " store=" << cvs.storeCode
              << endl;
         PendingInfo p{"CVS-" + orderId};
+
         return {PaymentStatus::Pending,
                 "番号発行済み 番号=CVS-98765",
                 false, "", p};
@@ -2996,6 +3164,7 @@ public:
              << " token=" << pp.accessToken
              << endl;
         PendingInfo p{"PP-" + orderId};
+
         return {PaymentStatus::Pending,
                 "PayPayセッション作成済み",
                 false, "", p};
@@ -3016,25 +3185,30 @@ public:
              << pendingId << endl;
         if (pendingId.find("EXPIRE")
             != string::npos) {
+
             return {PaymentStatus::Failed,
                     "支払い期限切れ",
                     false, "EXPIRED", {}};
         }
+
         if (pendingId.find("BT-") == 0) {
             return {"成功",
                     "入金確認済み",
                     false, "", {}};
         }
+
         if (pendingId.find("CVS-") == 0) {
             return {"成功",
                     "コンビニ入金確認済み",
                     false, "", {}};
         }
+
         if (pendingId.find("PP-") == 0) {
             return {"成功",
                     "PayPay決済確認済み",
                     false, "", {}};
         }
+
         return {PaymentStatus::Failed,
                 "不明な保留ID",
                 false, "UNKNOWN_PENDING", {}};
@@ -3064,23 +3238,32 @@ public:
                     "カードトークンが不足しています",
                     false, "MISSING_TOKEN", {}};
         }
+
         if (req.creditCard.holderName.empty()) {
             return {PaymentStatus::Failed,
                     "カード名義が不足しています",
                     false, "MISSING_HOLDER", {}};
         }
+
         if (req.creditCard.securityCode.empty()) {
             return {PaymentStatus::Failed,
                     "セキュリティコードが不足",
                     false, "MISSING_CVV", {}};
         }
+
         // canRetry はゲートウェイの結果に含まれる（失敗の種類で決まる）
         return gateway.authorizeCreditCard(
             req.orderId, amount,
             req.creditCard);
     }
 };
+```
 
+**BankTransferProcessor**
+
+このブロックでは `BankTransferProcessor` の定義だけを確認します。
+
+```cpp
 class BankTransferProcessor
     : public IPaymentProcessor {
     PaymentGatewayClient& gateway;
@@ -3096,16 +3279,19 @@ public:
                     "振込名義が不足しています",
                     false, "MISSING_PAYER", {}};
         }
+
         if (req.bankTransfer.bankCode.empty()) {
             return {PaymentStatus::Failed,
                     "銀行コードが不足しています",
                     false, "MISSING_BANK", {}};
         }
+
         if (req.bankTransfer.accountType.empty()) {
             return {PaymentStatus::Failed,
                     "口座種別が不足しています",
                     false, "MISSING_ACCOUNT_TYPE", {}};
         }
+
         return gateway.issueBankTransfer(
             req.orderId, amount,
             req.bankTransfer);
@@ -3133,22 +3319,31 @@ public:
                     "電話番号が不足しています",
                     false, "MISSING_PHONE", {}};
         }
+
         if (req.convenience.email.empty()) {
             return {PaymentStatus::Failed,
                     "メールアドレスが不足しています",
                     false, "MISSING_EMAIL", {}};
         }
+
         if (req.convenience.storeCode.empty()) {
             return {PaymentStatus::Failed,
                     "店舗コードが不足しています",
                     false, "MISSING_STORE", {}};
         }
+
         return gateway.issueConvenienceCode(
             req.orderId, amount,
             req.convenience);
     }
 };
+```
 
+**PayPayProcessor**
+
+このブロックでは `PayPayProcessor` の定義だけを確認します。
+
+```cpp
 class PayPayProcessor
     : public IPaymentProcessor {
     PaymentGatewayClient& gateway;
@@ -3164,6 +3359,7 @@ public:
                     "PayPayトークンが不足しています",
                     false, "MISSING_PP_TOKEN", {}};
         }
+
         return gateway.chargePayPay(
             req.orderId, amount,
             req.payPay);
@@ -3198,6 +3394,7 @@ public:
                     "未登録の注文です: " + request.orderId,
                     false, "UNKNOWN_ORDER", {}};
         }
+
         OrderRecord ord = orders.get(request.orderId);
         // 注文者が顧客台帳に実在し、氏名を持つかを確認する
         if (!customers.exists(ord.customerId)) {
@@ -3205,17 +3402,21 @@ public:
                     "未登録の顧客です: " + ord.customerId,
                     false, "UNKNOWN_CUSTOMER", {}};
         }
+
         CustomerRecord customer = customers.get(ord.customerId);
+
         if (customer.name.empty()) {
             return {PaymentStatus::Failed,
                     "顧客名が登録されていません",
                     false, "INVALID_CUSTOMER", {}};
         }
+
         IPaymentProcessor* proc
             = createProcessor(request.methodId);
         PaymentResult result
             = proc->pay(request, ord.amount);
         delete proc;
+
         return result;
     }
 
@@ -3228,6 +3429,7 @@ public:
     // 保留決済の完了確認（汎用）
     PaymentResult checkCompletion(
         const string& pendingId) {
+
         return statusClient.checkStatus(pendingId);
     }
 };
@@ -3250,12 +3452,14 @@ protected:
             throw invalid_argument(
                 "未登録の決済方法です: " + type);
         }
+
         if (!registry.isActive(type)) {
             ProcessorConfig cfg
                 = registry.get(type);
             throw invalid_argument(
                 cfg.name + " は現在無効です。");
         }
+
         if (type == PaymentMethod::CreditCard)
             return new CreditCardProcessor(
                 gatewayClient);
@@ -3298,6 +3502,7 @@ static void executeCase(PaymentApplication& app,
             cout << "  再試行可能なため再試行します..." << endl;
             result = app.processPayment(req);
         }
+
         cout << "結果: " << req.methodId << " -> "
              << result.status << " (" << result.message
              << ")" << endl;
@@ -3779,7 +3984,8 @@ classDiagram
 >     void log(const std::string& m) { /* 共通の実装 */ }
 >     virtual PaymentResult pay(const PaymentRequest& r) = 0; // 未実装
 > };
-> ```
+>
+```
 >
 > **クラス図の線種は、コード上の関係で決まります。** 線と記号の共通規約は第0章の実例図で確認できます。本章では、`IPaymentProcessor`へ向かう破線の白三角が「契約の実装」、`PaymentApplication`から`IPaymentProcessor`へ向かう点線矢印が「生成して一時的に使う依存」、`CreditCardProcessor`から`PaymentGatewayClient`へ向かう実線矢印が「参照を保持して継続利用する関連」を表します。
 
@@ -3834,10 +4040,17 @@ public:
         IPaymentProcessor* p = createProcessor();
         PaymentResult result = p->pay(request);
         delete p;
+
         return result;
     }
 };
+```
 
+**PaymentApplication**
+
+このブロックでは `PaymentApplication` の定義だけを確認します。
+
+```cpp
 // ✅ この場合はシンプルに直接生成すれば十分
 class PaymentApplication {
     PaymentGatewayClient client;
@@ -3845,6 +4058,7 @@ public:
     PaymentResult processPayment(
         const PaymentRequest& request) {
         CreditCardProcessor processor(client);
+
         return processor.pay(request);
     }
 };

@@ -432,7 +432,13 @@ public:
     int price;          // 単価（円）
     Item(std::string n, int p) : name(n), price(p) {}
 };
+```
 
+**Order**
+
+このブロックでは `Order` の定義だけを確認します。
+
+```cpp
 class Order {
 public:
     std::string customerId;   // 注文した顧客のID
@@ -466,7 +472,13 @@ struct CustomerInfo {
     std::string name;        // 顧客の氏名
     std::string memberType;  // "Premium" または "Regular"
 };
+```
 
+**CustomerDatabase**
+
+このブロックでは `CustomerDatabase` の定義だけを確認します。
+
+```cpp
 class CustomerDatabase {
 private:
     std::map<std::string, CustomerInfo> records;  // ID→顧客情報
@@ -512,6 +524,7 @@ public:
                   const CampaignContext& context) {
         // (1) 小計：商品の単価を全部足す
         int total = 0;
+
         for (const auto& item : order.items) {
             total += item.price;
         }
@@ -522,6 +535,7 @@ public:
         } else if (memberType == "Regular" && context.isCampaignActive) {
             total = total * 90 / 100;   // キャンペーン割引 10%引き
         }
+
         // どちらにも当てはまらなければ割引なし（定価）
 
         return total;
@@ -554,7 +568,9 @@ public:
         if (!db.exists(order.customerId)) {
             throw std::runtime_error("顧客IDが登録されていません");
         }
+
         CustomerInfo customer = db.get(order.customerId);
+
         return calculator.calculate(order, customer.memberType, context);
     }
 };
@@ -577,9 +593,11 @@ public:
                          int subtotal,
                          int finalPrice) {
         std::cout << customer.name << " さんの注文:";
+
         for (const auto& item : order.items) {
             std::cout << " " << item.name << " " << item.price << "円";
         }
+
         std::cout << "\n  条件: 会員=" << customer.memberType
                   << ", キャンペーン="
                   << (context.isCampaignActive ? "あり" : "なし");
@@ -626,6 +644,7 @@ void OrderProcessor::process(const Order& order,
                   << " は登録されていません\n";
         return;
     }
+
     // エラー条件2：注文が空
     if (order.items.empty()) {
         std::cerr << "エラー: 注文が空です\n";
@@ -641,14 +660,17 @@ void OrderProcessor::process(const Order& order,
         std::cerr << "エラー: 顧客情報の取得に失敗しました\n";
         return;
     }
+
     int finalPrice =
         calculator.calculate(order, customer.memberType, context);
 
     // 表示形式はRenderer境界へ委ねる
     int subtotal = 0;
+
     for (const auto& item : order.items) {
         subtotal += item.price;
     }
+
     renderer.showOrderResult(customer, order, context,
                              subtotal, finalPrice);
 }
@@ -1249,6 +1271,7 @@ graph LR
         } else if (context.isCampaignActive) {
             total = total * 90 / 100;              // キャンペーン10%引き
         }
+
         // ← 新しいキャンペーンが来るたびに、ここに else if が増え続ける
 ```
 
@@ -1258,9 +1281,11 @@ graph LR
 
 ```cpp
         int total = 0;
+
         for (const auto& item : order.items) {
             total += item.price;             // 小計計算（変えたくない）
         }
+
         // ← ここに「変わる部分」（割引判定）が割り込んでいる
         return total;                        // 結果を返す（変えたくない）
 ```
@@ -1280,6 +1305,7 @@ public:
                   const CampaignContext& context) {
         // (1) 小計：商品の単価を全部足す（守りたい骨格）
         int total = 0;
+
         for (const auto& item : order.items) {
             total += item.price;
         }
@@ -1290,6 +1316,7 @@ public:
         } else if (memberType == "Regular" && context.isCampaignActive) {
             total = total * 90 / 100;   // 同じ構造の分岐が施策の数だけ並ぶ
         }
+
         // どちらにも当てはまらなければ割引なし（定価）
 
         return total;                   // 結果を返す（守りたい骨格）
@@ -1589,6 +1616,7 @@ public:
                  const CampaignContext&) const override {
         return memberType == "Premium";
     }
+
     int apply(int total) const override { return total * 80 / 100; }
     std::string name() const override { return "Premium会員割引"; }
 };
@@ -1626,8 +1654,10 @@ public:
             const CampaignContext& context) const {
         for (const auto& registered : rules) {        // ←この rules が未定
             const IDiscountRule& rule = registered.get();
+
             if (rule.matches(memberType, context)) return rule;
         }
+
         throw std::logic_error("適用可能な割引ルールがありません");
     }
 ```
@@ -1645,11 +1675,13 @@ public:
 ```cpp
     PaymentResult calculate(const Order& order) {
         int subtotal = 0;
+
         for (const auto& item : order.items) subtotal += item.price;
         PaymentResult result;
         result.subtotal = subtotal;
         result.finalPrice = rule.apply(subtotal);   // ←この rule が未定
         result.appliedRule = rule.name();
+
         return result;
     }
 ```
@@ -1700,9 +1732,11 @@ public:
         return memberType == "Regular"
             && context.isSummerSale && context.isCampaignActive;
     }
+
     int apply(int total) const override {
         return (total * 90 / 100) * 95 / 100;
     }
+
     std::string name() const override { return "サマーセール＋キャンペーン"; }
 };
 ```
@@ -1774,6 +1808,7 @@ public:
     void add(const IDiscountRule& rule) {
         rules.push_back(std::cref(rule));
     }
+
     const IDiscountRule& select(const std::string& memberType,
                                 const CampaignContext& context) const;
 };
@@ -1844,8 +1879,10 @@ Calculatorは、渡された実体の具体クラス名を知りません。小�
 
 ```cpp
         int subtotal = 0;
+
         for (const auto& item : order.items) subtotal += item.price;
         const int finalPrice = rule.apply(subtotal);
+
         return {subtotal, finalPrice, rule.name()};
 ```
 
@@ -1986,7 +2023,9 @@ public:
     explicit PaymentCalculator(const IDiscountRule& rule) : rule(rule) {}
     int calculate(const Order& order) {
         int subtotal = 0;
+
         for (const auto& item : order.items) subtotal += item.price;
+
         return rule.apply(subtotal);   // 具体式を知らずに適用
     }
 };
@@ -2005,12 +2044,20 @@ public:
                  const CampaignContext&) const override {
         return memberType == MemberType::Premium;
     }
+
     int apply(int total) const override {
         return total * 80 / 100;
     }
+
     std::string name() const override { return "プレミアム割引"; }
 };
+```
 
+**SummerSaleDiscount**
+
+このブロックでは `SummerSaleDiscount` の定義だけを確認します。
+
+```cpp
 class SummerSaleDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
@@ -2018,9 +2065,11 @@ public:
         return memberType == MemberType::Regular
             && context.isActive(CampaignCode::SummerSale);
     }
+
     int apply(int total) const override {
         return total * 95 / 100;
     }
+
     std::string name() const override { return "サマーセール割引"; }
 };
 ```
@@ -2218,14 +2267,26 @@ namespace CampaignCode {
     const std::string RegularCampaign = "REGULAR_CAMPAIGN";
     const std::string SummerSale = "SUMMER_SALE";
 }
+```
 
+**Item**
+
+このブロックでは `Item` の定義だけを確認します。
+
+```cpp
 class Item {
 public:
     std::string name;
     int price;
     Item(std::string n, int p) : name(n), price(p) {}
 };
+```
 
+**CampaignContext**
+
+このブロックでは `CampaignContext` の定義だけを確認します。
+
+```cpp
 class CampaignContext {
 private:
     std::vector<std::string> activeCampaigns;
@@ -2238,10 +2299,17 @@ public:
         for (const auto& active : activeCampaigns) {
             if (active == code) return true;
         }
+
         return false;
     }
 };
+```
 
+**Order**
+
+このブロックでは `Order` の定義だけを確認します。
+
+```cpp
 class Order {
 public:
     std::string customerId;
@@ -2260,7 +2328,13 @@ struct CustomerInfo {
     std::string name;
     std::string memberType;
 };
+```
 
+**CustomerDatabase**
+
+このブロックでは `CustomerDatabase` の定義だけを確認します。
+
+```cpp
 class CustomerDatabase {
 private:
     std::map<std::string, CustomerInfo> records;
@@ -2274,7 +2348,13 @@ public:
     bool exists(const std::string& id) const { return records.count(id) > 0; }
     CustomerInfo get(const std::string& id) const { return records.at(id); }
 };
+```
 
+**PaymentResult**
+
+このブロックでは `PaymentResult` の定義だけを確認します。
+
+```cpp
 // 割引ルールの共通インターフェース（ルール差し替え構造）
 // 支払計算の結果オブジェクト：小計・適用ルール名・支払金額
 struct PaymentResult {
@@ -2318,22 +2398,37 @@ public:
                  const CampaignContext&) const override {
         return true;
     }
+
     int apply(int total) const override { return total; }
     std::string name() const override { return "割引なし"; }
 };
+```
 
+**PremiumDiscount**
+
+このブロックでは `PremiumDiscount` の定義だけを確認します。
+
+```cpp
 class PremiumDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
                  const CampaignContext&) const override {
         return memberType == MemberType::Premium;
     }
+
     int apply(int total) const override {
         return total * 80 / 100;
     }
+
     std::string name() const override { return "プレミアム割引"; }
 };
+```
 
+**SummerSaleAndCampaignDiscount**
+
+このブロックでは `SummerSaleAndCampaignDiscount` の定義だけを確認します。
+
+```cpp
 class SummerSaleAndCampaignDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
@@ -2342,9 +2437,11 @@ public:
             && context.isActive(CampaignCode::SummerSale)
             && context.isActive(CampaignCode::RegularCampaign);
     }
+
     int apply(int total) const override {
         return (total * 90 / 100) * 95 / 100;
     }
+
     std::string name() const override {
         return "サマーセール+キャンペーン";
     }
@@ -2363,12 +2460,20 @@ public:
         return memberType == MemberType::Regular
             && context.isActive(CampaignCode::SummerSale);
     }
+
     int apply(int total) const override {
         return total * 95 / 100;
     }
+
     std::string name() const override { return "サマーセール割引"; }
 };
+```
 
+**CampaignDiscount**
+
+このブロックでは `CampaignDiscount` の定義だけを確認します。
+
+```cpp
 class CampaignDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
@@ -2376,9 +2481,11 @@ public:
         return memberType == MemberType::Regular
             && context.isActive(CampaignCode::RegularCampaign);
     }
+
     int apply(int total) const override {
         return total * 90 / 100;
     }
+
     std::string name() const override { return "キャンペーン割引"; }
 };
 ```
@@ -2404,11 +2511,13 @@ public:
 
     PaymentResult calculate(const Order& order) {
         int subtotal = 0;
+
         for (const auto& item : order.items) subtotal += item.price;
         PaymentResult result;
         result.subtotal = subtotal;
         result.finalPrice = rule.apply(subtotal);
         result.appliedRule = rule.name();
+
         return result;
     }
 };
@@ -2439,8 +2548,10 @@ public:
         // Selectorは個別条件を知らず、最初に一致したものを返す。
         for (const auto& registered : rules) {
             const IDiscountRule& rule = registered.get();
+
             if (rule.matches(memberType, context)) return rule;
         }
+
         throw std::logic_error("適用可能な割引ルールがありません");
     }
 };
@@ -2474,6 +2585,7 @@ public:
         const IDiscountRule& rule =
             selector.select(customer.memberType, context);
         PaymentCalculator calculator(rule);
+
         return calculator.calculate(order);
     }
 };
@@ -2486,7 +2598,6 @@ public:
 結果表示は注文確定の結果だけを受け取ります。プレビュー値を引数に含めないことで、購入結果の表示と事前プレビューを同じ操作へ戻してしまうのを防ぎます。
 
 ```cpp
-
 class CheckoutResultRenderer {
 public:
     void showOrderResult(const CustomerInfo& customer,
@@ -2494,9 +2605,11 @@ public:
                          const CampaignContext& context,
                          const PaymentResult& result) {
         std::cout << customer.name << " さんの注文:";
+
         for (const auto& item : order.items) {
             std::cout << " " << item.name << " " << item.price << "円";
         }
+
         std::cout << "\n  条件: 会員=" << customer.memberType
                   << ", キャンペーン="
                   << (context.isActive(CampaignCode::RegularCampaign)
@@ -2518,7 +2631,6 @@ public:
 `CustomerDatabase`・`RuleSelector`・`PaymentCalculator`・`CheckoutResultRenderer` を接続し、注文確定だけを担います。
 
 ```cpp
-
 class OrderProcessor {
 private:
     CustomerDatabase& db;
@@ -2536,6 +2648,7 @@ public:
                       << " は登録されていません\n";
             return;
         }
+
         if (order.items.empty()) {
             std::cerr << "エラー: 注文が空です\n";
             return;
@@ -2549,6 +2662,7 @@ public:
             std::cerr << "エラー: 顧客情報の取得に失敗しました\n";
             return;
         }
+
         const IDiscountRule& rule =
             selector.select(customer.memberType, context);
         PaymentCalculator calculator(rule);

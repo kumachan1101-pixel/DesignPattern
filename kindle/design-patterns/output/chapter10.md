@@ -436,7 +436,13 @@ enum class SyncTarget {
     Orders,
     Inventory
 };
+```
 
+**SyncRequest**
+
+このブロックでは `SyncRequest` の定義だけを確認します。
+
+```cpp
 struct SyncRequest {
     string partnerId;
     SyncTarget target;
@@ -457,7 +463,13 @@ struct PartnerConfig {
     string endpoint;  // エンドポイント（概念上）
     bool isEnabled;   // 連携有効フラグ
 };
+```
 
+**PartnerDatabase**
+
+このブロックでは `PartnerDatabase` の定義だけを確認します。
+
+```cpp
 class PartnerDatabase {
 private:
     map<string, PartnerConfig> records;
@@ -501,7 +513,13 @@ public:
         return "注文 ORD001";
     }
 };
+```
 
+**InventoryDataSource**
+
+このブロックでは `InventoryDataSource` の定義だけを確認します。
+
+```cpp
 class InventoryDataSource {
 public:
     string loadCurrent() const {
@@ -550,7 +568,13 @@ struct DeliveryResult {
     bool success;
     string message;
 };
+```
 
+**BatchRecord**
+
+このブロックでは `BatchRecord` の定義だけを確認します。
+
+```cpp
 struct BatchRecord {
     string partnerId;
     string partnerName;
@@ -576,12 +600,14 @@ public:
              << partnerId << "] " << partnerName
              << " -> " << status << endl;
     }
+
     void printAll() const {
         for (const auto& r : records) {
             cout << "[" << r.partnerId << "] " << r.partnerName
                  << " -> " << r.status << endl;
         }
     }
+
     int size() const { return static_cast<int>(records.size()); }
 };
 ```
@@ -601,15 +627,24 @@ public:
     DeliveryResult send(string d) {
         sent.push_back(d);
         cout << "A社へ送信(" << sent.size() << "件): " << d << endl;
+
         return {"成功", true, "A社: " + to_string(d.size()) + "バイト送信"};
     }
 };
+```
+
+**SystemBClient**
+
+このブロックでは `SystemBClient` の定義だけを確認します。
+
+```cpp
 class SystemBClient {
     vector<string> sent;
 public:
     DeliveryResult send(string d) {
         sent.push_back(d);
         cout << "B社へ送信(" << sent.size() << "件): " << d << endl;
+
         return {"成功", true, "B社: " + to_string(d.size()) + "バイト送信"};
     }
 };
@@ -665,26 +700,32 @@ public:
 ```cpp
 DeliveryResult BatchExecutor::execute(const SyncRequest& request) {
     const string& partnerId = request.partnerId;
+
     if (!db.exists(partnerId)) {
         cout << "エラー: パートナーID [" << partnerId
              << "] はデータベースに登録されていません。" << endl;
         DeliveryResult r{"失敗", false, "未登録"};
         batchLog.add(partnerId, "未登録", r.status);
+
         return r;
     }
+
     if (!db.isEnabled(partnerId)) {
         PartnerConfig cfg = db.get(partnerId);
         cout << "エラー: パートナー [" << cfg.name
              << "] は現在無効です。処理を中断します。" << endl;
         DeliveryResult r{"失敗", false, "無効"};
         batchLog.add(partnerId, cfg.name, "スキップ（無効）");
+
         return r;
     }
+
     PartnerConfig cfg = db.get(partnerId);
     string data = dataCatalog.load(request.target);
     cout << "[送信先] " << cfg.name
          << " (" << cfg.endpoint << ")" << endl;
     DeliveryResult result{"失敗", false, "未対応の連携先"};
+
     if (partnerId == "PARTNER_A") {
         SystemAClient client; // A社向けクライアントを生成
         result = client.send(data);
@@ -696,6 +737,7 @@ cout << "[送信結果詳細] " << result.message << endl;
 batchLog.add(partnerId, cfg.name, result.status);
 NotificationService notifier;
 notifier.notify(cfg.name + (result.success ? " 連携完了" : " 連携失敗"));
+
 return result;
 }
 ```
@@ -1115,10 +1157,17 @@ class SystemCClient {
 public:
     DeliveryResult send(std::string data) {
         std::cout << "[C社] " << data << std::endl;
+
         return {"成功", true, "C社送信完了"};
     }
 };
+```
 
+**SlackNotifier**
+
+このブロックでは `SlackNotifier` の定義だけを確認します。
+
+```cpp
 class SlackNotifier {
 public:
     void notify(std::string msg) {
@@ -1146,6 +1195,7 @@ public:
         string partnerId = request.partnerId;
         string data = dataCatalog.load(request.target);
         DeliveryResult result{"失敗", false, "未対応"};
+
         if (partnerId == "A") {
             SystemAClient client;
             result = client.send(data);
@@ -1156,12 +1206,14 @@ public:
             SystemCClient client;              // ← SystemCClientも追加が必要
             result = client.send(data);
         }
+
         batchLog.add(partnerId, partnerId + "社", result.status); // 保存方法は変更しない
         // Slack通知を追加しようとすると、通知の仕組みも一緒に変更が必要
         NotificationService notifier;
         notifier.notify(result.status);
         SlackNotifier slack;                  // ← 通知先を増やすとここも増える
         slack.notify(result.status);
+
         return result;
     }
 };
@@ -1182,9 +1234,17 @@ class SystemAClient {
 public:
     DeliveryResult send(std::string data) {
         std::cout << "[A社] " << data << std::endl;
+
         return {"成功", true, "A社送信完了"};
     }
 };
+```
+
+**NotificationService**
+
+このブロックでは `NotificationService` の定義だけを確認します。
+
+```cpp
 class NotificationService {
 public:
     void notify(std::string msg) {
@@ -1234,6 +1294,7 @@ int main() {
 
 ```cpp
     executor.execute({"C", SyncTarget::Orders}); // C社・注文連携（新規）
+
     return 0;
 }
 ```
@@ -1258,6 +1319,7 @@ class SystemBClient {
 public:
     DeliveryResult send(std::string data) {
         std::cout << "[B社] " << data << " → 接続タイムアウト" << std::endl;
+
         return {"失敗", false, "B社送信失敗"};
     }
 };
@@ -1275,10 +1337,12 @@ public:
     void runBatch(const std::vector<SyncRequest>& requests) {
         int okCount = 0;
         int ngCount = 0;
+
         for (size_t i = 0; i < requests.size(); ++i) {
             std::cout << "[ジョブ" << (i + 1) << "] "
                       << requests[i].partnerId << "社" << std::endl;
             DeliveryResult r = execute(requests[i]);
+
             if (r.success) {
                 ++okCount;
             } else {
@@ -1291,6 +1355,7 @@ public:
                 std::cout << "後続ジョブを続けます" << std::endl;
             }
         }
+
         std::cout << "バッチ完了: 成功" << okCount
                   << "件・失敗" << ngCount << "件" << std::endl;
     }
@@ -1625,6 +1690,7 @@ classDiagram
 ```cpp
         if (!db.exists(partnerId)) { /* …未登録の断り（省略。詳細は3-1）… */ }
         PartnerConfig cfg = db.get(partnerId);
+
         if (!cfg.isEnabled) { /* …無効な連携先の断り（省略。詳細は3-1）… */ }
         string data = dataCatalog.load(target);        // ← 残る側（データ取得）
 
@@ -1634,6 +1700,7 @@ classDiagram
         } else if (partnerId == "SYS_B") {             // ← 出て行く側
             // …B社固有の認証と送信の手順（省略。詳細は3-1）…
         }
+
         batchLog.add(partnerId, cfg.name, status);     // ← 残る側（結果保存）
         // …通知先ごとの文面を作って送る（省略）…      // ← 出て行く側（課題ID2）
 ```
@@ -1712,7 +1779,9 @@ class SystemAClient : public IExternalClient {
 public:
     DeliveryResult send(string data, bool apiHealthy) {
         cout << "A社へ転送: " << data << endl;
+
         if (!apiHealthy) return {"失敗", false, "A社: API障害"};
+
         return {"成功", true, "A社: 連携完了"};
     }
 };
@@ -1748,6 +1817,7 @@ public:
                                          batchLog, notificationLog, notifiers,
                                          apiHealthy, kind);
         delete client;   // 使い捨てクライアントを破棄
+
         return r;
 ```
 
@@ -1770,6 +1840,7 @@ public:
         NotificationResult result = notifier->onComplete(note);
         notificationLog.add(result);
     }
+
     return r;
 ```
 
@@ -1786,10 +1857,12 @@ public:
 ```cpp
     vector<DeliveryResult> executeBatch(const vector<BatchJob>& jobs) {
         vector<DeliveryResult> results;
+
         for (const auto& job : jobs) {
             results.push_back(execute(job.creator, job.request,
                                       job.apiHealthy));
         }
+
         return results;
     }
 ```
@@ -1848,7 +1921,13 @@ public:
         return new SystemAClient();
     }
 };
+```
 
+**SystemBClientCreator**
+
+このブロックでは `SystemBClientCreator` の定義だけを確認します。
+
+```cpp
 class SystemBClientCreator : public IClientCreator {
 public:
     IExternalClient* createClient() override {
@@ -2184,7 +2263,9 @@ public:
                 = n->onComplete(request.partnerId);          // 課題ID2
             notificationLog.add(nr);
         }
+
         delete client;                                       // 使い捨て後に破棄
+
         return r;
     }
 };
@@ -2416,12 +2497,24 @@ sequenceDiagram
 #include <memory>
 
 using namespace std;
+```
 
+**SyncTarget**
+
+このブロックでは `SyncTarget` の定義だけを確認します。
+
+```cpp
 enum class SyncTarget {
     Orders,
     Inventory
 };
+```
 
+**SyncRequest**
+
+このブロックでは `SyncRequest` の定義だけを確認します。
+
+```cpp
 struct SyncRequest {
     string partnerId;
     SyncTarget target;
@@ -2441,14 +2534,26 @@ public:
         return "注文 ORD001";
     }
 };
+```
 
+**InventoryDataSource**
+
+このブロックでは `InventoryDataSource` の定義だけを確認します。
+
+```cpp
 class InventoryDataSource {
 public:
     string loadCurrent() const {
         return "在庫 SKU001";
     }
 };
+```
 
+**SyncDataCatalog**
+
+このブロックでは `SyncDataCatalog` の定義だけを確認します。
+
+```cpp
 class SyncDataCatalog {
     OrderDataSource& orders;
     InventoryDataSource& inventory;
@@ -2477,7 +2582,13 @@ struct PartnerConfig {
     string endpoint;  // エンドポイント（概念上）
     bool isEnabled;   // 連携有効フラグ
 };
+```
 
+**PartnerDatabase**
+
+このブロックでは `PartnerDatabase` の定義だけを確認します。
+
+```cpp
 class PartnerDatabase {
 private:
     map<string, PartnerConfig> records;
@@ -2505,7 +2616,13 @@ public:
         records[id] = cfg;            // 実行中の連携先表へ追加
     }
 };
+```
 
+**DeliveryResult**
+
+このブロックでは `DeliveryResult` の定義だけを確認します。
+
+```cpp
 // 送信1件分の結果（1-4から変更しない契約）
 struct DeliveryResult {
     string status;   // "成功" または "失敗"
@@ -2528,7 +2645,13 @@ struct NotificationResult {
     bool success;
     string message;
 };
+```
 
+**NotificationLog**
+
+このブロックでは `NotificationLog` の定義だけを確認します。
+
+```cpp
 class NotificationLog {
     vector<NotificationResult> records;
 public:
@@ -2540,9 +2663,16 @@ public:
         if (!result.message.empty()) cout << " (" << result.message << ")";
         cout << endl;
     }
+
     int size() const { return (int)records.size(); }
 };
+```
 
+**INotifier**
+
+このブロックでは `INotifier` の定義だけを確認します。
+
+```cpp
 // 通知のインターフェース（通知受付結果を返す契約）
 class INotifier {
 public:
@@ -2566,6 +2696,7 @@ public:
     NotificationResult onComplete(string result) {
         inbox.push_back(result);
         cout << "Slack通知(" << inbox.size() << "件): " << result << endl;
+
         return {"Slack", true, "受付完了"};
     }
 };
@@ -2585,7 +2716,13 @@ struct BatchRecord {
     std::string partnerName;
     std::string status;   // "成功", "失敗", "スキップ（無効）"
 };
+```
 
+**BatchLog**
+
+このブロックでは `BatchLog` の定義だけを確認します。
+
+```cpp
 // バッチ実行ログを管理するクラス
 class BatchLog {
     std::vector<BatchRecord> records;
@@ -2597,12 +2734,14 @@ public:
                   << partnerId << "] " << partnerName
                   << " -> " << status << std::endl;
     }
+
     void printAll() const {
         for (const auto& r : records) {
             std::cout << "[" << r.partnerId << "] " << r.partnerName
                       << " -> " << r.status << std::endl;
         }
     }
+
     int size() const { return (int)records.size(); }
 };
 ```
@@ -2621,23 +2760,39 @@ public:
     virtual ~IExternalClient() {}
     virtual DeliveryResult send(string data, bool apiHealthy) = 0;
 };
+```
 
+**SystemAClient**
+
+このブロックでは `SystemAClient` の定義だけを確認します。
+
+```cpp
 // A社向け実装
 class SystemAClient : public IExternalClient {
 public:
     DeliveryResult send(string data, bool apiHealthy) {
         cout << "A社へ転送: " << data << endl;
+
         if (!apiHealthy) return {"失敗", false, "A社: API障害"};
+
         return {"成功", true, "A社: 連携完了"};
     }
 };
+```
 
+**SystemBClient**
+
+このブロックでは `SystemBClient` の定義だけを確認します。
+
+```cpp
 // B社向け実装
 class SystemBClient : public IExternalClient {
 public:
     DeliveryResult send(string data, bool apiHealthy) {
         cout << "B社へ転送: " << data << endl;
+
         if (!apiHealthy) return {"失敗", false, "B社: API障害"};
+
         return {"成功", true, "B社: 連携完了"};
     }
 };
@@ -2654,7 +2809,9 @@ class SystemCClient : public IExternalClient {
 public:
     DeliveryResult send(string data, bool apiHealthy) {
         cout << "C社へ転送: " << data << endl;
+
         if (!apiHealthy) return {"失敗", false, "C社: API障害"};
+
         return {"成功", true, "C社: 連携完了"};
     }
 };
@@ -2675,14 +2832,26 @@ public:
     virtual ~IClientCreator() = default;
     virtual IExternalClient* createClient() = 0;
 };
+```
 
+**SystemAClientCreator**
+
+このブロックでは `SystemAClientCreator` の定義だけを確認します。
+
+```cpp
 class SystemAClientCreator : public IClientCreator {
 public:
     IExternalClient* createClient() override {
         return new SystemAClient();
     }
 };
+```
 
+**SystemBClientCreator**
+
+このブロックでは `SystemBClientCreator` の定義だけを確認します。
+
+```cpp
 class SystemBClientCreator : public IClientCreator {
 public:
     IExternalClient* createClient() override {
@@ -2737,9 +2906,16 @@ static DeliveryResult deliverResult(
         NotificationResult result = notifier->onComplete(note);
         notificationLog.add(result);
     }
+
     return r;
 }
+```
 
+**BatchExecutor**
+
+このブロックでは `BatchExecutor` の定義だけを確認します。
+
+```cpp
 // バッチ全体のフローを統括するクラス（窓口構造）
 class BatchExecutor {
     vector<INotifier*> notifiers;
@@ -2762,19 +2938,24 @@ public:
                            bool apiHealthy = true,
                            const string& kind = "") {
         const string& partnerId = request.partnerId;
+
         if (!db.exists(partnerId)) {
             cout << "エラー: パートナーID [" << partnerId
                  << "] はデータベースに登録されていません。" << endl;
             DeliveryResult r{"失敗", false, "未登録"};
             batchLog.add(partnerId, "未登録", r.status);
+
             return r;
         }
+
         PartnerConfig cfg = db.get(partnerId);
+
         if (!cfg.isEnabled) {
             cout << "エラー: パートナー [" << cfg.name
                  << "] は現在無効です。処理を中断します。" << endl;
             DeliveryResult r{"失敗", false, "無効"};
             batchLog.add(partnerId, cfg.name, "スキップ（無効）");
+
             return r;
         }
 
@@ -2788,16 +2969,19 @@ public:
                                          batchLog, notificationLog, notifiers,
                                          apiHealthy, kind);
         delete client;   // 使い捨てクライアントを破棄
+
         return r;
     }
 
     // 登録順に全ジョブを実行する。失敗結果でもループを止めない。
     vector<DeliveryResult> executeBatch(const vector<BatchJob>& jobs) {
         vector<DeliveryResult> results;
+
         for (const auto& job : jobs) {
             results.push_back(execute(job.creator, job.request,
                                       job.apiHealthy));
         }
+
         return results;
     }
 };
@@ -2896,6 +3080,7 @@ public:
 int main() {
     BatchApplication app;
     app.run();
+
     return 0;
 }
 ```
@@ -3193,12 +3378,19 @@ public:
     void addNotifier(INotifier* n) { notifiers.push_back(n); }
     void execute() {
         client->send("data");
+
         for (int i = 0; i < notifiers.size(); i++) {
             notifiers[i]->onComplete("Success");
         }
     }
 };
+```
 
+**SimpleBatch**
+
+このブロックでは `SimpleBatch` の定義だけを確認します。
+
+```cpp
 // シンプルな直接実装で十分な場合
 class SimpleBatch {
 public:

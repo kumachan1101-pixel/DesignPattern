@@ -317,9 +317,11 @@ public:
     void processOrder(double price, const std::string& customerType) {
         // 1. 割引計算（価格・キャンペーン仕様で変わる）
         double discount = 0;
+
         if (customerType == "Premium") {
             discount = price * 0.2; // プレミアム20%引き
         }
+
         double finalPrice = price - discount;
 
         // 2. DB保存（保存方式・保存先仕様で変わる）
@@ -349,26 +351,50 @@ int main() {
 ```cpp
 #include <iostream>
 #include <string>
+```
 
+**IDiscountCalc**
+
+このブロックでは `IDiscountCalc` の定義だけを確認します。
+
+```cpp
 // インターフェース（契約）
 class IDiscountCalc {
 public:
     virtual double calc(double price) = 0;
     virtual ~IDiscountCalc() {}
 };
+```
 
+**INotifier**
+
+このブロックでは `INotifier` の定義だけを確認します。
+
+```cpp
 class INotifier {
 public:
     virtual void notify(double price) = 0;
     virtual ~INotifier() {}
 };
+```
 
+**IOrderRepository**
+
+このブロックでは `IOrderRepository` の定義だけを確認します。
+
+```cpp
 class IOrderRepository {
 public:
     virtual void save(double price) = 0;
     virtual ~IOrderRepository() {}
 };
+```
 
+**PremiumDiscount**
+
+このブロックでは `PremiumDiscount` の定義だけを確認します。
+
+```cpp
 // 具体実装①：プレミアム割引（割引ルール）
 class PremiumDiscount : public IDiscountCalc {
 public:
@@ -376,16 +402,28 @@ public:
         return price * 0.2; // 20%引き
     }
 };
+```
 
+**MarketingEmail**
+
+このブロックでは `MarketingEmail` の定義だけを確認します。
+
+```cpp
 // 具体実装②：注文完了メール（通知ルール）
 class MarketingEmail : public INotifier {
 public:
     void notify(double price) override {
-        std::cout << "[メール送信] ご購入ありがとうございます。支払金額: " 
+        std::cout << "[メール送信] ご購入ありがとうございます。支払金額: "
                   << static_cast<int>(price) << "円\n";
     }
 };
+```
 
+**DbRepository**
+
+このブロックでは `DbRepository` の定義だけを確認します。
+
+```cpp
 // 具体実装③：データベース保存（保存ルール）
 class DbRepository : public IOrderRepository {
 public:
@@ -393,7 +431,13 @@ public:
         std::cout << "[DB保存] 支払金額 " << price << " 円で注文を保存しました。\n";
     }
 };
+```
 
+**OrderService**
+
+このブロックでは `OrderService` の定義だけを確認します。
+
+```cpp
 // OK：変わる理由ごとに分離した結果、OrderServiceは骨格だけになる
 class OrderService {
     IDiscountCalc*    discountCalc_;
@@ -565,7 +609,13 @@ public:
         std::cout << "[EMAIL] " << msg << std::endl;
     }
 };
+```
 
+**Notifier**
+
+このブロックでは `Notifier` の定義だけを確認します。
+
+```cpp
 class Notifier {
     EmailSender* sender_; // 具体クラスを知っている
 public:
@@ -584,7 +634,13 @@ public:
     virtual void send(std::string msg) = 0;
     virtual ~IMessageSender() {}
 };
+```
 
+**EmailSender**
+
+このブロックでは `EmailSender` の定義だけを確認します。
+
+```cpp
 // 具体的な実装①：メール送信
 class EmailSender : public IMessageSender {
 public:
@@ -592,7 +648,13 @@ public:
         std::cout << "[EMAIL] " << msg << std::endl;
     }
 };
+```
 
+**SmsSender**
+
+このブロックでは `SmsSender` の定義だけを確認します。
+
+```cpp
 // 具体的な実装②：SMS送信（後から追加しても Notifier は変わらない）
 class SmsSender : public IMessageSender {
 public:
@@ -600,7 +662,13 @@ public:
         std::cout << "[SMS] " << msg << std::endl;
     }
 };
+```
 
+**Notifier**
+
+このブロックでは `Notifier` の定義だけを確認します。
+
+```cpp
 class Notifier {
     IMessageSender* sender_; // 契約（インターフェース）だけを知っている
 public:
@@ -618,6 +686,7 @@ int main() {
     SmsSender sms;
     Notifier notifier2(&sms);    // SMS版に差し替えても Notifier は変わらない
     notifier2.notify("注文完了");
+
     return 0;
 }
 ```
@@ -646,7 +715,13 @@ public:
 struct UserId {
     std::string value; // 型表現の変更をUserIdの内側に寄せる
 };
+```
 
+**IUserService**
+
+このブロックでは `IUserService` の定義だけを確認します。
+
+```cpp
 class IUserService {
 public:
     virtual void process(UserId id) = 0; // 引数の型はUserIdで固定される
@@ -670,7 +745,7 @@ public:
 
 ### 原則3：継承よりコンポジションを優先せよ
 
-機能を組み合わせるときは、安易に「継承（is-a）」を使うのではなく、まず「コンポジション（has-a：部品として持つ）」を検討するという原則です。
+機能を組み合わせるときは、安易に「継承（is-a）」を使うのではなく、まず「コンポジション（has-a：部品として持つ）」を検討するという原則です。★この原則で各章採用できているのか。ほとんどの章が継承になっているように見えるが。
 
 「継承を使ってはいけない」という意味ではありません。継承には「骨格を固定して一部を差し替える」という強力な使い道があります。しかし、「機能を組み合わせる・拡張する」という目的に対して継承を使うと、あとで深刻な罠にはまることが多いため、デフォルトの選択肢をコンポジションにしておくのが安全です。
 
@@ -690,7 +765,7 @@ public:
 たとえば、システムに通知機能の共通インターフェース（`INotifier`）があり、「Eメール通知（`EmailNotifier`）」と「SMS通知（`SmsNotifier`）」がどちらもその同じインターフェース（`INotifier`）を実装する具体クラスだとします。「`EmailNotifier` は `INotifier` である」——これが is-a 関係です。
 
 しかし、ここに別の軸の機能が追加されたらどうなるでしょうか。
-「送信に失敗したとき、リトライ（再実行）したい」という機能です。
+「送信に失敗したとき、リトライ（再実行）したい」という機能です。★全章、インターフェースの記載は以下のコードになっているのか？この原則を適用できているのでしょうか。
 
 > [!INFO] コラム：C++ に「インターフェース」はあるか
 > C++ には `interface` というキーワードはありません。C++ での「インターフェース」は、**純粋仮想関数（`= 0`）だけで構成された抽象クラス**のことを指します。
@@ -700,7 +775,8 @@ public:
 >     virtual void notify(const std::string& msg) = 0;
 >     virtual ~INotifier() {}
 > };
-> ```
+>
+
 > 「インターフェースを実装する」= この純粋仮想クラスを継承して実装すること。
 > 「具体クラスを継承する」= 実装を持つクラスから引き継ぐこと。問題になるのは後者です。
 
@@ -715,7 +791,13 @@ public:
         std::cout << "[Email: " << smtpHost_ << "] " << msg << "\n";
     }
 };
+```
 
+**RetryEmailNotifier**
+
+このブロックでは `RetryEmailNotifier` の定義だけを確認します。
+
+```cpp
 // リトライ付きメール通知クラス
 class RetryEmailNotifier : public EmailNotifier {
 public:
@@ -799,7 +881,7 @@ public:
 ```
 
 これで「通知」と「リトライ」のロジックが分かれました。これがコンポジション（has-a）の基本です。インターフェースを実装せずに単に別のクラスを持つだけでも、設計の柔軟性は上がります。
-しかし、この方法では「EmailNotifier自身がリトライ部品を持つ必要がある」ため、機能の追加や入れ替えにはクラス（EmailNotifier）の修正が必要です。
+しかし、この方法では「EmailNotifier自身がリトライ部品を持つ必要がある」ため、機能の追加や入れ替えにはクラス（EmailNotifier）の修正が必要です。★インターフェースで実装し、コンポジションで受け取るときは継承？RetryExecutorはインターエースなのか継承なのか？
 
 では、継承で問題になった `RetryLoggingEmailNotifier`（リトライ＋ログ＋メール送信の組み合わせ）は、コンポジションでどう解決するのか？——答えは「包む」です。
 
@@ -875,7 +957,13 @@ public:
     virtual void notify(const std::string& msg) = 0;
     virtual ~INotifier() {}
 };
+```
 
+**EmailNotifier**
+
+このブロックでは `EmailNotifier` の定義だけを確認します。
+
+```cpp
 // 具体クラス：メール送信（smtpHost_ と port_ を内部状態として持つ）
 class EmailNotifier : public INotifier {
     std::string smtpHost_;
@@ -888,7 +976,13 @@ public:
                   << "] " << msg << "\n";
     }
 };
+```
 
+**LoggingDecorator**
+
+このブロックでは `LoggingDecorator` の定義だけを確認します。
+
+```cpp
 // ログを追加する「包み紙」（log_ を内部状態として持つ）
 class LoggingDecorator : public INotifier {
     INotifier*    inner_;
@@ -901,7 +995,13 @@ public:
         inner_->notify(msg);
     }
 };
+```
 
+**RetryDecorator**
+
+このブロックでは `RetryDecorator` の定義だけを確認します。
+
+```cpp
 // リトライを追加する「包み紙」（maxRetries_ を内部状態として持つ）
 class RetryDecorator : public INotifier {
     INotifier* inner_;

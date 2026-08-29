@@ -396,7 +396,13 @@ struct ProductInfo {
     int    stock;        // 在庫数
     int    alertThreshold; // アラート閾値
 };
+```
 
+**ProductDatabase**
+
+このブロックでは `ProductDatabase` の定義だけを確認します。
+
+```cpp
 // 商品マスタ（データ駆動バリデーション用）
 class ProductDatabase {
 private:
@@ -547,7 +553,9 @@ void InventoryManager::reduceStock(string productId, int quantity) {
              << endl;
         return;
     }
+
     ProductInfo info = db.get(productId);
+
     if (quantity <= 0 || quantity > info.stock) {
         cout << "[エラー] 商品 " << productId << "（" << info.name << "）"
              << " は " << quantity << " 個出庫できません。現在在庫: "
@@ -586,6 +594,7 @@ void InventoryManager::replenishStock(string productId, int quantity) {
              << endl;
         return;
     }
+
     ProductInfo info = db.get(productId);
     int before = info.stock;
     info.stock += quantity;
@@ -622,6 +631,7 @@ void InventoryManager::notifyAll(const string& productId,
 
     // チャットは投稿先が要り、空の投稿IDが失敗を表す
     string postId = chat.postMessage("inventory-alert", message);
+
     if (postId.empty()) {
         cout << "[通知受付失敗] Chat" << endl;
     }
@@ -713,6 +723,7 @@ Chat(1件) #inventory-alert: 商品 PRD002（USBハブ） の在庫が閾値以�
 ```cpp
     cout << "--- 行5: 存在しない商品IDを操作する ---" << endl;
     manager.reduceStock("PRD999", 1);
+
     return 0;
 }
 ```
@@ -1022,7 +1033,13 @@ enum TrialDeliveryStatus {
     TRIAL_DELIVERED,
     TRIAL_DELIVERY_FAILED
 };
+```
 
+**TrialDeliveryResult**
+
+このブロックでは `TrialDeliveryResult` の定義だけを確認します。
+
+```cpp
 struct TrialDeliveryResult {
     TrialDeliveryStatus status;
     std::string channel;
@@ -1048,7 +1065,13 @@ public:
         return true;
     }
 };
+```
 
+**DashboardUpdater**
+
+このブロックでは `DashboardUpdater` の定義だけを確認します。
+
+```cpp
 // 1-4のまま。商品コードと在庫数を受け取り、成否を返さない
 class DashboardUpdater {
 public:
@@ -1057,7 +1080,13 @@ public:
                   << " | 残" << stock << " | 要発注" << std::endl;
     }
 };
+```
 
+**ChatNotifier**
+
+このブロックでは `ChatNotifier` の定義だけを確認します。
+
+```cpp
 // 1-4のまま。投稿先が要り、空の投稿IDが失敗
 class ChatNotifier {
     int posted;
@@ -1092,8 +1121,10 @@ public:
     TrialDeliveryResult requestAsync(const StockAlert& a) {
         if (willFail) {
             std::cout << "[SMS] 受付失敗 " << a.productId << std::endl;
+
             return {TRIAL_FAILED, "SMS", ""};
         }
+
         std::string requestId = "SMS-" +
                                 std::to_string(nextRequestNumber++);
         std::cout << "[SMS受付] 在庫警告 " << a.productId
@@ -1151,10 +1182,12 @@ private:
 void InventoryManager::receiveSMSCompletion(const std::string& requestId,
                                             bool delivered) {
     auto found = smsStatuses.find(requestId);
+
     if (found == smsStatuses.end() || found->second != TRIAL_PENDING) {
         std::cout << "[SMS最終結果エラー] " << requestId << std::endl;
         return;
     }
+
     found->second = delivered
                   ? TRIAL_DELIVERED : TRIAL_DELIVERY_FAILED;
     std::cout << "[SMS最終結果] " << requestId << ": PENDING -> "
@@ -1189,6 +1222,7 @@ void InventoryManager::notifyAll(const StockAlert& alert) {
     else failed++;
 
     TrialDeliveryResult smsResult = sms.requestAsync(alert);
+
     if (smsResult.status == TRIAL_PENDING) {
         pending++;
         lastRequestId = smsResult.requestId;
@@ -1232,6 +1266,7 @@ int main() {
     std::cout << "--- SMS受付失敗 ---" << std::endl;
     InventoryManager failedManager(true);
     failedManager.reduceStock("PRD002", "USBハブ", 1, 5);
+
     return 0;
 }
 ```
@@ -1501,6 +1536,7 @@ classDiagram
 - **実体の組み立て**：通知先を誰が生成・所有・登録し、在庫更新から契約だけを通してどう配布するかを一本で決める。
 
 ### 全体のデータと実体の流れを先に決める
+★この項目、全章に言える内容だが、コードの内容まで記載されているので、既に完成イメージがないと不可能と思います。次に記載する「全体の流れを実現するコードを決める」とは何が違うのか。この項目は何のためにあるのですか。必要ですか？話の流れとしてここで記載したいことは何なのか。こんな具体的に記載できないなら、もっとざっくりとしたイメージで記載した方が良いのでは？次への入力になるような段階的な論理的な構造になっているか見直してほしい。
 
 最初に、通知先を生成・登録してから在庫イベントを配り、後日のSMS完了を記録するまでの全体経路を決めます。行2のPRD002の出庫1件を起点に一本で固定します。
 
@@ -1593,13 +1629,25 @@ classDiagram
 enum DeliveryStatus {
     ACCEPTED, PENDING, FAILED, DELIVERED, DELIVERY_FAILED
 };
+```
 
+**DeliveryResult**
+
+このブロックでは `DeliveryResult` の定義だけを確認します。
+
+```cpp
 struct DeliveryResult {
     DeliveryStatus status; // 受付成功・保留・受付失敗・配信完了・配信失敗
     string channel;        // どの通知手段か
     string requestId;      // 非同期受付だけが設定する
 };
+```
 
+**StockAlert**
+
+このブロックでは `StockAlert` の定義だけを確認します。
+
+```cpp
 // 通知手段ごとに表現を変えるための、共通の在庫警告データ
 struct StockAlert {
     string productId;
@@ -1644,6 +1692,7 @@ public:
         string body = a.productName + "(" + a.productId + ") 残"
                     + to_string(a.stock) + " 閾値" + to_string(a.threshold);
         bool ok = sendMail("在庫不足", body);   // 契約→メール基盤へ変換
+
         return ok ? DeliveryResult{ACCEPTED, "Email", ""}
                   : DeliveryResult{FAILED, "Email", ""};
     }
@@ -1703,6 +1752,7 @@ private:
 ```cpp
 void InventoryManager::notifyAll(const StockAlert& alert) {
     int accepted = 0, pending = 0, failed = 0;
+
     for (INotification* o : observers) {   // ←observersに誰が入るかは未定
         DeliveryResult r = o->send(alert);
         record(r);                         // ←このrecordの持ち主が未定
@@ -1717,6 +1767,7 @@ void InventoryManager::notifyAll(const StockAlert& alert) {
             cout << "  失敗: " << r.channel << endl;
         }
     }
+
     cout << "[受付結果] 成功:" << accepted
          << " 保留:" << pending
          << " 失敗:" << failed << endl;
@@ -1889,22 +1940,26 @@ class DeliveryStatusLog {
         if (status == PENDING) return "PENDING";
         if (status == DELIVERED) return "DELIVERED";
         if (status == DELIVERY_FAILED) return "DELIVERY_FAILED";
+
         return "対象外";
     }
 public:
     void record(const DeliveryResult& result) {
         if (result.status != PENDING || result.requestId.empty()) return;
+
         statuses[result.requestId] = PENDING;
         cout << "[SMS状態] " << result.requestId << ": PENDINGを記録" << endl;
     }
 
     bool complete(const string& requestId, bool delivered) {
         auto it = statuses.find(requestId);
+
         if (it == statuses.end() || it->second != PENDING) {
             cout << "[SMS最終結果エラー] 未知または確定済みの受付ID: "
                  << requestId << endl;
             return false;
         }
+
         DeliveryStatus before = it->second;
         it->second = delivered ? DELIVERED : DELIVERY_FAILED;
         cout << "[SMS最終結果] " << requestId << ": "
@@ -2026,11 +2081,14 @@ classDiagram
     // nullと重複登録を拒否する
     bool attach(INotification* o) {
         if (o == nullptr) return false;
+
         if (find(observers.begin(), observers.end(), o)
                 != observers.end()) {
             return false;
         }
+
         observers.push_back(o);
+
         return true;
     }
 
@@ -2219,13 +2277,25 @@ public:
     void printAll() const;
     int size() const { return (int)records.size(); }
 };
+```
 
+**DeliveryStatusLog**
+
+このブロックでは `DeliveryStatusLog` の定義だけを確認します。
+
+```cpp
 class DeliveryStatusLog {
 public:
     void record(const DeliveryResult& result); // PENDINGと受付IDを記録
     bool complete(const std::string& requestId, bool delivered);
 };
+```
 
+**SMSDeliveryCallback**
+
+このブロックでは `SMSDeliveryCallback` の定義だけを確認します。
+
+```cpp
 class SMSDeliveryCallback {
     DeliveryStatusLog& statusLog;
 public:
@@ -2432,14 +2502,26 @@ sequenceDiagram
 #include <algorithm>
 
 using namespace std;
+```
 
+**ProductInfo**
+
+このブロックでは `ProductInfo` の定義だけを確認します。
+
+```cpp
 // 商品マスタの1件分
 struct ProductInfo {
     string name;           // 商品名
     int    stock;          // 在庫数
     int    alertThreshold; // アラート閾値
 };
+```
 
+**ProductDatabase**
+
+このブロックでは `ProductDatabase` の定義だけを確認します。
+
+```cpp
 // 商品マスタ（データ駆動バリデーション用）
 class ProductDatabase {
 private:
@@ -2472,7 +2554,13 @@ public:
 enum DeliveryStatus {
     ACCEPTED, PENDING, FAILED, DELIVERED, DELIVERY_FAILED
 };
+```
 
+**DeliveryResult**
+
+このブロックでは `DeliveryResult` の定義だけを確認します。
+
+```cpp
 struct DeliveryResult {
     DeliveryStatus status; // 受付成功・保留・受付失敗・配信完了・配信失敗
     string channel;        // どの通知手段か
@@ -2495,7 +2583,13 @@ struct StockAlert {
     int stock;
     int threshold;
 };
+```
 
+**INotification**
+
+このブロックでは `INotification` の定義だけを確認します。
+
+```cpp
 // 通知先が満たす必要がある契約（インターフェース）
 class INotification {
 public:
@@ -2522,7 +2616,13 @@ struct StockEvent {
     int stockBefore;
     int stockAfter;
 };
+```
 
+**StockEventLog**
+
+このブロックでは `StockEventLog` の定義だけを確認します。
+
+```cpp
 // 在庫変動ログを管理するクラス
 class StockEventLog {
     std::vector<StockEvent> records;
@@ -2533,6 +2633,7 @@ public:
         records.push_back({productId, productName, eventType,
                            amount, stockBefore, stockAfter});
     }
+
     void printAll() const {
         // 要求ID5：商品ID・変更前→変更後・単位をそろえて残す
         for (const auto& r : records) {
@@ -2542,9 +2643,16 @@ public:
                       << ")" << std::endl;
         }
     }
+
     int size() const { return (int)records.size(); }
 };
+```
 
+**DeliveryStatusLog**
+
+このブロックでは `DeliveryStatusLog` の定義だけを確認します。
+
+```cpp
 // 非同期SMSの受付IDと最終配信状態を管理する
 class DeliveryStatusLog {
     map<string, DeliveryStatus> statuses;
@@ -2553,22 +2661,26 @@ class DeliveryStatusLog {
         if (status == PENDING) return "PENDING";
         if (status == DELIVERED) return "DELIVERED";
         if (status == DELIVERY_FAILED) return "DELIVERY_FAILED";
+
         return "対象外";
     }
 public:
     void record(const DeliveryResult& result) {
         if (result.status != PENDING || result.requestId.empty()) return;
+
         statuses[result.requestId] = PENDING;
         cout << "[SMS状態] " << result.requestId << ": PENDINGを記録" << endl;
     }
 
     bool complete(const string& requestId, bool delivered) {
         auto it = statuses.find(requestId);
+
         if (it == statuses.end() || it->second != PENDING) {
             cout << "[SMS最終結果エラー] 未知または確定済みの受付ID: "
                  << requestId << endl;
             return false;
         }
+
         DeliveryStatus before = it->second;
         it->second = delivered ? DELIVERED : DELIVERY_FAILED;
         cout << "[SMS最終結果] " << requestId << ": "
@@ -2626,6 +2738,7 @@ public:
         string body = a.productName + "(" + a.productId + ") 残"
                     + to_string(a.stock) + " 閾値" + to_string(a.threshold);
         bool ok = sendMail("在庫不足", body);   // 契約→メール基盤へ変換
+
         return ok ? DeliveryResult{ACCEPTED, "Email", ""}
                   : DeliveryResult{FAILED, "Email", ""};
     }
@@ -2686,6 +2799,7 @@ public:
         string text = a.productName + " 残" + to_string(a.stock)
                     + "個。発注を確認してください。";
         string postId = postMessage("inventory-alert", text);
+
         return postId.empty() ? DeliveryResult{FAILED, "Chat", ""}
                               : DeliveryResult{ACCEPTED, "Chat", ""};
     }
@@ -2712,8 +2826,10 @@ public:
     DeliveryResult send(const StockAlert& a) override {
         if (willFail) {
             cout << "SMS: 受付失敗（後で再送対象）" << endl;
+
             return {FAILED, "SMS", ""};
         }
+
         string text = "在庫警告 " + a.productId + " 残" + to_string(a.stock);
         inbox.push_back(text);
         string requestId = "SMS-" + to_string(nextRequestNumber++);
@@ -2760,11 +2876,14 @@ public:
     // nullと重複登録を拒否する
     bool attach(INotification* o) {
         if (o == nullptr) return false;
+
         if (find(observers.begin(), observers.end(), o)
                 != observers.end()) {
             return false;
         }
+
         observers.push_back(o);
+
         return true;
     }
 
@@ -2782,7 +2901,9 @@ public:
                  << endl;
             return;
         }
+
         ProductInfo info = db.get(productId);
+
         if (quantity <= 0 || quantity > info.stock) {
             cout << "[エラー] 商品 " << productId
                  << " は " << quantity << " 個出庫できません。現在在庫: "
@@ -2824,6 +2945,7 @@ public:
                  << endl;
             return;
         }
+
         ProductInfo info = db.get(productId);
         int before = info.stock;
         info.stock += quantity;
@@ -2841,9 +2963,11 @@ private:
     // 各通知先の受付結果を集計する。通知先の種類ごとに分岐しない
     void notifyAll(const StockAlert& alert) {
         int accepted = 0, pending = 0, failed = 0;
+
         for (auto* o : observers) {
             DeliveryResult r = o->send(alert);
             deliveryStatusLog.record(r);
+
             if (r.status == ACCEPTED) {
                 accepted++;
             } else if (r.status == PENDING) {
@@ -2855,6 +2979,7 @@ private:
                 cout << "  失敗: " << r.channel << endl;
             }
         }
+
         cout << "[受付結果] 成功:" << accepted
              << " 保留:" << pending
              << " 失敗:" << failed << endl;
@@ -3302,7 +3427,6 @@ Subjectは具象通知先ではなくObserver契約の登録一覧だけを走�
 ```cpp
 // そもそも通知先がメール一択で、今後も増える予定がないなら、
 // 複雑な登録リストを管理するObserverパターンは過剰です。
-
 ```
 
 ### この章のまとめ
