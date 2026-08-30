@@ -43,7 +43,7 @@ TARGET_PHASES = {"3", "4", "6", "7"}
 
 # 1ブロックの上限。超えたら責任単位で割る。
 MAX_LINES = 80
-MAX_TYPES = 4
+MAX_TYPES = 2
 
 # 章の論点を隠す省略表現。定型処理の省略は本文側で範囲と掲載先を書く。
 # 文字列リテラルの中の `...`（例：`"再試行します..."`）は省略ではないので、
@@ -66,7 +66,10 @@ def strip_strings(body: str) -> str:
 # 所属が読み取れる手がかり。`Class::method(...)`、クラス名、main() など。
 # 見出し・太字だけでなく、直前の散文や引用（「抜粋の前提」など）も見る。
 OWNER_HINT = re.compile(
-    r"`[A-Z]\w*::\w+|`[A-Z]\w*`|\bmain\s*\(|^\s*(?:class|struct)\s+\w+",
+    r"`[A-Z]\w*::\w+|`[A-Z]\w*`|\*\*[A-Z]\w*::\w+|\bmain\s*\("
+    r"|^\s*(?:class|struct|enum)\s+\w+"
+    r"|^[\w:<>&*\s]*?\b[A-Z]\w*::[\w~]+\s*\("
+    r"|^[A-Za-z_][\w:<>&*]*\s+[\w~]+\s*\([^;{]*\)\s*[{;]",
     re.M,
 )
 
@@ -117,7 +120,11 @@ def findings_for(path: Path) -> list[tuple[int, str, str]]:
             continue
         line_no = text[:pos].count("\n") + 1
         lines = [ln for ln in body.split("\n") if ln.strip()]
-        types = len(re.findall(r"(?m)^\s*(?:class|struct)\s+\w+", body))
+        types = len(re.findall(
+            r"(?m)^(?:class|struct|enum\s+class)\s+"
+            r"[A-Za-z_]\w*[^\n{;]*\{",
+            body,
+        ))
         label = preceding_label(text, pos)
 
         prose = preceding_prose(text, pos)

@@ -4,21 +4,21 @@
     "type": "split",
     "children": [
       {
-        "id": "a149000194a9c792",
+        "id": "ce2b4cbfd2b4cded",
         "type": "tabs",
         "children": [
           {
-            "id": "8ed17ba54f094ece",
+            "id": "a52dbb83a7dcdf16",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "kindle/design-patterns/output/chapter11.md",
+                "file": "kindle/design-patterns/output/chapter09_1.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "chapter11"
+              "title": "chapter09_1"
             }
           }
         ]
@@ -41,7 +41,9 @@
               "type": "file-explorer",
               "state": {
                 "sortOrder": "alphabetical",
-                "autoReveal": false
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
               },
               "icon": "lucide-folder-closed",
               "title": "ファイルエクスプローラ"
@@ -94,7 +96,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "kindle/design-patterns/output/chapter01.md",
+                "file": "kindle/design-patterns/output/chapter09_1.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +106,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "chapter01へのバックリンク"
+              "title": "バックリンク"
             }
           },
           {
@@ -183,53 +185,52 @@
       "bases:新規ベースを作成": false
     }
   },
-  "active": "8ed17ba54f094ece",
+  "active": "a52dbb83a7dcdf16",
   "lastOpenFiles": [
-    "kindle/design-patterns/output/chapter12.md",
-    "kindle/design-patterns/output/chapter11.md",
-    "kindle/design-patterns/CONS-066_AI_INSTRUCTIONS.md",
-    "kindle/design-patterns/AUTHOR_FEEDBACK_MASTER.md",
-    "kindle/design-patterns/output/chapter10.md",
-    "kindle/design-patterns/CONS-065_AI_INSTRUCTIONS.md",
     "kindle/design-patterns/output/chapter01.md",
-    "kindle/design-patterns/script/__pycache__/check_mermaid.cpython-310.pyc",
-    "kindle/design-patterns/script/check_mermaid.py",
-    "kindle/design-patterns/output/chapter07.md",
-    "kindle/design-patterns/output/chapter04.md",
-    "kindle/design-patterns/output/epilogue.md",
-    "kindle/design-patterns/output/chapter06.md",
-    "kindle/design-patterns/script/__pycache__/check_unused_cpp_inputs.cpython-310.pyc",
-    "kindle/design-patterns/script/check_unused_cpp_inputs.py",
-    "kindle/design-patterns/script/_align_requirement_labels.py",
-    "kindle/design-patterns/script/_move_phase7_design_before_code.py",
-    "kindle/design-patterns/script/_normalize_requirement_scope.py",
-    "kindle/design-patterns/output/images/SPEC.md",
-    "kindle/design-patterns/script/__pycache__/run_completion_gate.cpython-310.pyc",
-    "kindle/design-patterns/script/__pycache__/check_completion_gate.cpython-310.pyc",
-    "kindle/design-patterns/rules/completion-gate.md",
-    "kindle/design-patterns/script/run_completion_gate.py",
-    "kindle/design-patterns/output/chapter03.md",
+    "kindle/design-patterns/output/chapter00_2.md",
+    "kindle/design-patterns/output/chapter00_1.md",
     "kindle/design-patterns/output/chapter02.md",
+    "kindle/design-patterns/output/chapter07.md",
+    "kindle/solid-principles-c/03_資料/png/chapter_13.png",
+    "kindle/solid-principles-c/03_資料/png/chapter_12.png",
+    "kindle/solid-principles-c/03_資料/png/chapter_11.png",
+    "kindle/solid-principles-c/03_資料/png/chapter_10.png",
+    "kindle/design-patterns/script/refine_phase6_flow.py",
+    "kindle/design-patterns/script/restructure_phase6_flow.py",
+    "kindle/design-patterns/script/__pycache__/normalize_cpp_presentation.cpython-310.pyc",
+    "kindle/design-patterns/output/chapter05.md",
+    "kindle/design-patterns/output/chapter04.md",
+    "kindle/design-patterns/output/chapter03.md",
+    "kindle/design-patterns/script/normalize_cpp_presentation.py",
+    "kindle/design-patterns/script/__pycache__/test_recurrence_checks.cpython-310.pyc",
+    "kindle/design-patterns/script/__pycache__/test_recurrence_checks.cpython-39.pyc",
+    "kindle/design-patterns/script/__pycache__/build_epub.cpython-39.pyc",
+    "kindle/design-patterns/script/__pycache__/check_author_notes.cpython-39.pyc",
+    "kindle/design-patterns/script/__pycache__/check_representative_run.cpython-39.pyc",
+    "kindle/design-patterns/script/__pycache__/check_execution_output.cpython-39.pyc",
+    "kindle/solid-principles-c/03_資料/png/chapter_09.png",
+    "kindle/solid-principles-c/03_資料/png/chapter_08.png",
+    "kindle/solid-principles-c/03_資料/png/chapter_07.png",
+    "kindle/solid-principles-c/03_資料/png/chapter_06.png",
+    "kindle/solid-principles-c/03_資料/png/chapter_05.png",
+    "kindle/solid-principles-c/03_資料/png/chapter_04.png",
+    "kindle/design-patterns/templates/chapter-template.md",
+    "kindle/design-patterns/output/chapter06.md",
     "kindle/design-patterns/output/chapter08.md",
-    "kindle/design-patterns/cover/cover-canva-editable-preview-v1.png",
-    "kindle/design-patterns/tmp/cover-canva/node_modules/lucide/README.md",
-    "kindle/design-patterns/tmp/cover-canva/node_modules/@oai/artifact-tool/node_modules/@oai/embedded-fonts/README.md",
-    "kindle/design-patterns/tmp/cover-canva/node_modules/@oai/artifact-tool/node_modules/string-split-by/readme.md",
-    "kindle/design-patterns/tmp/cover-canva/node_modules/@oai/artifact-tool/node_modules/skia-canvas/README.md",
-    "kindle/design-patterns/tmp/cover-canva/node_modules/@oai/artifact-tool/node_modules/parenthesis/README.md",
-    "kindle/design-patterns/tmp/cover-canva/node_modules/@oai/artifact-tool/node_modules/follow-redirects/README.md",
-    "kindle/design-patterns/tmp/cover-canva/node_modules/@oai/artifact-tool/node_modules/ms/readme.md",
-    "kindle/design-patterns/tmp/cover-canva/node_modules/@oai/artifact-tool/node_modules/ms/license.md",
-    "kindle/design-patterns/tmp/cover-canva/node_modules/@oai/artifact-tool/node_modules/https-proxy-agent/README.md",
-    "kindle/design-patterns/tmp/cover-canva/node_modules/@oai/artifact-tool/node_modules/detect-libc/README.md",
-    "kindle/design-patterns/cover/cover-background-editable-v1.png",
-    "kindle/design-patterns/cover/cover-separation-recombination-v1.png",
-    "959fb6a3-16a9-4c88-a191-1f143fb65209.png",
-    "808ae3c1-f77b-4bab-a516-8451a5c31c35.png",
-    "417cad0d-82b8-4ce4-a5cd-8950901fd9c9 1.png",
-    "417cad0d-82b8-4ce4-a5cd-8950901fd9c9.png",
-    "959fb6a3-16a9-4c88-a191-1f143fb65209 3.png",
-    "959fb6a3-16a9-4c88-a191-1f143fb65209 4.png",
-    "959fb6a3-16a9-4c88-a191-1f143fb65209 5.png"
+    "kindle/design-patterns/output/chapter09_2.md",
+    "kindle/design-patterns/output/chapter10.md",
+    "kindle/design-patterns/output/chapter11.md",
+    "kindle/design-patterns/output/chapter12.md",
+    "kindle/design-patterns/audit-report.current.md",
+    "kindle/solid-principles-c/README.md",
+    "kindle/solid-principles-csharp/README.md",
+    "kindle/solid-principles-csharp/latest/solid.md",
+    "kindle/solid-principles-c/02_章別/20_おわりに.md",
+    "kindle/solid-principles-c/02_章別/19_第2部 第15章：SOLID原則を「使える思考」にする.md",
+    "kindle/solid-principles-c/02_章別/18_第2部 第14章 統合実践（応用）_02.md",
+    "kindle/solid-principles-c/02_章別/18_第2部 第14章 統合実践（応用）_01.md",
+    "kindle/solid-principles-c/02_章別/17_第2部 第13章 統合実践（基本）_02.md",
+    "kindle/solid-principles-c/02_章別/17_第2部 第13章 統合実践（基本）_01.md"
   ]
 }

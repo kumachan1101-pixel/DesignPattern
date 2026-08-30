@@ -22,7 +22,7 @@ validate_book.py 本体は「現在の本文が通るか」しか見ないため
   REVIEW-007 変更固有の模擬方法を著者向け共通見出しへ戻す
   REVIEW-009 4-2の比較表を章独自の列見出しへ戻す
   DOC-001   断片コードの所属明示・ブロック分割・省略記号
-  DOC-003   フェーズ6の断片コードの掲載箇所ラベル
+  DOC-003   フェーズ6の断片コードの出どころ・確認対象ラベル
   RUN-002   1-1の代表実行が1行だけで準備も状態変化も見せない
   EDIT-002  著者向けメモと、フェーズ前半での解決構造の先出し
 """
@@ -64,11 +64,11 @@ t = (OUT/"chapter04.md").read_text(encoding="utf-8")
 broken = t.replace("direction TB", "direction LR", 1)
 cases.append(("REVIEW-001 クラス図の向き", V.check_class_diagram_direction, broken))
 
-# 6) REVIEW-002: 6-1 の共通見出しが章独自表記へ戻る
+# 6) REVIEW-002: フェーズ6の共通見出しが章独自表記へ戻る
 t = (OUT/"chapter11.md").read_text(encoding="utf-8")
-broken = t.replace("### 6-1：決めた流れとコードの照合",
-                   "### 6-1：生成と破棄のまとめ", 1)
-cases.append(("REVIEW-002 共通見出し", V.check_common_phase_headings, broken))
+broken = t.replace("### 構想をコードでつなぐ",
+                   "### 部品を順番に作る", 1)
+cases.append(("REVIEW-002 共通見出し", V.check_phase6_point_separation, broken))
 
 # 7) REVIEW-003: 検証結果を使わず単独で呼ぶ
 t = (OUT/"chapter02.md").read_text(encoding="utf-8")
@@ -82,12 +82,14 @@ broken = t.replace("**変更後の取込手順と確認点**",
                    "**この章が扱う複雑さ**", 1)
 cases.append(("REVIEW-004 著者向け見出し", V.check_banned_patterns, broken))
 
-# 9) REVIEW-005: フェーズ6全体像のMermaid図をtextへ戻す
+# 9) REVIEW-005: フェーズ6へ完成クラス図を重複して戻す
 t = (OUT/"chapter04.md").read_text(encoding="utf-8")
-start = t.index("#### まず全体像")
-end = t.index("### 対策検討のクラス図", start)
-broken = t[:start] + t[start:end].replace("```mermaid\nflowchart TB", "```text", 1) + t[end:]
-cases.append(("REVIEW-005 全体像の図", V.check_phase6_overview_diagram, broken))
+broken = t.replace(
+    "### 構想をコードでつなぐ",
+    "```mermaid\nclassDiagram\n    class PrematureAnswer\n```\n\n### 構想をコードでつなぐ",
+    1,
+)
+cases.append(("REVIEW-005 フェーズ6の重複図", V.check_phase6_overview_diagram, broken))
 
 # 10) REVIEW-006: 長い実行結果を一括掲載する
 t = (OUT/"chapter04.md").read_text(encoding="utf-8")
@@ -148,7 +150,7 @@ broken = t.replace("**代表入力（1-4の`main()`から抜粋）：**",
                    "**この結果を生む入力（1-4の`main()`から抜粋）：**", 1)
 cases.append(("ORDER-001 代表入力の順", V.check_phase1_system_overview, broken))
 
-# 20) RISK-001: 6-4を非実装の断り中心の旧形式へ戻す
+# 20) RISK-001: 将来リスクの評価列を曖昧な旧形式へ戻す
 t = (OUT/"chapter06.md").read_text(encoding="utf-8")
 broken = t.replace("守れる範囲・残る弱点", "今回の判断", 1)
 cases.append(("RISK-001 将来リスク評価", V.check_future_risk_traceability, broken))
@@ -156,8 +158,8 @@ cases.append(("RISK-001 将来リスク評価", V.check_future_risk_traceability
 # 21) STEP-001: 六段の番号付き見出しを再導入する
 t = (OUT/"chapter06.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "#### 1. 契約と具体をセットで決める（分離）",
-    "#### 1. 契約と具体をセットで決める（分離）\n\n"
+    "#### 契約：境界の形と受け渡しを決める",
+    "#### 契約：境界の形と受け渡しを決める\n\n"
     "**1. 境界の表し方と、何が渡るかを決める 【契約】**",
     1,
 )
@@ -200,8 +202,8 @@ cases.append((
 # 24aa) DIAGRAM-005: 既定実装を持つ通常基底をinterfaceと誤記する
 t = (OUT/"chapter03.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "    class IReservationState\n",
-    "    class IReservationState { <<interface>> }\n",
+    "    class IReservationState {\n",
+    "    class IReservationState { <<interface>>\n",
     1,
 )
 cases.append((
@@ -238,8 +240,8 @@ cases.append((
 # 24d) EDIT-003: 問題を解く前にパターン名を本文へ出す
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "問題から導いた「ルール差し替え構造」という名前だけを使います。",
-    "問題から導いた「Strategy」という名前を使います。",
+    "ルール差し替え構造",
+    "Strategy",
     1,
 )
 cases.append(("EDIT-003 パターン名の先出し", V.check_pattern_name_reveal, broken))
@@ -255,11 +257,11 @@ t = (OUT/"chapter07.md").read_text(encoding="utf-8")
 broken = t.replace("    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:2px,color:#111827;\n", "", 1)
 cases.append(("CHANGE-DIAGRAM-001 変更図の差分色", V.check_change_diagram_highlight, broken))
 
-# 27) SKELETON-001: 分離の検算で骨格を「なし」へ戻す
+# 27) SKELETON-001: 構想と要点コードで骨格を「なし」へ戻す
 t = (OUT/"chapter06.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "##### 分離の検算：守る処理が契約だけを呼べるか",
-    "##### 分離の検算：この課題では骨格は無し", 1)
+    "#### 実行骨格：組み立てた実体を契約から呼ぶ",
+    "#### 実行骨格：この課題では骨格は無し", 1)
 cases.append(("SKELETON-001 安定骨格の省略", V.check_stable_skeleton_explanation, broken))
 
 # 28) REQUIREMENT-ROOT-001: 変更ID一覧にない要求IDへ変更根拠を付ける
@@ -343,8 +345,8 @@ cases.append(("RUN-001 手元で動かすには", V.check_run_locally_section, b
 # DOC-002: 旧六段ラベルを再導入する
 t = (OUT/"chapter12.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "#### 2. 全体経路をコードで組み立てる",
-    "#### 2. 全体経路をコードで組み立てる\n\n"
+    "#### 生成・所有・受け渡しを決める",
+    "#### 生成・所有・受け渡しを決める\n\n"
     "**【安定骨格】【利用開始】**",
     1,
 )
@@ -364,39 +366,47 @@ t = (OUT/"chapter05.md").read_text(encoding="utf-8")
 broken = t.replace("操作記録構造", "操作の部品化構造", 1)
 cases.append(("CONS-068 日本語構造名の統一", V.check_structure_name_consistency, broken))
 
-# DOC-002: 実行接続表を落とす
-t = (OUT/"chapter07.md").read_text(encoding="utf-8")
-broken = t.replace("| 実行順・ポイント | 担う場所 | 経路で受け渡すもの・起きること | 次の呼出先 |",
-                   "| ポイント | 担う場所 | 説明 | 備考 |", 1)
-cases.append(("DOC-002 実行接続表", V.check_phase6_point_separation, broken))
-
-# DOC-008: 前工程の事実から全体経路を導く判断表を落とす
+# DOC-002: 構想上のコード経路を落とす
 t = (OUT/"chapter07.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "| 前工程で確定した事実 | ここで決めること | 判断 | 全体経路への反映 |",
-    "| メモ | 問い | 結論 | 配置 |",
+    "**構想上のコード経路：**",
+    "**構想の概要：**",
     1,
 )
-cases.append(("DOC-008 全体経路の導出", V.check_phase6_point_separation, broken))
+cases.append(("DOC-002 構想経路の欠落", V.check_phase6_point_separation, broken))
 
-# DOC-002: 全体経路を詳細コードより後ろへ戻す
+# DOC-008: 変更前抜粋と新規コードの読み分け案内を落とす
 t = (OUT/"chapter07.md").read_text(encoding="utf-8")
-flow_heading = "### 全体のデータと実体の流れを先に決める"
-broken = t.replace(flow_heading, "", 1).replace(
-    "#### システム全体の最終構造を決める",
-    flow_heading + "\n\n#### システム全体の最終構造を決める",
+broken = t.replace(
+    "> **コードの読み方：**",
+    "> **コードについて**",
     1,
 )
-cases.append(("DOC-002 全体経路の順序", V.check_phase6_point_separation, broken))
+cases.append(("DOC-008 コード読解案内", V.check_phase6_point_separation, broken))
 
-# DOC-001: 6-1の二つの判断から一行を落とす
+# DOC-002: 契約より前に組み立てを置く
+t = (OUT/"chapter07.md").read_text(encoding="utf-8")
+broken = t.replace("#### 契約：境界の形と受け渡しを決める", "#### __SWAP__", 1)
+broken = broken.replace(
+    "#### 生成・所有・受け渡しを決める",
+    "#### 契約：境界の形と受け渡しを決める",
+    1,
+).replace("#### __SWAP__", "#### 生成・所有・受け渡しを決める", 1)
+cases.append(("DOC-002 対策検討の順序", V.check_phase6_point_separation, broken))
+
+# DOC-002: 公開入口からの実行確認を落とす
+t = (OUT/"chapter07.md").read_text(encoding="utf-8")
+broken = t.replace("#### 公開入口から具体の実行まで追う", "#### 呼び出しの補足", 1)
+cases.append(("DOC-002 コード経路の欠落", V.check_phase6_point_separation, broken))
+
+# DOC-001: 構想表から生成・所有・受け渡しを落とす
 t = (OUT/"chapter07.md").read_text(encoding="utf-8")
 assembly_row = next(
     line for line in t.splitlines()
-    if line.startswith("| 実体の組み立て |")
+    if line.startswith("| 生成・所有・受け渡し |")
 )
 broken = t.replace(assembly_row + "\n", "", 1)
-cases.append(("DOC-001 二判断要約", V.check_phase6_point_separation, broken))
+cases.append(("DOC-001 構想表の欠落", V.check_phase6_point_separation, broken))
 
 # DOC-007: 第1章で選択を注入と取り違える
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
@@ -412,18 +422,18 @@ cases.append(("DOC-007 選択と注入の区別",
 # DOC-005: 一般的な注入方式の一覧を各章へ戻す
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "##### 実行：Calculatorから選択済みルールを呼ぶ",
+    "#### 実行骨格：組み立てた実体を契約から呼ぶ",
     "| 形 | 実装が決まる決め手 | 入る瞬間 | この本での例 |\n"
     "|---|---|---|---|\n"
     "| 呼び出しごと | 入力 | 引き当て時 | 第1章 |\n\n"
-    "##### 実行：Calculatorから選択済みルールを呼ぶ",
+    "#### 実行骨格：組み立てた実体を契約から呼ぶ",
     1,
 )
 cases.append(("DOC-005 注入方式一覧の重複", V.check_phase6_point_separation, broken))
 
 # DOC-006: 第0章へ集約した骨格分類表を各章へ戻す
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
-marker = "##### 分離の検算：守る処理が契約だけを呼べるか\n"
+marker = "#### 実行骨格：組み立てた実体を契約から呼ぶ\n"
 legacy_skeleton_table = """
 
 | 型 | 骨格の正体 | 契約の置き場 | 見分け方 |
@@ -462,12 +472,12 @@ broken = t.replace("    // C003（Regular）/ 割引なし",
                    "    // …（中略：割引判定）…", 1)
 cases.append(("DOC-001 コードの省略", V.check_code_block_attribution, broken))
 
-# DOC-003: フェーズ6の断片から掲載箇所ラベルを外す
+# DOC-003: フェーズ6の断片から確認対象ラベルを外す
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "**掲載箇所：`main()`** ―― 起動時の生成・登録・注入",
+    "**ここで確認するコード：`main()`** ―― 起動時の生成・登録・注入",
     "どの施策クラスを作るかを知るのは組み立て箇所だけです。", 1)
-cases.append(("DOC-003 掲載箇所ラベル", V.check_phase6_fragment_location, broken))
+cases.append(("DOC-003 確認対象ラベル", V.check_phase6_fragment_location, broken))
 
 # RUN-002: 1-1の代表入力を1行実行へ戻す（準備も状態変化も見せない形）
 import check_representative_run as R
@@ -540,10 +550,10 @@ cases.append((
 # DOC-004: フェーズ6へ実装結果の達成表を重複して戻す
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "### 6-3：課題から完成構造までの設計トレース",
+    "### 構想を採用する",
     "#### システム全体のコード適用結果\n\n"
     "**システム全体の実装結果：達成。**\n\n"
-    "### 6-3：課題から完成構造までの設計トレース",
+    "### 構想を採用する",
     1,
 )
 cases.append((
@@ -552,10 +562,10 @@ cases.append((
     broken,
 ))
 
-# EDIT-004: 二つの判断で導く前に完成方針を宣言する
+# EDIT-004: 根拠とコードを示す前に完成方針を宣言する
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "**ここで全体経路と対応づけるコード：**",
+    "**このフェーズで決めること：**",
     "**どう解決するか（方針）：** 規則差し替え構造とします。", 1)
 cases.append((
     "EDIT-004 対策結論の先出し",
@@ -619,6 +629,45 @@ cases.append((
     lambda text, _path: V.check_chapter0_file_layout_guidance(
         text, OUT/"chapter00_2.md"
     ),
+    broken,
+))
+
+# DOC-003: 1型のブロック名へ、別ブロックの型名も併記する旧形式へ戻す
+t = (OUT/"chapter10.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "**ここで確認するコード：`IExternalClient`（クラス全体）**",
+    "**ここで確認するコード：`IExternalClient`／`IClientCreator`（2つの契約）**",
+    1,
+)
+cases.append((
+    "DOC-003 コードブロック名と型",
+    V.check_phase6_fragment_location,
+    broken,
+))
+
+# DOC-004: 説明の qualified method 名だけを古い名前へ戻す
+t = (OUT/"chapter00_1.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "`IDiscountCalc::calc(double)`",
+    "`IDiscountCalc::calculate(int)`",
+    1,
+)
+cases.append((
+    "DOC-004 古いメソッド名",
+    V.check_qualified_method_references,
+    broken,
+))
+
+# DOC-005: 構想表の共通段階を章独自ラベルへ戻す
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "| 公開入口からの実行 | Selectorは",
+    "| 安定側はどう実行するか | Selectorは",
+    1,
+)
+cases.append((
+    "DOC-005 構想表の共通段階",
+    V.check_phase6_point_separation,
     broken,
 ))
 
