@@ -36,7 +36,7 @@
     "CONS-006": {
       "status": "done",
       "evidence": [
-        "output/chapter09_2.md#🔴 フェーズ6：対策検討 ―― 全体のデータと実体の流れを決める"
+        "output/chapter09_2.md#🔴 フェーズ6：対策検討 ―― 構想を一つのコード経路へ変える"
       ]
     },
     "CONS-007": {
@@ -54,7 +54,7 @@
     "CONS-009": {
       "status": "done",
       "evidence": [
-        "output/chapter02.md#6-2：システム全体の契約とデータ配置を確定する"
+        "output/chapter02.md#構想をコードでつなぐ"
       ]
     },
     "CONS-010": {
@@ -96,13 +96,13 @@
     "CONS-016": {
       "status": "done",
       "evidence": [
-        "output/chapter05.md#6-2：システム全体の契約とデータ配置を確定する"
+        "output/chapter05.md#構想をコードでつなぐ"
       ]
     },
     "CONS-017": {
       "status": "done",
       "evidence": [
-        "output/chapter06.md#システム全体の最終構造を決める"
+        "output/chapter06.md#構想を採用する"
       ]
     },
     "CONS-018": {
@@ -138,7 +138,7 @@
     "CONS-023": {
       "status": "done",
       "evidence": [
-        "output/chapter09_2.md#システム全体の最終構造を決める"
+        "output/chapter09_2.md#構想を採用する"
       ]
     },
     "CONS-024": {
@@ -162,7 +162,7 @@
     "CONS-027": {
       "status": "done",
       "evidence": [
-        "output/chapter10.md#6-2：システム全体の契約とデータ配置を確定する"
+        "output/chapter10.md#構想をコードでつなぐ"
       ]
     },
     "CONS-028": {
@@ -198,13 +198,13 @@
     "CONS-033": {
       "status": "done",
       "evidence": [
-        "output/chapter12.md#全体の流れを実現するコードを決める"
+        "output/chapter12.md#契約：境界の形と受け渡しを決める"
       ]
     },
     "CONS-034": {
       "status": "done",
       "evidence": [
-        "output/chapter12.md#全体の流れを実現するコードを決める"
+        "output/chapter12.md#生成・所有・受け渡しを決める"
       ]
     },
     "CONS-035": {
@@ -242,8 +242,8 @@
     "CONS-040": {
       "status": "done",
       "evidence": [
-        "output/chapter04.md#対策検討のクラス図：1-3の責任と依存をどう変えるか",
-        "output/chapter12.md#対策検討のクラス図：1-3の責任と依存をどう変えるか"
+        "output/chapter04.md#完成後のクラス図",
+        "output/chapter12.md#完成後のクラス図"
       ]
     },
     "CONS-041": {
@@ -268,7 +268,7 @@
     "CONS-044": {
       "status": "done",
       "evidence": [
-        "output/chapter11.md#6-1：決めた流れとコードの照合"
+        "output/chapter11.md#構想を採用する"
       ]
     },
     "CONS-045": {
@@ -321,8 +321,8 @@
     "CONS-052": {
       "status": "done",
       "evidence": [
-        "output/chapter00_2.md#対策検討の進め方 ―― システム全体の構造をコードへ落とす",
-        "output/chapter11.md#6-4：将来リスクに対する設計上の確認"
+        "output/chapter00_2.md#構想を決める",
+        "output/chapter11.md#将来リスクに対して構想を確認する"
       ]
     },
     "CONS-053": {
@@ -351,8 +351,8 @@
     "CONS-056": {
       "status": "done",
       "evidence": [
-        "output/chapter01.md#システム全体の最終構造を決める",
-        "output/chapter11.md#システム全体の最終構造を決める",
+        "output/chapter01.md#構想を採用する",
+        "output/chapter11.md#構想を採用する",
         "output/chapter11.md#完成後のクラス図"
       ]
     },
@@ -393,7 +393,7 @@
       "status": "done",
       "evidence": [
         "output/chapter00_1.md#はじめに",
-        "output/chapter11.md#全体の流れを実現するコードを決める",
+        "output/chapter11.md#公開入口から具体の実行まで追う",
         "rules/writing-rules.md:116",
         "script/validate_book.py:1819"
       ]
@@ -436,7 +436,7 @@
     "CONS-067": {
       "status": "done",
       "evidence": [
-        "review-tasks.md#2026-08-23 現在地 ―― 設計思考の導出・説明密度・コード整合を再監査（CONS-067）",
+        "review-tasks.md#過去ログ：2026-08-23 現在地 ―― 設計思考の導出・説明密度・コード整合を再監査（CONS-067）",
         "output/chapter00_2.md#クラス図の読み方（全章共通の規約）",
         "output/chapter01.md#5-2：課題候補の重複と依存を整理する",
         "output/chapter02.md#最終要求の実装・受入エビデンス"

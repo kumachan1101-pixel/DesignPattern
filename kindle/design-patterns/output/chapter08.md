@@ -2080,146 +2080,41 @@ payLog.add(request.methodId,
 |---|---|---|
 | 問題ID1・問題ID2・問題ID3：手段固有の生成・検証・処理モード・完了方法が決済フローへ混在 | 原因ID1：具体クラス名・入力検証・処理モード・手段固有の完了確認・リトライ判定を統括が抱える | 課題ID1：決済方式の生成・処理を利用フローから分離 |
 
-## 🔴 フェーズ6：対策検討 ―― 全体のデータと実体の流れを決める
+## 🔴 フェーズ6：対策検討 ―― 構想を一つのコード経路へ変える
 
-#### まず全体像 ―― どんな構造へ変えるか（抽象）
+フェーズ5で確定した全課題を、別々の部品案ではなく、生成から実行まで動く一つの構想としてまとめます。先に主要クラスと接続順を示し、その直後に同じ順でコードを確認します。
 
-フェーズ4「原因分析」で、`PaymentApplication` が「決済の共通フロー」と「決済方式ごとの生成・検証・処理手順」という**別々の理由で変わる知識**を、同じ場所へ抱えていることを確認しました。対策は、この2つを別々の責任へ分け、一つの決済経路へ再結合することです。この段階では、問題から導いた「生成分離構造」という名前だけを使います。一般に共有されているデザインパターン名は、実装と効果を確認した後で結び付けます。
-
-```mermaid
-flowchart TB
-    A[現在<br/>PaymentApplicationに<br/>共通フローと方式ごとの生成・処理が混在] --> B[分離判断<br/>方式固有の知識を境界の向こうへ出し<br/>共通フローだけを残す]
-    B --> C[課題ID1・処理<br/>方式ごとの検証と手順を<br/>共通契約の裏へ]
-    B --> D[課題ID1・生成<br/>どの方式を作るかの判断を<br/>1か所へ集める]
-    C --> E[守る範囲<br/>顧客・注文照合／結果保存<br/>依頼から結果までの共通フロー]
-    D --> E
-```
-
-**この図は上から下へ、現状・分離の判断・処理と生成の行き先・守る範囲の順で読みます。** 検討はこの図の並び順では進めません。**先に確定するのは、一番下の「守る範囲」です。** 守る範囲が決まらないと、どこで線を引いてよいかが決められないからです。
-
-**守る範囲 ―― この章で変えないもの。**
-
-- **顧客・注文照合**：注文台帳から請求金額と注文者を引き、顧客台帳に実在するかを確認すること。順序も含めて変えない
-- **共通の依頼→結果フロー**：1回の決済要求に対して1つの結果を返す形
-- **結果保存**：決済の結果を記録すること
-- **保留から完了確認への2段階**：非同期の方式で保留になったら、共通の完了確認を呼ぶこと
-
-この4つが変わっていないことは、フェーズ7の受入・回帰エビデンスで確認します。ただし、**分離と組み立ての判断を終えるたびにも照合します。**
-
-### 対策検討のクラス図：1-3の責任と依存をどう変えるか
-
-フェーズ1の1-3で作ったクラス図が、これから書き換えていく**基準の図**です。まずここへフェーズ2〜5の判断を注記として載せ、どの責任を残し、どの責任を移すかを確定します。
-
-| クラス図を変える材料 | 前工程で確認したこと | クラス図へ反映すること |
-|---|---|---|
-| フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
-| フェーズ2の変化予測 | リスクID1〜リスクID4。方式・入力・処理モード・完了手順が増える | 毎回変わる責任へ `【移す】` と注記する |
-| フェーズ4の原因 | 原因ID1。具体クラス名・入力検証・処理モード・リトライ判定を統括が抱える | 同じクラスの中で `【残す】` と `【移す】` を分ける |
-| フェーズ5の接続点 | 利用フローは要求を渡して結果を受け取ればよい | 課題ID1の方式固有処理と生成判断を、統括の外へ出す |
-
-**薄い黄色が着目クラス**です。ここでは `PaymentApplication` の `【残す】` と `【移す】` を追います。矢印は1-3と同じ利用・保持関係です。
-
-**変更前のクラス図（基準の図）：**
-
-```mermaid
-classDiagram
-    class PaymentApplication {
-        -registry: ProcessorRegistry
-        -orders: OrderBook
-        -customers: CustomerDirectory
-        -gatewayClient: PaymentGatewayClient
-        +processPayment(request) PaymentResult
-    }
-    class ProcessorRegistry {
-        +exists(method) bool
-        +isActive(method) bool
-    }
-    class OrderBook {
-        +exists(id) bool
-        +get(id) OrderRecord
-    }
-    class CustomerDirectory {
-        +exists(id) bool
-        +get(id) CustomerRecord
-    }
-    class PaymentGatewayClient
-    PaymentApplication *-- ProcessorRegistry : 保持
-    PaymentApplication *-- OrderBook : 保持
-    PaymentApplication *-- CustomerDirectory : 保持
-    PaymentApplication *-- PaymentGatewayClient : 保持
-
-    note for PaymentApplication "【残す】顧客・注文照合と共通フロー<br/>【課題ID1・移す】方式ごとの検証・API手順・保留の作り方<br/>【課題ID1・移す】どの方式を作るかの分岐"
-    note for ProcessorRegistry "【維持】方式の登録と有効判定"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "PaymentApplication" focus
-```
-
-向きと掲載クラスは1-3から変えていません。同じ図に注記と色だけを加え、`PaymentApplication` のどの責任を残し、どの責任を移すかに着目します。**この図を基準に、分離と組み立てで必要な関係を足していきます。**
-
-クラス図の変更として書くと、次の3操作になります。**どんなクラスを新設し、何という名前にするかは、直後の全体経路で決めます。** ここで確定しているのは操作の種類だけです。
-
-1. 課題ID1：方式が満たす共通契約を新設し、方式ごとの検証・手順をその実装へ移す。
-2. 課題ID1：どの方式を作るかの判断を、共通フローの外の1か所へ集める。
-3. 課題ID1：実体を生成・所有する場所を決め、共通フローへ渡す。
-
-これらの操作を、直後の全体経路へまとめます。
-
-#### 全体経路を組み立てる判断
-
-生成メソッドを先に作らず、決済方式が決まる時点、生成物の寿命、共通フローに残す順を決めます。
-
-| 前工程で確定した事実 | ここで決めること | 判断 | 全体経路への反映 |
-|---|---|---|---|
-| 原因ID1：方式別検証・API手順と生成分岐が共通フローに混在する | 共通フローに何を残すか | 顧客・注文照合、方式生成の依頼、実行、結果返却だけを残す | 公開入口→照合→生成依頼→決済→返却と結ぶ |
-| 決済方式は要求の`methodId`で呼出しごとに決まる | 実体を起動時に作るか要求ごとに作るか | 要求ごとに対応Processorを1つ生成する | 共通フローの途中へ生成地点を置く |
-| Processorは1回の決済だけに使う | 誰が所有し、いつ破棄するか | 共通フローが生成物を受け取り、実行後に破棄する | 生成→実行→破棄を同じ要求経路に置く |
-| API境界は全Processorで共有する | 境界を誰が持つか | 生成役が長期所有し、各Processorへ借用参照を渡す | 生成時にGateway参照を受け渡す |
-| 共通順は方式が変わっても同じ | 生成役の差し替えをどう確定するか | アプリケーションの派生型を生成した時点で生成処理を確定する | 起動時の派生型生成と要求時のProcessor生成を分ける |
-
-### 全体のデータと実体の流れを先に決める
-
-上の判断を順につなぎ、決済アプリケーションを用意し、要求に応じた決済方式を生成して結果を返すまでの全体経路を決めます。クレジットカード決済1件を一本で固定します。表中の識別子は役割を示す設計名で、実装行は次の節で示します。
-
-| 実行順・ポイント | 担う場所 | 経路で受け渡すもの・起きること | 次の呼出先 |
-|---|---|---|---|
-| 1. 生成役の具体を決める | `main()` | `DefaultPaymentApplication app;`を生成し、この型が`createProcessor()`の実装を決める | 実行開始へ |
-| 2. 実行開始 | `main()` | `app.processPayment(request);` | `PaymentApplication::processPayment()` |
-| 3. 骨格 | `PaymentApplication::processPayment(const PaymentRequest&)` | 注文と顧客を照合し、`createProcessor(request.methodId)` を呼ぶ | `DefaultPaymentApplication::createProcessor()` |
-| 4. 決済方式を生成して返す | `DefaultPaymentApplication::createProcessor(const string&)` | 登録と有効を確認し、`new CreditCardProcessor(gatewayClient)`を返す | 骨格の`IPaymentProcessor*`が受け取る |
-| 5. 契約→具体 | `IPaymentProcessor::pay()` → `CreditCardProcessor::pay()` | カード固有の検証とゲートウェイ呼び出しを行い、結果を返す | 戻り値を骨格が返し、`delete proc;` で捨てる |
-
-**生成が2か所に現れています。** 1は生成役そのものを選ぶ組み立て、4は方式の実体を作る呼び出しです。**外側は1回、内側は決済のたびに起きます。**
-
-**全体経路の準備コードで作ったものを、3が捨てます。** 作る場所と捨てる場所が別の関数にあるので、`createProcessor()` の戻りは「借りるもの」ではなく「受け取って所有するもの」だと分離の検算で決めておく必要がありました。**所有を決めずに骨格を書くと、この `delete` を書けません。**
-
-### 全体の流れを実現するコードを決める
+### 構想を決める
 
 **【課題の原因】** 課題ID1は、問題ID1・問題ID2・問題ID3（手段固有の生成・検証・処理モード・完了方法が決済フローへ混在）＝原因ID1（具体クラス名・入力検証・処理モード・手段固有の完了確認・リトライ判定を統括が抱える）。方式共通の保留判定と確認順序は守ったまま、方式ごとの差分を分離対象にします。
 
 **この課題（何を解きたいか）：** 決済方式を1つ足すたびに統括クラスを開いて分岐を1本足し、その方式固有の入力検証と同期・非同期の違いまで統括が抱える。**方式追加が新しい方式実装と生成登録に閉じ、利用フローが変わらない**ようにするのが課題ID1です。
 
-**ここで全体経路と対応づけるコード：** 共通の決済要求・結果を守りながら方式ごとの検証・手順・完了方法をどこへ置き、具体方式を誰が選択・生成するかをコードで示します。
+**このフェーズで決めること：** 共通の決済要求・結果を守りながら方式ごとの検証・手順・完了方法をどこへ置き、具体方式を誰が選択・生成するかをコードで示します。
 
-**この章の課題は1つですが、全体経路を先に決める順序は他章と同じです。** その後、契約と具体をセットで分け、実体が生成から実行まで届くコードを確かめます。軸が一つなので、経路は一度追えば全体がつながります。
+まず、契約、具体、生成・所有、受け渡し、実行を一枚の構想へまとめます。
 
-**全体経路との対応。** フェーズ5「課題の確定（5-3）」で決まったのは、方式ごとの処理と生成判断を、決済の共通フローとは別の変更へ閉じる境界を作ることです。全体経路で決めた接続を、ここから**境界を関数・表・クラス契約のどれで表し、どのコードで繋ぐか**へ落とします。
+| 接続点を変える観点 | システム全体での設計判断                                                             | 変えたくない側が知らなくなる詳細 |
+| --------- | ------------------------------------------------------------------------ | ---------------- |
+| 契約と具体 | 課題ID1の手段固有検証・処理モード・エラー対処を`IPaymentProcessor`の各具体へ置く | 手段ごとの入力・API手順 |
+| 生成・所有・受け渡し | 外側が共通依存を所有してApplicationへ渡し、`createProcessor(type)`が呼び出しごとに具体を生成してGateway参照を渡す。Applicationが実行後に破棄する | 具体Processorと外部API境界の実体・生存期間 |
+| 公開入口からの実行 | 共通フローは生成された契約の`pay(request)`だけを呼び、その結果を保存・返却する | 生成した具体名と方式固有処理 |
 
-書き換える前のコードはフェーズ3「変更を試みる（3-1）」にあります。**ここで全部を再掲することはしません。** 分離と組み立ての判断に必要な数行だけを変更試行（3-1）から抜き出し、変更後と並べます。
+**構想上のコード経路：** `main()`（生成役を確定）→ `PaymentApplication::processPayment()`（固定する処理順）→ `createProcessor()`（方式を生成）→ `IPaymentProcessor::pay()`（契約）→ 選ばれた決済方式（具体処理）
 
----
+この経路が成立するには、契約だけでなく、具体を選ぶ方法、実体の生成・所有、利用側へ渡す行、公開入口からの呼び出しが同時に必要です。以下では、この構想を分断せず、コードの依存順に続けて確認します。
 
-#### 1. 契約と具体をセットで決める（分離）
+### 構想をコードでつなぐ
 
-ここでは契約だけを先に完成させません。境界へ残す操作・値と、その裏で変わる判断を持つ具体を往復し、両側がかみ合うところまでを一つの判断として扱います。
+> **コードの読み方：** 「契約→具体→生成・選択・受け渡し→公開入口からの実行」の順に読みます。変更前の抜粋は境界を引く根拠、変更後の断片は構想を成立させるコードです。断片はフェーズ7「解決後のコード」でクラス単位の全文へ統合します。
 
-##### 契約：境界の形と受け渡しを決める
+#### 契約：境界の形と受け渡しを決める
 
 **関数を一つ切り出すだけでは、変更を閉じ込められません。** 方式ごとの分岐は `processPayment()` の `if` 連鎖に現れ、そこから呼ばれる方式固有の検証と手順も方式の数だけあります。そして2-4のリスクID1が「かなりハイペースで追加していく予定」という言葉つきで挙がっています。リスクID2（方式固有の入力と検証）、リスクID3（同期・非同期の増加）、リスクID4（完了確認の増加）も同じ方向です。**現に変更要求で、PayPayという方式が1つ増えました。** 方式ごとの検証と実行を同じ問い方で呼べるクラス契約まで分けます。
 
 分けると決めたので、コードに線を引きます。
 
-**掲載箇所：`PaymentApplication::processPayment(const PaymentRequest&)`** ―― 3-1の分岐（対策前）
+**変更前から抜き出す箇所：`PaymentApplication::processPayment(const PaymentRequest&)`** ―― 3-1の分岐（対策前）
 
 ```cpp
         if (!registry.exists(type)) { /* …未登録の断り（省略）… */ }
@@ -2259,7 +2154,7 @@ classDiagram
 
 **契約の名前を決めます。** 決済方式が満たすべき約束なので `IPaymentProcessor` とします。
 
-**掲載箇所：`IPaymentProcessor`（クラス全体）**
+**ここで確認するコード：`IPaymentProcessor`（クラス全体）**
 
 ```cpp
 // ---- 共通インターフェース ----
@@ -2276,7 +2171,7 @@ public:
 
 **契約だけでは、決めた形が本当に成立するのか確かめられません。** 実装を1つ見ます。
 
-**掲載箇所：`CreditCardProcessor::pay(const PaymentRequest&, int)`** ―― クレジットカードの処理（抜粋）
+**ここで確認するコード：`CreditCardProcessor::pay(const PaymentRequest&, int)`** ―― クレジットカードの処理（抜粋）
 
 ```cpp
     PaymentResult pay(const PaymentRequest& request,
@@ -2291,82 +2186,22 @@ public:
 - **「要求を1つの値で渡す」の実態。** `request` からカード固有の入力を取り出しています。**銀行振込の実装は同じ `request` から別の項目を取り出します**
 - **「結果を1つの値で返す」の実態。** 5項目の組を1つ返すだけで、表示も保存もしていません
 
-変更前の `if` の中にあった「どの具体を作るか」が、ここにはありません。**では、それを決めるのは誰の仕事になるのか。それは全体経路の準備コードで決めます。**
+変更前の `if` の中にあった「どの具体を作るか」が、ここにはありません。**では、それを決めるのは誰の仕事になるのか。それは生成・所有のコードで決めます。**
 
 
 **では、この契約を誰が呼ぶのか。**
 
 ---
 
-##### 分離の検算：守る処理が契約だけを呼べるか
+#### 具体：契約の裏へ変わる判断を置く
 
-呼べるのは、方式が増えても今回維持する側だけです。出て行った側が出て行った側を呼べば、方式が増えるたびに両方を触ることになり、分けた意味が消えます。
+契約の形を決め、代表実装で引数・戻り値が成立することを確認しました。ここでは、もう1つの具体を見て、変わる判断が契約の裏へ閉じることを確かめます。
 
-**この章では、契約を骨格の外へ置きます。** 1つの `PaymentApplication` が、クレジットカードの決済も銀行振込の決済も扱います。**同じインスタンスが、呼び出しごとに違う方式の実体を使い分けなければなりません。** だから決済フローとは別の型として `IPaymentProcessor` を置きます。
-
-もし方式ごとに `PaymentApplication` を丸ごと別インスタンスにするなら、契約を基底クラスの内側へ置けます。しかしそれは、決済方式の数だけ顧客照合と注文照合を持つということです。**守る範囲の「顧客・注文照合」が方式の数だけ散るので、成り立ちません。**
-
-残った側は、共通フローを持つクラス——`PaymentApplication` です。**名前は変えません。** 1-3で書いた役割は「決済フローの統括」で、ここの後もそれは変わりません。出て行くのは方式固有の知識であって、統括すること自体ではありません。
-
-**掲載箇所：`PaymentApplication::processPayment(const PaymentRequest&)`** ―― 骨格
-
-```cpp
-    PaymentResult processPayment(
-        const PaymentRequest& request) {
-        // …注文と顧客の照合（省略。詳細は7-1）…
-        OrderRecord ord = orders.get(request.orderId);
-
-        IPaymentProcessor* proc
-            = createProcessor(request.methodId);   // ←この createProcessor が未定
-        PaymentResult result
-            = proc->pay(request, ord.amount);
-        delete proc;
-
-        return result;
-    }
-```
-
-**`if` 連鎖が1行になりました。** 残ったのは「方式の実体を得て、依頼して、結果を返す」だけです。
-
-**このコード片で具体化していないのは、`createProcessor()` の実装です。** 全体経路で決めた `DefaultPaymentApplication` が方式IDから決済方式を生成するコードを、後の準備箇所で示します。
-
-- **なぜ書けないか。** ここへ `new CreditCardProcessor(...)` と書くと、骨格が具体の名前を知ることになります。契約の確認で分けた意味が消えます
-- **どの段で決まるか。** 全体経路の準備コードで決めます
-- **`PaymentApplication` 自身に持たせられないのか。** 持たせれば同じことです。**ただし、この章はここが他章と違います。** 詳しくは全体経路の準備コードで書きます
-
-**`delete proc;` があることに注目してください。** `createProcessor()` が返したものを、骨格が捨てています。**返ってきたものを誰が捨てるかは、契約の一部です。** 借りているのか、受け取って所有するのかを決めないと、この行を書けません。**この章は「受け取って所有する」形にします。** 呼び出しのたびに新しく作る形なので、使い終えたら捨てないと増え続けます。
-
-**変更前と比べると、`if` 連鎖と具体クラス名が1つも無くなりました。** 消えたわけではなく、`createProcessor()` の中へ移る予定です。**移した先で1か所に収まるかどうかも、全体経路の準備コードで確かめます。**
-
-**ここで検算します。方式を1つ足したとき、この5行は変わるか。** 変わりません。`createProcessor()` の**中身**が増えるだけで、呼び方も、その後の3行も同じです。**穴が空いたままでも、この検算はできます。** 変わってしまうなら割り残しがあるので、契約の確認へ戻って線を引き直します。
-
-**ここで図に描けるのは、骨格から契約への依存だけです。** 実体を得る経路は全体像で決めていますが、この部分図は契約との依存だけに着目するため、その線は後の組み立て図で示します。
-
-```mermaid
-classDiagram
-    class PaymentApplication
-    class IPaymentProcessor { <<interface>> }
-    PaymentApplication ..> IPaymentProcessor : 要求を渡して結果を受け取る
-    class PaymentApplication:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-**基準の図にあった `PaymentApplication *-- PaymentGatewayClient` が、ここで消えます。** ゲートウェイを使うのは方式の側だからです。`ProcessorRegistry`・`OrderBook`・`CustomerDirectory` への保持は基準の図のまま変わりません。
-
-
-**では、契約の裏には何を置くのか。**
-
----
-
-##### 具体：契約の裏へ変わる判断を置く
-
-契約と、それを呼ぶ骨格が決まりました。契約の確認では契約の裏を1つ覗いて、渡すもの・返すものを確かめました。**ここで残り全部を埋めます。**
-
-**契約の確認で見た `CreditCardProcessor` の疑問が、ここで解けます。** 「どの具体を作るか」を書かないのは、それが全体経路の準備コードで決まる別の責任だからです。契約の裏に置くのは「この方式でどう検証し、どのAPIを呼び、結果をどう組み立てるか」だけです。
+**直前の契約コードで見た `CreditCardProcessor` の疑問が、ここで解けます。** 「どの具体を作るか」を書かないのは、それが生成・所有のコードで決まる別の責任だからです。契約の裏に置くのは「この方式でどう検証し、どのAPIを呼び、結果をどう組み立てるか」だけです。
 
 残りの3クラスも同じ形です。ここでは `CreditCardProcessor` と対照的なものを1つ見ます。
 
-**掲載箇所：`ConvenienceStoreProcessor::pay(const PaymentRequest&, int)`** ―― コンビニ払い（抜粋）
+**ここで確認するコード：`ConvenienceStoreProcessor::pay(const PaymentRequest&, int)`** ―― コンビニ払い（抜粋）
 
 ```cpp
     PaymentResult pay(const PaymentRequest& request,
@@ -2393,45 +2228,28 @@ classDiagram
 | `ConvenienceStoreProcessor` | 店舗コード | 保留（払込票を発行） | 3本目の `if` |
 | `PayPayProcessor` | 電話番号 | 保留（変更要求で追加） | 4本目の `if`（変更要求で追加） |
 
-**右端の列が、この章の分離の成果です。** 変更前は1つの `if` 連鎖に4本並んでいたものが、4つのクラスになりました。**変更要求で足したPayPayが、`PayPayProcessor` という1クラスに収まっています。**
-
-```mermaid
-classDiagram
-    class IPaymentProcessor { <<interface>> }
-    class CreditCardProcessor
-    class BankTransferProcessor
-    class ConvenienceStoreProcessor
-    class PayPayProcessor
-    IPaymentProcessor <|.. CreditCardProcessor
-    IPaymentProcessor <|.. BankTransferProcessor
-    IPaymentProcessor <|.. ConvenienceStoreProcessor
-    IPaymentProcessor <|.. PayPayProcessor
-    class PayPayProcessor:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-`if` 連鎖の4分岐が、4つのクラスになりました。**これで課題ID1の完了条件の前半「方式追加が新しい方式実装」を満たします。** 後半の「生成登録に閉じ」は、まだです。**方式を足したとき、`createProcessor()` の中がどうなるかを決めていないからです。**
-
 **もう一度検算します。契約のメソッド以外に書きたくなるものがあるか。** 出てきませんでした。`pay()` 1つで、同期も非同期も表せています。
 
 **守る範囲との照合：** 4つのどれにも触っていません。方式の中身を4クラスへ移しただけで、照合もフローも保存も完了確認も変えていません。
 
-**ここまでで、方式側の設計は終わりです。** 残っているのは、分離の検算で空いた穴——誰が方式の実体を作るか——だけになりました。**そしてここが、この章の中心です。**
+ここまでで方式側の契約と具体を確認できました。次は、構想で定めた生成役 `createProcessor()` が、要求に応じた方式実体を返すことをコードで確かめます。
 
 ---
 
-#### 2. 全体経路をコードで組み立てる
+#### 生成・所有・受け渡しを決める
+
+契約と具体がコードで確認できたので、構想で仮置きした生成・所有・受け渡しを実コードで確かめます。生成しただけで止めず、同じ実体が公開入口から使われる直前までをつなぎます。
 
 ここからは三つを別々の設計判断として扱いません。具体を作る行から、契約として骨格へ入り、公開入口から実行される行までを一つの経路として追います。
 
-##### 全体経路の準備：実体と所有者をコードで示す
+##### 生成・所有：実体と所有者をコードで示す
 
-**分離の検算で穴が1つ空きました。** `createProcessor()` です。**この章では、この穴を埋めることが課題ID1の後半そのものです。**
+構想で定めた生成の接続点は `createProcessor()` です。この章では、その戻り値が共通フローへ入るところまでが課題ID1の後半です。
 
-**持つ者に必要な条件は、分離の検算で分かっています。**
+**持つ者に必要な条件は、構想表から分かります。**
 
 - **具体クラスを全部知っていること。** `new CreditCardProcessor(...)` と書く以上、その名前を知っていなければなりません
-- **共通フローを持つ側ではないこと。** 知った時点で契約の確認で分けた意味が消えます
+- **共通フローを持つ側ではないこと。** 知った時点で契約コードで分けた意味が消えます
 
 **選択肢は2つです。**
 
@@ -2440,13 +2258,13 @@ classDiagram
 
 **後者を採ります。根拠は、共通フローと生成が1対1で結びついているからです。** この章の `processPayment()` は、生成した実体をその場で使い、その場で捨てます。生成役だけを差し替えたい場面——たとえばテスト用の方式群へ丸ごと替える——は、共通フローごと替えても困りません。**別のクラスへ切り出すと、`PaymentApplication` が生成役を保持する行と、それを外から渡す行が増えます。** この章の完了条件は「生成登録に閉じる」ことなので、**登録する場所が1つあれば足ります。**
 
-**掲載箇所：`PaymentApplication`（クラス宣言・完成）**
+**ここで確認するコード：`PaymentApplication`（クラス宣言・完成）**
 
 ```cpp
 class PaymentApplication {
 protected:
     virtual IPaymentProcessor*
-    createProcessor(const string& type) = 0;   // ←分離の検算で残した穴が、ここで差し替え点になる
+        createProcessor(const string& type) = 0;   // ←構想で定めた生成の差し替え点
 
     PaymentStatusClient statusClient;
     CustomerDirectory customers;   // 事前保持：顧客
@@ -2460,11 +2278,11 @@ public:
 };
 ```
 
-**`PaymentApplication` が抽象クラスになりました。** `createProcessor()` が純粋仮想なので、そのままでは実体を作れません。**分離の検算で書いた `processPayment()` は1行も変わっていません。** 穴だったものが、差し替え点として宣言に並んだだけです。
+**`PaymentApplication` が抽象クラスになりました。** `createProcessor()` が純粋仮想なので、そのままでは実体を作れません。構想で示した `processPayment()` の共通フローは変えず、生成だけを差し替え点として宣言しています。
 
 **`ProcessorRegistry` と `PaymentGatewayClient` が、ここから消えています。** どちらも生成のときにだけ要るものだからです。**方式の登録を確認するのも、ゲートウェイを方式へ渡すのも、生成する側の仕事になりました。**
 
-**掲載箇所：`DefaultPaymentApplication`（クラス全体）** ―― 差し替え点を実装する派生
+**ここで確認するコード：`DefaultPaymentApplication`（クラス全体）** ―― 差し替え点を実装する派生
 
 ```cpp
 class DefaultPaymentApplication
@@ -2488,7 +2306,7 @@ protected:
 };
 ```
 
-**具体クラス名が4つ並んでいます。この章で、それが並ぶのはここだけです。** 変更前は共通フローの中にあった同じ分岐が、生成の1か所へ移りました。分離の検算で「移した先で1か所に収まるかどうかは全体経路の準備コードで確かめる」と書いたのが、これです。
+**具体クラス名が4つ並んでいます。この章で、それが並ぶのはここだけです。** 変更前は共通フローの中にあった同じ分岐が、生成の1か所へ移りました。構想の確認で「移した先で1か所に収まるかどうかは生成・所有のコードで確かめる」と書いたのが、これです。
 
 **方式を1つ足すときに触るのは、新しい方式クラス1つと、この関数へ1行と、`ProcessorRegistry` の登録へ1行だけです。** `PaymentApplication` も既存の方式も触りません。**これで課題ID1の完了条件「方式追加が新しい方式実装と生成登録に閉じ、利用フローが変わらない」を満たします。**
 
@@ -2496,40 +2314,17 @@ protected:
 
 **所有と生存期間もここで決まります。**
 
-- `createProcessor()` は `new` した実体を返します。**呼んだ側が所有します。** 分離の検算で書いた `delete proc;` がその後始末です
-- 呼び出しのたびに作って、そのたびに捨てます。**方式の実体は決済1回ぶんしか生きません**
-- `registry` と `gatewayClient` は `DefaultPaymentApplication` の値メンバです。方式の実体はゲートウェイを参照で借りますが、**借りている側（方式）のほうが先に消える**ので、参照が宙に浮くことはありません
-- `PaymentApplication` の `statusClient`・`customers`・`orders` も値メンバで、1-4のままです
-
-```mermaid
-classDiagram
-    class PaymentApplication { <<abstract>> }
-    class DefaultPaymentApplication
-    class IPaymentProcessor { <<interface>> }
-    class ProcessorRegistry
-    class PaymentGatewayClient
-    PaymentApplication <|-- DefaultPaymentApplication
-    PaymentApplication ..> IPaymentProcessor : createProcessorで得て使い、捨てる
-    DefaultPaymentApplication *-- ProcessorRegistry : 保持
-    DefaultPaymentApplication *-- PaymentGatewayClient : 保持
-    class DefaultPaymentApplication:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-**継承の線が現れました。** 骨格を持つ抽象クラスと、生成を持つ派生クラスです。具体の確認で描いた4つの方式クラスはこの図に描いていませんが、変わっていません。
-
-
-**ここが終わった時点で、実体はすべて存在するようになりました。** 抽象骨格、それを継いだ派生、4つの方式。**まだ起きていないのは1つだけです。骨格の `IPaymentProcessor*` と書かれた変数へ、具体が入ることです。続けて、全体経路で決めた受け渡しをコードで確認します。**
+ここまでで、派生した生成役が要求に応じて方式実体を返すところまで確認できました。次に `IPaymentProcessor*` を受け取る共通フローを見て、その同じ実体が実行されることを確かめます。
 
 ---
 
-##### 全体経路の生成：決済方式を生成して骨格へ返す
+##### 具体の生成：決済方式を生成して骨格へ返す
 
-**分離の検算で書いた骨格には、`createProcessor(request.methodId)` としか書いてありません。** `CreditCardProcessor` とは書いていません。**ここで見るのは、いつ・何によって、その実装が入るのかです。**
+**構想で仮置きした骨格には、`createProcessor(request.methodId)` としか書いてありません。** `CreditCardProcessor` とは書いていません。**ここで見るのは、いつ・何によって、その実装が入るのかです。**
 
 **この章では、2つの実装が2つの違う仕組みで入ります。**
 
-**掲載箇所：`PaymentApplication::processPayment(const PaymentRequest&)`** ―― 分離で確定した骨格から、実装が入る2行
+**ここで確認するコード：`PaymentApplication::processPayment(const PaymentRequest&)`** ―― 分離で確定した骨格から、実装が入る2行
 
 ```cpp
         IPaymentProcessor* proc
@@ -2554,18 +2349,28 @@ classDiagram
 
 ---
 
-##### 実行：公開入口から骨格・契約・具体へつなぐ
+#### 実行骨格：組み立てた実体を契約から呼ぶ
+
+前節で、`DefaultPaymentApplication`へ共通Gatewayを渡し、`createProcessor(type)`が呼び出しごとの具体Processorを生成する形を確定しました。`processPayment()`は生成された`IPaymentProcessor`の`pay(request)`を呼び、結果を保存してからProcessorを破棄します。
+
+決済方式を追加しても共通フローは変わりません。変わるのは新Processorと生成分岐です。方式の選択、Gatewayの受け渡し、契約実行、破棄までが一つの呼び出し内で閉じています。
+
+#### 公開入口から具体の実行まで追う
+
+生成・所有・受け渡しが決まったので、ここでは新しい役割を増やしません。公開入口へ入った要求が、直前に組み立てた同じ実体へ届き、契約を通って具体処理が呼ばれるまでをコードの呼び出し順で追います。
+
+##### 公開入口から骨格・契約・具体へつなぐ
 
 組み立てが終わりました。呼び出し側がどう変わったかを、変更前と並べて見ます。
 
-**掲載箇所：`main()`** ―― 3-1の組み立てと決済（対策前）
+**変更前から抜き出す箇所：`main()`** ―― 3-1の組み立てと決済（対策前）
 
 ```cpp
     PaymentApplication app;
     PaymentResult r = app.processPayment(request);
 ```
 
-**掲載箇所：`main()`** ―― 同じ操作（対策後）
+**ここで確認するコード：`main()`** ―― 同じ操作（対策後）
 
 ```cpp
     DefaultPaymentApplication app;
@@ -2578,99 +2383,19 @@ classDiagram
 
 **組み立ての行は増えていません。** 変更前も変更後も1行です。**この章の対策で `main()` が払ったコストは、型名が `PaymentApplication` から `DefaultPaymentApplication` へ変わったことだけです。**
 
-**全体経路で先に決めた呼び方を、ここで実コードと突き合わせます。** 章によって公開入口が変わる場合と変わらない場合がありますが、重要なのは先に決めた経路と各コードの接続が一致することです。
+**契約・具体・組み立てで決めた呼び方を、ここで実コードとしてつなぎます。** 章によって公開入口が変わる場合と変わらない場合がありますが、重要なのは生成した同じ実体が公開入口から具体の処理まで届くことです。
 
-**守る範囲との照合：** **共通の依頼→結果フロー**と**保留から完了確認への2段階**を保っていることを、いま確認しました。保留が返ったら共通の `checkCompletion()` を呼ぶ形も、3-1のままです。分離と組み立てを通して、守る範囲の4つはいずれも定義に反していません。最終確認はフェーズ7の受入・回帰エビデンスで行いますが、**そこで初めて確かめるのではなく、全体経路と詳細コードで照合済みです。**
+**守る範囲との照合：** **共通の依頼→結果フロー**と**保留から完了確認への2段階**を保っていることを、いま確認しました。保留が返ったら共通の `checkCompletion()` を呼ぶ形も、3-1のままです。分離と組み立てを通して、守る範囲の4つはいずれも定義に反していません。最終確認はフェーズ7の受入・回帰エビデンスで行いますが、**そこで初めて確かめるのではなく、分離から実行までのコードで照合済みです。**
 
+### 構想を採用する
 
-#### システム全体の最終構造を決める
+ここまでの構想表と要点コードを合わせると、責任配置と実行経路が一つにつながります。`PaymentApplication` が共通フローと差し替え点を持ち、`DefaultPaymentApplication` が生成を持ち、4つの方式クラスが `IPaymentProcessor` を実装します。
 
-分離と組み立ての部分図を重ねると、システム全体の最終構造になります。`PaymentApplication` が共通フローと差し替え点を持ち、`DefaultPaymentApplication` が生成を持ち、4つの方式クラスが `IPaymentProcessor` を実装します。
+**この章の完成構造は一つに定まります。** 生成役を別のクラスとして切り出し、`PaymentApplication` がそれを保持する案も置けますが、生成・所有のコードで確かめたとおり、この章では共通フローと生成が1対1で結びついているため、保持の行と外から渡す行が増えるだけです。責任配置が異なる完成構造が複数残ったわけではないので、当て馬を並べた比較は行いません。
 
-**この章の完成構造は一つに定まります。** 生成役を別のクラスとして切り出し、`PaymentApplication` がそれを保持する案も置けますが、全体経路の準備コードで確かめたとおり、この章では共通フローと生成が1対1で結びついているため、保持の行と外から渡す行が増えるだけです。責任配置が異なる完成構造が複数残ったわけではないので、当て馬を並べた比較は行いません。
+完成クラス図は、構想を実装した結果としてフェーズ7「対策実施」だけに示します。ここでは、課題との対応と将来リスクへの備えを表で確定します。
 
-全体経路を実現するコードで確定した部分がすべて入っているかを、次の図で照合します。
-
-**採用した変更後のクラス図：**
-
-```mermaid
-classDiagram
-    class DefaultPaymentApplication
-    class PaymentGatewayClient
-    class PaymentStatusClient
-    class ProcessorRegistry
-    class PaymentLog
-    class CustomerDirectory
-    class OrderBook
-    class PaymentApplication {
-        <<abstract>>
-    }
-    class IPaymentProcessor { <<interface>> }
-    class CreditCardProcessor
-    class BankTransferProcessor
-    class ConvenienceStoreProcessor
-    class PayPayProcessor
-
-    PaymentApplication ..> IPaymentProcessor : createProcessor
-    IPaymentProcessor <|.. CreditCardProcessor
-    IPaymentProcessor <|.. BankTransferProcessor
-    IPaymentProcessor <|.. ConvenienceStoreProcessor
-    IPaymentProcessor <|.. PayPayProcessor
-    DefaultPaymentApplication --> ProcessorRegistry : 存在・有効確認
-    PaymentApplication --> PaymentStatusClient : 完了確認
-    DefaultPaymentApplication --|> PaymentApplication
-    CreditCardProcessor --> PaymentGatewayClient : 認証API
-    PaymentApplication --> CustomerDirectory : 顧客照合
-    PaymentApplication --> OrderBook : 注文照合
-    note for PaymentLog "組み立て側（main()のexecuteCase）が記録する。<br/>PaymentApplicationは記録しない"
-
-    note for IPaymentProcessor "【課題ID1・新設】pay(request)の共通契約"
-    note for PaymentApplication "【課題ID1・残した】決済フロー<br/>createProcessorで生成を委ねる"
-    note for PayPayProcessor "【課題ID1・新設した追加手段】"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "IPaymentProcessor,CreditCardProcessor,BankTransferProcessor,ConvenienceStoreProcessor,PayPayProcessor,PaymentApplication" focus
-```
-
-このクラス図が、課題ID1を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
-
-### 6-1：決めた流れとコードの照合
-
-#### 流れを成立させる二つの確認
-
-契約と具体による分離と、生成から実行までの組み立てを二行で確認します。
-
-| 判断 | 変更前の所属 → 変更後の所属 | 設計結論 | 検算 |
-|---|---|---|---|
-| 契約と具体による分離 | `processPayment()` の方式分岐 → `IPaymentProcessor` と4つの方式具体 | 金額・依頼・結果を契約にし、検証・処理モード・完了情報を具体へ閉じる | 共通フローは方式固有の条件を持たない |
-| 実体の組み立て | 統括が具体名を4つ抱える → `DefaultPaymentApplication::createProcessor()` | 方式IDから具体を生成して契約として返し、共通フローが `pay()` を実行して結果を処理する | 生成した方式が同じ呼出中に必ず使われ破棄される |
-
-決済依頼の呼び方は変わりません。共通フローの内側で、方式IDに応じた具体を生成して契約として実行します。
-
-### 6-2：システム全体の契約とデータ配置を確定する
-
-採用システムの契約、生成場所、依存注入を一表で確定します。`PaymentResult` は対策の抽象ではなく、成否・保留・リトライ可否・保留IDを利用フローへ返す結果オブジェクトです。
-
-```cpp
-struct PaymentResult {
-    string status;      // 成功・保留・失敗
-    string message;     // 理由や保留ID
-    bool canRetry;      // リトライ可否
-    string errorCode;   // エラー分類（成功時は空）
-    PendingInfo pending; // 保留時の追加情報（番号・期限など）
-};
-```
-
-| 接続点を変える観点 | システム全体での設計判断                                                             | 変えたくない側が知らなくなる詳細 |
-| --------- | ------------------------------------------------------------------------ | ---------------- |
-| 分離方法      | 課題ID1の手段固有検証・処理モード・エラー対処を各Processorへ置く                                      | 手段ごとの入力・API手順    |
-| 配置場所      | `createProcessor(type)` が具体Processorを選び生成する                              | 具体クラス名           |
-| 組み立て方法    | 外側が共通依存を生成・所有してApplicationへ注入し、生成時に `PaymentGatewayClient` をProcessorへ渡す | 外部APIの実体と生存期間    |
-| 安定側の実行    | 利用フローは `pay(request)` だけを呼ぶ                                              | 何を生成したか          |
-
-新しい手段は Processor 実装と `createProcessor` の1行、`ProcessorRegistry` の登録に限られます。
-
-### 6-3：課題から完成構造までの設計トレース
+#### 課題から採用構想までを照合する
 
 ここまでの決定を一望へまとめます。この表は設計課題だけを追います。変更要求の受入はフェーズ7の要求ID表、変更影響は7-4の変更ID表で別に確認します。
 
@@ -2679,9 +2404,7 @@ struct PaymentResult {
 | 課題ID1（決済手段） | 生成分離。`createProcessor()`が具体Processorを選んで生成し、`processPayment`は`pay()`を委譲するだけ | `IPaymentProcessor`、各Processor、`createProcessor()`、`ProcessorRegistry` | `processPayment()`が具体型・固有入力・同期非同期を知らない |
 | 変更対象外 | 顧客・注文の照合、結果保存、依頼→結果フロー | `PaymentApplication`、結果保存境界 | 1-4、決済結果の保存・更新 |
 
-このクラス図、コード適用結果、シーケンス、コード変更表が、フェーズ7へ渡す完成設計です。
-
-### 6-4：将来リスクに対する設計上の確認
+#### 将来リスクに対して構想を確認する
 
 ここでは将来決済方式の実装有無ではなく、フェーズ2のリスクIDを採用構造へ再適用し、共通決済入口をどこまで守れ、入力・非同期処理に何が残るかを評価します。
 
@@ -3878,7 +3601,7 @@ graph LR
 | 🟣 フェーズ3 | PayPay追加を試み、7か所に修正が広がることを確認した |
 | 🟠 フェーズ4 | 具体クラス名・入力検証・処理モード・エラー対処が利用側に混在していることを根本原因と特定した |
 | 🟡 フェーズ5 | 現状の`PaymentRequest`→`PaymentResult`を接続データとし、手段固有の生成判断・入力検証・API手順が利用フローへ漏れない課題を定めた |
-| 🔴 フェーズ6 | 課題ID1を満たす最終構造は生成分離構造に一意に定まると確認し、採用クラス図を課題ID別の【1】〜【6】でコードへ反映した |
+| 🔴 フェーズ6 | 決済契約と4つの方式具体を決め、方式IDから生成したProcessorが同じ呼び出しの中で契約として`pay()`され、結果処理後に破棄される構造を確定した |
 | 🟢 フェーズ7 | 各Processorが入力検証・API呼び出し・エラー対処を内包する最終コードを実装し、変更の局所化を確認した |
 
 ### 責任の移動
@@ -3977,6 +3700,8 @@ classDiagram
 >
 > 一方「抽象クラス」はより広く、**純粋仮想関数を1つ以上持つ**クラスを指します。実装済みのメソッドやデータメンバを持ってもかまいません（一部だけ `= 0`）。つまりインターフェースは抽象クラスの特殊形です。この章の `IPaymentProcessor` は `pay(request)` だけを純粋仮想で持つインターフェースです。
 >
+> **`IPaymentProcessor`（インターフェース）**
+>
 > ```cpp
 > // インターフェース：全メソッドが純粋仮想、データなし
 > class IPaymentProcessor {
@@ -3986,7 +3711,7 @@ classDiagram
 > };
 > ```
 >
-> **AbstractProcessor**
+> **`AbstractProcessor`（抽象クラス）**
 >
 > 共通処理を持ちながら、一部の操作だけを派生クラスへ委ねる抽象クラスです。
 >

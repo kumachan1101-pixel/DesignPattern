@@ -1456,149 +1456,41 @@ public:
 | 問題ID2：通知先追加・失敗が状態遷移へ混在 | 原因ID2：通知先とタイミングの混在 | 課題ID2：状態確定後の通知配送を状態遷移から分離 |
 | 問題ID3：判定ルール変更で全体を読み解く | 原因ID3：判定ルールのハードコード | 課題ID3：承認判定を状態処理から分離 |
 
-## 🔴 フェーズ6：対策検討 ―― 全体のデータと実体の流れを決める
+## 🔴 フェーズ6：対策検討 ―― 構想を一つのコード経路へ変える
 
-#### まず全体像 ―― どんな構造へ変えるか（抽象）
+フェーズ5で確定した全課題を、別々の部品案ではなく、生成から実行まで動く一つの構想としてまとめます。先に主要クラスと接続順を示し、その直後に同じ順でコードを確認します。
 
-フェーズ4「原因分析」で、`WorkflowManager::process()` が「状態ごとの操作可否と遷移」「通知先と配送」「承認可否の判定」という**別々の理由で変わる3つの判断**を、同じ `if` 連鎖へ抱えていることを確認しました。対策は、この3つを別々の責任へ分け、一つのワークフロー進行経路へ再結合することです。この段階では、問題から導いた「状態分離構造」「通知分離構造」「ルール差し替え構造」という名前だけを使います。一般に共有されているデザインパターン名は、実装と効果を確認した後で結び付けます。
-
-```mermaid
-flowchart TB
-    A[現在<br/>processの一本のif連鎖に<br/>状態遷移・通知・承認判定が混在] --> B[分離判断<br/>三つの変化軸を別責任へ分け<br/>一つの進行経路へ再結合]
-    B --> C[課題ID1<br/>各状態が可否と遷移を持つ<br/>状態分離構造]
-    B --> D[課題ID2<br/>確定後に登録済みへ配る<br/>通知分離構造]
-    B --> F[課題ID3<br/>承認上限の判定を差し替える<br/>ルール差し替え構造]
-    C --> E[守る範囲<br/>公開入口・状態保存・既存状態<br/>状態保存後に通知する順序]
-    D --> E
-    F --> E
-```
-
-**守る範囲 ―― この章で変えないもの。**
-
-- **公開入口**：申請IDと操作を受けて進行させる、という入口の形
-- **状態保存**：申請ごとに現在状態を保存し、次の操作は保存された状態から始めること
-- **既存状態の遷移規則**：作成中→審査待ち→承認済み→完了、および却下の各遷移そのもの
-- **状態保存後に通知する順序**：状態を保存してから通知を配ること。逆にはしない
-
-この4つが変わっていないことは、フェーズ7の受入・回帰エビデンスで確認します。ただし、**分離と組み立ての判断を終えるたびにも照合します。**
-
-### 対策検討のクラス図：1-3の責任と依存をどう変えるか
-
-フェーズ1の1-3で作ったクラス図が、これから書き換えていく**基準の図**です。まずここへフェーズ2〜5の判断を注記として載せ、どの責任を残し、どの責任を移すかを確定します。
-
-| クラス図を変える材料 | 前工程で確認したこと | クラス図へ反映すること |
-|---|---|---|
-| フェーズ1のクラス図 | 現在のクラス、操作、依存関係 | 変更前クラス図としてそのまま使う |
-| フェーズ2の変化予測 | 承認ルート・通知手段・上限規則が、それぞれ別の担当から増える | 毎回変わる責任へ `【移す】` と注記する |
-| フェーズ4の原因 | 原因ID1〜原因ID3。遷移・通知・判定が同じ `if` 連鎖に直書きされている | 同じクラスの中で `【残す】` と `【移す】` を3つに分ける |
-| フェーズ5の接続点 | 進行処理は現在状態へ委譲し、可否は独立した規則へ、通知は登録済みへ配ればよい | 3つの課題を、それぞれ `WorkflowManager` の外へ出す |
-
-**薄い黄色が着目クラス**です。ここでは `WorkflowManager` の `【残す】` と `【移す】` を追います。矢印は1-3と同じ利用・保持関係です。
-
-**変更前のクラス図（基準の図）：**
-
-```mermaid
-classDiagram
-    class WorkflowManager {
-        -cases: WorkflowCaseRepository
-        -approvers: ApproverDatabase
-        -departmentLimits: map
-        +process(requestId, operation, amount, approverId)
-    }
-    class WorkflowCaseRepository {
-        +exists(id) bool
-        +getState(id) string
-        +saveState(id, stateId)
-    }
-    class ApproverDatabase {
-        +exists(id) bool
-        +canApprove(id, amount) bool
-        +get(id) ApproverInfo
-    }
-    WorkflowManager *-- WorkflowCaseRepository : 保持
-    WorkflowManager *-- ApproverDatabase : 保持
-
-    note for WorkflowManager "【残す】公開入口・状態保存<br/>【課題ID1・移す】状態文字列分岐の遷移<br/>【課題ID2・移す】通知先と配送<br/>【課題ID3・移す】承認上限の判定"
-    note for WorkflowCaseRepository "【維持】申請ごとの状態の保存・取得"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "WorkflowManager" focus
-```
-
-向きと掲載クラスは1-3から変えていません。同じ図に注記と色だけを加え、`WorkflowManager` のどの責任を残し、どの責任を移すかに着目します。**この図を基準に、分離と組み立てで必要な関係を足していきます。**
-
-クラス図の変更として書くと、次の4操作になります。**どんなクラスを新設し、何という名前にするかは、直後の全体経路で決めます。** ここで確定しているのは操作の種類だけです。
-
-1. 課題ID1：状態が満たす共通契約を新設し、状態ごとの可否と遷移をその実装へ移す。
-2. 課題ID2：通知先が満たす共通契約を新設し、手段ごとの配送をその実装へ移す。
-3. 課題ID3：承認可否の判定が満たす共通契約を新設し、上限規則をその実装へ移す。
-4. 課題ID1〜課題ID3：実体を生成・所有する場所を決め、進行処理へ渡す。
-
-これらの操作を、直後の全体経路へまとめます。
-
-#### 全体経路を組み立てる判断
-
-状態・規則・通知のクラスを先に作らず、それぞれの選択時点、保存順、共有範囲を決めます。
-
-| 前工程で確定した事実 | ここで決めること | 判断 | 全体経路への反映 |
-|---|---|---|---|
-| 原因ID1：状態文字列の分岐が進行処理に集中する | 現在状態をいつ実体へ変えるか | 操作ごとに保存済み状態IDを読み、状態実体を選ぶ | 受付→状態読込→状態選択→委譲と結ぶ |
-| 原因ID3：承認上限は審査待ち状態だけが使う | 規則をどこへ渡すか | 審査待ち状態を作るときに、該当する判定規則を渡す | 状態生成時の規則受け渡し→状態処理内の判定とする |
-| 原因ID2：通知先は状態・規則と独立して増える | 通知先をいつ登録するか | 起動時に生成し、進行役へ一覧登録する | 起動時登録と遷移時の反復通知を分ける |
-| 要求ID：状態保存後に通知する | 保存と通知をどこで接続するか | すべての遷移を進行役の1操作へ戻し、保存後だけ通知する | 状態処理→遷移入口→保存→通知の順に固定する |
-| 状態・規則・通知先は複数申請で再利用する | 誰が所有するか | バッチアプリケーションが全実体を所有し、進行役とResolverが借りる | 起動時生成・登録と操作時選択を分ける |
-
-### 全体のデータと実体の流れを先に決める
-
-上の判断を順につなぎ、状態・判定規則・通知先を準備し、審査待ちの申請を承認して状態保存後に通知するまでの全体経路を決めます。課長による承認1件を一本で固定します。表中の識別子は役割を示す設計名で、実装行は次の節で示します。
-
-| 実行順・ポイント | 担う場所 | 経路で受け渡すもの・起きること | 次の呼出先 |
-|---|---|---|---|
-| 1. 生成 | `BatchApplication`（メンバー） | 状態6つ・規則3つ・通知2つを所有し、引く役と通知先データへ登録する | 登録と規則の受け渡しへ |
-| 2. 通知先を登録し規則を状態へ渡す | `WorkflowManager::addListener()`／`PendingPhase` のコンストラクタ | 通知先を登録し、状態を作るときに生成済み規則を渡す | 実行開始へ |
-| 3. 実行開始 | `BatchApplication` | `wm.process(WorkflowEvent::Approve, {50000, "課長"});` | `WorkflowManager::process()` |
-| 4. 現在状態を選択 | `WorkflowPhaseResolver::resolve(const string&)` | 保存された状態ID「審査待ち」から`PendingPhase`を引く | 骨格の`IWorkflowPhase*`が受け取る |
-| 5. 骨格 | `WorkflowManager::process(WorkflowEvent, const ApprovalRequest&)` | `phase->handle(this, event, request)` の1行 | `IWorkflowPhase::handle()` |
-| 6. 契約→具体状態軸 | `PendingPhase::handle(...)` | 役職を照合し、`rule->canApprove(50000)` を聞く | `IApprovalRule::canApprove()` |
-| 7. 契約→具体判定軸 | `ManagerApprovalRule::canApprove(int)` | 上限と比べて真偽を返す | 戻り値を状態が使う |
-| 8. 骨格遷移 | `WorkflowManager::transitionTo(IWorkflowPhase*, const string&)` | 状態を差し替え、`cases.saveState()` で保存し、続けて `notifyAll()` | `WorkflowManager::notifyAll()` |
-| 9. 契約→具体通知軸 | `INotificationListener::onStatusChanged()` → `EmailNotifier` ほか | 通知先ごとに `supports()` で絞り、扱えるものが1件ずつ配る | 1件ごとの結果を記録して完了 |
-
-**6と7が判定軸、8と9が通知軸です。** 状態軸（5・6）がその両方を呼び出しますが、**判定軸は通知軸を知らず、通知軸は判定軸を知りません。** 3つの軸が接するのは、状態が判定を聞く1点と、遷移が通知を起こす1点だけです。
-
-**8で保存と通知が並んでいます。** 「状態保存後に通知する」という条件が、ここで実際の順序として見えます。**遷移が1か所に集まっているので、通知の呼び出しもこの1行で済んでいます。**
-
-通知先と判定規則は組み立て時に一度だけ渡し、現在状態は操作のたびに保存済みIDから選択します。同じ受け渡しとして一括りにせず、発生する時点と決め手を分けて読みます。
-
-### 全体の流れを実現するコードを決める
+### 構想を決める
 
 **【課題の原因】** 課題ID1は、問題ID1（承認ルート追加で状態遷移を同時修正）＝原因ID1（状態遷移ルールの直書き）。課題ID2は、問題ID2（通知先追加・失敗が状態遷移へ混在）＝原因ID2（通知先とタイミングの混在）。課題ID3は、問題ID3（判定ルール変更で全体を読み解く）＝原因ID3（判定ルールのハードコード）。この3つを分離対象にします。
 
 **この課題（何を解きたいか）：** 緊急ルートを1本足すだけで状態遷移の `if` 連鎖を組み替え、通知先を1つ足すだけで同じ連鎖を触り、部署別上限を入れるだけで判定がまた1段増える。**経路追加が状態動作と遷移登録に閉じる**ようにするのが課題ID1、**通知追加・失敗が状態遷移と他通知を変えない**ようにするのが課題ID2、**上限変更が判定規則と設定に閉じる**ようにするのが課題ID3です。
 
-**ここで全体経路と対応づけるコード：** 状態ごとの判断、通知配送、承認条件を三つの接続点へどう分け、どこへ配置し、判定から状態保存・通知までの進行経路へどう接続するかをコードで示します。
+**このフェーズで決めること：** 状態ごとの判断、通知配送、承認条件を三つの接続点へどう分け、どこへ配置し、判定から状態保存・通知までの進行経路へどう接続するかをコードで示します。
 
-**3つの課題を、別々に解いて後で合流させる形にはしません。** 先に、状態の選択、規則の受け渡し、通知先の登録、処理、結果を一つの全体経路へ集めます。その後、軸ごとに契約と具体、実体の組み立てをコードで確かめます。
+まず、契約、具体、生成・所有、受け渡し、実行を一枚の構想へまとめます。
 
-承認経路、通知手段、部署別上限は別々の理由で変わります。ただし通知は、状態保存後に確定したイベントを受け取ります。そのため状態遷移を一か所で確定・保存し、その直後の一つの通知口へイベントを渡します。承認判定は状態側へ可否だけを返す独立した経路にします。
+| 接続点を変える観点 | システム全体での設計判断 | 変えたくない側が知らなくなる詳細 |
+|---|---|---|
+| 契約と具体 | 課題ID1を`IWorkflowPhase`、課題ID2を`INotificationListener`、課題ID3を`IApprovalRule`の各具体へ置く | 状態遷移・通知先・承認判定の詳細 |
+| 生成・所有・受け渡し | `BatchApplication`がPhase・Listener・Ruleを値で所有し、Resolverへ状態を登録、ManagerへResolverと通知先を渡し、Pending状態へRuleを渡す | 具体Phase・Listener・Ruleの選択と生存期間 |
+| 公開入口からの実行 | `WorkflowManager::process()`が保存済み状態を引き、状態が承認規則へ委譲し、状態保存後に登録済み通知先を実行する | 状態・通知・承認判定の中身 |
 
-**全体経路との対応。** フェーズ5「課題の確定（5-3）」で決まったのは、状態ごとの遷移・通知配送・承認判定を、別々の変更へ閉じる境界を作ることです。全体経路で決めた接続を、ここから**境界を関数・表・クラス契約のどれで表し、どのコードで繋ぐか**へ落とします。
+**構想上のコード経路：** `BatchApplication`（状態・規則・通知先を登録）→ `WorkflowManager::process()`（公開入口）→ 保存済み状態を選択→ 状態が承認規則を呼ぶ→ 状態保存後に通知する
 
-書き換える前のコードはフェーズ3「変更を試みる（3-1）」にあります。**ここで全部を再掲することはしません。** 分離と組み立ての判断に必要な数行だけを変更試行（3-1）から抜き出し、変更後と並べます。
+この経路が成立するには、契約だけでなく、具体を選ぶ方法、実体の生成・所有、利用側へ渡す行、公開入口からの呼び出しが同時に必要です。以下では、この構想を分断せず、コードの依存順に続けて確認します。
 
----
+### 構想をコードでつなぐ
 
-#### 1. 契約と具体をセットで決める（分離）
+> **コードの読み方：** 「契約→具体→生成・選択・受け渡し→公開入口からの実行」の順に読みます。変更前の抜粋は境界を引く根拠、変更後の断片は構想を成立させるコードです。断片はフェーズ7「解決後のコード」でクラス単位の全文へ統合します。
 
-ここでは契約だけを先に完成させません。境界へ残す操作・値と、その裏で変わる判断を持つ具体を往復し、両側がかみ合うところまでを一つの判断として扱います。
-
-##### 契約：境界の形と受け渡しを決める
+#### 契約：境界の形と受け渡しを決める
 
 **クラス契約へ進む根拠は、三つの責任が実際の変更要求で別々に増えたことです。** 承認ルートは変更ID1で緊急ルートが1本増え、通知先は変更ID2で増え、上限規則は変更ID3で部署別が入りました。**3つとも、すでに1回ずつ増えています。** 三つをそれぞれ同じ公開操作で扱える境界が必要です。
 
 分けると決めたので、コードに線を引きます。
 
-**掲載箇所：`WorkflowManager::process(const string&, const string&, int, const string&)`** ―― 3-1の連鎖（対策前・抜粋）
+**変更前から抜き出す箇所：`WorkflowManager::process(const string&, const string&, int, const string&)`** ―― 3-1の連鎖（対策前・抜粋）
 
 ```cpp
     if (!approvers.canApprove(approverId, amount)) {   // ← 出て行く（課題ID3）
@@ -1673,7 +1565,7 @@ classDiagram
 
 **3つの契約に名前を付けます。** 状態が満たすものを `IWorkflowPhase`、承認判定を `IApprovalRule`、通知先を `INotificationListener` とします。
 
-**掲載箇所：`IWorkflowPhase`／`IApprovalRule`／`INotificationListener`（3つの契約）**
+**ここで確認するコード：`IWorkflowPhase`（クラス全体）** ―― 状態別処理の契約
 
 ```cpp
 // 状態遷移の契約（変わる理由：承認フロー変更・新ルート追加）
@@ -1689,6 +1581,8 @@ public:
 };
 ```
 
+**ここで確認するコード：`IApprovalRule`（クラス全体）** ―― 承認判定の契約
+
 ```cpp
 // 判定ルールの契約（変わる理由：経理ルール変更・部署別上限制度）
 class IApprovalRule {
@@ -1698,6 +1592,8 @@ public:
     virtual ~IApprovalRule() = default;
 };
 ```
+
+**ここで確認するコード：`INotificationListener`（クラス全体）** ―― 通知先の契約
 
 ```cpp
 // 通知リスナーの契約（変わる理由：通知手段の追加）
@@ -1718,7 +1614,7 @@ public:
 
 **契約だけでは、決めた形が本当に成立するのか確かめられません。** 実装を1つ見ます。
 
-**掲載箇所：`PendingPhase`（クラス全体）** ―― 審査待ちの状態
+**ここで確認するコード：`PendingPhase`（クラス全体）** ―― 審査待ちの状態
 
 ```cpp
 class PendingPhase : public IWorkflowPhase {
@@ -1763,116 +1659,15 @@ public:
 
 ---
 
-##### 分離の検算：守る処理が契約だけを呼べるか
+#### 具体：契約の裏へ変わる判断を置く
 
-呼べるのは、状態も通知先も規則も増えても今回維持する側だけです。出て行った側が出て行った側を呼べば、具体が増えるたびに両方を触ることになり、分けた意味が消えます。
+契約の形を決め、代表実装で引数・戻り値が成立することを確認しました。ここでは、もう1つの具体を見て、変わる判断が契約の裏へ閉じることを確かめます。
 
-**三つとも、契約を骨格の外へ置きます。理由は軸ごとに違います。**
-
-- **状態軸。** 1つの申請が作成中から審査待ちへ、さらに承認済みへ進みます。**同じ進行処理が、操作のたびに違う状態の実体を使い分けます**
-- **通知軸。** 1回の状態確定で、メールとチャットの両方へ配ります。**1つの `notifyAll()` の中で相手が次々に替わります**
-- **承認判定軸。** 1つの状態が1つの規則を持ちますが、**その状態を作るときに規則を差し替えられなければ、部署別上限を入れられません**
-
-残った側は、公開入口を持つクラス——`WorkflowManager` です。**名前は変えません。** 1-3で書いた役割は「申請の進行管理」で、ここの後もそれは変わりません。出て行くのは3つの判断であって、進行を管理すること自体ではありません。
-
-**掲載箇所：`WorkflowManager::process(WorkflowEvent, const ApprovalRequest&)`** ―― 骨格
-
-```cpp
-    WorkflowResult process(WorkflowEvent event,
-                           const ApprovalRequest& request = {0, ""}) {
-        if (!phase) {
-            return {false, "", "現在状態がありません。"};
-        }
-
-        return phase->handle(this, event, request);   // ←この phase が未定
-    }
-```
-
-**`if (current == ...)` が1つも残っていません。** 残ったのは「現在状態へ、自分と操作を渡して委譲する」だけです。
-
-**もう1つ、遷移を受け取る側が要ります。** 契約の確認で「状態が進行処理へ次状態を設定する」と決めたからです。
-
-**掲載箇所：`WorkflowManager::transitionTo(IWorkflowPhase*, const string&)`** ―― 骨格
-
-```cpp
-    WorkflowResult transitionTo(IWorkflowPhase* next, const string& message) {
-        if (!next) {
-            throw invalid_argument("状態にnullは設定できません。");
-        }
-
-        phase = next;
-        cases.saveState(requestId, phase->id());   // 保存
-        cout << "状態: " << phase->id() << endl;
-        notifyAll(message);                        // 保存の直後に通知
-
-        return {true, phase->id(), message};
-    }
-```
-
-**保存と通知が、この1か所に並んでいます。** 課題ID2は「状態保存後に通知する」ことを求めています。**遷移が起きる場所を1つにしておいたので、通知の呼び出し口も1つで済みました。** 遷移のたびに保存と通知をばらばらに書いていたら、通知を足すときに全部の遷移を触ることになります。
-
-**このコード片で未接続なのは、`phase` と `notifyAll()` です。** ここへ具体名を書くと分けた意味が消えます。全体経路で決めたResolverによる現在状態の選択と、登録済み通知先への配布を後のコードで示します。
-
-**通知を配る側の骨格も、ここで決まります。**
-
-**掲載箇所：`WorkflowManager::notifyAll(const string&)`** ―― 骨格
-
-```cpp
-    void notifyAll(const string& msg) {
-        // 通知開始時点の送信手段と通知先データを使う
-        // ←この listeners がまだ未定
-        vector<INotificationListener*> snapshot = listeners;
-        // …申請IDから通知先の一覧を引く（省略。詳細は7-1）…
-        for (size_t i = 0; i < targets.size(); ++i) {
-            for (size_t j = 0; j < snapshot.size(); ++j) {
-                if (snapshot[j]->supports(targets[i].channel)) {
-                    // …1件配って結果を記録する（省略）…
-                }
-            }
-        }
-    }
-```
-
-**`if (notifyPayment)` の旗が消えました。** 誰に配るかは通知先データが持ち、どの手段で配れるかは通知先自身が `supports()` で答えます。**進行処理は、手段も宛先も判定しません。**
-
-**1件ごとに結果を受け取っています。** 1件失敗しても、内側のループは次へ進みます。**これが完了条件「通知追加・失敗が状態遷移と他通知を変えない」の実装です。**
-
-**配る前に一覧をコピーしています。** 配っている最中に通知先が増えたり減ったりしても、その回の配送は開始時点の顔ぶれで完結します。**通知先の登録・解除と、配送の途中経過が混ざらないようにするためです。**
-
-**ここで検算します。状態・通知先・規則をそれぞれ1つ足したとき、この3つの手順は変わるか。** 変わりません。`process()` は委譲するだけ、`transitionTo()` は保存して通知するだけ、`notifyAll()` は並びを2重に回るだけです。**穴が空いたままでも、この検算はできます。**
-
-**ここで図に描けるのは、骨格から3つの契約への依存だけです。**
-
-```mermaid
-classDiagram
-    class WorkflowManager
-    class IWorkflowPhase { <<interface>> }
-    class INotificationListener { <<interface>> }
-    class IApprovalRule { <<interface>> }
-    WorkflowManager --> IWorkflowPhase : 現在状態へ委譲
-    WorkflowManager --> INotificationListener : 確定後に配る
-    IWorkflowPhase --> IApprovalRule : 可否を聞く
-    IWorkflowPhase ..> WorkflowManager : 遷移と通知を起こす
-    class WorkflowManager:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-**`IApprovalRule` への矢印だけ、根元が違います。** 承認判定を使うのは骨格ではなく状態です。**3つの軸が対等に並ぶわけではない**ことが、ここで図に出ます。
-
-
-**では、契約の裏には何を置くのか。**
-
----
-
-##### 具体：契約の裏へ変わる判断を置く
-
-3つの契約と、それを呼ぶ骨格が決まりました。契約の確認では状態の裏を1つ覗きました。**ここで残り全部を埋めます。**
-
-**課題ID1（状態軸）。** 契約の確認で見た `PendingPhase` の疑問が、ここで解けます。**`cases.saveState()` を書かないのは、保存するのが分離で確定した骨格の仕事だからです。** 契約の裏に置くのは「この状態で何が許されるか」「許されたとき次はどこか」だけです。
+**課題ID1（状態軸）。** 直前の契約コードで見た `PendingPhase` の疑問が、ここで解けます。**`cases.saveState()` を書かないのは、保存するのが分離で確定した骨格の仕事だからです。** 契約の裏に置くのは「この状態で何が許されるか」「許されたとき次はどこか」だけです。
 
 **変更要求で足した緊急ルートが、ここで効きます。**
 
-**掲載箇所：`PriorityPendingPhase`（クラス全体）** ―― 優先審査待ち
+**ここで確認するコード：`PriorityPendingPhase`（クラス全体）** ―― 優先審査待ち
 
 ```cpp
 class PriorityPendingPhase : public PendingPhase {
@@ -1913,56 +1708,34 @@ public:
 | `EmailNotifier` | メール | 宛先と本文を組み立てて送る |
 | `ChatNotifier` | チャット | 投稿先と本文を組み立てて送る |
 
-**どちらも状態を知りません。** 受け取るのは通知先と本文だけです。**通知手段を1つ足すときに触るのは、新しいクラス1つと登録1行だけです。**
-
-```mermaid
-classDiagram
-    class IWorkflowPhase { <<interface>> }
-    class DraftPhase
-    class PendingPhase
-    class PriorityPendingPhase
-    class IApprovalRule { <<interface>> }
-    class DepartmentApprovalRule
-    class INotificationListener { <<interface>> }
-    class EmailNotifier
-    IWorkflowPhase <|.. DraftPhase
-    IWorkflowPhase <|.. PendingPhase
-    PendingPhase <|-- PriorityPendingPhase
-    IApprovalRule <|.. DepartmentApprovalRule
-    INotificationListener <|.. EmailNotifier
-    class PriorityPendingPhase:::focus
-    class DepartmentApprovalRule:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-**`PriorityPendingPhase` だけ、継承の向きが違います。** 契約を直接実装するのではなく、`PendingPhase` を継いでいます。**振る舞いが同じで名前だけ違う状態は、既存の状態を継ぐほうが差分が小さくなります。** 図に描いていない状態クラスと規則クラスは、変わっていません。
-
 **もう一度検算します。契約のメソッド以外に書きたくなるものがあるか。** 3つの軸のどれでも出てきませんでした。
 
 **守る範囲との照合：** **既存状態の遷移規則**に触りました。ただし触ったのは**書き方**だけです。作成中→審査待ち→承認済み→完了、および却下——1-2の遷移表と1本ずつ突き合わせて、増えても減ってもいません。増えたのは変更要求で追加した緊急ルート（作成中→優先審査待ち）だけで、これは要求そのものです。公開入口・状態保存・通知の順序には触っていません。
 
-**ここまでで、クラスの設計は終わりです。** 残っているのは、これらを誰が作り、どう渡すかだけになりました。**そしてここから先は、3つの軸で共通です。**
+**境界の契約と具体をコードで確認できました。** 次は、構想で仮置きした生成・所有・受け渡しを、実コードとして確定します。
 
 ---
 
-#### 2. 全体経路をコードで組み立てる
+#### 生成・所有・受け渡しを決める
+
+契約と具体がコードで確認できたので、構想で仮置きした生成・所有・受け渡しを実コードで確かめます。生成しただけで止めず、同じ実体が公開入口から使われる直前までをつなぎます。
 
 ここからは三つを別々の設計判断として扱いません。具体を作る行から、契約として骨格へ入り、公開入口から実行される行までを一つの経路として追います。
 
-##### 全体経路の準備：実体と所有者をコードで示す
+##### 生成・所有：実体と所有者をコードで示す
 
-**分離の検算で穴が2つ空きました。** 骨格の `phase`（現在状態の実体）と `listeners`（配る相手の並び）です。そして具体の確認で、状態が規則を持つことも分かりました。**ここで決めるのは、この3つを誰が作り、誰が持つかです。**
+構想で定めた接続点は3つです。骨格の `phase`（現在状態の実体）、`listeners`（配る相手の並び）、状態が持つ規則を、同じ組み立て役が生成・所有することをコードで確かめます。
 
-**まず状態から決めます。** 骨格は保存された状態IDしか持っていません。**IDから実体を引く仕事が新しく生まれました。**
+**まず状態の選択を確認します。** 骨格は保存された状態IDしか持っていないため、IDから実体を引く役が必要です。
 
-持つ者に必要な条件は、分離の検算で分かっています。
+持つ者に必要な条件は、構想表から分かります。
 
 - **具体クラスを全部知っていること。** IDから `PendingPhase` を返す以上、その名前を知っていなければなりません
 - **`WorkflowManager` ではないこと。** 知った時点で分離が壊れます
 
 **引く役を1つ置きます。名前は `WorkflowPhaseResolver` とします。**
 
-**掲載箇所：`WorkflowPhaseResolver`（クラス全体）**
+**ここで確認するコード：`WorkflowPhaseResolver`（クラス全体）**
 
 ```cpp
 // 保存された状態IDを実行用のPhaseへ解決する。Repositoryは具象を知らない。
@@ -1987,13 +1760,13 @@ public:
 
 **`add()` に渡された状態が、自分の `id()` を鍵にして登録されます。** 状態を1つ足すときに触るのは、新しいクラス1つと `add()` を呼ぶ1行だけです。**引く側に `switch` を書いていないので、状態名を2か所へ書く必要がありません。**
 
-**次に、状態どうしの配線です。** 具体の確認で見たとおり、`PendingPhase` は遷移先（`approved`／`rejected`）と規則を**コンストラクタで受け取ります**。**状態を作るときに、行き先と規則が決まります。**
+**次に、状態どうしの配線です。** 直前の具体コードで見たとおり、`PendingPhase` は遷移先（`approved`／`rejected`）と規則を**コンストラクタで受け取ります**。**状態を作るときに、行き先と規則が決まります。**
 
-**これは、この本の他の状態分離の章とは違う選び方です。** 遷移先を名前で返す形にすれば配線は要りませんが、契約の確認で確かめたとおり、この章は遷移ごとに付随する処理が違うので、状態の側が遷移を起こす必要がありました。**その代わり、状態を1つ足すときは遷移元の配線も触ります。** 5-3の完了条件が「状態動作と**遷移登録**に閉じる」と書いているとおりで、遷移元を触ることは条件の内側です。**払っているコストを隠さずに書いておきます。**
+**これは、この本の他の状態分離の章とは違う選び方です。** 遷移先を名前で返す形にすれば配線は要りませんが、契約コードで確かめたとおり、この章は遷移ごとに付随する処理が違うので、状態の側が遷移を起こす必要がありました。**その代わり、状態を1つ足すときは遷移元の配線も触ります。** 5-3の完了条件が「状態動作と**遷移登録**に閉じる」と書いているとおりで、遷移元を触ることは条件の内側です。**払っているコストを隠さずに書いておきます。**
 
 **通知先と規則も、同じ組み立ての場所で作ります。** どちらもメンバーを持たないか、設定値だけを持つので、全申請で共有できます。
 
-**掲載箇所：`BatchApplication`（メンバー。登録は `BatchApplication::run()` の中）** ―― 共有される実体の置き場
+**ここで確認するコード：`BatchApplication`（メンバー。登録は `BatchApplication::run()` の中）** ―― 共有される実体の置き場
 
 ```cpp
 class BatchApplication {
@@ -2010,40 +1783,15 @@ class BatchApplication {
 
 **所有と生存期間もここで決まります。**
 
-- 状態・規則・通知先の実体は組み立て役が所有します。`WorkflowManager` が持つ `phase` と `listeners` は**非所有のポインタ**です
-- **借りている側（`WorkflowManager`）のほうが先に消える**ので、参照が宙に浮くことはありません
-- 状態は全申請で共有されます。**メンバーを持たない**（遷移先と規則は組み立て時に決まって以後変わらない）ので、共有しても壊れません
-
-```mermaid
-classDiagram
-    class BatchApplication
-    class WorkflowManager
-    class WorkflowPhaseResolver
-    class IWorkflowPhase { <<interface>> }
-    class INotificationListener { <<interface>> }
-    BatchApplication *-- WorkflowPhaseResolver : 所有
-    BatchApplication ..> WorkflowManager : 申請ごとに生成
-    BatchApplication ..> IWorkflowPhase : 実体を所有し登録
-    BatchApplication ..> INotificationListener : 実体を所有し登録
-    WorkflowPhaseResolver o--> IWorkflowPhase : IDで引く
-    WorkflowManager --> WorkflowPhaseResolver : 借用
-    WorkflowManager o--> INotificationListener : 借用（並びで保持）
-    class BatchApplication:::focus
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px
-```
-
-**3つの軸が、ここで初めて同じ組み立て役へ集まります。** それでも `IWorkflowPhase`・`INotificationListener`・`IApprovalRule` の間に横の矢印はありません（規則への矢印は具体の確認で示したとおり状態から出ます）。
-
-
-**ここが終わった時点で、実体はすべて存在しています。** 6つの状態、3つの規則、2つの通知先、引く役、それらを持つ組み立て役。**まだ起きていないのは1つだけです。骨格の契約と書かれた場所へ、具体が入ることです。続けて、全体経路で決めた受け渡しをコードで確認します。**
+ここまでで、6つの状態、3つの規則、2つの通知先の生成・配線・登録まで確認できました。次に状態選択と通知登録の受取側を見て、同じ実体が契約として実行されることを確かめます。
 
 ---
 
-##### 全体経路の登録・選択・受け渡し：通知先と規則と現在状態をつなぐ
+##### 登録・選択・受け渡し：通知先と規則と現在状態をつなぐ
 
 **この章では、3つの軸で3つの違う入り方をします。** 最終章なので、3つを並べて見ます。
 
-**掲載箇所：`WorkflowManager::WorkflowManager(...)`（保存された状態から現在状態を取り出す部分）** ―― 課題ID1の状態選択
+**ここで確認するコード：`WorkflowManager::WorkflowManager(...)`（保存された状態から現在状態を取り出す部分）** ―― 課題ID1の状態選択
 
 ```cpp
         phase = phaseResolver.resolve(cases.getState(requestId));  // ←ここで実装が入る
@@ -2051,7 +1799,7 @@ classDiagram
 
 **保存された状態IDが決め手です。** 同じ `process()` の呼び出しでも、審査待ちの申請なら `PendingPhase` が、承認済みなら `ApprovedPhase` が入ります。**呼び出しごとに変わります。**
 
-**掲載箇所：`WorkflowManager::addListener(INotificationListener*)`** ―― 課題ID2の通知先登録
+**ここで確認するコード：`WorkflowManager::addListener(INotificationListener*)`** ―― 課題ID2の通知先登録
 
 ```cpp
         listeners.push_back(listener);
@@ -2059,7 +1807,7 @@ classDiagram
 
 **組み立て役が渡した実体が、そのまま並びへ入ります。** 決め手はありません。**登録された全員が対象で、配る直前に `supports()` で扱えるものだけが実際に送ります。**
 
-**掲載箇所：`PendingPhase::PendingPhase(IApprovalRule*, IWorkflowPhase*, IWorkflowPhase*)`** ―― 課題ID3の注入
+**ここで確認するコード：`PendingPhase::PendingPhase(IApprovalRule*, IWorkflowPhase*, IWorkflowPhase*)`** ―― 課題ID3の注入
 
 ```cpp
     PendingPhase(IApprovalRule* r, IWorkflowPhase* a, IWorkflowPhase* reject)
@@ -2083,18 +1831,28 @@ classDiagram
 
 ---
 
-##### 実行：公開入口から骨格・契約・具体へつなぐ
+#### 実行骨格：組み立てた実体を契約から呼ぶ
+
+前節で、Resolverへ状態を登録し、Pending状態へ承認Ruleを渡し、Managerへ同じResolverと通知先を渡しました。`WorkflowManager::process()`は保存済み状態から契約を選び、`handle()`へ委譲します。
+
+状態が返した遷移は`transitionTo()`が保存し、その後`notifyAll()`が登録済みListenerへ通知します。状態・通知先・承認Ruleを追加しても、委譲→保存→通知の順は変わりません。生成・選択・注入・実行が、同じ登録済み実体でつながっています。
+
+#### 公開入口から具体の実行まで追う
+
+生成・所有・受け渡しが決まったので、ここでは新しい役割を増やしません。公開入口へ入った要求が、直前に組み立てた同じ実体へ届き、契約を通って具体処理が呼ばれるまでをコードの呼び出し順で追います。
+
+##### 公開入口から骨格・契約・具体へつなぐ
 
 組み立てが終わりました。呼び出し側がどう変わったかを、変更前と並べて見ます。
 
-**掲載箇所：`main()`** ―― 3-1の申請進行（対策前）
+**変更前から抜き出す箇所：`main()`** ―― 3-1の申請進行（対策前）
 
 ```cpp
     manager.process("REQ001", "提出", 50000, "APP001");
     manager.process("REQ001", "承認", 50000, "APP001");
 ```
 
-**掲載箇所：`BatchApplication::run()`** ―― 同じ操作（対策後）
+**ここで確認するコード：`BatchApplication::run()`** ―― 同じ操作（対策後）
 
 ```cpp
     wm.process(WorkflowEvent::SubmitNormal);
@@ -2107,168 +1865,21 @@ classDiagram
 
 **組み立ての行は増えました。** 6つの状態、3つの規則、2つの通知先を作って登録する行が要ります。**この章の対策で組み立てが払ったコストは、20行前後です。** 隠さずに書いておきます。増えたぶんは、3つの軸のどれを触っても他の2つが変わらないことと引き換えです。
 
-**全体経路で先に決めた呼び方を、ここで実コードと突き合わせます。** 章によって公開入口が変わる場合と変わらない場合がありますが、重要なのは先に決めた経路と各コードの接続が一致することです。
+**契約・具体・組み立てで決めた呼び方を、ここで実コードとしてつなぎます。** 章によって公開入口が変わる場合と変わらない場合がありますが、重要なのは生成した同じ実体が公開入口から具体の処理まで届くことです。
 
-**守る範囲との照合：** **公開入口**を保っていることを、いま確認しました。引数の形は変わりましたが、「申請の進行を1回の呼び出しで進める」という形は同じです。分離と組み立てを通して、守る範囲の4つはいずれも定義に反していません。最終確認はフェーズ7の受入・回帰エビデンスで行いますが、**そこで初めて確かめるのではなく、全体経路と詳細コードで照合済みです。**
+**守る範囲との照合：** **公開入口**を保っていることを、いま確認しました。引数の形は変わりましたが、「申請の進行を1回の呼び出しで進める」という形は同じです。分離と組み立てを通して、守る範囲の4つはいずれも定義に反していません。最終確認はフェーズ7の受入・回帰エビデンスで行いますが、**そこで初めて確かめるのではなく、分離から実行までのコードで照合済みです。**
 
-**課題が3つになっても、最初に全体経路を決める順序は変わりません。** 状態の選択、規則の受け渡し、通知先の登録を一つの経路へ集め、その後で3軸ぶんの契約と具体をコードへ落としました。**課題の数によらず同じ見方で全体を追える**ことが、この最終章で確かめられます。
+**課題が3つになっても、検討の順序は変わりません。** 3軸ぶんの契約と具体を決め、状態の選択、規則の受け渡し、通知先の登録を一つの組み立てへ集め、公開入口から実行までを追いました。**課題の数によらず同じ見方で全体を追える**ことが、この最終章で確かめられます。
 
+### 構想を採用する
 
-#### システム全体の最終構造を決める
-
-分離と組み立ての部分図を重ねると、システム全体の最終構造になります。`WorkflowManager` が公開入口と保存・通知の起点を持ち、6つの状態クラスが可否と遷移を持ち、3つの規則クラスが上限判定を持ち、2つの通知クラスが配送を持ちます。
+ここまでの構想表と要点コードを合わせると、責任配置と実行経路が一つにつながります。`WorkflowManager` が公開入口と保存・通知の起点を持ち、6つの状態クラスが可否と遷移を持ち、3つの規則クラスが上限判定を持ち、2つの通知クラスが配送を持ちます。
 
 **この章の完成構造は一つに定まります。** 3つの軸のうち2つを同じクラスへまとめる形も置けますが、まとめた時点でその2つを別々に変えられなくなり、5-2で「3つとも独立変化軸」と判断したことに反します。責任配置が異なる完成構造が複数残ったわけではないので、当て馬を並べた比較は行いません。
 
-全体経路を実現するコードで確定した部分がすべて入っているかを、次の図で照合します。
+完成クラス図は、構想を実装した結果としてフェーズ7「対策実施」だけに示します。ここでは、課題との対応と将来リスクへの備えを表で確定します。
 
-**採用した変更後のクラス図：**
-
-```mermaid
-classDiagram
-    class DraftPhase
-    class ApprovedPhase
-    class RejectedPhase
-    class CompletedPhase
-    class DirectorApprovalRule
-    class DepartmentApprovalRule
-    class ApproverDatabase
-    class WorkflowCaseRepository
-    class NotificationTargetRepository
-    class ChatNotifier
-    class BatchApplication
-    class WorkflowEvent
-    class WorkflowResult
-    class NotificationTarget
-    class DeliveryResult
-    class WorkflowManager
-    class WorkflowPhaseResolver
-    class NotificationTargetResolver
-    class NotificationDeliveryLog
-    class IWorkflowPhase { <<interface>> }
-    class PendingPhase
-    class PriorityPendingPhase
-    class IApprovalRule { <<interface>> }
-    class ManagerApprovalRule
-    class INotificationListener { <<interface>> }
-    class EmailNotifier
-    WorkflowManager o--> IWorkflowPhase
-    IWorkflowPhase ..> WorkflowEvent : 受け取る
-    IWorkflowPhase ..> WorkflowResult : 返す
-    IWorkflowPhase <|.. PendingPhase
-    PendingPhase <|-- PriorityPendingPhase
-    PendingPhase --> IApprovalRule
-    IApprovalRule <|.. ManagerApprovalRule
-    WorkflowManager --> INotificationListener
-    WorkflowManager --> WorkflowPhaseResolver
-    WorkflowManager --> NotificationTargetResolver
-    WorkflowManager --> NotificationDeliveryLog
-    WorkflowPhaseResolver o--> IWorkflowPhase : 状態IDから解決
-    NotificationTargetResolver ..> NotificationTarget : 文字列から解決
-    INotificationListener ..> DeliveryResult : 返す
-    NotificationDeliveryLog *-- DeliveryResult : 全結果を保存
-    INotificationListener <|.. EmailNotifier
-    IWorkflowPhase <|.. DraftPhase
-    IWorkflowPhase <|.. ApprovedPhase
-    IWorkflowPhase <|.. RejectedPhase
-    IWorkflowPhase <|.. CompletedPhase
-    IApprovalRule <|.. DirectorApprovalRule
-    IApprovalRule <|.. DepartmentApprovalRule
-    WorkflowManager --> WorkflowCaseRepository
-    WorkflowManager --> NotificationTargetRepository
-    INotificationListener <|.. ChatNotifier
-    BatchApplication --> WorkflowManager
-    BatchApplication --> ApproverDatabase
-
-    note for IWorkflowPhase "【課題ID1・新設】状態遷移の契約（状態分離構造）"
-    note for INotificationListener "【課題ID2・新設】通知の契約（通知分離構造）"
-    note for IApprovalRule "【課題ID3・新設】承認判定の契約（ルール差し替え構造）"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "IWorkflowPhase,DraftPhase,PendingPhase,INotificationListener,EmailNotifier,IApprovalRule,ManagerApprovalRule,WorkflowPhaseResolver,NotificationTargetResolver,NotificationDeliveryLog" focus
-```
-
-このクラス図が、課題ID1〜課題ID3を反映したシステム全体の設計結論です。課題IDは図の差分を追うために使い、以降はこの構造に必要なコードだけを示します。
-
-### 6-1：決めた流れとコードの照合
-
-#### 流れを成立させる二つの確認
-
-契約と具体による分離と、生成から実行までの組み立てを二行で確認します。
-
-| 判断 | 変更前の所属 → 変更後の所属 | 設計結論 | 検算 |
-|---|---|---|---|
-| 契約と具体による分離 | 巨大な `process()` の状態・判定・通知分岐 → 三契約と各具体 | 状態遷移、承認上限、通知宛先を別の契約・具体へ閉じる | 進行処理は委譲・保存・通知順だけを持つ |
-| 実体の組み立て | 進行処理が全分岐と台帳を内包 → 組み立て役が状態・規則・通知先を所有 | 状態IDで引き、規則を状態へ渡し、通知先を登録して公開操作から実行する | 保存後通知の順と三軸の接点を一経路で追える |
-
-公開入口は操作と承認要求を受け取り、保存状態から具体を引きます。状態、判定規則、通知先は同じ実行経路でつながります。
-
-### 6-2：システム全体の契約とデータ配置を確定する
-
-採用システムの契約、生成場所、依存注入を一表で確定します。接続点で受け渡すのは、遷移を進める `WorkflowManager&` と、承認判定に使う `amount` です（承認者IDは申請入口で存在確認に使い、判定ルールには金額を渡します）。状態保存と通知先取得はRepository境界に残します。
-
-```cpp
-class WorkflowManager {
-    IWorkflowPhase* phase;                         // 課題ID1: 現在状態
-    std::vector<INotificationListener*> listeners; // 課題ID2: 登録リスナー
-    WorkflowCaseRepository& cases;
-public:
-    void addListener(INotificationListener* l) { listeners.push_back(l); }
-    void process(WorkflowEvent ev) { phase->handle(*this, ev); }   // 委譲
-    void transitionTo(const std::string& s, const std::string& id) {
-        cases.saveState(id, s);                    // 保存はRepositoryへ
-        for (auto* l : listeners) l->onStatusChanged(id, s);  // 課題ID2: 一律通知
-    }
-};
-```
-
-| 接続点を変える観点 | システム全体での設計判断 | 変えたくない側が知らなくなる詳細 |
-|---|---|---|
-| 何を分離するか | 課題ID1を `IWorkflowPhase`、課題ID2を `INotificationListener`、課題ID3を `IApprovalRule` へ置く | 状態遷移・通知先・承認ルール |
-| どこで生成・選択するか | 組み立て側（`BatchApplication`）がPhase・Listener・Ruleを注入する | 具体Phase・Listener・Ruleの選択 |
-| どう依存を渡すか | Phaseにはコンストラクタで、Listenerは登録で渡す | 各契約の実体 |
-| 安定側はどう実行するか | `WorkflowManager` は `process()` で現在状態へ委譲するだけ | 状態・通知・承認判定の中身 |
-
-Phase・Listener・Ruleは組み立て側が生成・注入し、`WorkflowManager` は非所有の契約ポインタを保持します。所有側の生存期間がManagerより長いことを組み立てコードで確認します。
-
-**骨格 規則委譲の安定骨格。** `PendingPhase::handle()` は承認イベントを処理するとき、注入されたルールへ `canApprove()` を尋ね、その結果で次状態を選びます。どのルールかは知りません。
-
-```cpp
-void PendingPhase::handle(WorkflowManager& wm, WorkflowEvent ev) {
-    if (ev == WorkflowEvent::Approve) {
-        if (rule.canApprove(wm.currentAmount())) {  // 骨格 契約へ委譲
-            wm.transitionTo("承認済み", wm.currentId());
-        } else {
-            wm.reject("承認上限を超えています");
-        }
-    }
-}
-```
-
-**契約 共通契約 `IApprovalRule` を定義する。** 承認状態は `canApprove()` の可否だけを受け取り、上限額や部署別規則を知りません。承認者が誰かはPhase側の役職照合で扱うため、判定契約は金額だけを取ります。
-
-```cpp
-class IApprovalRule {
-public:
-    virtual ~IApprovalRule() = default;
-    virtual bool canApprove(int amount) = 0;   // 判定に要るのは金額だけ
-};
-```
-
-**具体ルールが判定だけを実装する。** `ManagerApprovalRule` は課長承認上限で可否を返します。`DirectorApprovalRule`・`DepartmentApprovalRule` も同じ契約を実装し、上限変更はルール1クラスの差し替えに閉じます。
-
-```cpp
-class ManagerApprovalRule : public IApprovalRule {
-    int limit;                                  // 上限はマスターから注入
-public:
-    explicit ManagerApprovalRule(int l) : limit(l) {}
-    bool canApprove(int amount) override {
-        return amount <= limit;                 // 課長承認上限（現行10万円）
-    }
-};
-```
-
-### 6-3：課題から完成構造までの設計トレース
+#### 課題から採用構想までを照合する
 
 ここまでの決定を、課題ID1→課題ID2→課題ID3の順に一望へまとめます。この表は設計課題だけを追います。変更要求の受入はフェーズ7の要求ID表、変更影響は7-4の変更ID表で別に確認します。
 
@@ -2279,9 +1890,7 @@ public:
 | 課題ID3（承認判定） | 規則差し替え。承認Phaseが注入された`IApprovalRule`へ可否を委ねる | `IApprovalRule`、`ManagerApprovalRule`／`DirectorApprovalRule`／`DepartmentApprovalRule` | 上限変更が判定規則と設定に閉じる |
 | 変更対象外 | 状態・通知先の保存。Managerは保存表現を変えず利用する | 状態Repository、通知先Repository | 変更前後で保存表現が不変 |
 
-このクラス図、コード適用結果、シーケンス、コード変更表が、フェーズ7へ渡す完成設計です。
-
-### 6-4：将来リスクに対する設計上の確認
+#### 将来リスクに対して構想を確認する
 
 ここでは将来ルート・通知機能の実装有無ではなく、フェーズ2のリスクIDを採用構造へ再適用し、承認入口をどこまで守れ、再送運用に何が残るかを評価します。
 
@@ -3720,7 +3329,7 @@ graph LR
 | 🟣 フェーズ3：問題特定 | 変更ID1〜変更ID3を試み、承認時の通知が1件から2件へ増え、承認可否の判定が役職上限と部署別上限の2か所へ分かれることを確認した |
 | 🟠 フェーズ4：原因分析 | 変わる理由が異なる3つのもの（状態遷移・通知・判定）が同じ場所にいることが痛みの根本と特定した |
 | 🟡 フェーズ5：課題定義 | 3つの変化軸を独立して差し替え可能な部品として分離することを課題として定義した |
-| 🔴 フェーズ6：対策検討 | 課題ID1〜課題ID3を同時に満たす3構造統合（状態分離構造＋通知分離構造＋ルール差し替え構造）を先に確定し、責任単位で3段階に分けてコードへ反映した |
+| 🔴 フェーズ6：対策検討 | 状態・通知・承認の三契約と各具体を決め、組み立て側が所有・登録した実体を保存状態から引き当て、申請の公開操作から状態遷移・保存・通知まで実行する構造を確定した |
 | 🟢 フェーズ7：対策実施 | 最終コードを実装し、変更影響グラフで変更の局所化を確認した |
 
 ### 使った構造 × 解消した根本原因
