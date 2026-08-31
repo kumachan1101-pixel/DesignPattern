@@ -2552,8 +2552,10 @@ def check_phase22_change_list(text: str, path: Path) -> list[Issue]:
             "2-2の変更ID一覧が1-5の確定一覧と一致しません: "
             f"1-5={expected} / 2-2={actual}",
         ))
+    # EDIT-006：節番号の初出へ節名を併記したので、定型文も併記つきにする。
     required_intro = (
-        "1-5で確定した変更IDを、そのまま今回確実に変わることとして確認します。"
+        "1-5（変更要求）で確定した変更IDを、"
+        "そのまま今回確実に変わることとして確認します。"
     )
     if required_intro not in section:
         issues.append(Issue(
