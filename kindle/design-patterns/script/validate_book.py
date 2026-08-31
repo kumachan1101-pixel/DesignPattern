@@ -3574,7 +3574,9 @@ def check_chapter01_rule_lifecycle_terms(text: str, path: Path) -> list[Issue]:
         return []
     section = text[start:end]
     required = (
-        "`selector.add(...)`は、生成済み実体への参照の**登録**です。新しいルールは生成していません。",
+        "`DiscountRuleSet discountRules;`がルール集合を**生成**し、5つの具体ルールはそのメンバーとして同時に生成・所有されます。",
+        "`DiscountRuleSet`の`ruleSelector.add(...)`が、生成済み実体への参照の**優先順登録**を表します。",
+        "`main()`は個々のルール名や登録順を扱わず、完成したルール集合を利用側へ接続します。",
         "`selector.select()`が、生成・登録済みのルールから1つを**選択**する。",
         "`select()`自身は注入ではありません。",
         "`PaymentCalculator calculator(rule)`がCalculatorを生成し、同時に選択済みルールへの参照を**注入**する。",
@@ -3587,6 +3589,22 @@ def check_chapter01_rule_lifecycle_terms(text: str, path: Path) -> list[Issue]:
                 "第1章ではルールの生成・登録・選択とCalculatorへの注入を別の操作として明記してください: "
                 + statement,
             ))
+    main_label = "**ここで確認するコード：`main()`**"
+    main_at = section.find(main_label)
+    if main_at >= 0:
+        fence_at = section.find("```cpp", main_at)
+        fence_end = section.find("```", fence_at + len("```cpp"))
+        if min(fence_at, fence_end) >= 0:
+            main_block = section[fence_at:fence_end]
+            concrete_names = (
+                "PremiumDiscount", "SummerSaleAndCampaignDiscount",
+                "SummerSaleDiscount", "CampaignDiscount", "NoDiscount",
+            )
+            if ".add(" in main_block or any(name in main_block for name in concrete_names):
+                issues.append(Issue(
+                    path, line_number(text, start + main_at),
+                    "第1章のmain()へ具体ルール名や登録順を置かず、DiscountRuleSetへ閉じてください",
+                ))
     return issues
 
 

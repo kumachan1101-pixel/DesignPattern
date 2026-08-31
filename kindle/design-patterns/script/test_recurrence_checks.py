@@ -240,8 +240,8 @@ cases.append((
 # 24d) EDIT-003: 問題を解く前にパターン名を本文へ出す
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "ルール差し替え構造",
-    "Strategy",
+    "| **解決策** | ルール差し替え構造：",
+    "| **解決策** | Strategy：",
     1,
 )
 cases.append(("EDIT-003 パターン名の先出し", V.check_pattern_name_reveal, broken))
@@ -419,6 +419,19 @@ cases.append(("DOC-007 選択と注入の区別",
               lambda txt, _: V.check_chapter01_rule_lifecycle_terms(
                   txt, Path("chapter01.md")), broken))
 
+# DOC-007: 第1章のmainへ具体ルールと優先順を戻す
+t = (OUT/"chapter01.md").read_text(encoding="utf-8")
+broken = t.replace(
+    "    DiscountRuleSet discountRules;",
+    "    PremiumDiscount premium;\n"
+    "    DiscountRuleSet discountRules;\n"
+    "    discountRules.selector().add(premium);",
+    1,
+)
+cases.append(("DOC-007 mainへの優先順漏れ",
+              lambda txt, _: V.check_chapter01_rule_lifecycle_terms(
+                  txt, Path("chapter01.md")), broken))
+
 # DOC-005: 一般的な注入方式の一覧を各章へ戻す
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
@@ -475,7 +488,7 @@ cases.append(("DOC-001 コードの省略", V.check_code_block_attribution, brok
 # DOC-003: フェーズ6の断片から確認対象ラベルを外す
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
-    "**ここで確認するコード：`main()`** ―― 起動時の生成・登録・注入",
+    "**ここで確認するコード：`main()`** ―― ルール集合の生成とSelectorの注入",
     "どの施策クラスを作るかを知るのは組み立て箇所だけです。", 1)
 cases.append(("DOC-003 確認対象ラベル", V.check_phase6_fragment_location, broken))
 

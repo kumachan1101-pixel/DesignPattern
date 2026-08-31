@@ -52,13 +52,17 @@ EXCERPT_PREMISE = re.compile(r"抜粋の前提")
 # 執筆の段取りを読者へ言う文。「何を決めないか」ではなく
 # 「ここで決めるのはどこまでか」を書く。
 PROCESS_DECLARATION = re.compile(
-    r"この段階では、[^。\n]*決めません"
+    r"(?:ここでは|この段階では|この時点では|このフェーズでは)"
+    r"[^。\n]{0,120}(?:決めません|実装しません|追加しません|増やしません|"
+    r"示しません|評価しません|読みません)"
     r"|ここでは[^。\n]*(?:評価はしません|決めつけません)"
     r"|この時点では[^。\n]*決めつけません"
     r"|まだ実装はしません"
     r"|(?:クラス名|インターフェース|生成方法|分離先)[^。\n]*まだ決めません"
     r"|どのクラスへ分けるかは決めません"
-    r"|先取りしません"
+    r"|先取り(?:しません|せず)"
+    r"|ここからは三つを別々の設計判断として扱いません"
+    r"|ここでは新しい役割を増やしません"
     r"|構成にはしません")
 
 # 掲載の都合を読者へ言う文。
@@ -74,13 +78,22 @@ CHECKS = [
      "原稿内の参照ラベルではなく、この実行で何を見ればよいかを散文で書いてください"),
     ("抜粋の前提", EXCERPT_PREMISE,
      "「抜粋の前提」は編集側の言い方です。読者向けに、どこを抜き出し何を変えていないかを書いてください"),
-    ("執筆の段取り", PROCESS_DECLARATION,
-     "「何を決めないか」という進行管理ではなく、ここで決めるのはどこまでかを書いてください"),
     ("掲載の都合", LAYOUT_NOTE,
      "掲載の都合ではなく、題材の言葉で分け方の理由を書いてください"),
     ("ID配線の説明", ID_WIRING_NOTE,
      "ID体系のつながりは第0章で説明済みです。各章では題材の言葉で次に見ることを書いてください"),
 ]
+
+
+def process_declaration_issues(name: str, text: str) -> list[str]:
+    """全章（第0章を含む）の否定形の進行管理を検出する。"""
+    prose = code_free(text)
+    return [
+        f"{name}: [執筆の段取り] 「何をしないか」ではなく、"
+        "現在確認する事実・目的・次に確定する対象を書いてください"
+        f"（該当: {match.group(0).strip()[:40]}）"
+        for match in PROCESS_DECLARATION.finditer(prose)
+    ]
 
 TYPE_DECLARATION = re.compile(r"(?m)^\s*(?:class|struct)\s+([A-Z]\w*)")
 # 先取り判定から外す語。題材の名前が偶然クラス名と同じ場合がある。
@@ -160,6 +173,7 @@ def main() -> int:
     for name in MANUSCRIPT_CHAPTERS:
         text = (OUTPUT_DIR / name).read_bytes().decode("utf-8").replace("\r\n", "\n")
         issues.extend(author_marker_issues(name, text))
+        issues.extend(process_declaration_issues(name, text))
     for name in CORE_CHAPTERS:
         if (OUTPUT_DIR / name).exists():
             issues.extend(chapter_issues(name))

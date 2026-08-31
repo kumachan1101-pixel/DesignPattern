@@ -114,7 +114,7 @@ ECサイトの支払金額計算が何を入力として受け取り、どの処
 
 **システム全体図：ECサイトと支払金額計算の境界**
 
-最も大きな境界は「購入者 → EC購入システム」です。購入機能、金額計算、顧客情報は対象システムの内側にまとめ、ここでは内部の細かな処理順を示しません。
+最も大きな境界は「購入者 → EC購入システム」です。購入機能、金額計算、顧客情報は対象システムの内側にまとめます。この図は責任の境界を示し、内部の処理順は続くシーケンス図で確認します。
 
 ```mermaid
 flowchart LR
@@ -818,7 +818,7 @@ int main() {
 > **手元で動かすには**
 > このコードは1つの `.cpp` に貼り付けて、そのままコンパイル・実行できます（例：`g++ chapter01.cpp -o app && ./app`）。`main()` は自由に組み替えて構いません。たとえば `db.save("C010", {"高橋 三郎", "Premium"});` で顧客を足し、その顧客IDで `process()` を呼べば、追加した顧客の割引計算がその場の実行結果に表れます。登録はプロセス実行中だけ有効で、終了すると消えます（DBのような永続化はこの章の論点ではありません）。
 >
-> **掲載用1ファイルと実務の分割：** この1つの`.cpp`は、手元で動かすための掲載形式です。実務では、第0章「掲載ブロックと実ファイルの分け方」に従い、公開する契約・宣言を`.h`、処理本体を`.cpp`、生成・登録・注入を`main.cpp`へ置くことを基本にします。
+> **掲載用1ファイルと実務の分割：** この1つの`.cpp`は、手元で動かすための掲載形式です。実務では、第0章「掲載ブロックと実ファイルの分け方」に従い、公開する契約・宣言を`.h`、処理本体を`.cpp`へ置きます。優先順のような業務方針を伴う登録は専用の組み立てクラスへまとめ、`main.cpp`は完成した部品の生成と利用側への受け渡しを担います。
 
 `OrderProcessor` は `CustomerDatabase` からの情報を使ってバリデーションと計算を行います。`CartPreviewService` も同じ `PaymentCalculator` を使うため、注文確定前のプレビュー表示でも同じ金額になります。
 
@@ -1352,7 +1352,7 @@ public:
 
 ## 🟡 フェーズ5：課題定義 ―― 原因から課題を検討して確定する
 
-フェーズ4「原因分析」で確定した原因は、まだ課題そのものではありません。まず変えるべき構造を候補として導き、システム全体で候補の関係を整理してから、解くべき接続点を確定します。
+フェーズ4「原因分析」で確定した原因から、変えるべき構造を候補として導きます。システム全体で候補の関係を整理した後、解くべき接続点を課題として確定します。
 
 ### 5-1：原因から課題候補を洗い出す
 
@@ -1380,7 +1380,7 @@ public:
 
 | 課題ID・接続点 | 接続するもの・変わる側 | 守る側 | 完了条件 |
 |---|---|---|---|
-| 課題ID1：ルール選択と個別条件の境界 | **接続:** 会員種別、施策状態<br/>**変わる側:** 施策ごとの対象条件 | 登録順に条件を問い合わせ、最初に一致した施策を選ぶ流れ | 施策追加時の主な変更先が、対象条件を持つ新ルールと組み立て時の登録になる |
+| 課題ID1：ルール選択と個別条件の境界 | **接続:** 会員種別、施策状態<br/>**変わる側:** 施策ごとの対象条件 | 登録順に条件を問い合わせ、最初に一致した施策を選ぶ流れ | 施策追加時の主な変更先が、対象条件を持つ新ルールと優先順を管理するルール集合になる |
 | 課題ID2：割引実行と金額計算の境界 | **接続:** 適用前金額と適用後金額<br/>**変わる側:** 施策ごとの計算式 | 小計計算と結果返却 | 計算側が個別式を知らず、同じ操作で逐次適用できる |
 
 📌 **システム全体の完了状態**：価格計算は個別施策の条件・式を知らず、選ばれた施策を共通操作で順に適用できる。施策の追加・切替は施策部品と組み立て箇所に閉じる。
@@ -1410,15 +1410,16 @@ public:
 | 接続点を変える観点 | システム全体での設計判断 | 変えたくない側が知らなくなる詳細 |
 |---|---|---|
 | 契約と具体 | 課題ID1の適用条件と課題ID2の計算式を`IDiscountRule`と5つの具体へ置く | 具体条件と計算式 |
-| 生成・所有・受け渡し | `main()`が具体を所有して`RuleSelector`へ登録し、同じSelectorを注文処理とプレビューへ渡す。各入口は選択した`const IDiscountRule&`を計算役へ渡す | 具体クラスの生成方法・登録順・選択結果 |
+| 生成・所有・受け渡し | `DiscountRuleSet`が具体を所有し、競合方針の順で`RuleSelector`へ登録する。`main()`は完成したルール集合から同じSelectorを注文処理とプレビューへ渡す。各入口は選択した`const IDiscountRule&`を計算役へ渡す | 具体クラスの生成方法・登録順・選択結果 |
 | 公開入口からの実行 | Selectorは`matches()`、計算側は`apply()`だけを呼ぶ | 条件・式・生成の詳細 |
 
 構想は、起動時の準備と注文時の実行に分けると一望できます。
 
 ```text
 起動時：main()
-  ├─ 5つの具体ルールを生成・所有する
-  ├─ RuleSelectorを生成し、具体ルールを優先順に登録する
+  ├─ DiscountRuleSetを生成する
+  │   ├─ 5つの具体ルールとRuleSelectorを所有する
+  │   └─ 具体ルールを競合方針の順でRuleSelectorへ登録する
   ├─ OrderProcessorへRuleSelectorを渡す
   └─ CartPreviewServiceへ同じRuleSelectorを渡す
 
@@ -1468,7 +1469,7 @@ if (memberType == "Premium") {                        // ← 出て行く側（�
 | 会員種別 | **引数で渡す** | 判定するのは施策の側だが、値を持っているのは顧客照合の側。持っていない側が判定するには渡すしかない |
 | 施策状態 | **引数で渡す** | 同上。キャンペーン中かサマーセール中かは、施策ではなくシステムの状態 |
 
-3-1で痛かったのは、枝の**順序が計算処理の内部に隠れていたこと**でした。ただし、複数の条件が同時に成立する以上、どれを採るかという方針そのものは消せません。これを各ルールの数値へ分散すると、新しいルールが既存ルールの数値を知らなければ追加できなくなります。そこで、各ルールは自分の適用条件だけを答え、`main()` が「上から最初に一致したものを採る」登録順を明示します。個別ルール同士は互いを知らず、全体の競合方針だけが組み立て箇所に集まります。
+3-1で痛かったのは、枝の**順序が計算処理の内部に隠れていたこと**でした。ただし、複数の条件が同時に成立する以上、どれを採るかという方針そのものは消せません。これを各ルールの数値へ分散すると、新しいルールが既存ルールの数値を知らなければ追加できなくなります。そこで、各ルールは自分の適用条件だけを答え、`DiscountRuleSet` が「上から最初に一致したものを採る」登録順を明示します。個別ルール同士も`main()`も優先関係を知らず、全体の競合方針だけがルール集合へ集まります。
 
 **課題ID2（計算軸）。次に式のほうを決めます。**
 
@@ -1587,9 +1588,9 @@ public:
 
 ここでは、契約と具体で決めた役割を、**起動時**と**注文時**の二つの時間帯で組み立てます。「生成」「登録」「選択」「注入」「実行」を独立した設計段階として並べるのではなく、同じ実体が次の処理へどう渡るかを追います。
 
-##### 起動時：具体ルールを生成・登録し、Selectorを利用側へ渡す
+##### 起動時：ルール集合を生成し、Selectorを利用側へ渡す
 
-`RuleSelector` は具体ルールを所有しません。`main()` が所有する実体への参照を、競合時の優先順で保持します。
+`RuleSelector` は具体ルールを所有しません。`DiscountRuleSet` が所有する実体への参照を、登録された順で保持します。どのルールをどの順に積むかは`DiscountRuleSet`、同じ問いを順に投げる処理は`RuleSelector`の責任です。
 
 **ここで確認するコード：`RuleSelector`（クラス宣言・完成）**
 
@@ -1607,41 +1608,60 @@ public:
 };
 ```
 
-C++の`vector`には参照を直接入れられないため、`reference_wrapper`で包みます。ここで保持するのはコピーでも所有ポインタでもなく、`main()`にある実体への借用参照です。
+C++の`vector`には参照を直接入れられないため、`reference_wrapper`で包みます。ここで保持するのはコピーでも所有ポインタでもなく、`DiscountRuleSet`にある実体への借用参照です。
 
-次が、起動時の組み立て全体です。生成と登録を離れた断片にせず、利用側へ渡すところまで続けて示します。
+優先順を知るクラスを次に示します。具体ルールのメンバー宣言が**所有関係**、コンストラクタ内の`add()`が**優先順の登録**です。この後に示す`DiscountRuleSet discountRules;`を実行すると、C++がこれらのメンバー実体を生成します。
 
-**ここで確認するコード：`main()`** ―― 起動時の生成・登録・注入
+**ここで確認するコード：`DiscountRuleSet`（クラス全体）** ―― 具体ルールの所有と優先順の登録
 
 ```cpp
+class DiscountRuleSet {
+private:
     PremiumDiscount premium;
     SummerSaleAndCampaignDiscount summerAndCampaign;
     SummerSaleDiscount summer;
     CampaignDiscount campaign;
     NoDiscount none;
+    RuleSelector ruleSelector;
+public:
+    DiscountRuleSet() {
+        ruleSelector.add(premium);           // Premiumは他施策と併用しない
+        ruleSelector.add(summerAndCampaign); // 複合条件を単独条件より先にする
+        ruleSelector.add(summer);
+        ruleSelector.add(campaign);
+        ruleSelector.add(none);              // 必ず一致するため最後にする
+    }
 
-    RuleSelector selector;
-    selector.add(premium);
-    selector.add(summerAndCampaign);
-    selector.add(summer);
-    selector.add(campaign);
-    selector.add(none);
-
-    OrderProcessor processor(db, renderer, selector);
-    CartPreviewService preview(db, selector);
+    const RuleSelector& selector() const {
+        return ruleSelector;
+    }
+};
 ```
 
-このブロックでは、処理の意味が三つに分かれます。
+`DiscountRuleSet`の構築時に、メンバーは宣言順で生成されます。5つの具体ルールが先に存在し、その後でコンストラクタが参照を`ruleSelector`へ登録します。優先関係を変更するときに読む場所も、このコンストラクタの一覧へ定まります。
 
-- 先頭5行は、具体ルールの**生成**です。5つの実体は`main()`が所有します。
-- `selector.add(...)`は、生成済み実体への参照の**登録**です。新しいルールは生成していません。
-- `OrderProcessor(..., selector)`と`CartPreviewService(..., selector)`は、同じSelectorへの参照の**注入**です。
+次が、起動時の組み立て全体です。`main()`は個々のルール名や登録順を扱わず、完成したルール集合を利用側へ接続します。
 
-ルール、Selector、Processor、Previewの順で生成され、借りる側が先に破棄されるため、参照が宙に浮きません。競合時の方針は`add()`の順に一か所で見えます。
+**ここで確認するコード：`main()`** ―― ルール集合の生成とSelectorの注入
+
+```cpp
+    DiscountRuleSet discountRules;
+
+    OrderProcessor processor(db, renderer, discountRules.selector());
+    CartPreviewService preview(db, discountRules.selector());
+```
+
+この二つのクラスを続けて読むと、処理の意味が三つに分かれます。
+
+- `DiscountRuleSet discountRules;`がルール集合を**生成**し、5つの具体ルールはそのメンバーとして同時に生成・所有されます。
+- `DiscountRuleSet`の`ruleSelector.add(...)`が、生成済み実体への参照の**優先順登録**を表します。
+- `OrderProcessor(..., discountRules.selector())`と`CartPreviewService(..., discountRules.selector())`が、同じSelectorへの参照の**注入**を表します。
+
+`DiscountRuleSet`、Processor、Previewの順で生成され、借りる側が先に破棄されるため、参照が宙に浮きません。競合時の方針は`DiscountRuleSet`内の`add()`の順に一か所で見え、`main()`はその方針から独立します。
 
 ##### 注文時：生成済みルールを選び、Calculatorへ渡す
 
-注文が来た後は、具体ルールを生成しません。会員種別と施策状態を入力として、登録済み実体の中から1つへの参照を取得します。
+注文時は、起動時に生成・登録した具体ルールを利用します。会員種別と施策状態を入力として、登録済み実体の中から1つへの参照を取得します。
 
 **ここで確認するコード：`OrderProcessor::process(const Order&, const CampaignContext&)`** ―― 選択からCalculatorの実行まで
 
@@ -1671,11 +1691,11 @@ C++の`vector`には参照を直接入れられないため、`reference_wrapper
 - `RuleSelector`は登録順に`matches()`を呼び、最初に一致した契約を返す。
 - `PaymentCalculator`は小計を求め、受け取った契約の`apply()`と`name()`を呼ぶ。
 
-新しい施策を足しても、この二つの手順は変わりません。変わるのは具体ルールと`main()`の登録一覧です。これで、前節の生成・登録・選択・注入が、具体名を知らない実行手順へ接続できています。
+新しい施策を足しても、この二つの手順は変わりません。変わるのは具体ルールと`DiscountRuleSet`の所有・登録一覧です。これで、前節の生成・登録・選択・注入が、具体名を知らない実行手順へ接続できています。
 
 #### 公開入口から具体の実行まで追う
 
-生成・所有・受け渡しが決まったので、ここでは新しい役割を増やしません。公開入口へ入った要求が、直前に組み立てた同じ実体へ届き、契約を通って具体処理が呼ばれるまでをコードの呼び出し順で追います。
+次は、公開入口へ入った要求が、直前に組み立てた同じ実体へ届き、契約を通って具体処理が呼ばれるまでをコードの呼び出し順で追います。
 
 ##### Calculatorから選択済みルールを呼ぶ
 
@@ -1692,7 +1712,7 @@ Calculatorは、渡された実体の具体クラス名を知りません。小�
         return {subtotal, finalPrice, rule.name()};
 ```
 
-ここで`rule`が指すのは、`main()`で生成し、Selectorへ登録し、注文時に選択した同じ実体です。`calculate()`から`apply()`までの間に、別のルールを生成したり具体型を判定したりする処理はありません。
+ここで`rule`が指すのは、`DiscountRuleSet`が生成・登録し、注文時にSelectorが選択した実体です。`calculate()`は選択結果を契約として受け取り、`apply()`を呼びます。
 
 **守る範囲との照合：** 顧客照合、小計計算、結果返却、公開入口`process()`の形は維持しています。変えたのは、個別条件と計算式の置き場、および起動時にそれらを組み立てる経路です。生成・登録・選択・受け渡し・実行の各操作は、ここまでに示したコードブロックで途切れずにつながっています。
 
@@ -1702,7 +1722,7 @@ Calculatorは、渡された実体の具体クラス名を知りません。小�
 
 **この章の完成構造は一つに定まります。** 選ぶことと計算することを1つのクラスにまとめる案も置けますが、それは課題ID1と課題ID2を別々に変えられない形で、5-2で「変更理由が異なるため独立」と判断したことに反します。責任配置が異なる完成構造が複数残ったわけではないので、当て馬を並べた比較は行いません。
 
-完成クラス図は、構想を実装した結果としてフェーズ7「対策実施」だけに示します。ここでは、課題との対応と将来リスクへの備えを表で確定します。
+完成クラス図は、構想を実装した結果としてフェーズ7「対策実施」に示します。対策検討の結論は、課題との対応と将来リスクへの備えを表で確定します。
 
 #### 課題から採用構想までを照合する
 
@@ -1710,17 +1730,17 @@ Calculatorは、渡された実体の具体クラス名を知りません。小�
 
 | 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
 |---|---|---|---|
-| 課題ID1（選択条件） | ルール差し替え。`main()`が競合方針の順で各ルールを生成・登録し、`RuleSelector`が最初の一致を選ぶ | `IDiscountRule::matches()`、`PremiumDiscount`／`CampaignDiscount`／`SummerSaleDiscount`／`SummerSaleAndCampaignDiscount`／`NoDiscount`、`RuleSelector` | 施策追加が新ルールと登録に閉じ、選択側が具体条件を持たない |
+| 課題ID1（選択条件） | ルール差し替え。`DiscountRuleSet`が各ルールを所有して競合方針の順で登録し、`RuleSelector`が最初の一致を選ぶ | `IDiscountRule::matches()`、`PremiumDiscount`／`CampaignDiscount`／`SummerSaleDiscount`／`SummerSaleAndCampaignDiscount`／`NoDiscount`、`DiscountRuleSet`、`RuleSelector` | 施策追加が新ルールとルール集合の登録に閉じ、選択側と`main()`が具体条件・優先順を持たない |
 | 課題ID2（計算式） | ルール差し替え。骨格は契約`apply()`だけを呼ぶ | `IDiscountRule::apply()`、`PaymentCalculator` | 計算側が個別式を知らず、同じ操作で逐次適用できる |
 | 変更対象外 | 会員情報の取得と購入結果の表示。骨格はそのまま利用する | `CustomerDatabase`、`CheckoutResultRenderer` | 1-4、登録・未登録の既存動作 |
 
 #### 将来リスクに対して構想を確認する
 
-ここでは「未確定機能を実装しない」という当然の確認ではなく、フェーズ2のリスクIDを採用構造へ再適用し、現在の境界で何を守れ、どこに弱点が残るかを評価します。
+フェーズ2のリスクIDを採用構造へ再適用し、現在の境界で何を守れ、どこに弱点が残るかを評価します。
 
 | リスクID・将来リスク | 現在の構造による備え | リスク発生時の変更先 | 守れる範囲・残る弱点 |
 |---|---|---|---|
-| リスクID1：新しい割引ルールの追加が毎月続く | 割引ごとの差分をIDiscountRule実装として追加し、選択と計算の共通経路から分ける | 新しいRule、RuleSelectorへの登録、組み立て | OrderProcessorを守り、追加を新Ruleと登録へ限定できる。ルール間優先順位が複雑化した場合はSelectorの競合規則が追加課題になる |
+| リスクID1：新しい割引ルールの追加が毎月続く | 割引ごとの差分をIDiscountRule実装として追加し、選択と計算の共通経路から分ける | 新しいRule、`DiscountRuleSet`の所有・登録一覧 | OrderProcessorと`main()`を守り、追加を新Ruleとルール集合へ限定できる。ルール間優先順位が複雑化した場合はルール集合の競合規則が追加課題になる |
 | リスクID2：計算方法が「パーセント引き」から「定額引き」に変わる | 条件と計算式を同じ具体Ruleへ置き、金額を返す契約を維持する | 対象Ruleのmatches()とapply() | 計算経路を守り、式の変更を対象Ruleへ閉じられる。複数Rule併用へ変わる場合は単一選択の契約を見直す必要がある |
 
 リスクID1・リスクID2は、採用構造を評価する根拠の一部です。ただし今回実装する機能は変更後要求ベースラインの要求IDで確定した範囲だけであり、リスクIDは構造が将来の変化を局所化できるかの評価に使います。
@@ -1736,13 +1756,13 @@ Calculatorは、渡された実体の具体クラス名を知りません。小�
 
 - `Item`、`Order`、`CampaignContext`、`CustomerInfo`
 - `CustomerDatabase`、`CheckoutResultRenderer`、`OrderProcessor`、`PaymentResult`
-- `PaymentCalculator`、`CartPreviewService`、`IDiscountRule`、`RuleSelector`
+- `PaymentCalculator`、`CartPreviewService`、`IDiscountRule`、`RuleSelector`、`DiscountRuleSet`
 - `PremiumDiscount`、`CampaignDiscount`、`SummerSaleDiscount`、`SummerSaleAndCampaignDiscount`
 - `NoDiscount`
 
 #### 完成後のクラス図
 
-フェーズ6の採用後クラス図と同じクラス・操作・関係線の図を再掲します。設計から完成まで構造は変えていないため、クラスの順序・注記・色も同じです。`PaymentCalculator` と `CartPreviewService` が計算を依頼する利用側、`IDiscountRule` が差し替え可能なルール契約、各割引クラスがその具象ルールに対応します。`RuleSelector` は、具体条件を知らずに登録ルールを選ぶ、このシステム固有の役割です。
+フェーズ6で確定したクラス・操作・関係線を完成図にします。`PaymentCalculator` と `CartPreviewService` が計算を依頼する利用側、`IDiscountRule` が差し替え可能なルール契約、各割引クラスがその具象ルールに対応します。`DiscountRuleSet` は具体ルールを所有して競合方針の順に登録し、`RuleSelector` は具体条件を知らずに登録ルールを選びます。
 
 ```mermaid
 classDiagram
@@ -1782,6 +1802,10 @@ classDiagram
         +add(rule)
         +select(memberType, context) IDiscountRule
     }
+    class DiscountRuleSet {
+        -RuleSelector ruleSelector
+        +selector() RuleSelector
+    }
     class PremiumDiscount
     class CampaignDiscount
     class SummerSaleDiscount
@@ -1805,6 +1829,12 @@ classDiagram
     CartPreviewService ..> PaymentResult : 返す
     RuleSelector o--> IDiscountRule : 登録する
     RuleSelector ..> CampaignContext : 参照する
+    DiscountRuleSet *--> RuleSelector : 所有する
+    DiscountRuleSet *--> PremiumDiscount : 所有する
+    DiscountRuleSet *--> CampaignDiscount : 所有する
+    DiscountRuleSet *--> SummerSaleDiscount : 所有する
+    DiscountRuleSet *--> SummerSaleAndCampaignDiscount : 所有する
+    DiscountRuleSet *--> NoDiscount : 所有する
     IDiscountRule <|.. PremiumDiscount
     IDiscountRule <|.. CampaignDiscount
     IDiscountRule <|.. SummerSaleDiscount
@@ -1814,29 +1844,39 @@ classDiagram
     note for PaymentCalculator "【課題ID2・残した】小計計算<br/>具体的な式を知らない"
     note for OrderProcessor "注文確定を処理し<br/>選択したルールで計算役を生成"
     note for CartPreviewService "注文確定とは別の入口<br/>同じDB・Selectorを使う"
-    note for IDiscountRule "【課題ID1】matches条件<br/>【課題ID2】apply計算<br/>具象実装はmain()が生成・所有"
+    note for IDiscountRule "【課題ID1】matches条件<br/>【課題ID2】apply計算"
     note for RuleSelector "【課題ID1・新設】登録順にmatchesを評価し<br/>最初の一致を選ぶ"
+    note for DiscountRuleSet "【課題ID1・新設】具体ルールを所有し<br/>競合方針の順で登録する"
     note for PremiumDiscount "【課題ID1】Premium条件<br/>【課題ID2】20%引き"
 
     classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "OrderProcessor,PaymentCalculator,IDiscountRule,RuleSelector,PremiumDiscount,CampaignDiscount,SummerSaleDiscount,SummerSaleAndCampaignDiscount,NoDiscount" focus
+    cssClass "OrderProcessor,PaymentCalculator,IDiscountRule,RuleSelector,DiscountRuleSet,PremiumDiscount,CampaignDiscount,SummerSaleDiscount,SummerSaleAndCampaignDiscount,NoDiscount" focus
 ```
 
-現状では、割引条件と計算式が `PaymentCalculator` の内部に集まっていました。完成後は、計算を依頼する2つの利用側が同じルール契約を参照し、適用条件と計算式は各具象ルールへ移っています。`RuleSelector` 自体には施策固有の条件分岐がないため、新しい集約点へ移しただけではありません。
+現状では、割引条件と計算式が `PaymentCalculator` の内部に集まっていました。完成後は、計算を依頼する2つの利用側が同じルール契約を参照し、適用条件と計算式は各具象ルールへ移っています。競合方針は`DiscountRuleSet`、固定の選択手順は`RuleSelector`へ分かれ、`main()`にもSelectorにも施策固有の条件分岐はありません。
 
 #### 完成後の実行シーケンス
 
-フェーズ6で採用したルール差し替え構造について、実行時のオブジェクト間のやり取りを可視化します。`main()` が注文確定とプレビューを別々に呼び、どちらも同じDB・Selector・計算規則を使うことを確認できます。
+フェーズ6で採用した構造について、起動時の生成・注入から注文時の実行までを可視化します。`main()` は`DiscountRuleSet`から同じSelectorを受け取り、注文確定とプレビューへ注入します。実行時は、どちらも同じDB・Selector・計算規則を使います。
 
 ```mermaid
 sequenceDiagram
     participant M as main
+    participant D as DiscountRuleSet
     participant O as OrderProcessor
     participant V as CartPreviewService
     participant DB as CustomerDatabase
     participant S as RuleSelector
     participant P as PaymentCalculator
     participant I as 登録済みIDiscountRule
+
+    M->>D: 生成
+    Note right of D: メンバーの5ルールを生成・所有
+    D->>S: 具体ルールを競合方針の順で登録
+    M->>D: selector()
+    D-->>M: const RuleSelector&
+    M->>O: 生成してSelectorを注入
+    M->>V: 生成して同じSelectorを注入
 
     M->>V: getEstimatedTotal(order, context)
     V->>DB: get(customerId)
@@ -2121,7 +2161,7 @@ public:
 - 各割引が `IDiscountRule` を実装した独立クラスです。適用条件と計算式（`* 80 / 100` など）は、同じ施策クラスの中にあります。
 - 逐次割引は `SummerSaleAndCampaignDiscount` という1つのルールとして表します（フェーズ5の方針）。
 - Premium以外のルールは `memberType == "Regular"` も自分で確認します。登録順だけに排他条件を隠さず、ルール単体でも適用条件を読めるようにするためです。
-- `NoDiscount` は「割引なし」を表し、必ず一致して定価を返します。登録一覧の最後へ置くため、他のどのルールも一致しないときだけ選ばれ、Selectorがルール未選択になりません。
+- `NoDiscount` は「割引なし」を表し、必ず一致して定価を返します。`DiscountRuleSet`の登録一覧の最後へ置くため、他のどのルールも一致しないときだけ選ばれ、Selectorがルール未選択になりません。
 - `name()` は要求ID5の購入結果へ適用割引名を表示するために実装します。選択や計算だけが要件なら不要ですが、本章では表示要求に追跡できるため契約に含めます。
 
 ---
@@ -2184,6 +2224,38 @@ public:
     }
 };
 ```
+
+---
+
+**DiscountRuleSet**
+
+具体ルールとSelectorを所有し、競合方針の順で登録するクラスです。`main()`へ具体ルール名と優先順を漏らさず、利用側には完成したSelectorだけを公開します。
+
+```cpp
+class DiscountRuleSet {
+private:
+    PremiumDiscount premium;
+    SummerSaleAndCampaignDiscount summerAndCampaign;
+    SummerSaleDiscount summer;
+    CampaignDiscount campaign;
+    NoDiscount none;
+    RuleSelector ruleSelector;
+public:
+    DiscountRuleSet() {
+        ruleSelector.add(premium);           // Premiumは他施策と併用しない
+        ruleSelector.add(summerAndCampaign); // 複合条件を単独条件より先にする
+        ruleSelector.add(summer);
+        ruleSelector.add(campaign);
+        ruleSelector.add(none);              // 必ず一致するため最後にする
+    }
+
+    const RuleSelector& selector() const {
+        return ruleSelector;
+    }
+};
+```
+
+5つの具体ルールは`DiscountRuleSet`のメンバーとして生成・所有されます。コンストラクタは、その実体への参照を競合方針の順でSelectorへ登録します。`selector()`の戻り値は同じSelectorへの`const`参照なので、利用側は登録内容を変更できません。
 
 ---
 
@@ -2304,16 +2376,16 @@ public:
 - `RuleSelector::select()` に施策固有の `if` はありません。条件は各ルールの `matches()` に分かれ、Selectorは同じ問い合わせを繰り返すだけです。
 - `OrderProcessor` は、エラー条件の確認 → 会員種別の取得（実運用ではDB/APIなので `try/catch` で失敗に備える）→ Selectorでルール選択 → 注文結果の計算と表示、という手順だけを担います。
 - `CartPreviewService` は別の公開操作として、同じ入力から同じSelector・計算器を使います。このため購入確定を実行せずに、同額を事前取得できます。
-- `std::reference_wrapper` は、`main()` が所有するルールへの非所有参照をコンテナへ登録するために使います。`new` / `delete` は発生しません。
-- 新しい割引を足すときに触るのは「適用条件と式を持つ新しいルールクラス」と「`main()` の登録1行」です。`PaymentCalculator` と `RuleSelector` の処理は変わりません。
+- `std::reference_wrapper` は、`DiscountRuleSet` が所有するルールへの非所有参照をコンテナへ登録するために使います。`new` / `delete` は発生しません。
+- 新しい割引を足すときに触るのは「適用条件と式を持つ新しいルールクラス」と「`DiscountRuleSet`の所有・登録一覧」です。`main()`、`PaymentCalculator`、`RuleSelector` の処理は変わりません。
 
 ---
 
 #### `main()` と実行結果
 
-1-5の変更後の動作例を、シナリオごとに再現します。`add()` の登録順は競合時の方針そのものです。Premium、複合施策、単独施策、最後に必ず一致する `NoDiscount` の順へ並べます。具体クラスは互いを知らず、全体の優先関係はこの一覧だけで確認できます。
+1-5の変更後の動作例を、シナリオごとに再現します。競合時の方針は`DiscountRuleSet`の`add()`順に集約済みです。`main()`はルール集合の内部を知らず、同じSelectorを注文確定とプレビューへ渡します。
 
-`selector.add()` は「この実行環境が対応できる施策」を起動時に登録する操作で、個々の注文で「いま有効な施策」を表す操作ではありません。有効なルールだけを注文ごとに登録すると、実行時入力のたびにSelectorを組み直す責任が生まれます。そこで実行時の事実は `CampaignContext` の施策コード一覧へ分けます。新しいキャンペーンでも `CampaignContext` のフィールド追加は不要で、ルールの登録と注文入力という性質の異なる二つを重複知識として持ちません。
+`DiscountRuleSet`の登録一覧は「この実行環境が対応できる施策」と競合時の順序を表します。個々の注文で有効な施策は `CampaignContext` の施策コード一覧が表します。この二つを分けることで、対応可能なルール集合を起動時に一度組み立て、注文ごとの状態だけを実行時入力として渡せます。
 
 ---
 
@@ -2324,23 +2396,10 @@ int main() {
     CustomerDatabase db;
     CheckoutResultRenderer renderer;
 
-    // 具体ルールは組み立て側が所有する。
-    // 競合時は、下の登録順で最初に一致したルールを選ぶ。
-    PremiumDiscount premium;
-    SummerSaleAndCampaignDiscount summerAndCampaign;
-    SummerSaleDiscount summer;
-    CampaignDiscount campaign;
-    NoDiscount none;
+    DiscountRuleSet discountRules;
 
-    RuleSelector selector;
-    selector.add(premium);           // Premiumは他施策と併用しない
-    selector.add(summerAndCampaign); // 複合条件を各単独条件より先にする
-    selector.add(summer);
-    selector.add(campaign);
-    selector.add(none);              // 必ず一致するため最後にする
-
-    OrderProcessor processor(db, renderer, selector);
-    CartPreviewService preview(db, selector);
+    OrderProcessor processor(db, renderer, discountRules.selector());
+    CartPreviewService preview(db, discountRules.selector());
 
     // C001（Premium）/ キャンペーンなし / サマーセールなし → 20%引き
     std::cout << "--- シナリオ1: Premium割引 ---\n";
@@ -2575,7 +2634,7 @@ int main() {
 
 | 課題ID | 構造差分・コード適用先 | 確認できた効果 | 残る変更先 |
 |---|---|---|---|
-| 課題ID1 | `IDiscountRule::matches()`へ個別条件を、`main()` の登録順へ競合方針を分離 | 新施策が具象ルールと登録に閉じた | 新ルールと組み立て時の登録位置 |
+| 課題ID1 | `IDiscountRule::matches()`へ個別条件を、`DiscountRuleSet`の登録順へ競合方針を分離 | 新施策が具象ルールとルール集合に閉じ、`main()`から優先順が消えた | 新ルールと`DiscountRuleSet`の所有・登録位置 |
 | 課題ID2 | 各`apply()`へ式を移し、`PaymentCalculator`は共通操作だけを実行 | 小計計算が個別式を知らず逐次適用できた | 対象ルールの式 |
 #### 変更前→変更後の不変条件照合
 
@@ -2594,21 +2653,21 @@ int main() {
 graph LR
     T1["変更要求：サマーセール追加"]
         -->|新規追加| N1["SummerSaleDiscount<br>（matchesとapply）"]
-    T1 -->|所有・登録を追加| N2["main / Composition Root<br>（競合方針の順で登録）"]
+    T1 -->|所有・登録を追加| N2["DiscountRuleSet<br>（競合方針の順で登録）"]
     T1 -.->|実行時データとして指定| N3["CampaignContext<br>（activeCampaignsに施策コード）"]
     N1 -.->|追加ルールの動作確認| T2["SummerSaleDiscountのテスト"]
     N2 -.->|選択結果の確認| T3["RuleSelectorの選択テスト"]
     N3 -.->|入力の受け渡し確認| T3
 ```
 
-フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、`PaymentCalculator`、`CartPreviewService`、`CampaignContext` のクラス定義は変更先から消えました。さらに、条件を各ルールの `matches()` へ分けたため、`RuleSelector` の固定ループも変更しません。コード変更として残るのは、新しいルールクラス内の`matches()`・`apply()`と、その所有・登録です。注文ごとの有効状態は既存の施策コード一覧へ入力する実行時データです。登録位置は競合時の方針なので、追加時に組み立て側で明示します。
+フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、`PaymentCalculator`、`CartPreviewService`、`CampaignContext`、`main()` の処理は変更先から消えました。さらに、条件を各ルールの `matches()` へ分けたため、`RuleSelector` の固定ループも変更しません。コード変更として残るのは、新しいルールクラス内の`matches()`・`apply()`と、`DiscountRuleSet`の所有・登録一覧です。注文ごとの有効状態は既存の施策コード一覧へ入力する実行時データです。登録位置は競合時の方針なので、ルール集合で明示します。
 
 | 3-2で影響した場所 | 修正後 | 構造変更との対応 |
 |---|---|---|
 | `PaymentCalculator` の既存分岐全体 | **修正しない** | 小計計算だけを残し、条件と式を各ルールへ移した |
 | `CampaignContext` | **修正しない**。既存の施策コード一覧へ値を渡す | 施策ごとの真偽値フィールドを持たない入力形式にした |
 | `CartPreviewService` | **修正しない** | 注文確定とは独立した入口のまま、同じDB・Selector・計算器を使う |
-| 3-2には分離先がなかった | `SummerSaleDiscount` と登録行を追加する | 施策固有の変更先を新しく作った |
+| 3-2には分離先がなかった | `SummerSaleDiscount` と`DiscountRuleSet`の所有・登録行を追加する | 施策固有の変更先と競合方針の置き場を作った |
 | 3-2には存在しなかった選択役 | **`RuleSelector` は修正しない** | 具体条件を持たず、登録順に `matches()` を呼び最初の一致を返す固定処理にした |
 
 この結果は、コードを書く前に確定した採用設計を完成コードへ統合した後に得たものです。関数抽出やFactoryだけでは `PaymentCalculator` または選択側の分岐が残るため、この変更影響にはなりません。CIで既存テスト一式を実行することと、変更影響として個別に再確認する範囲は区別します。
@@ -2620,7 +2679,7 @@ graph LR
 | 変更依頼 | フェーズ1の現状構造での影響 | 完成構造での結果 |
 |---|---|---|
 | 変更ID1：Regular会員へサマーセール5%を追加し、Premium会員は対象外にする | `CampaignContext`と`PaymentCalculator`の分岐を同時に修正 | `SummerSaleDiscount`へ条件と式を置き、Regularだけに5%を適用。既存Premiumルールは変更しない |
-| 変更ID2：既存キャンペーンと重なる場合は逐次割引する | `PaymentCalculator`の既存分岐と適用順を修正 | `RuleSelector`が選んだルールを優先順に適用し、10,000円から8,550円になることを実行結果で確認 |
+| 変更ID2：既存キャンペーンと重なる場合は逐次割引する | `PaymentCalculator`の既存分岐と適用順を修正 | `DiscountRuleSet`の順序により複合ルールを先に選び、その`apply()`で10,000円から8,550円になることを実行結果で確認 |
 
 ---
 
@@ -2634,7 +2693,7 @@ graph LR
 | **原因** | 割引ルールが「毎月追加される」と確認できているのに、`PaymentCalculator`が全種類の条件と計算方法を抱え込んでいる |
 | **課題ID1** | 割引種類の条件を具象ルールへ分離し、固定の選択手順へ登録できるようにする |
 | **課題ID2** | 割引の計算式を具象ルールへ分離し、`PaymentCalculator` は `apply()` を呼ぶだけにする |
-| **解決策** | ルール差し替え構造：各 `IDiscountRule` に適用条件と計算式を閉じ、`RuleSelector` へ登録して外から注入する |
+| **解決策** | ルール差し替え構造：各 `IDiscountRule` に適用条件と計算式を閉じ、`DiscountRuleSet`が所有・優先順登録したSelectorを利用側へ注入する |
 
 ### フェーズとこの章でやったこと
 
@@ -2645,7 +2704,7 @@ graph LR
 | 🟣 フェーズ3：問題特定 | サマーセールの追加を試み、`PaymentCalculator` の条件分岐と `CampaignContext` のフラグ追加、`CartPreviewService` の回帰確認まで必要になることを確認した |
 | 🟠 フェーズ4：原因分析 | 小計の骨格と割引詳細が混在し、割引詳細の中にも「種類」と「計算方法」の2軸があると特定した |
 | 🟡 フェーズ5：課題定義 | 選択を課題ID1、計算を課題ID2として分け、`matches()` と `apply()` の接続点を定めた |
-| 🔴 フェーズ6：対策検討 | 課題ID1・課題ID2を一つのシステムとして扱い、`IDiscountRule`と5つの具体を決め、`main()`で生成・登録した同じ実体が選択・受け渡しを経て`apply()`へ届くまでを確定した |
+| 🔴 フェーズ6：対策検討 | 課題ID1・課題ID2を一つのシステムとして扱い、`IDiscountRule`と5つの具体を決め、`DiscountRuleSet`で生成・登録した同じ実体が選択・受け渡しを経て`apply()`へ届くまでを確定した |
 | 🟢 フェーズ7：対策実施 | 最終コードを実装し、変更影響グラフで変更の局所化を確認した |
 
 ### 責任の移動
@@ -2656,7 +2715,7 @@ graph LR
 | 個別の割引計算の実行 | `PaymentCalculator`（if-else直書き） | `PremiumDiscount` 等の各実装クラス |
 | 各割引の適用条件 | `PaymentCalculator` の `if-else` | 各実装クラスの `matches()` |
 | 一致するルールの選択手順 | `PaymentCalculator` の分岐順 | `RuleSelector` の固定ループ |
-| 競合時のルール順序 | `if-else` の記述順に埋没 | `main()` の登録順として一か所に明示 |
+| 競合時のルール順序 | `if-else` の記述順に埋没 | `DiscountRuleSet` の登録順として一か所に明示 |
 | 割引ルールの契約定義 | —（なし） | `IDiscountRule` |
 
 ### 複雑さを足しても対策は変わるか
