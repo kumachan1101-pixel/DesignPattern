@@ -246,10 +246,14 @@ broken = t.replace(
 )
 cases.append(("EDIT-003 パターン名の先出し", V.check_pattern_name_reveal, broken))
 
-# 25) SCOPE-001: 1-4責任表へ簡略化列を重複させる
+# 25) SCOPE-001: 1-4へクラス責任表を戻す
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
-broken = t.replace("| 対象 | 主な責任 | 接続先・結果 |",
-                   "| 対象 | 主な責任 | 掲載上の表現 |", 1)
+broken = t.replace("### 1-4：実装コード（現状）",
+                   "### 1-4：実装コード（現状）\n\n"
+                   "#### コードを読む前に：クラスの責任と境界\n\n"
+                   "| 対象 | 主な責任 | 接続先・結果 |\n|---|---|---|\n"
+                   "| `CustomerDatabase` | 顧客IDで会員種別を検索する | "
+                   "`CustomerInfo`を計算側へ返す |", 1)
 cases.append(("SCOPE-001 責任表の目的", V.check_responsibility_table_scope, broken))
 
 # 26) CHANGE-DIAGRAM-001: 変更後図から差分色を外す

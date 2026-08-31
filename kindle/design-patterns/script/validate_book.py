@@ -3654,18 +3654,34 @@ def check_stable_skeleton_explanation(text: str, path: Path) -> list[Issue]:
 
 
 def check_responsibility_table_scope(text: str, path: Path) -> list[Issue]:
-    """1-4の責任表へ簡略化説明を重複させない。"""
-    start = text.find("#### コードを読む前に：クラスの責任と境界")
-    if start < 0:
+    """1-4へクラス責任表を置かない（著者判断 2026-08-30）。
+
+    1-3が「クラス名・役割・担当する仕様」の一覧とクラス図を持つ。1-4へ
+    同じ責任を数行へ縮めた表を置くと、1-3の部分集合を粒度違いで再掲する
+    だけになり、章によって対象がクラス名・メンバー変数・処理名へばらつく。
+    1-4はコードと、そのコードを読むのに要る実データ表だけを置く。
+    """
+    s14 = text.find("### 1-4：")
+    if s14 < 0:
         return []
-    code = text.find("```cpp", start)
-    section = text[start:code if code >= 0 else start + 1800]
-    if "掲載上の表現" in section:
-        return [Issue(
-            path, line_number(text, start),
-            "1-4の責任表へ簡略化の列を重複させず、責任と接続だけを示してください",
-        )]
-    return []
+    end = text.find("### 1-5：", s14)
+    if end < 0:
+        end = text.find("## 🟣", s14)
+    section = text[s14:end if end > 0 else len(text)]
+    issues: list[Issue] = []
+    for banned, why in (
+            ("#### コードを読む前に：クラスの責任と境界",
+             "1-3のクラス一覧とクラス図が同じ情報を持つ"),
+            ("#### このシステムの登場クラス",
+             "1-3のクラス一覧の再掲になる")):
+        if banned in section:
+            issues.append(Issue(
+                path, line_number(text, s14 + section.find(banned)),
+                f"1-4へクラス責任表（`{banned.removeprefix('#### ')}`）を"
+                f"置かないでください：{why}。1-4はコードと、"
+                "そのコードを読むのに要る実データ表だけを置きます",
+            ))
+    return issues
 
 
 # --- DOC-001：掲載コードの所属・分割・省略 ------------------------------
