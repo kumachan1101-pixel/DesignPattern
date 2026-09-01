@@ -1,2 +1,3 @@
 # The latest C-language SOLID EPUB exceeds GitHub's 100 MB Git object limit.
 kindle/solid-principles-c/release/book.epub filter=lfs diff=lfs merge=lfs -text
+kindle/design-patterns/books/volume01-core-patterns/preview/volume01-preview.pdf filter=lfs diff=lfs merge=lfs -text
