@@ -24,6 +24,7 @@ validate_book.py 本体は「現在の本文が通るか」しか見ないため
   DOC-001   断片コードの所属明示・ブロック分割・省略記号
   DOC-003   フェーズ6の断片コードの出どころ・確認対象ラベル
   RUN-002   1-1の代表実行が1行だけで準備も状態変化も見せない
+  RESULT-PAIR-001 1-1の複数呼び出しと結果を分離する
   EDIT-002  著者向けメモと、フェーズ前半での解決構造の先出し
 """
 import re, sys
@@ -312,6 +313,14 @@ broken = t.replace("PaymentRequest r1;", "// PaymentRequest r1 = { ... };", 1)
 cases.append((
     "REPRESENTATIVE-INPUT-001 代表入力の生成",
     V.check_representative_input_preparation, broken,
+))
+
+# RESULT-PAIR-001: 2回目の呼び出しに対応する結果ラベルを外す
+t = (OUT/"chapter04.md").read_text(encoding="utf-8")
+broken = t.replace("2回目の実行結果です。", "まとめた実行結果です。", 1)
+cases.append((
+    "RESULT-PAIR-001 呼び出しと結果のペア",
+    V.check_phase1_system_overview, broken,
 ))
 
 # 33) INPUT-TRACE-001: 入力追跡表をコード読解前へ戻す

@@ -460,7 +460,7 @@
     },
     "chapter01.md": {
       "status": "pass",
-      "reviewed_by": "Codex result-first and final gate audit 2026-08-10",
+      "reviewed_by": "Codex operation-result consistency audit 2026-09-01",
       "evidence": [
         "output/chapter01.md#まず代表入力と実行結果から動きをつかむ",
         "output/chapter01.md#最終要求の実装・受入エビデンス"
@@ -468,7 +468,7 @@
     },
     "chapter02.md": {
       "status": "pass",
-      "reviewed_by": "Codex result-first and final gate audit 2026-08-10",
+      "reviewed_by": "Codex operation-result consistency audit 2026-09-01",
       "evidence": [
         "output/chapter02.md#まず代表入力と実行結果から動きをつかむ",
         "output/chapter02.md#最終要求の実装・受入エビデンス"
@@ -476,7 +476,7 @@
     },
     "chapter03.md": {
       "status": "pass",
-      "reviewed_by": "Codex result-first and final gate audit 2026-08-10",
+      "reviewed_by": "Codex operation-result consistency audit 2026-09-01",
       "evidence": [
         "output/chapter03.md#まず代表入力と実行結果から動きをつかむ",
         "output/chapter03.md#最終要求の実装・受入エビデンス"
@@ -484,7 +484,7 @@
     },
     "chapter04.md": {
       "status": "pass",
-      "reviewed_by": "Codex result-first and final gate audit 2026-08-10",
+      "reviewed_by": "Codex operation-result consistency audit 2026-09-01",
       "evidence": [
         "output/chapter04.md#まず代表入力と実行結果から動きをつかむ",
         "output/chapter04.md#最終要求の実装・受入エビデンス"
@@ -492,7 +492,7 @@
     },
     "chapter05.md": {
       "status": "pass",
-      "reviewed_by": "Codex result-first and final gate audit 2026-08-10",
+      "reviewed_by": "Codex operation-result consistency audit 2026-09-01",
       "evidence": [
         "output/chapter05.md#まず代表入力と実行結果から動きをつかむ",
         "output/chapter05.md#最終要求の実装・受入エビデンス"
@@ -500,7 +500,7 @@
     },
     "chapter06.md": {
       "status": "pass",
-      "reviewed_by": "Codex result-first and final gate audit 2026-08-10",
+      "reviewed_by": "Codex operation-result consistency audit 2026-09-01",
       "evidence": [
         "output/chapter06.md#まず代表入力と実行結果から動きをつかむ",
         "output/chapter06.md#最終要求の実装・受入エビデンス"
@@ -508,7 +508,7 @@
     },
     "chapter07.md": {
       "status": "pass",
-      "reviewed_by": "Codex result-first and final gate audit 2026-08-10",
+      "reviewed_by": "Codex operation-result consistency audit 2026-09-01",
       "evidence": [
         "output/chapter07.md#まず代表入力と実行結果から動きをつかむ",
         "output/chapter07.md#最終要求の実装・受入エビデンス"
@@ -516,7 +516,7 @@
     },
     "chapter08.md": {
       "status": "pass",
-      "reviewed_by": "Codex result-first and final gate audit 2026-08-10",
+      "reviewed_by": "Codex operation-result consistency audit 2026-09-01",
       "evidence": [
         "output/chapter08.md#まず代表入力と実行結果から動きをつかむ",
         "output/chapter08.md#最終要求の実装・受入エビデンス"
@@ -531,7 +531,7 @@
     },
     "chapter09_2.md": {
       "status": "pass",
-      "reviewed_by": "Codex result-first and final gate audit 2026-08-10",
+      "reviewed_by": "Codex operation-result consistency audit 2026-09-01",
       "evidence": [
         "output/chapter09_2.md#まず代表入力と実行結果から動きをつかむ",
         "output/chapter09_2.md#最終要求の実装・受入エビデンス"
@@ -539,7 +539,7 @@
     },
     "chapter10.md": {
       "status": "pass",
-      "reviewed_by": "Codex result-first and final gate audit 2026-08-10",
+      "reviewed_by": "Codex operation-result consistency audit 2026-09-01",
       "evidence": [
         "output/chapter10.md#まず代表入力と実行結果から動きをつかむ",
         "output/chapter10.md#最終要求の実装・受入エビデンス"
@@ -547,7 +547,7 @@
     },
     "chapter11.md": {
       "status": "pass",
-      "reviewed_by": "Codex result-first and final gate audit 2026-08-10",
+      "reviewed_by": "Codex operation-result consistency audit 2026-09-01",
       "evidence": [
         "output/chapter11.md#まず代表入力と実行結果から動きをつかむ",
         "output/chapter11.md#内部デバッグログ",
@@ -557,7 +557,7 @@
     },
     "chapter12.md": {
       "status": "pass",
-      "reviewed_by": "Codex result-first and final gate audit 2026-08-10",
+      "reviewed_by": "Codex operation-result consistency audit 2026-09-01",
       "evidence": [
         "output/chapter12.md#まず代表入力と実行結果から動きをつかむ",
         "output/chapter12.md#最終要求の実装・受入エビデンス"

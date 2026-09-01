@@ -34,30 +34,71 @@
     // 準備：ユーザー台帳（鈴木=一般 / 佐藤=プレミアム）を持つ入口を作る
     TicketManager manager;
 
-    // 一般ユーザーの鈴木が問い合わせチケットを登録する
+    // 1回目：一般ユーザーの鈴木が問い合わせチケットを登録する
     manager.create("TCK001", "USR003");
-
-    // 同じチケットIDへ操作を重ねていく
-    // AGT01 はヘルプデスク担当者のID。assign のときだけ渡す
-    manager.updateStatus("TCK001", "assign", "AGT01");
-    manager.updateStatus("TCK001", "escalate");
-    manager.updateStatus("TCK001", "resolve");
-    manager.updateStatus("TCK001", "reopen");
 ```
 
 IDには2つの体系があります。`USR003` は問い合わせを出した**依頼者**のIDで、契約区分から優先度を決めるために使います。`AGT01` は対応する**ヘルプデスク担当者**のIDで、`assign` のときだけ渡します。
 
-この入力に対する代表的な実行結果は次のとおりです。
+1回目の実行結果です。
 
 ```
 [TCK001] 作成 申請者=鈴木 次郎 状態=Open 優先度=Normal
+```
+
+続けて担当者へ割り当てます。`AGT01`は、この操作でだけ入力します。
+
+```cpp
+    // 2回目：担当者へ割り当てる
+    manager.updateStatus("TCK001", "assign", "AGT01");
+```
+
+2回目の実行結果です。
+
+```
 [TCK001] assign: 状態 Open → InProgress 優先度=Normal 担当=AGT01
+```
+
+同じチケットをエスカレーションします。
+
+```cpp
+    // 3回目：優先対応へ引き上げる
+    manager.updateStatus("TCK001", "escalate");
+```
+
+3回目の実行結果です。
+
+```
 [TCK001] escalate: 状態 InProgress → Escalated 優先度=High 担当=AGT01
+```
+
+対応完了にします。
+
+```cpp
+    // 4回目：解決済みにする
+    manager.updateStatus("TCK001", "resolve");
+```
+
+4回目の実行結果です。
+
+```
 [TCK001] resolve: 状態 Escalated → Resolved 優先度=High 担当=AGT01
+```
+
+最後に再受付します。
+
+```cpp
+    // 5回目：再受付する
+    manager.updateStatus("TCK001", "reopen");
+```
+
+5回目の実行結果です。
+
+```
 [TCK001] reopen: 状態 Resolved → Open 優先度=Normal 担当=AGT01
 ```
 
-1行ずつ追うと、このシステムが何をしているかが見えてきます。状態は `Open → InProgress → Escalated → Resolved → Open` と進み、優先度は登録時の `Normal` からエスカレーションで `High` へ上がり、再受付で `Normal` へ戻ります。**次の操作は、前の操作が保存した状態から始まります。** 4回目の `resolve` が `Escalated` から始まっているのはそのためです。`担当=AGT01` が `assign` の後の行にも出続けるのも同じ理由で、1回渡した担当者IDが保存済みチケットに残っているからです。
+ケースごとに追うと、状態は `Open → InProgress → Escalated → Resolved → Open` と進み、優先度は登録時の `Normal` からエスカレーションで `High` へ上がり、再受付で `Normal` へ戻ります。**次の操作は、前の操作が保存した状態から始まります。** 4回目の `resolve` が `Escalated` から始まっているのはそのためです。`担当=AGT01` が `assign` の後の行にも出続けるのも同じ理由で、1回渡した担当者IDが保存済みチケットに残っているからです。
 
 この入力と出力から、(1)申請者と操作を受け取り、(2)保存済みの状態を読んで操作できるかを判定し、(3)成功したときだけ状態と優先度を更新して保存する、という一連の動きが読み取れます。同じ入力を含む完全なコードと実行結果は1-4に掲載します。
 

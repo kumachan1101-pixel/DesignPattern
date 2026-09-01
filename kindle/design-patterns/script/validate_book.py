@@ -2368,7 +2368,7 @@ def check_standard_id_glossary(text: str, path: Path) -> list[Issue]:
 
 
 def check_phase1_system_overview(text: str, path: Path) -> list[Issue]:
-    """代表入力を先に示し、その結果とシステム全体像へつなぐ。"""
+    """代表操作と結果をケースごとに隣接させ、システム全体像へつなぐ。"""
     issues: list[Issue] = []
     phase11 = text.find("### 1-1：")
     phase12 = text.find("### 1-2：", phase11)
@@ -2378,8 +2378,7 @@ def check_phase1_system_overview(text: str, path: Path) -> list[Issue]:
     section = text[phase11:phase12]
     result_heading = "#### まず代表入力と実行結果から動きをつかむ"
     input_label = "**代表入力（1-4の`main()`から抜粋）：**"
-    # 実行結果は1ブロックにまとめても、呼び出しごとに分けてもよい。
-    # まとめる場合はこのラベル、分ける場合は「N回目の実行結果」を使う。
+    # 単一ケースは従来ラベル、複数ケースは「N回目の実行結果」を使う。
     result_label = "この入力に対する代表的な実行結果"
     heading = "#### 最初にシステム全体をつかむ"
     result_heading_pos = section.find(result_heading)
@@ -2444,6 +2443,35 @@ def check_phase1_system_overview(text: str, path: Path) -> list[Issue]:
                 path, line_number(text, phase11 + input_example),
                 "代表実行結果に対応する入力・mainのC++抜粋がありません",
             ))
+
+    # 1-1で複数回呼ぶ場合は、各呼び出しの直後へ同じ番号の結果を置く。
+    # 「全呼び出し→全結果」へ戻ると、どの結果がどの操作から出たか読者が
+    # 対応づけ直さなければならないため、行数にかかわらず不合格とする。
+    calls = {
+        int(number): match.start()
+        for match in re.finditer(r"//\s*(\d+)回目", section)
+        for number in (match.group(1),)
+    }
+    results = {
+        int(number): match.start()
+        for match in re.finditer(r"^(\d+)回目の実行結果", section, re.M)
+        for number in (match.group(1),)
+    }
+    if len(calls) >= 2:
+        if set(calls) != set(results):
+            issues.append(Issue(
+                path, line_number(text, phase11 + input_example),
+                "1-1の複数呼び出しには、同じ番号の実行結果を各1件置いてください",
+            ))
+        else:
+            numbers = sorted(calls)
+            for index, number in enumerate(numbers):
+                next_call = calls[numbers[index + 1]] if index + 1 < len(numbers) else overview
+                if not (calls[number] < results[number] < next_call):
+                    issues.append(Issue(
+                        path, line_number(text, phase11 + calls[number]),
+                        f"{number}回目の呼び出し直後へ、{number}回目の実行結果を置いてください",
+                    ))
 
     if baseline < 0 or overview > baseline:
         issues.append(Issue(
@@ -2576,12 +2604,12 @@ def check_representative_input_preparation(text: str, path: Path) -> list[Issue]
     start = text.find(label)
     if start < 0:
         return []
-    result = text.find("この入力に対する代表的な実行結果", start)
-    section = text[start:result if result >= 0 else start + 1600]
-    match = re.search(r"```cpp\s*\n(.*?)```", section, re.S)
-    if not match:
+    overview = text.find("#### 最初にシステム全体をつかむ", start)
+    section = text[start:overview if overview >= 0 else start + 3200]
+    blocks = re.findall(r"```cpp\s*\n(.*?)```", section, re.S)
+    if not blocks:
         return []
-    code = match.group(1)
+    code = "\n".join(blocks)
     issues: list[Issue] = []
 
     declared = set(re.findall(r"(?m)^\s*[A-Z][A-Za-z0-9_:<>]*\s+([a-z_]\w*)\b", code))
