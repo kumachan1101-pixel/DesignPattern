@@ -1,4 +1,4 @@
-## 第1章 変わるものをカプセル化する ―― Strategy パターン
+# 第1章 変わるものをカプセル化する ―― Strategy パターン
 
 ### この章の核心
 
@@ -29,7 +29,7 @@ ECサイトの支払金額計算が何を入力として受け取り、どの処
 
 詳細な仕様やコードへ入る前に、1-4（実装コード）の`main()`でRegular会員の佐藤花子さんがワイヤレスイヤホン（10,000円）を、キャンペーンなし／ありで注文する2ケースを確認します。
 
-**代表入力（1-4の`main()`から抜粋）：**
+**代表入力（1-4の`main()`を、この2ケースだけに絞って示したもの）：**
 ```cpp
     // 準備：顧客台帳・表示・注文入口を組み立てる
     CustomerDatabase db;
@@ -1060,14 +1060,15 @@ flowchart LR
 
 「サマーセール：Regular会員に5%オフを追加」を、今のコードにそのまま実装してみます。
 
-> **この抜粋の外は、現状のままです。** `Item`、`Order`、`CustomerInfo`、`CustomerDatabase`、`CartPreviewService`、`CheckoutResultRenderer`、`OrderProcessor` は1-4の定義をそのまま使います。以下は1-4で読んだ順に、変更が入った定義だけを並べたものです。
+> **この抜粋の外は、現状のままです。** `Item`、`Order`、`CustomerInfo`、`CustomerDatabase`、`CartPreviewService`、`OrderProcessor` は1-4の定義をそのまま使います。以下は1-4で読んだ順に、変更が入った定義だけを並べたものです。
 
-変更した定義は2つです。1-4（実装コード）と同じ並び順で、上から見ていきます。
+変更した定義は3つです。1-4（実装コード）と同じ並び順で、上から見ていきます。
 
 | 1-4での掲載単位 | 今回の変更 | 根拠 |
 |---|---|---|
 | `CampaignContext` | `isSummerSale` フラグを1つ追加 | 変更ID1 |
 | `PaymentCalculator` | 割引判定を2分岐から4分岐へ書き換え | 変更ID1・変更ID2 |
+| `CheckoutResultRenderer` | 条件表示へサマーセールの有無を1項目追加 | 変更ID1・要求ID5 |
 
 ---
 
@@ -1170,6 +1171,18 @@ int main() {
 }
 ```
 
+**CheckoutResultRenderer::showOrderResult() の条件表示（変更後）**
+
+このブロックでは条件表示の1文だけを確認します。引数と他の出力は1-4のままです。
+
+```cpp
+        std::cout << "\n  条件: 会員=" << customer.memberType
+                  << ", キャンペーン="
+                  << (context.isCampaignActive ? "あり" : "なし")
+                  << ", サマーセール="
+                  << (context.isSummerSale ? "あり" : "なし");
+```
+
 ```
 田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Premium, キャンペーン=あり, サマーセール=あり
@@ -1185,9 +1198,11 @@ int main() {
   小計 10000円 → 支払金額 10000円
 ```
 
-上から順に、Premium優先（10000円→8000円）、Regularの逐次割引（10000円→9000円→8550円）、Regularのサマーセール単独（10000円→9500円）、割引なし（10000円のまま）です。小計→支払金額が、1-5（変更要求）の変更後の動作例と対応しています。**動作は正しくなっています。** 変更要求は満たせました。
+上から順に、Premium優先（10000円→8000円）、Regularの逐次割引（10000円→9000円→8550円）、Regularのサマーセール単独（10000円→9500円）、割引なし（10000円のまま）です。小計→支払金額が、1-5（変更要求）の変更後の動作例と対応しています。**金額の計算は正しくなっています。**
 
-痛いのは結果ではなく、そこへ至る過程です。施策を1つ足しただけで、入力データ（`CampaignContext`）と計算本体（`PaymentCalculator`）の両方を触り、既存2分岐の条件と順序まで書き換えました。しかも4分岐のうち3つは、施策どうしの組み合わせを表すためだけに存在します。**施策が3つになれば、組み合わせは分岐の数として増えていきます。**
+ただし要求ID5は、まだ満たせていません。受入条件は「サマーセールの有無と**適用した割引名**を含めて表示する」ですが、出せているのは条件と金額だけです。`PaymentCalculator` は分岐の中で金額を引くだけで、どの割引を当てたかを名前として持っていないため、表示側へ渡す値がありません。割引名を出すには、4分岐それぞれに名前を持たせて戻り値へ足すことになります。これはフェーズ4で原因として扱います。
+
+痛いのは結果ではなく、そこへ至る過程です。施策を1つ足しただけで、入力データ（`CampaignContext`）、計算本体（`PaymentCalculator`）、表示（`CheckoutResultRenderer`）の3つを触り、既存2分岐の条件と順序まで書き換えました。しかも4分岐のうち3つは、施策どうしの組み合わせを表すためだけに存在します。**施策が3つになれば、組み合わせは分岐の数として増えていきます。**
 
 ### 3-2：変更影響グラフ
 
@@ -1258,7 +1273,7 @@ graph LR
 
 **【変わる部分（変わり続けるif文と計算）】**
 
-1-3（登場クラスとクラス構成図）で示した `calculate` メソッドの割引判定ブロックが、キャンペーンのたびに変わる箇所です。フェーズ3「問題特定」でサマーセールを足した後の割引判定を、省略せず全体で示します。
+1-4（実装コード）で示した `calculate` メソッドの割引判定ブロックが、キャンペーンのたびに変わる箇所です。フェーズ3「問題特定」でサマーセールを足した後の割引判定を、省略せず全体で示します。
 
 ```cpp
         // 割引：会員種別・キャンペーン・サマーセールで割引率を決める
@@ -1277,7 +1292,7 @@ graph LR
 
 **【今回の変更から守る部分（守りたい骨格）】**
 
-1-3の `PaymentCalculator::calculate(const Order&, const std::string&, const CampaignContext&)` のうち、「商品を順に足して合計を出し、最終金額を返す」という骨格部分は変えたくありません。次のコードのうち、割引判定を挟む前後の小計計算と `return` が守りたい骨格です。
+1-4の `PaymentCalculator::calculate(const Order&, const std::string&, const CampaignContext&)` のうち、「商品を順に足して合計を出し、最終金額を返す」という骨格部分は変えたくありません。次のコードのうち、割引判定を挟む前後の小計計算と `return` が守りたい骨格です。
 
 ```cpp
         int total = 0;
@@ -1533,6 +1548,8 @@ public:
 
 **直前の契約コードで見た `PremiumDiscount` の疑問が、ここで解けます。** 施策が `total` を直接書き換えないのは、書き換えるのが分離で確定した骨格の仕事だからです。契約の裏に置くのは「自分は誰に当てはまるか」「いくら引くか」「何という名前か」の3つだけで、それ以外は書きません。
 
+**入力側も、同じ理由で形を変えます。** 課題ID1（選択条件）は「施策が増えても選択側を変えない」ことを完了条件にしています。ところが `CampaignContext` が `isCampaignActive`・`isSummerSale` のようにフラグを並べる形のままだと、施策を1つ足すたびにメンバが1つ増え、その型を引数に取る `matches()` の宣言まで巻き込まれます。分岐を契約の裏へ移しても、**入力の形が施策の数を知っている**かぎり、課題ID1は解けません。そこで施策を名前（`CampaignCode`）で持ち、`activate()` で登録して `isActive()` で問い合わせる形にします。施策が増えても増えるのは登録の行数だけで、型は変わりません。
+
 残りの4クラスも同じ形です。ここでは `PremiumDiscount` と対照的なものを1つ見ます。
 
 **ここで確認するコード：`SummerSaleAndCampaignDiscount`（クラス全体）** ―― 変更要求で生まれた逐次割引
@@ -1543,7 +1560,8 @@ public:
     bool matches(const std::string& memberType,
                  const CampaignContext& context) const override {
         return memberType == "Regular"
-            && context.isSummerSale && context.isCampaignActive;
+            && context.isActive(CampaignCode::SummerSale)
+            && context.isActive(CampaignCode::RegularCampaign);
     }
 
     int apply(int total) const override {
@@ -1730,7 +1748,8 @@ Calculatorは、渡された実体の具体クラス名を知りません。小�
 |---|---|---|---|
 | 課題ID1（選択条件） | ルール差し替え。`DiscountRuleSet`が各ルールを所有して競合方針の順で登録し、`RuleSelector`が最初の一致を選ぶ | `IDiscountRule::matches()`、`PremiumDiscount`／`CampaignDiscount`／`SummerSaleDiscount`／`SummerSaleAndCampaignDiscount`／`NoDiscount`、`DiscountRuleSet`、`RuleSelector` | 施策追加が新ルールとルール集合の登録に閉じ、選択側と`main()`が具体条件・優先順を持たない |
 | 課題ID2（計算式） | ルール差し替え。骨格は契約`apply()`だけを呼ぶ | `IDiscountRule::apply()`、`PaymentCalculator` | 計算側が個別式を知らず、同じ操作で逐次適用できる |
-| 変更対象外 | 会員情報の取得と購入結果の表示。骨格はそのまま利用する | `CustomerDatabase`、`CheckoutResultRenderer` | 1-4、登録・未登録の既存動作 |
+| 変更対象外 | 会員情報の取得。骨格はそのまま利用する | `CustomerDatabase` | 1-4、登録・未登録の既存動作 |
+| 境界を動かさない | 購入結果の表示。1-5のとおり要求ID5の受入条件が変わるため`showOrderResult()`の引数は変わるが、結果を渡す相手と場所は変えない | `CheckoutResultRenderer` | 7-1の正常・エラー出力 |
 
 #### 将来リスクに対して構想を確認する
 
@@ -2639,7 +2658,7 @@ int main() {
 | 変更対象外 | 変更前 | 変更後 | 確認根拠 |
 |---|---|---|---|
 | 顧客・注文の取得 | `CustomerDatabase` から取得 | 同じID・同じ取得契約 | 現状コードと完成コードのDB呼び出し |
-| 結果表示 | `CheckoutResultRenderer` へ渡す | 同じ結果境界へ渡す | 7-1の正常・エラー出力 |
+| 結果表示 | `CheckoutResultRenderer` へ渡す | 同じ結果境界へ渡す（渡す値は`subtotal`／`finalPrice`から`PaymentResult`へ変わる） | 7-1の正常・エラー出力 |
 
 ### 7-2：動作シーケンス図の検証
 
@@ -2739,7 +2758,7 @@ graph LR
 | 3. 変更局所化の説明 | フェーズ7の変更シナリオ表で、変更の中心が新しい実装クラスへ移る構造を示した |
 | 4. いつ構造を分けるか | フェーズ6「構想を採用する」で判断基準を示した |
 
-### 第0章の3つの設計原則はどう適用されたか
+### 「はじめに」の3つの設計原則はどう適用されたか
 
 **原則1「変わるものをカプセル化せよ」の現れ**
 

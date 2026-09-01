@@ -39,6 +39,32 @@
 8. `templates/chapter-template.md`
 9. `rules/checklist.md`
 
+## 冊の構成と正本の所在
+
+1冊が大きくなりすぎたため、冊へ分けて出す。
+
+| 冊 | 収録 | 原稿の場所 | 出版設定 |
+|---|---|---|---|
+| 第1冊『デザインパターンで学ぶC++ソフトウェア設計』 | はじめに・第0章・Strategy・State・Observer・おわりに・奥付 | `books/volume01-core-patterns/output/` | `books/volume01-core-patterns/publishing/book.json` |
+| 第2冊以降 | 未定（`review-tasks.md` の PLAN-001） | 未定 | 未定 |
+
+**第1冊の正本は `books/volume01-core-patterns/output/` である。**
+第1冊に収録した章を直すときは、そちらだけを編集する。`output/` の同名章は
+分冊の供給元として残すが、第1冊の内容とは一致しない。
+
+`output/` は第2冊以降の素材と、第二部（第9〜12章）の置き場所として維持する。
+どちらを直したか分からなくなるため、同じ内容を両方へ手で書かない。
+
+分冊を直したら、次を実行する。
+
+```
+python script/check_volume.py --config books/volume01-core-patterns/publishing/book.json
+```
+
+`validate_book.py` は `output/` の章ファイル名へ規則を紐づけているため、
+分冊には当てられない。冊としての成立（収録外の章への参照、参照先の実在、
+見出し階層、宣言した件数と表の一致）は `check_volume.py` が見る。
+
 ## 出版・EPUB生成
 
 EPUB、MOBI、PDF、Kindle向けHTMLの作成・再生成・表示調整を依頼された場合は、独自の変換スクリプトを新しく作る前に `publishing/README.md` と `publishing/book.json` を読む。出版処理の正本は `script/build_epub.py` である。

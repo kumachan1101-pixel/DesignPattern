@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""分冊が1冊として成立しているかを検査する（SHRINK-001）。
+
+`validate_book.py` は `output/` の章ファイル名（chapter01.md 〜 chapter12.md）へ
+規則を紐づけているため、章を選び直して番号を振り直した分冊には当てられない。
+こちらは冊の構成を `book.json` から読み、**冊をまたいだときに壊れるもの**だけを見る。
+
+検査するもの:
+  1. 収録していない章番号を本文が参照していない
+  2. 「〜章で説明した」「〜の3つの原則」の参照先が、その冊の中に実在する
+  3. 存在しない節への前方参照がない（「〜の項で示します」）
+  4. 掲載コードで例示するクラス名が、その冊の中に実在する
+  5. 見出しの最上位レベルが全ファイルでそろっている（EPUB目次の階層）
+  6. 「N つ目です」に受け皿がある（2つ目・3つ目、または分類の定義）
+  7. 「N つの辛い状況」「変更した定義はN つ」が直後の表の行数と一致する
+
+    python3 script/check_volume.py --config books/<冊>/publishing/book.json
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+
+
+BOOK_ROOT = Path(__file__).resolve().parents[1]
+
+# 本文が参照しうる「まとまり」と、その所在を決める手がかり。
+# 章番号以外の参照先（はじめに・おわりに）は、見出しの文字列で照合する。
+UNIT_HEADINGS = {
+    "はじめに": re.compile(r"^#\s*はじめに"),
+    "おわりに": re.compile(r"^#\s*おわりに"),
+}
+
+# コードブロックと Mermaid を落としてから散文を見るための正規表現。
+FENCE = re.compile(r"^```")
+
+
+def load_config(path: Path) -> tuple[list[Path], str]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    chapters = [BOOK_ROOT / c for c in data.get("chapters", [])]
+    return chapters, data.get("metadata", {}).get("title", "")
+
+
+def prose_lines(text: str) -> list[tuple[int, str]]:
+    """コードブロックの外にある行だけを (行番号, 本文) で返す。"""
+    out: list[tuple[int, str]] = []
+    in_fence = False
+    for number, line in enumerate(text.splitlines(), 1):
+        if FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            out.append((number, line))
+    return out
+
+
+def chapter_numbers(paths: list[Path]) -> set[int]:
+    """収録章が名乗っている章番号を、本文の見出しから読む。"""
+    numbers: set[int] = set()
+    for path in paths:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            match = re.match(r"^#{1,2}\s*第(\d+)章", line)
+            if match:
+                numbers.add(int(match.group(1)))
+                break
+    return numbers
+
+
+def declared_class_names(paths: list[Path]) -> set[str]:
+    """掲載コードが定義しているクラス・構造体・名前空間の名前。"""
+    names: set[str] = set()
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        names.update(re.findall(r"\b(?:class|struct|namespace)\s+([A-Za-z_]\w*)", text))
+    return names
+
+
+def table_rows_after(lines: list[str], start: int) -> int:
+    """start 行以降で最初に現れる表の、見出し行を除いたデータ行数。"""
+    index = start
+    while index < len(lines) and not lines[index].lstrip().startswith("|"):
+        if index - start > 12:
+            return -1
+        index += 1
+    if index >= len(lines):
+        return -1
+    index += 2  # 見出し行と区切り行
+    rows = 0
+    while index < len(lines) and lines[index].lstrip().startswith("|"):
+        rows += 1
+        index += 1
+    return rows
+
+
+def check(config_path: Path) -> int:
+    chapters, title = load_config(config_path)
+    failures: list[str] = []
+
+    missing = [p for p in chapters if not p.exists()]
+    for path in missing:
+        failures.append(f"book.json が指す {path} がありません")
+    chapters = [p for p in chapters if p.exists()]
+    if not chapters:
+        print("FAILED: 収録原稿が1件もありません")
+        return 1
+
+    included = chapter_numbers(chapters)
+    class_names = declared_class_names(chapters)
+    units_present = set()
+    for path in chapters:
+        head = path.read_text(encoding="utf-8").splitlines()[:5]
+        for unit, pattern in UNIT_HEADINGS.items():
+            if any(pattern.match(line) for line in head):
+                units_present.add(unit)
+
+    for path in chapters:
+        name = path.name
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        prose = prose_lines(text)
+
+        # 1. 収録していない章番号への参照
+        for number, line in prose:
+            for referenced in re.findall(r"第(\d+)章", line):
+                if int(referenced) not in included:
+                    failures.append(
+                        f"{name}:{number}: 収録していない第{referenced}章を参照しています"
+                    )
+
+        # 2. 参照先のまとまりが、この冊に実在するか
+        for number, line in prose:
+            for unit in re.findall(r"「(はじめに|おわりに)」で(?:説明|紹介)した", line):
+                if unit not in units_present:
+                    failures.append(
+                        f"{name}:{number}: 「{unit}」を参照していますが、この冊にありません"
+                    )
+
+        # 3. 存在しない節への前方参照
+        for number, line in prose:
+            for section in re.findall(r"「([^」]{4,40})」の項で示します", line):
+                if not re.search(rf"^#{{2,5}}\s*.*{re.escape(section)}", text, re.M):
+                    failures.append(
+                        f"{name}:{number}: 「{section}」の項を予告していますが、"
+                        f"その見出しがありません"
+                    )
+
+        # 4. 例示クラス名の実在
+        for number, line in prose:
+            for cited in re.findall(r"代表具体`([A-Za-z_]\w*)`", line.replace(" ", "")):
+                if cited not in class_names:
+                    failures.append(
+                        f"{name}:{number}: 例示クラス {cited} がこの冊に存在しません"
+                    )
+
+        # 6. 序数に受け皿があるか
+        for number, line in prose:
+            if re.search(r"この章は\d+つ目です", line):
+                others = sum(
+                    1
+                    for other in chapters
+                    for other_line in other.read_text(encoding="utf-8").splitlines()
+                    if re.search(r"この章は\d+つ目です", other_line)
+                )
+                if others < 2:
+                    failures.append(
+                        f"{name}:{number}: 「N つ目です」が1件しかなく、"
+                        f"読者が何と比べるか判断できません"
+                    )
+
+        # 7. 宣言した件数と表の行数
+        for number, line in prose:
+            match = re.search(r"変更した定義は(\d+)つです", line)
+            if match:
+                rows = table_rows_after(lines, number)
+                if rows >= 0 and rows != int(match.group(1)):
+                    failures.append(
+                        f"{name}:{number}: 「変更した定義は{match.group(1)}つ」ですが、"
+                        f"直後の表は {rows} 行です"
+                    )
+            match = re.search(r"(\d+)つの辛い状況", line)
+            if match:
+                stated = int(match.group(1))
+                found = len(
+                    re.findall(
+                        r"^(\d+)つ目は",
+                        "\n".join(lines[number : number + 40]),
+                        re.M,
+                    )
+                )
+                if found and found != stated:
+                    failures.append(
+                        f"{name}:{number}: 「{stated}つの辛い状況」ですが、"
+                        f"「N つ目は」が {found} 件です"
+                    )
+
+    # 5. 見出しの最上位レベル
+    top_levels = {}
+    for path in chapters:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            match = re.match(r"^(#{1,3})\s+\S", line)
+            if match:
+                top_levels[path.name] = len(match.group(1))
+                break
+    if len(set(top_levels.values())) > 1:
+        detail = ", ".join(f"{k}=h{v}" for k, v in sorted(top_levels.items()))
+        failures.append(
+            f"最上位の見出しレベルがそろっていません（{detail}）。"
+            f"EPUBの目次が同じ階層に並びません"
+        )
+
+    if failures:
+        print("\n".join(failures))
+        print(f"\nFAILED: {len(failures)} volume issue(s) in {config_path.name}")
+        return 1
+
+    print(f"OK: 『{title}』の{len(chapters)}ファイルが1冊として成立しています")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="検査する冊の book.json（例 books/volume01-core-patterns/publishing/book.json）",
+    )
+    args = parser.parse_args()
+    config_path = Path(args.config)
+    if not config_path.is_absolute():
+        config_path = BOOK_ROOT / config_path
+    if not config_path.exists():
+        print(f"FAILED: {config_path} がありません")
+        return 1
+    return check(config_path)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

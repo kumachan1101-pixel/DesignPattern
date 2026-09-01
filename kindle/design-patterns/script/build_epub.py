@@ -187,6 +187,8 @@ code {
 .book-cover, .book-toc { page-break-after: always; text-align: center; }
 .book-toc { text-align: left; }
 .book-toc p { margin: 0.55em 0; }
+.book-toc .toc-chapter { margin: 0.9em 0 0.35em 0; font-weight: bold; }
+.book-toc .toc-section { margin: 0.2em 0 0.2em 1.4em; font-size: 0.92em; }
 .overview-slide, .mermaid-image {
   margin: 0.6em 0 1.2em;
   page-break-inside: avoid;
@@ -777,6 +779,28 @@ def copy_slide(config: BookConfig, chapter_stem: str, slide_dir: Path) -> Path |
     return destination
 
 
+def anchor_sections(body_html: str, chapter_id: str) -> tuple[str, list[dict[str, str]]]:
+    """章本文の各h2へidを振り、目次に載せる節の一覧を返す。
+
+    Kindleには節内の進捗表示がないため、章単位の目次しか無いと読者は
+    章の途中へ戻れない。h2（各章のフェーズと整理・振り返り）まで
+    目次から辿れるようにする。
+    """
+    sections: list[dict[str, str]] = []
+
+    def replace(match: re.Match[str]) -> str:
+        attrs, text = match.group(1), match.group(2)
+        if "id=" in attrs:
+            return match.group(0)
+        section_id = f"{chapter_id}-s{len(sections) + 1}"
+        label = re.sub(r"<[^>]+>", "", text).strip()
+        sections.append({"id": section_id, "title": label})
+        return f'<h2{attrs} id="{section_id}">{text}</h2>'
+
+    body_html = re.sub(r"<h2([^>]*)>(.*?)</h2>", replace, body_html, flags=re.S)
+    return body_html, sections
+
+
 def markdown_to_html(markdown_text: str) -> str:
     try:
         import markdown
@@ -840,10 +864,12 @@ def build_html(
             )
         body = markdown_to_html(processed)
         chapter_id = f"chapter-{safe_stem(markdown_path.stem)}"
+        body, sections = anchor_sections(body, chapter_id)
         chapters.append(
             {
                 "id": chapter_id,
                 "title": title,
+                "sections": sections,
                 "html": f'<section><h1 id="{chapter_id}">{html.escape(title)}</h1>{slide_html}{body}</section>',
             }
         )
@@ -855,10 +881,22 @@ def build_html(
             f'<img src="{relative_to_dist(config, cover)}" alt="表紙" />'
             "</div>"
         )
-    toc = '<nav class="book-toc"><h1 id="toc">目次</h1>' + "".join(
-        f'<p><a href="#{chapter["id"]}">{html.escape(chapter["title"])}</a></p>'
-        for chapter in chapters
-    ) + "</nav>"
+    toc_entries: list[str] = []
+    for chapter in chapters:
+        toc_entries.append(
+            f'<p class="toc-chapter"><a href="#{chapter["id"]}">'
+            f'{html.escape(chapter["title"])}</a></p>'
+        )
+        toc_entries.extend(
+            f'<p class="toc-section"><a href="#{section["id"]}">'
+            f'{html.escape(section["title"])}</a></p>'
+            for section in chapter["sections"]
+        )
+    toc = (
+        '<nav class="book-toc"><h1 id="toc">目次</h1>'
+        + "".join(toc_entries)
+        + "</nav>"
+    )
     document = (
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" '
@@ -917,6 +955,8 @@ def convert_book(config: BookConfig, book_html: Path) -> None:
         "//*[name()='h1']",
         "--level1-toc",
         "//h:h1",
+        "--level2-toc",
+        "//h:h2",
         "--chapter-mark",
         "pagebreak",
         "--disable-font-rescaling",

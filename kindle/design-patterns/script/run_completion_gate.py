@@ -90,6 +90,21 @@ def main() -> int:
             "Publish package",
             [python, str(SCRIPT_DIR / "check_publish_package.py")],
         ))
+        # 冊として出すものは、冊ごとに見る。validate_book.py は output/ の
+        # 章ファイル名へ規則を紐づけているため、章を選び直した分冊には
+        # 当てられない（SHRINK-001）。
+        for volume_config in sorted(
+            (BOOK_ROOT / "books").glob("*/publishing/book.json")
+        ):
+            checks.append((
+                f"Volume: {volume_config.parents[1].name}",
+                [
+                    python,
+                    str(SCRIPT_DIR / "check_volume.py"),
+                    "--config",
+                    str(volume_config),
+                ],
+            ))
 
     failed = [label for label, command in checks if not run(label, command)]
     print("\n=== Quality gate result ===")
