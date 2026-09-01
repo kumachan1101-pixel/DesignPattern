@@ -13,6 +13,10 @@
   5. 見出しの最上位レベルが全ファイルでそろっている（EPUB目次の階層）
   6. 「N つ目です」に受け皿がある（2つ目・3つ目、または分類の定義）
   7. 「N つの辛い状況」「変更した定義はN つ」が直後の表の行数と一致する
+  8. 実行結果のシナリオラベルの形が、冊の中でそろっている
+  9. 完成後のクラス図と完成コードのクラス集合が一致する（省略には理由を書く）
+ 10. 各章で繰り返し使う語が、用語集に定義されている
+ 11. 各章で使うC++記法が、はじめに・第0章で説明されている
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -211,6 +215,82 @@ def check(config_path: Path) -> int:
             f"最上位の見出しレベルがそろっていません（{detail}）。"
             f"EPUBの目次が同じ階層に並びません"
         )
+
+    # 8. 実行結果ラベルの形
+    label_forms: dict[str, set[str]] = {}
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        forms = set()
+        for label in re.findall(r"^---[ \t]*(\S[^-\n]*?)[ \t]*---[ \t]*$", text, re.M):
+            if re.match(r"行\d+[a-z]?[:：]", label):
+                forms.add("行N: 説明")
+            elif re.match(r"シナリオ\d+[:：]", label):
+                forms.add("シナリオN: 説明")
+            elif re.match(r"\d+回目", label):
+                forms.add("N回目")
+            else:
+                forms.add("説明のみ")
+        if forms:
+            label_forms[path.name] = forms
+    all_forms = set().union(*label_forms.values()) if label_forms else set()
+    if len(all_forms) > 1:
+        detail = "; ".join(f"{k}={sorted(v)}" for k, v in sorted(label_forms.items()))
+        failures.append(
+            f"実行結果のシナリオラベルが{len(all_forms)}通りに割れています（{detail}）。"
+            f"読者は章ごとに読み方を切り替えることになります"
+        )
+
+    # 9. 完成後のクラス図と完成コード
+    arrow = r"(?:<\|--|<\|\.\.|\*-->|o-->|\*--|o--|-->|\.\.>)"
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        diagram = re.search(
+            r"####\s*完成後のクラス図(.*?)```mermaid\n(.*?)```", text, re.S
+        )
+        code = re.search(r"####\s*完成コード(.*?)(?=\n###\s|\n##\s)", text, re.S)
+        if not diagram or not code:
+            continue
+        drawn = set(re.findall(r"^\s*class\s+([A-Z]\w*)", diagram.group(2), re.M))
+        drawn |= set(re.findall(rf"^\s*([A-Z]\w*)\s*{arrow}", diagram.group(2), re.M))
+        drawn |= set(re.findall(rf"{arrow}\s*([A-Z]\w*)", diagram.group(2)))
+        written = set(re.findall(r"\b(?:class|struct)\s+([A-Z]\w*)", code.group(1)))
+        undrawn = sorted(written - drawn)
+        if undrawn and not re.search(r"省略|描いていません|載せていません|割愛", diagram.group(1)):
+            failures.append(
+                f"{path.name}: 完成コードの {', '.join(undrawn)} が完成後のクラス図に無く、"
+                f"省略の理由も書かれていません"
+            )
+
+    # 10. 用語集の網羅
+    guide = "\n".join(p.read_text(encoding="utf-8") for p in chapters[:2])
+    glossary = re.search(r"本書で使う主要な言葉(.*?)\n\n", guide, re.S)
+    if glossary:
+        defined = set(re.findall(r"\*\*「([^」]+)」\*\*", glossary.group(1)))
+        body = "\n".join(p.read_text(encoding="utf-8") for p in chapters[2:])
+        for term in ("接続点", "契約", "具体", "骨格", "注入", "混在", "変わる側", "守る側"):
+            used = len(re.findall(term, body))
+            if used >= 10 and term not in defined:
+                failures.append(
+                    f"実践章で {used} 回使う『{term}』が、用語集に定義されていません"
+                )
+
+    # 11. 未説明のC++記法
+    guide_text = "\n".join(p.read_text(encoding="utf-8") for p in chapters[:2])
+    body_text = "\n".join(p.read_text(encoding="utf-8") for p in chapters[2:])
+    for label, pattern in (
+        ("override", r"\boverride\b"),
+        ("= default", r"=\s*default"),
+        ("auto", r"\bauto\b"),
+        ("std::reference_wrapper", r"reference_wrapper"),
+        ("std::cref", r"std::cref"),
+        ("namespace", r"\bnamespace\s+\w+"),
+    ):
+        if re.search(pattern, body_text) and not re.search(pattern, guide_text):
+            count = len(re.findall(pattern, body_text))
+            failures.append(
+                f"実践章で {count} 回使う C++記法『{label}』が、"
+                f"はじめに・第0章のどこにも説明されていません"
+            )
 
     if failures:
         print("\n".join(failures))

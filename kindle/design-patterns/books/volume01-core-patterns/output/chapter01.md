@@ -2419,7 +2419,7 @@ int main() {
     CartPreviewService preview(db, discountRules.selector());
 
     // C001（Premium）/ キャンペーンなし / サマーセールなし → 20%引き
-    std::cout << "--- シナリオ1: Premium割引 ---\n";
+    std::cout << "--- 行1: Premium割引 ---\n";
     Order order1;
     order1.customerId = "C001";
     order1.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -2433,7 +2433,7 @@ int main() {
 シナリオ1の実行結果：
 
 ```
---- シナリオ1: Premium割引 ---
+--- 行1: Premium割引 ---
   カートプレビュー: 8000円
 田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Premium, キャンペーン=なし, サマーセール=なし
@@ -2444,7 +2444,7 @@ int main() {
 
 ```cpp
     // C001（Premium）/ キャンペーンあり / サマーセール中 → Premium優先
-    std::cout << "\n--- シナリオ2: Premium排他 ---\n";
+    std::cout << "\n--- 行2: Premium排他 ---\n";
     Order order2;
     order2.customerId = "C001";
     order2.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -2460,7 +2460,7 @@ int main() {
 シナリオ2の実行結果：
 
 ```
---- シナリオ2: Premium排他 ---
+--- 行2: Premium排他 ---
   カートプレビュー: 8000円
 田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Premium, キャンペーン=あり, サマーセール=あり
@@ -2471,7 +2471,7 @@ int main() {
 
 ```cpp
     // C002（Regular）/ キャンペーンあり / サマーセール中 → 逐次割引
-    std::cout << "\n--- シナリオ3: 逐次割引 ---\n";
+    std::cout << "\n--- 行3: 逐次割引 ---\n";
     Order order3;
     order3.customerId = "C002";
     order3.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -2487,7 +2487,7 @@ int main() {
 シナリオ3の実行結果：
 
 ```
---- シナリオ3: 逐次割引 ---
+--- 行3: 逐次割引 ---
   カートプレビュー: 8550円
 佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Regular, キャンペーン=あり, サマーセール=あり
@@ -2498,7 +2498,7 @@ int main() {
 
 ```cpp
     // C002（Regular）/ サマーセールのみ → 5%引き
-    std::cout << "\n--- シナリオ4: サマーセール単独 ---\n";
+    std::cout << "\n--- 行4: サマーセール単独 ---\n";
     Order order4;
     order4.customerId = "C002";
     order4.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -2513,7 +2513,7 @@ int main() {
 シナリオ4の実行結果：
 
 ```
---- シナリオ4: サマーセール単独 ---
+--- 行4: サマーセール単独 ---
   カートプレビュー: 9500円
 佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Regular, キャンペーン=なし, サマーセール=あり
@@ -2524,7 +2524,7 @@ int main() {
 
 ```cpp
     // C002（Regular）/ キャンペーンのみ → 10%引き（変更前と同じ）
-    std::cout << "\n--- シナリオ4b: キャンペーン単独 ---\n";
+    std::cout << "\n--- 行4b: キャンペーン単独 ---\n";
     Order order4b;
     order4b.customerId = "C002";
     order4b.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -2539,7 +2539,7 @@ int main() {
 シナリオ4bの実行結果：
 
 ```
---- シナリオ4b: キャンペーン単独 ---
+--- 行4b: キャンペーン単独 ---
   カートプレビュー: 9000円
 佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Regular, キャンペーン=あり, サマーセール=なし
@@ -2552,7 +2552,7 @@ int main() {
 
 ```cpp
     // C003（Regular）/ 割引なし
-    std::cout << "\n--- シナリオ5: 割引なし ---\n";
+    std::cout << "\n--- 行5: 割引なし ---\n";
     Order order5;
     order5.customerId = "C003";
     order5.items.push_back(Item("スマホケース", 3000));
@@ -2566,7 +2566,7 @@ int main() {
 シナリオ5の実行結果：
 
 ```
---- シナリオ5: 割引なし ---
+--- 行5: 割引なし ---
   カートプレビュー: 3000円
 鈴木 次郎 さんの注文: スマホケース 3000円
   条件: 会員=Regular, キャンペーン=なし, サマーセール=なし
@@ -2577,7 +2577,7 @@ int main() {
 
 ```cpp
     // エラー条件も、正常系と同じ最終コードで確認する
-    std::cout << "\n--- シナリオ6: 未登録顧客 ---\n";
+    std::cout << "\n--- 行6: 未登録顧客 ---\n";
     Order unknown;
     unknown.customerId = "UNKNOWN";
     unknown.items.push_back(Item("ケーブル", 1000));
@@ -2587,14 +2587,14 @@ int main() {
 シナリオ6の実行結果：
 
 ```
---- シナリオ6: 未登録顧客 ---
+--- 行6: 未登録顧客 ---
 エラー: 顧客ID UNKNOWN は登録されていません
 ```
 
 同じ `main()` の中で、シナリオ7は空注文のエラーです。
 
 ```cpp
-    std::cout << "\n--- シナリオ7: 空注文 ---\n";
+    std::cout << "\n--- 行7: 空注文 ---\n";
     Order empty;
     empty.customerId = "C002";
     processor.process(empty, context5);
@@ -2603,7 +2603,7 @@ int main() {
 シナリオ7の実行結果：
 
 ```
---- シナリオ7: 空注文 ---
+--- 行7: 空注文 ---
 エラー: 注文が空です
 ```
 

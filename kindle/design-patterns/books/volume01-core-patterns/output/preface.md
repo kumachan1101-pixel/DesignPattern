@@ -106,6 +106,14 @@ GoF（Gang of Four）とは、1994年出版の書籍『Design Patterns』を書�
 > | `virtual void foo() = 0;` | Java: `interface`、Python: `ABC`、TS: `interface` |
 > | `class A : public IFoo` | Java/TS: `implements IFoo`、Python: `class A(IFoo)` |
 > | `IFoo* ptr;` | Java/TS/Python: `IFoo foo;`（参照型） |
+> | `void foo() override` | Java: `@Override`、TS: 明示なし、Python: 明示なし。基底の同名関数を置き換えることを示します |
+> | `void foo() const` | 引数の後ろの `const` は「このメソッドは自分の状態を変えない」という宣言です。他言語には対応する書き方がありません |
+> | `IFoo& ref;` | Java/TS/Python: `IFoo foo;`。ポインタと違い、後から別の相手へ差し替えられません。所有せず借りているだけの相手を表します |
+> | `explicit Ctor(...)` | 引数1つのコンストラクタが暗黙に呼ばれるのを防ぐ指定です。他言語には対応する書き方がありません |
+> | `~Foo() = default;` | デストラクタの既定実装をそのまま使う、という指定です。`{}` と書くのと同じ意味です |
+> | `auto it = v.begin();` | Java: `var`、TS: 型推論、Python: 型注釈なし。右辺から型を決めます |
+> | `namespace Code { ... }` | Java: パッケージ、Python: モジュール、TS: 名前空間。関連する定数や型をひとまとめにします |
+> | `std::cref(x)` / `std::reference_wrapper<T>` | 参照をコンテナへ入れるための包みです。`vector` は参照をそのまま持てないため、参照を値のように扱えるようにします |
 >
 > コードの構文が読み解けない箇所があっても、クラス図とコメントで「何が何に依存しているか」を追えれば、設計の学習として十分です。
 

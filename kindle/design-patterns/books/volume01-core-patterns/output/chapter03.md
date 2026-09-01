@@ -1271,7 +1271,7 @@ int main() {
     pendingManager.receiveSMSCompletion(
         pendingManager.latestSMSRequestId(), true);
 
-    std::cout << "--- SMS受付失敗 ---" << std::endl;
+    std::cout << "--- 行6: SMS受付失敗 ---" << std::endl;
     InventoryManager failedManager(true);
     failedManager.reduceStock("PRD002", "USBハブ", 1, 5);
 
@@ -1286,7 +1286,7 @@ int main() {
 [SMS受付] 在庫警告 PRD002 残2 受付ID:SMS-1
 [受付結果] 成功:3 保留:1 失敗:0
 [SMS最終結果] SMS-1: PENDING -> DELIVERED
---- SMS受付失敗 ---
+--- 行6: SMS受付失敗 ---
 [Email] 件名:在庫不足 / USBハブ 残1 閾値5
 [Dashboard] PRD002 | 残1 | 要発注
 [Chat] #inventory-alert USBハブ 残1 閾値5 -> POST-1
@@ -2017,6 +2017,24 @@ classDiagram
         +stock
         +threshold
     }
+    class ProductInfo {
+        +name
+        +stock
+        +alertThreshold
+    }
+    class StockEvent {
+        +productId
+        +productName
+        +eventType
+        +amount
+        +stockBefore
+        +stockAfter
+    }
+    class DeliveryResult {
+        +status
+        +channel
+        +requestId
+    }
     class InventoryManager {
         -ProductDatabase& db
         -StockEventLog& eventLog
@@ -2042,6 +2060,10 @@ classDiagram
     SMSDeliveryCallback --> DeliveryStatusLog : 最終結果を更新
     InventoryManager o--> INotification : 登録・一律通知
     InventoryManager ..> StockAlert : 作成
+    ProductDatabase ..> ProductInfo : 取得・保存
+    StockEventLog ..> StockEvent : 記録
+    INotification ..> DeliveryResult : 通知結果を返す
+    DeliveryStatusLog ..> DeliveryResult : 受付結果を記録
     INotification <|.. EmailNotifier
     INotification <|.. DashboardUpdater
     INotification <|.. ChatNotifier
@@ -2813,7 +2835,7 @@ SMS(2件受付): 在庫警告 PRD002 残0 / 受付ID=SMS-2
 在庫変動ログの実行結果：
 
 ```
---- 在庫変動ログ ---
+--- 行8: 在庫変動ログ ---
 [PRD001] ワイヤレスマウス 出荷 5個 (50->45)
 [PRD002] USBハブ 出荷 1個 (3->2)
 [PRD002] USBハブ 閾値警告 1個 (3->2)
