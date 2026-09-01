@@ -664,7 +664,7 @@ int main() {
     manager.reduceStock("PRD001", 5);
 ```
 
-```text
+```
 --- 行1: PRD001を5減らす ---
 商品 PRD001（ワイヤレスマウス） の在庫を 5 減らしました。在庫: 50 -> 45
 ```
@@ -680,7 +680,7 @@ int main() {
     manager.reduceStock("PRD002", 1);
 ```
 
-```text
+```
 --- 行2: PRD002を1減らす ---
 商品 PRD002（USBハブ） の在庫を 1 減らしました。在庫: 3 -> 2
 Email(1件) [在庫アラート] 商品 PRD002（USBハブ） の在庫が閾値以下です。
@@ -699,7 +699,7 @@ Chat(1件) #inventory-alert: 商品 PRD002（USBハブ） の在庫が閾値以�
     manager.replenishStock("PRD001", 20);
 ```
 
-```text
+```
 --- 行3: PRD001を20補充する ---
 商品 PRD001（ワイヤレスマウス） の在庫を 20 補充しました。在庫: 45 -> 65
 ```
@@ -715,7 +715,7 @@ Chat(1件) #inventory-alert: 商品 PRD002（USBハブ） の在庫が閾値以�
     manager.reduceStock("PRD003", 1);
 ```
 
-```text
+```
 --- 行4: PRD003を1減らす ---
 [エラー] 商品 PRD003（キーボード） は 1 個出庫できません。現在在庫: 0
 ```
@@ -734,7 +734,7 @@ Chat(1件) #inventory-alert: 商品 PRD002（USBハブ） の在庫が閾値以�
 }
 ```
 
-```text
+```
 --- 行5: 存在しない商品IDを操作する ---
 [エラー] 商品ID PRD999 はマスタに存在しません。処理を中断します。
 ```
@@ -1993,6 +1993,8 @@ private:
 
 #### 完成後のクラス図
 
+フェーズ6で確定したクラス・操作・関係線を完成図にします。`InventoryManager` が通知元、`INotification` が通知先の契約、各Notifierがその具象に対応します。値クラスは、どの操作が受け渡すかを線で示します。
+
 ```mermaid
 classDiagram
     direction TB
@@ -2060,7 +2062,7 @@ classDiagram
     SMSDeliveryCallback --> DeliveryStatusLog : 最終結果を更新
     InventoryManager o--> INotification : 登録・一律通知
     InventoryManager ..> StockAlert : 作成
-    ProductDatabase ..> ProductInfo : 取得・保存
+    ProductDatabase *--> ProductInfo : 商品ID別に保存
     StockEventLog ..> StockEvent : 記録
     INotification ..> DeliveryResult : 通知結果を返す
     DeliveryStatusLog ..> DeliveryResult : 受付結果を記録
@@ -2825,7 +2827,7 @@ SMS(2件受付): 在庫警告 PRD002 残0 / 受付ID=SMS-2
 最後に、在庫変動ログを出力して `main()` を終了します。
 
 ```cpp
-    cout << "\n--- 在庫変動ログ ---\n";
+    cout << "\n--- 行8: 在庫変動ログ ---\n";
     eventLog.printAll();
 
     return 0;
@@ -3048,7 +3050,11 @@ classDiagram
 
 ```
 
+`Subject` は登録された相手を契約として持つだけで、何件いるか、どの具象かを判定しません。通知先を増やしても、線が増えるのは `Observer` の下側だけです。
+
 ### 抽象骨格の実行シーケンス
+
+この図では、1つの変化が登録順に何件へ配られるのかを時間の順に見ます。
 
 ```mermaid
 sequenceDiagram

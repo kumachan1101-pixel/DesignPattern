@@ -811,6 +811,8 @@ int main() {
 | Waitlisted（キャンセル待ち） | —— | —— |
 | Held（一時保留） | —— | → Available |
 
+この図では、上の表が示した遷移を1枚にまとめ、どの状態からどの操作で、どこへ移れるのかを見ます。
+
 ```mermaid
 stateDiagram-v2
     [*] --> Available : 初期状態
@@ -1198,7 +1200,7 @@ int main() {
     std::cout << "---" << std::endl;
 ```
 
-```text
+```
 予約完了しました
 保留にしました
 保留から支払い完了しました
@@ -1219,7 +1221,7 @@ int main() {
     std::cout << "---" << std::endl;
 ```
 
-```text
+```
 予約完了しました
 保留にしました
 決済期限が切れました
@@ -1246,7 +1248,7 @@ int main() {
 }
 ```
 
-```text
+```
 予約完了しました
 満席のためキャンセル待ちに登録しました
 予約をキャンセルしました
@@ -1854,6 +1856,8 @@ class BatchApplication {
 
 #### 完成後のクラス図
 
+フェーズ6で確定したクラス・操作・関係線を完成図にします。`TicketReservation` が骨格、`IReservationState` が状態ごとの振る舞いの契約、各状態クラスがその具象に対応します。
+
 ```mermaid
 classDiagram
     class TicketReservation {
@@ -1889,8 +1893,8 @@ classDiagram
     TicketReservation --> ReservationHistory
     TicketReservation --> ReservationWaitlist
     ReservationWaitlist o--> TicketReservation : waiting
-    EventDatabase o--> EventInfo
-    ReservationHistory o--> ReservationRecord
+    EventDatabase *--> EventInfo
+    ReservationHistory *--> ReservationRecord
     IReservationState <|-- AvailableState
     IReservationState <|-- ReservedState
     IReservationState <|-- PaidState
@@ -2785,7 +2789,7 @@ public:
 最後に予約履歴を出力し、`main()` から実行します。
 
 ```cpp
-        std::cout << "\n--- 予約履歴 ---\n";
+        std::cout << "\n--- 行9: 予約履歴 ---\n";
         history.printAll();
     }
 };
@@ -3033,7 +3037,11 @@ classDiagram
     State <|.. ConcreteState
 ```
 
+`Context` は現在の状態を契約として持つだけで、どの具象状態かを判定しません。状態を増やしても、線が増えるのは `State` の下側だけです。
+
 ### 抽象骨格の実行シーケンス
+
+この図では、委譲された状態オブジェクトが、いつ次の状態を決めるのかを時間の順に見ます。
 
 ```mermaid
 sequenceDiagram
@@ -3056,6 +3064,8 @@ Clientは現在状態を指定せず、Contextが保持するStateへイベン�
 | Context | `TicketReservation` |
 | State | `IReservationState` |
 | ConcreteState | `AvailableState` / `ReservedState` / `PaidState` 等 |
+
+この図では、上の対応表を本章のクラス名で描き直し、骨格の形が同じであることを見ます。
 
 ```mermaid
 classDiagram

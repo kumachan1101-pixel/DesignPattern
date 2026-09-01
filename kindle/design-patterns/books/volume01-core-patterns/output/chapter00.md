@@ -344,6 +344,19 @@ classDiagram
 
 この図では、`CheckoutService`が割引規則を借りて会計し、`DiscountCatalog`は独立して存在する割引規則を一覧としてまとめ、`Order`が明細を所有しています。速達用の送料規則は`minimumFee()`という共通処理を持つ抽象基底クラスを継承し、会員割引は割引契約だけを具体化しています。線は、こうした**コード上の事実を短く表したもの**です。
 
+**この送料・割引の例は、6種類の線を1枚で見せるためだけに用意したもので、各章には出てきません。** 1章に6種類すべてが揃うことはないため、ここでまとめて見ておきます。各章では次のように現れます。
+
+| 線 | 第1章（Strategy） | 第2章（State） | 第3章（Observer） |
+|---|---|---|---|
+| 1 継承 `<\|--` | 出てこない | `IReservationState` と各状態クラス | 出てこない |
+| 2 契約の実装 `<\|..` | `IDiscountRule` と各割引クラス | 骨格の説明図だけ | `INotification` と各Notifier |
+| 3 合成・強い所有 `*--` | `Order` と `Item`、`DiscountRuleSet` と各割引クラス | `EventDatabase` と `EventInfo` | `ProductDatabase` と `ProductInfo` |
+| 4 共有集約 `o--` | `RuleSelector` と `IDiscountRule` | `TicketReservation` と `IReservationState` | `InventoryManager` と `INotification` |
+| 5 関連・継続的な利用 `-->` | `PaymentCalculator` と `IDiscountRule` | `TicketReservation` と `EventDatabase` | `InventoryManager` と `ProductDatabase` |
+| 6 一時的な依存 `..>` | `PaymentCalculator` と `PaymentResult` | `ReservationExpiryScheduler` と `TicketReservation` | `InventoryManager` と `StockAlert` |
+
+ひし形の線に矢先を付けた `o-->` と `*-->` も使います。意味は `o--`・`*--` と同じで、「どちら側から相手を辿るか」を足した表記です。ひし形の付いた側が全体、矢先の側が部分です。
+
 まず、クラスの箱の中を上から読みます。
 
 | 箱の中の記号 | 意味 | C++で確認する場所 |

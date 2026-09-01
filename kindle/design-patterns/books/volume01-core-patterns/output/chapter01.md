@@ -312,14 +312,14 @@ classDiagram
     OrderProcessor --> CustomerDatabase : 使う
     OrderProcessor --> PaymentCalculator : 使う
     OrderProcessor --> CheckoutResultRenderer : 結果を表示
-    CustomerDatabase --> CustomerInfo : 返す
+    CustomerDatabase *--> CustomerInfo : 保持し、コピーを返す
     CartPreviewService --> CustomerDatabase : 会員種別を取得
     CartPreviewService --> PaymentCalculator : 使う
     CartPreviewService ..> Order : 参照する
     CartPreviewService ..> CampaignContext : 参照する
     PaymentCalculator ..> Order : 参照する
     PaymentCalculator ..> CampaignContext : 参照する
-    Order o-- Item : 持つ
+    Order *-- Item : 持つ
 ```
 
 **クラス図に出てくる主なメンバーと操作**
@@ -696,7 +696,8 @@ int main() {
     CartPreviewService preview(db);
     CampaignContext context;
 
-    // 動作例1：C001（Premium）/ キャンペーンなし → 20%引き
+    // 行1：C001（Premium）/ キャンペーンなし → 20%引き
+    std::cout << "--- 行1: Premium会員・キャンペーンなし ---\n";
     Order order1;
     order1.customerId = "C001";
     order1.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -705,6 +706,7 @@ int main() {
 ```
 
 ```
+--- 行1: Premium会員・キャンペーンなし ---
 田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Premium, キャンペーン=なし
   小計 10000円 → 支払金額 8000円
@@ -717,13 +719,15 @@ int main() {
 **動作例2：同じPremium会員にキャンペーンを当てる**
 
 ```cpp
-    // 動作例2：同じPremium会員にキャンペーンを当てても優先は変わらない
+    // 行2：同じPremium会員にキャンペーンを当てても優先は変わらない
+    std::cout << "--- 行2: Premium会員・キャンペーンあり ---\n";
     context.isCampaignActive = true;
     processor.process(order1, context);   // → 8000（キャンペーン無効）
     context.isCampaignActive = false;
 ```
 
 ```
+--- 行2: Premium会員・キャンペーンあり ---
 田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Premium, キャンペーン=あり
   小計 10000円 → 支払金額 8000円
@@ -738,7 +742,8 @@ int main() {
 **動作例3：Regular会員・キャンペーンあり**
 
 ```cpp
-    // 動作例3：C002（Regular）/ キャンペーンあり → 10%引き
+    // 行3：C002（Regular）/ キャンペーンあり → 10%引き
+    std::cout << "--- 行3: Regular会員・キャンペーンあり ---\n";
     Order order2;
     order2.customerId = "C002";
     order2.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -750,6 +755,7 @@ int main() {
 ```
 
 ```
+--- 行3: Regular会員・キャンペーンあり ---
   注文確定前のカートプレビュー: 9000円
 佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Regular, キャンペーン=あり
@@ -763,7 +769,8 @@ int main() {
 **動作例4：Regular会員・キャンペーンなし**
 
 ```cpp
-    // 動作例4：C003（Regular）/ キャンペーンなし → 割引なし
+    // 行4：C003（Regular）/ キャンペーンなし → 割引なし
+    std::cout << "--- 行4: Regular会員・キャンペーンなし ---\n";
     Order order3;
     order3.customerId = "C003";
     order3.items.push_back(Item("スマホケース", 3000));
@@ -772,6 +779,7 @@ int main() {
 ```
 
 ```
+--- 行4: Regular会員・キャンペーンなし ---
 鈴木 次郎 さんの注文: スマホケース 3000円
   条件: 会員=Regular, キャンペーン=なし
   小計 3000円 → 支払金額 3000円
@@ -784,7 +792,8 @@ int main() {
 **エラー条件：存在しない顧客ID**
 
 ```cpp
-    // エラー条件：存在しない顧客ID
+    // 行5：エラー条件（存在しない顧客ID）
+    std::cout << "--- 行5: 未登録の顧客ID ---\n";
     Order order4;
     order4.customerId = "UNKNOWN";
     order4.items.push_back(Item("ケーブル", 1000));
@@ -795,6 +804,7 @@ int main() {
 ```
 
 ```
+--- 行5: 未登録の顧客ID ---
 エラー: 顧客ID UNKNOWN は登録されていません
 ```
 
@@ -1205,6 +1215,8 @@ int main() {
 痛いのは結果ではなく、そこへ至る過程です。施策を1つ足しただけで、入力データ（`CampaignContext`）、計算本体（`PaymentCalculator`）、表示（`CheckoutResultRenderer`）の3つを触り、既存2分岐の条件と順序まで書き換えました。しかも4分岐のうち3つは、施策どうしの組み合わせを表すためだけに存在します。**施策が3つになれば、組み合わせは分岐の数として増えていきます。**
 
 ### 3-2：変更影響グラフ
+
+この図では、施策を1つ足すという1本の変更要求が、どのクラスの、どの部分まで届いたかを見ます。
 
 ```mermaid
 graph LR
@@ -1829,8 +1841,8 @@ classDiagram
     class SummerSaleAndCampaignDiscount
     class NoDiscount
 
-    Order o--> Item
-    CustomerDatabase o--> CustomerInfo
+    Order *--> Item
+    CustomerDatabase *--> CustomerInfo
     OrderProcessor --> CustomerDatabase : 使う
     OrderProcessor --> RuleSelector : 選ぶ
     OrderProcessor --> PaymentCalculator : 組み立てる
@@ -1921,6 +1933,8 @@ sequenceDiagram
     P-->>O: PaymentResult
     O-->>M: void（購入結果は画面相当へ表示済み）
 ```
+
+`main()` が組み立てを終えた後は、注文確定もプレビューも同じ `RuleSelector` を通ります。実行時に具体名が出てこないことを、この順序で確認できます。
 
 #### 完成コード
 
@@ -2666,6 +2680,8 @@ int main() {
 
 ### 7-3：変更影響グラフ（改善後）
 
+3-2と同じ変更要求を、改善後の構造へもう一度当てます。同じ矢印がどこで止まるようになったかを見ます。
+
 ```mermaid
 graph LR
     T1["変更要求：サマーセール追加"]
@@ -2823,11 +2839,15 @@ classDiagram
         +algorithm()
     }
     Context o--> Strategy
-    ConcreteStrategyA ..|> Strategy
-    ConcreteStrategyB ..|> Strategy
+    Strategy <|.. ConcreteStrategyA
+    Strategy <|.. ConcreteStrategyB
 ```
 
+`Context` は `Strategy` の契約だけを保持し、どの具体が入っているかを知りません。具体を増やしても、線が増えるのは `Strategy` の下側だけです。
+
 ### 抽象骨格の実行シーケンス
+
+この図では、差し替えた具体が、いつ・誰から呼ばれるのかを時間の順に見ます。
 
 ```mermaid
 sequenceDiagram

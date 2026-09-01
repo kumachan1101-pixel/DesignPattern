@@ -267,6 +267,8 @@ flowchart TB
     S -.-> R3["保存方式・技術基盤で変わる"]
 ```
 
+1つのクラスの中に、変わるきっかけが3つ同居しています。次の図は、その3つを外へ出した後の形です。
+
 ```mermaid
 classDiagram
     class OrderService_after["OrderService（改善後）"] {
@@ -538,12 +540,16 @@ GoFの構造は、決して最初から目指すものではありません。�
 
 #### 依存の方向を図で理解する
 
+まず、具体クラスを直接知っている形を見ます。
+
 ```mermaid
 graph LR
     subgraph "NG：具体クラスに依存"
         N1[Notifier] -->|知っている| N2[EmailSender]
     end
 ```
+
+`Notifier` が `EmailSender` を名指ししているため、送り先を替えると `Notifier` も変わります。次の図は、間に契約を置いた形です。
 
 ```mermaid
 graph LR

@@ -17,6 +17,10 @@
   9. 完成後のクラス図と完成コードのクラス集合が一致する（省略には理由を書く）
  10. 各章で繰り返し使う語が、用語集に定義されている
  11. 各章で使うC++記法が、はじめに・第0章で説明されている
+ 12. Mermaid図の前に目的が1文あり、後に読み取り結論がある
+ 13. クラス図の関係線が、第0章の規約6種（と、その矢先つき表記）に収まる
+ 14. 同じクラスの組が、章の中で違う線で描かれていない
+ 15. 掲載コードが値で持つ関係は、白ひし形ではなく黒ひし形で描かれている
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -291,6 +295,91 @@ def check(config_path: Path) -> int:
                 f"実践章で {count} 回使う C++記法『{label}』が、"
                 f"はじめに・第0章のどこにも説明されていません"
             )
+
+    # 12. 図の前後の散文
+    for path in chapters:
+        lines = path.read_text(encoding="utf-8").split("\n")
+        for index, line in enumerate(lines):
+            if line.strip() != "```mermaid":
+                continue
+            before = index - 1
+            while before >= 0 and lines[before].strip() == "":
+                before -= 1
+            if before < 0 or lines[before].lstrip().startswith(("#", "|", "```")):
+                failures.append(
+                    f"{path.name}:{index + 1}: 図の前に目的の1文がありません"
+                    f"（直前が見出し・表・別のブロックです）"
+                )
+            after = index + 1
+            while after < len(lines) and lines[after].strip() != "```":
+                after += 1
+            after += 1
+            while after < len(lines) and lines[after].strip() == "":
+                after += 1
+            if after >= len(lines) or lines[after].lstrip().startswith(("#", "```")):
+                failures.append(
+                    f"{path.name}:{index + 1}: 図の後に読み取り結論がありません"
+                )
+
+    # 13〜15. クラス図の関係線
+    allowed = {"<|--", "<|..", "*--", "o--", "-->", "..>", "*-->", "o-->"}
+    edge_re = re.compile(
+        r'^\s*(\w+)\s*("[\d.*]+"\s*)?'
+        r'(<\|--|<\|\.\.|\*-->|o-->|\*--|o--|-->|\.\.>|\.\.\|>|--\|>)'
+        r'\s*("[\d.*]+"\s*)?(\w+)'
+    )
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        seen: dict[tuple[str, str], set[str]] = {}
+        for diagram in re.findall(r"```mermaid\n(.*?)```", text, re.S):
+            if "classDiagram" not in diagram:
+                continue
+            for line in diagram.split("\n"):
+                match = edge_re.match(line)
+                if not match:
+                    continue
+                arrow, left, right = match.group(3), match.group(1), match.group(5)
+                if arrow not in allowed:
+                    failures.append(
+                        f"{path.name}: 第0章の規約に無い関係線 {arrow} "
+                        f"（{left} {arrow} {right}）。規約は "
+                        f"<|-- / <|.. / *-- / o-- / --> / ..> と、その矢先つきです"
+                    )
+                    continue
+                seen.setdefault((left, right), set()).add(arrow)
+        for (left, right), arrows in seen.items():
+            kinds = {a.replace("-->", "--").replace("..>", "..") for a in arrows}
+            if len(kinds) > 1:
+                failures.append(
+                    f"{path.name}: {left} と {right} の関係が、章の中で "
+                    f"{sorted(arrows)} と違う線で描かれています"
+                )
+
+    # 15. 値で持つ関係は黒ひし形
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        owned: set[tuple[str, str]] = set()
+        for holder in re.finditer(
+            r"\b(?:class|struct)\s+([A-Z]\w*)\s*\{(.*?)\n\};", text, re.S
+        ):
+            body = holder.group(2)
+            for member in re.finditer(
+                r"(?:std::)?(?:vector|map|deque|set)<[^>]*?\b([A-Z]\w*)\s*>\s+\w+\s*;", body
+            ):
+                owned.add((holder.group(1), member.group(1)))
+        for diagram in re.findall(r"```mermaid\n(.*?)```", text, re.S):
+            if "classDiagram" not in diagram:
+                continue
+            for line in diagram.split("\n"):
+                match = edge_re.match(line)
+                if not match:
+                    continue
+                arrow, left, right = match.group(3), match.group(1), match.group(5)
+                if arrow in ("o--", "o-->") and (left, right) in owned:
+                    failures.append(
+                        f"{path.name}: {left} は {right} を値で持っているのに、"
+                        f"図では共有集約（{arrow}）です。第0章の規約では黒ひし形です"
+                    )
 
     if failures:
         print("\n".join(failures))

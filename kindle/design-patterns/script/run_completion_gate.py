@@ -105,6 +105,15 @@ def main() -> int:
                     str(volume_config),
                 ],
             ))
+            checks.append((
+                f"Code runs: {volume_config.parents[1].name}",
+                [
+                    python,
+                    str(SCRIPT_DIR / "check_code_runs.py"),
+                    "--config",
+                    str(volume_config),
+                ],
+            ))
 
     failed = [label for label, command in checks if not run(label, command)]
     print("\n=== Quality gate result ===")
