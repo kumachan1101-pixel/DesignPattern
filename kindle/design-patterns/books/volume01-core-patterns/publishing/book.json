@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "metadata": {
+    "title": "分離と再結合で学ぶ C++ソフトウェア設計",
+    "author": "",
+    "language": "ja"
+  },
+  "paths": {
+    "dist": "books/volume01-core-patterns/publishing/dist",
+    "slides": "books/volume01-core-patterns/publishing/slides",
+    "cover": "books/volume01-core-patterns/cover/cover.png"
+  },
+  "chapters": [
+    "books/volume01-core-patterns/output/preface.md",
+    "books/volume01-core-patterns/output/chapter00.md",
+    "books/volume01-core-patterns/output/chapter01.md",
+    "books/volume01-core-patterns/output/chapter02.md",
+    "books/volume01-core-patterns/output/chapter03.md",
+    "books/volume01-core-patterns/output/epilogue.md"
+  ],
+  "slidePageOrder": [
+    "preface",
+    "chapter00",
+    "chapter01",
+    "chapter02",
+    "chapter03",
+    "epilogue"
+  ],
+  "rendering": {
+    "codeImageWidth": 2000,
+    "maxImageHeight": 1600,
+    "firstCodeLines": 19,
+    "continuedCodeLines": 22,
+    "orphanThreshold": 4,
+    "mermaidScale": 3,
+    "slideDpi": 150
+  },
+  "formats": [
+    "epub",
+    "mobi",
+    "pdf"
+  ]
+}
