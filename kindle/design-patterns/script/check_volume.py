@@ -288,7 +288,10 @@ def check(config_path: Path) -> int:
     if glossary:
         defined = set(re.findall(r"\*\*「([^」]+)」\*\*", glossary.group(1)))
         body = "\n".join(p.read_text(encoding="utf-8") for p in chapters[2:])
-        for term in ("接続点", "契約", "具体", "骨格", "注入", "混在", "変わる側", "守る側"):
+        for term in (
+            "接続点", "契約", "具体", "骨格", "注入", "混在",
+            "変わる側", "守る側", "変化軸",
+        ):
             used = len(re.findall(term, body))
             if used >= 10 and term not in defined:
                 failures.append(
