@@ -59,11 +59,11 @@
 
 | 分冊 | 供給元 | 供給元の状態 |
 |---|---|---|
-| `preface.md` | `output/chapter00_1.md` | 古い（矛盾修正・読みやすさ改修が入っていない） |
-| `chapter00.md` | `output/chapter00_2.md` | 古い |
-| `chapter01.md` | `output/chapter01.md` | 古い |
-| `chapter02.md` | `output/chapter03.md` | 古い |
-| `chapter03.md` | `output/chapter07.md` | 古い |
+| `01-preface.md` | `output/chapter00_1.md` | 古い（矛盾修正・読みやすさ改修が入っていない） |
+| `02-chapter00.md` | `output/chapter00_2.md` | 古い |
+| `03-chapter01.md` | `output/chapter01.md` | 古い |
+| `04-chapter02.md` | `output/chapter03.md` | 古い |
+| `05-chapter03.md` | `output/chapter07.md` | 古い |
 
 第2冊を作るときは、**上の5つを `output/` から複製しないこと**。分冊側を起点にする。
 `output/` の第2・4・5・6・8章と第二部は、まだ手を入れていないので複製してよい。

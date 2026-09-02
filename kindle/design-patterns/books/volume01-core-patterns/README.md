@@ -4,14 +4,19 @@
 
 ## 収録順と章番号
 
-| 新しい掲載順 | コピー元 | 扱う内容 |
+ファイル名の先頭の番号が、そのまま本へ結合する順です。
+
+| 掲載順 | このフォルダのファイル | コピー元（旧一枚本） |
 |---|---|---|
-| はじめに | `output/chapter00_1.md` | 本書の目的と3つの設計原則 |
-| 第0章 | `output/chapter00_2.md` | 7フェーズと設計判断の地図 |
-| 第1章 | `output/chapter01.md` | Strategy：ルールを差し替える |
-| 第2章 | `output/chapter03.md` | State：状態ごとの振る舞いと遷移を分ける |
-| 第3章 | `output/chapter07.md` | Observer：変化の発生元と通知先を分ける |
-| おわりに | `output/epilogue.md` | 三つの構造から共通思考を振り返る |
+| はじめに | `output/01-preface.md` | `../../output/chapter00_1.md` |
+| 第0章 | `output/02-chapter00.md` | `../../output/chapter00_2.md` |
+| 第1章 Strategy | `output/03-chapter01.md` | `../../output/chapter01.md` |
+| 第2章 State | `output/04-chapter02.md` | `../../output/chapter03.md` |
+| 第3章 Observer | `output/05-chapter03.md` | `../../output/chapter07.md` |
+| おわりに | `output/06-epilogue.md` | `../../output/epilogue.md` |
+| 奥付 | `output/07-colophon.md` | 分冊で新規作成 |
+
+**コピー元はすでに古い。** 初版に向けた修正はすべてこのフォルダ側へ入れてある。
 
 ## この3章を選ぶ理由
 

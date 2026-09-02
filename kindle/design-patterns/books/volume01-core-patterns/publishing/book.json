@@ -11,22 +11,22 @@
     "cover": "books/volume01-core-patterns/cover/cover.png"
   },
   "chapters": [
-    "books/volume01-core-patterns/output/preface.md",
-    "books/volume01-core-patterns/output/chapter00.md",
-    "books/volume01-core-patterns/output/chapter01.md",
-    "books/volume01-core-patterns/output/chapter02.md",
-    "books/volume01-core-patterns/output/chapter03.md",
-    "books/volume01-core-patterns/output/epilogue.md",
-    "books/volume01-core-patterns/output/colophon.md"
+    "books/volume01-core-patterns/output/01-preface.md",
+    "books/volume01-core-patterns/output/02-chapter00.md",
+    "books/volume01-core-patterns/output/03-chapter01.md",
+    "books/volume01-core-patterns/output/04-chapter02.md",
+    "books/volume01-core-patterns/output/05-chapter03.md",
+    "books/volume01-core-patterns/output/06-epilogue.md",
+    "books/volume01-core-patterns/output/07-colophon.md"
   ],
   "slidePageOrder": [
-    "preface",
-    "chapter00",
-    "chapter01",
-    "chapter02",
-    "chapter03",
-    "epilogue",
-    "colophon"
+    "01-preface",
+    "02-chapter00",
+    "03-chapter01",
+    "04-chapter02",
+    "05-chapter03",
+    "06-epilogue",
+    "07-colophon"
   ],
   "rendering": {
     "codeImageWidth": 2000,
