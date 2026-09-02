@@ -27,6 +27,9 @@
  19. 図が横に広がりすぎていない（頁幅へ縮むと文字が読めなくなる）
  20. 変更影響グラフの箱が、第0章の規約4種のどれかになっている
  21. 第0章が挙げる章内の節名が、実践章の見出しと一致する
+ 22. 執筆用テンプレートの穴埋め記号が本文に残っていない
+ 23. 「第N章／はじめに で触れた○○」の話題が、その参照先に実在する
+ 24. 種類の違うID（問題・原因・課題）を等号で結んでいない
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -509,6 +512,67 @@ def check(config_path: Path) -> int:
                             f"{path.name}: 「{part}」を章内の項目として挙げていますが、"
                             f"実践章にその見出しがありません"
                         )
+
+    # 22. 執筆用テンプレートの穴埋め
+    # 図のラベル【追加】【変更】や、掲載箇所を示す【ここで確認するコード】は本文の一部。
+    # 埋めないまま残った「【○○を書く】」だけを落とす。
+    allowed = re.compile(
+        r"【(?:追加|変更|削除|接続|ここで確認するコード|変更前から抜き出す箇所"
+        r"|今回の変更から守る部分（守りたい骨格）|過剰コード：[^】]*|痛みのコード[^】]*"
+        r"|現状コード[^】]*|完成コード[^】]*)】"
+    )
+    for path in chapters:
+        for number, line in prose_lines(path.read_text(encoding="utf-8")):
+            for hole in re.findall(r"【[^】]{2,30}】", line):
+                if allowed.fullmatch(hole):
+                    continue
+                if re.search(r"(?:と同じ|を書く|方法|条件|クラス|場所|文|値|範囲|結果)】$", hole):
+                    failures.append(
+                        f"{path.name}:{number}: 執筆用の穴埋め {hole} が本文に残っています"
+                    )
+
+    # 23. 他ファイルの話題を名指しする参照
+    # 「第0章で触れたUSB充電の例え」のように、章をまたいで話題を指す文が、
+    # 移動・削除の後も古い参照先を指したままになるのを防ぐ。
+    where = {}
+    for path in chapters:
+        body = path.read_text(encoding="utf-8")
+        heading = re.search(r"^#\s*(.+)$", body, re.M)
+        if heading:
+            where[heading.group(1).strip()] = body
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        for target, topic in re.findall(
+            r"(第\d+章|「はじめに」|「おわりに」)(?:で|の)(?:触れた|挙げた|見た|示した)"
+            r"([^\n]{2,12}?)(?:の例え|の例|の話|を)", text
+        ):
+            name = target.strip("「」")
+            source = next(
+                (b for h, b in where.items() if h.startswith(name) or name in h), None
+            )
+            if source is None or path.read_text(encoding="utf-8") is source:
+                continue
+            core = re.sub(r"[「」『』]", "", topic)
+            if core and core not in source:
+                failures.append(
+                    f"{path.name}: 「{name}で触れた{topic}」と書いていますが、"
+                    f"{name}にその話題がありません"
+                )
+
+    # 24. 種類の違うIDを等号で結ばない
+    # 「問題ID1＝原因ID1」は、痛みと原因が同じものだと読ませる。
+    # 導出の向き（原因から課題、痛みから原因）が消えるため、矢印か文で書く。
+    kinds = "(?:問題|原因|課題|要求|変更|リスク)ID\\d"
+    for path in chapters:
+        for number, line in prose_lines(path.read_text(encoding="utf-8")):
+            for left, right in re.findall(
+                rf"({kinds})[^。\n]{{0,60}}?＝\s*({kinds})", line
+            ):
+                if left[:2] != right[:2]:
+                    failures.append(
+                        f"{path.name}:{number}: {left}と{right}を「＝」で結んでいます。"
+                        f"種類の違うIDは導出の向きが分かる書き方にしてください"
+                    )
 
     if failures:
         print("\n".join(failures))
