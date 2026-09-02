@@ -115,6 +115,24 @@ def main() -> int:
                 ],
             ))
             checks.append((
+                f"Forward refs: {volume_config.parents[1].name}",
+                [
+                    python,
+                    str(SCRIPT_DIR / "check_forward.py"),
+                    "--config",
+                    str(volume_config),
+                ],
+            ))
+            checks.append((
+                f"Code anchoring: {volume_config.parents[1].name}",
+                [
+                    python,
+                    str(SCRIPT_DIR / "check_anchor.py"),
+                    "--config",
+                    str(volume_config),
+                ],
+            ))
+            checks.append((
                 f"Sources build: {volume_config.parents[1].name}",
                 [
                     python,
