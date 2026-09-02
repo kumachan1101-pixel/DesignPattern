@@ -419,7 +419,22 @@ def remove_first_heading(markdown_text: str) -> str:
     return markdown_text[: match.start()] + markdown_text[match.end() :]
 
 
-def preceding_block_title(markdown_text: str, position: int) -> str | None:
+def preceding_block_title(markdown_text: str, position: int) -> tuple[str | None, str | None]:
+    """コード画像へ焼くタイトルと、本文から取り除く行を返す。
+
+    本文の直前行がそのコードの題名になっている場合、画像にも同じ文字列を
+    焼くと読者は同じ題名を2回読むことになる。そこで、題名として使った行は
+    本文から取り除く。取り除く行が無いときは2つ目が None になる。
+
+    タイトルの取り方は次の順で試す。
+
+      1. 直前の見出し（## 〜 ######）
+      2. 直前の太字だけの行（`**Order**`、`**ここで確認するコード：`X`** ―― 説明`）
+      3. コード自身が定義している型・関数の名前
+
+    3まで落ちるのは、直前が普通の文になっている場合である。ここで打ち切ると
+    「タイトルのある画像とない画像が混ざる」ので、コードから拾って必ず付ける。
+    """
     lines = markdown_text[:position].splitlines()
     for line in reversed(lines[-10:]):
         stripped = line.strip()
@@ -427,14 +442,47 @@ def preceding_block_title(markdown_text: str, position: int) -> str | None:
             continue
         heading = re.match(r"^#{2,6}\s+(.+?)\s*$", stripped)
         if heading:
-            return strip_markdown(heading.group(1))
-        bold = re.match(r"^\*\*(.+?)\*\*[：:]?\s*$", stripped)
+            return strip_markdown(heading.group(1)), None
+        bold = re.match(r"^\*\*(.+?)\*\*[：:]?\s*(?:[―—-]{2}\s*(.*))?$", stripped)
         if bold:
-            return strip_markdown(bold.group(1))
+            label = strip_markdown(bold.group(1))
+            note = strip_markdown(bold.group(2) or "")
+            return (f"{label} ―― {note}" if note else label), line
         if stripped.startswith(("```", "<", "|", ">")):
             continue
         break
-    return None
+    return None, None
+
+
+def title_from_code(source: str, language: str) -> str:
+    """コードや実行結果の中身から題名を作る。
+
+    直前の行が普通の文になっている箇所では、見出しからは題名を取れない。
+    そこで中身から拾う。ここで打ち切ると「題名のある画像とない画像が
+    混ざる」ため、最後は種類だけでも必ず返す。
+    """
+    if language != "cpp":
+        if re.search(r"^---\s*行\d", source, re.M):
+            return "実行結果"
+        if re.search(r"[├└│┌]", source):
+            return "構成図"
+        return "出力"
+
+    kind = re.search(r"\b(class|struct|enum)\s+(\w+)", source)
+    if kind:
+        return kind.group(2)
+    outer = re.search(r"\b(\w+)::(\w+)\s*\(", source)
+    if outer:
+        return f"{outer.group(1)}::{outer.group(2)}()"
+    if re.search(r"\bint\s+main\s*\(", source):
+        return "main()"
+    free = re.search(r"^[A-Za-z_][\w:<>&*\s]*?\b(\w+)\s*\([^)]*\)\s*\{",
+                     source, re.M)
+    if free:
+        return f"{free.group(1)}()"
+    if re.search(r"^\s*#include", source, re.M):
+        return "共通ヘッダー"
+    return "コード（抜粋）"
 
 
 def content_hash(*parts: Any) -> str:
@@ -728,6 +776,8 @@ def replace_fenced_blocks(
     code_index = 0
     mermaid_index = 0
     stats = {"code_blocks": 0, "code_images": 0, "mermaid_blocks": 0}
+    # 画像へ焼いた題名の元になった本文の行。あとで本文から取り除く。
+    consumed_titles: list[str] = []
 
     def replacement(match: re.Match[str]) -> str:
         nonlocal code_index, mermaid_index
@@ -753,7 +803,11 @@ def replace_fenced_blocks(
 
         code_index += 1
         stats["code_blocks"] += 1
-        title = preceding_block_title(markdown_text, match.start())
+        title, consumed = preceding_block_title(markdown_text, match.start())
+        if not title:
+            title = title_from_code(source, language)
+        if consumed:
+            consumed_titles.append(consumed)
         images = render_code_block(
             config,
             dirs["code"],
@@ -772,7 +826,11 @@ def replace_fenced_blocks(
         )
         return f'\n\n<div class="code-image-stack">{image_html}</div>\n\n'
 
-    return FENCE_RE.sub(replacement, markdown_text), stats
+    rendered = FENCE_RE.sub(replacement, markdown_text)
+    # 画像へ焼いた題名は、本文から取り除く。同じ題名を2回読ませないため。
+    for line in consumed_titles:
+        rendered = rendered.replace(f"\n{line}\n", "\n", 1)
+    return rendered, stats
 
 
 def copy_slide(config: BookConfig, chapter_stem: str, slide_dir: Path) -> Path | None:
