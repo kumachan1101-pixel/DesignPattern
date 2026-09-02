@@ -1304,7 +1304,7 @@ int main() {
 }
 ```
 
-**CheckoutResultRenderer::showOrderResult() の条件表示（変更後）**
+**`CheckoutResultRenderer` の `showOrderResult()` ―― 条件表示（変更後）**
 
 このブロックでは条件表示の1文だけを確認します。引数と他の出力は1-4のままです。
 
@@ -2880,7 +2880,7 @@ int main() {
 **要求ID5**
 
 - **最終要求**：計算結果を購入結果として表示する
-- **適用コード**：`CheckoutResultRenderer::showOrderResult()`
+- **適用コード**：`CheckoutResultRenderer` の `showOrderResult()`
 - **実行シナリオ**：全シナリオで会員種別・キャンペーン・サマーセールの条件と、適用した割引名・支払金額を表示
 - **判定**：合格
 
@@ -2942,7 +2942,10 @@ int main() {
 > | `PaymentCalculator.h` / `.cpp` | 金額計算 | 契約だけを見るので、`Discounts.h` を含めない |
 > | `main.cpp` | 生成と受け渡し | 具体ルール名も優先順も書かない |
 >
-> **このとおりに分けたファイル一式を用意しています。** 本書のリポジトリの `books/volume01-core-patterns/sources/chapter01/` に、上の表どおりのヘッダーと `main.cpp`、`Makefile` が入っています。`make run` でそのまま動きます。
+> **このとおりに分けたファイル一式を用意しています。** 本書のリポジトリの次の場所に、上の表どおりのヘッダーと `main.cpp`、`Makefile` が入っています。`make run` でそのまま動きます。
+>
+> > `books/volume01-core-patterns/`
+> > `sources/chapter01/`
 >
 > 分け方の目安は「**そのファイルが何をインクルードすることになるか**」です。`PaymentCalculator.cpp` が `Discounts.h` を含めることになったら、それは分離が崩れた合図です。
 

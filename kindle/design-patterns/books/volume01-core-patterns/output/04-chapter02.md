@@ -1618,7 +1618,13 @@ graph TD
 - **システム全体での設計判断**：利用側は`reserve()`／`cancel()`だけを呼び、現在状態への委譲と席解放後の自動昇格は内部で続く
 - **守る側が知らなくなる詳細**：現在状態と待機者選択の詳細
 
-**構想上のコード経路：** `BatchApplication`（状態と待ち行列を所有）→ `TicketReservation::cancel()`（公開入口）→ `IReservationState::cancel()`（契約）→ `ReservedState::cancel()`（具体状態）→ 待ち行列から次の予約を昇格
+**構想上のコード経路**
+
+1. `BatchApplication` ―― 状態と待ち行列を所有する
+2. `TicketReservation::cancel()` ―― 公開入口
+3. `IReservationState::cancel()` ―― 契約
+4. `ReservedState::cancel()` ―― 具体状態
+5. 待ち行列から次の予約を昇格する
 
 この経路が成立するには、契約だけでなく、具体を選ぶ方法、実体の生成・所有、利用側へ渡す行、公開入口からの呼び出しが同時に必要です。以下では、この構想を分断せず、コードの依存順に続けて確認します。
 
@@ -1750,7 +1756,7 @@ public:
 
 **課題ID2（待ち行列軸）。** 同じことを待機順の管理にします。
 
-**変更前から抜き出す箇所：`TicketReservation::promoteNextWaitlisted()`** ―― 3-1の待ち行列操作（対策前）
+**変更前から抜き出す箇所：`TicketReservation` の `promoteNextWaitlisted()`** ―― 3-1の待ち行列操作（対策前）
 
 ```cpp
 void TicketReservation::promoteNextWaitlisted() {
@@ -1974,7 +1980,7 @@ class BatchApplication {
 
 **2回目は、状態が遷移するたびです。**
 
-**ここで確認するコード：`ReservedState::cancel(TicketReservation*)`** ―― 具体コードで書いた1行目
+**ここで確認するコード：`ReservedState` の `cancel()`** ―― 具体コードで書いた1行目（引数は `TicketReservation*`）
 
 ```cpp
         reservation->setState(availableState());   // ←ここで次の実装が入る
@@ -3167,7 +3173,10 @@ int main() {
 > | `EventDatabase.h` / `.cpp` | 席数の管理 | 状態の話とは別に変わる |
 > | `main.cpp` | 生成と実行 | 状態クラス名を書かない |
 >
-> **このとおりに分けたファイル一式を用意しています。** 本書のリポジトリの `books/volume01-core-patterns/sources/chapter02/` に、上の表どおりのヘッダーと `States.cpp`、`main.cpp`、`Makefile` が入っています。`make run` でそのまま動きます。
+> **このとおりに分けたファイル一式を用意しています。** 本書のリポジトリの次の場所に、上の表どおりのヘッダーと `States.cpp`、`main.cpp`、`Makefile` が入っています。`make run` でそのまま動きます。
+>
+> > `books/volume01-core-patterns/`
+> > `sources/chapter02/`
 >
 > ここで1つ引っかかる点があります。**状態クラスどうしが互いを参照します**（`ReservedState` が `AvailableState` を名指しする）。1ファイルに全状態を入れれば素直に書けますが、状態ごとにファイルを分けると、前方宣言や相互インクルードの扱いが要ります。この章のように状態が5つ程度なら、**`States.h` に全部入れるほうが読みやすい**と私は考えています。
 

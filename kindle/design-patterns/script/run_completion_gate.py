@@ -115,6 +115,15 @@ def main() -> int:
                 ],
             ))
             checks.append((
+                f"Kindle layout: {volume_config.parents[1].name}",
+                [
+                    python,
+                    str(SCRIPT_DIR / "check_layout.py"),
+                    "--config",
+                    str(volume_config),
+                ],
+            ))
+            checks.append((
                 f"Forward refs: {volume_config.parents[1].name}",
                 [
                     python,
