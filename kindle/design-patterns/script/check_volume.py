@@ -21,6 +21,10 @@
  13. クラス図の関係線が、第0章の規約6種（と、その矢先つき表記）に収まる
  14. 同じクラスの組が、章の中で違う線で描かれていない
  15. 掲載コードが値で持つ関係は、白ひし形ではなく黒ひし形で描かれている
+ 16. 実践章の全部に同じ読み方の指示が繰り返されていない
+ 17. 表のセルに文が入っていない（6インチ端末で列が潰れる）
+ 18. コード行が表示幅80桁に収まる
+ 19. 図が横に広がりすぎていない（頁幅へ縮むと文字が読めなくなる）
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -31,7 +35,13 @@ import argparse
 import json
 import re
 import sys
+import unicodedata
 from pathlib import Path
+
+
+def display_width(text: str) -> int:
+    """全角を2、半角を1として表示幅を数える。"""
+    return sum(2 if unicodedata.east_asian_width(c) in "WFA" else 1 for c in text)
 
 
 BOOK_ROOT = Path(__file__).resolve().parents[1]
@@ -248,15 +258,20 @@ def check(config_path: Path) -> int:
     arrow = r"(?:<\|--|<\|\.\.|\*-->|o-->|\*--|o--|-->|\.\.>)"
     for path in chapters:
         text = path.read_text(encoding="utf-8")
-        diagram = re.search(
-            r"####\s*完成後のクラス図(.*?)```mermaid\n(.*?)```", text, re.S
-        )
+        head = re.search(r"^####\s*完成後のクラス図\s*$", text, re.M)
         code = re.search(r"####\s*完成コード(.*?)(?=\n###\s|\n##\s)", text, re.S)
-        if not diagram or not code:
+        if not head or not code:
             continue
-        drawn = set(re.findall(r"^\s*class\s+([A-Z]\w*)", diagram.group(2), re.M))
-        drawn |= set(re.findall(rf"^\s*([A-Z]\w*)\s*{arrow}", diagram.group(2), re.M))
-        drawn |= set(re.findall(rf"{arrow}\s*([A-Z]\w*)", diagram.group(2)))
+        # 図は読みやすさのために複数枚へ分けることがある。節の中の全図を合わせて見る。
+        section = text[head.end(): code.start()]
+        drawn: set[str] = set()
+        for diagram_source in re.findall(r"```mermaid\n(.*?)```", section, re.S):
+            if "classDiagram" not in diagram_source:
+                continue
+            drawn |= set(re.findall(r"^\s*class\s+([A-Z]\w*)", diagram_source, re.M))
+            drawn |= set(re.findall(rf"^\s*([A-Z]\w*)\s*{arrow}", diagram_source, re.M))
+            drawn |= set(re.findall(rf"{arrow}\s*([A-Z]\w*)", diagram_source))
+        diagram = type("S", (), {"group": lambda self, n: section})()
         written = set(re.findall(r"\b(?:class|struct)\s+([A-Z]\w*)", code.group(1)))
         undrawn = sorted(written - drawn)
         if undrawn and not re.search(r"省略|描いていません|載せていません|割愛", diagram.group(1)):
@@ -380,6 +395,79 @@ def check(config_path: Path) -> int:
                         f"{path.name}: {left} は {right} を値で持っているのに、"
                         f"図では共有集約（{arrow}）です。第0章の規約では黒ひし形です"
                     )
+
+    # 16. 実践章に繰り返される読み方の指示
+    practice = [p for p in chapters if re.match(r"chapter\d", p.name)]
+    if len(practice) >= 3:
+        counter: dict[str, int] = {}
+        for path in practice:
+            body = re.sub(r"```.*?```", "", path.read_text(encoding="utf-8"), flags=re.S)
+            for sentence in {s.strip() for s in re.split(r"(?<=。)", body)}:
+                if 15 < len(sentence) < 160 and not sentence.startswith(("|", "#", ">", "-", "*")):
+                    counter[sentence] = counter.get(sentence, 0) + 1
+        guides = ("上から順に", "コードを読むときは", "1つずつ、上から順に", "連結すれば")
+        for sentence, times in counter.items():
+            if times >= len(practice) and any(g in sentence for g in guides):
+                failures.append(
+                    f"読み方の指示「{sentence[:34]}」が実践章 {times} 本すべてにあります。"
+                    f"第0章へ一度だけ置いてください"
+                )
+
+    # 17〜19. Kindleでの見え方
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        if re.search(r"^>\s*\[!\w+\]", text, re.M) and False:
+            pass  # コールアウトは build_epub 側で見出しへ変換する
+        in_fence = False
+        fence_lang = ""
+        for number, line in enumerate(text.split("\n"), 1):
+            if line.startswith("```"):
+                fence_lang = line[3:].strip() if not in_fence else ""
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                # Mermaidの原文は画像へ描き換わるので読者には見えない。
+                # 読者が読むのはコードと実行結果だけ。
+                if fence_lang not in ("cpp", ""):
+                    continue
+                if display_width(line) > 80:
+                    failures.append(
+                        f"{path.name}:{number}: コード行の表示幅が "
+                        f"{display_width(line)} 桁です（80桁に収めてください）"
+                    )
+                continue
+            if not line.strip().startswith("|") or re.match(r"^\|[\s:-]+\|", line):
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            longest = max((display_width(c) for c in cells), default=0)
+            if longest > 80:
+                failures.append(
+                    f"{path.name}:{number}: 表のセルが {longest} 桁あります。"
+                    f"6インチ端末では列が潰れるので、表から外して書いてください"
+                )
+
+    # 19. 図の横幅
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        for number, diagram in enumerate(
+            re.findall(r"```mermaid\n(.*?)```", text, re.S), 1
+        ):
+            # 横に並ぶ要素が多いほど、頁幅へ縮めたときに文字が小さくなる。
+            # クラス図は葉の数、シーケンス図は参加者の数で見る。
+            if "classDiagram" in diagram:
+                boxes = len(re.findall(r"^\s*class\s+\w+", diagram, re.M))
+                limit, kind = 10, "クラス"
+            elif "sequenceDiagram" in diagram:
+                boxes = len(re.findall(r"^\s*participant\s", diagram, re.M))
+                limit, kind = 6, "参加者"
+            else:
+                continue
+            if boxes > limit:
+                failures.append(
+                    f"{path.name}: {number}枚目の図に{kind}が {boxes} あります"
+                    f"（{limit} を超えると頁幅へ縮んだとき文字が読めません）。"
+                    f"責任のまとまりで分けてください"
+                )
 
     if failures:
         print("\n".join(failures))

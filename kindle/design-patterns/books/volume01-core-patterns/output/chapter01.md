@@ -233,11 +233,23 @@ Premium会員にキャンペーン割引が重ならない理由は、業務上�
 
 正常系の金額計算へ進めない入力は、次のように分けて扱います。
 
-| エラー条件 | どこで分かるか | 出力 | 保存・通知などの副作用 |
-|---|---|---|---|
-| 顧客IDが顧客データに存在しない | 顧客IDから会員種別を取得する前 | 未登録顧客エラー | なし |
-| 顧客情報取得に失敗する | 顧客データ取得時 | 顧客情報取得エラー | なし（掲載コードでは発生しない。実運用のDB／API失敗を代替する`try`/`catch`で表す） |
-| 注文の商品リストが空 | 小計を合算する前 | 空注文エラー | なし |
+**顧客IDが顧客データに存在しない**
+
+- **どこで分かるか**：顧客IDから会員種別を取得する前
+- **出力**：未登録顧客エラー
+- **保存・通知などの副作用**：なし
+
+**顧客情報取得に失敗する**
+
+- **どこで分かるか**：顧客データ取得時
+- **出力**：顧客情報取得エラー
+- **保存・通知などの副作用**：なし（掲載コードでは発生しない。実運用のDB／API失敗を代替する`try`/`catch`で表す）
+
+**注文の商品リストが空**
+
+- **どこで分かるか**：小計を合算する前
+- **出力**：空注文エラー
+- **保存・通知などの副作用**：なし
 
 ### 1-2：動作例テーブル
 
@@ -274,6 +286,7 @@ Premium会員にキャンペーン割引が重ならない理由は、業務上�
 
 ```mermaid
 classDiagram
+    direction TB
     class CheckoutResultRenderer
     class CustomerDatabase {
         -map~string,CustomerInfo~ records
@@ -401,7 +414,7 @@ sequenceDiagram
 
 クラスを1つずつ、上から順に読みます。メンバー変数と、それを使う処理を同じ場所で確認できるようにしています。`OrderProcessor` は処理順が長いため、最初に保持する相手と公開操作を確認し、その後で `process()` の中を順に追います。
 
-`main()` と実行結果は最後に、動作例ごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+`main()` と実行結果は最後に、動作例ごとに並べます。
 
 ---
 
@@ -433,8 +446,6 @@ public:
 ```
 
 **Order**
-
-このブロックでは `Order` の定義だけを確認します。
 
 ```cpp
 class Order {
@@ -473,8 +484,6 @@ struct CustomerInfo {
 ```
 
 **CustomerDatabase**
-
-このブロックでは `CustomerDatabase` の定義だけを確認します。
 
 ```cpp
 class CustomerDatabase {
@@ -836,11 +845,23 @@ int main() {
 
 1-1の入力を、受け取り口から利用箇所、確認できる結果まで追います。構造体に値があるだけでなく、各値が判定または計算に実際に使われることを確認します。
 
-| 仕様入力 | コード上の受け取り口 | 実際に使う箇所 | 結果への現れ方 |
-|---|---|---|---|
-| 商品リスト | `Order::items` を `OrderProcessor::process()` へ渡す | `PaymentCalculator::calculate()` が全商品の `price` を合計する | 小計と支払金額に反映される |
-| 顧客ID | `Order::customerId` | `CustomerDatabase::exists()` / `get()` で会員種別を取得する | Premium・Regularの割引、未登録IDエラーに分かれる |
-| キャンペーン状態 | `CampaignContext::isCampaignActive` | `PaymentCalculator::calculate()` のRegular向け条件判定 | 有効時だけキャンペーン割引が反映される |
+**商品リスト**
+
+- **コード上の受け取り口**：`Order::items` を `OrderProcessor::process()` へ渡す
+- **実際に使う箇所**：`PaymentCalculator::calculate()` が全商品の `price` を合計する
+- **結果への現れ方**：小計と支払金額に反映される
+
+**顧客ID**
+
+- **コード上の受け取り口**：`Order::customerId`
+- **実際に使う箇所**：`CustomerDatabase::exists()` / `get()` で会員種別を取得する
+- **結果への現れ方**：Premium・Regularの割引、未登録IDエラーに分かれる
+
+**キャンペーン状態**
+
+- **コード上の受け取り口**：`CampaignContext::isCampaignActive`
+- **実際に使う箇所**：`PaymentCalculator::calculate()` のRegular向け条件判定
+- **結果への現れ方**：有効時だけキャンペーン割引が反映される
 
 ### 1-5：変更要求
 
@@ -852,31 +873,77 @@ int main() {
 
 依頼文を、実行結果で判定できる変更依頼へ分けます。
 
-| 変更依頼ID | 確定した変更内容 | 入力 | 受入条件 |
-|---|---|---|---|
-| 変更ID1 | Regular会員へサマーセール5%を追加し、Premium会員は対象外にする | 会員種別、サマーセールフラグ | Regularかつセール中だけ5%が適用され、Premiumの20%は変わらない |
-| 変更ID2 | 既存キャンペーンと重なる場合は逐次割引する | キャンペーンフラグ、変更ID1適用前の金額 | 10,000円へ10%引き後に5%引きを適用し、8,550円になる |
+**変更ID1**
+
+- **確定した変更内容**：Regular会員へサマーセール5%を追加し、Premium会員は対象外にする
+- **入力**：会員種別、サマーセールフラグ
+- **受入条件**：Regularかつセール中だけ5%が適用され、Premiumの20%は変わらない
+
+**変更ID2**
+
+- **確定した変更内容**：既存キャンペーンと重なる場合は逐次割引する
+- **入力**：キャンペーンフラグ、変更ID1適用前の金額
+- **受入条件**：10,000円へ10%引き後に5%引きを適用し、8,550円になる
 
 #### 変更後要求ベースライン
 
-| 要求ID | 変更種別・根拠となる変更ID | 変更後要求 | 受入条件 |
-|---|---|---|---|
-| 要求ID1 | 継続<br/>根拠: — | 商品リストの小計から最終支払金額を計算する | 登録商品10,000円の小計と割引後金額を返す |
-| 要求ID2 | 継続<br/>根拠: 変更ID1 | Premium会員へ20%割引を適用し、他割引と併用しない | セール中でもPremiumは8,000円になる |
-| 要求ID3 | 継続<br/>根拠: — | Regular会員はキャンペーン中だけ10%割引する | キャンペーンだけなら9,000円になる |
-| 要求ID4 | 継続<br/>根拠: — | 顧客IDから会員種別を取得する | 登録・未登録の既存動作を維持する |
-| 要求ID5 | 変更<br/>根拠: 変更ID1, 変更ID2 | 計算結果を購入結果として表示する | サマーセールの有無と適用した割引名を含め、全割引と最終金額を表示する |
-| 要求ID6 | 継続<br/>根拠: — | 注文確定前に同じ条件の支払金額をプレビューする | 顧客IDから会員種別を取得し、購入結果と同じ金額を返す |
-| 要求ID7 | 追加<br/>根拠: 変更ID1, 変更ID2 | Regularへサマーセール5%を追加し、既存割引後へ逐次適用する | セールのみ9,500円、キャンペーン併用8,550円、Premiumは対象外になる |
+**要求ID1**
+
+- **変更種別・根拠となる変更ID**：継続<br/>根拠: —
+- **変更後要求**：商品リストの小計から最終支払金額を計算する
+- **受入条件**：登録商品10,000円の小計と割引後金額を返す
+
+**要求ID2**
+
+- **変更種別・根拠となる変更ID**：継続<br/>根拠: 変更ID1
+- **変更後要求**：Premium会員へ20%割引を適用し、他割引と併用しない
+- **受入条件**：セール中でもPremiumは8,000円になる
+
+**要求ID3**
+
+- **変更種別・根拠となる変更ID**：継続<br/>根拠: —
+- **変更後要求**：Regular会員はキャンペーン中だけ10%割引する
+- **受入条件**：キャンペーンだけなら9,000円になる
+
+**要求ID4**
+
+- **変更種別・根拠となる変更ID**：継続<br/>根拠: —
+- **変更後要求**：顧客IDから会員種別を取得する
+- **受入条件**：登録・未登録の既存動作を維持する
+
+**要求ID5**
+
+- **変更種別・根拠となる変更ID**：変更<br/>根拠: 変更ID1, 変更ID2
+- **変更後要求**：計算結果を購入結果として表示する
+- **受入条件**：サマーセールの有無と適用した割引名を含め、全割引と最終金額を表示する
+
+**要求ID6**
+
+- **変更種別・根拠となる変更ID**：継続<br/>根拠: —
+- **変更後要求**：注文確定前に同じ条件の支払金額をプレビューする
+- **受入条件**：顧客IDから会員種別を取得し、購入結果と同じ金額を返す
+
+**要求ID7**
+
+- **変更種別・根拠となる変更ID**：追加<br/>根拠: 変更ID1, 変更ID2
+- **変更後要求**：Regularへサマーセール5%を追加し、既存割引後へ逐次適用する
+- **受入条件**：セールのみ9,500円、キャンペーン併用8,550円、Premiumは対象外になる
 
 **変更前→変更後の要求対照（今回変える要求IDだけ）**
 
 現行ベースラインと変更後ベースラインを往復せずに済むよう、今回変える要求IDだけを取り出し、変更前と変更後を同じ行へ並べます。
 
-| 要求ID | 変更前の要求（現行） | 変更後の有効要求 | 根拠変更ID |
-|---|---|---|---|
-| 要求ID5 | 顧客・小計・適用割引・支払金額を表示する | サマーセールの有無と適用した割引名を含め、全割引と最終金額を表示する | 変更ID1・変更ID2 |
-| 要求ID7 | （新規・現行なし） | Regularへサマーセール5%を追加し、既存割引後へ逐次適用する | 変更ID1・変更ID2 |
+**要求ID5**
+
+- **変更前の要求（現行）**：顧客・小計・適用割引・支払金額を表示する
+- **変更後の有効要求**：サマーセールの有無と適用した割引名を含め、全割引と最終金額を表示する
+- **根拠変更ID**：変更ID1・変更ID2
+
+**要求ID7**
+
+- **変更前の要求（現行）**：（新規・現行なし）
+- **変更後の有効要求**：Regularへサマーセール5%を追加し、既存割引後へ逐次適用する
+- **根拠変更ID**：変更ID1・変更ID2
 
 要求ID1〜要求ID4と要求ID6は継続（変更前＝変更後）のため対照表には載せません。変更後ベースラインで内容を確認できます。要求ID5を変更に含めたのは、サマーセールという新しい条件と、逐次適用したときの割引名を購入結果へ出す必要があり、`CheckoutResultRenderer` へ渡す値が増えるためです。
 
@@ -906,13 +973,35 @@ int main() {
 
 **変更後の動作例**
 
-| 会員種別    | キャンペーン     | サマーセール | 変更前/後の支払金額（1万円の場合）                                |
-| ------- | ---------- | ------ | ------------------------------------------------- |
-| Premium | ✓          | ✓      | 8,000円（20%引き）→ 8,000円（変更なし）                       |
-| Regular | ✓          | ✓      | 9,000円（10%引き）→ **8,550円（9,000円にサマーセール5%引きを逐次適用）** |
-| Regular | ✗          | ✓      | 10,000円（割引なし）→ **9,500円（5%引き）**                   |
-| Regular | ✓ | ✗ | 9,000円 → 9,000円（変更なし） |
-| Regular | ✗ | ✗ | 10,000円 → 10,000円（変更なし） |
+**Premium**
+
+- **キャンペーン**：✓
+- **サマーセール**：✓
+- **変更前/後の支払金額（1万円の場合）**：8,000円（20%引き）→ 8,000円（変更なし）
+
+**Regular**
+
+- **キャンペーン**：✓
+- **サマーセール**：✓
+- **変更前/後の支払金額（1万円の場合）**：9,000円（10%引き）→ **8,550円（9,000円にサマーセール5%引きを逐次適用）**
+
+**Regular**
+
+- **キャンペーン**：✗
+- **サマーセール**：✓
+- **変更前/後の支払金額（1万円の場合）**：10,000円（割引なし）→ **9,500円（5%引き）**
+
+**Regular**
+
+- **キャンペーン**：✓
+- **サマーセール**：✗
+- **変更前/後の支払金額（1万円の場合）**：9,000円 → 9,000円（変更なし）
+
+**Regular**
+
+- **キャンペーン**：✗
+- **サマーセール**：✗
+- **変更前/後の支払金額（1万円の場合）**：10,000円 → 10,000円（変更なし）
 
 Regular会員はサマーセール中に5%引きが新たに加わります。キャンペーン割引と重なる場合は、キャンペーン適用後の金額にサマーセール割引を掛けます。プレミアム会員はすでに20%引きが適用されているため、今回のサマーセールの対象外となります。
 
@@ -962,11 +1051,23 @@ flowchart LR
 
 変更後も、エラー条件は正常系図へ混ぜずに別で確認します。
 
-| エラー条件 | どこで分かるか | 出力 | 保存・通知などの副作用 |
-|---|---|---|---|
-| 顧客IDが顧客データに存在しない | 顧客IDから会員種別を取得する前 | 未登録顧客エラー | なし |
-| 顧客情報取得に失敗する | 顧客データ取得時 | 顧客情報取得エラー | なし（掲載コードでは発生しない。実運用のDB／API失敗を代替する`try`/`catch`で表す） |
-| 注文の商品リストが空 | 小計を合算する前 | 空注文エラー | なし |
+**顧客IDが顧客データに存在しない**
+
+- **どこで分かるか**：顧客IDから会員種別を取得する前
+- **出力**：未登録顧客エラー
+- **保存・通知などの副作用**：なし
+
+**顧客情報取得に失敗する**
+
+- **どこで分かるか**：顧客データ取得時
+- **出力**：顧客情報取得エラー
+- **保存・通知などの副作用**：なし（掲載コードでは発生しない。実運用のDB／API失敗を代替する`try`/`catch`で表す）
+
+**注文の商品リストが空**
+
+- **どこで分かるか**：小計を合算する前
+- **出力**：空注文エラー
+- **保存・通知などの副作用**：なし
 
 図に加わった「逐次適用」が実際にコードのどこへ書かれるかは、フェーズ3「問題特定」で変更を試すコードと、フェーズ7の最終コード・実行結果で追います。
 
@@ -1056,10 +1157,17 @@ flowchart LR
 
 2-4（ヒアリングで判明した将来リスク）のリスクIDを、設計で扱う変化軸へ整理します。ここで「はい」とした項目は、機能を先に実装するという意味ではありません。フェーズ6で、**変えられるようにする部分を当面守る部分から分離し、その変化が起きても影響を局所化できる構造か**を判断するための印です。
 
-| リスクID・変化軸 | 変わる見込み | 変えられるようにする部分 | 今回維持する部分 |
-|---|---|---|---|
-| リスクID1：新しい割引ルールの追加が毎月続く | はい | 割引ルールの追加と選択 | 小計の合算、注文処理、支払金額の返却 |
-| リスクID2：計算方法が「パーセント引き」から「定額引き」に変わる | はい | 割引条件と金額計算式 | 割引前金額の受け渡し、注文処理、結果表示 |
+**リスクID1：新しい割引ルールの追加が毎月続く**
+
+- **変わる見込み**：はい
+- **変えられるようにする部分**：割引ルールの追加と選択
+- **今回維持する部分**：小計の合算、注文処理、支払金額の返却
+
+**リスクID2：計算方法が「パーセント引き」から「定額引き」に変わる**
+
+- **変わる見込み**：はい
+- **変えられるようにする部分**：割引条件と金額計算式
+- **今回維持する部分**：割引前金額の受け渡し、注文処理、結果表示
 
 したがって2-5（変わる見込みと今回維持する範囲を確定する）の出力は、「割引ルールと計算式は差し替え対象にし、小計の合算から結果表示までの流れは守る」という設計条件です。フェーズ3「問題特定」では変更ID1・変更ID2だけを現在の構造へ適用し、このリスクIDはフェーズ6で採用構造を評価するときに使います。
 
@@ -1219,7 +1327,7 @@ int main() {
 この図では、施策を1つ足すという1本の変更要求が、どのクラスの、どの部分まで届いたかを見ます。
 
 ```mermaid
-graph LR
+graph TD
     T1["変更要求：サマーセール追加"]
         -->|影響| A["PaymentCalculator<br>（既存の条件分岐全体）"]
     A -->|さらに影響| B["CampaignContext<br>（新しいフラグの追加）"]
@@ -1243,11 +1351,20 @@ graph LR
 
 観測した3つの痛みへ`問題ID`を付け、どの変更IDから来たかを対応づけます。
 
-| 問題ID | 観測した痛み（変更途中コード） | 起点の変更ID |
-|---|---|---|
-| 問題ID1 | サマーセール追加で `PaymentCalculator` と `CampaignContext` を同時修正し、既存割引まで回帰確認した | 変更ID1 |
-| 問題ID2 | 逐次割引の差し込み位置を決めるのに、既存の施策条件・会員条件・計算順序を読み直した | 変更ID2 |
-| 問題ID3 | 適用順序・排他条件が個別割引と同じ `if-else` に埋もれ、差し込みで既存順序を壊しやすい | 変更ID1 |
+**問題ID1**
+
+- **観測した痛み（変更途中コード）**：サマーセール追加で `PaymentCalculator` と `CampaignContext` を同時修正し、既存割引まで回帰確認した
+- **起点の変更ID**：変更ID1
+
+**問題ID2**
+
+- **観測した痛み（変更途中コード）**：逐次割引の差し込み位置を決めるのに、既存の施策条件・会員条件・計算順序を読み直した
+- **起点の変更ID**：変更ID2
+
+**問題ID3**
+
+- **観測した痛み（変更途中コード）**：適用順序・排他条件が個別割引と同じ `if-else` に埋もれ、差し込みで既存順序を壊しやすい
+- **起点の変更ID**：変更ID1
 
 フェーズ3「問題特定」で「変更が辛い」ことが確認できました。次のフェーズ4「原因分析」では、なぜ辛いのかを構造的に言語化します。
 
@@ -1268,11 +1385,11 @@ graph LR
 
 この「症状（痛み）」と「根本原因」を整理すると、以下のようになります。
 
-| **観察した症状（痛み）** | **構造的な原因（痛みの根源）**                                                                                                                    |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| 影響範囲が読めない恐怖    | `PaymentCalculator` が各割引の具体的な条件を直接知っているから                                                                                            |
-| 検索・解読コストの増大 | 変わる理由が違う2つのもの（「合算ロジック」と「割引条件」）が同じメソッドの中に混在しているから。異なる理由で変わるロジックが分離されず、同じメソッド内に直接書かれているため、割引条件が変わるたびに合算ロジックも含めたメソッド全体を確認する作業が発生する。 |
-| 逐次割引の順序を壊しやすい | 「キャンペーン後にサマーセールを掛ける」「Premiumは他割引と併用しない」といった適用順序・排他条件が、個別の割引計算と同じ `if-else` に埋まっているから。 |
+**構造的な原因（痛みの根源）**
+
+- **影響範囲が読めない恐怖**：`PaymentCalculator` が各割引の具体的な条件を直接知っているから
+- **検索・解読コストの増大**：変わる理由が違う2つのもの（「合算ロジック」と「割引条件」）が同じメソッドの中に混在しているから。異なる理由で変わるロジックが分離されず、同じメソッド内に直接書かれているため、割引条件が変わるたびに合算ロジックも含めたメソッド全体を確認する作業が発生する。
+- **逐次割引の順序を壊しやすい**：「キャンペーン後にサマーセールを掛ける」「Premiumは他割引と併用しない」といった適用順序・排他条件が、個別の割引計算と同じ `if-else` に埋まっているから。
 
 ### 4-2：今回変える責任/ほかの変更から守る責任
 
@@ -1290,9 +1407,11 @@ graph LR
 ```cpp
         // 割引：会員種別・キャンペーン・サマーセールで割引率を決める
         if (memberType == "Premium") {
-            total = total * 80 / 100;              // 20%引き（サマーセール対象外）
+            // 20%引き（サマーセール対象外）
+            total = total * 80 / 100;
         } else if (context.isSummerSale && context.isCampaignActive) {
-            total = (total * 90 / 100) * 95 / 100; // 逐次割引（10%引き後に5%引き）
+            // 逐次割引（10%引き後に5%引き）
+            total = (total * 90 / 100) * 95 / 100;
         } else if (context.isSummerSale) {
             total = total * 95 / 100;              // サマーセール5%引き
         } else if (context.isCampaignActive) {
@@ -1403,10 +1522,17 @@ public:
 
 整理した候補に課題ID1から欠番なくIDを付けます。
 
-| 課題ID・接続点 | 接続するもの・変わる側 | 守る側 | 完了条件 |
-|---|---|---|---|
-| 課題ID1：ルール選択と個別条件の境界 | **接続:** 会員種別、施策状態<br/>**変わる側:** 施策ごとの対象条件 | 登録順に条件を問い合わせ、最初に一致した施策を選ぶ流れ | 施策追加時の主な変更先が、対象条件を持つ新ルールと優先順を管理するルール集合になる |
-| 課題ID2：割引実行と金額計算の境界 | **接続:** 適用前金額と適用後金額<br/>**変わる側:** 施策ごとの計算式 | 小計計算と結果返却 | 計算側が個別式を知らず、同じ操作で逐次適用できる |
+**課題ID1：ルール選択と個別条件の境界**
+
+- **接続するもの・変わる側**：**接続:** 会員種別、施策状態<br/>**変わる側:** 施策ごとの対象条件
+- **守る側**：登録順に条件を問い合わせ、最初に一致した施策を選ぶ流れ
+- **完了条件**：施策追加時の主な変更先が、対象条件を持つ新ルールと優先順を管理するルール集合になる
+
+**課題ID2：割引実行と金額計算の境界**
+
+- **接続するもの・変わる側**：**接続:** 適用前金額と適用後金額<br/>**変わる側:** 施策ごとの計算式
+- **守る側**：小計計算と結果返却
+- **完了条件**：計算側が個別式を知らず、同じ操作で逐次適用できる
 
 📌 **システム全体の完了状態**：価格計算は個別施策の条件・式を知らず、選ばれた施策を共通操作で順に適用できる。施策の追加・切替は施策部品と組み立て箇所に閉じる。
 
@@ -1432,11 +1558,20 @@ public:
 
 まず、契約、具体、生成・所有、受け渡し、実行を一枚の構想へまとめます。
 
-| 接続点を変える観点 | システム全体での設計判断 | 変えたくない側が知らなくなる詳細 |
-|---|---|---|
-| 契約と具体 | 課題ID1の適用条件と課題ID2の計算式を`IDiscountRule`と5つの具体へ置く | 具体条件と計算式 |
-| 生成・所有・受け渡し | `DiscountRuleSet`が具体を所有し、競合方針の順で`RuleSelector`へ登録する。`main()`は完成したルール集合から同じSelectorを注文処理とプレビューへ渡す。各入口は選択した`const IDiscountRule&`を計算役へ渡す | 具体クラスの生成方法・登録順・選択結果 |
-| 公開入口からの実行 | Selectorは`matches()`、計算側は`apply()`だけを呼ぶ | 条件・式・生成の詳細 |
+**契約と具体**
+
+- **システム全体での設計判断**：課題ID1の適用条件と課題ID2の計算式を`IDiscountRule`と5つの具体へ置く
+- **変えたくない側が知らなくなる詳細**：具体条件と計算式
+
+**生成・所有・受け渡し**
+
+- **システム全体での設計判断**：`DiscountRuleSet`が具体を所有し、競合方針の順で`RuleSelector`へ登録する。`main()`は完成したルール集合から同じSelectorを注文処理とプレビューへ渡す。各入口は選択した`const IDiscountRule&`を計算役へ渡す
+- **変えたくない側が知らなくなる詳細**：具体クラスの生成方法・登録順・選択結果
+
+**公開入口からの実行**
+
+- **システム全体での設計判断**：Selectorは`matches()`、計算側は`apply()`だけを呼ぶ
+- **変えたくない側が知らなくなる詳細**：条件・式・生成の詳細
 
 構想は、起動時の準備と注文時の実行に分けると一望できます。
 
@@ -1470,7 +1605,8 @@ public:
 
 ```cpp
 // サマーセール対応：Regular会員向けに条件を追加
-if (memberType == "Premium") {                        // ← 出て行く側（対象条件）
+// ← 出て行く側（対象条件）
+if (memberType == "Premium") {
     total = total * 80 / 100;                         // ← 出て行く側（計算式）
 } else if (context.isSummerSale && context.isCampaignActive) {
     total = (total * 90 / 100) * 95 / 100;            // 逐次割引（Regular会員）
@@ -1489,10 +1625,15 @@ if (memberType == "Premium") {                        // ← 出て行く側（�
 
 **5-3が挙げた接続値は2つです。** 会員種別と施策状態を、1つずつ形にします。競合時の適用順序はルール内部の値ではなく、システム全体の方針として組み立て側へ置きます。
 
-| 接続するもの（5-3の候補） | 決めた形 | そう決めた理由 |
-|---|---|---|
-| 会員種別 | **引数で渡す** | 判定するのは施策の側だが、値を持っているのは顧客照合の側。持っていない側が判定するには渡すしかない |
-| 施策状態 | **引数で渡す** | 同上。キャンペーン中かサマーセール中かは、施策ではなくシステムの状態 |
+**会員種別**
+
+- **決めた形**：**引数で渡す**
+- **そう決めた理由**：判定するのは施策の側だが、値を持っているのは顧客照合の側。持っていない側が判定するには渡すしかない
+
+**施策状態**
+
+- **決めた形**：**引数で渡す**
+- **そう決めた理由**：同上。キャンペーン中かサマーセール中かは、施策ではなくシステムの状態
 
 3-1で痛かったのは、枝の**順序が計算処理の内部に隠れていたこと**でした。ただし、複数の条件が同時に成立する以上、どれを採るかという方針そのものは消せません。これを各ルールの数値へ分散すると、新しいルールが既存ルールの数値を知らなければ追加できなくなります。そこで、各ルールは自分の適用条件だけを答え、`DiscountRuleSet` が「上から最初に一致したものを採る」登録順を明示します。個別ルール同士も`main()`も優先関係を知らず、全体の競合方針だけがルール集合へ集まります。
 
@@ -1500,10 +1641,15 @@ if (memberType == "Premium") {                        // ← 出て行く側（�
 
 **5-3が挙げた候補は2つです。** 適用前金額と、適用後金額。
 
-| 接続するもの（5-3の候補） | 決めた形 | そう決めた理由 |
-|---|---|---|
-| 適用前金額 | **引数で渡す** | 小計を求めるのは守る範囲。施策が注文の中身を見に行くと、小計計算が施策の数だけ散る |
-| 適用後金額 | **戻り値で返す** | 変更前も `total` を書き換えて次へ渡していた。呼び出し側が実際に消費していたのは、この1つの数値だけ |
+**適用前金額**
+
+- **決めた形**：**引数で渡す**
+- **そう決めた理由**：小計を求めるのは守る範囲。施策が注文の中身を見に行くと、小計計算が施策の数だけ散る
+
+**適用後金額**
+
+- **決めた形**：**戻り値で返す**
+- **そう決めた理由**：変更前も `total` を書き換えて次へ渡していた。呼び出し側が実際に消費していたのは、この1つの数値だけ
 
 **候補2つが、そのまま2つとも境界を流れます。** 課題ID1では3つのうち1つが形を変えましたが、こちらは変わりません。**候補の数と実数が一致する課題も、しない課題もあります。**
 
@@ -1756,21 +1902,45 @@ Calculatorは、渡された実体の具体クラス名を知りません。小�
 
 ここまでの決定を、課題ID1→課題ID2の順に一望へまとめます。この表は設計課題だけを追います。変更要求の受入はフェーズ7の要求ID表、変更影響は7-4（変更シナリオ表）の変更ID表で別に確認します。
 
-| 課題ID | 採用構造と生成・接続場所 | 完成コードの主な場所 | 確認 |
-|---|---|---|---|
-| 課題ID1（選択条件） | ルール差し替え。`DiscountRuleSet`が各ルールを所有して競合方針の順で登録し、`RuleSelector`が最初の一致を選ぶ | `IDiscountRule::matches()`、`PremiumDiscount`／`CampaignDiscount`／`SummerSaleDiscount`／`SummerSaleAndCampaignDiscount`／`NoDiscount`、`DiscountRuleSet`、`RuleSelector` | 施策追加が新ルールとルール集合の登録に閉じ、選択側と`main()`が具体条件・優先順を持たない |
-| 課題ID2（計算式） | ルール差し替え。骨格は契約`apply()`だけを呼ぶ | `IDiscountRule::apply()`、`PaymentCalculator` | 計算側が個別式を知らず、同じ操作で逐次適用できる |
-| 変更対象外 | 会員情報の取得。骨格はそのまま利用する | `CustomerDatabase` | 1-4、登録・未登録の既存動作 |
-| 境界を動かさない | 購入結果の表示。1-5のとおり要求ID5の受入条件が変わるため`showOrderResult()`の引数は変わるが、結果を渡す相手と場所は変えない | `CheckoutResultRenderer` | 7-1の正常・エラー出力 |
+**課題ID1（選択条件）**
+
+- **採用構造と生成・接続場所**：ルール差し替え。`DiscountRuleSet`が各ルールを所有して競合方針の順で登録し、`RuleSelector`が最初の一致を選ぶ
+- **完成コードの主な場所**：`IDiscountRule::matches()`、`PremiumDiscount`／`CampaignDiscount`／`SummerSaleDiscount`／`SummerSaleAndCampaignDiscount`／`NoDiscount`、`DiscountRuleSet`、`RuleSelector`
+- **確認**：施策追加が新ルールとルール集合の登録に閉じ、選択側と`main()`が具体条件・優先順を持たない
+
+**課題ID2（計算式）**
+
+- **採用構造と生成・接続場所**：ルール差し替え。骨格は契約`apply()`だけを呼ぶ
+- **完成コードの主な場所**：`IDiscountRule::apply()`、`PaymentCalculator`
+- **確認**：計算側が個別式を知らず、同じ操作で逐次適用できる
+
+**変更対象外**
+
+- **採用構造と生成・接続場所**：会員情報の取得。骨格はそのまま利用する
+- **完成コードの主な場所**：`CustomerDatabase`
+- **確認**：1-4、登録・未登録の既存動作
+
+**境界を動かさない**
+
+- **採用構造と生成・接続場所**：購入結果の表示。1-5のとおり要求ID5の受入条件が変わるため`showOrderResult()`の引数は変わるが、結果を渡す相手と場所は変えない
+- **完成コードの主な場所**：`CheckoutResultRenderer`
+- **確認**：7-1の正常・エラー出力
 
 #### 将来リスクに対して構想を確認する
 
 フェーズ2のリスクIDを採用構造へ再適用し、現在の境界で何を守れ、どこに弱点が残るかを評価します。
 
-| リスクID・将来リスク | 現在の構造による備え | リスク発生時の変更先 | 守れる範囲・残る弱点 |
-|---|---|---|---|
-| リスクID1：新しい割引ルールの追加が毎月続く | 割引ごとの差分をIDiscountRule実装として追加し、選択と計算の共通経路から分ける | 新しいRule、`DiscountRuleSet`の所有・登録一覧 | OrderProcessorと`main()`を守り、追加を新Ruleとルール集合へ限定できる。ルール間優先順位が複雑化した場合はルール集合の競合規則が追加課題になる |
-| リスクID2：計算方法が「パーセント引き」から「定額引き」に変わる | 条件と計算式を同じ具体Ruleへ置き、金額を返す契約を維持する | 対象Ruleのmatches()とapply() | 計算経路を守り、式の変更を対象Ruleへ閉じられる。複数Rule併用へ変わる場合は単一選択の契約を見直す必要がある |
+**リスクID1：新しい割引ルールの追加が毎月続く**
+
+- **現在の構造による備え**：割引ごとの差分をIDiscountRule実装として追加し、選択と計算の共通経路から分ける
+- **リスク発生時の変更先**：新しいRule、`DiscountRuleSet`の所有・登録一覧
+- **守れる範囲・残る弱点**：OrderProcessorと`main()`を守り、追加を新Ruleとルール集合へ限定できる。ルール間優先順位が複雑化した場合はルール集合の競合規則が追加課題になる
+
+**リスクID2：計算方法が「パーセント引き」から「定額引き」に変わる**
+
+- **現在の構造による備え**：条件と計算式を同じ具体Ruleへ置き、金額を返す契約を維持する
+- **リスク発生時の変更先**：対象Ruleのmatches()とapply()
+- **守れる範囲・残る弱点**：計算経路を守り、式の変更を対象Ruleへ閉じられる。複数Rule併用へ変わる場合は単一選択の契約を見直す必要がある
 
 リスクID1・リスクID2は、採用構造を評価する根拠の一部です。ただし今回実装する機能は変更後要求ベースラインの要求IDで確定した範囲だけであり、リスクIDは構造が将来の変化を局所化できるかの評価に使います。
 
@@ -1796,53 +1966,45 @@ Calculatorは、渡された実体の具体クラス名を知りません。小�
 ```mermaid
 classDiagram
     direction TB
-    class Item
-    class Order
-    class CampaignContext {
-        -vector~string~ activeCampaigns
-        +activate(code)
-        +isActive(code) bool
-    }
-    class CustomerInfo
-    class CustomerDatabase
-    class CheckoutResultRenderer
-    class OrderProcessor {
-        -CustomerDatabase& db
-        -RuleSelector& selector
-        +process(Order, CampaignContext)
-    }
-    class PaymentResult
-    class PaymentCalculator {
-        -IDiscountRule& rule
-        +calculate(Order) PaymentResult
-    }
-    class CartPreviewService {
-        -CustomerDatabase& db
-        -RuleSelector& selector
-        +getEstimatedTotal(Order, CampaignContext) PaymentResult
-    }
     class IDiscountRule {
         <<interface>>
         +matches(memberType, context) bool
         +apply(total) int
         +name() string
     }
-    class RuleSelector {
-        +add(rule)
-        +select(memberType, context) IDiscountRule
-    }
-    class DiscountRuleSet {
-        -RuleSelector ruleSelector
-        +selector() RuleSelector
-    }
     class PremiumDiscount
     class CampaignDiscount
     class SummerSaleDiscount
     class SummerSaleAndCampaignDiscount
     class NoDiscount
+    class DiscountRuleSet
+    class RuleSelector
+    IDiscountRule <|.. PremiumDiscount
+    IDiscountRule <|.. CampaignDiscount
+    IDiscountRule <|.. SummerSaleDiscount
+    IDiscountRule <|.. SummerSaleAndCampaignDiscount
+    IDiscountRule <|.. NoDiscount
+    DiscountRuleSet *--> PremiumDiscount : 所有する
+    DiscountRuleSet *--> CampaignDiscount : 所有する
+    DiscountRuleSet *--> SummerSaleDiscount : 所有する
+    DiscountRuleSet *--> SummerSaleAndCampaignDiscount : 所有する
+    DiscountRuleSet *--> NoDiscount : 所有する
+    DiscountRuleSet *--> RuleSelector : 所有する
+    RuleSelector o--> IDiscountRule : 登録する
+```
 
-    Order *--> Item
-    CustomerDatabase *--> CustomerInfo
+施策が増えても、増えるのは `IDiscountRule` の下にぶら下がる具体と、`DiscountRuleSet` の登録行だけです。次の図は、この差し替え部分を利用側がどう使うかです。
+
+```mermaid
+classDiagram
+    direction TB
+    class OrderProcessor
+    class CartPreviewService
+    class CustomerDatabase
+    class RuleSelector
+    class PaymentCalculator
+    class CheckoutResultRenderer
+    class IDiscountRule
     OrderProcessor --> CustomerDatabase : 使う
     OrderProcessor --> RuleSelector : 選ぶ
     OrderProcessor --> PaymentCalculator : 組み立てる
@@ -1851,35 +2013,27 @@ classDiagram
     CartPreviewService --> RuleSelector : 選ぶ
     CartPreviewService --> PaymentCalculator : 組み立てる
     PaymentCalculator --> IDiscountRule : 使う
-    PaymentCalculator ..> Order : 参照する
+```
+
+注文確定とプレビューは、同じ `RuleSelector` と `PaymentCalculator` を通ります。どちらも具体ルール名を持ちません。
+
+最後に、これらの間を流れる値クラスです。
+
+```mermaid
+classDiagram
+    direction TB
+    class Order
+    class Item
+    class CustomerInfo
+    class CustomerDatabase
+    class CampaignContext
+    class PaymentResult
+    class PaymentCalculator
+    Order *--> Item
+    CustomerDatabase *--> CustomerInfo
+    PaymentCalculator ..> Order : 受け取る
+    PaymentCalculator ..> CampaignContext : 受け取る
     PaymentCalculator ..> PaymentResult : 返す
-    CartPreviewService ..> Order : 参照する
-    CartPreviewService ..> CampaignContext : 参照する
-    CartPreviewService ..> PaymentResult : 返す
-    RuleSelector o--> IDiscountRule : 登録する
-    RuleSelector ..> CampaignContext : 参照する
-    DiscountRuleSet *--> RuleSelector : 所有する
-    DiscountRuleSet *--> PremiumDiscount : 所有する
-    DiscountRuleSet *--> CampaignDiscount : 所有する
-    DiscountRuleSet *--> SummerSaleDiscount : 所有する
-    DiscountRuleSet *--> SummerSaleAndCampaignDiscount : 所有する
-    DiscountRuleSet *--> NoDiscount : 所有する
-    IDiscountRule <|.. PremiumDiscount
-    IDiscountRule <|.. CampaignDiscount
-    IDiscountRule <|.. SummerSaleDiscount
-    IDiscountRule <|.. SummerSaleAndCampaignDiscount
-    IDiscountRule <|.. NoDiscount
-
-    note for PaymentCalculator "【課題ID2・残した】小計計算<br/>具体的な式を知らない"
-    note for OrderProcessor "注文確定を処理し<br/>選択したルールで計算役を生成"
-    note for CartPreviewService "注文確定とは別の入口<br/>同じDB・Selectorを使う"
-    note for IDiscountRule "【課題ID1】matches条件<br/>【課題ID2】apply計算"
-    note for RuleSelector "【課題ID1・新設】登録順にmatchesを評価し<br/>最初の一致を選ぶ"
-    note for DiscountRuleSet "【課題ID1・新設】具体ルールを所有し<br/>競合方針の順で登録する"
-    note for PremiumDiscount "【課題ID1】Premium条件<br/>【課題ID2】20%引き"
-
-    classDef focus fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222
-    cssClass "OrderProcessor,PaymentCalculator,IDiscountRule,RuleSelector,DiscountRuleSet,PremiumDiscount,CampaignDiscount,SummerSaleDiscount,SummerSaleAndCampaignDiscount,NoDiscount" focus
 ```
 
 現状では、割引条件と計算式が `PaymentCalculator` の内部に集まっていました。完成後は、計算を依頼する2つの利用側が同じルール契約を参照し、適用条件と計算式は各具象ルールへ移っています。競合方針は`DiscountRuleSet`、固定の選択手順は`RuleSelector`へ分かれ、`main()`にもSelectorにも施策固有の条件分岐はありません。
@@ -1892,12 +2046,9 @@ classDiagram
 sequenceDiagram
     participant M as main
     participant D as DiscountRuleSet
+    participant S as RuleSelector
     participant O as OrderProcessor
     participant V as CartPreviewService
-    participant DB as CustomerDatabase
-    participant S as RuleSelector
-    participant P as PaymentCalculator
-    participant I as 登録済みIDiscountRule
 
     M->>D: 生成
     Note right of D: メンバーの5ルールを生成・所有
@@ -1906,8 +2057,21 @@ sequenceDiagram
     D-->>M: const RuleSelector&
     M->>O: 生成してSelectorを注入
     M->>V: 生成して同じSelectorを注入
+```
 
-    M->>V: getEstimatedTotal(order, context)
+組み立てはここで終わりです。`main()` は具体ルール名も優先順も書かず、`DiscountRuleSet` が作った同じ `RuleSelector` を2つの入口へ渡すだけです。
+
+次の図は、その後の実行です。事前確認と注文確定が、同じ経路を通ることを見ます。
+
+```mermaid
+sequenceDiagram
+    participant V as CartPreviewService
+    participant O as OrderProcessor
+    participant DB as CustomerDatabase
+    participant S as RuleSelector
+    participant P as PaymentCalculator
+    participant I as 登録済みIDiscountRule
+
     V->>DB: get(customerId)
     DB-->>V: CustomerInfo
     V->>S: select(memberType, context)
@@ -1919,10 +2083,8 @@ sequenceDiagram
     V->>P: 生成してcalculate(order)
     P->>I: apply(total)
     I-->>P: 割引後金額
-    P-->>V: PaymentResult
-    V-->>M: PaymentResult（事前確認）
+    P-->>V: PaymentResult（事前確認）
 
-    M->>O: process(order, context)
     O->>DB: get(customerId)
     DB-->>O: CustomerInfo
     O->>S: select(memberType, context)
@@ -1930,8 +2092,7 @@ sequenceDiagram
     O->>P: 生成してcalculate(order)
     P->>I: apply(total)
     I-->>P: 割引後金額
-    P-->>O: PaymentResult
-    O-->>M: void（購入結果は画面相当へ表示済み）
+    P-->>O: PaymentResult（購入結果へ表示）
 ```
 
 `main()` が組み立てを終えた後は、注文確定もプレビューも同じ `RuleSelector` を通ります。実行時に具体名が出てこないことを、この順序で確認できます。
@@ -1940,7 +2101,7 @@ sequenceDiagram
 
 クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。1-4（実装コード）と同じ顔ぶれが並ぶので、どこが変わったかを見比べてください。
 
-`main()` と実行結果は最後に、シナリオごとに並べます。上から順に連結すれば、そのまま1つのC++14プログラムとして動きます。
+`main()` と実行結果は最後に、シナリオごとに並べます。
 
 ---
 
@@ -1970,8 +2131,6 @@ namespace CampaignCode {
 
 **Item**
 
-このブロックでは `Item` の定義だけを確認します。
-
 ```cpp
 class Item {
 public:
@@ -1982,8 +2141,6 @@ public:
 ```
 
 **CampaignContext**
-
-このブロックでは `CampaignContext` の定義だけを確認します。
 
 ```cpp
 class CampaignContext {
@@ -2005,8 +2162,6 @@ public:
 ```
 
 **Order**
-
-このブロックでは `Order` の定義だけを確認します。
 
 ```cpp
 class Order {
@@ -2031,8 +2186,6 @@ struct CustomerInfo {
 
 **CustomerDatabase**
 
-このブロックでは `CustomerDatabase` の定義だけを確認します。
-
 ```cpp
 class CustomerDatabase {
 private:
@@ -2050,8 +2203,6 @@ public:
 ```
 
 **PaymentResult**
-
-このブロックでは `PaymentResult` の定義だけを確認します。
 
 ```cpp
 // 割引ルールの共通インターフェース（ルール差し替え構造）
@@ -2105,8 +2256,6 @@ public:
 
 **PremiumDiscount**
 
-このブロックでは `PremiumDiscount` の定義だけを確認します。
-
 ```cpp
 class PremiumDiscount : public IDiscountRule {
 public:
@@ -2124,8 +2273,6 @@ public:
 ```
 
 **SummerSaleAndCampaignDiscount**
-
-このブロックでは `SummerSaleAndCampaignDiscount` の定義だけを確認します。
 
 ```cpp
 class SummerSaleAndCampaignDiscount : public IDiscountRule {
@@ -2169,8 +2316,6 @@ public:
 ```
 
 **CampaignDiscount**
-
-このブロックでは `CampaignDiscount` の定義だけを確認します。
 
 ```cpp
 class CampaignDiscount : public IDiscountRule {
@@ -2647,15 +2792,47 @@ int main() {
 
 変更後要求ベースラインの全有効要求IDを同じ順序で照合します。今回変わらなかった既存要求も対象にするため、要求の消失を検出できます。
 
-| 要求ID | 最終要求 | 適用コード | 実行シナリオ・観測結果・判定 |
-|---|---|---|---|
-| 要求ID1 | 商品リストの小計から最終支払金額を計算する | `PaymentCalculator::calculate()` | 10,000円の小計と割引後金額を出力<br/>**判定:** 合格 |
-| 要求ID2 | Premium会員へ20%割引を適用し、他割引と併用しない | `PremiumDiscount`、`RuleSelector` | セール併用でも8,000円<br/>**判定:** 合格 |
-| 要求ID3 | Regular会員はキャンペーン中だけ10%割引する | `CampaignDiscount` | シナリオ4bでキャンペーン単独9,000円（変更前と同額）<br/>**判定:** 合格 |
-| 要求ID4 | 顧客IDから会員種別を取得する | `CustomerDatabase`、`OrderProcessor` | 登録顧客を取得し、未登録IDをエラー表示<br/>**判定:** 合格 |
-| 要求ID5 | 計算結果を購入結果として表示する | `CheckoutResultRenderer::showOrderResult()` | 全シナリオで会員種別・キャンペーン・サマーセールの条件と、適用した割引名・支払金額を表示<br/>**判定:** 合格 |
-| 要求ID6 | 注文確定前に同じ条件の支払金額をプレビューする | `CartPreviewService::getEstimatedTotal()` | 各正常シナリオで購入結果と同額のプレビューを独立操作で取得<br/>**判定:** 合格 |
-| 要求ID7 | Regularへサマーセール5%を追加し、既存割引後へ逐次適用する | `SummerSaleDiscount`、`SummerSaleAndCampaignDiscount` | セールのみ9,500円、併用8,550円、Premium対象外<br/>**判定:** 合格 |
+**要求ID1**
+
+- **最終要求**：商品リストの小計から最終支払金額を計算する
+- **適用コード**：`PaymentCalculator::calculate()`
+- **実行シナリオ・観測結果・判定**：10,000円の小計と割引後金額を出力<br/>**判定:** 合格
+
+**要求ID2**
+
+- **最終要求**：Premium会員へ20%割引を適用し、他割引と併用しない
+- **適用コード**：`PremiumDiscount`、`RuleSelector`
+- **実行シナリオ・観測結果・判定**：セール併用でも8,000円<br/>**判定:** 合格
+
+**要求ID3**
+
+- **最終要求**：Regular会員はキャンペーン中だけ10%割引する
+- **適用コード**：`CampaignDiscount`
+- **実行シナリオ・観測結果・判定**：シナリオ4bでキャンペーン単独9,000円（変更前と同額）<br/>**判定:** 合格
+
+**要求ID4**
+
+- **最終要求**：顧客IDから会員種別を取得する
+- **適用コード**：`CustomerDatabase`、`OrderProcessor`
+- **実行シナリオ・観測結果・判定**：登録顧客を取得し、未登録IDをエラー表示<br/>**判定:** 合格
+
+**要求ID5**
+
+- **最終要求**：計算結果を購入結果として表示する
+- **適用コード**：`CheckoutResultRenderer::showOrderResult()`
+- **実行シナリオ・観測結果・判定**：全シナリオで会員種別・キャンペーン・サマーセールの条件と、適用した割引名・支払金額を表示<br/>**判定:** 合格
+
+**要求ID6**
+
+- **最終要求**：注文確定前に同じ条件の支払金額をプレビューする
+- **適用コード**：`CartPreviewService::getEstimatedTotal()`
+- **実行シナリオ・観測結果・判定**：各正常シナリオで購入結果と同額のプレビューを独立操作で取得<br/>**判定:** 合格
+
+**要求ID7**
+
+- **最終要求**：Regularへサマーセール5%を追加し、既存割引後へ逐次適用する
+- **適用コード**：`SummerSaleDiscount`、`SummerSaleAndCampaignDiscount`
+- **実行シナリオ・観測結果・判定**：セールのみ9,500円、併用8,550円、Premium対象外<br/>**判定:** 合格
 
 上の表は継続・変更（要求ID1〜要求ID6）と追加（要求ID7）を同じ順序で並べ、変わらなかった既存要求も回帰対象に含めています。継続要求が合格していることで、既存動作が落ちていないことを確認できます。要求の受入・回帰はここで完了します。課題IDへ直接対応付けず、以下では変更試行の痛みから導いた構造課題だけを別に確認します。
 
@@ -2663,16 +2840,30 @@ int main() {
 
 要求の受入とは分けて、課題IDごとに構造と変更影響を確認します。
 
-| 課題ID | 構造差分・コード適用先 | 確認できた効果 | 残る変更先 |
-|---|---|---|---|
-| 課題ID1 | `IDiscountRule::matches()`へ個別条件を、`DiscountRuleSet`の登録順へ競合方針を分離 | 新施策が具象ルールとルール集合に閉じ、`main()`から優先順が消えた | 新ルールと`DiscountRuleSet`の所有・登録位置 |
-| 課題ID2 | 各`apply()`へ式を移し、`PaymentCalculator`は共通操作だけを実行 | 小計計算が個別式を知らず逐次適用できた | 対象ルールの式 |
+**課題ID1**
+
+- **構造差分・コード適用先**：`IDiscountRule::matches()`へ個別条件を、`DiscountRuleSet`の登録順へ競合方針を分離
+- **確認できた効果**：新施策が具象ルールとルール集合に閉じ、`main()`から優先順が消えた
+- **残る変更先**：新ルールと`DiscountRuleSet`の所有・登録位置
+
+**課題ID2**
+
+- **構造差分・コード適用先**：各`apply()`へ式を移し、`PaymentCalculator`は共通操作だけを実行
+- **確認できた効果**：小計計算が個別式を知らず逐次適用できた
+- **残る変更先**：対象ルールの式
 #### 変更前→変更後の不変条件照合
 
-| 変更対象外 | 変更前 | 変更後 | 確認根拠 |
-|---|---|---|---|
-| 顧客・注文の取得 | `CustomerDatabase` から取得 | 同じID・同じ取得契約 | 現状コードと完成コードのDB呼び出し |
-| 結果表示 | `CheckoutResultRenderer` へ渡す | 同じ結果境界へ渡す（渡す値は`subtotal`／`finalPrice`から`PaymentResult`へ変わる） | 7-1の正常・エラー出力 |
+**顧客・注文の取得**
+
+- **変更前**：`CustomerDatabase` から取得
+- **変更後**：同じID・同じ取得契約
+- **確認根拠**：現状コードと完成コードのDB呼び出し
+
+**結果表示**
+
+- **変更前**：`CheckoutResultRenderer` へ渡す
+- **変更後**：同じ結果境界へ渡す（渡す値は`subtotal`／`finalPrice`から`PaymentResult`へ変わる）
+- **確認根拠**：7-1の正常・エラー出力
 
 ### 7-2：動作シーケンス図の検証
 
@@ -2683,7 +2874,7 @@ int main() {
 3-2と同じ変更要求を、改善後の構造へもう一度当てます。同じ矢印がどこで止まるようになったかを見ます。
 
 ```mermaid
-graph LR
+graph TD
     T1["変更要求：サマーセール追加"]
         -->|新規追加| N1["SummerSaleDiscount<br>（matchesとapply）"]
     T1 -->|所有・登録を追加| N2["DiscountRuleSet<br>（競合方針の順で登録）"]
@@ -2709,10 +2900,15 @@ graph LR
 
 ここでは今回の変更ID1・変更ID2だけを完成構造へ再適用し、フェーズ1で必要だった修正範囲と、実装後の結果を比較します。
 
-| 変更依頼 | フェーズ1の現状構造での影響 | 完成構造での結果 |
-|---|---|---|
-| 変更ID1：Regular会員へサマーセール5%を追加し、Premium会員は対象外にする | `CampaignContext`と`PaymentCalculator`の分岐を同時に修正 | `SummerSaleDiscount`へ条件と式を置き、Regularだけに5%を適用。既存Premiumルールは変更しない |
-| 変更ID2：既存キャンペーンと重なる場合は逐次割引する | `PaymentCalculator`の既存分岐と適用順を修正 | `DiscountRuleSet`の順序により複合ルールを先に選び、その`apply()`で10,000円から8,550円になることを実行結果で確認 |
+**変更ID1：Regular会員へサマーセール5%を追加し、Premium会員は対象外にする**
+
+- **フェーズ1の現状構造での影響**：`CampaignContext`と`PaymentCalculator`の分岐を同時に修正
+- **完成構造での結果**：`SummerSaleDiscount`へ条件と式を置き、Regularだけに5%を適用。既存Premiumルールは変更しない
+
+**変更ID2：既存キャンペーンと重なる場合は逐次割引する**
+
+- **フェーズ1の現状構造での影響**：`PaymentCalculator`の既存分岐と適用順を修正
+- **完成構造での結果**：`DiscountRuleSet`の順序により複合ルールを先に選び、その`apply()`で10,000円から8,550円になることを実行結果で確認
 
 ---
 
@@ -2720,25 +2916,24 @@ graph LR
 
 ### 問題・原因・課題・解決策
 
-| | 内容 |
-|---|---|
-| **問題** | 割引の「実行する振る舞い」が変わるたびに計算本体と入力モデルを修正し、利用側まで広く回帰確認する。変わる理由が異なる知識が同じ場所に混在しているため |
-| **原因** | 割引ルールが「毎月追加される」と確認できているのに、`PaymentCalculator`が全種類の条件と計算方法を抱え込んでいる |
-| **課題ID1** | 割引種類の条件を具象ルールへ分離し、固定の選択手順へ登録できるようにする |
-| **課題ID2** | 割引の計算式を具象ルールへ分離し、`PaymentCalculator` は `apply()` を呼ぶだけにする |
-| **解決策** | ルール差し替え構造：各 `IDiscountRule` に適用条件と計算式を閉じ、`DiscountRuleSet`が所有・優先順登録したSelectorを利用側へ注入する |
+**割引の「実行する振る舞い」が変わるたびに計算本体と入力モデルを修正し、利用側まで広く回帰確認する。変わる理由が異なる知識が同じ場所に混在しているため**
+
+- **原因**：割引ルールが「毎月追加される」と確認できているのに、`PaymentCalculator`が全種類の条件と計算方法を抱え込んでいる
+- **課題ID1**：割引種類の条件を具象ルールへ分離し、固定の選択手順へ登録できるようにする
+- **課題ID2**：割引の計算式を具象ルールへ分離し、`PaymentCalculator` は `apply()` を呼ぶだけにする
+- **解決策**：ルール差し替え構造：各 `IDiscountRule` に適用条件と計算式を閉じ、`DiscountRuleSet`が所有・優先順登録したSelectorを利用側へ注入する
 
 ### フェーズとこの章でやったこと
 
-| **フェーズ** | **この章でやったこと** |
-|---|---|
-| 🔵 フェーズ1：現状把握 | 仕様と動作例テーブルを確認した後、コードをクラス単位で読んだ。クラス構成図と変更要求を把握した |
-| 🟣 フェーズ2：仮説立案 | 割引ルールに変更の見込みがあると見立て、誰がなぜ変えるかをヒアリングで裏付けた。今回の確定変更と将来リスクを分けて整理した |
-| 🟣 フェーズ3：問題特定 | サマーセールの追加を試み、`PaymentCalculator` の条件分岐と `CampaignContext` のフラグ追加、`CartPreviewService` の回帰確認まで必要になることを確認した |
-| 🟠 フェーズ4：原因分析 | 小計の骨格と割引詳細が混在し、割引詳細の中にも「種類」と「計算方法」の2軸があると特定した |
-| 🟡 フェーズ5：課題定義 | 選択を課題ID1、計算を課題ID2として分け、`matches()` と `apply()` の接続点を定めた |
-| 🔴 フェーズ6：対策検討 | 課題ID1・課題ID2を一つのシステムとして扱い、`IDiscountRule`と5つの具体を決め、`DiscountRuleSet`で生成・登録した同じ実体が選択・受け渡しを経て`apply()`へ届くまでを確定した |
-| 🟢 フェーズ7：対策実施 | 最終コードを実装し、変更影響グラフで変更の局所化を確認した |
+**この章でやったこと**
+
+- **🔵 フェーズ1：現状把握**：仕様と動作例テーブルを確認した後、コードをクラス単位で読んだ。クラス構成図と変更要求を把握した
+- **🟣 フェーズ2：仮説立案**：割引ルールに変更の見込みがあると見立て、誰がなぜ変えるかをヒアリングで裏付けた。今回の確定変更と将来リスクを分けて整理した
+- **🟣 フェーズ3：問題特定**：サマーセールの追加を試み、`PaymentCalculator` の条件分岐と `CampaignContext` のフラグ追加、`CartPreviewService` の回帰確認まで必要になることを確認した
+- **🟠 フェーズ4：原因分析**：小計の骨格と割引詳細が混在し、割引詳細の中にも「種類」と「計算方法」の2軸があると特定した
+- **🟡 フェーズ5：課題定義**：選択を課題ID1、計算を課題ID2として分け、`matches()` と `apply()` の接続点を定めた
+- **🔴 フェーズ6：対策検討**：課題ID1・課題ID2を一つのシステムとして扱い、`IDiscountRule`と5つの具体を決め、`DiscountRuleSet`で生成・登録した同じ実体が選択・受け渡しを経て`apply()`へ届くまでを確定した
+- **🟢 フェーズ7：対策実施**：最終コードを実装し、変更影響グラフで変更の局所化を確認した
 
 ### 責任の移動
 
@@ -2755,11 +2950,23 @@ graph LR
 
 第1章では、単純な「1つの割引を掛ける」例に留めず、割引の順次適用、排他条件、顧客情報取得失敗を含めました。それでも対策の論理は変わりません。複雑さを足した結果、どの複雑さがルール差し替え構造の対象で、どれが別軸なのかを分けて見られるようになりました。
 
-| 追加した複雑さ | 見えた原因 | 定めた課題 | 採用した扱い |
-|---|---|---|---|
-| キャンペーン後にサマーセールを適用する逐次割引 | 適用順序が計算本体の分岐に埋まっている | 割引後金額を返す契約を守りつつ、適用順序をルール側へ寄せる | 組み合わせルールとして `IDiscountRule` の実装に閉じる |
-| Premiumは他割引と併用しない排他条件 | 選択条件が `PaymentCalculator` に漏れている | 計算本体と選択役は具体条件を知らない形にする | `PremiumDiscount::matches()` が条件を持ち、最優先でSelectorへ登録する |
-| 顧客情報取得失敗 | 外部境界の失敗であり、割引計算の変化軸とは違う | 割引ルールの接続点へ失敗処理を混ぜない | `OrderProcessor` の顧客取得エラーとして扱い、割引ルール差し替え（接続点）の対象外にする |
+**キャンペーン後にサマーセールを適用する逐次割引**
+
+- **見えた原因**：適用順序が計算本体の分岐に埋まっている
+- **定めた課題**：割引後金額を返す契約を守りつつ、適用順序をルール側へ寄せる
+- **採用した扱い**：組み合わせルールとして `IDiscountRule` の実装に閉じる
+
+**Premiumは他割引と併用しない排他条件**
+
+- **見えた原因**：選択条件が `PaymentCalculator` に漏れている
+- **定めた課題**：計算本体と選択役は具体条件を知らない形にする
+- **採用した扱い**：`PremiumDiscount::matches()` が条件を持ち、最優先でSelectorへ登録する
+
+**顧客情報取得失敗**
+
+- **見えた原因**：外部境界の失敗であり、割引計算の変化軸とは違う
+- **定めた課題**：割引ルールの接続点へ失敗処理を混ぜない
+- **採用した扱い**：`OrderProcessor` の顧客取得エラーとして扱い、割引ルール差し替え（接続点）の対象外にする
 
 ---
 
@@ -2767,12 +2974,12 @@ graph LR
 
 ### 「この章を読むと得られること」は手に入ったか
 
-| **得られること** | **この章のどこで示したか** |
-|---|---|
-| 1. 変動箇所の識別 | フェーズ2で割引ルールに変更の見込みがあると見立て、フェーズ4でその混在を原因として言語化した |
-| 2. 接続点の診断 | フェーズ4で、割引条件の知識が計算の骨格へ漏れている状態を確認した |
-| 3. 変更局所化の説明 | フェーズ7の変更シナリオ表で、変更の中心が新しい実装クラスへ移る構造を示した |
-| 4. いつ構造を分けるか | フェーズ6「構想を採用する」で判断基準を示した |
+**この章のどこで示したか**
+
+- **1. 変動箇所の識別**：フェーズ2で割引ルールに変更の見込みがあると見立て、フェーズ4でその混在を原因として言語化した
+- **2. 接続点の診断**：フェーズ4で、割引条件の知識が計算の骨格へ漏れている状態を確認した
+- **3. 変更局所化の説明**：フェーズ7の変更シナリオ表で、変更の中心が新しい実装クラスへ移る構造を示した
+- **4. いつ構造を分けるか**：フェーズ6「構想を採用する」で判断基準を示した
 
 ### 「はじめに」の3つの設計原則はどう適用されたか
 

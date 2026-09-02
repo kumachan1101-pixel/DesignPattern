@@ -169,6 +169,9 @@ h4 {
 img { height: auto; max-width: 100%; }
 table { border-collapse: collapse; font-size: 0.9em; margin: 1.2em 0; width: 100%; }
 th, td { border: 1px solid #999; padding: 0.55em; text-align: left; }
+/* 1列目は「要求ID1」のような短い見出しが入る。列幅が詰まって
+   1文字ずつ折れるのを防ぐため、最小幅を与える。 */
+th:first-child, td:first-child { min-width: 5.5em; }
 th { background: #f5f5f5; }
 blockquote {
   border-left: 4px solid #78909c;
@@ -183,6 +186,9 @@ code {
   font-family: "BIZ UDGothic", "MS Gothic", "Noto Sans Mono CJK JP", "Noto Sans JP", "Yu Gothic", Meiryo, monospace;
   font-size: 0.92em;
   padding: 0.08em 0.28em;
+  /* 長い型名・関数名がひとかたまりだと、両端揃えで前後の字間が伸びる。
+     入りきらないときだけ折り返し、短い名前は途中で切らない。 */
+  overflow-wrap: break-word;
 }
 .book-cover, .book-toc { page-break-after: always; text-align: center; }
 .book-toc { text-align: left; }
@@ -801,11 +807,38 @@ def anchor_sections(body_html: str, chapter_id: str) -> tuple[str, list[dict[str
     return body_html, sections
 
 
+# Obsidian のコールアウト記法。原稿では執筆時の見分けに使うが、
+# 読者には種別名を出さず、引用の中の小見出しとして見せる。
+CALLOUT_LABELS = {
+    "INFO": "補足",
+    "NOTE": "補足",
+    "TIP": "ヒント",
+    "IMPORTANT": "重要",
+    "WARNING": "注意",
+    "CAUTION": "注意",
+}
+
+
+def unwrap_callouts(markdown_text: str) -> str:
+    """`> [!INFO] 見出し` を、読者向けの小見出しへ変える。"""
+
+    def replace(match: re.Match[str]) -> str:
+        kind = match.group(1).upper()
+        title = match.group(2).strip()
+        label = CALLOUT_LABELS.get(kind, "補足")
+        if title:
+            return f"> **{title}**"
+        return f"> **{label}**"
+
+    return re.sub(r"^>\s*\[!(\w+)\]\s*(.*)$", replace, markdown_text, flags=re.M)
+
+
 def markdown_to_html(markdown_text: str) -> str:
     try:
         import markdown
     except ImportError as exc:
         raise BuildError("Markdownが未導入です。publishing/requirements.txtを導入してください") from exc
+    markdown_text = unwrap_callouts(markdown_text)
     markdown_text = re.sub(r"\[\[(?:[^|\]]*)\|([^\]]+)\]\]", r"\1", markdown_text)
     markdown_text = re.sub(r"\[\[([^\]]+)\]\]", r"\1", markdown_text)
     return markdown.markdown(
