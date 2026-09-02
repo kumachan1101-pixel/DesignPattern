@@ -1,5 +1,38 @@
 # 読者視点レビュー タスク一覧
 
+## 2026-09-02 ファイル一式を実際に用意した
+
+**判定：PASS。ゲートに `Sources build` を追加し、22ファイルがビルドできる。**
+
+「手元で貼って動かさないと思う」という指摘を受けて、**本文の分割表どおりのファイル一式**を
+`books/volume01-core-patterns/sources/` へ生成した。`script/export_sources.py` が掲載コードから
+切り出し、**ビルドして掲載コードと同じ出力になることまで確かめる**。
+
+| 章 | ファイル |
+|---|---|
+| chapter01 | `Order.h` `IDiscountRule.h` `Discounts.h` `RuleSelector.h` `DiscountRuleSet.h` `PaymentCalculator.h` `main.cpp` `Makefile` |
+| chapter02 | `EventDatabase.h` `IReservationState.h` `States.h` **`States.cpp`** `TicketReservation.h` `main.cpp` `Makefile` |
+| chapter03 | `ProductDatabase.h` `INotification.h` `Notifiers.h` `DeliveryStatusLog.h` `InventoryManager.h` `main.cpp` `Makefile` |
+
+`make run` でそのまま動く。各章の「実務でファイルを分けるなら」の表へ、入手方法を1行足した。
+
+### 分けてみて分かったこと
+
+**第2章だけ `.cpp` が要る。** 状態クラスの本体が `reservation->hasCapacity()` を呼ぶため、
+`TicketReservation` の宣言が済んでいないとヘッダーに書けない。前方宣言だけでは足りず、
+**メンバー関数の本体を `States.cpp` へ落とすことになった。**
+
+これは本文の「悩みどころ：次の状態を誰が決めるのか」で書いた相互参照が、
+**ファイル構成という形で表に出たもの**である。第1章と第3章は依存が一方向なので、
+ヘッダーだけで完結する。**ファイルの分け方が設計の写し身になっている**ことが、
+実際に分けてみて確認できた。
+
+### 再発防止
+
+`export_sources.py --verify` を `--package` ゲートへ入れた。本文の分割表を変えたのに
+実際に分けられない、という食い違いはここで落ちる。**分割表が絵に描いた餅でないことを、
+毎回機械が確かめる。**
+
 ## 2026-09-02 原則をフェーズへ織り込み、設計への批判を入れる
 
 **判定：PASS。21観点＋3観点が通る。**

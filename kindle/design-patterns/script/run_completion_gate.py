@@ -114,6 +114,16 @@ def main() -> int:
                     str(volume_config),
                 ],
             ))
+            checks.append((
+                f"Sources build: {volume_config.parents[1].name}",
+                [
+                    python,
+                    str(SCRIPT_DIR / "export_sources.py"),
+                    "--config",
+                    str(volume_config),
+                    "--verify",
+                ],
+            ))
 
     failed = [label for label, command in checks if not run(label, command)]
     print("\n=== Quality gate result ===")

@@ -846,6 +846,8 @@ int main() {
 > | `PaymentCalculator.h` / `.cpp` | 金額計算 | 契約だけを見るので、`Discounts.h` を含めない |
 > | `main.cpp` | 生成と受け渡し | 具体ルール名も優先順も書かない |
 >
+> **このとおりに分けたファイル一式を用意しています。** 本書のリポジトリの `books/volume01-core-patterns/sources/chapter01/` に、上の表どおりのヘッダーと `main.cpp`、`Makefile` が入っています。`make run` でそのまま動きます。
+>
 > 分け方の目安は「**そのファイルが何をインクルードすることになるか**」です。`PaymentCalculator.cpp` が `Discounts.h` を含めることになったら、それは分離が崩れた合図です。
 
 `OrderProcessor` は `CustomerDatabase` からの情報を使ってバリデーションと計算を行います。`CartPreviewService` も同じ `PaymentCalculator` を使うため、注文確定前のプレビュー表示でも同じ金額になります。
