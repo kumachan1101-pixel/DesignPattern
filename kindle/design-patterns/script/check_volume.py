@@ -25,6 +25,8 @@
  17. 表のセルに文が入っていない（6インチ端末で列が潰れる）
  18. コード行が表示幅80桁に収まる
  19. 図が横に広がりすぎていない（頁幅へ縮むと文字が読めなくなる）
+ 20. 変更影響グラフの箱が、第0章の規約4種のどれかになっている
+ 21. 第0章が挙げる章内の節名が、実践章の見出しと一致する
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -468,6 +470,42 @@ def check(config_path: Path) -> int:
                     f"（{limit} を超えると頁幅へ縮んだとき文字が読めません）。"
                     f"責任のまとまりで分けてください"
                 )
+
+    # 20. 変更影響グラフの箱の書き方
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        for graph in re.findall(r"```mermaid\ngraph (?:TD|LR)\n(.*?)```", text, re.S):
+            for label in re.findall(r'\w+\["([^"]+)"\]', graph):
+                if label.startswith("変更要求") or "✅" in label or "<br>" in label:
+                    continue
+                failures.append(
+                    f"{path.name}: 変更影響グラフの箱「{label[:30]}」が規約の4種"
+                    f"（起点・届いた先・届かなかった先・再テスト）のどれでもありません"
+                )
+
+    # 21. 第0章が挙げる節名の実在
+    practice_headings: set[str] = set()
+    for path in chapters:
+        if not re.match(r"chapter\d", path.name):
+            continue
+        for line in path.read_text(encoding="utf-8").split("\n"):
+            if re.match(r"^#{3,4}\s", line):
+                practice_headings.add(re.sub(r"^#+\s*", "", line).strip())
+    if practice_headings:
+        for path in chapters:
+            text = path.read_text(encoding="utf-8")
+            for cited in re.findall(r"\*\*章内の項目\*\*：([^\n]+)", text):
+                for part in cited.split("／"):
+                    part = part.strip()
+                    if not part:
+                        continue
+                    if not any(
+                        part == h or part in h or h in part for h in practice_headings
+                    ):
+                        failures.append(
+                            f"{path.name}: 「{part}」を章内の項目として挙げていますが、"
+                            f"実践章にその見出しがありません"
+                        )
 
     if failures:
         print("\n".join(failures))

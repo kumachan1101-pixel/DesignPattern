@@ -103,21 +103,26 @@ def to_definition_list(rows: list[list[str]]) -> list[str]:
             out.append(f"- **{key}**：{value}" if value else f"- **{key}**")
         return out
 
+    previous_key = None
     for row in body:
         key = row[0].strip()
         if not key or set(key) <= {"-", "—", "*"}:
             key = "（見出しなし）"
-        # 先頭列がすでに強調されている場合は二重にしない
-        label = key if key.startswith("**") else f"**{key}**"
-        out.append(label)
-        out.append("")
+        # 先頭列が同じ行が続く表（1つのフェーズに複数の節が並ぶ等）は、
+        # 見出しを繰り返さずに1つへまとめる。
+        if key != previous_key:
+            if previous_key is not None:
+                out.append("")
+            label = key if key.startswith("**") else f"**{key}**"
+            out.append(label)
+            out.append("")
+            previous_key = key
         for name, value in zip(header[1:], row[1:]):
             value = value.strip()
             if not value or value in {"—", "――", "-"}:
                 continue
             name = name.strip().replace("**", "")
             out.append(f"- **{name}**：{value}")
-        out.append("")
     while out and out[-1] == "":
         out.pop()
     return out

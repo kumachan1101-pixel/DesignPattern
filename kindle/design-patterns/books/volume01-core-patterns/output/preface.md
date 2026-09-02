@@ -75,7 +75,7 @@ GoF（Gang of Four）とは、1994年出版の書籍『Design Patterns』を書�
 > 次の図では、同じ電源側に対して、接続点の形が専用か共通かによって交換できる機器の範囲がどう変わるかを比べます。
 >
 > ```mermaid
-> flowchart LR
+> flowchart TB
 >     P1["電源"] --> L["Lightning対応ケーブル"]
 >     L --> I1["Lightning対応iPhone"]
 >
