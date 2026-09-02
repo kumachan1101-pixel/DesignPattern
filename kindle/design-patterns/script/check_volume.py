@@ -30,6 +30,7 @@
  22. 執筆用テンプレートの穴埋め記号が本文に残っていない
  23. 「第N章／はじめに で触れた○○」の話題が、その参照先に実在する
  24. 種類の違うID（問題・原因・課題）を等号で結んでいない
+ 25. 実践章のIDに、思い出すための短い名前が併記されている
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -573,6 +574,28 @@ def check(config_path: Path) -> int:
                         f"{path.name}:{number}: {left}と{right}を「＝」で結んでいます。"
                         f"種類の違うIDは導出の向きが分かる書き方にしてください"
                     )
+
+    # 25. IDへ短い名前を併記する
+    # 番号だけだと、10ページ先で出てきたときに何の話か分からない。
+    # 定義見出し（**要求ID1** だけの行）と、直後に説明が続く形は対象外。
+    for path in chapters:
+        if not re.search(r"chapter0[1-9]", path.name):
+            continue
+        for number, line in prose_lines(path.read_text(encoding="utf-8")):
+            if line.lstrip().startswith("|"):
+                continue
+            for match in re.finditer(
+                r"(?:要求|変更|リスク|問題|原因|課題)ID\d+", line
+            ):
+                after = line[match.end(): match.end() + 2]
+                before = line[max(0, match.start() - 2): match.start()]
+                if after.startswith(("（", "(", "**")) or before.endswith("**"):
+                    continue
+                failures.append(
+                    f"{path.name}:{number}: {match.group(0)} に短い名前が"
+                    f"併記されていません（{line.strip()[:44]}）"
+                )
+                break
 
     if failures:
         print("\n".join(failures))
