@@ -850,6 +850,16 @@ int main() {
 >
 > 分け方の目安は「**そのファイルが何をインクルードすることになるか**」です。`PaymentCalculator.cpp` が `Discounts.h` を含めることになったら、それは分離が崩れた合図です。
 
+> **悩みどころ：実装をヘッダーに書くと、直したとき何が再ビルドされるか**
+>
+> 用意したファイル一式は、実装まで `.h` に書いています。読む順序が本文の掲載順と同じになるので、本として読むには都合がよい形です。ただし**これは設計上の割り切りです。**
+>
+> ヘッダーに実装を書くと、そのヘッダーをインクルードしている `.cpp` は、**中身を1行直すだけで全部が再コンパイルされます。** `Discounts.h` の計算式を1つ変えただけで、それを含むすべての翻訳単位が作り直されます。本書がここまで扱ってきたのは「変更したとき**どのファイルを開くか**」でしたが、実務ではもう1つ、「変更したとき**何が作り直されるか**」という変更コストがあります。
+>
+> 私はこう考えています。**開くファイルの数と、再ビルドされる範囲は別の話です。** 契約（`IDiscountRule.h`）は変わらないので、実装を `.cpp` へ移せば、施策を1つ直したときの再ビルドは `Discounts.cpp` だけで済みます。開く場所が変わらないまま、待ち時間だけが減ります。
+>
+> どこまでやるかは規模で決まると思います。**この章くらいの規模なら、ヘッダーに書いたままで困りません。** 数十人が同じリポジトリを触り、ビルドに数分かかるようになったところで、変更が多いクラスから順に `.cpp` へ移すのが現実的だと私は考えています。最初から全部を分けると、宣言と定義を行き来する手間だけが先に増えます。
+
 `OrderProcessor` は `CustomerDatabase` からの情報を使ってバリデーションと計算を行います。`CartPreviewService` も同じ `PaymentCalculator` を使うため、注文確定前のプレビュー表示でも同じ金額になります。
 
 ---
@@ -1839,6 +1849,11 @@ public:
         ruleSelector.add(none);              // 必ず一致するため最後にする
     }
 
+    // ルールの実体はこのクラスが所有し、Selectorはその参照だけを持つ。
+    // コピーすると複製側のSelectorが元の実体を指したままになるため、禁じる。
+    DiscountRuleSet(const DiscountRuleSet&) = delete;
+    DiscountRuleSet& operator=(const DiscountRuleSet&) = delete;
+
     const RuleSelector& selector() const {
         return ruleSelector;
     }
@@ -2468,6 +2483,11 @@ public:
         ruleSelector.add(none);              // 必ず一致するため最後にする
     }
 
+    // ルールの実体はこのクラスが所有し、Selectorはその参照だけを持つ。
+    // コピーすると複製側のSelectorが元の実体を指したままになるため、禁じる。
+    DiscountRuleSet(const DiscountRuleSet&) = delete;
+    DiscountRuleSet& operator=(const DiscountRuleSet&) = delete;
+
     const RuleSelector& selector() const {
         return ruleSelector;
     }
@@ -2596,6 +2616,7 @@ public:
 - `OrderProcessor` は、エラー条件の確認 → 会員種別の取得（実運用ではDB/APIなので `try/catch` で失敗に備える）→ Selectorでルール選択 → 注文結果の計算と表示、という手順だけを担います。
 - `CartPreviewService` は別の公開操作として、同じ入力から同じSelector・計算器を使います。このため購入確定を実行せずに、同額を事前取得できます。
 - `std::reference_wrapper` は、`DiscountRuleSet` が所有するルールへの非所有参照をコンテナへ登録するために使います。`new` / `delete` は発生しません。
+- そのため `DiscountRuleSet` は**コピーを禁止しています**。コピーすると、複製側の `RuleSelector` が持つ参照は元のオブジェクトのメンバーを指したままになり、元が先に消えると壊れます。「実体を所有する側」と「参照だけを借りる側」を1つのクラスに同居させたときは、コピーの意味が自明でなくなるため、書ける形を絞っておくほうが安全だと私は考えています。
 - 新しい割引を足すときに触るのは「適用条件と式を持つ新しいルールクラス」と「`DiscountRuleSet`の所有・登録一覧」です。`main()`、`PaymentCalculator`、`RuleSelector` の処理は変わりません。
 
 ---

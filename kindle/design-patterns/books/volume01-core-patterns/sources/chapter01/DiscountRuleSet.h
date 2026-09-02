@@ -23,6 +23,11 @@ public:
         ruleSelector.add(none);              // 必ず一致するため最後にする
     }
 
+    // ルールの実体はこのクラスが所有し、Selectorはその参照だけを持つ。
+    // コピーすると複製側のSelectorが元の実体を指したままになるため、禁じる。
+    DiscountRuleSet(const DiscountRuleSet&) = delete;
+    DiscountRuleSet& operator=(const DiscountRuleSet&) = delete;
+
     const RuleSelector& selector() const {
         return ruleSelector;
     }
