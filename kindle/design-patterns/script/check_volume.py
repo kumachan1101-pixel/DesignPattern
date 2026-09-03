@@ -32,6 +32,7 @@
  24. 種類の違うID（問題・原因・課題）を等号で結んでいない
  25. 実践章のIDに、思い出すための短い名前が併記されている
  26. 編集の舞台裏（なぜそう書いたか）を本文へ書いていない
+ 27. 第0章が実践章の題材を先出ししていない
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -620,6 +621,25 @@ def check(config_path: Path) -> int:
                     f"{path.name}:{number}: 編集の舞台裏が本文に出ています"
                     f"（{found.group(0)[:36]}）。読者が要るのは読み方であって、"
                     f"なぜそう書いたかではありません"
+                )
+
+    # 27. 第0章は実践章の題材を先出ししない
+    # 第0章は各フェーズの考え方を述べる場所である。ここで割引計算や在庫通知を
+    # 例に使うと、その章を読む前に答えの半分を渡すことになる。
+    topics = (
+        "割引", "キャンペーン", "会員種別", "サマーセール",
+        "予約", "チケット", "満席", "キャンセル待ち",
+        "在庫", "通知先", "閾値", "出庫",
+    )
+    for path in chapters:
+        if "chapter00" not in path.name:
+            continue
+        for number, line in prose_lines(path.read_text(encoding="utf-8")):
+            found = [w for w in topics if w in line]
+            if found:
+                failures.append(
+                    f"{path.name}:{number}: 実践章の題材「{found[0]}」が第0章に出ています"
+                    f"（{line.strip()[:40]}）。章を読む前に例を渡さないでください"
                 )
 
     if failures:
