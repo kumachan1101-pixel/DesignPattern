@@ -198,9 +198,32 @@ code {
 .overview-slide, .mermaid-image {
   margin: 0.6em 0 1.2em;
   page-break-inside: avoid;
+  break-inside: avoid;
   text-align: center;
 }
 .overview-slide img, .mermaid-image img { border: 1px solid #ddd; }
+.mermaid-image img {
+  /* A5で縦長図がページをはみ出し、次ページにも残像のように続くのを防ぐ。 */
+  max-height: 5.2in;
+  object-fit: contain;
+  width: auto;
+}
+.mermaid-image figcaption {
+  color: #455a64;
+  font-size: 0.82em;
+  line-height: 1.55;
+  margin: 0.45em auto 0;
+  text-align: left;
+}
+.figure-intro {
+  /* 「次の図では…」だけを前ページへ置き去りにしない。 */
+  break-after: avoid;
+  page-break-after: avoid;
+}
+.visual-unit {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
 .code-image-stack {
   background: #0F172A;
   border: 2px solid #334155;
@@ -400,6 +423,60 @@ def split_chunks(
     return chunks
 
 
+def split_code_chunks(
+    lines: Sequence[str],
+    has_title: bool,
+    first_limit: int,
+    continued_limit: int,
+    orphan_threshold: int,
+) -> list[list[str]]:
+    """C++を、行数だけでなくメソッドやクラスの境界を優先して分ける。
+
+    固定行で切ると、メソッド宣言だけが画像末尾へ残り、本体が次画像へ送られる。
+    目標行数の前後で空行または閉じ波括弧を探し、見つからない場合だけ固定行へ
+    戻す。最後の画像が数行だけにならない条件も同時に守る。
+    """
+    if not lines:
+        return [[""]]
+    chunks: list[list[str]] = []
+    start = 0
+    while start < len(lines):
+        limit = first_limit if not chunks and has_title else continued_limit
+        remaining = len(lines) - start
+        if remaining <= limit:
+            chunks.append(list(lines[start:]))
+            break
+        # 目標行数を機械的に守って、閉じ波括弧だけの画像を残さない。
+        # 数行の超過なら、直前の意味のまとまりと同じ画像へ収める。
+        if remaining - limit <= orphan_threshold:
+            chunks.append(list(lines[start:]))
+            break
+
+        minimum_tail = orphan_threshold + 1
+        lower = max(1, limit - 7)
+        upper = min(remaining - minimum_tail, limit + 4)
+        candidates: list[tuple[int, int, int]] = []
+        for size in range(lower, upper + 1):
+            previous = lines[start + size - 1].strip()
+            following = lines[start + size].strip()
+            if not previous:
+                score = 4
+            elif previous in ("}", "};"):
+                score = 3
+            elif previous.endswith(("}", "};")):
+                score = 2
+            elif not following:
+                score = 1
+            else:
+                continue
+            candidates.append((score, -abs(size - limit), size))
+
+        size = max(candidates)[2] if candidates else min(limit, remaining)
+        chunks.append(list(lines[start : start + size]))
+        start += size
+    return chunks
+
+
 def strip_markdown(text: str) -> str:
     text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
@@ -479,6 +556,39 @@ def preceding_block_title(markdown_text: str, position: int) -> tuple[str | None
             continue
         break
     return None, None
+
+
+def preceding_diagram_title(markdown_text: str, position: int) -> tuple[str, str | None]:
+    """図の題名と、キャプションへ移す太字題名の行を返す。
+
+    図の直前に普通の導入文があっても、その少し前に置かれた太字題名を優先する。
+    太字題名がなければ、直近の見出しを使い、すべての図を紙面だけで識別できる
+    ようにする。
+    """
+    lines = markdown_text[:position].splitlines()
+    for line in reversed(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        bold = re.match(r"^\*\*(.+?)\*\*$", stripped)
+        if bold:
+            return trim_title(strip_markdown(bold.group(1)), 48), line
+        heading = re.match(r"^#{2,6}\s+(.+?)\s*$", stripped)
+        if heading:
+            return trim_title(strip_markdown(heading.group(1)), 48), None
+    return "構造と処理の関係", None
+
+
+def diagram_number(chapter_stem: str, index: int) -> str:
+    """原稿ファイル名から、読者向けの図番号を作る。"""
+    chapter = re.search(r"chapter0*(\d+)", chapter_stem)
+    if chapter:
+        prefix = str(int(chapter.group(1)))
+    elif "preface" in chapter_stem:
+        prefix = "序"
+    else:
+        prefix = safe_stem(chapter_stem)
+    return f"図{prefix}-{index}"
 
 
 def title_from_code(source: str, language: str) -> str:
@@ -629,12 +739,11 @@ def render_code_block(
     force: bool,
 ) -> list[Path]:
     settings = config.rendering
-    source_chunks = split_chunks(
-        code.splitlines(),
-        bool(title),
-        settings.first_lines,
-        settings.continued_lines,
-        settings.orphan_threshold,
+    source_lines = code.splitlines()
+    splitter = split_code_chunks if language == "cpp" else split_chunks
+    source_chunks = splitter(
+        source_lines, bool(title), settings.first_lines,
+        settings.continued_lines, settings.orphan_threshold,
     )
     # CSS is part of the cache key so a palette/font change cannot reuse stale PNGs.
     token = content_hash(
@@ -642,6 +751,7 @@ def render_code_block(
         title or "",
         code,
         settings,
+        "semantic-code-boundaries-v2",
         CODE_CSS,
         CODE_TITLE_STYLE,
     )
@@ -668,13 +778,14 @@ def render_code_block(
     highlighted_lines = pre_match.group(1).split("\n")
     if highlighted_lines and highlighted_lines[-1] == "":
         highlighted_lines.pop()
-    chunks = split_chunks(
-        highlighted_lines,
-        bool(title),
-        settings.first_lines,
-        settings.continued_lines,
-        settings.orphan_threshold,
-    )
+    # Pygmentsの各行は元コードの各行と一対一。元コードで決めた意味境界を、
+    # 構文強調後にもそのまま使う。
+    chunks: list[list[str]] = []
+    highlighted_start = 0
+    for source_chunk in source_chunks:
+        highlighted_end = highlighted_start + len(source_chunk)
+        chunks.append(highlighted_lines[highlighted_start:highlighted_end])
+        highlighted_start = highlighted_end
     expected = [output_dir / f"{prefix}_part{part:02d}.png" for part in range(len(chunks))]
 
     for stale in output_dir.glob(f"{safe_stem(chapter_stem)}_code{index:03d}_*_part*.png"):
@@ -803,7 +914,8 @@ def replace_fenced_blocks(
     code_index = 0
     mermaid_index = 0
     stats = {"code_blocks": 0, "code_images": 0, "mermaid_blocks": 0}
-    # 画像へ焼いた題名の元になった本文の行。あとで本文から取り除く。
+    # コード画像の帯、または図のキャプションへ移した題名の行。
+    # あとで本文から取り除き、同じ題名を2回読ませない。
     consumed_titles: list[str] = []
 
     def replacement(match: re.Match[str]) -> str:
@@ -813,6 +925,9 @@ def replace_fenced_blocks(
         if language == "mermaid":
             mermaid_index += 1
             stats["mermaid_blocks"] += 1
+            title, consumed = preceding_diagram_title(markdown_text, match.start())
+            if consumed:
+                consumed_titles.append(consumed)
             image_path = render_mermaid_block(
                 config,
                 dirs["mermaid"],
@@ -822,10 +937,13 @@ def replace_fenced_blocks(
                 force,
             )
             relative = relative_to_dist(config, image_path)
+            number = diagram_number(markdown_path.stem, mermaid_index)
+            caption = f"{number}　{title}"
             return (
-                "\n\n<div class=\"mermaid-image\">"
-                f'<img src="{relative}" alt="{html.escape(markdown_path.stem)} diagram {mermaid_index}" />'
-                "</div>\n\n"
+                "\n\n<figure class=\"mermaid-image\">"
+                f'<img src="{relative}" alt="{html.escape(caption)}" />'
+                f"<figcaption>{html.escape(caption)}</figcaption>"
+                "</figure>\n\n"
             )
 
         code_index += 1
@@ -858,6 +976,41 @@ def replace_fenced_blocks(
     for line in consumed_titles:
         rendered = rendered.replace(f"\n{line}\n", "\n", 1)
     return rendered, stats
+
+
+def mark_visual_introductions(body_html: str) -> str:
+    """図の直前の段落と図を、改ページされない1つの説明単位にする。"""
+    pattern = re.compile(
+        # `.*?`だけでは前の段落から複数の見出し・段落をまたいでしまう。
+        # 直近の1段落だけを選ぶため、途中の閉じpタグを越えない。
+        r"<p(?P<attrs>[^>]*)>(?P<content>(?:(?!</p>).)*)</p>"
+        r"(?P<gap>\s*)(?P<figure><figure class=\"mermaid-image\">.*?</figure>)",
+        re.DOTALL,
+    )
+
+    def replace(match: re.Match[str]) -> str:
+        attrs = match.group("attrs")
+        class_match = re.search(r'class="([^"]*)"', attrs)
+        if class_match:
+            classes = class_match.group(1).split()
+            if "figure-intro" not in classes:
+                classes.append("figure-intro")
+            attrs = (
+                attrs[: class_match.start()]
+                + f'class="{" ".join(classes)}"'
+                + attrs[class_match.end() :]
+            )
+        else:
+            attrs += ' class="figure-intro"'
+        return (
+            '<div class="visual-unit">'
+            + f'<p{attrs}>{match.group("content")}</p>'
+            + match.group("gap")
+            + match.group("figure")
+            + "</div>"
+        )
+
+    return pattern.sub(replace, body_html)
 
 
 def copy_slide(config: BookConfig, chapter_stem: str, slide_dir: Path) -> Path | None:
@@ -981,6 +1134,7 @@ def build_html(
                 "</div>"
             )
         body = markdown_to_html(processed)
+        body = mark_visual_introductions(body)
         chapter_id = f"chapter-{safe_stem(markdown_path.stem)}"
         body, sections = anchor_sections(body, chapter_id)
         chapters.append(

@@ -176,7 +176,8 @@ public:
             seat3.pay();
         }
 
-        // シナリオ4：保留期限切れ (Available → Reserved → Held → Available)
+        // シナリオ4：保留期限切れ
+        // (Available → Reserved → Held → Available)
         std::cout << "--- 行4: 保留期限切れ ---\n";
 
         if (showAvailability("EVT001")) {
@@ -229,7 +230,8 @@ public:
         TicketReservation held(reservedState(), &db,
                                &history, &waitlist,
                                "EVT003", f2.title);
-        held.hold();                   // 50→49（保留で席を確保）
+        // 席は確保したまま、期限だけ24時間へ延長（席数は動かない）
+        held.hold();
         TicketReservation waiting2(availableState(), &db,
                                    &history, &waitlist,
                                    "EVT003", f2.title);

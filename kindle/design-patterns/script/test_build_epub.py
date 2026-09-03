@@ -32,6 +32,30 @@ class ChunkingTests(unittest.TestCase):
             build_epub.split_chunks([], False, 19, 22, 4),
         )
 
+    def test_cpp_chunk_prefers_complete_method_over_small_tail_merge(self) -> None:
+        lines = [f"line {index}" for index in range(24)]
+        lines[17] = "}"
+        lines[18] = ""
+        chunks = build_epub.split_code_chunks(lines, True, 19, 22, 4)
+        self.assertEqual([19, 5], [len(chunk) for chunk in chunks])
+        self.assertEqual("", chunks[0][-1])
+
+    def test_cpp_chunk_does_not_leave_method_signature_at_image_end(self) -> None:
+        lines = [f"line {index}" for index in range(24)]
+        lines[16] = "}"
+        lines[17] = ""
+        lines[18] = "bool hasCapacity() {"
+        chunks = build_epub.split_code_chunks(lines, True, 19, 22, 4)
+        self.assertEqual("", chunks[0][-1])
+        self.assertEqual("bool hasCapacity() {", chunks[1][0])
+
+    def test_cpp_chunk_does_not_create_closing_brace_only_image(self) -> None:
+        lines = [f"line {index}" for index in range(23)]
+        lines[-1] = "};"
+        chunks = build_epub.split_code_chunks(lines, False, 19, 22, 4)
+        self.assertEqual([23], [len(chunk) for chunk in chunks])
+        self.assertEqual("};", chunks[0][-1])
+
 
 class MarkdownTests(unittest.TestCase):
     def test_cpp_aliases_select_cpp(self) -> None:
@@ -44,9 +68,31 @@ class MarkdownTests(unittest.TestCase):
         match = build_epub.FENCE_RE.search(text)
         self.assertIsNotNone(match)
         self.assertEqual(
-            "PaymentService::pay()",
+            ("PaymentService::pay()", None),
             build_epub.preceding_block_title(text, match.start()),
         )
+
+    def test_diagram_title_moves_standalone_bold_label_to_caption(self) -> None:
+        text = "### 現状構造\n\n**システム全体図**\n\n次の図で境界を見ます。\n\n" + chr(96) * 3 + "mermaid\ngraph LR\nA --> B\n" + chr(96) * 3 + "\n"
+        match = build_epub.FENCE_RE.search(text)
+        self.assertIsNotNone(match)
+        self.assertEqual(
+            ("システム全体図", "**システム全体図**"),
+            build_epub.preceding_diagram_title(text, match.start()),
+        )
+
+    def test_diagram_number_uses_reader_facing_chapter_number(self) -> None:
+        self.assertEqual("図0-2", build_epub.diagram_number("02-chapter00", 2))
+        self.assertEqual("図序-1", build_epub.diagram_number("01-preface", 1))
+
+    def test_visual_intro_is_marked_for_page_break_control(self) -> None:
+        body = '<p>前の説明です。</p><h3>図の節</h3>'
+        body += '<p>次の図で確認します。</p>\n<figure class="mermaid-image">'
+        body += '<img src="a.png" /></figure>'
+        marked = build_epub.mark_visual_introductions(body)
+        self.assertIn('<p class="figure-intro">', marked)
+        self.assertIn('<div class="visual-unit">', marked)
+        self.assertIn('<p>前の説明です。</p><h3>図の節</h3><div', marked)
 
     def test_content_hash_changes_with_title(self) -> None:
         first = build_epub.content_hash("cpp", "A", "int main() {}")

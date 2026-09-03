@@ -2515,20 +2515,27 @@ def check_phase2_interview_plan(text: str, path: Path) -> list[Issue]:
     planning = text[phase21:phase22]
     interview = text[phase23:phase24]
     heading = "#### ヒアリングで確認すること"
-    header = "| 見当 | 現時点の仮説 | 確認する質問 | 確認先 |"
-    for token in (heading, header):
-        if token not in planning:
-            issues.append(Issue(
-                path, line_number(text, phase21),
-                f"2-1で見当を質問へ変換する「{token}」がありません",
-            ))
+    headers = (
+        "| 確認したい仮説 | 確認する質問 | 確認先 |",
+        "| 見当 | 現時点の仮説 | 確認する質問 | 確認先 |",
+    )
+    if heading not in planning:
+        issues.append(Issue(
+            path, line_number(text, phase21),
+            f"2-1で見当を質問へ変換する「{heading}」がありません",
+        ))
+    if not any(header in planning for header in headers):
+        issues.append(Issue(
+            path, line_number(text, phase21),
+            "2-1に確認したい仮説・質問・確認先の表がありません",
+        ))
 
     plan_start = planning.find(heading)
     plan_table = planning[plan_start:] if plan_start >= 0 else ""
     rows = [
         line for line in plan_table.splitlines()
-        if re.match(r"^\|.+\|.+\|.+\|.+\|$", line)
-        and line != header
+        if re.match(r"^\|.+\|.+\|.+\|$", line)
+        and line not in headers
         and not re.match(r"^\|[-:|]+\|$", line.replace(" ", ""))
     ]
     if not rows:

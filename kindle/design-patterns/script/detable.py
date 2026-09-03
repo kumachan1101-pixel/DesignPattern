@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
-"""6インチ端末で読めない表を、定義リスト形式へ組み替える。
+"""6インチ端末で読みにくい可能性がある表を検出する。
 
 Kindleの表は列幅が均等に割られるため、4列の表は1列あたり日本語で約10字に
-なる。1セルに文が入っている表は、17行の縦長の柱が4本並ぶ形で描かれ、
-同じ行の内容を目で結べない。
+なる。長文セルを持つ表は、列の統合や説明の削減が必要かを人が確認する。
 
-そこで、長いセルを持つ表を次の形へ変える。列見出しがラベルになるので
-情報は落ちず、横幅は端末の幅で自然に折り返る。
+以前は表を「見出し＋ラベル付き箇条書き」へ自動変換していた。しかし、その形式は
+同じ観点を縦横に比較できず、列名も各項目で繰り返すため、かえって読みにくかった。
+そのため自動変換は廃止し、このスクリプトは候補の検出だけを行う。
 
-    | 課題ID | 採用構造 | 確認 |         **課題ID1（選択条件）**
-    |---|---|---|                  →
-    | 課題ID1（選択条件） | 長文 | 長文 |    - **採用構造**：長文
-                                          - **確認**：長文
+候補を直すときは、次の順で判断する。
 
-対象は次のどちらか。
+  1. 読者の判断に使わない列、全行で同じ列、本文と重複する列を削る。
+  2. 説明用の表は原則3列以内にする。
+  3. 状態×操作やAPI差分など、縦横の対応自体に意味がある表は残す。
+  4. 比較ではなく順序や補足を示す情報だけ、箇条書きや本文へ移す。
+
+検出対象は次のどちらか。
 
   Tier1: どこか1セルが80桁を超える表
   Tier2: 4列以上で1セルが60桁超か1行合計200桁超、または3列で1行合計160桁超
 
-全セルが短い表は、表のまま残す。2列でも値が文になっているものは崩す。表が読みやすい場面まで
-散文へ崩すと、かえって一覧性が落ちるためである。
+全セルが短い表は候補にしない。
 
-    python3 script/detable.py <ファイル> [--apply] [--tier1-only]
+    python3 script/detable.py <ファイル> [--tier1-only]
 """
 
 from __future__ import annotations
@@ -83,56 +84,10 @@ def classify(rows: list[list[str]]) -> str:
     return "keep"
 
 
-def to_definition_list(rows: list[list[str]]) -> list[str]:
-    """先頭列を見出し、残りの列をラベル付き箇条書きにする。"""
-    header, body = rows[0], rows[1:]
-    out: list[str] = []
-
-    if len(header) == 2:
-        # 2列なら、ラベルは1つしかない。各行へ繰り返すと同じ語が
-        # 何度も並ぶので、列見出しを先に1度だけ置く。
-        name = header[1].strip().replace("**", "")
-        if name and name not in {"—", "――", "-"}:
-            out.append(f"**{name}**")
-            out.append("")
-        for row in body:
-            key = row[0].strip().replace("**", "")
-            value = row[1].strip() if len(row) > 1 else ""
-            if not key and not value:
-                continue
-            out.append(f"- **{key}**：{value}" if value else f"- **{key}**")
-        return out
-
-    previous_key = None
-    for row in body:
-        key = row[0].strip()
-        if not key or set(key) <= {"-", "—", "*"}:
-            key = "（見出しなし）"
-        # 先頭列が同じ行が続く表（1つのフェーズに複数の節が並ぶ等）は、
-        # 見出しを繰り返さずに1つへまとめる。
-        if key != previous_key:
-            if previous_key is not None:
-                out.append("")
-            label = key if key.startswith("**") else f"**{key}**"
-            out.append(label)
-            out.append("")
-            previous_key = key
-        for name, value in zip(header[1:], row[1:]):
-            value = value.strip()
-            if not value or value in {"—", "――", "-"}:
-                continue
-            name = name.strip().replace("**", "")
-            out.append(f"- **{name}**：{value}")
-    while out and out[-1] == "":
-        out.pop()
-    return out
-
-
-def convert(path: Path, apply: bool, tier1_only: bool) -> int:
+def audit(path: Path, tier1_only: bool) -> int:
     text = path.read_text(encoding="utf-8")
-    newline = "\r\n" if "\r\n" in text else "\n"
     lines = text.replace("\r\n", "\n").split("\n")
-    edits: list[tuple[int, int, list[str]]] = []
+    findings: list[tuple[int, str]] = []
     counts = {"tier1": 0, "tier2": 0}
 
     for start, end, block in find_tables(lines):
@@ -143,33 +98,34 @@ def convert(path: Path, apply: bool, tier1_only: bool) -> int:
         if kind == "keep" or (tier1_only and kind != "tier1"):
             continue
         counts[kind] += 1
-        edits.append((start, start + len(block), to_definition_list(rows)))
+        findings.append((start + 1, kind))
 
-    if not edits:
+    if not findings:
         print(f"{path.name}: 対象なし")
         return 0
 
-    if apply:
-        for start, end, replacement in reversed(edits):
-            lines[start:end] = replacement
-        path.write_bytes(newline.join(lines).encode("utf-8"))
-
-    print(
-        f"{path.name}: tier1 {counts['tier1']}表 / tier2 {counts['tier2']}表"
-        f"{' を組み替えました' if apply else '（--apply で反映）'}"
-    )
+    locations = ", ".join(f"{line}行({kind})" for line, kind in findings)
+    print(f"{path.name}: tier1 {counts['tier1']}表 / tier2 {counts['tier2']}表")
+    print(f"  要確認: {locations}")
     return counts["tier1"] + counts["tier2"]
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("files", nargs="+")
-    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--apply", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--tier1-only", action="store_true")
     args = parser.parse_args()
+    if args.apply:
+        print(
+            "--applyによる自動変換は廃止しました。候補を確認し、不要な列を削って"
+            "比較可能な表として編集してください。",
+            file=sys.stderr,
+        )
+        return 2
     total = 0
     for name in args.files:
-        total += convert(Path(name), args.apply, args.tier1_only)
+        total += audit(Path(name), args.tier1_only)
     print(f"合計 {total} 表")
     return 0
 
