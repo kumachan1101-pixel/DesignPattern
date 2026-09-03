@@ -1286,7 +1286,13 @@ def build_html(
 
 def run_checked(command: Sequence[str], label: str, cwd: Path) -> None:
     print(f"[{label}] 開始")
-    result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, errors="replace")
+    # CalibreのPDF出力はQtWebEngine（Chromium）で組版する。rootで動くコンテナ
+    # では、Chromiumのサンドボックスを外さないと起動できない。
+    environment = dict(os.environ, QTWEBENGINE_DISABLE_SANDBOX="1")
+    result = subprocess.run(
+        command, cwd=cwd, capture_output=True, text=True, errors="replace",
+        env=environment,
+    )
     if result.returncode != 0:
         details = (result.stderr or result.stdout).strip()
         raise BuildError(f"{label}に失敗しました\n{details}")
