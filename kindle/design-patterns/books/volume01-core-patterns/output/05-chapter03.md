@@ -1025,19 +1025,19 @@ flowchart TB
 
 > **この抜粋の外は、現状のままです。** 以下は通知先追加の差分抜粋です。フェーズ1の `ProductDatabase` による商品存在・在庫数の確認、出庫数の検証、在庫更新、しきい値判定は維持し、在庫更新が確定した後の `notifyAll()` だけを変更します。
 
-1-4（実装コード）と同じ並び順で、上から見ていきます。既存3クラスは変わりませんが、`notifyAll()` から見た扱いを確認するため再掲します。上から順に連結すると1つの実行可能なコードです。
+1-4（実装コード）と同じ並び順で、掲載単位を7つ並べます。**手を入れたのは、そのうち5つです。** 既存3クラスと公開操作2つは変わりませんが、`notifyAll()` から見た扱いを確認するため再掲します。上から順に連結すると1つの実行可能なコードです。
 
 | 1-4での掲載単位 | 今回の変更 |
 |---|---|
 | （新規） | `StockAlert` と受付結果の型を追加 |
-| `EmailNotifier` / `DashboardUpdater` / `ChatNotifier` | **変更なし**（再掲） |
+| `EmailNotifier` / `DashboardUpdater` / `ChatNotifier` | 変更なし（再掲） |
 | （新規） | `SMSNotifier` を追加 |
 | `InventoryManager` の宣言 | SMSのメンバ・コンストラクタ・受付IDの状態表を追加 |
-| `reduceStock()` / `replenishStock()` | **変更なし** |
+| `reduceStock()` / `replenishStock()` | 変更なし |
 | （新規） | `receiveSMSCompletion()` を追加 |
 | `InventoryManager::notifyAll()` | SMSの呼び出しと受付結果の解釈を追加 |
 
-変更の根拠は6件とも変更ID1（非同期SMS追加）です。
+変更した5つは、いずれも変更ID1（非同期SMS追加）から来ています。
 
 ---
 
@@ -1246,20 +1246,31 @@ void InventoryManager::receiveSMSCompletion(
 ```cpp
 void InventoryManager::notifyAll(const string& productId,
                                  const ProductInfo& info) {
+    // ← 追加。4手段の受付結果を数える
+    int accepted = 0, pending = 0, failed = 0;
+
     string message = "商品 " + productId + "（" + info.name + "）"
                    + " の在庫が閾値以下です。";
 
     if (!email.sendMail("在庫アラート", message)) {
         cout << "[通知受付失敗] Email" << endl;
+        failed++;                       // ← 追加
+    } else {
+        accepted++;                     // ← 追加
     }
 
+    // ダッシュボードは成否を返さないので、成功として数えるしかない
     dashboard.refreshStockWidget(productId, info.stock);
+    accepted++;                         // ← 追加
 
     string postId = chat.postMessage("inventory-alert",
                                      message);
 
     if (postId.empty()) {
         cout << "[通知受付失敗] Chat" << endl;
+        failed++;                       // ← 追加
+    } else {
+        accepted++;                     // ← 追加
     }
 
     // ← ここから追加。SMSだけは4項目を1つの値にして渡し、
@@ -1268,11 +1279,16 @@ void InventoryManager::notifyAll(const string& productId,
                         info.alertThreshold};
     TrialDeliveryResult result = sms.requestAsync(alert);
     if (result.status == TRIAL_PENDING) {
+        pending++;
         lastRequestId = result.requestId;
         smsStatuses[lastRequestId] = TRIAL_PENDING;
-    } else if (result.status == TRIAL_FAILED) {
+    } else {
         cout << "[通知受付失敗] SMS" << endl;
+        failed++;
     }
+    cout << "[受付結果] 成功:" << accepted
+         << " 保留:" << pending
+         << " 失敗:" << failed << endl;
     // ← ここまで
 }
 ```
@@ -1286,7 +1302,9 @@ void InventoryManager::notifyAll(const string& productId,
 | Chat | チャンネルと本文 | `.empty()` で成功／失敗 |
 | SMS | `StockAlert` を丸ごと | `status` で分岐し、受付IDを保存する |
 
-上の3行は1-4のままです。4行目のSMSだけが違います。**送った先で終わらず、受付IDを覚えて後日の続きを待つ**からです。この「覚える」ためのメンバが、宣言に足した `smsStatuses` と `lastRequestId` でした。
+**SMSだけが「保留」を返します。** 送った先で終わらず、受付IDを覚えて後日の続きを待つからです。そのため集計にも `pending` という3つ目の数え口が要ります。この「覚える」ためのメンバが、宣言に足した `smsStatuses` と `lastRequestId` でした。
+
+**ダッシュボードは相変わらず成否を返しません。** 失敗しても `accepted` に数えられます。**通知手段を1つ増やすたびに、この呼び分けと数え方を `InventoryManager` の中で決め直すことになります。**
 
 ---
 
@@ -1319,6 +1337,7 @@ Dashboard(1件): PRD002 の在庫表示を 2 に更新
 Chat(1件) #inventory-alert
   商品 PRD002（USBハブ） の在庫が閾値以下です。 -> POST-1
 SMS(1件) USBハブ 残2 -> 受付ID:SMS-1
+[受付結果] 成功:3 保留:1 失敗:0
 [SMS最終結果] SMS-1: PENDING -> DELIVERED
 --- 行6: SMSの受付が拒否される ---
 商品 PRD002（USBハブ） の在庫を 1 減らしました。在庫: 3 -> 2
@@ -1328,9 +1347,10 @@ Chat(1件) #inventory-alert
   商品 PRD002（USBハブ） の在庫が閾値以下です。 -> POST-1
 SMS 受付拒否: PRD002
 [通知受付失敗] SMS
+[受付結果] 成功:3 保留:0 失敗:1
 ```
 
-行2の1行目で在庫が3から2へ減っています。1-4と同じです。既存3手段の出力も1-4のままで、そこへSMSの1行が加わりました。後日の最終結果では、同じ受付ID `SMS-1` を `TRIAL_PENDING` から `TRIAL_DELIVERED` へ更新できています。行6ではSMSが断られましたが、在庫更新も他の3手段も止まっていません。**動作は正しくなっています。** 変更要求は満たせました。
+行2の1行目で在庫が3から2へ減っています。1-4と同じです。既存3手段の出力も1-4のままで、そこへSMSの1行と受付結果の集計が加わりました。後日の最終結果では、同じ受付ID `SMS-1` を `TRIAL_PENDING` から `TRIAL_DELIVERED` へ更新できています。行6ではSMSが断られましたが、在庫更新も他の3手段も止まっていません。**動作は正しくなっています。** 変更ID1（非同期SMS追加）の完了条件――4手段の受付件数を集計し、受付IDを最終結果へ更新する――を満たせました。
 
 ---
 
@@ -1560,30 +1580,33 @@ private:
 
 #### 契約：境界の形と受け渡しを決める
 
-**関数を一つ切り出すだけでは、変更を閉じ込められません。** 手段ごとの知識は `notifyAll()` の中だけでなく、`InventoryManager` のメンバ宣言・コンストラクタ・受付IDの状態表・`receiveSMSCompletion()` にも現れます。3-1（変更を試みる）でSMSを足したとき、書き換えた場所は6か所でした。そして2-4（ヒアリングで判明した将来リスク）のリスクID1（通知先の種類と実装）、リスクID2（通知先の増減）、リスクID3（受付と最終配信結果の扱い）が、どれも「増える・変わる」と言っています。**現に変更要求で、SMSという通知先が1つ増えました。** だから各通知手段を同じ問い方で呼べる契約まで進みます。
+**関数を一つ切り出すだけでは、変更を閉じ込められません。** 手段ごとの知識は `notifyAll()` の中だけでなく、`InventoryManager` のメンバ宣言・コンストラクタ・受付IDの状態表・`receiveSMSCompletion()` にも現れます。3-1（変更を試みる）でSMSを足したとき、書き換えた場所は7か所でした。そして2-4（ヒアリングで判明した将来リスク）のリスクID1（通知先の種類と実装）、リスクID2（通知先の増減）、リスクID3（受付と最終配信結果の扱い）が、どれも「増える・変わる」と言っています。**現に変更要求で、SMSという通知先が1つ増えました。** だから各通知手段を同じ問い方で呼べる契約まで進みます。
 
 分けると決めたので、コードに線を引きます。線を引いただけでは分けられません。**隙間を何が行き来するかを決めて、はじめて切り離せます。**
 
-**変更前から抜き出す箇所：`InventoryManager::notifyAll(const StockAlert&)`** ―― 3-1の4手段の呼び分けから、メールとダッシュボードの2件を抜き出したもの（対策前）
+**変更前から抜き出す箇所：`InventoryManager::notifyAll()`** ―― 3-1の4手段の呼び分けから、メールとダッシュボードの2件を抜き出したもの（対策前）
 
 ```cpp
-    std::string body = alert.productName + " 残" +
-                       std::to_string(alert.stock) + " 閾値" +
-                       // ← 出て行く側（文面）
-                       std::to_string(alert.threshold);
+    // ← 出て行く側（文面の組み立て）
+    string message = "商品 " + productId + "（" + info.name + "）"
+                   + " の在庫が閾値以下です。";
+
+    // ← 出て行く側（呼び方と、戻り値の読み方）
+    if (!email.sendMail("在庫アラート", message)) {
+        cout << "[通知受付失敗] Email" << endl;
+        failed++;                       // ← 残る側（集計）
+    } else {
+        accepted++;                     // ← 残る側（集計）
+    }
 
     // ← 出て行く側（呼び方）
-    if (email.sendMail("在庫不足", body)) accepted++;
-    // ← 残る側（集計）
-    else failed++;
-
-    dashboard.refreshStockWidget(alert.productId,
-                                 alert.stock); // ← 出て行く側
-    // ← 残る側（集計）
-    accepted++;
+    dashboard.refreshStockWidget(productId, info.stock);
+    accepted++;                         // ← 残る側（集計）
 ```
 
-**割り方の根拠は、通知先が増えたときに触るかどうかです。** 音声通知を足すと、引数の組み立てと呼び方は1通り増えます。集計と結果の出力は1行も増えません。変更前のコードでは、この2種類が同じ関数の中で交互に並んでいます。
+**割り方の根拠は、通知先が増えたときに触るかどうかです。** 音声通知を足すと、文面の組み立て・呼び方・戻り値の読み方が1通りずつ増えます。一方、**受付の集計は1行も増えません。** 何の手段であれ、結果が返ってきた後に数えることは同じだからです。変更前のコードでは、この2種類が同じ関数の中で交互に並んでいます。
+
+**ダッシュボードは、集計の側から見ると嘘をついています。** 戻り値が `void` で成否が分からないため、失敗していても `accepted++` に流れます。**手段ごとに戻り値の形が違うことが、そのまま「数え方をそろえられない」ことになっています。**
 
 **5-3（課題IDと接続点を確定する）が挙げた候補は5つです。** 商品ID、商品名、更新後在庫、閾値、個別配送結果について、境界を流す形を1つずつ確定します。
 
@@ -1594,17 +1617,17 @@ private:
 
 **候補は5つでしたが、境界を実際に流れるのは2つです。** 前の4つは警告1件を表す1つの値へまとめたので、引数としては1つです。個別配送結果が戻り値として1つ。**4つが消えたのではなく、1つの値の項目として運ばれます。** 呼ぶ側から見ると、渡すものが1つ、返るものが1つになりました。
 
-**返す情報は、変更前の `notifyAll()` が実際に使っていたもので決めます。** 3つありました。
+**返す情報は、変更前の通知元が実際に使っていたもので決めます。** 3つありました。
 
-- `accepted++` / `pending++` / `failed++` ―― 受付できたか、保留か、失敗かという**3区分**
-- `lastRequestId = smsResult.requestId;` ―― 保留のときだけ意味を持つ**受付ID**
-- 1-4（実装コード）の `cout << "[通知受付失敗] Email"` ―― どの手段が失敗したかという**手段名**
+- 3-1の `accepted++` / `pending++` / `failed++` ―― 受け付けたか、保留か、失敗かという**3区分**
+- 3-1の `lastRequestId = result.requestId;` ―― 保留のときだけ意味を持つ**受付ID**
+- `cout << "[通知受付失敗] Email"` ―― どの手段が失敗したかという**手段名**
 
 3つ目だけは形が変わります。変更前は通知元が `"Email"` と直接書いていましたが、**通知元が具体名を知らなくなる以上、手段名は結果に添えて返してもらうしかありません。**
 
 この3項目で足りるかどうかは、次の構想の確認で骨格を書いて確かめます。
 
-まず、境界を流れる2つの値を置きます。状態の5区分は、3-1で試した `TrialDeliveryStatus` の区分をそのまま引き継ぎます。
+まず、境界を流れる2つの値を置きます。状態は、3-1で試した `TrialDeliveryStatus` の4区分に1つ足して5区分にします。3-1で結果を返していたのはSMSだけだったので、「預かった」（`TRIAL_PENDING`）と「断られた」（`TRIAL_FAILED`）で足りました。**これからは残り3手段も同じ契約で結果を返すので、非同期ではない手段が「その場で受け付けた」と言うための区分が要ります。** それが `ACCEPTED` です。
 
 **ここで確認するコード：`DeliveryStatus`（列挙型全体）** ―― 通知受付から最終配信までの状態
 
@@ -2805,6 +2828,8 @@ SMS(1件受付): 在庫警告 PRD002 残2 / 受付ID=SMS-1
   保留: SMS 受付ID=SMS-1
 [受付結果] 成功:3 保留:1 失敗:0
 ```
+
+**メールとチャットの文面が、1-4から変わっています。** 1-4ではどちらも「商品 PRD002（USBハブ） の在庫が閾値以下です。」でした。通知元が1つの文面を作り、それを両方へ配っていたからです。対策後は通知元が文面を作りません。渡すのは `StockAlert` の4項目だけで、**それをどう文にするかは各通知先が決めます。** メールは件名と本文に分け、チャットは行動を促す一文にしています。**文面が変わったのは副作用ではなく、「手段ごとの表現を手段の側へ移す」という決定がそのまま出たものです。**
 
 SMS基盤はこの呼び出し中に最終結果を返しません。同じ `main()` の中で、後日届いた配信完了コールバックを、行2で受け取った同じ受付IDへ接続します。
 

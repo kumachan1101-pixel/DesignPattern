@@ -1139,6 +1139,8 @@ def anchor_sections(body_html: str, chapter_id: str) -> tuple[str, list[dict[str
             return match.group(0)
         section_id = f"{chapter_id}-s{len(sections) + 1}"
         label = re.sub(r"<[^>]+>", "", text).strip()
+        # フェーズ見出しの色付きの丸は、字だけの目次には持ち込まない。
+        label = label.lstrip("\u25cf").strip()
         sections.append({"id": section_id, "title": label})
         return f'<h2{attrs} id="{section_id}">{text}</h2>'
 
@@ -1178,6 +1180,7 @@ def markdown_to_html(markdown_text: str) -> str:
     except ImportError as exc:
         raise BuildError("Markdownが未導入です。publishing/requirements.txtを導入してください") from exc
     markdown_text = unwrap_callouts(markdown_text)
+    markdown_text = colorize_phase_marks(markdown_text)
     markdown_text = re.sub(r"\[\[(?:[^|\]]*)\|([^\]]+)\]\]", r"\1", markdown_text)
     markdown_text = re.sub(r"\[\[([^\]]+)\]\]", r"\1", markdown_text)
     return markdown.markdown(
@@ -1185,6 +1188,46 @@ def markdown_to_html(markdown_text: str) -> str:
         extensions=["extra", "sane_lists"],
         output_format="xhtml",
     )
+
+
+# フェーズ見出しの色。読者は「いま何フェーズか」を色で見分ける。
+PHASE_COLORS = {
+    "1": "#1565c0",  # 現状把握
+    "2": "#6a1b9a",  # 仮説立案
+    "3": "#00838f",  # 問題特定
+    "4": "#ef6c00",  # 原因分析
+    "5": "#c9a227",  # 課題定義
+    "6": "#c62828",  # 対策検討
+    "7": "#2e7d32",  # 対策実施
+}
+
+PHASE_HEADING = re.compile(
+    r"^(#{1,6}\s+)[\U0001F534-\U0001F7EB]\s*(フェーズ([1-7]))", re.MULTILINE
+)
+
+
+def colorize_phase_marks(markdown_text: str) -> str:
+    """フェーズ見出しの絵文字を、色の付いた丸へ置き換える。
+
+    `🟣` `🟠` のような四角・丸の絵文字は Emoji 12.0 で追加されたもので、
+    **EPUB／PDFの組版に使うフォントには色付きの字形が無く、白黒の輪郭で出る。**
+    フェーズ1（🔵）とフェーズ6（🔴）だけが色で出て、残りの5つは同じ灰色の記号に
+    見えていた。「フェーズごとに色が違う」と本文で約束している以上、これでは
+    約束を果たせない。
+
+    そこで、どのフォントにもある `●`（U+25CF）へ置き換え、色はCSSで付ける。
+    絵文字は原稿のままにしておき、置き換えはフェーズ番号で決める
+    （フェーズ2と3は原稿では同じ `🟣` なので、絵文字では見分けられない）。
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        prefix, label, number = match.groups()
+        color = PHASE_COLORS[number]
+        return (
+            f'{prefix}<span style="color:{color}">\u25cf</span> {label}'
+        )
+
+    return PHASE_HEADING.sub(replace, markdown_text)
 
 
 def copy_cover(config: BookConfig, image_dir: Path) -> Path | None:
