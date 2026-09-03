@@ -419,6 +419,32 @@ def remove_first_heading(markdown_text: str) -> str:
     return markdown_text[: match.start()] + markdown_text[match.end() :]
 
 
+def shorten_label(label: str) -> str:
+    """題名の頭に付く決まり文句を落とす。
+
+    「ここで確認するコード：X」「変更前から抜き出す箇所：X」は、本文では
+    役割の合図として要るが、画像の帯では毎回同じ語が並ぶだけで場所を食う。
+    帯に要るのは X のほうなので、決まり文句は落とす。
+    """
+    label = re.sub(r"^(?:ここで確認するコード|変更前から抜き出す箇所)[：:]\s*", "", label)
+    # 引数リストは型名が長く、帯を1行で埋めてしまう。名前だけ残す。
+    label = re.sub(r"\(([^)]{12,})\)", "()", label)
+    return label.strip()
+
+
+def trim_title(title: str, limit: int = 34) -> str:
+    """帯へ収まる長さへ切り詰める。切るのは説明側で、名前は残す。"""
+    if len(title) <= limit:
+        return title
+    if " ―― " in title:
+        name, note = title.split(" ―― ", 1)
+        room = limit - len(name) - 4
+        if room >= 8:
+            return f"{name} ―― {note[:room].rstrip()}…"
+        return name[:limit]
+    return title[:limit].rstrip() + "…"
+
+
 def preceding_block_title(markdown_text: str, position: int) -> tuple[str | None, str | None]:
     """コード画像へ焼くタイトルと、本文から取り除く行を返す。
 
@@ -445,9 +471,10 @@ def preceding_block_title(markdown_text: str, position: int) -> tuple[str | None
             return strip_markdown(heading.group(1)), None
         bold = re.match(r"^\*\*(.+?)\*\*[：:]?\s*(?:[―—-]{2}\s*(.*))?$", stripped)
         if bold:
-            label = strip_markdown(bold.group(1))
+            label = shorten_label(strip_markdown(bold.group(1)))
             note = strip_markdown(bold.group(2) or "")
-            return (f"{label} ―― {note}" if note else label), line
+            title = f"{label} ―― {note}" if note else label
+            return trim_title(title), line
         if stripped.startswith(("```", "<", "|", ">")):
             continue
         break
