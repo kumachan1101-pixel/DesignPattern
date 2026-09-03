@@ -472,7 +472,7 @@ public:
 ```cpp
 class INotifier {
 public:
-    virtual void notify(double price) = 0;
+    virtual void notify(double total) = 0;
     virtual ~INotifier() {}
 };
 ```
@@ -482,7 +482,7 @@ public:
 ```cpp
 class IOrderRepository {
 public:
-    virtual void save(double price) = 0;
+    virtual void save(double total) = 0;
     virtual ~IOrderRepository() {}
 };
 ```
@@ -505,9 +505,9 @@ public:
 // 具体実装②：注文完了メール（通知ルール）
 class MarketingEmail : public INotifier {
 public:
-    void notify(double price) override {
-        std::cout << "[メール送信] ご購入ありがとうございます。支払金額: "
-                  << static_cast<int>(price) << "円\n";
+    void notify(double total) override {
+        std::cout << "[メール送信] ご注文ありがとうございます。請求金額: "
+                  << static_cast<int>(total) << "円\n";
     }
 };
 ```
@@ -518,8 +518,8 @@ public:
 // 具体実装③：データベース保存（保存ルール）
 class DbRepository : public IOrderRepository {
 public:
-    void save(double price) override {
-        std::cout << "[DB保存] 支払金額 " << price
+    void save(double total) override {
+        std::cout << "[DB保存] 請求金額 " << total
                   << " 円で注文を保存しました。\n";
     }
 };
@@ -530,31 +530,31 @@ public:
 ```cpp
 // 変わる理由ごとに分離した結果、OrderServiceは骨格だけになった形
 class OrderService {
-    IShippingFeeCalc*    feeCalc_;
+    IShippingFeeCalc* feeCalc_;
     INotifier*        notifier_;
     IOrderRepository* repo_;
 public:
-    OrderService(IShippingFeeCalc* d,
+    OrderService(IShippingFeeCalc* fee,
                  INotifier* n, IOrderRepository* r)
-        : feeCalc_(d), notifier_(n), repo_(r) {}
+        : feeCalc_(fee), notifier_(n), repo_(r) {}
 
-    void processOrder(double price) {
-        double discount = feeCalc_->calc(price);
-        double finalPrice = price - discount;
-        repo_->save(finalPrice);
-        notifier_->notify(finalPrice);
+    void processOrder(double itemTotal) {
+        double shippingFee = feeCalc_->calc(itemTotal);
+        double total = itemTotal + shippingFee;
+        repo_->save(total);
+        notifier_->notify(total);
     }
 };
 
 int main() {
-    ExpressShippingFee discount;
+    ExpressShippingFee shipping;
     MarketingEmail email;
     DbRepository repo;
-    OrderService service(&discount, &email, &repo);
+    OrderService service(&shipping, &email, &repo);
     service.processOrder(10000);
     // 上記コードの実行結果：
-    // [DB保存] 支払金額 8000 円で注文を保存しました。
-    // [メール送信] ご購入ありがとうございます。支払金額: 8000円
+    // [DB保存] 請求金額 10800 円で注文を保存しました。
+    // [メール送信] ご注文ありがとうございます。請求金額: 10800円
     return 0;
 }
 ```

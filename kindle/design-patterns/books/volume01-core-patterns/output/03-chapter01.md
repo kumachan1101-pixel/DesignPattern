@@ -23,7 +23,7 @@ ECサイトの支払金額計算が何を入力として受け取り、どの処
 
 ### 1-1：このシステムの仕様
 
-このシステムは、ECサイトでお客様が商品を購入する際の**支払金額を計算**します。会員ID、商品ID、数量、キャンペーンIDを受け取り、顧客情報と商品価格を登録データから取得します。入力を検証して小計を求め、会員種別とキャンペーン条件に合う割引を順に適用し、適用理由と最終支払金額を注文結果へまとめて表示します。
+このシステムは、ECサイトでお客様が商品を購入する際の**支払金額を計算**します。会員ID、商品ID、数量、キャンペーンIDを受け取り、顧客情報と商品価格を登録データから取得します。入力を検証して小計を求め、会員種別とキャンペーン条件に合う割引を1つ選んで適用し、適用理由と最終支払金額を注文結果へまとめて表示します。
 
 #### まず代表入力と実行結果から動きをつかむ
 
@@ -315,7 +315,7 @@ classDiagram
     OrderProcessor --> CustomerDatabase : 使う
     OrderProcessor *-- PaymentCalculator : 値で持つ
     OrderProcessor --> CheckoutResultRenderer : 結果を表示
-    CustomerDatabase *--> CustomerInfo : 保持し、コピーを返す
+    CustomerDatabase *-- CustomerInfo : 保持し、コピーを返す
     CartPreviewService --> CustomerDatabase : 会員種別を取得
     CartPreviewService *-- PaymentCalculator : 値で持つ
     CartPreviewService ..> Order : 参照する
@@ -894,7 +894,6 @@ int main() {
 **要求ID1**
 
 - **変更種別**：継続
-- **根拠**：—
 - **変更後要求**：商品リストの小計から最終支払金額を計算する
 - **受入条件**：登録商品10,000円の小計と割引後金額を返す
 
@@ -907,14 +906,12 @@ int main() {
 **要求ID3**
 
 - **変更種別**：継続
-- **根拠**：—
 - **変更後要求**：Regular会員はキャンペーン中だけ10%割引する
 - **受入条件**：キャンペーンだけなら9,000円になる
 
 **要求ID4**
 
 - **変更種別**：継続
-- **根拠**：—
 - **変更後要求**：未登録の顧客IDでは注文を受け付けず、その旨を表示する
 - **受入条件**：登録・未登録の既存動作を維持する
 
@@ -928,7 +925,6 @@ int main() {
 **要求ID6**
 
 - **変更種別**：継続
-- **根拠**：—
 - **変更後要求**：注文確定前に同じ条件の支払金額をプレビューする
 - **受入条件**：注文確定前でも、購入結果と同じ金額を返す
 
@@ -1156,17 +1152,10 @@ flowchart TB
 
 2-4（ヒアリングで判明した将来リスク）のリスクIDを、設計で扱う変化軸へ整理します。ここで「はい」とした項目は、機能を先に実装するという意味ではありません。フェーズ6で、**変わる側を当面守る部分から分離し、その変化が起きても影響を局所化できる構造か**を判断するための印です。
 
-**リスクID1：新しい割引ルールの追加が毎月続く**
-
-- **変わる見込み**：はい
-- **変わる側**：割引ルールの追加と選択
-- **今回守る側**：小計の合算、注文処理、支払金額の返却
-
-**リスクID2：計算方法が「パーセント引き」から「定額引き」に変わる**
-
-- **変わる見込み**：はい
-- **変わる側**：割引条件と金額計算式
-- **今回守る側**：割引前金額の受け渡し、注文処理、結果表示
+| リスク | 変わる側 | 今回守る側 |
+|---|---|---|
+| ID1 割引ルールが毎月増える | ルールの追加と選択 | 小計の合算、注文処理、金額の返却 |
+| ID2 定額引きへ変わる | 割引条件と計算式 | 割引前金額の受け渡し、結果表示 |
 
 したがって2-5（変わる見込みと今回維持する範囲を確定する）の出力は、「割引ルールと計算式は差し替え対象にし、小計の合算から結果表示までの流れは守る」という設計条件です。フェーズ3「問題特定」では変更ID1（サマーセール追加）・変更ID2（逐次割引）だけを現在の構造へ適用し、このリスクIDはフェーズ6で採用構造を評価するときに使います。
 
@@ -2039,13 +2028,13 @@ classDiagram
     IDiscountRule <|.. SummerSaleDiscount
     IDiscountRule <|.. SummerSaleAndCampaignDiscount
     IDiscountRule <|.. NoDiscount
-    DiscountRuleSet *--> PremiumDiscount : 所有する
-    DiscountRuleSet *--> CampaignDiscount : 所有する
-    DiscountRuleSet *--> SummerSaleDiscount : 所有する
-    DiscountRuleSet *--> SummerSaleAndCampaignDiscount : 所有する
-    DiscountRuleSet *--> NoDiscount : 所有する
-    DiscountRuleSet *--> RuleSelector : 所有する
-    RuleSelector o--> IDiscountRule : 登録する
+    DiscountRuleSet *-- PremiumDiscount : 所有する
+    DiscountRuleSet *-- CampaignDiscount : 所有する
+    DiscountRuleSet *-- SummerSaleDiscount : 所有する
+    DiscountRuleSet *-- SummerSaleAndCampaignDiscount : 所有する
+    DiscountRuleSet *-- NoDiscount : 所有する
+    DiscountRuleSet *-- RuleSelector : 所有する
+    RuleSelector o-- IDiscountRule : 登録する
 ```
 
 施策が増えても、増えるのは `IDiscountRule` の下にぶら下がる具体と、`DiscountRuleSet` の登録行だけです。次の図は、この差し替え部分を利用側がどう使うかです。
@@ -2084,8 +2073,8 @@ classDiagram
     class CampaignContext
     class PaymentResult
     class PaymentCalculator
-    Order *--> Item
-    CustomerDatabase *--> CustomerInfo
+    Order *-- Item
+    CustomerDatabase *-- CustomerInfo
     PaymentCalculator ..> Order : 受け取る
     PaymentCalculator ..> CampaignContext : 受け取る
     PaymentCalculator ..> PaymentResult : 返す
@@ -3166,7 +3155,7 @@ classDiagram
     class ConcreteStrategyB {
         +algorithm()
     }
-    Context o--> Strategy
+    Context o-- Strategy
     Strategy <|.. ConcreteStrategyA
     Strategy <|.. ConcreteStrategyB
 ```
@@ -3226,7 +3215,7 @@ GoF（Gang of Four）とは、1994年に出版された書籍『Design Patterns�
 
 この章で持ち帰ってほしい見どころは、**割引を「判定」と「処理」の2つに割ったこと**です。
 
-割引には、性質の違う2つの仕事が含まれています。「どの割引に当てはまるか」を決める判定と、「いくら引くか」を出す処理です。どちらも入力は同じ（注文・会員種別・キャンペーン状態）なのに、`IDiscountRule` では `matches()` と `apply()` という**別々の契約**にしました。
+割引には、性質の違う2つの仕事が含まれています。「どの割引に当てはまるか」を決める判定と、「いくら引くか」を出す処理です。この2つは、**必要な入力が違います。** 判定には会員種別と施策の状態が要りますが、計算に要るのは金額だけです。そこで `IDiscountRule` では `matches(会員種別, 施策状態)` と `apply(金額)` という**別々の操作**にしました。
 
 分けた効果は、判定の側にはっきり出ます。判定が `matches()` という契約になっているので、**「どの判定を使うか」を選ぶ役割**（`RuleSelector`）を独立して用意できました。選ぶ側は具体的な割引条件を知りません。登録されたルールへ同じ `matches()` を尋ねて回るだけです。
 

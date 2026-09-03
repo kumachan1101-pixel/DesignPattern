@@ -82,10 +82,10 @@
 
 | 要求ID | 現行要求 | 受入条件 |
 |---|---|---|
-| 要求ID1（未登録・満席を拒否） | 存在しないイベントと満席のイベントでは予約を受け付けない | 未登録イベント・満席では予約状態を変えない |
+| 要求ID1（未登録IDを拒否） | 存在しないイベントでは予約を受け付けない | 未登録イベント・満席では予約状態を変えない |
 | 要求ID2（予約で予約数+1） | 予約可能から予約済みへ遷移し、予約数を1増やす | 残り1席の予約後に満席の数値になる |
 | 要求ID3（支払済みへ遷移） | 予約済みを支払済みへ遷移する | 支払成功時だけPaidになる |
-| 要求ID4（取消と自動昇格） | 予約済みをキャンセルして予約可能へ戻し、予約数を1減らす | 取消直後に空席数が数値で増える |
+| 要求ID4（取消で予約数−1） | 予約済みをキャンセルして予約可能へ戻し、予約数を1減らす | 取消直後に空席数が数値で増える |
 | 要求ID5（不許可操作で変えない） | 現在状態で許可されない操作はエラーにし、状態と予約数を変えない | エラー前後の状態・件数が一致する |
 
 各予約は「予約可能（Available）」「予約済み（Reserved）」「支払済み（Paid）」の3つの状態を持ちます。お客様の操作（予約・支払・キャンセル）に応じて状態が遷移し、状態によって許可される操作が異なります。
@@ -339,7 +339,7 @@ sequenceDiagram
 
 #### 現状コード
 
-クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは `TicketReservation` だけです。判断の基準は次の一行です。
+クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは `TicketReservation` だけです。**処理順が長く、メンバーを見ながら追う必要があるクラスだけ**、宣言と定義を分けています。
 
 
 `main()` と実行結果は最後に、行のまとまりごとに並べます。
@@ -485,7 +485,7 @@ void TicketReservation::reserve() {
 - **順序に意味：** 存在確認を先に置かないと、`hasCapacity()` の `at()` が未登録IDで落ちます
 - **副作用：** 3つとも通ったときだけ在庫を1件増やし、状態を `Reserved` にします
 
-`hasCapacity()` で先に満席を弾くので、この経路では例外が出ません。`throw std::runtime_error(...)` は、確認を飛ばして更新しようとした場合の安全網です。
+`hasCapacity()` で先に満席を弾いてから呼ぶ前提なので、ここでは満席かどうかを見ていません。未登録のIDを渡した場合は `at()` が `std::out_of_range` を投げます。
 
 ---
 
@@ -720,14 +720,12 @@ int main() {
 **要求ID1**
 
 - **変更種別**：継続
-- **根拠**：—
-- **変更後要求**：存在しないイベントと満席のイベントでは予約を受け付けない
+- **変更後要求**：存在しないイベントでは予約を受け付けない
 - **受入条件**：未登録イベント・満席の既存判定を維持する
 
 **要求ID2**
 
 - **変更種別**：継続
-- **根拠**：—
 - **変更後要求**：予約可能から予約済みへ遷移し、予約数を1増やす
 - **受入条件**：残り1席の予約後に満席になる
 
@@ -747,8 +745,8 @@ int main() {
 
 **要求ID5**
 
-- **変更種別**：継続
-- **根拠**：—
+- **変更種別**：変更
+- **根拠**：変更ID2（一時保留）
 - **変更後要求**：許可されない操作や決済失敗では状態と予約数を変えない
 - **受入条件**：エラー前後の状態・件数が一致する
 
@@ -996,7 +994,7 @@ flowchart TB
 - **存在しないイベントIDを指定する**と、「対象なし」と表示して終わります。予約の状態は変わりません。
 - **満席のイベントを予約する**と、「満席」と表示します。**ここが変更後で変わるところ**で、キャンセル待ちへ登録する場合は状態が変わります。
 - **いまの状態では許されない操作をする**と、「操作不可」と表示して終わります。予約の状態は変わりません。
-| 決済APIが失敗する | 支払い処理の結果受信時 | 決済失敗メッセージ | `Reserved` または `Held` を維持し、再試行可能にする |
+- **決済APIが失敗した**ときは、「決済に失敗しました」と表示し、`Reserved` または `Held` のまま再試行できます。
 
 増えた状態と操作の組み合わせが実際にコードのどこへ書かれるかは、フェーズ3「問題特定」で変更を試すコードと、フェーズ7の最終コード・実行結果で追います。
 
@@ -1104,13 +1102,13 @@ flowchart TB
 
 ### 2-5：変わる見込みと今回維持する範囲を確定する
 
-2-4（ヒアリングで判明した将来リスク）のリスクIDを、状態を変えられるようにする側と、予約システムとして守る側へ分けます。「はい」は、フェーズ6で**状態や遷移が変わっても、予約の入口・保存・席数管理へ影響を広げない構造か**を判定するための印です。
+2-4（ヒアリングで判明した将来リスク）のリスクIDを、**変わる側**と**今回守る側**へ分けます。3つとも変わる見込みがあると確認できたものです。
 
-| リスクID・変化軸 | 変わる見込み | 変わる側 | 今回守る側 |
-|---|---|---|---|
-| リスクID1（遷移ルールの変更）：状態遷移のルール（アクションの可否）の変更 | はい | 状態ごとの許可操作と遷移先 | 予約操作の入口、予約履歴、席数の保存 |
-| リスクID2（状態の種類が増える）：状態の種類（特別優待予約などの追加） | はい | 状態の種類と、その状態に固有の振る舞い | イベントID・利用者IDの受け渡し、予約結果 |
-| リスクID3（イベントが増える）：状態を動かすイベントの追加 | はい | イベントと状態遷移の接続 | 状態保存、待ち順、利用者操作の入口 |
+| リスク | 変わる側 | 今回守る側 |
+|---|---|---|
+| ID1 遷移ルール | 状態ごとの許可操作と遷移先 | 予約の入口、履歴、席数の保存 |
+| ID2 状態の種類 | 状態の種類と固有の振る舞い | ID の受け渡し、予約結果 |
+| ID3 イベント | イベントと遷移の接続 | 状態保存、待ち順、操作の入口 |
 
 したがって2-5（変わる見込みと今回維持する範囲を確定する）の出力は、「状態・遷移・イベント接続は変えられるようにし、予約の受付・保存・席数管理は守る」という設計条件です。フェーズ3「問題特定」では変更ID1（キャンセル待ち）・変更ID2（一時保留）だけを現在の構造へ適用し、リスクIDはフェーズ6の構造評価に使います。
 
@@ -2155,7 +2153,6 @@ classDiagram
         +setState(IReservationState*)
     }
     class IReservationState {
-        <<interface>>
         +reserve(TicketReservation*)
         +pay(TicketReservation*)
         +cancel(TicketReservation*)
@@ -2166,7 +2163,7 @@ classDiagram
     class PaidState
     class WaitlistedState
     class HeldState
-    TicketReservation o--> IReservationState : 現在状態へ委譲
+    TicketReservation o-- IReservationState : 現在状態へ委譲
     IReservationState <|-- AvailableState
     IReservationState <|-- ReservedState
     IReservationState <|-- PaidState
@@ -2192,9 +2189,9 @@ classDiagram
     TicketReservation --> EventDatabase : 席数を確認
     TicketReservation --> ReservationHistory : 遷移を記録
     TicketReservation --> ReservationWaitlist : 待機列を操作
-    ReservationWaitlist o--> TicketReservation : waiting
-    EventDatabase *--> EventInfo
-    ReservationHistory *--> ReservationRecord
+    ReservationWaitlist o-- TicketReservation : waiting
+    EventDatabase *-- EventInfo
+    ReservationHistory *-- ReservationRecord
     BatchApplication ..> TicketReservation : その場で作って使う
     BatchApplication *-- ReservationExpiryScheduler : 値で持つ
 ```
@@ -2988,7 +2985,8 @@ public:
         TicketReservation held(reservedState(), &db,
                                &history, &waitlist,
                                "EVT003", f2.title);
-        held.hold();                   // 50→49（保留で席を確保）
+        // 席は確保したまま、期限だけ24時間へ延長（席数は動かない）
+        held.hold();
         TicketReservation waiting2(availableState(), &db,
                                    &history, &waitlist,
                                    "EVT003", f2.title);
@@ -3131,9 +3129,9 @@ int main() {
 
 **要求ID1**
 
-- **最終要求**：存在しないイベントと満席のイベントでは予約を受け付けない
+- **最終要求**：存在しないイベントでは予約を受け付けない
 - **適用コード**：`EventDatabase`、`AvailableState`
-- **実行シナリオ**：未登録・満席の既存判定を維持
+- **実行シナリオ**：未登録IDの既存判定を維持
 - **判定**：合格
 
 **要求ID2**
@@ -3402,7 +3400,7 @@ classDiagram
     class ConcreteState {
         +handle(Context c)
     }
-    Context o--> State
+    Context o-- State
     State <|.. ConcreteState
 ```
 
@@ -3479,7 +3477,7 @@ classDiagram
     TicketReservation --> ReservationWaitlist
     TicketReservation --> EventDatabase
     TicketReservation --> ReservationHistory
-    TicketReservation o--> IReservationState
+    TicketReservation o-- IReservationState
     IReservationState <|-- AvailableState
     IReservationState <|-- ReservedState
     IReservationState <|-- PaidState

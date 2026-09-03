@@ -402,7 +402,7 @@ sequenceDiagram
 
 #### 現状コード
 
-クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは `InventoryManager` だけです。判断の基準は次の一行です。
+クラスを1つずつ、上から順に読みます。**メンバー変数と、それを使う処理を同じ場所で見られるように**しています。宣言と定義を分けるのは `InventoryManager` だけです。**処理順が長く、メンバーを見ながら追う必要があるクラスだけ**、宣言と定義を分けています。
 
 
 `main()` と実行結果は最後に、行のまとまりごとに並べます。
@@ -837,7 +837,6 @@ Chat(1件) #inventory-alert
 **要求ID1**
 
 - **変更種別**：継続
-- **根拠**：—
 - **変更後要求**：登録商品の入出庫で在庫数を更新する
 - **受入条件**：対象IDと変更前→変更後の数量を記録する
 
@@ -858,7 +857,6 @@ Chat(1件) #inventory-alert
 **要求ID4**
 
 - **変更種別**：継続
-- **根拠**：—
 - **変更後要求**：在庫の内部数値変化を実行ログへ残す
 - **受入条件**：商品ID・変更前→変更後・単位を確認できる
 **変更前→変更後の要求対照（今回変える要求IDだけ）**
@@ -1090,23 +1088,11 @@ flowchart TB
 
 2-4（ヒアリングで判明した将来リスク）のリスクIDを、通知先ごとに変わる側と、在庫更新の安定側へ分けます。「はい」は、フェーズ6で**通知先や受付方法が変わっても、在庫更新と通知条件へ影響を広げない構造か**を判定するための印です。
 
-**リスクID1：通知先となるクラスの種類とその実装（音声通知システムなど）**
-
-- **変わる見込み**：はい
-- **変わる側**：通知手段ごとの送信処理
-- **今回守る側**：在庫更新、閾値判定、通知データ
-
-**リスクID2：通知先の増減（動的な登録・解除）**
-
-- **変わる見込み**：はい
-- **変わる側**：通知先の構成と登録
-- **今回守る側**：出庫処理の入口、登録済み通知先を順に呼ぶ流れ
-
-**リスクID3：通知先ごとの受付と最終配信結果、失敗の扱い**
-
-- **変わる見込み**：はい
-- **変わる側**：通知先ごとの受付結果と非同期完了履歴
-- **今回守る側**：通知失敗で在庫更新と他通知を止めない規則
+| リスク | 変わる側 | 今回守る側 |
+|---|---|---|
+| ID1 通知先の種類が増える | 手段ごとの送信処理 | 在庫更新、閾値判定、通知データ |
+| ID2 通知先の増減 | 通知先の構成と登録 | 出庫の入口、順に呼ぶ流れ |
+| ID3 受付と最終結果 | 受付結果と完了履歴 | 失敗で在庫と他通知を止めない規則 |
 
 したがって2-5の出力は、「通知手段・登録・受付結果・非同期完了履歴は変えられるようにし、在庫更新と閾値判定は守る」という設計条件です。フェーズ3「問題特定」では変更ID1（非同期SMS追加）だけを現在の構造へ適用し、リスクIDはフェーズ6の構造評価に使います。
 
@@ -2268,7 +2254,7 @@ classDiagram
         -vector~INotification*~ observers
         +attach(INotification*)
         +reduceStock(productId, quantity)
-        +addStock(productId, quantity)
+        +replenishStock(productId, quantity)
     }
     class INotification {
         <<interface>>
@@ -2278,7 +2264,7 @@ classDiagram
     class DashboardUpdater { +send(alert) DeliveryResult }
     class ChatNotifier { +send(alert) DeliveryResult }
     class SMSNotifier { +send(alert) DeliveryResult }
-    InventoryManager o--> INotification : 登録・一律通知
+    InventoryManager o-- INotification : 登録・一律通知
     INotification <|.. EmailNotifier
     INotification <|.. DashboardUpdater
     INotification <|.. ChatNotifier
@@ -2305,7 +2291,7 @@ classDiagram
     InventoryManager --> DeliveryStatusLog : 受付結果を記録
     InventoryManager ..> StockAlert : 作成
     SMSDeliveryCallback --> DeliveryStatusLog : 最終結果を更新
-    ProductDatabase *--> ProductInfo : 商品ID別に保存
+    ProductDatabase *-- ProductInfo : 商品ID別に保存
     StockEventLog ..> StockEvent : 記録
     INotification ..> DeliveryResult : 通知結果を返す
     DeliveryStatusLog ..> DeliveryResult : 受付結果を記録
@@ -3137,7 +3123,7 @@ SMS(2件受付): 在庫警告 PRD002 残0 / 受付ID=SMS-2
 - **実行シナリオ**：在庫変動ログ8行に商品ID・変更前→変更後・単位が並ぶ
 - **判定**：合格
 
-上の表は継続（要求ID1（入出庫で在庫更新）・要求ID2（閾値以下で全通知先へ）・要求ID4（在庫変動をログへ））・変更（要求ID3（不正入力を拒否）・要求ID3（不正入力を拒否））を同じ順序で並べ、変わらなかった既存要求も回帰対象に含めています。継続要求が合格していることで、既存動作が落ちていないことを確認できます。要求の受入・回帰はここで完了します。課題IDへ直接対応付けず、以下では変更試行の痛みから導いた構造課題だけを別に確認します。
+上の表は継続（要求ID1（入出庫で在庫更新）・要求ID4（在庫変動をログへ））・変更（要求ID2（閾値以下で全通知先へ）・要求ID3（不正入力を拒否））を同じ順序で並べ、変わらなかった既存要求も回帰対象に含めています。継続要求が合格していることで、既存動作が落ちていないことを確認できます。要求の受入・回帰はここで完了します。課題IDへ直接対応付けず、以下では変更試行の痛みから導いた構造課題だけを別に確認します。
 
 #### 設計課題の構造改善結果
 

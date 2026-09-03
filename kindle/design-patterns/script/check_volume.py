@@ -348,7 +348,8 @@ def check(config_path: Path) -> int:
                 )
 
     # 13〜15. クラス図の関係線
-    allowed = {"<|--", "<|..", "*--", "o--", "-->", "..>", "*-->", "o-->"}
+    # 第0章の凡例は6種類。矢先つき（*--> / o-->）は凡例に無いので許さない。
+    allowed = {"<|--", "<|..", "*--", "o--", "-->", "..>"}
     edge_re = re.compile(
         r'^\s*(\w+)\s*("[\d.*]+"\s*)?'
         r'(<\|--|<\|\.\.|\*-->|o-->|\*--|o--|-->|\.\.>|\.\.\|>|--\|>)'
@@ -356,8 +357,15 @@ def check(config_path: Path) -> int:
     )
     for path in chapters:
         text = path.read_text(encoding="utf-8")
-        seen: dict[tuple[str, str], set[str]] = {}
-        for diagram in re.findall(r"```mermaid\n(.*?)```", text, re.S):
+        # 同じクラス間でも、現状コードと完成コードで持ち方が変われば線は変わる。
+        # 「章の中で1種類」ではなく「同じフェーズの中で1種類」を見る。
+        marks = [0] + [
+            m.start() for m in re.finditer(r"^## [🔵🟣🟠🟡🔴🟢]", text, re.M)
+        ] + [len(text)]
+        seen: dict[tuple[int, str, str], set[str]] = {}
+        for found in re.finditer(r"```mermaid\n(.*?)```", text, re.S):
+            diagram = found.group(1)
+            phase = max(m for m in marks if m <= found.start())
             if "classDiagram" not in diagram:
                 continue
             for line in diagram.split("\n"):
@@ -372,13 +380,14 @@ def check(config_path: Path) -> int:
                         f"<|-- / <|.. / *-- / o-- / --> / ..> と、その矢先つきです"
                     )
                     continue
-                seen.setdefault((left, right), set()).add(arrow)
-        for (left, right), arrows in seen.items():
+                seen.setdefault((phase, left, right), set()).add(arrow)
+        for (_, left, right), arrows in seen.items():
             kinds = {a.replace("-->", "--").replace("..>", "..") for a in arrows}
             if len(kinds) > 1:
                 failures.append(
                     f"{path.name}: {left} と {right} の関係が、章の中で "
-                    f"{sorted(arrows)} と違う線で描かれています"
+                    f"{sorted(arrows)} と違う線で描かれています（同じフェーズの中では"
+                    f"1種類にそろえてください）"
                 )
 
     # 15. 値で持つ関係は黒ひし形
