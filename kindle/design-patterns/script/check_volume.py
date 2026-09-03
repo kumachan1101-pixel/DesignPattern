@@ -31,6 +31,7 @@
  23. 「第N章／はじめに で触れた○○」の話題が、その参照先に実在する
  24. 種類の違うID（問題・原因・課題）を等号で結んでいない
  25. 実践章のIDに、思い出すための短い名前が併記されている
+ 26. 編集の舞台裏（なぜそう書いたか）を本文へ書いていない
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -596,6 +597,30 @@ def check(config_path: Path) -> int:
                     f"併記されていません（{line.strip()[:44]}）"
                 )
                 break
+
+    # 26. 編集の舞台裏を本文へ書かない
+    # 読者が要るのは「どう読むか」であって「なぜそう書いたか」ではない。
+    # 「読者」を三人称で呼ぶ書き方も、読者を外から語ることになる。
+    # 「おわりに」は制作の裏話を意図して置く章なので対象外。
+    backstage = re.compile(
+        r"(?:読者(?:に|へ)(?:信じ|推測|迷子|戻)|"
+        r"(?:本書|各章|全章)(?:では|でも)[^。]{0,40}"
+        r"(?:と書いています|そろえています|統一しています|付けています)|"
+        r"(?:紛らわしくならないよう|見やすくするため|読みやすくするため)[^。]{0,40}"
+        r"(?:書いています|しています)|"
+        r"（(?:本書|全章)共通(?:の)?(?:スタイル|規約|表現)）)"
+    )
+    for path in chapters:
+        if "epilogue" in path.name:
+            continue
+        for number, line in prose_lines(path.read_text(encoding="utf-8")):
+            found = backstage.search(line)
+            if found:
+                failures.append(
+                    f"{path.name}:{number}: 編集の舞台裏が本文に出ています"
+                    f"（{found.group(0)[:36]}）。読者が要るのは読み方であって、"
+                    f"なぜそう書いたかではありません"
+                )
 
     if failures:
         print("\n".join(failures))
