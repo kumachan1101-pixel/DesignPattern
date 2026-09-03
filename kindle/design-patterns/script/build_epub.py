@@ -740,6 +740,9 @@ def pygments_lexer(language: str):
 
 
 CHANGE_MARKER = re.compile(r"←\s*.{0,12}?(?:追加|変更|削除|修正)")
+# 同じ `←` を、フェーズ4〜6は「どちらの側か」の注釈にも使う。
+# 「← 出て行く側（削除）」のような行を変更行と取り違えない。
+NOT_A_CHANGE = re.compile(r"残る側|出て行く側|原因ID|問題ID|課題ID|リスクID")
 
 
 def changed_lines(source_lines: list[str]) -> list[bool]:
@@ -755,8 +758,16 @@ def changed_lines(source_lines: list[str]) -> list[bool]:
          （`} else if (...) {  // ← 追加` で、枝の中身まで帯へ入る）
 
     「← 原因ID1（…）」「← 残る側」のような、変更ではない注釈は対象にしない。
+
+    **画像のほぼ全部が変更行になったときは、帯を1本も引かない。** 帯は
+    変わっていない行との対比で意味が出るもので、全面が青いと差が読み取れず、
+    地の色が変わっただけになる。まるごと新しいブロックであることは、
+    見出しの「（追加）」と本文が伝える。
     """
-    flags = [bool(CHANGE_MARKER.search(line)) for line in source_lines]
+    flags = [
+        bool(CHANGE_MARKER.search(line)) and not NOT_A_CHANGE.search(line)
+        for line in source_lines
+    ]
 
     def opens_block(line: str) -> bool:
         """行末のコメントを外したコードが `{` で終わるか。"""
@@ -801,6 +812,11 @@ def changed_lines(source_lines: list[str]) -> list[bool]:
                 break
             if code.endswith((";", "}")) or seen >= 6:
                 break
+
+    body_lines = [i for i, line in enumerate(source_lines) if line.strip()]
+    marked = sum(1 for i in body_lines if flags[i])
+    if body_lines and marked / len(body_lines) >= 0.8:
+        return [False] * len(source_lines)
     return flags
 
 

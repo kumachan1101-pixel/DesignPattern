@@ -1170,7 +1170,7 @@ void TicketReservation::cancel() {
 
 ```cpp
 // 決済期限切れ（Reservedは15分、Heldは24時間で枠を解放）
-void TicketReservation::expire() {      // ← 新規追加
+void TicketReservation::expire() {
     if (status == "Reserved" || status == "Held") {
         status = "Available";
         std::cout << "決済期限が切れました\n";
