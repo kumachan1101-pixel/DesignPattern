@@ -2120,6 +2120,11 @@ class BatchApplication {
 
 完成コードで定義する型を先に一覧化します。各型の依存方向と実現関係は、直後のクラス図で確認します。
 
+このうち3つは、変更前には無かった型です。
+
+- **`ReservationRecord` と `ReservationHistory`** ―― 要求ID5（不許可操作で変えない）を実行結果で確かめるには、「何が起きて、何が起きなかったか」が後から読めなければなりません。そこで操作の記録（イベントID・イベント名・操作種別）を1件ずつ積み、最後にまとめて出せるようにしました。
+- **`ReservationExpiryScheduler`** ―― 要求ID7（15分と24時間の期限）で足した期限切れは、**利用者が操作したわけではないのに状態が変わる**入力です。利用者操作の入口（`reserve()` など）と同じ場所に置くと、誰が起こしたのかが混ざります。期限を検知する側を別に置き、そこから `expire()` を呼ぶ形にしました。
+
 - `TicketReservation`、`IReservationState`、`EventInfo`、`ReservationRecord`
 - `EventDatabase`、`ReservationHistory`、`ReservationWaitlist`、`AvailableState`
 - `ReservedState`、`PaidState`、`WaitlistedState`、`HeldState`

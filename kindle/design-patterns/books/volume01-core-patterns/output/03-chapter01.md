@@ -1985,6 +1985,8 @@ Calculatorは、渡された実体の具体クラス名を知りません。小�
 
 完成コードで定義する型を先に一覧化します。各型の依存方向と実現関係は、直後のクラス図で確認します。
 
+このうち `PaymentResult` は、変更前には無かった型です。変更前の `calculate()` は金額を1つ返すだけでしたが、要求ID5（購入結果の表示）が「**適用した割引名**を表示する」ことを求めています。名前を知っているのは施策の側なので、金額と一緒に返してもらうことにしました。小計・最終金額・適用した割引名の3つを1つの値にまとめたのが `PaymentResult` です。
+
 - `Item`、`Order`、`CampaignContext`、`CustomerInfo`
 - `CustomerDatabase`、`CheckoutResultRenderer`、`OrderProcessor`、`PaymentResult`
 - `PaymentCalculator`、`CartPreviewService`、`IDiscountRule`、`RuleSelector`、`DiscountRuleSet`
