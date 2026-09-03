@@ -4,7 +4,11 @@
 
 ### この章の核心
 
-**同じ操作でも現在状態によって許可・結果・次状態が変わる場面では、状態値と状態固有の振る舞いを一組として考えます。状態を増やすたびに複数メソッドの分岐を同期して直しているなら、遷移規則が中央へ散らばっていることが兆候です。各状態が許可する操作と次状態を引き受け、利用側から状態判定を外せるかが判断軸になります。**
+**場面。** 同じ操作でも、いまの状態によって、許可されるかどうか・結果・次の状態が変わる。
+
+**兆候。** 状態を1つ増やすたびに、いくつものメソッドの分岐を**同時に**直している。**次にどうなるかの規則が、一箇所ではなく操作ごとに散らばっています。**
+
+**判断軸。** 状態そのものに「許可する操作と次の状態」を持たせて、**利用側から状態の判定を外せるか。**
 
 ### この章を読むと得られること
 
@@ -786,39 +790,22 @@ int main() {
 
 **仕様変更後の状態遷移マトリクス（全体像）**
 
-この表は、既存の3状態に「キャンセル待ち」と「一時保留」を追加した後、各操作でどの状態へ進むかを整理したものです。状態と操作の組み合わせが増えたため、列数の都合で表を2つに分けています。「——」は、その状態では操作を受け付けず、エラーメッセージを出力して終了することを表します。
+既存の3状態に「キャンセル待ち」と「一時保留」を足すと、**成立する遷移は次の10通り**になります。**この表に無い組み合わせは、その状態では操作を受け付けず、エラーメッセージを出して終わります。**
 
-【表1：従来の操作】
-
-`Waitlisted` は変更要求で初めて追加される状態です。従来は満席なら予約エラーで終了し、キャンセル待ちとして保存する機能自体がありませんでした。そのため従来の「予約する・支払う・キャンセルする」を `Waitlisted` に直接適用する欄は「——」です。キャンセル待ちからの操作は、直後の表2aにある専用イベント（登録・予約昇格）として扱います。
-
-| 現在の状態 | 予約する | 支払う | キャンセルする |
-|---|---|---|---|
-| Available（予約可能） | → Reserved | —— | —— |
-| Reserved（予約済み） | —— | → Paid | → Available |
-| Paid（支払済み） | —— | —— | —— |
-| Waitlisted（キャンセル待ち） | —— | —— | —— |
-| Held（一時保留） | —— | → Paid | → Available |
-
-【表2a：キャンセル待ち系の操作】
-
-| 現在の状態 | 満席時の予約要求 | 予約昇格 |
+| 現在の状態 | 操作 | 次の状態 |
 |---|---|---|
-| Available（予約可能） | → Waitlisted | —— |
-| Reserved（予約済み） | —— | —— |
-| Paid（支払済み） | —— | —— |
-| Waitlisted（キャンセル待ち） | —— | → Reserved |
-| Held（一時保留） | —— | —— |
+| Available（予約可能） | 予約する（空席あり） | → Reserved |
+| Available（予約可能） | 予約する（満席） | → Waitlisted |
+| Reserved（予約済み） | 支払う | → Paid |
+| Reserved（予約済み） | キャンセルする | → Available |
+| Reserved（予約済み） | 一時保留 | → Held |
+| Reserved（予約済み） | 期限切れ（15分） | → Available |
+| Waitlisted（キャンセル待ち） | 予約昇格（空席発生） | → Reserved |
+| Held（一時保留） | 支払う | → Paid |
+| Held（一時保留） | キャンセルする | → Available |
+| Held（一時保留） | 期限切れ（24時間） | → Available |
 
-【表2b：一時保留系の操作】
-
-| 現在の状態 | 一時保留 | 期限切れ |
-|---|---|---|
-| Available（予約可能） | —— | —— |
-| Reserved（予約済み） | → Held | → Available |
-| Paid（支払済み） | —— | —— |
-| Waitlisted（キャンセル待ち） | —— | —— |
-| Held（一時保留） | —— | → Available |
+`Paid`（支払済み）は行に出てきません。支払いが済んだ予約は確定扱いで、どの操作も受け付けないからです。`Waitlisted` も、出てくるのは「予約昇格」の1行だけです。満席で登録された後にできるのは、空席が出るのを待つことだけだからです。
 
 次の状態遷移図では、直前の表が示した遷移を1枚にまとめ、どの状態からどの操作で、どこへ移れるのかを見ます。
 
@@ -1026,15 +1013,16 @@ flowchart TB
 // 状態遷移と、状態処理に絡む待ち行列だけを示す。
 class TicketReservation {
     // --- データ ---
-    // 共有の待ち行列（借用ポインタ）
+    // ← 追加。共有の待ち行列（借用ポインタ）
     std::deque<TicketReservation*>& waitlist;
     // 状態 Available/Reserved/Paid/Held/Waitlisted
     std::string status;
 
-    // 空席発生時にシステムが呼ぶ内部遷移（利用側からは呼ばせない）
+    // ← ここから追加。空席発生時にシステムが呼ぶ内部遷移
     void promoteBySystem();
     // 待ち行列の先頭を1件だけ取り出して昇格させる
     void promoteNextWaitlisted();
+    // ← ここまで
 
     // 各状態で操作できないときのエラー出力
     void handleReserveError()  { std::cout << "現在予約できません\n"; }
@@ -1047,16 +1035,16 @@ class TicketReservation {
         std::cout << "期限切れ処理は行えません\n";
     }
 public:
-    // 共有の待ち行列を受け取り、初期状態は予約可能
+    // ← 変更。共有の待ち行列を受け取る
     explicit TicketReservation(
             std::deque<TicketReservation*>& waitlist)
         : waitlist(waitlist), status("Available") {}
 
     void reserve(bool hasCapacity = true);
-    void hold();
+    void hold();                    // ← 追加
     void pay();
     void cancel();
-    void expire();
+    void expire();                  // ← 追加
 };
 ```
 
@@ -1100,7 +1088,7 @@ void TicketReservation::reserve(bool hasCapacity) {
         if (hasCapacity) {
             status = "Reserved";
             std::cout << "予約完了しました\n";
-        } else {
+        } else {                        // ← 追加
             status = "Waitlisted";
             waitlist.push_back(this);
             std::cout << "満席のためキャンセル待ちに登録しました\n";
@@ -1136,7 +1124,7 @@ void TicketReservation::hold() {
 **TicketReservation::pay()（変更あり）**
 
 ```cpp
-// 支払う（Reserved と Held の両方から支払済みへ ← Held 対応を追加）
+// 支払う（Reserved と Held の両方から支払済みへ）
 void TicketReservation::pay() {
     if (status == "Reserved") {
         status = "Paid";
@@ -1157,12 +1145,12 @@ void TicketReservation::pay() {
 **TicketReservation::cancel()（変更あり）**
 
 ```cpp
-// キャンセルする（Reserved と Held から予約可能へ ← Held 対応を追加）
+// キャンセルする（Reserved と Held から予約可能へ）
 void TicketReservation::cancel() {
     if (status == "Reserved") {
         status = "Available";
         std::cout << "予約をキャンセルしました\n";
-        promoteNextWaitlisted();     // 空いた枠へ待ち行列の先頭を昇格
+        promoteNextWaitlisted();     // ← 追加。空いた枠へ先頭を昇格
     } else if (status == "Held") {   // ← Held 対応を追加
         status = "Available";
         std::cout << "保留からキャンセルしました\n";

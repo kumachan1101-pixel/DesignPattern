@@ -109,6 +109,14 @@ html, body {
   opacity: 0.8 !important;
   font-weight: 600 !important;
 }
+/* 変更前と変更後を見比べる読者が、どこが変わったかを探さずに済むように、
+   原稿の「← 追加」「← 変更」で示した行へ帯を敷く。 */
+.highlight .chg {
+  display: block !important;
+  background: #1E3A5F !important;
+  padding: 0 40px !important;
+  margin: 0 -40px !important;
+}
 </style>
 """
 
@@ -130,7 +138,10 @@ body {
   line-height: 1.85;
   margin: 0;
   padding: 1em;
-  text-align: justify;
+  /* 両端そろえにすると、折り返し候補の少ない行で文字間が引き伸ばされ、
+     「コ ー ド 上 の 受 け 取 り 口」のような字間の崩れが出る。
+     Kindleの端末側は読者の設定で両端そろえにできるので、ここでは行わない。 */
+  text-align: left;
 }
 h1 {
   background: #e0e0e0;
@@ -728,6 +739,71 @@ def pygments_lexer(language: str):
         return TextLexer()
 
 
+CHANGE_MARKER = re.compile(r"←\s*.{0,12}?(?:追加|変更|削除|修正)")
+
+
+def changed_lines(source_lines: list[str]) -> list[bool]:
+    """変更行に印を付ける。原稿の `// ← 追加` のような目印を手がかりにする。
+
+    目印の付き方は3つある。
+
+      1. 目印だけの行（コメント行）――その下の実コード1つを指す
+         （`;` `{` `}` で終わるまでを1つと数えるので、複数行にまたがる
+         宣言も丸ごと入る。`{` で終わればその括弧の中身も入る）
+      2. 「← ここから追加」――空行か「← ここまで」までを一続きで指す
+      3. 波括弧で開く行に付いた目印――その括弧が閉じるまでを指す
+         （`} else if (...) {  // ← 追加` で、枝の中身まで帯へ入る）
+
+    「← 原因ID1（…）」「← 残る側」のような、変更ではない注釈は対象にしない。
+    """
+    flags = [bool(CHANGE_MARKER.search(line)) for line in source_lines]
+
+    def opens_block(line: str) -> bool:
+        """行末のコメントを外したコードが `{` で終わるか。"""
+        return line.split("//")[0].rstrip().endswith("{")
+
+    def mark_block(start: int) -> None:
+        """`{` で開いた行から、その括弧が閉じる手前までを変更行にする。"""
+        depth = 1
+        for follower in range(start + 1, len(source_lines)):
+            body = source_lines[follower].strip()
+            if body.startswith("}") and depth == 1:
+                return
+            flags[follower] = True
+            depth += body.count("{") - body.count("}")
+            if depth <= 0:
+                return
+
+    for index, matched in enumerate(list(flags)):
+        if not matched:
+            continue
+        if not source_lines[index].strip().startswith("//"):
+            if opens_block(source_lines[index]):
+                mark_block(index)
+            continue
+        if "ここから" in source_lines[index]:
+            for follower in range(index + 1, len(source_lines)):
+                if not source_lines[follower].strip():
+                    break
+                flags[follower] = True
+                if "ここまで" in source_lines[follower]:
+                    break
+            continue
+        seen = 0
+        for follower in range(index + 1, len(source_lines)):
+            if not source_lines[follower].strip():
+                continue
+            flags[follower] = True
+            code = source_lines[follower].split("//")[0].rstrip()
+            seen += 1
+            if code.endswith("{"):
+                mark_block(follower)
+                break
+            if code.endswith((";", "}")) or seen >= 6:
+                break
+    return flags
+
+
 def render_code_block(
     config: BookConfig,
     output_dir: Path,
@@ -751,7 +827,7 @@ def render_code_block(
         title or "",
         code,
         settings,
-        "semantic-code-boundaries-v2",
+        "semantic-code-boundaries-v2+changed-line-band",
         CODE_CSS,
         CODE_TITLE_STYLE,
     )
@@ -801,7 +877,16 @@ def render_code_block(
         "quality": "95",
         "disable-smart-width": "",
     }
-    for part, (chunk, output_path) in enumerate(zip(chunks, expected)):
+    for part, (chunk, source_chunk, output_path) in enumerate(
+        zip(chunks, source_chunks, expected)
+    ):
+        marked = changed_lines(source_chunk)
+        body_lines: list[str] = []
+        for offset, line_html in enumerate(chunk):
+            if offset < len(marked) and marked[offset]:
+                body_lines.append(f'<span class="chg">{line_html or "&nbsp;"}</span>')
+            else:
+                body_lines.append(line_html + "\n")
         title_html = ""
         if title and part == 0:
             title_html = (
@@ -815,7 +900,7 @@ def render_code_block(
             + title_html
             + f'<div style="background:#0F172A;padding:20px 0;width:{settings.code_width}px;box-sizing:border-box;">'
             + '<div class="highlight"><pre>'
-            + "\n".join(chunk)
+            + "".join(body_lines).rstrip("\n")
             + "</pre></div></div></body></html>"
         )
         imgkit.from_string(
