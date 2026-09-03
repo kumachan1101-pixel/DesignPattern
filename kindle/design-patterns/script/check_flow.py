@@ -16,6 +16,9 @@
   F5 長すぎる一文      1文が120字を超える（読点で息継ぎできても係り受けを追えない）
   F6 実体のない識別子  本文が `Xxx` を挙げているのに、その章のコードに一度も出てこない
   F7 唐突な数値        本文の数値が、直前の表・コード・実行結果のどこにも現れない
+  F8 当たり前の弁明    コードを見れば分かることを、複数の文で正当化している
+                       （「〜と決めてよい根拠は」「将来の見込みではなく」
+                       「隠さずに書いておきます」「重要なのは〜ことです」など）
 
     python3 script/check_flow.py --config books/<冊>/publishing/book.json [--only F1,F3]
 """
@@ -158,6 +161,22 @@ def scan(path: Path, only: set[str]) -> list[tuple[str, int, str]]:
             if number not in context and number not in path.stem:
                 add("F7", line, f"数値 {number} が直前の表・コード・実行結果にありません")
         context = body
+
+    # F8 当たり前の弁明
+    # コードを見れば分かる決定を、段落を使って正当化している箇所。
+    # 「反論されそうだから先回りする」形は、読者には冗長にしか映らない。
+    excuses = re.compile(
+        r"と決めてよい根拠|としてよい理由|将来こう使うだろうという見込みではなく|"
+        r"隠さずに書いておきます|正直に書いておきます|"
+        r"踏み外しやすいので、根拠を書きます|確かめようのある根拠|"
+        r"一致する課題も、しない課題もあります"
+    )
+    for kind, body, line in items:
+        if kind != "para":
+            continue
+        found = excuses.search(body)
+        if found:
+            add("F8", line, f"当たり前のことを弁明しています: {found.group(0)[:30]}")
 
     return hits
 
