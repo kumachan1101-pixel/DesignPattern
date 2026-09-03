@@ -441,7 +441,8 @@ private:
     void handleCancelError()  { std::cout << "キャンセルできません\n"; }
 
 public:
-    TicketReservation(EventDatabase& db, const std::string& eventId)
+    TicketReservation(EventDatabase& db,
+                      const std::string& eventId)
         : db(db), eventId(eventId), status("Available") {}
 
     void reserve();
@@ -464,7 +465,8 @@ void TicketReservation::reserve() {
     }
 
     if (!db.hasCapacity(eventId)) {
-        std::cout << "エラー：" << db.get(eventId).title << " は満席です\n";
+        std::cout << "エラー：" << db.get(eventId).title
+                  << " は満席です\n";
         return;
     }
 
@@ -1159,8 +1161,10 @@ flowchart TB
 // 状態遷移と、状態処理に絡む待ち行列だけを示す。
 class TicketReservation {
     // --- データ ---
-    std::deque<TicketReservation*>& waitlist;  // 共有の待ち行列（借用ポインタ）
-    std::string status;  // 状態 Available/Reserved/Paid/Held/Waitlisted
+    // 共有の待ち行列（借用ポインタ）
+    std::deque<TicketReservation*>& waitlist;
+    // 状態 Available/Reserved/Paid/Held/Waitlisted
+    std::string status;
 
     // 空席発生時にシステムが呼ぶ内部遷移（利用側からは呼ばせない）
     void promoteBySystem();
@@ -1174,10 +1178,13 @@ class TicketReservation {
         std::cout << "支払いに適した状態ではありません\n";
     }
     void handleCancelError()   { std::cout << "キャンセルできません\n"; }
-    void handleExpireError()   { std::cout << "期限切れ処理は行えません\n"; }
+    void handleExpireError() {
+        std::cout << "期限切れ処理は行えません\n";
+    }
 public:
     // 共有の待ち行列を受け取り、初期状態は予約可能
-    explicit TicketReservation(std::deque<TicketReservation*>& waitlist)
+    explicit TicketReservation(
+            std::deque<TicketReservation*>& waitlist)
         : waitlist(waitlist), status("Available") {}
 
     void reserve(bool hasCapacity = true);
@@ -1744,7 +1751,8 @@ public:
         reservation->cancelSeat();                 // この遷移固有の副作用
         reservation->record("cancel");
         std::cout << "予約をキャンセルしました\n";
-        reservation->promoteNextWaitlisted();      // 席が空いたので1件昇格
+        // 席が空いたので1件昇格
+        reservation->promoteNextWaitlisted();
     }
 
     // pay / hold も同じ形で、それぞれの遷移先と副作用を持つ
@@ -1764,7 +1772,8 @@ public:
 ```cpp
 void TicketReservation::promoteNextWaitlisted() {
     if (waitlist.empty()) return;           // ← 出て行く側（探索方針）
-    TicketReservation* next = waitlist.front();  // ← 出て行く側（先頭選択）
+    // ← 出て行く側（先頭選択）
+    TicketReservation* next = waitlist.front();
     waitlist.pop_front();                   // ← 出て行く側（削除）
     next->promoteBySystem();                // ← 残る側（昇格を1件だけ起こす）
 }
@@ -1793,7 +1802,8 @@ void TicketReservation::promoteNextWaitlisted() {
 
 ```cpp
 class ReservationWaitlist {
-    std::map<std::string, std::deque<TicketReservation*> > queues;
+    std::map<std::string,
+             std::deque<TicketReservation*> > queues;
 public:
     void enqueue(const std::string& eventId,
                  TicketReservation* reservation) {
@@ -1847,7 +1857,8 @@ public:
 // Waitlisted（キャンセル待ち）：システムからの昇格だけを受け付ける
 class WaitlistedState : public IReservationState {
 public:
-    void promoteBySystem(TicketReservation* reservation) override {
+    void promoteBySystem(
+            TicketReservation* reservation) override {
         reservation->setState(reservedState());
         reservation->reserveSeat();
         reservation->record("promote");
@@ -1935,13 +1946,16 @@ public:
                       ReservationWaitlist* waitlist,
                       const std::string& eventId,
                       const std::string& title);
-    void setState(IReservationState* nextState) { state = nextState; }
+    void setState(IReservationState* nextState) {
+        state = nextState;
+    }
     void reserveSeat();
     void cancelSeat();
     void record(const std::string& action);
     void joinWaitlist();
     void promoteNextWaitlisted();
-    // 公開操作 reserve / pay / cancel / hold / expire / paymentFailed
+    // 公開操作 reserve / pay / cancel / hold / expire /
+    //          paymentFailed
 };
 ```
 
@@ -1986,7 +2000,8 @@ class BatchApplication {
 **ここで確認するコード：`ReservedState` の `cancel()`** ―― 具体コードで書いた1行目（引数は `TicketReservation*`）
 
 ```cpp
-        reservation->setState(availableState());   // ←ここで次の実装が入る
+        // ←ここで次の実装が入る
+        reservation->setState(availableState());
 ```
 
 **この1行が状態遷移です。** `setState()`へ次状態の参照を渡すと、骨格の `IReservationState*` が `AvailableState` を指します。次状態を決めて渡すのは遷移元の状態で、骨格は具体型を判定しません。
@@ -2317,8 +2332,10 @@ public:
         ++event.reserved;
         std::cout << "[予約数] " << id << " "
                   << before << "/" << event.capacity
-                  << " -> " << event.reserved << "/" << event.capacity;
-        if (event.reserved == event.capacity) std::cout << "（満席）";
+                  << " -> " << event.reserved << "/"
+                  << event.capacity;
+        if (event.reserved == event.capacity)
+            std::cout << "（満席）";
         std::cout << std::endl;
     }
 
@@ -2329,7 +2346,8 @@ public:
         if (event.reserved > 0) --event.reserved;
         std::cout << "[予約数] " << id << " "
                   << before << "/" << event.capacity
-                  << " -> " << event.reserved << "/" << event.capacity
+                  << " -> " << event.reserved << "/"
+                  << event.capacity
                   << std::endl;
     }
 
@@ -2360,14 +2378,16 @@ struct ReservationRecord {
 class ReservationHistory {
     std::vector<ReservationRecord> records;
 public:
-    void add(const std::string& eventId, const std::string& eventTitle,
+    void add(const std::string& eventId,
+             const std::string& eventTitle,
              const std::string& action) {
         records.push_back({eventId, eventTitle, action});
     }
 
     void printAll() const {
         for (const auto& r : records) {
-            std::cout << "[" << r.eventId << "] " << r.eventTitle
+            std::cout << "[" << r.eventId << "] "
+                      << r.eventTitle
                       << " -> " << r.action << std::endl;
         }
     }
@@ -2390,7 +2410,8 @@ class TicketReservation;
 
 ```cpp
 class ReservationWaitlist {
-    std::map<std::string, std::deque<TicketReservation*>> queues;
+    std::map<std::string,
+             std::deque<TicketReservation*>> queues;
 public:
     void enqueue(const std::string& eventId,
                  TicketReservation* reservation) {
@@ -2500,12 +2521,16 @@ public:
 
     // 状態遷移時に、共有状態オブジェクトへの借用ポインタを差し替える。
     // 状態は関数ローカルstaticが所有するため、ここではdeleteしない。
-    void setState(IReservationState* nextState) { state = nextState; }
+    void setState(IReservationState* nextState) {
+        state = nextState;
+    }
 
     // 状態遷移の副作用：在庫の増減と履歴の記録
     void reserveSeat() { db->reserveSeat(eventId); }
     void cancelSeat()  { db->cancelSeat(eventId); }
-    bool hasCapacity() const { return db->hasCapacity(eventId); }
+    bool hasCapacity() const {
+        return db->hasCapacity(eventId);
+    }
     void record(const std::string& action) {
         history->add(eventId, title, action);
     }
@@ -2601,7 +2626,8 @@ public:
         reservation->promoteNextWaitlisted();
     }
 
-    void paymentFailed(TicketReservation* reservation) override {
+    void paymentFailed(
+            TicketReservation* reservation) override {
         reservation->record("決済失敗");
         std::cout << "決済に失敗しました。予約済みのまま再試行できます\n";
     }
@@ -2625,7 +2651,8 @@ class PaidState : public IReservationState {};
 // Waitlisted（キャンセル待ち）：システムからの昇格だけを受ける
 class WaitlistedState : public IReservationState {
 public:
-    void promoteBySystem(TicketReservation* reservation) override {
+    void promoteBySystem(
+            TicketReservation* reservation) override {
         reservation->reserveSeat();
         reservation->record("キャンセル待ちから自動昇格");
         std::cout << "空席発生を検知し、予約へ自動昇格しました\n";
@@ -2662,7 +2689,8 @@ public:
         reservation->promoteNextWaitlisted();
     }
 
-    void paymentFailed(TicketReservation* reservation) override {
+    void paymentFailed(
+            TicketReservation* reservation) override {
         reservation->record("決済失敗");
         std::cout << "決済に失敗しました。保留中のまま再試行できます\n";
     }
@@ -2676,7 +2704,8 @@ public:
 // 利用者や運用者がexpire()を手動実行する構造にはしない。
 class ReservationExpiryScheduler {
 public:
-    void onPaymentDeadlineExpired(TicketReservation& reservation) {
+    void onPaymentDeadlineExpired(
+            TicketReservation& reservation) {
         reservation.expire();
     }
 };
@@ -2847,7 +2876,8 @@ public:
 同じ `BatchApplication::run()` の中の続きです。
 
 ```cpp
-        // シナリオ4：保留期限切れ (Available → Reserved → Held → Available)
+        // シナリオ4：保留期限切れ
+        // (Available → Reserved → Held → Available)
         std::cout << "--- 行4: 保留期限切れ ---\n";
 
         if (showAvailability("EVT001")) {
@@ -2913,7 +2943,8 @@ public:
         // 既存予約のキャンセルを起点に自動昇格
         std::cout << "--- 行5: 満席からの自動昇格 ---\n";
         EventInfo full = db.get("EVT003");
-        showAvailability("EVT003"); // 50/50を表示。reserve()が満席を判定する
+        // 50/50を表示。reserve()が満席を判定する
+        showAvailability("EVT003");
 
         TicketReservation waiting(availableState(), &db,
                                   &history, &waitlist,

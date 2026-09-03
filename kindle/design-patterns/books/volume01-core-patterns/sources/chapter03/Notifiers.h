@@ -10,14 +10,16 @@ class EmailNotifier : public INotification {
     // 1-4と同じメール基盤の操作
     bool sendMail(const string& subject, const string& body) {
         inbox.push_back(body);
-        cout << "Email(" << inbox.size() << "件) [" << subject << "] "
+        cout << "Email(" << inbox.size() << "件) [" << subject
+             << "] "
              << body << endl;
         return true;
     }
 public:
     DeliveryResult send(const StockAlert& a) override {
         string body = a.productName + "(" + a.productId + ") 残"
-                    + to_string(a.stock) + " 閾値" + to_string(a.threshold);
+                    + to_string(a.stock) + " 閾値"
+                        + to_string(a.threshold);
         bool ok = sendMail("在庫不足", body);   // 契約→メール基盤へ変換
 
         return ok ? DeliveryResult{ACCEPTED, "Email", ""}
@@ -29,9 +31,11 @@ class DashboardUpdater : public INotification {
     int refreshCount;
 
     // 1-4と同じ画面更新の操作。戻り値が無い
-    void refreshStockWidget(const string& productCode, int stock) {
+    void refreshStockWidget(const string& productCode,
+                            int stock) {
         ++refreshCount;
-        cout << "Dashboard(" << refreshCount << "件): " << productCode
+        cout << "Dashboard(" << refreshCount << "件): "
+             << productCode
              << " の在庫表示を " << stock << " に更新" << endl;
     }
 public:
@@ -47,10 +51,12 @@ class ChatNotifier : public INotification {
     vector<string> posted;
 
     // 1-4と同じチャット基盤の操作。投稿IDを返す
-    string postMessage(const string& channel, const string& text) {
+    string postMessage(const string& channel,
+                       const string& text) {
         posted.push_back(text);
         string postId = "POST-" + to_string(posted.size());
-        cout << "Chat(" << posted.size() << "件) #" << channel << "\n"
+        cout << "Chat(" << posted.size() << "件) #" << channel
+             << "\n"
              << "  " << text << " -> " << postId << endl;
         return postId;
     }
@@ -60,8 +66,9 @@ public:
                     + "個。発注を確認してください。";
         string postId = postMessage("inventory-alert", text);
 
-        return postId.empty() ? DeliveryResult{FAILED, "Chat", ""}
-                              : DeliveryResult{ACCEPTED, "Chat", ""};
+        return postId.empty() ? DeliveryResult{FAILED,
+                            "Chat", ""}
+               : DeliveryResult{ACCEPTED, "Chat", ""};
     }
 };
 
@@ -78,9 +85,11 @@ public:
             return {FAILED, "SMS", ""};
         }
 
-        string text = "在庫警告 " + a.productId + " 残" + to_string(a.stock);
+        string text = "在庫警告 " + a.productId + " 残"
+            + to_string(a.stock);
         inbox.push_back(text);
-        string requestId = "SMS-" + to_string(nextRequestNumber++);
+        string requestId = "SMS-"
+            + to_string(nextRequestNumber++);
         cout << "SMS(" << inbox.size() << "件受付): " << text
              << " / 受付ID=" << requestId << endl;
         return {PENDING, "SMS", requestId};

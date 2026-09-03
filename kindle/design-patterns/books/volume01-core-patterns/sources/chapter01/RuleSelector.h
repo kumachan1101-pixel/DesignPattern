@@ -7,7 +7,8 @@
 
 class RuleSelector {
 private:
-    std::vector<std::reference_wrapper<const IDiscountRule>> rules;
+    std::vector<std::reference_wrapper<
+            const IDiscountRule>> rules;
 public:
     void add(const IDiscountRule& rule) {
         rules.push_back(std::cref(rule));

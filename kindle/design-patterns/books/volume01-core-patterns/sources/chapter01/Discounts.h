@@ -32,7 +32,8 @@ public:
 class SummerSaleAndCampaignDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
-                 const CampaignContext& context) const override {
+                 const CampaignContext& context)
+                 const override {
         return memberType == MemberType::Regular
             && context.isActive(CampaignCode::SummerSale)
             && context.isActive(CampaignCode::RegularCampaign);
@@ -50,7 +51,8 @@ public:
 class SummerSaleDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
-                 const CampaignContext& context) const override {
+                 const CampaignContext& context)
+                 const override {
         return memberType == MemberType::Regular
             && context.isActive(CampaignCode::SummerSale);
     }
@@ -65,7 +67,8 @@ public:
 class CampaignDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
-                 const CampaignContext& context) const override {
+                 const CampaignContext& context)
+                 const override {
         return memberType == MemberType::Regular
             && context.isActive(CampaignCode::RegularCampaign);
     }

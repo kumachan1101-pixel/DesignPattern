@@ -537,7 +537,8 @@ public:
         // (2) 割引：会員種別とキャンペーンで割引率を決める
         if (memberType == "Premium") {
             total = total * 80 / 100;   // プレミアム割引 20%引き
-        } else if (memberType == "Regular" && context.isCampaignActive) {
+        } else if (memberType == "Regular" &&
+                   context.isCampaignActive) {
             total = total * 90 / 100;   // キャンペーン割引 10%引き
         }
 
@@ -548,7 +549,7 @@ public:
 };
 ```
 
-- **判断が2つ：** 小計の合算と、割引率の選択が同じメソッドに並んでいます
+- **計算と判断が同居：** 前半は小計を足すだけの**計算**、後半は会員種別とキャンペーンから割引率を選ぶ**判断**です。性質の違う2つが1つのメソッドに並んでいます
 - **順序に意味：** `Premium` を先に判定するので、Premium会員はキャンペーン中でも20%引きのままです（排他ルール）。`if` の順を入れ替えると仕様が変わります
 
 各分岐が1-1の割引ルール一覧に対応します。`Premium` は `* 80 / 100`、`Regular` かつキャンペーン中は `* 90 / 100`、どちらでもなければ定価です。
@@ -576,7 +577,9 @@ public:
 
         CustomerInfo customer = db.get(order.customerId);
 
-        return calculator.calculate(order, customer.memberType, context);
+        return calculator.calculate(order,
+                                    customer.memberType,
+                                    context);
     }
 };
 ```
@@ -600,7 +603,8 @@ public:
         std::cout << customer.name << " さんの注文:";
 
         for (const auto& item : order.items) {
-            std::cout << " " << item.name << " " << item.price << "円";
+            std::cout << " " << item.name << " " << item.price
+                      << "円";
         }
 
         std::cout << "\n  条件: 会員=" << customer.memberType
@@ -627,10 +631,12 @@ private:
     CheckoutResultRenderer& renderer;
     PaymentCalculator calculator;
 public:
-    OrderProcessor(CustomerDatabase& db, CheckoutResultRenderer& renderer)
+    OrderProcessor(CustomerDatabase& db,
+                   CheckoutResultRenderer& renderer)
         : db(db), renderer(renderer) {}
 
-    void process(const Order& order, const CampaignContext& context);
+    void process(const Order& order,
+                 const CampaignContext& context);
 };
 ```
 
@@ -667,7 +673,8 @@ void OrderProcessor::process(const Order& order,
     }
 
     int finalPrice =
-        calculator.calculate(order, customer.memberType, context);
+        calculator.calculate(order,
+                             customer.memberType, context);
 
     // 表示形式はRenderer境界へ委ねる
     int subtotal = 0;
@@ -893,10 +900,9 @@ int main() {
 
 **要求ID2**
 
-- **変更種別**：継続
-- **根拠**：変更ID1（サマーセール追加）
+- **変更種別**：継続（変更後も内容は変わらない）
 - **変更後要求**：Premium会員へ20%割引を適用し、他割引と併用しない
-- **受入条件**：セール中でもPremiumは8,000円になる
+- **受入条件**：セール中でもPremiumは8,000円になる（サマーセールの対象外であることを確認する）
 
 **要求ID3**
 
@@ -1405,13 +1411,15 @@ graph TD
         if (memberType == "Premium") {
             // 20%引き（サマーセール対象外）
             total = total * 80 / 100;
-        } else if (context.isSummerSale && context.isCampaignActive) {
+        } else if (context.isSummerSale &&
+                   context.isCampaignActive) {
             // 逐次割引（10%引き後に5%引き）
             total = (total * 90 / 100) * 95 / 100;
         } else if (context.isSummerSale) {
             total = total * 95 / 100;              // サマーセール5%引き
         } else if (context.isCampaignActive) {
-            total = total * 90 / 100;              // キャンペーン10%引き
+            // キャンペーン10%引き
+            total = total * 90 / 100;
         }
 
         // ← 新しいキャンペーンが来るたびに、ここに else if が増え続ける
@@ -1459,7 +1467,8 @@ public:
         // (2) 割引ルール（具体）を、自分自身で直接判断して処理している
         if (memberType == "Premium") {
             total = total * 80 / 100;   // 適用条件も割引率も骨格側にある
-        } else if (memberType == "Regular" && context.isCampaignActive) {
+        } else if (memberType == "Regular" &&
+                   context.isCampaignActive) {
             total = total * 90 / 100;   // 同じ構造の分岐が施策の数だけ並ぶ
         }
 
@@ -1614,9 +1623,11 @@ public:
 // サマーセール対応：Regular会員向けに条件を追加
 // ← 出て行く側（対象条件）
 if (memberType == "Premium") {
-    total = total * 80 / 100;                         // ← 出て行く側（計算式）
+    // ← 出て行く側（計算式）
+    total = total * 80 / 100;
 } else if (context.isSummerSale && context.isCampaignActive) {
-    total = (total * 90 / 100) * 95 / 100;            // 逐次割引（Regular会員）
+    // 逐次割引（Regular会員）
+    total = (total * 90 / 100) * 95 / 100;
 } else if (context.isSummerSale) {
     total = total * 95 / 100;
 } else if (context.isCampaignActive) {
@@ -1670,7 +1681,8 @@ if (memberType == "Premium") {
 class IDiscountRule {
 public:
     virtual bool matches(const std::string& memberType,
-                         const CampaignContext& context) const = 0;
+                         const CampaignContext& context) const =
+                             0;
     virtual int apply(int total) const = 0;
     virtual std::string name() const = 0;
     virtual ~IDiscountRule() = default;
@@ -1691,7 +1703,9 @@ public:
         return memberType == "Premium";
     }
 
-    int apply(int total) const override { return total * 80 / 100; }
+    int apply(int total) const override {
+        return total * 80 / 100;
+    }
     std::string name() const override { return "Premium会員割引"; }
 };
 ```
@@ -1733,7 +1747,8 @@ public:
 class SummerSaleAndCampaignDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
-                 const CampaignContext& context) const override {
+                 const CampaignContext& context)
+                 const override {
         return memberType == "Regular"
             && context.isActive(CampaignCode::SummerSale)
             && context.isActive(CampaignCode::RegularCampaign);
@@ -1743,7 +1758,9 @@ public:
         return (total * 90 / 100) * 95 / 100;
     }
 
-    std::string name() const override { return "サマーセール＋キャンペーン"; }
+    std::string name() const override {
+        return "サマーセール＋キャンペーン";
+    }
 };
 ```
 
@@ -1788,14 +1805,15 @@ public:
 ```cpp
 class RuleSelector {
 private:
-    std::vector<std::reference_wrapper<const IDiscountRule>> rules;
+    std::vector<std::reference_wrapper<
+            const IDiscountRule>> rules;
 public:
     void add(const IDiscountRule& rule) {
         rules.push_back(std::cref(rule));
     }
 
     const IDiscountRule& select(const std::string& memberType,
-                                const CampaignContext& context) const;
+                    const CampaignContext& context) const;
 };
 ```
 
@@ -1816,7 +1834,8 @@ private:
     RuleSelector ruleSelector;
 public:
     DiscountRuleSet() {
-        ruleSelector.add(premium);           // Premiumは他施策と併用しない
+        // Premiumは他施策と併用しない
+        ruleSelector.add(premium);
         ruleSelector.add(summerAndCampaign); // 複合条件を単独条件より先にする
         ruleSelector.add(summer);
         ruleSelector.add(campaign);
@@ -1843,7 +1862,9 @@ public:
 ```cpp
     DiscountRuleSet discountRules;
 
-    OrderProcessor processor(db, renderer, discountRules.selector());
+    OrderProcessor processor(db,
+                             renderer,
+                             discountRules.selector());
     CartPreviewService preview(db, discountRules.selector());
 ```
 
@@ -1867,7 +1888,8 @@ public:
             selector.select(customer.memberType, context);
         PaymentCalculator calculator(rule);
         PaymentResult result = calculator.calculate(order);
-        renderer.showOrderResult(customer, order, context, result);
+        renderer.showOrderResult(customer,
+                                 order, context, result);
 ```
 
 この5行は、次の順で読みます。
@@ -1902,7 +1924,8 @@ Calculatorは、渡された実体の具体クラス名を知りません。小�
 ```cpp
         int subtotal = 0;
 
-        for (const auto& item : order.items) subtotal += item.price;
+        for (const auto& item : order.items) subtotal +=
+            item.price;
         const int finalPrice = rule.apply(subtotal);
 
         return {subtotal, finalPrice, rule.name()};
@@ -2229,8 +2252,12 @@ public:
         records["C003"] = {"鈴木 次郎", "Regular"};
     }
 
-    bool exists(const std::string& id) const { return records.count(id) > 0; }
-    CustomerInfo get(const std::string& id) const { return records.at(id); }
+    bool exists(const std::string& id) const {
+        return records.count(id) > 0;
+    }
+    CustomerInfo get(const std::string& id) const {
+        return records.at(id);
+    }
 };
 ```
 
@@ -2258,7 +2285,8 @@ struct PaymentResult {
 class IDiscountRule {
 public:
     virtual bool matches(const std::string& memberType,
-                         const CampaignContext& context) const = 0;
+                         const CampaignContext& context) const =
+                             0;
     virtual int apply(int total) const = 0;
     virtual std::string name() const = 0;
     virtual ~IDiscountRule() = default;
@@ -2310,7 +2338,8 @@ public:
 class SummerSaleAndCampaignDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
-                 const CampaignContext& context) const override {
+                 const CampaignContext& context)
+                 const override {
         return memberType == MemberType::Regular
             && context.isActive(CampaignCode::SummerSale)
             && context.isActive(CampaignCode::RegularCampaign);
@@ -2334,7 +2363,8 @@ public:
 class SummerSaleDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
-                 const CampaignContext& context) const override {
+                 const CampaignContext& context)
+                 const override {
         return memberType == MemberType::Regular
             && context.isActive(CampaignCode::SummerSale);
     }
@@ -2353,7 +2383,8 @@ public:
 class CampaignDiscount : public IDiscountRule {
 public:
     bool matches(const std::string& memberType,
-                 const CampaignContext& context) const override {
+                 const CampaignContext& context)
+                 const override {
         return memberType == MemberType::Regular
             && context.isActive(CampaignCode::RegularCampaign);
     }
@@ -2383,12 +2414,14 @@ class PaymentCalculator {
 private:
     const IDiscountRule& rule;
 public:
-    explicit PaymentCalculator(const IDiscountRule& r) : rule(r) {}
+    explicit PaymentCalculator(const IDiscountRule& r)
+            : rule(r) {}
 
     PaymentResult calculate(const Order& order) {
         int subtotal = 0;
 
-        for (const auto& item : order.items) subtotal += item.price;
+        for (const auto& item : order.items) subtotal +=
+            item.price;
         PaymentResult result;
         result.subtotal = subtotal;
         result.finalPrice = rule.apply(subtotal);
@@ -2411,7 +2444,8 @@ public:
 ```cpp
 class RuleSelector {
 private:
-    std::vector<std::reference_wrapper<const IDiscountRule>> rules;
+    std::vector<std::reference_wrapper<
+            const IDiscountRule>> rules;
 public:
     void add(const IDiscountRule& rule) {
         rules.push_back(std::cref(rule));
@@ -2450,7 +2484,8 @@ private:
     RuleSelector ruleSelector;
 public:
     DiscountRuleSet() {
-        ruleSelector.add(premium);           // Premiumは他施策と併用しない
+        // Premiumは他施策と併用しない
+        ruleSelector.add(premium);
         ruleSelector.add(summerAndCampaign); // 複合条件を単独条件より先にする
         ruleSelector.add(summer);
         ruleSelector.add(campaign);
@@ -2520,12 +2555,13 @@ public:
         std::cout << customer.name << " さんの注文:";
 
         for (const auto& item : order.items) {
-            std::cout << " " << item.name << " " << item.price << "円";
+            std::cout << " " << item.name << " " << item.price
+                      << "円";
         }
 
         std::cout << "\n  条件: 会員=" << customer.memberType
                   << ", キャンペーン="
-                  << (context.isActive(CampaignCode::RegularCampaign)
+          << (context.isActive(CampaignCode::RegularCampaign)
                       ? "あり" : "なし")
                   << ", サマーセール="
                   << (context.isActive(CampaignCode::SummerSale)
@@ -2555,7 +2591,8 @@ public:
                    const RuleSelector& selector)
         : db(db), renderer(renderer), selector(selector) {}
 
-    void process(const Order& order, const CampaignContext& context) {
+    void process(const Order& order,
+                 const CampaignContext& context) {
         if (!db.exists(order.customerId)) {
             std::cerr << "エラー: 顧客ID " << order.customerId
                       << " は登録されていません\n";
@@ -2581,7 +2618,8 @@ public:
         PaymentCalculator calculator(rule);
 
         PaymentResult result = calculator.calculate(order);
-        renderer.showOrderResult(customer, order, context, result);
+        renderer.showOrderResult(customer,
+                                 order, context, result);
     }
 };
 ```
@@ -2612,7 +2650,9 @@ int main() {
 
     DiscountRuleSet discountRules;
 
-    OrderProcessor processor(db, renderer, discountRules.selector());
+    OrderProcessor processor(db,
+                             renderer,
+                             discountRules.selector());
     CartPreviewService preview(db, discountRules.selector());
 
     // C001（Premium）/ キャンペーンなし / サマーセールなし → 20%引き
@@ -2621,7 +2661,8 @@ int main() {
     order1.customerId = "C001";
     order1.items.push_back(Item("ワイヤレスイヤホン", 10000));
     CampaignContext context1;
-    PaymentResult preview1 = preview.getEstimatedTotal(order1, context1);
+    PaymentResult preview1 =
+        preview.getEstimatedTotal(order1, context1);
     std::cout << "  カートプレビュー: "
               << preview1.finalPrice << "円\n";
     processor.process(order1, context1);
@@ -2648,7 +2689,8 @@ int main() {
     CampaignContext context2;
     context2.activate(CampaignCode::RegularCampaign);
     context2.activate(CampaignCode::SummerSale);
-    PaymentResult preview2 = preview.getEstimatedTotal(order2, context2);
+    PaymentResult preview2 =
+        preview.getEstimatedTotal(order2, context2);
     std::cout << "  カートプレビュー: "
               << preview2.finalPrice << "円\n";
     processor.process(order2, context2);
@@ -2675,7 +2717,8 @@ int main() {
     CampaignContext context3;
     context3.activate(CampaignCode::RegularCampaign);
     context3.activate(CampaignCode::SummerSale);
-    PaymentResult preview3 = preview.getEstimatedTotal(order3, context3);
+    PaymentResult preview3 =
+        preview.getEstimatedTotal(order3, context3);
     std::cout << "  カートプレビュー: "
               << preview3.finalPrice << "円\n";
     processor.process(order3, context3);
@@ -2701,7 +2744,8 @@ int main() {
     order4.items.push_back(Item("ワイヤレスイヤホン", 10000));
     CampaignContext context4;
     context4.activate(CampaignCode::SummerSale);
-    PaymentResult preview4 = preview.getEstimatedTotal(order4, context4);
+    PaymentResult preview4 =
+        preview.getEstimatedTotal(order4, context4);
     std::cout << "  カートプレビュー: "
               << preview4.finalPrice << "円\n";
     processor.process(order4, context4);
@@ -2727,7 +2771,8 @@ int main() {
     order4b.items.push_back(Item("ワイヤレスイヤホン", 10000));
     CampaignContext context4b;
     context4b.activate(CampaignCode::RegularCampaign);
-    PaymentResult preview4b = preview.getEstimatedTotal(order4b, context4b);
+    PaymentResult preview4b =
+        preview.getEstimatedTotal(order4b, context4b);
     std::cout << "  カートプレビュー: "
               << preview4b.finalPrice << "円\n";
     processor.process(order4b, context4b);
@@ -2754,7 +2799,8 @@ int main() {
     order5.customerId = "C003";
     order5.items.push_back(Item("スマホケース", 3000));
     CampaignContext context5;
-    PaymentResult preview5 = preview.getEstimatedTotal(order5, context5);
+    PaymentResult preview5 =
+        preview.getEstimatedTotal(order5, context5);
     std::cout << "  カートプレビュー: "
               << preview5.finalPrice << "円\n";
     processor.process(order5, context5);

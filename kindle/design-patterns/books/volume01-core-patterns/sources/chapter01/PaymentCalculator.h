@@ -11,12 +11,14 @@ class PaymentCalculator {
 private:
     const IDiscountRule& rule;
 public:
-    explicit PaymentCalculator(const IDiscountRule& r) : rule(r) {}
+    explicit PaymentCalculator(const IDiscountRule& r)
+            : rule(r) {}
 
     PaymentResult calculate(const Order& order) {
         int subtotal = 0;
 
-        for (const auto& item : order.items) subtotal += item.price;
+        for (const auto& item : order.items) subtotal +=
+            item.price;
         PaymentResult result;
         result.subtotal = subtotal;
         result.finalPrice = rule.apply(subtotal);
@@ -61,12 +63,13 @@ public:
         std::cout << customer.name << " さんの注文:";
 
         for (const auto& item : order.items) {
-            std::cout << " " << item.name << " " << item.price << "円";
+            std::cout << " " << item.name << " " << item.price
+                      << "円";
         }
 
         std::cout << "\n  条件: 会員=" << customer.memberType
                   << ", キャンペーン="
-                  << (context.isActive(CampaignCode::RegularCampaign)
+          << (context.isActive(CampaignCode::RegularCampaign)
                       ? "あり" : "なし")
                   << ", サマーセール="
                   << (context.isActive(CampaignCode::SummerSale)
@@ -88,7 +91,8 @@ public:
                    const RuleSelector& selector)
         : db(db), renderer(renderer), selector(selector) {}
 
-    void process(const Order& order, const CampaignContext& context) {
+    void process(const Order& order,
+                 const CampaignContext& context) {
         if (!db.exists(order.customerId)) {
             std::cerr << "エラー: 顧客ID " << order.customerId
                       << " は登録されていません\n";
@@ -114,7 +118,8 @@ public:
         PaymentCalculator calculator(rule);
 
         PaymentResult result = calculator.calculate(order);
-        renderer.showOrderResult(customer, order, context, result);
+        renderer.showOrderResult(customer,
+                                 order, context, result);
     }
 };
 

@@ -38,7 +38,8 @@ public:
         records[id] = info;           // 実行中の商品マスタへ追加
     }
 
-    bool isBelowThreshold(const string& id, int currentStock) const {
+    bool isBelowThreshold(const string& id,
+                          int currentStock) const {
         return currentStock <= records.at(id).alertThreshold;
     }
 };
@@ -79,7 +80,8 @@ struct StockEvent {
 class StockEventLog {
     std::vector<StockEvent> records;
 public:
-    void add(const std::string& productId, const std::string& productName,
+    void add(const std::string& productId,
+             const std::string& productName,
              const std::string& eventType, int amount,
              int stockBefore, int stockAfter) {
         records.push_back({productId, productName, eventType,
@@ -89,9 +91,11 @@ public:
     void printAll() const {
         // 要求ID4：商品ID・変更前→変更後・単位をそろえて残す
         for (const auto& r : records) {
-            std::cout << "[" << r.productId << "] " << r.productName
+            std::cout << "[" << r.productId << "] "
+                      << r.productName
                       << " " << r.eventType << " " << r.amount
-                      << "個 (" << r.stockBefore << "->" << r.stockAfter
+                      << "個 (" << r.stockBefore << "->"
+                      << r.stockAfter
                       << ")" << std::endl;
         }
     }

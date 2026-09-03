@@ -17,6 +17,12 @@
       割られる。6インチ端末の1行はおよそ35桁なので、40桁を超える連なりは
       必ずどこかで割れる。`Class::method()` 程度（30桁前後）は1行に収まる。
 
+  L5 幅の広いコード
+      掲載コードに64桁を超える行がある。コード画像は幅2000px・48pxの等幅で
+      組まれるため、64桁を超えると勝手に折り返され、`= 0;` だけが次の行へ
+      落ちるような読みにくい割れ方になる。`script/wrap_code.py` で、
+      意味の切れ目へあらかじめ改行を入れる。
+
   L3 深い入れ子の括弧
       1文の中で括弧が3重以上になっている。折り返されると対応が取れない。
 
@@ -63,7 +69,7 @@ def segments(text: str):
                 body.append(lines[index])
                 index += 1
             index += 1
-            yield ("code" if lang else "plain", "\n".join(body), start + 1)
+            yield (lang or "plain", "\n".join(body), start + 1)
             continue
         yield ("prose", lines[index], index + 1)
         index += 1
@@ -74,7 +80,16 @@ def scan(path: Path) -> list[str]:
     failures: list[str] = []
 
     for kind, body, line in segments(text):
-        if kind == "code":
+        if kind != "prose" and kind != "plain":
+            # Mermaidは画像として組まれ、幅は描画側が調整する。C++だけを見る。
+            if kind != "cpp":
+                continue
+            for offset, row in enumerate(body.split("\n")):
+                if len(row) > 64:
+                    failures.append(
+                        f"[L5] {path.name}:{line + offset + 1} コードの行が{len(row)}桁"
+                        f"あります（64桁で折り返されます）: {row.strip()[:40]}…"
+                    )
             continue
 
         if kind == "plain":

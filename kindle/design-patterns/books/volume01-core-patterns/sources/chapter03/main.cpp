@@ -11,7 +11,8 @@ int main() {
     DashboardUpdater dashboard;
     ChatNotifier     chat;
     SMSNotifier      sms(false);   // false: 受付成功→保留を返す
-    InventoryManager manager(productDatabase, eventLog, deliveryStatusLog);
+    InventoryManager manager(productDatabase,
+                             eventLog, deliveryStatusLog);
 
     manager.attach(&email);
     manager.attach(&dashboard);

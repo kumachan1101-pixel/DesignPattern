@@ -15,9 +15,11 @@ private:
     DeliveryStatusLog&      deliveryStatusLog;
 
 public:
-    InventoryManager(ProductDatabase& database, StockEventLog& log,
+    InventoryManager(ProductDatabase& database,
+                     StockEventLog& log,
                      DeliveryStatusLog& statusLog)
-        : db(database), eventLog(log), deliveryStatusLog(statusLog) {}
+        : db(database), eventLog(log),
+          deliveryStatusLog(statusLog) {}
 
     // nullと重複登録を拒否する
     bool attach(INotification* o) {
@@ -70,7 +72,8 @@ public:
         if (db.isBelowThreshold(productId, info.stock)) {
             eventLog.add(productId, info.name, "閾値警告", quantity,
                          before, info.stock);
-            notifyAll({productId, info.name, info.stock, info.alertThreshold});
+            notifyAll({productId, info.name,
+                       info.stock, info.alertThreshold});
         }
     }
 

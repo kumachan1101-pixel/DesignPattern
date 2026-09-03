@@ -17,10 +17,12 @@ class DeliveryStatusLog {
     }
 public:
     void record(const DeliveryResult& result) {
-        if (result.status != PENDING || result.requestId.empty()) return;
+        if (result.status != PENDING ||
+            result.requestId.empty()) return;
 
         statuses[result.requestId] = PENDING;
-        cout << "[SMS状態] " << result.requestId << ": PENDINGを記録" << endl;
+        cout << "[SMS状態] " << result.requestId << ": PENDINGを記録"
+             << endl;
     }
 
     bool complete(const string& requestId, bool delivered) {
@@ -35,7 +37,8 @@ public:
         DeliveryStatus before = it->second;
         it->second = delivered ? DELIVERED : DELIVERY_FAILED;
         cout << "[SMS最終結果] " << requestId << ": "
-             << statusName(before) << " -> " << statusName(it->second)
+             << statusName(before) << " -> "
+             << statusName(it->second)
              << endl;
         return true;
     }
@@ -44,7 +47,8 @@ public:
 class SMSDeliveryCallback {
     DeliveryStatusLog& statusLog;
 public:
-    explicit SMSDeliveryCallback(DeliveryStatusLog& log) : statusLog(log) {}
+    explicit SMSDeliveryCallback(DeliveryStatusLog& log)
+            : statusLog(log) {}
 
     bool receive(const string& requestId, bool delivered) {
         return statusLog.complete(requestId, delivered);

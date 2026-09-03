@@ -415,7 +415,8 @@ classDiagram
 //      どれか1つの仕様が変わっても、この1つのクラスを変更することになる
 class OrderService {
 public:
-    void processOrder(double itemTotal, const std::string& shippingMethod) {
+    void processOrder(double itemTotal,
+                      const std::string& shippingMethod) {
         // 1. 送料計算（配送方法・地域の仕様で変わる）
         double shippingFee = 500;   // 通常配送
 
@@ -533,7 +534,8 @@ class OrderService {
     INotifier*        notifier_;
     IOrderRepository* repo_;
 public:
-    OrderService(IShippingFeeCalc* d, INotifier* n, IOrderRepository* r)
+    OrderService(IShippingFeeCalc* d,
+                 INotifier* n, IOrderRepository* r)
         : feeCalc_(d), notifier_(n), repo_(r) {}
 
     void processOrder(double price) {
@@ -760,7 +762,8 @@ class Notifier {
     IMessageSender* sender_; // 契約（インターフェース）だけを知っている
 public:
     // コンストラクタ注入：使う実装を外から渡す（依存注入）
-    explicit Notifier(IMessageSender* sender) : sender_(sender) {}
+    explicit Notifier(IMessageSender* sender)
+            : sender_(sender) {}
     void notify(std::string msg) { sender_->send(msg); }
 };
 
@@ -898,7 +901,8 @@ class EmailNotifier { // 具体クラス：メールを送る実装が入って�
 public:
     EmailNotifier(const std::string& host) : smtpHost_(host) {}
     virtual void notify(const std::string& msg) {
-        std::cout << "[Email: " << smtpHost_ << "] " << msg << "\n";
+        std::cout << "[Email: " << smtpHost_ << "] " << msg
+                  << "\n";
     }
 };
 ```
@@ -909,7 +913,8 @@ public:
 // リトライ付きメール通知クラス
 class RetryEmailNotifier : public EmailNotifier {
 public:
-    RetryEmailNotifier(const std::string& host) : EmailNotifier(host) {}
+    RetryEmailNotifier(const std::string& host)
+            : EmailNotifier(host) {}
     void notify(const std::string& msg) override {
         for (int i = 0; i < 3; ++i) {
             try {
@@ -983,7 +988,8 @@ class RetryExecutor {
 public:
     typedef void (*Action)(const std::string&);
 
-    void execute(Action action, const std::string& message) const {
+    void execute(Action action,
+                 const std::string& message) const {
         for (int i = 0; i < 3; ++i) {
             try {
                 action(message);

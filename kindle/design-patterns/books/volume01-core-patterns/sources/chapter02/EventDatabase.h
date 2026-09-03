@@ -52,8 +52,10 @@ public:
         ++event.reserved;
         std::cout << "[予約数] " << id << " "
                   << before << "/" << event.capacity
-                  << " -> " << event.reserved << "/" << event.capacity;
-        if (event.reserved == event.capacity) std::cout << "（満席）";
+                  << " -> " << event.reserved << "/"
+                  << event.capacity;
+        if (event.reserved == event.capacity)
+            std::cout << "（満席）";
         std::cout << std::endl;
     }
 
@@ -64,7 +66,8 @@ public:
         if (event.reserved > 0) --event.reserved;
         std::cout << "[予約数] " << id << " "
                   << before << "/" << event.capacity
-                  << " -> " << event.reserved << "/" << event.capacity
+                  << " -> " << event.reserved << "/"
+                  << event.capacity
                   << std::endl;
     }
 
@@ -84,14 +87,16 @@ struct ReservationRecord {
 class ReservationHistory {
     std::vector<ReservationRecord> records;
 public:
-    void add(const std::string& eventId, const std::string& eventTitle,
+    void add(const std::string& eventId,
+             const std::string& eventTitle,
              const std::string& action) {
         records.push_back({eventId, eventTitle, action});
     }
 
     void printAll() const {
         for (const auto& r : records) {
-            std::cout << "[" << r.eventId << "] " << r.eventTitle
+            std::cout << "[" << r.eventId << "] "
+                      << r.eventTitle
                       << " -> " << r.action << std::endl;
         }
     }

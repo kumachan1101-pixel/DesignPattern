@@ -7,7 +7,9 @@ int main() {
 
     DiscountRuleSet discountRules;
 
-    OrderProcessor processor(db, renderer, discountRules.selector());
+    OrderProcessor processor(db,
+                             renderer,
+                             discountRules.selector());
     CartPreviewService preview(db, discountRules.selector());
 
     // C001（Premium）/ キャンペーンなし / サマーセールなし → 20%引き
@@ -16,7 +18,8 @@ int main() {
     order1.customerId = "C001";
     order1.items.push_back(Item("ワイヤレスイヤホン", 10000));
     CampaignContext context1;
-    PaymentResult preview1 = preview.getEstimatedTotal(order1, context1);
+    PaymentResult preview1 =
+        preview.getEstimatedTotal(order1, context1);
     std::cout << "  カートプレビュー: "
               << preview1.finalPrice << "円\n";
     processor.process(order1, context1);
@@ -29,7 +32,8 @@ int main() {
     CampaignContext context2;
     context2.activate(CampaignCode::RegularCampaign);
     context2.activate(CampaignCode::SummerSale);
-    PaymentResult preview2 = preview.getEstimatedTotal(order2, context2);
+    PaymentResult preview2 =
+        preview.getEstimatedTotal(order2, context2);
     std::cout << "  カートプレビュー: "
               << preview2.finalPrice << "円\n";
     processor.process(order2, context2);
@@ -42,7 +46,8 @@ int main() {
     CampaignContext context3;
     context3.activate(CampaignCode::RegularCampaign);
     context3.activate(CampaignCode::SummerSale);
-    PaymentResult preview3 = preview.getEstimatedTotal(order3, context3);
+    PaymentResult preview3 =
+        preview.getEstimatedTotal(order3, context3);
     std::cout << "  カートプレビュー: "
               << preview3.finalPrice << "円\n";
     processor.process(order3, context3);
@@ -54,7 +59,8 @@ int main() {
     order4.items.push_back(Item("ワイヤレスイヤホン", 10000));
     CampaignContext context4;
     context4.activate(CampaignCode::SummerSale);
-    PaymentResult preview4 = preview.getEstimatedTotal(order4, context4);
+    PaymentResult preview4 =
+        preview.getEstimatedTotal(order4, context4);
     std::cout << "  カートプレビュー: "
               << preview4.finalPrice << "円\n";
     processor.process(order4, context4);
@@ -66,7 +72,8 @@ int main() {
     order4b.items.push_back(Item("ワイヤレスイヤホン", 10000));
     CampaignContext context4b;
     context4b.activate(CampaignCode::RegularCampaign);
-    PaymentResult preview4b = preview.getEstimatedTotal(order4b, context4b);
+    PaymentResult preview4b =
+        preview.getEstimatedTotal(order4b, context4b);
     std::cout << "  カートプレビュー: "
               << preview4b.finalPrice << "円\n";
     processor.process(order4b, context4b);
@@ -77,7 +84,8 @@ int main() {
     order5.customerId = "C003";
     order5.items.push_back(Item("スマホケース", 3000));
     CampaignContext context5;
-    PaymentResult preview5 = preview.getEstimatedTotal(order5, context5);
+    PaymentResult preview5 =
+        preview.getEstimatedTotal(order5, context5);
     std::cout << "  カートプレビュー: "
               << preview5.finalPrice << "円\n";
     processor.process(order5, context5);

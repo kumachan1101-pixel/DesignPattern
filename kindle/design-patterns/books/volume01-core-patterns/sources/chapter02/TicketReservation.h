@@ -8,7 +8,8 @@
 class TicketReservation;
 
 class ReservationWaitlist {
-    std::map<std::string, std::deque<TicketReservation*>> queues;
+    std::map<std::string,
+             std::deque<TicketReservation*>> queues;
 public:
     void enqueue(const std::string& eventId,
                  TicketReservation* reservation) {
@@ -62,12 +63,16 @@ public:
 
     // 状態遷移時に、共有状態オブジェクトへの借用ポインタを差し替える。
     // 状態は関数ローカルstaticが所有するため、ここではdeleteしない。
-    void setState(IReservationState* nextState) { state = nextState; }
+    void setState(IReservationState* nextState) {
+        state = nextState;
+    }
 
     // 状態遷移の副作用：在庫の増減と履歴の記録
     void reserveSeat() { db->reserveSeat(eventId); }
     void cancelSeat()  { db->cancelSeat(eventId); }
-    bool hasCapacity() const { return db->hasCapacity(eventId); }
+    bool hasCapacity() const {
+        return db->hasCapacity(eventId);
+    }
     void record(const std::string& action) {
         history->add(eventId, title, action);
     }
@@ -93,7 +98,8 @@ public:
 
 class ReservationExpiryScheduler {
 public:
-    void onPaymentDeadlineExpired(TicketReservation& reservation) {
+    void onPaymentDeadlineExpired(
+            TicketReservation& reservation) {
         reservation.expire();
     }
 };
@@ -201,7 +207,8 @@ public:
         // 既存予約のキャンセルを起点に自動昇格
         std::cout << "--- 行5: 満席からの自動昇格 ---\n";
         EventInfo full = db.get("EVT003");
-        showAvailability("EVT003"); // 50/50を表示。reserve()が満席を判定する
+        // 50/50を表示。reserve()が満席を判定する
+        showAvailability("EVT003");
 
         TicketReservation waiting(availableState(), &db,
                                   &history, &waitlist,

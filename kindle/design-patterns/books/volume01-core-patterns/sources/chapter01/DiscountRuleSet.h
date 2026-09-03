@@ -16,7 +16,8 @@ private:
     RuleSelector ruleSelector;
 public:
     DiscountRuleSet() {
-        ruleSelector.add(premium);           // Premiumは他施策と併用しない
+        // Premiumは他施策と併用しない
+        ruleSelector.add(premium);
         ruleSelector.add(summerAndCampaign); // 複合条件を単独条件より先にする
         ruleSelector.add(summer);
         ruleSelector.add(campaign);

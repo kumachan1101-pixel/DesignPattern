@@ -113,7 +113,18 @@ def move_bodies_to_source(chunk: str) -> tuple[str, str]:
     lines = chunk.split("\n")
     index = 0
     while index < len(lines):
-        line = lines[index]
+        # 宣言が読みやすさのために複数行へ折り返してあることがある。
+        # 開き波括弧が来るまでを1行へ畳んでから、シグネチャとして照合する。
+        span = 1
+        joined = lines[index].rstrip()
+        while (span < 4 and not joined.endswith("{")
+               and index + span < len(lines)
+               and joined.count("(") > joined.count(")")
+               or (span < 4 and joined.endswith(",")
+                   and index + span < len(lines))):
+            joined = joined + " " + lines[index + span].strip()
+            span += 1
+        line = joined
         opened = re.match(
             r"(\s*)((?:virtual\s+)?[\w:<>&*\s]+?\s+(\w+)\s*\([^)]*\)"
             r"(?:\s*const)?(?:\s*override)?)\s*\{\s*$",
@@ -123,7 +134,7 @@ def move_bodies_to_source(chunk: str) -> tuple[str, str]:
             indent, signature, _ = opened.groups()
             depth = 1
             body = [line]
-            index += 1
+            index += span
             while index < len(lines) and depth > 0:
                 body.append(lines[index])
                 depth += lines[index].count("{") - lines[index].count("}")

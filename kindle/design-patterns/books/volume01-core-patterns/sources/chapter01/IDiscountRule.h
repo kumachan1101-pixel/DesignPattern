@@ -6,7 +6,8 @@
 class IDiscountRule {
 public:
     virtual bool matches(const std::string& memberType,
-                         const CampaignContext& context) const = 0;
+                         const CampaignContext& context) const =
+                             0;
     virtual int apply(int total) const = 0;
     virtual std::string name() const = 0;
     virtual ~IDiscountRule() = default;

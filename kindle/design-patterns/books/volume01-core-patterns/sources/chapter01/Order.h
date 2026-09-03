@@ -63,8 +63,12 @@ public:
         records["C003"] = {"鈴木 次郎", "Regular"};
     }
 
-    bool exists(const std::string& id) const { return records.count(id) > 0; }
-    CustomerInfo get(const std::string& id) const { return records.at(id); }
+    bool exists(const std::string& id) const {
+        return records.count(id) > 0;
+    }
+    CustomerInfo get(const std::string& id) const {
+        return records.at(id);
+    }
 };
 
 // 割引ルールの共通インターフェース（ルール差し替え構造）
