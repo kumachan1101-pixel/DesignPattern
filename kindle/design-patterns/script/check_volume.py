@@ -33,6 +33,7 @@
  25. 実践章のIDに、思い出すための短い名前が併記されている
  26. 編集の舞台裏（なぜそう書いたか）を本文へ書いていない
  27. 第0章が実践章の題材を先出ししていない
+ 28. 本文が節番号（1-1、3-2）を道しるべに使っていない
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -662,6 +663,20 @@ def check(config_path: Path) -> int:
                 failures.append(
                     f"{path.name}:{number}: 実践章の題材「{found[0]}」が第0章に出ています"
                     f"（{line.strip()[:40]}）。章を読む前に例を渡さないでください"
+                )
+
+    # 28. 本文で節番号を道しるべに使わない
+    # 「1-1（このシステムの仕様）の『商品』にあたるデータです」の番号は、読者に
+    # 何も伝えない。括弧の中の言葉がすべての仕事をしている。番号は書き手が
+    # 原稿を管理するためのもので、読者は節番号を覚えていない。
+    section_ref = re.compile(r"\d-\d+（[^）]{1,20}）")
+    for path in chapters:
+        for number, line in prose_lines(path.read_text(encoding="utf-8")):
+            found = section_ref.search(line)
+            if found:
+                failures.append(
+                    f"{path.name}:{number}: 本文が節番号を道しるべにしています"
+                    f"（{found.group(0)}）。番号を外し、括弧の中の言葉だけで書いてください"
                 )
 
     if failures:
