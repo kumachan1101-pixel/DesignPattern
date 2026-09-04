@@ -184,6 +184,10 @@ th, td { border: 1px solid #999; padding: 0.55em; text-align: left; }
    1文字ずつ折れるのを防ぐため、最小幅を与える。 */
 th:first-child, td:first-child { min-width: 5.5em; }
 th { background: #f5f5f5; }
+/* 変更前と変更後を並べる表で、変わったところだけを青字にする。
+   原稿では **…** で囲み、build 時にこのクラスへ差し替える。
+   コード画像の青い帯と同じ「ここが変わった」の合図として使う。 */
+td .chg { color: #1565c0; font-weight: bold; }
 blockquote {
   border-left: 4px solid #78909c;
   background: #f7f9fa;
@@ -1181,6 +1185,7 @@ def markdown_to_html(markdown_text: str) -> str:
         raise BuildError("Markdownが未導入です。publishing/requirements.txtを導入してください") from exc
     markdown_text = unwrap_callouts(markdown_text)
     markdown_text = colorize_phase_marks(markdown_text)
+    markdown_text = colorize_changed_cells(markdown_text)
     markdown_text = re.sub(r"\[\[(?:[^|\]]*)\|([^\]]+)\]\]", r"\1", markdown_text)
     markdown_text = re.sub(r"\[\[([^\]]+)\]\]", r"\1", markdown_text)
     return markdown.markdown(
@@ -1228,6 +1233,40 @@ def colorize_phase_marks(markdown_text: str) -> str:
         )
 
     return PHASE_HEADING.sub(replace, markdown_text)
+
+
+CHANGED_CELL = re.compile(r"\*\*([^*|]+)\*\*")
+
+
+def colorize_changed_cells(markdown_text: str) -> str:
+    """変更前と変更後を並べる表で、太字のセルを青字にする。
+
+    **変わったところを探す仕事を読者にさせない。** 太字だけだと、本文の強調と
+    同じ見た目になって埋もれる。ここで色を与えると、コード画像の青い帯と
+    同じ合図になり、表でもコードでも「青いところが変わった」で読める。
+
+    対象は、見出し行に「変更前」と「変更後」（または「対策前」「対策後」）が
+    そろっている表の本文行だけ。ほかの表と本文の太字は触らない。
+    """
+    lines = markdown_text.split("\n")
+    out: list[str] = []
+    in_target = False
+    for line in lines:
+        stripped = line.lstrip()
+        if not stripped.startswith("|"):
+            in_target = False
+            out.append(line)
+            continue
+        if ("変更前" in line and "変更後" in line) or (
+            "対策前" in line and "対策後" in line
+        ):
+            in_target = True
+            out.append(line)
+            continue
+        if in_target and not set(stripped) <= set("|-: "):
+            line = CHANGED_CELL.sub(r'<span class="chg">\1</span>', line)
+        out.append(line)
+    return "\n".join(out)
 
 
 def copy_cover(config: BookConfig, image_dir: Path) -> Path | None:
