@@ -3,7 +3,6 @@
 
 #include "Order.h"
 #include "IDiscountRule.h"
-#include "Discounts.h"
 
 class RuleSelector {
 private:

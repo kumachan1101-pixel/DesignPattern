@@ -3,9 +3,7 @@
 
 #include "Order.h"
 #include "IDiscountRule.h"
-#include "Discounts.h"
 #include "RuleSelector.h"
-#include "DiscountRuleSet.h"
 
 class PaymentCalculator {
 private:

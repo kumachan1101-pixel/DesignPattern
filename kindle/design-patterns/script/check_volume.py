@@ -735,6 +735,34 @@ def check(config_path: Path) -> int:
             else:
                 index += 1
 
+    # 32. 「実務でファイルを分けるなら」の表が、実際に配るファイル一式と一致する
+    # 読者が唯一 `make run` で検算できる成果物なので、表に無いファイルが増えたり、
+    # 表が約束したファイルが無かったりすると、章の結論がその場で反証される。
+    sys.path.insert(0, str(BOOK_ROOT / "script"))
+    try:
+        import export_sources                       # noqa: E402
+    except Exception:                               # 生成器を読めない環境では飛ばす
+        export_sources = None
+    if export_sources is not None:
+        for path in chapters:
+            layout = export_sources.LAYOUTS.get(path.stem)
+            if not layout:
+                continue
+            text = path.read_text(encoding="utf-8")
+            listed = set(re.findall(r"^> \| `([\w.]+\.h)`", text, re.M))
+            listed |= set(re.findall(r"^> \| `(main\.cpp)`", text, re.M))
+            produced = {name for name, _ in layout} | {"main.cpp"}
+            for missing in sorted(produced - listed):
+                failures.append(
+                    f"{path.name}: 配るファイル `{missing}` が分割表にありません。"
+                    "読者が受け取る一式と表が食い違います"
+                )
+            for extra in sorted(listed - produced):
+                failures.append(
+                    f"{path.name}: 分割表の `{extra}` は実際には配られません。"
+                    "表から外すか、生成する側へ足してください"
+                )
+
     # 28. 本文で節番号を道しるべに使わない
     # 「1-1（このシステムの仕様）の『商品』にあたるデータです」の番号は、読者に
     # 何も伝えない。括弧の中の言葉がすべての仕事をしている。番号は書き手が

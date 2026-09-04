@@ -1,3 +1,4 @@
+#include "States.h"
 #include "TicketReservation.h"
 
 void AvailableState::reserve(TicketReservation* reservation) {

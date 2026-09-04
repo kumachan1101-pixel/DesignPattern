@@ -33,6 +33,58 @@ BOOK_ROOT = Path(__file__).resolve().parents[1]
 
 # 章ごとのファイル構成。本文の「実務でファイルを分けるなら」の表と同じ。
 # (出力ファイル, そこへ入れるトップレベル定義の名前) の順で並べる。
+# 各ファイルが実際に必要とするヘッダー。ここを宣言しないと、生成器は
+# 「先行ファイルを全部インクルード」という安全側へ倒れる。それをやると
+# 本文が「契約だけを見る」と書いたファイルが具体を取り込み、章の結論を
+# 同梱ソースが反証することになる。**本文の主張はここで検証される。**
+DEPENDS: dict[str, dict[str, tuple[str, ...]]] = {
+    "03-chapter01": {
+        "Order.h": (),
+        "IDiscountRule.h": ("Order.h",),
+        "Discounts.h": ("Order.h", "IDiscountRule.h"),
+        # 選択役は具体条件を知らない。Discounts.h を含めない。
+        "RuleSelector.h": ("Order.h", "IDiscountRule.h"),
+        # 所有と登録だけが、すべての具体を知ってよい唯一の場所。
+        "DiscountRuleSet.h": ("Order.h", "IDiscountRule.h",
+                              "Discounts.h", "RuleSelector.h"),
+        # 計算と利用側は契約と選択役までしか見ない。
+        "PaymentCalculator.h": ("Order.h", "IDiscountRule.h", "RuleSelector.h"),
+    },
+    "04-chapter02": {
+        "EventDatabase.h": (),
+        "IReservationState.h": ("EventDatabase.h",),
+        "States.h": ("EventDatabase.h", "IReservationState.h"),
+        # 骨格が見るのは状態の契約だけ。States.h を含めない。
+        "TicketReservation.h": ("EventDatabase.h", "IReservationState.h"),
+    },
+    "05-chapter03": {
+        "ProductDatabase.h": (),
+        "INotification.h": ("ProductDatabase.h",),
+        "Notifiers.h": ("ProductDatabase.h", "INotification.h"),
+        "DeliveryStatusLog.h": ("ProductDatabase.h", "INotification.h"),
+        # 通知元が見るのは通知先の契約だけ。Notifiers.h を含めない。
+        "InventoryManager.h": ("ProductDatabase.h", "INotification.h",
+                               "DeliveryStatusLog.h"),
+    },
+}
+
+# `.cpp` が追加で必要とするヘッダー。ヘッダーは契約だけを見たままで、
+# 実装ファイルだけが相手の中身を知る、という形を作るために使う。
+# 例：状態クラスの実装は骨格のメソッドを呼ぶが、骨格のヘッダーは
+# 状態クラスを知らない。依存の向きはこれで正しい。
+SOURCE_DEPENDS: dict[str, dict[str, tuple[str, ...]]] = {
+    "04-chapter02": {
+        "States.cpp": ("TicketReservation.h",),
+    },
+}
+
+# main.cpp が必要とするヘッダー。組み立て役なので、ここだけは具体を知る。
+MAIN_INCLUDES: dict[str, tuple[str, ...]] = {
+    "03-chapter01": ("DiscountRuleSet.h", "PaymentCalculator.h"),
+    "04-chapter02": ("States.h", "TicketReservation.h"),
+    "05-chapter03": ("Notifiers.h", "InventoryManager.h"),
+}
+
 LAYOUTS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
     "03-chapter01": [
         ("Order.h", ("Item", "Order", "CustomerInfo", "CustomerDatabase",
@@ -282,6 +334,8 @@ def export(stem: str, program: str, out_dir: Path) -> list[str]:
             if forwards:
                 header.append("")
                 header.extend(f"class {n};" for n in forwards)
+        elif stem in DEPENDS:
+            header.extend(f'#include "{p}"' for p in DEPENDS[stem][filename])
         else:
             header.extend(f'#include "{p}"' for p in previous)
         header.append("")
@@ -292,11 +346,16 @@ def export(stem: str, program: str, out_dir: Path) -> list[str]:
         previous.append(filename)
         if filename in sources:
             source_name = filename[:-2] + ".cpp"
-            body = [f'#include "{layout[-1][0]}"', ""] + sources[filename] + [""]
+            if stem in DEPENDS:
+                heads = (filename,) + SOURCE_DEPENDS.get(stem, {}).get(source_name, ())
+            else:
+                heads = (layout[-1][0],)
+            body = [f'#include "{h}"' for h in heads] + [""] + sources[filename] + [""]
             write_utf8(out_dir / source_name, "\n".join(body))
             written.append(source_name)
 
-    main_source = ['#include "' + layout[-1][0] + '"', ""] + main_body + [""]
+    heads = MAIN_INCLUDES.get(stem, (layout[-1][0],))
+    main_source = [f'#include "{h}"' for h in heads] + [""] + main_body + [""]
     write_utf8(out_dir / "main.cpp", "\n".join(main_source))
     written.append("main.cpp")
 

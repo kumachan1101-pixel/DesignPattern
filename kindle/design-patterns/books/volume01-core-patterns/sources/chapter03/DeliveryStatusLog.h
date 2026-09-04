@@ -3,7 +3,6 @@
 
 #include "ProductDatabase.h"
 #include "INotification.h"
-#include "Notifiers.h"
 
 class DeliveryStatusLog {
     map<string, DeliveryStatus> statuses;
