@@ -1384,23 +1384,40 @@ class InventoryManager {
 
 public:
     void reduceStock(string productId, int quantity) {
-        ProductInfo info = db.get(productId);
-        info.stock -= quantity;  // 【守る】在庫を更新する
+        // ……存在確認と数量検証は省略（掲載コードのまま）……
+        info.stock -= quantity;      // 【守る】在庫を更新する
         db.save(productId, info);
 
         // 【守る】更新後在庫で閾値を判定する
         if (db.isBelowThreshold(productId, info.stock)) {
-            string message = productId + " の在庫が閾値以下です。";
-            notifyAll(productId, info.stock, message);  // 【接続】在庫イベントを通知処理へ渡す
+            // 【接続】在庫が減った事実を通知処理へ渡す
+            notifyAll(productId, info);
         }
     }
 
 private:
-    void notifyAll(const string& productId, int stock,
-                   const string& message) {
-        email.sendMail("在庫不足", message);                 // 【変わる】固有の引数と戻り値
-        dashboard.refreshStockWidget(productId, stock);
-        chat.postMessage("inventory-alert", message);
+    void notifyAll(const string& productId,
+                   const ProductInfo& info) {
+        string message = "商品 " + productId + "（" + info.name + "）"
+                       + " の在庫が閾値以下です。";
+
+        // 【変わる】手段ごとに引数の形が違う
+        if (!email.sendMail("在庫アラート", message)) {
+            // 【変わる】真偽値で成否を読む
+            cout << "[通知受付失敗] Email" << endl;
+        }
+
+        // 【変わる】文言を受け取らず、成否も返さない
+        dashboard.refreshStockWidget(productId, info.stock);
+
+        // 【変わる】投稿先が要り、戻り値は投稿ID
+        string postId = chat.postMessage("inventory-alert",
+                                         message);
+
+        // 【変わる】空文字が失敗を表す
+        if (postId.empty()) {
+            cout << "[通知受付失敗] Chat" << endl;
+        }
     }
 };
 ```

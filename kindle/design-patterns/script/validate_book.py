@@ -4273,23 +4273,103 @@ def check_pattern_name_reveal(text: str, path: Path) -> list[Issue]:
     )]
 
 
-CHANGED_FILL = "#1565c0"
+ADDED_DEF = "classDef added fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;"
+TOUCHED_DEF = ("classDef touched fill:#ffffff,stroke:#1565c0,"
+               "stroke-width:5px,color:#0b3d76;")
 
 
-def check_changed_color_is_book_blue(text: str, path: Path) -> list[Issue]:
-    """変更箇所の色は、コードの帯・表のセルと同じ青にそろえる。
+def check_diagram_marks_are_two_kinds(text: str, path: Path) -> list[Issue]:
+    """図の印は「新しく作る」と「開いて直す」の2種類にそろえる。
 
-    読者は「青＝今回変わったところ」だけを覚えて読む。図ごとに色が違うと、
-    その一つの決まりが崩れる。図の種類（flowchart・graph・classDiagram）に
-    かかわらず、`changed` の塗りは本全体で1色にする。
+    この本の主張は「既にあるコードを開かずに済むか」なので、図の色も
+    その2つを分ける。1色の `changed` では、新規1クラスで済んだのか
+    既存3クラスを開いたのかが絵から読めない。塗りの値も本全体で1つにする。
     """
     issues: list[Issue] = []
-    for found in re.finditer(r"^\s*classDef\s+changed\s+(.+?);?$", text, re.M):
-        if CHANGED_FILL not in found.group(1):
+    for found in re.finditer(r"^\s*classDef\s+(\w+)\s+(.+?);?$", text, re.M):
+        name, body = found.group(1), found.group(2)
+        if name == "changed":
             issues.append(Issue(
                 path, line_number(text, found.start()),
-                f"変更箇所の `changed` は本文共通の青 `fill:{CHANGED_FILL}` を使ってください",
+                "図の印は `changed` ではなく `added`（新しく作る）と "
+                "`touched`（開いて直す）へ分けてください",
             ))
+        elif name == "added" and body.rstrip(";") != ADDED_DEF.split(" ", 2)[2].rstrip(";"):
+            issues.append(Issue(
+                path, line_number(text, found.start()),
+                f"新規ノードの塗りは本文共通の `{ADDED_DEF}` を使ってください",
+            ))
+        elif name == "touched" and body.rstrip(";") != TOUCHED_DEF.split(" ", 2)[2].rstrip(";"):
+            issues.append(Issue(
+                path, line_number(text, found.start()),
+                f"既存ノードの枠は本文共通の `{TOUCHED_DEF}` を使ってください",
+            ))
+    return issues
+
+
+def check_diagram_marks_leave_contrast(text: str, path: Path) -> list[Issue]:
+    """全ノードへ印が付いた図には、印を付けない。
+
+    対比する相手が図の中に無いと、地の色が変わっただけになる。
+    コード画像の帯へ入れてある8割ルールと同じ考え方。
+    """
+    issues: list[Issue] = []
+    for block in re.finditer(r"```mermaid\s*\n(.*?)```", text, re.S):
+        body = block.group(1)
+        if ":::added" not in body and ":::touched" not in body:
+            continue
+        nodes = set(re.findall(r"^\s*class (\w+)", body, re.M))
+        if not nodes:                      # flowchart は末尾の class 行で指定する
+            continue
+        marked = set(re.findall(r"^\s*class (\w+):::(?:added|touched)", body, re.M))
+        if nodes and marked == nodes:
+            issues.append(Issue(
+                path, line_number(text, block.start()),
+                "全ノードに印が付いています。対比する相手が図に無いので、"
+                "印を外し、全部が新規である旨を本文で1行書いてください",
+            ))
+    return issues
+
+
+def check_excerpt_keeps_signature(text: str, path: Path) -> list[Issue]:
+    """抜粋のシグネチャを書き直さない。
+
+    フェーズ2・4の抜粋で引数や戻り値を簡略化すると、痛みの見えない
+    コードになり、「この程度ならクラスを分けなくてよい」という逆の
+    結論を読者へ渡してしまう。
+    """
+    # `Class::method(` のように `::` が直前に来る形も拾う。
+    signature = re.compile(
+        r"^[ \t]*[\w:&<>~\*\s]*?(\w+)\s*\(([^)]*)\)\s*(?:const\s*)?\{", re.M)
+    keywords = {"if", "for", "while", "switch", "catch", "return", "else"}
+    baseline: dict[str, set[str]] = {}
+    current = text.find("### 1-4")
+    end = text.find("## 🟣 フェーズ2", current)
+    if min(current, end) < 0:
+        return []
+    for block in re.finditer(r"```cpp\n(.*?)```", text[current:end], re.S):
+        for found in signature.finditer(block.group(1)):
+            if found.group(1) in keywords:
+                continue
+            baseline.setdefault(found.group(1), set()).add(
+                " ".join(found.group(2).split()))
+
+    issues: list[Issue] = []
+    later = text[end:text.find("## 🟡 フェーズ5") if "## 🟡 フェーズ5" in text else len(text)]
+    for block in re.finditer(r"```cpp\n(.*?)```", later, re.S):
+        body = block.group(1)
+        if "【守る】" not in body and "【変わる】" not in body:
+            continue
+        for found in signature.finditer(body):
+            name, params = found.group(1), " ".join(found.group(2).split())
+            if name in keywords:
+                continue
+            if name in baseline and params not in baseline[name]:
+                issues.append(Issue(
+                    path, line_number(text, end + block.start()),
+                    f"抜粋の `{name}()` の引数が現状コードと違います。"
+                    "抜粋は掲載コードから切り出し、書き直さないでください",
+                ))
     return issues
 
 
@@ -4450,7 +4530,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase6_reference_scope(text, path))
         issues.extend(check_pattern_name_reveal(text, path))
         issues.extend(check_change_diagram_highlight(text, path))
-        issues.extend(check_changed_color_is_book_blue(text, path))
+        issues.extend(check_excerpt_keeps_signature(text, path))
         issues.extend(check_common_phase_headings(text, path))
         issues.extend(check_phase42_comparison_header(text, path))
         issues.extend(check_phase6_overview_diagram(text, path))

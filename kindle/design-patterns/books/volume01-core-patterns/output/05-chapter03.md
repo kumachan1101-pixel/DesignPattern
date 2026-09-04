@@ -874,7 +874,7 @@ Chat(1件) #inventory-alert
 
 **変更後の入力・加工・出力**
 
-変更後の仕様も、現状の仕様と同じく入力検証済みの正常系として確認します。**現状の内部図から変わったノードを青にしてあります。** 薄いノードは現状のままです。差分は、登録済み通知手段へSMSが加わる即時経路と、後日届く最終配信結果の入力経路です。
+変更後の仕様も、現状の仕様と同じく入力検証済みの正常系として確認します。**新しく足したノードは青のぬりつぶし、もとからあって中身が変わったノードは青い枠です。** 色の付いていないノードは現状のままです。 差分は、登録済み通知手段へSMSが加わる即時経路と、後日届く最終配信結果の入力経路です。
 
 ```mermaid
 flowchart TB
@@ -895,8 +895,10 @@ flowchart TB
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
-    class E,I,L,K,S,O,P changed;
+    class L,S,O,P added;
+    class E,I,K touched;
+    classDef added fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
+    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
 ```
 
 直前の変更後システム内部図から読み取ることは、次の3点です。
@@ -1030,24 +1032,18 @@ flowchart TB
 
 田中部長からの「倉庫担当者のスマホへSMSで通知を送りたい」という要求を、今のコードで実装しようと試みます。
 
-> **これは設計前の追跡です。** どこを触ることになるかを知るために当てているだけで、**このコードはこのあと捨てます。** ここから設計を始めるのはフェーズ4以降です。
+**このコードは捨てます。** 目的は動くものを作ることではなく、**要求を今の構造へ当てたときに、どこを開くことになるかを実際に見ること**です。開いた場所が、次のフェーズで分析する対象になります。
 
 
-> **この抜粋の外は、現状のままです。** 以下は通知先追加の差分抜粋です。フェーズ1の `ProductDatabase` による商品存在・在庫数の確認、出庫数の検証、在庫更新、しきい値判定は維持し、在庫更新が確定した後の `notifyAll()` だけを変更します。
+在庫更新と閾値判定はそのままです。触るのは、在庫更新が確定した後の通知側だけになります。
 
-現状コードと同じ並び順で、掲載単位を7つ並べます。**手を入れたのは、そのうち5つです。** 既存3クラスと公開操作2つは変わりませんが、`notifyAll()` から見た扱いを確認するため再掲します。上から順に連結すると1つの実行可能なコードです。
-
-| 1-4での掲載単位 | 今回の変更 |
-|---|---|
-| （新規） | `StockAlert` と受付結果の型を追加 |
-| `EmailNotifier` / `DashboardUpdater` / `ChatNotifier` | 変更なし（再掲） |
-| （新規） | `SMSNotifier` を追加 |
-| `InventoryManager` の宣言 | SMSのメンバ・コンストラクタ・受付IDの状態表を追加 |
-| `reduceStock()` / `replenishStock()` | 変更なし |
-| （新規） | `receiveSMSCompletion()` を追加 |
-| `InventoryManager::notifyAll()` | SMSの呼び出しと受付結果の解釈を追加 |
-
-変更した5つは、いずれも変更ID1（非同期SMS追加）から来ています。
+| 現状コードでの定義 | 今回の変更 | 根拠 |
+|---|---|---|
+| （新規） | `StockAlert` と受付結果の型を追加 | 変更ID1（非同期SMS追加） |
+| （新規） | `SMSNotifier` を追加 | 変更ID1（非同期SMS追加） |
+| `InventoryManager` の宣言 | SMSのメンバ・コンストラクタ・受付IDの状態表を追加 | 変更ID1（非同期SMS追加） |
+| （新規） | `receiveSMSCompletion()` を追加 | 変更ID1（非同期SMS追加） |
+| `InventoryManager::notifyAll()` | SMSの呼び出しと受付結果の解釈を追加 | 変更ID1（非同期SMS追加） |
 
 ---
 
@@ -1081,7 +1077,7 @@ struct TrialDeliveryResult {
 };
 ```
 
-受付の時点で分かるのは、預かった（`TRIAL_PENDING`）か断られた（`TRIAL_FAILED`）かの2つだけです。実際に届いたか（`TRIAL_DELIVERED`／`TRIAL_DELIVERY_FAILED`）は後日わかります。`requestId` が、受付と最終結果をつなぐ唯一の手がかりです。
+呼んだ時点で分かるのは、SMS業者が**預かったか（`TRIAL_PENDING`）断ったか（`TRIAL_FAILED`）**の2つだけです。実際に端末へ届いたか（`TRIAL_DELIVERED`／`TRIAL_DELIVERY_FAILED`）は、業者から**別の呼び出しで折り返し届きます。**呼び出しが返ってきた時点では、まだ決まっていません。`requestId` は、その折り返しがどの送信の結果なのかを照合するための番号です。
 
 ---
 
@@ -1147,7 +1143,7 @@ public:
 
 **SMSNotifier（追加）**
 
-試行コードでも受付結果を握りつぶしません。正常受付は非同期処理中を表す `TRIAL_PENDING`、受付拒否は `TRIAL_FAILED` として返します。
+預かれたときは、まだ届いていないことを表す `TRIAL_PENDING` と受付IDを返します。断ったときは `TRIAL_FAILED` です。
 
 ```cpp
 // SMS基盤：在庫警告をまとめて受け取り、受付IDだけを返す。
@@ -1305,14 +1301,14 @@ void InventoryManager::notifyAll(const string& productId,
 
 **4手段の呼び方が4通りとも違うまま、1つの関数に並んでいます。**
 
-| 手段 | 渡すもの | 戻り値の読み方 |
-|---|---|---|
-| Email | 件名と本文 | `!` の真偽で成功／失敗 |
-| Dashboard | 商品コードと在庫数 | **読めない**（成否を返さない） |
-| Chat | チャンネルと本文 | `.empty()` で成功／失敗 |
-| SMS | `StockAlert` を丸ごと | `status` で分岐し、受付IDを保存する |
+| 手段 | 渡すもの | 返ってくる値 | 読み方 |
+|---|---|---|---|
+| Email | 件名と本文 | 成功／失敗 | `!` の真偽 |
+| Dashboard | 商品コードと在庫数 | **無し** | 確かめる手段が無い |
+| Chat | チャンネルと本文 | 成功／失敗 | `.empty()` |
+| SMS | `StockAlert` を丸ごと | **保留**／失敗＋受付ID | `status` で分岐 |
 
-**SMSだけが「保留」を返します。** 送った先で終わらず、受付IDを覚えて後日の続きを待つからです。そのため集計にも `pending` という3つ目の数え口が要ります。この「覚える」ためのメンバが、宣言に足した `smsStatuses` と `lastRequestId` でした。
+**表の「返ってくる値」を縦に見ると、SMSの行にだけ「保留」があります。** 他の3つは呼んだ時点で成否が決まるのに、SMSだけは決まりません。そのため受付IDを覚えて折り返しを待つことになり、集計にも `pending` という3つ目の数え口が要ります。この「覚える」ためのメンバが、宣言に足した `smsStatuses` と `lastRequestId` でした。
 
 **ダッシュボードは相変わらず成否を返しません。** 失敗しても `accepted` に数えられます。**通知手段を1つ増やすたびに、この呼び分けと数え方を `InventoryManager` の中で決め直すことになります。**
 
@@ -1370,23 +1366,24 @@ SMS 受付拒否: PRD002
 
 ### 3-2：変更影響グラフ
 
-変更を試した結果、1本の変更要求がどのクラスのどの部分まで届いたかを図にします。**青いノードがソースを書き換える場所、薄いノードは書き換えずに動作だけ確認する場所です。**
+変更を試した結果、1本の変更要求がどのクラスのどの部分まで届いたかを図にします。**青のぬりつぶしが新しく作るもの、青い枠がもとからあって開くもの、色の付いていないノードが触らないものです。**
 
 ```mermaid
 graph TD
     T1["変更要求：非同期SMSと最終結果の記録"]:::req
-        -->|"メンバ・呼び分け・結果解釈を修正"| A["InventoryManager<br>（呼び分けと結果解釈）"]:::changed
-    A -->|"固有APIを呼ぶ"| B["SMSNotifier<br>（非同期の受付API）"]:::changed
-    A -->|"受付IDを保留で保持"| C["InventoryManager<br>（受付IDの保管）"]:::changed
-    A -->|"コールバックを受けて更新"| D["InventoryManager<br>（完了コールバック）"]:::changed
+        -->|"メンバ・呼び分け・結果解釈を修正"| A["InventoryManager<br>（呼び分けと結果解釈）"]:::touched
+    A -->|"固有APIを呼ぶ"| B["SMSNotifier<br>（非同期の受付API）"]:::added
+    A -->|"受付IDを保留で保持"| C["InventoryManager<br>（受付IDの保管）"]:::touched
+    A -->|"コールバックを受けて更新"| D["InventoryManager<br>（完了コールバック）"]:::touched
     D -->|"同じ受付IDを完了/失敗へ"| C
 
     classDef req fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray:6 4,color:#111827;
     classDef keep fill:#f1f5f9,stroke:#94a3b8,color:#334155;
-    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
+    classDef added fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
+    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
 ```
 
-書き換える場所が4つ、そのうち3つが同じ `InventoryManager` の中です。変更影響グラフから、今回のSMS追加だけで`InventoryManager`が送信方法、受付IDの保管、後日の完了コールバックまで新たに知ったことが読み取れます。
+**枠が3つ、ぬりつぶしが1つです。** 新しく作れるのは `SMSNotifier` だけで、残る3つはいずれも同じ `InventoryManager` を開くことになります。変更影響グラフから、今回のSMS追加だけで`InventoryManager`が送信方法、受付IDの保管、後日の完了コールバックまで新たに知ったことが読み取れます。
 
 ### 3-3：痛みの言語化
 
@@ -1463,25 +1460,40 @@ class InventoryManager {
 
 public:
     void reduceStock(string productId, int quantity) {
-        ProductInfo info = db.get(productId);
-        info.stock -= quantity;  // 【守る】在庫を更新する
+        // ……存在確認と数量検証は省略（掲載コードのまま）……
+        info.stock -= quantity;      // 【守る】在庫を更新する
         db.save(productId, info);
 
         // 【守る】更新後在庫で閾値を判定する
         if (db.isBelowThreshold(productId, info.stock)) {
-            string message = productId + " の在庫が閾値以下です。";
-            // 【接続】在庫イベントを通知処理へ渡す
-            notifyAll(productId, info.stock, message);
+            // 【接続】在庫が減った事実を通知処理へ渡す
+            notifyAll(productId, info);
         }
     }
 
 private:
-    void notifyAll(const string& productId, int stock,
-                   const string& message) {
-        // 【変わる】固有の引数と戻り値
-        email.sendMail("在庫不足", message);
-        dashboard.refreshStockWidget(productId, stock);
-        chat.postMessage("inventory-alert", message);
+    void notifyAll(const string& productId,
+                   const ProductInfo& info) {
+        string message = "商品 " + productId + "（" + info.name + "）"
+                       + " の在庫が閾値以下です。";
+
+        // 【変わる】手段ごとに引数の形が違う
+        if (!email.sendMail("在庫アラート", message)) {
+            // 【変わる】真偽値で成否を読む
+            cout << "[通知受付失敗] Email" << endl;
+        }
+
+        // 【変わる】文言を受け取らず、成否も返さない
+        dashboard.refreshStockWidget(productId, info.stock);
+
+        // 【変わる】投稿先が要り、戻り値は投稿ID
+        string postId = chat.postMessage("inventory-alert",
+                                         message);
+
+        // 【変わる】空文字が失敗を表す
+        if (postId.empty()) {
+            cout << "[通知受付失敗] Chat" << endl;
+        }
     }
 };
 ```
@@ -1490,7 +1502,7 @@ private:
 
 守りたいのは、**在庫を減らし、閾値を下回ったかを判定するところまで**です。「在庫が少なくなった」という出来事は、通知先が増えようが減ろうが、同じ条件で同じように起きます。
 
-変えたいのは、その直後に呼ばれる **`notifyAll()` の中身**です。ここに通知先3つのクラス名と、それぞれ違う呼び方・戻り値の読み方が並んでいます。今回はここに4つ目が加わりました。
+変えたいのは、その直後に呼ばれる **`notifyAll()` の中身**です。**`【変わる】` を付けた行が5つあります。** 引数の形が3通り、戻り値の読み方が3通り、それが1つの関数に並んでいます。今回はここに4つ目の流儀が加わりました。\n\n**もし `notifyAll()` が3行を呼ぶだけなら、この章の分割は要りません。** 引数も戻り値もそろっていて、手段が増えても1行足すだけだからです。分ける理由が生まれるのは、**呼び方と結果の読み方が手段ごとに違い、その違いを通知元が引き受けている**ときです。上の抜粋で `【変わる】` が5行に散っているのが、その状態です。
 
 将来ずっと変わる／変わらないと決めているのではありません。**今回の変更で実際に触った側と、触らずに済んだ側**を、この位置で区別しています。
 
@@ -2140,34 +2152,35 @@ private:
 
 #### 完成後のクラス図
 
-フェーズ6で確定したクラス・操作・関係線を完成図にします。ここから2枚続く完成図では、**現状クラス図と見比べて、新しく作ったクラスと中身が変わったクラスを青にしてあります。** 薄いままのクラスは、現状から手を触れていません。
+フェーズ6で確定したクラス・操作・関係線を完成図にします。ここから2枚続く完成図では、**新しく作ったクラスを青のぬりつぶし、もとからあって中身が変わったクラスを青い枠**にしてあります。色の付いていないクラスは、現状から手を触れていません。
 
-まず通知の差し替え部分です。`InventoryManager` が通知元、`INotification` が通知先の契約、各Notifierがその具象に対応します。**この図は6つとも青です。** 通知契約 `INotification` と `SMSNotifier` は新設、既存の3つの通知クラスは固有メソッドをやめて `send()` に揃えたので中身が変わり、`InventoryManager` は手段ごとの呼び分けを手放しました。
+まず通知の差し替え部分です。`InventoryManager` が通知元、`INotification` が通知先の契約、各Notifierがその具象に対応します。**ぬりつぶしは `INotification` と `SMSNotifier` の2つ、残る4つは枠です。** 契約とSMSは新しく作りました。既存の3つの通知クラスは固有メソッドをやめて `send()` に揃えたので中身が変わり、`InventoryManager` は手段ごとの呼び分けを手放しました。
 
 ```mermaid
 classDiagram
     direction TB
-    class InventoryManager:::changed {
+    class InventoryManager:::touched {
         -vector~INotification*~ observers
         +attach(INotification*)
         +reduceStock(productId, quantity)
         +replenishStock(productId, quantity)
     }
-    class INotification:::changed {
+    class INotification:::added {
         <<interface>>
         +send(alert) DeliveryResult
     }
-    class EmailNotifier:::changed { +send(alert) DeliveryResult }
-    class DashboardUpdater:::changed { +send(alert) DeliveryResult }
-    class ChatNotifier:::changed { +send(alert) DeliveryResult }
-    class SMSNotifier:::changed { +send(alert) DeliveryResult }
+    class EmailNotifier:::touched { +send(alert) DeliveryResult }
+    class DashboardUpdater:::touched { +send(alert) DeliveryResult }
+    class ChatNotifier:::touched { +send(alert) DeliveryResult }
+    class SMSNotifier:::added { +send(alert) DeliveryResult }
     InventoryManager o-- INotification : 登録・一律通知
     INotification <|.. EmailNotifier
     INotification <|.. DashboardUpdater
     INotification <|.. ChatNotifier
     INotification <|.. SMSNotifier
 
-    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
+    classDef added fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
+    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
 ```
 
 通知先が増えても、増えるのは `INotification` の下にぶら下がる具体と、`attach()` の登録行だけです。次の図は、通知元が扱う周辺クラスと値クラスです。
@@ -2175,16 +2188,16 @@ classDiagram
 ```mermaid
 classDiagram
     direction TB
-    class InventoryManager:::changed
+    class InventoryManager:::touched
     class ProductDatabase
     class ProductInfo
-    class StockEventLog:::changed
-    class StockEvent:::changed
-    class DeliveryStatusLog:::changed
-    class DeliveryResult:::changed
-    class SMSDeliveryCallback:::changed
-    class StockAlert:::changed
-    class INotification:::changed
+    class StockEventLog:::added
+    class StockEvent:::added
+    class DeliveryStatusLog:::added
+    class DeliveryResult:::added
+    class SMSDeliveryCallback:::added
+    class StockAlert:::added
+    class INotification:::added
     InventoryManager --> ProductDatabase : 注入・在庫更新
     InventoryManager --> StockEventLog : 注入・自動記録
     InventoryManager --> DeliveryStatusLog : 受付結果を記録
@@ -2195,10 +2208,11 @@ classDiagram
     INotification ..> DeliveryResult : 通知結果を返す
     DeliveryStatusLog ..> DeliveryResult : 受付結果を記録
 
-    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
+    classDef added fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
+    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
 ```
 
-薄いままなのは `ProductDatabase` と `ProductInfo` の2つです。**在庫そのものを持つ商品台帳は、通知の作り替えに巻き込まれませんでした。** 残る8つが青で、`InventoryManager` 以外はすべて新しく作ったクラスです。
+色が付かないのは `ProductDatabase` と `ProductInfo` の2つです。**在庫そのものを持つ商品台帳は、通知の作り替えに巻き込まれませんでした。** ぬりつぶしが7つ、枠は `InventoryManager` の1つだけです。
 
 この完成図では、`InventoryManager`が在庫変化の事実を配る側、`INotification`が通知先の共通契約、各通知クラスが具体的な通知先です。
 
@@ -3053,22 +3067,23 @@ SMS(2件受付): 在庫警告 PRD002 残0 / 受付ID=SMS-2
 
 ### 7-3：変更影響グラフ（改善後）
 
-変更影響グラフで当てたのと**同じ変更要求**を、完成した構造へもう一度当てます。**色の意味は変更影響グラフと同じで、青が書き換える場所、薄いノードが書き換えない場所です。**
+変更影響グラフで当てたのと**同じ変更要求**を、完成した構造へもう一度当てます。**青のぬりつぶしが新しく作るもの、青い枠がもとからあって開くもの、色の付いていないノードが触らないものです。**
 
 ```mermaid
 graph TD
     T1["変更要求：非同期SMSと最終結果の記録"]:::req
-        -->|新規追加| N1["SMSNotifier<br>（実装1クラス）"]:::changed
-    T1 -->|組み立てで2行増やす| N2["attach() と<br>SMSDeliveryCallback の生成"]:::changed
+        -->|新規追加| N1["SMSNotifier<br>（実装1クラス）"]:::added
+    T1 -->|組み立てで2行増やす| N2["attach() と<br>SMSDeliveryCallback の生成"]:::touched
     T1 -. "影響なし" .-> A["INotification<br>InventoryManager"]:::keep
     T1 -. "影響なし" .-> B["EmailNotifier など<br>既存通知先"]:::keep
 
     classDef req fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray:6 4,color:#111827;
     classDef keep fill:#f1f5f9,stroke:#94a3b8,color:#334155;
-    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
+    classDef added fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
+    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
 ```
 
-青が4つから2つに減り、その2つに `InventoryManager` は入っていません。同じ要求・同じ粒度で比べると、共通契約 `INotification` と通知元 `InventoryManager`、既存通知先は変更先から消えました。変更影響グラフで `InventoryManager` へ入り込んでいた3つ――呼び分け、受付IDの保管、後日の完了コールバック――が、どこへ移ったのかを1つずつ見ます。
+**枠3つ＋ぬりつぶし1つから、ぬりつぶし1つ＋枠1つへ変わりました。** 開く場所が3か所から1か所へ減り、その1か所も `InventoryManager` ではなく組み立て側です。同じ要求・同じ粒度で比べると、共通契約 `INotification` と通知元 `InventoryManager`、既存通知先は変更先から消えました。変更影響グラフで `InventoryManager` へ入り込んでいた3つ――呼び分け、受付IDの保管、後日の完了コールバック――が、どこへ移ったのかを1つずつ見ます。
 
 | 変更影響グラフで影響した場所 | 完成構造での修正 | 構造変更との対応 |
 |---|---|---|

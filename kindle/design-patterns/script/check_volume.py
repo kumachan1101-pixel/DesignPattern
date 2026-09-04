@@ -665,6 +665,51 @@ def check(config_path: Path) -> int:
                     f"（{line.strip()[:40]}）。章を読む前に例を渡さないでください"
                 )
 
+    # 29. 図の印は「新しく作る」と「開いて直す」の2種類にそろえる
+    # 1色では、新規1クラスで済んだのか既存3クラスを開いたのかが絵から読めない。
+    # この本の主張はそこにあるので、印もそこを分ける。
+    added_def = ("classDef added fill:#1565c0,stroke:#0b3d76,"
+                 "stroke-width:3px,color:#ffffff;")
+    touched_def = ("classDef touched fill:#ffffff,stroke:#1565c0,"
+                   "stroke-width:5px,color:#0b3d76;")
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        for found in re.finditer(r"^[ \t]*classDef[ \t]+(\w+)[ \t]+(.+)$", text, re.M):
+            name, body = found.group(1), found.group(2).strip()
+            number = text[: found.start()].count("\n") + 1
+            if name == "changed":
+                failures.append(
+                    f"{path.name}:{number}: 図の印が1色です。"
+                    "`added`（新しく作る）と `touched`（開いて直す）へ分けてください"
+                )
+            elif name == "added" and f"classDef added {body}" != added_def:
+                failures.append(
+                    f"{path.name}:{number}: 新規ノードの塗りが共通指定と違います（{added_def}）"
+                )
+            elif name == "touched" and f"classDef touched {body}" != touched_def:
+                failures.append(
+                    f"{path.name}:{number}: 既存ノードの枠が共通指定と違います（{touched_def}）"
+                )
+
+    # 30. 全ノードが同じ1種類の印になる図には、印を付けない
+    # 「ぬりつぶし1つ＋枠6つ」なら、骨格だけが既存だと読める。読めなくなるのは
+    # 全部が同じ印のときで、そのときだけ地の色が変わっただけになる。
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        for block in re.finditer(r"```mermaid\s*\n(.*?)```", text, re.S):
+            body = block.group(1)
+            if ":::added" not in body and ":::touched" not in body:
+                continue
+            nodes = set(re.findall(r"^\s*class (\w+)", body, re.M))
+            marks = set(re.findall(r"^\s*class \w+:::(added|touched)", body, re.M))
+            marked = set(re.findall(r"^\s*class (\w+):::(?:added|touched)", body, re.M))
+            if nodes and marked == nodes and len(marks) == 1:
+                number = text[: block.start()].count("\n") + 1
+                failures.append(
+                    f"{path.name}:{number}: 全ノードが同じ印です。"
+                    "印を外し、全部が新規（または全部が修正）である旨を本文で1行書いてください"
+                )
+
     # 28. 本文で節番号を道しるべに使わない
     # 「1-1（このシステムの仕様）の『商品』にあたるデータです」の番号は、読者に
     # 何も伝えない。括弧の中の言葉がすべての仕事をしている。番号は書き手が

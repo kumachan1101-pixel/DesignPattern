@@ -837,7 +837,7 @@ stateDiagram-v2
 
 **変更後の入力・加工・出力**
 
-変更後の仕様を、現状の仕様と同じ粒度で、正常系の入力・判定・加工・出力として確認します。**現状の内部図から変わったノードを青にしてあります。** 薄いノードは現状のままです。差分は、内部に保持する「現在状態」が3種類から5種類へ、「操作・イベント」が3種類から8種類へ増えることです。判定・加工・出力の流れ自体は変わりません。図中のイベントIDも、現状データに存在する3件を省略せず示します。
+変更後の仕様を、現状の仕様と同じ粒度で、正常系の入力・判定・加工・出力として確認します。**新しく足したノードは青のぬりつぶし、もとからあって中身が変わったノードは青い枠です。** 色の付いていないノードは現状のままです。 差分は、内部に保持する「現在状態」が3種類から5種類へ、「操作・イベント」が3種類から8種類へ増えることです。判定・加工・出力の流れ自体は変わりません。図中のイベントIDも、現状データに存在する3件を省略せず示します。
 
 ```mermaid
 flowchart TB
@@ -853,8 +853,8 @@ flowchart TB
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
-    class A,C changed;
+    class A,C touched;
+    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
 ```
 
 直前の変更後システム内部図から読み取ることは、次の3点です。
@@ -973,10 +973,10 @@ flowchart TB
 
 フェーズ2の変更要求を受けて、今のコードに「一時保留（Held）」と「キャンセル待ち（Waitlisted）」の両方の状態を追加してみます。追加する必要がある仕様と、その修正対象箇所は次の通りです。
 
-> **これは設計前の追跡です。** どこを触ることになるかを知るために当てているだけで、**このコードはこのあと捨てます。** ここから設計を始めるのはフェーズ4以降です。
+**このコードは捨てます。** 目的は動くものを作ることではなく、**要求を今の構造へ当てたときに、どこを開くことになるかを実際に見ること**です。開いた場所が、次のフェーズで分析する対象になります。
 
 
-> **この抜粋の外は、現状のままです。** 以下は `TicketReservation` の状態分岐だけを抜き出します。フェーズ1の `EventDatabase` によるイベント存在確認と座席数の読み書きは維持し、予約成立・キャンセル・期限切れに伴う座席更新の前後で、この状態処理を呼びます。
+イベント存在確認と座席数の読み書きは `EventDatabase` のまま使えます。手が入るのは `TicketReservation` の状態分岐です。
 
 | 追加する仕様 | 修正対象 | 必要な変更 |
 |---|---|---|
@@ -984,9 +984,9 @@ flowchart TB
 | `Waitlisted`（キャンセル待ち） | `reserve()`、`cancel()`、`expire()` | 満席時に登録し、空席発生直後に先頭を自動昇格する |
 | 決済失敗 | `pay()` | `Reserved`と`Held`で、再試行できる戻り先を分ける |
 
-変更した定義は6つです。現状コードと同じ並び順で、上から見ていきます。座席在庫の存在確認・空席判定・座席の増減は現状コードの `EventDatabase` がそのまま担うため、この抜粋では在庫まわりを省き、状態遷移に絡む部分へ集中します。
+手が入るのは次の6つです。
 
-| 1-4での掲載単位 | 今回の変更 | 根拠 |
+| 現状コードでの定義 | 今回の変更 | 根拠 |
 |---|---|---|
 | `TicketReservation` の宣言 | 待ち行列を受け取り、状態値を5つへ、内部遷移と2つのエラー出力を追加 | 変更ID1（キャンセル待ち）・変更ID2（一時保留） |
 | `TicketReservation::reserve()` | 満席時に待ち行列へ自動登録する分岐を追加 | 変更ID1（キャンセル待ち） |
@@ -1278,23 +1278,23 @@ int main() {
 
 ### 3-2：変更影響グラフ
 
-変更を試した結果、2本の変更要求がどのクラスのどの部分まで届いたかを図にします。**青いノードがソースを書き換える場所、薄いノードは書き換えずに動作だけ確認する場所です。**
+変更を試した結果、2本の変更要求がどのクラスのどの部分まで届いたかを図にします。**青のぬりつぶしが新しく作るもの、青い枠がもとからあって開くもの、色の付いていないノードが触らないものです。**
 
 ```mermaid
 graph TD
-    T1["変更要求：状態・イベントの追加"]:::req -->|"影響が飛び火"| A["TicketReservation<br>（reserve()）"]:::changed
-    T1 -->|"影響が飛び火"| B["TicketReservation<br>（pay()）"]:::changed
-    T1 -->|"影響が飛び火"| C["TicketReservation<br>（cancel()）"]:::changed
-    T1 -->|"影響が飛び火"| D["TicketReservation<br>（expire()<br>promoteBySystem()）"]:::changed
+    T1["変更要求：状態・イベントの追加"]:::req -->|"影響が飛び火"| A["TicketReservation<br>（reserve()）"]:::touched
+    T1 -->|"影響が飛び火"| B["TicketReservation<br>（pay()）"]:::touched
+    T1 -->|"影響が飛び火"| C["TicketReservation<br>（cancel()）"]:::touched
+    T1 -->|"影響が飛び火"| D["TicketReservation<br>（expire()<br>promoteBySystem()）"]:::touched
     T2["変更要求：待ち行列方針の変更"]:::req -->|"影響が飛び火"| A
     T2 -->|"影響が飛び火"| C
 
     classDef req fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray:6 4,color:#111827;
     classDef keep fill:#f1f5f9,stroke:#94a3b8,color:#334155;
-    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
+    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
 ```
 
-書き換える場所が4つ、いずれも同じ `TicketReservation` の公開操作です。このグラフが示す通り、「状態追加」や「状態を動かすイベント追加」という変更要求が、クラス内の複数のロジックに飛び火しています。もう1本の `T2` は、状態そのものではなく待機順の決め方を変える要求です。待機列を予約本体が持っているため、状態分岐と同じ `reserve()`・`cancel()` を開くことになります。改善後の変更影響グラフで、この2本を同じ粒度で当て直して比べます。
+**枠が4つ、ぬりつぶしが0です。** 新しく作れるものは何もなく、4つとも同じ `TicketReservation` の公開操作を開くことになります。このグラフが示す通り、「状態追加」や「状態を動かすイベント追加」という変更要求が、クラス内の複数のロジックに飛び火しています。もう1本の `T2` は、状態そのものではなく待機順の決め方を変える要求です。待機列を予約本体が持っているため、状態分岐と同じ `reserve()`・`cancel()` を開くことになります。改善後の変更影響グラフで、この2本を同じ粒度で当て直して比べます。
 
 ### 3-3：痛みの言語化
 
@@ -1924,14 +1924,14 @@ class BatchApplication {
 
 #### 完成後のクラス図
 
-フェーズ6で確定したクラス・操作・関係線を完成図にします。ここから2枚続く完成図では、**現状クラス図と見比べて、新しく作ったクラスと中身が変わったクラスを青にしてあります。** 薄いままのクラスは、現状から手を触れていません。
+フェーズ6で確定したクラス・操作・関係線を完成図にします。ここから2枚続く完成図では、**新しく作ったクラスを青のぬりつぶし、もとからあって中身が変わったクラスを青い枠**にしてあります。色の付いていないクラスは、現状から手を触れていません。
 
-まず状態の差し替え部分です。`TicketReservation` が骨格、`IReservationState` が状態ごとの振る舞いの契約、各状態クラスがその具象に対応します。**この図は7つとも青です。** 現状クラス図にあったのは `TicketReservation` の1つだけで、それも中身を入れ替えました。残る6つは新しく作ったものです。
+まず状態の差し替え部分です。`TicketReservation` が骨格、`IReservationState` が状態ごとの振る舞いの契約、各状態クラスがその具象に対応します。**枠は `TicketReservation` の1つだけで、残る6つはぬりつぶしです。** 現状クラス図にあったのは `TicketReservation` だけで、中身を入れ替えました。契約と5つの状態クラスは、いずれも新しく作ったものです。
 
 ```mermaid
 classDiagram
     direction TB
-    class TicketReservation:::changed {
+    class TicketReservation:::touched {
         -IReservationState* state
         +reserve()
         +pay()
@@ -1939,17 +1939,17 @@ classDiagram
         +expire()
         +setState(IReservationState*)
     }
-    class IReservationState:::changed {
+    class IReservationState:::added {
         +reserve(TicketReservation*)
         +pay(TicketReservation*)
         +cancel(TicketReservation*)
         +expire(TicketReservation*)
     }
-    class AvailableState:::changed
-    class ReservedState:::changed
-    class PaidState:::changed
-    class WaitlistedState:::changed
-    class HeldState:::changed
+    class AvailableState:::added
+    class ReservedState:::added
+    class PaidState:::added
+    class WaitlistedState:::added
+    class HeldState:::added
     TicketReservation o-- IReservationState : 現在状態へ委譲
     IReservationState <|-- AvailableState
     IReservationState <|-- ReservedState
@@ -1957,7 +1957,8 @@ classDiagram
     IReservationState <|-- WaitlistedState
     IReservationState <|-- HeldState
 
-    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
+    classDef added fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
+    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
 ```
 
 骨格の `TicketReservation` は現在状態を1つ持ち、操作をそのまま渡します。状態が5つに増えても、骨格側の線は `IReservationState` への1本だけです。
@@ -1967,14 +1968,14 @@ classDiagram
 ```mermaid
 classDiagram
     direction TB
-    class TicketReservation:::changed
+    class TicketReservation:::touched
     class EventDatabase
     class EventInfo
-    class ReservationHistory:::changed
-    class ReservationRecord:::changed
-    class ReservationWaitlist:::changed
-    class ReservationExpiryScheduler:::changed
-    class BatchApplication:::changed
+    class ReservationHistory:::added
+    class ReservationRecord:::added
+    class ReservationWaitlist:::added
+    class ReservationExpiryScheduler:::added
+    class BatchApplication:::added
     TicketReservation --> EventDatabase : 席数を確認
     TicketReservation --> ReservationHistory : 遷移を記録
     TicketReservation --> ReservationWaitlist : 待機列を操作
@@ -1984,10 +1985,11 @@ classDiagram
     BatchApplication ..> TicketReservation : その場で作って使う
     BatchApplication *-- ReservationExpiryScheduler : 値で持つ
 
-    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
+    classDef added fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
+    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
 ```
 
-薄いままなのは `EventDatabase` と `EventInfo` の2つです。**席数を持つイベント台帳は、状態の作り替えに巻き込まれませんでした。** 残り6つが青で、うち5つ（履歴・記録・待ち行列・期限監視・組み立て）は新しく作ったクラス、`TicketReservation` は依頼先が状態契約へ変わったクラスです。
+色が付かないのは `EventDatabase` と `EventInfo` の2つです。**席数を持つイベント台帳は、状態の作り替えに巻き込まれませんでした。** ぬりつぶしは5つ（履歴・記録・待ち行列・期限監視・組み立て）で、いずれも新しく作ったクラスです。枠は `TicketReservation` の1つだけで、依頼先が状態契約へ変わりました。
 
 この完成図では、`TicketReservation` が現在状態へ操作を委譲し、`IReservationState` が状態ごとの共通契約、5つの状態クラスがその具体動作を担います。掲載コードに登場する在庫・履歴・待ち行列・組み立てクラスも省略せず記載しています。予約数の増減と待機者の自動昇格は状態処理から予約本体を経由して実行され、`BatchApplication` はシナリオを起動するだけです。
 
@@ -2974,23 +2976,24 @@ int main() {
 
 ### 7-3：変更影響グラフ（改善後）
 
-変更影響グラフで当てたのと**同じ2つの変更要求**を、完成した構造へもう一度当てます。**色の意味は変更影響グラフと同じで、青が書き換える場所、薄いノードが書き換えない場所です。**
+変更影響グラフで当てたのと**同じ2つの変更要求**を、完成した構造へもう一度当てます。**青のぬりつぶしが新しく作るもの、青い枠がもとからあって開くもの、色の付いていないノードが触らないものです。**
 
 ```mermaid
 graph TD
     T1["変更要求：状態・イベントの追加"]:::req
-        -->|新規追加| N1["NewState<br>（実装1クラス）"]:::changed
+        -->|新規追加| N1["NewState<br>（実装1クラス）"]:::added
     T2["変更要求：待ち行列方針の変更"]:::req
-        -->|1クラス修正| N2["ReservationWaitlist<br>（探索・削除・先頭）"]:::changed
+        -->|1クラス修正| N2["ReservationWaitlist<br>（探索・削除・先頭）"]:::touched
     T1 -. "影響なし" .-> A["TicketReservation<br>既存状態"]:::keep
     T2 -. "影響なし" .-> B["公開操作<br>自動昇格の接続"]:::keep
 
     classDef req fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray:6 4,color:#111827;
     classDef keep fill:#f1f5f9,stroke:#94a3b8,color:#334155;
-    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
+    classDef added fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
+    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
 ```
 
-青が4つから2つに減り、その2つも `TicketReservation` ではなくなりました。既存の公開操作は薄いノードのまま、つまり開きません。同じ要求・同じ粒度で比べると、課題ID1（状態固有動作の境界）の状態追加は共通契約 `IReservationState` の実装1クラスへ、課題ID2（待ち行列の境界）の待ち行列方針変更は `ReservationWaitlist` の中だけへ限定されました。`TicketReservation` の公開操作と、キャンセル直後の自動昇格の接続はどちらの変更でも触りません。
+**枠4つから、ぬりつぶし1つ＋枠1つへ変わりました。** 開く場所が4か所から1か所へ減り、しかもその1か所は `TicketReservation` ではありません。既存の公開操作には色が付きません。同じ要求・同じ粒度で比べると、課題ID1（状態固有動作の境界）の状態追加は共通契約 `IReservationState` の実装1クラスへ、課題ID2（待ち行列の境界）の待ち行列方針変更は `ReservationWaitlist` の中だけへ限定されました。`TicketReservation` の公開操作と、キャンセル直後の自動昇格の接続はどちらの変更でも触りません。
 
 | 変更影響グラフで影響した場所 | 完成構造での修正 | 構造変更との対応 |
 |---|---|---|

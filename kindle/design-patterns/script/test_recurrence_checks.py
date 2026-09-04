@@ -263,10 +263,16 @@ CHANGED_DEF = "    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px
 broken = t.replace(CHANGED_DEF, "", 1)
 cases.append(("CHANGE-DIAGRAM-001 変更図の差分色", V.check_change_diagram_highlight, broken))
 
-# 26b) CHANGE-COLOR-001: 変更箇所の色を本文共通の青から外す
+# 26b) DIAGRAM-MARK-001: 図の印を1色の changed へ戻す
 broken = t.replace(CHANGED_DEF,
-                   "    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:2px,color:#111827;\n", 1)
-cases.append(("CHANGE-COLOR-001 変更色の統一", V.check_changed_color_is_book_blue, broken))
+                   "    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;\n", 1)
+cases.append(("DIAGRAM-MARK-001 追加と変更の塗り分け", V.check_diagram_marks_are_two_kinds, broken))
+
+# 26c) EXCERPT-SIG-001: フェーズ4の抜粋で引数を書き直す
+t7 = (OUT/"chapter07.md").read_text(encoding="utf-8")
+broken = t7.replace("void notifyAll(const string& productId,",
+                    "void notifyAll(const string& productId, int stock,", 1)
+cases.append(("EXCERPT-SIG-001 抜粋シグネチャの改変", V.check_excerpt_keeps_signature, broken))
 
 # 27) SKELETON-001: 構想と要点コードで骨格を「なし」へ戻す
 t = (OUT/"chapter06.md").read_text(encoding="utf-8")
