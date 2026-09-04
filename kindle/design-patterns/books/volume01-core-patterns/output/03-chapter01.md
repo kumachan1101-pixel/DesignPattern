@@ -1254,6 +1254,7 @@ graph TD
     T1["変更要求：サマーセール追加"]:::req
         -->|影響| A["PaymentCalculator<br>（既存の条件分岐全体）"]:::touched
     A -->|さらに影響| B["CampaignContext<br>（新しいフラグの追加）"]:::touched
+    A -->|さらに影響| D["CheckoutResultRenderer<br>（割引名の表示を追加）"]:::touched
     A -.->|表示結果の回帰確認| C["CartPreviewService<br>（利用側）"]:::keep
 
     classDef req fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray:6 4,color:#111827;
@@ -1261,11 +1262,11 @@ graph TD
     classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
 ```
 
-**枠が2つ、ぬりつぶしが0です。** 新しいルールを1つ足すだけなのに、新規に作れるものは何もなく、既に動いている `PaymentCalculator` と `CampaignContext` を開いて書き換えることになります。さらに、同じ計算結果を表示するカートプレビューの回帰確認も要ります。
+**枠が3つ、ぬりつぶしが0です。** 新しいルールを1つ足すだけなのに、新規に作れるものは何もありません。既に動いている `PaymentCalculator`・`CampaignContext`・`CheckoutResultRenderer` の3つを開いて書き換えることになります。さらに、同じ計算結果を表示するカートプレビューの回帰確認も要ります。
 
 ### 3-3：痛みの言語化
 
-**1つ目：影響範囲が広いこと。** 変更ID1（サマーセール追加）のサマーセールを追加するために、`CampaignContext`と`PaymentCalculator`を同時に修正し、既存のPremium・キャンペーン割引も回帰確認しました。
+**1つ目：影響範囲が広いこと。** サマーセールを追加するために、`CampaignContext`・`PaymentCalculator`・`CheckoutResultRenderer` の3つを同時に修正し、既存のPremium・キャンペーン割引も回帰確認しました。
 
 **2つ目：既存分岐の解読が必要なこと。** 変更ID2（逐次割引）の逐次割引を入れる位置を決めるために、`PaymentCalculator`内の既存キャンペーン条件、Premium条件、計算順序をまとめて読み直す必要がありました。
 
@@ -1273,14 +1274,14 @@ graph TD
 
 ---
 > **📌 問題（確定）**
-> 変更ID1（サマーセール追加）・変更ID2（逐次割引）を適用すると、`PaymentCalculator`と`CampaignContext`を修正し、その計算を使う`CartPreviewService`まで回帰確認する必要があった。割引条件・計算式・入力フラグが計算本体に混在し、一つの確定変更が広い影響確認を強いた。
+> 変更ID1（サマーセール追加）・変更ID2（逐次割引）を適用すると、`PaymentCalculator`・`CampaignContext`・`CheckoutResultRenderer`を修正し、その計算を使う`CartPreviewService`まで回帰確認する必要があった。割引条件・計算式・入力フラグが計算本体に混在し、一つの確定変更が広い影響確認を強いた。
 ---
 
 観測した3つの痛みへ`問題ID`を付け、どの変更IDから来たかを対応づけます。
 
 | 問題ID | 変更を試して観測した痛み | 起点 |
 |---|---|---|
-| 問題ID1（修正範囲） | `PaymentCalculator` と `CampaignContext` を同時修正し、既存割引まで再確認した | 変更ID1（サマーセール追加） |
+| 問題ID1（修正範囲） | 計算・入力・表示の3クラスを同時修正し、既存割引まで再確認した | 変更ID1（サマーセール追加） |
 | 問題ID2（解読範囲） | 差し込み位置を決めるため、既存の条件と計算順序を読み直した | 変更ID2（逐次割引） |
 | 問題ID3（壊しやすさ） | 適用順序と排他条件が同じ `if-else` に埋もれ、差し込みで既存順序を壊しやすい | 変更ID1（サマーセール追加） |
 
@@ -1618,7 +1619,7 @@ public:
 >
 > いま分かっているのは、次の2点です。**施策が2〜3個のうちは、重なりを1クラスで書いたほうが読みやすい。** 「どの組み合わせで何%引くか」が1か所に書いてあるからです。一方、**施策が5個を超えたあたりから、組み合わせの数のほうが先に増えます。** そのときは、割引を「重ねられる部品」として扱い、必要な数だけ重ねる構造へ移ることになります（本書では扱いません）。
 >
-> ではいま移るべきか。私は移しませんでした。**フェーズ2で「施策は年に2〜3回増える」と確認したから**です。組み合わせが問題になる規模まで、まだ距離があります。先に複雑な構造を入れると、読む人が増えたコストを毎回払うことになります。
+> ではいま移るべきか。私は移しませんでした。**いま重なりを持つ施策が、サマーセールとキャンペーンの1組しかないから**です。毎月増えるのは施策の数で、重なり用のクラスが増えるのは「同時に成立しうる施策」が増えたときです。そこまでは、まだ距離があります。先に複雑な構造を入れると、読む人が増えたコストを毎回払うことになります。
 >
 > 判断が変わる合図は「重なりのクラスが3つを超えたとき」だと考えています。そのときにまた分ければよく、いま決め打つ必要はない、という立場です。
 
@@ -2836,6 +2837,7 @@ int main() {
 graph TD
     T1["変更要求：サマーセール追加"]:::req
         -->|新規追加| N1["SummerSaleDiscount<br>（matchesとapply）"]:::added
+    T1 -->|新規追加| N4["SummerSaleAndCampaignDiscount<br>（逐次割引のmatchesとapply）"]:::added
     T1 -->|所有・登録を追加| N2["DiscountRuleSet<br>（競合方針の順で登録）"]:::touched
     T1 -.->|実行時データとして指定| N3["CampaignContext<br>（activeCampaignsに施策コード）"]:::keep
     N1 -.->|追加ルールの動作確認| T2["テスト<br>（SummerSaleDiscountの単体）"]:::keep
@@ -2848,7 +2850,7 @@ graph TD
     classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
 ```
 
-**枠が2つからぬりつぶし1つ＋枠1つへ変わりました。** 変更影響グラフでは2つとも枠、つまり既に動いているコードを開くしかありませんでした。ここでぬりつぶしなのは新しく作る `SummerSaleDiscount`、枠は登録行を1行足す `DiscountRuleSet` です。**「開く」が2か所から1行だけになりました。**
+**枠が3つから、ぬりつぶし2つ＋枠1つへ変わりました。** 変更影響グラフでは3つとも枠、つまり既に動いているコードを開くしかありませんでした。ここでぬりつぶしなのは新しく作る `SummerSaleDiscount` と、逐次割引を担う `SummerSaleAndCampaignDiscount` です。枠は登録行を2行足す `DiscountRuleSet` だけで、**開いて中を読み直す場所は3か所から登録一覧の1か所になりました。**
 
 フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、`PaymentCalculator`、`CartPreviewService`、`CampaignContext`、`main()` の処理は変更先から消えました。さらに、条件を各ルールの `matches()` へ分けたため、`RuleSelector` の固定ループも変更しません。コード変更として残るのは、新しいルールクラス内の`matches()`・`apply()`と、`DiscountRuleSet`の所有・登録一覧です。注文ごとの有効状態は既存の施策コード一覧へ入力する実行時データです。登録位置は競合時の方針なので、ルール集合で明示します。
 
