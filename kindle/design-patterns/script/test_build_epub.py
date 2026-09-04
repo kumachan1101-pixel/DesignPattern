@@ -99,6 +99,50 @@ class MarkdownTests(unittest.TestCase):
         second = build_epub.content_hash("cpp", "B", "int main() {}")
         self.assertNotEqual(first, second)
 
+    def test_changed_lines_marks_an_inline_block_but_not_its_closing_brace(self) -> None:
+        lines = [
+            "void notify() {  // ← 変更",
+            "    send();",
+            "}",
+            "keep();",
+        ]
+        self.assertEqual(
+            [True, True, False, False],
+            build_epub.changed_lines(lines),
+        )
+
+    def test_changed_lines_ignores_structural_annotations(self) -> None:
+        lines = [
+            "// ← 出て行く側（削除）",
+            "LegacySender sender;",
+            "keep();",
+        ]
+        self.assertEqual(
+            [False, False, False],
+            build_epub.changed_lines(lines),
+        )
+
+    def test_changed_lines_hides_band_when_almost_every_line_changes(self) -> None:
+        lines = [
+            "int a = 1;  // ← 追加",
+            "int b = 2;  // ← 追加",
+            "int c = 3;  // ← 追加",
+            "int d = 4;  // ← 追加",
+            "keep();",
+        ]
+        self.assertEqual([False] * 5, build_epub.changed_lines(lines))
+
+    def test_phase_marks_use_seven_distinct_css_colors(self) -> None:
+        marks = ["🔵", "🟣", "🟣", "🟠", "🟡", "🔴", "🟢"]
+        source = "\n".join(
+            f"## {mark} フェーズ{number}：見出し"
+            for number, mark in enumerate(marks, start=1)
+        )
+        rendered = build_epub.colorize_phase_marks(source)
+        self.assertEqual(7, rendered.count("●"))
+        for color in build_epub.PHASE_COLORS.values():
+            self.assertEqual(1, rendered.count(f"color:{color}"))
+
 
 class ConfigTests(unittest.TestCase):
     def test_default_config_lists_existing_chapters(self) -> None:

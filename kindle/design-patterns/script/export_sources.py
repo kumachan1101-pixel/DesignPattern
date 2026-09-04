@@ -86,6 +86,11 @@ SPLIT_DEFINITIONS: dict[str, tuple[str, ...]] = {
 }
 
 
+def write_utf8(path: Path, text: str) -> None:
+    """OSに関係なく、Git上の正本と同じUTF-8・LFで書き出す。"""
+    path.write_bytes(text.encode("utf-8"))
+
+
 def move_bodies_to_source(chunk: str) -> tuple[str, str]:
     """クラス定義から、メンバー関数の本体を切り出す。
 
@@ -282,21 +287,22 @@ def export(stem: str, program: str, out_dir: Path) -> list[str]:
         header.append("")
         header.append("\n\n".join(buckets[filename]))
         header.extend(["", f"#endif  // {guard}", ""])
-        (out_dir / filename).write_text("\n".join(header), encoding="utf-8")
+        write_utf8(out_dir / filename, "\n".join(header))
         written.append(filename)
         previous.append(filename)
         if filename in sources:
             source_name = filename[:-2] + ".cpp"
             body = [f'#include "{layout[-1][0]}"', ""] + sources[filename] + [""]
-            (out_dir / source_name).write_text("\n".join(body), encoding="utf-8")
+            write_utf8(out_dir / source_name, "\n".join(body))
             written.append(source_name)
 
     main_source = ['#include "' + layout[-1][0] + '"', ""] + main_body + [""]
-    (out_dir / "main.cpp").write_text("\n".join(main_source), encoding="utf-8")
+    write_utf8(out_dir / "main.cpp", "\n".join(main_source))
     written.append("main.cpp")
 
     # 読者がそのままビルドできるように Makefile を置く。
-    (out_dir / "Makefile").write_text(
+    write_utf8(
+        out_dir / "Makefile",
         "# 本書の掲載コードを、実務のファイル構成へ分けたものです。\n"
         "#   make        ビルド\n"
         "#   make run    ビルドして実行\n"
@@ -317,7 +323,6 @@ def export(stem: str, program: str, out_dir: Path) -> list[str]:
         "\trm -f $(TARGET)\n"
         "\n"
         ".PHONY: run clean\n",
-        encoding="utf-8",
     )
     written.append("Makefile")
 
@@ -368,6 +373,7 @@ def main() -> int:
                     ["g++", "-std=c++14", "-I", str(out_dir)] + units
                     + ["-o", str(binary)],
                     capture_output=True, text=True,
+                    encoding="utf-8", errors="replace",
                 )
                 if built.returncode != 0:
                     first = next((l for l in built.stderr.splitlines()
@@ -376,7 +382,8 @@ def main() -> int:
                     failures += 1
                     continue
                 run = subprocess.run([str(binary)], stdout=subprocess.PIPE,
-                                     stderr=subprocess.STDOUT, text=True, timeout=30)
+                                     stderr=subprocess.STDOUT, text=True,
+                                     encoding="utf-8", errors="replace", timeout=30)
                 single = Path(tmp) / "single.cpp"
                 single.write_text(program, encoding="utf-8")
                 one = Path(tmp) / "one"
@@ -384,6 +391,7 @@ def main() -> int:
                                capture_output=True, check=True)
                 expected = subprocess.run([str(one)], stdout=subprocess.PIPE,
                                           stderr=subprocess.STDOUT, text=True,
+                                          encoding="utf-8", errors="replace",
                                           timeout=30)
                 if run.stdout == expected.stdout:
                     print("    ✓ ビルドでき、掲載コードと同じ出力")

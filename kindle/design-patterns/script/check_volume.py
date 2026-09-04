@@ -64,6 +64,27 @@ UNIT_HEADINGS = {
 # コードブロックと Mermaid を落としてから散文を見るための正規表現。
 FENCE = re.compile(r"^```")
 
+# 図やコードの注記として意図的に使う角括弧と、執筆途中の穴埋めを分ける。
+ALLOWED_TEMPLATE_HOLE = re.compile(
+    r"【(?:追加|変更|削除|接続|ここで確認するコード|変更前から抜き出す箇所"
+    r"|今回の変更から守る部分（守りたい骨格）|過剰コード：[^】]*|痛みのコード[^】]*"
+    r"|現状コード[^】]*|完成コード[^】]*)】"
+)
+UNRESOLVED_TEMPLATE_HOLE = re.compile(
+    r"(?:ここへ|未記入|TODO|TBD|と同じ|を書く|方法|条件|"
+    r"クラス|場所|文|値|範囲|結果)】$",
+    re.IGNORECASE,
+)
+
+
+def unresolved_template_holes(line: str) -> list[str]:
+    return [
+        hole
+        for hole in re.findall(r"【[^】]{2,120}】", line)
+        if not ALLOWED_TEMPLATE_HOLE.fullmatch(hole)
+        and UNRESOLVED_TEMPLATE_HOLE.search(hole)
+    ]
+
 
 def load_config(path: Path) -> tuple[list[Path], str]:
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -528,20 +549,12 @@ def check(config_path: Path) -> int:
     # 22. 執筆用テンプレートの穴埋め
     # 図のラベル【追加】【変更】や、掲載箇所を示す【ここで確認するコード】は本文の一部。
     # 埋めないまま残った「【○○を書く】」だけを落とす。
-    allowed = re.compile(
-        r"【(?:追加|変更|削除|接続|ここで確認するコード|変更前から抜き出す箇所"
-        r"|今回の変更から守る部分（守りたい骨格）|過剰コード：[^】]*|痛みのコード[^】]*"
-        r"|現状コード[^】]*|完成コード[^】]*)】"
-    )
     for path in chapters:
         for number, line in prose_lines(path.read_text(encoding="utf-8")):
-            for hole in re.findall(r"【[^】]{2,30}】", line):
-                if allowed.fullmatch(hole):
-                    continue
-                if re.search(r"(?:と同じ|を書く|方法|条件|クラス|場所|文|値|範囲|結果)】$", hole):
-                    failures.append(
-                        f"{path.name}:{number}: 執筆用の穴埋め {hole} が本文に残っています"
-                    )
+            for hole in unresolved_template_holes(line):
+                failures.append(
+                    f"{path.name}:{number}: 執筆用の穴埋め {hole} が本文に残っています"
+                )
 
     # 23. 他ファイルの話題を名指しする参照
     # 「第0章で触れたUSB充電の例え」のように、章をまたいで話題を指す文が、

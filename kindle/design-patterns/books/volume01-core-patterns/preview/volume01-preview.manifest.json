@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "ce1a73687747644185982925c8cf43f79b17d23261f4a357349853c6b45b5740",
+  "pdfSha256": "a545142dc7a43ebf80836a5115a416ce1778f8b063a4c95f8cbb49dd719f013e",
+  "sourceFiles": [
+    "books/volume01-core-patterns/publishing/book.json",
+    "script/build_epub.py",
+    "books/volume01-core-patterns/cover/cover.png",
+    "books/volume01-core-patterns/cover/cover.json",
+    "books/volume01-core-patterns/output/01-preface.md",
+    "books/volume01-core-patterns/output/02-chapter00.md",
+    "books/volume01-core-patterns/output/03-chapter01.md",
+    "books/volume01-core-patterns/output/04-chapter02.md",
+    "books/volume01-core-patterns/output/05-chapter03.md",
+    "books/volume01-core-patterns/output/06-epilogue.md",
+    "books/volume01-core-patterns/output/07-colophon.md"
+  ]
+}

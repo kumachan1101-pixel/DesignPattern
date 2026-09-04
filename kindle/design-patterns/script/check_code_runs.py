@@ -115,6 +115,7 @@ def check(config_path: Path) -> int:
                 built = subprocess.run(
                     ["g++", "-std=c++14", "-o", str(binary), str(source)],
                     capture_output=True, text=True,
+                    encoding="utf-8", errors="replace",
                 )
                 if built.returncode != 0:
                     first = next(
@@ -128,7 +129,8 @@ def check(config_path: Path) -> int:
                 try:
                     run = subprocess.run(
                         [str(binary)], stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT, text=True, timeout=30,
+                        stderr=subprocess.STDOUT, text=True,
+                        encoding="utf-8", errors="replace", timeout=30,
                     )
                 except subprocess.TimeoutExpired:
                     failures.append(f"{path.name} の「{heading}」が30秒で終わりません")

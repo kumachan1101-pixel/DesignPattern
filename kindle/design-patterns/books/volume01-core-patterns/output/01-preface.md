@@ -630,7 +630,7 @@ graph TD
     end
 ```
 
-直前の2つの図を見比べると、`Notifier` から出ている矢印の先が違います。上の図の矢印は `EmailSender` という具体クラスを指しています。送り先を替えると、この矢印を張り替えることになるので、`Notifier` も変わります。下の図の矢印は `INotifier` という契約を指しています。裏側で `EmailSenderImpl` が `SmsSenderImpl` に替わっても矢印の先は同じなので、`Notifier` は変わりません。
+図序-4と図序-5を見比べると、`Notifier` から出ている矢印の先が違います。図序-4の矢印は `EmailSender` という具体クラスを指しています。送り先を替えると、この矢印を張り替えることになるので、`Notifier` も変わります。図序-5の矢印は `INotifier` という契約を指しています。裏側で `EmailSenderImpl` が `SmsSenderImpl` に替わっても矢印の先は同じなので、`Notifier` は変わりません。
 
 > [!INFO] コラム：インターフェースの名前は「ビジネス責任」で付ける
 >

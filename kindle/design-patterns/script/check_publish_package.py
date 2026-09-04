@@ -12,9 +12,7 @@ PASSしていても、目次から章が抜けていれば本は組めない。
   3. 対応表の章名が、本文の見出しと一致する
   4. 本文が参照する画像が実在する
   5. 結合順が対応表から一意に決まり、はじめに→本文→おわりにの順になっている
-
-EPUB／KPFの生成物そのものの検査は PUBLISH-001（出版ビルド）が入った後に
-足す。ここは生成前でも回せる範囲に絞っている。
+  6. 各分冊の公開PDFが、現在の原稿・表紙・組版コードから生成されたものと一致する
 
     python3 script/check_publish_package.py
 """
@@ -24,6 +22,8 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+
+from release_artifact import check_release_artifact
 
 
 BOOK_ROOT = Path(__file__).resolve().parents[1]
@@ -140,13 +140,17 @@ def main() -> int:
         if chapters != sorted(chapters):
             failures.append(f"対応表の章順が昇順になっていません: {chapters}")
 
+    # 6. 公開PDFの鮮度。分冊のbook.jsonでpreviewを宣言したものだけを対象にする。
+    for config_path in sorted((BOOK_ROOT / "books").glob("*/publishing/book.json")):
+        failures.extend(check_release_artifact(config_path))
+
     if failures:
         print("\n".join(failures))
         print(f"\nFAILED: {len(failures)} publish package issue(s)")
         return 1
 
     print(f"OK: 目次と原稿 {len(listed)} 件が対応し、結合順も決まっています")
-    print("     （EPUB／KPF生成物の検査は PUBLISH-001 で追加）")
+    print("OK: 公開PDFは現在の原稿・表紙・組版コードと一致しています")
     return 0
 
 

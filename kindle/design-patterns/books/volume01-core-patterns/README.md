@@ -42,3 +42,14 @@
 ```powershell
 python script/build_epub.py --config books/volume01-core-patterns/publishing/book.json inventory
 ```
+
+公開用PDFまで更新するときは、全形式の生成後に次を実行します。
+
+```powershell
+python script/build_epub.py --config books/volume01-core-patterns/publishing/book.json all --clean
+python script/release_artifact.py sync --config books/volume01-core-patterns/publishing/book.json
+python script/run_completion_gate.py --release --package
+```
+
+最後のゲートは、公開PDFが現在の原稿・表紙・組版コードと一致していることも
+検査します。

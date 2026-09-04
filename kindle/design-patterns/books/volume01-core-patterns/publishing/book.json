@@ -1,14 +1,17 @@
 {
   "schemaVersion": 1,
   "metadata": {
-    "title": "デザインパターンで学ぶC++ソフトウェア設計",
+    "title": "分離と再結合で学ぶ C++ソフトウェア設計",
     "author": "KumaKuma H.H",
     "language": "ja"
   },
   "paths": {
     "dist": "books/volume01-core-patterns/publishing/dist",
     "slides": "books/volume01-core-patterns/publishing/slides",
-    "cover": "books/volume01-core-patterns/cover/cover.png"
+    "cover": "books/volume01-core-patterns/cover/cover.png",
+    "coverMetadata": "books/volume01-core-patterns/cover/cover.json",
+    "preview": "books/volume01-core-patterns/preview/volume01-preview.pdf",
+    "previewManifest": "books/volume01-core-patterns/preview/volume01-preview.manifest.json"
   },
   "chapters": [
     "books/volume01-core-patterns/output/01-preface.md",
