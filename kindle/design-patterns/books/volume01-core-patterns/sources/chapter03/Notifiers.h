@@ -7,7 +7,7 @@
 class EmailNotifier : public INotification {
     vector<string> inbox;
 
-    // 1-4と同じメール基盤の操作
+    // 現状コードと同じメール基盤の操作
     bool sendMail(const string& subject, const string& body) {
         inbox.push_back(body);
         cout << "Email(" << inbox.size() << "件) [" << subject
@@ -30,7 +30,7 @@ public:
 class DashboardUpdater : public INotification {
     int refreshCount;
 
-    // 1-4と同じ画面更新の操作。戻り値が無い
+    // 現状コードと同じ画面更新。戻り値が無い
     void refreshStockWidget(const string& productCode,
                             int stock) {
         ++refreshCount;
@@ -50,7 +50,7 @@ public:
 class ChatNotifier : public INotification {
     vector<string> posted;
 
-    // 1-4と同じチャット基盤の操作。投稿IDを返す
+    // 現状コードと同じチャット基盤。投稿IDを返す
     string postMessage(const string& channel,
                        const string& text) {
         posted.push_back(text);
