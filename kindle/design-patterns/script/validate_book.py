@@ -4273,6 +4273,26 @@ def check_pattern_name_reveal(text: str, path: Path) -> list[Issue]:
     )]
 
 
+CHANGED_FILL = "#1565c0"
+
+
+def check_changed_color_is_book_blue(text: str, path: Path) -> list[Issue]:
+    """変更箇所の色は、コードの帯・表のセルと同じ青にそろえる。
+
+    読者は「青＝今回変わったところ」だけを覚えて読む。図ごとに色が違うと、
+    その一つの決まりが崩れる。図の種類（flowchart・graph・classDiagram）に
+    かかわらず、`changed` の塗りは本全体で1色にする。
+    """
+    issues: list[Issue] = []
+    for found in re.finditer(r"^\s*classDef\s+changed\s+(.+?);?$", text, re.M):
+        if CHANGED_FILL not in found.group(1):
+            issues.append(Issue(
+                path, line_number(text, found.start()),
+                f"変更箇所の `changed` は本文共通の青 `fill:{CHANGED_FILL}` を使ってください",
+            ))
+    return issues
+
+
 def check_change_diagram_highlight(text: str, path: Path) -> list[Issue]:
     """1-5の変更後flowchartで、変更箇所だけを共通色で示す。"""
     start = text.find("### 1-5：")
@@ -4430,6 +4450,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_phase6_reference_scope(text, path))
         issues.extend(check_pattern_name_reveal(text, path))
         issues.extend(check_change_diagram_highlight(text, path))
+        issues.extend(check_changed_color_is_book_blue(text, path))
         issues.extend(check_common_phase_headings(text, path))
         issues.extend(check_phase42_comparison_header(text, path))
         issues.extend(check_phase6_overview_diagram(text, path))

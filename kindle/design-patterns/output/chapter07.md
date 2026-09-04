@@ -855,22 +855,22 @@ Chat(1件) #inventory-alert: 商品 PRD002（USBハブ） の在庫が閾値以�
 flowchart LR
     A[/検証済みの商品ID<br>PRD002/]:::input --> G[在庫数を更新]:::process
     C[/検証済みの出庫数<br>1個/]:::input --> G
-    E[(【追加】登録済み通知手段<br>メール・ダッシュ<br>チャット・SMS)]:::data --> F[通知手段を準備]:::process
+    E[(登録済み通知手段<br>メール・ダッシュ<br>チャット・SMS)]:::data --> F[通知手段を準備]:::process
     G --> H{しきい値を下回るか}:::decision
-    H -->|Yes| I[【変更】在庫警告を各手段へ配布]:::process
+    H -->|Yes| I[在庫警告を各手段へ配布]:::process
     F --> I
-    I --> L[【追加】受付結果を集める]:::process
-    L --> K([【変更】正常出力<br>在庫更新・通知受付結果]):::normal
+    I --> L[受付結果を集める]:::process
+    L --> K([正常出力<br>在庫更新・通知受付結果]):::normal
     H -->|No| J([正常出力<br>在庫更新のみ]):::normal
-    S[/【追加】後日届くSMS配信結果/]:::input --> O[【追加】受付IDの状態を更新]:::process
-    O --> P([【追加】配信完了・配信失敗ログ]):::normal
+    S[/後日届くSMS配信結果/]:::input --> O[受付IDの状態を更新]:::process
+    O --> P([配信完了・配信失敗ログ]):::normal
 
     classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:2px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     class E,I,L,K,S,O,P changed;
 ```
 

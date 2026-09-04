@@ -1500,7 +1500,7 @@ PayPay決済が追加されても、注文処理から見た大枠（`PaymentReq
 
 ```mermaid
 flowchart LR
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     A[/検証済み決済要求<br>methodId=paypay<br>amount=3,000<br>accessToken=pp_123/]:::input --> D[PayPay決済セッション作成API]:::process
     D --> E([中間出力<br>保留: セッション作成済み<br>pendingId=PP-ORD-2001]):::pending
     E --> F[状態確認APIで決済完了確認]:::process

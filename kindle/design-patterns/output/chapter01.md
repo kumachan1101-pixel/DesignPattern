@@ -926,13 +926,13 @@ flowchart LR
     A[/商品リスト<br>ワイヤレスイヤホン 10,000円/]:::input --> G[小計を合算<br>10,000円]:::process
     C[/顧客ID<br>C002/]:::input --> D{会員種別は<br>Regularか}:::decision
     E[/キャンペーンフラグ/]:::input --> H[割引ルールを選ぶ]:::process
-    S[/【追加】サマーセールフラグ/]:::input --> T{【追加】Regular会員かつ<br>サマーセール中か}:::decision
+    S[/サマーセールフラグ/]:::input --> T{Regular会員かつ<br>サマーセール中か}:::decision
     D -->|Yes| H
     D -->|No| H
     G --> I[割引額を計算]:::process
     H --> I
     I --> T
-    T -->|Yes| U[【追加】割引後の金額に<br>サマーセール5%を逐次適用]:::process
+    T -->|Yes| U[割引後の金額に<br>サマーセール5%を逐次適用]:::process
     T -->|No| J([正常出力<br>支払金額]):::normal
     U --> J
 
@@ -940,7 +940,7 @@ flowchart LR
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     class S,T,U changed;
 ```
 

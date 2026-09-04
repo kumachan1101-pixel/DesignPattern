@@ -968,26 +968,26 @@ stateDiagram-v2
 ```mermaid
 flowchart LR
     A[/検証済みチケットID<br>TCK001/]:::input --> D[現在状態で操作可否を確認]:::process
-    C[(保存済みチケット<br>既存4状態<br>【追加】保留中)]:::data --> D
-    E[/ユーザー種別<br>一般・プレミアム<br>【追加】法人/]:::input --> F[優先度ルールを選ぶ<br>【追加】法人向け]:::process
-    G[/操作<br>割当・解決・再オープン<br>【追加】保留/]:::input --> D
+    C[(保存済みチケット<br>既存4状態<br>保留中)]:::data --> D
+    E[/ユーザー種別<br>一般・プレミアム<br>法人/]:::input --> F[優先度ルールを選ぶ<br>法人向け]:::process
+    G[/操作<br>割当・解決・再オープン<br>保留/]:::input --> D
     D --> H[状態ごとの処理を実行]:::process
     H --> K{優先度を<br>どう扱う操作か}:::decision
     K -->|登録・再受付| F
-    F --> I[ユーザー種別から計算<br>【追加】法人もHigh]:::process
+    F --> I[ユーザー種別から計算<br>法人もHigh]:::process
     K -->|エスカレーション| M[Highへ引き上げ<br>契約区分によらない]:::process
     K -->|アサイン・解決・差し戻し・保留| L[保存済み優先度を維持]:::process
     I --> J
     M --> J
     L --> J
-    J([正常出力<br>状態更新・優先度表示<br>【追加】保留中・法人High]):::normal
+    J([正常出力<br>状態更新・優先度表示<br>保留中・法人High]):::normal
 
     classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef changed fill:#FFF2CC,stroke:#D6B656,stroke-width:2px,color:#222222;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     class C,E,F,G,J changed;
 ```
 

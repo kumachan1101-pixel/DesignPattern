@@ -799,7 +799,7 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     A([申請が提出される]) --> B{申請種別}
     B -->|通常| C[審査待ち]
     B -->|緊急| D[優先審査待ち]
@@ -834,7 +834,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     U["【利用者】<br>通常・緊急申請、承認、却下"]:::actor
     subgraph SYS["【システム境界】承認ワークフローシステム"]
         WM["【処理】ワークフロー進行<br>状態・判定・通知を分けて接続"]:::process
@@ -875,7 +875,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     A[/入力<br>申請ID: REQ004<br>操作: 部長承認<br>申請種別: 緊急<br>金額: 500,000円<br>承認者ID: APR002/]:::input
     B[REQ004の保存済み状態を取得<br>優先審査待ち]:::data
     C[APR002の承認者情報を取得<br>上限: 1,000,000円]:::data

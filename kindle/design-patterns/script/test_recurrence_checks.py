@@ -259,8 +259,14 @@ cases.append(("SCOPE-001 責任表の目的", V.check_responsibility_table_scope
 
 # 26) CHANGE-DIAGRAM-001: 変更後図から差分色を外す
 t = (OUT/"chapter07.md").read_text(encoding="utf-8")
-broken = t.replace("    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:2px,color:#111827;\n", "", 1)
+CHANGED_DEF = "    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;\n"
+broken = t.replace(CHANGED_DEF, "", 1)
 cases.append(("CHANGE-DIAGRAM-001 変更図の差分色", V.check_change_diagram_highlight, broken))
+
+# 26b) CHANGE-COLOR-001: 変更箇所の色を本文共通の青から外す
+broken = t.replace(CHANGED_DEF,
+                   "    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:2px,color:#111827;\n", 1)
+cases.append(("CHANGE-COLOR-001 変更色の統一", V.check_changed_color_is_book_blue, broken))
 
 # 27) SKELETON-001: 構想と要点コードで骨格を「なし」へ戻す
 t = (OUT/"chapter06.md").read_text(encoding="utf-8")

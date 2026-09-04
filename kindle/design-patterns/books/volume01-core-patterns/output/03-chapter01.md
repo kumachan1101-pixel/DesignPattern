@@ -949,20 +949,20 @@ Regular会員はサマーセール中に5%引きが新たに加わります。�
 
 **変更後の入力・加工・出力**
 
-変更後の仕様を、現状の仕様と同じ粒度で、正常系の入力・判定・加工・出力として確認します。現状の内部図との差分は、入力に「サマーセールフラグ」が加わることと、割引額を計算したあとに「サマーセール5%を逐次適用する」という加工が挟まることの2点です。
+変更後の仕様を、現状の仕様と同じ粒度で、正常系の入力・判定・加工・出力として確認します。**現状の内部図から変わったノードを青にしてあります。** 薄いノードは現状のままです。差分は、入力に「サマーセールフラグ」が加わることと、割引額を計算したあとに「サマーセール5%を逐次適用する」という加工が挟まることの2点です。
 
 ```mermaid
 flowchart TB
     A[/商品リスト<br>ワイヤレスイヤホン 10,000円/]:::input --> G[小計を合算<br>10,000円]:::process
     C[/顧客ID<br>C002/]:::input --> D{会員種別は<br>Regularか}:::decision
     E[/キャンペーンフラグ/]:::input --> H[割引ルールを選ぶ]:::process
-    S[/【追加】サマーセールフラグ/]:::input --> T{【追加】Regular会員かつ<br>サマーセール中か}:::decision
+    S[/サマーセールフラグ/]:::input --> T{Regular会員かつ<br>サマーセール中か}:::decision
     D -->|Yes| H
     D -->|No| H
     G --> I[割引額を計算]:::process
     H --> I
     I --> T
-    T -->|Yes| U[【追加】割引後の金額に<br>サマーセール5%を逐次適用]:::process
+    T -->|Yes| U[割引後の金額に<br>サマーセール5%を逐次適用]:::process
     T -->|No| J([正常出力<br>支払金額]):::normal
     U --> J
 
@@ -970,7 +970,7 @@ flowchart TB
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     class S,T,U changed;
 ```
 
@@ -1242,17 +1242,21 @@ int main() {
 
 ### 3-2：変更影響グラフ
 
-次の変更影響グラフでは、施策を1つ足すという1本の変更要求が、どのクラスの、どの部分まで届いたかを見ます。
+変更を試した結果、1本の変更要求がどのクラスのどの部分まで届いたかを図にします。**青いノードがソースを書き換える場所、薄いノードは書き換えずに動作だけ確認する場所です。**
 
 ```mermaid
 graph TD
-    T1["変更要求：サマーセール追加"]
-        -->|影響| A["PaymentCalculator<br>（既存の条件分岐全体）"]
-    A -->|さらに影響| B["CampaignContext<br>（新しいフラグの追加）"]
-    A -.->|表示結果の回帰確認| C["CartPreviewService<br>（利用側）"]
+    T1["変更要求：サマーセール追加"]:::req
+        -->|影響| A["PaymentCalculator<br>（既存の条件分岐全体）"]:::changed
+    A -->|さらに影響| B["CampaignContext<br>（新しいフラグの追加）"]:::changed
+    A -.->|表示結果の回帰確認| C["CartPreviewService<br>（利用側）"]:::keep
+
+    classDef req fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray:6 4,color:#111827;
+    classDef keep fill:#f1f5f9,stroke:#94a3b8,color:#334155;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
 ```
 
-新しいルールを1つ追加するだけで、既存の計算ロジック全体とデータクラスを修正し、同じ計算結果を表示するカートプレビューも回帰確認する必要があります。ここでは、**ソースを修正する場所**と**動作を再確認する場所**を区別します。
+新しいルールを1つ追加するだけで、既存の計算ロジック全体とデータクラスを修正し、同じ計算結果を表示するカートプレビューも回帰確認する必要があります。青が2つ、つまり書き換える場所が2つあります。
 
 ### 3-3：痛みの言語化
 
@@ -1881,24 +1885,26 @@ Calculatorは、渡された実体の具体クラス名を知りません。小�
 
 #### 完成後のクラス図
 
-フェーズ6で確定したクラス・操作・関係線を完成図にします。`PaymentCalculator` と `CartPreviewService` が計算を依頼する利用側、`IDiscountRule` が差し替え可能なルール契約、各割引クラスがその具象ルールに対応します。`DiscountRuleSet` は具体ルールを所有して競合方針の順に登録し、`RuleSelector` は具体条件を知らずに登録ルールを選びます。
+フェーズ6で確定したクラス・操作・関係線を完成図にします。ここから3枚続く完成図では、**現状クラス図と見比べて、新しく作ったクラスと中身が変わったクラスを青にしてあります。** 薄いままのクラスは、現状から手を触れていません。
+
+まずルールの差し替え部分です。`IDiscountRule` が差し替え可能なルール契約、各割引クラスがその具象ルールに対応します。`DiscountRuleSet` は具体ルールを所有して競合方針の順に登録し、`RuleSelector` は具体条件を知らずに登録ルールを選びます。**この図は8つとも青、つまり全部が新しいクラスです。** 現状クラス図には対応する箱が1つもありません。
 
 ```mermaid
 classDiagram
     direction TB
-    class IDiscountRule {
+    class IDiscountRule:::changed {
         <<interface>>
         +matches(memberType, context) bool
         +apply(total) int
         +name() string
     }
-    class PremiumDiscount
-    class CampaignDiscount
-    class SummerSaleDiscount
-    class SummerSaleAndCampaignDiscount
-    class NoDiscount
-    class DiscountRuleSet
-    class RuleSelector
+    class PremiumDiscount:::changed
+    class CampaignDiscount:::changed
+    class SummerSaleDiscount:::changed
+    class SummerSaleAndCampaignDiscount:::changed
+    class NoDiscount:::changed
+    class DiscountRuleSet:::changed
+    class RuleSelector:::changed
     IDiscountRule <|.. PremiumDiscount
     IDiscountRule <|.. CampaignDiscount
     IDiscountRule <|.. SummerSaleDiscount
@@ -1911,6 +1917,8 @@ classDiagram
     DiscountRuleSet *-- NoDiscount : 所有する
     DiscountRuleSet *-- RuleSelector : 所有する
     RuleSelector o-- IDiscountRule : 登録する
+
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
 ```
 
 施策が増えても、増えるのは `IDiscountRule` の下にぶら下がる具体と、`DiscountRuleSet` の登録行だけです。次の図は、この差し替え部分を利用側がどう使うかです。
@@ -1918,13 +1926,13 @@ classDiagram
 ```mermaid
 classDiagram
     direction TB
-    class OrderProcessor
-    class CartPreviewService
+    class OrderProcessor:::changed
+    class CartPreviewService:::changed
     class CustomerDatabase
-    class RuleSelector
-    class PaymentCalculator
+    class RuleSelector:::changed
+    class PaymentCalculator:::changed
     class CheckoutResultRenderer
-    class IDiscountRule
+    class IDiscountRule:::changed
     OrderProcessor --> CustomerDatabase : 使う
     OrderProcessor --> RuleSelector : 選ぶ
     OrderProcessor ..> PaymentCalculator : その場で作って使う
@@ -1933,11 +1941,13 @@ classDiagram
     CartPreviewService --> RuleSelector : 選ぶ
     CartPreviewService ..> PaymentCalculator : その場で作って使う
     PaymentCalculator --> IDiscountRule : 使う
+
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
 ```
 
-注文確定とプレビューは、同じ `RuleSelector` と `PaymentCalculator` を通ります。どちらも具体ルール名を持ちません。
+注文確定とプレビューは、同じ `RuleSelector` と `PaymentCalculator` を通ります。どちらも具体ルール名を持ちません。青が5つ、薄いままが2つです。薄いのは `CustomerDatabase` と `CheckoutResultRenderer` で、会員種別を引く場所と結果を表示する場所は現状のまま変えていません。青いうちの `OrderProcessor` と `CartPreviewService` は、クラスそのものではなく**受け取る相手**が変わりました。割引条件を自分で書く代わりに `RuleSelector` を受け取ります。
 
-最後に、これらの間を流れる値クラスです。
+最後に、これらの間を流れる値クラスです。ここは青が3つだけで、残り4つは現状のままです。
 
 ```mermaid
 classDiagram
@@ -1946,15 +1956,19 @@ classDiagram
     class Item
     class CustomerInfo
     class CustomerDatabase
-    class CampaignContext
-    class PaymentResult
-    class PaymentCalculator
+    class CampaignContext:::changed
+    class PaymentResult:::changed
+    class PaymentCalculator:::changed
     Order *-- Item
     CustomerDatabase *-- CustomerInfo
     PaymentCalculator ..> Order : 受け取る
     PaymentCalculator ..> CampaignContext : 受け取る
     PaymentCalculator ..> PaymentResult : 返す
+
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
 ```
+
+青いのは `CampaignContext`（施策ごとの真偽値をやめ、施策コードの一覧に変えた）、`PaymentResult`（結果を返すために新設）、`PaymentCalculator`（割引条件を持たなくなった）の3つです。`Order`・`Item`・`CustomerInfo`・`CustomerDatabase` は薄いまま、つまり注文の形も顧客台帳も変えずに済みました。
 
 現状では、割引条件と計算式が `PaymentCalculator` の内部に集まっていました。完成後は、計算を依頼する2つの利用側が同じルール契約を参照し、適用条件と計算式は各具象ルールへ移っています。競合方針は`DiscountRuleSet`、固定の選択手順は`RuleSelector`へ分かれ、`main()`にもSelectorにも施策固有の条件分岐はありません。
 
@@ -2806,34 +2820,40 @@ int main() {
 
 ### 7-3：変更影響グラフ（改善後）
 
-変更影響グラフと同じ変更要求を、改善後の構造へもう一度当てます。同じ矢印がどこで止まるようになったかを見ます。
+変更影響グラフで当てたのと**同じ変更要求**を、完成した構造へもう一度当てます。**色の意味は変更影響グラフと同じで、青が書き換える場所、薄いノードが書き換えない場所です。**
 
 ```mermaid
 graph TD
-    T1["変更要求：サマーセール追加"]
-        -->|新規追加| N1["SummerSaleDiscount<br>（matchesとapply）"]
-    T1 -->|所有・登録を追加| N2["DiscountRuleSet<br>（競合方針の順で登録）"]
-    T1 -.->|実行時データとして指定| N3["CampaignContext<br>（activeCampaignsに施策コード）"]
-    N1 -.->|追加ルールの動作確認| T2["テスト<br>（SummerSaleDiscountの単体）"]
-    N2 -.->|選択結果の確認| T3["テスト<br>（RuleSelectorの選択）"]
+    T1["変更要求：サマーセール追加"]:::req
+        -->|新規追加| N1["SummerSaleDiscount<br>（matchesとapply）"]:::changed
+    T1 -->|所有・登録を追加| N2["DiscountRuleSet<br>（競合方針の順で登録）"]:::changed
+    T1 -.->|実行時データとして指定| N3["CampaignContext<br>（activeCampaignsに施策コード）"]:::keep
+    N1 -.->|追加ルールの動作確認| T2["テスト<br>（SummerSaleDiscountの単体）"]:::keep
+    N2 -.->|選択結果の確認| T3["テスト<br>（RuleSelectorの選択）"]:::keep
     N3 -.->|入力の受け渡し確認| T3
+
+    classDef req fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray:6 4,color:#111827;
+    classDef keep fill:#f1f5f9,stroke:#94a3b8,color:#334155;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
 ```
+
+青いノードは相変わらず2つですが、中身が入れ替わりました。変更影響グラフでは既存の `PaymentCalculator` と `CampaignContext` が青で、既に動いているコードを開いて書き換える必要がありました。ここで青いのは新しく作る `SummerSaleDiscount` と、そこへ1行足す `DiscountRuleSet` の登録だけです。既存クラスは1つも青くありません。
 
 フェーズ3の変更影響グラフと同じ要求・同じ粒度で比べると、`PaymentCalculator`、`CartPreviewService`、`CampaignContext`、`main()` の処理は変更先から消えました。さらに、条件を各ルールの `matches()` へ分けたため、`RuleSelector` の固定ループも変更しません。コード変更として残るのは、新しいルールクラス内の`matches()`・`apply()`と、`DiscountRuleSet`の所有・登録一覧です。注文ごとの有効状態は既存の施策コード一覧へ入力する実行時データです。登録位置は競合時の方針なので、ルール集合で明示します。
 
-| 3-2で影響した場所 | 修正後 | 構造変更との対応 |
+| 変更影響グラフで影響した場所 | 完成構造での修正 | 構造変更との対応 |
 |---|---|---|
 | `PaymentCalculator` の既存分岐全体 | **修正しない** | 小計計算だけを残し、条件と式を各ルールへ移した |
 | `CampaignContext` | **修正しない**。既存の施策コード一覧へ値を渡す | 施策ごとの真偽値フィールドを持たない入力形式にした |
 | `CartPreviewService` | **修正しない** | 注文確定とは独立した入口のまま、同じDB・Selector・計算器を使う |
-| 3-2には分離先がなかった | `SummerSaleDiscount` と`DiscountRuleSet`の所有・登録行を追加する | 施策固有の変更先と競合方針の置き場を作った |
-| 3-2には存在しなかった選択役 | **`RuleSelector` は修正しない** | 具体条件を持たず、登録順に `matches()` を呼び最初の一致を返す固定処理にした |
+| 変更影響グラフには分離先がなかった | `SummerSaleDiscount` と`DiscountRuleSet`の所有・登録行を追加する | 施策固有の変更先と競合方針の置き場を作った |
+| 変更影響グラフには存在しなかった選択役 | **`RuleSelector` は修正しない** | 具体条件を持たず、登録順に `matches()` を呼び最初の一致を返す固定処理にした |
 
 この結果は、コードを書く前に確定した採用設計を完成コードへ統合した後に得たものです。関数抽出やFactoryだけでは `PaymentCalculator` または選択側の分岐が残るため、この変更影響にはなりません。CIで既存テスト一式を実行することと、変更影響として個別に再確認する範囲は区別します。
 
 ### 7-4：変更シナリオ表
 
-ここでは今回の変更ID1（サマーセール追加）・変更ID2（逐次割引）だけを完成構造へ再適用し、フェーズ1で必要だった修正範囲と、実装後の結果を比較します。
+今回の変更ID1（サマーセール追加）・変更ID2（逐次割引）について、フェーズ1の構造で必要だった修正と完成構造の結果を対比します。
 
 | 変更ID | 現状構造での影響 | 完成構造での結果 |
 |---|---|---|
@@ -2867,6 +2887,8 @@ graph TD
 
 ### 責任の移動
 
+今回の設計変更により、`PaymentCalculator` が抱え込んでいた責任がどこへ移動したかを示します。
+
 | **責任** | **変更前** | **変更後** |
 |---|---|---|
 | 支払金額の計算フローの進行 | `PaymentCalculator` | `PaymentCalculator`（変わらず） |
@@ -2887,6 +2909,8 @@ graph TD
 | 顧客情報取得失敗 | 割引とは別の外部境界として `OrderProcessor` で扱う |
 
 ---
+
+> このプロセスを回した結果にたどり着いた構造こそが ルール差し替え構造です。
 
 ## 振り返り
 

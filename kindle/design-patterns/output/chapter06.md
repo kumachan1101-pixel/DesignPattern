@@ -672,7 +672,7 @@ int main() {
 ```mermaid
 flowchart LR
     A[/検証済み基本ドリンク<br>DRINK001/]:::input --> E[基本価格を決める]:::process
-    C[/販売可能な追加トッピング<br>Milk・Syrup・Whip<br>【追加】Matcha・Choco/]:::input --> F[【変更】販売可否を確認し<br>選択順に価格と表示名を重ねる]:::process
+    C[/販売可能な追加トッピング<br>Milk・Syrup・Whip<br>Matcha・Choco/]:::input --> F[販売可否を確認し<br>選択順に価格と表示名を重ねる]:::process
     E --> F
     F --> G([正常出力<br>合計金額・注文内容]):::normal
 
@@ -680,7 +680,7 @@ flowchart LR
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     class C,F changed;
 ```
 

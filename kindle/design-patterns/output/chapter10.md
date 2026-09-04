@@ -1002,7 +1002,7 @@ flowchart LR
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
     classDef stable fill:#ecfeff,stroke:#0891b2,color:#111827;
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     class A,H,I,L,K,M changed;
 ```
 

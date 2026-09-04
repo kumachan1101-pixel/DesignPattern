@@ -1000,7 +1000,7 @@ flowchart LR
 
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
-    classDef changed fill:#fef3c7,stroke:#d97706,stroke-width:3px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
     class P,G,H changed;

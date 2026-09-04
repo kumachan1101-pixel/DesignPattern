@@ -874,28 +874,28 @@ Chat(1件) #inventory-alert
 
 **変更後の入力・加工・出力**
 
-変更後の仕様も、現状の仕様と同じく入力検証済みの正常系として確認します。登録済み通知手段へSMSが加わる即時経路と、後日届く最終配信結果の入力経路が差分です。変更したノードは黄色で、ラベルの頭に `【追加】` または `【変更】` が付きます。
+変更後の仕様も、現状の仕様と同じく入力検証済みの正常系として確認します。**現状の内部図から変わったノードを青にしてあります。** 薄いノードは現状のままです。差分は、登録済み通知手段へSMSが加わる即時経路と、後日届く最終配信結果の入力経路です。
 
 ```mermaid
 flowchart TB
     A[/検証済みの商品ID<br>PRD002/]:::input --> G[在庫数を更新]:::process
     C[/検証済みの出庫数<br>1個/]:::input --> G
-    E[(【追加】登録済み通知手段<br>メール・ダッシュ<br>チャット・SMS)]:::data --> F[通知手段を準備]:::process
+    E[(登録済み通知手段<br>メール・ダッシュ<br>チャット・SMS)]:::data --> F[通知手段を準備]:::process
     G --> H{しきい値を下回るか}:::decision
-    H -->|Yes| I[【変更】在庫警告を各手段へ配布]:::process
+    H -->|Yes| I[在庫警告を各手段へ配布]:::process
     F --> I
-    I --> L[【追加】受付結果を集める]:::process
-    L --> K([【変更】正常出力<br>在庫更新・通知受付結果]):::normal
+    I --> L[受付結果を集める]:::process
+    L --> K([正常出力<br>在庫更新・通知受付結果]):::normal
     H -->|No| J([正常出力<br>在庫更新のみ]):::normal
-    S[/【追加】後日届くSMS配信結果/]:::input --> O[【追加】受付IDの状態を更新]:::process
-    O --> P([【追加】配信完了・配信失敗ログ]):::normal
+    S[/後日届くSMS配信結果/]:::input --> O[受付IDの状態を更新]:::process
+    O --> P([配信完了・配信失敗ログ]):::normal
 
     classDef data fill:#ecfeff,stroke:#0891b2,color:#111827;
     classDef input fill:#e7f0ff,stroke:#2563eb,color:#111827;
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:2px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     class E,I,L,K,S,O,P changed;
 ```
 
@@ -1370,20 +1370,23 @@ SMS 受付拒否: PRD002
 
 ### 3-2：変更影響グラフ
 
-変更を試みた結果、コード内の依存関係がどうなっているかを図にしてみます。
+変更を試した結果、1本の変更要求がどのクラスのどの部分まで届いたかを図にします。**青いノードがソースを書き換える場所、薄いノードは書き換えずに動作だけ確認する場所です。**
 
 ```mermaid
 graph TD
-    T1["変更要求：非同期SMSと最終結果の記録"]
-        -->|"メンバ・呼び分け・結果解釈を修正"| A["InventoryManager<br>（呼び分けと結果解釈）"]
-    A -->|"固有APIを呼ぶ"| B["SMSNotifier<br>（非同期の受付API）"]
-    A -->|"受付IDを保留で保持"| C["InventoryManager<br>（受付IDの保管）"]
-    A -->|"コールバックを受けて更新"| D["InventoryManager<br>（完了コールバック）"]
+    T1["変更要求：非同期SMSと最終結果の記録"]:::req
+        -->|"メンバ・呼び分け・結果解釈を修正"| A["InventoryManager<br>（呼び分けと結果解釈）"]:::changed
+    A -->|"固有APIを呼ぶ"| B["SMSNotifier<br>（非同期の受付API）"]:::changed
+    A -->|"受付IDを保留で保持"| C["InventoryManager<br>（受付IDの保管）"]:::changed
+    A -->|"コールバックを受けて更新"| D["InventoryManager<br>（完了コールバック）"]:::changed
     D -->|"同じ受付IDを完了/失敗へ"| C
 
+    classDef req fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray:6 4,color:#111827;
+    classDef keep fill:#f1f5f9,stroke:#94a3b8,color:#334155;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
 ```
 
-変更影響グラフから、今回のSMS追加だけで`InventoryManager`が送信方法、受付IDの保管、後日の完了コールバックまで新たに知ったことが読み取れます。
+書き換える場所が4つ、そのうち3つが同じ `InventoryManager` の中です。変更影響グラフから、今回のSMS追加だけで`InventoryManager`が送信方法、受付IDの保管、後日の完了コールバックまで新たに知ったことが読み取れます。
 
 ### 3-3：痛みの言語化
 
@@ -2137,30 +2140,34 @@ private:
 
 #### 完成後のクラス図
 
-フェーズ6で確定したクラス・操作・関係線を完成図にします。`InventoryManager` が通知元、`INotification` が通知先の契約、各Notifierがその具象に対応します。値クラスは、どの操作が受け渡すかを線で示します。
+フェーズ6で確定したクラス・操作・関係線を完成図にします。ここから2枚続く完成図では、**現状クラス図と見比べて、新しく作ったクラスと中身が変わったクラスを青にしてあります。** 薄いままのクラスは、現状から手を触れていません。
+
+まず通知の差し替え部分です。`InventoryManager` が通知元、`INotification` が通知先の契約、各Notifierがその具象に対応します。**この図は6つとも青です。** 通知契約 `INotification` と `SMSNotifier` は新設、既存の3つの通知クラスは固有メソッドをやめて `send()` に揃えたので中身が変わり、`InventoryManager` は手段ごとの呼び分けを手放しました。
 
 ```mermaid
 classDiagram
     direction TB
-    class InventoryManager {
+    class InventoryManager:::changed {
         -vector~INotification*~ observers
         +attach(INotification*)
         +reduceStock(productId, quantity)
         +replenishStock(productId, quantity)
     }
-    class INotification {
+    class INotification:::changed {
         <<interface>>
         +send(alert) DeliveryResult
     }
-    class EmailNotifier { +send(alert) DeliveryResult }
-    class DashboardUpdater { +send(alert) DeliveryResult }
-    class ChatNotifier { +send(alert) DeliveryResult }
-    class SMSNotifier { +send(alert) DeliveryResult }
+    class EmailNotifier:::changed { +send(alert) DeliveryResult }
+    class DashboardUpdater:::changed { +send(alert) DeliveryResult }
+    class ChatNotifier:::changed { +send(alert) DeliveryResult }
+    class SMSNotifier:::changed { +send(alert) DeliveryResult }
     InventoryManager o-- INotification : 登録・一律通知
     INotification <|.. EmailNotifier
     INotification <|.. DashboardUpdater
     INotification <|.. ChatNotifier
     INotification <|.. SMSNotifier
+
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
 ```
 
 通知先が増えても、増えるのは `INotification` の下にぶら下がる具体と、`attach()` の登録行だけです。次の図は、通知元が扱う周辺クラスと値クラスです。
@@ -2168,16 +2175,16 @@ classDiagram
 ```mermaid
 classDiagram
     direction TB
-    class InventoryManager
+    class InventoryManager:::changed
     class ProductDatabase
     class ProductInfo
-    class StockEventLog
-    class StockEvent
-    class DeliveryStatusLog
-    class DeliveryResult
-    class SMSDeliveryCallback
-    class StockAlert
-    class INotification
+    class StockEventLog:::changed
+    class StockEvent:::changed
+    class DeliveryStatusLog:::changed
+    class DeliveryResult:::changed
+    class SMSDeliveryCallback:::changed
+    class StockAlert:::changed
+    class INotification:::changed
     InventoryManager --> ProductDatabase : 注入・在庫更新
     InventoryManager --> StockEventLog : 注入・自動記録
     InventoryManager --> DeliveryStatusLog : 受付結果を記録
@@ -2187,7 +2194,11 @@ classDiagram
     StockEventLog ..> StockEvent : 記録
     INotification ..> DeliveryResult : 通知結果を返す
     DeliveryStatusLog ..> DeliveryResult : 受付結果を記録
+
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
 ```
+
+薄いままなのは `ProductDatabase` と `ProductInfo` の2つです。**在庫そのものを持つ商品台帳は、通知の作り替えに巻き込まれませんでした。** 残る8つが青で、`InventoryManager` 以外はすべて新しく作ったクラスです。
 
 この完成図では、`InventoryManager`が在庫変化の事実を配る側、`INotification`が通知先の共通契約、各通知クラスが具体的な通知先です。
 
@@ -3042,20 +3053,24 @@ SMS(2件受付): 在庫警告 PRD002 残0 / 受付ID=SMS-2
 
 ### 7-3：変更影響グラフ（改善後）
 
-変更影響グラフで当てたのと**同じ変更要求**を、完成した構造へもう一度当てます。
+変更影響グラフで当てたのと**同じ変更要求**を、完成した構造へもう一度当てます。**色の意味は変更影響グラフと同じで、青が書き換える場所、薄いノードが書き換えない場所です。**
 
 ```mermaid
 graph TD
-    T1["変更要求：非同期SMSと最終結果の記録"]
-        -->|新規追加| N1["SMSNotifier<br>（実装1クラス）"]
-    T1 -->|組み立てで2行増やす| N2["attach() と<br>SMSDeliveryCallback の生成"]
-    T1 -. "影響なし" .-> A["INotification<br>InventoryManager ✅"]
-    T1 -. "影響なし" .-> B["EmailNotifier など<br>既存通知先 ✅"]
+    T1["変更要求：非同期SMSと最終結果の記録"]:::req
+        -->|新規追加| N1["SMSNotifier<br>（実装1クラス）"]:::changed
+    T1 -->|組み立てで2行増やす| N2["attach() と<br>SMSDeliveryCallback の生成"]:::changed
+    T1 -. "影響なし" .-> A["INotification<br>InventoryManager"]:::keep
+    T1 -. "影響なし" .-> B["EmailNotifier など<br>既存通知先"]:::keep
+
+    classDef req fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray:6 4,color:#111827;
+    classDef keep fill:#f1f5f9,stroke:#94a3b8,color:#334155;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
 ```
 
-同じ要求・同じ粒度で比べると、共通契約 `INotification` と通知元 `InventoryManager`、既存通知先は変更先から消えました。変更影響グラフで `InventoryManager` へ入り込んでいた3つ――呼び分け、受付IDの保管、後日の完了コールバック――が、どこへ移ったのかを1つずつ見ます。
+青が4つから2つに減り、その2つに `InventoryManager` は入っていません。同じ要求・同じ粒度で比べると、共通契約 `INotification` と通知元 `InventoryManager`、既存通知先は変更先から消えました。変更影響グラフで `InventoryManager` へ入り込んでいた3つ――呼び分け、受付IDの保管、後日の完了コールバック――が、どこへ移ったのかを1つずつ見ます。
 
-| 3-2で影響した場所 | 完成構造での修正 | 移した先 |
+| 変更影響グラフで影響した場所 | 完成構造での修正 | 構造変更との対応 |
 |---|---|---|
 | 呼び分けと結果の解釈 | **修正しない** | 各通知クラスが `send()` の中で行う |
 | 受付IDの保管 | **修正しない** | `DeliveryStatusLog` が受付IDごとに持つ |
@@ -3102,8 +3117,10 @@ graph TD
 
 ### 責任の移動
 
+今回の設計変更により、`InventoryManager` が抱え込んでいた責任がどこへ移動したかを示します。
+
 | **責任** | **変更前** | **変更後** |
-| --- | --- | --- |
+|---|---|---|
 | 在庫減算と通知先への通知 | `InventoryManager` | `InventoryManager`（変わらず） |
 | 具体的な通知先クラスの直接保持 | `InventoryManager`（メンバとして直接宣言） | **組み立て側が共通契約の登録リストへ追加・解除** |
 | 個別の通知手段と文面 | `EmailNotifier` 等（固有メソッド） | **`EmailNotifier` 等が `StockAlert` から手段別に整形** |
@@ -3111,8 +3128,6 @@ graph TD
 | 受付結果の集約 | —（なし） | **`InventoryManager` が件数を数える** |
 | 最終配信結果の更新 | —（なし） | **`SMSDeliveryCallback` が `DeliveryStatusLog` の同じ受付IDを更新する** |
 | 通知受け取り契約の定義 | —（なし） | **`INotification`（`DeliveryResult` を返す）** |
-
-> **このプロセスを回した結果にたどり着いた構造こそが 通知分離構造 です。**
 
 ---
 
@@ -3128,6 +3143,8 @@ graph TD
 | 部分失敗 | 受付失敗を集計し、最終失敗は該当する受付IDだけを更新する |
 
 ---
+
+> このプロセスを回した結果にたどり着いた構造こそが 通知分離構造です。
 
 ## 振り返り
 

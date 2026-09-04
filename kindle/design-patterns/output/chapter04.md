@@ -976,8 +976,8 @@ FC店CSVを開く
 
 ```mermaid
 flowchart LR
-    A[/入力ファイル<br>直営店・FC店・【追加】EC店CSV/]:::input --> E[ファイルを開く]:::process
-    C[/対応済みフォーマット種別<br>直営店・FC店・【追加】EC店/]:::input --> F
+    A[/入力ファイル<br>直営店・FC店・EC店CSV/]:::input --> E[ファイルを開く]:::process
+    C[/対応済みフォーマット種別<br>直営店・FC店・EC店/]:::input --> F
     E --> V[ファイルメタデータの<br>形式バージョンを確認]:::process
     E --> F[形式ごとに解析]:::process
     V --> F
@@ -995,7 +995,7 @@ flowchart LR
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     class A,C,V,R,L,Q,P changed;
 ```
 

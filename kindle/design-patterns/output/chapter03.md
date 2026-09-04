@@ -845,8 +845,8 @@ stateDiagram-v2
 
 ```mermaid
 flowchart LR
-    A[(検証済み予約<br>Available / Reserved / Paid<br>【追加】Waitlisted / Held)]:::data --> B[イベント存在・空席・操作可否を確認]:::process
-    C[/操作・イベント<br>予約・支払い・キャンセル<br>【追加】予約昇格・一時保留・期限切れ・決済失敗/]:::input --> B
+    A[(検証済み予約<br>Available / Reserved / Paid<br>Waitlisted / Held)]:::data --> B[イベント存在・空席・操作可否を確認]:::process
+    C[/操作・イベント<br>予約・支払い・キャンセル<br>予約昇格・一時保留・期限切れ・決済失敗/]:::input --> B
     D[/イベントID<br>EVT001: 春の音楽祭<br>EVT002: 夏のフェス<br>EVT003: 秋の映画会/]:::input --> B
     B --> F[状態ごとの処理を実行]:::process
     F --> G[次の状態を決める]:::process
@@ -857,7 +857,7 @@ flowchart LR
     classDef process fill:#fff7ed,stroke:#ea580c,color:#111827;
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     class A,C changed;
 ```
 

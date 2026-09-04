@@ -760,9 +760,9 @@ Redoは、Undoで取り消した操作をもう一度適用する、つまり「
 
 ```mermaid
 flowchart LR
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     B["操作の受け口<br>支出/収入/Undoを受け取る"] --> L["収支データを保存する場所"]
-    B --> H["【追加】実行済み操作の記録"]
+    B --> H["実行済み操作の記録"]
     H --> L
     L --> R["BalanceViewRenderer<br>残高表示"]
 
@@ -779,8 +779,8 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     A[/支出・収入・一括登録<br>金額・カテゴリ/]:::input --> C[カテゴリ確認・金額確認<br>台帳へ収支を保存し残高更新]:::process
     C --> D[実行した操作を履歴へ記録]:::process
     D --> E([正常出力<br>残高・収支一覧・履歴の更新]):::normal
@@ -802,7 +802,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    classDef changed fill:#fff2cc,stroke:#d6b656,stroke-width:3px,color:#111827;
+    classDef changed fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff,font-weight:bold;
     A[/Undo または Redo/]:::input --> B{対象履歴があるか}:::decision
     B -->|No| C([何も変更せず終了]):::normal
     B -->|Undo| D[直前の操作を逆向きに実行<br>Undo済み履歴へ移す]:::process
