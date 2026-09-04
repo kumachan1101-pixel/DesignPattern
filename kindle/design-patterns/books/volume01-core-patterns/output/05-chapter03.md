@@ -1187,8 +1187,6 @@ private:
     SMSNotifier      sms;
     // ← 追加
     map<string, TrialDeliveryStatus> smsStatuses;
-    // ← 追加
-    string lastRequestId;
 
 public:
     // ← 追加
@@ -1197,11 +1195,6 @@ public:
 
     void reduceStock(string productId, int quantity);
     void replenishStock(string productId, int quantity);
-
-    // ← 追加
-    const string& latestSMSRequestId() const {
-        return lastRequestId;
-    }
 
     // ← 追加
     void receiveSMSCompletion(const string& requestId,
@@ -1215,7 +1208,7 @@ private:
 
 **公開操作の2つは現状コードのままです。** `reduceStock()` と `replenishStock()` は、宣言も中身も変えていません。商品の存在確認、出庫数の検証、在庫の更新、閾値の判定は、これまでどおり動きます。
 
-そのうえで、**SMSを1つ足すために、宣言へ6つ書き足しました。** SMS基盤のメンバ、受付IDの状態表、直近の受付ID、受付失敗を試すためのコンストラクタ、直近の受付IDを外へ渡す操作、そして最終結果を受け取る操作です。在庫管理の本体である `InventoryManager` を開かないと、通知手段を1つ増やせません。
+そのうえで、**SMSを1つ足すために、宣言へ4つ書き足しました。** SMS基盤のメンバ、受付IDごとの配信状態を覚える表、受付失敗を試すためのコンストラクタ、そして最終結果を受け取る操作です。在庫管理の本体である `InventoryManager` を開かないと、通知手段を1つ増やせません。
 
 ---
 
@@ -1286,8 +1279,7 @@ void InventoryManager::notifyAll(const string& productId,
     TrialDeliveryResult result = sms.requestAsync(alert);
     if (result.status == TRIAL_PENDING) {
         pending++;
-        lastRequestId = result.requestId;
-        smsStatuses[lastRequestId] = TRIAL_PENDING;
+        smsStatuses[result.requestId] = TRIAL_PENDING;
     } else {
         cout << "[通知受付失敗] SMS" << endl;
         failed++;
@@ -1308,7 +1300,7 @@ void InventoryManager::notifyAll(const string& productId,
 | Chat | チャンネルと本文 | 成功／失敗 | `.empty()` |
 | SMS | `StockAlert` を丸ごと | **保留**／失敗＋受付ID | `status` で分岐 |
 
-**表の「返ってくる値」を縦に見ると、SMSの行にだけ「保留」があります。** 他の3つは呼んだ時点で成否が決まるのに、SMSだけは決まりません。そのため受付IDを覚えて折り返しを待つことになり、集計にも `pending` という3つ目の数え口が要ります。この「覚える」ためのメンバが、宣言に足した `smsStatuses` と `lastRequestId` でした。
+**表の「返ってくる値」を縦に見ると、SMSの行にだけ「保留」があります。** 他の3つは呼んだ時点で成否が決まるのに、SMSだけは決まりません。そのため受付IDを覚えて折り返しを待つことになり、集計にも `pending` という3つ目の数え口が要ります。この「覚える」ためのメンバが、宣言に足した `smsStatuses` です。
 
 **ダッシュボードは相変わらず成否を返しません。** 失敗しても `accepted` に数えられます。**通知手段を1つ増やすたびに、この呼び分けと数え方を `InventoryManager` の中で決め直すことになります。**
 
@@ -1318,21 +1310,15 @@ void InventoryManager::notifyAll(const string& productId,
 
 現状コードの動作例のうち、通知が出る行2をもう一度通します。あわせて、SMSの受付が断られた場合も見ます。**見るのは動くかどうかではなく、変更要求を現状の構造へ当てはめたときに修正箇所と痛みがどこに出るかです。**
 
+**行2：PRD002を1減らし、あとから配信完了を受ける**
+
 ```cpp
 int main() {
     InventoryManager manager;
 
     cout << "--- 行2: PRD002を1減らす ---" << endl;
     manager.reduceStock("PRD002", 1);
-    manager.receiveSMSCompletion(manager.latestSMSRequestId(),
-                                 true);
-
-    cout << "--- 行6: SMSの受付が拒否される ---" << endl;
-    InventoryManager rejecting(true);
-    rejecting.reduceStock("PRD002", 1);
-
-    return 0;
-}
+    manager.receiveSMSCompletion("SMS-1", true);
 ```
 
 ```
@@ -1345,6 +1331,26 @@ Chat(1件) #inventory-alert
 SMS(1件) USBハブ 残2 -> 受付ID:SMS-1
 [受付結果] 成功:3 保留:1 失敗:0
 [SMS最終結果] SMS-1: PENDING -> DELIVERED
+```
+
+在庫が3から2へ減り、既存3手段の出力は現状コードのままです。そこへSMSの1行と `[受付結果]` の集計が加わりました。SMSの行に出ている `SMS-1` が受付IDです。最後の `[SMS最終結果]` は、その `SMS-1` が保留から配信完了へ変わったことを示しています。
+
+`receiveSMSCompletion("SMS-1", true)` の `"SMS-1"` は、**本来はSMS基盤が折り返しの呼び出しで渡してくる値**です。掲載コードにはSMS基盤の折り返しが無いので、`main()` が出力に出た受付IDをそのまま書いて代役にしています。
+
+---
+
+**行6：SMSの受付が拒否される**
+
+```cpp
+    cout << "--- 行6: SMSの受付が拒否される ---" << endl;
+    InventoryManager rejecting(true);
+    rejecting.reduceStock("PRD002", 1);
+
+    return 0;
+}
+```
+
+```
 --- 行6: SMSの受付が拒否される ---
 商品 PRD002（USBハブ） の在庫を 1 減らしました。在庫: 3 -> 2
 Email(1件) [在庫アラート] 商品 PRD002（USBハブ） の在庫が閾値以下です。
@@ -1356,11 +1362,11 @@ SMS 受付拒否: PRD002
 [受付結果] 成功:3 保留:0 失敗:1
 ```
 
-行2の1行目で在庫が3から2へ減っています。現状コードと同じです。既存3手段の出力も現状コードのままで、そこへSMSの1行と受付結果の集計が加わりました。後日の最終結果では、同じ受付ID `SMS-1` を `TRIAL_PENDING` から `TRIAL_DELIVERED` へ更新できています。行6ではSMSが断られましたが、在庫更新も他の3手段も止まっていません。**動作は正しくなっています。** 変更ID1（非同期SMS追加）の完了条件――4手段の受付件数を集計し、受付IDを最終結果へ更新する――を満たせました。
+SMSは断られましたが、在庫更新も他の3手段も止まっていません。**動作は正しくなっています。** 変更ID1（非同期SMS追加）の完了条件――4手段の受付件数を集計し、受付IDを最終結果へ更新する――を満たせました。
 
 ---
 
-痛いのは結果ではなく、そこへ至る過程です。**`SMSNotifier` を1クラス足しただけで、`InventoryManager` を7か所書き換えました。** 宣言へ足した6つ（メンバ、受付IDの状態表、直近の受付ID、コンストラクタ、受付IDを渡す操作、最終結果を受け取る操作）と、`notifyAll()` の末尾です。
+痛いのは結果ではなく、そこへ至る過程です。**`SMSNotifier` を1クラス足しただけで、`InventoryManager` を6か所書き換えました。** 宣言へ足した4つ（SMS基盤のメンバ、受付IDごとの配信状態表、コンストラクタ、最終結果を受け取る操作）と、`notifyAll()` の末尾、そして `receiveSMSCompletion()` の中身です。
 
 田中部長の要求は「SMSでも通知したい」という一言でした。それが在庫管理クラスの中身にこれだけ広がるのは、**4つの通知手段の呼び方の違いを、通知元がすべて引き受けているから**です。今回の1手段の追加で、引数の組み立て方が1通り、戻り値の解釈が1通り、`notifyAll()` へ加わりました。
 
@@ -1645,7 +1651,7 @@ private:
 **返す情報は、変更前の通知元が実際に使っていたもので決めます。** 3つありました。
 
 - 変更を試したときの `accepted++` / `pending++` / `failed++` ―― 受け付けたか、保留か、失敗かという**3区分**
-- 変更を試したときの `lastRequestId = result.requestId;` ―― 保留のときだけ意味を持つ**受付ID**
+- 変更を試したときの `smsStatuses[result.requestId] = TRIAL_PENDING;` ―― 保留のときだけ意味を持つ**受付ID**
 - `cout << "[通知受付失敗] Email"` ―― どの手段が失敗したかという**手段名**
 
 3つ目だけは形が変わります。変更前は通知元が `"Email"` と直接書いていましたが、**通知元が具体名を知らなくなる以上、手段名は結果に添えて返してもらうしかありません。**
@@ -2070,8 +2076,7 @@ private:
 ```cpp
     InventoryManager manager;
     manager.reduceStock("PRD002", 1);
-    manager.receiveSMSCompletion(manager.latestSMSRequestId(),
-                                 true);
+    manager.receiveSMSCompletion("SMS-1", true);
 ```
 
 **ここで確認するコード：`main()`** ―― 同じ操作（対策後）
@@ -2083,7 +2088,7 @@ private:
 
 **出庫の呼び方は変わっていません。** 変更を試したときも対策後も `reduceStock("PRD002", 1)` です。現状コードから一度も変えていない公開操作なので、要求ID1（出庫と補充）の呼び出し側は今回の対策で影響を受けません。
 
-変わったのは、後日の完了で呼ぶ相手です。変更を試したときは通知元の公開操作 `receiveSMSCompletion()` を、直近の受付IDを取り出してから呼んでいました。**生成・所有のコードで後日の入口を別のクラスへ置いたので、在庫操作の入口とは別の起点になりました。** 受付IDは行2の実行結果に出た `SMS-1` を使います。
+変わったのは、後日の完了で呼ぶ相手です。受付ID `SMS-1` を渡すところは同じですが、変更を試したときの受け口は**通知元**の公開操作 `receiveSMSCompletion()` でした。**生成・所有のコードで後日の入口を別のクラスへ置いたので、在庫操作の入口とは別の起点になりました。**
 
 **組み立ての行は増えました。** 変更を試したときは `InventoryManager manager;` の1行でしたが、対策後は実体の生成が9行と登録が4行です。**通知元が自分で通知先を作らなくなった分、作る場所が外へ出たからです。** この章の対策で `main()` が払ったコストは12行です。その代わり、通知先を1つ足すときに `InventoryManager` を開く必要がなくなりました。
 

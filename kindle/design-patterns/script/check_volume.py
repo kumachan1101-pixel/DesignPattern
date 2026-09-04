@@ -710,6 +710,31 @@ def check(config_path: Path) -> int:
                     "印を外し、全部が新規（または全部が修正）である旨を本文で1行書いてください"
                 )
 
+    # 31. 実行結果は、1ブロックに1つの実行だけを載せる
+    # 2つの実行を空行も無しに続けると、どこで切れているのか読者に分からない。
+    # 1-4は「行1〜行5」を1つずつ区切って説明を挟んでいるので、そこへそろえる。
+    run_label = re.compile(r"^-{2,}\s*行\d+[:：]")
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        lines = text.split("\n")
+        index = 0
+        while index < len(lines):
+            if lines[index].rstrip() == "```":          # 言語指定なし＝実行結果
+                close = index + 1
+                while close < len(lines) and not lines[close].startswith("```"):
+                    close += 1
+                body = lines[index + 1 : close]
+                labels = [l for l in body if run_label.match(l.strip())]
+                if len(labels) > 1:
+                    failures.append(
+                        f"{path.name}:{index + 1}: 1つの実行結果へ"
+                        f"{len(labels)}つの実行が入っています。"
+                        "実行ごとにブロックを分け、間に説明を置いてください"
+                    )
+                index = close + 1
+            else:
+                index += 1
+
     # 28. 本文で節番号を道しるべに使わない
     # 「1-1（このシステムの仕様）の『商品』にあたるデータです」の番号は、読者に
     # 何も伝えない。括弧の中の言葉がすべての仕事をしている。番号は書き手が

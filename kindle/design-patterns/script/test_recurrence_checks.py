@@ -270,8 +270,10 @@ cases.append(("DIAGRAM-MARK-001 追加と変更の塗り分け", V.check_diagram
 
 # 26c) EXCERPT-SIG-001: フェーズ4の抜粋で引数を書き直す
 t7 = (OUT/"chapter07.md").read_text(encoding="utf-8")
-broken = t7.replace("void notifyAll(const string& productId,",
-                    "void notifyAll(const string& productId, int stock,", 1)
+broken = t7.replace("    void notifyAll(const string& productId,\n"
+                    "                   const ProductInfo& info) {",
+                    "    void notifyAll(const string& productId, int stock,\n"
+                    "                   const string& message) {", 1)
 cases.append(("EXCERPT-SIG-001 抜粋シグネチャの改変", V.check_excerpt_keeps_signature, broken))
 
 # 27) SKELETON-001: 構想と要点コードで骨格を「なし」へ戻す
