@@ -12,7 +12,7 @@
 
 | 冊 | 書名 | 収録 | 正本 |
 |:---|:---|:---|:---|
-| 第1冊 | デザインパターンで学ぶC++ソフトウェア設計 | はじめに・第0章・Strategy・State・Observer・おわりに・奥付 | `books/volume01-core-patterns/` |
+| 第1冊 | 分離と再結合で学ぶ C++ソフトウェア設計 | はじめに・第0章・Strategy・State・Observer・おわりに・奥付 | `books/volume01-core-patterns/` |
 | 第2冊以降 | 未定（PLAN-001） | 旧第2・4・5・6・8章 | 未定 |
 | 応用編 | 未定（PLAN-003） | 旧第9〜12章 | 未定 |
 

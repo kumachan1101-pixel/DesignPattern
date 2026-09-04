@@ -45,7 +45,7 @@
 
 | 冊 | 収録 | 原稿の場所 | 出版設定 |
 |---|---|---|---|
-| 第1冊『デザインパターンで学ぶC++ソフトウェア設計』 | はじめに・第0章・Strategy・State・Observer・おわりに・奥付 | `books/volume01-core-patterns/output/` | `books/volume01-core-patterns/publishing/book.json` |
+| 第1冊『分離と再結合で学ぶ C++ソフトウェア設計』 | はじめに・第0章・Strategy・State・Observer・おわりに・奥付 | `books/volume01-core-patterns/output/` | `books/volume01-core-patterns/publishing/book.json` |
 | 第2冊以降 | 未定（`review-tasks.md` の PLAN-001） | 未定 | 未定 |
 
 **第1冊の正本は `books/volume01-core-patterns/output/` である。**
