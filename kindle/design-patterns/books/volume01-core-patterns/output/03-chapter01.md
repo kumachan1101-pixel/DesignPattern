@@ -837,7 +837,7 @@ int main() {
 エラー: 顧客ID UNKNOWN は登録されていません
 ```
 
-先頭の `exists()` で止まり、金額は計算されません。
+`OrderProcessor::process()` の先頭にある `db.exists(order.customerId)` が偽になり、そこで止まります。金額は計算されません。
 
 ---
 

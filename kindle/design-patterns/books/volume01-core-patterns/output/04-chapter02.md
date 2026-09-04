@@ -520,7 +520,7 @@ void TicketReservation::pay() {
 }
 ```
 
-`Reserved` のときだけ通ります。在庫は動きません。
+`status` が `Reserved` のときだけ、上の枝を通ります。ほかの状態はすべて `handlePayError()` へ落ち、`status` も予約数も変わりません。
 
 ---
 
@@ -627,7 +627,7 @@ int main() {
 エラー：イベントID UNKNOWN は存在しません
 ```
 
-先頭の `exists()` で止まるので、満席判定へは進みません。
+`TicketReservation::reserve()` の先頭にある `db.exists(eventId)` が偽になり、そこで止まります。満席判定へは進みません。
 
 ---
 
