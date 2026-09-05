@@ -40,6 +40,7 @@
  32. 配布するファイル一式と本文の分割表が一致している
  33. 三つの問いが旧原則へ戻らず、実践章の判断場面に置かれている
  34. 第0章のクラス図凡例で、図と対応する説明が一組になっている
+ 35. 「手元で動かす」共通説明が第0章だけにあり、実践章で重複していない
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -261,6 +262,23 @@ def class_legend_pairing_issues(text: str) -> list[str]:
                 f"{''.join(missing)}の説明が、その番号を載せた図の直後にありません"
             )
     return issues
+
+
+def hand_run_guidance_issues(text: str, is_chapter_zero: bool) -> list[str]:
+    """実行方法の共通説明が第0章だけに置かれているかを返す。"""
+    count = len(
+        re.findall(
+            r"^(?:#{2,6}\s+掲載コードを手元で動かす"
+            r"|>\s*\*\*手元で動かすには\*\*)\s*$",
+            text,
+            re.M,
+        )
+    )
+    if is_chapter_zero and count != 1:
+        return [f"第0章の実行案内が{count}件です（1件だけ必要です）"]
+    if not is_chapter_zero and count:
+        return ["第0章と重複する「手元で動かすには」があります"]
+    return []
 
 
 def early_material_spoilers(
@@ -962,6 +980,12 @@ def check(config_path: Path) -> int:
             continue
         text = path.read_text(encoding="utf-8")
         for issue in class_legend_pairing_issues(text):
+            failures.append(f"{path.name}: {issue}")
+
+    # 35. 共通の実行案内は第0章へ集約する
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        for issue in hand_run_guidance_issues(text, "chapter00" in path.name):
             failures.append(f"{path.name}: {issue}")
 
     # 28. 本文で節番号を道しるべに使わない

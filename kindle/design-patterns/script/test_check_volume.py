@@ -124,5 +124,24 @@ C --> D : ⑤
         self.assertIn("①の説明が、その番号を載せた図の直後にありません", issues)
 
 
+class HandRunGuidanceTests(unittest.TestCase):
+    def test_single_chapter_zero_guidance_is_accepted(self) -> None:
+        text = "### 掲載コードを手元で動かす\n\n説明\n"
+        self.assertEqual([], check_volume.hand_run_guidance_issues(text, True))
+
+    def test_practical_chapter_repetition_is_rejected(self) -> None:
+        text = "> **手元で動かすには**\n> g++で実行します\n"
+        self.assertEqual(
+            ["第0章と重複する「手元で動かすには」があります"],
+            check_volume.hand_run_guidance_issues(text, False),
+        )
+
+    def test_missing_chapter_zero_guidance_is_rejected(self) -> None:
+        self.assertEqual(
+            ["第0章の実行案内が0件です（1件だけ必要です）"],
+            check_volume.hand_run_guidance_issues("# 第0章\n", True),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
