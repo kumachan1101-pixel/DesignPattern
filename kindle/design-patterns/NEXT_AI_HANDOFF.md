@@ -2,6 +2,46 @@
 
 最終更新：2026-09-05
 
+## AIへ渡す指示文（そのまま貼る）
+
+```
+kumachan1101-pixel/DesignPattern のリポジトリで作業してほしい。
+
+まず kindle/design-patterns/NEXT_AI_HANDOFF.md を全文読む。現在地と残タスクは
+そこが正。次に kindle/design-patterns/CLAUDE.md を読む。執筆規約はここが最新で、
+templates/ と rules/ は追随しきれていない。
+
+守ること。
+- 触ってよいのは kindle/design-patterns/ 配下だけ
+- 第1冊の正本は books/volume01-core-patterns/output/ の7ファイル。
+  output/ の同名章は古い供給元なので触らない
+- 直したら必ず次を通し、結果をそのまま報告する。落ちたら直してから次へ進む
+    python3 script/check_volume.py --config books/volume01-core-patterns/publishing/book.json
+    python3 script/run_completion_gate.py
+- 既存ファイルの構造を変える書き換え、ファイルの削除、新しいフォルダの作成は、
+  実行前に私へ確認する
+- コミットメッセージ・PR・コード内コメントに、使っているAIのモデル名を書かない
+
+今回やってほしいのは NEXT_AI_HANDOFF.md の A節「AIがそのまま進められるもの」の
+<A1などの番号>。着手前に、何をどう変えるつもりか3行で説明してほしい。
+```
+
+レビューを回させるときは、上の最後の段落を次に差し替える。
+
+```
+今回は通しレビューを1レンズ分やってほしい。
+kindle/design-patterns/agents/volume-review-runbook.md を先に読むこと。
+章で割らずレンズで割る、1体ずつ順に走らせる、といった前提がそこにある。
+
+担当レンズ：<言葉／ノイズ／表と図／初読>
+対象：books/volume01-core-patterns/output/ の7ファイル全部（1ファイルではない）
+
+原稿は編集しない。reviews/agent-<レンズ名>.md にレポートだけ書く。
+1件につき「原文の逐語引用／検算した結果／読者がどう困るか／直し方」の4つを書く。
+検算していない指摘は書かない。判断が付かないものは保留へ回す。
+見つけたそばからレポートへ書き足す（最後にまとめて書かない）。
+```
+
 ## 現在地
 
 **第1冊『分離と再結合で学ぶ C++ソフトウェア設計』の正本は
