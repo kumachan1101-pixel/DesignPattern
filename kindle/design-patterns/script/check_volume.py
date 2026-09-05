@@ -32,7 +32,7 @@
  24. 種類の違うID（問題・原因・課題）を等号で結んでいない
  25. 実践章のIDに、思い出すための短い名前が併記されている
  26. 編集の舞台裏（なぜそう書いたか）を本文へ書いていない
- 27. 第0章が実践章の題材を先出ししていない
+ 27. はじめに・第0章が実践章の題材・コード・完成構造を先出ししていない
  28. 本文が節番号（1-1、3-2）を道しるべに使っていない（括弧つき・裸の両方）
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
@@ -125,6 +125,61 @@ def declared_class_names(paths: list[Path]) -> set[str]:
         text = path.read_text(encoding="utf-8")
         names.update(re.findall(r"\b(?:class|struct|namespace)\s+([A-Za-z_]\w*)", text))
     return names
+
+
+def practical_solution_class_names(paths: list[Path]) -> set[str]:
+    """実践章で、パターン解説より前に定義される題材固有の型名。"""
+    names: set[str] = set()
+    for path in paths:
+        if not re.search(r"chapter0[1-9]", path.name):
+            continue
+        text = path.read_text(encoding="utf-8")
+        text = re.split(r"^##\s+パターン解説", text, maxsplit=1, flags=re.M)[0]
+        cpp_lines: list[str] = []
+        in_cpp = False
+        for line in text.splitlines():
+            fence = re.match(r"^```([^\s]*)", line)
+            if fence:
+                if in_cpp:
+                    in_cpp = False
+                elif fence.group(1).lower() in {"cpp", "c++"}:
+                    in_cpp = True
+                continue
+            if in_cpp:
+                cpp_lines.append(line)
+        cpp = "\n".join(cpp_lines)
+        names.update(
+            re.findall(
+                r"\b(?:class|struct|enum\s+class)\s+([A-Za-z_]\w*)",
+                cpp,
+            )
+        )
+    return names
+
+
+EARLY_STRUCTURE_REVEAL = re.compile(
+    r"(?:第[123]章|Strategy|State|Observer)[^。\n]{0,80}"
+    r"(?:`main\(\)`\s*が持|値で持|借用ポインタ|登録を受け|"
+    r"一つへ渡|渡す先が変|複数へ伝)"
+)
+
+
+def early_material_spoilers(
+    text: str,
+    solution_names: set[str],
+) -> list[tuple[int, str]]:
+    """導入で後続章の答えを先出ししている箇所を返す。"""
+    spoilers: list[tuple[int, str]] = []
+    for number, line in enumerate(text.splitlines(), 1):
+        if re.match(r"^```(?:cpp|c\+\+)\s*$", line, re.I):
+            spoilers.append((number, "題材を替えても完成形を先に示すC++コード例"))
+        for name in sorted(solution_names):
+            if re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", line):
+                spoilers.append((number, f"実践章で初めて導く型 `{name}`"))
+                break
+        if EARLY_STRUCTURE_REVEAL.search(line):
+            spoilers.append((number, "実践章で初めて決める生成・所有・再結合方法"))
+    return spoilers
 
 
 def table_rows_after(lines: list[str], start: int) -> int:
@@ -646,9 +701,9 @@ def check(config_path: Path) -> int:
                     f"なぜそう書いたかではありません"
                 )
 
-    # 27. 第0章は実践章の題材を先出ししない
-    # 第0章は各フェーズの考え方を述べる場所である。ここで割引計算や在庫通知を
-    # 例に使うと、その章を読む前に答えの半分を渡すことになる。
+    # 27. はじめに・第0章は実践章の題材や答えを先出ししない
+    # 章の名前と出発点の問題は案内してよい。題材コード、最終型名、生成・所有・
+    # 再結合方法は、各章で根拠から導く前に見せない。
     topics = (
         "割引", "キャンペーン", "会員種別", "サマーセール",
         "予約", "チケット", "満席", "キャンセル待ち",
@@ -664,6 +719,17 @@ def check(config_path: Path) -> int:
                     f"{path.name}:{number}: 実践章の題材「{found[0]}」が第0章に出ています"
                     f"（{line.strip()[:40]}）。章を読む前に例を渡さないでください"
                 )
+
+    solution_names = practical_solution_class_names(chapters)
+    for path in chapters:
+        if "preface" not in path.name and "chapter00" not in path.name:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for number, detail in early_material_spoilers(text, solution_names):
+            failures.append(
+                f"{path.name}:{number}: {detail}が導入に出ています。"
+                "導入は問題と判断の問いまでに留めてください"
+            )
 
     # 29. 図の印は「新しく作る」と「開いて直す」の2種類にそろえる
     # 1色では、新規1クラスで済んだのか既存3クラスを開いたのかが絵から読めない。

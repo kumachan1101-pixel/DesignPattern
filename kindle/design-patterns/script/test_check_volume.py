@@ -24,5 +24,24 @@ class TemplateHoleTests(unittest.TestCase):
         self.assertEqual([], check_volume.unresolved_template_holes("【追加】"))
 
 
+class EarlyMaterialSpoilerTests(unittest.TestCase):
+    def test_cpp_example_is_rejected_even_with_unrelated_names(self) -> None:
+        text = "# 第0章\n\n```cpp\nclass NeutralExample {};\n```\n"
+        hits = check_volume.early_material_spoilers(text, set())
+        self.assertIn((3, "題材を替えても完成形を先に示すC++コード例"), hits)
+
+    def test_later_solution_type_is_rejected(self) -> None:
+        text = "第3章では `InventoryNotifier` をmainから渡します。"
+        hits = check_volume.early_material_spoilers(
+            text,
+            {"InventoryNotifier"},
+        )
+        self.assertTrue(any("InventoryNotifier" in detail for _, detail in hits))
+
+    def test_pattern_names_and_problem_summaries_are_allowed(self) -> None:
+        text = "第1章はStrategyを扱い、ルール追加で既存処理が変わる問題を追います。"
+        self.assertEqual([], check_volume.early_material_spoilers(text, set()))
+
+
 if __name__ == "__main__":
     unittest.main()

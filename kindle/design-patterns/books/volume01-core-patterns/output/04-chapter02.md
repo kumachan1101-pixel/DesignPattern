@@ -1470,7 +1470,7 @@ graph TD
 
 1. `BatchApplication` ―― 状態と待ち行列を所有する
 2. `TicketReservation::cancel()` ―― 公開入口
-3. `IReservationState::cancel()` ―― 契約
+3. 状態ごとの取消操作 ―― 共通の契約
 4. これから確認する `ReservedState::cancel()` ―― 予約済みの具体状態
 5. 待ち行列から次の予約を昇格する
 
