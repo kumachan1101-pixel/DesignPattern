@@ -51,7 +51,11 @@ kindle/design-patterns/agents/volume-review-runbook.md を先に読むこと。
 第1冊を直すときにそちらを触らない（詳細は `CLAUDE.md` の「冊の構成と正本の所在」）。
 
 - 本文ゲート（`python3 script/run_completion_gate.py`）は **PASS**
-- `check_volume.py` は32観点すべて通過。クラス図の線66本もコードと一致
+- `check_volume.py` は32観点すべて通過。クラス図の線66本もコードと一致。
+  同梱ソースも3章ともビルドでき、掲載コードと同じ出力になる
+- **出版パッケージゲート（`--package`）は FAIL が1件だけ残る。** 公開PDF
+  `books/volume01-core-patterns/preview/volume01-preview.pdf` が現在の原稿より古い。
+  **このPDFはGit LFS管理で、この作業環境からは push できない**（D節）
 - 第二部（旧第9〜12章）は出版対象外。旧第2・4・5・6・8章は第2冊以降の素材
 
 ### 直近の作業（2026-09-04〜05）
@@ -108,9 +112,19 @@ kindle/design-patterns/agents/volume-review-runbook.md を先に読むこと。
 
 ### D. この環境の制約
 
-- **Git LFS が使えない。** `lfs.github.com:443` への CONNECT が 403 で弾かれる。
-  LFS 追跡下のファイル（`preview/volume01-preview.pdf` など）は**このセッションから
-  push できない**。PDFを更新したら、著者の手元で push する必要がある
+- **Git LFS が使えない。** `lfs.github.com:443` への CONNECT が 403 で弾かれる
+  （`curl https://lfs.github.com/` で再現する）。`.gitattributes` で LFS 追跡下にある
+  `books/volume01-core-patterns/preview/volume01-preview.pdf` は、**この環境から
+  再生成してコミットしても push できない。** 原稿を直したあとの手順は次で、
+  最後の push だけ著者の手元で行う必要がある
+
+```
+python3 script/build_epub.py all --clean --config books/volume01-core-patterns/publishing/book.json
+python3 script/release_artifact.py sync --config books/volume01-core-patterns/publishing/book.json
+```
+
+  **出版パッケージゲートの FAIL はこれ1件だけである。** 原稿を直すたびにPDFが
+  古くなるので、原稿側の作業が一区切りついてからまとめて再生成するのがよい
 - Kindle Previewer は無い（C1）
 - `publishing/dist/` は Git 管理対象外。生成物はコミットしない
 
