@@ -39,6 +39,7 @@
  31. 一つの実行結果ブロックに複数の実行を詰め込んでいない
  32. 配布するファイル一式と本文の分割表が一致している
  33. 三つの問いが旧原則へ戻らず、実践章の判断場面に置かれている
+ 34. 第0章のクラス図凡例で、図と対応する説明が一組になっている
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -214,6 +215,51 @@ def three_question_placement_issues(text: str) -> list[str]:
     for key, section, location in expected:
         if THREE_QUESTIONS[key] not in section:
             issues.append(f"{key}が{location}にありません")
+    return issues
+
+
+def class_legend_pairing_issues(text: str) -> list[str]:
+    """第0章のクラス図凡例で、各図の番号を直後に説明しているかを返す。"""
+    section_match = re.search(
+        r"^### クラス図の線の意味\s*$\n(?P<body>.*?)(?=^##\s)",
+        text,
+        re.M | re.S,
+    )
+    if not section_match:
+        return ["「クラス図の線の意味」がありません"]
+
+    section = section_match.group("body")
+    diagrams = list(
+        re.finditer(r"```mermaid\s*\n(?P<body>.*?)```", section, re.S)
+    )
+    class_diagrams = [
+        diagram for diagram in diagrams if "classDiagram" in diagram.group("body")
+    ]
+    if not class_diagrams:
+        return ["クラス図の線を示す図がありません"]
+
+    issues: list[str] = []
+    for index, diagram in enumerate(class_diagrams):
+        body = diagram.group("body")
+        numbers = sorted(set(re.findall(r"[①②③④⑤⑥]", body)))
+        if not numbers:
+            continue
+        if not re.search(r"^\s*%%\s*explanation-set\s*$", body, re.M):
+            issues.append(
+                f"{''.join(numbers)}の図にPDFで説明と組にする指定がありません"
+            )
+        following_start = diagram.end()
+        following_end = (
+            class_diagrams[index + 1].start()
+            if index + 1 < len(class_diagrams)
+            else len(section)
+        )
+        following = section[following_start:following_end]
+        missing = [number for number in numbers if number not in following]
+        if missing:
+            issues.append(
+                f"{''.join(missing)}の説明が、その番号を載せた図の直後にありません"
+            )
     return issues
 
 
@@ -906,6 +952,16 @@ def check(config_path: Path) -> int:
             continue
         text = path.read_text(encoding="utf-8")
         for issue in three_question_placement_issues(text):
+            failures.append(f"{path.name}: {issue}")
+
+    # 34. 第0章のクラス図凡例は、図をまとめて先出ししない
+    # 読者が番号を覚えて後段の説明へ戻らなくて済むように、各図の番号は
+    # その図の直後で説明し、PDFでも図・説明表を同じ単位に組版する。
+    for path in chapters:
+        if "chapter00" not in path.name:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for issue in class_legend_pairing_issues(text):
             failures.append(f"{path.name}: {issue}")
 
     # 28. 本文で節番号を道しるべに使わない

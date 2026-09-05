@@ -94,6 +94,26 @@ class MarkdownTests(unittest.TestCase):
         self.assertIn('<div class="visual-unit">', marked)
         self.assertIn('<p>前の説明です。</p><h3>図の節</h3><div', marked)
 
+    def test_explanation_set_keeps_diagram_and_table_in_same_unit(self) -> None:
+        body = '<p>次のクラス図を見ます。</p>'
+        body += '<figure class="mermaid-image explanation-set">'
+        body += '<img src="a.png" /></figure>'
+        body += '<p>直前のクラス図を説明します。</p>'
+        body += '<table><tr><td>①</td></tr></table><p>次の本文</p>'
+        marked = build_epub.mark_visual_introductions(body)
+        unit_end = marked.index('</div>')
+        self.assertLess(marked.index('<table>'), unit_end)
+        self.assertGreater(marked.index('<p>次の本文</p>'), unit_end)
+
+    def test_normal_diagram_does_not_absorb_following_table(self) -> None:
+        body = '<p>次の図を見ます。</p>'
+        body += '<figure class="mermaid-image"><img src="a.png" /></figure>'
+        body += '<p>直前の図を説明します。</p>'
+        body += '<table><tr><td>結果</td></tr></table>'
+        marked = build_epub.mark_visual_introductions(body)
+        unit_end = marked.index('</div>')
+        self.assertGreater(marked.index('<table>'), unit_end)
+
     def test_content_hash_changes_with_title(self) -> None:
         first = build_epub.content_hash("cpp", "A", "int main() {}")
         second = build_epub.content_hash("cpp", "B", "int main() {}")

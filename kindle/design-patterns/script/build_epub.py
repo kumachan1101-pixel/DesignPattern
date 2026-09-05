@@ -1043,8 +1043,11 @@ def replace_fenced_blocks(
             relative = relative_to_dist(config, image_path)
             number = diagram_number(markdown_path.stem, mermaid_index)
             caption = f"{number}　{title}"
+            figure_classes = ["mermaid-image"]
+            if re.search(r"^\s*%%\s*explanation-set\s*$", source, re.M):
+                figure_classes.append("explanation-set")
             return (
-                "\n\n<figure class=\"mermaid-image\">"
+                f'\n\n<figure class="{" ".join(figure_classes)}">'
                 f'<img src="{relative}" alt="{html.escape(caption)}" />'
                 f"<figcaption>{html.escape(caption)}</figcaption>"
                 "</figure>\n\n"
@@ -1083,12 +1086,15 @@ def replace_fenced_blocks(
 
 
 def mark_visual_introductions(body_html: str) -> str:
-    """図の直前の段落と図を、改ページされない1つの説明単位にする。"""
+    """図の導入と図をまとめ、指定した凡例では直後の説明表もまとめる。"""
     pattern = re.compile(
         # `.*?`だけでは前の段落から複数の見出し・段落をまたいでしまう。
         # 直近の1段落だけを選ぶため、途中の閉じpタグを越えない。
         r"<p(?P<attrs>[^>]*)>(?P<content>(?:(?!</p>).)*)</p>"
-        r"(?P<gap>\s*)(?P<figure><figure class=\"mermaid-image\">.*?</figure>)",
+        r"(?P<gap>\s*)"
+        r"(?P<figure><figure class=\"mermaid-image[^\"]*\">.*?</figure>)"
+        r"(?P<explanation>\s*<p[^>]*>(?:(?!</p>).)*</p>\s*"
+        r"<table>.*?</table>)?",
         re.DOTALL,
     )
 
@@ -1106,12 +1112,18 @@ def mark_visual_introductions(body_html: str) -> str:
             )
         else:
             attrs += ' class="figure-intro"'
+        explanation = match.group("explanation") or ""
+        keep_explanation = "explanation-set" in match.group("figure")
+        grouped_explanation = explanation if keep_explanation else ""
+        trailing_explanation = "" if keep_explanation else explanation
         return (
             '<div class="visual-unit">'
             + f'<p{attrs}>{match.group("content")}</p>'
             + match.group("gap")
             + match.group("figure")
+            + grouped_explanation
             + "</div>"
+            + trailing_explanation
         )
 
     return pattern.sub(replace, body_html)

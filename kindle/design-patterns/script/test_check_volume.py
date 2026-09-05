@@ -75,5 +75,54 @@ class ThreeQuestionPlacementTests(unittest.TestCase):
         self.assertIn("問い2がフェーズ6の契約検討にありません", issues)
 
 
+class ClassLegendPairingTests(unittest.TestCase):
+    def test_each_diagram_followed_by_its_explanation_is_accepted(self) -> None:
+        text = """### クラス図の線の意味
+
+```mermaid
+classDiagram
+%% explanation-set
+A <|-- B : ①
+```
+
+直前のクラス図の①を説明します。
+
+```mermaid
+classDiagram
+%% explanation-set
+C --> D : ⑤
+```
+
+直前のクラス図の⑤を説明します。
+
+## フェーズ1
+"""
+        self.assertEqual([], check_volume.class_legend_pairing_issues(text))
+
+    def test_diagrams_listed_before_explanations_are_rejected(self) -> None:
+        text = """### クラス図の線の意味
+
+```mermaid
+classDiagram
+%% explanation-set
+A <|-- B : ①
+```
+
+次の図も見ます。
+
+```mermaid
+classDiagram
+%% explanation-set
+C --> D : ⑤
+```
+
+①と⑤をまとめて説明します。
+
+## フェーズ1
+"""
+        issues = check_volume.class_legend_pairing_issues(text)
+        self.assertIn("①の説明が、その番号を載せた図の直後にありません", issues)
+
+
 if __name__ == "__main__":
     unittest.main()
