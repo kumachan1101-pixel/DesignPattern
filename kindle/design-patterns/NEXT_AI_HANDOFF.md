@@ -18,6 +18,8 @@ templates/ と rules/ は追随しきれていない。
 - 直したら必ず次を通し、結果をそのまま報告する。落ちたら直してから次へ進む
     python3 script/check_volume.py --config books/volume01-core-patterns/publishing/book.json
     python3 script/run_completion_gate.py
+- ゲートは books/volume01-core-patterns/sources/ を作り直す。掲載コードを直すと
+  ここにも差分が出るので、原稿と一緒にコミットする（Git管理下の生成物）
 - 既存ファイルの構造を変える書き換え、ファイルの削除、新しいフォルダの作成は、
   実行前に私へ確認する
 - コミットメッセージ・PR・コード内コメントに、使っているAIのモデル名を書かない
@@ -158,6 +160,11 @@ python3 script/run_completion_gate.py
 
 本文が PASS でも、KDP入稿用成果物が完成したことは意味しない。
 出版パッケージの判定は `--package` を付ける。
+
+**ゲートは `books/volume01-core-patterns/sources/` を作り直す。** 掲載コードを
+1行でも直すとここに差分が出る。これは Git 管理下の生成物なので、原稿と一緒に
+コミットする。読者が `make run` で章の結論を検算できる唯一の場所であり、
+本文とずれたままにしない。
 
 ## 引き継ぐ側が間違えやすい点
 
