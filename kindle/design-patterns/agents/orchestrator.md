@@ -6,6 +6,9 @@
 正本は `templates/chapter-template.md`、全体思想は第0章 `output/chapter00_2.md` とする。
 別のAIへ作業を渡す場合は、最初に `AI_HANDOFF.md` を読ませる。
 
+刊行前の分冊をレンズ別サブエージェントで通しレビューするときは、
+`agents/volume-review-runbook.md` の回し方に従う。
+
 ## 推奨フロー
 
 1. `AI_HANDOFF.md`、`ai-context.md`、`CLAUDE.md` を読む。
