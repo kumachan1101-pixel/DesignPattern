@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "sourceSha256": "3cb87deec6fee716524caf9fda6a64623a157b956eebcbbca842172042303ca7",
-  "pdfSha256": "be03a44bf0c989cac3817fc15ff1afe6b1820b39121d498bfb2b4abf9bd77a7b",
+  "sourceSha256": "4760975eeb98a477822a1e7fd9886a6b0b9d5366fb32057139cfa4a6854d7c93",
+  "pdfSha256": "1a6b0623f270b070505423510ffbbeef61553977f0e2fed0ee5e1f2a96ad7084",
   "sourceFiles": [
     "books/volume01-core-patterns/publishing/book.json",
     "script/build_epub.py",

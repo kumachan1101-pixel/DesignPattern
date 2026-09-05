@@ -34,6 +34,11 @@
  26. 編集の舞台裏（なぜそう書いたか）を本文へ書いていない
  27. はじめに・第0章が実践章の題材・コード・完成構造を先出ししていない
  28. 本文が節番号（1-1、3-2）を道しるべに使っていない（括弧つき・裸の両方）
+ 29. 変更図の印が「新規」と「修正」の共通指定にそろっている
+ 30. 全ノードが同じ印の図で、意味のない着色をしていない
+ 31. 一つの実行結果ブロックに複数の実行を詰め込んでいない
+ 32. 配布するファイル一式と本文の分割表が一致している
+ 33. 三つの問いが旧原則へ戻らず、実践章の判断場面に置かれている
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -162,6 +167,54 @@ EARLY_STRUCTURE_REVEAL = re.compile(
     r"(?:`main\(\)`\s*が持|値で持|借用ポインタ|登録を受け|"
     r"一つへ渡|渡す先が変|複数へ伝)"
 )
+
+THREE_QUESTIONS = {
+    "問い1": "問い1：同じ場所に、別々の理由で変わるものがないか",
+    "問い2": "問い2：境界では、何を約束すれば足りるか",
+    "問い3": "問い3：実体を、誰が作り、持ち、渡すのか",
+}
+
+LEGACY_DESIGN_PRINCIPLE = re.compile(
+    r"(?:3つ|三つ)の設計原則|原則との関係|原則[123１-３]（"
+)
+
+
+def text_between(text: str, start: str, end: str) -> str:
+    """startを含まずendより前までを返す。見出しがなければ空文字列。"""
+    start_index = text.find(start)
+    if start_index < 0:
+        return ""
+    start_index += len(start)
+    end_index = text.find(end, start_index)
+    if end_index < 0:
+        return ""
+    return text[start_index:end_index]
+
+
+def three_question_placement_issues(text: str) -> list[str]:
+    """実践章で三つの問いが判断の直前・直後にあるかを返す。"""
+    issues: list[str] = []
+    phase4 = text_between(text, "フェーズ4：原因分析", "フェーズ5：課題定義")
+    contract = text_between(
+        text,
+        "#### 契約：境界の形と受け渡しを決める",
+        "#### 生成・所有・受け渡しを決める",
+    )
+    generation = text_between(
+        text,
+        "#### 生成・所有・受け渡しを決める",
+        "フェーズ7：対策実施",
+    )
+
+    expected = (
+        ("問い1", phase4, "フェーズ4の原因確定後"),
+        ("問い2", contract, "フェーズ6の契約検討"),
+        ("問い3", generation, "フェーズ6の生成・所有・受け渡し"),
+    )
+    for key, section, location in expected:
+        if THREE_QUESTIONS[key] not in section:
+            issues.append(f"{key}が{location}にありません")
+    return issues
 
 
 def early_material_spoilers(
@@ -828,6 +881,32 @@ def check(config_path: Path) -> int:
                     f"{path.name}: 分割表の `{extra}` は実際には配られません。"
                     "表から外すか、生成する側へ足してください"
                 )
+
+    # 33. 三つの問いを、原則の言い換えや章末だけの飾りにしない
+    # 問い1は原因を確定した場面、問い2は契約を決める場面、問い3は
+    # 生成・所有・受け渡しを決める場面で、題材固有の答えと一緒に使う。
+    governed = chapters + [
+        BOOK_ROOT / "templates" / "chapter-template.md",
+        BOOK_ROOT / "rules" / "checklist.md",
+        BOOK_ROOT / "CLAUDE.md",
+    ]
+    for path in governed:
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for found in LEGACY_DESIGN_PRINCIPLE.finditer(text):
+            number = text[: found.start()].count("\n") + 1
+            failures.append(
+                f"{path.name}:{number}: 旧原則の表現 `{found.group(0)}` が残っています。"
+                "三つの問いと、その場で確定した答えへ置き換えてください"
+            )
+
+    for path in chapters:
+        if not re.search(r"chapter0[1-9]", path.name):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for issue in three_question_placement_issues(text):
+            failures.append(f"{path.name}: {issue}")
 
     # 28. 本文で節番号を道しるべに使わない
     # 「1-1（このシステムの仕様）の『商品』にあたるデータです」の番号は、読者に

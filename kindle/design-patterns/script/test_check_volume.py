@@ -43,5 +43,37 @@ class EarlyMaterialSpoilerTests(unittest.TestCase):
         self.assertEqual([], check_volume.early_material_spoilers(text, set()))
 
 
+class ThreeQuestionPlacementTests(unittest.TestCase):
+    def valid_chapter(self) -> str:
+        return "\n".join(
+            [
+                "## フェーズ4：原因分析",
+                check_volume.THREE_QUESTIONS["問い1"],
+                "## フェーズ5：課題定義",
+                "## フェーズ6：対策検討",
+                "#### 契約：境界の形と受け渡しを決める",
+                check_volume.THREE_QUESTIONS["問い2"],
+                "#### 生成・所有・受け渡しを決める",
+                check_volume.THREE_QUESTIONS["問い3"],
+                "## フェーズ7：対策実施",
+            ]
+        )
+
+    def test_questions_at_decision_points_are_accepted(self) -> None:
+        self.assertEqual(
+            [],
+            check_volume.three_question_placement_issues(self.valid_chapter()),
+        )
+
+    def test_recap_only_does_not_satisfy_placement(self) -> None:
+        text = self.valid_chapter().replace(
+            check_volume.THREE_QUESTIONS["問い2"],
+            "契約を検討する",
+        )
+        text += "\n### 振り返り\n" + check_volume.THREE_QUESTIONS["問い2"]
+        issues = check_volume.three_question_placement_issues(text)
+        self.assertIn("問い2がフェーズ6の契約検討にありません", issues)
+
+
 if __name__ == "__main__":
     unittest.main()
