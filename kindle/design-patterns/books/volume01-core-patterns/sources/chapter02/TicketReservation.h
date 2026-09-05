@@ -40,10 +40,8 @@ class TicketReservation {
 private:
     IReservationState* state;
     EventDatabase* db;           // 在庫の保存データ（境界）
-    ReservationHistory* history; // 予約履歴
     ReservationWaitlist* waitlist;
     std::string eventId;
-    std::string title;
 
     // キャンセル待ち昇格は外部公開せず、システム連鎖からだけ呼ぶ
     void promoteBySystem() {
@@ -52,13 +50,10 @@ private:
 public:
     TicketReservation(IReservationState* initialState,
                       EventDatabase* db,
-                      ReservationHistory* history,
                       ReservationWaitlist* waitlist,
-                      const std::string& eventId,
-                      const std::string& title)
-        : state(initialState), db(db), history(history),
-          waitlist(waitlist),
-          eventId(eventId), title(title) {}
+                      const std::string& eventId)
+        : state(initialState), db(db), waitlist(waitlist),
+          eventId(eventId) {}
 
     // 状態遷移時に、共有状態オブジェクトへの借用ポインタを差し替える。
     // 状態は関数ローカルstaticが所有するため、ここではdeleteしない。
@@ -66,16 +61,12 @@ public:
         state = nextState;
     }
 
-    // 状態遷移の副作用：在庫の増減と履歴の記録
+    // 状態遷移の副作用：在庫の増減
     void reserveSeat() { db->reserveSeat(eventId); }
     void cancelSeat()  { db->cancelSeat(eventId); }
     bool hasCapacity() const {
         return db->hasCapacity(eventId);
     }
-    void record(const std::string& action) {
-        history->add(eventId, title, action);
-    }
-
     void joinWaitlist() {
         waitlist->enqueue(eventId, this);
     }
@@ -107,7 +98,6 @@ public:
 
 class BatchApplication {
     EventDatabase db;
-    ReservationHistory history;
     ReservationWaitlist waitlist;
     ReservationExpiryScheduler expiryScheduler;
 
@@ -143,8 +133,7 @@ public:
             EventInfo i1 = db.get("EVT001");
             std::cout << "予約対象：" << i1.title << "\n";
             TicketReservation seat1(availableState(), &db,
-                                    &history, &waitlist,
-                                    "EVT001", i1.title);
+                                    &waitlist, "EVT001");
             seat1.reserve();
             seat1.pay();
         }
@@ -153,10 +142,8 @@ public:
         std::cout << "--- 行2: 通常キャンセル ---\n";
 
         if (showAvailability("EVT001")) {
-            EventInfo i2 = db.get("EVT001");
             TicketReservation seat2(availableState(), &db,
-                                    &history, &waitlist,
-                                    "EVT001", i2.title);
+                                    &waitlist, "EVT001");
             seat2.reserve();
             seat2.cancel();
         }
@@ -165,11 +152,9 @@ public:
         std::cout << "--- 行3: 保留と支払い ---\n";
 
         if (showAvailability("EVT002")) {
-            EventInfo i3 = db.get("EVT002");
-            std::cout << "予約対象：" << i3.title << "\n";
+            std::cout << "予約対象：" << db.get("EVT002").title << "\n";
             TicketReservation seat3(availableState(), &db,
-                                    &history, &waitlist,
-                                    "EVT002", i3.title);
+                                    &waitlist, "EVT002");
             seat3.reserve();
             seat3.hold();
             seat3.pay();
@@ -180,10 +165,8 @@ public:
         std::cout << "--- 行4: 保留期限切れ ---\n";
 
         if (showAvailability("EVT001")) {
-            EventInfo i4 = db.get("EVT001");
             TicketReservation seat4(availableState(), &db,
-                                    &history, &waitlist,
-                                    "EVT001", i4.title);
+                                    &waitlist, "EVT001");
             seat4.reserve();
             seat4.hold();
             // テストハーネスから「24時間経過」を即時注入する。
@@ -195,10 +178,8 @@ public:
         std::cout << "--- 行4a: 通常決済期限切れ ---\n";
 
         if (showAvailability("EVT001")) {
-            EventInfo i4a = db.get("EVT001");
             TicketReservation seat4a(availableState(), &db,
-                                     &history, &waitlist,
-                                     "EVT001", i4a.title);
+                                     &waitlist, "EVT001");
             seat4a.reserve();
             expiryScheduler.onPaymentDeadlineExpired(seat4a);
         }
@@ -206,34 +187,28 @@ public:
         // シナリオ5：満席確認 → 通常の予約要求で自動待機登録 →
         // 既存予約のキャンセルを起点に自動昇格
         std::cout << "--- 行5: 満席からの自動昇格 ---\n";
-        EventInfo full = db.get("EVT003");
         // 50/50を表示。reserve()が満席を判定する
         showAvailability("EVT003");
 
         TicketReservation waiting(availableState(), &db,
-                                  &history, &waitlist,
-                                  "EVT003", full.title);
+                                  &waitlist, "EVT003");
         waiting.reserve(); // 利用者は通常の予約操作だけ。満席なので自動待機登録
 
         // 初期50件のうち1件を表す既存予約。利用側はcancel()だけを呼ぶ。
         TicketReservation occupied(reservedState(), &db,
-                                   &history, &waitlist,
-                                   "EVT003", full.title);
+                                   &waitlist, "EVT003");
         occupied.cancel(); // 50→49、その直後にwaitingを49→50へ自動昇格
         waiting.pay();
 
         // シナリオ5b：待機者がいる状態での期限切れ → 自動昇格
         std::cout << "--- 行5b: 期限切れからの自動昇格 ---\n";
-        EventInfo f2 = db.get("EVT003");
         // 50/50の満席状態。1件を保留にしてから待機者を登録する
         TicketReservation held(reservedState(), &db,
-                               &history, &waitlist,
-                               "EVT003", f2.title);
+                               &waitlist, "EVT003");
         // 席は確保したまま、期限だけ24時間へ延長（席数は動かない）
         held.hold();
         TicketReservation waiting2(availableState(), &db,
-                                   &history, &waitlist,
-                                   "EVT003", f2.title);
+                                   &waitlist, "EVT003");
         waiting2.reserve(); // 満席判定により自動待機登録
         // 24時間経過。席が空き、待機者が自動昇格する
         expiryScheduler.onPaymentDeadlineExpired(held);
@@ -242,10 +217,8 @@ public:
         std::cout << "--- 行6: 無効な操作の拒否 ---\n";
 
         if (validateExists("EVT001")) {
-            EventInfo i6 = db.get("EVT001");
             TicketReservation seat6(availableState(), &db,
-                                    &history, &waitlist,
-                                    "EVT001", i6.title);
+                                    &waitlist, "EVT001");
             seat6.pay();
         }
 
@@ -258,16 +231,12 @@ public:
         std::cout << "--- 行8: 決済失敗（再試行可能） ---\n";
 
         if (showAvailability("EVT001")) {
-            EventInfo i8 = db.get("EVT001");
             TicketReservation seat8(availableState(), &db,
-                                    &history, &waitlist,
-                                    "EVT001", i8.title);
+                                    &waitlist, "EVT001");
             seat8.reserve();
             seat8.paymentFailed();
         }
 
-        std::cout << "\n--- 行9: 予約履歴 ---\n";
-        history.printAll();
     }
 };
 

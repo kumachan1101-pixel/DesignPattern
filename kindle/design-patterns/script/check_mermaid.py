@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Render every Mermaid block in the published chapters with Mermaid CLI."""
+"""Render every Mermaid block in the published chapters with Mermaid CLI.
+
+Use ``--config books/<volume>/publishing/book.json`` for a split volume.
+Without it, the original ``output/chapter*.md`` set is checked.
+"""
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -77,14 +82,39 @@ def puppeteer_config(temp_root: Path) -> list[str]:
     return ["-p", str(config)]
 
 
+def chapter_paths_from_config(config: Path | None) -> list[Path]:
+    if config is None:
+        return sorted(OUTPUT_DIR.glob("chapter*.md"))
+    data = json.loads(config.read_text(encoding="utf-8"))
+    return [BOOK_ROOT / name for name in data.get("chapters", [])]
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--config",
+        help="分冊のbook.json。省略時はoutput/chapter*.mdを検査する",
+    )
+    args = parser.parse_args()
+    config = Path(args.config) if args.config else None
+    if config is not None and not config.is_absolute():
+        config = BOOK_ROOT / config
+    if config is not None and not config.exists():
+        print(f"FAILED: {config} がありません")
+        return 1
+
     mmdc = find_mmdc()
     if not mmdc:
         print("FAILED: Mermaid CLI (mmdc) is not installed or is not on PATH")
         print("  導入: bash kindle/design-patterns/script/setup_mermaid.sh")
         return 1
 
-    chapter_paths = sorted(OUTPUT_DIR.glob("chapter*.md"))
+    chapter_paths = chapter_paths_from_config(config)
+    missing = [path for path in chapter_paths if not path.exists()]
+    if missing:
+        for path in missing:
+            print(f"FAILED: {path} がありません")
+        return 1
     total_blocks = 0
     failures: list[str] = []
     with tempfile.TemporaryDirectory(prefix="design-pattern-mermaid-") as temp_name:

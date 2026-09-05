@@ -64,45 +64,6 @@ struct StockAlert {
     int threshold;
 };
 
-// 通知先が満たす必要がある契約（インターフェース）
-
-struct StockEvent {
-    std::string productId;
-    std::string productName;
-    std::string eventType;  // "入荷", "出荷", "閾値警告"
-    int amount;
-    int stockBefore;
-    int stockAfter;
-};
-
-// 在庫変動ログを管理するクラス
-
-class StockEventLog {
-    std::vector<StockEvent> records;
-public:
-    void add(const std::string& productId,
-             const std::string& productName,
-             const std::string& eventType, int amount,
-             int stockBefore, int stockAfter) {
-        records.push_back({productId, productName, eventType,
-                           amount, stockBefore, stockAfter});
-    }
-
-    void printAll() const {
-        // 要求ID4：商品ID・変更前→変更後・単位をそろえて残す
-        for (const auto& r : records) {
-            std::cout << "[" << r.productId << "] "
-                      << r.productName
-                      << " " << r.eventType << " " << r.amount
-                      << "個 (" << r.stockBefore << "->"
-                      << r.stockAfter
-                      << ")" << std::endl;
-        }
-    }
-
-    int size() const { return (int)records.size(); }
-};
-
 // 非同期SMSの受付IDと最終配信状態を管理する
 
 // SMS基盤から後日届くコールバックの入口。在庫更新から独立させる

@@ -17,7 +17,7 @@ validate_book.py 本体は「現在の本文が通るか」しか見ないため
   REVIEW-002 共通フェーズ見出しが章独自の表記へ戻る
   REVIEW-003 検証・照会メソッドの戻り値を捨てる
   REVIEW-004 著者向けの分類見出しを公開本文へ出す
-  REVIEW-005 フェーズ6全体像をテキストだけへ戻す
+  REVIEW-005 フェーズ6へ完成クラス図を先出しする
   REVIEW-006 複数ケースの実行結果を長い一括ブロックへ戻す
   REVIEW-007 変更固有の模擬方法を著者向け共通見出しへ戻す
   REVIEW-009 4-2の比較表を章独自の列見出しへ戻す
@@ -87,10 +87,12 @@ cases.append(("REVIEW-004 著者向け見出し", V.check_banned_patterns, broke
 t = (OUT/"chapter04.md").read_text(encoding="utf-8")
 broken = t.replace(
     "### 構想をコードでつなぐ",
-    "```mermaid\nclassDiagram\n    class PrematureAnswer\n```\n\n### 構想をコードでつなぐ",
+    "#### 完成後のクラス図\n\n"
+    "```mermaid\nclassDiagram\n    class PrematureAnswer\n```\n\n"
+    "### 構想をコードでつなぐ",
     1,
 )
-cases.append(("REVIEW-005 フェーズ6の重複図", V.check_phase6_overview_diagram, broken))
+cases.append(("REVIEW-005 フェーズ6の完成図先出し", V.check_phase6_overview_diagram, broken))
 
 # 10) REVIEW-006: 長い実行結果を一括掲載する
 t = (OUT/"chapter04.md").read_text(encoding="utf-8")

@@ -187,3 +187,29 @@
 ---
 
 *ここまで読んでくださったあなたへ、心からありがとうございました。*
+
+---
+
+## 著書紹介
+
+### 『SOLID原則 実践ソフトウェア設計』
+
+[Amazonの商品ページを見る](https://www.amazon.co.jp/dp/B0FR4FNM67)
+
+<a href="https://www.amazon.co.jp/dp/B0FR4FNM67">
+<img src="assets/solid_design.jpg" alt="SOLID原則 実践ソフトウェア設計" width="250">
+</a>
+
+### 『SOLID原則 C言語ソフトウェア設計』
+
+[Amazonの商品ページを見る](https://www.amazon.co.jp/dp/B0GSMK45YY)
+
+<a href="https://www.amazon.co.jp/dp/B0GSMK45YY">
+<img src="assets/solid_c_design.jpg" alt="SOLID原則 C言語ソフトウェア設計" width="250">
+</a>
+
+## Noteブログ
+
+ブログでも、分離そのものを目的にせず、**何の価値を守るために分けるのか、同じ理由で一緒に変わるものは一緒に置けないか**を考えています。本書で繰り返した「変わる理由の違いを見つけ、必要な契約だけを残して再接続する」という考え方と同じ方向です。責任、契約、依存、QCDについて、書籍とは異なる題材で考えた記事も公開しています。
+
+[設計やソフトウェア開発についての記事を読む](https://note.com/rosy_flax9582)

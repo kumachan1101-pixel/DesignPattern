@@ -14,6 +14,8 @@ curated（要約表記）で実出力そのものを載せない節は EXEMPT �
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
 import subprocess
 import sys
@@ -116,10 +118,30 @@ def lines_present_in_order(output: str, sec: str) -> list[str]:
     return missing
 
 
+def configured_chapter_paths(config: Path | None) -> list[Path]:
+    if config is None:
+        return [OUTPUT_DIR / name for name in CORE_CHAPTERS]
+    data = json.loads(config.read_text(encoding="utf-8"))
+    return [BOOK_ROOT / name for name in data.get("chapters", [])]
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--config",
+        help="分冊のbook.json。省略時は元の全章を検査する",
+    )
+    args = parser.parse_args()
+    config = Path(args.config) if args.config else None
+    if config is not None and not config.is_absolute():
+        config = BOOK_ROOT / config
+    if config is not None and not config.exists():
+        print(f"FAILED: {config} がありません")
+        return 1
+
     problems = 0
-    for name in CORE_CHAPTERS:
-        path = OUTPUT_DIR / name
+    for path in configured_chapter_paths(config):
+        name = path.name
         if not path.exists():
             print(f"{name}: ファイルなし")
             problems += 1
@@ -161,7 +183,7 @@ def main() -> int:
                     print(f"    {f!r}")
                 problems += 1
     if problems == 0:
-        print("OK: 全章の 1-4 / 7-1 実行結果が実出力と一致")
+        print("OK: 対象章の 1-4 / 7-1 実行結果が実出力と一致")
         return 0
     print(f"---\nNG: {problems} 節で不一致またはコンパイル失敗")
     return 1

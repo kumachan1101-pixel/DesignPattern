@@ -402,11 +402,16 @@ BANNED_PATTERNS = [
 # validate_book.py が本文へ要求する表頭。テンプレートとも共有するため定数化する。
 # ここを変えたら templates/chapter-template.md も同じ語へ直す
 # （check_validator_template_sync が片方だけの変更を検出する）。
-REQUIRED_TABLE_HEADERS = (
-    "| 原因ID・確定した事実 | そのままだと残る痛み | 課題候補 | 候補を導いた理由 |",
-    "| 課題候補 | 必要性・他候補との関係 | 統合／分割の判断 | 整理結果 |",
-    "| 課題ID・接続点 | 接続するもの・変わる側 | 守る側 | 完了条件 |",
+PHASE5_CAUSE_HEADER = (
+    "| 原因ID・確定した事実 | そのままだと残る痛み | 課題候補 | 候補を導いた理由 |"
 )
+PHASE5_ISSUE_HEADER = (
+    "| 課題ID・接続点 | 接続するもの・変わる側 | 守る側 | 完了条件 |"
+)
+
+# 5-2は課題別の手段比較表にせず、全原因を解ける境界への
+# 統合／分割判断を本文で説明する。テンプレートと同期する表頭は5-1と5-3のみ。
+REQUIRED_TABLE_HEADERS = (PHASE5_CAUSE_HEADER, PHASE5_ISSUE_HEADER)
 
 
 @dataclass
@@ -1482,11 +1487,9 @@ def check_phase5_phase6_reasoning_contract(
             ))
 
     for token, message in (
-        (REQUIRED_TABLE_HEADERS[0],
+        (PHASE5_CAUSE_HEADER,
          "5-1に原因から候補を導いた理由がありません"),
-        (REQUIRED_TABLE_HEADERS[1],
-         "5-2に候補の必要性・重複・統合・分割の評価がありません"),
-        (REQUIRED_TABLE_HEADERS[2],
+        (PHASE5_ISSUE_HEADER,
          "5-3に接続点と完了条件を持つ確定課題表がありません"),
         ("変更IDと課題IDは一対一とは限らない",
          "変更IDと課題IDを別管理する理由がありません"),
@@ -1511,12 +1514,9 @@ def check_phase5_phase6_reasoning_contract(
                 f"フェーズ6の構想と採用判断に{issue_id}がありません",
             ))
 
-    # 完成クラス図は実装結果であり、フェーズ7だけに置く。
-    if _mermaid_diagrams(phase6, "classDiagram"):
-        issues.append(Issue(
-            path, line_number(text, p6),
-            "フェーズ6にクラス図を置かないでください。完成クラス図はフェーズ7だけに置きます",
-        ))
+    # フェーズ6の部分クラス図は判断対象だけを示すため許可する。
+    # 完成図の先出しや部分図の範囲不明は、
+    # check_phase6_overview_diagram で一元的に検査する。
     completed_start = text.find("#### 完成後のクラス図", p7)
     completed_end = text.find("#### 完成後の実行シーケンス", completed_start)
     completed = (
@@ -2988,7 +2988,7 @@ def check_validator_template_sync(_text: str, path: Path) -> list[Issue]:
                 f"フェーズ6の本文規約が章テンプレートにありません: {token}",
             ))
     for token in (
-        "第0章「掲載ブロックと実ファイルの分け方」",
+        "第0章「掲載コードを手元で動かす」",
         "トップレベルの`class`、`struct`、`enum class`を1ブロックに1つ",
         "入力・取得、判定、選択・計算、状態変更・保存、通知・返却",
     ):
@@ -3003,8 +3003,8 @@ def check_validator_template_sync(_text: str, path: Path) -> list[Issue]:
         chapter0_text = chapter0_template.read_text(encoding="utf-8")
         for token in (
             "フェーズ6：対策検討 ―― 構想を一つのコード経路へ変える",
-            "契約・具体・生成・所有・登録・選択・受け渡し・実行",
-            "契約→代表具体→生成・選択・受け渡し→実行骨格→公開入口",
+            "契約→代表具体→生成・所有・登録または選択→受け渡し→実行骨格→公開入口",
+            "生成・登録・選択・注入を同じ語でまとめず",
             "課題IDとの対応と将来リスク",
             "掲載コードの読み方と実ファイルの分け方",
             "`.h`へ公開契約・クラス宣言",
@@ -3151,15 +3151,35 @@ def check_phase42_comparison_header(text: str, path: Path) -> list[Issue]:
 
 
 def check_phase6_overview_diagram(text: str, path: Path) -> list[Issue]:
-    """構想はコード経路で示し、完成クラス図はフェーズ7だけに置く。"""
+    """フェーズ6は判断ごとの部分図、フェーズ7は統合後の完成図に分ける。"""
     p6, section = _phase6_section(text)
     if p6 < 0:
         return []
     issues: list[Issue] = []
-    if "```mermaid" in section:
+
+    class_diagrams = _mermaid_diagrams(section, "classDiagram")
+    complete_markers = (
+        "#### 完成後のクラス図",
+        "#### 完成クラス図",
+        "システム全体の完成図",
+        "統合した完成クラス図",
+    )
+    if class_diagrams and any(marker in section for marker in complete_markers):
         issues.append(Issue(
             path, line_number(text, p6),
-            "フェーズ6へ完成図や途中図を重ねず、構想上のコード経路と要点コードに絞ってください",
+            "フェーズ6に完成クラス図を先出ししないでください。"
+            "ここでは今判断する関係だけの部分クラス図、"
+            "統合した完成図はフェーズ7に置きます",
+        ))
+    if class_diagrams and "部分クラス図" not in section:
+        issues.append(Issue(
+            path, line_number(text, p6),
+            "フェーズ6のクラス図は、判断対象だけの部分クラス図だと明記してください",
+        ))
+    if class_diagrams and not re.search(r"省(?:い|く|け|か|略|くと)", section):
+        issues.append(Issue(
+            path, line_number(text, p6),
+            "フェーズ6の部分クラス図に、その判断では対象外として省いた範囲を書いてください",
         ))
     concept_end = section.find("### 構想をコードでつなぐ")
     concept = section[:concept_end] if concept_end >= 0 else section
@@ -3578,11 +3598,9 @@ def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
                 path, line_number(text, start + max(adoption_start, 0)),
                 f"構想の採用判断に見出しがありません: {heading}",
             ))
-    if "```mermaid" in section:
-        issues.append(Issue(
-            path, line_number(text, start),
-            "フェーズ6に図を置かないでください。完成クラス図はフェーズ7だけに置きます",
-        ))
+    # 判断対象だけの部分クラス図はここに置ける。
+    # 完成図の先出しと部分図の範囲明記は
+    # check_phase6_overview_diagram で検査する。
     for legacy in (
         "【安定骨格】",
         "【利用開始】",

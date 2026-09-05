@@ -5,15 +5,13 @@
 int main() {
     // 組み立て側が依存を生成・所有し、InventoryManagerへ注入・登録する
     ProductDatabase  productDatabase;
-    StockEventLog    eventLog;
     DeliveryStatusLog deliveryStatusLog;
     SMSDeliveryCallback smsCallback(deliveryStatusLog);
     EmailNotifier    email;
     DashboardUpdater dashboard;
     ChatNotifier     chat;
     SMSNotifier      sms(false);   // false: 受付成功→保留を返す
-    InventoryManager manager(productDatabase,
-                             eventLog, deliveryStatusLog);
+    InventoryManager manager(productDatabase, deliveryStatusLog);
 
     manager.attach(&email);
     manager.attach(&dashboard);
@@ -30,7 +28,7 @@ int main() {
     manager.reduceStock("PRD002", 1);
     cout << endl;
 
-    cout << "--- 行2の後日結果: SMS-1が配信完了 ---" << endl;
+    cout << "--- 行2のコールバック模擬: SMS-1が配信完了 ---" << endl;
     smsCallback.receive("SMS-1", true);
     cout << endl;
 
@@ -60,9 +58,6 @@ int main() {
     manager.attach(&sms);
     manager.reduceStock("PRD002", 1);
     smsCallback.receive("SMS-2", false);
-
-    cout << "\n--- 行8: 在庫変動ログ ---\n";
-    eventLog.printAll();
 
     return 0;
 }

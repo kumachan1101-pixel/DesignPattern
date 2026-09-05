@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -162,6 +163,48 @@ class MarkdownTests(unittest.TestCase):
         self.assertEqual(7, rendered.count("●"))
         for color in build_epub.PHASE_COLORS.values():
             self.assertEqual(1, rendered.count(f"color:{color}"))
+
+    def test_local_html_image_is_copied_without_losing_link_or_width(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_name:
+            root = Path(temp_name)
+            source_dir = root / "source"
+            content_dir = root / "dist" / "content"
+            source_dir.mkdir()
+            content_dir.mkdir(parents=True)
+            (source_dir / "cover.jpg").write_bytes(b"cover image")
+            config = build_epub.BookConfig(
+                path=root / "book.json",
+                root=root,
+                title="Book",
+                author="Author",
+                language="ja",
+                dist=root / "dist",
+                slides=root / "slides",
+                cover=None,
+                chapters=(source_dir / "chapter.md",),
+                slide_page_order=(),
+                rendering=build_epub.RenderingConfig(2000, 1600, 19, 22, 4, 3, 150),
+                formats=(),
+            )
+            source = (
+                '<a href="https://example.com/book">\n'
+                '<img src="cover.jpg" alt="表紙" width="250">\n'
+                "</a>"
+            )
+
+            rendered = build_epub.copy_markdown_images(
+                config,
+                source_dir / "chapter.md",
+                source,
+                content_dir,
+            )
+
+            self.assertIn('<a href="https://example.com/book">', rendered)
+            self.assertIn('alt="表紙" width="250"', rendered)
+            self.assertNotIn('src="cover.jpg"', rendered)
+            copied_images = list(content_dir.glob("chapter_*.jpg"))
+            self.assertEqual(1, len(copied_images))
+            self.assertIn(f'src="content/{copied_images[0].name}"', rendered)
 
 
 class ConfigTests(unittest.TestCase):

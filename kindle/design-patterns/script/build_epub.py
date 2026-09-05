@@ -35,6 +35,10 @@ FENCE_RE = re.compile(
 )
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+['\"][^)]*['\"])?\)")
+HTML_IMAGE_SRC_RE = re.compile(
+    r"(?P<prefix><img\b[^>]*?\bsrc\s*=\s*)(?P<quote>['\"])(?P<path>[^'\"]+)(?P=quote)",
+    re.IGNORECASE,
+)
 HTTP_RE = re.compile(r"^(?:https?:|data:)", re.IGNORECASE)
 
 
@@ -992,20 +996,36 @@ def copy_markdown_images(
     markdown_text: str,
     content_dir: Path,
 ) -> str:
-    def replacement(match: re.Match[str]) -> str:
-        alt, raw_path = match.group(1), match.group(2)
+    def copy_local_image(raw_path: str) -> str | None:
         if HTTP_RE.match(raw_path):
-            return match.group(0)
+            return None
         source = (markdown_path.parent / raw_path).resolve()
         if not source.is_file():
             print(f"  [WARN] 本文画像が見つかりません: {markdown_path.name}: {raw_path}")
-            return match.group(0)
+            return None
         name = f"{safe_stem(markdown_path.stem)}_{content_hash(source, source.stat().st_mtime_ns)}{source.suffix.lower()}"
         destination = content_dir / name
         shutil.copy2(source, destination)
-        return f"![{alt}]({relative_to_dist(config, destination)})"
+        return relative_to_dist(config, destination)
 
-    return MARKDOWN_IMAGE_RE.sub(replacement, markdown_text)
+    def markdown_replacement(match: re.Match[str]) -> str:
+        alt, raw_path = match.group(1), match.group(2)
+        copied_path = copy_local_image(raw_path)
+        if copied_path is None:
+            return match.group(0)
+        return f"![{alt}]({copied_path})"
+
+    def html_replacement(match: re.Match[str]) -> str:
+        copied_path = copy_local_image(match.group("path"))
+        if copied_path is None:
+            return match.group(0)
+        return (
+            f'{match.group("prefix")}{match.group("quote")}'
+            f'{copied_path}{match.group("quote")}'
+        )
+
+    copied_markdown = MARKDOWN_IMAGE_RE.sub(markdown_replacement, markdown_text)
+    return HTML_IMAGE_SRC_RE.sub(html_replacement, copied_markdown)
 
 
 def replace_fenced_blocks(

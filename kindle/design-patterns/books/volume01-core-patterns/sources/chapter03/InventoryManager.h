@@ -10,15 +10,12 @@ private:
     // 非所有ポインタ。登録中の通知先はInventoryManagerより長く生存すること。
     vector<INotification*> observers;
     ProductDatabase&        db;
-    StockEventLog&          eventLog;
     DeliveryStatusLog&      deliveryStatusLog;
 
 public:
     InventoryManager(ProductDatabase& database,
-                     StockEventLog& log,
                      DeliveryStatusLog& statusLog)
-        : db(database), eventLog(log),
-          deliveryStatusLog(statusLog) {}
+        : db(database), deliveryStatusLog(statusLog) {}
 
     // nullと重複登録を拒否する
     bool attach(INotification* o) {
@@ -61,16 +58,12 @@ public:
         int before = info.stock;
         info.stock -= quantity;
         db.save(productId, info);
-        eventLog.add(productId, info.name, "出荷", quantity,
-                     before, info.stock);
         cout << "商品 " << productId << "（" << info.name << "）"
              << " の在庫を " << quantity << " 減らしました。"
              << " 在庫: " << before
              << " -> " << info.stock << endl;
 
         if (db.isBelowThreshold(productId, info.stock)) {
-            eventLog.add(productId, info.name, "閾値警告", quantity,
-                         before, info.stock);
             notifyAll({productId, info.name,
                        info.stock, info.alertThreshold});
         }
@@ -88,8 +81,6 @@ public:
         int before = info.stock;
         info.stock += quantity;
         db.save(productId, info);
-        eventLog.add(productId, info.name, "入荷", quantity,
-                     before, info.stock);
         cout << "商品 " << productId << "（" << info.name << "）\n"
              << "  在庫を " << quantity
              << " 補充しました。在庫: " << before

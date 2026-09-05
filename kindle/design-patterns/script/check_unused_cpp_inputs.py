@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 import sys
@@ -10,9 +11,9 @@ import tempfile
 from pathlib import Path
 
 from check_execution_output import (
-    CORE_CHAPTERS,
-    OUTPUT_DIR,
+    BOOK_ROOT,
     SECTIONS,
+    configured_chapter_paths,
     cpp_blocks,
     section_text,
 )
@@ -72,9 +73,27 @@ def unused_struct_fields(source: str) -> list[str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--config",
+        help="分冊のbook.json。省略時は元の全章を検査する",
+    )
+    args = parser.parse_args()
+    config = Path(args.config) if args.config else None
+    if config is not None and not config.is_absolute():
+        config = BOOK_ROOT / config
+    if config is not None and not config.exists():
+        print(f"FAILED: {config} がありません")
+        return 1
+
     problems = 0
-    for chapter in CORE_CHAPTERS:
-        text = (OUTPUT_DIR / chapter).read_text(encoding="utf-8")
+    for path in configured_chapter_paths(config):
+        chapter = path.name
+        if not path.exists():
+            print(f"{chapter}: ファイルなし")
+            problems += 1
+            continue
+        text = path.read_text(encoding="utf-8")
         for heading, end_heading in SECTIONS:
             section = section_text(text, heading, end_heading)
             if section is None:
@@ -101,7 +120,7 @@ def main() -> int:
     if problems:
         print(f"NG: 未使用入力の疑いがある節 {problems} 件")
         return 1
-    print("OK: 全章の1-4・7-1に未使用の引数・変数・入力フィールドはありません")
+    print("OK: 対象章の1-4・7-1に未使用の引数・変数・入力フィールドはありません")
     return 0
 
 

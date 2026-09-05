@@ -143,5 +143,73 @@ class HandRunGuidanceTests(unittest.TestCase):
         )
 
 
+class EditorialMarkerTests(unittest.TestCase):
+    def test_star_instruction_is_rejected(self) -> None:
+        self.assertEqual(
+            ["2行目に★編集指示があります"],
+            check_volume.editorial_marker_issues("本文\n★ここを直す\n"),
+        )
+
+
+class DiagramDiffLabelTests(unittest.TestCase):
+    def test_text_labels_with_color_marks_are_accepted(self) -> None:
+        text = """```mermaid
+graph TD
+A["［新規］ Rule"]:::added
+B["［変更］ Calculator"]:::touched
+```
+```mermaid
+classDiagram
+class Rule:::added {
+  <<new>>
+}
+class Calculator:::touched {
+  <<changed>>
+}
+```
+"""
+        self.assertEqual([], check_volume.diagram_diff_label_issues(text))
+
+    def test_color_only_marks_are_rejected(self) -> None:
+        text = """```mermaid
+graph TD
+A["Rule"]:::added
+```
+```mermaid
+classDiagram
+class Calculator:::touched {
+  +run()
+}
+```
+"""
+        issues = check_volume.diagram_diff_label_issues(text)
+        self.assertTrue(any("［新規］" in issue for issue in issues))
+        self.assertTrue(any("<<changed>>" in issue for issue in issues))
+
+
+class Phase6ClassDiagramTests(unittest.TestCase):
+    def test_partial_then_integrated_diagram_is_accepted(self) -> None:
+        text = """## フェーズ6：対策検討
+これは部分クラス図で、現在の判断対象以外は省略する。
+```mermaid
+classDiagram
+A --> B
+```
+## フェーズ7：対策実施
+### 完成後のクラス図
+部分クラス図を全体へ統合する。
+"""
+        self.assertEqual([], check_volume.phase6_class_diagram_issues(text))
+
+    def test_missing_partial_diagram_is_rejected(self) -> None:
+        text = """## フェーズ6：対策検討
+構想だけを書く。
+## フェーズ7：対策実施
+### 完成後のクラス図
+"""
+        issues = check_volume.phase6_class_diagram_issues(text)
+        self.assertTrue(any("部分クラス図がありません" in issue for issue in issues))
+
+
 if __name__ == "__main__":
     unittest.main()

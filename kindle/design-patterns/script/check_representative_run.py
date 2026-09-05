@@ -26,6 +26,8 @@ RUN-002（著者指摘）の検査。
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
 import subprocess
 import sys
@@ -41,7 +43,10 @@ CORE_CHAPTERS = [
     "chapter09_2.md", "chapter10.md", "chapter11.md", "chapter12.md",
 ]
 
-EXCERPT_LABEL = "**代表入力（1-4の`main()`から抜粋）：**"
+EXCERPT_LABELS = (
+    "**代表入力（1-4の`main()`から抜粋）：**",
+    "**代表入力（現状コードの`main()`から抜粋）：**",
+)
 
 # 1-1で最低限見せる呼び出し回数。1回だと状態の移り変わりが見えない。
 MIN_CALLS = 2
@@ -51,14 +56,17 @@ def cpp_blocks(text: str) -> list[str]:
     return re.findall(r"```cpp\n(.*?)```", text, re.S)
 
 
-def chapter_issues(name: str) -> list[str]:
-    path = OUTPUT_DIR / name
+def chapter_issues(path: Path | str) -> list[str]:
+    if isinstance(path, str):
+        path = OUTPUT_DIR / path
+    name = path.name
     text = path.read_bytes().decode("utf-8").replace("\r\n", "\n")
     issues: list[str] = []
 
-    label_at = text.find(EXCERPT_LABEL)
-    if label_at < 0:
-        return [f"{name}: 1-1に「{EXCERPT_LABEL}」がありません"]
+    label = re.search(r"^\*\*代表入力（.*?）：\*\*$", text, re.M)
+    if label is None:
+        return [f"{name}: 1-1に代表入力の見出しがありません"]
+    label_at = label.start()
     # 代表入力から「最初にシステム全体をつかむ」までを1つの領域として扱う。
     # 呼び出しと出力を数ブロックへ分けて交互に並べる書き方があるため、
     # 領域内のC++ブロックと出力ブロックをそれぞれ連結して照合する。
@@ -72,10 +80,14 @@ def chapter_issues(name: str) -> list[str]:
         return [f"{name}: 代表入力のC++ブロックがありません"]
     excerpt = "".join(excerpts)
 
-    # 出力ブロックは言語指定のないフェンス。cppブロックと混ざらないよう、
-    # ```cpp を先に取り除いてから拾う。
-    without_cpp = re.sub(r"```cpp\n.*?```", "", region, flags=re.S)
-    outputs = re.findall(r"```\n(.*?)```", without_cpp, re.S)
+    # 行頭のフェンスを組にして、言語指定のない実行結果だけを拾う。
+    # 本文中のインラインコードのバッククォートをフェンスと誤認しない。
+    fenced = re.findall(
+        r"^```([^\n]*)\n(.*?)^```[ \t]*$",
+        region,
+        re.M | re.S,
+    )
+    outputs = [body for info, body in fenced if not info.strip()]
     if not outputs:
         return [f"{name}: 代表入力に対応する実行結果ブロックがありません"]
     published = "".join(outputs)
@@ -129,18 +141,40 @@ def chapter_issues(name: str) -> list[str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--config",
+        help="分冊のbook.json。省略時は元の全章を検査する",
+    )
+    args = parser.parse_args()
+    config = Path(args.config) if args.config else None
+    if config is not None and not config.is_absolute():
+        config = BOOK_ROOT / config
+    if config is not None and not config.exists():
+        print(f"FAILED: {config} がありません")
+        return 1
+
+    if config is None:
+        paths = [OUTPUT_DIR / name for name in CORE_CHAPTERS]
+    else:
+        data = json.loads(config.read_text(encoding="utf-8"))
+        paths = [BOOK_ROOT / name for name in data.get("chapters", [])]
+        paths = [path for path in paths if re.search(r"chapter0[1-9]", path.name)]
+
     issues: list[str] = []
-    for name in CORE_CHAPTERS:
-        if not (OUTPUT_DIR / name).exists():
+    checked = 0
+    for path in paths:
+        if not path.exists():
             continue
-        issues.extend(chapter_issues(name))
+        checked += 1
+        issues.extend(chapter_issues(path))
 
     for issue in issues:
         print(issue)
     if issues:
         print(f"\nNG: {len(issues)} 件")
         return 1
-    print(f"OK: {len(CORE_CHAPTERS)} 章の代表入力が、"
+    print(f"OK: {checked} 章の代表入力が、"
           "そのまま動いて掲載どおりの結果を出します")
     return 0
 

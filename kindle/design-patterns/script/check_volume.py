@@ -41,6 +41,9 @@
  33. 三つの問いが旧原則へ戻らず、実践章の判断場面に置かれている
  34. 第0章のクラス図凡例で、図と対応する説明が一組になっている
  35. 「手元で動かす」共通説明が第0章だけにあり、実践章で重複していない
+ 36. 編集指示の★が出版原稿に残っていない
+ 37. 図の新規・変更が色だけでなく文字ラベルでも判別できる
+ 38. フェーズ6の部分クラス図とフェーズ7の完成図が役割分担している
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -279,6 +282,60 @@ def hand_run_guidance_issues(text: str, is_chapter_zero: bool) -> list[str]:
     if not is_chapter_zero and count:
         return ["第0章と重複する「手元で動かすには」があります"]
     return []
+
+
+def editorial_marker_issues(text: str) -> list[str]:
+    """出版原稿に残った★編集指示の行を返す。"""
+    return [
+        f"{number}行目に★編集指示があります"
+        for number, line in enumerate(text.splitlines(), 1)
+        if "★" in line
+    ]
+
+
+def diagram_diff_label_issues(text: str) -> list[str]:
+    """新規・変更の印が色だけに依存していないかを返す。"""
+    issues: list[str] = []
+    for index, block in enumerate(
+        re.findall(r"```mermaid\s*\n(.*?)```", text, re.S), 1
+    ):
+        if "classDiagram" in block:
+            for found in re.finditer(
+                r"class\s+(\w+):::(added|touched)\s*\{(.*?)\}",
+                block,
+                re.S,
+            ):
+                name, mark, body = found.groups()
+                expected = "<<new>>" if mark == "added" else "<<changed>>"
+                if expected not in body:
+                    issues.append(
+                        f"{index}枚目のクラス図で{name}の{mark}が"
+                        f"{expected}を持ちません"
+                    )
+            continue
+
+        for line in block.splitlines():
+            if ":::added" in line and "［新規］" not in line:
+                issues.append(f"{index}枚目の図でaddedが［新規］を持ちません")
+            if ":::touched" in line and "［変更］" not in line:
+                issues.append(f"{index}枚目の図でtouchedが［変更］を持ちません")
+    return issues
+
+
+def phase6_class_diagram_issues(text: str) -> list[str]:
+    """対策検討の部分図と対策実施の完成図の役割を確認する。"""
+    phase6 = text_between(text, "フェーズ6：対策検討", "フェーズ7：対策実施")
+    phase7 = text[text.find("フェーズ7：対策実施"):] if "フェーズ7：対策実施" in text else ""
+    issues: list[str] = []
+    if "classDiagram" not in phase6:
+        issues.append("フェーズ6に構造判断を示す部分クラス図がありません")
+    if not re.search(r"省略|省い", phase6):
+        issues.append("フェーズ6の部分クラス図に省略範囲の説明がありません")
+    if "部分クラス図" not in phase6:
+        issues.append("フェーズ6の図が部分クラス図だと明示されていません")
+    if "完成後のクラス図" not in phase7 or "統合" not in phase7:
+        issues.append("フェーズ7で部分クラス図を完成図へ統合していません")
+    return issues
 
 
 def early_material_spoilers(
@@ -986,6 +1043,26 @@ def check(config_path: Path) -> int:
     for path in chapters:
         text = path.read_text(encoding="utf-8")
         for issue in hand_run_guidance_issues(text, "chapter00" in path.name):
+            failures.append(f"{path.name}: {issue}")
+
+    # 36. 編集指示は判断と対応先を履歴へ移し、出版原稿には残さない
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        for issue in editorial_marker_issues(text):
+            failures.append(f"{path.name}: {issue}")
+
+    # 37. 色が見えない環境でも、新規と変更を文字で区別できるようにする
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        for issue in diagram_diff_label_issues(text):
+            failures.append(f"{path.name}: {issue}")
+
+    # 38. フェーズ6は判断対象だけの部分図、フェーズ7は統合した完成図
+    for path in chapters:
+        if not re.search(r"chapter0[1-9]", path.name):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for issue in phase6_class_diagram_issues(text):
             failures.append(f"{path.name}: {issue}")
 
     # 28. 本文で節番号を道しるべに使わない
