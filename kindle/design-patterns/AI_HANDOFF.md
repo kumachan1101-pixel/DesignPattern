@@ -6,19 +6,26 @@
 
 ## 現在の引き継ぎ状態
 
-最初に`NEXT_AI_HANDOFF.md`、`author-feedback-20260813.md`、`AUTHOR_FEEDBACK_MASTER.md`を全文読む。本文の整合タスクCONS-001〜066と著者指摘AF-20260813-001〜141は完了済みで、本文の`★`は0件、2026-08-14の統合ゲートはKDP package readyまでPASSしている。第7章は非同期SMSの受付IDを即時に記録し、後日のコールバックで最終配信完了・失敗へ更新する境界まで実装済みで、今回のUI操作変更はなしとヒアリングで確定した。第8章の`ERROR`／`TIMEOUT`契約は表・コード・実行結果で同期し、全12章の入力追跡表は1-4の現状コード・実行結果の後へ統一済み。完了済みタスクを再実行せず、新しい指摘が来た場合だけ先にAF番号へ登録してから修正する。`TASK.md`、`RESTRUCTURE_PLAN.md`、`CONS-065_AI_INSTRUCTIONS.md`、`CONS-066_AI_INSTRUCTIONS.md`は完了履歴であり、現在の作業指示ではない。EPUB等の出版データを作る場合は、コミット`30cbeeb`で追加された`publishing/README.md`を読み、`script/build_epub.py`を出版処理の正本として使う。
+最初に`NEXT_AI_HANDOFF.md`を全文読む。**現在地と残タスクはそこが正である。**
+
+**本は1冊では大きすぎたため、冊へ分けた。** 第1冊『分離と再結合で学ぶ C++ソフトウェア設計』の正本は`books/volume01-core-patterns/output/`の7ファイル（はじめに・第0章・第1章Strategy・第2章State・第3章Observer・おわりに・奥付）である。`output/`の同名章は供給元として残っているが**内容は古い**ので、第1冊を直すときにそちらを触らない。旧第9〜12章（第二部）は出版対象外、旧第2・4・5・6・8章は第2冊以降の素材である。**台帳に残る旧章番号のタスクは、第1冊には影響しないものが多い。** 対象範囲は`NEXT_AI_HANDOFF.md`のE節で確認する。
+
+刊行前の通しレビューをレンズ別サブエージェントで回すときは、`agents/volume-review-runbook.md`を先に読む。章で割らずレンズで割る、1体ずつ順に走らせる、といった前提がそこにある。
+
+CONS-001〜066とAF-20260813-001〜141は完了済みで、本文の`★`は0件。完了済みタスクを再実行せず、新しい指摘が来た場合だけ先にAF番号へ登録してから修正する。`TASK.md`、`RESTRUCTURE_PLAN.md`、`CONS-065_AI_INSTRUCTIONS.md`、`CONS-066_AI_INSTRUCTIONS.md`は完了履歴であり、現在の作業指示ではない。EPUB等の出版データを作る場合は`publishing/README.md`を読み、`script/build_epub.py`を出版処理の正本として使う。
 
 ## 絶対に守る優先順位
 
 1. 著者判断の正本は`AUTHOR_FEEDBACK_MASTER.md`、現在地は`NEXT_AI_HANDOFF.md`。
 2. 章構成の正本は`templates/chapter-template.md`。
-3. 第0章の思想は`output/chapter00_2.md`。
+3. 第0章の思想は第1冊の`books/volume01-core-patterns/output/02-chapter00.md`（`output/chapter00_2.md`は古い供給元）。
 4. 品質判定は`rules/checklist.md`。
 5. 文章・図・コード提示の書き方は`rules/writing-rules.md`。
 6. 接続点と設計判断は`rules/connection-point-review.md`と`rules/design-decision-guide.md`。
 7. Agentは補助役。食い違う場合は、著者判断、テンプレート、チェックリストを優先する。
-8. 既存の第0〜12章とあとがきは本文ゲートを通過済みである。新しい根拠なしに旧計画へ戻したり、全面改稿したりしない。
+8. 第1冊の7ファイルは本文ゲートを通過済みである。新しい根拠なしに旧計画へ戻したり、全面改稿したりしない。
 9. EPUB・MOBI・PDF生成では`publishing/README.md`と`publishing/book.json`を読み、コードとMermaidを画像化して概要スライドと結合する既存パイプラインを使う。原稿Markdownを出版用画像参照へ直接書き換えない。
+10. 執筆規約の最新は`CLAUDE.md`である。`templates/chapter-template.md`と`rules/checklist.md`は、後から入れた規約に追随しきれていない（`NEXT_AI_HANDOFF.md` A7）。食い違ったら`CLAUDE.md`を採り、両者をそろえる作業として記録する。
 
 ## まず読む順序
 
@@ -29,7 +36,7 @@
 5. `ai-context.md`
 6. `CLAUDE.md`
 7. `templates/chapter-template.md`
-8. `output/chapter00_2.md`
+8. 第1冊の第0章 `books/volume01-core-patterns/output/02-chapter00.md`
 9. `rules/checklist.md`
 
 出版・EPUB作業を行う場合だけ、追加で次を読む。
