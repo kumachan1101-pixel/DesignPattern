@@ -40,6 +40,9 @@
     "mermaidScale": 3,
     "slideDpi": 150
   },
+  "quality": {
+    "maxPracticeChapterCharacters": 270000
+  },
   "formats": [
     "epub",
     "mobi",

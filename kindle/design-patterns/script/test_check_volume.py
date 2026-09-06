@@ -224,7 +224,7 @@ graph TD
 graph TD
 {after}
 ```
-### 7-4：変更シナリオ表
+## 整理
 """
 
     def test_same_change_ids_and_composition_scope_are_accepted(self) -> None:
@@ -249,6 +249,44 @@ graph TD
         )
         issues = check_volume.change_impact_alignment_issues(text)
         self.assertTrue(any("組み立て箇所" in issue for issue in issues))
+
+
+class RedundantSectionTests(unittest.TestCase):
+    def test_compact_phase7_is_accepted(self) -> None:
+        text = "### 7-3：変更影響グラフ（改善後）\n\n## 整理\n"
+        self.assertEqual([], check_volume.redundant_section_issues(text))
+
+    def test_old_recap_sections_are_rejected(self) -> None:
+        text = """### 7-2：動作シーケンス図の検証
+### 7-4：変更シナリオ表
+### 「はじめに」の三つの問いにどう答えたか
+"""
+        issues = check_volume.redundant_section_issues(text)
+        self.assertEqual(3, len(issues))
+
+
+class PracticeChapterCharacterTests(unittest.TestCase):
+    def test_limit_is_enforced_for_practice_chapters_only(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            chapter00 = root / "02-chapter00.md"
+            chapter01 = root / "03-chapter01.md"
+            chapter02 = root / "04-chapter02.md"
+            chapter00.write_text("0" * 100, encoding="utf-8")
+            chapter01.write_text("1" * 6, encoding="utf-8")
+            chapter02.write_text("2" * 5, encoding="utf-8")
+            issues = check_volume.practice_chapter_character_issues(
+                [chapter00, chapter01, chapter02], 10
+            )
+        self.assertEqual(1, len(issues))
+        self.assertIn("11文字 > 10文字", issues[0])
+
+    def test_missing_limit_is_accepted(self) -> None:
+        self.assertEqual(
+            [], check_volume.practice_chapter_character_issues([], None)
+        )
 
 
 if __name__ == "__main__":

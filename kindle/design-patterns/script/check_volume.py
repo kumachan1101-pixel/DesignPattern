@@ -40,11 +40,13 @@
  32. 配布するファイル一式と本文の分割表が一致している
  33. 三つの問いが旧原則へ戻らず、実践章の判断場面に置かれている
  34. 第0章のクラス図凡例で、図と対応する説明が一組になっている
- 35. 「手元で動かす」共通説明が第0章だけにあり、実践章で重複していない
- 36. 編集指示の★が出版原稿に残っていない
- 37. 図の新規・変更が色だけでなく文字ラベルでも判別できる
- 38. フェーズ6の部分クラス図とフェーズ7の完成図が役割分担している
- 39. フェーズ3とフェーズ7の変更影響グラフが同じ変更IDと組み立て粒度を使う
+  35. 「手元で動かす」共通説明が第0章だけにあり、実践章で重複していない
+  36. 編集指示の★が出版原稿に残っていない
+  37. 図の新規・変更が色だけでなく文字ラベルでも判別できる
+  38. フェーズ6の部分クラス図とフェーズ7の完成図が役割分担している
+  39. フェーズ3とフェーズ7の変更影響グラフが同じ変更IDと組み立て粒度を使う
+  40. 実践章に、7-3と同じ内容を繰り返す7-2・7-4・章末三問再掲がない
+  41. book.jsonで指定した実践章の合計文字数上限を超えていない
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -234,7 +236,7 @@ def change_impact_alignment_issues(text: str) -> list[str]:
     phase7 = text_between(
         text,
         "### 7-3：変更影響グラフ（改善後）",
-        "### 7-4：変更シナリオ表",
+        "## 整理",
     )
     if not phase3 or not phase7:
         return issues
@@ -333,6 +335,38 @@ def editorial_marker_issues(text: str) -> list[str]:
     ]
 
 
+def redundant_section_issues(text: str) -> list[str]:
+    """判断済みの結論を再掲する旧標準節が残っていないかを返す。"""
+    forbidden = {
+        "### 7-2：": "7-1のシーケンス照合を別節で繰り返しています",
+        "### 7-4：": "7-3の変更影響比較を別節で繰り返しています",
+        "### 「はじめに」の三つの問いにどう答えたか": (
+            "判断場面で確定した三つの答えを章末で繰り返しています"
+        ),
+    }
+    return [message for heading, message in forbidden.items() if heading in text]
+
+
+def practice_chapter_character_issues(
+    chapters: list[Path], limit: object
+) -> list[str]:
+    """book.jsonで任意指定した実践章の合計文字数上限を確認する。"""
+    if limit is None:
+        return []
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+        return ["maxPracticeChapterCharacters は正の整数にしてください"]
+    practice = [
+        path for path in chapters if re.search(r"chapter0[1-9]", path.name)
+    ]
+    actual = sum(len(path.read_text(encoding="utf-8")) for path in practice)
+    if actual > limit:
+        return [
+            "実践章の合計文字数が上限を超えています"
+            f"（{actual:,}文字 > {limit:,}文字）"
+        ]
+    return []
+
+
 def diagram_diff_label_issues(text: str) -> list[str]:
     """新規・変更の印が色だけに依存していないかを返す。"""
     issues: list[str] = []
@@ -415,6 +449,7 @@ def table_rows_after(lines: list[str], start: int) -> int:
 
 def check(config_path: Path) -> int:
     chapters, title = load_config(config_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
     failures: list[str] = []
 
     missing = [p for p in chapters if not p.exists()]
@@ -1118,6 +1153,20 @@ def check(config_path: Path) -> int:
         text = path.read_text(encoding="utf-8")
         for issue in change_impact_alignment_issues(text):
             failures.append(f"{path.name}: {issue}")
+
+    # 40. 判断済みの結論を旧標準節で再掲しない
+    for path in chapters:
+        if not re.search(r"chapter0[1-9]", path.name):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for issue in redundant_section_issues(text):
+            failures.append(f"{path.name}: {issue}")
+
+    # 41. 冊ごとに合意した実践章の文字数上限を守る
+    character_limit = config.get("quality", {}).get(
+        "maxPracticeChapterCharacters"
+    )
+    failures.extend(practice_chapter_character_issues(chapters, character_limit))
 
     # 28. 本文で節番号を道しるべに使わない
     # 「1-1（このシステムの仕様）の『商品』にあたるデータです」の番号は、読者に
