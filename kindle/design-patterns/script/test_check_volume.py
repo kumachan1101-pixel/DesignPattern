@@ -151,6 +151,44 @@ class EditorialMarkerTests(unittest.TestCase):
         )
 
 
+class PracticalExplanationConsistencyTests(unittest.TestCase):
+    def valid_chapter(self) -> str:
+        return "\n".join(
+            [
+                "| 変更ID | 変更内容 | 確認する具体例 |",
+                "#### 変更後に有効な業務ルール",
+                "### 4-3：接続点に漏れている判断や前提を確認する",
+                "## フェーズ6：対策検討",
+                "部分クラス図で責任の向きだけを示す。",
+            ]
+        )
+
+    def test_common_structure_is_accepted(self) -> None:
+        self.assertEqual(
+            [],
+            check_volume.practical_explanation_consistency_issues(
+                self.valid_chapter()
+            ),
+        )
+
+    def test_old_labels_and_redundant_tables_are_rejected(self) -> None:
+        text = self.valid_chapter().replace("部分クラス図で責任の向きだけを示す。", "**構想上のコード経路**")
+        text += "\n--- 行1: 実行 ---\n**変更前→変更後の要求対照（今回変える要求IDだけ）**\n"
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("旧表現" in issue for issue in issues))
+        self.assertTrue(any("重複する要求差分表" in issue for issue in issues))
+        self.assertTrue(any("最終コード経路" in issue for issue in issues))
+
+    def test_final_cpp_in_phase5_is_rejected(self) -> None:
+        text = self.valid_chapter().replace(
+            "### 4-3：接続点に漏れている判断や前提を確認する",
+            "### 4-3：接続点に漏れている判断や前提を確認する\n"
+            "## フェーズ5：課題定義\n```cpp\nclass IRule {};\n```",
+        )
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("フェーズ5に最終コード" in issue for issue in issues))
+
+
 class DiagramDiffLabelTests(unittest.TestCase):
     def test_text_labels_with_color_marks_are_accepted(self) -> None:
         text = """```mermaid
@@ -193,6 +231,7 @@ class Phase6ClassDiagramTests(unittest.TestCase):
 これは部分クラス図で、現在の判断対象以外は省略する。
 ```mermaid
 classDiagram
+%% provisional-role-diagram
 A --> B
 ```
 ## フェーズ7：対策実施
@@ -209,6 +248,20 @@ A --> B
 """
         issues = check_volume.phase6_class_diagram_issues(text)
         self.assertTrue(any("部分クラス図がありません" in issue for issue in issues))
+
+    def test_unmarked_phase6_diagram_is_rejected(self) -> None:
+        text = """## フェーズ6：対策検討
+これは部分クラス図で、現在の判断対象以外は省略する。
+```mermaid
+classDiagram
+A --> B
+```
+## フェーズ7：対策実施
+### 完成後のクラス図
+部分クラス図を全体へ統合する。
+"""
+        issues = check_volume.phase6_class_diagram_issues(text)
+        self.assertTrue(any("provisional-role-diagram" in issue for issue in issues))
 
 
 class ChangeImpactAlignmentTests(unittest.TestCase):

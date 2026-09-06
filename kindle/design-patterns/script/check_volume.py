@@ -47,6 +47,7 @@
   39. フェーズ3とフェーズ7の変更影響グラフが同じ変更IDと組み立て粒度を使う
   40. 実践章に、7-3と同じ内容を繰り返す7-2・7-4・章末三問再掲がない
   41. book.jsonで指定した実践章の合計文字数上限を超えていない
+  42. ★対応で統一したケース名・要求表・業務ルール・4-3見出しが後戻りしていない
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -335,6 +336,37 @@ def editorial_marker_issues(text: str) -> list[str]:
     ]
 
 
+def practical_explanation_consistency_issues(text: str) -> list[str]:
+    """実践章で統一した説明の入口と見出しが後戻りしていないかを返す。"""
+    issues: list[str] = []
+    if re.search(r"(?:行|シナリオ|動作例)\d+[a-z]?|\d+回目", text):
+        issues.append("実行ケースに旧表現が残っています。コードと結果を`ケースN`へ統一してください")
+
+    headings = re.findall(r"^### 4-3：.*$", text, re.M)
+    expected = "### 4-3：接続点に漏れている判断や前提を確認する"
+    if headings != [expected]:
+        issues.append("4-3見出しを共通見出しへ統一し、題材語は直下の####へ置いてください")
+
+    if "**変更前→変更後の要求対照" in text or "**今回変わる要求と新しく加わる要求**" in text:
+        issues.append("変更後要求ベースラインと重複する要求差分表があります")
+
+    expected_change_header = "| 変更ID | 変更内容 | 確認する具体例 |"
+    if expected_change_header not in text:
+        issues.append("変更ID表を`変更ID / 変更内容 / 確認する具体例`へ統一してください")
+
+    if "#### 変更後に有効な業務ルール" not in text:
+        issues.append("要求からコードへ渡す`変更後に有効な業務ルール`がありません")
+
+    phase5_start = text.find("フェーズ5：課題定義")
+    phase6_start = text.find("フェーズ6：対策検討", phase5_start)
+    if 0 <= phase5_start < phase6_start and "```cpp" in text[phase5_start:phase6_start]:
+        issues.append("フェーズ5に最終コードがあります。値・操作・結果を確定し、型名とC++はフェーズ6で導いてください")
+
+    if "**構想上のコード経路" in text:
+        issues.append("フェーズ6冒頭で最終コード経路を先取りしています。責任の向きだけを部分クラス図で示してください")
+    return issues
+
+
 def redundant_section_issues(text: str) -> list[str]:
     """判断済みの結論を再掲する旧標準節が残っていないかを返す。"""
     forbidden = {
@@ -403,6 +435,8 @@ def phase6_class_diagram_issues(text: str) -> list[str]:
     issues: list[str] = []
     if "classDiagram" not in phase6:
         issues.append("フェーズ6に構造判断を示す部分クラス図がありません")
+    if phase6.count("%% provisional-role-diagram") != 1:
+        issues.append("フェーズ6冒頭の仮名による責任図へ`%% provisional-role-diagram`を1つ付けてください")
     if not re.search(r"省略|省い", phase6):
         issues.append("フェーズ6の部分クラス図に省略範囲の説明がありません")
     if "部分クラス図" not in phase6:
@@ -988,10 +1022,10 @@ def check(config_path: Path) -> int:
     # 29. 図の印は「新しく作る」と「開いて直す」の2種類にそろえる
     # 1色では、新規1クラスで済んだのか既存3クラスを開いたのかが絵から読めない。
     # この本の主張はそこにあるので、印もそこを分ける。
-    added_def = ("classDef added fill:#1565c0,stroke:#0b3d76,"
-                 "stroke-width:3px,color:#ffffff;")
-    touched_def = ("classDef touched fill:#ffffff,stroke:#1565c0,"
-                   "stroke-width:5px,color:#0b3d76;")
+    added_def = ("classDef added fill:#eaf2fb,stroke:#527aa3,"
+                 "stroke-width:2px,color:#172033;")
+    touched_def = ("classDef touched fill:#fff7e6,stroke:#9a6b2f,"
+                   "stroke-width:3px,color:#172033;")
     for path in chapters:
         text = path.read_text(encoding="utf-8")
         for found in re.finditer(r"^[ \t]*classDef[ \t]+(\w+)[ \t]+(.+)$", text, re.M):
@@ -1032,8 +1066,8 @@ def check(config_path: Path) -> int:
 
     # 31. 実行結果は、1ブロックに1つの実行だけを載せる
     # 2つの実行を空行も無しに続けると、どこで切れているのか読者に分からない。
-    # 1-4は「行1〜行5」を1つずつ区切って説明を挟んでいるので、そこへそろえる。
-    run_label = re.compile(r"^-{2,}\s*行\d+[:：]")
+    # 実行コードと結果は「ケース1〜ケースN」でそろえ、1つずつ区切る。
+    run_label = re.compile(r"^-{2,}\s*ケース\d+[a-z]?[:：]")
     for path in chapters:
         text = path.read_text(encoding="utf-8")
         lines = text.split("\n")
@@ -1167,6 +1201,14 @@ def check(config_path: Path) -> int:
         "maxPracticeChapterCharacters"
     )
     failures.extend(practice_chapter_character_issues(chapters, character_limit))
+
+    # 42. ★対応で統一した説明形式の再発を防ぐ
+    for path in chapters:
+        if not re.search(r"chapter0[1-9]", path.name):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for issue in practical_explanation_consistency_issues(text):
+            failures.append(f"{path.name}: {issue}")
 
     # 28. 本文で節番号を道しるべに使わない
     # 「1-1（このシステムの仕様）の『商品』にあたるデータです」の番号は、読者に

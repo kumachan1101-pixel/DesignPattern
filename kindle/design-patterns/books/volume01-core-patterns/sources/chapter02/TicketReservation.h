@@ -150,8 +150,8 @@ class BatchApplication {
 
 public:
     void run() {
-        // シナリオ1：通常予約フロー (Available → Reserved → Paid)
-        std::cout << "--- 行1: 通常予約 ---\n";
+        // ケース1：通常予約フロー (Available → Reserved → Paid)
+        std::cout << "--- ケース1: 通常予約 ---\n";
 
         if (showAvailability("EVT001")) {
             EventInfo i1 = db.get("EVT001");
@@ -162,8 +162,8 @@ public:
             seat1.pay();
         }
 
-        // シナリオ2：通常キャンセル (Available → Reserved → Available)
-        std::cout << "--- 行2: 通常キャンセル ---\n";
+        // ケース2：通常キャンセル (Available → Reserved → Available)
+        std::cout << "--- ケース2: 通常キャンセル ---\n";
 
         if (showAvailability("EVT001")) {
             TicketReservation seat2(availableState(), &db,
@@ -172,8 +172,8 @@ public:
             seat2.cancel();
         }
 
-        // シナリオ3：保留と支払い (Available → Reserved → Held → Paid)
-        std::cout << "--- 行3: 保留と支払い ---\n";
+        // ケース3：保留と支払い (Available → Reserved → Held → Paid)
+        std::cout << "--- ケース3: 保留と支払い ---\n";
 
         if (showAvailability("EVT002")) {
             std::cout << "予約対象："
@@ -185,9 +185,9 @@ public:
             seat3.pay();
         }
 
-        // シナリオ4：保留期限切れ
+        // ケース4：保留期限切れ
         // (Available → Reserved → Held → Available)
-        std::cout << "--- 行4: 保留期限切れ ---\n";
+        std::cout << "--- ケース4: 保留期限切れ ---\n";
 
         if (showAvailability("EVT001")) {
             TicketReservation seat4(availableState(), &db,
@@ -199,8 +199,8 @@ public:
             expiryScheduler.onPaymentDeadlineExpired(seat4);
         }
 
-        // シナリオ4a：通常の15分決済期限切れ (Reserved → Available)
-        std::cout << "--- 行4a: 通常決済期限切れ ---\n";
+        // ケース4a：通常の15分決済期限切れ (Reserved → Available)
+        std::cout << "--- ケース4a: 通常決済期限切れ ---\n";
 
         if (showAvailability("EVT001")) {
             TicketReservation seat4a(availableState(), &db,
@@ -209,9 +209,9 @@ public:
             expiryScheduler.onPaymentDeadlineExpired(seat4a);
         }
 
-        // シナリオ5：満席確認 → 通常の予約要求で自動待機登録 →
+        // ケース5：満席確認 → 通常の予約要求で自動待機登録 →
         // 既存予約のキャンセルを起点に自動昇格
-        std::cout << "--- 行5: 満席からの自動昇格 ---\n";
+        std::cout << "--- ケース5: 満席からの自動昇格 ---\n";
         // 50/50を表示。reserve()が満席を判定する
         showAvailability("EVT003");
 
@@ -226,8 +226,8 @@ public:
         // 昇格後も同じ予約として操作でき、再取消で席を戻せる
         waiting.cancel();
 
-        // シナリオ5b：待機者がいる状態での期限切れ → 自動昇格
-        std::cout << "--- 行5b: 期限切れからの自動昇格 ---\n";
+        // ケース5b：待機者がいる状態での期限切れ → 自動昇格
+        std::cout << "--- ケース5b: 期限切れからの自動昇格 ---\n";
         // 直前の再取消で49/50。別の予約で満席へ戻してから保留にする
         TicketReservation held(availableState(), &db,
                                &waitlist, "EVT003");
@@ -240,8 +240,8 @@ public:
         // 24時間経過。席が空き、待機者が自動昇格する
         expiryScheduler.onPaymentDeadlineExpired(held);
 
-        // シナリオ6：無効な操作の拒否 (Available → pay)
-        std::cout << "--- 行6: 無効な操作の拒否 ---\n";
+        // ケース6：無効な操作の拒否 (Available → pay)
+        std::cout << "--- ケース6: 無効な操作の拒否 ---\n";
 
         if (validateExists("EVT001")) {
             TicketReservation seat6(availableState(), &db,
@@ -249,8 +249,8 @@ public:
             seat6.pay();
         }
 
-        // シナリオ7：存在しないイベントIDのエラー
-        std::cout << "--- 行7: 存在しないイベントID ---\n";
+        // ケース7：存在しないイベントIDのエラー
+        std::cout << "--- ケース7: 存在しないイベントID ---\n";
         validateExists("EVT999");
 
     }

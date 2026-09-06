@@ -3183,13 +3183,18 @@ def check_phase6_overview_diagram(text: str, path: Path) -> list[Issue]:
         ))
     concept_end = section.find("### 構想をコードでつなぐ")
     concept = section[:concept_end] if concept_end >= 0 else section
-    if not (
+    has_legacy_path = (
         "**構想上のコード経路：**" in concept
         or "起動時：main()" in concept
-    ):
+    )
+    has_provisional_roles = (
+        "%% provisional-role-diagram" in concept
+        and "仮名" in concept
+    )
+    if not (has_legacy_path or has_provisional_roles):
         issues.append(Issue(
             path, line_number(text, p6),
-            "フェーズ6の冒頭に、主要なクラス名と処理名を含む構想上のコード経路がありません",
+            "フェーズ6の冒頭に、確定済みの責任の向きを示す仮名の部分クラス図がありません",
         ))
     return issues
 
@@ -3586,10 +3591,18 @@ def check_phase6_point_separation(text: str, path: Path) -> list[Issue]:
                 path, line_number(text, start),
                 f"構想の対応表に {row} を1行だけ置いてください",
             ))
-    if not ("**構想上のコード経路：**" in concept or "起動時：main()" in concept):
+    has_legacy_path = (
+        "**構想上のコード経路：**" in concept
+        or "起動時：main()" in concept
+    )
+    has_provisional_roles = (
+        "%% provisional-role-diagram" in concept
+        and "仮名" in concept
+    )
+    if not (has_legacy_path or has_provisional_roles):
         issues.append(Issue(
             path, line_number(text, start),
-            "要点コードへ入る前に、主要な名前を含む構想上のコード経路を示してください",
+            "要点コードへ入る前に、確定済みの責任の向きを仮名の部分クラス図で示してください",
         ))
 
     adoption = section[adoption_start:] if adoption_start >= 0 else ""

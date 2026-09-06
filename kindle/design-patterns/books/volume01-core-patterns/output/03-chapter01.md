@@ -46,12 +46,12 @@ ECサイトの支払金額計算が何を入力として受け取り、どの処
     order1.customerId = "C002";
     order1.items.push_back(Item("ワイヤレスイヤホン", 10000));
 
-    // 1回目：キャンペーンなし
+    // ケース1：キャンペーンなし
     context.isCampaignActive = false;   // キャンペーンなし
     processor.process(order1, context);
 ```
 
-1回目の実行結果です。
+ケース1の実行結果です。
 
 ```
 佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
@@ -72,12 +72,12 @@ ECサイトの支払金額計算が何を入力として受け取り、どの処
 続けて、同じ注文のキャンペーン条件だけを変えます。
 
 ```cpp
-    // 2回目：キャンペーンあり
+    // ケース2：キャンペーンあり
     context.isCampaignActive = true;
     processor.process(order1, context);
 ```
 
-2回目の実行結果です。
+ケース2の実行結果です。
 
 ```
 佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
@@ -85,7 +85,7 @@ ECサイトの支払金額計算が何を入力として受け取り、どの処
   小計 10000円 → 支払金額 9000円
 ```
 
-2回目に注目してください。**Regular会員の同じ注文でキャンペーンを有効にすると、支払金額が10,000円から9,000円へ変わります。** 入力条件が割引判定へ渡り、結果へ反映される基本の動きを最初に確認できます。Premium会員の排他条件は、動作例の表と現状コードの別ケースで確認します。
+ケース2に注目してください。**Regular会員の同じ注文でキャンペーンを有効にすると、支払金額が10,000円から9,000円へ変わります。** 入力条件が割引判定へ渡り、結果へ反映される基本の動きを最初に確認できます。Premium会員の排他条件は、動作例の表と現状コードの別ケースで確認します。
 
 この入力と出力から、(1)顧客・商品・会員条件を受け取り、(2)会員種別とキャンペーンで割引を判定して金額を計算し、(3)小計と支払金額が表示される、という一連の動きが読み取れます。
 
@@ -700,12 +700,11 @@ void OrderProcessor::process(const Order& order,
 
 #### `main()` と実行結果
 
-動作例の表（4行）と排他ルール・エラー条件を、ケースごとに区切って実行します。
-★行1とか表現やめたい。例えば、実行結果1回目：とかの方が良くないか？
+動作例の表と排他ルール・エラー条件を、ケースごとに区切って実行します。以降、実行コードと結果には同じケース番号を付け、必ず一組で示します。
 
 ---
 
-**組み立てと、動作例1：Premium会員・キャンペーンなし**
+**組み立てと、ケース1：Premium会員・キャンペーンなし**
 
 ```cpp
 int main() {
@@ -715,8 +714,8 @@ int main() {
     CartPreviewService preview(db);
     CampaignContext context;
 
-    // 行1：C001（Premium）/ キャンペーンなし → 20%引き
-    std::cout << "--- 行1: Premium会員・キャンペーンなし ---\n";
+    // ケース1：C001（Premium）/ キャンペーンなし → 20%引き
+    std::cout << "--- ケース1: Premium会員・キャンペーンなし ---\n";
     Order order1;
     order1.customerId = "C001";
     order1.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -725,7 +724,7 @@ int main() {
 ```
 
 ```
---- 行1: Premium会員・キャンペーンなし ---
+--- ケース1: Premium会員・キャンペーンなし ---
 田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Premium, キャンペーン=なし
   小計 10000円 → 支払金額 8000円
@@ -735,18 +734,18 @@ int main() {
 
 ---
 
-**動作例2：同じPremium会員にキャンペーンを当てる**
+**ケース2：同じPremium会員にキャンペーンを当てる**
 
 ```cpp
-    // 行2：同じPremium会員にキャンペーンを当てても優先は変わらない
-    std::cout << "--- 行2: Premium会員・キャンペーンあり ---\n";
+    // ケース2：同じPremium会員にキャンペーンを当てても優先は変わらない
+    std::cout << "--- ケース2: Premium会員・キャンペーンあり ---\n";
     context.isCampaignActive = true;
     processor.process(order1, context);   // → 8000（キャンペーン無効）
     context.isCampaignActive = false;
 ```
 
 ```
---- 行2: Premium会員・キャンペーンあり ---
+--- ケース2: Premium会員・キャンペーンあり ---
 田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Premium, キャンペーン=あり
   小計 10000円 → 支払金額 8000円
@@ -758,11 +757,11 @@ int main() {
 
 カートプレビューは、同じ計算を「注文確定」と「事前確認」の二つの入口から使う要求ID6（プレビュー）を表します。次の例では、先に金額を確認してから `process()` を呼び、プレビューが注文確定の後処理ではないことを明示します。
 
-**動作例3：Regular会員・キャンペーンあり**
+**ケース3：Regular会員・キャンペーンあり**
 
 ```cpp
-    // 行3：C002（Regular）/ キャンペーンあり → 10%引き
-    std::cout << "--- 行3: Regular会員・キャンペーンあり ---\n";
+    // ケース3：C002（Regular）/ キャンペーンあり → 10%引き
+    std::cout << "--- ケース3: Regular会員・キャンペーンあり ---\n";
     Order order2;
     order2.customerId = "C002";
     order2.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -774,7 +773,7 @@ int main() {
 ```
 
 ```
---- 行3: Regular会員・キャンペーンあり ---
+--- ケース3: Regular会員・キャンペーンあり ---
   注文確定前のカートプレビュー: 9000円
 佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Regular, キャンペーン=あり
@@ -785,11 +784,11 @@ int main() {
 
 ---
 
-**動作例4：Regular会員・キャンペーンなし**
+**ケース4：Regular会員・キャンペーンなし**
 
 ```cpp
-    // 行4：C003（Regular）/ キャンペーンなし → 割引なし
-    std::cout << "--- 行4: Regular会員・キャンペーンなし ---\n";
+    // ケース4：C003（Regular）/ キャンペーンなし → 割引なし
+    std::cout << "--- ケース4: Regular会員・キャンペーンなし ---\n";
     Order order3;
     order3.customerId = "C003";
     order3.items.push_back(Item("スマホケース", 3000));
@@ -798,7 +797,7 @@ int main() {
 ```
 
 ```
---- 行4: Regular会員・キャンペーンなし ---
+--- ケース4: Regular会員・キャンペーンなし ---
 鈴木 次郎 さんの注文: スマホケース 3000円
   条件: 会員=Regular, キャンペーン=なし
   小計 3000円 → 支払金額 3000円
@@ -811,8 +810,8 @@ int main() {
 **エラー条件：存在しない顧客ID**
 
 ```cpp
-    // 行5：エラー条件（存在しない顧客ID）
-    std::cout << "--- 行5: 未登録の顧客ID ---\n";
+    // ケース5：エラー条件（存在しない顧客ID）
+    std::cout << "--- ケース5: 未登録の顧客ID ---\n";
     Order order4;
     order4.customerId = "UNKNOWN";
     order4.items.push_back(Item("ケーブル", 1000));
@@ -823,7 +822,7 @@ int main() {
 ```
 
 ```
---- 行5: 未登録の顧客ID ---
+--- ケース5: 未登録の顧客ID ---
 エラー: 顧客ID UNKNOWN は登録されていません
 ```
 
@@ -831,7 +830,7 @@ int main() {
 
 ---
 
-入力と結果を1行ずつ並べると次のとおりです。
+各ケースの入力と結果を一覧にすると次のとおりです。
 
 | 動作例 | 会員・キャンペーン | 商品（単価） | 小計→支払金額 |
 |---|---|---|---|
@@ -856,7 +855,7 @@ int main() {
 
 依頼文を、実行結果で判定できる変更依頼へ分けます。
 
-| 変更ID            | 何を変えるか                              | 何ができれば完了か★タイトル変。具体例とかの方が良くないか？            |
+| 変更ID | 変更内容 | 確認する具体例 |
 | --------------- | ----------------------------------- | ----------------------------------------- |
 | 変更ID1（サマーセール追加） | Regular会員へ5%引きを追加し、Premium会員は対象外にする | セール中のRegularだけ5%引きになり、Premiumの20%引きは変わらない |
 | 変更ID2（逐次割引）     | 既存キャンペーンと重なる場合は、割引後の金額へ続けて適用する      | 10,000円が10%引き後に5%引きされ、8,550円になる           |
@@ -875,29 +874,20 @@ int main() {
 
 要求ID7（サマーセール5%）は、変更ID1（サマーセール追加）・変更ID2（逐次割引）から生じた追加要求です。要求ID5（購入結果の表示）は、表示する金額の値こそ変わりますが、表示項目と表示の責任は変更しない継続要求です。
 
-**変更前→変更後の要求対照（今回変える要求IDだけ）**
-★以下表必要？
-
-
-| 要求ID            | 変更前                  | 変更後                               |
-| --------------- | -------------------- | --------------------------------- |
-| 要求ID7（サマーセール5%） | なし                   | **Regularへ5%引きを追加し、既存割引後へ逐次適用する** |
-
-要求ID1（小計から支払金額）〜要求ID6（プレビュー）は変更前と変更後で要求文・受入条件が同じなので、この表には出てきません。要求ID5（購入結果の表示）の画面へ出る支払金額は8,550円や9,500円に変わりますが、それは要求ID7（サマーセール5%）で計算した結果を既存の表示欄へ渡した結果です。**出力値の変化と、出力契約の変更は分けて扱います。**
+要求ID1（小計から支払金額）〜要求ID6（プレビュー）は継続し、要求ID7（サマーセール5%）だけを追加します。要求ID5（購入結果の表示）へ渡る金額は8,550円や9,500円に変わりますが、表示項目と表示責任は変えません。**出力値の変化と、出力契約の変更は分けて扱います。**
 
 リリースは来週末。既存の `if` 文の隙間に `else if` を追加すれば間に合うかもしれません。
 
 
-**仕様変更の内容**
+#### 変更後に有効な業務ルール
 
-変更要求を受けて、現在の割引ルールがどう変わるかを整理します。
-★以下も何を伝えたい？整理したルールを記載する方が良いのでは？そのうえで、新規追加がこれ、といった感じ
+要求一覧をもう一度言い換えるのではなく、これからコードの条件と式へ落とす割引ルールを確定します。`継続`は既存動作を守る基準、`追加`は今回コードへ加えるルールです。
 
-| ルール名 | 変更前 | 変更後 |
-|---|---|---|
-| プレミアム割引 | Premium会員に20%引き | 変更なし |
-| キャンペーン割引 | Regular会員にキャンペーン10%引き | 変更なし |
-| **サマーセール割引（新規）** | —（なし） | **Regular会員に5%引きを逐次適用** |
+| 今回の扱い | 変更後に有効な割引ルール |
+|---|---|
+| 継続 | Premium会員は20%引き。最優先で、ほかの割引とは併用しない |
+| 継続 | Regular会員はキャンペーン中に10%引き |
+| 追加 | Regular会員はサマーセール中に5%引き。重複時は10%引き後へ適用する |
 
 今回変えるのは割引ルールです。顧客情報の取得と購入結果の表示は仕様変更の対象ではないため、次の共通基盤は変更前後で同じ契約のまま維持します。
 
@@ -917,7 +907,7 @@ int main() {
 | Regular・キャンペーンのみ | 9,000円 | 9,000円（変更なし） |
 | Regular・どちらもなし | 10,000円 | 10,000円（変更なし） |
 
-※1行目（Premium・両方あり）が変わらないのは、プレミアム割引が最優先で、キャンペーンもサマーセールも無効になる仕様だからです。
+最初のケース（Premium・両方あり）が変わらないのは、プレミアム割引が最優先で、キャンペーンもサマーセールも無効になる仕様だからです。
 
 Regular会員はサマーセール中に5%引きが新たに加わります。キャンペーン割引と重なる場合は、キャンペーン適用後の金額にサマーセール割引を掛けます。プレミアム会員はすでに20%引きが適用されているため、今回のサマーセールの対象外となります。
 
@@ -934,7 +924,7 @@ Regular会員はサマーセール中に5%引きが新たに加わります。�
 
 **変更後の入力・加工・出力**
 
-変更後の仕様を、現状の仕様と同じ粒度で、正常系の入力・判定・加工・出力として確認します。**新しく足したノードは、青のぬりつぶしとノード内の `［新規］` で示します。** この図には、もとからあって中身が変わったノードはありません。差分は3つで、入力に「サマーセールフラグ」が加わること、「Regular会員かつサマーセール中か」という判定が1つ増えること、割引額を計算したあとに「サマーセール5%を逐次適用する」という加工が挟まることです。サマーセールの対象はRegular会員なので、この図だけは代表の1件を C002（佐藤 花子・Regular）の注文へ替えて、新しく増えた経路を通したところを示します。
+変更後の仕様を、現状の仕様と同じ粒度で、正常系の入力・判定・加工・出力として確認します。**新しく足したノードは、淡い青の面とノード内の `［新規］` で示します。** この図には、もとからあって中身が変わったノードはありません。差分は3つで、入力に「サマーセールフラグ」が加わること、「Regular会員かつサマーセール中か」という判定が1つ増えること、割引額を計算したあとに「サマーセール5%を逐次適用する」という加工が挟まることです。サマーセールの対象はRegular会員なので、この図だけは代表の1件を C002（佐藤 花子・Regular）の注文へ替えて、新しく増えた経路を通したところを示します。
 
 ```mermaid
 flowchart TB
@@ -958,7 +948,7 @@ flowchart TB
     classDef decision fill:#fef9c3,stroke:#ca8a04,color:#111827;
     classDef normal fill:#dcfce7,stroke:#16a34a,color:#111827;
     class S,T,U added;
-    classDef added fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
+    classDef added fill:#eaf2fb,stroke:#527aa3,stroke-width:2px,color:#172033;
 ```
 
 直前の変更後システム内部図から読み取ることは、次の3点です。
@@ -1101,25 +1091,9 @@ public:
 フラグが1つ増えただけです。**ここは痛くありません。** ただし、**1つの施策追加が入力データと計算本体の両方へ波及している**ことは覚えておいてください。
 
 ---
-★変更前は削ろうか。なぜなら、判定追加だから、追加箇所が分かれば、それは変更前後の対比になりますよね？
-**PaymentCalculator::calculate() の割引判定（変更前）**
+フェーズ1で確認した `PaymentCalculator::calculate()` の2分岐へ、サマーセールの条件と式を加えます。判定追加では、同じ変更前コードを再掲せず、変更が入った分岐全体を示します。
 
-変える場所を先に確認します。`PaymentCalculator::calculate()` のうち、`memberType` と `context` から割引を選ぶ部分です。商品の合算はこの直前で `order.items` から `total` へ済んでいます。
-
-```cpp
-if (memberType == "Premium") {
-    total = total * 80 / 100;   // 20%引き
-} else if (memberType == "Regular"
-           && context.isCampaignActive) {
-    total = total * 90 / 100;   // 10%引き
-}
-```
-
-Premiumを先に見て、次にRegular＋キャンペーンを見る、2分岐です。ここへ「Regular会員へサマーセール5%引きを追加」を入れます。
-
----
-
-**PaymentCalculator::calculate() の割引判定（変更後）**
+**変更試行後の抜粋：`PaymentCalculator::calculate(...)`（割引判定全体）**
 
 ```cpp
 // サマーセール対応：Regular会員向けに条件を追加
@@ -1147,7 +1121,9 @@ if (memberType == "Premium") {
 
 #### `main()` と実行結果
 
-上の2定義を現状コードへ当てはめ、1万円の注文で4ケースを通します。**見るのは動くかどうかではなく、サマーセールを足したことで `PaymentCalculator` の割引分岐がどれだけ増えたかです。**
+上の2定義を現状コードへ当てはめ、1万円の注文で4ケースを通します。実行コードの直後に同じ番号の結果を置きます。**見るのは動くかどうかだけでなく、サマーセールを足したことで `PaymentCalculator` の割引分岐がどれだけ増えたかです。**
+
+**ケース1の実行コード：Premium・両施策あり**
 
 ```cpp
 // 変更後のクラスを使った動作確認
@@ -1159,46 +1135,67 @@ int main() {
     Order order;
     order.items.push_back(Item("ワイヤレスイヤホン", 10000));
 
-    // C001（Premium）/ キャンペーンあり / サマーセール中
-    // → Premium優先（キャンペーン・サマーセール無効）
     order.customerId = "C001";
-    context.isSummerSale     = true;
+    context.isSummerSale = true;
     context.isCampaignActive = true;
     processor.process(order, context);
+```
 
-    // C002（Regular）/ キャンペーンあり / サマーセール中
-    // → 逐次割引（10%引き後の金額に5%引き）
+**ケース1の実行結果**
+
+```
+田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
+  条件: 会員=Premium, キャンペーン=あり
+  小計 10000円 → 支払金額 8000円
+```
+
+**ケース2の実行コード：Regular・両施策あり**
+
+```cpp
     order.customerId = "C002";
-    context.isSummerSale     = true;
+    context.isSummerSale = true;
     context.isCampaignActive = true;
     processor.process(order, context);
+```
 
-    // C002（Regular）/ キャンペーンなし / サマーセール中 → 5%引き
-    order.customerId = "C002";
-    context.isSummerSale     = true;
+**ケース2の実行結果**
+
+```
+佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
+  条件: 会員=Regular, キャンペーン=あり
+  小計 10000円 → 支払金額 8550円
+```
+
+**ケース3の実行コード：Regular・サマーセールのみ**
+
+```cpp
+    context.isSummerSale = true;
     context.isCampaignActive = false;
     processor.process(order, context);
+```
 
-    // C002（Regular）/ キャンペーンなし / サマーセールなし → 割引なし
-    order.customerId = "C002";
-    context.isSummerSale     = false;
+**ケース3の実行結果**
+
+```
+佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
+  条件: 会員=Regular, キャンペーン=なし
+  小計 10000円 → 支払金額 9500円
+```
+
+**ケース4の実行コード：Regular・施策なし**
+
+```cpp
+    context.isSummerSale = false;
     context.isCampaignActive = false;
     processor.process(order, context);
 
     return 0;
 }
 ```
-★以下は処理と実行結果の対比になっていない。
+
+**ケース4の実行結果**
+
 ```
-田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
-  条件: 会員=Premium, キャンペーン=あり
-  小計 10000円 → 支払金額 8000円
-佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
-  条件: 会員=Regular, キャンペーン=あり
-  小計 10000円 → 支払金額 8550円
-佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
-  条件: 会員=Regular, キャンペーン=なし
-  小計 10000円 → 支払金額 9500円
 佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Regular, キャンペーン=なし
   小計 10000円 → 支払金額 10000円
@@ -1212,7 +1209,7 @@ int main() {
 
 ### 3-2：変更影響グラフ
 
-変更を試した結果、二つの変更IDがどのクラス・組み立て箇所まで届いたかを図にします。**開いて修正するノードは、青い枠と `［変更］` の両方で示します。**
+変更を試した結果、二つの変更IDがどのクラス・組み立て箇所まで届いたかを図にします。**開いて修正するノードは、淡い黄の面・茶色の枠と `［変更］` の両方で示します。**
 
 ```mermaid
 graph TD
@@ -1227,7 +1224,7 @@ graph TD
 
     classDef req fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray:6 4,color:#111827;
     classDef keep fill:#f1f5f9,stroke:#94a3b8,color:#334155;
-    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
+    classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
 新しいルールを1つ足すだけなのに、新規に分けた変更先はなく、既に動いている `PaymentCalculator`、`CampaignContext`、入力を組み立てる `main()` を開いて書き換えることになります。表示契約は変えませんが、同じ計算を使う購入結果とカートプレビューの回帰確認は要ります。
@@ -1294,50 +1291,45 @@ graph TD
 
 この分析から、責任を移す方向が見えます。小計計算と「選ばれた計算を呼ぶこと」は価格計算側へ残し、個別割引の一致条件と式は同じ施策理由で変わるため各割引へまとめます。複数の割引が一致したときの優先順は個別施策とは別の方針なので、選択・組み立て側で扱います。次の課題定義では、この三者を分けても金額計算を続けられる接続点を検討します。
 
-**【変わる部分（変わり続けるif文と計算）】**
+現状コードで示した `PaymentCalculator::calculate()` のどこが変わり、どこを守るのかを、一つの抜粋に重ねます。省略したのはクラスのほかのメンバーだけです。
 
-現状コードで示した `calculate` メソッドの割引判定ブロックが、キャンペーンのたびに変わる箇所です。フェーズ3「問題特定」でサマーセールを足した後の割引判定を、省略せず全体で示します。
-★どのクラスのどの関数かわかるようにして。なぜ、記載方法統一してくれないのか。抜粋の書き方を統一して。
+**確認する抜粋：`PaymentCalculator::calculate(...)`（変更試行後の計算全体）**
 
 ```cpp
-        // 割引：会員種別・キャンペーン・サマーセールで割引率を決める
+class PaymentCalculator {
+public:
+    int calculate(const Order& order,
+                  const std::string& memberType,
+                  const CampaignContext& context) {
+        int total = 0;                              // 【守る】小計計算
+        for (const auto& item : order.items) {
+            total += item.price;
+        }
+
+        // 【変える】施策の条件と式
         if (memberType == "Premium") {
-            // 20%引き（サマーセール対象外）
             total = total * 80 / 100;
         } else if (context.isSummerSale &&
                    context.isCampaignActive) {
-            // 逐次割引（10%引き後に5%引き）
             total = (total * 90 / 100) * 95 / 100;
         } else if (context.isSummerSale) {
-            total = total * 95 / 100;              // サマーセール5%引き
+            total = total * 95 / 100;
         } else if (context.isCampaignActive) {
-            // キャンペーン10%引き
             total = total * 90 / 100;
         }
 
-        // ← 新しいキャンペーンが来るたびに、ここに else if が増え続ける
-```
-
-**【今回の変更から守る部分（守りたい骨格）】**
-
-現状コードの `PaymentCalculator::calculate(const Order&, const std::string&, const CampaignContext&)` のうち、「商品を順に足して合計を出し、最終金額を返す」という骨格部分は変えたくありません。次のコードのうち、割引判定を挟む前後の小計計算と `return` が守りたい骨格です。
-
-```cpp
-        int total = 0;
-
-        for (const auto& item : order.items) {
-            total += item.price;             // 小計計算（変えたくない）
-        }
-
-        // ← ここに「変わる部分」（割引判定）が割り込んでいる
-        return total;                        // 結果を返す（変えたくない）
+        return total;                               // 【守る】結果を返す
+    }
+};
 ```
 
 上下は変えたくない骨格で、真ん中だけが変わります。**変えたい部分と変えたくない部分が、1つのメソッドの中で上下に挟まれている**——これが原因分析で見た原因を、コードの形として見たものです。
 
 そして、この真ん中を外へ出すには、外へ出した先が「どの情報を受け取れば判定できるか」を決めなければなりません。次の節で、その受け渡しに何が足りていないかを見ます。
 
-### 4-3：計算の骨格が、割引条件をどこまで知っているか　★この項目ってこの章独自？各章でばらばらにするの？
+### 4-3：接続点に漏れている判断や前提を確認する
+
+#### 計算の骨格が知りすぎているもの
 
 今、`PaymentCalculator`は割引ルールの条件（`memberType == "Premium"`や`isSummerSale`等）を自分の中に抱えています。接続点で見ると、計算の骨格が必要としているのは「合計金額を渡し、割引後の金額を受け取ること」だけです。それにもかかわらず、骨格側が個々の適用条件と割引率まで知っています。
 
@@ -1402,31 +1394,21 @@ public:
 
 フェーズ4「原因分析」で確定した原因から、変えるべき構造を候補として導きます。システム全体で候補の関係を整理した後、解くべき接続点を課題として確定します。
 
-### 5-1：どこに線を引けるかを挙げる
+### 5-1：原因から課題候補を洗い出す
 
 原因は2つ確定しました。`PaymentCalculator` が**施策ごとの条件**（`memberType == "Premium"`）と**施策ごとの計算式**（`* 80 / 100`）の両方を持っていることです。
 
-**この2つを外へ出すには、線の引き方が1通りではありません。** どこで切るかで、骨格に何が残るかが変わります。まず切り方を並べます。
-★ここが良くわからない。何を分離するかはわかっていているのでは？関数にするかクラスにするかという話？
+フェーズ4で、外へ出すものは**施策ごとの条件・計算式・競合時の順序**だと確定しています。ここで関数かクラスかを比べるのではありません。原因を消すには、守る側と変わる側の間で何を交換すればよいかを決めます。
 
-| 線の引き方 | `PaymentCalculator` に残るもの | 施策を1つ足すとき |
-|---|---|---|
-| A 条件だけを外へ出す | 施策ごとの**計算式** | 式を骨格へ書き足す |
-| B 計算式だけを外へ出す | 施策ごとの**条件** | 条件を骨格へ書き足す |
-| C 条件と式を、施策1つにつき1つの部品へまとめる | どちらも残らない | 部品を1つ作る |
-| D 外へ出さず、`if` の塊を関数へ切り出す | 条件も式も、切り出した関数の中に残る | その関数へ `else if` を足す |
+原因ID1（選択が施策条件を抱える）からは、選択側が各施策へ会員種別と施策状態を渡し、「適用できるか」を同じ操作で尋ねる境界が必要です。原因ID2（計算骨格が計算式を抱える）からは、計算側が適用前金額を渡し、適用後金額を同じ操作で受け取る境界が必要です。
 
-**AとBは、原因を半分しか消しません。** Aなら式を変えるたびに骨格を開き、Bなら施策を足すたびに骨格を開きます。フェーズ3で痛かったのは**その両方**でした。
-
-**Dは、場所が変わるだけです。** `calculate()` から `selectDiscount()` へ引っ越しても、同じ関数の中に条件の連鎖と適用順序が残ります。開くファイルは1つのままで、施策追加のたびにその関数を読み直すことも変わりません。
-
-残るのはCです。ただしCの中でも、**「どの施策を当てるか」と「当てた施策をどう計算するか」は変わる理由が違います。** 新しい施策が増えるのは前者、既存施策の割引率が変わるのは後者です。ここは1つにまとめず、2つの境界として追います。
+条件だけ、または式だけを切り出すと、もう一方の原因が残ります。`if` の塊を補助関数へ移しても、条件・式・順序を一か所で読み直す痛みは移動するだけです。したがって、これらは完成案ではありません。**同じ施策理由で変わる条件と式は施策単位にまとめ、競合時の順序は複数施策を組み立てる側へ分ける**ことを課題候補にします。
 
 ### 5-2：全原因を解ける境界だけを残す
 
-AとBは一方の原因を残し、Dは原因を別関数へ移すだけです。したがって、どれも完成案として比較する対象ではありません。**条件と式を施策ごとの部品へまとめるCだけが、原因ID1（選択が施策条件を抱える）と原因ID2（計算骨格が計算式を抱える）を同時に解く完成方向**です。責任配置の異なる完成方向がほかに成立していないため、ここでは手段の優劣を並べる比較は行いません。
+条件と式を施策単位にまとめる境界だけが、原因ID1（選択が施策条件を抱える）と原因ID2（計算骨格が計算式を抱える）を同時に解きます。責任配置の異なる完成方向がほかに成立していないため、ここでは手段の優劣を並べる比較は行いません。
 
-Cをコードへ落とすには、二つの接続を確定する必要があります。一つは、選択側が各施策へ「この入力へ適用できるか」と同じ形で尋ねる接続です。もう一つは、計算側が選択済みの施策へ「適用前金額」を渡し「適用後金額」を受け取る接続です。二つを同じ施策部品に持たせれば、条件と式は一緒に変更でき、選択と小計計算の骨格からは隠せます。
+この境界をコードへ落とすには、二つの接続を確定する必要があります。一つは、選択側が各施策へ「この入力へ適用できるか」と同じ形で尋ねる接続です。もう一つは、計算側が選択済みの施策へ「適用前金額」を渡し「適用後金額」を受け取る接続です。二つを同じ施策部品に持たせれば、条件と式は一緒に変更でき、選択と小計計算の骨格からは隠せます。
 
 課題を二つに分けて追うのは、別々の最終案だからではありません。**一つの完成構造が両方の原因を消したことを、別々の完了条件で検証するため**です。選択側から施策名が消えても個別式が残れば未完了であり、計算側から個別式が消えても選択条件が残れば未完了です。
 
@@ -1454,26 +1436,32 @@ Cをコードへ落とすには、二つの接続を確定する必要があり�
 
 | 決めること | システム全体での決定 | 守る側から隠れる詳細 |
 |---|---|---|
-| 契約と具体 | 適用条件と計算式を `IDiscountRule` の具体へ置く | 個別の条件と式 |
-| 生成・所有・受け渡し | `DiscountRuleSet`がルールを所有・登録し、Selectorを二つの入口へ渡す | 生成方法、登録順、選択結果 |
-| 実行 | 選択側は `matches()`、計算側は `apply()` だけを呼ぶ | 条件・式・生成の詳細 |
+| 契約と具体 | 適用条件と計算式を施策単位にまとめ、共通の境界へ置く | 個別の条件と式 |
+| 生成・所有・受け渡し | 組み立て役が施策を競合方針の順で持ち、二つの入口へ同じ選択境界を渡す | 生成方法、登録順、選択結果 |
+| 公開入口からの実行 | 選択側は適用可否、計算側は適用後金額だけを同じ境界へ尋ねる | 条件・式・生成の詳細 |
 
-構想は、起動時の準備と注文時の実行に分けると一望できます。
-★何故、ここで最終クラス図が出てくるのか？まだそこまでいきません。これを何かしら構造図で表現しませんか？
+この時点で決めたのは、`PaymentCalculator`が個別条件と式を持たず、割引施策の境界へ依頼するという責任の向きだけです。次の部分クラス図では、その位置だけを示します。`DiscountBoundary`は役割を表す仮名で、型名・具体クラス・生成場所はこのあと順に決めます。
 
-```text
-起動時：main()
-  ├─ DiscountRuleSetを生成する
-  │   ├─ 5つの具体ルールとRuleSelectorを所有する
-  │   └─ 具体ルールを競合方針の順でRuleSelectorへ登録する
-  ├─ OrderProcessorへRuleSelectorを渡す
-  └─ CartPreviewServiceへ同じRuleSelectorを渡す
+```mermaid
+classDiagram
+    %% provisional-role-diagram
+    direction TB
+    class PaymentCalculator:::touched {
+        <<changed>>
+        +calculate(...) int
+    }
+    class DiscountBoundary:::added {
+        <<new>>
+        +適用可否を返す
+        +適用後金額を返す
+    }
+    PaymentCalculator --> DiscountBoundary : 個別条件・式を境界の外へ依頼
 
-注文時：OrderProcessor::process()
-  ├─ RuleSelectorが登録済みルールから1つを選ぶ
-  ├─ 選択したルールを渡してPaymentCalculatorを生成する
-  └─ calculate()が契約を通して選択済みルールのapply()を呼ぶ
+    classDef added fill:#eaf2fb,stroke:#527aa3,stroke-width:2px,color:#172033;
+    classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
+
+ここから、境界の操作、性質の異なる具体、生成・所有、二つの入口への受け渡し、実行の順で具体化します。完成クラス図は、すべてを接続したフェーズ7で確認します。
 
 ### 構想をコードでつなぐ
 
@@ -1541,8 +1529,8 @@ classDiagram
     PaymentCalculator --> IDiscountRule : 契約だけを使う
     IDiscountRule <|.. PremiumDiscount : 実現
 
-    classDef added fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
-    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
+    classDef added fill:#eaf2fb,stroke:#527aa3,stroke-width:2px,color:#172033;
+    classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
 `PaymentCalculator` から具体施策への線を消し、`IDiscountRule` への1本だけを残します。
@@ -1655,8 +1643,8 @@ classDiagram
     RuleSelector o-- IDiscountRule : 借用参照を登録
     OrderProcessor --> RuleSelector : 参照を受け取る
 
-    classDef added fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
-    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
+    classDef added fill:#eaf2fb,stroke:#527aa3,stroke-width:2px,color:#172033;
+    classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
 図の所有・借用・受け渡しが、次のメンバー保持と `add()` に対応します。
@@ -1937,8 +1925,8 @@ classDiagram
     CartPreviewService ..> PaymentCalculator : その場で作って使う
     PaymentCalculator --> IDiscountRule : 使う
 
-    classDef added fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
-    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
+    classDef added fill:#eaf2fb,stroke:#527aa3,stroke-width:2px,color:#172033;
+    classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
 両入口は具体名を知らず、同じ `RuleSelector` と `PaymentCalculator` を使います。顧客取得と結果表示は現状維持です。最後の図で、間を流れる値を確認します。
@@ -1963,7 +1951,7 @@ classDiagram
     CustomerDatabase *-- CustomerInfo
     PaymentCalculator ..> Order : 受け取る
     RuleSelector ..> CampaignContext : 選択条件に使う
-    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
+    classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
 `CampaignContext` は施策コード一覧へ変わり、`RuleSelector` が選択に使います。`PaymentCalculator` は選択済みの契約だけを受け取り、施策条件を知りません。
@@ -2472,7 +2460,7 @@ public:
 
 ---
 
-**組み立てと、シナリオ1：Premium会員の20%引き**
+**組み立てと、ケース1：Premium会員の20%引き**
 
 ```cpp
 int main() {
@@ -2487,7 +2475,7 @@ int main() {
     CartPreviewService preview(db, discountRules.selector());
 
     // C001（Premium）/ キャンペーンなし / サマーセールなし → 20%引き
-    std::cout << "--- 行1: Premium割引 ---\n";
+    std::cout << "--- ケース1: Premium割引 ---\n";
     Order order1;
     order1.customerId = "C001";
     order1.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -2499,21 +2487,21 @@ int main() {
     processor.process(order1, context1);
 ```
 
-シナリオ1の実行結果：
+ケース1の実行結果：
 
 ```
---- 行1: Premium割引 ---
+--- ケース1: Premium割引 ---
   カートプレビュー: 8000円
 田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Premium, キャンペーン=なし
   小計 10000円 → 支払金額 8000円
 ```
 
-`main()` はこのまま続きます。シナリオ2は、同じPremium会員にキャンペーンとサマーセールを当てても、Premium優先で20%引きのままです。
+`main()` はこのまま続きます。ケース2は、同じPremium会員にキャンペーンとサマーセールを当てても、Premium優先で20%引きのままです。
 
 ```cpp
     // C001（Premium）/ キャンペーンあり / サマーセール中 → Premium優先
-    std::cout << "\n--- 行2: Premium排他 ---\n";
+    std::cout << "\n--- ケース2: Premium排他 ---\n";
     Order order2;
     order2.customerId = "C001";
     order2.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -2527,21 +2515,21 @@ int main() {
     processor.process(order2, context2);
 ```
 
-シナリオ2の実行結果：
+ケース2の実行結果：
 
 ```
---- 行2: Premium排他 ---
+--- ケース2: Premium排他 ---
   カートプレビュー: 8000円
 田中 一郎 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Premium, キャンペーン=あり
   小計 10000円 → 支払金額 8000円
 ```
 
-同じ `main()` の中で、シナリオ3はRegular会員へサマーセールとキャンペーンを逐次適用です。
+同じ `main()` の中で、ケース3はRegular会員へサマーセールとキャンペーンを逐次適用です。
 
 ```cpp
     // C002（Regular）/ キャンペーンあり / サマーセール中 → 逐次割引
-    std::cout << "\n--- 行3: 逐次割引 ---\n";
+    std::cout << "\n--- ケース3: 逐次割引 ---\n";
     Order order3;
     order3.customerId = "C002";
     order3.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -2555,21 +2543,21 @@ int main() {
     processor.process(order3, context3);
 ```
 
-シナリオ3の実行結果：
+ケース3の実行結果：
 
 ```
---- 行3: 逐次割引 ---
+--- ケース3: 逐次割引 ---
   カートプレビュー: 8550円
 佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Regular, キャンペーン=あり
   小計 10000円 → 支払金額 8550円
 ```
 
-同じ `main()` の中で、シナリオ4はRegular会員へサマーセール単独（5%引き）です。
+同じ `main()` の中で、ケース4はRegular会員へサマーセール単独（5%引き）です。
 
 ```cpp
     // C002（Regular）/ サマーセールのみ → 5%引き
-    std::cout << "\n--- 行4: サマーセール単独 ---\n";
+    std::cout << "\n--- ケース4: サマーセール単独 ---\n";
     Order order4;
     order4.customerId = "C002";
     order4.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -2582,21 +2570,21 @@ int main() {
     processor.process(order4, context4);
 ```
 
-シナリオ4の実行結果：
+ケース4の実行結果：
 
 ```
---- 行4: サマーセール単独 ---
+--- ケース4: サマーセール単独 ---
   カートプレビュー: 9500円
 佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Regular, キャンペーン=なし
   小計 10000円 → 支払金額 9500円
 ```
 
-同じ `main()` の中で、シナリオ4bはRegular会員へキャンペーン単独（10%引き）です。動作例の行3にあたり、サマーセール追加後も変わらないことを確認する継続要求（要求ID3（Regularキャンペーン10%））の回帰です。
+同じ `main()` の中で、ケース4bはRegular会員へキャンペーン単独（10%引き）です。動作例のケース3にあたり、サマーセール追加後も変わらないことを確認する継続要求（要求ID3（Regularキャンペーン10%））の回帰です。
 
 ```cpp
     // C002（Regular）/ キャンペーンのみ → 10%引き（変更前と同じ）
-    std::cout << "\n--- 行4b: キャンペーン単独 ---\n";
+    std::cout << "\n--- ケース4b: キャンペーン単独 ---\n";
     Order order4b;
     order4b.customerId = "C002";
     order4b.items.push_back(Item("ワイヤレスイヤホン", 10000));
@@ -2609,10 +2597,10 @@ int main() {
     processor.process(order4b, context4b);
 ```
 
-シナリオ4bの実行結果：
+ケース4bの実行結果：
 
 ```
---- 行4b: キャンペーン単独 ---
+--- ケース4b: キャンペーン単独 ---
   カートプレビュー: 9000円
 佐藤 花子 さんの注文: ワイヤレスイヤホン 10000円
   条件: 会員=Regular, キャンペーン=あり
@@ -2621,11 +2609,11 @@ int main() {
 
 サマーセールを追加しても、キャンペーン単独の支払金額は変更前と同じ9,000円のままです。要求ID3（Regularキャンペーン10%）の回帰はこの1件で確認できます。
 
-同じ `main()` の中で、シナリオ5はRegular会員で割引なしです。
+同じ `main()` の中で、ケース5はRegular会員で割引なしです。
 
 ```cpp
     // C003（Regular）/ 割引なし
-    std::cout << "\n--- 行5: 割引なし ---\n";
+    std::cout << "\n--- ケース5: 割引なし ---\n";
     Order order5;
     order5.customerId = "C003";
     order5.items.push_back(Item("スマホケース", 3000));
@@ -2637,47 +2625,47 @@ int main() {
     processor.process(order5, context5);
 ```
 
-シナリオ5の実行結果：
+ケース5の実行結果：
 
 ```
---- 行5: 割引なし ---
+--- ケース5: 割引なし ---
   カートプレビュー: 3000円
 鈴木 次郎 さんの注文: スマホケース 3000円
   条件: 会員=Regular, キャンペーン=なし
   小計 3000円 → 支払金額 3000円
 ```
 
-同じ `main()` の中で、シナリオ6は未登録顧客のエラーです。
+同じ `main()` の中で、ケース6は未登録顧客のエラーです。
 
 ```cpp
     // エラー条件も、正常系と同じ最終コードで確認する
-    std::cout << "\n--- 行6: 未登録顧客 ---\n";
+    std::cout << "\n--- ケース6: 未登録顧客 ---\n";
     Order unknown;
     unknown.customerId = "UNKNOWN";
     unknown.items.push_back(Item("ケーブル", 1000));
     processor.process(unknown, context5);
 ```
 
-シナリオ6の実行結果：
+ケース6の実行結果：
 
 ```
---- 行6: 未登録顧客 ---
+--- ケース6: 未登録顧客 ---
 エラー: 顧客ID UNKNOWN は登録されていません
 ```
 
-同じ `main()` の中で、シナリオ7は空注文のエラーです。
+同じ `main()` の中で、ケース7は空注文のエラーです。
 
 ```cpp
-    std::cout << "\n--- 行7: 空注文 ---\n";
+    std::cout << "\n--- ケース7: 空注文 ---\n";
     Order empty;
     empty.customerId = "C002";
     processor.process(empty, context5);
 ```
 
-シナリオ7の実行結果：
+ケース7の実行結果：
 
 ```
---- 行7: 空注文 ---
+--- ケース7: 空注文 ---
 エラー: 注文が空です
 ```
 
@@ -2711,7 +2699,7 @@ int main() {
 |---|---|---|
 | 要求ID1（小計から支払金額） | `PaymentCalculator::calculate()` | 10,000円の小計と割引後金額を出力 |
 | 要求ID2（Premium20%） | `PremiumDiscount`、`RuleSelector` | セール併用でも8,000円 |
-| 要求ID3（キャンペーン10%） | `CampaignDiscount` | 行4bで9,000円（変更前と同額） |
+| 要求ID3（キャンペーン10%） | `CampaignDiscount` | ケース4bで9,000円（変更前と同額） |
 | 要求ID4（未登録IDを拒否） | `CustomerDatabase`、`OrderProcessor` | 未登録IDをエラー表示して計算しない |
 | 要求ID5（購入結果の表示） | `CheckoutResultRenderer` の `showOrderResult()` | 変更前と同じ項目で顧客・条件・小計・支払金額を表示 |
 | 要求ID6（プレビュー） | `CartPreviewService::getEstimatedTotal()` | 各正常ケースで購入結果と同額 |
@@ -2757,7 +2745,7 @@ int main() {
 
 ### 7-3：変更影響グラフ（改善後）
 
-フェーズ3で当てた**同じ変更ID1（サマーセール追加）・変更ID2（逐次割引）**を、完成構造からサマーセール固有の定義だけを除いた基準へ当て直します。**新規は青のぬりつぶしと `［新規］`、変更は青い枠と `［変更］` で示します。差分表示のないノードは触りません。**
+フェーズ3で当てた**同じ変更ID1（サマーセール追加）・変更ID2（逐次割引）**を、完成構造からサマーセール固有の定義だけを除いた基準へ当て直します。**新規は淡い青の面と `［新規］`、変更は淡い黄の面・茶色の枠と `［変更］` で示します。差分表示のないノードは触りません。**
 
 ```mermaid
 graph TD
@@ -2776,8 +2764,8 @@ graph TD
 
     classDef req fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray:6 4,color:#111827;
     classDef keep fill:#f1f5f9,stroke:#94a3b8,color:#334155;
-    classDef added fill:#1565c0,stroke:#0b3d76,stroke-width:3px,color:#ffffff;
-    classDef touched fill:#ffffff,stroke:#1565c0,stroke-width:5px,color:#0b3d76;
+    classDef added fill:#eaf2fb,stroke:#527aa3,stroke-width:2px,color:#172033;
+    classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
 フェーズ3では入力型 `CampaignContext`、計算本体 `PaymentCalculator`、入力を組み立てる `main()` を開きました。完成構造では、`CampaignContext` と `PaymentCalculator` を触らず、施策語彙を足す `CampaignCode`、所有・競合順を示す `DiscountRuleSet`、実行時の施策コードを渡す `main()` を開きます。施策固有の条件と式は `SummerSaleDiscount` と `SummerSaleAndCampaignDiscount` という新規部品へ置けます。コード変更数の単純な減少ではなく、**既存の計算経路から施策固有の変更理由を外せたこと**が改善です。

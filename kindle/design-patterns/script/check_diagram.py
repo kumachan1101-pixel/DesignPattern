@@ -109,6 +109,10 @@ def check(config_path: Path) -> int:
             return "\n".join(re.findall(r"```cpp\n(.*?)```", text[start:end], re.S))
 
         for diagram in re.finditer(r"```mermaid\nclassDiagram\n(.*?)```", text, re.S):
+            # フェーズ6冒頭の仮名による責任図は、これから型へ変換する判断材料であり、
+            # 同じフェーズの掲載コードに実体があることを要求しない。
+            if "%% provisional-role-diagram" in diagram.group(1):
+                continue
             code = phase_code(diagram.start())
             bodies = class_bodies(code)
             inherits = set(
