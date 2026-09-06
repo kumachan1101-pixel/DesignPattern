@@ -3,19 +3,16 @@
 
 #include "ProductDatabase.h"
 #include "INotification.h"
-#include "DeliveryStatusLog.h"
 
 class InventoryManager {
 private:
     // 非所有ポインタ。登録中の通知先はInventoryManagerより長く生存すること。
     vector<INotification*> observers;
-    ProductDatabase&        db;
-    DeliveryStatusLog&      deliveryStatusLog;
+    ProductDatabase& db;
 
 public:
-    InventoryManager(ProductDatabase& database,
-                     DeliveryStatusLog& statusLog)
-        : db(database), deliveryStatusLog(statusLog) {}
+    explicit InventoryManager(ProductDatabase& database)
+        : db(database) {}
 
     // nullと重複登録を拒否する
     bool attach(INotification* o) {
@@ -31,13 +28,6 @@ public:
         return true;
     }
 
-    // 破棄前や購読停止時に登録を解除する
-    void detach(INotification* o) {
-        observers.erase(
-            remove(observers.begin(), observers.end(), o),
-            observers.end());
-    }
-
     void reduceStock(string productId, int quantity) {
         if (!db.exists(productId)) {
             cout << "[エラー] 商品ID " << productId
@@ -49,7 +39,8 @@ public:
         ProductInfo info = db.get(productId);
 
         if (quantity <= 0 || quantity > info.stock) {
-            cout << "[エラー] 商品 " << productId
+            cout << "[エラー] 商品 " << productId << "（" << info.name
+                 << "）"
                  << " は " << quantity << " 個出庫できません。現在在庫: "
                  << info.stock << endl;
             return;
@@ -64,8 +55,7 @@ public:
              << " -> " << info.stock << endl;
 
         if (db.isBelowThreshold(productId, info.stock)) {
-            notifyAll({productId, info.name,
-                       info.stock, info.alertThreshold});
+            notifyAll({productId, info.name, info.stock});
         }
     }
 
@@ -78,6 +68,15 @@ public:
         }
 
         ProductInfo info = db.get(productId);
+
+        if (quantity <= 0) {
+            cout << "[エラー] 商品 " << productId << "（" << info.name
+                 << "） は " << quantity
+                 << " 個補充できません。現在在庫: "
+                 << info.stock << endl;
+            return;
+        }
+
         int before = info.stock;
         info.stock += quantity;
         db.save(productId, info);
@@ -95,7 +94,6 @@ private:
 
         for (auto* o : observers) {
             DeliveryResult r = o->send(alert);
-            deliveryStatusLog.record(r);
 
             if (r.status == ACCEPTED) {
                 accepted++;

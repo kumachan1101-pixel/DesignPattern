@@ -3295,7 +3295,11 @@ def check_long_text_blocks(text: str, path: Path) -> list[Issue]:
 
 
 def check_run_locally_section(text: str, path: Path) -> list[Issue]:
-    """全パターン章に「手元で動かすには」を1回だけ置く。
+    """旧 ``output/`` の全パターン章に実行案内を1回だけ置く。
+
+    この関数は、分冊前の旧12章を検証する互換規則である。現行の分冊は
+    ``check_volume.py`` の ``hand_run_guidance_issues`` で検査し、実行方法の
+    共通説明を第0章だけに置く。対象の異なる二つの規則を混ぜないこと。
 
     2026-08-14に見つかった症状。12章中10章にあり、第8章と第11章だけ欠けていた。
     第11章は成果物ファイルを実際に書き出す章、第8章は非同期の完了確認がある章で、

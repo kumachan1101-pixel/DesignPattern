@@ -30,11 +30,22 @@ public:
                   << std::endl;
         return next;
     }
+
+    // 待機中の予約が先に破棄された場合も、借用ポインタを残さない
+    void remove(TicketReservation* reservation) {
+        for (auto it = queues.begin(); it != queues.end(); ) {
+            auto& queue = it->second;
+            auto newEnd = std::remove(
+                queue.begin(), queue.end(), reservation);
+            queue.erase(newEnd, queue.end());
+            if (queue.empty()) {
+                it = queues.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
 };
-
-class TicketReservation;
-
-// 状態ごとの共通操作と、許可されない操作の既定処理を持つ基底クラス
 
 class TicketReservation {
 private:
@@ -54,6 +65,18 @@ public:
                       const std::string& eventId)
         : state(initialState), db(db), waitlist(waitlist),
           eventId(eventId) {}
+
+    // 待機中に予約オブジェクトが破棄されても参照を残さない
+    ~TicketReservation() {
+        waitlist->remove(this);
+    }
+
+    // キューがthisのアドレスを借用するため、実体の複製・移動を禁止する
+    TicketReservation(const TicketReservation&) = delete;
+    TicketReservation& operator=(
+        const TicketReservation&) = delete;
+    TicketReservation(TicketReservation&&) = delete;
+    TicketReservation& operator=(TicketReservation&&) = delete;
 
     // 状態遷移時に、共有状態オブジェクトへの借用ポインタを差し替える。
     // 状態は関数ローカルstaticが所有するため、ここではdeleteしない。
@@ -83,7 +106,6 @@ public:
     void cancel()          { state->cancel(this); }
     void hold()            { state->hold(this); }
     void expire()          { state->expire(this); }
-    void paymentFailed()   { state->paymentFailed(this); }
 };
 
 class ReservationExpiryScheduler {
@@ -116,9 +138,11 @@ class BatchApplication {
         if (!validateExists(eventId)) return false;
 
         EventInfo info = db.get(eventId);
+        int available = info.capacity - info.reserved;
         std::cout << "[席数確認] " << eventId << " "
-                  << info.reserved << "/" << info.capacity;
-        if (info.reserved == info.capacity) std::cout << "（満席）";
+                  << info.reserved << "/" << info.capacity
+                  << "（空席" << available << "）";
+        if (available == 0) std::cout << "（満席）";
         std::cout << std::endl;
 
         return true;
@@ -152,7 +176,8 @@ public:
         std::cout << "--- 行3: 保留と支払い ---\n";
 
         if (showAvailability("EVT002")) {
-            std::cout << "予約対象：" << db.get("EVT002").title << "\n";
+            std::cout << "予約対象："
+                      << db.get("EVT002").title << "\n";
             TicketReservation seat3(availableState(), &db,
                                     &waitlist, "EVT002");
             seat3.reserve();
@@ -198,13 +223,15 @@ public:
         TicketReservation occupied(reservedState(), &db,
                                    &waitlist, "EVT003");
         occupied.cancel(); // 50→49、その直後にwaitingを49→50へ自動昇格
-        waiting.pay();
+        // 昇格後も同じ予約として操作でき、再取消で席を戻せる
+        waiting.cancel();
 
         // シナリオ5b：待機者がいる状態での期限切れ → 自動昇格
         std::cout << "--- 行5b: 期限切れからの自動昇格 ---\n";
-        // 50/50の満席状態。1件を保留にしてから待機者を登録する
-        TicketReservation held(reservedState(), &db,
+        // 直前の再取消で49/50。別の予約で満席へ戻してから保留にする
+        TicketReservation held(availableState(), &db,
                                &waitlist, "EVT003");
+        held.reserve();
         // 席は確保したまま、期限だけ24時間へ延長（席数は動かない）
         held.hold();
         TicketReservation waiting2(availableState(), &db,
@@ -225,17 +252,6 @@ public:
         // シナリオ7：存在しないイベントIDのエラー
         std::cout << "--- 行7: 存在しないイベントID ---\n";
         validateExists("EVT999");
-
-// シナリオ8：決済失敗 (Available → Reserved → 決済失敗、Reservedのまま)
-
-        std::cout << "--- 行8: 決済失敗（再試行可能） ---\n";
-
-        if (showAvailability("EVT001")) {
-            TicketReservation seat8(availableState(), &db,
-                                    &waitlist, "EVT001");
-            seat8.reserve();
-            seat8.paymentFailed();
-        }
 
     }
 };

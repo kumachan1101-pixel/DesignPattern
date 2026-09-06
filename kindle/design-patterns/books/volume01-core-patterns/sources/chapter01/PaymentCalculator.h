@@ -12,17 +12,12 @@ public:
     explicit PaymentCalculator(const IDiscountRule& r)
             : rule(r) {}
 
-    PaymentResult calculate(const Order& order) {
+    int calculate(const Order& order) const {
         int subtotal = 0;
 
         for (const auto& item : order.items) subtotal +=
             item.price;
-        PaymentResult result;
-        result.subtotal = subtotal;
-        result.finalPrice = rule.apply(subtotal);
-        result.appliedRule = rule.name();
-
-        return result;
+        return rule.apply(subtotal);
     }
 };
 
@@ -35,7 +30,7 @@ public:
                        const RuleSelector& selector)
         : db(db), selector(selector) {}
 
-    PaymentResult getEstimatedTotal(
+    int getEstimatedTotal(
             const Order& order,
             const CampaignContext& context) const {
         if (!db.exists(order.customerId))
@@ -57,7 +52,8 @@ public:
     void showOrderResult(const CustomerInfo& customer,
                          const Order& order,
                          const CampaignContext& context,
-                         const PaymentResult& result) {
+                         int subtotal,
+                         int finalPrice) {
         std::cout << customer.name << " さんの注文:";
 
         for (const auto& item : order.items) {
@@ -68,13 +64,9 @@ public:
         std::cout << "\n  条件: 会員=" << customer.memberType
                   << ", キャンペーン="
           << (context.isActive(CampaignCode::RegularCampaign)
-                      ? "あり" : "なし")
-                  << ", サマーセール="
-                  << (context.isActive(CampaignCode::SummerSale)
                       ? "あり" : "なし");
-        std::cout << "\n  小計 " << result.subtotal
-                  << "円 → 適用 " << result.appliedRule
-                  << " → 支払金額 " << result.finalPrice << "円\n";
+        std::cout << "\n  小計 " << subtotal
+                  << "円 → 支払金額 " << finalPrice << "円\n";
     }
 };
 
@@ -92,13 +84,13 @@ public:
     void process(const Order& order,
                  const CampaignContext& context) {
         if (!db.exists(order.customerId)) {
-            std::cerr << "エラー: 顧客ID " << order.customerId
+            std::cout << "エラー: 顧客ID " << order.customerId
                       << " は登録されていません\n";
             return;
         }
 
         if (order.items.empty()) {
-            std::cerr << "エラー: 注文が空です\n";
+            std::cout << "エラー: 注文が空です\n";
             return;
         }
 
@@ -107,7 +99,7 @@ public:
         try {
             customer = db.get(order.customerId);
         } catch (const std::exception&) {
-            std::cerr << "エラー: 顧客情報の取得に失敗しました\n";
+            std::cout << "エラー: 顧客情報の取得に失敗しました\n";
             return;
         }
 
@@ -115,9 +107,13 @@ public:
             selector.select(customer.memberType, context);
         PaymentCalculator calculator(rule);
 
-        PaymentResult result = calculator.calculate(order);
-        renderer.showOrderResult(customer,
-                                 order, context, result);
+        const int finalPrice = calculator.calculate(order);
+        int subtotal = 0;
+        for (const auto& item : order.items) {
+            subtotal += item.price;
+        }
+        renderer.showOrderResult(customer, order, context,
+                                 subtotal, finalPrice);
     }
 };
 

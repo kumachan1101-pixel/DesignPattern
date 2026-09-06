@@ -6,6 +6,7 @@
 #include <string>
 #include <map>
 #include <algorithm>
+#include <stdexcept>
 using namespace std;
 
 struct ProductInfo {
@@ -55,14 +56,24 @@ struct DeliveryResult {
     string requestId;      // 非同期受付だけが設定する
 };
 
+// ログや結果で使う通知手段名を一か所に定義する
+
+namespace ChannelName {
+    const char* const EMAIL = "Email";
+    const char* const DASHBOARD = "Dashboard";
+    const char* const CHAT = "Chat";
+    const char* const SMS = "SMS";
+}
+
 // 通知手段ごとに表現を変えるための、共通の在庫警告データ
 
 struct StockAlert {
     string productId;
     string productName;
     int stock;
-    int threshold;
 };
+
+// 通知先が満たす必要がある契約（インターフェース）
 
 // 非同期SMSの受付IDと最終配信状態を管理する
 
@@ -83,5 +94,7 @@ struct StockAlert {
 // 通知先4：SMS通知（非同期。受付だけ返す）
 
 // 通知元クラス（Subject に相当）
+
+// 生成・所有・登録を一か所に閉じるアプリケーションの組み立て役
 
 #endif  // PRODUCTDATABASE_H_INCLUDED

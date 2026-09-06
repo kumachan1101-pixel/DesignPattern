@@ -44,6 +44,7 @@
  36. 編集指示の★が出版原稿に残っていない
  37. 図の新規・変更が色だけでなく文字ラベルでも判別できる
  38. フェーズ6の部分クラス図とフェーズ7の完成図が役割分担している
+ 39. フェーズ3とフェーズ7の変更影響グラフが同じ変更IDと組み立て粒度を使う
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -219,6 +220,45 @@ def three_question_placement_issues(text: str) -> list[str]:
     for key, section, location in expected:
         if THREE_QUESTIONS[key] not in section:
             issues.append(f"{key}が{location}にありません")
+    return issues
+
+
+def change_impact_alignment_issues(text: str) -> list[str]:
+    """フェーズ3/7の変更影響グラフが同じ起点・組み立て粒度かを返す。"""
+    issues: list[str] = []
+    phase3 = text_between(
+        text,
+        "### 3-2：変更影響グラフ",
+        "### 3-3：痛みの言語化",
+    )
+    phase7 = text_between(
+        text,
+        "### 7-3：変更影響グラフ（改善後）",
+        "### 7-4：変更シナリオ表",
+    )
+    if not phase3 or not phase7:
+        return issues
+
+    def graph_body(section: str) -> str:
+        found = re.search(r"```mermaid\s*\n(.*?)```", section, re.S)
+        return found.group(1) if found else ""
+
+    before = graph_body(phase3)
+    after = graph_body(phase7)
+    before_ids = set(re.findall(r"変更ID\d+", before))
+    after_ids = set(re.findall(r"変更ID\d+", after))
+    if before_ids != after_ids:
+        issues.append(
+            "フェーズ3/7の変更影響グラフで変更ID集合が違います"
+            f"（フェーズ3={sorted(before_ids)}、フェーズ7={sorted(after_ids)}）"
+        )
+
+    composition = re.compile(r"(?:main\(\)|[A-Za-z_]\w*Application)")
+    if composition.search(after) and not composition.search(before):
+        issues.append(
+            "改善後だけがmain/Applicationの組み立て箇所を数えています。"
+            "フェーズ3にも同じ粒度の入力・生成・受け渡しを載せてください"
+        )
     return issues
 
 
@@ -744,8 +784,13 @@ def check(config_path: Path) -> int:
     for path in chapters:
         text = path.read_text(encoding="utf-8")
         for graph in re.findall(r"```mermaid\ngraph (?:TD|LR)\n(.*?)```", text, re.S):
-            for label in re.findall(r'\w+\["([^"]+)"\]', graph):
-                if label.startswith("変更要求") or "✅" in label or "<br>" in label:
+            for node in re.finditer(r'\w+\["([^"]+)"\]', graph):
+                label = node.group(1)
+                style_match = re.match(r":::(\w+)", graph[node.end():])
+                style = style_match.group(1) if style_match else ""
+                if style in {"req", "touched", "added", "keep"}:
+                    continue
+                if label.startswith(("変更要求", "変更ID")) or "✅" in label or "<br>" in label:
                     continue
                 failures.append(
                     f"{path.name}: 変更影響グラフの箱「{label[:30]}」が規約の4種"
@@ -1008,6 +1053,7 @@ def check(config_path: Path) -> int:
     # 生成・所有・受け渡しを決める場面で、題材固有の答えと一緒に使う。
     governed = chapters + [
         BOOK_ROOT / "templates" / "chapter-template.md",
+        BOOK_ROOT / "templates" / "chapter0-template.md",
         BOOK_ROOT / "rules" / "checklist.md",
         BOOK_ROOT / "CLAUDE.md",
     ]
@@ -1063,6 +1109,14 @@ def check(config_path: Path) -> int:
             continue
         text = path.read_text(encoding="utf-8")
         for issue in phase6_class_diagram_issues(text):
+            failures.append(f"{path.name}: {issue}")
+
+    # 39. 変更影響は、同じ変更IDと同じ組み立て粒度で前後比較する
+    for path in chapters:
+        if not re.search(r"chapter0[1-9]", path.name):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for issue in change_impact_alignment_issues(text):
             failures.append(f"{path.name}: {issue}")
 
     # 28. 本文で節番号を道しるべに使わない

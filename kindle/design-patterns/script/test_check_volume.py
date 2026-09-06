@@ -211,5 +211,45 @@ A --> B
         self.assertTrue(any("部分クラス図がありません" in issue for issue in issues))
 
 
+class ChangeImpactAlignmentTests(unittest.TestCase):
+    def chapter(self, before: str, after: str) -> str:
+        return f"""### 3-2：変更影響グラフ
+```mermaid
+graph TD
+{before}
+```
+### 3-3：痛みの言語化
+### 7-3：変更影響グラフ（改善後）
+```mermaid
+graph TD
+{after}
+```
+### 7-4：変更シナリオ表
+"""
+
+    def test_same_change_ids_and_composition_scope_are_accepted(self) -> None:
+        text = self.chapter(
+            'A["変更ID1"] --> B["［変更］ main()<br>入力"]',
+            'A["変更ID1"] --> B["［変更］ main()<br>登録"]',
+        )
+        self.assertEqual([], check_volume.change_impact_alignment_issues(text))
+
+    def test_different_change_ids_are_rejected(self) -> None:
+        text = self.chapter(
+            'A["変更ID1"] --> B["［変更］ main()<br>入力"]',
+            'A["変更ID2"] --> B["［変更］ main()<br>登録"]',
+        )
+        issues = check_volume.change_impact_alignment_issues(text)
+        self.assertTrue(any("変更ID集合" in issue for issue in issues))
+
+    def test_composition_only_counted_after_is_rejected(self) -> None:
+        text = self.chapter(
+            'A["変更ID1"] --> B["［変更］ Core<br>分岐"]',
+            'A["変更ID1"] --> B["［変更］ BatchApplication<br>登録"]',
+        )
+        issues = check_volume.change_impact_alignment_issues(text)
+        self.assertTrue(any("組み立て箇所" in issue for issue in issues))
+
+
 if __name__ == "__main__":
     unittest.main()

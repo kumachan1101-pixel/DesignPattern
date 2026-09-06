@@ -60,11 +60,15 @@ DEPENDS: dict[str, dict[str, tuple[str, ...]]] = {
     "05-chapter03": {
         "ProductDatabase.h": (),
         "INotification.h": ("ProductDatabase.h",),
-        "Notifiers.h": ("ProductDatabase.h", "INotification.h"),
         "DeliveryStatusLog.h": ("ProductDatabase.h", "INotification.h"),
+        # SMS通知は、組み立て側が所有する配信状態台帳を借りる。
+        "Notifiers.h": ("ProductDatabase.h", "INotification.h",
+                        "DeliveryStatusLog.h"),
         # 通知元が見るのは通知先の契約だけ。Notifiers.h を含めない。
-        "InventoryManager.h": ("ProductDatabase.h", "INotification.h",
-                               "DeliveryStatusLog.h"),
+        "InventoryManager.h": ("ProductDatabase.h", "INotification.h"),
+        # 利用側から具体通知と登録順を隠す、唯一の組み立て場所。
+        "InventoryApplication.h": ("Notifiers.h", "DeliveryStatusLog.h",
+                                    "InventoryManager.h"),
     },
 }
 
@@ -78,11 +82,12 @@ SOURCE_DEPENDS: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 
-# main.cpp が必要とするヘッダー。組み立て役なので、ここだけは具体を知る。
+# main.cpp が必要とするヘッダー。章によって、main自身が組み立てる場合と、
+# 専用の組み立て役が隠した公開入口だけを見る場合がある。
 MAIN_INCLUDES: dict[str, tuple[str, ...]] = {
     "03-chapter01": ("DiscountRuleSet.h", "PaymentCalculator.h"),
     "04-chapter02": ("States.h", "TicketReservation.h"),
-    "05-chapter03": ("Notifiers.h", "InventoryManager.h"),
+    "05-chapter03": ("InventoryApplication.h",),
 }
 
 LAYOUTS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
@@ -112,12 +117,13 @@ LAYOUTS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
     "05-chapter03": [
         ("ProductDatabase.h", ("ProductInfo", "ProductDatabase", "StockAlert",
                                "StockEvent", "StockEventLog", "DeliveryResult",
-                               "DeliveryStatus")),
+                               "DeliveryStatus", "ChannelName")),
         ("INotification.h", ("INotification",)),
+        ("DeliveryStatusLog.h", ("DeliveryStatusLog", "SMSDeliveryCallback")),
         ("Notifiers.h", ("EmailNotifier", "DashboardUpdater", "ChatNotifier",
                          "SMSNotifier")),
-        ("DeliveryStatusLog.h", ("DeliveryStatusLog", "SMSDeliveryCallback")),
         ("InventoryManager.h", ("InventoryManager",)),
+        ("InventoryApplication.h", ("InventoryApplication",)),
     ],
 }
 

@@ -12,7 +12,6 @@ public:
     }
 
     int apply(int total) const override { return total; }
-    std::string name() const override { return "割引なし"; }
 };
 
 class PremiumDiscount : public IDiscountRule {
@@ -25,8 +24,6 @@ public:
     int apply(int total) const override {
         return total * 80 / 100;
     }
-
-    std::string name() const override { return "プレミアム割引"; }
 };
 
 class SummerSaleAndCampaignDiscount : public IDiscountRule {
@@ -42,10 +39,6 @@ public:
     int apply(int total) const override {
         return (total * 90 / 100) * 95 / 100;
     }
-
-    std::string name() const override {
-        return "サマーセール+キャンペーン";
-    }
 };
 
 class SummerSaleDiscount : public IDiscountRule {
@@ -60,8 +53,6 @@ public:
     int apply(int total) const override {
         return total * 95 / 100;
     }
-
-    std::string name() const override { return "サマーセール割引"; }
 };
 
 class CampaignDiscount : public IDiscountRule {
@@ -76,8 +67,6 @@ public:
     int apply(int total) const override {
         return total * 90 / 100;
     }
-
-    std::string name() const override { return "キャンペーン割引"; }
 };
 
 #endif  // DISCOUNTS_H_INCLUDED

@@ -1,31 +1,55 @@
 # 次AIへの引き継ぎ ―― 現在地と残件
 
-最終更新：2026-09-05
+最終更新：2026-09-06
+
+## 最優先：★指摘の修正結果を著者に確認してもらう
+
+**AF-001〜016は修正・単冊ゲートPASS。現在は著者確認待ちである。**
+
+[横断監査・修正タスク](reviews/volume01-star-audit-20260906.md)を最初に読む。
+第2章の★12件、第3章の★19件の原文31件と、第0〜3章・共通ルール・検査の
+横断点検結果を、**AF-20260906-001〜017**へ登録した。AF-001〜016は
+第1冊の正本、同梱ソース、共通規約、単冊ゲートへ反映済み。AF-017は旧章を
+今は変更しない方針に従い、第2冊以降へ繰り越した。
+
+- 本文の★は監査へ原文を保存したうえで0件。修正を巻き戻さない。
+- 第0章と3実践章は、責任・要求・契約・生成／所有・変更比較を横断修正した。
+- 次の本文修正は、著者の確認結果を受けて再開する。
+- 旧output/は第1冊の正本ではなく、今回も変更していない。
+- PDF・EPUB生成は最後にする。
+- 下に残す過去の完了／環境制約は記録時点のもの。現行版の品質や現在の接続可否を
+  そのまま表すものではない。
 
 ## AIへ渡す指示文（そのまま貼る）
 
 ```
 kumachan1101-pixel/DesignPattern のリポジトリで作業してほしい。
 
-まず kindle/design-patterns/NEXT_AI_HANDOFF.md を全文読む。現在地と残タスクは
-そこが正。次に kindle/design-patterns/CLAUDE.md を読む。執筆規約はここが最新で、
-templates/ と rules/ は追随しきれていない。
+まず kindle/design-patterns/reviews/volume01-star-audit-20260906.md と
+kindle/design-patterns/NEXT_AI_HANDOFF.md を全文読む。今回の課題と受入条件は
+AF-20260906-001〜017が正。次に kindle/design-patterns/CLAUDE.md を読む。
+共通規約は今回同期した。矛盾を見つけた場合は黙って片方を採らず、最新の著者判断、
+現行第0章、3実践章で成立するかを照合して同時に直す。
 
 守ること。
 - 触ってよいのは kindle/design-patterns/ 配下だけ
 - 第1冊の正本は books/volume01-core-patterns/output/ の7ファイル。
   output/ の同名章は古い供給元なので触らない
-- 直したら必ず次を通し、結果をそのまま報告する。落ちたら直してから次へ進む
+- 本文修正を再開したら、対象を明示した検査と意味的な通読を両方行う
     python3 script/check_volume.py --config books/volume01-core-patterns/publishing/book.json
-    python3 script/run_completion_gate.py
-- ゲートは books/volume01-core-patterns/sources/ を作り直す。掲載コードを直すと
+- 第1冊だけの本文検査は次を使う。PDF・EPUBは生成しない
+    python3 script/run_completion_gate.py --config books/volume01-core-patterns/publishing/book.json
+- 引数なしの統合ゲートは旧output/と宣言済み分冊の両方を検査する。
+  旧output/の結果を第1冊だけの合否と混同しない
+- 分冊のソース出力処理は books/volume01-core-patterns/sources/ を作り直す。掲載コードを直すと
   ここにも差分が出るので、原稿と一緒にコミットする（Git管理下の生成物）
 - 既存ファイルの構造を変える書き換え、ファイルの削除、新しいフォルダの作成は、
   実行前に私へ確認する
 - コミットメッセージ・PR・コード内コメントに、使っているAIのモデル名を書かない
 
-今回やってほしいのは NEXT_AI_HANDOFF.md の A節「AIがそのまま進められるもの」の
-<A1などの番号>。着手前に、何をどう変えるつもりか3行で説明してほしい。
+現在は著者確認待ち。追加修正を自動再開せず、著者の確認結果に従ってほしい。
+再開時は対象AF番号、前工程の根拠、変える責任と守る動作、検証方法を説明してから
+着手する。旧A1〜A8の圧縮レビューを、著者確認より先に始めない。
 ```
 
 レビューを回させるときは、上の最後の段落を次に差し替える。
@@ -52,12 +76,11 @@ kindle/design-patterns/agents/volume-review-runbook.md を先に読むこと。
 おわりに・奥付。`output/` の同名章は供給元として残っているが**内容は古い**ので、
 第1冊を直すときにそちらを触らない（詳細は `CLAUDE.md` の「冊の構成と正本の所在」）。
 
-- 本文ゲート（`python3 script/run_completion_gate.py`）は **PASS**
-- `check_volume.py` は32観点すべて通過。クラス図の線66本もコードと一致。
-  同梱ソースも3章ともビルドでき、掲載コードと同じ出力になる
-- **出版パッケージゲート（`--package`）は FAIL が1件だけ残る。** 公開PDF
-  `books/volume01-core-patterns/preview/volume01-preview.pdf` が現在の原稿より古い。
-  **このPDFはGit LFS管理で、この作業環境からは push できない**（D節）
+- `run_completion_gate.py --config ...` は本文・コード・実行結果・図・レイアウト・
+  前方参照・分割ソースを含む12系統でPASS
+- 要求分類・責任導出・所有・比較方法はAF-001〜016へ対応済み。ただし著者の
+  読解確認前なので、出版完成とは宣言しない
+- 出版パッケージの最終確認は本文確定後。PDF・EPUBはこの棚卸しでは生成していない
 - 第二部（旧第9〜12章）は出版対象外。旧第2・4・5・6・8章は第2冊以降の素材
 
 ### 直近の作業（2026-09-04〜05）
@@ -74,12 +97,12 @@ kindle/design-patterns/agents/volume-review-runbook.md を先に読むこと。
 | 表と図 | 未着手 | ― |
 | 初読 | 未着手 | ― |
 
-**言葉レンズは7ファイル中1ファイルしか見ていない。** 残る6ファイルへ当てるのが
-最短の次の一手である。
+**上表は2026-09-04〜05時点の履歴である。** 今回は要求・責任・契約の基準を
+修正済み。追加の読解レビューは、著者確認で出た指摘を優先してから判断する。
 
 ## 残タスク
 
-### A. AIがそのまま進められるもの
+### A. 著者確認後に判断する圧縮・通読レビュー
 
 | # | 内容 | 手掛かり |
 |---|---|---|
@@ -89,7 +112,7 @@ kindle/design-patterns/agents/volume-review-runbook.md を先に読むこと。
 | A4 | 初読レンズを全7ファイルへ当てる | 同上、`agents/readability-agent.md` |
 | A5 | 概要スライドが第1冊で0枚（PUB-005） | `publishing/book.json` の `slidePageOrder`、`build_epub.py slides --pdf` |
 | A6 | 矛盾検出の機械化の残り（CONTRA-009） | 検査29〜32は追加済み。`script/check_volume.py` の末尾を見て続きを足す |
-| A7 | 正本3ファイルの規定欠落（CONTRA-005） | `templates/chapter-template.md` と `rules/checklist.md` に、`CLAUDE.md` へ後から入れた規約が反映されていない |
+| A7 | 正本3ファイルの規定再確認（CONTRA-005） | 今回同期済み。著者確認で新しい判断が出た場合だけ再点検する |
 | A8 | 読みやすさ13件（READ-003〜015） | `review-tasks.md` 内。圧縮工程としてまとめて実行する計画になっている |
 
 **A1〜A4は1体ずつ順に。並列で起動すると回数制限に当たって全体が止まる。**
@@ -125,7 +148,7 @@ python3 script/build_epub.py all --clean --config books/volume01-core-patterns/p
 python3 script/release_artifact.py sync --config books/volume01-core-patterns/publishing/book.json
 ```
 
-  **出版パッケージゲートの FAIL はこれ1件だけである。** 原稿を直すたびにPDFが
+  **「FAILはPDF鮮度1件だけ」は2026-09-05時点の記録であり、現在は本文も未完了。** 原稿を直すたびにPDFが
   古くなるので、原稿側の作業が一区切りついてからまとめて再生成するのがよい
 - Kindle Previewer は無い（C1）
 - `publishing/dist/` は Git 管理対象外。生成物はコミットしない
@@ -147,6 +170,10 @@ python3 script/release_artifact.py sync --config books/volume01-core-patterns/pu
 
 ## 作業の進め方
 
+この節のコマンド一覧だけでは第1冊の意味的な合格にはならない。今回の作業順と
+章別受入条件はAF-20260906-001〜017を使う。第1冊だけの合否は、対象を指定した
+単冊ゲートと著者の読解確認を組み合わせて判断する。
+
 1. `agents/volume-review-runbook.md` を読む（レビューを回すなら必須）
 2. `CLAUDE.md` を読む。**規約はここが最新で、`templates/` と `rules/` は
    追随しきれていない**（A7）
@@ -154,8 +181,7 @@ python3 script/release_artifact.py sync --config books/volume01-core-patterns/pu
 4. 直したら必ず次を通す
 
 ```
-python3 script/check_volume.py --config books/volume01-core-patterns/publishing/book.json
-python3 script/run_completion_gate.py
+python3 script/run_completion_gate.py --config books/volume01-core-patterns/publishing/book.json
 ```
 
 本文が PASS でも、KDP入稿用成果物が完成したことは意味しない。

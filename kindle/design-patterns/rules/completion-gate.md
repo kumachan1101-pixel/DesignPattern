@@ -45,7 +45,20 @@ pushのたびに、原稿の自動検査だけでなく、意味整合監査の�
 
 `pass` には `reviewed_by` と `evidence` が必要です。修正担当とレビュー担当を分けられる場合は、レビュー担当者またはAIタスク名を記録します。
 
-## 通常のpush
+## 第1冊の本文を検査する
+
+```powershell
+python script/run_completion_gate.py --config books/volume01-core-patterns/publishing/book.json
+```
+
+このコマンドは `book.json` が指す7ファイル、掲載C++、分割ソース、Mermaid、
+Kindle向けレイアウトを検査します。PDF・EPUBの生成や鮮度判定は行いません。
+第1冊の本文修正中は、この結果を合否の正本にします。
+
+`validate_book.py` など、引数なしで `output/` を読む検査は分冊前の旧12章用です。
+旧12章の合否を、第1冊の合否として報告しません。
+
+## 旧12章を含む通常のpush
 
 ```powershell
 python script/run_completion_gate.py
@@ -57,7 +70,7 @@ python script/run_completion_gate.py
 - タスクIDが重複または欠番
 - 原稿ファイルが章レビュー台帳に登録されていない
 - `done` / `pass` に根拠がない
-- 既存の構造、C++、掲載結果、Kindle検査に失敗する
+- 旧12章または宣言済み分冊の構造、C++、掲載結果、Kindle検査に失敗する
 
 ## 出版完了の確認
 

@@ -32,10 +32,6 @@ public:
         std::cout << "期限切れ処理は行えません\n";
     }
 
-    virtual void paymentFailed(TicketReservation*) {
-        std::cout << "決済失敗を扱える状態ではありません\n";
-    }
-
     virtual ~IReservationState() = default;
 };
 

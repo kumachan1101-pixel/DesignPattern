@@ -19,10 +19,10 @@ int main() {
     order1.customerId = "C001";
     order1.items.push_back(Item("ワイヤレスイヤホン", 10000));
     CampaignContext context1;
-    PaymentResult preview1 =
+    int preview1 =
         preview.getEstimatedTotal(order1, context1);
     std::cout << "  カートプレビュー: "
-              << preview1.finalPrice << "円\n";
+              << preview1 << "円\n";
     processor.process(order1, context1);
 
     // C001（Premium）/ キャンペーンあり / サマーセール中 → Premium優先
@@ -33,10 +33,10 @@ int main() {
     CampaignContext context2;
     context2.activate(CampaignCode::RegularCampaign);
     context2.activate(CampaignCode::SummerSale);
-    PaymentResult preview2 =
+    int preview2 =
         preview.getEstimatedTotal(order2, context2);
     std::cout << "  カートプレビュー: "
-              << preview2.finalPrice << "円\n";
+              << preview2 << "円\n";
     processor.process(order2, context2);
 
     // C002（Regular）/ キャンペーンあり / サマーセール中 → 逐次割引
@@ -47,10 +47,10 @@ int main() {
     CampaignContext context3;
     context3.activate(CampaignCode::RegularCampaign);
     context3.activate(CampaignCode::SummerSale);
-    PaymentResult preview3 =
+    int preview3 =
         preview.getEstimatedTotal(order3, context3);
     std::cout << "  カートプレビュー: "
-              << preview3.finalPrice << "円\n";
+              << preview3 << "円\n";
     processor.process(order3, context3);
 
     // C002（Regular）/ サマーセールのみ → 5%引き
@@ -60,10 +60,10 @@ int main() {
     order4.items.push_back(Item("ワイヤレスイヤホン", 10000));
     CampaignContext context4;
     context4.activate(CampaignCode::SummerSale);
-    PaymentResult preview4 =
+    int preview4 =
         preview.getEstimatedTotal(order4, context4);
     std::cout << "  カートプレビュー: "
-              << preview4.finalPrice << "円\n";
+              << preview4 << "円\n";
     processor.process(order4, context4);
 
     // C002（Regular）/ キャンペーンのみ → 10%引き（変更前と同じ）
@@ -73,10 +73,10 @@ int main() {
     order4b.items.push_back(Item("ワイヤレスイヤホン", 10000));
     CampaignContext context4b;
     context4b.activate(CampaignCode::RegularCampaign);
-    PaymentResult preview4b =
+    int preview4b =
         preview.getEstimatedTotal(order4b, context4b);
     std::cout << "  カートプレビュー: "
-              << preview4b.finalPrice << "円\n";
+              << preview4b << "円\n";
     processor.process(order4b, context4b);
 
     // C003（Regular）/ 割引なし
@@ -85,10 +85,10 @@ int main() {
     order5.customerId = "C003";
     order5.items.push_back(Item("スマホケース", 3000));
     CampaignContext context5;
-    PaymentResult preview5 =
+    int preview5 =
         preview.getEstimatedTotal(order5, context5);
     std::cout << "  カートプレビュー: "
-              << preview5.finalPrice << "円\n";
+              << preview5 << "円\n";
     processor.process(order5, context5);
 
     // エラー条件も、正常系と同じ最終コードで確認する

@@ -3,6 +3,7 @@
 
 #include "ProductDatabase.h"
 #include "INotification.h"
+#include "DeliveryStatusLog.h"
 
 class EmailNotifier : public INotification {
     vector<string> inbox;
@@ -17,13 +18,14 @@ class EmailNotifier : public INotification {
     }
 public:
     DeliveryResult send(const StockAlert& a) override {
-        string body = a.productName + "(" + a.productId + ") 残"
-                    + to_string(a.stock) + " 閾値"
-                        + to_string(a.threshold);
-        bool ok = sendMail("在庫不足", body);   // 契約→メール基盤へ変換
+        string body = "商品 " + a.productId + "（" + a.productName
+                    + "） の在庫が閾値以下です。";
+        bool ok = sendMail("在庫アラート", body);
 
-        return ok ? DeliveryResult{ACCEPTED, "Email", ""}
-                  : DeliveryResult{FAILED, "Email", ""};
+        if (ok) {
+            return {ACCEPTED, ChannelName::EMAIL, ""};
+        }
+        return {FAILED, ChannelName::EMAIL, ""};
     }
 };
 
@@ -43,7 +45,7 @@ public:
     DeliveryResult send(const StockAlert& a) override {
         refreshStockWidget(a.productId, a.stock);
         // 呼べたことをもって受付成功とする。この割り切りはここに閉じる
-        return {ACCEPTED, "Dashboard", ""};
+        return {ACCEPTED, ChannelName::DASHBOARD, ""};
     }
 };
 
@@ -62,27 +64,30 @@ class ChatNotifier : public INotification {
     }
 public:
     DeliveryResult send(const StockAlert& a) override {
-        string text = a.productName + " 残" + to_string(a.stock)
-                    + "個。発注を確認してください。";
+        string text = "商品 " + a.productId + "（" + a.productName
+                    + "） の在庫が閾値以下です。";
         string postId = postMessage("inventory-alert", text);
 
-        return postId.empty() ? DeliveryResult{FAILED,
-                            "Chat", ""}
-               : DeliveryResult{ACCEPTED, "Chat", ""};
+        if (postId.empty()) {
+            return {FAILED, ChannelName::CHAT, ""};
+        }
+        return {ACCEPTED, ChannelName::CHAT, ""};
     }
 };
 
 class SMSNotifier : public INotification {
+    DeliveryStatusLog& statusLog;  // 組み立て側が所有する台帳を借りる
     bool willFail;  // 受付に失敗する状況を再現するための指定
     vector<string> inbox;  // 受付できた通知だけを蓄積する
     int nextRequestNumber = 1;
 public:
-    SMSNotifier(bool fail) : willFail(fail) {}
+    SMSNotifier(DeliveryStatusLog& log, bool fail)
+        : statusLog(log), willFail(fail) {}
     DeliveryResult send(const StockAlert& a) override {
         if (willFail) {
             cout << "SMS: 受付失敗（後で再送対象）" << endl;
 
-            return {FAILED, "SMS", ""};
+            return {FAILED, ChannelName::SMS, ""};
         }
 
         string text = "在庫警告 " + a.productId + " 残"
@@ -92,7 +97,10 @@ public:
             + to_string(nextRequestNumber++);
         cout << "SMS(" << inbox.size() << "件受付): " << text
              << " / 受付ID=" << requestId << endl;
-        return {PENDING, "SMS", requestId};
+        DeliveryResult result{
+            PENDING, ChannelName::SMS, requestId};
+        statusLog.record(result);
+        return result;
     }
 };
 

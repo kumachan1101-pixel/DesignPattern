@@ -39,7 +39,7 @@ RELATION = re.compile(r"^\s*(\w+)\s*(<\|--|<\|\.\.|\*--|o--|-->|\.\.>)\s*(\w+)")
 
 
 def class_bodies(code: str) -> dict[str, str]:
-    """クラス名 → 本体。波括弧の対応を数えて切り出す。"""
+    """クラス名 → 同じフェーズに掲載した全本体。"""
     bodies: dict[str, str] = {}
     for match in re.finditer(r"\b(?:class|struct)\s+(\w+)[^{;]*\{", code):
         name = match.group(1)
@@ -50,10 +50,10 @@ def class_bodies(code: str) -> dict[str, str]:
             elif code[index] == "}":
                 depth -= 1
             index += 1
-        # 同名が複数回出るときは、最も長い定義（＝完成形）を採る。
+        # 本文では同じクラスを、宣言・注目メソッド・完成形に分けて示す。
+        # 最長の一片だけでは別の一片にあるメンバーを見落とすため結合する。
         body = code[match.end(): index - 1]
-        if len(body) > len(bodies.get(name, "")):
-            bodies[name] = body
+        bodies[name] = bodies.get(name, "") + "\n" + body
     return bodies
 
 

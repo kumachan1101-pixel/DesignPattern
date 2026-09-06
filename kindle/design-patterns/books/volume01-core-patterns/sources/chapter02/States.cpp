@@ -38,11 +38,7 @@ void ReservedState::expire(TicketReservation* reservation) {
         reservation->promoteNextWaitlisted();
     }
 
-void ReservedState::paymentFailed(TicketReservation*) {
-        std::cout << "決済に失敗しました。予約済みのまま再試行できます\n";
-    }
-
-void WaitlistedState::promoteBySystem(TicketReservation* reservation) {
+void WaitlistedState::promoteBySystem( TicketReservation* reservation) {
         reservation->reserveSeat();
         std::cout << "空席発生を検知し、予約へ自動昇格しました\n";
         reservation->setState(reservedState());
@@ -65,10 +61,6 @@ void HeldState::expire(TicketReservation* reservation) {
         std::cout << "保留期限が切れました\n";
         reservation->setState(availableState());
         reservation->promoteNextWaitlisted();
-    }
-
-void HeldState::paymentFailed(TicketReservation*) {
-        std::cout << "決済に失敗しました。保留中のまま再試行できます\n";
     }
 
 IReservationState* availableState() {

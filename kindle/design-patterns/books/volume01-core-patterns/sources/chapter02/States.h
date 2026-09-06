@@ -19,7 +19,6 @@ public:
 
     void expire(TicketReservation* reservation) override;
 
-    void paymentFailed(TicketReservation*) override;
 };
 
 class PaidState : public IReservationState {};
@@ -28,7 +27,7 @@ class PaidState : public IReservationState {};
 
 class WaitlistedState : public IReservationState {
 public:
-    void promoteBySystem(TicketReservation* reservation) override;
+    void promoteBySystem( TicketReservation* reservation) override;
 };
 
 class HeldState : public IReservationState {
@@ -39,7 +38,6 @@ public:
 
     void expire(TicketReservation* reservation) override;
 
-    void paymentFailed(TicketReservation*) override;
 };
 
 // 状態オブジェクト取得関数。関数ローカルstaticが所有する。

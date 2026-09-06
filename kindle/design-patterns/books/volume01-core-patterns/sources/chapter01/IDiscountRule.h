@@ -9,7 +9,6 @@ public:
                          const CampaignContext& context) const =
                              0;
     virtual int apply(int total) const = 0;
-    virtual std::string name() const = 0;
     virtual ~IDiscountRule() = default;
 };
 

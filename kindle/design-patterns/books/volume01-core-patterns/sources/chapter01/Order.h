@@ -71,13 +71,4 @@ public:
     }
 };
 
-// 割引ルールの共通インターフェース（ルール差し替え構造）
-// 支払計算の結果オブジェクト：小計・適用ルール名・支払金額
-
-struct PaymentResult {
-    int subtotal;
-    int finalPrice;
-    std::string appliedRule;
-};
-
 #endif  // ORDER_H_INCLUDED
