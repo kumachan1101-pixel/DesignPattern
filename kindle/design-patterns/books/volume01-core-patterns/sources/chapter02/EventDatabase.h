@@ -64,10 +64,6 @@ public:
                   << event.capacity
                   << std::endl;
     }
-
-    void save(const std::string& id, const EventInfo& info) {
-        records[id] = info;             // 実行中のイベント表へ追加
-    }
 };
 
 // 状態ごとの共通操作と、許可されない操作の既定処理を持つ基底クラス

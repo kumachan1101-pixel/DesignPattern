@@ -218,13 +218,18 @@ public:
         TicketReservation waiting(availableState(), &db,
                                   &waitlist, "EVT003");
         waiting.reserve(); // 利用者は通常の予約操作だけ。満席なので自動待機登録
+        TicketReservation waitingSecond(availableState(), &db,
+                                         &waitlist, "EVT003");
+        waitingSecond.reserve(); // 2番目として同じ待ち行列へ入る
 
         // 初期50件のうち1件を表す既存予約。利用側はcancel()だけを呼ぶ。
         TicketReservation occupied(reservedState(), &db,
                                    &waitlist, "EVT003");
         occupied.cancel(); // 50→49、その直後にwaitingを49→50へ自動昇格
-        // 昇格後も同じ予約として操作でき、再取消で席を戻せる
+        // 1番目の再取消で、2番目が続けて自動昇格する
         waiting.cancel();
+        // 昇格後も同じ予約として操作できることを確認し、席を49へ戻す
+        waitingSecond.cancel();
 
         // ケース5b：待機者がいる状態での期限切れ → 自動昇格
         std::cout << "--- ケース5b: 期限切れからの自動昇格 ---\n";

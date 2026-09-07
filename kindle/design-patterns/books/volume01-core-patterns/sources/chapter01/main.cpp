@@ -84,6 +84,7 @@ int main() {
     Order order5;
     order5.customerId = "C003";
     order5.items.push_back(Item("スマホケース", 3000));
+    order5.items.push_back(Item("USBケーブル", 1000));
     CampaignContext context5;
     int preview5 =
         preview.getEstimatedTotal(order5, context5);
@@ -95,7 +96,7 @@ int main() {
     std::cout << "\n--- ケース6: 未登録顧客 ---\n";
     Order unknown;
     unknown.customerId = "UNKNOWN";
-    unknown.items.push_back(Item("ケーブル", 1000));
+    unknown.items.push_back(Item("USBケーブル", 1000));
     processor.process(unknown, context5);
 
     std::cout << "\n--- ケース7: 空注文 ---\n";

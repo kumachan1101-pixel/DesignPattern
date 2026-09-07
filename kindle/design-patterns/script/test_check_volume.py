@@ -160,6 +160,11 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
                 "### 4-3：接続点に漏れている判断や前提を確認する",
                 "## フェーズ6：対策検討",
                 "部分クラス図で責任の向きだけを示す。",
+                "### この章のまとめ",
+                "#### 構造の着目点",
+                "変化理由が混在していないかを見る。",
+                "#### 構造の変更点",
+                "契約へ分けて組み立てでつなぐ。",
             ]
         )
 
@@ -187,6 +192,15 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
         )
         issues = check_volume.practical_explanation_consistency_issues(text)
         self.assertTrue(any("フェーズ5に最終コード" in issue for issue in issues))
+
+    def test_old_single_paragraph_summary_is_rejected(self) -> None:
+        text = self.valid_chapter().replace(
+            "#### 構造の着目点\n変化理由が混在していないかを見る。\n"
+            "#### 構造の変更点\n契約へ分けて組み立てでつなぐ。",
+            "題材の完成クラスを説明する。",
+        )
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("構造の着目点" in issue for issue in issues))
 
 
 class DiagramDiffLabelTests(unittest.TestCase):

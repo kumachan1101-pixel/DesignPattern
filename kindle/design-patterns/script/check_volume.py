@@ -364,6 +364,11 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
 
     if "**構想上のコード経路" in text:
         issues.append("フェーズ6冒頭で最終コード経路を先取りしています。責任の向きだけを部分クラス図で示してください")
+
+    summary_start = text.rfind("### この章のまとめ")
+    summary = text[summary_start:] if summary_start >= 0 else ""
+    if "#### 構造の着目点" not in summary or "#### 構造の変更点" not in summary:
+        issues.append("章末のまとめを`構造の着目点`と`構造の変更点`に分けてください")
     return issues
 
 
