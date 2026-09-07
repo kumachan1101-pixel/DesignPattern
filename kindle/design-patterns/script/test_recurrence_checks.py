@@ -714,15 +714,14 @@ cases.append((
 ))
 
 print("再発防止チェックの負のテスト（わざと壊した本文を検出できるか）\n")
-# 5) 2026-08-13: validator とテンプレートの表頭同期漏れ
-#    本文だけ直してテンプレート／validator を放置すると全12章が同じ検査で落ちる
+# 5) 分冊版のフェーズ5標準表頭とテンプレートの同期漏れ
 _tmpl = Path("templates/chapter-template.md")
 _orig = _tmpl.read_text(encoding="utf-8")
 try:
     with _tmpl.open("w", encoding="utf-8", newline="\n") as stream:
         stream.write(_orig.replace(
-            V.REQUIRED_TABLE_HEADERS[0],
-            "| 原因として確定した事実 | そのままだと残る痛み | 課題候補 | 候補を導いた理由 |",
+            V.TEMPLATE_PHASE5_HEADERS[0],
+            "| 原因 | 変える側 | 守る側 | 業務情報 |",
         ))
     _found = V.check_validator_template_sync("", OUT / V.CORE_CHAPTERS[0])
 finally:

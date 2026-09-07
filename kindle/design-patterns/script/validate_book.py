@@ -399,9 +399,7 @@ BANNED_PATTERNS = [
 ]
 
 
-# validate_book.py が本文へ要求する表頭。テンプレートとも共有するため定数化する。
-# ここを変えたら templates/chapter-template.md も同じ語へ直す
-# （check_validator_template_sync が片方だけの変更を検出する）。
+# 旧12章版の本文へ要求する表頭。分冊前の原稿を検査するため残す。
 PHASE5_CAUSE_HEADER = (
     "| 原因ID・確定した事実 | そのままだと残る痛み | 課題候補 | 候補を導いた理由 |"
 )
@@ -412,6 +410,14 @@ PHASE5_ISSUE_HEADER = (
 # 5-2は課題別の手段比較表にせず、全原因を解ける境界への
 # 統合／分割判断を本文で説明する。テンプレートと同期する表頭は5-1と5-3のみ。
 REQUIRED_TABLE_HEADERS = (PHASE5_CAUSE_HEADER, PHASE5_ISSUE_HEADER)
+
+# 分冊版と今後の執筆テンプレートで使う表頭。横長の完了条件を表から外し、
+# 原因から境界を導く過程を二段階で見せる。
+TEMPLATE_PHASE5_HEADERS = (
+    "| 元の原因 | 変える側 | 守る側 | 境界を越える必要がある業務情報 |",
+    "| 課題ID | 元の原因ID | 変える側 | 守る側 |",
+    "| 課題ID | 接続点で流す業務情報 |",
+)
 
 
 @dataclass
@@ -2940,7 +2946,7 @@ def check_step_reference_target(text: str, path: Path) -> list[Issue]:
 
 
 def check_validator_template_sync(_text: str, path: Path) -> list[Issue]:
-    """validate_book.py が期待する表頭が、テンプレートと本文で生きているか。
+    """分冊版の標準表頭が、今後の執筆テンプレートに存在するか。
 
     2026-08-13に起きた症状。著者指摘AF-20260813-093を受けてフェーズ5-1の表頭を
     `原因として確定した事実` から `原因ID・確定した事実` へ変えたとき、全12章と
@@ -2949,8 +2955,8 @@ def check_validator_template_sync(_text: str, path: Path) -> list[Issue]:
 
     recurrence-prevention.md は「テンプレートの項目名を変えたら validator も
     同じ語へ更新する」と定めているが、破ったことを検出する手段が無かった。
-    ここでは validator が本文へ要求する表頭が、テンプレートにも存在するかを
-    見る。どちらかを直し忘れれば落ちる。
+    旧12章版は従来の表頭を保ったまま検査する。分冊版と今後の章で使う新しい
+    表頭は、check_volume.py とテンプレートで同期する。
 
     章ごとに回す必要はないので、先頭の章を処理するときだけ実行する。
     """
@@ -2961,11 +2967,11 @@ def check_validator_template_sync(_text: str, path: Path) -> list[Issue]:
     if not template.exists():
         return issues
     template_text = template.read_text(encoding="utf-8")
-    for header in REQUIRED_TABLE_HEADERS:
+    for header in TEMPLATE_PHASE5_HEADERS:
         if header not in template_text:
             issues.append(Issue(
                 template, 1,
-                f"validate_book.py が本文へ要求する表頭がテンプレートにありません: "
+                f"分冊版の標準表頭がテンプレートにありません: "
                 f"{header}（片方だけ直すと全章が同じ検査で落ちます）",
             ))
 

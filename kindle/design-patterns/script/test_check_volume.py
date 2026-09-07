@@ -75,6 +75,49 @@ class ThreeQuestionPlacementTests(unittest.TestCase):
         self.assertIn("問い2がフェーズ6の契約検討にありません", issues)
 
 
+class PhaseInternalCheckpointTests(unittest.TestCase):
+    def valid_chapter(self) -> str:
+        return "\n".join(
+            [
+                "## フェーズ1：現状把握",
+                "フェーズ1の確認観点：",
+                "## フェーズ2：仮説立案",
+                "フェーズ2の確認観点：",
+                "## フェーズ3：問題特定",
+                "フェーズ3の確認観点：",
+                "この場所は、今回の変更の理由と関係があるか？",
+                "## フェーズ4：原因分析",
+                "1つ目：痛んだ場所を1つ選び、そこにある処理を並べて書き出します。",
+                "2つ目：並べた処理・判断ごとに、変わるきっかけを書きます。",
+                "3つ目：きっかけが違うものが、同じ場所に並んでいないかを見ます。",
+                "## フェーズ5：課題定義",
+                "1つ目：変える側と守る側の間に線を引きます。",
+                "2つ目：線を越えて本当に必要な共通部分を探します。",
+                "3つ目：部分的な切り出しで原因が残らないかを、システム全体で確かめます。",
+                "## フェーズ6：対策検討",
+                "フェーズ6の確認観点：",
+                "## フェーズ7：対策実施",
+                "フェーズ7の確認観点：",
+            ]
+        )
+
+    def test_checkpoints_at_each_phase_are_accepted(self) -> None:
+        self.assertEqual(
+            [],
+            check_volume.phase_internal_checkpoint_issues(self.valid_chapter()),
+        )
+
+    def test_checkpoint_in_wrong_phase_is_rejected(self) -> None:
+        text = self.valid_chapter().replace(
+            "## フェーズ3：問題特定\nフェーズ3の確認観点：\n"
+            "この場所は、今回の変更の理由と関係があるか？",
+            "## フェーズ3：問題特定\nフェーズ3の確認観点：",
+        )
+        text += "\nこの場所は、今回の変更の理由と関係があるか？"
+        issues = check_volume.phase_internal_checkpoint_issues(text)
+        self.assertTrue(any("直接変更と巻き込み" in issue for issue in issues))
+
+
 class ClassLegendPairingTests(unittest.TestCase):
     def test_each_diagram_followed_by_its_explanation_is_accepted(self) -> None:
         text = """### クラス図の線の意味
@@ -157,7 +200,19 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
             [
                 "| 変更ID | 変更内容 | 確認する具体例 |",
                 "#### 変更後に有効な業務ルール",
+                "### 4-1：痛んだ場所の責任を並べる",
+                "| 着目箇所 | そこで行っている処理・判断 | 対応する問題ID |",
+                "### 4-2：各責任が変わるきっかけを分ける",
+                "| 処理・判断が担う責任 | 変わるきっかけ | 今回の位置づけ |",
                 "### 4-3：接続点に漏れている判断や前提を確認する",
+                "### 5-1：原因から境界候補を導く",
+                "| 元の原因 | 変える側 | 守る側 | 境界を越える必要がある業務情報 |",
+                "### 5-2：部分対応で原因が残らないか確認する",
+                "### 5-3：課題ID・接続点・完了条件を確定する",
+                "| 課題ID | 元の原因ID | 変える側 | 守る側 |",
+                "| 課題ID | 接続点で流す業務情報 |",
+                "#### 課題ID1（境界）の完了条件",
+                "- 完成コードで確認する",
                 "## フェーズ6：対策検討",
                 "部分クラス図で責任の向きだけを示す。",
                 "### この章のまとめ",
@@ -175,6 +230,14 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
                 self.valid_chapter()
             ),
         )
+
+    def test_result_first_cause_heading_is_rejected(self) -> None:
+        text = self.valid_chapter().replace(
+            "### 4-1：痛んだ場所の責任を並べる",
+            "### 4-1：痛みの根源を探る（観察と原因）",
+        )
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("4-1：痛んだ場所の責任を並べる" in issue for issue in issues))
 
     def test_old_labels_and_redundant_tables_are_rejected(self) -> None:
         text = self.valid_chapter().replace("部分クラス図で責任の向きだけを示す。", "**構想上のコード経路**")

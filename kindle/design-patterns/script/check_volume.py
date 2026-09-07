@@ -48,6 +48,7 @@
   40. 実践章に、7-3と同じ内容を繰り返す7-2・7-4・章末三問再掲がない
   41. book.jsonで指定した実践章の合計文字数上限を超えていない
   42. ★対応で統一したケース名・要求表・業務ルール・4-3見出しが後戻りしていない
+  43. 第0章の各フェーズ内の確認観点と手順が実践章の判断場面にある
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -226,6 +227,67 @@ def three_question_placement_issues(text: str) -> list[str]:
     return issues
 
 
+def phase_internal_checkpoint_issues(text: str) -> list[str]:
+    """第0章のフェーズ内確認を、実践章が同じ判断場面で使っているか返す。"""
+    phase1 = text_between(text, "フェーズ1：現状把握", "フェーズ2：仮説立案")
+    phase2 = text_between(text, "フェーズ2：仮説立案", "フェーズ3：問題特定")
+    phase3 = text_between(text, "フェーズ3：問題特定", "フェーズ4：原因分析")
+    phase4 = text_between(text, "フェーズ4：原因分析", "フェーズ5：課題定義")
+    phase5 = text_between(text, "フェーズ5：課題定義", "フェーズ6：対策検討")
+    phase6 = text_between(text, "フェーズ6：対策検討", "フェーズ7：対策実施")
+    phase7_start = text.find("フェーズ7：対策実施")
+    phase7 = text[phase7_start:] if phase7_start >= 0 else ""
+
+    expected = (
+        (phase1, "フェーズ1の確認観点：", "フェーズ1の現状把握"),
+        (phase2, "フェーズ2の確認観点：", "フェーズ2の仮説立案"),
+        (phase3, "フェーズ3の確認観点：", "フェーズ3の変更試行"),
+        (
+            phase3,
+            "この場所は、今回の変更の理由と関係があるか？",
+            "フェーズ3の直接変更と巻き込みの切り分け",
+        ),
+        (
+            phase4,
+            "1つ目：痛んだ場所を1つ選び、そこにある処理を並べて書き出します。",
+            "フェーズ4の処理・判断の列挙",
+        ),
+        (
+            phase4,
+            "2つ目：並べた処理・判断ごとに、",
+            "フェーズ4の変更のきっかけの確認",
+        ),
+        (
+            phase4,
+            "3つ目：きっかけが違うものが、同じ場所に並んでいないかを見ます。",
+            "フェーズ4の異なる変更理由の同居確認",
+        ),
+        (
+            phase5,
+            "1つ目：変える側と守る側の間に線を引きます。",
+            "フェーズ5の境界候補の導出",
+        ),
+        (
+            phase5,
+            "2つ目：線を越えて本当に必要な共通部分を探します。",
+            "フェーズ5の接続点の導出",
+        ),
+        (
+            phase5,
+            "3つ目：部分的な切り出しで原因が残らないかを、システム全体で確かめます。",
+            "フェーズ5の全体評価",
+        ),
+        (phase6, "フェーズ6の確認観点：", "フェーズ6の構想確認"),
+        (phase7, "フェーズ7の確認観点：", "フェーズ7の効果確認"),
+    )
+
+    return [
+        f"第0章の確認観点が{location}にありません: {marker}"
+        for section, marker, location in expected
+        if marker not in section
+    ]
+
+
 def change_impact_alignment_issues(text: str) -> list[str]:
     """フェーズ3/7の変更影響グラフが同じ起点・組み立て粒度かを返す。"""
     issues: list[str] = []
@@ -342,10 +404,34 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
     if re.search(r"(?:行|シナリオ|動作例)\d+[a-z]?|\d+回目", text):
         issues.append("実行ケースに旧表現が残っています。コードと結果を`ケースN`へ統一してください")
 
+    phase45_headings = (
+        "### 4-1：痛んだ場所の責任を並べる",
+        "### 4-2：各責任が変わるきっかけを分ける",
+        "### 4-3：接続点に漏れている判断や前提を確認する",
+        "### 5-1：原因から境界候補を導く",
+        "### 5-2：部分対応で原因が残らないか確認する",
+        "### 5-3：課題ID・接続点・完了条件を確定する",
+    )
+    for heading in phase45_headings:
+        if text.count(heading) != 1:
+            issues.append(f"フェーズ4・5の共通見出しがありません、または重複しています: {heading}")
+
     headings = re.findall(r"^### 4-3：.*$", text, re.M)
-    expected = "### 4-3：接続点に漏れている判断や前提を確認する"
-    if headings != [expected]:
+    if headings != [phase45_headings[2]]:
         issues.append("4-3見出しを共通見出しへ統一し、題材語は直下の####へ置いてください")
+
+    for header in (
+        "| 着目箇所 | そこで行っている処理・判断 | 対応する問題ID |",
+        "| 処理・判断が担う責任 | 変わるきっかけ | 今回の位置づけ |",
+        "| 元の原因 | 変える側 | 守る側 | 境界を越える必要がある業務情報 |",
+        "| 課題ID | 元の原因ID | 変える側 | 守る側 |",
+        "| 課題ID | 接続点で流す業務情報 |",
+    ):
+        if header not in text:
+            issues.append(f"原因分析・課題定義の標準表がありません: {header}")
+
+    if not re.search(r"^#### 課題ID1（[^）]+）の完了条件$", text, re.M):
+        issues.append("課題ID1の完了条件を、表の長文セルではなく####見出しと短い箇条書きで示してください")
 
     if "**変更前→変更後の要求対照" in text or "**今回変わる要求と新しく加わる要求**" in text:
         issues.append("変更後要求ベースラインと重複する要求差分表があります")
@@ -1213,6 +1299,14 @@ def check(config_path: Path) -> int:
             continue
         text = path.read_text(encoding="utf-8")
         for issue in practical_explanation_consistency_issues(text):
+            failures.append(f"{path.name}: {issue}")
+
+    # 43. 第0章のフェーズ内確認を、実践章の同じ判断場面で使う
+    for path in chapters:
+        if not re.search(r"chapter0[1-9]", path.name):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for issue in phase_internal_checkpoint_issues(text):
             failures.append(f"{path.name}: {issue}")
 
     # 28. 本文で節番号を道しるべに使わない

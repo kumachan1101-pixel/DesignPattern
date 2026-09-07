@@ -194,7 +194,7 @@
 
 ### 『SOLID原則 実践ソフトウェア設計』
 
-[Amazonの商品ページを見る](https://www.amazon.co.jp/dp/B0FR4FNM67)
+<a href="https://www.amazon.co.jp/dp/B0FR4FNM67">Amazonの商品ページを見る</a>
 
 <a href="https://www.amazon.co.jp/dp/B0FR4FNM67">
 <img src="assets/solid_design.jpg" alt="SOLID原則 実践ソフトウェア設計" width="250">
@@ -202,7 +202,7 @@
 
 ### 『SOLID原則 C言語ソフトウェア設計』
 
-[Amazonの商品ページを見る](https://www.amazon.co.jp/dp/B0GSMK45YY)
+<a href="https://www.amazon.co.jp/dp/B0GSMK45YY">Amazonの商品ページを見る</a>
 
 <a href="https://www.amazon.co.jp/dp/B0GSMK45YY">
 <img src="assets/solid_c_design.jpg" alt="SOLID原則 C言語ソフトウェア設計" width="250">
