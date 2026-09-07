@@ -87,8 +87,8 @@ class PhaseInternalCheckpointTests(unittest.TestCase):
                 "フェーズ3の確認観点：",
                 "この場所は、今回の変更の理由と関係があるか？",
                 "## フェーズ4：原因分析",
-                "1つ目：痛んだ場所を1つ選び、そこにある処理を並べて書き出します。",
-                "2つ目：並べた処理・判断ごとに、変わるきっかけを書きます。",
+                "1つ目：問題IDを、変更の中心と影響した責任へ対応づけます。",
+                "2つ目：関係した責任を、今回「変える」ものと「守る」ものに分けます。",
                 "3つ目：きっかけが違うものが、同じ場所に並んでいないかを見ます。",
                 "## フェーズ5：課題定義",
                 "1つ目：変える側と守る側の間に線を引きます。",
@@ -258,12 +258,12 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
             [
                 "| 変更ID | 変更内容 | 確認する具体例 |",
                 "#### 変更後に有効な業務ルール",
-                "### 4-1：痛んだ場所の処理・判断を並べる",
-                "| 分析対象を選ぶ根拠 | 原因分析で開くコード箇所 |",
-                "| コード上の目印 | そこで行っている処理・判断 | 変更試行で起きたこと |",
-                "### 4-2：各責任が変わるきっかけを分ける",
-                "| 処理・判断が担う責任 | 変わるきっかけ | 今回の位置づけ |",
-                "### 4-3：接続点に漏れている判断や前提を確認する",
+                "### 4-1：問題IDを責任へ対応づける",
+                "| 問題ID | 関係する責任（変更の中心 → 影響した責任） | コード上の目印 |",
+                "### 4-2：変える責任と守る責任を分ける",
+                "| 責任 | 変わるきっかけ | 今回 |",
+                "### 4-3：異なる変更理由の同居を原因として確定する",
+                "| 原因ID | 同じ場所にある別々の責任 | 対応する問題ID |",
                 "### 5-1：原因から境界候補を導く",
                 "| 元の原因 | 変える側 | 守る側 | 境界を越える必要がある業務情報 |",
                 "### 5-2：部分対応で原因が残らないか確認する",
@@ -292,17 +292,23 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
 
     def test_result_first_cause_heading_is_rejected(self) -> None:
         text = self.valid_chapter().replace(
-            "### 4-1：痛んだ場所の処理・判断を並べる",
+            "### 4-1：問題IDを責任へ対応づける",
             "### 4-1：痛みの根源を探る（観察と原因）",
         )
         issues = check_volume.practical_explanation_consistency_issues(text)
-        self.assertTrue(any("4-1：痛んだ場所の処理・判断を並べる" in issue for issue in issues))
+        self.assertTrue(any("4-1：問題IDを責任へ対応づける" in issue for issue in issues))
 
     def test_problem_ids_on_every_process_are_rejected(self) -> None:
         text = self.valid_chapter()
         text += "\n| 着目箇所 | そこで行っている処理・判断 | 対応する問題ID |\n"
         issues = check_volume.practical_explanation_consistency_issues(text)
-        self.assertTrue(any("一律に問題ID" in issue for issue in issues))
+        self.assertTrue(any("旧フェーズ4表" in issue for issue in issues))
+
+    def test_previous_detailed_phase4_tables_are_rejected(self) -> None:
+        text = self.valid_chapter()
+        text += "\n| 分析対象を選ぶ根拠 | 原因分析で開くコード箇所 |\n"
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("旧フェーズ4表" in issue for issue in issues))
 
     def test_old_labels_and_redundant_tables_are_rejected(self) -> None:
         text = self.valid_chapter().replace("部分クラス図で責任の向きだけを示す。", "**構想上のコード経路**")
@@ -314,8 +320,8 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
 
     def test_final_cpp_in_phase5_is_rejected(self) -> None:
         text = self.valid_chapter().replace(
-            "### 4-3：接続点に漏れている判断や前提を確認する",
-            "### 4-3：接続点に漏れている判断や前提を確認する\n"
+            "### 4-3：異なる変更理由の同居を原因として確定する",
+            "### 4-3：異なる変更理由の同居を原因として確定する\n"
             "## フェーズ5：課題定義\n```cpp\nclass IRule {};\n```",
         )
         issues = check_volume.practical_explanation_consistency_issues(text)
