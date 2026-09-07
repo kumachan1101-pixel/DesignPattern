@@ -118,6 +118,64 @@ class PhaseInternalCheckpointTests(unittest.TestCase):
         self.assertTrue(any("直接変更と巻き込み" in issue for issue in issues))
 
 
+class CppBlockUnitTests(unittest.TestCase):
+    def test_one_type_per_heading_and_block_is_accepted(self) -> None:
+        text = """**CustomerInfo**
+
+```cpp
+struct CustomerInfo {};
+```
+
+**CustomerDatabase**
+
+```cpp
+class CustomerDatabase {};
+```
+"""
+        self.assertEqual([], check_volume.cpp_block_unit_issues(text))
+
+    def test_group_heading_for_single_type_block_is_rejected(self) -> None:
+        text = """**CustomerInfo と CustomerDatabase**
+
+```cpp
+struct CustomerInfo {};
+```
+
+**CustomerDatabase**
+
+```cpp
+class CustomerDatabase {};
+```
+"""
+        issues = check_volume.cpp_block_unit_issues(text)
+        self.assertTrue(any("複数の型をまとめています" in issue for issue in issues))
+
+    def test_struct_and_plain_enum_in_one_block_are_rejected(self) -> None:
+        text = """**StockAlert**
+
+```cpp
+struct StockAlert {};
+enum DeliveryStatus { ACCEPTED, FAILED };
+```
+"""
+        issues = check_volume.cpp_block_unit_issues(text)
+        self.assertTrue(any("StockAlert, DeliveryStatus" in issue for issue in issues))
+
+    def test_single_type_title_mismatch_is_rejected(self) -> None:
+        text = """**CustomerInfo**
+
+```cpp
+class CustomerDatabase {};
+```
+
+```cpp
+struct CustomerInfo {};
+```
+"""
+        issues = check_volume.cpp_block_unit_issues(text)
+        self.assertTrue(any("見出し=CustomerInfo、コード=CustomerDatabase" in issue for issue in issues))
+
+
 class ClassLegendPairingTests(unittest.TestCase):
     def test_each_diagram_followed_by_its_explanation_is_accepted(self) -> None:
         text = """### クラス図の線の意味

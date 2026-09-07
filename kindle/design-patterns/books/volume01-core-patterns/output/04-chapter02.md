@@ -376,7 +376,7 @@ sequenceDiagram
 
 ---
 
-**EventInfo と EventDatabase**
+**EventInfo**
 
 仕様で見た「イベント」にあたるデータと在庫です。イベントIDから定員・予約数を引き、エラー条件「存在しないID」「満席」もここで判定します。
 
@@ -2092,9 +2092,9 @@ sequenceDiagram
 
 ---
 
-**共通ヘッダーと EventInfo と EventDatabase（現状コードのまま）**
+**共通ヘッダー**
 
-イベントの定員と予約数を持つ在庫クラスです。
+完成コードで使う標準ライブラリです。
 
 ```cpp
 #include <iostream>

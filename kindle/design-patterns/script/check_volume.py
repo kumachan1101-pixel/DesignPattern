@@ -49,6 +49,7 @@
   41. book.jsonで指定した実践章の合計文字数上限を超えていない
   42. ★対応で統一したケース名・要求表・業務ルール・4-3見出しが後戻りしていない
   43. 第0章の各フェーズ内の確認観点と手順が実践章の判断場面にある
+  44. C++掲載コードが1型1ブロックで、複数クラス名のまとめ見出しになっていない
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -286,6 +287,63 @@ def phase_internal_checkpoint_issues(text: str) -> list[str]:
         for section, marker, location in expected
         if marker not in section
     ]
+
+
+CPP_TOP_LEVEL_DEFINITION = re.compile(
+    r"(?m)^(?:class|struct|enum(?:\s+class)?|namespace)\s+"
+    r"([A-Za-z_]\w*)[^\n{;]*\{"
+)
+STANDALONE_BOLD_TITLE = re.compile(r"^\*\*(.+?)\*\*$", re.M)
+
+
+def cpp_block_unit_issues(text: str) -> list[str]:
+    """掲載コードの1型1ブロックと、見出しの掲載単位を確認する。"""
+    normalized = text.replace("\r\n", "\n")
+    blocks = list(re.finditer(r"```cpp\n(.*?)```", normalized, re.S))
+    declared = set(
+        CPP_TOP_LEVEL_DEFINITION.findall("\n".join(m.group(1) for m in blocks))
+    )
+    issues: list[str] = []
+    previous_end = 0
+
+    for match in blocks:
+        definitions = CPP_TOP_LEVEL_DEFINITION.findall(match.group(1))
+        line = normalized[: match.start()].count("\n") + 1
+        if len(definitions) > 1:
+            issues.append(
+                f"{line}行目のC++ブロックに複数の型・名前空間があります: "
+                + ", ".join(definitions)
+                + "。1型ずつ別ブロックへ分けてください"
+            )
+
+        between = normalized[previous_end:match.start()]
+        titles = STANDALONE_BOLD_TITLE.findall(between)
+        previous_end = match.end()
+        if not titles:
+            continue
+
+        title = titles[-1].replace("`", "")
+        mentioned = [
+            name
+            for name in sorted(declared)
+            if re.search(
+                rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])",
+                title,
+            )
+        ]
+        if len(mentioned) > 1 and re.search(r"\sと\s|\s/\s", title):
+            issues.append(
+                f"{line}行目の直前見出しが複数の型をまとめています: "
+                + ", ".join(mentioned)
+                + "。直下の1ブロックで定義する1型だけを見出しにしてください"
+            )
+        elif len(definitions) == 1 and mentioned and definitions[0] not in mentioned:
+            issues.append(
+                f"{line}行目の直前見出しとコードの型が一致しません: "
+                f"見出し={mentioned[0]}、コード={definitions[0]}"
+            )
+
+    return issues
 
 
 def change_impact_alignment_issues(text: str) -> list[str]:
@@ -1307,6 +1365,12 @@ def check(config_path: Path) -> int:
             continue
         text = path.read_text(encoding="utf-8")
         for issue in phase_internal_checkpoint_issues(text):
+            failures.append(f"{path.name}: {issue}")
+
+    # 44. 掲載単位は1型1ブロック。まとめ見出しで次の型を先取りしない
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        for issue in cpp_block_unit_issues(text):
             failures.append(f"{path.name}: {issue}")
 
     # 28. 本文で節番号を道しるべに使わない

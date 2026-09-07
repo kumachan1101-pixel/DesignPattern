@@ -436,7 +436,7 @@ sequenceDiagram
 
 ---
 
-**Item と Order**
+**Item**
 
 仕様で見た入力「商品リスト」と、それを束ねる注文1件です。
 
@@ -476,7 +476,7 @@ public:
 
 ---
 
-**CustomerInfo と CustomerDatabase**
+**CustomerInfo**
 
 顧客IDから会員種別を引きます。仕様で見た「会員種別（Premium / Regular）」と、エラー条件「顧客IDが存在しない」を担います。
 
@@ -1965,9 +1965,9 @@ sequenceDiagram
 
 ---
 
-**共通ヘッダーと値の型**
+**共通ヘッダー**
 
-まず、会員種別・施策コードと、注文に使う値型です。
+完成コードで使う標準ライブラリです。
 
 ```cpp
 #include <iostream>
@@ -1976,13 +1976,21 @@ sequenceDiagram
 #include <functional>
 #include <map>
 #include <stdexcept>
+```
 
+**MemberType**
+
+```cpp
 // 会員種別（ルール判定で使う直文字列を名前へ置き換える）
 namespace MemberType {
     const std::string Premium = "Premium";
     const std::string Regular = "Regular";
 }
+```
 
+**CampaignCode**
+
+```cpp
 namespace CampaignCode {
     const std::string RegularCampaign = "REGULAR_CAMPAIGN";
     const std::string SummerSale = "SUMMER_SALE";
@@ -2035,7 +2043,7 @@ public:
 
 ---
 
-**CustomerInfo と CustomerDatabase**
+**CustomerInfo**
 
 ```cpp
 struct CustomerInfo {
@@ -2089,7 +2097,7 @@ public:
 
 ---
 
-**NoDiscount と PremiumDiscount と SummerSaleAndCampaignDiscount**
+**NoDiscount**
 
 各具体は適用条件と計算式を一緒に持ちます。
 
@@ -2142,7 +2150,7 @@ public:
 
 ---
 
-**SummerSaleDiscount と CampaignDiscount**
+**SummerSaleDiscount**
 
 ```cpp
 class SummerSaleDiscount : public IDiscountRule {

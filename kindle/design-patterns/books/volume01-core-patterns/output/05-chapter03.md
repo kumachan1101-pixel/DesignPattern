@@ -398,7 +398,7 @@ using namespace std;
 
 ---
 
-**ProductInfo と ProductDatabase**
+**ProductInfo**
 
 仕様で見た「商品」にあたるデータです。商品IDから在庫数・アラート閾値を引き、エラー条件「存在しないID」と閾値判定をここで担います。
 
@@ -1060,9 +1060,9 @@ flowchart TB
 
 ---
 
-**StockAlert と受付結果の型（追加）**
+**StockAlert（追加）**
 
-即時の受付結果と、後日の最終配信結果を同じ受付IDで結ぶ試行用の型です。
+SMSへ渡す在庫警告1件分の試行用の型です。
 
 ```cpp
 struct StockAlert {
@@ -1070,7 +1070,13 @@ struct StockAlert {
     string productName;
     int    stock;
 };
+```
 
+**TrialDeliveryStatus（追加）**
+
+即時の受付結果と後日の最終配信結果を区別します。
+
+```cpp
 enum TrialDeliveryStatus {
     TRIAL_PENDING,
     TRIAL_FAILED,
@@ -1093,7 +1099,7 @@ struct TrialDeliveryResult {
 
 ---
 
-**EmailNotifier / DashboardUpdater / ChatNotifier（変更なし・再掲）**
+**EmailNotifier（変更なし・再掲）**
 
 現状コードの3クラスをそのまま使います。**関数名も引数も戻り値もそろっていません。**
 
@@ -2365,9 +2371,9 @@ sequenceDiagram
 
 ---
 
-**共通ヘッダーと ProductInfo と ProductDatabase と DeliveryResult**
+**共通ヘッダー**
 
-商品マスタと、送信1件分の結果型です。
+完成コードで使う標準ライブラリです。
 
 ```cpp
 #include <iostream>
@@ -2422,7 +2428,11 @@ public:
         return currentStock <= records.at(id).alertThreshold;
     }
 };
+```
 
+**DeliveryStatus**
+
+```cpp
 // 通知の受付結果と、非同期SMSの最終配信結果
 enum DeliveryStatus {
     ACCEPTED, PENDING, FAILED, DELIVERED, DELIVERY_FAILED
@@ -2437,7 +2447,11 @@ struct DeliveryResult {
     string channel;        // どの通知手段か
     string requestId;      // 非同期受付だけが設定する
 };
+```
 
+**ChannelName**
+
+```cpp
 // ログや結果で使う通知手段名を一か所に定義する
 namespace ChannelName {
     const char* const EMAIL = "Email";
@@ -2449,7 +2463,7 @@ namespace ChannelName {
 
 ---
 
-**StockAlert と INotification**
+**StockAlert**
 
 すべての通知先が実装する契約と、そこへ渡す在庫警告データです。
 

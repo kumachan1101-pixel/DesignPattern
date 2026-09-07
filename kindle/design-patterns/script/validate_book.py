@@ -3769,7 +3769,8 @@ BLOCK_MAX_LINES = 80
 BLOCK_MAX_TYPES = 2
 
 _TOP_LEVEL_TYPE_DEFINITION = re.compile(
-    r"(?m)^(?:class|struct|enum\s+class)\s+([A-Za-z_]\w*)[^\n{;]*\{"
+    r"(?m)^(?:class|struct|enum(?:\s+class)?|namespace)\s+"
+    r"([A-Za-z_]\w*)[^\n{;]*\{"
 )
 _ONE_LINE_GUARD = re.compile(
     r"^if\s*\(.*\)\s*(?:return|continue|break)\b.*;$"
