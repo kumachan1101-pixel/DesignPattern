@@ -258,8 +258,9 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
             [
                 "| 変更ID | 変更内容 | 確認する具体例 |",
                 "#### 変更後に有効な業務ルール",
-                "### 4-1：痛んだ場所の責任を並べる",
-                "| 着目箇所 | そこで行っている処理・判断 | 対応する問題ID |",
+                "### 4-1：痛んだ場所の処理・判断を並べる",
+                "| 分析対象を選ぶ根拠 | 原因分析で開くコード箇所 |",
+                "| コード上の目印 | そこで行っている処理・判断 | 変更試行で起きたこと |",
                 "### 4-2：各責任が変わるきっかけを分ける",
                 "| 処理・判断が担う責任 | 変わるきっかけ | 今回の位置づけ |",
                 "### 4-3：接続点に漏れている判断や前提を確認する",
@@ -291,11 +292,17 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
 
     def test_result_first_cause_heading_is_rejected(self) -> None:
         text = self.valid_chapter().replace(
-            "### 4-1：痛んだ場所の責任を並べる",
+            "### 4-1：痛んだ場所の処理・判断を並べる",
             "### 4-1：痛みの根源を探る（観察と原因）",
         )
         issues = check_volume.practical_explanation_consistency_issues(text)
-        self.assertTrue(any("4-1：痛んだ場所の責任を並べる" in issue for issue in issues))
+        self.assertTrue(any("4-1：痛んだ場所の処理・判断を並べる" in issue for issue in issues))
+
+    def test_problem_ids_on_every_process_are_rejected(self) -> None:
+        text = self.valid_chapter()
+        text += "\n| 着目箇所 | そこで行っている処理・判断 | 対応する問題ID |\n"
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("一律に問題ID" in issue for issue in issues))
 
     def test_old_labels_and_redundant_tables_are_rejected(self) -> None:
         text = self.valid_chapter().replace("部分クラス図で責任の向きだけを示す。", "**構想上のコード経路**")

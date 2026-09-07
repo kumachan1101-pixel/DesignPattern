@@ -50,6 +50,7 @@
   42. ★対応で統一したケース名・要求表・業務ルール・4-3見出しが後戻りしていない
   43. 第0章の各フェーズ内の確認観点と手順が実践章の判断場面にある
   44. C++掲載コードが1型1ブロックで、複数クラス名のまとめ見出しになっていない
+  45. 4-1が問題IDによる場所選定と、実コードを目印にした処理列挙を分けている
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -463,7 +464,7 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         issues.append("実行ケースに旧表現が残っています。コードと結果を`ケースN`へ統一してください")
 
     phase45_headings = (
-        "### 4-1：痛んだ場所の責任を並べる",
+        "### 4-1：痛んだ場所の処理・判断を並べる",
         "### 4-2：各責任が変わるきっかけを分ける",
         "### 4-3：接続点に漏れている判断や前提を確認する",
         "### 5-1：原因から境界候補を導く",
@@ -479,7 +480,8 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         issues.append("4-3見出しを共通見出しへ統一し、題材語は直下の####へ置いてください")
 
     for header in (
-        "| 着目箇所 | そこで行っている処理・判断 | 対応する問題ID |",
+        "| 分析対象を選ぶ根拠 | 原因分析で開くコード箇所 |",
+        "| コード上の目印 | そこで行っている処理・判断 | 変更試行で起きたこと |",
         "| 処理・判断が担う責任 | 変わるきっかけ | 今回の位置づけ |",
         "| 元の原因 | 変える側 | 守る側 | 境界を越える必要がある業務情報 |",
         "| 課題ID | 元の原因ID | 変える側 | 守る側 |",
@@ -487,6 +489,10 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
     ):
         if header not in text:
             issues.append(f"原因分析・課題定義の標準表がありません: {header}")
+
+    old_phase41_header = "| 着目箇所 | そこで行っている処理・判断 | 対応する問題ID |"
+    if old_phase41_header in text:
+        issues.append("各処理を一律に問題IDへ紐づける旧4-1表が残っています")
 
     if not re.search(r"^#### 課題ID1（[^）]+）の完了条件$", text, re.M):
         issues.append("課題ID1の完了条件を、表の長文セルではなく####見出しと短い箇条書きで示してください")
