@@ -50,7 +50,7 @@
   42. ★対応で統一したケース名・要求表・業務ルール・4-3見出しが後戻りしていない
   43. 第0章の各フェーズ内の確認観点と手順が実践章の判断場面にある
   44. C++掲載コードが1型1ブロックで、複数クラス名のまとめ見出しになっていない
-  45. フェーズ4が問題IDから関係する責任だけを取り出し、変える／守るから原因を確定する
+  45. フェーズ4・5が簡潔な共通見出しと責任粒度で、問題→原因→課題をつなぐ
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -251,33 +251,33 @@ def phase_internal_checkpoint_issues(text: str) -> list[str]:
         ),
         (
             phase4,
-            "1つ目：問題IDを、変更の中心と影響した責任へ対応づけます。",
-            "フェーズ4の問題IDと責任の対応",
+            "### 4-1：問題が起きたコードを確認する",
+            "フェーズ4の問題コード確認",
         ),
         (
             phase4,
-            "2つ目：関係した責任を、今回「変える」ものと「守る」ものに分けます。",
+            "### 4-2：変える責任と守る責任を分ける",
             "フェーズ4の変える責任と守る責任の区別",
         ),
         (
             phase4,
-            "3つ目：きっかけが違うものが、同じ場所に並んでいないかを見ます。",
-            "フェーズ4の異なる変更理由の同居確認",
+            "### 4-3：原因を確定する",
+            "フェーズ4の原因確定",
         ),
         (
             phase5,
-            "1つ目：変える側と守る側の間に線を引きます。",
-            "フェーズ5の境界候補の導出",
+            "### 5-1：原因をなくす分け方を決める",
+            "フェーズ5の分け方の決定",
         ),
         (
             phase5,
-            "2つ目：線を越えて本当に必要な共通部分を探します。",
-            "フェーズ5の接続点の導出",
+            "### 5-2：原因が残らないか確認する",
+            "フェーズ5の原因残存確認",
         ),
         (
             phase5,
-            "3つ目：部分的な切り出しで原因が残らないかを、システム全体で確かめます。",
-            "フェーズ5の全体評価",
+            "### 5-3：課題と完了条件を確定する",
+            "フェーズ5の課題確定",
         ),
         (phase6, "フェーズ6の確認観点：", "フェーズ6の構想確認"),
         (phase7, "フェーズ7の確認観点：", "フェーズ7の効果確認"),
@@ -464,12 +464,12 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         issues.append("実行ケースに旧表現が残っています。コードと結果を`ケースN`へ統一してください")
 
     phase45_headings = (
-        "### 4-1：問題IDを責任へ対応づける",
+        "### 4-1：問題が起きたコードを確認する",
         "### 4-2：変える責任と守る責任を分ける",
-        "### 4-3：異なる変更理由の同居を原因として確定する",
-        "### 5-1：原因から境界候補を導く",
-        "### 5-2：部分対応で原因が残らないか確認する",
-        "### 5-3：課題ID・接続点・完了条件を確定する",
+        "### 4-3：原因を確定する",
+        "### 5-1：原因をなくす分け方を決める",
+        "### 5-2：原因が残らないか確認する",
+        "### 5-3：課題と完了条件を確定する",
     )
     for heading in phase45_headings:
         if text.count(heading) != 1:
@@ -480,21 +480,49 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         issues.append("4-3見出しを共通見出しへ統一し、題材語は直下の####へ置いてください")
 
     for header in (
-        "| 問題ID | 関係する責任（変更の中心 → 影響した責任） | コード上の目印 |",
-        "| 責任 | 変わるきっかけ | 今回 |",
-        "| 原因ID | 同じ場所にある別々の責任 | 対応する問題ID |",
-        "| 元の原因 | 変える側 | 守る側 | 境界を越える必要がある業務情報 |",
-        "| 課題ID | 元の原因ID | 変える側 | 守る側 |",
-        "| 課題ID | 接続点で流す業務情報 |",
+        "| 責任 | 変わるきっかけ | 今回の扱い |",
+        "| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |",
+        "| 観測した問題 | 確定した原因 | 課題で目指す状態 |",
     ):
         if header not in text:
             issues.append(f"原因分析・課題定義の標準表がありません: {header}")
 
+    table_guides = (
+        ("| 責任 | 変わるきっかけ | 今回の扱い |", ("1行", "横")),
+        ("| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |", ("1行", "左から")),
+        ("| 観測した問題 | 確定した原因 | 課題で目指す状態 |", ("1行", "原因")),
+    )
+    for header, guide_words in table_guides:
+        position = text.find(header)
+        if position < 0:
+            continue
+        prefix = text[max(0, position - 260):position]
+        if not all(word in prefix for word in guide_words):
+            issues.append(
+                f"表の直前に1行の単位と列の読み方がありません: {header}"
+            )
+
+    task_header = "| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |"
+    task_position = text.find(task_header)
+    if task_position >= 0:
+        task_end = text.find("#### 課題ID1", task_position)
+        task_table = text[task_position:task_end if task_end >= 0 else None]
+        if "入力：" not in task_table or not re.search(r"(?:結果|反映)：", task_table):
+            issues.append("課題表のつなぎ方に、入力と結果／反映の区別がありません")
+
     old_phase4_headers = (
+        "| 問題ID | 関係する責任（変更の中心 → 影響した責任） | コード上の目印 |",
+        "| 原因ID | 同じ場所にある別々の責任 | 対応する問題ID |",
+        "| 元の原因 | 変える側 | 守る側 | 境界を越える必要がある業務情報 |",
+        "| 課題ID | 元の原因ID | 変える側 | 守る側 |",
+        "| 課題ID | 接続点で流す業務情報 |",
         "| 着目箇所 | そこで行っている処理・判断 | 対応する問題ID |",
         "| 分析対象を選ぶ根拠 | 原因分析で開くコード箇所 |",
         "| コード上の目印 | そこで行っている処理・判断 | 変更試行で起きたこと |",
         "| 処理・判断が担う責任 | 変わるきっかけ | 今回の位置づけ |",
+        "| 責任 | 変わるきっかけ | 今回 |",
+        "| 課題ID（元の原因） | 何をどこから分けるか | 境界で受け渡すもの |",
+        "| 問題（実際に起きたこと） | 原因（なぜ起きたか） | 課題（どうなれば解消か） |",
     )
     if any(header in text for header in old_phase4_headers):
         issues.append("全処理を再列挙する旧フェーズ4表が残っています")
@@ -511,6 +539,34 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
 
     if "#### 変更後に有効な業務ルール" not in text:
         issues.append("要求からコードへ渡す`変更後に有効な業務ルール`がありません")
+
+    simplification_heading = "**仕様変更で加わる簡略化**"
+    simplification_header = (
+        "| 実システムの変更対象 | 掲載コードでの表現 | この章で省くもの |"
+    )
+    if text.count(simplification_heading) != 1:
+        issues.append(
+            "仕様変更で新たに加わる実システム要素と掲載コードの代替を"
+            "`仕様変更で加わる簡略化`で1回示してください"
+        )
+    if simplification_header not in text:
+        issues.append(
+            "仕様変更の簡略化表を`実システムの変更対象 / 掲載コードでの表現 / "
+            "この章で省くもの`へ統一してください"
+        )
+
+    editorial_phrases = (
+        "変更依頼にない",
+        "要求一覧をもう一度言い換えるのではなく",
+        "この図を置きます",
+        "章ごとの図の数をそろえる",
+        "色だけで判別させません",
+    )
+    for phrase in editorial_phrases:
+        if phrase in text:
+            issues.append(
+                f"出版本文に編集・レビュー向けの説明が残っています: {phrase}"
+            )
 
     phase5_start = text.find("フェーズ5：課題定義")
     phase6_start = text.find("フェーズ6：対策検討", phase5_start)
@@ -560,7 +616,7 @@ def practice_chapter_character_issues(
 
 
 def diagram_diff_label_issues(text: str) -> list[str]:
-    """新規・変更の印が色だけに依存していないかを返す。"""
+    """差分の印と、変更前後の内容を文字で読めるかを返す。"""
     issues: list[str] = []
     for index, block in enumerate(
         re.findall(r"```mermaid\s*\n(.*?)```", text, re.S), 1
@@ -585,6 +641,10 @@ def diagram_diff_label_issues(text: str) -> list[str]:
                 issues.append(f"{index}枚目の図でaddedが［新規］を持ちません")
             if ":::touched" in line and "［変更］" not in line:
                 issues.append(f"{index}枚目の図でtouchedが［変更］を持ちません")
+            if "［変更］" in line and "→" not in line:
+                issues.append(
+                    f"{index}枚目の図の［変更］ノードに変更前→変更後がありません"
+                )
     return issues
 
 
@@ -1326,7 +1386,7 @@ def check(config_path: Path) -> int:
         for issue in editorial_marker_issues(text):
             failures.append(f"{path.name}: {issue}")
 
-    # 37. 色が見えない環境でも、新規と変更を文字で区別できるようにする
+    # 37. 色が見えなくても差分種別と変更前後の内容を文字で読めるようにする
     for path in chapters:
         text = path.read_text(encoding="utf-8")
         for issue in diagram_diff_label_issues(text):

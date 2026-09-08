@@ -87,13 +87,13 @@ class PhaseInternalCheckpointTests(unittest.TestCase):
                 "フェーズ3の確認観点：",
                 "この場所は、今回の変更の理由と関係があるか？",
                 "## フェーズ4：原因分析",
-                "1つ目：問題IDを、変更の中心と影響した責任へ対応づけます。",
-                "2つ目：関係した責任を、今回「変える」ものと「守る」ものに分けます。",
-                "3つ目：きっかけが違うものが、同じ場所に並んでいないかを見ます。",
+                "### 4-1：問題が起きたコードを確認する",
+                "### 4-2：変える責任と守る責任を分ける",
+                "### 4-3：原因を確定する",
                 "## フェーズ5：課題定義",
-                "1つ目：変える側と守る側の間に線を引きます。",
-                "2つ目：線を越えて本当に必要な共通部分を探します。",
-                "3つ目：部分的な切り出しで原因が残らないかを、システム全体で確かめます。",
+                "### 5-1：原因をなくす分け方を決める",
+                "### 5-2：原因が残らないか確認する",
+                "### 5-3：課題と完了条件を確定する",
                 "## フェーズ6：対策検討",
                 "フェーズ6の確認観点：",
                 "## フェーズ7：対策実施",
@@ -257,19 +257,24 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
         return "\n".join(
             [
                 "| 変更ID | 変更内容 | 確認する具体例 |",
+                "**仕様変更で加わる簡略化**",
+                "| 実システムの変更対象 | 掲載コードでの表現 | この章で省くもの |",
                 "#### 変更後に有効な業務ルール",
-                "### 4-1：問題IDを責任へ対応づける",
-                "| 問題ID | 関係する責任（変更の中心 → 影響した責任） | コード上の目印 |",
+                "### 4-1：問題が起きたコードを確認する",
+                "問題ID1。変えたかったことと、既存のどこまで直したか。",
                 "### 4-2：変える責任と守る責任を分ける",
-                "| 責任 | 変わるきっかけ | 今回 |",
-                "### 4-3：異なる変更理由の同居を原因として確定する",
-                "| 原因ID | 同じ場所にある別々の責任 | 対応する問題ID |",
-                "### 5-1：原因から境界候補を導く",
-                "| 元の原因 | 変える側 | 守る側 | 境界を越える必要がある業務情報 |",
-                "### 5-2：部分対応で原因が残らないか確認する",
-                "### 5-3：課題ID・接続点・完了条件を確定する",
-                "| 課題ID | 元の原因ID | 変える側 | 守る側 |",
-                "| 課題ID | 接続点で流す業務情報 |",
+                "1行が一つの責任です。横に読みます。",
+                "| 責任 | 変わるきっかけ | 今回の扱い |",
+                "### 4-3：原因を確定する",
+                "原因ID1。この配置が問題ID1を生んだ。",
+                "### 5-1：原因をなくす分け方を決める",
+                "### 5-2：原因が残らないか確認する",
+                "### 5-3：課題と完了条件を確定する",
+                "1行が一つの課題です。左から読みます。入力は元の処理から分けた側へ渡し、結果は分けた側から返します。",
+                "| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |",
+                "| 課題ID1（境界）<br>解く原因：原因ID1 | 責任を分ける | 入力：依頼<br>結果：処理結果 |",
+                "1行が一つの原因です。問題から原因を追います。",
+                "| 観測した問題 | 確定した原因 | 課題で目指す状態 |",
                 "#### 課題ID1（境界）の完了条件",
                 "- 完成コードで確認する",
                 "## フェーズ6：対策検討",
@@ -290,13 +295,29 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
             ),
         )
 
+    def test_table_without_reading_guide_is_rejected(self) -> None:
+        text = self.valid_chapter().replace(
+            "1行が一つの課題です。左から読みます。入力は元の処理から分けた側へ渡し、結果は分けた側から返します。\n",
+            "",
+        )
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("表の直前に1行の単位" in issue for issue in issues))
+
+    def test_task_table_without_direction_is_rejected(self) -> None:
+        text = self.valid_chapter().replace(
+            "入力：依頼<br>結果：処理結果",
+            "依頼と処理結果",
+        )
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("課題表のつなぎ方" in issue for issue in issues))
+
     def test_result_first_cause_heading_is_rejected(self) -> None:
         text = self.valid_chapter().replace(
-            "### 4-1：問題IDを責任へ対応づける",
+            "### 4-1：問題が起きたコードを確認する",
             "### 4-1：痛みの根源を探る（観察と原因）",
         )
         issues = check_volume.practical_explanation_consistency_issues(text)
-        self.assertTrue(any("4-1：問題IDを責任へ対応づける" in issue for issue in issues))
+        self.assertTrue(any("4-1：問題が起きたコードを確認する" in issue for issue in issues))
 
     def test_problem_ids_on_every_process_are_rejected(self) -> None:
         text = self.valid_chapter()
@@ -320,8 +341,8 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
 
     def test_final_cpp_in_phase5_is_rejected(self) -> None:
         text = self.valid_chapter().replace(
-            "### 4-3：異なる変更理由の同居を原因として確定する",
-            "### 4-3：異なる変更理由の同居を原因として確定する\n"
+            "### 4-3：原因を確定する",
+            "### 4-3：原因を確定する\n"
             "## フェーズ5：課題定義\n```cpp\nclass IRule {};\n```",
         )
         issues = check_volume.practical_explanation_consistency_issues(text)
@@ -336,13 +357,27 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
         issues = check_volume.practical_explanation_consistency_issues(text)
         self.assertTrue(any("構造の着目点" in issue for issue in issues))
 
+    def test_missing_change_simplification_is_rejected(self) -> None:
+        text = self.valid_chapter().replace(
+            "**仕様変更で加わる簡略化**\n"
+            "| 実システムの変更対象 | 掲載コードでの表現 | この章で省くもの |\n",
+            "",
+        )
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("仕様変更で加わる簡略化" in issue for issue in issues))
+
+    def test_editorial_rationale_in_body_is_rejected(self) -> None:
+        text = self.valid_chapter() + "\nこの図を置きます。\n"
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("編集・レビュー向け" in issue for issue in issues))
+
 
 class DiagramDiffLabelTests(unittest.TestCase):
     def test_text_labels_with_color_marks_are_accepted(self) -> None:
         text = """```mermaid
 graph TD
 A["［新規］ Rule"]:::added
-B["［変更］ Calculator"]:::touched
+B["［変更］ Calculator<br>条件2本 → 3本"]:::touched
 ```
 ```mermaid
 classDiagram
@@ -371,6 +406,15 @@ class Calculator:::touched {
         issues = check_volume.diagram_diff_label_issues(text)
         self.assertTrue(any("［新規］" in issue for issue in issues))
         self.assertTrue(any("<<changed>>" in issue for issue in issues))
+
+    def test_changed_marker_without_before_after_is_rejected(self) -> None:
+        text = """```mermaid
+graph TD
+A["［変更］ Calculator"]:::touched
+```
+"""
+        issues = check_volume.diagram_diff_label_issues(text)
+        self.assertTrue(any("変更前→変更後" in issue for issue in issues))
 
 
 class Phase6ClassDiagramTests(unittest.TestCase):

@@ -443,7 +443,7 @@ def main() -> int:
                 if built.returncode != 0:
                     first = next((l for l in built.stderr.splitlines()
                                   if "error:" in l), built.stderr[:200])
-                    print(f"    ✗ ビルド失敗: {first.strip()[:150]}")
+                    print(f"    NG: ビルド失敗: {first.strip()[:150]}")
                     failures += 1
                     continue
                 run = subprocess.run([str(binary)], stdout=subprocess.PIPE,
@@ -459,9 +459,9 @@ def main() -> int:
                                           encoding="utf-8", errors="replace",
                                           timeout=30)
                 if run.stdout == expected.stdout:
-                    print("    ✓ ビルドでき、掲載コードと同じ出力")
+                    print("    OK: ビルドでき、掲載コードと同じ出力")
                 else:
-                    print("    ✗ 出力が掲載コードと違う")
+                    print("    NG: 出力が掲載コードと違う")
                     failures += 1
 
     if failures:
