@@ -300,6 +300,9 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
                 "1行が一つの課題です。左から課題、構造、コードを読みます。",
                 "| 課題 | 決定した構造 | コード上の実現 |",
                 "## フェーズ7：対策実施",
+                "#### 完成後のクラス図",
+                "フェーズ4で元のクラスに混在していた責任は、完成構造では変更理由ごとのクラスへ分かれた。",
+                "#### 完成後の実行シーケンス",
                 "#### 設計課題の完了確認",
                 "1行が一つの完了条件です。左から条件、証拠、判定を読みます。",
                 "| フェーズ5の完了条件 | コード上の証拠 | 判定 |",
@@ -393,6 +396,21 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
         )
         issues = check_volume.practical_explanation_consistency_issues(text)
         self.assertTrue(any("設計課題の完了確認表" in issue for issue in issues))
+
+    def test_missing_final_responsibility_mapping_is_rejected(self) -> None:
+        text = self.valid_chapter().replace(
+            "フェーズ4で元のクラスに混在していた責任は、完成構造では変更理由ごとのクラスへ分かれた。\n",
+            "",
+        )
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("完成後クラス図の直後" in issue for issue in issues))
+
+    def test_negative_process_declaration_is_rejected(self) -> None:
+        issues = check_volume.process_declaration_issues(
+            "chapter01.md",
+            "ここでは対策を決めません。",
+        )
+        self.assertTrue(any("執筆の段取り" in issue for issue in issues))
 
     def test_result_first_cause_heading_is_rejected(self) -> None:
         text = self.valid_chapter().replace(

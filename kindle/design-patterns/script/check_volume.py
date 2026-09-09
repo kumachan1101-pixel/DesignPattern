@@ -51,6 +51,8 @@
   43. 第0章の各フェーズ内の確認観点と手順が実践章の判断場面にある
   44. C++掲載コードが1型1ブロックで、複数クラス名のまとめ見出しになっていない
   45. 混在する責任→問題との因果→目標配置→コード構造→完了条件の証拠が一続きになっている
+  46. 完成図で、元のクラスに残る責任と分離先を同じ責任名で回収している
+  47. 執筆手順の否定形を本文へ残していない
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -63,6 +65,8 @@ import re
 import sys
 import unicodedata
 from pathlib import Path
+
+from check_author_notes import process_declaration_issues
 
 
 def display_width(text: str) -> int:
@@ -618,6 +622,19 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
 
     phase7_start = text.find("フェーズ7：対策実施", phase6_start)
     phase7 = text[phase7_start:] if phase7_start >= 0 else ""
+    final_class_diagrams = text_between(
+        phase7,
+        "#### 完成後のクラス図",
+        "#### 完成後の実行シーケンス",
+    )
+    if not all(
+        word in final_class_diagrams
+        for word in ("フェーズ4で", "混在していた", "変更理由")
+    ):
+        issues.append(
+            "完成後クラス図の直後で、フェーズ4で元のクラスに混在していた責任が"
+            "どのクラスへ分かれ、元のクラスに何が残ったかを同じ責任名で説明してください"
+        )
     if "#### 設計課題の完了確認" not in phase7:
         issues.append("フェーズ7に`設計課題の完了確認`がありません")
     else:
@@ -1481,6 +1498,8 @@ def check(config_path: Path) -> int:
         text = path.read_text(encoding="utf-8")
         for issue in editorial_marker_issues(text):
             failures.append(f"{path.name}: {issue}")
+        for issue in process_declaration_issues(path.name, text):
+            failures.append(issue)
 
     # 37. 色が見えなくても差分種別と変更前後の内容を文字で読めるようにする
     for path in chapters:
