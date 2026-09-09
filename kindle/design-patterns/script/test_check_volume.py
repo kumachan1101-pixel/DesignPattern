@@ -88,12 +88,11 @@ class PhaseInternalCheckpointTests(unittest.TestCase):
                 "この場所は、今回の変更の理由と関係があるか？",
                 "## フェーズ4：原因分析",
                 "### 4-1：問題が起きたコードを確認する",
-                "### 4-2：変える責任と守る責任を分ける",
+                "### 4-2：責任ごとに、今回の変化を整理する",
                 "### 4-3：原因を確定する",
                 "## フェーズ5：課題定義",
-                "### 5-1：原因をなくす分け方を決める",
-                "### 5-2：原因が残らないか確認する",
-                "### 5-3：課題と完了条件を確定する",
+                "### 5-1：原因をなくす責任配置を決める",
+                "### 5-2：課題と完了条件を確定する",
                 "## フェーズ6：対策検討",
                 "フェーズ6の確認観点：",
                 "## フェーズ7：対策実施",
@@ -262,14 +261,28 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
                 "#### 変更後に有効な業務ルール",
                 "### 4-1：問題が起きたコードを確認する",
                 "問題ID1。変えたかったことと、既存のどこまで直したか。",
-                "### 4-2：変える責任と守る責任を分ける",
-                "1行が一つの責任です。横に読みます。",
-                "| 責任 | 変わるきっかけ | 今回の扱い |",
+                "### 4-2：責任ごとに、今回の変化を整理する",
+                "1行が一つの責任です。変更前から変更後へ読みます。",
+                "| 責任 | 変更前 | 変更後 |",
                 "### 4-3：原因を確定する",
                 "原因ID1。この配置が問題ID1を生んだ。",
-                "### 5-1：原因をなくす分け方を決める",
-                "### 5-2：原因が残らないか確認する",
-                "### 5-3：課題と完了条件を確定する",
+                "## フェーズ5：課題定義",
+                "### 5-1：原因をなくす責任配置を決める",
+                "**対策前：変更を現状構造へ当てた状態**",
+                "```mermaid",
+                "classDiagram",
+                "%% provisional-role-diagram",
+                "class Current",
+                "```",
+                "**目標：責任を分けてつなぐ**",
+                "```mermaid",
+                "classDiagram",
+                "%% provisional-role-diagram",
+                "class Stable",
+                "class Change[\"① 変化する責任\"]",
+                "Stable --> Change",
+                "```",
+                "### 5-2：課題と完了条件を確定する",
                 "1行が一つの課題です。左から読みます。入力は元の処理から分けた側へ渡し、結果は分けた側から返します。",
                 "| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |",
                 "| 課題ID1（境界）<br>解く原因：原因ID1 | 責任を分ける | 入力：依頼<br>結果：処理結果 |",
@@ -278,7 +291,18 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
                 "#### 課題ID1（境界）の完了条件",
                 "- 完成コードで確認する",
                 "## フェーズ6：対策検討",
-                "部分クラス図で責任の向きだけを示す。",
+                "### 分離した責任をコードの構造へ変える",
+                "### 構想をコードでつなぐ",
+                "### 構想を確定する",
+                "1行が一つの課題です。左から課題、構造、コードを読みます。",
+                "| 課題 | 決定した構造 | コード上の実現 |",
+                "## フェーズ7：対策実施",
+                "#### 設計課題の完了確認",
+                "1行が一つの完了条件です。左から条件、証拠、判定を読みます。",
+                "| フェーズ5の完了条件 | コード上の証拠 | 判定 |",
+                "|---|---|---|",
+                "| 完成コードで確認する | `Stable` | 合格 |",
+                "#### 変更前→変更後の不変条件照合",
                 "### この章のまとめ",
                 "#### 構造の着目点",
                 "変化理由が混在していないかを見る。",
@@ -303,6 +327,16 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
         issues = check_volume.practical_explanation_consistency_issues(text)
         self.assertTrue(any("表の直前に1行の単位" in issue for issue in issues))
 
+    def test_bare_change_word_in_responsibility_table_is_rejected(self) -> None:
+        text = self.valid_chapter().replace(
+            "| 責任 | 変更前 | 変更後 |",
+            "| 責任 | 変更前 | 変更後 |\n"
+            "|---|---|---|\n"
+            "| 販促方針 | 既存割引 | 追加 |",
+        )
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("具体的なルール" in issue for issue in issues))
+
     def test_task_table_without_direction_is_rejected(self) -> None:
         text = self.valid_chapter().replace(
             "入力：依頼<br>結果：処理結果",
@@ -310,6 +344,45 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
         )
         issues = check_volume.practical_explanation_consistency_issues(text)
         self.assertTrue(any("課題表のつなぎ方" in issue for issue in issues))
+
+    def test_missing_target_responsibility_diagram_is_rejected(self) -> None:
+        text = self.valid_chapter().replace(
+            "**目標：責任を分けてつなぐ**\n"
+            "```mermaid\n"
+            "classDiagram\n"
+            "%% provisional-role-diagram\n"
+            "class Stable\n"
+            "class Change[\"① 変化する責任\"]\n"
+            "Stable --> Change\n"
+            "```\n",
+            "",
+        )
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("対策前と目標の責任配置図" in issue for issue in issues))
+
+    def test_paraphrased_completion_condition_is_rejected(self) -> None:
+        text = self.valid_chapter().replace(
+            "| 完成コードで確認する | `Stable` | 合格 |",
+            "| 完成コードで確認できる | `Stable` | 合格 |",
+        )
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("同じ文言" in issue for issue in issues))
+
+    def test_old_phase6_headings_are_rejected(self) -> None:
+        text = self.valid_chapter().replace(
+            "### 分離した責任をコードの構造へ変える",
+            "### 構想を決める",
+        ).replace("### 構想を確定する", "### 構想を採用する")
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("フェーズ6の共通見出し" in issue for issue in issues))
+
+    def test_completion_evidence_without_reading_guide_is_rejected(self) -> None:
+        text = self.valid_chapter().replace(
+            "1行が一つの完了条件です。左から条件、証拠、判定を読みます。\n",
+            "",
+        )
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("設計課題の完了確認表" in issue for issue in issues))
 
     def test_result_first_cause_heading_is_rejected(self) -> None:
         text = self.valid_chapter().replace(
@@ -332,7 +405,11 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
         self.assertTrue(any("旧フェーズ4表" in issue for issue in issues))
 
     def test_old_labels_and_redundant_tables_are_rejected(self) -> None:
-        text = self.valid_chapter().replace("部分クラス図で責任の向きだけを示す。", "**構想上のコード経路**")
+        text = self.valid_chapter().replace(
+            "### 分離した責任をコードの構造へ変える",
+            "**構想上のコード経路**\n"
+            "### 分離した責任をコードの構造へ変える",
+        )
         text += "\n--- 行1: 実行 ---\n**変更前→変更後の要求対照（今回変える要求IDだけ）**\n"
         issues = check_volume.practical_explanation_consistency_issues(text)
         self.assertTrue(any("旧表現" in issue for issue in issues))
@@ -423,7 +500,6 @@ class Phase6ClassDiagramTests(unittest.TestCase):
 これは部分クラス図で、現在の判断対象以外は省略する。
 ```mermaid
 classDiagram
-%% provisional-role-diagram
 A --> B
 ```
 ## フェーズ7：対策実施
@@ -441,7 +517,7 @@ A --> B
         issues = check_volume.phase6_class_diagram_issues(text)
         self.assertTrue(any("部分クラス図がありません" in issue for issue in issues))
 
-    def test_unmarked_phase6_diagram_is_rejected(self) -> None:
+    def test_phase6_decision_diagram_does_not_need_provisional_marker(self) -> None:
         text = """## フェーズ6：対策検討
 これは部分クラス図で、現在の判断対象以外は省略する。
 ```mermaid
@@ -452,8 +528,7 @@ A --> B
 ### 完成後のクラス図
 部分クラス図を全体へ統合する。
 """
-        issues = check_volume.phase6_class_diagram_issues(text)
-        self.assertTrue(any("provisional-role-diagram" in issue for issue in issues))
+        self.assertEqual([], check_volume.phase6_class_diagram_issues(text))
 
 
 class ChangeImpactAlignmentTests(unittest.TestCase):

@@ -50,7 +50,7 @@
   42. ★対応で統一したケース名・要求表・業務ルール・4-3見出しが後戻りしていない
   43. 第0章の各フェーズ内の確認観点と手順が実践章の判断場面にある
   44. C++掲載コードが1型1ブロックで、複数クラス名のまとめ見出しになっていない
-  45. フェーズ4・5が簡潔な共通見出しと責任粒度で、問題→原因→課題をつなぐ
+  45. 責任の変更前後→目標配置→コード構造→完了条件の証拠が一続きになっている
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -256,8 +256,8 @@ def phase_internal_checkpoint_issues(text: str) -> list[str]:
         ),
         (
             phase4,
-            "### 4-2：変える責任と守る責任を分ける",
-            "フェーズ4の変える責任と守る責任の区別",
+            "### 4-2：責任ごとに、今回の変化を整理する",
+            "フェーズ4の責任ごとの変更前後の整理",
         ),
         (
             phase4,
@@ -266,17 +266,12 @@ def phase_internal_checkpoint_issues(text: str) -> list[str]:
         ),
         (
             phase5,
-            "### 5-1：原因をなくす分け方を決める",
-            "フェーズ5の分け方の決定",
+            "### 5-1：原因をなくす責任配置を決める",
+            "フェーズ5の責任配置の決定",
         ),
         (
             phase5,
-            "### 5-2：原因が残らないか確認する",
-            "フェーズ5の原因残存確認",
-        ),
-        (
-            phase5,
-            "### 5-3：課題と完了条件を確定する",
+            "### 5-2：課題と完了条件を確定する",
             "フェーズ5の課題確定",
         ),
         (phase6, "フェーズ6の確認観点：", "フェーズ6の構想確認"),
@@ -465,11 +460,10 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
 
     phase45_headings = (
         "### 4-1：問題が起きたコードを確認する",
-        "### 4-2：変える責任と守る責任を分ける",
+        "### 4-2：責任ごとに、今回の変化を整理する",
         "### 4-3：原因を確定する",
-        "### 5-1：原因をなくす分け方を決める",
-        "### 5-2：原因が残らないか確認する",
-        "### 5-3：課題と完了条件を確定する",
+        "### 5-1：原因をなくす責任配置を決める",
+        "### 5-2：課題と完了条件を確定する",
     )
     for heading in phase45_headings:
         if text.count(heading) != 1:
@@ -480,7 +474,7 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         issues.append("4-3見出しを共通見出しへ統一し、題材語は直下の####へ置いてください")
 
     for header in (
-        "| 責任 | 変わるきっかけ | 今回の扱い |",
+        "| 責任 | 変更前 | 変更後 |",
         "| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |",
         "| 観測した問題 | 確定した原因 | 課題で目指す状態 |",
     ):
@@ -488,7 +482,7 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
             issues.append(f"原因分析・課題定義の標準表がありません: {header}")
 
     table_guides = (
-        ("| 責任 | 変わるきっかけ | 今回の扱い |", ("1行", "横")),
+        ("| 責任 | 変更前 | 変更後 |", ("1行", "変更前")),
         ("| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |", ("1行", "左から")),
         ("| 観測した問題 | 確定した原因 | 課題で目指す状態 |", ("1行", "原因")),
     )
@@ -501,6 +495,24 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
             issues.append(
                 f"表の直前に1行の単位と列の読み方がありません: {header}"
             )
+
+    responsibility_header = "| 責任 | 変更前 | 変更後 |"
+    responsibility_position = text.find(responsibility_header)
+    if responsibility_position >= 0:
+        responsibility_lines = text[responsibility_position:].splitlines()[2:]
+        for line in responsibility_lines:
+            if not line.startswith("|"):
+                break
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if len(cells) >= 3 and any(
+                re.fullmatch(r"(?:追加|変更|維持|変える|守る)", cell)
+                for cell in cells[1:3]
+            ):
+                issues.append(
+                    "責任の変更前後を`追加`や`変更`だけで済ませず、"
+                    "具体的なルールを書いてください"
+                )
+                break
 
     task_header = "| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |"
     task_position = text.find(task_header)
@@ -521,6 +533,7 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         "| コード上の目印 | そこで行っている処理・判断 | 変更試行で起きたこと |",
         "| 処理・判断が担う責任 | 変わるきっかけ | 今回の位置づけ |",
         "| 責任 | 変わるきっかけ | 今回 |",
+        "| 責任 | 変わるきっかけ | 今回の扱い |",
         "| 課題ID（元の原因） | 何をどこから分けるか | 境界で受け渡すもの |",
         "| 問題（実際に起きたこと） | 原因（なぜ起きたか） | 課題（どうなれば解消か） |",
     )
@@ -572,6 +585,87 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
     phase6_start = text.find("フェーズ6：対策検討", phase5_start)
     if 0 <= phase5_start < phase6_start and "```cpp" in text[phase5_start:phase6_start]:
         issues.append("フェーズ5に最終コードがあります。値・操作・結果を確定し、型名とC++はフェーズ6で導いてください")
+
+    phase5 = text[phase5_start:phase6_start] if 0 <= phase5_start < phase6_start else ""
+    if phase5.count("%% provisional-role-diagram") != 2:
+        issues.append("フェーズ5に対策前と目標の責任配置図を1枚ずつ置いてください")
+    if "**対策前：" not in phase5 or "**目標：" not in phase5:
+        issues.append("フェーズ5の二つの責任配置図へ、対策前と目標の見出しを付けてください")
+    elif phase5.find("**対策前：") > phase5.find("**目標："):
+        issues.append("フェーズ5の責任配置図は、対策前、目標の順に並べてください")
+    if "①" not in phase5:
+        issues.append("フェーズ5の目標責任配置図へ番号を付け、課題表へつないでください")
+
+    phase6 = text_between(text, "フェーズ6：対策検討", "フェーズ7：対策実施")
+    for heading in (
+        "### 分離した責任をコードの構造へ変える",
+        "### 構想をコードでつなぐ",
+        "### 構想を確定する",
+    ):
+        if phase6.count(heading) != 1:
+            issues.append(f"フェーズ6の共通見出しがありません、または重複しています: {heading}")
+    if "| 課題 | 決定した構造 | コード上の実現 |" not in phase6:
+        issues.append("構想確定表を`課題 / 決定した構造 / コード上の実現`へ統一してください")
+    else:
+        position = phase6.find("| 課題 | 決定した構造 | コード上の実現 |")
+        prefix = phase6[max(0, position - 260):position]
+        if "1行" not in prefix or "左から" not in prefix:
+            issues.append("構想確定表の直前に、1行の単位と左から読む順序を書いてください")
+
+    phase7_start = text.find("フェーズ7：対策実施", phase6_start)
+    phase7 = text[phase7_start:] if phase7_start >= 0 else ""
+    if "#### 設計課題の完了確認" not in phase7:
+        issues.append("フェーズ7に`設計課題の完了確認`がありません")
+    else:
+        position = phase7.find("| フェーズ5の完了条件 |")
+        prefix = phase7[max(0, position - 320):position] if position >= 0 else ""
+        if position < 0 or "1行" not in prefix or "左から" not in prefix:
+            issues.append("設計課題の完了確認表の直前に、1行の単位と左から読む順序を書いてください")
+
+    completion_conditions: list[str] = []
+    for body in re.findall(
+        r"^#### 課題ID\d+（[^）]+）の完了条件\s*$(.*?)(?=^#### |^## )",
+        phase5,
+        re.M | re.S,
+    ):
+        completion_conditions.extend(
+            item.strip()
+            for item in re.findall(r"^- (.+)$", body, re.M)
+        )
+    evidence_section = text_between(
+        phase7,
+        "#### 設計課題の完了確認",
+        "#### 変更前→変更後の不変条件照合",
+    )
+    evidence_conditions = [
+        cells[0].strip()
+        for line in evidence_section.splitlines()
+        if line.startswith("|")
+        for cells in [[cell.strip() for cell in line.strip("|").split("|")]]
+        if len(cells) >= 3
+        and cells[0] != "フェーズ5の完了条件"
+        and not set(cells[0]) <= {"-", ":"}
+    ]
+    missing_conditions = [
+        condition
+        for condition in completion_conditions
+        if condition not in evidence_conditions
+    ]
+    if missing_conditions:
+        issues.append(
+            "フェーズ5の完了条件が、フェーズ7の証拠表へ同じ文言で"
+            "一つずつ引き継がれていません: " + " / ".join(missing_conditions)
+        )
+    duplicated_conditions = [
+        condition
+        for condition in completion_conditions
+        if evidence_conditions.count(condition) != 1
+    ]
+    if duplicated_conditions and not missing_conditions:
+        issues.append(
+            "フェーズ5の完了条件は、フェーズ7の証拠表へ一度ずつ載せてください: "
+            + " / ".join(duplicated_conditions)
+        )
 
     if "**構想上のコード経路" in text:
         issues.append("フェーズ6冒頭で最終コード経路を先取りしています。責任の向きだけを部分クラス図で示してください")
@@ -655,8 +749,6 @@ def phase6_class_diagram_issues(text: str) -> list[str]:
     issues: list[str] = []
     if "classDiagram" not in phase6:
         issues.append("フェーズ6に構造判断を示す部分クラス図がありません")
-    if phase6.count("%% provisional-role-diagram") != 1:
-        issues.append("フェーズ6冒頭の仮名による責任図へ`%% provisional-role-diagram`を1つ付けてください")
     if not re.search(r"省略|省い", phase6):
         issues.append("フェーズ6の部分クラス図に省略範囲の説明がありません")
     if "部分クラス図" not in phase6:
