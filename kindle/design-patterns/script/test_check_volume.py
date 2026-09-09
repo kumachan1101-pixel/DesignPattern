@@ -88,7 +88,7 @@ class PhaseInternalCheckpointTests(unittest.TestCase):
                 "この場所は、今回の変更の理由と関係があるか？",
                 "## フェーズ4：原因分析",
                 "### 4-1：問題が起きたコードを確認する",
-                "### 4-2：責任ごとに、今回の変化を整理する",
+                "### 4-2：一つのクラスに混在する責任を特定する",
                 "### 4-3：原因を確定する",
                 "## フェーズ5：課題定義",
                 "### 5-1：原因をなくす責任配置を決める",
@@ -261,9 +261,12 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
                 "#### 変更後に有効な業務ルール",
                 "### 4-1：問題が起きたコードを確認する",
                 "問題ID1。変えたかったことと、既存のどこまで直したか。",
-                "### 4-2：責任ごとに、今回の変化を整理する",
-                "1行が一つの責任です。変更前から変更後へ読みます。",
-                "| 責任 | 変更前 | 変更後 |",
+                "### 4-2：一つのクラスに混在する責任を特定する",
+                "1行が一つの責任です。左から問題が起きたコードで担うこと、今回の変更との関係を読みます。",
+                "| 責任 | 問題が起きたコードで担うこと | 今回の変更との関係 |",
+                "|---|---|---|",
+                "| 販促方針 | 会員条件から割引を決める | この責任内のルールが、サマー割引で直接変わった |",
+                "| 注文計算 | 小計へ割引結果を反映する | 同じクラスにあるため確認対象になった |",
                 "### 4-3：原因を確定する",
                 "原因ID1。この配置が問題ID1を生んだ。",
                 "## フェーズ5：課題定義",
@@ -327,15 +330,22 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
         issues = check_volume.practical_explanation_consistency_issues(text)
         self.assertTrue(any("表の直前に1行の単位" in issue for issue in issues))
 
-    def test_bare_change_word_in_responsibility_table_is_rejected(self) -> None:
+    def test_vague_relation_in_responsibility_table_is_rejected(self) -> None:
         text = self.valid_chapter().replace(
-            "| 責任 | 変更前 | 変更後 |",
-            "| 責任 | 変更前 | 変更後 |\n"
-            "|---|---|---|\n"
-            "| 販促方針 | 既存割引 | 追加 |",
+            "| 販促方針 | 会員条件から割引を決める | この責任内のルールが、サマー割引で直接変わった |",
+            "| 販促方針 | 会員条件から割引を決める | 変更 |",
         )
         issues = check_volume.practical_explanation_consistency_issues(text)
-        self.assertTrue(any("具体的なルール" in issue for issue in issues))
+        self.assertTrue(any("責任内のルール・処理" in issue for issue in issues))
+
+    def test_old_before_after_responsibility_table_is_rejected(self) -> None:
+        text = self.valid_chapter().replace(
+            "| 責任 | 問題が起きたコードで担うこと | 今回の変更との関係 |",
+            "| 責任 | 変更前 | 変更後 |",
+        )
+        issues = check_volume.practical_explanation_consistency_issues(text)
+        self.assertTrue(any("標準表がありません" in issue for issue in issues))
+        self.assertTrue(any("旧フェーズ4表" in issue for issue in issues))
 
     def test_task_table_without_direction_is_rejected(self) -> None:
         text = self.valid_chapter().replace(

@@ -50,7 +50,7 @@
   42. ★対応で統一したケース名・要求表・業務ルール・4-3見出しが後戻りしていない
   43. 第0章の各フェーズ内の確認観点と手順が実践章の判断場面にある
   44. C++掲載コードが1型1ブロックで、複数クラス名のまとめ見出しになっていない
-  45. 責任の変更前後→目標配置→コード構造→完了条件の証拠が一続きになっている
+  45. 混在する責任→問題との因果→目標配置→コード構造→完了条件の証拠が一続きになっている
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -256,8 +256,8 @@ def phase_internal_checkpoint_issues(text: str) -> list[str]:
         ),
         (
             phase4,
-            "### 4-2：責任ごとに、今回の変化を整理する",
-            "フェーズ4の責任ごとの変更前後の整理",
+            "### 4-2：一つのクラスに混在する責任を特定する",
+            "フェーズ4の混在する責任の特定",
         ),
         (
             phase4,
@@ -460,7 +460,7 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
 
     phase45_headings = (
         "### 4-1：問題が起きたコードを確認する",
-        "### 4-2：責任ごとに、今回の変化を整理する",
+        "### 4-2：一つのクラスに混在する責任を特定する",
         "### 4-3：原因を確定する",
         "### 5-1：原因をなくす責任配置を決める",
         "### 5-2：課題と完了条件を確定する",
@@ -474,7 +474,7 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         issues.append("4-3見出しを共通見出しへ統一し、題材語は直下の####へ置いてください")
 
     for header in (
-        "| 責任 | 変更前 | 変更後 |",
+        "| 責任 | 問題が起きたコードで担うこと | 今回の変更との関係 |",
         "| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |",
         "| 観測した問題 | 確定した原因 | 課題で目指す状態 |",
     ):
@@ -482,7 +482,10 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
             issues.append(f"原因分析・課題定義の標準表がありません: {header}")
 
     table_guides = (
-        ("| 責任 | 変更前 | 変更後 |", ("1行", "変更前")),
+        (
+            "| 責任 | 問題が起きたコードで担うこと | 今回の変更との関係 |",
+            ("1行", "問題が起きたコード"),
+        ),
         ("| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |", ("1行", "左から")),
         ("| 観測した問題 | 確定した原因 | 課題で目指す状態 |", ("1行", "原因")),
     )
@@ -496,7 +499,7 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
                 f"表の直前に1行の単位と列の読み方がありません: {header}"
             )
 
-    responsibility_header = "| 責任 | 変更前 | 変更後 |"
+    responsibility_header = "| 責任 | 問題が起きたコードで担うこと | 今回の変更との関係 |"
     responsibility_position = text.find(responsibility_header)
     if responsibility_position >= 0:
         responsibility_lines = text[responsibility_position:].splitlines()[2:]
@@ -504,13 +507,12 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
             if not line.startswith("|"):
                 break
             cells = [cell.strip() for cell in line.strip("|").split("|")]
-            if len(cells) >= 3 and any(
-                re.fullmatch(r"(?:追加|変更|維持|変える|守る)", cell)
-                for cell in cells[1:3]
+            if len(cells) >= 3 and not re.search(
+                r"(?:直接|巻き込|確認対象)", cells[2]
             ):
                 issues.append(
-                    "責任の変更前後を`追加`や`変更`だけで済ませず、"
-                    "具体的なルールを書いてください"
+                    "今回の変更との関係を、責任内のルール・処理が直接変わったのか、"
+                    "同居のため別責任が巻き込まれた／確認対象になったのか分かる形で書いてください"
                 )
                 break
 
@@ -534,6 +536,8 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         "| 処理・判断が担う責任 | 変わるきっかけ | 今回の位置づけ |",
         "| 責任 | 変わるきっかけ | 今回 |",
         "| 責任 | 変わるきっかけ | 今回の扱い |",
+        "| 責任 | 現状コードで担うこと | 今回の変更との関係 |",
+        "| 責任 | 変更前 | 変更後 |",
         "| 課題ID（元の原因） | 何をどこから分けるか | 境界で受け渡すもの |",
         "| 問題（実際に起きたこと） | 原因（なぜ起きたか） | 課題（どうなれば解消か） |",
     )
