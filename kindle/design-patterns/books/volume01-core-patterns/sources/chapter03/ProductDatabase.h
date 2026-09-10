@@ -7,10 +7,9 @@
 #include <map>
 #include <algorithm>
 #include <stdexcept>
-using namespace std;
 
 struct ProductInfo {
-    string name;           // 商品名
+    std::string name;           // 商品名
     int    stock;          // 在庫数
     int    alertThreshold; // アラート閾値
 };
@@ -19,7 +18,7 @@ struct ProductInfo {
 
 class ProductDatabase {
 private:
-    map<string, ProductInfo> records;
+    std::map<std::string, ProductInfo> records;
 public:
     ProductDatabase() {
         records["PRD001"] = {"ワイヤレスマウス", 50, 10};
@@ -27,19 +26,19 @@ public:
         records["PRD003"] = {"キーボード",         0,  5}; // 在庫なし
     }
 
-    bool exists(const string& id) const {
+    bool exists(const std::string& id) const {
         return records.count(id) > 0;
     }
 
-    ProductInfo get(const string& id) const {
+    ProductInfo get(const std::string& id) const {
         return records.at(id);
     }
 
-    void save(const string& id, const ProductInfo& info) {
+    void save(const std::string& id, const ProductInfo& info) {
         records[id] = info;           // 実行中の商品マスタへ追加
     }
 
-    bool isBelowThreshold(const string& id,
+    bool isBelowThreshold(const std::string& id,
                           int currentStock) const {
         return currentStock <= records.at(id).alertThreshold;
     }
@@ -52,8 +51,8 @@ enum DeliveryStatus {
 
 struct DeliveryResult {
     DeliveryStatus status; // 受付成功・保留・受付失敗・配信完了・配信失敗
-    string channel;        // どの通知手段か
-    string requestId;      // 非同期受付だけが設定する
+    std::string channel;        // どの通知手段か
+    std::string requestId;      // 非同期受付だけが設定する
 };
 
 // ログや結果で使う通知手段名を一か所に定義する
@@ -68,8 +67,8 @@ namespace ChannelName {
 // 通知手段ごとに表現を変えるための、共通の在庫警告データ
 
 struct StockAlert {
-    string productId;
-    string productName;
+    std::string productId;
+    std::string productName;
     int stock;
 };
 
@@ -77,7 +76,7 @@ struct StockAlert {
 
 // 非同期SMSの受付IDと最終配信状態を管理する
 
-// SMS基盤から後日届くコールバックの入口。在庫更新から独立させる
+// 実運用でSMS基盤から後から届く結果の入口。在庫更新から独立させる
 
 // 通知先1：メール通知（同期）
 // メール基盤の呼び方（件名と本文、真偽値）は現状コードのまま変えない。

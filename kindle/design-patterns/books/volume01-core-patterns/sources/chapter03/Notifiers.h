@@ -6,20 +6,23 @@
 #include "DeliveryStatusLog.h"
 
 class EmailNotifier : public INotification {
-    vector<string> inbox;
+    std::vector<std::string> inbox;
 
     // 現状コードと同じメール基盤の操作
-    bool sendMail(const string& subject, const string& body) {
+    bool sendMail(
+        const std::string& subject,
+        const std::string& body) {
         inbox.push_back(body);
-        cout << "Email(" << inbox.size() << "件) [" << subject
-             << "] "
-             << body << endl;
+        std::cout << "Email(" << inbox.size()
+                  << "件) [" << subject << "] "
+                  << body << std::endl;
         return true;
     }
 public:
     DeliveryResult send(const StockAlert& a) override {
-        string body = "商品 " + a.productId + "（" + a.productName
-                    + "） の在庫が閾値以下です。";
+        std::string body =
+            "商品 " + a.productId + "（" + a.productName
+            + "） の在庫が閾値以下です。";
         bool ok = sendMail("在庫アラート", body);
 
         if (ok) {
@@ -33,12 +36,12 @@ class DashboardUpdater : public INotification {
     int refreshCount;
 
     // 現状コードと同じ画面更新。戻り値が無い
-    void refreshStockWidget(const string& productCode,
+    void refreshStockWidget(const std::string& productCode,
                             int stock) {
         ++refreshCount;
-        cout << "Dashboard(" << refreshCount << "件): "
+        std::cout << "Dashboard(" << refreshCount << "件): "
              << productCode
-             << " の在庫表示を " << stock << " に更新" << endl;
+             << " の在庫表示を " << stock << " に更新" << std::endl;
     }
 public:
     DashboardUpdater() : refreshCount(0) {}
@@ -50,23 +53,28 @@ public:
 };
 
 class ChatNotifier : public INotification {
-    vector<string> posted;
+    std::vector<std::string> posted;
 
     // 現状コードと同じチャット基盤。投稿IDを返す
-    string postMessage(const string& channel,
-                       const string& text) {
+    std::string postMessage(
+        const std::string& channel,
+        const std::string& text) {
         posted.push_back(text);
-        string postId = "POST-" + to_string(posted.size());
-        cout << "Chat(" << posted.size() << "件) #" << channel
-             << "\n"
-             << "  " << text << " -> " << postId << endl;
+        std::string postId =
+            "POST-" + std::to_string(posted.size());
+        std::cout << "Chat(" << posted.size()
+                  << "件) #" << channel << "\n"
+                  << "  " << text << " -> " << postId
+                  << std::endl;
         return postId;
     }
 public:
     DeliveryResult send(const StockAlert& a) override {
-        string text = "商品 " + a.productId + "（" + a.productName
-                    + "） の在庫が閾値以下です。";
-        string postId = postMessage("inventory-alert", text);
+        std::string text =
+            "商品 " + a.productId + "（" + a.productName
+            + "） の在庫が閾値以下です。";
+        std::string postId =
+            postMessage("inventory-alert", text);
 
         if (postId.empty()) {
             return {FAILED, ChannelName::CHAT, ""};
@@ -78,25 +86,25 @@ public:
 class SMSNotifier : public INotification {
     DeliveryStatusLog& statusLog;  // 組み立て側が所有する台帳を借りる
     bool willFail;  // 受付に失敗する状況を再現するための指定
-    vector<string> inbox;  // 受付できた通知だけを蓄積する
+    std::vector<std::string> inbox;  // 受付できた通知だけを蓄積する
     int nextRequestNumber = 1;
 public:
     SMSNotifier(DeliveryStatusLog& log, bool fail)
         : statusLog(log), willFail(fail) {}
     DeliveryResult send(const StockAlert& a) override {
         if (willFail) {
-            cout << "SMS: 受付失敗（後で再送対象）" << endl;
+            std::cout << "SMS: 受付失敗（後で再送対象）" << std::endl;
 
             return {FAILED, ChannelName::SMS, ""};
         }
 
-        string text = "在庫警告 " + a.productId + " 残"
-            + to_string(a.stock);
+        std::string text = "在庫警告 " + a.productId + " 残"
+            + std::to_string(a.stock);
         inbox.push_back(text);
-        string requestId = "SMS-"
-            + to_string(nextRequestNumber++);
-        cout << "SMS(" << inbox.size() << "件受付): " << text
-             << " / 受付ID=" << requestId << endl;
+        std::string requestId = "SMS-"
+            + std::to_string(nextRequestNumber++);
+        std::cout << "SMS(" << inbox.size() << "件受付): " << text
+             << " / 受付ID=" << requestId << std::endl;
         DeliveryResult result{
             PENDING, ChannelName::SMS, requestId};
         statusLog.record(result);

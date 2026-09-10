@@ -29,6 +29,25 @@ class TemplateHoleTests(unittest.TestCase):
         self.assertEqual([], check_volume.unresolved_template_holes("【追加】"))
 
 
+class PublicationStyleTests(unittest.TestCase):
+    def test_explicit_std_without_duplicate_table_is_accepted(self) -> None:
+        text = "```cpp\nstd::vector<std::string> values;\n```\n"
+        self.assertEqual([], check_volume.publication_style_issues(text))
+
+    def test_using_namespace_std_is_rejected(self) -> None:
+        issues = check_volume.publication_style_issues(
+            "```cpp\nusing namespace std;\nvector<string> values;\n```\n"
+        )
+        self.assertTrue(any("using namespace std" in issue for issue in issues))
+
+    def test_repeated_class_member_table_is_rejected(self) -> None:
+        issues = check_volume.publication_style_issues(
+            "```mermaid\nclassDiagram\n```\n"
+            "**クラス図に出てくる主なメンバーと操作**\n"
+        )
+        self.assertTrue(any("重複掲載" in issue for issue in issues))
+
+
 class EarlyMaterialSpoilerTests(unittest.TestCase):
     def test_cpp_example_is_rejected_even_with_unrelated_names(self) -> None:
         text = "# 第0章\n\n```cpp\nclass NeutralExample {};\n```\n"

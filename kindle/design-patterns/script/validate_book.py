@@ -2166,7 +2166,6 @@ def check_explanation_regression(text: str, path: Path) -> list[Issue]:
         "原因ID1（共通順が本文IDと本文内容を持つ）",
         "原因ID2（文書生成が装飾種類・順序を持つ）",
         "原因ID3（生成本体が履歴規則を持つ）",
-        "**クラス図に出てくる主なメンバーと操作**",
         "+generate(request) bool",
         "+writePreview(document, path, format) bool",
         "#### 内部デバッグログ",

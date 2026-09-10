@@ -55,6 +55,8 @@
   47. 執筆手順の否定形を本文へ残していない
   48. 専用の組み立てクラスへ、入力検証・業務実行・状態更新・結果表示を混在させていない
   49. フェーズ6の契約が、フェーズ5の業務上の入出力を再定義せずC++へ翻訳している
+  50. 掲載C++が`std::`明示へ統一され、`using namespace std;`が混在していない
+  51. クラス図の属性・操作を直後の表へ重複掲載していない
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -127,6 +129,25 @@ def prose_lines(text: str) -> list[tuple[int, str]]:
         if not in_fence:
             out.append((number, line))
     return out
+
+
+def publication_style_issues(text: str) -> list[str]:
+    """全章で統一するC++表記と、クラス図直後の重複を検出する。"""
+    issues: list[str] = []
+    for found in re.finditer(r"^using namespace std;\s*$", text, re.M):
+        number = text[: found.start()].count("\n") + 1
+        issues.append(
+            f"{number}行目: `using namespace std;`があります。"
+            "標準ライブラリ名へ`std::`を明示してください"
+        )
+    marker = "**クラス図に出てくる主なメンバーと操作**"
+    if marker in text:
+        number = text[: text.index(marker)].count("\n") + 1
+        issues.append(
+            f"{number}行目: クラス図の属性・操作を直後の表へ重複掲載しています。"
+            "図から読み取れる責任と依存を文章でまとめてください"
+        )
+    return issues
 
 
 def chapter_numbers(paths: list[Path]) -> set[int]:
@@ -1718,6 +1739,12 @@ def check(config_path: Path) -> int:
             continue
         text = path.read_text(encoding="utf-8")
         for issue in contract_translation_issues(text):
+            failures.append(f"{path.name}: {issue}")
+
+    # 50-51. C++表記とクラス図説明の重複を冊内で統一する
+    for path in chapters:
+        text = path.read_text(encoding="utf-8")
+        for issue in publication_style_issues(text):
             failures.append(f"{path.name}: {issue}")
 
     # 28. 本文で節番号を道しるべに使わない

@@ -5,9 +5,9 @@
 #include "INotification.h"
 
 class DeliveryStatusLog {
-    map<string, DeliveryStatus> statuses;
+    std::map<std::string, DeliveryStatus> statuses;
 
-    static string statusName(DeliveryStatus status) {
+    static std::string statusName(DeliveryStatus status) {
         if (status == PENDING) return "PENDING";
         if (status == DELIVERED) return "DELIVERED";
         if (status == DELIVERY_FAILED) return "DELIVERY_FAILED";
@@ -20,25 +20,27 @@ public:
             result.requestId.empty()) return;
 
         statuses[result.requestId] = PENDING;
-        cout << "[SMS状態] " << result.requestId << ": PENDINGを記録"
-             << endl;
+        std::cout << "[SMS状態] " << result.requestId
+                  << ": PENDINGを記録" << std::endl;
     }
 
-    bool complete(const string& requestId, bool delivered) {
+    bool complete(
+        const std::string& requestId,
+        bool delivered) {
         auto it = statuses.find(requestId);
 
         if (it == statuses.end() || it->second != PENDING) {
-            cout << "[SMS最終結果エラー] 未知または確定済みの受付ID: "
-                 << requestId << endl;
+            std::cout << "[SMS最終結果エラー] 未知または確定済みの受付ID: "
+                 << requestId << std::endl;
             return false;
         }
 
         DeliveryStatus before = it->second;
         it->second = delivered ? DELIVERED : DELIVERY_FAILED;
-        cout << "[SMS最終結果] " << requestId << ": "
+        std::cout << "[SMS最終結果] " << requestId << ": "
              << statusName(before) << " -> "
              << statusName(it->second)
-             << endl;
+             << std::endl;
         return true;
     }
 };
@@ -49,7 +51,7 @@ public:
     explicit SMSDeliveryCallback(DeliveryStatusLog& log)
             : statusLog(log) {}
 
-    bool receive(const string& requestId, bool delivered) {
+    bool receive(const std::string& requestId, bool delivered) {
         return statusLog.complete(requestId, delivered);
     }
 };

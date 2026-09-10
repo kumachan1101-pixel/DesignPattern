@@ -307,7 +307,7 @@ classDiagram
         +refreshStockWidget(productCode, stock) void
     }
     class ChatNotifier {
-        +postMessage(channel, text) string
+        +postMessage(channel, text) std::string
     }
     class ProductDatabase {
         +exists(id)
@@ -316,7 +316,7 @@ classDiagram
         +isBelowThreshold(id, stock)
     }
     class ProductInfo {
-        +name string
+        +name std::string
         +stock int
         +alertThreshold int
     }
@@ -329,18 +329,7 @@ classDiagram
 
 ```
 
-**クラス図に出てくる主なメンバーと操作**
-
-| クラス | 主な操作 | 役割 |
-|---|---|---|
-| `InventoryManager` | `reduceStock()` / `replenishStock()` / `notifyAll()` | 在庫を更新し、閾値以下なら通知する |
-| `ProductDatabase` | `exists()` / `get()` / `save()` / `isBelowThreshold()` | 商品ID・現在在庫・閾値を管理する |
-| `EmailNotifier` | `sendMail()` | 在庫警告をメールで送信する |
-| `DashboardUpdater` | `refreshStockWidget()` | 更新後の在庫数をダッシュボードへ反映する |
-| `ChatNotifier` | `postMessage()` | 在庫警告をチャットへ投稿する |
-
-
-直前の現状クラス図が示す通り、InventoryManager という単一のクラスが、通知先であるすべてのクラス（メール、ダッシュボード、チャット）を直接保持している構成になっています。
+直前の現状クラス図が示す通り、`ProductDatabase` が商品と在庫を保持し、`InventoryManager` が在庫操作に加えて、メール、ダッシュボード、チャットの全通知先を直接保持しています。
 
 **現状システムの処理シーケンス**
 
@@ -391,7 +380,6 @@ sequenceDiagram
 #include <map>
 #include <unordered_map>
 
-using namespace std;
 ```
 
 以降のすべてのクラスが使います。
@@ -405,7 +393,7 @@ using namespace std;
 ```cpp
 // 商品マスタの1件分
 struct ProductInfo {
-    string name;         // 商品名
+    std::string name;         // 商品名
     int    stock;        // 在庫数
     int    alertThreshold; // アラート閾値
 };
@@ -417,7 +405,7 @@ struct ProductInfo {
 // 商品マスタ（データ駆動バリデーション用）
 class ProductDatabase {
 private:
-    map<string, ProductInfo> records;
+    std::map<std::string, ProductInfo> records;
 public:
     ProductDatabase() {
         records["PRD001"] = {"ワイヤレスマウス", 50, 10};
@@ -425,19 +413,19 @@ public:
         records["PRD003"] = {"キーボード",         0,  5}; // 在庫なし
     }
 
-    bool exists(const string& id) const {
+    bool exists(const std::string& id) const {
         return records.count(id) > 0;
     }
 
-    ProductInfo get(const string& id) const {
+    ProductInfo get(const std::string& id) const {
         return records.at(id);
     }
 
-    void save(const string& id, const ProductInfo& info) {
+    void save(const std::string& id, const ProductInfo& info) {
         records[id] = info;           // 実行中の商品マスタへ追加
     }
 
-    bool isBelowThreshold(const string& id,
+    bool isBelowThreshold(const std::string& id,
                           int currentStock) const {
         return currentStock <= records.at(id).alertThreshold;
     }
@@ -460,13 +448,15 @@ public:
 ```cpp
 // メール基盤：件名と本文が分かれ、送れたかどうかだけを返す
 class EmailNotifier {
-    vector<string> inbox;
+    std::vector<std::string> inbox;
 public:
-    bool sendMail(const string& subject, const string& body) {
+    bool sendMail(
+        const std::string& subject,
+        const std::string& body) {
         inbox.push_back(body);
-        cout << "Email(" << inbox.size() << "件) [" << subject
-             << "] "
-             << body << endl;
+        std::cout << "Email(" << inbox.size()
+                  << "件) [" << subject << "] "
+                  << body << std::endl;
         return true;
     }
 };
@@ -485,12 +475,12 @@ class DashboardUpdater {
     int refreshCount;
 public:
     DashboardUpdater() : refreshCount(0) {}
-    void refreshStockWidget(const string& productCode,
+    void refreshStockWidget(const std::string& productCode,
                             int stock) {
         ++refreshCount;
-        cout << "Dashboard(" << refreshCount << "件): "
+        std::cout << "Dashboard(" << refreshCount << "件): "
              << productCode
-             << " の在庫表示を " << stock << " に更新" << endl;
+             << " の在庫表示を " << stock << " に更新" << std::endl;
     }
 };
 ```
@@ -505,15 +495,17 @@ public:
 // チャット基盤：投稿先チャンネルが要り、投稿IDを返す。
 // 空の投稿IDが失敗を表す
 class ChatNotifier {
-    vector<string> posted;
+    std::vector<std::string> posted;
 public:
-    string postMessage(const string& channel,
-                       const string& text) {
+    std::string postMessage(const std::string& channel,
+                       const std::string& text) {
         posted.push_back(text);
-        string postId = "POST-" + to_string(posted.size());
-        cout << "Chat(" << posted.size() << "件) #" << channel
-             << "\n"
-             << "  " << text << " -> " << postId << endl;
+        std::string postId =
+            "POST-" + std::to_string(posted.size());
+        std::cout << "Chat(" << posted.size()
+                  << "件) #" << channel << "\n"
+                  << "  " << text << " -> " << postId
+                  << std::endl;
         return postId;
     }
 };
@@ -529,9 +521,9 @@ public:
 |---|---|---|---|
 | メール | `sendMail` | 件名と本文の2つ | `bool`。`false` が失敗 |
 | ダッシュボード | `refreshStockWidget` | 商品コードと在庫数 | `void`。**失敗を表せない** |
-| チャット | `postMessage` | 投稿先と本文 | `string`（投稿ID）。空文字列が失敗 |
+| チャット | `postMessage` | 投稿先と本文 | `std::string`（投稿ID）。空文字列が失敗 |
 
-メールとチャットへ渡す文言は同じですが、ダッシュボードは文言を受け取らず、在庫数そのものを受け取ります。戻り値は `bool`・`void`・`string` の3通りで、`void` のダッシュボードだけは送れたかどうかが返りません。
+メールとチャットへ渡す文言は同じですが、ダッシュボードは文言を受け取らず、在庫数そのものを受け取ります。戻り値は `bool`・`void`・`std::string` の3通りで、`void` のダッシュボードだけは送れたかどうかが返りません。
 
 ---
 
@@ -548,11 +540,11 @@ private:
     ProductDatabase  db;
 
 public:
-    void reduceStock(string productId, int quantity);
-    void replenishStock(string productId, int quantity);
+    void reduceStock(std::string productId, int quantity);
+    void replenishStock(std::string productId, int quantity);
 
 private:
-    void notifyAll(const string& productId,
+    void notifyAll(const std::string& productId,
                    const ProductInfo& info);
 };
 ```
@@ -564,31 +556,32 @@ private:
 **InventoryManager::reduceStock()**
 
 ```cpp
-void InventoryManager::reduceStock(string productId,
+void InventoryManager::reduceStock(std::string productId,
                                    int quantity) {
     if (!db.exists(productId)) {
-        cout << "[エラー] 商品ID " << productId
+        std::cout << "[エラー] 商品ID " << productId
              << " はマスタに存在しません。処理を中断します。"
-             << endl;
+             << std::endl;
         return;
     }
 
     ProductInfo info = db.get(productId);
 
     if (quantity <= 0 || quantity > info.stock) {
-        cout << "[エラー] 商品 " << productId << "（" << info.name
+        std::cout << "[エラー] 商品 " << productId
+             << "（" << info.name
              << "）"
              << " は " << quantity << " 個出庫できません。現在在庫: "
-             << info.stock << endl;
+             << info.stock << std::endl;
         return;
     }
 
     int before = info.stock;
     info.stock -= quantity;
     db.save(productId, info);
-    cout << "商品 " << productId << "（" << info.name << "）"
+    std::cout << "商品 " << productId << "（" << info.name << "）"
          << " の在庫を " << quantity << " 減らしました。在庫: "
-         << before << " -> " << info.stock << endl;
+         << before << " -> " << info.stock << std::endl;
 
     if (db.isBelowThreshold(productId, info.stock)) {
         notifyAll(productId, info);
@@ -609,31 +602,32 @@ void InventoryManager::reduceStock(string productId,
 入庫のときに呼ぶ、`reduceStock()` の対になる操作です。仕入れが届いたり、キャンセルで戻ってきたりした分を在庫へ足します。要求ID1（正確な在庫の維持）の「入庫」がこれにあたります。
 
 ```cpp
-void InventoryManager::replenishStock(string productId,
+void InventoryManager::replenishStock(std::string productId,
                                       int quantity) {
     if (!db.exists(productId)) {
-        cout << "[エラー] 商品ID " << productId
+        std::cout << "[エラー] 商品ID " << productId
              << " はマスタに存在しません。処理を中断します。"
-             << endl;
+             << std::endl;
         return;
     }
 
     ProductInfo info = db.get(productId);
 
     if (quantity <= 0) {
-        cout << "[エラー] 商品 " << productId << "（" << info.name
+        std::cout << "[エラー] 商品 " << productId
+             << "（" << info.name
              << "） は " << quantity
              << " 個補充できません。現在在庫: "
-             << info.stock << endl;
+             << info.stock << std::endl;
         return;
     }
 
     int before = info.stock;
     info.stock += quantity;
     db.save(productId, info);
-    cout << "商品 " << productId << "（" << info.name << "）\n"
+    std::cout << "商品 " << productId << "（" << info.name << "）\n"
          << "  在庫を " << quantity << " 補充しました。在庫: "
-         << before << " -> " << info.stock << endl;
+         << before << " -> " << info.stock << std::endl;
 }
 ```
 
@@ -644,17 +638,18 @@ void InventoryManager::replenishStock(string productId,
 **InventoryManager::notifyAll()**
 
 ```cpp
-void InventoryManager::notifyAll(const string& productId,
+void InventoryManager::notifyAll(const std::string& productId,
                                  const ProductInfo& info) {
     // 通知先が増えるたびに、ここが修正される。
     // 3つの基盤は引数の形も戻り値の意味も違うので、
     // 呼び分けと結果の解釈をこのメソッドが全部引き受けている。
-    string message = "商品 " + productId + "（" + info.name + "）"
-                   + " の在庫が閾値以下です。";
+    std::string message =
+        "商品 " + productId + "（" + info.name + "）"
+        + " の在庫が閾値以下です。";
 
     // メールは件名と本文に分け、真偽値で成否を見る
     if (!email.sendMail("在庫アラート", message)) {
-        cout << "[通知受付失敗] Email" << endl;
+        std::cout << "[通知受付失敗] Email" << std::endl;
     }
 
     // ダッシュボードは文言を受け取らず、成否も返さない。
@@ -662,11 +657,11 @@ void InventoryManager::notifyAll(const string& productId,
     dashboard.refreshStockWidget(productId, info.stock);
 
     // チャットは投稿先が要り、空の投稿IDが失敗を表す
-    string postId = chat.postMessage("inventory-alert",
+    std::string postId = chat.postMessage("inventory-alert",
                                      message);
 
     if (postId.empty()) {
-        cout << "[通知受付失敗] Chat" << endl;
+        std::cout << "[通知受付失敗] Chat" << std::endl;
     }
 }
 ```
@@ -687,7 +682,7 @@ void InventoryManager::notifyAll(const string& productId,
 int main() {
     InventoryManager manager;
 
-    cout << "--- ケース1: PRD001を5減らす ---" << endl;
+    std::cout << "--- ケース1: PRD001を5減らす ---" << std::endl;
     manager.reduceStock("PRD001", 5);
 ```
 
@@ -703,7 +698,7 @@ int main() {
 **ケース2：PRD002を1減らす**
 
 ```cpp
-    cout << "--- ケース2: PRD002を1減らす ---" << endl;
+    std::cout << "--- ケース2: PRD002を1減らす ---" << std::endl;
     manager.reduceStock("PRD002", 1);
 ```
 
@@ -723,7 +718,7 @@ Chat(1件) #inventory-alert
 **ケース3：PRD001を20補充する**
 
 ```cpp
-    cout << "--- ケース3: PRD001を20補充する ---" << endl;
+    std::cout << "--- ケース3: PRD001を20補充する ---" << std::endl;
     manager.replenishStock("PRD001", 20);
 ```
 
@@ -740,7 +735,7 @@ Chat(1件) #inventory-alert
 **ケース4：PRD003を1減らす**
 
 ```cpp
-    cout << "--- ケース4: PRD003を1減らす ---" << endl;
+    std::cout << "--- ケース4: PRD003を1減らす ---" << std::endl;
     manager.reduceStock("PRD003", 1);
 ```
 
@@ -756,7 +751,7 @@ Chat(1件) #inventory-alert
 **ケース5：存在しない商品IDを操作する**
 
 ```cpp
-    cout << "--- ケース5: 存在しない商品IDを操作する ---" << endl;
+    std::cout << "--- ケース5: 存在しない商品IDを操作する ---" << std::endl;
     manager.reduceStock("PRD999", 1);
 ```
 
@@ -772,7 +767,7 @@ Chat(1件) #inventory-alert
 ケース6は、登録済み商品でも0個以下の補充を拒否できることを確認します。
 
 ```cpp
-    cout << "--- ケース6: 0個の補充を拒否する ---" << endl;
+    std::cout << "--- ケース6: 0個の補充を拒否する ---" << std::endl;
     manager.replenishStock("PRD001", 0);
 
     return 0;
@@ -806,6 +801,8 @@ Chat(1件) #inventory-alert
 **田中部長：** 「在庫の事実と届いた通知まで戻ると困るので、SMSだけ失敗として残してほしい。最終結果は履歴へ記録できればよく、今回、在庫操作画面は変えなくてよい。」
 
 この外部API制約と運用判断により、単なる通知先追加に加え、「受付と最終配信を二段階で記録する」「SMSの失敗を在庫更新と他通知から切り離す」「操作UIは変更しない」が今回の確定範囲になりました。
+
+SMSは「送信要求を受け付けた」と「端末へ届いた」が同じ時点に決まりません。この二段階を一つの同期結果へ潰すと、配信失敗だけを記録しながら在庫更新と他通知を確定させる境界を設計できないため、本章ではコールバックまで扱います。
 
 **仕様変更で加わる簡略化**
 
@@ -901,7 +898,7 @@ flowchart TB
     classDef added fill:#eaf2fb,stroke:#527aa3,stroke-width:2px,color:#172033;
 ```
 
-このシステム全体図で外部境界を押さえたうえで、同じ変更をシステム内部の処理順へ落とします。次の図では、箱の形が入力・保持値・処理・判定・出力の役割を表します。`［新規］`は追加要素、`［変更］`は既存要素を示し、変更ノード内の`変更前→変更後`で内容を確認できます。
+このシステム全体図で外部境界を押さえたうえで、同じ変更をシステム内部の処理順へ落とします。次の図では、平行四辺形は入力、円柱形は保持値、四角は処理、ひし形は判定、両端が丸い箱は出力です。色に加えて、`［新規］`、`［変更］`、`変更前→変更後` の文字でも差分を判別できます。
 
 ```mermaid
 flowchart TB
@@ -1075,8 +1072,8 @@ SMSへ渡す在庫警告1件分の試行用の型です。
 
 ```cpp
 struct StockAlert {
-    string productId;
-    string productName;
+    std::string productId;
+    std::string productName;
     int    stock;
 };
 ```
@@ -1099,8 +1096,8 @@ enum TrialDeliveryStatus {
 ```cpp
 struct TrialDeliveryResult {
     TrialDeliveryStatus status;
-    string channel;
-    string requestId;
+    std::string channel;
+    std::string requestId;
 };
 ```
 
@@ -1115,13 +1112,15 @@ struct TrialDeliveryResult {
 ```cpp
 // 現状コードのまま。件名と本文に分かれ、成否は真偽値
 class EmailNotifier {
-    vector<string> inbox;
+    std::vector<std::string> inbox;
 public:
-    bool sendMail(const string& subject, const string& body) {
+    bool sendMail(
+        const std::string& subject,
+        const std::string& body) {
         inbox.push_back(body);
-        cout << "Email(" << inbox.size() << "件) [" << subject
-             << "] "
-             << body << endl;
+        std::cout << "Email(" << inbox.size()
+                  << "件) [" << subject << "] "
+                  << body << std::endl;
         return true;
     }
 };
@@ -1135,12 +1134,12 @@ class DashboardUpdater {
     int refreshCount;
 public:
     DashboardUpdater() : refreshCount(0) {}
-    void refreshStockWidget(const string& productCode,
+    void refreshStockWidget(const std::string& productCode,
                             int stock) {
         ++refreshCount;
-        cout << "Dashboard(" << refreshCount << "件): "
+        std::cout << "Dashboard(" << refreshCount << "件): "
              << productCode
-             << " の在庫表示を " << stock << " に更新" << endl;
+             << " の在庫表示を " << stock << " に更新" << std::endl;
     }
 };
 ```
@@ -1150,15 +1149,17 @@ public:
 ```cpp
 // 現状コードのまま。投稿先が要り、空の投稿IDが失敗
 class ChatNotifier {
-    vector<string> posted;
+    std::vector<std::string> posted;
 public:
-    string postMessage(const string& channel,
-                       const string& text) {
+    std::string postMessage(const std::string& channel,
+                       const std::string& text) {
         posted.push_back(text);
-        string postId = "POST-" + to_string(posted.size());
-        cout << "Chat(" << posted.size() << "件) #" << channel
-             << "\n"
-             << "  " << text << " -> " << postId << endl;
+        std::string postId =
+            "POST-" + std::to_string(posted.size());
+        std::cout << "Chat(" << posted.size()
+                  << "件) #" << channel << "\n"
+                  << "  " << text << " -> " << postId
+                  << std::endl;
         return postId;
     }
 };
@@ -1184,14 +1185,17 @@ public:
 
     TrialDeliveryResult requestAsync(const StockAlert& a) {
         if (willFail) {
-            cout << "SMS 受付拒否: " << a.productId << endl;
+            std::cout << "SMS 受付拒否: "
+                      << a.productId << std::endl;
             return {TRIAL_FAILED, "SMS", ""};
         }
         ++accepted;
-        string requestId = "SMS-" + to_string(accepted);
-        cout << "SMS(" << accepted << "件) 在庫警告 " << a.productId
-             << " 残" << a.stock << " -> 受付ID:" << requestId
-             << endl;
+        std::string requestId =
+            "SMS-" + std::to_string(accepted);
+        std::cout << "SMS(" << accepted << "件) 在庫警告 "
+                  << a.productId << " 残" << a.stock
+                  << " -> 受付ID:" << requestId
+                  << std::endl;
         return {TRIAL_PENDING, "SMS", requestId};
     }
 };
@@ -1213,22 +1217,22 @@ private:
     // ← 追加
     SMSNotifier      sms;
     // ← 追加
-    map<string, TrialDeliveryStatus> smsStatuses;
+    std::map<std::string, TrialDeliveryStatus> smsStatuses;
 
 public:
     // ← 追加
     explicit InventoryManager(bool smsShouldFail = false)
         : sms(smsShouldFail) {}
 
-    void reduceStock(string productId, int quantity);
-    void replenishStock(string productId, int quantity);
+    void reduceStock(std::string productId, int quantity);
+    void replenishStock(std::string productId, int quantity);
 
     // ← 追加
-    void receiveSMSCompletion(const string& requestId,
+    void receiveSMSCompletion(const std::string& requestId,
                               bool delivered);
 
 private:
-    void notifyAll(const string& productId,
+    void notifyAll(const std::string& productId,
                    const ProductInfo& info);
 };
 ```
@@ -1246,20 +1250,20 @@ private:
 ```cpp
 // 最終結果を受けると、在庫管理クラスが受付IDまで知る
 void InventoryManager::receiveSMSCompletion(
-        const string& requestId, bool delivered) {
+        const std::string& requestId, bool delivered) {
     auto found = smsStatuses.find(requestId);
 
     if (found == smsStatuses.end() ||
         found->second != TRIAL_PENDING) {
-        cout << "[SMS最終結果エラー] " << requestId << endl;
+        std::cout << "[SMS最終結果エラー] " << requestId << std::endl;
         return;
     }
 
     found->second = delivered ? TRIAL_DELIVERED
                               : TRIAL_DELIVERY_FAILED;
-    cout << "[SMS最終結果] " << requestId << ": PENDING -> "
+    std::cout << "[SMS最終結果] " << requestId << ": PENDING -> "
          << (delivered ? "DELIVERED" : "DELIVERY_FAILED")
-         << endl;
+         << std::endl;
 }
 ```
 
@@ -1270,16 +1274,17 @@ void InventoryManager::receiveSMSCompletion(
 **InventoryManager::notifyAll()（変更あり）**
 
 ```cpp
-void InventoryManager::notifyAll(const string& productId,
+void InventoryManager::notifyAll(const std::string& productId,
                                  const ProductInfo& info) {
     // ← 追加。4手段の受付結果を数える
     int accepted = 0, pending = 0, failed = 0;
 
-    string message = "商品 " + productId + "（" + info.name + "）"
-                   + " の在庫が閾値以下です。";
+    std::string message =
+        "商品 " + productId + "（" + info.name + "）"
+        + " の在庫が閾値以下です。";
 
     if (!email.sendMail("在庫アラート", message)) {
-        cout << "[通知受付失敗] Email" << endl;
+        std::cout << "[通知受付失敗] Email" << std::endl;
         failed++;                       // ← 追加
     } else {
         accepted++;                     // ← 追加
@@ -1289,11 +1294,11 @@ void InventoryManager::notifyAll(const string& productId,
     dashboard.refreshStockWidget(productId, info.stock);
     accepted++;                         // ← 追加
 
-    string postId = chat.postMessage("inventory-alert",
+    std::string postId = chat.postMessage("inventory-alert",
                                      message);
 
     if (postId.empty()) {
-        cout << "[通知受付失敗] Chat" << endl;
+        std::cout << "[通知受付失敗] Chat" << std::endl;
         failed++;                       // ← 追加
     } else {
         accepted++;                     // ← 追加
@@ -1307,12 +1312,12 @@ void InventoryManager::notifyAll(const string& productId,
         pending++;
         smsStatuses[result.requestId] = TRIAL_PENDING;
     } else {
-        cout << "[通知受付失敗] SMS" << endl;
+        std::cout << "[通知受付失敗] SMS" << std::endl;
         failed++;
     }
-    cout << "[受付結果] 成功:" << accepted
+    std::cout << "[受付結果] 成功:" << accepted
          << " 保留:" << pending
-         << " 失敗:" << failed << endl;
+         << " 失敗:" << failed << std::endl;
     // ← ここまで
 }
 ```
@@ -1342,7 +1347,7 @@ void InventoryManager::notifyAll(const string& productId,
 int main() {
     InventoryManager manager;
 
-    cout << "--- ケース2: PRD002を1減らす ---" << endl;
+    std::cout << "--- ケース2: PRD002を1減らす ---" << std::endl;
     manager.reduceStock("PRD002", 1);
     manager.receiveSMSCompletion("SMS-1", true);
 ```
@@ -1368,7 +1373,7 @@ SMS(1件) 在庫警告 PRD002 残2 -> 受付ID:SMS-1
 **ケース6：SMSの受付が拒否される**
 
 ```cpp
-    cout << "--- ケース6: SMSの受付が拒否される ---" << endl;
+    std::cout << "--- ケース6: SMSの受付が拒否される ---" << std::endl;
     InventoryManager rejecting(true);
     rejecting.reduceStock("PRD002", 1);
 
@@ -1614,8 +1619,8 @@ enum DeliveryStatus {
 ```cpp
 struct DeliveryResult {
     DeliveryStatus status; // 受付成功・保留・受付失敗・配信完了・配信失敗
-    string channel;        // どの通知手段か
-    string requestId;      // 非同期受付だけが設定する
+    std::string channel;        // どの通知手段か
+    std::string requestId;      // 非同期受付だけが設定する
 };
 ```
 
@@ -1626,8 +1631,8 @@ struct DeliveryResult {
 ```cpp
 // 通知手段ごとに表現を変えるための、共通の在庫警告データ
 struct StockAlert {
-    string productId;
-    string productName;
+    std::string productId;
+    std::string productName;
     int stock;
 };
 ```
@@ -1712,7 +1717,7 @@ SMSの最終配信状態は通知先の寿命から独立して残すため、`S
 
 ```cpp
 bool SMSDeliveryCallback::receive(
-        const string& requestId, bool delivered) {
+        const std::string& requestId, bool delivered) {
     return statusLog.complete(requestId, delivered);
 }
 ```
@@ -1771,7 +1776,7 @@ explicit InventoryApplication(bool smsWillFail = false)
 }
 ```
 
-`InventoryManager` には在庫の正本と `vector<INotification*> observers` だけが残り、配信状態の台帳は入りません。
+`InventoryManager` には在庫の正本と `std::vector<INotification*> observers` だけが残り、配信状態の台帳は入りません。
 
 **ここで確認するコード：`InventoryManager::notifyAll(const StockAlert&)`** ―― 引数の到着点と、一律に呼ぶ骨格
 
@@ -1785,16 +1790,17 @@ void InventoryManager::notifyAll(const StockAlert& alert) {
 
 `alert` は次の `reduceStock()` が更新後在庫から作り、閾値以下の場合だけ渡します。
 
-**ここで確認するコード：`InventoryManager::reduceStock(string, int)`** ―― 在庫更新から警告作成までの接続
+**ここで確認するコード：`InventoryManager::reduceStock()`**
+―― 在庫更新から警告作成までの接続
 
 ```cpp
 int before = info.stock;
 info.stock -= quantity;
 db.save(productId, info);
-cout << "商品 " << productId << "（" << info.name << "）"
+std::cout << "商品 " << productId << "（" << info.name << "）"
      << " の在庫を " << quantity << " 減らしました。"
      << " 在庫: " << before
-     << " -> " << info.stock << endl;
+     << " -> " << info.stock << std::endl;
 
 if (db.isBelowThreshold(productId, info.stock)) {
     notifyAll({productId, info.name, info.stock});
@@ -1812,7 +1818,7 @@ if (db.isBelowThreshold(productId, info.stock)) {
 ```cpp
 bool InventoryManager::attach(INotification* observer) {
     if (observer == nullptr) return false;
-    if (find(observers.begin(), observers.end(), observer)
+    if (std::find(observers.begin(), observers.end(), observer)
             != observers.end()) return false;
     observers.push_back(observer);
     return true;
@@ -1830,7 +1836,7 @@ void registerNotifications() {
                    && manager.attach(&chat)
                    && manager.attach(&sms);
     if (!registered) {
-        throw logic_error("通知先の初期登録に失敗しました");
+        throw std::logic_error("通知先の初期登録に失敗しました");
     }
 }
 ```
@@ -1903,7 +1909,7 @@ classDiagram
     direction TB
     class InventoryManager:::touched {
         <<changed>>
-        -vector~INotification*~ observers
+        -std::vector~INotification*~ observers
         +attach(INotification*)
         +reduceStock(productId, quantity)
         +replenishStock(productId, quantity)
@@ -2090,7 +2096,6 @@ sequenceDiagram
 #include <algorithm>
 #include <stdexcept>
 
-using namespace std;
 ```
 
 **ProductInfo**
@@ -2098,7 +2103,7 @@ using namespace std;
 ```cpp
 // 商品マスタの1件分
 struct ProductInfo {
-    string name;           // 商品名
+    std::string name;           // 商品名
     int    stock;          // 在庫数
     int    alertThreshold; // アラート閾値
 };
@@ -2110,7 +2115,7 @@ struct ProductInfo {
 // 商品マスタ（データ駆動バリデーション用）
 class ProductDatabase {
 private:
-    map<string, ProductInfo> records;
+    std::map<std::string, ProductInfo> records;
 public:
     ProductDatabase() {
         records["PRD001"] = {"ワイヤレスマウス", 50, 10};
@@ -2118,19 +2123,19 @@ public:
         records["PRD003"] = {"キーボード",         0,  5}; // 在庫なし
     }
 
-    bool exists(const string& id) const {
+    bool exists(const std::string& id) const {
         return records.count(id) > 0;
     }
 
-    ProductInfo get(const string& id) const {
+    ProductInfo get(const std::string& id) const {
         return records.at(id);
     }
 
-    void save(const string& id, const ProductInfo& info) {
+    void save(const std::string& id, const ProductInfo& info) {
         records[id] = info;           // 実行中の商品マスタへ追加
     }
 
-    bool isBelowThreshold(const string& id,
+    bool isBelowThreshold(const std::string& id,
                           int currentStock) const {
         return currentStock <= records.at(id).alertThreshold;
     }
@@ -2151,8 +2156,8 @@ enum DeliveryStatus {
 ```cpp
 struct DeliveryResult {
     DeliveryStatus status; // 受付成功・保留・受付失敗・配信完了・配信失敗
-    string channel;        // どの通知手段か
-    string requestId;      // 非同期受付だけが設定する
+    std::string channel;        // どの通知手段か
+    std::string requestId;      // 非同期受付だけが設定する
 };
 ```
 
@@ -2177,8 +2182,8 @@ namespace ChannelName {
 ```cpp
 // 通知手段ごとに表現を変えるための、共通の在庫警告データ
 struct StockAlert {
-    string productId;
-    string productName;
+    std::string productId;
+    std::string productName;
     int stock;
 };
 ```
@@ -2204,9 +2209,9 @@ public:
 ```cpp
 // 非同期SMSの受付IDと最終配信状態を管理する
 class DeliveryStatusLog {
-    map<string, DeliveryStatus> statuses;
+    std::map<std::string, DeliveryStatus> statuses;
 
-    static string statusName(DeliveryStatus status) {
+    static std::string statusName(DeliveryStatus status) {
         if (status == PENDING) return "PENDING";
         if (status == DELIVERED) return "DELIVERED";
         if (status == DELIVERY_FAILED) return "DELIVERY_FAILED";
@@ -2219,25 +2224,27 @@ public:
             result.requestId.empty()) return;
 
         statuses[result.requestId] = PENDING;
-        cout << "[SMS状態] " << result.requestId << ": PENDINGを記録"
-             << endl;
+        std::cout << "[SMS状態] " << result.requestId
+                  << ": PENDINGを記録" << std::endl;
     }
 
-    bool complete(const string& requestId, bool delivered) {
+    bool complete(
+        const std::string& requestId,
+        bool delivered) {
         auto it = statuses.find(requestId);
 
         if (it == statuses.end() || it->second != PENDING) {
-            cout << "[SMS最終結果エラー] 未知または確定済みの受付ID: "
-                 << requestId << endl;
+            std::cout << "[SMS最終結果エラー] 未知または確定済みの受付ID: "
+                 << requestId << std::endl;
             return false;
         }
 
         DeliveryStatus before = it->second;
         it->second = delivered ? DELIVERED : DELIVERY_FAILED;
-        cout << "[SMS最終結果] " << requestId << ": "
+        std::cout << "[SMS最終結果] " << requestId << ": "
              << statusName(before) << " -> "
              << statusName(it->second)
-             << endl;
+             << std::endl;
         return true;
     }
 };
@@ -2258,7 +2265,7 @@ public:
     explicit SMSDeliveryCallback(DeliveryStatusLog& log)
             : statusLog(log) {}
 
-    bool receive(const string& requestId, bool delivered) {
+    bool receive(const std::string& requestId, bool delivered) {
         return statusLog.complete(requestId, delivered);
     }
 };
@@ -2277,20 +2284,23 @@ public:
 // メール基盤の呼び方（件名と本文、真偽値）は現状コードのまま変えない。
 // 契約からその形へ変換する責任を、このクラスの中へ引き取る。
 class EmailNotifier : public INotification {
-    vector<string> inbox;
+    std::vector<std::string> inbox;
 
     // 現状コードと同じメール基盤の操作
-    bool sendMail(const string& subject, const string& body) {
+    bool sendMail(
+        const std::string& subject,
+        const std::string& body) {
         inbox.push_back(body);
-        cout << "Email(" << inbox.size() << "件) [" << subject
-             << "] "
-             << body << endl;
+        std::cout << "Email(" << inbox.size()
+                  << "件) [" << subject << "] "
+                  << body << std::endl;
         return true;
     }
 public:
     DeliveryResult send(const StockAlert& a) override {
-        string body = "商品 " + a.productId + "（" + a.productName
-                    + "） の在庫が閾値以下です。";
+        std::string body =
+            "商品 " + a.productId + "（" + a.productName
+            + "） の在庫が閾値以下です。";
         bool ok = sendMail("在庫アラート", body);
 
         if (ok) {
@@ -2315,12 +2325,12 @@ class DashboardUpdater : public INotification {
     int refreshCount;
 
     // 現状コードと同じ画面更新。戻り値が無い
-    void refreshStockWidget(const string& productCode,
+    void refreshStockWidget(const std::string& productCode,
                             int stock) {
         ++refreshCount;
-        cout << "Dashboard(" << refreshCount << "件): "
+        std::cout << "Dashboard(" << refreshCount << "件): "
              << productCode
-             << " の在庫表示を " << stock << " に更新" << endl;
+             << " の在庫表示を " << stock << " に更新" << std::endl;
     }
 public:
     DashboardUpdater() : refreshCount(0) {}
@@ -2342,23 +2352,28 @@ public:
 // 通知先3：チャット通知（同期）
 // 空の投稿IDが失敗という約束も、このクラスの中で契約へ翻訳する。
 class ChatNotifier : public INotification {
-    vector<string> posted;
+    std::vector<std::string> posted;
 
     // 現状コードと同じチャット基盤。投稿IDを返す
-    string postMessage(const string& channel,
-                       const string& text) {
+    std::string postMessage(
+        const std::string& channel,
+        const std::string& text) {
         posted.push_back(text);
-        string postId = "POST-" + to_string(posted.size());
-        cout << "Chat(" << posted.size() << "件) #" << channel
-             << "\n"
-             << "  " << text << " -> " << postId << endl;
+        std::string postId =
+            "POST-" + std::to_string(posted.size());
+        std::cout << "Chat(" << posted.size()
+                  << "件) #" << channel << "\n"
+                  << "  " << text << " -> " << postId
+                  << std::endl;
         return postId;
     }
 public:
     DeliveryResult send(const StockAlert& a) override {
-        string text = "商品 " + a.productId + "（" + a.productName
-                    + "） の在庫が閾値以下です。";
-        string postId = postMessage("inventory-alert", text);
+        std::string text =
+            "商品 " + a.productId + "（" + a.productName
+            + "） の在庫が閾値以下です。";
+        std::string postId =
+            postMessage("inventory-alert", text);
 
         if (postId.empty()) {
             return {FAILED, ChannelName::CHAT, ""};
@@ -2383,25 +2398,25 @@ public:
 class SMSNotifier : public INotification {
     DeliveryStatusLog& statusLog;  // 組み立て側が所有する台帳を借りる
     bool willFail;  // 受付に失敗する状況を再現するための指定
-    vector<string> inbox;  // 受付できた通知だけを蓄積する
+    std::vector<std::string> inbox;  // 受付できた通知だけを蓄積する
     int nextRequestNumber = 1;
 public:
     SMSNotifier(DeliveryStatusLog& log, bool fail)
         : statusLog(log), willFail(fail) {}
     DeliveryResult send(const StockAlert& a) override {
         if (willFail) {
-            cout << "SMS: 受付失敗（後で再送対象）" << endl;
+            std::cout << "SMS: 受付失敗（後で再送対象）" << std::endl;
 
             return {FAILED, ChannelName::SMS, ""};
         }
 
-        string text = "在庫警告 " + a.productId + " 残"
-            + to_string(a.stock);
+        std::string text = "在庫警告 " + a.productId + " 残"
+            + std::to_string(a.stock);
         inbox.push_back(text);
-        string requestId = "SMS-"
-            + to_string(nextRequestNumber++);
-        cout << "SMS(" << inbox.size() << "件受付): " << text
-             << " / 受付ID=" << requestId << endl;
+        std::string requestId = "SMS-"
+            + std::to_string(nextRequestNumber++);
+        std::cout << "SMS(" << inbox.size() << "件受付): " << text
+             << " / 受付ID=" << requestId << std::endl;
         DeliveryResult result{
             PENDING, ChannelName::SMS, requestId};
         statusLog.record(result);
@@ -2431,7 +2446,7 @@ public:
 class InventoryManager {
 private:
     // 非所有ポインタ。登録中の通知先はInventoryManagerより長く生存すること。
-    vector<INotification*> observers;
+    std::vector<INotification*> observers;
     ProductDatabase& db;
 
 public:
@@ -2442,7 +2457,7 @@ public:
     bool attach(INotification* o) {
         if (o == nullptr) return false;
 
-        if (find(observers.begin(), observers.end(), o)
+        if (std::find(observers.begin(), observers.end(), o)
                 != observers.end()) {
             return false;
         }
@@ -2452,31 +2467,32 @@ public:
         return true;
     }
 
-    void reduceStock(string productId, int quantity) {
+    void reduceStock(std::string productId, int quantity) {
         if (!db.exists(productId)) {
-            cout << "[エラー] 商品ID " << productId
+            std::cout << "[エラー] 商品ID " << productId
                  << " はマスタに存在しません。処理を中断します。"
-                 << endl;
+                 << std::endl;
             return;
         }
 
         ProductInfo info = db.get(productId);
 
         if (quantity <= 0 || quantity > info.stock) {
-            cout << "[エラー] 商品 " << productId << "（" << info.name
-                 << "）"
+            std::cout << "[エラー] 商品 " << productId
+                 << "（" << info.name << "）"
                  << " は " << quantity << " 個出庫できません。現在在庫: "
-                 << info.stock << endl;
+                 << info.stock << std::endl;
             return;
         }
 
         int before = info.stock;
         info.stock -= quantity;
         db.save(productId, info);
-        cout << "商品 " << productId << "（" << info.name << "）"
+        std::cout << "商品 " << productId
+             << "（" << info.name << "）"
              << " の在庫を " << quantity << " 減らしました。"
              << " 在庫: " << before
-             << " -> " << info.stock << endl;
+             << " -> " << info.stock << std::endl;
 
         if (db.isBelowThreshold(productId, info.stock)) {
             notifyAll({productId, info.name, info.stock});
@@ -2493,32 +2509,33 @@ public:
 同じクラスの続きです。`InventoryManager::replenishStock()` から先を読みます。
 
 ```cpp
-    void replenishStock(string productId, int quantity) {
+    void replenishStock(std::string productId, int quantity) {
         if (!db.exists(productId)) {
-            cout << "[エラー] 商品ID " << productId
+            std::cout << "[エラー] 商品ID " << productId
                  << " はマスタに存在しません。処理を中断します。"
-                 << endl;
+                 << std::endl;
             return;
         }
 
         ProductInfo info = db.get(productId);
 
         if (quantity <= 0) {
-            cout << "[エラー] 商品 " << productId << "（" << info.name
-                 << "） は " << quantity
+            std::cout << "[エラー] 商品 " << productId
+                 << "（" << info.name << "） は " << quantity
                  << " 個補充できません。現在在庫: "
-                 << info.stock << endl;
+                 << info.stock << std::endl;
             return;
         }
 
         int before = info.stock;
         info.stock += quantity;
         db.save(productId, info);
-        cout << "商品 " << productId << "（" << info.name << "）\n"
+        std::cout << "商品 " << productId
+             << "（" << info.name << "）\n"
              << "  在庫を " << quantity
              << " 補充しました。在庫: " << before
              << " -> " << info.stock
-             << "（通知なし）" << endl;
+             << "（通知なし）" << std::endl;
     }
 
 private:
@@ -2533,17 +2550,17 @@ private:
                 accepted++;
             } else if (r.status == PENDING) {
                 pending++;
-                cout << "  保留: " << r.channel
-                     << " 受付ID=" << r.requestId << endl;
+                std::cout << "  保留: " << r.channel
+                     << " 受付ID=" << r.requestId << std::endl;
             } else {
                 failed++;
-                cout << "  失敗: " << r.channel << endl;
+                std::cout << "  失敗: " << r.channel << std::endl;
             }
         }
 
-        cout << "[受付結果] 成功:" << accepted
+        std::cout << "[受付結果] 成功:" << accepted
              << " 保留:" << pending
-             << " 失敗:" << failed << endl;
+             << " 失敗:" << failed << std::endl;
     }
 };
 ```
@@ -2576,7 +2593,7 @@ class InventoryApplication {
                        && manager.attach(&chat)
                        && manager.attach(&sms);
         if (!registered) {
-            throw logic_error("通知先の初期登録に失敗しました");
+            throw std::logic_error("通知先の初期登録に失敗しました");
         }
     }
 
@@ -2592,6 +2609,8 @@ public:
     SMSDeliveryCallback& smsDelivery() { return smsCallback; }
 };
 ```
+
+メンバーは宣言順に生成され、逆順に破棄されます。各Notifierを `InventoryManager` より前へ置くことで、`InventoryManager` が借用している間は通知先が必ず生存します。`registerNotifications()` の失敗は実行前の構成不良なので例外で起動を止め、実行中の通知失敗は結果として返して残りの通知を続けます。
 
 生成・所有・登録を完了し、`main()` には在庫操作とSMS結果受信の入口だけを公開します。
 
@@ -2611,9 +2630,12 @@ int main() {
     InventoryApplication app;
 
     // PRD001: 在庫50、閾値10 → 5減らしても閾値超えのまま
-    cout << "--- ケース1: 在庫が閾値を超えたまま減少（通知なし） ---" << endl;
+    std::cout
+        << "--- ケース1: 在庫が閾値を超えたまま減少"
+           "（通知なし） ---"
+        << std::endl;
     app.inventory().reduceStock("PRD001", 5);
-    cout << endl;
+    std::cout << std::endl;
 ```
 
 ケース1の実行結果（閾値超えのままなので通知は出ない）：
@@ -2627,10 +2649,10 @@ int main() {
 
 ```cpp
     // PRD002: 在庫3、閾値5 → 最初から閾値以下。SMSは保留を返す
-    cout << "--- ケース2: 在庫が閾値以下に減少"
-            "（同期3件＋非同期SMS） ---" << endl;
+    std::cout << "--- ケース2: 在庫が閾値以下に減少"
+            "（同期3件＋非同期SMS） ---" << std::endl;
     app.inventory().reduceStock("PRD002", 1);
-    cout << endl;
+    std::cout << std::endl;
 ```
 
 ケース2の実行結果（成功3・保留1・失敗0）：
@@ -2651,9 +2673,12 @@ SMS(1件受付): 在庫警告 PRD002 残2 / 受付ID=SMS-1
 既存三通知の表示は変えず、翻訳場所だけを移しています。SMSの最終結果は、後続行で外部コールバックを模擬します。
 
 ```cpp
-    cout << "--- ケース2のコールバック模擬: SMS-1が配信完了 ---" << endl;
+    std::cout
+        << "--- ケース2のコールバック模擬: "
+           "SMS-1が配信完了 ---"
+        << std::endl;
     app.smsDelivery().receive("SMS-1", true);
-    cout << endl;
+    std::cout << std::endl;
 ```
 
 ケース2のコールバック模擬結果：
@@ -2666,9 +2691,9 @@ SMS(1件受付): 在庫警告 PRD002 残2 / 受付ID=SMS-1
 `main()` の続きです。ケース3は、在庫が補充されて閾値を超え、通知が出ないケースです。
 
 ```cpp
-    cout << "--- ケース3: 在庫が補充された（閾値超え） ---" << endl;
+    std::cout << "--- ケース3: 在庫が補充された（閾値超え） ---" << std::endl;
     app.inventory().replenishStock("PRD001", 20);
-    cout << endl;
+    std::cout << std::endl;
 ```
 
 ケース3の実行結果：
@@ -2683,9 +2708,9 @@ SMS(1件受付): 在庫警告 PRD002 残2 / 受付ID=SMS-1
 
 ```cpp
     // PRD003: 在庫0 → 出庫エラー
-    cout << "--- ケース4: 在庫0の出庫操作 ---" << endl;
+    std::cout << "--- ケース4: 在庫0の出庫操作 ---" << std::endl;
     app.inventory().reduceStock("PRD003", 1);
-    cout << endl;
+    std::cout << std::endl;
 ```
 
 ケース4の実行結果：
@@ -2699,9 +2724,9 @@ SMS(1件受付): 在庫警告 PRD002 残2 / 受付ID=SMS-1
 
 ```cpp
     // ケース5: 存在しない商品IDのエラー確認
-    cout << "--- ケース5: 存在しない商品IDを操作する ---" << endl;
+    std::cout << "--- ケース5: 存在しない商品IDを操作する ---" << std::endl;
     app.inventory().reduceStock("PRD999", 1);
-    cout << endl;
+    std::cout << std::endl;
 ```
 
 ケース5の実行結果：
@@ -2715,7 +2740,7 @@ SMS(1件受付): 在庫警告 PRD002 残2 / 受付ID=SMS-1
 
 ```cpp
     // ケース6: SMSを受付失敗する設定へ差し替え、部分失敗を確認する
-    cout << "--- ケース6: SMSだけ受付失敗（部分失敗） ---" << endl;
+    std::cout << "--- ケース6: SMSだけ受付失敗（部分失敗） ---" << std::endl;
     // 失敗動作の別構成も、具体通知の生成・登録は組み立て役へ任せる
     InventoryApplication failureApp(true);
     failureApp.inventory().reduceStock("PRD002", 1);
@@ -2738,9 +2763,12 @@ SMS: 受付失敗（後で再送対象）
 `main()` の続きで、ケース7は最初に組み立てた `app` を使い、受付に成功するSMS通知で別の受付IDを作ります。次の別呼び出しで、実運用では後から届く配信失敗を模擬し、在庫更新と同期3通知を巻き戻さないことを確認します。
 
 ```cpp
-    cout << "--- ケース7: SMSを受け付ける ---" << endl;
+    std::cout << "--- ケース7: SMSを受け付ける ---" << std::endl;
     app.inventory().reduceStock("PRD002", 1);
-    cout << "--- ケース7のコールバック模擬: SMS-2が配信失敗 ---" << endl;
+    std::cout
+        << "--- ケース7のコールバック模擬: "
+           "SMS-2が配信失敗 ---"
+        << std::endl;
     app.smsDelivery().receive("SMS-2", false);
 ```
 
@@ -2764,8 +2792,8 @@ SMS(2件受付): 在庫警告 PRD002 残1 / 受付ID=SMS-2
 **ケース8：0個の補充を拒否する**
 
 ```cpp
-    cout << endl;
-    cout << "--- ケース8: 0個の補充を拒否する ---" << endl;
+    std::cout << std::endl;
+    std::cout << "--- ケース8: 0個の補充を拒否する ---" << std::endl;
     app.inventory().replenishStock("PRD001", 0);
 
     return 0;
@@ -2861,7 +2889,7 @@ graph TD
     classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
-**クラス・組み立て箇所の同じ粒度で、変更2つ＋新規1つから、変更1つ＋新規3つへ変わりました。** 既存コードで開く場所は `InventoryManager` と `main()` の2箇所から、組み立て役 `InventoryApplication` の1箇所へ減ります。SMS固有の送信・受付ID保管・最終結果の受信は三つの新規部品として追加されます。共通契約 `INotification`、通知元 `InventoryManager`、既存通知先と利用側の `main()` は変更先から消えました。
+**クラス・組み立て箇所の同じ粒度で、変更2つ＋新規1つから、変更1つ＋新規3つへ変わりました。** 既存コードの修正箇所は `InventoryManager` と `main()` の2箇所から、組み立て役 `InventoryApplication` の1箇所へ減ります。SMS固有の送信・受付ID保管・最終結果の受信は三つの新規部品として追加されます。共通契約 `INotification`、通知元 `InventoryManager`、既存通知先と利用側の `main()` は変更先から消えました。
 
 | 変更影響グラフで影響した場所 | 完成構造での修正 | 構造変更との対応 |
 |---|---|---|

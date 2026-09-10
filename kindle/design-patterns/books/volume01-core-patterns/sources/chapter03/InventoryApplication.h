@@ -23,7 +23,7 @@ class InventoryApplication {
                        && manager.attach(&chat)
                        && manager.attach(&sms);
         if (!registered) {
-            throw logic_error("通知先の初期登録に失敗しました");
+            throw std::logic_error("通知先の初期登録に失敗しました");
         }
     }
 

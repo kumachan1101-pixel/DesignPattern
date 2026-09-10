@@ -7,7 +7,7 @@
 class InventoryManager {
 private:
     // 非所有ポインタ。登録中の通知先はInventoryManagerより長く生存すること。
-    vector<INotification*> observers;
+    std::vector<INotification*> observers;
     ProductDatabase& db;
 
 public:
@@ -18,7 +18,7 @@ public:
     bool attach(INotification* o) {
         if (o == nullptr) return false;
 
-        if (find(observers.begin(), observers.end(), o)
+        if (std::find(observers.begin(), observers.end(), o)
                 != observers.end()) {
             return false;
         }
@@ -28,63 +28,65 @@ public:
         return true;
     }
 
-    void reduceStock(string productId, int quantity) {
+    void reduceStock(std::string productId, int quantity) {
         if (!db.exists(productId)) {
-            cout << "[エラー] 商品ID " << productId
+            std::cout << "[エラー] 商品ID " << productId
                  << " はマスタに存在しません。処理を中断します。"
-                 << endl;
+                 << std::endl;
             return;
         }
 
         ProductInfo info = db.get(productId);
 
         if (quantity <= 0 || quantity > info.stock) {
-            cout << "[エラー] 商品 " << productId << "（" << info.name
-                 << "）"
+            std::cout << "[エラー] 商品 " << productId
+                 << "（" << info.name << "）"
                  << " は " << quantity << " 個出庫できません。現在在庫: "
-                 << info.stock << endl;
+                 << info.stock << std::endl;
             return;
         }
 
         int before = info.stock;
         info.stock -= quantity;
         db.save(productId, info);
-        cout << "商品 " << productId << "（" << info.name << "）"
+        std::cout << "商品 " << productId
+             << "（" << info.name << "）"
              << " の在庫を " << quantity << " 減らしました。"
              << " 在庫: " << before
-             << " -> " << info.stock << endl;
+             << " -> " << info.stock << std::endl;
 
         if (db.isBelowThreshold(productId, info.stock)) {
             notifyAll({productId, info.name, info.stock});
         }
     }
 
-    void replenishStock(string productId, int quantity) {
+    void replenishStock(std::string productId, int quantity) {
         if (!db.exists(productId)) {
-            cout << "[エラー] 商品ID " << productId
+            std::cout << "[エラー] 商品ID " << productId
                  << " はマスタに存在しません。処理を中断します。"
-                 << endl;
+                 << std::endl;
             return;
         }
 
         ProductInfo info = db.get(productId);
 
         if (quantity <= 0) {
-            cout << "[エラー] 商品 " << productId << "（" << info.name
-                 << "） は " << quantity
+            std::cout << "[エラー] 商品 " << productId
+                 << "（" << info.name << "） は " << quantity
                  << " 個補充できません。現在在庫: "
-                 << info.stock << endl;
+                 << info.stock << std::endl;
             return;
         }
 
         int before = info.stock;
         info.stock += quantity;
         db.save(productId, info);
-        cout << "商品 " << productId << "（" << info.name << "）\n"
+        std::cout << "商品 " << productId
+             << "（" << info.name << "）\n"
              << "  在庫を " << quantity
              << " 補充しました。在庫: " << before
              << " -> " << info.stock
-             << "（通知なし）" << endl;
+             << "（通知なし）" << std::endl;
     }
 
 private:
@@ -99,17 +101,17 @@ private:
                 accepted++;
             } else if (r.status == PENDING) {
                 pending++;
-                cout << "  保留: " << r.channel
-                     << " 受付ID=" << r.requestId << endl;
+                std::cout << "  保留: " << r.channel
+                     << " 受付ID=" << r.requestId << std::endl;
             } else {
                 failed++;
-                cout << "  失敗: " << r.channel << endl;
+                std::cout << "  失敗: " << r.channel << std::endl;
             }
         }
 
-        cout << "[受付結果] 成功:" << accepted
+        std::cout << "[受付結果] 成功:" << accepted
              << " 保留:" << pending
-             << " 失敗:" << failed << endl;
+             << " 失敗:" << failed << std::endl;
     }
 };
 
