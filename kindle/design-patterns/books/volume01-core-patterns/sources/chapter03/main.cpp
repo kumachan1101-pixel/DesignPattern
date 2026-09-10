@@ -40,8 +40,9 @@ int main() {
     InventoryApplication failureApp(true);
     failureApp.inventory().reduceStock("PRD002", 1);
 
-    cout << "--- ケース7: SMS受付後に最終配信失敗 ---" << endl;
+    cout << "--- ケース7: SMSを受け付ける ---" << endl;
     app.inventory().reduceStock("PRD002", 1);
+    cout << "--- ケース7のコールバック模擬: SMS-2が配信失敗 ---" << endl;
     app.smsDelivery().receive("SMS-2", false);
 
     cout << endl;
