@@ -56,6 +56,10 @@ DEPENDS: dict[str, dict[str, tuple[str, ...]]] = {
         "States.h": ("EventDatabase.h", "IReservationState.h"),
         # 骨格が見るのは状態の契約だけ。States.h を含めない。
         "TicketReservation.h": ("EventDatabase.h", "IReservationState.h"),
+        # 組み立て役だけが具体状態と共有部品の両方を知る。
+        "ReservationAssembly.h": ("States.h", "TicketReservation.h"),
+        # 実行役は組み立て済みの入口だけを見る。
+        "BatchApplication.h": ("ReservationAssembly.h",),
     },
     "05-chapter03": {
         "ProductDatabase.h": (),
@@ -86,7 +90,7 @@ SOURCE_DEPENDS: dict[str, dict[str, tuple[str, ...]]] = {
 # 専用の組み立て役が隠した公開入口だけを見る場合がある。
 MAIN_INCLUDES: dict[str, tuple[str, ...]] = {
     "03-chapter01": ("DiscountRuleSet.h", "PaymentCalculator.h"),
-    "04-chapter02": ("States.h", "TicketReservation.h"),
+    "04-chapter02": ("BatchApplication.h",),
     "05-chapter03": ("InventoryApplication.h",),
 }
 
@@ -112,7 +116,9 @@ LAYOUTS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
         ("States.h", ("AvailableState", "ReservedState", "PaidState",
                       "WaitlistedState", "HeldState")),
         ("TicketReservation.h", ("TicketReservation", "ReservationWaitlist",
-                                 "ReservationExpiryScheduler", "BatchApplication")),
+                                 "ReservationExpiryScheduler")),
+        ("ReservationAssembly.h", ("ReservationAssembly",)),
+        ("BatchApplication.h", ("BatchApplication",)),
     ],
     "05-chapter03": [
         ("ProductDatabase.h", ("ProductInfo", "ProductDatabase", "StockAlert",

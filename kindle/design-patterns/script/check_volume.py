@@ -47,12 +47,14 @@
   39. フェーズ3とフェーズ7の変更影響グラフが同じ変更IDと組み立て粒度を使う
   40. 実践章に、7-3と同じ内容を繰り返す7-2・7-4・章末三問再掲がない
   41. book.jsonで指定した実践章の合計文字数上限を超えていない
-  42. ★対応で統一したケース名・要求表・業務ルール・4-3見出しが後戻りしていない
+  42. ★対応で統一したケース名・要求表・業務ルール・フェーズ4見出しが後戻りしていない
   43. 第0章の各フェーズ内の確認観点と手順が実践章の判断場面にある
   44. C++掲載コードが1型1ブロックで、複数クラス名のまとめ見出しになっていない
   45. 混在する責任→問題との因果→目標配置→コード構造→完了条件の証拠が一続きになっている
   46. 完成図で、元のクラスに残る責任と分離先を同じ責任名で回収している
   47. 執筆手順の否定形を本文へ残していない
+  48. 専用の組み立てクラスへ、入力検証・業務実行・状態更新・結果表示を混在させていない
+  49. フェーズ6の契約が、フェーズ5の業務上の入出力を再定義せずC++へ翻訳している
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -213,7 +215,7 @@ def three_question_placement_issues(text: str) -> list[str]:
     phase4 = text_between(text, "フェーズ4：原因分析", "フェーズ5：課題定義")
     contract = text_between(
         text,
-        "#### 契約：境界の形と受け渡しを決める",
+        "#### 契約：課題の入出力をC++の型と操作にする",
         "#### 生成・所有・受け渡しを決める",
     )
     generation = text_between(
@@ -230,6 +232,35 @@ def three_question_placement_issues(text: str) -> list[str]:
     for key, section, location in expected:
         if THREE_QUESTIONS[key] not in section:
             issues.append(f"{key}が{location}にありません")
+    return issues
+
+
+def contract_translation_issues(text: str) -> list[str]:
+    """フェーズ6の契約節が、フェーズ5の接続を再定義していないか返す。"""
+    contract = text_between(
+        text,
+        "#### 契約：課題の入出力をC++の型と操作にする",
+        "#### 生成・所有・受け渡しを決める",
+    )
+    if not contract:
+        return []
+
+    issues: list[str] = []
+    if "フェーズ5" not in contract:
+        issues.append(
+            "契約節でフェーズ5の課題カードの接続を入力として明示してください"
+        )
+
+    old_headers = (
+        "| 接続する値 | 形 | 理由 |",
+        "| 接続候補 | 決めた形 | 理由 |",
+        "| 接続するもの（追加で決めたこと） | 決めた形 | そう決めた理由 |",
+    )
+    if any(header in contract for header in old_headers):
+        issues.append(
+            "契約節で業務上の入力・結果を再選別しています。"
+            "フェーズ5の接続をC++の型・操作・引数・戻り値へ翻訳してください"
+        )
     return issues
 
 
@@ -255,17 +286,12 @@ def phase_internal_checkpoint_issues(text: str) -> list[str]:
         ),
         (
             phase4,
-            "### 4-1：問題が起きたコードを確認する",
-            "フェーズ4の問題コード確認",
-        ),
-        (
-            phase4,
-            "### 4-2：一つのクラスに混在する責任を特定する",
+            "### 4-1：問題箇所に混在する責任を特定する",
             "フェーズ4の混在する責任の特定",
         ),
         (
             phase4,
-            "### 4-3：原因を確定する",
+            "### 4-2：責任の同居を原因として確定する",
             "フェーズ4の原因確定",
         ),
         (
@@ -463,9 +489,8 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         issues.append("実行ケースに旧表現が残っています。コードと結果を`ケースN`へ統一してください")
 
     phase45_headings = (
-        "### 4-1：問題が起きたコードを確認する",
-        "### 4-2：一つのクラスに混在する責任を特定する",
-        "### 4-3：原因を確定する",
+        "### 4-1：問題箇所に混在する責任を特定する",
+        "### 4-2：責任の同居を原因として確定する",
         "### 5-1：原因をなくす責任配置を決める",
         "### 5-2：課題と完了条件を確定する",
     )
@@ -473,13 +498,8 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         if text.count(heading) != 1:
             issues.append(f"フェーズ4・5の共通見出しがありません、または重複しています: {heading}")
 
-    headings = re.findall(r"^### 4-3：.*$", text, re.M)
-    if headings != [phase45_headings[2]]:
-        issues.append("4-3見出しを共通見出しへ統一し、題材語は直下の####へ置いてください")
-
     for header in (
         "| 責任 | 問題が起きたコードで担うこと | 今回の変更との関係 |",
-        "| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |",
         "| 観測した問題 | 確定した原因 | 課題で目指す状態 |",
     ):
         if header not in text:
@@ -490,7 +510,6 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
             "| 責任 | 問題が起きたコードで担うこと | 今回の変更との関係 |",
             ("1行", "問題が起きたコード"),
         ),
-        ("| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |", ("1行", "左から")),
         ("| 観測した問題 | 確定した原因 | 課題で目指す状態 |", ("1行", "原因")),
     )
     for header, guide_words in table_guides:
@@ -520,13 +539,21 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
                 )
                 break
 
-    task_header = "| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |"
-    task_position = text.find(task_header)
-    if task_position >= 0:
-        task_end = text.find("#### 課題ID1", task_position)
-        task_table = text[task_position:task_end if task_end >= 0 else None]
-        if "入力：" not in task_table or not re.search(r"(?:結果|反映)：", task_table):
-            issues.append("課題表のつなぎ方に、入力と結果／反映の区別がありません")
+    phase5_start = text.find("フェーズ5：課題定義")
+    phase6_start = text.find("フェーズ6：対策検討", phase5_start)
+    phase5 = text[phase5_start:phase6_start] if 0 <= phase5_start < phase6_start else ""
+    task_cards = re.findall(
+        r"^#### 課題ID\d+（[^）]+）の完了条件\s*$(.*?)(?=^#### |^## )",
+        phase5,
+        re.M | re.S,
+    )
+    for body in task_cards:
+        for label in ("**解く原因：**", "**構造の変更：**", "**接続：**"):
+            if label not in body:
+                issues.append(f"課題カードに`{label}`がありません")
+        connection = text_between(body, "**接続：**", "完成コードで")
+        if "渡" not in connection or not re.search(r"(?:返|反映)", connection):
+            issues.append("課題カードの接続に、送信元から渡すものと結果／反映を書いてください")
 
     old_phase4_headers = (
         "| 問題ID | 関係する責任（変更の中心 → 影響した責任） | コード上の目印 |",
@@ -542,6 +569,7 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         "| 責任 | 変わるきっかけ | 今回の扱い |",
         "| 責任 | 現状コードで担うこと | 今回の変更との関係 |",
         "| 責任 | 変更前 | 変更後 |",
+        "| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |",
         "| 課題ID（元の原因） | 何をどこから分けるか | 境界で受け渡すもの |",
         "| 問題（実際に起きたこと） | 原因（なぜ起きたか） | 課題（どうなれば解消か） |",
     )
@@ -589,12 +617,9 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
                 f"出版本文に編集・レビュー向けの説明が残っています: {phrase}"
             )
 
-    phase5_start = text.find("フェーズ5：課題定義")
-    phase6_start = text.find("フェーズ6：対策検討", phase5_start)
     if 0 <= phase5_start < phase6_start and "```cpp" in text[phase5_start:phase6_start]:
         issues.append("フェーズ5に最終コードがあります。値・操作・結果を確定し、型名とC++はフェーズ6で導いてください")
 
-    phase5 = text[phase5_start:phase6_start] if 0 <= phase5_start < phase6_start else ""
     if phase5.count("%% provisional-role-diagram") != 2:
         issues.append("フェーズ5に対策前と目標の責任配置図を1枚ずつ置いてください")
     if "**対策前：" not in phase5 or "**目標：" not in phase5:
@@ -602,7 +627,7 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
     elif phase5.find("**対策前：") > phase5.find("**目標："):
         issues.append("フェーズ5の責任配置図は、対策前、目標の順に並べてください")
     if "①" not in phase5:
-        issues.append("フェーズ5の目標責任配置図へ番号を付け、課題表へつないでください")
+        issues.append("フェーズ5の目標責任配置図へ番号を付け、課題カードへつないでください")
 
     phase6 = text_between(text, "フェーズ6：対策検討", "フェーズ7：対策実施")
     for heading in (
@@ -693,8 +718,23 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
 
     summary_start = text.rfind("### この章のまとめ")
     summary = text[summary_start:] if summary_start >= 0 else ""
-    if "#### 構造の着目点" not in summary or "#### 構造の変更点" not in summary:
-        issues.append("章末のまとめを`構造の着目点`と`構造の変更点`に分けてください")
+    opening = text_between(
+        text,
+        "### この章を読むと得られること",
+        "フェーズ1：現状把握",
+    )
+    gains = re.findall(r"得られること\d+：[^。*\n]+", opening)
+    if len(gains) != 4:
+        issues.append("章冒頭の`得られること`を1〜4の四項目で示してください")
+    else:
+        missing_gains = [gain for gain in gains if summary.count(gain) != 1]
+        if missing_gains:
+            issues.append(
+                "章末のまとめで、冒頭と同じ`得られること`を一つずつ回収してください: "
+                + " / ".join(missing_gains)
+            )
+    if "## 振り返り" in text:
+        issues.append("章冒頭の約束は最後の`この章のまとめ`で回収し、別の`振り返り`を置かないでください")
     return issues
 
 
@@ -708,6 +748,57 @@ def redundant_section_issues(text: str) -> list[str]:
         ),
     }
     return [message for heading, message in forbidden.items() if heading in text]
+
+
+def assembly_responsibility_issues(text: str) -> list[str]:
+    """組み立て役と、実行時の業務処理が同居していないかを返す。"""
+    issues: list[str] = []
+
+    def last_cpp_section(name: str) -> str:
+        headings = list(
+            re.finditer(rf"^\*\*{re.escape(name)}\*\*\s*$", text, re.M)
+        )
+        if not headings:
+            return ""
+        start = headings[-1].end()
+        end = text.find("\n---", start)
+        section = text[start:end if end >= 0 else len(text)]
+        return "\n".join(re.findall(r"```cpp\s*\n(.*?)```", section, re.S))
+
+    forbidden = (
+        (r"\b(?:void|bool|int)\s+run\s*\(", "動作例の進行"),
+        (r"\b(?:validateExists|showAvailability)\s*\(", "実行時の入力検証・表示"),
+        (r"(?:std::)?cout\s*<<", "結果表示"),
+        (r"\.(?:reserve|pay|cancel|reduceStock|restock)\s*\(", "ドメイン操作の実行"),
+    )
+    for name in ("DiscountRuleSet", "ReservationAssembly", "InventoryApplication"):
+        code = last_cpp_section(name)
+        if not code:
+            continue
+        for pattern, responsibility in forbidden:
+            if re.search(pattern, code):
+                issues.append(
+                    f"{name}に組み立て以外の責任（{responsibility}）が混在しています"
+                )
+
+    # 第2章の実行役は組み立て済みの入口だけを使い、具体状態や共有部品を
+    # 自分で生成・選択しない。旧BatchApplicationへの逆戻りを個別に固定する。
+    runner = last_cpp_section("BatchApplication")
+    for token in (
+        "availableState(",
+        "reservedState(",
+        "ReservationWaitlist waitlist",
+        "EventDatabase db",
+    ):
+        if token in runner:
+            issues.append(
+                "BatchApplicationに組み立ての詳細が戻っています: " + token
+            )
+    if re.search(r"\bbool\s+(?:validateExists|showAvailability)\s*\(", runner):
+        issues.append(
+            "BatchApplicationに予約入口と重複する入力検証・照会が戻っています"
+        )
+    return issues
 
 
 def practice_chapter_character_issues(
@@ -1557,6 +1648,22 @@ def check(config_path: Path) -> int:
     for path in chapters:
         text = path.read_text(encoding="utf-8")
         for issue in cpp_block_unit_issues(text):
+            failures.append(f"{path.name}: {issue}")
+
+    # 48. 組み立て役は構成と寿命へ閉じ、実行時の業務処理を混ぜない
+    for path in chapters:
+        if not re.search(r"chapter0[1-9]", path.name):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for issue in assembly_responsibility_issues(text):
+            failures.append(f"{path.name}: {issue}")
+
+    # 49. フェーズ5の接続を再定義せず、C++の契約へ翻訳する
+    for path in chapters:
+        if not re.search(r"chapter0[1-9]", path.name):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for issue in contract_translation_issues(text):
             failures.append(f"{path.name}: {issue}")
 
     # 28. 本文で節番号を道しるべに使わない

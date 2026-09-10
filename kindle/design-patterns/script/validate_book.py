@@ -411,10 +411,13 @@ PHASE5_ISSUE_HEADER = (
 # 統合／分割判断を本文で説明する。テンプレートと同期する表頭は5-1と5-3のみ。
 REQUIRED_TABLE_HEADERS = (PHASE5_CAUSE_HEADER, PHASE5_ISSUE_HEADER)
 
-# 分冊版と今後の執筆テンプレートで使う表頭。解く原因、分ける責任、
-# 分けた後のつなぎ方を一表で対応づける。
-TEMPLATE_PHASE5_HEADERS = (
-    "| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |",
+# 分冊版と今後の執筆テンプレートで使う課題カードの項目。
+# 目標責任配置図を別の表で定義し直さず、番号へ課題IDを付けて確定する。
+TEMPLATE_PHASE5_TOKENS = (
+    "#### 課題ID1（短い名前）の完了条件",
+    "**解く原因：**",
+    "**構造の変更：**",
+    "**接続：**",
 )
 
 
@@ -2134,7 +2137,7 @@ def check_explanation_regression(text: str, path: Path) -> list[Issue]:
 
     for heading in (
         "### フェーズとこの章でやったこと",
-        "### 「この章を読むと得られること」は手に入ったか",
+        "### この章のまとめ",
     ):
         if heading not in text:
             issues.append(Issue(
@@ -2965,12 +2968,12 @@ def check_validator_template_sync(_text: str, path: Path) -> list[Issue]:
     if not template.exists():
         return issues
     template_text = template.read_text(encoding="utf-8")
-    for header in TEMPLATE_PHASE5_HEADERS:
-        if header not in template_text:
+    for token in TEMPLATE_PHASE5_TOKENS:
+        if token not in template_text:
             issues.append(Issue(
                 template, 1,
-                f"分冊版の標準表頭がテンプレートにありません: "
-                f"{header}（片方だけ直すと全章が同じ検査で落ちます）",
+                f"分冊版の課題カード項目がテンプレートにありません: "
+                f"{token}（片方だけ直すと全章が同じ検査で落ちます）",
             ))
 
     # フェーズ6の構造も、本文だけ／テンプレートだけが旧構成へ戻らないようにする。

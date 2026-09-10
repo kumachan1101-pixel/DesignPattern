@@ -5,6 +5,7 @@
 #include <string>
 #include <map>
 #include <deque>
+#include <list>
 #include <algorithm>
 
 class TicketReservation;

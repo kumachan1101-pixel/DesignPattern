@@ -714,14 +714,14 @@ cases.append((
 ))
 
 print("再発防止チェックの負のテスト（わざと壊した本文を検出できるか）\n")
-# 5) 分冊版のフェーズ5標準表頭とテンプレートの同期漏れ
+# 5) 分冊版のフェーズ5課題カードとテンプレートの同期漏れ
 _tmpl = Path("templates/chapter-template.md")
 _orig = _tmpl.read_text(encoding="utf-8")
 try:
     with _tmpl.open("w", encoding="utf-8", newline="\n") as stream:
         stream.write(_orig.replace(
-            V.TEMPLATE_PHASE5_HEADERS[0],
-            "| 原因 | 変える側 | 守る側 | 業務情報 |",
+            V.TEMPLATE_PHASE5_TOKENS[1],
+            "**原因：**",
         ))
     _found = V.check_validator_template_sync("", OUT / V.CORE_CHAPTERS[0])
 finally:

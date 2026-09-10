@@ -53,6 +53,11 @@ struct CustomerInfo {
     std::string memberType;
 };
 
+struct PaymentResult {
+    int subtotal;
+    int finalPrice;
+};
+
 class CustomerDatabase {
 private:
     std::map<std::string, CustomerInfo> records;

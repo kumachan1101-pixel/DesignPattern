@@ -1365,15 +1365,9 @@ graph TD
 
 ## 🟠 フェーズ4：原因分析 ―― なぜ辛いのかを構造で言語化する
 
-フェーズ3から受け取るのは、二つの問題IDと変更途中の `TicketReservation` です。このコードから、二つの問題が起きた理由を調べます。
+フェーズ3で、問題ID1（状態追加の横断修正）と問題ID2（待機処理で予約本体を修正）、その二つが起きた変更途中の `TicketReservation` は特定できました。フェーズ4ではこの結果を入力にし、なぜ状態追加と待機順の変更が予約本体へ同時に広がったのかを、責任の配置から調べます。
 
-### 4-1：問題が起きたコードを確認する
-
-**問題ID1（状態追加の横断修正）。** 変えたかったのは、Waitlisted・Heldの可否と遷移です。しかし状態判断が各公開操作にあるため、`reserve()`・`pay()`・`cancel()`・`expire()` の `if (status == ...)` を横断して直しました。
-
-**問題ID2（待機処理で予約本体を修正）。** 変えたかったのは、待機順と空席時の自動昇格です。しかし `waitlist` と `promoteNextWaitlisted()` を予約本体へ置いたため、席を解放する複数経路まで直しました。
-
-### 4-2：一つのクラスに混在する責任を特定する
+### 4-1：問題箇所に混在する責任を特定する
 
 責任は、追加した状態や操作の数ではなく、同じ業務上の理由で変わる仕事のまとまりです。保留状態と期限切れ操作を加えたから、責任を二つ増やすわけではありません。問題が起きた `TicketReservation` には、次の三つの責任が混在しています。
 
@@ -1387,7 +1381,7 @@ graph TD
 
 状態や操作が増えたこと自体が原因ではありません。変更理由の違う予約操作の受付・状態方針・席割当方針が、`TicketReservation` に集まっていることが見えました。席数管理は `EventDatabase` にあり、問題が起きたクラスの責任には含めません。
 
-### 4-3：原因を確定する
+### 4-2：責任の同居を原因として確定する
 
 前の表で分かったのは、`TicketReservation` が変更理由の違う責任を三つ持つことです。ここから、その同居が前節で確認した二つの変更影響を生んだかをコードで確認します。
 
@@ -1466,20 +1460,31 @@ classDiagram
 
 ### 5-2：課題と完了条件を確定する
 
-課題は「原因をなくせた」とコードで判断できる状態です。1行が一つの課題で、左から「どの原因を解くか」「何を分けるか」「分けた両側を何でつなぐか」を読みます。3列目の「入力」は元の処理から分けた側へ渡すもの、「結果／反映」は分けた側から返すもの、または予約本体へ反映するものです。
-
-| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |
-|---|---|---|
-| ① 課題ID1（状態固有動作の境界）<br>解く原因：原因ID1 | 状態方針を予約操作の受付から分ける | 入力：操作の依頼<br>反映：状態変更・席数更新 |
-| ② 課題ID2（待ち行列の境界）<br>解く原因：原因ID2 | 席割当方針を予約操作の受付から分ける | 入力：待機登録・先頭取出しの依頼<br>結果：次に昇格する予約 |
+直前の目標図で決めた①と②に課題IDを付けます。図の各変更について、原因・接続・完了の見分け方を確定します。
 
 #### 課題ID1（状態固有動作の境界）の完了条件
+
+**解く原因：** 原因ID1（予約操作の受付と状態方針が同じクラスにある）
+
+**構造の変更：** 目標図の①のとおり、状態方針を予約操作の受付から分けます。
+
+**接続：** 予約操作の受付から現在状態へ操作を渡し、状態方針が状態変更と席数更新を予約へ反映します。
+
+完成コードで次の三点を満たせば完了です。
 
 - 公開操作に状態名の条件分岐がない
 - 可否・次状態・副作用を現在状態へ委ねる
 - 状態追加で全公開操作を修正しない
 
 #### 課題ID2（待ち行列の境界）の完了条件
+
+**解く原因：** 原因ID2（予約操作の受付と席割当方針が同じクラスにある）
+
+**構造の変更：** 目標図の②のとおり、席割当方針を予約操作の受付から分けます。
+
+**接続：** 状態方針から待機登録または先頭取出しの依頼を渡し、席割当方針から次に昇格する予約を返します。
+
+完成コードで次の三点を満たせば完了です。
 
 - 待機順の保持と先頭選択が状態分岐にない
 - 席が空くとシステム内から先頭が昇格する
@@ -1510,11 +1515,11 @@ classDiagram
 
 > **現在位置：** 契約 → 具体状態 → 生成・共有 → 公開操作からの委譲、の順で確認します。
 
-#### 契約：境界の形と受け渡しを決める
+#### 契約：課題の入出力をC++の型と操作にする
 
 > **問い2：境界では、何を約束すれば足りるか**
 >
-> 予約本体が具体状態を判定せず、同じ公開操作とイベントを現在状態へ渡せれば十分です。そこで状態側には六つの共通操作を約束します。一方、待ち行列は実装が一つで差し替える根拠がないため、専用クラスへ分けても契約用の型は増やしません。
+> フェーズ5で確定した二つの接続を、C++の型と操作へ変えます。状態方針には共通の基底クラスを置き、実装が一つしかない待ち行列には契約用の型を増やしません。
 
 状態ごとの可否と遷移は五つの公開操作に分散しています。状態・遷移・イベントが増える見込みもあるため、関数の切り出しではなく、全操作を同じ形で呼べる状態契約まで分けます。
 
@@ -1538,22 +1543,9 @@ void TicketReservation::cancel() {
 }
 ```
 
-状態追加で変わる可否・遷移・副作用を外し、公開操作には現在状態へ委譲する役割だけを残します。接続点は次のとおりです。
+課題ID1（状態固有動作の境界）で確定した接続は、「予約操作を現在状態へ渡し、状態変更と席数更新を予約へ反映する」です。C++では、現在状態を状態方針の基底クラスのオブジェクトで表し、六つの操作を同名の仮想メソッドにします。各メソッドは操作対象の `TicketReservation*` を受け取ります。状態名や操作種別を値で渡すと呼び出し側に再び分岐ができるため、それらを引数や戻り値にはしません。
 
-| 接続候補 | 決めた形 | 理由 |
-|---|---|---|
-| 現在状態 | オブジェクトそのもので表し、引数では渡さない | 値で渡すと、受け取った側へ状態分岐が残る |
-| 操作・イベント | 操作ごとに別メソッドを置く | 種別値で渡すと、操作を選ぶ分岐が残る |
-| 次状態 | 次の状態オブジェクトを設定する | 状態名による再分岐を作らない |
-| 結果 | 不可ならその場で表示し、戻り値は増やさない | 呼び出し側は成否で分岐していない |
-
-重要なのは次状態の決め方です。状態名を返すだけでは、呼び出し元が「席を戻し昇格させる遷移」と「昇格させない遷移」を再判定します。そこで遷移元の状態が、次状態への切替と固有の副作用をまとめて実行し、操作対象の予約を引数で受け取ります。
-
-| 接続するもの（追加で決めたこと） | 決めた形 | そう決めた理由 |
-|---|---|---|
-| 操作対象の予約 | **引数で契約へ渡す** | 状態が席数・待ち行列・次状態を動かすには、動かす相手が要る |
-
-現在状態はオブジェクト、操作はメソッド名で表し、境界には操作対象だけを渡します。契約名は `IReservationState` とし、次の図で関係を確認してからコードで定義します。
+次状態の切替と、その遷移で必要な席数更新・自動昇格は、遷移元の具体状態が予約へ反映します。状態名だけを返す形にすると、呼び出し元が副作用の有無を再判定するためです。操作できない場合も呼び出し側で分岐していないので、戻り値は増やさず、状態側の既定動作で扱います。
 
 次の部分クラス図は、**今決める「予約本体が現在状態を保持し、状態ごとの具体が共通基底を継承する」関係だけ**を示します。代表として予約済み状態だけを載せ、他の状態、待ち行列、席数台帳はまだ対象外です。
 
@@ -1646,15 +1638,7 @@ void TicketReservation::promoteNextWaitlisted() {
 }
 ```
 
-接続点は、待機者の追加・先頭取出し・昇格イベントです。
-
-| 接続候補 | 決めた形 | 理由 |
-|---|---|---|
-| 待機者の追加 | 予約とイベントIDを渡す | 待ち行列に予約内部を探させない |
-| 先頭取出し | イベントIDを渡し、先頭の予約を1件返す | 誰を選ぶかを待ち順の方針へ閉じる |
-| 昇格イベント | 待ち行列へ渡さず、呼び出し側が選ばれた予約へ伝える | 昇格は状態遷移の契約であり、待ち順とは別責任だから |
-
-待ち行列は選択までを担当し、状態遷移である昇格は担当しません。
+課題ID2（待ち行列の境界）で確定した接続は、「状態方針から待機登録または先頭取出しを依頼し、次に昇格する予約を返す」です。C++では `ReservationWaitlist::enqueue(eventId, reservation)` と `popNext(eventId) -> TicketReservation*` にします。待ち行列の実装は一つなので、別のインターフェースは置きません。待ち行列は先頭予約を返すまでを担当し、返された予約への `promoteBySystem()` は状態遷移側が呼びます。
 
 次の部分クラス図は、**待機順の責任を予約本体から分ける関係だけ**を示します。状態クラスと生成者は省いた部分図です。
 
@@ -1750,7 +1734,7 @@ public:
 
 > **問い3：実体を、誰が作り、持ち、渡すのか**
 >
-> 状態取得関数がメンバーを持たない五つの状態実体を生成・静的所有し、`TicketReservation`が現在状態へのポインタを持ちます。外側の実行役は座席数・待ち行列を所有して予約へ渡します。作った状態が公開操作から呼ばれ、遷移後も同じ共有資源へ戻れる経路を確かめます。
+> 状態取得関数がメンバーを持たない五つの状態実体を生成・静的所有し、`TicketReservation`が現在状態へのポインタを持ちます。組み立て専用の`ReservationAssembly`は座席数・待ち行列・期限入力を所有して予約へ渡します。作った状態が公開操作から呼ばれ、遷移後も同じ共有資源へ戻れる経路を確かめます。
 
 ##### 生成・所有：実体と所有者をコードで示す
 
@@ -1794,23 +1778,39 @@ public:
     void cancelSeat();
     void joinWaitlist();
     void promoteNextWaitlisted();
-    // 公開操作 reserve / pay / cancel / hold / expire
+    // 公開操作
+    // showAvailability / reserve / pay / cancel / hold / expire
 };
 ```
 
-三つは借用ポインタです。とくに待ち行列は同一イベントの全予約で共有するため、予約ごとに値で持てません。実体は外側の実行役が所有します。次のコードで、その実行役を `BatchApplication` として定義します。
+三つは借用ポインタです。とくに待ち行列は同一イベントの全予約で共有するため、予約ごとに値で持てません。実体は組み立て専用の`ReservationAssembly`が所有します。
 
-**ここで確認するコード：`BatchApplication` のメンバー** ―― 共有される実体の置き場
+**ここで確認するコード：`ReservationAssembly`** ―― 共有実体の所有と予約への受け渡し
 
 ```cpp
-class BatchApplication {
+class ReservationAssembly {
     EventDatabase db;
     ReservationWaitlist waitlist;   // 全予約で1つを共有する
-    // …予約の生成と実行（省略。詳細は完成コード）…
+    ReservationExpiryScheduler expiryScheduler;
+    std::list<TicketReservation> reservations;
+public:
+    TicketReservation& startReservation(
+            const std::string& eventId) {
+        reservations.emplace_back(availableState(), &db,
+                                  &waitlist, eventId);
+        return reservations.back();
+    }
+    TicketReservation& existingReserved(
+            const std::string& eventId) {
+        reservations.emplace_back(reservedState(), &db,
+                                  &waitlist, eventId);
+        return reservations.back();
+    }
+    // …期限入力を実行役へ公開する操作は省略…
 };
 ```
 
-`db` と `waitlist` は各予約より長く生存し、状態実体だけは状態取得関数が静的所有します。
+`db` と `waitlist` は各予約より長く生存します。`ReservationAssembly`は共有実体の生成・所有・受け渡しだけを担い、実行ケースや表示は持ちません。状態実体だけは状態取得関数が静的所有します。
 
 ---
 
@@ -1818,15 +1818,15 @@ class BatchApplication {
 
 状態は、予約生成時の初期設定と、各遷移時の切替の2回に分けて渡されます。
 
-**ここで確認するコード：`BatchApplication::run()`** ―― 予約を1件作る行
+**ここで確認するコード：`BatchApplication::run()`** ―― 組み立て済みの共有実体から予約を1件作る行
 
 ```cpp
-        EventInfo i1 = db.get("EVT001");
-        TicketReservation r(availableState(), &db,
-                            &waitlist, "EVT001");
+        TicketReservation& r =
+            assembly.startReservation("EVT001");
+        r.showAvailability();
 ```
 
-`availableState()` の戻りが初期状態になります。遷移時は次の一行で切り替えます。
+`startReservation()`の内部で`availableState()`を初期状態として渡します。空席確認も予約の公開入口へ任せるため、実行役は台帳や具体状態を知りません。遷移時は次の一行で切り替えます。
 
 **ここで確認するコード：`ReservedState` の `cancel()`** ―― 具体コードで書いた1行目（引数は `TicketReservation*`）
 
@@ -1840,9 +1840,9 @@ class BatchApplication {
 | 課題 | 実装の決まり方 | 骨格へ渡る場所 |
 |---|---|---|
 | 課題ID1（状態固有動作の境界） | 現在の状態と受けた操作から、遷移元の状態が次状態を決める | `TicketReservation::setState()` |
-| 課題ID2（待ち行列の境界） | 実装は1つなので選ばない | `BatchApplication` が起動時に渡す |
+| 課題ID2（待ち行列の境界） | 実装は1つなので選ばない | `ReservationAssembly` が予約生成時に渡す |
 
-待ち行列は一実装なので選択せず、`BatchApplication` が同じ実体を全予約へ渡します。
+待ち行列は一実装なので選択せず、`ReservationAssembly` が同じ実体を全予約へ渡します。`BatchApplication`は組み立ての詳細を知らず、作成済みの入口から実行ケースを動かします。
 
 
 ---
@@ -1912,7 +1912,7 @@ class BatchApplication {
 - `TicketReservation`、`IReservationState`、`EventInfo`
 - `EventDatabase`、`ReservationWaitlist`、`AvailableState`
 - `ReservedState`、`PaidState`、`WaitlistedState`、`HeldState`
-- `ReservationExpiryScheduler`、`BatchApplication`
+- `ReservationExpiryScheduler`、`ReservationAssembly`、`BatchApplication`
 
 > **採用構造のコスト：** データを持たない状態は `static` で共有できますが、テスト用実体へは差し替えにくくなります。状態が予約固有データを持つなら共有せず、予約ごとの所有を設計します。
 
@@ -1984,6 +1984,9 @@ classDiagram
     class ReservationExpiryScheduler:::added {
         <<new>>
     }
+    class ReservationAssembly:::added {
+        <<new>>
+    }
     class BatchApplication:::added {
         <<new>>
     }
@@ -1991,17 +1994,18 @@ classDiagram
     TicketReservation --> ReservationWaitlist : 待機列を操作
     ReservationWaitlist --> TicketReservation : 待機中だけ借用
     EventDatabase *-- EventInfo
-    BatchApplication ..> TicketReservation : その場で作って使う
-    BatchApplication *-- EventDatabase : 値で持つ
-    BatchApplication *-- ReservationWaitlist : 値で持つ
-    BatchApplication *-- ReservationExpiryScheduler : 値で持つ
+    ReservationAssembly *-- TicketReservation : 生成・所有して参照を返す
+    ReservationAssembly *-- EventDatabase : 値で持つ
+    ReservationAssembly *-- ReservationWaitlist : 値で持つ
+    ReservationAssembly *-- ReservationExpiryScheduler : 値で持つ
+    BatchApplication *-- ReservationAssembly : 組み立て済み部品を持つ
     ReservationExpiryScheduler ..> TicketReservation : 期限切れを通知
 
     classDef added fill:#eaf2fb,stroke:#527aa3,stroke-width:2px,color:#172033;
     classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
-`EventDatabase` と `EventInfo` は現状維持です。新しい待ち行列・期限監視・組み立てを含め、掲載コードの全クラスを図に載せています。フェーズ4で `TicketReservation` に混在していた三つの責任は、完成図では、操作を受けて現在状態へ渡す `TicketReservation`、状態ごとの方針を持つ各状態クラス、待機順と次の予約の選択を持つ `ReservationWaitlist` に分かれました。対象とした三つの変更理由を、一つのクラスが同時に持つ構造ではなくなりました。
+`EventDatabase` と `EventInfo` は現状維持です。新しい待ち行列・期限監視・組み立て・実行役を含め、掲載コードの全クラスを図に載せています。フェーズ4で `TicketReservation` に混在していた三つの責任は、完成図では、操作を受けて現在状態へ渡す `TicketReservation`、状態ごとの方針を持つ各状態クラス、待機順と次の予約の選択を持つ `ReservationWaitlist` に分かれました。共有実体の生成・所有・受け渡しは`ReservationAssembly`、入力例の実行と表示は`BatchApplication`へ分かれています。対象とした変更理由と組み立て以外の処理を、一つのクラスが同時に持つ構造ではなくなりました。
 
 #### 完成後の実行シーケンス
 
@@ -2078,6 +2082,7 @@ sequenceDiagram
 #include <string>
 #include <map>
 #include <deque>
+#include <list>
 #include <algorithm>
 ```
 
@@ -2200,7 +2205,7 @@ public:
 };
 ```
 
-予約と待ち行列は互いを参照しますが所有しません。`BatchApplication` が待ち行列を長く生かし、予約破棄時の `remove(this)` で無効な借用ポインタを残しません。
+予約と待ち行列は互いを参照しますが所有しません。`ReservationAssembly` が待ち行列を長く生かし、予約破棄時の `remove(this)` で無効な借用ポインタを残しません。
 
 ---
 
@@ -2295,6 +2300,26 @@ public:
     void cancelSeat()  { db->cancelSeat(eventId); }
     bool hasCapacity() const {
         return db->hasCapacity(eventId);
+    }
+    bool showAvailability() const {
+        if (!db->exists(eventId)) {
+            std::cout << "エラー：イベントID " << eventId
+                      << " は存在しません\n";
+            return false;
+        }
+
+        EventInfo info = db->get(eventId);
+        int available = info.capacity - info.reserved;
+        std::cout << "[席数確認] " << eventId << " "
+                  << info.reserved << "/" << info.capacity
+                  << "（空席" << available << "）";
+        if (available == 0) std::cout << "（満席）";
+        std::cout << std::endl;
+
+        return true;
+    }
+    std::string eventTitle() const {
+        return db->get(eventId).title;
     }
     void joinWaitlist() {
         waitlist->enqueue(eventId, this);
@@ -2490,52 +2515,60 @@ IReservationState* heldState() {
 
 ---
 
-**BatchApplication――`run()` とシナリオ別の実行結果**
+**ReservationAssembly**
 
-依存の組み立てと実行の責任を分離します。**状態オブジェクトの具体クラス名は、`availableState()` の呼び出し以外に出てきません。**
+席数の台帳、全予約で共有する待ち行列、期限入力を所有し、それらを接続した予約を返します。実行ケースや表示は持ちません。
 
 ```cpp
-// BatchApplication：依存の組み立てを担う入口
-class BatchApplication {
+// ReservationAssembly：共有実体の生成・所有・受け渡しを担う
+class ReservationAssembly {
     EventDatabase db;
     ReservationWaitlist waitlist;
     ReservationExpiryScheduler expiryScheduler;
-
-    bool validateExists(const std::string& eventId) {
-        if (!db.exists(eventId)) {
-            std::cout << "エラー：イベントID " << eventId
-                      << " は存在しません\n";
-            return false;
-        }
-
-        return true;
+    std::list<TicketReservation> reservations;
+public:
+    ReservationExpiryScheduler& expiry() {
+        return expiryScheduler;
     }
 
-    // 予約前に現在の席数を表示する。満席判定と待機登録はreserve()側が行う。
-    bool showAvailability(const std::string& eventId) {
-        if (!validateExists(eventId)) return false;
-
-        EventInfo info = db.get(eventId);
-        int available = info.capacity - info.reserved;
-        std::cout << "[席数確認] " << eventId << " "
-                  << info.reserved << "/" << info.capacity
-                  << "（空席" << available << "）";
-        if (available == 0) std::cout << "（満席）";
-        std::cout << std::endl;
-
-        return true;
+    TicketReservation& startReservation(
+            const std::string& eventId) {
+        reservations.emplace_back(availableState(), &db,
+                                  &waitlist, eventId);
+        return reservations.back();
     }
+
+    TicketReservation& existingReserved(
+            const std::string& eventId) {
+        reservations.emplace_back(reservedState(), &db,
+                                  &waitlist, eventId);
+        return reservations.back();
+    }
+};
+```
+
+二つの生成操作が返す予約は`reservations`に保存され、同じ`db`と`waitlist`を借ります。通常の新規操作は受付可能状態、満席テスト用の既存予約は予約済み状態から始めます。具体状態の選択、予約の所有、共有実体の受け渡しを組み立て側に閉じています。
+
+---
+
+**BatchApplication――`run()` とシナリオ別の実行結果**
+
+組み立て済みの部品を使い、入力例の実行と結果表示を担当します。共有実体の生成・所有・受け渡しは`ReservationAssembly`へ分けています。
+
+```cpp
+// BatchApplication：入力例の実行と結果表示を担う
+class BatchApplication {
+    ReservationAssembly assembly;
 
 public:
     void run() {
         // ケース1：通常予約フロー (Available → Reserved → Paid)
         std::cout << "--- ケース1: 通常予約 ---\n";
 
-        if (showAvailability("EVT001")) {
-            EventInfo i1 = db.get("EVT001");
-            std::cout << "予約対象：" << i1.title << "\n";
-            TicketReservation seat1(availableState(), &db,
-                                    &waitlist, "EVT001");
+        TicketReservation& seat1 =
+            assembly.startReservation("EVT001");
+        if (seat1.showAvailability()) {
+            std::cout << "予約対象：" << seat1.eventTitle() << "\n";
             seat1.reserve();
             seat1.pay();
         }
@@ -2562,9 +2595,9 @@ public:
         // ケース2：通常キャンセル (Available → Reserved → Available)
         std::cout << "--- ケース2: 通常キャンセル ---\n";
 
-        if (showAvailability("EVT001")) {
-            TicketReservation seat2(availableState(), &db,
-                                    &waitlist, "EVT001");
+        TicketReservation& seat2 =
+            assembly.startReservation("EVT001");
+        if (seat2.showAvailability()) {
             seat2.reserve();
             seat2.cancel();
         }
@@ -2593,11 +2626,10 @@ public:
         // ケース3：保留と支払い (Available → Reserved → Held → Paid)
         std::cout << "--- ケース3: 保留と支払い ---\n";
 
-        if (showAvailability("EVT002")) {
-            std::cout << "予約対象："
-                      << db.get("EVT002").title << "\n";
-            TicketReservation seat3(availableState(), &db,
-                                    &waitlist, "EVT002");
+        TicketReservation& seat3 =
+            assembly.startReservation("EVT002");
+        if (seat3.showAvailability()) {
+            std::cout << "予約対象：" << seat3.eventTitle() << "\n";
             seat3.reserve();
             seat3.hold();
             seat3.pay();
@@ -2627,14 +2659,14 @@ public:
         // (Available → Reserved → Held → Available)
         std::cout << "--- ケース4: 保留期限切れ ---\n";
 
-        if (showAvailability("EVT001")) {
-            TicketReservation seat4(availableState(), &db,
-                                    &waitlist, "EVT001");
+        TicketReservation& seat4 =
+            assembly.startReservation("EVT001");
+        if (seat4.showAvailability()) {
             seat4.reserve();
             seat4.hold();
             // テストハーネスから「24時間経過」を即時注入する。
             // 本番では利用者でなくタイマー基盤が同じ境界を呼ぶ。
-            expiryScheduler.onPaymentDeadlineExpired(seat4);
+            assembly.expiry().onPaymentDeadlineExpired(seat4);
         }
 ```
 
@@ -2656,11 +2688,11 @@ public:
         // ケース4a：通常の15分決済期限切れ (Reserved → Available)
         std::cout << "--- ケース4a: 通常決済期限切れ ---\n";
 
-        if (showAvailability("EVT001")) {
-            TicketReservation seat4a(availableState(), &db,
-                                     &waitlist, "EVT001");
+        TicketReservation& seat4a =
+            assembly.startReservation("EVT001");
+        if (seat4a.showAvailability()) {
             seat4a.reserve();
-            expiryScheduler.onPaymentDeadlineExpired(seat4a);
+            assembly.expiry().onPaymentDeadlineExpired(seat4a);
         }
 ```
 
@@ -2685,19 +2717,19 @@ public:
         // ケース5：満席確認 → 通常の予約要求で自動待機登録 →
         // 既存予約のキャンセルを起点に自動昇格
         std::cout << "--- ケース5: 満席からの自動昇格 ---\n";
-        // 50/50を表示。reserve()が満席を判定する
-        showAvailability("EVT003");
 
-        TicketReservation waiting(availableState(), &db,
-                                  &waitlist, "EVT003");
+        TicketReservation& waiting =
+            assembly.startReservation("EVT003");
+        // 50/50を表示。reserve()が満席を判定する
+        waiting.showAvailability();
         waiting.reserve(); // 利用者は通常の予約操作だけ。満席なので自動待機登録
-        TicketReservation waitingSecond(availableState(), &db,
-                                         &waitlist, "EVT003");
+        TicketReservation& waitingSecond =
+            assembly.startReservation("EVT003");
         waitingSecond.reserve(); // 2番目として同じ待ち行列へ入る
 
         // 初期50件のうち1件を表す既存予約。利用側はcancel()だけを呼ぶ。
-        TicketReservation occupied(reservedState(), &db,
-                                   &waitlist, "EVT003");
+        TicketReservation& occupied =
+            assembly.existingReserved("EVT003");
         occupied.cancel(); // 50→49、その直後にwaitingを49→50へ自動昇格
         // 1番目の再取消で、2番目が続けて自動昇格する
         waiting.cancel();
@@ -2740,16 +2772,16 @@ public:
         // ケース5b：待機者がいる状態での期限切れ → 自動昇格
         std::cout << "--- ケース5b: 期限切れからの自動昇格 ---\n";
         // 直前の再取消で49/50。別の予約で満席へ戻してから保留にする
-        TicketReservation held(availableState(), &db,
-                               &waitlist, "EVT003");
+        TicketReservation& held =
+            assembly.startReservation("EVT003");
         held.reserve();
         // 席は確保したまま、期限だけ24時間へ延長（席数は動かない）
         held.hold();
-        TicketReservation waiting2(availableState(), &db,
-                                   &waitlist, "EVT003");
+        TicketReservation& waiting2 =
+            assembly.startReservation("EVT003");
         waiting2.reserve(); // 満席判定により自動待機登録
         // 24時間経過。席が空き、待機者が自動昇格する
-        expiryScheduler.onPaymentDeadlineExpired(held);
+        assembly.expiry().onPaymentDeadlineExpired(held);
 ```
 
 ケース5bの実行結果：
@@ -2776,11 +2808,9 @@ public:
         // ケース6：無効な操作の拒否 (Available → pay)
         std::cout << "--- ケース6: 無効な操作の拒否 ---\n";
 
-        if (validateExists("EVT001")) {
-            TicketReservation seat6(availableState(), &db,
-                                    &waitlist, "EVT001");
-            seat6.pay();
-        }
+        TicketReservation& seat6 =
+            assembly.startReservation("EVT001");
+        seat6.pay();
 ```
 
 ケース6の実行結果：
@@ -2799,7 +2829,9 @@ public:
 ```cpp
         // ケース7：存在しないイベントIDのエラー
         std::cout << "--- ケース7: 存在しないイベントID ---\n";
-        validateExists("EVT999");
+        TicketReservation& missing =
+            assembly.startReservation("EVT999");
+        missing.showAvailability();
 ```
 
 ケース7の実行結果：
@@ -2834,7 +2866,7 @@ int main() {
 
 | 要求ID | 実装箇所 | 実行結果で確認したこと |
 |---|---|---|
-| 要求ID1（予約対象と空席の確認） | `showAvailability()`、`AvailableState` | 現在値を表示。未登録は拒否、満席は50/50のままWaitlistedになる |
+| 要求ID1（予約対象と空席の確認） | `TicketReservation::showAvailability()`、`AvailableState` | 現在値を表示。未登録は拒否、満席は50/50のままWaitlistedになる |
 | 要求ID2（席の確保） | `AvailableState::reserve()` | 残り1席から満席へ変わる |
 | 要求ID3（購入の確定） | `ReservedState`、`HeldState` | 支払成功時だけPaidになる |
 | 要求ID4（空席の引き継ぎ） | `ReservedState::cancel()`、`ReservationWaitlist` | 50/50→49/50→50/50となり、手動昇格がない |
@@ -2883,8 +2915,10 @@ int main() {
 > | `EventDatabase.h` | イベント情報と席数の台帳 | 状態の話とは別に変わる |
 > | `IReservationState.h` | 状態の契約 | 骨格がインクルードするのはこれだけ |
 > | `States.h` / `.cpp` | 各状態クラス | **状態を1つ足すとき、開くのはここだけ**にしたい |
-> | `TicketReservation.h` | 骨格と、待ち行列・期限監視・組み立て | 具体状態を知らないので、状態が増えても変わらない |
-> | `main.cpp` | 生成と実行 | 状態クラス名を書かない |
+> | `TicketReservation.h` | 予約の骨格と、待ち行列・期限監視 | 具体状態を知らないので、状態が増えても変わらない |
+> | `ReservationAssembly.h` | 共有実体の生成・所有・受け渡し | 組み立て以外の処理を持たない |
+> | `BatchApplication.h` | 入力例の実行と結果表示 | 席数台帳・待ち行列・具体状態を直接持たない |
+> | `main.cpp` | 実行役の起動 | 状態クラス名を書かない |
 >
 > ファイル一式: `sources/chapter02/`（`make run`）。相互参照する五状態は、一覧性を優先して `States.h` / `.cpp` にまとめます。
 
@@ -2900,7 +2934,7 @@ graph TD
     T1 -->|満席時の行先を追加| C1["［変更］ AvailableState<br>満席エラー → 待機登録"]:::touched
     T1 -->|取消後の昇格を接続| C2["［変更］ ReservedState<br>支払・取消 → 保留・期限切れも追加"]:::touched
     T1 -->|昇格イベントを契約へ追加| C3["［変更］ IReservationState<br>状態操作 3種 → 6種"]:::touched
-    T1 -->|待機列への委譲を追加| C5["［変更］ TicketReservation<br>公開操作 3種 → 5種＋昇格委譲"]:::touched
+    T1 -->|待機列への委譲を追加| C5["［変更］ TicketReservation<br>公開操作 4種 → 6種＋システム内昇格"]:::touched
 
     T2["変更ID2：一時保留"]:::req
         -->|状態を追加| N3["［新規］ HeldState"]:::added
@@ -2909,7 +2943,7 @@ graph TD
     T2 -->|状態操作を契約へ追加| C3
     T2 -->|公開操作と委譲を追加| C5
 
-    T1 -->|共有部品を生成・受け渡し| C4["［変更］ BatchApplication<br>予約台帳の構成 → 待ち列・期限監視も接続"]:::touched
+    T1 -->|共有部品を生成・受け渡し| C4["［変更］ ReservationAssembly<br>予約台帳の構成 → 待ち列・期限監視も接続"]:::touched
     T2 -->|期限監視を生成・受け渡し| C4
     T1 -. "影響なし" .-> K1["PaidState"]:::keep
     T2 -. "影響なし" .-> K2["EventDatabase"]:::keep
@@ -2920,7 +2954,7 @@ graph TD
     classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
-フェーズ3と同じく、クラスと組み立て箇所の粒度で示しました。完成構造では変更先の箱数が自動的に減るわけではありません。既存状態で振る舞いが変わる `AvailableState`・`ReservedState`、状態操作の契約を増やす `IReservationState`、公開入口を委譲する `TicketReservation`、生成と受け渡しを担う `BatchApplication` は変更します。一方、新しい状態・待ち順・期限入力は、巨大な状態分岐へ埋め込まず、`WaitlistedState`・`HeldState`・`ReservationWaitlist`・`ReservationExpiryScheduler` という担当へ追加できます。改善は箱数ではなく、**状態ごとの判断を該当状態へ局所化し、待ち順を別の変更理由へ分けたこと**です。`PaidState` と `EventDatabase` は触りません。
+フェーズ3と同じく、クラスと組み立て箇所の粒度で示しました。完成構造では変更先の箱数が自動的に減るわけではありません。既存状態で振る舞いが変わる `AvailableState`・`ReservedState`、状態操作の契約を増やす `IReservationState`、公開入口を委譲する `TicketReservation`、生成と受け渡しを担う `ReservationAssembly` は変更します。一方、新しい状態・待ち順・期限入力は、巨大な状態分岐へ埋め込まず、`WaitlistedState`・`HeldState`・`ReservationWaitlist`・`ReservationExpiryScheduler` という担当へ追加できます。改善は箱数ではなく、**状態ごとの判断を該当状態へ局所化し、待ち順を別の変更理由へ分けたこと**です。`BatchApplication`は組み立ての詳細を知らないため、入力例の流れを変える場合にだけ修正します。`PaidState` と `EventDatabase` は触りません。
 
 | 変更影響グラフで影響した場所 | 完成構造での修正 | 構造変更との対応 |
 |---|---|---|
@@ -2928,7 +2962,7 @@ graph TD
 | `pay()`・`hold()` の状態分岐 | `HeldState` を追加し、状態契約と `ReservedState` の必要な操作だけを変更 | 一時保留を、関係する状態へ閉じた |
 | 取消・期限切れ後の席解放と昇格 | 両状態から待ち行列の共通処理へ接続 | 空席発生から先頭昇格までを自動化した |
 | `promoteBySystem()` と期限入力 | 状態契約・`TicketReservation` を変更し、`ReservationExpiryScheduler` を追加 | 利用者以外の入力も現在状態へ委譲した |
-| `main()` の共有待ち行列・期限切れ入力 | `BatchApplication` で共有資源とスケジューラを生成し、予約へ渡す | 生成・所有・受け渡しを組み立て箇所へ集めた |
+| `main()` の共有待ち行列・期限切れ入力 | `ReservationAssembly` で共有資源とスケジューラを生成し、予約へ渡す | 生成・所有・受け渡しを組み立て箇所へ集めた |
 
 状態ごとのクラスと遷移の組み立てを管理するコストは増えます。その代わり、状態追加時の判断を関係する状態へ閉じ、待ち順を別の変更理由として扱えます。
 
@@ -2943,17 +2977,6 @@ graph TD
 | 境界 | 状態固有の可否と遷移を共通状態契約の向こうへ移す |
 | 再結合 | 現在状態へ操作を委譲し、席解放から先頭昇格までを接続する |
 | 結果 | 待機昇格と期限切れを関係する状態へ閉じ、公開入口と保存を守る |
-
-## 振り返り
-
-### 「この章を読むと得られること」は手に入ったか
-
-| 持ち帰る構造判断 | この章で確認した根拠 |
-|---|---|
-| 状態依存の変動の特定 | フェーズ2・3：状態と遷移を変え、公開入口と保存を守る |
-| 分岐が広がる原因の特定 | フェーズ4：状態判定と固有処理が複数操作へ分散 |
-| 状態契約と遷移の再結合 | フェーズ6：共通操作→具体状態→現在状態の受け渡し |
-| 効果と適用可否の検証 | フェーズ6・7：状態は契約、単一方針は一クラスで止めて検証 |
 
 ## あなたのコードで考えてみてください
 
@@ -3015,10 +3038,11 @@ classDiagram
 
 ### この章のまとめ
 
-#### 構造の着目点
+冒頭で掲げた四つを、この章で得た判断として確認します。
 
-同じ状態値を複数の操作が繰り返し判定し、状態ごとの許可・遷移・副作用が散らばっていないかを見ます。その周囲に、状態とは別の理由で変わる責任が混ざっていないかも分けて確認します。
+- **得られること1：状態依存の変動の特定。** 操作の受付を守る側、状態ごとの可否・遷移・副作用と席割当方針を変わる側として切り分けました。
+- **得られること2：分岐が広がる原因の特定。** 予約の受付、状態方針、席割当方針が `TicketReservation` に同居していたため、状態追加で複数の公開操作を横断して直すと説明できました。
+- **得られること3：状態契約と遷移の再結合。** 共通操作を `IReservationState` に定め、具体状態へ判断と遷移を移し、現在状態への委譲と席解放後の自動昇格を一つの実行経路につなぎました。
+- **得られること4：効果と適用可否の検証。** 状態と待機順の変更先がそれぞれの担当へ分かれたことを確認し、状態変化が少ないなら単純な状態値と分岐を選ぶ判断基準も示しました。
 
-#### 構造の変更点
-
-状態ごとの判断と処理を共通契約の具体状態へまとめ、公開入口は現在状態へ委譲します。共有データや別の運用方針は専用責任へ分け、状態遷移から必要な処理へ自動接続することが再結合の要点です。
+この四つがそろうことで、状態名をクラスへ置き換えるだけでなく、状態ごとの振る舞いが独立して変わるかを根拠にStateを採用するか判断できます。

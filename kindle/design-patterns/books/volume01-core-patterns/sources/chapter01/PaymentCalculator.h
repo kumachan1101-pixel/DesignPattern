@@ -12,12 +12,12 @@ public:
     explicit PaymentCalculator(const IDiscountRule& r)
             : rule(r) {}
 
-    int calculate(const Order& order) const {
+    PaymentResult calculate(const Order& order) const {
         int subtotal = 0;
 
         for (const auto& item : order.items) subtotal +=
             item.price;
-        return rule.apply(subtotal);
+        return PaymentResult{subtotal, rule.apply(subtotal)};
     }
 };
 
@@ -43,17 +43,29 @@ public:
             selector.select(customer.memberType, context);
         PaymentCalculator calculator(rule);
 
-        return calculator.calculate(order);
+        return calculator.calculate(order).finalPrice;
     }
 };
 
 class CheckoutResultRenderer {
 public:
+    void showUnknownCustomer(const std::string& customerId) {
+        std::cout << "エラー: 顧客ID " << customerId
+                  << " は登録されていません\n";
+    }
+
+    void showEmptyOrder() {
+        std::cout << "エラー: 注文が空です\n";
+    }
+
+    void showCustomerLookupFailure() {
+        std::cout << "エラー: 顧客情報の取得に失敗しました\n";
+    }
+
     void showOrderResult(const CustomerInfo& customer,
                          const Order& order,
                          const CampaignContext& context,
-                         int subtotal,
-                         int finalPrice) {
+                         const PaymentResult& payment) {
         std::cout << customer.name << " さんの注文:";
 
         for (const auto& item : order.items) {
@@ -65,8 +77,9 @@ public:
                   << ", キャンペーン="
           << (context.isActive(CampaignCode::RegularCampaign)
                       ? "あり" : "なし");
-        std::cout << "\n  小計 " << subtotal
-                  << "円 → 支払金額 " << finalPrice << "円\n";
+        std::cout << "\n  小計 " << payment.subtotal
+                  << "円 → 支払金額 "
+                  << payment.finalPrice << "円\n";
     }
 };
 
@@ -84,13 +97,12 @@ public:
     void process(const Order& order,
                  const CampaignContext& context) {
         if (!db.exists(order.customerId)) {
-            std::cout << "エラー: 顧客ID " << order.customerId
-                      << " は登録されていません\n";
+            renderer.showUnknownCustomer(order.customerId);
             return;
         }
 
         if (order.items.empty()) {
-            std::cout << "エラー: 注文が空です\n";
+            renderer.showEmptyOrder();
             return;
         }
 
@@ -99,7 +111,7 @@ public:
         try {
             customer = db.get(order.customerId);
         } catch (const std::exception&) {
-            std::cout << "エラー: 顧客情報の取得に失敗しました\n";
+            renderer.showCustomerLookupFailure();
             return;
         }
 
@@ -107,13 +119,10 @@ public:
             selector.select(customer.memberType, context);
         PaymentCalculator calculator(rule);
 
-        const int finalPrice = calculator.calculate(order);
-        int subtotal = 0;
-        for (const auto& item : order.items) {
-            subtotal += item.price;
-        }
+        const PaymentResult payment =
+            calculator.calculate(order);
         renderer.showOrderResult(customer, order, context,
-                                 subtotal, finalPrice);
+                                 payment);
     }
 };
 

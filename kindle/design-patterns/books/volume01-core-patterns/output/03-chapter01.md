@@ -107,7 +107,7 @@ ECサイトの支払金額計算が何を入力として受け取り、どの処
 
 | 要求ID  | 現行要求                                    | 受入条件                      |
 | ----- | --------------------------------------- | ------------------------- |
-| 要求ID1（小計から支払金額） | 商品リストの小計から最終支払金額を計算する                   | 3,000円と1,000円の2商品を合算し、小計4,000円を返す   |
+| 要求ID1（小計から支払金額） | 商品リストの小計から最終支払金額を計算する                   | 3,000円と1,000円の2商品を合算し、小計4,000円を算出する   |
 | 要求ID2（Premium20%） | Premium会員へ20%割引を適用し、他割引と併用しない           | Premiumの10,000円が8,000円になる |
 | 要求ID3（Regularキャンペーン10%） | Regular会員はキャンペーン中だけ10%割引する              | 対象時9,000円、対象外時10,000円になる  |
 | 要求ID4（未登録IDを拒否） | 未登録の顧客IDでは注文を受け付けない                         | 登録顧客を取得し、未登録IDは計算を進めない    |
@@ -871,7 +871,7 @@ int main() {
 
 | 要求ID・種別 | 変更後も満たす要求 | 受入条件 |
 |---|---|---|
-| 要求ID1（継続） | 商品リストの小計から最終支払金額を計算する | 3,000円と1,000円の2商品を合算し、小計4,000円を返す |
+| 要求ID1（継続） | 商品リストの小計から最終支払金額を計算する | 3,000円と1,000円の2商品を合算し、小計4,000円を算出する |
 | 要求ID2（継続） | Premium会員へ20%割引を適用し、他割引と併用しない | セール中でも8,000円になる |
 | 要求ID3（継続） | Regular会員はキャンペーン中だけ10%割引する | キャンペーンだけなら9,000円になる |
 | 要求ID4（継続） | 未登録の顧客IDでは注文を受け付けず、その旨を表示する | 登録・未登録の既存動作を維持する |
@@ -1258,13 +1258,9 @@ graph TD
 
 ## 🟠 フェーズ4：原因分析 ―― なぜ辛いのかを構造で言語化する
 
-フェーズ3から受け取るのは、問題ID1（既存割引まで修正）と、変更途中の `PaymentCalculator::calculate()` です。このコードから、問題が起きた理由を調べます。
+フェーズ3で、問題ID1（既存割引まで修正）と、その問題が起きた変更途中の `PaymentCalculator::calculate()` は特定できました。フェーズ4ではこの結果を入力にし、なぜ既存割引と注文計算まで修正対象になったのかを、責任の配置から調べます。
 
-### 4-1：問題が起きたコードを確認する
-
-**問題ID1（既存割引まで修正）。** 変えたかったのは、サマーセールの条件・計算・適用順序です。しかし同じ `if-else` に、既存Premium条件、キャンペーン条件、小計計算、結果返却まであります。そのため、`isSummerSale && isCampaignActive` を加える変更で、`memberType == "Premium"` から `return total` までを読み直して修正しました。
-
-### 4-2：一つのクラスに混在する責任を特定する
+### 4-1：問題箇所に混在する責任を特定する
 
 責任は、今回の作業項目ではなく、同じ業務上の理由で変わる仕事のまとまりです。仕事が増えた数だけ責任を増やすのではありません。ここでは `PaymentCalculator` が以前から担っている仕事を、変更理由の違いで三つに分けて捉えます。
 
@@ -1278,7 +1274,7 @@ graph TD
 
 新しい責任が三つ増えたのではありません。変更理由の違う三つの責任が、同じ `calculate()` に置かれていたことが見えました。
 
-### 4-3：原因を確定する
+### 4-2：責任の同居を原因として確定する
 
 前の表で分かったのは、`PaymentCalculator` が変更理由の違う責任を三つ持つことです。ここから、その同居が前節で確認した変更影響を生んだかを `calculate()` で確認します。
 
@@ -1351,20 +1347,31 @@ classDiagram
 
 ### 5-2：課題と完了条件を確定する
 
-課題は「原因をなくせた」とコードで判断できる状態です。1行が一つの課題で、左から「どの原因を解くか」「何を分けるか」「分けた両側を何でつなぐか」を読みます。3列目の「入力」は施策を使う側から分けた側へ渡すもの、「結果」は分けた側から使う側へ返すものです。
-
-| 課題（解く原因） | 分ける責任 | 分けた後のつなぎ方 |
-|---|---|---|
-| ① 課題ID1（販促方針の境界）<br>解く原因：原因ID1 | 販促方針を注文計算から分ける | 入力：会員種別・施策状態・適用前金額<br>結果：適用可否・適用後金額 |
-| ② 課題ID2（競合方針の分離）<br>解く原因：原因ID2 | 競合方針を注文計算から分ける | 入力：会員種別・施策状態<br>結果：選ばれた施策 |
+直前の目標図で決めた①と②に課題IDを付けます。図の各変更について、原因・接続・完了の見分け方を確定します。
 
 #### 課題ID1（販促方針の境界）の完了条件
+
+**解く原因：** 原因ID1（注文計算と販促方針が同じクラスにある）
+
+**構造の変更：** 目標図の①のとおり、販促方針を注文計算から分けます。
+
+**接続：** 注文計算から会員種別・施策状態・適用前金額を渡し、販促方針から適用可否・適用後金額を返します。
+
+完成コードで次の三点を満たせば完了です。
 
 - `PaymentCalculator`に具体的な施策名・条件・割引式がない
 - 条件と計算を施策単位で変更できる
 - 注文計算が全施策を同じ方法で利用する
 
 #### 課題ID2（競合方針の分離）の完了条件
+
+**解く原因：** 原因ID2（注文計算と競合方針が同じクラスにある）
+
+**構造の変更：** 目標図の②のとおり、競合方針を注文計算から分けます。
+
+**接続：** 注文計算から会員種別・施策状態を渡し、競合方針から選ばれた施策を返します。
+
+完成コードで次の三点を満たせば完了です。
 
 - `PaymentCalculator`に競合方針の具体的な優先順がない
 - 選択処理に具体的な施策名と優先順がない
@@ -1393,11 +1400,11 @@ classDiagram
 
 変更前の分岐と、契約→具体→所有・登録→選択・受け渡し→実行の要点コードだけを比べます。全体コードはフェーズ7で確認します。
 
-#### 契約：境界の形と受け渡しを決める
+#### 契約：課題の入出力をC++の型と操作にする
 
 > **問い2：境界では、何を約束すれば足りるか**
 >
-> 選択側が各施策へ適用可否を尋ね、計算側が選ばれた施策へ合計金額を渡せれば、具体条件と計算式を知る必要はありません。したがって、`matches()` と `apply()` の二つを最小の契約として検討します。
+> フェーズ5で確定した入力と結果を、C++のどの型と操作で表せばよいかを決めます。業務上の入出力は、ここでは増減させません。
 
 実際に枝の追加と並べ替えが起き、追加も続くため、分岐を関数へ移すだけでは足りません。条件と式を施策単位で増やせるクラス契約まで分けます。
 
@@ -1419,21 +1426,9 @@ if (memberType == "Premium") {
 }
 ```
 
-増えるのは施策の条件と計算です。小計計算と結果返却は変わりません。課題ID1（販促方針の境界）では、会員種別と施策状態を渡して適用可否を受け取ります。
+課題ID1（販促方針の境界）で確定した接続は、「会員種別・施策状態・適用前金額を渡し、適用可否・適用後金額を返す」です。これをC++では、判定を `matches(memberType, context) -> bool`、計算を `apply(total) -> int` と表します。条件と計算を同じ施策へ置き、複数の具体施策を同じ形で増やすため、二つの操作を `IDiscountRule` というクラス契約にまとめます。
 
-| 接続する値 | 形 | 理由 |
-|---|---|---|
-| 会員種別 | 引数 | 値は顧客照合側にあり、判定は施策側が行う |
-| 施策状態 | 引数 | システムの現在値を、施策側の判定へ渡す |
-
-同じ課題ID1（販促方針の境界）で、適用前金額を渡して適用後金額を受け取ります。条件と計算は、一つの施策の中に置きます。
-
-| 接続する値 | 形 | 理由 |
-|---|---|---|
-| 適用前金額 | 引数 | 小計計算をルール側へ重複させないため |
-| 適用後金額 | 戻り値 | 呼び出し側が必要とする結果はこの金額だけだから |
-
-**契約の名前を決めます。** 割引の施策が満たすべき約束なので `IDiscountRule` とします。要求ID5（購入結果の表示）の表示項目は変更しないため、表示名のような今回の境界に不要な操作は足しません。
+課題ID2（競合方針の分離）で確定した「選ばれた施策」は、この `IDiscountRule` を指す参照として表します。競合順の決め方は後続の選択器へ置くため、ここで別の契約は増やしません。要求ID5（購入結果の表示）の表示項目もこの境界には不要です。
 
 次の部分クラス図は、**今決める「計算側が契約だけを知り、具体施策がそれを実現する」関係だけ**を描いたものです。他の割引クラス、生成者、選択器は、フェーズ7の完成図でこの関係へ統合します。
 
@@ -1649,6 +1644,17 @@ public:
 
 注文時は、起動時に生成・登録した具体ルールを利用します。会員種別と施策状態を入力として、登録済み実体の中から1つへの参照を取得します。
 
+計算は`PaymentCalculator`へ一度だけ任せます。表示に必要な小計まで`OrderProcessor`で再計算すると、注文計算の責任が二つのクラスへ重複します。そこで計算器は、小計と支払金額を一組にした結果を返します。
+
+**ここで確認するコード：`PaymentResult`（型全体）** ―― 計算器から表示へ渡す二つの金額
+
+```cpp
+struct PaymentResult {
+    int subtotal;
+    int finalPrice;
+};
+```
+
 **ここで確認するコード：`OrderProcessor`（クラス全体）** ―― 選択からCalculatorの実行まで
 
 ```cpp
@@ -1666,13 +1672,12 @@ public:
     void process(const Order& order,
                  const CampaignContext& context) {
         if (!db.exists(order.customerId)) {
-            std::cout << "エラー: 顧客ID " << order.customerId
-                      << " は登録されていません\n";
+            renderer.showUnknownCustomer(order.customerId);
             return;
         }
 
         if (order.items.empty()) {
-            std::cout << "エラー: 注文が空です\n";
+            renderer.showEmptyOrder();
             return;
         }
 
@@ -1680,25 +1685,23 @@ public:
         try {
             customer = db.get(order.customerId);
         } catch (const std::exception&) {
-            std::cout << "エラー: 顧客情報の取得に失敗しました\n";
+            renderer.showCustomerLookupFailure();
             return;
         }
 
         const IDiscountRule& rule =
             selector.select(customer.memberType, context);
         PaymentCalculator calculator(rule);
-        const int finalPrice = calculator.calculate(order);
-        int subtotal = 0;
-        for (const auto& item : order.items) {
-            subtotal += item.price;
-        }
+
+        const PaymentResult payment =
+            calculator.calculate(order);
         renderer.showOrderResult(customer, order, context,
-                                 subtotal, finalPrice);
+                                 payment);
     }
 };
 ```
 
-`select()` は登録済みルールを選ぶだけです。次の `PaymentCalculator calculator(rule)` が選択結果を注入し、計算結果を既存の表示境界へ戻します。選択と注入を同じ操作として扱いません。
+`select()` は登録済みルールを選ぶだけです。次の `PaymentCalculator calculator(rule)` が選択結果を注入し、計算結果を既存の表示境界へ渡します。`OrderProcessor`は金額計算も表示も行わず、注文確定の順序だけを進めます。選択と注入も同じ操作として扱いません。
 
 #### 実行骨格：組み立てた実体を契約から呼ぶ
 
@@ -1718,17 +1721,17 @@ public:
     explicit PaymentCalculator(const IDiscountRule& r)
             : rule(r) {}
 
-    int calculate(const Order& order) const {
+    PaymentResult calculate(const Order& order) const {
         int subtotal = 0;
 
         for (const auto& item : order.items) subtotal +=
             item.price;
-        return rule.apply(subtotal);
+        return PaymentResult{subtotal, rule.apply(subtotal)};
     }
 };
 ```
 
-`rule` はルール集合が所有し、Selectorが選んだ同じ実体です。Calculatorは具体名を知らず、小計を求めて `apply()` だけを呼びます。顧客照合、結果返却、公開入口は変えません。
+`rule` はルール集合が所有し、Selectorが選んだ同じ実体です。Calculatorは具体名を知らず、小計を求めて `apply()` だけを呼び、小計と支払金額を返します。顧客照合、公開入口、表示内容は変えません。
 
 ### 構想を確定する
 
@@ -1768,7 +1771,7 @@ public:
 
 完成コードの全型を先に示します。
 
-- `Item`、`Order`、`CampaignContext`、`CustomerInfo`
+- `Item`、`Order`、`CampaignContext`、`CustomerInfo`、`PaymentResult`
 - `CustomerDatabase`、`CheckoutResultRenderer`、`OrderProcessor`
 - `PaymentCalculator`、`CartPreviewService`、`IDiscountRule`、`RuleSelector`、`DiscountRuleSet`
 - `PremiumDiscount`、`CampaignDiscount`、`SummerSaleDiscount`、`SummerSaleAndCampaignDiscount`
@@ -1842,6 +1845,11 @@ classDiagram
     class PaymentCalculator:::touched {
         <<changed>>
     }
+    class PaymentResult:::added {
+        <<new>>
+        +subtotal int
+        +finalPrice int
+    }
     class CheckoutResultRenderer
     class IDiscountRule:::added {
         <<new>>
@@ -1855,6 +1863,9 @@ classDiagram
     CartPreviewService --> RuleSelector : 選ぶ
     CartPreviewService ..> PaymentCalculator : その場で作って使う
     PaymentCalculator --> IDiscountRule : 使う
+    PaymentCalculator ..> PaymentResult : 返す
+    OrderProcessor ..> PaymentResult : 表示へ渡す
+    CartPreviewService ..> PaymentResult : 支払金額を使う
 
     classDef added fill:#eaf2fb,stroke:#527aa3,stroke-width:2px,color:#172033;
     classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
@@ -1912,37 +1923,33 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant V as CartPreviewService
-    participant O as OrderProcessor
+    participant U as CartPreview／OrderProcessor
     participant DB as CustomerDatabase
     participant S as RuleSelector
     participant P as PaymentCalculator
     participant I as 登録済みIDiscountRule
+    participant R as CheckoutResultRenderer
 
-    V->>DB: get(customerId)
-    DB-->>V: CustomerInfo
-    V->>S: select(memberType, context)
+    U->>DB: get(customerId)
+    DB-->>U: CustomerInfo
+    U->>S: select(memberType, context)
     loop 一致するまで登録順に評価
         S->>I: matches(memberType, context)
         I-->>S: true / false
     end
-    S-->>V: 最初に一致したrule
-    V->>P: 生成してcalculate(order)
+    S-->>U: 最初に一致したrule
+    U->>P: 生成してcalculate(order)
     P->>I: apply(total)
     I-->>P: 割引後金額
-    P-->>V: int（事前確認金額）
-
-    O->>DB: get(customerId)
-    DB-->>O: CustomerInfo
-    O->>S: select(memberType, context)
-    S-->>O: 同じ条件で選んだrule
-    O->>P: 生成してcalculate(order)
-    P->>I: apply(total)
-    I-->>P: 割引後金額
-    P-->>O: int（購入結果へ表示する金額）
+    P-->>U: PaymentResult
+    alt CartPreviewService
+        Note right of U: finalPriceを事前確認金額として返す
+    else OrderProcessor
+        U->>R: 小計と支払金額を渡す
+    end
 ```
 
-実行時に具体名は現れず、両入口が同じ選択経路を通ります。
+実行時に具体名は現れず、両入口が同じ選択・計算経路を通ります。注文処理は計算結果を表示へ渡すだけで、小計を再計算しません。
 
 #### 完成コード
 
@@ -2034,6 +2041,17 @@ public:
 struct CustomerInfo {
     std::string name;
     std::string memberType;
+};
+```
+
+**PaymentResult**
+
+金額計算の結果です。小計と支払金額を一組で返すため、呼び出し側で小計を計算し直す必要がありません。
+
+```cpp
+struct PaymentResult {
+    int subtotal;
+    int finalPrice;
 };
 ```
 
@@ -2187,17 +2205,17 @@ public:
     explicit PaymentCalculator(const IDiscountRule& r)
             : rule(r) {}
 
-    int calculate(const Order& order) const {
+    PaymentResult calculate(const Order& order) const {
         int subtotal = 0;
 
         for (const auto& item : order.items) subtotal +=
             item.price;
-        return rule.apply(subtotal);
+        return PaymentResult{subtotal, rule.apply(subtotal)};
     }
 };
 ```
 
-具体条件を知らず `apply()` へ委譲し、戻り値 `int` は維持します。
+具体条件を知らず `apply()` へ委譲し、小計と支払金額を`PaymentResult`で返します。金額の算出はこのクラスに一度だけ置かれます。
 
 ---
 
@@ -2298,7 +2316,7 @@ public:
             selector.select(customer.memberType, context);
         PaymentCalculator calculator(rule);
 
-        return calculator.calculate(order);
+        return calculator.calculate(order).finalPrice;
     }
 };
 ```
@@ -2312,11 +2330,23 @@ public:
 ```cpp
 class CheckoutResultRenderer {
 public:
+    void showUnknownCustomer(const std::string& customerId) {
+        std::cout << "エラー: 顧客ID " << customerId
+                  << " は登録されていません\n";
+    }
+
+    void showEmptyOrder() {
+        std::cout << "エラー: 注文が空です\n";
+    }
+
+    void showCustomerLookupFailure() {
+        std::cout << "エラー: 顧客情報の取得に失敗しました\n";
+    }
+
     void showOrderResult(const CustomerInfo& customer,
                          const Order& order,
                          const CampaignContext& context,
-                         int subtotal,
-                         int finalPrice) {
+                         const PaymentResult& payment) {
         std::cout << customer.name << " さんの注文:";
 
         for (const auto& item : order.items) {
@@ -2328,8 +2358,9 @@ public:
                   << ", キャンペーン="
           << (context.isActive(CampaignCode::RegularCampaign)
                       ? "あり" : "なし");
-        std::cout << "\n  小計 " << subtotal
-                  << "円 → 支払金額 " << finalPrice << "円\n";
+        std::cout << "\n  小計 " << payment.subtotal
+                  << "円 → 支払金額 "
+                  << payment.finalPrice << "円\n";
     }
 };
 ```
@@ -2355,13 +2386,12 @@ public:
     void process(const Order& order,
                  const CampaignContext& context) {
         if (!db.exists(order.customerId)) {
-            std::cout << "エラー: 顧客ID " << order.customerId
-                      << " は登録されていません\n";
+            renderer.showUnknownCustomer(order.customerId);
             return;
         }
 
         if (order.items.empty()) {
-            std::cout << "エラー: 注文が空です\n";
+            renderer.showEmptyOrder();
             return;
         }
 
@@ -2370,7 +2400,7 @@ public:
         try {
             customer = db.get(order.customerId);
         } catch (const std::exception&) {
-            std::cout << "エラー: 顧客情報の取得に失敗しました\n";
+            renderer.showCustomerLookupFailure();
             return;
         }
 
@@ -2378,18 +2408,15 @@ public:
             selector.select(customer.memberType, context);
         PaymentCalculator calculator(rule);
 
-        const int finalPrice = calculator.calculate(order);
-        int subtotal = 0;
-        for (const auto& item : order.items) {
-            subtotal += item.price;
-        }
+        const PaymentResult payment =
+            calculator.calculate(order);
         renderer.showOrderResult(customer, order, context,
-                                 subtotal, finalPrice);
+                                 payment);
     }
 };
 ```
 
-`RuleSelector` は登録済みルールへ同じ `matches()` を問うだけです。注文確定とプレビューは同じSelector・計算器を使います。Selectorは所有ルールへの参照を借りるため、`DiscountRuleSet` はコピーを禁止します。施策追加は具体ルールと所有・登録へ閉じ、入力語彙が増える場合だけ定数とシナリオデータも変わります。
+`RuleSelector` は登録済みルールへ同じ `matches()` を問うだけです。注文確定とプレビューは同じSelector・計算器を使います。`OrderProcessor`は入力確認、顧客取得、ルール選択、計算、表示の順を進めますが、金額は計算せず、成功・エラーの表示もRendererへ委譲します。Selectorは所有ルールへの参照を借りるため、`DiscountRuleSet` はコピーを禁止します。施策追加は具体ルールと所有・登録へ閉じ、入力語彙が増える場合だけ定数とシナリオデータも変わります。
 
 ---
 
@@ -2744,17 +2771,6 @@ graph TD
 | 再結合 | `DiscountRuleSet` が具体を所有・登録し、選択結果を計算側へ渡す |
 | 結果 | 逐次割引と排他条件はルール側へ閉じ、顧客取得失敗は別境界に保つ |
 
-## 振り返り
-
-### 「この章を読むと得られること」は手に入ったか
-
-| 持ち帰る構造判断 | この章で確認した根拠 |
-|---|---|
-| 変動と安定の切り分け | フェーズ2・3：割引ルールを変え、購入とプレビューを守る |
-| 変更が広がる原因の特定 | フェーズ4：計算側が条件・式・優先順を知る依存 |
-| 契約と再結合の設計 | フェーズ6：共通契約→所有・登録→選択→受け渡し |
-| 効果と適用可否の検証 | フェーズ6・7：継続追加を根拠に分離し、変更先を検証 |
-
 ## あなたのコードで考えてみてください
 
 題材名を自分のシステムへ置き換え、次の順で構造を確かめてください。
@@ -2822,10 +2838,11 @@ classDiagram
 
 ### この章のまとめ
 
-#### 構造の着目点
+冒頭で掲げた四つを、この章で得た判断として確認します。
 
-一つの条件分岐が、具体を選ぶ判断と、具体ごとの処理内容を同時に知っていないかを見ます。さらに、選択の条件と処理の入力が同じかを分けて確認します。
+- **得られること1：変動と安定の切り分け。** 割引条件・計算式・優先順を変わる側、小計計算から購入・プレビューへ結果を渡す流れを守る側として切り分けました。
+- **得られること2：変更が広がる原因の特定。** `PaymentCalculator` が販促方針と競合方針まで抱えていたため、新しい割引で既存割引と注文計算まで開くと説明できました。
+- **得られること3：契約と再結合の設計。** 条件と計算を `IDiscountRule` の具体へ分け、`DiscountRuleSet` が所有と優先順を管理し、選ばれた契約を `PaymentCalculator` へ渡す構造にしました。
+- **得られること4：効果と適用可否の検証。** 割引追加の影響が具体ルールとルール構成へ閉じたことを確認し、追加が続かないなら単純な分岐を選ぶ判断基準も示しました。
 
-#### 構造の変更点
-
-同じ理由で変わる選択条件と処理を一つの具体へまとめ、守る側は共通契約だけを使います。具体の生成・所有・優先順は組み立て側へ置き、利用側へ戻さないことが再結合の要点です。
+この四つがそろうことで、条件分岐を機械的にクラスへ移すのではなく、変更理由と影響範囲を根拠にStrategyを採用するか判断できます。
