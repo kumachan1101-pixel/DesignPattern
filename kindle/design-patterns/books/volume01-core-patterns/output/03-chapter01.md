@@ -1057,19 +1057,19 @@ flowchart TB
 
 フェーズ2「仮説立案」で「今変わること（確定）」と「将来変わるかもしれないこと（リスク）」を分けて整理できました。次はリスクをもう少し具体的な「仕様の変化」として整理します。
 
-### 2-5：変わる見込みと今回維持する範囲を確定する
+### 2-5：問題特定で使う観察条件を確定する
 
-ヒアリングで挙げたリスクIDを、設計で扱う変化軸へ整理します。ここで「はい」とした項目は、機能を先に実装するという意味ではありません。フェーズ6で、**変わる側を当面守る部分から分離し、その変化が起きても影響を局所化できる構造か**を判断するための印です。
+フェーズ3で試す変更と、そのとき維持する動作を確定します。分離する責任と境界は、痛みと原因を確認した後のフェーズ5で確定します。ここでそろえるのは、変更を現状構造へ当てたとき、維持する動作を担うコードまで修正・確認が広がるかを観測する条件です。
 
-| このコードが持っているもの | 変わると見込む根拠 | どちら側か |
+| 仕様・動作 | 判断根拠 | フェーズ3での扱い |
 |---|---|---|
-| どの割引を当てるかの条件 | リスクID1：新しい割引が毎月増える | **変わる** |
-| 割引額の計算式 | リスクID2：定額クーポンの企画がある | **変わる** |
-| 商品単価を順に足して小計を出す | どちらのリスクでも触らない | **守る** |
-| 割引前金額の受け渡しと結果表示 | どちらのリスクでも触らない | **守る** |
-| 注文処理の流れ | どちらのリスクでも触らない | **守る** |
+| どの割引を当てるかの条件 | 変更ID1。リスクID1から今後も追加が見込まれる | 変更を試す |
+| 割引額の計算式と適用順 | 変更ID2。リスクID2から計算方法の追加も見込まれる | 変更を試す |
+| 商品単価を順に足して小計を出す | 今回の変更依頼に含まれない | 動作を維持する |
+| 割引前金額を渡し、結果を表示する | 今回の変更依頼に含まれない | 動作を維持する |
+| 注文を受けて結果を返す流れ | 今回の変更依頼に含まれない | 動作を維持する |
 
-したがって変わる側と守る側を分けた結果は、「割引ルールと計算式は差し替え対象にし、小計の合算から結果表示までの流れは守る」という設計条件です。フェーズ3「問題特定」では変更ID1（サマーセール追加）・変更ID2（逐次割引）だけを現在の構造へ適用し、このリスクIDはフェーズ6で採用構造を評価するときに使います。
+フェーズ3では変更ID1（サマーセール追加）・変更ID2（逐次割引）だけを現状構造へ適用し、小計の合算・結果表示・注文処理の動作を維持したまま、修正と確認がどこまで広がるかを観測します。リスクID1（割引ルールが毎月増える）・リスクID2（定額引きへ変わる）は実装せず、フェーズ6へ構造評価の材料として引き継ぎます。
 
 ---
 
@@ -1081,14 +1081,12 @@ flowchart TB
 
 ### 3-1：変更を試みる
 
-フェーズ2で確定した「割引ルールと計算式は変える側、小計の合算から結果表示までは守る側」という区分を引き継ぎます。「サマーセール：Regular会員に5%オフを追加」を**構造は今のまま**当て、守る側まで開くかを観測します。
+フェーズ2で確定した変更ID1（サマーセール追加）・変更ID2（逐次割引）と、「小計の合算・結果表示・注文処理の動作を維持する」という観察条件を引き継ぎます。「サマーセール：Regular会員に5%オフを追加」を**構造は今のまま**当て、維持する動作を担うコードまで修正・確認が広がるかを観測します。
 
 `Item`、`Order`、`CustomerInfo`、`CustomerDatabase`、`CartPreviewService`、`OrderProcessor` は現状のまま使えます。手が入るのは、入力型、計算本体、入力値を組み立てる `main()` の3箇所です。
 
-| 変更ID | 仮に変更するコード | 変更内容 |
-|---|---|---|
-| 変更ID1（サマーセール追加） | `CampaignContext`、`PaymentCalculator`、`main()` | 有効状態を入力へ加え、対象判定と5%引きを足し、サマーセール中の入力を渡す |
-| 変更ID2（逐次割引） | `PaymentCalculator`、`main()` | 既存10%引きの結果へ5%引きを続けて適用する分岐を足し、重複時の入力を確認する |
+- **変更ID1（サマーセール追加）**では、`CampaignContext`へ有効状態を加え、`PaymentCalculator`へ対象判定と5%引きを足し、`main()`からサマーセール中の入力を渡します。
+- **変更ID2（逐次割引）**では、`PaymentCalculator`へ既存10%引きの後に5%引きを適用する分岐を足し、`main()`から重複条件を与えます。
 
 ---
 
@@ -1260,29 +1258,31 @@ graph TD
 
 フェーズ3で、問題ID1（既存割引まで修正）と、その問題が起きた変更途中の `PaymentCalculator::calculate()` は特定できました。フェーズ4ではこの結果を入力にし、なぜ既存割引と注文計算まで修正対象になったのかを、責任の配置から調べます。
 
-### 4-1：問題箇所に混在する責任を特定する
+### 4-1：責任の混在を原因として確定する
 
-責任は、今回の作業項目ではなく、同じ業務上の理由で変わる仕事のまとまりです。仕事が増えた数だけ責任を増やすのではありません。ここでは `PaymentCalculator` が以前から担っている仕事を、変更理由の違いで三つに分けて捉えます。
+責任は、同じ業務上の理由で一緒に変わる仕事のまとまりです。問題が起きた `PaymentCalculator` をこの粒度で見ると、変更を試した時点では次の構造になっています。
 
-1行が一つの責任です。左から、問題が起きたコードで担うこと、今回の変更との関係を読みます。直接変わるのは責任の名前ではなく、その責任が担うルールや処理です。
+**対策前：変更を現状構造へ当てた状態**
 
-| 責任 | 問題が起きたコードで担うこと | 今回の変更との関係 |
-|---|---|---|
-| 販促方針 | 会員・セール条件から割引可否と金額を決める | この責任内のルールが、サマー割引と重複割引で直接変わった |
-| 競合方針 | 複数の割引候補から適用順を決める | この責任内のルールが、重複時の優先順で直接変わった |
-| 注文計算 | 商品小計へ選ばれた割引結果を反映する | この責任内のルールは変わらないが、同じメソッドにあるため確認対象になった |
+```mermaid
+classDiagram
+    %% provisional-role-diagram
+    direction TB
+    class TrialCalculator["PaymentCalculator（対策前）"]:::current {
+        <<一つのクラスに同居>>
+        責任：注文計算
+        責任：販促方針
+        責任：競合方針
+    }
 
-新しい責任が三つ増えたのではありません。変更理由の違う三つの責任が、同じ `calculate()` に置かれていたことが見えました。
+    classDef current fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
+```
 
-### 4-2：責任の同居を原因として確定する
+販促方針は割引の可否と金額、競合方針は複数割引の適用順、注文計算は小計へ割引結果を反映する責任です。今回、販促方針と競合方針のルールは直接変わりました。注文計算のルールは変わりませんが、三つが同じ `calculate()` にあるため修正・確認へ巻き込まれました。
 
-前の表で分かったのは、`PaymentCalculator` が変更理由の違う責任を三つ持つことです。ここから、その同居が前節で確認した変更影響を生んだかを `calculate()` で確認します。
+**原因ID1（注文計算と販促方針が同じクラスにある）。** 割引ごとの条件と計算が、小計を作って返す処理の中にあります。この配置が問題ID1（既存割引まで修正）を生みました。
 
-**原因ID1（注文計算と販促方針が同じクラスにある）。** 割引ごとの条件と計算が、小計を作って返す処理の中にあります。そのため、Regular会員のサマー5%割引への対応で、既存の注文計算まで直しました。
-
-**原因ID2（注文計算と競合方針が同じクラスにある）。** どの割引を優先するかが、同じ `if-else` の並び順で決まります。そのため、新しい割引の追加で既存条件の順序まで読み直しました。
-
-二つとも、問題ID1（既存割引まで修正）の原因です。
+**原因ID2（注文計算と競合方針が同じクラスにある）。** どの割引を優先するかが、同じ `if-else` の並び順で決まります。この配置も問題ID1（既存割引まで修正）を生みました。
 
 > **問い1：同じ場所に、別々の理由で変わるものがないか**
 >
@@ -1302,23 +1302,7 @@ graph TD
 
 **原因ID2への対応。** 競合方針を注文計算から分けます。注文計算は優先順を判断せず、選ばれた販促方針だけを使います。
 
-条件だけを外しても注文計算に割引式が残り、具体的な販促名と優先順を残しても原因は消えません。そこで、変更試行後の同居構造を、次の責任配置へ変えます。
-
-**対策前：変更を現状構造へ当てた状態**
-
-```mermaid
-classDiagram
-    %% provisional-role-diagram
-    direction TB
-    class TrialCalculator["PaymentCalculator（対策前）"]:::current {
-        <<一つのクラスに同居>>
-        責任：注文計算
-        責任：販促方針
-        責任：競合方針
-    }
-
-    classDef current fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
-```
+条件だけを外しても注文計算に割引式が残り、具体的な販促名と優先順を残しても原因は消えません。そこで、フェーズ4の対策前図を、次の責任配置へ変えます。
 
 **目標：変化理由の異なる責任を分けてつなぐ**
 
@@ -1328,12 +1312,15 @@ classDiagram
     direction TB
     class OrderCalculation["注文計算"]:::current {
         <<維持する責任>>
+        責任：注文計算
     }
     class PromotionPolicy["① 販促方針"]:::separated {
         <<分ける責任>>
+        責任：販促方針
     }
     class ConflictPolicy["② 競合方針"]:::separated {
         <<分ける責任>>
+        責任：競合方針
     }
     OrderCalculation --> ConflictPolicy : 選択を依頼して方針を受け取る
     ConflictPolicy --> PromotionPolicy : 適用可否を確認する
@@ -1394,37 +1381,41 @@ classDiagram
 
 フェーズ5では、販促方針と競合方針を注文計算から分けるところまで決めました。ここからは、販促方針の契約、施策ごとの具体、競合順を持つ場所、実体の生成・所有、二つの利用側への受け渡し、実行の順にC++の構造へ変えます。
 
-完成した答えを先に表へ置かず、各判断を部分クラス図と対応コードで確定します。すべてを接続した完成クラス図はフェーズ7で確認します。
+フェーズ5の目標図で使った責任名を、C++のクラス名へ置き換えると次の対応になります。
+
+```mermaid
+classDiagram
+    direction TB
+    class OrderCalculation["OrderProcessor / PaymentCalculator"]:::current {
+        責任：注文計算
+    }
+    class PromotionPolicy["IDiscountRule / 各具体施策"]:::separated {
+        責任：販促方針
+    }
+    class ConflictPolicy["DiscountRuleSet / RuleSelector"]:::separated {
+        責任：競合方針
+    }
+    OrderCalculation --> ConflictPolicy : 選択を依頼して方針を受け取る
+    ConflictPolicy --> PromotionPolicy : 適用可否を確認する
+    OrderCalculation --> PromotionPolicy : 金額を渡して結果を受け取る
+
+    classDef separated fill:#eaf2fb,stroke:#527aa3,stroke-width:2px,color:#172033;
+    classDef current fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
+```
+
+図の「注文計算」「販促方針」「競合方針」はフェーズ5と同じ責任名です。ここから、各責任を表す契約・操作・所有・受け渡しを部分クラス図と対応コードで確定します。すべてを接続した完成クラス図はフェーズ7で確認します。
 
 ### 構想をコードでつなぐ
 
-変更前の分岐と、契約→具体→所有・登録→選択・受け渡し→実行の要点コードだけを比べます。全体コードはフェーズ7で確認します。
+責任配置図を主にし、契約→具体→所有・登録→選択・受け渡し→実行を成立させる要点だけをコードで確かめます。全体コードはフェーズ7で確認します。
 
-#### 契約：課題の入出力をC++の型と操作にする
+#### 契約：販促方針の入出力をC++の型と操作にする
 
 > **問い2：境界では、何を約束すれば足りるか**
 >
 > フェーズ5で確定した入力と結果を、C++のどの型と操作で表せばよいかを決めます。業務上の入出力は、ここでは増減させません。
 
 実際に枝の追加と並べ替えが起き、追加も続くため、分岐を関数へ移すだけでは足りません。条件と式を施策単位で増やせるクラス契約まで分けます。
-
-**変更前から抜き出す箇所：`PaymentCalculator::calculate(const Order&, const string&, const CampaignContext&)`** ―― 変更を試したときに変更要求を当てた後の割引判定部分（対策前）
-
-```cpp
-// サマーセール対応：Regular会員向けに条件を追加
-// ← 出て行く側（対象条件）
-if (memberType == "Premium") {
-    // ← 出て行く側（計算式）
-    total = total * 80 / 100;
-} else if (context.isSummerSale && context.isCampaignActive) {
-    // 逐次割引（Regular会員）
-    total = (total * 90 / 100) * 95 / 100;
-} else if (context.isSummerSale) {
-    total = total * 95 / 100;
-} else if (context.isCampaignActive) {
-    total = total * 90 / 100;
-}
-```
 
 課題ID1（販促方針の境界）で確定した接続は、「会員種別・施策状態・適用前金額を渡し、適用可否・適用後金額を返す」です。これをC++では、判定を `matches(memberType, context) -> bool`、計算を `apply(total) -> int` と表します。条件と計算を同じ施策へ置き、複数の具体施策を同じ形で増やすため、二つの操作を `IDiscountRule` というクラス契約にまとめます。
 
@@ -1437,15 +1428,18 @@ classDiagram
     direction TB
     class PaymentCalculator:::touched {
         <<changed>>
+        責任：注文計算
     }
     class IDiscountRule:::added {
         <<new>>
         <<interface>>
+        責任：販促方針
         +matches(memberType, context) bool
         +apply(total) int
     }
     class PremiumDiscount:::added {
         <<new>>
+        責任：販促方針
     }
     PaymentCalculator --> IDiscountRule : 契約だけを使う
     IDiscountRule <|.. PremiumDiscount : 実現
@@ -1471,23 +1465,7 @@ public:
 
 `matches()` と `apply()` は、どちらも課題ID1（販促方針の境界）です。同じ施策の条件と計算なので、一つの契約に置きます。課題ID2（競合方針の分離）は、このあと生成・登録の箇所で確認します。
 
-**ここで確認するコード：`PremiumDiscount`（クラス全体）** ―― プレミアム会員向け
-
-```cpp
-class PremiumDiscount : public IDiscountRule {
-public:
-    bool matches(const std::string& memberType,
-                 const CampaignContext&) const override {
-        return memberType == MemberType::Premium;
-    }
-
-    int apply(int total) const override {
-        return total * 80 / 100;
-    }
-};
-```
-
-`PremiumDiscount` は会員種別だけで対象を判断し、`apply()` は金額だけを返します。施策状態を使わず、表示・保存も持ちません。変更前の一つの枝が、同じ施策クラス内の条件と式に分かれました。
+具体施策はこの契約の裏へ条件と式を一組で置きます。`PremiumDiscount` はPremium会員に一致して20%引きし、逐次割引を受け持つ `SummerSaleAndCampaignDiscount` はRegular会員かつ二施策が有効な場合に10%引き、続けて5%引きします。どちらも注文計算・表示・競合順を持ちません。実装本体はフェーズ7で並べます。
 
 ---
 
@@ -1495,28 +1473,7 @@ public:
 
 #### 具体：契約の裏へ変わる判断を置く
 
-施策ごとの真偽値フィールドを残すと、追加のたびに入力型と契約が変わります。そこで `CampaignContext` は施策コードを保持し、具体ルールが `isActive()` で問い合わせます。複数条件と逐次計算を持つ実装を一つ確認します。
-
-**ここで確認するコード：`SummerSaleAndCampaignDiscount`（クラス全体）** ―― 変更要求で生まれた逐次割引
-
-```cpp
-class SummerSaleAndCampaignDiscount : public IDiscountRule {
-public:
-    bool matches(const std::string& memberType,
-                 const CampaignContext& context)
-                 const override {
-        return memberType == MemberType::Regular
-            && context.isActive(CampaignCode::SummerSale)
-            && context.isActive(CampaignCode::RegularCampaign);
-    }
-
-    int apply(int total) const override {
-        return (total * 90 / 100) * 95 / 100;
-    }
-};
-```
-
-変更前は上位の `Premium` 分岐に隠れていた一般会員条件も、このクラス内へ明示されました。ほかの具体との違いは次の一覧で足ります。
+施策ごとの真偽値フィールドを残すと、追加のたびに入力型と契約が変わります。そこで `CampaignContext` は施策コードを保持し、具体ルールが `isActive()` で問い合わせます。具体ごとの差は次の一覧で確認できます。
 
 | 登録順 | 施策クラス | 当てはまる条件 | 3-1での対応箇所 |
 |---|---|---|---|
@@ -1545,19 +1502,24 @@ classDiagram
     direction TB
     class DiscountRuleSet:::added {
         <<new>>
+        責任：競合方針
     }
     class PremiumDiscount:::added {
         <<new>>
+        責任：販促方針
     }
     class RuleSelector:::added {
         <<new>>
+        責任：競合方針
     }
     class IDiscountRule:::added {
         <<new>>
         <<interface>>
+        責任：販促方針
     }
     class OrderProcessor:::touched {
         <<changed>>
+        責任：注文計算
     }
     DiscountRuleSet *-- PremiumDiscount : 生成・所有
     DiscountRuleSet *-- RuleSelector : 所有
@@ -1570,7 +1532,7 @@ classDiagram
 
 図の所有・借用・受け渡しが、次のメンバー保持と `add()` に対応します。
 
-**ここで確認するコード：`RuleSelector`（クラス宣言・完成）**
+**ここで確認するコード：`RuleSelector`** ―― 借用参照の保持と選択操作
 
 ```cpp
 class RuleSelector {
@@ -1591,36 +1553,21 @@ C++の`vector`には参照を直接入れられないため、`reference_wrapper
 
 具体ルールのメンバー宣言が所有、コンストラクタの `add()` が優先順の登録です。
 
-**ここで確認するコード：`DiscountRuleSet`（クラス全体）** ―― 具体ルールの所有と優先順の登録
+**ここで確認するコード：`DiscountRuleSet`** ―― 所有メンバーとコンストラクタ内の登録
 
 ```cpp
-class DiscountRuleSet {
-private:
-    PremiumDiscount premium;
-    SummerSaleAndCampaignDiscount summerAndCampaign;
-    SummerSaleDiscount summer;
-    CampaignDiscount campaign;
-    NoDiscount none;
-    RuleSelector ruleSelector;
-public:
-    DiscountRuleSet() {
-        // Premiumは他施策と併用しない
-        ruleSelector.add(premium);
-        ruleSelector.add(summerAndCampaign); // 複合条件を単独条件より先にする
-        ruleSelector.add(summer);
-        ruleSelector.add(campaign);
-        ruleSelector.add(none);              // 必ず一致するため最後にする
-    }
+PremiumDiscount premium;
+SummerSaleAndCampaignDiscount summerAndCampaign;
+SummerSaleDiscount summer;
+CampaignDiscount campaign;
+NoDiscount none;
+RuleSelector ruleSelector;
 
-    // ルールの実体はこのクラスが所有し、Selectorはその参照だけを持つ。
-    // コピーすると複製側のSelectorが元の実体を指したままになるため、禁じる。
-    DiscountRuleSet(const DiscountRuleSet&) = delete;
-    DiscountRuleSet& operator=(const DiscountRuleSet&) = delete;
-
-    const RuleSelector& selector() const {
-        return ruleSelector;
-    }
-};
+ruleSelector.add(premium);
+ruleSelector.add(summerAndCampaign);
+ruleSelector.add(summer);
+ruleSelector.add(campaign);
+ruleSelector.add(none);
 ```
 
 > **優先順の表現。** 変更者が限られ、変更も年数回なので、数値優先度ではなく登録順と隣接コメントで理由を示します。頻繁に並べ替える運用なら、明示的な優先度を検討します。
@@ -1646,59 +1593,16 @@ public:
 
 計算は`PaymentCalculator`へ一度だけ任せます。表示に必要な小計まで`OrderProcessor`で再計算すると、注文計算の責任が二つのクラスへ重複します。そこで計算器は、小計と支払金額を一組にした結果を返します。
 
-**ここで確認するコード：`PaymentResult`（型全体）** ―― 計算器から表示へ渡す二つの金額
+`PaymentResult` は計算器から表示へ、割引前小計と支払金額を一組で返す値です。構造上の接続は、`OrderProcessor::process()` の次の行で確認します。
+
+**ここで確認するコード：`OrderProcessor::process()`** ―― 選択、受け渡し、実行
 
 ```cpp
-struct PaymentResult {
-    int subtotal;
-    int finalPrice;
-};
-```
-
-**ここで確認するコード：`OrderProcessor`（クラス全体）** ―― 選択からCalculatorの実行まで
-
-```cpp
-class OrderProcessor {
-private:
-    CustomerDatabase& db;
-    CheckoutResultRenderer& renderer;
-    const RuleSelector& selector;
-public:
-    OrderProcessor(CustomerDatabase& db,
-                   CheckoutResultRenderer& renderer,
-                   const RuleSelector& selector)
-        : db(db), renderer(renderer), selector(selector) {}
-
-    void process(const Order& order,
-                 const CampaignContext& context) {
-        if (!db.exists(order.customerId)) {
-            renderer.showUnknownCustomer(order.customerId);
-            return;
-        }
-
-        if (order.items.empty()) {
-            renderer.showEmptyOrder();
-            return;
-        }
-
-        CustomerInfo customer;
-        try {
-            customer = db.get(order.customerId);
-        } catch (const std::exception&) {
-            renderer.showCustomerLookupFailure();
-            return;
-        }
-
-        const IDiscountRule& rule =
-            selector.select(customer.memberType, context);
-        PaymentCalculator calculator(rule);
-
-        const PaymentResult payment =
-            calculator.calculate(order);
-        renderer.showOrderResult(customer, order, context,
-                                 payment);
-    }
-};
+const IDiscountRule& rule =
+    selector.select(customer.memberType, context);
+PaymentCalculator calculator(rule);
+const PaymentResult payment = calculator.calculate(order);
+renderer.showOrderResult(customer, order, context, payment);
 ```
 
 `select()` は登録済みルールを選ぶだけです。次の `PaymentCalculator calculator(rule)` が選択結果を注入し、計算結果を既存の表示境界へ渡します。`OrderProcessor`は金額計算も表示も行わず、注文確定の順序だけを進めます。選択と注入も同じ操作として扱いません。
@@ -1711,24 +1615,15 @@ public:
 
 ##### Calculatorから選択済みルールを呼ぶ
 
-**ここで確認するコード：`PaymentCalculator`（クラス全体）** ―― 小計から具体ルールの実行まで
+**ここで確認するコード：`PaymentCalculator::calculate()`** ―― 小計から契約の実行まで
 
 ```cpp
-class PaymentCalculator {
-private:
-    const IDiscountRule& rule;
-public:
-    explicit PaymentCalculator(const IDiscountRule& r)
-            : rule(r) {}
-
-    PaymentResult calculate(const Order& order) const {
-        int subtotal = 0;
-
-        for (const auto& item : order.items) subtotal +=
-            item.price;
-        return PaymentResult{subtotal, rule.apply(subtotal)};
-    }
-};
+PaymentResult PaymentCalculator::calculate(
+        const Order& order) const {
+    int subtotal = 0;
+    for (const auto& item : order.items) subtotal += item.price;
+    return PaymentResult{subtotal, rule.apply(subtotal)};
+}
 ```
 
 `rule` はルール集合が所有し、Selectorが選んだ同じ実体です。Calculatorは具体名を知らず、小計を求めて `apply()` だけを呼び、小計と支払金額を返します。顧客照合、公開入口、表示内容は変えません。
@@ -1736,15 +1631,6 @@ public:
 ### 構想を確定する
 
 販促施策を注文計算へ残す形や、具体的な施策名と優先順を選択処理へ固定する形では原因が残ります。原因を二つともなくす構造はここまでで一つに定まり、フェーズ7で統合図と完成コードを示します。
-
-#### 課題から確定した構想までを照合する
-
-1行が一つの課題です。フェーズ5で分けた責任を、どの構造とコードで実現するかを左から確認します。
-
-| 課題 | 決定した構造 | コード上の実現 |
-|---|---|---|
-| 課題ID1（販促方針の境界） | 販促方針を共通契約の後ろへ置く | `IDiscountRule`と各施策クラス |
-| 課題ID2（競合方針の分離） | 競合順を注文計算・選択処理の外で保持する | `DiscountRuleSet`の登録順と`RuleSelector` |
 
 会員情報の取得は `CustomerDatabase`、購入結果の表示は `CheckoutResultRenderer` の既存契約を維持します。
 

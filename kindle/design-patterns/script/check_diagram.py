@@ -97,16 +97,25 @@ def check(config_path: Path) -> int:
             continue
         text = path.read_text(encoding="utf-8")
 
-        # 図は、同じフェーズに載っているコードと対で読む。フェーズ1の図は現状
-        # コードを、フェーズ7の完成図は完成コードを指す。ここを混ぜると、
-        # 同名クラスの別バージョンと突き合わせて誤検出になる。
+        # 図は、原則として同じフェーズに載っているコードと対で読む。フェーズ1の
+        # 図は現状コード、フェーズ7の完成図は完成コードを指す。フェーズ6だけは
+        # 構造判断を部分図で示し、完全なクラス定義をフェーズ7へ置くため、
+        # フェーズ6と7のコードを合わせて関係を検証する。
         marks = [0] + [m.start() for m in re.finditer(r"^## [🔵🟣🟠🟡🔴🟢]", text, re.M)]
         marks.append(len(text))
 
         def phase_code(position: int) -> str:
             start = max(m for m in marks if m <= position)
             end = min((m for m in marks if m > position), default=len(text))
-            return "\n".join(re.findall(r"```cpp\n(.*?)```", text[start:end], re.S))
+            section = text[start:end]
+            if "フェーズ6：対策検討" in section:
+                phase7_start = end
+                phase7_end = min(
+                    (m for m in marks if m > phase7_start),
+                    default=len(text),
+                )
+                section = text[start:phase7_end]
+            return "\n".join(re.findall(r"```cpp\n(.*?)```", section, re.S))
 
         for diagram in re.finditer(r"```mermaid\nclassDiagram\n(.*?)```", text, re.S):
             # フェーズ6冒頭の仮名による責任図は、これから型へ変換する判断材料であり、

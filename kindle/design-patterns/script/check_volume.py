@@ -209,15 +209,23 @@ def text_between(text: str, start: str, end: str) -> str:
     return text[start_index:end_index]
 
 
+def phase6_contract_section(text: str) -> str:
+    """フェーズ6の章固有名を含む契約見出しから、生成節の直前までを返す。"""
+    phase6 = text_between(text, "フェーズ6：対策検討", "フェーズ7：対策実施")
+    match = re.search(r"^#### 契約：[^\n]+$", phase6, re.M)
+    if not match:
+        return ""
+    end = phase6.find("#### 生成・所有・受け渡しを決める", match.end())
+    if end < 0:
+        return ""
+    return phase6[match.end():end]
+
+
 def three_question_placement_issues(text: str) -> list[str]:
     """実践章で三つの問いが判断の直前・直後にあるかを返す。"""
     issues: list[str] = []
     phase4 = text_between(text, "フェーズ4：原因分析", "フェーズ5：課題定義")
-    contract = text_between(
-        text,
-        "#### 契約：課題の入出力をC++の型と操作にする",
-        "#### 生成・所有・受け渡しを決める",
-    )
+    contract = phase6_contract_section(text)
     generation = text_between(
         text,
         "#### 生成・所有・受け渡しを決める",
@@ -237,11 +245,7 @@ def three_question_placement_issues(text: str) -> list[str]:
 
 def contract_translation_issues(text: str) -> list[str]:
     """フェーズ6の契約節が、フェーズ5の接続を再定義していないか返す。"""
-    contract = text_between(
-        text,
-        "#### 契約：課題の入出力をC++の型と操作にする",
-        "#### 生成・所有・受け渡しを決める",
-    )
+    contract = phase6_contract_section(text)
     if not contract:
         return []
 
@@ -278,6 +282,11 @@ def phase_internal_checkpoint_issues(text: str) -> list[str]:
     expected = (
         (phase1, "フェーズ1の確認観点：", "フェーズ1の現状把握"),
         (phase2, "フェーズ2の確認観点：", "フェーズ2の仮説立案"),
+        (
+            phase2,
+            "### 2-5：問題特定で使う観察条件を確定する",
+            "フェーズ2の観察条件確定",
+        ),
         (phase3, "フェーズ3の確認観点：", "フェーズ3の変更試行"),
         (
             phase3,
@@ -286,13 +295,8 @@ def phase_internal_checkpoint_issues(text: str) -> list[str]:
         ),
         (
             phase4,
-            "### 4-1：問題箇所に混在する責任を特定する",
-            "フェーズ4の混在する責任の特定",
-        ),
-        (
-            phase4,
-            "### 4-2：責任の同居を原因として確定する",
-            "フェーズ4の原因確定",
+            "### 4-1：責任の混在を原因として確定する",
+            "フェーズ4の責任配置と原因確定",
         ),
         (
             phase5,
@@ -308,11 +312,32 @@ def phase_internal_checkpoint_issues(text: str) -> list[str]:
         (phase7, "フェーズ7の確認観点：", "フェーズ7の効果確認"),
     )
 
-    return [
+    issues = [
         f"第0章の確認観点が{location}にありません: {marker}"
         for section, marker, location in expected
         if marker not in section
     ]
+    phase25_heading = "### 2-5：問題特定で使う観察条件を確定する"
+    phase25_start = phase2.find(phase25_heading)
+    phase25 = (
+        phase2[phase25_start + len(phase25_heading):]
+        if phase25_start >= 0
+        else ""
+    )
+    if phase25 and not all(
+        marker in phase25
+        for marker in ("変更ID", "動作を維持", "リスクID", "フェーズ6")
+    ):
+        issues.append(
+            "2-5は、フェーズ3で試す変更ID・今回維持する動作・"
+            "フェーズ6へ持ち越すリスクIDを区別してください"
+        )
+    for phrase in ("差し替え対象にし", "変えられるようにし", "設計条件です"):
+        if phrase in phase25:
+            issues.append(
+                f"2-5が課題定義を先取りしています。構造判断はフェーズ5へ移してください: {phrase}"
+            )
+    return issues
 
 
 CPP_TOP_LEVEL_DEFINITION = re.compile(
@@ -489,8 +514,7 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         issues.append("実行ケースに旧表現が残っています。コードと結果を`ケースN`へ統一してください")
 
     phase45_headings = (
-        "### 4-1：問題箇所に混在する責任を特定する",
-        "### 4-2：責任の同居を原因として確定する",
+        "### 4-1：責任の混在を原因として確定する",
         "### 5-1：原因をなくす責任配置を決める",
         "### 5-2：課題と完了条件を確定する",
     )
@@ -498,18 +522,33 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         if text.count(heading) != 1:
             issues.append(f"フェーズ4・5の共通見出しがありません、または重複しています: {heading}")
 
+    if "### 4-2：" in text:
+        issues.append("フェーズ4の責任特定と原因確定が分断されています。4-1の図と説明へまとめてください")
+
+    old_responsibility_header = "| 責任 | 問題が起きたコードで担うこと | 今回の変更との関係 |"
+    if old_responsibility_header in text:
+        issues.append("フェーズ4の責任表が残っています。対策前の部分クラス図と短い説明へ置き換えてください")
+
+    phase3 = text_between(text, "フェーズ3：問題特定", "フェーズ4：原因分析")
+    phase31 = text_between(phase3, "### 3-1：変更を試みる", "### 3-2：")
+    trial_summary_headers = (
+        "| 変更ID | 仮に変更するコード | 変更内容 |",
+        "| 変更ID | 現状構造へ加える振る舞い | 開く必要があるコード |",
+        "| 追加する仕様 | 修正対象 | 必要な変更 |",
+    )
+    if any(header in phase31 for header in trial_summary_headers):
+        issues.append(
+            "3-1に変更内容を予告する表があります。変更IDと維持する動作を短い文章で受け、"
+            "変更途中コードへ直接進んでください"
+        )
+
     for header in (
-        "| 責任 | 問題が起きたコードで担うこと | 今回の変更との関係 |",
         "| 観測した問題 | 確定した原因 | 課題で目指す状態 |",
     ):
         if header not in text:
             issues.append(f"原因分析・課題定義の標準表がありません: {header}")
 
     table_guides = (
-        (
-            "| 責任 | 問題が起きたコードで担うこと | 今回の変更との関係 |",
-            ("1行", "問題が起きたコード"),
-        ),
         ("| 観測した問題 | 確定した原因 | 課題で目指す状態 |", ("1行", "原因")),
     )
     for header, guide_words in table_guides:
@@ -522,25 +561,10 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
                 f"表の直前に1行の単位と列の読み方がありません: {header}"
             )
 
-    responsibility_header = "| 責任 | 問題が起きたコードで担うこと | 今回の変更との関係 |"
-    responsibility_position = text.find(responsibility_header)
-    if responsibility_position >= 0:
-        responsibility_lines = text[responsibility_position:].splitlines()[2:]
-        for line in responsibility_lines:
-            if not line.startswith("|"):
-                break
-            cells = [cell.strip() for cell in line.strip("|").split("|")]
-            if len(cells) >= 3 and not re.search(
-                r"(?:直接|巻き込|確認対象)", cells[2]
-            ):
-                issues.append(
-                    "今回の変更との関係を、責任内のルール・処理が直接変わったのか、"
-                    "同居のため別責任が巻き込まれた／確認対象になったのか分かる形で書いてください"
-                )
-                break
-
+    phase4_start = text.find("フェーズ4：原因分析")
     phase5_start = text.find("フェーズ5：課題定義")
     phase6_start = text.find("フェーズ6：対策検討", phase5_start)
+    phase4 = text[phase4_start:phase5_start] if 0 <= phase4_start < phase5_start else ""
     phase5 = text[phase5_start:phase6_start] if 0 <= phase5_start < phase6_start else ""
     task_cards = re.findall(
         r"^#### 課題ID\d+（[^）]+）の完了条件\s*$(.*?)(?=^#### |^## )",
@@ -620,16 +644,35 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
     if 0 <= phase5_start < phase6_start and "```cpp" in text[phase5_start:phase6_start]:
         issues.append("フェーズ5に最終コードがあります。値・操作・結果を確定し、型名とC++はフェーズ6で導いてください")
 
-    if phase5.count("%% provisional-role-diagram") != 2:
-        issues.append("フェーズ5に対策前と目標の責任配置図を1枚ずつ置いてください")
-    if "**対策前：" not in phase5 or "**目標：" not in phase5:
-        issues.append("フェーズ5の二つの責任配置図へ、対策前と目標の見出しを付けてください")
-    elif phase5.find("**対策前：") > phase5.find("**目標："):
-        issues.append("フェーズ5の責任配置図は、対策前、目標の順に並べてください")
+    if phase4.count("%% provisional-role-diagram") != 1 or "**対策前：" not in phase4:
+        issues.append("フェーズ4に、変更を現状構造へ当てた対策前の責任配置図を1枚置いてください")
+    if not all(word in phase4 for word in ("直接", "巻き込", "原因ID", "問題ID")):
+        issues.append("フェーズ4の図の直後で、直接変わった責任、巻き込まれた責任、問題IDを生んだ原因IDを説明してください")
+
+    if phase5.count("%% provisional-role-diagram") != 1:
+        issues.append("フェーズ5に、原因をなくす目標の責任配置図を1枚置いてください")
+    if "**目標：" not in phase5 or "**対策前：" in phase5:
+        issues.append("フェーズ5はフェーズ4の対策前図を受け、目標の責任配置図だけを置いてください")
     if "①" not in phase5:
         issues.append("フェーズ5の目標責任配置図へ番号を付け、課題カードへつないでください")
 
     phase6 = text_between(text, "フェーズ6：対策検討", "フェーズ7：対策実施")
+    phase4_responsibilities = set(re.findall(r"責任：([^\n}]+)", phase4))
+    phase5_responsibilities = set(re.findall(r"責任：([^\n}]+)", phase5))
+    if phase4_responsibilities != phase5_responsibilities:
+        issues.append("フェーズ4の対策前図とフェーズ5の目標図で、責任名または粒度が一致していません")
+    mapping_end = phase6.find("### 構想をコードでつなぐ")
+    phase6_mapping = phase6[:mapping_end] if mapping_end >= 0 else phase6
+    missing_responsibilities = sorted(
+        responsibility
+        for responsibility in phase5_responsibilities
+        if f"責任：{responsibility}" not in phase6_mapping
+    )
+    if missing_responsibilities:
+        issues.append(
+            "フェーズ6の責任→クラス対応図に、フェーズ5の責任名がありません: "
+            + ", ".join(missing_responsibilities)
+        )
     for heading in (
         "### 分離した責任をコードの構造へ変える",
         "### 構想をコードでつなぐ",
@@ -637,13 +680,24 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
     ):
         if phase6.count(heading) != 1:
             issues.append(f"フェーズ6の共通見出しがありません、または重複しています: {heading}")
-    if "| 課題 | 決定した構造 | コード上の実現 |" not in phase6:
-        issues.append("構想確定表を`課題 / 決定した構造 / コード上の実現`へ統一してください")
-    else:
-        position = phase6.find("| 課題 | 決定した構造 | コード上の実現 |")
-        prefix = phase6[max(0, position - 260):position]
-        if "1行" not in prefix or "左から" not in prefix:
-            issues.append("構想確定表の直前に、1行の単位と左から読む順序を書いてください")
+    if (
+        "#### 課題から確定した構想までを照合する" in phase6
+        or "| 課題 | 決定した構造 | コード上の実現 |" in phase6
+    ):
+        issues.append("フェーズ6の責任→クラス対応を繰り返す構想確定表が残っています")
+
+    for code in re.findall(r"```cpp\n(.*?)```", phase6, re.S):
+        if len(code.splitlines()) > 12:
+            issues.append(
+                "フェーズ6に13行以上のコードブロックがあります。構造は部分クラス図で示し、"
+                "コードは契約・所有・受け渡し・実行の最小行へ絞ってください"
+            )
+            break
+    if re.search(r"```cpp\n(?:.*\n)*?class\s+\w+\s*:\s*public\s+", phase6):
+        issues.append(
+            "フェーズ6に具体クラスの処理本文があります。責任と継承関係は部分クラス図で示し、"
+            "具体の完全コードはフェーズ7へ置いてください"
+        )
 
     phase7_start = text.find("フェーズ7：対策実施", phase6_start)
     phase7 = text[phase7_start:] if phase7_start >= 0 else ""
