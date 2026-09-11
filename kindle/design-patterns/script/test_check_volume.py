@@ -47,6 +47,27 @@ class PublicationStyleTests(unittest.TestCase):
         )
         self.assertTrue(any("重複掲載" in issue for issue in issues))
 
+    def test_reader_facing_practical_headings_are_accepted(self) -> None:
+        text = (
+            "# 第1章 題材\n"
+            "### この章で解く設計課題\n"
+            "自然な文章。\n"
+            "## 🔵 フェーズ1\n"
+            "#### 実システムと掲載コードの違い\n"
+        )
+        self.assertEqual([], check_volume.publication_style_issues(text))
+
+    def test_old_practical_headings_are_rejected(self) -> None:
+        text = (
+            "# 第1章 題材\n"
+            "### この章の核心\n"
+            "**場面。** 断片。\n"
+            "**この章での簡略化**\n"
+        )
+        issues = check_volume.publication_style_issues(text)
+        self.assertTrue(any("この章の核心" in issue for issue in issues))
+        self.assertTrue(any("この章での簡略化" in issue for issue in issues))
+
 
 class EarlyMaterialSpoilerTests(unittest.TestCase):
     def test_cpp_example_is_rejected_even_with_unrelated_names(self) -> None:

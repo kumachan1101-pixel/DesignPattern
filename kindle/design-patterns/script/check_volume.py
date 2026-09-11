@@ -57,6 +57,7 @@
   49. フェーズ6の契約が、フェーズ5の業務上の入出力を再定義せずC++へ翻訳している
   50. 掲載C++が`std::`明示へ統一され、`using namespace std;`が混在していない
   51. クラス図の属性・操作を直後の表へ重複掲載していない
+  52. 実践章の冒頭と簡略化説明が、目的の分かる読者向け見出しになっている
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -132,7 +133,7 @@ def prose_lines(text: str) -> list[tuple[int, str]]:
 
 
 def publication_style_issues(text: str) -> list[str]:
-    """全章で統一するC++表記と、クラス図直後の重複を検出する。"""
+    """C++表記、重複説明、実践章の読者向け見出しを検査する。"""
     issues: list[str] = []
     for found in re.finditer(r"^using namespace std;\s*$", text, re.M):
         number = text[: found.start()].count("\n") + 1
@@ -147,6 +148,30 @@ def publication_style_issues(text: str) -> list[str]:
             f"{number}行目: クラス図の属性・操作を直後の表へ重複掲載しています。"
             "図から読み取れる責任と依存を文章でまとめてください"
         )
+    if re.search(r"^#\s+第[1-9][0-9]*章", text, re.M):
+        core = "### この章で解く設計課題"
+        boundary = "#### 実システムと掲載コードの違い"
+        if text.count(core) != 1:
+            issues.append(
+                f"実践章の冒頭見出し `{core}` は1件必要です"
+            )
+        if text.count(boundary) != 1:
+            issues.append(
+                f"現状の代役・省略範囲を示す見出し `{boundary}` は1件必要です"
+            )
+        for old in (
+            "### この章の核心",
+            "**この章での簡略化**",
+            "**場面。**",
+            "**兆候。**",
+            "**判断軸。**",
+        ):
+            if old in text:
+                number = text[: text.index(old)].count("\n") + 1
+                issues.append(
+                    f"{number}行目: 読者向け見出し・文章が旧形式 `{old}` "
+                    "へ戻っています"
+                )
     return issues
 
 
@@ -1741,7 +1766,7 @@ def check(config_path: Path) -> int:
         for issue in contract_translation_issues(text):
             failures.append(f"{path.name}: {issue}")
 
-    # 50-51. C++表記とクラス図説明の重複を冊内で統一する
+    # 50-52. C++表記、重複、読者向け見出しを冊内で統一する
     for path in chapters:
         text = path.read_text(encoding="utf-8")
         for issue in publication_style_issues(text):
