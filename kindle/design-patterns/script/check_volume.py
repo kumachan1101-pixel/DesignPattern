@@ -708,7 +708,7 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         issues.append("フェーズ5に最終コードがあります。値・操作・結果を確定し、型名とC++はフェーズ6で導いてください")
 
     # 仕分け表は2形式を認める。新形式は行に場所と変わり方を持ち、変更理由の一覧を兼ねる。
-    element_table = "| そのクラスがしている仕事 | コードのどこにあるか | 見ている接続情報 |" in phase4
+    element_table = "| 接続情報 | それを見て動く場所 | 今回書き換えたか |" in phase4
     if not element_table and "| 変更理由 | 第0章の型 | 出どころ |" not in phase4:
         issues.append(
             "フェーズ4に、今回と将来の変更理由を第0章の型で並べた一覧がありません"
