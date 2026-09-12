@@ -518,6 +518,7 @@ def check_required_chapter_structures(text: str, path: Path) -> list[Issue]:
                             "1-1に具体例付きの仕様要点表がありません"))
     has_spec_diagram = (
         "仕様整理図" in section11
+        or "**現状：" in section11
         or (
             "システム全体図" in section11
             and "システム内部図" in section11
@@ -536,9 +537,15 @@ def check_required_chapter_structures(text: str, path: Path) -> list[Issue]:
         issues.append(Issue(path, line_number(text, offsets["1-3"]),
                             "1-3の登場クラス表に担当する仕様がありません"))
 
-    if "変更前後の入力・判定・加工・出力差分" not in section15:
+    if "**現状：" not in section11:
+        issues.append(Issue(path, line_number(text, offsets["1-1"]),
+                            "1-1に、業務語で処理のつながりを示す現状図がありません"))
+    if "**変更後：" not in section15:
         issues.append(Issue(path, line_number(text, offsets["1-5"]),
-                            "1-5に変更前後の入出力差分表がありません"))
+                            "1-5に、業務語で処理のつながりを示す変更後図がありません"))
+    if "変更前後の入力・判定・加工・出力差分" in section15:
+        issues.append(Issue(path, line_number(text, offsets["1-5"]),
+                            "分類表ではなく、何を突き合わせて何を作るかを変更後図で示してください"))
     if "```mermaid" not in section15:
         issues.append(Issue(path, line_number(text, offsets["1-5"]),
                             "1-5に変更後の仕様整理図がありません"))
@@ -948,12 +955,14 @@ def check_phase1_system_model_v3(text: str, path: Path) -> list[Issue]:
     issues: list[Issue] = []
 
     whole = section11.find("システム全体図")
-    internal = section11.find("システム内部図")
+    internal = section11.find("**現状：")
+    if internal < 0:
+        internal = section11.find("システム内部図")
     if whole < 0 or internal < 0 or whole > internal:
         issues.append(Issue(
             path,
             line_number(text, s11),
-            "1-1はシステム全体図の後にシステム内部図を置いてください",
+            "1-1はシステム全体図の後に現状の業務フローを置いてください",
         ))
     if path.name in REVIEWED_CHAPTERS and whole >= 0 and internal > whole:
         whole_diagram = section11[whole:internal]

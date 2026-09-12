@@ -34,7 +34,7 @@
  26. 編集の舞台裏（なぜそう書いたか）を本文へ書いていない
  27. はじめに・第0章が実践章の題材・コード・完成構造を先出ししていない
  28. 本文が節番号（1-1、3-2）を道しるべに使っていない（括弧つき・裸の両方）
- 29. 変更図の印が「新規」と「修正」の共通指定にそろっている
+ 29. 変更図の印が「新規」と「修正」の共通指定にそろい、変更内容が読める
  30. 全ノードが同じ印の図で、意味のない着色をしていない
  31. 一つの実行結果ブロックに複数の実行を詰め込んでいない
  32. 配布するファイル一式と本文の分割表が一致している
@@ -50,7 +50,7 @@
   42. ★対応で統一したケース名・要求表・業務ルール・フェーズ4見出しが後戻りしていない
   43. 第0章の各フェーズ内の確認観点と手順が実践章の判断場面にある
   44. C++掲載コードが1型1ブロックで、複数クラス名のまとめ見出しになっていない
-  45. 混在する責任→問題との因果→目標配置→コード構造→完了条件の証拠が一続きになっている
+  45. 変更理由→マトリクス→混在する責任→問題との因果→目標配置→完了条件の証拠が一続きになっている
   46. 完成図で、元のクラスに残る責任と分離先を同じ責任名で回収している
   47. 執筆手順の否定形を本文へ残していない
   48. 専用の組み立てクラスへ、入力検証・業務実行・状態更新・結果表示を混在させていない
@@ -150,7 +150,8 @@ def publication_style_issues(text: str) -> list[str]:
         )
     if re.search(r"^#\s+第[1-9][0-9]*章", text, re.M):
         core = "### この章で解く設計課題"
-        boundary = "#### 実システムと掲載コードの違い"
+        # 見出しでもコラム（> [!NOTE] …）でもよい。位置と1件だけを見る。
+        boundary = "実システムと掲載コードの違い"
         if text.count(core) != 1:
             issues.append(
                 f"実践章の冒頭見出し `{core}` は1件必要です"
@@ -330,7 +331,7 @@ def phase_internal_checkpoint_issues(text: str) -> list[str]:
         (phase2, "フェーズ2の確認観点：", "フェーズ2の仮説立案"),
         (
             phase2,
-            "### 2-5：問題特定で使う観察条件を確定する",
+            "### 2-5：次に試す変更と、守る動作を決める",
             "フェーズ2の観察条件確定",
         ),
         (phase3, "フェーズ3の確認観点：", "フェーズ3の変更試行"),
@@ -363,7 +364,7 @@ def phase_internal_checkpoint_issues(text: str) -> list[str]:
         for section, marker, location in expected
         if marker not in section
     ]
-    phase25_heading = "### 2-5：問題特定で使う観察条件を確定する"
+    phase25_heading = "### 2-5：次に試す変更と、守る動作を決める"
     phase25_start = phase2.find(phase25_heading)
     phase25 = (
         phase2[phase25_start + len(phase25_heading):]
@@ -659,14 +660,30 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
     if "#### 変更後に有効な業務ルール" not in text:
         issues.append("要求からコードへ渡す`変更後に有効な業務ルール`がありません")
 
-    simplification_heading = "**仕様変更で加わる簡略化**"
+    if "**現状：" not in text or "**変更後：" not in text:
+        issues.append(
+            "1-1の現状図と1-5の変更後図を、何を突き合わせて何を作るかが"
+            "分かる業務名の見出しで示してください"
+        )
+    if "変更前後の入力・判定・加工・出力差分" in text:
+        issues.append(
+            "入力・判定・加工・出力の分類表を再掲せず、差分を変更後図へ"
+            "直接示してください"
+        )
+    if "[!NOTE] この動作例は、第0章で説明した模擬環境で動きます" not in text:
+        issues.append(
+            "代表mainの前に、メモリ上のサンプルデータと標準出力で動く"
+            "模擬環境の前提を示してください"
+        )
+
+    simplification_heading = "実システムの変更を、掲載コードではどう再現するか"
     simplification_header = (
         "| 実システムの変更対象 | 掲載コードでの表現 | この章で省くもの |"
     )
     if text.count(simplification_heading) != 1:
         issues.append(
             "仕様変更で新たに加わる実システム要素と掲載コードの代替を"
-            "`仕様変更で加わる簡略化`で1回示してください"
+            "`実システムの変更を、掲載コードではどう再現するか`で1回示してください"
         )
     if simplification_header not in text:
         issues.append(
@@ -690,6 +707,19 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
     if 0 <= phase5_start < phase6_start and "```cpp" in text[phase5_start:phase6_start]:
         issues.append("フェーズ5に最終コードがあります。値・操作・結果を確定し、型名とC++はフェーズ6で導いてください")
 
+    if "| 変更理由 | 第0章の型 | 出どころ |" not in phase4:
+        issues.append(
+            "フェーズ4に、今回と将来の変更理由を第0章の型で並べた一覧がありません"
+        )
+    if "| 開いた仕事 | いまあるクラスと場所 |" not in phase4:
+        issues.append(
+            "フェーズ4に、変更理由×修正場所のマトリクスがありません。"
+            "開いた仕事を行、変更理由を列にして混在を示してください"
+        )
+    if "| 責任 | 対応する変更理由 | まとめている仕事 |" not in phase4:
+        issues.append(
+            "フェーズ4で、マトリクスの列へ責任名を付ける表がありません"
+        )
     if phase4.count("%% provisional-role-diagram") != 1 or "**対策前：" not in phase4:
         issues.append("フェーズ4に、変更を現状構造へ当てた対策前の責任配置図を1枚置いてください")
     if not all(word in phase4 for word in ("直接", "巻き込", "原因ID", "問題ID")):
@@ -947,9 +977,13 @@ def diagram_diff_label_issues(text: str) -> list[str]:
                 issues.append(f"{index}枚目の図でaddedが［新規］を持ちません")
             if ":::touched" in line and "［変更］" not in line:
                 issues.append(f"{index}枚目の図でtouchedが［変更］を持ちません")
-            if "［変更］" in line and "→" not in line:
+            # 変更内容の書き方は2通り認める。数や方法が変わるものは
+            # `変更前→変更後`、項目が加わるものは変更後の全項目を並べて
+            # 加わった項目へ「（追加）」を付ける（読者が前後を突き合わせずに済む）。
+            if "［変更］" in line and "→" not in line and "（追加）" not in line:
                 issues.append(
-                    f"{index}枚目の図の［変更］ノードに変更前→変更後がありません"
+                    f"{index}枚目の図の［変更］ノードに変更内容"
+                    "（変更前→変更後、または全項目と「（追加）」）がありません"
                 )
     return issues
 

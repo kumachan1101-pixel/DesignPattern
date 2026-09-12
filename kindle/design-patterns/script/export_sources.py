@@ -115,7 +115,8 @@ LAYOUTS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
         # ファイル順という形でここに現れる。
         ("States.h", ("AvailableState", "ReservedState", "PaidState",
                       "WaitlistedState", "HeldState")),
-        ("TicketReservation.h", ("TicketReservation", "ReservationWaitlist",
+        ("TicketReservation.h", ("IWaitlistEntry", "TicketReservation",
+                                 "ReservationWaitlist",
                                  "ReservationExpiryScheduler")),
         ("ReservationAssembly.h", ("ReservationAssembly",)),
         ("BatchApplication.h", ("BatchApplication",)),

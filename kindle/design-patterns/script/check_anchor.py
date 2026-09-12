@@ -109,7 +109,8 @@ def scan(path: Path) -> tuple[list[str], list[str]]:
                 )
 
         # A2 実体のない参照（実践章だけ）
-        if kind == "para" and re.match(r"^\d+-chapter\d", path.stem):
+        # 「はじめに」と第0章は、まだコードを持たない仮の例で設計を語る。
+        if kind == "para" and re.match(r"^\d+-chapter(?!00)\d", path.stem):
             for name in re.findall(r"`([A-Z][A-Za-z_]{3,})(?:::|\()?[^`]*`", body):
                 # ファイル名（`Discounts.h`、`Makefile`）はクラス名ではない。
                 if re.search(r"`" + re.escape(name) + r"(?:\.(?:h|cpp))?`", body) \

@@ -128,10 +128,12 @@ def check(config_path: Path) -> int:
         #   1. クラス一覧表の行（`X` | 役割 | 担当する仕様）
         #   2. 「ここで確認するコード：`X`」の直後にそのコードが続く
         #   3. `X.h` のようにファイル名として挙げる
+        # コラム（`> [!NOTE]`）の中の表も、表として扱う。
+        plain = re.sub(r"^\s*>\s?", "", body)
         introduced = (
             # クラス一覧表・変更一覧表の行
             # 表の行。本書では、表が役割つきで名前を導入する場所になっている。
-            (body.lstrip().startswith("|")
+            (plain.lstrip().startswith("|")
              and "`" + identifier in body)
             # 「ここで確認するコード：`X`」の直後にコードが続く
             or "ここで確認するコード" in body

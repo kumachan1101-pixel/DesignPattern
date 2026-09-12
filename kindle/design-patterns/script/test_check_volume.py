@@ -171,13 +171,22 @@ class PhaseInternalCheckpointTests(unittest.TestCase):
                 "フェーズ1の確認観点：",
                 "## フェーズ2：仮説立案",
                 "フェーズ2の確認観点：",
-                "### 2-5：問題特定で使う観察条件を確定する",
+                "### 2-5：次に試す変更と、守る動作を決める",
                 "変更IDを試し、動作を維持する。リスクIDはフェーズ6へ渡す。",
                 "## フェーズ3：問題特定",
                 "フェーズ3の確認観点：",
                 "この場所は、今回の変更の理由と関係があるか？",
                 "## フェーズ4：原因分析",
                 "### 4-1：責任の混在を原因として確定する",
+                "| 変更理由 | 第0章の型 | 出どころ |",
+                "|---|---|---|",
+                "| A：仲間が増える | 仲間が増える | 変更ID1 |",
+                "| 開いた仕事 | いまあるクラスと場所 | A |",
+                "|---|---|---|",
+                "| 販促方針を決める | `calc()` | ○ |",
+                "| 責任 | 対応する変更理由 | まとめている仕事 |",
+                "|---|---|---|",
+                "| 販促方針 | A | 条件と式を決める |",
                 "## フェーズ5：課題定義",
                 "### 5-1：原因をなくす責任配置を決める",
                 "### 5-2：課題と完了条件を確定する",
@@ -349,8 +358,11 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
                 "- **得られること3：再結合の設計。** 説明",
                 "- **得られること4：効果の検証。** 説明",
                 "## フェーズ1：現状把握",
+                "> [!NOTE] この動作例は、第0章で説明した模擬環境で動きます。",
+                "**現状：何を組み合わせて支払金額を決めるか**",
                 "| 変更ID | 変更内容 | 確認する具体例 |",
-                "**仕様変更で加わる簡略化**",
+                "**変更後：何を組み合わせて支払金額を決めるか**",
+                "**実システムの変更を、掲載コードではどう再現するか**",
                 "| 実システムの変更対象 | 掲載コードでの表現 | この章で省くもの |",
                 "#### 変更後に有効な業務ルール",
                 "## フェーズ3：問題特定",
@@ -359,6 +371,15 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
                 "### 3-2：変更影響グラフ",
                 "## フェーズ4：原因分析",
                 "### 4-1：責任の混在を原因として確定する",
+                "| 変更理由 | 第0章の型 | 出どころ |",
+                "|---|---|---|",
+                "| A：仲間が増える | 仲間が増える | 変更ID1 |",
+                "| 開いた仕事 | いまあるクラスと場所 | A |",
+                "|---|---|---|",
+                "| 販促方針を決める | `calc()` | ○ |",
+                "| 責任 | 対応する変更理由 | まとめている仕事 |",
+                "|---|---|---|",
+                "| 販促方針 | A | 条件と式を決める |",
                 "**対策前：変更を現状構造へ当てた状態**",
                 "```mermaid",
                 "classDiagram",
@@ -591,12 +612,12 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
 
     def test_missing_change_simplification_is_rejected(self) -> None:
         text = self.valid_chapter().replace(
-            "**仕様変更で加わる簡略化**\n"
+            "**実システムの変更を、掲載コードではどう再現するか**\n"
             "| 実システムの変更対象 | 掲載コードでの表現 | この章で省くもの |\n",
             "",
         )
         issues = check_volume.practical_explanation_consistency_issues(text)
-        self.assertTrue(any("仕様変更で加わる簡略化" in issue for issue in issues))
+        self.assertTrue(any("掲載コードではどう再現するか" in issue for issue in issues))
 
     def test_editorial_rationale_in_body_is_rejected(self) -> None:
         text = self.valid_chapter() + "\nこの図を置きます。\n"
@@ -647,6 +668,15 @@ A["［変更］ Calculator"]:::touched
 """
         issues = check_volume.diagram_diff_label_issues(text)
         self.assertTrue(any("変更前→変更後" in issue for issue in issues))
+
+    def test_changed_marker_with_added_item_list_is_accepted(self) -> None:
+        text = """```mermaid
+graph TD
+A["［変更］受け取る操作<br>予約／支払／取消<br>一時保留（追加）"]:::touched
+```
+"""
+        issues = check_volume.diagram_diff_label_issues(text)
+        self.assertFalse(issues)
 
 
 class Phase6ClassDiagramTests(unittest.TestCase):
