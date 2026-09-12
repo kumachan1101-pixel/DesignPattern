@@ -707,18 +707,26 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
     if 0 <= phase5_start < phase6_start and "```cpp" in text[phase5_start:phase6_start]:
         issues.append("フェーズ5に最終コードがあります。値・操作・結果を確定し、型名とC++はフェーズ6で導いてください")
 
-    if "| 変更理由 | 第0章の型 | 出どころ |" not in phase4:
+    # 仕分け表は2形式を認める。新形式は行に場所と変わり方を持ち、変更理由の一覧を兼ねる。
+    element_table = "| 要素 | いまコードのどこにあるか |" in phase4
+    if not element_table and "| 変更理由 | 第0章の型 | 出どころ |" not in phase4:
         issues.append(
             "フェーズ4に、今回と将来の変更理由を第0章の型で並べた一覧がありません"
         )
-    if "| 開いた仕事 | いまあるクラスと場所 |" not in phase4:
+    if not element_table and "| 開いた仕事 | いまあるクラスと場所 |" not in phase4:
         issues.append(
-            "フェーズ4に、変更理由×修正場所のマトリクスがありません。"
-            "開いた仕事を行、変更理由を列にして混在を示してください"
+            "フェーズ4に、要素の一覧（または開いた仕事のマトリクス）がありません。"
+            "同じクラスが要素を2つ以上抱えていることを示してください"
         )
-    if "| 責任 | 対応する変更理由 | まとめている仕事 |" not in phase4:
+    if not any(
+        header in phase4
+        for header in (
+            "| 責任 | 対応する変更理由 | まとめている仕事 |",
+            "| 責任 | 対応する要素 | まとめている仕事 |",
+        )
+    ):
         issues.append(
-            "フェーズ4で、マトリクスの列へ責任名を付ける表がありません"
+            "フェーズ4で、要素へ責任名を付ける表がありません"
         )
     if phase4.count("%% provisional-role-diagram") != 1 or "**対策前：" not in phase4:
         issues.append("フェーズ4に、変更を現状構造へ当てた対策前の責任配置図を1枚置いてください")
@@ -735,8 +743,9 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
     phase6 = text_between(text, "フェーズ6：対策検討", "フェーズ7：対策実施")
     phase4_responsibilities = set(re.findall(r"責任：([^\n}]+)", phase4))
     phase5_responsibilities = set(re.findall(r"責任：([^\n}]+)", phase5))
-    if phase4_responsibilities != phase5_responsibilities:
-        issues.append("フェーズ4の対策前図とフェーズ5の目標図で、責任名または粒度が一致していません")
+    # 分けた結果として新しい置き場所が増えることはあるので、包含で見る。
+    if not phase4_responsibilities <= phase5_responsibilities:
+        issues.append("フェーズ4の対策前図の責任が、フェーズ5の目標図にありません（責任名または粒度の不一致）")
     mapping_end = phase6.find("### 構想をコードでつなぐ")
     phase6_mapping = phase6[:mapping_end] if mapping_end >= 0 else phase6
     missing_responsibilities = sorted(

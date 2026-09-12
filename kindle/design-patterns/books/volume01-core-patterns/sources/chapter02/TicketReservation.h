@@ -4,39 +4,43 @@
 #include "EventDatabase.h"
 #include "IReservationState.h"
 
-class TicketReservation;
+class IWaitlistEntry {
+public:
+    virtual void promoteFromWaitlist() = 0;
+    virtual ~IWaitlistEntry() = default;
+};
 
 class ReservationWaitlist {
     std::map<std::string,
-             std::deque<TicketReservation*>> queues;
+             std::deque<IWaitlistEntry*>> queues;
 public:
     void enqueue(const std::string& eventId,
-                 TicketReservation* reservation) {
-        queues[eventId].push_back(reservation);
+                 IWaitlistEntry* entry) {
+        queues[eventId].push_back(entry);
         std::cout << "[待ち行列] " << eventId
                   << " 待機数=" << queues[eventId].size()
                   << std::endl;
     }
 
-    TicketReservation* popNext(const std::string& eventId) {
+    void promoteNext(const std::string& eventId) {
         auto& queue = queues[eventId];
 
-        if (queue.empty()) return nullptr;
+        if (queue.empty()) return;
 
-        TicketReservation* next = queue.front();
+        IWaitlistEntry* next = queue.front();
         queue.pop_front();
         std::cout << "[待ち行列] " << eventId
                   << " 待機数=" << queue.size()
                   << std::endl;
-        return next;
+        next->promoteFromWaitlist();
     }
 
-    // 待機中の予約が先に破棄された場合も、借用ポインタを残さない
-    void remove(TicketReservation* reservation) {
+    // 待機中の対象が先に破棄された場合も、借用ポインタを残さない
+    void remove(IWaitlistEntry* entry) {
         for (auto it = queues.begin(); it != queues.end(); ) {
             auto& queue = it->second;
             auto newEnd = std::remove(
-                queue.begin(), queue.end(), reservation);
+                queue.begin(), queue.end(), entry);
             queue.erase(newEnd, queue.end());
             if (queue.empty()) {
                 it = queues.erase(it);
@@ -47,15 +51,19 @@ public:
     }
 };
 
-class TicketReservation {
+class TicketReservation;
+
+// 状態ごとの共通操作と、許可されない操作の既定処理を持つ基底クラス
+
+class TicketReservation : public IWaitlistEntry {
 private:
     IReservationState* state;
     EventDatabase* db;           // 在庫の保存データ（境界）
     ReservationWaitlist* waitlist;
     std::string eventId;
 
-    // キャンセル待ち昇格は外部公開せず、システム連鎖からだけ呼ぶ
-    void promoteBySystem() {
+    // 待ち行列はこの契約だけを呼び、予約の具体型を知らない
+    void promoteFromWaitlist() override {
         state->promoteBySystem(this);
     }
 public:
@@ -115,9 +123,7 @@ public:
     }
 
     void promoteNextWaitlisted() {
-        TicketReservation* next = waitlist->popNext(eventId);
-
-        if (next != nullptr) next->promoteBySystem();
+        waitlist->promoteNext(eventId);
     }
 
     // 操作を現在の状態に委譲するだけ

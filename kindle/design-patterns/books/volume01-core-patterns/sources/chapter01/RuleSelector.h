@@ -16,7 +16,7 @@ public:
     const IDiscountRule& select(
             const std::string& memberType,
             const CampaignContext& context) const {
-        // 競合方針は組み立て側の登録順で表す。
+        // 適用する割引の優先順は、ここでの登録順で表す。
         // Selectorは個別条件を知らず、最初に一致したものを返す。
         for (const auto& registered : rules) {
             const IDiscountRule& rule = registered.get();
