@@ -1,0 +1,7 @@
+==== 2026/09/12 18:44:03.18 ====
+[where git]
+C:\Program Files\Git\cmd\git.exe
+[git version]
+git version 2.40.0.windows.1
+[rev-parse --show-toplevel]
+C:/Users/kumac/OneDrive/デスクトップ/antigravity/DesignPattern

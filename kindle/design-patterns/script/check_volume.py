@@ -708,7 +708,7 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         issues.append("フェーズ5に最終コードがあります。値・操作・結果を確定し、型名とC++はフェーズ6で導いてください")
 
     # 仕分け表は2形式を認める。新形式は行に場所と変わり方を持ち、変更理由の一覧を兼ねる。
-    element_table = "| 要素 | いまコードのどこにあるか |" in phase4
+    element_table = "| そのクラスがしている仕事 | コードのどこにあるか | 見ている接続情報 |" in phase4
     if not element_table and "| 変更理由 | 第0章の型 | 出どころ |" not in phase4:
         issues.append(
             "フェーズ4に、今回と将来の変更理由を第0章の型で並べた一覧がありません"
@@ -718,15 +718,9 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
             "フェーズ4に、要素の一覧（または開いた仕事のマトリクス）がありません。"
             "同じクラスが要素を2つ以上抱えていることを示してください"
         )
-    if not any(
-        header in phase4
-        for header in (
-            "| 責任 | 対応する変更理由 | まとめている仕事 |",
-            "| 責任 | 対応する要素 | まとめている仕事 |",
-        )
-    ):
+    if not element_table and "| 責任 | 対応する変更理由 | まとめている仕事 |" not in phase4:
         issues.append(
-            "フェーズ4で、要素へ責任名を付ける表がありません"
+            "フェーズ4で、仕事へ責任名を付ける表がありません"
         )
     if phase4.count("%% provisional-role-diagram") != 1 or "**対策前：" not in phase4:
         issues.append("フェーズ4に、変更を現状構造へ当てた対策前の責任配置図を1枚置いてください")
@@ -1420,8 +1414,10 @@ def check(config_path: Path) -> int:
     for path in chapters:
         text = path.read_text(encoding="utf-8")
         for graph in re.findall(r"```mermaid\ngraph (?:TD|LR)\n(.*?)```", text, re.S):
-            for node in re.finditer(r'\w+\["([^"]+)"\]', graph):
-                label = node.group(1)
+            for node in re.finditer(r'(subgraph\s+)?\w+\["([^"]+)"\]', graph):
+                if node.group(1):  # subgraph はクラスの枠なので、箱の規約の対象外
+                    continue
+                label = node.group(2)
                 style_match = re.match(r":::(\w+)", graph[node.end():])
                 style = style_match.group(1) if style_match else ""
                 if style in {"req", "touched", "added", "keep"}:

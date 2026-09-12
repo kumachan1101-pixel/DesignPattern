@@ -1,0 +1,38 @@
+@echo off
+rem usage: commit_push.bat "commit message"
+setlocal
+cd /d "%~dp0"
+
+set "GIT=git"
+where git >nul 2>&1 || set "GIT=C:\Program Files\Git\cmd\git.exe"
+
+set "MSG=%~1"
+if "%MSG%"=="" set "MSG=update"
+
+> commit_push_log.txt 2>&1 (
+  echo ==== %DATE% %TIME% ====
+  echo [where git]
+  where git
+  echo [git version]
+  "%GIT%" --version
+  echo [rev-parse --show-toplevel]
+  "%GIT%" rev-parse --show-toplevel
+  echo [add]
+  "%GIT%" add .
+  echo [commit]
+  "%GIT%" commit -m "%MSG%"
+  echo [fetch]
+  "%GIT%" fetch origin
+  echo [merge origin/main]
+  "%GIT%" merge origin/main --no-edit
+  echo [push]
+  "%GIT%" push
+  echo [status]
+  "%GIT%" status -sb
+)
+
+type commit_push_log.txt
+echo.
+echo ---- saved to commit_push_log.txt ----
+endlocal
+pause
