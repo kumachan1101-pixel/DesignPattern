@@ -59,6 +59,8 @@
   51. クラス図の属性・操作を直後の表へ重複掲載していない
   52. 実践章の冒頭と簡略化説明が、目的の分かる読者向け見出しになっている
   53. 第0章に、全章共通の差分色と処理フローの形を具体例つきで一度だけ定義している
+  54. 第0章の各フェーズが、固定的な入力・成果物でなく思考法と確認ポイントを先に示す
+  55. はじめにの三つの問いと、おわりにの実務上の前提が重点説明へ戻っている
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -217,6 +219,61 @@ def chapter_zero_diagram_legend_issues(text: str) -> list[str]:
         for label, marker in required.items()
         if marker not in text
     ]
+
+
+def chapter_zero_phase_thinking_issues(text: str) -> list[str]:
+    """第0章が成果物の型でなく、各フェーズの思考と確認を共通化しているか。"""
+    issues: list[str] = []
+    thinking = text.count("**このフェーズで考えること：")
+    checkpoints = text.count("> **確認ポイント**")
+    if thinking != 7:
+        issues.append(f"第0章の「このフェーズで考えること」が{thinking}件です（7件必要）")
+    if checkpoints != 7:
+        issues.append(f"第0章の「確認ポイント」が{checkpoints}件です（7件必要）")
+    for old in ("> **入力：**", "> **成果物：**", "### このフェーズの考え方"):
+        if old in text:
+            issues.append(f"第0章が固定的な旧形式 `{old}` へ戻っています")
+    phase7 = text.find("## 🟢 フェーズ7：")
+    transfer = text.find("### 既存システムの変更と、新規設計への転用")
+    summary = text.find("## 第0章のまとめ")
+    if not (0 <= phase7 < transfer < summary):
+        issues.append("既存変更と新規設計の詳しい比較を、7フェーズ説明後・第0章まとめ前に置いてください")
+    return issues
+
+
+def preface_and_epilogue_focus_issues(name: str, text: str) -> list[str]:
+    """三つの問いの深さと、仕事／思考実験を分ける章末の前提を確認する。"""
+    issues: list[str] = []
+    required: tuple[str, ...] = ()
+    if "preface" in name:
+        required = (
+            "業務ルールの変更",
+            "処理時点・順序の変更",
+            "外部サービスの",
+            "変更履歴と依頼元",
+            "共通部分と具体固有の情報",
+            "循環していないか",
+        )
+        if "`auto it = v.begin();`" in text:
+            issues.append("はじめにへ、実践章で使わないイテレータ宣言の説明が残っています")
+        if "## 7つのフェーズが主に扱う場面" in text:
+            issues.append("既存変更と新規設計の詳しい比較が、7フェーズの説明前へ戻っています")
+    elif "epilogue" in name:
+        required = (
+            "他者へ影響しない試作",
+            "QCD",
+            "省くのは思考そのものではなく",
+            "助言をそのまま採用するのではなく",
+            "現状の要求・動作・構造をつかむ",
+        )
+        if "5行へ畳んだ対応表" in text:
+            issues.append("おわりにへ、第0章とは別に見える段階要約が残っています")
+    issues.extend(
+        f"{name}の重点説明に `{marker}` がありません"
+        for marker in required
+        if marker not in text
+    )
+    return issues
 
 
 def chapter_numbers(paths: list[Path]) -> set[int]:
@@ -1764,6 +1821,8 @@ def check(config_path: Path) -> int:
             failures.append(f"{path.name}: {issue}")
         for issue in chapter_zero_diagram_legend_issues(text):
             failures.append(f"{path.name}: {issue}")
+        for issue in chapter_zero_phase_thinking_issues(text):
+            failures.append(f"{path.name}: {issue}")
 
     # 35. 共通の実行案内は第0章へ集約する
     for path in chapters:
@@ -1857,6 +1916,8 @@ def check(config_path: Path) -> int:
     for path in chapters:
         text = path.read_text(encoding="utf-8")
         for issue in publication_style_issues(text):
+            failures.append(f"{path.name}: {issue}")
+        for issue in preface_and_epilogue_focus_issues(path.name, text):
             failures.append(f"{path.name}: {issue}")
 
     # 28. 本文で節番号を道しるべに使わない

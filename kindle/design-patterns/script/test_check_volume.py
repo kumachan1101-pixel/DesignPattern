@@ -104,6 +104,69 @@ class ChapterZeroDiagramLegendTests(unittest.TestCase):
         self.assertTrue(any("入力の形" in issue for issue in issues))
 
 
+class ChapterZeroPhaseThinkingTests(unittest.TestCase):
+    def test_seven_thinking_checkpoints_and_late_transfer_are_accepted(self) -> None:
+        phases = "\n".join(
+            f"## フェーズ{i}\n**このフェーズで考えること：判断{i}**\n> **確認ポイント**"
+            for i in range(1, 7)
+        )
+        text = (
+            phases
+            + "\n## 🟢 フェーズ7：対策実施\n"
+            + "**このフェーズで考えること：判断7**\n> **確認ポイント**\n"
+            + "### 既存システムの変更と、新規設計への転用\n"
+            + "## 第0章のまとめ\n"
+        )
+        self.assertEqual([], check_volume.chapter_zero_phase_thinking_issues(text))
+
+    def test_input_output_template_is_rejected(self) -> None:
+        issues = check_volume.chapter_zero_phase_thinking_issues(
+            "> **入力：** 資料\n> **成果物：** 表\n"
+        )
+        self.assertTrue(any("旧形式" in issue for issue in issues))
+
+
+class PrefaceAndEpilogueFocusTests(unittest.TestCase):
+    def test_preface_focus_markers_are_accepted(self) -> None:
+        text = "\n".join(
+            [
+                "業務ルールの変更",
+                "処理時点・順序の変更",
+                "外部サービスの失敗条件",
+                "変更履歴と依頼元",
+                "共通部分と具体固有の情報",
+                "循環していないか",
+            ]
+        )
+        self.assertEqual(
+            [], check_volume.preface_and_epilogue_focus_issues("01-preface.md", text)
+        )
+
+    def test_preface_reports_old_elements_together(self) -> None:
+        issues = check_volume.preface_and_epilogue_focus_issues(
+            "01-preface.md",
+            "`auto it = v.begin();`\n## 7つのフェーズが主に扱う場面",
+        )
+        self.assertTrue(any("イテレータ" in issue for issue in issues))
+        self.assertTrue(any("説明前" in issue for issue in issues))
+
+    def test_epilogue_rejects_competing_five_step_summary(self) -> None:
+        text = "\n".join(
+            [
+                "他者へ影響しない試作",
+                "QCD",
+                "省くのは思考そのものではなく",
+                "助言をそのまま採用するのではなく",
+                "現状の要求・動作・構造をつかむ",
+                "5行へ畳んだ対応表",
+            ]
+        )
+        issues = check_volume.preface_and_epilogue_focus_issues(
+            "06-epilogue.md", text
+        )
+        self.assertTrue(any("別に見える段階要約" in issue for issue in issues))
+
+
 class EarlyMaterialSpoilerTests(unittest.TestCase):
     def test_cpp_example_is_rejected_even_with_unrelated_names(self) -> None:
         text = "# 第0章\n\n```cpp\nclass NeutralExample {};\n```\n"
