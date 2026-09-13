@@ -3,7 +3,7 @@
 
 #include "ProductDatabase.h"
 #include "INotification.h"
-#include "DeliveryStatusLog.h"
+#include "SMSDeliveryTracker.h"
 
 class EmailNotifier : public INotification {
     std::vector<std::string> inbox;
@@ -84,13 +84,13 @@ public:
 };
 
 class SMSNotifier : public INotification {
-    DeliveryStatusLog& statusLog;  // 組み立て側が所有する台帳を借りる
+    SMSDeliveryTracker& tracker;  // 組み立て側が所有する台帳を借りる
     bool willFail;  // 受付に失敗する状況を再現するための指定
     std::vector<std::string> inbox;  // 受付できた通知だけを蓄積する
     int nextRequestNumber = 1;
 public:
-    SMSNotifier(DeliveryStatusLog& log, bool fail)
-        : statusLog(log), willFail(fail) {}
+    SMSNotifier(SMSDeliveryTracker& tracker, bool fail)
+        : tracker(tracker), willFail(fail) {}
     DeliveryResult send(const StockAlert& a) override {
         if (willFail) {
             std::cout << "SMS: 受付失敗（後で再送対象）" << std::endl;
@@ -107,7 +107,7 @@ public:
              << " / 受付ID=" << requestId << std::endl;
         DeliveryResult result{
             PENDING, ChannelName::SMS, requestId};
-        statusLog.record(result);
+        tracker.record(result);
         return result;
     }
 };

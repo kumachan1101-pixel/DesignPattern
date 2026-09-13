@@ -4,19 +4,13 @@
 #include "EventDatabase.h"
 #include "IReservationState.h"
 
-class IWaitlistEntry {
-public:
-    virtual void promoteFromWaitlist() = 0;
-    virtual ~IWaitlistEntry() = default;
-};
-
 class ReservationWaitlist {
     std::map<std::string,
-             std::deque<IWaitlistEntry*>> queues;
+             std::deque<std::function<void()>>> queues;
 public:
     void enqueue(const std::string& eventId,
-                 IWaitlistEntry* entry) {
-        queues[eventId].push_back(entry);
+                 std::function<void()> promote) {
+        queues[eventId].push_back(promote);
         std::cout << "[待ち行列] " << eventId
                   << " 待機数=" << queues[eventId].size()
                   << std::endl;
@@ -27,27 +21,12 @@ public:
 
         if (queue.empty()) return;
 
-        IWaitlistEntry* next = queue.front();
+        std::function<void()> promote = queue.front();
         queue.pop_front();
         std::cout << "[待ち行列] " << eventId
                   << " 待機数=" << queue.size()
                   << std::endl;
-        next->promoteFromWaitlist();
-    }
-
-    // 待機中の対象が先に破棄された場合も、借用ポインタを残さない
-    void remove(IWaitlistEntry* entry) {
-        for (auto it = queues.begin(); it != queues.end(); ) {
-            auto& queue = it->second;
-            auto newEnd = std::remove(
-                queue.begin(), queue.end(), entry);
-            queue.erase(newEnd, queue.end());
-            if (queue.empty()) {
-                it = queues.erase(it);
-            } else {
-                ++it;
-            }
-        }
+        promote();
     }
 };
 
@@ -55,17 +34,13 @@ class TicketReservation;
 
 // 状態ごとの共通操作と、許可されない操作の既定処理を持つ基底クラス
 
-class TicketReservation : public IWaitlistEntry {
+class TicketReservation {
 private:
     IReservationState* state;
     EventDatabase* db;           // 在庫の保存データ（境界）
     ReservationWaitlist* waitlist;
     std::string eventId;
 
-    // 待ち行列はこの契約だけを呼び、予約の具体型を知らない
-    void promoteFromWaitlist() override {
-        state->promoteBySystem(this);
-    }
 public:
     TicketReservation(IReservationState* initialState,
                       EventDatabase* db,
@@ -74,12 +49,7 @@ public:
         : state(initialState), db(db), waitlist(waitlist),
           eventId(eventId) {}
 
-    // 待機中に予約オブジェクトが破棄されても参照を残さない
-    ~TicketReservation() {
-        waitlist->remove(this);
-    }
-
-    // キューがthisのアドレスを借用するため、実体の複製・移動を禁止する
+    // 昇格処理がthisを使うため、実体の複製・移動を禁止する
     TicketReservation(const TicketReservation&) = delete;
     TicketReservation& operator=(
         const TicketReservation&) = delete;
@@ -119,7 +89,9 @@ public:
         return db->get(eventId).title;
     }
     void joinWaitlist() {
-        waitlist->enqueue(eventId, this);
+        waitlist->enqueue(eventId, [this]() {
+            state->promoteBySystem(this);
+        });
     }
 
     void promoteNextWaitlisted() {

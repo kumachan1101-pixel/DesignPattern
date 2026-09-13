@@ -2,14 +2,14 @@
 #define INVENTORYAPPLICATION_H_INCLUDED
 
 #include "Notifiers.h"
-#include "DeliveryStatusLog.h"
+#include "SMSDeliveryTracker.h"
 #include "InventoryManager.h"
 
 class InventoryApplication {
     // 上から生成され、下から破棄される。
     // InventoryManagerより通知先を先に宣言し、借用先の寿命を保証する。
     ProductDatabase productDatabase;
-    DeliveryStatusLog deliveryStatusLog;
+    SMSDeliveryTracker smsDeliveryTracker;
     EmailNotifier email;
     DashboardUpdater dashboard;
     ChatNotifier chat;
@@ -29,9 +29,9 @@ class InventoryApplication {
 
 public:
     explicit InventoryApplication(bool smsWillFail = false)
-        : sms(deliveryStatusLog, smsWillFail),
+        : sms(smsDeliveryTracker, smsWillFail),
           manager(productDatabase),
-          smsCallback(deliveryStatusLog) {
+          smsCallback(smsDeliveryTracker) {
         registerNotifications();
     }
 

@@ -58,10 +58,6 @@ public:
         std::cout << "エラー: 注文が空です\n";
     }
 
-    void showCustomerLookupFailure() {
-        std::cout << "エラー: 顧客情報の取得に失敗しました\n";
-    }
-
     void showOrderResult(const CustomerInfo& customer,
                          const Order& order,
                          const CampaignContext& context,
@@ -106,14 +102,8 @@ public:
             return;
         }
 
-        // 顧客情報の取得（実運用ではDB/API。接続失敗などに備える）
-        CustomerInfo customer;
-        try {
-            customer = db.get(order.customerId);
-        } catch (const std::exception&) {
-            renderer.showCustomerLookupFailure();
-            return;
-        }
+        // 顧客情報の取得
+        CustomerInfo customer = db.get(order.customerId);
 
         const IDiscountRule& rule =
             selector.select(customer.memberType, context);

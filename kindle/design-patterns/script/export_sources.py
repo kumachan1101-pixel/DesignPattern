@@ -64,14 +64,14 @@ DEPENDS: dict[str, dict[str, tuple[str, ...]]] = {
     "05-chapter03": {
         "ProductDatabase.h": (),
         "INotification.h": ("ProductDatabase.h",),
-        "DeliveryStatusLog.h": ("ProductDatabase.h", "INotification.h"),
+        "SMSDeliveryTracker.h": ("ProductDatabase.h", "INotification.h"),
         # SMS通知は、組み立て側が所有する配信状態台帳を借りる。
         "Notifiers.h": ("ProductDatabase.h", "INotification.h",
-                        "DeliveryStatusLog.h"),
+                        "SMSDeliveryTracker.h"),
         # 通知元が見るのは通知先の契約だけ。Notifiers.h を含めない。
         "InventoryManager.h": ("ProductDatabase.h", "INotification.h"),
         # 利用側から具体通知と登録順を隠す、唯一の組み立て場所。
-        "InventoryApplication.h": ("Notifiers.h", "DeliveryStatusLog.h",
+        "InventoryApplication.h": ("Notifiers.h", "SMSDeliveryTracker.h",
                                     "InventoryManager.h"),
     },
 }
@@ -115,8 +115,7 @@ LAYOUTS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
         # ファイル順という形でここに現れる。
         ("States.h", ("AvailableState", "ReservedState", "PaidState",
                       "WaitlistedState", "HeldState")),
-        ("TicketReservation.h", ("IWaitlistEntry", "TicketReservation",
-                                 "ReservationWaitlist",
+        ("TicketReservation.h", ("TicketReservation", "ReservationWaitlist",
                                  "ReservationExpiryScheduler")),
         ("ReservationAssembly.h", ("ReservationAssembly",)),
         ("BatchApplication.h", ("BatchApplication",)),
@@ -124,9 +123,9 @@ LAYOUTS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
     "05-chapter03": [
         ("ProductDatabase.h", ("ProductInfo", "ProductDatabase", "StockAlert",
                                "StockEvent", "StockEventLog", "DeliveryResult",
-                               "DeliveryStatus", "ChannelName")),
+                               "DeliveryStatus", "DeliveryStatusText", "ChannelName")),
         ("INotification.h", ("INotification",)),
-        ("DeliveryStatusLog.h", ("DeliveryStatusLog", "SMSDeliveryCallback")),
+        ("SMSDeliveryTracker.h", ("SMSDeliveryTracker", "SMSDeliveryCallback")),
         ("Notifiers.h", ("EmailNotifier", "DashboardUpdater", "ChatNotifier",
                          "SMSNotifier")),
         ("InventoryManager.h", ("InventoryManager",)),

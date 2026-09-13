@@ -9,12 +9,16 @@
 #include <stdexcept>
 
 namespace MemberType {
-    const std::string Premium = "Premium";
-    const std::string Regular = "Regular";
+    const std::string Premium = "Premium";  // 優待会員
+    const std::string Regular = "Regular";  // 一般会員
 }
 
+// 開催中の施策を表すコード（入力と判定で同じ名前を使う）
+
 namespace CampaignCode {
+    // 通常キャンペーン
     const std::string RegularCampaign = "REGULAR_CAMPAIGN";
+    // サマーセール
     const std::string SummerSale = "SUMMER_SALE";
 }
 
@@ -48,14 +52,18 @@ public:
     std::vector<Item> items;
 };
 
+// 顧客1件分の情報
+
 struct CustomerInfo {
-    std::string name;
-    std::string memberType;
+    std::string name;        // 顧客の氏名
+    std::string memberType;  // 会員種別（MemberType の値）
 };
 
+// 金額計算の結果（小計と支払金額を一組で返す）
+
 struct PaymentResult {
-    int subtotal;
-    int finalPrice;
+    int subtotal;    // 割引前の小計
+    int finalPrice;  // 割引後の支払金額
 };
 
 class CustomerDatabase {

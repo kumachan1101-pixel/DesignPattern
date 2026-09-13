@@ -173,6 +173,27 @@ def publication_style_issues(text: str) -> list[str]:
                     f"{number}行目: 読者向け見出し・文章が旧形式 `{old}` "
                     "へ戻っています"
                 )
+        for internal in (
+            "以降は図へ戻らず、この表だけを見ます",
+            "上の三つの読み方",
+            "上の読み方のうち",
+        ):
+            if internal in text:
+                number = text[: text.index(internal)].count("\n") + 1
+                issues.append(
+                    f"{number}行目: `{internal}` は参照先が曖昧な編集案内です。"
+                    "図の番号と具体的な箱・実装名で説明してください"
+                )
+
+        phase3 = text_between(text, "### 3-2：変更影響グラフ", "### 3-3：")
+        phase4 = text_between(text, "### 4-1：責任の混在を原因として確定する", "フェーズ5：課題定義")
+        phase5_tasks = text_between(text, "### 5-2：課題と完了条件を確定する", "フェーズ6：対策検討")
+        if phase3 and "①" not in phase3:
+            issues.append("3-2の変更影響グラフの箱に①から番号を付けてください")
+        if phase4 and "| 図の番号 | その場所が見ている情報 | 該当実装 | 責任としての読み方 |" not in phase4:
+            issues.append("4-1で変更影響グラフの番号・情報・実装・責任を一表に対応させてください")
+        if phase5_tasks and "| 確定すること | 内容 |" not in phase5_tasks:
+            issues.append("5-2の課題と完了条件を縦型の課題カードで示してください")
     return issues
 
 
@@ -707,13 +728,17 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
     if 0 <= phase5_start < phase6_start and "```cpp" in text[phase5_start:phase6_start]:
         issues.append("フェーズ5に最終コードがあります。値・操作・結果を確定し、型名とC++はフェーズ6で導いてください")
 
-    # 仕分け表は2形式を認める。新形式は行に場所と変わり方を持ち、変更理由の一覧を兼ねる。
-    if "| 接続情報 | それを見て動く場所 |" not in phase4:
+    if "| 図の番号 | その場所が見ている情報 | 該当実装 | 責任としての読み方 |" not in phase4:
         issues.append(
-            "フェーズ4に、接続情報とそれを見て動く場所の一覧がありません。"
-            "同じクラスに、違う接続情報を見ている場所が並んでいることを示してください"
+            "フェーズ4に、変更影響グラフの番号・情報・実装・責任を対応させる表がありません"
         )
-    if "| 責任 | 見ている接続情報 |" not in phase4:
+    if not any(
+        header in phase4
+        for header in (
+            "| 責任 | 見ている接続情報 |",
+            "| 図の番号 | 責任 | 見ている接続情報 |",
+        )
+    ):
         issues.append(
             "フェーズ4で、接続情報へ責任名を付ける表がありません"
         )

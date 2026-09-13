@@ -6,7 +6,7 @@
 #include <map>
 #include <deque>
 #include <list>
-#include <algorithm>
+#include <functional>
 
 class TicketReservation;
 class IReservationState;

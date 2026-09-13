@@ -46,30 +46,45 @@ public:
 
 // 通知の受付結果と、非同期SMSの最終配信結果
 enum DeliveryStatus {
-    ACCEPTED, PENDING, FAILED, DELIVERED, DELIVERY_FAILED
+    ACCEPTED,        // 受け付けられた（同期手段の成功）
+    PENDING,         // 受け付けたが、配信結果はまだ不明
+    FAILED,          // 受付そのものに失敗した
+    DELIVERED,       // 端末まで届いた
+    DELIVERY_FAILED  // 受け付けたが届かなかった
 };
 
+namespace DeliveryStatusText {
+    const char* name(DeliveryStatus status) {
+        if (status == PENDING) return "PENDING";
+        if (status == DELIVERED) return "DELIVERED";
+        if (status == DELIVERY_FAILED) return "DELIVERY_FAILED";
+        return "対象外";
+    }
+}
+
+// 通知1件の受付・配信結果
+
 struct DeliveryResult {
-    DeliveryStatus status; // 受付成功・保留・受付失敗・配信完了・配信失敗
-    std::string channel;        // どの通知手段か
-    std::string requestId;      // 非同期受付だけが設定する
+    DeliveryStatus status;    // 受付・配信のどの段階か
+    std::string    channel;   // どの通知手段か
+    std::string    requestId; // 非同期受付だけが設定する照合番号
 };
 
 // ログや結果で使う通知手段名を一か所に定義する
 
 namespace ChannelName {
-    const char* const EMAIL = "Email";
-    const char* const DASHBOARD = "Dashboard";
-    const char* const CHAT = "Chat";
-    const char* const SMS = "SMS";
+    const char* const EMAIL     = "Email";      // メール通知
+    const char* const DASHBOARD = "Dashboard";  // ダッシュボード表示
+    const char* const CHAT      = "Chat";       // 社内チャット
+    const char* const SMS       = "SMS";        // SMS（非同期）
 }
 
 // 通知手段ごとに表現を変えるための、共通の在庫警告データ
 
 struct StockAlert {
-    std::string productId;
-    std::string productName;
-    int stock;
+    std::string productId;    // 商品コード
+    std::string productName;  // 商品名
+    int         stock;        // 更新後の在庫数
 };
 
 // 通知先が満たす必要がある契約（インターフェース）

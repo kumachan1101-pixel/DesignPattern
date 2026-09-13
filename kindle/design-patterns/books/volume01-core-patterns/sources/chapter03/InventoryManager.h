@@ -92,7 +92,9 @@ public:
 private:
     // 各通知先の受付結果を集計する。通知先の種類ごとに分岐しない
     void notifyAll(const StockAlert& alert) {
-        int accepted = 0, pending = 0, failed = 0;
+        int accepted = 0;  // 受付に成功した件数
+        int pending  = 0;  // 受付だけ済み、結果待ちの件数
+        int failed   = 0;  // 受付に失敗した件数
 
         for (auto* o : observers) {
             DeliveryResult r = o->send(alert);
