@@ -58,6 +58,7 @@
   50. 掲載C++が`std::`明示へ統一され、`using namespace std;`が混在していない
   51. クラス図の属性・操作を直後の表へ重複掲載していない
   52. 実践章の冒頭と簡略化説明が、目的の分かる読者向け見出しになっている
+  53. 第0章に、全章共通の差分色と処理フローの形を具体例つきで一度だけ定義している
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -177,6 +178,7 @@ def publication_style_issues(text: str) -> list[str]:
             "以降は図へ戻らず、この表だけを見ます",
             "上の三つの読み方",
             "上の読み方のうち",
+            "ここで確認するコード",
         ):
             if internal in text:
                 number = text[: text.index(internal)].count("\n") + 1
@@ -195,6 +197,26 @@ def publication_style_issues(text: str) -> list[str]:
         if phase5_tasks and "| 確定すること | 内容 |" not in phase5_tasks:
             issues.append("5-2の課題と完了条件を縦型の課題カードで示してください")
     return issues
+
+
+def chapter_zero_diagram_legend_issues(text: str) -> list[str]:
+    """第0章が全章共通の図記法を、抽象説明でなく見本として示すかを返す。"""
+    required = {
+        "差分色の見出し": "### 図では、「新しく作る」と「開いて直す」を塗り分けます",
+        "変更する既存要素の見本": "［変更］ 既存の計算",
+        "新しく作る要素の見本": "［新規］ 新しい規則",
+        "入力の形の見本": "入力：対象ID",
+        "保存データの形の見本": "保存データ：対象レコード",
+        "処理の形の見本": "処理：値を更新",
+        "判定の形の見本": "判定：条件を満たすか",
+        "出力の形の見本": "出力：処理結果",
+        "全章共通であることの宣言": "全章で共通",
+    }
+    return [
+        f"第0章の図の読み方に{label}がありません"
+        for label, marker in required.items()
+        if marker not in text
+    ]
 
 
 def chapter_numbers(paths: list[Path]) -> set[int]:
@@ -1739,6 +1761,8 @@ def check(config_path: Path) -> int:
             continue
         text = path.read_text(encoding="utf-8")
         for issue in class_legend_pairing_issues(text):
+            failures.append(f"{path.name}: {issue}")
+        for issue in chapter_zero_diagram_legend_issues(text):
             failures.append(f"{path.name}: {issue}")
 
     # 35. 共通の実行案内は第0章へ集約する

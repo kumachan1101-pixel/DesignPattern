@@ -1168,7 +1168,7 @@ check_volume.py      7ファイルが1冊として成立（21観点）
 |---|---|
 | chapter01 | `Order.h` `IDiscountRule.h` `Discounts.h` `RuleSelector.h` `DiscountRuleSet.h` `PaymentCalculator.h` `main.cpp` `Makefile` |
 | chapter02 | `EventDatabase.h` `IReservationState.h` `States.h` **`States.cpp`** `TicketReservation.h` `main.cpp` `Makefile` |
-| chapter03 | `ProductDatabase.h` `INotification.h` `Notifiers.h` `DeliveryStatusLog.h` `InventoryManager.h` `main.cpp` `Makefile` |
+| chapter03 | `ProductDatabase.h` `INotification.h` `Notifiers.h` `SMSDeliveryTracker.h` `InventoryManager.h` `main.cpp` `Makefile` |
 
 `make run` でそのまま動く。各章の「実務でファイルを分けるなら」の表へ、入手方法を1行足した。
 

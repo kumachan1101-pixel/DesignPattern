@@ -68,6 +68,41 @@ class PublicationStyleTests(unittest.TestCase):
         self.assertTrue(any("この章の核心" in issue for issue in issues))
         self.assertTrue(any("この章での簡略化" in issue for issue in issues))
 
+    def test_repeated_code_check_label_is_rejected(self) -> None:
+        text = (
+            "# 第1章 題材\n"
+            "### この章で解く設計課題\n"
+            "#### 実システムと掲載コードの違い\n"
+            "**ここで確認するコード：`Rule`**\n"
+        )
+        issues = check_volume.publication_style_issues(text)
+        self.assertTrue(any("ここで確認するコード" in issue for issue in issues))
+
+
+class ChapterZeroDiagramLegendTests(unittest.TestCase):
+    def test_concrete_common_legend_is_accepted(self) -> None:
+        text = "\n".join(
+            [
+                "### 図では、「新しく作る」と「開いて直す」を塗り分けます",
+                "［変更］ 既存の計算",
+                "［新規］ 新しい規則",
+                "入力：対象ID",
+                "保存データ：対象レコード",
+                "処理：値を更新",
+                "判定：条件を満たすか",
+                "出力：処理結果",
+                "この記法は全章で共通です。",
+            ]
+        )
+        self.assertEqual([], check_volume.chapter_zero_diagram_legend_issues(text))
+
+    def test_abstract_legend_without_examples_is_rejected(self) -> None:
+        issues = check_volume.chapter_zero_diagram_legend_issues(
+            "図では色と形を使い分けます。全章で共通です。"
+        )
+        self.assertTrue(any("変更する既存要素" in issue for issue in issues))
+        self.assertTrue(any("入力の形" in issue for issue in issues))
+
 
 class EarlyMaterialSpoilerTests(unittest.TestCase):
     def test_cpp_example_is_rejected_even_with_unrelated_names(self) -> None:

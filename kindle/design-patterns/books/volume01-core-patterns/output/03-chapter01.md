@@ -1665,7 +1665,8 @@ private:
     const IDiscountRule& rule;
 
 public:
-    explicit PaymentCalculator(const IDiscountRule& selectedRule)
+    explicit PaymentCalculator(
+            const IDiscountRule& selectedRule)
         : rule(selectedRule) {}
 
     PaymentResult calculate(const Order& order) const;

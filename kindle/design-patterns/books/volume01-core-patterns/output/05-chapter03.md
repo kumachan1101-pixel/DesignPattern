@@ -1738,6 +1738,7 @@ SMSの最終配信状態は通知先の寿命から独立して残すため、`S
 | 各Notifier | 通知先固有APIの呼び出しと共通結果への変換 | 生成・登録・他通知先の制御を持たない |
 | `SMSDeliveryTracker` | SMS受付IDごとの配信状態を保存・更新 | 外部結果の受信を持たない |
 | `SMSDeliveryCallback` | 外部から届いたSMS結果を台帳へ渡す | 配信状態を自分では持たない |
+| `DeliveryStatusText` | 配信状態を表示文字列へ変換 | SMS受付IDや配信状態を持たない |
 | `InventoryApplication` | 実体の生成・所有・初期接続 | 在庫判断や通知処理を持たない |
 
 この分け方なら、それぞれの変更理由は一つです。特にSMS固有の追跡へ汎用名を付けず、状態表示の変換だけを `DeliveryStatusText::name()` へ分けます。

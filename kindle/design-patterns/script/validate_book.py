@@ -3416,12 +3416,15 @@ def check_core_thesis(text: str, path: Path) -> list[Issue]:
     return issues
 
 
-# フェーズ6の断片コードは、直前の1行で出どころまたは確認対象を宣言する。
+# フェーズ6の断片コードは、直前の1行で所属と確認目的を宣言する。
 # 散文へ織り込むだけだと、読者はブロックを見た時点で所属が分からず、
 # 前の段落まで戻って探すことになる（著者指摘 AF-20260814-150）。
 FRAGMENT_LOCATION = re.compile(
-    r"^\*\*(?:変更前から抜き出す箇所|ここで確認するコード|比較用コード)：.*?"
-    r"`(?:[A-Za-z_]\w*(?:::[A-Za-z_]\w*)?|main)(?:\s*\(|`)", re.M)
+    r"^\*\*(?:(?:変更前から抜き出す箇所|ここで確認するコード|比較用コード)：.*?)?"
+    r"`(?:[A-Za-z_]\w*(?:::[A-Za-z_]\w*)?|main)(?:\s*\([^`]*\)|\(\)|`)[^\n]*"
+    r"(?:：|――)[^\n]+\*\*$",
+    re.M,
+)
 # 型宣言そのものを載せるブロックと、`void Class::method(...)` のクラス外定義は、
 # コード自身が掲載箇所を宣言しているのでラベルを求めない。
 TYPE_DECLARATION_HEAD = re.compile(r"\s*(?:class|struct|enum|namespace)\s")
@@ -3429,7 +3432,7 @@ QUALIFIED_DEFINITION_HEAD = re.compile(r"\s*[\w:<>&\*\s]+?\b[A-Z]\w*::\w+\s*\(")
 
 
 def check_phase6_fragment_location(text: str, path: Path) -> list[Issue]:
-    """フェーズ6の断片コードへ、出どころ／確認対象ラベルがあるかを見る。"""
+    """フェーズ6の断片コードへ、所属と確認目的があるかを見る。"""
     body_text = text.replace("\r\n", "\n")
     marks = _phase_marks(body_text)
     issues: list[Issue] = []
@@ -3441,9 +3444,8 @@ def check_phase6_fragment_location(text: str, path: Path) -> list[Issue]:
         if not FRAGMENT_LOCATION.match(last_line.strip()):
             issues.append(Issue(
                 path, line_number(body_text, match.start()),
-                "フェーズ6の断片コードの直前へ、既存コードなら"
-                "`**変更前から抜き出す箇所：**`、新しく決めたコードなら"
-                "`**ここで確認するコード：**`を書き、対象メソッドを示してください。"
+                "フェーズ6の断片コードの直前へ、対象のクラス／メソッド名と、"
+                "その抜粋で分かることを太字行で直接示してください。"
                 "散文へ織り込むだけでは、読者がブロックを見た時点で"
                 "どのクラスのどの関数かを判断できません",
             ))
@@ -3676,9 +3678,9 @@ def check_chapter01_rule_lifecycle_terms(text: str, path: Path) -> list[Issue]:
                 "第1章ではルールの生成・登録・選択とCalculatorへの注入を別の操作として明記してください: "
                 + statement,
             ))
-    main_label = "**ここで確認するコード：`main()`**"
-    main_at = section.find(main_label)
-    if main_at >= 0:
+    main_match = re.search(r"^\*\*[^\n]*`main\(\)`[^\n]*", section, re.M)
+    if main_match:
+        main_at = main_match.start()
         fence_at = section.find("```cpp", main_at)
         fence_end = section.find("```", fence_at + len("```cpp"))
         if min(fence_at, fence_end) >= 0:
