@@ -167,6 +167,57 @@ class PrefaceAndEpilogueFocusTests(unittest.TestCase):
         self.assertTrue(any("別に見える段階要約" in issue for issue in issues))
 
 
+class TrunkCandidateProgressionTests(unittest.TestCase):
+    def test_practical_chapter_candidate_and_confirmation_are_accepted(self) -> None:
+        text = "\n".join(
+            [
+                "## 🟣 フェーズ2：仮説立案",
+                "幹候補と変化点候補を見立てる。",
+                "## 🟠 フェーズ4：原因分析",
+                "## 🟡 フェーズ5：課題定義",
+                "幹候補を維持し、変化点候補を外へ分ける。",
+            ]
+        )
+        self.assertEqual(
+            [],
+            check_volume.trunk_candidate_progression_issues("03-chapter01.md", text),
+        )
+
+    def test_practical_chapter_without_phase5_recovery_is_rejected(self) -> None:
+        text = "\n".join(
+            [
+                "## 🟣 フェーズ2：仮説立案",
+                "幹候補と変化点候補を見立てる。",
+                "## 🟠 フェーズ4：原因分析",
+                "## 🟡 フェーズ5：課題定義",
+            ]
+        )
+        issues = check_volume.trunk_candidate_progression_issues(
+            "04-chapter02.md", text
+        )
+        self.assertTrue(any("目標配置" in issue for issue in issues))
+
+
+class ColophonVerificationTests(unittest.TestCase):
+    def test_precise_automated_verification_scope_is_accepted(self) -> None:
+        text = "\n".join(
+            [
+                "変更前コードと完成コード",
+                "C++14準拠のコンパイラを使った自動検査",
+                "抜粋単独でのコンパイルは想定していません",
+            ]
+        )
+        self.assertEqual(
+            [], check_volume.colophon_verification_issues("07-colophon.md", text)
+        )
+
+    def test_old_manual_verification_implication_is_rejected(self) -> None:
+        issues = check_volume.colophon_verification_issues(
+            "07-colophon.md", "著者が調査・検証した時点"
+        )
+        self.assertTrue(any("手作業" in issue for issue in issues))
+
+
 class EarlyMaterialSpoilerTests(unittest.TestCase):
     def test_cpp_example_is_rejected_even_with_unrelated_names(self) -> None:
         text = "# 第0章\n\n```cpp\nclass NeutralExample {};\n```\n"

@@ -59,8 +59,10 @@
   51. クラス図の属性・操作を直後の表へ重複掲載していない
   52. 実践章の冒頭と簡略化説明が、目的の分かる読者向け見出しになっている
   53. 第0章に、全章共通の差分色と処理フローの形を具体例つきで一度だけ定義している
-  54. 第0章の各フェーズが、固定的な入力・成果物でなく思考法と確認ポイントを先に示す
-  55. はじめにの三つの問いと、おわりにの実務上の前提が重点説明へ戻っている
+ 54. 第0章の各フェーズが、固定的な入力・成果物でなく思考法と確認ポイントを先に示す
+ 55. はじめにの三つの問いと、おわりにの実務上の前提が重点説明へ戻っている
+ 56. 幹候補・変化点候補がフェーズ2までの見立て、フェーズ5の責任配置として接続する
+ 57. 奥付が、実際に行った自動コンパイルの対象範囲を正確に説明する
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -273,6 +275,64 @@ def preface_and_epilogue_focus_issues(name: str, text: str) -> list[str]:
         for marker in required
         if marker not in text
     )
+    return issues
+
+
+def trunk_candidate_progression_issues(name: str, text: str) -> list[str]:
+    """幹と変化点を早く見つけつつ、責任配置を先取りしていないか。"""
+    if name == "02-chapter00.md":
+        required = (
+            "幹候補",
+            "変化点候補",
+            "永久に不変",
+            "フェーズ4でその原因",
+            "フェーズ5では",
+        )
+        return [
+            f"第0章の幹・変化点の説明に `{marker}` がありません"
+            for marker in required
+            if marker not in text
+        ]
+
+    if not re.fullmatch(r"0[3-5]-chapter0[1-3]\.md", name):
+        return []
+
+    issues: list[str] = []
+    phase2 = text.find("## 🟣 フェーズ2：")
+    phase4 = text.find("## 🟠 フェーズ4：")
+    phase5 = text.find("## 🟡 フェーズ5：")
+    candidates = [found.start() for found in re.finditer("幹候補", text)]
+    changes = [found.start() for found in re.finditer("変化点候補", text)]
+    if len(candidates) < 2 or len(changes) < 2:
+        issues.append(
+            "幹候補・変化点候補をフェーズ2の見立てと"
+            "フェーズ5の目標配置で回収してください"
+        )
+        return issues
+    if not (0 <= phase2 < candidates[0] < phase4 < phase5 < candidates[-1]):
+        issues.append(
+            "幹候補はフェーズ2で見立て、変更影響と原因を経た後、"
+            "フェーズ5で責任配置として確定してください"
+        )
+    return issues
+
+
+def colophon_verification_issues(name: str, text: str) -> list[str]:
+    """奥付の動作確認表現が、実際の自動検査の範囲と一致するか。"""
+    if name != "07-colophon.md":
+        return []
+    required = (
+        "変更前コードと完成コード",
+        "C++14準拠のコンパイラを使った自動検査",
+        "抜粋単独でのコンパイルは想定していません",
+    )
+    issues = [
+        f"奥付の動作確認説明に `{marker}` がありません"
+        for marker in required
+        if marker not in text
+    ]
+    if "著者が調査・検証した時点" in text:
+        issues.append("奥付が、著者による手作業の検証だと誤読できる旧表現へ戻っています")
     return issues
 
 
@@ -1918,6 +1978,10 @@ def check(config_path: Path) -> int:
         for issue in publication_style_issues(text):
             failures.append(f"{path.name}: {issue}")
         for issue in preface_and_epilogue_focus_issues(path.name, text):
+            failures.append(f"{path.name}: {issue}")
+        for issue in trunk_candidate_progression_issues(path.name, text):
+            failures.append(f"{path.name}: {issue}")
+        for issue in colophon_verification_issues(path.name, text):
             failures.append(f"{path.name}: {issue}")
 
     # 28. 本文で節番号を道しるべに使わない
