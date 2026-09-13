@@ -337,7 +337,7 @@ def phase_internal_checkpoint_issues(text: str) -> list[str]:
         (phase3, "フェーズ3の確認観点：", "フェーズ3の変更試行"),
         (
             phase3,
-            "この場所は、今回の変更の理由と関係があるか？",
+            "依頼が名指ししたもの以外まで、書き換えるか確認することになっていないか？",
             "フェーズ3の直接変更と巻き込みの切り分け",
         ),
         (
@@ -371,9 +371,9 @@ def phase_internal_checkpoint_issues(text: str) -> list[str]:
         if phase25_start >= 0
         else ""
     )
-    if phase25 and not all(
-        marker in phase25
-        for marker in ("変更ID", "動作を維持", "リスクID", "フェーズ6")
+    if phase25 and not (
+        all(m in phase25 for m in ("変更ID", "リスクID", "フェーズ6"))
+        and any(m in phase25 for m in ("動作を維持", "動作を変えません"))
     ):
         issues.append(
             "2-5は、フェーズ3で試す変更ID・今回維持する動作・"
@@ -708,19 +708,14 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         issues.append("フェーズ5に最終コードがあります。値・操作・結果を確定し、型名とC++はフェーズ6で導いてください")
 
     # 仕分け表は2形式を認める。新形式は行に場所と変わり方を持ち、変更理由の一覧を兼ねる。
-    element_table = "| 接続情報 | それを見て動く場所 | 今回書き換えたか |" in phase4
-    if not element_table and "| 変更理由 | 第0章の型 | 出どころ |" not in phase4:
+    if "| 接続情報 | それを見て動く場所 |" not in phase4:
         issues.append(
-            "フェーズ4に、今回と将来の変更理由を第0章の型で並べた一覧がありません"
+            "フェーズ4に、接続情報とそれを見て動く場所の一覧がありません。"
+            "同じクラスに、違う接続情報を見ている場所が並んでいることを示してください"
         )
-    if not element_table and "| 開いた仕事 | いまあるクラスと場所 |" not in phase4:
+    if "| 責任 | 見ている接続情報 |" not in phase4:
         issues.append(
-            "フェーズ4に、要素の一覧（または開いた仕事のマトリクス）がありません。"
-            "同じクラスが要素を2つ以上抱えていることを示してください"
-        )
-    if not element_table and "| 責任 | 対応する変更理由 | まとめている仕事 |" not in phase4:
-        issues.append(
-            "フェーズ4で、仕事へ責任名を付ける表がありません"
+            "フェーズ4で、接続情報へ責任名を付ける表がありません"
         )
     if phase4.count("%% provisional-role-diagram") != 1 or "**対策前：" not in phase4:
         issues.append("フェーズ4に、変更を現状構造へ当てた対策前の責任配置図を1枚置いてください")
@@ -785,9 +780,13 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         "#### 完成後のクラス図",
         "#### 完成後の実行シーケンス",
     )
-    if not all(
-        word in final_class_diagrams
-        for word in ("フェーズ4で", "混在していた", "変更理由")
+    if not (
+        "フェーズ4で" in final_class_diagrams
+        and any(w in final_class_diagrams for w in ("混在していた", "同居していた"))
+        and any(
+            w in final_class_diagrams
+            for w in ("変更理由", "違うものを見ている", "接続情報")
+        )
     ):
         issues.append(
             "完成後クラス図の直後で、フェーズ4で元のクラスに混在していた責任が"
@@ -798,8 +797,8 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
     else:
         position = phase7.find("| フェーズ5の完了条件 |")
         prefix = phase7[max(0, position - 320):position] if position >= 0 else ""
-        if position < 0 or "1行" not in prefix or "左から" not in prefix:
-            issues.append("設計課題の完了確認表の直前に、1行の単位と左から読む順序を書いてください")
+        if position < 0 or "完了条件" not in prefix:
+            issues.append("設計課題の完了確認表の直前に、何を照合する表かを書いてください")
 
     completion_conditions: list[str] = []
     for body in re.findall(
