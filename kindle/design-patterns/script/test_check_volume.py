@@ -83,7 +83,7 @@ class ChapterZeroDiagramLegendTests(unittest.TestCase):
     def test_concrete_common_legend_is_accepted(self) -> None:
         text = "\n".join(
             [
-                "### 図では、「新しく作る」と「開いて直す」を塗り分けます",
+                "### 図の差分色：新規と変更",
                 "［変更］ 既存の計算",
                 "［新規］ 新しい規則",
                 "入力：対象ID",
@@ -1070,6 +1070,37 @@ class BatchApplication {
 """
         issues = check_volume.assembly_responsibility_issues(text)
         self.assertTrue(any("入力検証・照会" in issue for issue in issues))
+
+
+class HeadingToneTests(unittest.TestCase):
+    def test_noun_heading_is_accepted(self) -> None:
+        self.assertEqual(
+            [], check_volume.polite_heading_issues("## 自分のコードへの適用\n")
+        )
+
+    def test_polite_heading_is_rejected(self) -> None:
+        issues = check_volume.polite_heading_issues(
+            "## あなたのコードで考えてみてください\n"
+        )
+        self.assertTrue(any("です・ます調" in issue for issue in issues))
+
+
+class DesignPositioningTests(unittest.TestCase):
+    def test_preface_positioning_is_accepted(self) -> None:
+        text = (
+            "ソフトウェア設計に唯一の正解はありません。"
+            "私が妥当だと考えた一案です。"
+            "パターン名は書名と章題に最初から示しています。"
+        )
+        self.assertEqual(
+            [], check_volume.design_positioning_issues("01-preface.md", text)
+        )
+
+    def test_delayed_name_reveal_is_rejected(self) -> None:
+        issues = check_volume.design_positioning_issues(
+            "03-chapter01.md", "最後に共有名を知る"
+        )
+        self.assertTrue(any("最後に明かす" in issue for issue in issues))
 
 
 if __name__ == "__main__":

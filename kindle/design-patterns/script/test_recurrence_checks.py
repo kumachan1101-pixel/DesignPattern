@@ -240,14 +240,14 @@ cases.append((
     broken,
 ))
 
-# 24d) EDIT-003: 問題を解く前にパターン名を本文へ出す
+# 24d) EDIT-003: パターン名だけを解決策にする
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")
 broken = t.replace(
     "| **解決策** | ルール差し替え構造：",
     "| **解決策** | Strategy：",
     1,
 )
-cases.append(("EDIT-003 パターン名の先出し", V.check_pattern_name_reveal, broken))
+cases.append(("EDIT-003 パターン名だけの設計理由", V.check_pattern_name_as_design_reason, broken))
 
 # 25) SCOPE-001: 1-4へクラス責任表を戻す
 t = (OUT/"chapter01.md").read_text(encoding="utf-8")

@@ -63,7 +63,9 @@
  55. はじめにの三つの問いと、おわりにの実務上の前提が重点説明へ戻っている
  56. 幹候補・変化点候補がフェーズ2までの見立て、フェーズ5の責任配置として接続する
   57. 奥付が、実際に行った自動コンパイルの対象範囲を正確に説明する
-  58. はじめに・第0章が、文章の順序でなく構造の関係を図で示す
+ 58. はじめに・第0章が、文章の順序でなく構造の関係を図で示す
+ 59. 本文見出しが、です・ます調の呼びかけになっていない
+ 60. 設計を唯一解として扱わず、既知のパターン名を最後に明かす演出がない
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -204,10 +206,27 @@ def publication_style_issues(text: str) -> list[str]:
     return issues
 
 
+def polite_heading_issues(text: str) -> list[str]:
+    """本文見出しを、です・ます調でなく名詞句または常体にそろえる。"""
+    issues: list[str] = []
+    polite_end = re.compile(
+        r"(?:です|でした|ます|ました|ません|ませんでした|ください|"
+        r"ましょう|でしょう)(?:か)?[？?！!。]*$"
+    )
+    for number, line in prose_lines(text):
+        heading = re.match(r"^#{1,6}\s+(.+?)\s*$", line)
+        if heading and polite_end.search(heading.group(1)):
+            issues.append(
+                f"{number}行目: 見出し `{line}` がです・ます調です。"
+                "名詞句または常体で簡潔にしてください"
+            )
+    return issues
+
+
 def chapter_zero_diagram_legend_issues(text: str) -> list[str]:
     """第0章が全章共通の図記法を、抽象説明でなく見本として示すかを返す。"""
     required = {
-        "差分色の見出し": "### 図では、「新しく作る」と「開いて直す」を塗り分けます",
+        "差分色の見出し": "### 図の差分色：新規と変更",
         "変更する既存要素の見本": "［変更］ 既存の計算",
         "新しく作る要素の見本": "［新規］ 新しい規則",
         "入力の形の見本": "入力：対象ID",
@@ -319,6 +338,40 @@ def early_structure_visual_issues(name: str, text: str) -> list[str]:
         for marker in required
         if marker not in text
     )
+    return issues
+
+
+def design_positioning_issues(name: str, text: str) -> list[str]:
+    """設計案の位置づけと、パターン名の扱いが旧方針へ戻っていないか。"""
+    issues: list[str] = []
+    for old in (
+        "最後に共有名を知る",
+        "確かめ終えた構造を共有するために最後に使います",
+        "ここまで問題から導いた「ルール差し替え構造」は、一般に",
+        "ここまで問題から導いた「状態分離構造」は、一般に",
+        "ここまで問題から導いた「通知分離構造」は、一般に",
+    ):
+        if old in text:
+            issues.append(
+                f"パターン名を最後に明かす旧表現 `{old}` が残っています"
+            )
+    if name == "01-preface.md":
+        required = (
+            "ソフトウェア設計に唯一の正解はありません",
+            "私が妥当だと考えた一案",
+            "パターン名は書名と章題に最初から示しています",
+        )
+        issues.extend(
+            f"はじめにの設計案の位置づけに `{marker}` がありません"
+            for marker in required
+            if marker not in text
+        )
+    if re.match(r"0[3-5]-chapter0[1-3]\.md$", name):
+        if "章題に掲げた **" not in text or "抽象的な骨格と照合します" not in text:
+            issues.append(
+                "パターン解説の前に、章の具体構造を章題のパターンの"
+                "抽象骨格・適用条件・限界と照合する目的がありません"
+            )
     return issues
 
 
@@ -2021,9 +2074,13 @@ def check(config_path: Path) -> int:
         text = path.read_text(encoding="utf-8")
         for issue in publication_style_issues(text):
             failures.append(f"{path.name}: {issue}")
+        for issue in polite_heading_issues(text):
+            failures.append(f"{path.name}: {issue}")
         for issue in preface_and_epilogue_focus_issues(path.name, text):
             failures.append(f"{path.name}: {issue}")
         for issue in early_structure_visual_issues(path.name, text):
+            failures.append(f"{path.name}: {issue}")
+        for issue in design_positioning_issues(path.name, text):
             failures.append(f"{path.name}: {issue}")
         for issue in trunk_candidate_progression_issues(path.name, text):
             failures.append(f"{path.name}: {issue}")

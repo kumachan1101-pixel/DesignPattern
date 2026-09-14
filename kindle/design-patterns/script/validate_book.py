@@ -4289,30 +4289,22 @@ def check_chapter04_assembly_relation(text: str, path: Path) -> list[Issue]:
     )]
 
 
-def check_pattern_name_reveal(text: str, path: Path) -> list[Issue]:
-    """パターン名は、問題を解いた後の移行文で初めて本文へ出す。"""
+def check_pattern_name_as_design_reason(text: str, path: Path) -> list[Issue]:
+    """パターン名だけを、設計の解決策や採用理由にしない。"""
     heading = text.find("## パターン解説：")
     if heading < 0:
         return []
 
-    reveal = text.rfind("ここまで問題から導いた", 0, heading)
-    if reveal < 0 or heading - reveal > 800:
-        return [Issue(
-            path,
-            line_number(text, heading),
-            "パターン解説の直前に、問題から導いた構造とパターン名を結ぶ"
-            "移行文を置いてください",
-        )]
-
-    # 章タイトルは検索性のために名称を出してよい。コード、図、識別子は
-    # 設計結果の実装名を含むため除外し、読者向け散文だけを調べる。
+    # 章題や本文で名称を隠す必要はない。ただし、解決策欄を名称だけで
+    # 済ませたり、「パターンだから採用」と理由を置き換えたりしない。
     first_newline = text.find("\n") + 1
-    prose = text[first_newline:reveal]
+    prose = text[first_newline:heading]
     prose = re.sub(r"```.*?```", "", prose, flags=re.S)
     prose = re.sub(r"`[^`\n]+`", "", prose)
+    names = r"(?:Strategy|Facade|State|Template Method|Command|Decorator|Observer|Factory Method)"
     pattern = re.compile(
-        r"(?<![A-Za-z])(?:Strategy|Facade|State|Template Method|Command|"
-        r"Decorator|Observer|Factory Method)(?![A-Za-z])"
+        rf"(?m)^\|\s*\*\*(?:解決策|構造|採用理由)\*\*\s*\|\s*{names}(?:パターン)?\s*[：:|]"
+        rf"|{names}(?:パターン)?(?:を適用するから|を採用するから|だから採用)"
     )
     match = pattern.search(prose)
     if not match:
@@ -4321,8 +4313,8 @@ def check_pattern_name_reveal(text: str, path: Path) -> list[Issue]:
     return [Issue(
         path,
         line_number(text, absolute),
-        "パターン解説前の本文にパターン名が出ています。問題から導いた"
-        "構造名を使い、名称は解説直前の移行文で初めて結び付けてください",
+        "パターン名だけが解決策・採用理由になっています。現状、要求、"
+        "変更影響、制約から、責任配置と接続方法を説明してください",
     )]
 
 
@@ -4581,7 +4573,7 @@ def check_chapter(path: Path, core: bool) -> list[Issue]:
         issues.extend(check_number_namespace(text, path))
         issues.extend(check_phase_reference_residue(text, path))
         issues.extend(check_phase6_reference_scope(text, path))
-        issues.extend(check_pattern_name_reveal(text, path))
+        issues.extend(check_pattern_name_as_design_reason(text, path))
         issues.extend(check_change_diagram_highlight(text, path))
         issues.extend(check_excerpt_keeps_signature(text, path))
         issues.extend(check_common_phase_headings(text, path))
