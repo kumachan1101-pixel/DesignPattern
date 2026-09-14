@@ -544,6 +544,9 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
                 "### 3-1：変更を試みる",
                 "変更ID1を試し、既存動作を維持する。",
                 "### 3-2：変更影響グラフ",
+                "変更を試したコードの差分から、一つのコード上の責任を一箱にする。",
+                "変更しない箇所は回帰確認として示す。",
+                "### 3-3：痛みの言語化",
                 "## フェーズ4：原因分析",
                 "### 4-1：責任の混在を原因として確定する",
                 "| 図の番号 | その場所が見ている情報 | 該当実装 | 責任としての読み方 |",
@@ -554,6 +557,10 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
                 "| 責任 | 見ている接続情報 |",
                 "|---|---|---|",
                 "| 販促方針 | A | 条件と式を決める |",
+                "```cpp",
+                "// ① 販促方針を判定する箇所",
+                "int calculate();",
+                "```",
                 "**対策前：変更を現状構造へ当てた状態**",
                 "```mermaid",
                 "classDiagram",
@@ -573,18 +580,20 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
                 "class Stable[\"安定側\"] {",
                 "責任：注文計算",
                 "}",
-                "class Change[\"① 変化側\"] {",
+                "class Change[\"課題ID1の対象<br/>変化側\"] {",
                 "責任：販促方針",
                 "}",
                 "Stable --> Change : 依頼と結果",
                 "```",
                 "### 5-2：課題と完了条件を確定する",
                 "#### 課題ID1（境界）の完了条件",
-                "**解く原因：** 原因ID1（責任の同居）",
-                "**構造の変更：** 目標図の①のとおり責任を分ける。",
-                "**接続：** 元の責任から依頼を渡し、分けた責任から結果を返す。",
-                "完成コードで次を満たせば完了です。",
-                "- 完成コードで確認する",
+                "| 確定すること | 内容 |",
+                "|---|---|",
+                "| 解く原因 | 原因ID1（責任の同居） |",
+                "| 構造の変更 | 目標図の課題ID1のとおり責任を分ける |",
+                "| 接続 | 元の責任から依頼を渡す |",
+                "| 返す結果 | 分けた責任から結果を返す |",
+                "| 完了条件1 | 完成コードで確認する |",
                 "1行が一つの原因です。問題から原因を追います。",
                 "| 観測した問題 | 確定した原因 | 課題で目指す状態 |",
                 "## フェーズ6：対策検討",
@@ -672,7 +681,7 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
 
     def test_task_card_without_connection_is_rejected(self) -> None:
         text = self.valid_chapter().replace(
-            "**接続：** 元の責任から依頼を渡し、分けた責任から結果を返す。\n",
+            "| 接続 | 元の責任から依頼を渡す |\n",
             "",
         )
         issues = check_volume.practical_explanation_consistency_issues(text)
@@ -687,7 +696,7 @@ class PracticalExplanationConsistencyTests(unittest.TestCase):
             "class Stable[\"安定側\"] {\n"
             "責任：注文計算\n"
             "}\n"
-            "class Change[\"① 変化側\"] {\n"
+            "class Change[\"課題ID1の対象<br/>変化側\"] {\n"
             "責任：販促方針\n"
             "}\n"
             "Stable --> Change : 依頼と結果\n"
@@ -1101,6 +1110,71 @@ class DesignPositioningTests(unittest.TestCase):
             "03-chapter01.md", "最後に共有名を知る"
         )
         self.assertTrue(any("最後に明かす" in issue for issue in issues))
+
+
+class StarAuditRecurrenceTests(unittest.TestCase):
+    def test_valid_markdown_table_is_accepted(self) -> None:
+        text = "| 項目 | 内容 |\n|---|---|\n| 原因 | 責任の同居 |\n"
+        self.assertEqual([], check_volume.markdown_table_integrity_issues(text))
+
+    def test_empty_and_short_markdown_rows_are_rejected(self) -> None:
+        text = "| 項目 | 内容 |\n|---|---|\n| 原因 |\n| | |\n"
+        issues = check_volume.markdown_table_integrity_issues(text)
+        self.assertTrue(any("列数" in issue for issue in issues))
+        self.assertTrue(any("内容のない表行" in issue for issue in issues))
+
+    def test_class_diagram_roles_are_required(self) -> None:
+        text = """```mermaid
+classDiagram
+class Order {
+  責任：注文処理
+}
+class Rule {
+  +apply()
+}
+```
+"""
+        issues = check_volume.class_diagram_role_issues(text)
+        self.assertEqual(1, len(issues))
+        self.assertIn("`Rule` に責任がありません", issues[0])
+
+    def test_explanation_diagram_is_exempt_from_class_roles(self) -> None:
+        text = """```mermaid
+classDiagram
+%% explanation-set
+class A
+class B
+A --> B
+```
+"""
+        self.assertEqual([], check_volume.class_diagram_role_issues(text))
+
+    def test_unnamed_count_reference_is_rejected(self) -> None:
+        issues = check_volume.ambiguous_count_reference_issues(
+            "二つの接続を順に確認します。"
+        )
+        self.assertEqual(1, len(issues))
+
+    def test_named_operations_are_accepted(self) -> None:
+        text = "予約・支払い・取消・保留の四操作を確認します。"
+        self.assertEqual([], check_volume.ambiguous_count_reference_issues(text))
+
+    def test_unused_cpp_notation_is_rejected(self) -> None:
+        issues = check_volume.unused_cpp_explanation_issues(
+            "`erase()` は要素を削除します。",
+            "std::vector<int> values;",
+        )
+        self.assertEqual(1, len(issues))
+        self.assertIn("`erase`", issues[0])
+
+    def test_used_cpp_notation_is_accepted(self) -> None:
+        self.assertEqual(
+            [],
+            check_volume.unused_cpp_explanation_issues(
+                "`erase()` は要素を削除します。",
+                "values.erase(values.begin());",
+            ),
+        )
 
 
 if __name__ == "__main__":

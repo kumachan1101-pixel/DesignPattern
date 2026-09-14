@@ -261,6 +261,7 @@ flowchart TB
 ```mermaid
 classDiagram
     class InventoryManager {
+        責任：在庫更新と通知を実行
         -EmailNotifier email
         -DashboardUpdater dashboard
         -ChatNotifier chat
@@ -270,21 +271,26 @@ classDiagram
         -notifyAll(productId, info)
     }
     class EmailNotifier {
+        責任：メール通知
         +sendMail(subject, body) bool
     }
     class DashboardUpdater {
+        責任：ダッシュボード更新
         +refreshStockWidget(productCode, stock) void
     }
     class ChatNotifier {
+        責任：チャット通知
         +postMessage(channel, text) std::string
     }
     class ProductDatabase {
+        責任：商品と在庫を管理
         +exists(id)
         +get(id)
         +save(id, info)
         +isBelowThreshold(id, stock)
     }
     class ProductInfo {
+        責任：商品一件の在庫情報を保持
         +name std::string
         +stock int
         +alertThreshold int
@@ -1304,26 +1310,20 @@ SMSは断られましたが、在庫更新も他の3手段も止まっていま�
 
 ### 3-2：変更影響グラフ
 
-変更を試した結果、1本の変更要求がどこまで届いたかを図にします。**箱はクラスの中の仕事、矢印のラベルは依頼が動かすもの、淡い黄の面・茶色の枠と `［変更］` は今回書き換えたところ、淡い青の面と `［新規］` は新しく作ったところ**です。変更ノードには`変更前→変更後`も書きます。
+変更を試したコードの差分から、影響した場所を図にします。変更・追加したコード箇所を一箱ずつ書き、同じクラスでも仕事が違えば箱を分けます。書き換えていないが回帰確認が必要になった場所は灰色にし、変更箇所から点線でつなぎます。今回は変更ID1（非同期SMSと最終結果の記録）だけなので、すべての変更箱へ同じ矢印を重ねず、箱の中にこの変更との関係を書きます。
 
 ```mermaid
 graph TD
-    T1["変更ID1<br>非同期SMSと最終結果の記録"]:::req
-
     subgraph IM["InventoryManager"]
-        I2["① ［変更］ 手段ごとに引数を作り結果を読み替える<br>メール／ダッシュボード／チャット<br>→ SMS（追加）"]:::touched
-        I3["② ［変更］ 受付IDと配信状態を持ち更新する<br>（追加）"]:::touched
-        I1["③ 在庫を更新し閾値以下かを判定する<br>（変更なし）"]:::keep
+        I2["① ［変更］ 変更ID1（非同期SMS）<br>notifyAll() と通知先メンバーへSMSを追加"]:::touched
+        I3["② ［変更］ 変更ID1（非同期SMS）<br>受付ID別の状態表と完了入口を追加"]:::touched
+        I1["③ ［回帰確認］<br>在庫更新と閾値判定<br>処理は変更なし"]:::keep
     end
 
-    B["④ ［新規］ SMSNotifier<br>（非同期の受付API）"]:::added
-    M["⑤ ［変更］ main()<br>在庫操作の入力 → SMS最終結果も入力"]:::touched
+    B["④ ［新規］ 変更ID1（非同期SMS）<br>SMSNotifier：非同期の受付API"]:::added
+    M["⑤ ［変更］ 変更ID1（非同期SMS）<br>main() へSMS最終結果を追加"]:::touched
 
-    T1 -->|"通知手段"| I2
-    T1 -->|"非同期の最終結果"| I3
-    T1 -->|"入力の組み立て"| M
-    I2 -->|"通知手段"| B
-    I2 -.->|"壊していないか確認"| I1
+    I2 -.-> I1
 
     classDef req fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray:6 4,color:#111827;
     classDef keep fill:#f1f5f9,stroke:#94a3b8,color:#334155;
@@ -1331,13 +1331,7 @@ graph TD
     classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
-この図は、次のように読みます。
-
-**新しく作れたのは `SMSNotifier` だけです。** SMSを1つ足す依頼なのに、矢印は `InventoryManager` の既存の箱へも届いています。手段ごとの送信と結果の読み替えを横断して直すことになりました。6か所の修正は、直前のコードで確認したとおりです。
-
-**同じ枠の中には、今回変えない「在庫を更新し閾値以下かを判定する」も並んでいます。** 変えていないのに、同じクラスにあるので壊していないかを読み直すことになります。点線がそれです。
-
-**矢印のラベルは2種類に分かれています。** 通知手段と、非同期の最終結果。**別々のものを見ている仕事が、一つの枠に入っている**ということです。
+SMS追加で新しく作れたのは④の `SMSNotifier` だけです。既存通知の呼び分けと結果変換を担う①、受付ID別状態を扱う②、入力を組み立てる⑤まで変わりました。一方、③の在庫更新・閾値判定は変えていませんが、同じ `InventoryManager` にあるため回帰確認が必要です。①〜③が異なる情報を見て動くことを、次の原因分析で確かめます。
 
 ### 3-3：痛みの言語化
 
@@ -1383,26 +1377,26 @@ graph TD
 ```cpp
 class InventoryManager {
 private:
-    EmailNotifier    email;      // 通知手段
-    DashboardUpdater dashboard;  // 通知手段
-    ChatNotifier     chat;       // 通知手段
-    ProductDatabase  db;         // 商品マスタの在庫と閾値
-    SMSNotifier      sms;        // 通知手段
+    EmailNotifier    email;      // ① 通知先別の送信・結果変換
+    DashboardUpdater dashboard;  // ① 通知先別の送信・結果変換
+    ChatNotifier     chat;       // ① 通知先別の送信・結果変換
+    ProductDatabase  db;         // ③ 在庫更新・警告要否の判定
+    SMSNotifier      sms;        // ① 通知先別の送信・結果変換
 
-    // 非同期の最終結果
+    // ② 受付ID別の配信状態更新
     std::map<std::string, TrialDeliveryStatus> smsStatuses;
 
 public:
-    // 商品マスタの在庫と閾値を見る2操作
+    // ③ 在庫更新・警告要否の判定
     void reduceStock(std::string productId, int quantity);
     void replenishStock(std::string productId, int quantity);
 
-    // 非同期の最終結果を受ける入口
+    // ② 受付ID別の配信状態更新
     void receiveSMSCompletion(const std::string& requestId,
                               bool delivered);
 
 private:
-    // 通知手段ごとに引数を作り、結果を読み替える
+    // ① 通知先別の送信・結果変換
     void notifyAll(const std::string& productId,
                    const ProductInfo& info);
 };
@@ -1462,7 +1456,10 @@ classDiagram
 
 > **フェーズ5の確認観点：** 「原因をなくすには何を分け、どうなれば終わったと言えるか？」を、完成コードで確かめられる文まで決めます。
 >
-> 入力は、原因ID1（在庫更新・警告要否の判定と通知先別の送信・結果変換が同じクラスにある）と原因ID2（在庫更新・警告要否の判定と受付ID別の配信状態更新が同じクラスにある）です。
+> 入力は、フェーズ4で確定した次の二つです。
+>
+> - 原因ID1（通知処理の同居）：在庫更新・警告要否の判定と、通知先別の送信・結果変換が同じクラスにある
+> - 原因ID2（配信状態の同居）：在庫更新・警告要否の判定と、受付ID別の配信状態更新が同じクラスにある
 
 ### 5-1：原因をなくす責任配置を決める
 
@@ -1482,11 +1479,11 @@ classDiagram
         <<維持する責任>>
         責任：在庫更新・警告要否の判定
     }
-    class NotificationConnection["① 通知先別の送信・結果変換"]:::separated {
+    class NotificationConnection["課題ID1の対象<br>通知先別の送信・結果変換"]:::separated {
         <<分ける責任>>
         責任：通知先別の送信・結果変換
     }
-    class DeliveryTracking["② 受付ID別の配信状態更新"]:::separated {
+    class DeliveryTracking["課題ID2の対象<br>受付ID別の配信状態更新"]:::separated {
         <<分ける責任>>
         責任：受付ID別の配信状態更新
     }
@@ -1497,7 +1494,7 @@ classDiagram
     classDef current fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
-黄色は在庫管理に残す責任、青は外へ分ける責任です。図の①と②を、続く課題と完了条件で課題ID1（通知手段の境界）・課題ID2（非同期完了の境界）として確定します。
+黄色は在庫管理に残す責任、青は外へ分ける責任です。フェーズ3の①〜⑤は変更試行のコード箇所を追う番号でした。この目標図では番号を再利用せず、分離対象を課題ID1（通知手段の境界）と課題ID2（非同期完了の境界）で直接示します。
 
 フェーズ2で見立てた幹候補は「在庫更新・警告要否の判定」として残し、変化点候補は「通知先別の送信・結果変換」と「受付ID別の配信状態更新」として外へ分けます。ここで初めて、候補だった見方が目標の責任配置になります。
 
@@ -1513,38 +1510,32 @@ classDiagram
 
 ### 5-2：課題と完了条件を確定する
 
-直前の目標図で決めた①と②に課題IDを付けます。図の各変更について、原因・接続・完了の見分け方を確定します。
+直前の目標図で示した課題ID1（通知手段の境界）と課題ID2（非同期完了の境界）について、原因・構造変更・接続・完了の見分け方を一つの表にまとめます。
 
 #### 課題ID1（通知手段の境界）の完了条件
 
 | 確定すること | 内容 |
 |---|---|
-| **解く原因：** | 原因ID1：在庫判断と通知先別処理が同じクラスにある |
-| **構造の変更：** | 通知先別の送信・結果変換を目標図①へ分ける |
+| 解く原因 | 原因ID1：在庫判断と通知先別処理が同じクラスにある |
+| 構造の変更 | 通知先別の送信・結果変換を在庫更新・警告要否の判定から分ける |
 | 守る責任 | 在庫更新・警告要否の判定 |
-| **接続：** | 商品ID・商品名・更新後在庫を通知側へ渡す |
+| 接続 | 商品ID・商品名・更新後在庫を通知側へ渡す |
 | 返す結果 | 通知側から受付結果を返す |
-
-**完了条件：** 完成コードで次の3点を満たせば完了です。
-
-- 在庫管理に具体的な通知先名・関数名がない
-- 在庫管理に手段固有の変換・結果解釈がない
-- 全通知先へ同じ依頼を行う
+| 完了条件1 | 在庫管理に具体的な通知先名・関数名がない |
+| 完了条件2 | 在庫管理に手段固有の変換・結果解釈がない |
+| 完了条件3 | 全通知先へ同じ依頼を行う |
 
 #### 課題ID2（非同期完了の境界）の完了条件
 
 | 確定すること | 内容 |
 |---|---|
-| **解く原因：** | 原因ID2：在庫判断と配信状態更新が同じクラスにある |
-| **構造の変更：** | 受付ID別の配信状態更新を目標図②へ分ける |
+| 解く原因 | 原因ID2：在庫判断と配信状態更新が同じクラスにある |
+| 構造の変更 | 受付ID別の配信状態更新を在庫更新・警告要否の判定から分ける |
 | 守る責任 | 在庫更新・警告要否の判定 |
-| **接続：** | 別経路から受付IDと配信成否を渡す |
+| 接続 | 別経路から受付IDと配信成否を渡す |
 | 反映する結果 | 該当する配信状態だけを更新する |
-
-**完了条件：** 完成コードで次の2点を満たせば完了です。
-
-- 在庫管理に配信状態表と完了入口がない
-- 該当する受付IDの状態だけを更新する
+| 完了条件1 | 在庫管理に配信状態表と完了入口がない |
+| 完了条件2 | 該当する受付IDの状態だけを更新する |
 
 「1件が失敗しても他の通知を続ける」は構造課題ではなく、機能要求です。フェーズ7で確認します。
 
@@ -1934,7 +1925,7 @@ void registerNotifications() {
 
 #### 完成後のクラス図
 
-部分図を完成図へ統合します。`<<new>>` は新規、`<<changed>>` は変更、表示なしは現状維持です。図は3枚で、**前の2枚が「誰が誰を持つか」、最後の1枚が「境界を何が流れるか」**です。持ち方とやり取りを分けると、通知先を増やしたときに動く線がどれなのかが見分けられます。
+部分図を完成図へ統合します。図は、通知契約、共通の組み立て、SMS固有の結果管理、境界データの4枚です。
 
 1枚目は、通知契約と各具体の関係です。
 
@@ -1943,6 +1934,7 @@ classDiagram
     direction TB
     class InventoryManager:::touched {
         <<changed>>
+        責任：在庫更新・警告要否の判定
         -std::vector~INotification*~ observers
         +attach(INotification*)
         +reduceStock(productId, quantity)
@@ -1951,22 +1943,27 @@ classDiagram
     class INotification:::added {
         <<new>>
         <<interface>>
+        責任：通知受付の契約
         +send(alert) DeliveryResult
     }
     class EmailNotifier:::touched {
         <<changed>>
+        責任：メール通知へ変換
         +send(alert) DeliveryResult
     }
     class DashboardUpdater:::touched {
         <<changed>>
+        責任：画面更新へ変換
         +send(alert) DeliveryResult
     }
     class ChatNotifier:::touched {
         <<changed>>
+        責任：チャット通知へ変換
         +send(alert) DeliveryResult
     }
     class SMSNotifier:::added {
         <<new>>
+        責任：SMS受付へ変換
         +send(alert) DeliveryResult
     }
     InventoryManager o-- INotification : 契約だけを登録して持つ
@@ -1979,65 +1976,83 @@ classDiagram
     classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
-通知元が持つのは契約1本だけです。2枚目は、誰が誰を生成して持つかです。
+通知元が持つのは契約1本だけです。2枚目は、全通知に共通する組み立てです。具体通知の4クラスは1枚目で示したため、ここでは `INotification` にまとめます。
 
 ```mermaid
 classDiagram
     direction TB
     class InventoryManager:::touched {
         <<changed>>
+        責任：在庫更新と警告通知
     }
-    class ProductDatabase
-    class SMSDeliveryTracker:::added {
-        <<new>>
-    }
-    class SMSDeliveryCallback:::added {
-        <<new>>
+    class ProductDatabase {
+        責任：商品と在庫を管理
     }
     class InventoryApplication:::added {
         <<new>>
+        責任：通知部品を生成・所有・登録
     }
-    class EmailNotifier:::touched {
-        <<changed>>
-    }
-    class DashboardUpdater:::touched {
-        <<changed>>
-    }
-    class ChatNotifier:::touched {
-        <<changed>>
-    }
-    class SMSNotifier:::added {
+    class INotification:::added {
         <<new>>
+        <<interface>>
+        責任：通知受付の契約
     }
     InventoryApplication *-- InventoryManager : 所有
-    InventoryApplication *-- EmailNotifier : 所有・登録
-    InventoryApplication *-- DashboardUpdater : 所有・登録
-    InventoryApplication *-- ChatNotifier : 所有・登録
-    InventoryApplication *-- SMSNotifier : 所有・登録
     InventoryApplication *-- ProductDatabase : 所有
-    InventoryApplication *-- SMSDeliveryTracker : 所有
-    InventoryApplication *-- SMSDeliveryCallback : 所有
+    InventoryApplication ..> INotification : 具体4種を生成・登録
     InventoryManager --> ProductDatabase : 注入で参照を持つ
-    SMSNotifier --> SMSDeliveryTracker : 受付IDを書く相手として持つ
+    InventoryManager o-- INotification : 登録された契約を持つ
 
     classDef added fill:#eaf2fb,stroke:#527aa3,stroke-width:2px,color:#172033;
     classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
-**具体の通知先を知っているのは、`InventoryApplication` だけです。** 在庫台帳へ伸びる線は `InventoryManager` からの1本で、通知先が何種類あっても動きません。`SMSNotifier` だけが `SMSDeliveryTracker` を持つのは、受付IDを書き残すのがSMSだけだからです。この線を共通契約へ出すと、書き残すもののない他の3つにも同じ相手を持たせることになります。
+**具体の通知先を知っているのは、`InventoryApplication` だけです。** 在庫台帳へ伸びる線は `InventoryManager` からの1本で、通知先が何種類あっても動きません。
 
-3枚目は、**境界を何が流れるか**です。**具体の通知先は出てきません。** どの手段であっても流れるものは同じで、それがこの構造の要点だからです。
+3枚目は、SMSだけに必要な受付IDと最終結果の管理です。図の4クラスは、すべて今回新しく作ります。
+
+```mermaid
+classDiagram
+    direction TB
+    class InventoryApplication {
+        責任：通知部品を生成・所有・登録
+    }
+    class SMSNotifier {
+        責任：SMS受付へ変換
+    }
+    class SMSDeliveryTracker {
+        責任：SMS配信状態を管理
+    }
+    class SMSDeliveryCallback {
+        責任：SMS最終結果を受信
+    }
+    InventoryApplication *-- SMSNotifier : 所有・登録
+    InventoryApplication *-- SMSDeliveryTracker : 所有
+    InventoryApplication *-- SMSDeliveryCallback : 所有
+    SMSNotifier --> SMSDeliveryTracker : 受付IDを記録する
+    SMSDeliveryCallback --> SMSDeliveryTracker : 最終結果を反映する
+```
+
+`SMSNotifier` と `SMSDeliveryCallback` は、組み立て側が所有する同じ `SMSDeliveryTracker` を参照します。SMS固有のこの線を共通契約へ出さないため、受付IDを持たない既存3通知は影響を受けません。
+
+4枚目は、**境界を何が流れるか**です。**具体の通知先は出てきません。** どの手段であっても流れるものは同じで、それがこの構造の要点だからです。
 
 ```mermaid
 classDiagram
     direction TB
     class InventoryManager:::touched {
         <<changed>>
+        責任：在庫更新と警告通知
     }
-    class ProductDatabase
-    class ProductInfo
+    class ProductDatabase {
+        責任：商品と在庫を管理
+    }
+    class ProductInfo {
+        責任：商品一件の在庫情報を保持
+    }
     class StockAlert:::added {
         <<new>>
+        責任：在庫警告データを保持
         +productId string
         +productName string
         +stock int
@@ -2045,19 +2060,23 @@ classDiagram
     class INotification:::added {
         <<new>>
         <<interface>>
+        責任：通知受付の契約
         +send(alert) DeliveryResult
     }
     class DeliveryResult:::added {
         <<new>>
+        責任：通知受付結果を保持
         +status DeliveryStatus
         +channel string
         +requestId string
     }
     class SMSDeliveryTracker:::added {
         <<new>>
+        責任：SMS配信状態を管理
     }
     class SMSDeliveryCallback:::added {
         <<new>>
+        責任：SMS最終結果を受信
     }
     InventoryManager --> ProductDatabase : 商品IDを渡し在庫と閾値を受け取る
     ProductDatabase *-- ProductInfo : 商品ID別に保存
@@ -3009,14 +3028,17 @@ Observer（観察者）という名の通り、あるオブジェクトの状態
 classDiagram
     direction LR
     class Subject {
+        責任：Observerへ通知
         +attach(Observer)
         +notify()
     }
     class Observer {
         <<interface>>
+        責任：通知を受ける契約
         +update()
     }
     class ConcreteObserver {
+        責任：具体的な通知処理
         +update()
     }
     Subject o-- Observer
@@ -3053,5 +3075,3 @@ classDiagram
 - **得られること2：異なる責任の切り分け。** 在庫更新・警告要否の判定、通知先別の送信・結果変換、受付ID別の配信状態更新が別々の理由で変わる責任だと分けました。
 - **得られること3：通知契約と登録による再結合。** 共通の通知事実と受付結果を `INotification` に定め、具体通知を組み立て側で所有・登録し、発生元から同じ契約で呼ぶ構造にしました。
 - **得られること4：効果と適用可否の検証。** 通知先固有の変更を実装と登録へ閉じたことを確認し、独立した同報、順序依存の処理、単一の直接呼び出しを選び分ける基準も示しました。
-
-この四つがそろうことで、呼び出しを一律にObserverへ置き換えるのではなく、受信側が独立して同じ事実を受け取るかを根拠に採用を判断できます。

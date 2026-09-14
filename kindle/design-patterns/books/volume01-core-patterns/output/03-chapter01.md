@@ -263,23 +263,27 @@ Premium会員にキャンペーン割引が重ならない理由は、業務上�
 | `CheckoutResultRenderer` | 注文確定結果を表示する境界 | 顧客・条件・小計・支払金額の表示（エラー表示は `OrderProcessor` が直接行う） |
 | `OrderProcessor` | 注文処理の統合 | バリデーション・計算・結果表示の一連の流れを担う |
 
-クラス数が多いため、現状構造を二つの観点に分けます。1枚目では、注文データと金額計算の関係を見ます。
+クラス数が多いため、現状構造を二つの観点に分けます。1枚目では、注文データと金額計算の関係を見ます。表へ戻らなくても読めるよう、各クラスの箱には短い責任を併記します。
 
 ```mermaid
 classDiagram
     direction TB
     class PaymentCalculator {
+        責任：支払金額を計算
         +calculate(Order, string, CampaignContext) int
     }
     class Order {
+        責任：注文データを保持
         +string customerId
         +vector~Item~ items
     }
     class Item {
+        責任：商品データを保持
         +string name
         +int price
     }
     class CampaignContext {
+        責任：施策の状態を保持
         +bool isCampaignActive
     }
 
@@ -295,25 +299,32 @@ classDiagram
 ```mermaid
 classDiagram
     direction TB
-    class CheckoutResultRenderer
+    class CheckoutResultRenderer {
+        責任：購入結果を表示
+    }
     class CustomerDatabase {
+        責任：顧客情報を管理
         -map~string,CustomerInfo~ records
         +exists(string) bool
         +get(string) CustomerInfo
     }
     class CustomerInfo {
+        責任：顧客一件の情報を保持
         +string name
         +string memberType
     }
     class OrderProcessor {
+        責任：注文処理を統合
         -CustomerDatabase& db
         -PaymentCalculator calculator
         +process(Order, CampaignContext)
     }
     class PaymentCalculator {
+        責任：支払金額を計算
         +calculate(Order, string, CampaignContext) int
     }
     class CartPreviewService {
+        責任：購入前金額を表示
         -CustomerDatabase& db
         -PaymentCalculator calculator
         +getEstimatedTotal(Order, CampaignContext) int
@@ -1166,32 +1177,24 @@ int main() {
 
 ### 3-2：変更影響グラフ
 
-変更を試した結果、二つの変更IDがどこまで届いたかを図にします。**箱はクラスの中の仕事、矢印のラベルは依頼が動かすもの、淡い黄の面・茶色の枠と `［変更］` は今回書き換えたところ**です。ノード内の`変更前→変更後`で修正内容も示します。
+変更を試したコードの差分から、書き換えた場所をクラス名・関数名・変更内容つきで一箱ずつ書きます。同じ場所を複数の変更IDで直した場合は一箱へまとめ、回帰確認だけの場所は灰色にして点線でつなぎます。①の `if-else` は、変更ID1（サマーセール追加）と変更ID2（逐次割引）の両方で直した同じ場所です。
 
 ```mermaid
 graph TD
-    T1["変更ID1<br>サマーセール追加"]:::req
-    T2["変更ID2<br>逐次割引"]:::req
-
     subgraph PC["PaymentCalculator"]
-        P2["① ［変更］ 既存の割引判定<br>プレミアム／キャンペーン<br>→ サマーセール（追加）<br>→ サマーセール＋キャンペーン（追加）"]:::touched
-        P1["② 商品単価を合算して小計を出す<br>（変更なし）"]:::keep
+        P2["① ［変更］ 変更ID1（サマーセール追加）・変更ID2（逐次割引）<br>calculate() の割引判定<br>サマーセール単独と逐次割引を追加"]:::touched
+        P1["② ［回帰確認］<br>calculate() の小計計算<br>商品単価の合算は変更なし"]:::keep
     end
 
     subgraph CC["CampaignContext"]
-        C1["③ ［変更］ 開催中の施策の持ち方<br>キャンペーンだけ → サマーセールも"]:::touched
+        C1["③ ［変更］ 変更ID1（サマーセール追加）<br>施策の保持<br>サマーセールの状態を追加"]:::touched
     end
 
-    M["④ ［変更］ main()<br>既存施策の入力 → サマーセール入力も追加"]:::touched
-    V["⑤ CartPreviewService<br>（利用側・変更なし）"]:::keep
+    M["④ ［変更］ 変更ID1（サマーセール追加）・変更ID2（逐次割引）<br>main() の入力<br>サマーセールと重複施策を追加"]:::touched
+    V["⑤ ［回帰確認］<br>CartPreviewService<br>表示する計算結果は変更なし"]:::keep
 
-    T1 -->|"施策の状態"| P2
-    T1 -->|"施策の状態"| C1
-    T1 -->|"入力の組み立て"| M
-    T2 -->|"会員種別と施策の状態"| P2
-    T2 -->|"入力の組み立て"| M
-    P2 -.->|"壊していないか確認"| P1
-    P2 -.->|"表示結果の回帰確認"| V
+    P2 -.-> P1
+    P2 -.-> V
 
     classDef req fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray:6 4,color:#111827;
     classDef keep fill:#f1f5f9,stroke:#94a3b8,color:#334155;
@@ -1200,13 +1203,7 @@ graph TD
 
 新しいルールを1つ足すだけなのに、新規に分けた変更先はなく、既に動いている `PaymentCalculator`、`CampaignContext`、入力を組み立てる `main()` の3箇所を修正することになります。表示契約は変えませんが、同じ計算を使う購入結果とカートプレビューの回帰確認は要ります。
 
-この図は、次のように読みます。
-
-**「サマーセールを1つ足す」という依頼の矢印が、新しい箱ではなく、`既存の割引判定` の箱へ届いています。** 施策を置く専用の場所がないので、プレミアムとキャンペーンを判定している既存の枝を書き換えるしかありませんでした。枝が2本から4本に増えたのは、サマーセール単独と、キャンペーンとの重なりを別の枝にしたからです。**新しく作った箱は一つもありません。**
-
-**同じ枠の中には、今回変えない「商品単価を合算して小計を出す」も並んでいます。** 変えていないのに、同じ `calculate()` にあるので壊していないかを読み直すことになります。点線がそれです。さらにその外側へ、同じ計算を使うカートプレビューの回帰確認も伸びています。
-
-**「施策の状態」というラベルは、`CampaignContext` の箱へも伸びています。** 施策を1つ足すと、持ち方（フラグ）と判定（枝）の両方に手を入れることになります。
+この図では、変更ID1（サマーセール追加）と変更ID2（逐次割引）が①の同じ `if-else` を変えています。専用の変更先がないため、既存判定を2枝から4枝へ書き換え、入力を持つ③と組み立てる④にも変更が広がりました。②の小計計算と⑤のカートプレビューは変えていませんが、同じ `calculate()` とその利用側なので回帰確認が必要です。
 
 ### 3-3：痛みの言語化
 
@@ -1244,8 +1241,7 @@ graph TD
 | ④ | 入力の組み立て | `main()` | 変更要求を渡す入口。混在の判定対象外 |
 | ⑤ | 計算結果 | `CartPreviewService` | 変更していないが回帰確認する利用側 |
 
-表の①と②がコードのどこに当たるかを、変更を試したあとの `calculate()` で確認します。
-
+表の①と②がコードのどこに当たるかを、変更を試したあとの `calculate()` で確認します。図と同じ番号と責任名をコード内コメントにも記します。
 **変更試行後の抜粋：`PaymentCalculator::calculate(...)`（全体）**
 
 ```cpp
@@ -1255,12 +1251,12 @@ int calculate(const Order& order,      // 注文の商品リスト
 {
     int total = 0;
 
-    // ここが見ているのは注文の商品リストだけ
+    // ② 小計計算：注文の商品リストだけを見る
     for (const auto& item : order.items) {
         total += item.price;
     }
 
-    // ここから下が見ているのは会員種別と施策の状態
+    // ① 割引条件の判定・金額計算：会員種別と施策の状態を見る
     if (memberType == "Premium") {
         total = total * 80 / 100;
     } else if (context.isSummerSale &&
@@ -1291,7 +1287,7 @@ int calculate(const Order& order,      // 注文の商品リスト
 | 小計と支払額の計算 | 注文の商品リスト |
 | 割引条件の判定・金額計算 | 会員種別と施策の状態 |
 
-**「どれも支払金額の計算だから、責任は一つでは」と感じるかもしれません。** 責任は、扱う題材ではなく見ているもので分けます。金額を出すという題材は同じでも、注文の中身を見る仕事と、会員種別や施策の状態を見る仕事は、別々の依頼で別々の日に変わります。
+**「どれも支払金額の計算だから、責任は一つでは」と感じるかもしれません。** 責任は、依頼された日や担当者ではなく、変更理由と参照する情報で分けます。商品の合計方法だけを変えるときに会員条件は変わらず、割引条件だけを変えるときに商品の合計方法は変わりません。片方の規則を変えたとき、もう片方の実装まで触る現在の配置が、二つの責任の同居です。
 
 **今回触らないクラスもあります。** `OrderProcessor` は、注文を受け、入力を検証し、計算を呼び、結果表示を呼びます。違うものを見ている仕事を複数抱えていますが、**フェーズ3で手が入ったのは `PaymentCalculator`・`CampaignContext`・`main()` の3箇所だけ**で、ここには手が入っていません。**抱えていること自体は、直す理由になりません。** 記録して次の依頼を待ちます。
 
@@ -1348,7 +1344,7 @@ classDiagram
         <<維持する責任>>
         責任：小計と支払額の計算
     }
-    class PromotionPolicy["① 割引条件の判定・金額計算"]:::separated {
+    class PromotionPolicy["課題ID1の対象<br>割引条件の判定・金額計算"]:::separated {
         <<分ける責任>>
         責任：割引条件の判定・金額計算
     }
@@ -1358,7 +1354,7 @@ classDiagram
     classDef current fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
-黄色は既存の小計と支払額の計算、青は外へ分ける責任です。図の①を、続く課題と完了条件で課題ID1（割引条件の判定・金額計算の境界）として確定します。
+黄色は既存の小計と支払額の計算、青は外へ分ける責任です。フェーズ3の①〜⑤は変更試行のコード箇所を追う番号でした。ここでは番号を再利用せず、分離対象を課題ID1（割引条件の判定・金額計算の境界）で直接示します。
 
 フェーズ2で見立てた幹候補は「小計と支払額の計算」として残し、変化点候補は「割引条件の判定・金額計算」として外へ分けます。ここで初めて、候補だった見方が目標の責任配置になります。
 
@@ -1377,23 +1373,20 @@ classDiagram
 
 ### 5-2：課題と完了条件を確定する
 
-直前の目標図で決めた①に課題IDを付けます。原因・接続・完了の見分け方を確定します。
+直前の目標図で示した課題ID1（割引条件の判定・金額計算の境界）について、原因・構造変更・接続・完了の見分け方を一つの表にまとめます。
 
 #### 課題ID1（割引条件の判定・金額計算の境界）の完了条件
 
 | 確定すること | 内容 |
 |---|---|
-| **解く原因：** | 原因ID1：小計計算と割引規則が同じクラスにある |
-| **構造の変更：** | 割引規則を目標図①の責任へ分ける |
+| 解く原因 | 原因ID1：小計計算と割引規則が同じクラスにある |
+| 構造の変更 | 割引条件の判定・金額計算を、小計と支払額の計算から分ける |
 | 守る責任 | 小計と支払額の計算 |
-| **接続：** | 小計側から会員種別・施策状態・適用前金額を渡す |
+| 接続 | 小計側から会員種別・施策状態・適用前金額を渡す |
 | 返す結果 | 割引側から適用可否・適用後金額を返す |
-
-**完了条件：** 完成コードで次の3点を満たせば完了です。
-
-- `PaymentCalculator`に具体的な施策名・条件・割引式がない
-- 条件と計算を施策単位で変更できる
-- 小計と支払額の計算が全施策を同じ方法で利用する
+| 完了条件1 | `PaymentCalculator`に施策名・条件・割引式がない |
+| 完了条件2 | 条件と計算を施策単位で変更できる |
+| 完了条件3 | 小計と支払額の計算が全施策を同じ方法で利用する |
 
 この表の1行は、一つの原因と、それに対応する問題・課題の組です。左から、観測した問題、それを生んだ原因、原因をなくす課題を対応させます。
 
@@ -1728,7 +1721,7 @@ Calculatorは具体名を知らず、コンストラクタで受け取った `ru
 
 #### 完成後のクラス図
 
-部分図を完成図へ統合します。`<<new>>` は新規、`<<changed>>` は変更、表示なしは現状維持です。図は3枚で、**前の2枚が「誰が誰を持つか」、最後の1枚が「境界を何が流れるか」**です。持ち方とやり取りを分けると、具体を増やしたときに動く線がどれなのかが見分けられます。
+部分図を完成図へ統合します。図は、割引ルール、注文確定、カートプレビュー、境界データの4枚です。
 
 1枚目は、契約・具体ルール・所有・選択の関係を示します。
 
@@ -1738,29 +1731,37 @@ classDiagram
     class IDiscountRule {
         <<new>>
         <<interface>>
+        責任：割引ルールの契約
         +matches(memberType, context) bool
         +apply(total) int
     }
     class PremiumDiscount {
         <<new>>
+        責任：プレミアム割引
     }
     class CampaignDiscount {
         <<new>>
+        責任：キャンペーン割引
     }
     class SummerSaleDiscount {
         <<new>>
+        責任：サマーセール割引
     }
     class SummerSaleAndCampaignDiscount {
         <<new>>
+        責任：二施策の逐次割引
     }
     class NoDiscount {
         <<new>>
+        責任：割引なし
     }
     class DiscountRuleSet {
         <<new>>
+        責任：具体ルールを所有・順序づけ
     }
     class RuleSelector {
         <<new>>
+        責任：一致するルールを選択
     }
     IDiscountRule <|.. PremiumDiscount
     IDiscountRule <|.. CampaignDiscount
@@ -1776,32 +1777,66 @@ classDiagram
     RuleSelector o-- IDiscountRule : 登録する
 ```
 
-2枚目は、二つの入口が何を持っているかです。どちらも同じものを持ちます。
+2枚目は、注文確定の入口が何を持つかです。
 
 ```mermaid
 classDiagram
     direction TB
     class OrderProcessor:::touched {
         <<changed>>
+        責任：注文処理を統合
     }
-    class CartPreviewService:::touched {
-        <<changed>>
+    class CustomerDatabase {
+        責任：顧客情報を管理
     }
-    class CustomerDatabase
-    class CustomerInfo
+    class CustomerInfo {
+        責任：顧客一件の情報を保持
+    }
     class RuleSelector:::added {
         <<new>>
+        責任：割引ルールを選択
     }
     class PaymentCalculator:::touched {
         <<changed>>
+        責任：小計と支払金額を計算
     }
     class CheckoutResultRenderer:::touched {
         <<changed>>
+        責任：購入結果を表示
     }
     OrderProcessor --> CustomerDatabase : 参照で持つ
     OrderProcessor --> RuleSelector : 参照で持つ
     OrderProcessor --> CheckoutResultRenderer : 参照で持つ
     OrderProcessor ..> PaymentCalculator : その場で作る
+    CustomerDatabase *-- CustomerInfo : 顧客ID別に保存
+
+    classDef added fill:#eaf2fb,stroke:#527aa3,stroke-width:2px,color:#172033;
+    classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
+```
+
+3枚目は、カートプレビューの入口です。注文確定と同じ `CustomerDatabase`、`RuleSelector`、`PaymentCalculator` を使いますが、図を分けて交差をなくします。
+
+```mermaid
+classDiagram
+    direction TB
+    class CartPreviewService:::touched {
+        <<changed>>
+        責任：購入前金額を表示
+    }
+    class CustomerDatabase {
+        責任：顧客情報を管理
+    }
+    class CustomerInfo {
+        責任：顧客一件の情報を保持
+    }
+    class RuleSelector:::added {
+        <<new>>
+        責任：割引ルールを選択
+    }
+    class PaymentCalculator:::touched {
+        <<changed>>
+        責任：小計と支払金額を計算
+    }
     CartPreviewService --> CustomerDatabase : 参照で持つ
     CartPreviewService --> RuleSelector : 参照で持つ
     CartPreviewService ..> PaymentCalculator : その場で作る
@@ -1811,30 +1846,39 @@ classDiagram
     classDef touched fill:#fff7e6,stroke:#9a6b2f,stroke-width:3px,color:#172033;
 ```
 
-両入口は具体名を知らず、同じ `RuleSelector` と `PaymentCalculator` を持ちます。顧客取得は現状維持です。
+注文確定とカートプレビューは具体的な割引クラスを知らず、同じ `RuleSelector` を参照します。顧客取得は現状維持です。
 
-3枚目は、**境界を何が流れるか**です。**具体の割引ルールは出てきません。** どの施策が選ばれていても流れるものは同じで、それがこの構造の要点だからです。
+4枚目は、**境界を何が流れるか**です。**具体の割引ルールは出てきません。** どの施策が選ばれていても流れるものは同じで、それがこの構造の要点だからです。
 
 ```mermaid
 classDiagram
     direction TB
-    class Order
-    class Item
+    class Order {
+        責任：注文データを保持
+    }
+    class Item {
+        責任：商品データを保持
+    }
     class CampaignContext:::touched {
         <<changed>>
+        責任：施策の状態を保持
     }
     class RuleSelector:::added {
         <<new>>
+        責任：割引ルールを選択
     }
     class PaymentCalculator:::touched {
         <<changed>>
+        責任：小計と支払金額を計算
     }
     class IDiscountRule:::added {
         <<new>>
         <<interface>>
+        責任：割引ルールの契約
     }
     class PaymentResult:::added {
         <<new>>
+        責任：計算結果を保持
         +subtotal int
         +finalPrice int
     }
@@ -2639,7 +2683,7 @@ int main() {
 
 | フェーズ5の完了条件 | コード上の証拠 | 判定 |
 |---|---|---|
-| `PaymentCalculator`に具体的な施策名・条件・割引式がない | 保持するのは`IDiscountRule`で、呼ぶのは`apply()`だけ | 合格 |
+| `PaymentCalculator`に施策名・条件・割引式がない | 保持するのは`IDiscountRule`で、呼ぶのは`apply()`だけ | 合格 |
 | 条件と計算を施策単位で変更できる | 各施策クラスが`matches()`と`apply()`を持つ | 合格 |
 | 小計と支払額の計算が全施策を同じ方法で利用する | 選ばれた施策を`IDiscountRule`として受け取る | 合格 |
 
@@ -2655,11 +2699,11 @@ int main() {
 
 #### 変更前→変更後の不変条件照合
 
-| 守る対象 | 変更前→変更後 | 確認根拠 |
-|---|---|---|
-| 顧客・注文の取得 | `CustomerDatabase` の同じ取得契約を使う | 現状コードと完成コードのDB呼び出し |
-| 結果表示の境界 | 表示項目と文言は同じ。受け取る値を `PaymentResult` へまとめた | 7-1の正常出力 |
-| エラー表示の場所 | `OrderProcessor` の直接出力から `CheckoutResultRenderer` へ移した | 7-1のエラー出力 |
+| 守る対象     | 変更前→変更後                                                | 確認根拠               |
+| -------- | ------------------------------------------------------ | ------------------ |
+| 顧客・注文の取得 | `CustomerDatabase` の同じ取得契約を使う                          | 現状コードと完成コードのDB呼び出し |
+| 結果表示の境界  | 表示項目と文言は同じ。受け取る値を `PaymentResult` へまとめた                | 7-1の正常出力           |
+| エラー表示の場所 | `OrderProcessor` の直接出力から `CheckoutResultRenderer` へ移した | 7-1のエラー出力          |
 
 > **実務でファイルを分けるなら**
 >
@@ -2715,18 +2759,6 @@ graph TD
 
 代わりに、具体ルールと登録を管理するコストは増えます。そのコストを含めても、継続して増える施策の判断を既存の計算経路から外せるため、この構造を採用しました。
 
----
-
-## 整理
-
-| 判断 | 結論 |
-|---|---|
-| 問題 | 割引追加のたびに計算本体と入力を修正し、利用側まで再確認する |
-| 原因 | `PaymentCalculator` が、小計の計算と全ルールの条件・式を同じ関数に抱えている |
-| 境界 | 条件と式をルールへ移し、計算側には共通契約だけを残す |
-| 再結合 | `DiscountRuleSet` が具体を所有・登録し、選ばれた1件を計算側へ渡す |
-| 結果 | 逐次割引と排他条件はルール側へ閉じ、顧客取得失敗は別境界に保つ |
-
 ## 自分のコードへの適用
 
 題材名を自分のシステムへ置き換え、次の順で構造を確かめてください。
@@ -2749,17 +2781,21 @@ Strategy パターンは、アルゴリズムのファミリーを定義し、�
 ```mermaid
 classDiagram
     class Context {
+        責任：Strategyを利用
         -Strategy* strategy
         +execute()
     }
     class Strategy {
         <<interface>>
+        責任：差し替える処理の契約
         +algorithm()
     }
     class ConcreteStrategyA {
+        責任：具体的な処理A
         +algorithm()
     }
     class ConcreteStrategyB {
+        責任：具体的な処理B
         +algorithm()
     }
     Context o-- Strategy
@@ -2800,5 +2836,3 @@ classDiagram
 - **得られること2：変更が広がる原因の特定。** `PaymentCalculator` が小計と支払額の計算と、割引条件の判定・金額計算を同じ関数に抱えていたため、新しい割引で既存割引と小計の処理まで手を入れることになる、と説明できました。
 - **得られること3：契約と再結合の設計。** 条件と計算を `IDiscountRule` の具体へ分け、`DiscountRuleSet` が所有と優先順を管理し、選ばれた契約を `PaymentCalculator` へ渡す構造にしました。
 - **得られること4：効果と適用可否の検証。** 割引追加の影響が具体ルールとルール構成へ閉じたことを確認し、追加が続かないなら単純な分岐を選ぶ判断基準も示しました。
-
-この四つがそろうことで、条件分岐を機械的にクラスへ移すのではなく、見ているものの違いと影響範囲を根拠にStrategyを採用するか判断できます。

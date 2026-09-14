@@ -66,6 +66,10 @@
  58. はじめに・第0章が、文章の順序でなく構造の関係を図で示す
  59. 本文見出しが、です・ます調の呼びかけになっていない
  60. 設計を唯一解として扱わず、既知のパターン名を最後に明かす演出がない
+ 61. Markdown表に空行や列数不一致がない
+ 62. 実システムのクラス図で、すべてのクラスの責任が箱から読める
+ 63. 個数だけを示す後方参照がなく、対象名を同じ文で確認できる
+ 64. はじめにで説明するC++記法が、実践章の掲載コードで実際に使われている
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -219,6 +223,106 @@ def polite_heading_issues(text: str) -> list[str]:
             issues.append(
                 f"{number}行目: 見出し `{line}` がです・ます調です。"
                 "名詞句または常体で簡潔にしてください"
+            )
+    return issues
+
+
+def markdown_table_integrity_issues(text: str) -> list[str]:
+    """Markdown表の空行・列数不一致を検出する。"""
+    issues: list[str] = []
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        if not lines[index].lstrip().startswith("|"):
+            index += 1
+            continue
+        start = index
+        table: list[str] = []
+        while index < len(lines) and lines[index].lstrip().startswith("|"):
+            table.append(lines[index].strip())
+            index += 1
+        if len(table) < 2 or not re.match(r"^\|[\s:|-]+\|$", table[1]):
+            continue
+        expected = table[0].count("|")
+        for offset, line in enumerate(table):
+            if line.count("|") != expected:
+                issues.append(
+                    f"{start + offset + 1}行目: Markdown表の列数が見出しと一致しません"
+                )
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if offset >= 2 and not any(cells):
+                issues.append(
+                    f"{start + offset + 1}行目: 内容のない表行があります"
+                )
+    return issues
+
+
+def class_diagram_role_issues(text: str) -> list[str]:
+    """実システムのクラス図で、各箱から責任を読めるかを確認する。"""
+    issues: list[str] = []
+    for block in re.finditer(r"```mermaid\s*\n(.*?)```", text, re.S):
+        body = block.group(1)
+        if "classDiagram" not in body or "%% explanation-set" in body:
+            continue
+        line_number = text[: block.start()].count("\n") + 1
+        blocks = list(
+            re.finditer(
+                r"^\s*class\s+(\w+)(?:[^\n{]*)\{(.*?)^\s*\}",
+                body,
+                re.M | re.S,
+            )
+        )
+        block_names = {found.group(1) for found in blocks}
+        for found in blocks:
+            if "責任：" not in found.group(2):
+                issues.append(
+                    f"{line_number}行目のクラス図で `{found.group(1)}` に責任がありません"
+                )
+        for found in re.finditer(
+            r"^\s*class\s+(\w+)(?:\[[^\n]*\])?(?:::\w+)?\s*$",
+            body,
+            re.M,
+        ):
+            if found.group(1) not in block_names:
+                issues.append(
+                    f"{line_number}行目のクラス図で `{found.group(1)}` がクラス名だけです"
+                )
+    return issues
+
+
+def ambiguous_count_reference_issues(text: str) -> list[str]:
+    """対象名を伴わない個数だけの後方参照を検出する。"""
+    issues: list[str] = []
+    pattern = re.compile(
+        r"(?:二つの接続|[0-9０-９]+操作のうち|利用者操作[0-9０-９]+種|"
+        r"システム入力[0-9０-９]+種)"
+    )
+    for number, line in prose_lines(text):
+        found = pattern.search(line)
+        if found:
+            issues.append(
+                f"{number}行目: `{found.group(0)}` が個数だけの参照です。"
+                "同じ文で責任名・操作名・対象を列挙してください"
+            )
+    return issues
+
+
+def unused_cpp_explanation_issues(
+    preface_text: str, practice_text: str
+) -> list[str]:
+    """はじめにで説明したC++記法が実践章に登場するかを確認する。"""
+    issues: list[str] = []
+    markers = {
+        "erase": r"\.erase\s*\(",
+        "remove": r"\.remove\s*\(",
+        "emplace_back": r"\.emplace_back\s*\(",
+        "std::cref": r"std::cref\s*\(",
+        "std::reference_wrapper": r"std::reference_wrapper\s*<",
+    }
+    for label, pattern in markers.items():
+        if f"`{label}" in preface_text and not re.search(pattern, practice_text):
+            issues.append(
+                f"はじめにで説明した `{label}` が実践章の掲載コードに登場しません"
             )
     return issues
 
@@ -834,6 +938,12 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         issues.append("フェーズ4の責任表が残っています。対策前の部分クラス図と短い説明へ置き換えてください")
 
     phase3 = text_between(text, "フェーズ3：問題特定", "フェーズ4：原因分析")
+    phase32 = text_between(phase3, "### 3-2：変更影響グラフ", "### 3-3：")
+    for marker in ("変更を試したコードの差分", "一箱", "回帰確認"):
+        if marker not in phase32:
+            issues.append(
+                f"3-2で変更影響グラフの作り方 `{marker}` を説明してください"
+            )
     phase31 = text_between(phase3, "### 3-1：変更を試みる", "### 3-2：")
     trial_summary_headers = (
         "| 変更ID | 仮に変更するコード | 変更内容 |",
@@ -870,18 +980,34 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
     phase6_start = text.find("フェーズ6：対策検討", phase5_start)
     phase4 = text[phase4_start:phase5_start] if 0 <= phase4_start < phase5_start else ""
     phase5 = text[phase5_start:phase6_start] if 0 <= phase5_start < phase6_start else ""
+    phase4_code = re.search(r"```cpp\s*\n(.*?)```", phase4, re.S)
+    if not phase4_code or not re.search(r"[①②③④⑤]", phase4_code.group(1)):
+        issues.append(
+            "4-1の代表コード内コメントに、変更影響グラフと同じ番号がありません"
+        )
     task_cards = re.findall(
         r"^#### 課題ID\d+（[^）]+）の完了条件\s*$(.*?)(?=^#### |^## )",
         phase5,
         re.M | re.S,
     )
     for body in task_cards:
-        for label in ("**解く原因：**", "**構造の変更：**", "**接続：**"):
-            if label not in body:
-                issues.append(f"課題カードに`{label}`がありません")
-        connection = text_between(body, "**接続：**", "完成コードで")
-        if "渡" not in connection or not re.search(r"(?:返|反映)", connection):
-            issues.append("課題カードの接続に、送信元から渡すものと結果／反映を書いてください")
+        for label in ("解く原因", "構造の変更", "接続", "完了条件1"):
+            if not re.search(rf"^\|\s*{label}\s*\|", body, re.M):
+                issues.append(f"課題カードに`{label}`行がありません")
+        if re.search(r"^\|\s*\*\*[^|]+：\*\*", body, re.M):
+            issues.append("課題カード左列に不要な太字またはコロンがあります")
+        connection = re.search(
+            r"^\|\s*接続\s*\|\s*(.*?)\s*\|\s*$", body, re.M
+        )
+        result = re.search(
+            r"^\|\s*(?:返す結果|反映する結果)\s*\|\s*(.*?)\s*\|\s*$",
+            body,
+            re.M,
+        )
+        if not connection or "渡" not in connection.group(1) or not result:
+            issues.append(
+                "課題カードの接続に、送信元から渡すものと結果／反映を書いてください"
+            )
 
     old_phase4_headers = (
         "| 問題ID | 関係する責任（変更の中心 → 影響した責任） | コード上の目印 |",
@@ -987,8 +1113,14 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
         issues.append("フェーズ5に、原因をなくす目標の責任配置図を1枚置いてください")
     if "**目標：" not in phase5 or "**対策前：" in phase5:
         issues.append("フェーズ5はフェーズ4の対策前図を受け、目標の責任配置図だけを置いてください")
-    if "①" not in phase5:
-        issues.append("フェーズ5の目標責任配置図へ番号を付け、課題カードへつないでください")
+    target_diagram = re.search(r"```mermaid\s*\n(.*?)```", phase5, re.S)
+    if target_diagram and re.search(r"[①②③④⑤]", target_diagram.group(1)):
+        issues.append(
+            "フェーズ3の箱番号をフェーズ5の目標図で再利用しています。"
+            "分離対象は課題IDと責任名で示してください"
+        )
+    if target_diagram and "課題ID" not in target_diagram.group(1):
+        issues.append("フェーズ5の目標責任配置図で、分離対象を課題IDへつないでください")
 
     phase6 = text_between(text, "フェーズ6：対策検討", "フェーズ7：対策実施")
     phase4_responsibilities = set(re.findall(r"責任：([^\n}]+)", phase4))
@@ -1069,7 +1201,11 @@ def practical_explanation_consistency_issues(text: str) -> list[str]:
     ):
         completion_conditions.extend(
             item.strip()
-            for item in re.findall(r"^- (.+)$", body, re.M)
+            for item in re.findall(
+                r"^\|\s*完了条件\d*\s*\|\s*(.*?)\s*\|\s*$",
+                body,
+                re.M,
+            )
         )
     evidence_section = text_between(
         phase7,
@@ -1243,7 +1379,12 @@ def diagram_diff_label_issues(text: str) -> list[str]:
             # 変更内容の書き方は2通り認める。数や方法が変わるものは
             # `変更前→変更後`、項目が加わるものは変更後の全項目を並べて
             # 加わった項目へ「（追加）」を付ける（読者が前後を突き合わせずに済む）。
-            if "［変更］" in line and "→" not in line and "（追加）" not in line:
+            if (
+                "［変更］" in line
+                and "→" not in line
+                and "追加" not in line
+                and "修正" not in line
+            ):
                 issues.append(
                     f"{index}枚目の図の［変更］ノードに変更内容"
                     "（変更前→変更後、または全項目と「（追加）」）がありません"
@@ -2074,6 +2215,12 @@ def check(config_path: Path) -> int:
         text = path.read_text(encoding="utf-8")
         for issue in publication_style_issues(text):
             failures.append(f"{path.name}: {issue}")
+        for issue in markdown_table_integrity_issues(text):
+            failures.append(f"{path.name}: {issue}")
+        for issue in class_diagram_role_issues(text):
+            failures.append(f"{path.name}: {issue}")
+        for issue in ambiguous_count_reference_issues(text):
+            failures.append(f"{path.name}: {issue}")
         for issue in polite_heading_issues(text):
             failures.append(f"{path.name}: {issue}")
         for issue in preface_and_epilogue_focus_issues(path.name, text):
@@ -2086,6 +2233,17 @@ def check(config_path: Path) -> int:
             failures.append(f"{path.name}: {issue}")
         for issue in colophon_verification_issues(path.name, text):
             failures.append(f"{path.name}: {issue}")
+
+    preface = next((p for p in chapters if "preface" in p.name), None)
+    practice = [p for p in chapters if re.search(r"chapter0[1-9]", p.name)]
+    if preface:
+        practice_text = "\n".join(
+            path.read_text(encoding="utf-8") for path in practice
+        )
+        for issue in unused_cpp_explanation_issues(
+            preface.read_text(encoding="utf-8"), practice_text
+        ):
+            failures.append(f"{preface.name}: {issue}")
 
     # 28. 本文で節番号を道しるべに使わない
     # 「1-1（このシステムの仕様）の『商品』にあたるデータです」の番号は、読者に
