@@ -62,7 +62,8 @@
  54. 第0章の各フェーズが、固定的な入力・成果物でなく思考法と確認ポイントを先に示す
  55. はじめにの三つの問いと、おわりにの実務上の前提が重点説明へ戻っている
  56. 幹候補・変化点候補がフェーズ2までの見立て、フェーズ5の責任配置として接続する
- 57. 奥付が、実際に行った自動コンパイルの対象範囲を正確に説明する
+  57. 奥付が、実際に行った自動コンパイルの対象範囲を正確に説明する
+  58. はじめに・第0章が、文章の順序でなく構造の関係を図で示す
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -249,9 +250,11 @@ def preface_and_epilogue_focus_issues(name: str, text: str) -> list[str]:
     required: tuple[str, ...] = ()
     if "preface" in name:
         required = (
-            "業務ルールの変更",
-            "処理時点・順序の変更",
-            "外部サービスの",
+            "### 三つの問いで確かめる構造",
+            "分ける前",
+            "分けて再びつないだ後",
+            "共通の接続点",
+            "組み立てる場所",
             "変更履歴と依頼元",
             "共通部分と具体固有の情報",
             "循環していないか",
@@ -278,15 +281,56 @@ def preface_and_epilogue_focus_issues(name: str, text: str) -> list[str]:
     return issues
 
 
+def early_structure_visual_issues(name: str, text: str) -> list[str]:
+    """序章・第0章で、関係を文章だけで追わせていないか。"""
+    required: tuple[str, ...] = ()
+    issues: list[str] = []
+    if name == "01-preface.md":
+        required = (
+            "現状と変更要求を理解する",
+            "影響を生む原因を見つける",
+            "三つの問いで確かめる構造",
+            "幹となる処理",
+            "共通の接続点",
+            "具体との接続を渡す",
+        )
+    elif name == "02-chapter00.md":
+        required = (
+            "設計課題を導く因果関係",
+            "本書の模擬システムでは、次の流れだけを動かします",
+            "現状と変更ID",
+            "同じ動きを<br>説明しているか照合",
+            "幹候補<br>共通する流れ・役割",
+            "巻き込まれた既存処理",
+            "対策前：同じクラスに同居",
+            "目標：変更理由ごとに分離",
+            "組み立てる場所",
+            "要求の確認",
+        )
+        for old in (
+            "**フェーズ1〜4：現状から構造上の原因を確定する**",
+            "**フェーズ5〜7：課題から完成コードまでつなぐ**",
+            "| 受け渡し | 次のフェーズで行うこと |",
+        ):
+            if old in text:
+                issues.append(f"第0章の全体図が旧分割・重複形式 `{old}` へ戻っています")
+    issues.extend(
+        f"{name}の構造図に `{marker}` がありません"
+        for marker in required
+        if marker not in text
+    )
+    return issues
+
+
 def trunk_candidate_progression_issues(name: str, text: str) -> list[str]:
     """幹と変化点を早く見つけつつ、責任配置を先取りしていないか。"""
     if name == "02-chapter00.md":
         required = (
             "幹候補",
             "変化点候補",
-            "永久に不変",
-            "フェーズ4でその原因",
-            "フェーズ5では",
+            "永久に変わらない",
+            "フェーズ4",
+            "フェーズ5",
         )
         return [
             f"第0章の幹・変化点の説明に `{marker}` がありません"
@@ -1978,6 +2022,8 @@ def check(config_path: Path) -> int:
         for issue in publication_style_issues(text):
             failures.append(f"{path.name}: {issue}")
         for issue in preface_and_epilogue_focus_issues(path.name, text):
+            failures.append(f"{path.name}: {issue}")
+        for issue in early_structure_visual_issues(path.name, text):
             failures.append(f"{path.name}: {issue}")
         for issue in trunk_candidate_progression_issues(path.name, text):
             failures.append(f"{path.name}: {issue}")

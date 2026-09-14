@@ -130,9 +130,11 @@ class PrefaceAndEpilogueFocusTests(unittest.TestCase):
     def test_preface_focus_markers_are_accepted(self) -> None:
         text = "\n".join(
             [
-                "業務ルールの変更",
-                "処理時点・順序の変更",
-                "外部サービスの失敗条件",
+                "### 三つの問いで確かめる構造",
+                "分ける前",
+                "分けて再びつないだ後",
+                "共通の接続点",
+                "組み立てる場所",
                 "変更履歴と依頼元",
                 "共通部分と具体固有の情報",
                 "循環していないか",
@@ -165,6 +167,31 @@ class PrefaceAndEpilogueFocusTests(unittest.TestCase):
             "06-epilogue.md", text
         )
         self.assertTrue(any("別に見える段階要約" in issue for issue in issues))
+
+
+class EarlyStructureVisualTests(unittest.TestCase):
+    def test_preface_structure_visual_is_accepted(self) -> None:
+        text = "\n".join(
+            [
+                "現状と変更要求を理解する",
+                "影響を生む原因を見つける",
+                "三つの問いで確かめる構造",
+                "幹となる処理",
+                "共通の接続点",
+                "具体との接続を渡す",
+            ]
+        )
+        self.assertEqual(
+            [], check_volume.early_structure_visual_issues("01-preface.md", text)
+        )
+
+    def test_chapter_zero_old_split_overview_is_rejected(self) -> None:
+        issues = check_volume.early_structure_visual_issues(
+            "02-chapter00.md",
+            "**フェーズ1〜4：現状から構造上の原因を確定する**\n"
+            "| 受け渡し | 次のフェーズで行うこと |",
+        )
+        self.assertTrue(any("旧分割・重複形式" in issue for issue in issues))
 
 
 class TrunkCandidateProgressionTests(unittest.TestCase):
