@@ -70,6 +70,8 @@
  62. 実システムのクラス図で、すべてのクラスの責任が箱から読める
  63. 個数だけを示す後方参照がなく、対象名を同じ文で確認できる
  64. はじめにで説明するC++記法が、実践章の掲載コードで実際に使われている
+ 65. 要求表が「3手段」「全通知先」のような内部集合名だけで対象を省略していない
+ 66. 番号付きのシステム全体図が、直後の表で線の始点・終点・受け渡しを説明している
 
     python3 script/check_volume.py --config books/<冊>/publishing/book.json
 """
@@ -303,6 +305,54 @@ def ambiguous_count_reference_issues(text: str) -> list[str]:
             issues.append(
                 f"{number}行目: `{found.group(0)}` が個数だけの参照です。"
                 "同じ文で責任名・操作名・対象を列挙してください"
+            )
+    return issues
+
+
+def vague_requirement_target_issues(text: str) -> list[str]:
+    """要求表で、対象名を個数や内部集合名だけに置き換えた行を検出する。"""
+    issues: list[str] = []
+    pattern = re.compile(
+        r"(?:[0-9０-９]+手段|[一二三四五六七八九十]+手段|"
+        r"全手段|全通知先|登録済みの通知先|登録されている通知先)"
+    )
+    for number, line in enumerate(text.splitlines(), start=1):
+        if not re.match(r"^\|\s*要求ID\d+", line):
+            continue
+        found = pattern.search(line)
+        if found:
+            issues.append(
+                f"{number}行目の要求表に `{found.group(0)}` があります。"
+                "要求だけで実装対象を判断できるよう、現在有効な対象名を列挙してください"
+            )
+    return issues
+
+
+def system_diagram_edge_guide_issues(text: str) -> list[str]:
+    """番号付きシステム全体図の直後に、線を特定できる対応表があるか確認する。"""
+    issues: list[str] = []
+    heading = re.compile(r"^\*\*(?:変更後の)?システム全体図[^\n]*\*\*$", re.M)
+    expected = "| 番号 | どこからどこへ |"
+    for match in heading.finditer(text):
+        following = text[match.end() :]
+        immediate_fence = re.match(r"\s*```mermaid", following)
+        if not immediate_fence:
+            continue
+        fence_start = match.end() + immediate_fence.start() + immediate_fence.group().find("```mermaid")
+        fence_end = text.find("```", fence_start + len("```mermaid"))
+        if fence_end < 0:
+            continue
+        next_heading = re.search(r"^#{1,6}\s|^\*\*[^\n]+\*\*$", text[fence_end + 3 :], re.M)
+        section_end = (
+            fence_end + 3 + next_heading.start()
+            if next_heading
+            else min(len(text), fence_end + 1600)
+        )
+        if expected not in text[fence_end + 3 : section_end]:
+            line_number = text.count("\n", 0, match.start()) + 1
+            issues.append(
+                f"{line_number}行目のシステム全体図に、直後の線対応表"
+                "（番号／どこからどこへ／受け渡すもの）がありません"
             )
     return issues
 
@@ -2220,6 +2270,10 @@ def check(config_path: Path) -> int:
         for issue in class_diagram_role_issues(text):
             failures.append(f"{path.name}: {issue}")
         for issue in ambiguous_count_reference_issues(text):
+            failures.append(f"{path.name}: {issue}")
+        for issue in vague_requirement_target_issues(text):
+            failures.append(f"{path.name}: {issue}")
+        for issue in system_diagram_edge_guide_issues(text):
             failures.append(f"{path.name}: {issue}")
         for issue in polite_heading_issues(text):
             failures.append(f"{path.name}: {issue}")

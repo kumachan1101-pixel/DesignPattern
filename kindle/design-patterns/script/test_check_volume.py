@@ -1159,6 +1159,50 @@ A --> B
         text = "予約・支払い・取消・保留の四操作を確認します。"
         self.assertEqual([], check_volume.ambiguous_count_reference_issues(text))
 
+    def test_count_only_requirement_target_is_rejected(self) -> None:
+        text = (
+            "| 要求ID2（在庫不足の通知） | 閾値以下なら3手段へ知らせる | "
+            "全通知先を呼ぶ |"
+        )
+        issues = check_volume.vague_requirement_target_issues(text)
+        self.assertEqual(1, len(issues))
+        self.assertIn("現在有効な対象名", issues[0])
+
+    def test_named_requirement_targets_are_accepted(self) -> None:
+        text = (
+            "| 要求ID2（在庫不足の通知） | 閾値以下ならメール・"
+            "在庫ダッシュボード・在庫警告チャットへ知らせる | 各1回呼ぶ |"
+        )
+        self.assertEqual([], check_volume.vague_requirement_target_issues(text))
+
+    def test_numbered_system_diagram_without_edge_guide_is_rejected(self) -> None:
+        text = """**システム全体図：注文の境界**
+
+```mermaid
+flowchart TB
+    A -->|① 注文| B
+```
+
+**次の説明**
+"""
+        issues = check_volume.system_diagram_edge_guide_issues(text)
+        self.assertEqual(1, len(issues))
+        self.assertIn("線対応表", issues[0])
+
+    def test_system_diagram_with_edge_guide_is_accepted(self) -> None:
+        text = """**変更後のシステム全体図：注文の境界**
+
+```mermaid
+flowchart TB
+    A -->|① 注文| B
+```
+
+| 番号 | どこからどこへ | 受け渡すもの |
+|---|---|---|
+| ① | 利用者 → 注文 | 商品 |
+"""
+        self.assertEqual([], check_volume.system_diagram_edge_guide_issues(text))
+
     def test_unused_cpp_notation_is_rejected(self) -> None:
         issues = check_volume.unused_cpp_explanation_issues(
             "`erase()` は要素を削除します。",
